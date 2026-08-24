@@ -53,7 +53,12 @@ class TestModelPreviewIntegration(PersistenceTestBase):
         self.admin_id = self.create_test_user(user_id="admin", username="admin", email="admin@x.com")
 
         from src.features.tags.repository import tag_repo
-        self.manager = ModelIndexManager(self.repo, tag_repo, Mock(), self.settings, Mock())
+        # models_root: without it, `__init__` falls through to the real, lazily
+        # -constructed module-level scanner singleton to resolve models_dir,
+        # which hits the settings DB for real.
+        self.manager = ModelIndexManager(
+            self.repo, tag_repo, Mock(), self.settings, Mock(), models_root=self.storage
+        )
 
     def tearDown(self):
         shutil.rmtree(self._storage_root, ignore_errors=True)
@@ -173,7 +178,12 @@ class TestModelPreviewListIntegration(PersistenceTestBase):
         self.admin_id = self.create_test_user(user_id="admin", username="admin", email="admin@x.com")
 
         from src.features.tags.repository import tag_repo
-        self.manager = ModelIndexManager(self.repo, tag_repo, Mock(), self.settings, Mock())
+        # models_root: without it, `__init__` falls through to the real, lazily
+        # -constructed module-level scanner singleton to resolve models_dir,
+        # which hits the settings DB for real.
+        self.manager = ModelIndexManager(
+            self.repo, tag_repo, Mock(), self.settings, Mock(), models_root=self.storage
+        )
 
     def tearDown(self):
         shutil.rmtree(self._storage_root, ignore_errors=True)
@@ -342,7 +352,12 @@ class TestModelPreviewAccessControl(PersistenceTestBase):
         self.settings.get_models_media_directory.return_value = str(self.storage / "models")
 
         from src.features.tags.repository import tag_repo
-        self.manager = ModelIndexManager(self.repo, tag_repo, Mock(), self.settings, Mock())
+        # models_root: without it, `__init__` falls through to the real, lazily
+        # -constructed module-level scanner singleton to resolve models_dir,
+        # which hits the settings DB for real.
+        self.manager = ModelIndexManager(
+            self.repo, tag_repo, Mock(), self.settings, Mock(), models_root=self.storage
+        )
 
         # `files.user_id` is a real FK, so the uploading admin needs a row too -
         # `create_test_user` always inserts account_type=USER; the ADMIN `User`

@@ -15,6 +15,11 @@ class HistoryTestBase(MediaIndexTestBase):
         for module_path in (
             "src.features.generation.repository",
             "src.features.generation.file_repository",
+            "src.features.generation.parameter_repository",
+            "src.features.generation.model_repository",
+            "src.features.generation.segment_repository",
+            "src.features.tags.repository",
+            "src.features.models.repository",
         ):
             importlib.import_module(module_path).db = self.db
         self.generation_repo = GenerationRepository()

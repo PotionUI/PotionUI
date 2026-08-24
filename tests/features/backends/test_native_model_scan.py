@@ -20,6 +20,7 @@ import pytest
 import tests.conftest as ct
 import src.features.models.hash_cache_repository as hash_cache_repository_module
 import src.features.models.repository as model_repository_module
+import src.features.tags.repository as tag_repository_module
 from src.features.backends.native_model_scan import (
     DIRECTORY_TYPE_MAPPING,
     scan_native_models,
@@ -47,7 +48,8 @@ def hash_cache_db():
     with patch("src.platform.database.database.db", test_database), \
          patch("src.platform.database.migration_runner.db", test_database), \
          patch.object(hash_cache_repository_module, "db", test_database), \
-         patch.object(model_repository_module, "db", test_database):
+         patch.object(model_repository_module, "db", test_database), \
+         patch.object(tag_repository_module, "db", test_database):
         from src.platform.database.migration_runner import MigrationManager
 
         old_stdout = sys.stdout

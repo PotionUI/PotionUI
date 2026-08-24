@@ -123,6 +123,7 @@ def test_config_rejects_wrong_image_model():
 
 # --- meta key-set parity against the REAL headers ---------------------------
 
+@pytest.mark.requires_models
 def test_full_meta_keyset_parity_against_real_header():
     header = json.loads((_HEADER_DIR / "full_bf16_header.json").read_text())
     header.pop("__metadata__", None)
@@ -137,6 +138,7 @@ def test_full_meta_keyset_parity_against_real_header():
 _QUANT_SIDECAR_SUFFIXES = (".weight_scale", ".input_scale", ".comfy_quant")
 
 
+@pytest.mark.requires_models
 def test_pruned_meta_keyset_parity_against_real_header_minus_quant_sidecars():
     # weight_scale/input_scale/comfy_quant are consumed by Fp8ScaledLinear's own
     # _load_from_state_dict (popped before the strict key check ever sees them)

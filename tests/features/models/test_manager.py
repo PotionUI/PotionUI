@@ -92,6 +92,10 @@ def manager(mock_model_repository, mock_tag_repository, mock_plugin_registry, mo
         settings_manager=Mock(),
         download_manager=Mock(),
         user_attribute_repository=mock_user_attribute_repository,
+        # Without this, `__init__`'s `models_root or Path(model_scanner.models_dir)`
+        # falls through to the real, lazily-constructed module-level scanner
+        # singleton, which hits the settings DB for real to resolve models_dir.
+        models_root=Path("/tmp/potionui-test-models"),
     )
     # The directory scanner is an injected dependency of the catalog; stub it so
     # the aggregate stats read never touches disk or the database.
@@ -107,8 +111,12 @@ class TestListModels:
         """Test listing models when none exist."""
         manager._catalog.scanner.get_indexing_status.return_value = {'total_models_db': 0}
 
-        params = ListModelsParams()
-        result = manager.list_models(params, mock_admin_user)
+        with patch('src.features.models.catalog.model_availability_repo') as mock_avail:
+            mock_avail.backend_ids_by_model.return_value = {}
+            mock_avail.has_any.return_value = False
+
+            params = ListModelsParams()
+            result = manager.list_models(params, mock_admin_user)
 
         assert result['models'] == []
         assert result['total'] == 0
@@ -192,8 +200,12 @@ class TestListModels:
 
     def test_list_models_admin_all_models(self, manager, mock_model_repository, mock_admin_user):
         """Test that admin with all_models=True gets all models."""
-        params = ListModelsParams(all_models=True)
-        manager.list_models(params, mock_admin_user)
+        with patch('src.features.models.catalog.model_availability_repo') as mock_avail:
+            mock_avail.backend_ids_by_model.return_value = {}
+            mock_avail.has_any.return_value = False
+
+            params = ListModelsParams(all_models=True)
+            manager.list_models(params, mock_admin_user)
 
         # Verify that allowed_model_ids is None (all models)
         call_kwargs = mock_model_repository.get_all.call_args[1]

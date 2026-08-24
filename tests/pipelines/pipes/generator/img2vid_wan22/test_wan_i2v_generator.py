@@ -154,26 +154,26 @@ def test_build_context_vae_offload_called_even_when_concat_build_raises():
     with patch("src.pipelines.pipes.generator.img2vid_wan22.main.build_i2v_concat",
                side_effect=RuntimeError("encode blew up")):
         try:
-            _pipe().build_context(pipe_input)
+            _pipe(device="cpu").build_context(pipe_input)
         except RuntimeError:
             pass
     assert offloaded["n"] == 1
 
 
 def test_riflex_default_off_router_riflex_is_none():
-    ctx = _pipe().build_context(_pipe_input())
+    ctx = _pipe(device="cpu").build_context(_pipe_input())
     assert ctx.extra.forward.router.riflex is None
 
 
 def test_riflex_enabled_builds_router_riflex_dict():
-    ctx = _pipe(riflex=True, riflex_trained_frames=12).build_context(_pipe_input())
+    ctx = _pipe(device="cpu", riflex=True, riflex_trained_frames=12).build_context(_pipe_input())
     assert ctx.extra.forward.router.riflex == {"enabled": True, "latent_frames_trained": 12}
 
 
 def test_apg_slg_defaults_are_omitted_not_forced_onto_sampling_settings():
     # P5 fix: unset knobs must be OMITTED, not forced to a "default" value,
     # so they never clobber a non-default ModelSpec value.
-    ctx = _pipe().build_context(_pipe_input())
+    ctx = _pipe(device="cpu").build_context(_pipe_input())
     ss = ctx.extra.sampling_settings
     for key in ("apg_eta", "apg_norm_threshold", "apg_momentum", "slg_scale", "slg_layers"):
         assert key not in ss
@@ -182,7 +182,7 @@ def test_apg_slg_defaults_are_omitted_not_forced_onto_sampling_settings():
 
 def test_apg_slg_config_overrides_thread_into_sampling_settings():
     ctx = _pipe(
-        apg_eta=0.3, apg_norm_threshold=0.5, apg_momentum=-0.4,
+        device="cpu", apg_eta=0.3, apg_norm_threshold=0.5, apg_momentum=-0.4,
         slg_scale=1.5, slg_layers="1,3", slg_sigma_start=0.8, slg_sigma_end=0.2,
     ).build_context(_pipe_input())
     ss = ctx.extra.sampling_settings
@@ -194,7 +194,7 @@ def test_apg_slg_config_overrides_thread_into_sampling_settings():
 
 
 def test_schedule_settings_config_overrides_thread_into_sampling_settings():
-    ctx = _pipe(schedule="exponential", schedule_options={"sigma_min": 0.02},
+    ctx = _pipe(device="cpu", schedule="exponential", schedule_options={"sigma_min": 0.02},
                 detail_strength=-0.1).build_context(_pipe_input())
     ss = ctx.extra.sampling_settings
     assert ss["schedule"] == "exponential"
@@ -207,7 +207,7 @@ def test_sampler_options_step_cache_absent_reach_denoise_as_none():
     captured = {}
     with patch("src.pipelines.pipes.generator.img2vid_wan22.main.denoise") as md:
         md.side_effect = lambda mf, latents, cond, uncond, **k: captured.update(k) or latents
-        _pipe().process(_pipe_input(), lambda o: None)
+        _pipe(device="cpu").process(_pipe_input(), lambda o: None)
     assert captured["sampler_options"] is None
     assert captured["step_cache_options"] is None
 
@@ -218,7 +218,7 @@ def test_denoise_receives_the_managers_is_cancelled_probe():
     probe = lambda: False
     with patch("src.pipelines.pipes.generator.img2vid_wan22.main.denoise") as md:
         md.side_effect = lambda mf, latents, cond, uncond, **k: captured.update(k) or latents
-        _pipe().process(_pipe_input(), lambda o: None, is_cancelled=probe)
+        _pipe(device="cpu").process(_pipe_input(), lambda o: None, is_cancelled=probe)
     assert captured["is_cancelled"] is probe
 
 
@@ -229,7 +229,7 @@ def test_sampler_options_step_cache_present_reach_denoise():
     step_cache_opts = {"rel_threshold": 0.1}
     with patch("src.pipelines.pipes.generator.img2vid_wan22.main.denoise") as md:
         md.side_effect = lambda mf, latents, cond, uncond, **k: captured.update(k) or latents
-        _pipe(sampler_options=sampler_opts, step_cache=step_cache_opts).process(_pipe_input(), lambda o: None)
+        _pipe(device="cpu", sampler_options=sampler_opts, step_cache=step_cache_opts).process(_pipe_input(), lambda o: None)
     assert captured["sampler_options"] == sampler_opts
     assert captured["step_cache_options"] == step_cache_opts
 
@@ -245,7 +245,7 @@ def test_t2v_model_in_img2vid_mode_raises_clear_error():
 def test_build_context_snaps_resolution_and_frames():
     # 1000x540 -> 16px grid (992x544); frames 100 -> nearest 1+4k (101). Snapping
     # runs before the start frame is encoded into the concat.
-    ctx = _pipe(resolution="1000x540", frames=100).build_context(_pipe_input())
+    ctx = _pipe(device="cpu", resolution="1000x540", frames=100).build_context(_pipe_input())
     assert (ctx.extra.width, ctx.extra.height) == (992, 544)
     assert ctx.extra.frames == 101
 
@@ -282,7 +282,7 @@ def test_build_context_builds_20ch_concat_and_denoise_gets_16ch(mock_denoise):
         return latents
 
     mock_denoise.side_effect = fake_denoise
-    _pipe(resolution="512x256", frames=9).process(_pipe_input(), lambda o: None)
+    _pipe(device="cpu", resolution="512x256", frames=9).process(_pipe_input(), lambda o: None)
     assert captured["latent_ch"] == 16    # denoise operates on 16ch noise
     assert captured["concat_ch"] == 20    # the i2v concat is 20ch (4 mask + 16 ref)
 
@@ -291,7 +291,7 @@ def test_build_context_builds_20ch_concat_and_denoise_gets_16ch(mock_denoise):
 @patch("src.pipelines.pipes.generator.img2vid_wan22.main.denoise", lambda mf, latents, c, u, **k: latents)
 def test_emits_video_gallery():
     emitted = []
-    result = _pipe(quantity=2).process(_pipe_input(quantity=2, seeds=(5, 6)), lambda o: emitted.append(o))
+    result = _pipe(device="cpu", quantity=2).process(_pipe_input(quantity=2, seeds=(5, 6)), lambda o: emitted.append(o))
     gallery = [o for o in emitted if isinstance(o, GalleryGenerationOutput)]
     assert len(gallery) == 1 and len(gallery[0].videos) == 2
     assert len(result.output["video"]) == 2
@@ -306,7 +306,7 @@ def test_emitted_videos_carry_live_resolution():
     DB. build_context() now stashes the (post-snap) resolution on self so
     emit_results() can stamp it onto every video it emits."""
     emitted = []
-    pipe = _pipe(resolution="1000x540", quantity=2)
+    pipe = _pipe(device="cpu", resolution="1000x540", quantity=2)
     pipe.process(_pipe_input(quantity=2, seeds=(5, 6)), lambda o: emitted.append(o))
 
     gallery = [o for o in emitted if isinstance(o, GalleryGenerationOutput)][0]

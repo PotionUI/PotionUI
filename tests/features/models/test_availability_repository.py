@@ -35,6 +35,9 @@ class TestModelAvailabilityRepositoryStatsForBackend(PersistenceTestBase):
         import src.features.backends.repository as backend_repository_module
         backend_repository_module.db = self.db
 
+        import src.features.tags.repository as tag_repository_module
+        tag_repository_module.db = self.db
+
         self.model_repo = ModelRepository()
         self.backend_repo = BackendRepository()
 
@@ -120,6 +123,9 @@ class TestModelAvailabilityRepositoryDigest(PersistenceTestBase):
 
         import src.features.backends.repository as backend_repository_module
         backend_repository_module.db = self.db
+
+        import src.features.tags.repository as tag_repository_module
+        tag_repository_module.db = self.db
 
         self.model_repo = ModelRepository()
         self.backend_repo = BackendRepository()

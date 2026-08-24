@@ -311,11 +311,11 @@ class NativeRemoteBackendTestCase(unittest.TestCase):
             await asyncio.wait_for(done.wait(), timeout=timeout)
             return generation_id
 
-        generation_id = asyncio.get_event_loop().run_until_complete(scenario())
+        generation_id = asyncio.run(scenario())
         return generation_id, outputs
 
     def _run(self, coro):
-        return asyncio.get_event_loop().run_until_complete(coro)
+        return asyncio.run(coro)
 
 
 # -- fingerprint pre-gate -----------------------------------------------------

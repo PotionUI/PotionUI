@@ -422,10 +422,27 @@ def test_process_offloads_resident_dit_before_video_encode_runs():
 
     frames = torch.rand(9, 64, 96, 3)  # already-valid granularity
     manager = _FakeResidencyManager()
+
+    # `_encode_video`/`_upsample` (unlike everything else this test mocks) do
+    # a real tensor `.to(device)` -- irrelevant to what's under test here
+    # (eviction ORDER, gated on the pipe's own "cuda" device string), so pin
+    # them to cpu rather than requiring a real CUDA device just to exercise
+    # that plumbing.
+    orig_encode_video = LatentUpscalerLtxPipe._encode_video
+    orig_upsample = LatentUpscalerLtxPipe._upsample
+
+    def cpu_encode_video(self, bundle, video_path, device):
+        return orig_encode_video(self, bundle, video_path, "cpu")
+
+    def cpu_upsample(bundle, upsampler, latent, device):
+        return orig_upsample(bundle, upsampler, latent, "cpu")
+
     with patch(f"{_MOD}._load_video_frames", return_value=frames), \
          patch(f"{_MOD}.get_residency_manager", return_value=manager), \
          patch(f"{_MOD}.clear_gpu_memory"), \
-         patch(f"{_SHARED_MOD}.free_vram_gb", return_value=10.0):
+         patch(f"{_SHARED_MOD}.free_vram_gb", return_value=10.0), \
+         patch.object(LatentUpscalerLtxPipe, "_encode_video", cpu_encode_video), \
+         patch.object(LatentUpscalerLtxPipe, "_upsample", staticmethod(cpu_upsample)):
         _pipe(device="cuda").process(
             PipeInput(input={"model": bundle, "video": ["fake.mp4"]}), lambda o: None)
 

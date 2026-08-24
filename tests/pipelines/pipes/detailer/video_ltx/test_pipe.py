@@ -479,6 +479,16 @@ def test_process_calls_free_room_for_tube_refine_before_the_track_loop(monkeypat
 
     monkeypatch.setattr(f"{_MOD}.refine_tube_pixels", fake_refine)
 
+    # `_tube_to_pixels` (unlike everything else this test mocks) does a real
+    # tensor `.to(device)` -- irrelevant to what's under test here (eviction
+    # ORDER, gated on the pipe's own "cuda" device string), so pin it to cpu
+    # rather than requiring a real CUDA device just to exercise that plumbing.
+    _orig_tube_to_pixels = DetailerVideoLtxPipe._tube_to_pixels
+    monkeypatch.setattr(
+        DetailerVideoLtxPipe, "_tube_to_pixels",
+        staticmethod(lambda frames, window, tw, th, device: _orig_tube_to_pixels(frames, window, tw, th, "cpu")),
+    )
+
     dit = _Recording(device="cuda")  # parked resident by the prior generator pipe
     bundle = _bundle()
     bundle.dit = dit

@@ -302,15 +302,10 @@
       "name": "adm_guidance/sdxl"
     },
     {
-      "config": {
-        "strength": {
-          "type": "float",
-          "value": 2.0
-        }
-      },
+      "config": {},
       "enabled": {
         "type": "bool",
-        "value": true
+        "value": false
       },
       "id": "sharpness",
       "name": "sharpness/sdxl"

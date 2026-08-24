@@ -880,10 +880,12 @@ class TestGenerationModelsAreUserFacing:
 
         with patch('src.features.generation.parameter_repository.generation_parameter_repo') as params, \
              patch('src.features.generation.model_repository.generation_model_repo') as models, \
-             patch('src.features.generation.segment_repository.generation_segment_repo') as segs:
+             patch('src.features.generation.segment_repository.generation_segment_repo') as segs, \
+             patch('src.features.tags.repository.tag_repo') as tags:
             params.get_by_generation.return_value = []
             models.get_by_generation.return_value = [model]
             segs.get_by_generation.return_value = []
+            tags.get_generation_tags.return_value = []
 
             manager.get_by_id('g1', 'u1', include_files=False)
 

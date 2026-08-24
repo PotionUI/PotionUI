@@ -1,7 +1,7 @@
 """Tests for LLMController - thin controller pattern."""
 
 import pytest
-from unittest.mock import Mock, AsyncMock
+from unittest.mock import Mock, AsyncMock, patch
 from typing import Dict, Any
 
 from src.features.llm.routes import LLMController
@@ -396,8 +396,12 @@ class TestLLMController:
         assert result.error == "download_manager_unavailable"
 
     @pytest.mark.asyncio
-    async def test_fetch_gemma3_chat_tokenizer_success(self, controller_with_downloads, mock_download_manager):
-        result = await controller_with_downloads.fetch_gemma3_chat_tokenizer()
+    async def test_fetch_gemma3_chat_tokenizer_success(self, controller_with_downloads, mock_download_manager, tmp_path):
+        # `_models_dir()` falls back to `SettingRepository().get_setting_by_key`
+        # when no override reaches it, which is a real, unmocked repository -
+        # patched here to a fixed path rather than hitting the settings DB.
+        with patch('src.features.llm.native_te_adoption._models_dir', return_value=tmp_path):
+            result = await controller_with_downloads.fetch_gemma3_chat_tokenizer()
 
         assert result.success is True
         assert "path" in result.data

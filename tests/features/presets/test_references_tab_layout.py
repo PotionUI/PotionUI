@@ -72,8 +72,8 @@ SETTING_CASES = [
     # tab rework, 2026-08-21) -- not a convention violation for either preset.
     # QwenImage img2img denoise deliberately moved off the tab (maintainer
     # tab rework, 2026-08-21) -- not a convention violation for that preset.
-    ("presets/marketplace/SDXL", "inpaint", "denoise"),
-    ("presets/marketplace/SDXL", "inpaint", "mask_blur"),
+    # SDXL inpaint denoise/mask_blur deliberately moved off the tab (maintainer
+    # FE rework, 2026-08-24) -- not a convention violation for that preset.
     ("presets/marketplace/MiniMax-H3", "refs", "reference_pixel_budget"),
     ("presets/marketplace/Krea2", "edit", "ref_boost"),
     ("comfyui-backend/presets/LTX-2-3/official", "ia2v", "switch_to_t2v"),

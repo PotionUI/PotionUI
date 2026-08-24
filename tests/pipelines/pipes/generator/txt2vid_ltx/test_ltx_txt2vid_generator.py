@@ -167,7 +167,7 @@ def test_latent_shape_is_5d_and_128_channels(mock_denoise):
 
     mock_denoise.side_effect = fake_denoise
     # frames 49 -> t_lat = (49-1)//8 + 1 = 7; 768x512 /32 = 24x16
-    _pipe(resolution="768x512", frames=49).process(_pipe_input(), lambda o: None)
+    _pipe(device="cpu", resolution="768x512", frames=49).process(_pipe_input(), lambda o: None)
     assert captured["shape"] == (1, _LATENT_CHANNELS, 7, 16, 24)
 
 
@@ -197,7 +197,7 @@ def test_model_forward_wraps_single_element_list_with_frame_rate(mock_denoise):
         "conditioning": [SimpleNamespace(embeds={"context": torch.ones(1, 4, 8)}, n_embeds=None)],
         "seed": [1],
     })
-    _pipe(fps=25.0).process(pipe_input, lambda o: None)
+    _pipe(device="cpu", fps=25.0).process(pipe_input, lambda o: None)
     assert seen["x_list_len"] == 1
     assert seen["frame_rate"] == 25.0
     assert seen["attention_mask"] is None
@@ -209,7 +209,7 @@ def test_true_cfg_uncond_passed_through():
     captured = {}
     with patch("src.pipelines.pipes.generator.txt2vid_ltx.main.denoise") as md:
         md.side_effect = lambda mf, latents, cond, uncond, **k: captured.update(cond=cond, uncond=uncond) or latents
-        _pipe().process(_pipe_input(), lambda o: None)
+        _pipe(device="cpu").process(_pipe_input(), lambda o: None)
     assert "context" in captured["cond"]
     assert captured["uncond"] is not None
 
@@ -218,7 +218,7 @@ def test_true_cfg_uncond_passed_through():
 @patch("src.pipelines.pipes.generator.txt2vid_ltx.main.denoise", lambda mf, latents, c, u, **k: latents)
 def test_emits_gallery_with_videos():
     emitted = []
-    result = _pipe(quantity=2).process(_pipe_input(quantity=2, seeds=(5, 6)), lambda o: emitted.append(o))
+    result = _pipe(device="cpu", quantity=2).process(_pipe_input(quantity=2, seeds=(5, 6)), lambda o: emitted.append(o))
     gallery = [o for o in emitted if isinstance(o, GalleryGenerationOutput)]
     assert len(gallery) == 1
     assert len(gallery[0].videos) == 2
@@ -234,7 +234,7 @@ def test_emitted_videos_carry_live_resolution():
     stashes the (post-snap) resolution on self so emit_results() can stamp
     it onto every video it emits, matching what image pipes already do."""
     emitted = []
-    _pipe(resolution="1000x540", quantity=2).process(_pipe_input(quantity=2, seeds=(5, 6)), lambda o: emitted.append(o))
+    _pipe(device="cpu", resolution="1000x540", quantity=2).process(_pipe_input(quantity=2, seeds=(5, 6)), lambda o: emitted.append(o))
     gallery = [o for o in emitted if isinstance(o, GalleryGenerationOutput)][0]
     # 1000x540 -> 32px grid (992x544), same snap this pipe's build_context applies.
     assert [v.resolution for v in gallery.videos] == [(992, 544), (992, 544)]
@@ -249,7 +249,7 @@ def test_cfg_zero_star_and_zero_init_steps_reach_denoise():
     captured = {}
     with patch("src.pipelines.pipes.generator.txt2vid_ltx.main.denoise") as md:
         md.side_effect = lambda mf, latents, cond, uncond, **k: captured.update(k) or latents
-        _pipe(cfg_zero_star=False, zero_init_steps=3).process(_pipe_input(), lambda o: None)
+        _pipe(device="cpu", cfg_zero_star=False, zero_init_steps=3).process(_pipe_input(), lambda o: None)
     assert captured["cfg_zero_star"] is False
     assert captured["zero_init_steps"] == 3
 
@@ -259,7 +259,7 @@ def test_cfg_zero_star_defaults_true_zero_init_steps_defaults_zero():
     captured = {}
     with patch("src.pipelines.pipes.generator.txt2vid_ltx.main.denoise") as md:
         md.side_effect = lambda mf, latents, cond, uncond, **k: captured.update(k) or latents
-        _pipe().process(_pipe_input(), lambda o: None)
+        _pipe(device="cpu").process(_pipe_input(), lambda o: None)
     assert captured["cfg_zero_star"] is True
     assert captured["zero_init_steps"] == 0
 
@@ -270,7 +270,7 @@ def test_denoise_receives_the_managers_is_cancelled_probe():
     probe = lambda: False
     with patch("src.pipelines.pipes.generator.txt2vid_ltx.main.denoise") as md:
         md.side_effect = lambda mf, latents, cond, uncond, **k: captured.update(k) or latents
-        _pipe().process(_pipe_input(), lambda o: None, is_cancelled=probe)
+        _pipe(device="cpu").process(_pipe_input(), lambda o: None, is_cancelled=probe)
     assert captured["is_cancelled"] is probe
 
 
@@ -342,7 +342,7 @@ def test_sampler_options_step_cache_absent_reach_denoise_as_none():
     captured = {}
     with patch("src.pipelines.pipes.generator.txt2vid_ltx.main.denoise") as md:
         md.side_effect = lambda mf, latents, cond, uncond, **k: captured.update(k) or latents
-        _pipe().process(_pipe_input(), lambda o: None)
+        _pipe(device="cpu").process(_pipe_input(), lambda o: None)
     assert captured["sampler_options"] is None
     assert captured["step_cache_options"] is None
 
@@ -354,7 +354,7 @@ def test_sampler_options_step_cache_present_reach_denoise():
     step_cache_opts = {"rel_threshold": 0.08, "warmup_steps": 5}
     with patch("src.pipelines.pipes.generator.txt2vid_ltx.main.denoise") as md:
         md.side_effect = lambda mf, latents, cond, uncond, **k: captured.update(k) or latents
-        _pipe(sampler_options=sampler_opts, step_cache=step_cache_opts).process(_pipe_input(), lambda o: None)
+        _pipe(device="cpu", sampler_options=sampler_opts, step_cache=step_cache_opts).process(_pipe_input(), lambda o: None)
     assert captured["sampler_options"] == sampler_opts
     assert captured["step_cache_options"] == step_cache_opts
 
@@ -424,7 +424,7 @@ def test_freeinit_default_off_is_exactly_one_denoise_call():
             calls["n"] += 1
             return latents
         md.side_effect = fake_denoise
-        _pipe().process(_pipe_input(), lambda o: None)
+        _pipe(device="cpu").process(_pipe_input(), lambda o: None)
     assert calls["n"] == 1
 
 
@@ -472,7 +472,7 @@ def test_nag_default_off_does_not_touch_cond():
     captured = {}
     with patch("src.pipelines.pipes.generator.txt2vid_ltx.main.denoise") as md:
         md.side_effect = lambda mf, latents, cond, uncond, **k: captured.update(cond=cond) or latents
-        _pipe().process(_pipe_input(), lambda o: None)  # nag_scale defaults to 1.0
+        _pipe(device="cpu").process(_pipe_input(), lambda o: None)  # nag_scale defaults to 1.0
     assert "nag_context" not in captured["cond"]
     assert "nag" not in captured["cond"]
 
@@ -482,7 +482,7 @@ def test_nag_scale_above_one_attaches_negative_context_equal_to_uncond_context()
     captured = {}
     with patch("src.pipelines.pipes.generator.txt2vid_ltx.main.denoise") as md:
         md.side_effect = lambda mf, latents, cond, uncond, **k: captured.update(cond=cond, uncond=uncond) or latents
-        _pipe(nag_scale=1.5, nag_tau=2.0, nag_alpha=0.25).process(_pipe_input(), lambda o: None)
+        _pipe(device="cpu", nag_scale=1.5, nag_tau=2.0, nag_alpha=0.25).process(_pipe_input(), lambda o: None)
     # NAG's negative context is EXACTLY uncond["context"] -- already the
     # post-apply_text_conditioning projected format (ltx_clip.py), no second
     # projection call, mirroring _attach_nag's Wan semantics exactly.
@@ -498,7 +498,7 @@ def test_nag_scale_above_one_without_negative_conditioning_is_noop():
     with patch("src.pipelines.pipes.generator.txt2vid_ltx.main.encode_frames_to_mp4", lambda frames, path, fps, audio=None: path), \
          patch("src.pipelines.pipes.generator.txt2vid_ltx.main.denoise") as md:
         md.side_effect = lambda mf, latents, cond, uncond, **k: captured.update(cond=cond) or latents
-        _pipe(nag_scale=1.5).process(pipe_input, lambda o: None)
+        _pipe(device="cpu", nag_scale=1.5).process(pipe_input, lambda o: None)
     assert "nag_context" not in captured["cond"]
 
 
@@ -1144,14 +1144,14 @@ def test_decode_false_skips_decode_and_emits_latent_output(mock_decode, mock_enc
 @patch("src.pipelines.pipes.generator.txt2vid_ltx.main.encode_frames_to_mp4")
 def test_decode_false_emits_no_gallery(mock_encode):
     emitted = []
-    _pipe(decode=False).process(_pipe_input(), lambda o: emitted.append(o))
+    _pipe(decode=False, device="cpu").process(_pipe_input(), lambda o: emitted.append(o))
     assert not any(isinstance(o, GalleryGenerationOutput) for o in emitted)
 
 
 @patch("src.pipelines.pipes.generator.txt2vid_ltx.main.encode_frames_to_mp4", lambda frames, path, fps, audio=None: path)
 @patch("src.pipelines.pipes.generator.txt2vid_ltx.main.denoise", lambda mf, latents, c, u, **k: latents)
 def test_decode_true_default_output_has_empty_latent_list():
-    result = _pipe().process(_pipe_input(), lambda o: None)
+    result = _pipe(device="cpu").process(_pipe_input(), lambda o: None)
     assert result.output["latent"] == []
     assert len(result.output["video"]) == 1
 

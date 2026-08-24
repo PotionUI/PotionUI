@@ -327,7 +327,7 @@ class TestGeneratorMayaPipe:
         """Test token generation."""
         # Create mock model
         mock_model = Mock()
-        mock_model.device = "cuda"
+        mock_model.device = "cpu"
 
         # Mock tokenizer - return an object with input_ids attribute
         mock_tokenizer_output = Mock()

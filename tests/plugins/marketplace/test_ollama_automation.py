@@ -153,7 +153,7 @@ async def test_per_model_post_error_is_collected():
 async def test_node_handler_success_output_contract():
     session = _FakeSession([{"name": "llama3:8b", "size_vram": 5_000}])
     ctx = types.SimpleNamespace(config={"model": ""})
-    with patch.object(client, "get_settings", return_value=("http://x", 5)), _patch_session(session):
+    with patch.object(automation, "get_settings", return_value=("http://x", 5)), _patch_session(session):
         result = await automation.unload_ollama_models(ctx)
 
     out = result.output
@@ -167,7 +167,7 @@ async def test_node_handler_success_output_contract():
 async def test_node_handler_unreachable_returns_soft_error_not_exception():
     session = _FakeSession([], connect_error=True)
     ctx = types.SimpleNamespace(config={"model": "llama3:8b"})
-    with patch.object(client, "get_settings", return_value=("http://x", 5)), _patch_session(session):
+    with patch.object(automation, "get_settings", return_value=("http://x", 5)), _patch_session(session):
         result = await automation.unload_ollama_models(ctx)
 
     assert result.output["connected"] is False

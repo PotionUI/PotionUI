@@ -162,7 +162,7 @@ class RemoteExecutionReconcilerTestCase(unittest.TestCase):
         return self.repo.create(RemoteExecution(**fields))
 
     def _run(self, coro):
-        return asyncio.get_event_loop().run_until_complete(coro)
+        return asyncio.run(coro)
 
 
 class TestPureSweeps(RemoteExecutionReconcilerTestCase):

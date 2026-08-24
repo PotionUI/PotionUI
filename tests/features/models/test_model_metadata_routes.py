@@ -9,6 +9,7 @@ a scratch DB for the validation behavior (undeclared key / out-of-range /
 wrong type / per-user-only), so the test exercises the actual coercion and
 rejection logic rather than a mock configured to match the assertion.
 """
+from pathlib import Path
 from unittest.mock import MagicMock, Mock
 
 import pytest
@@ -261,6 +262,14 @@ class TestUpdateModelMetadataValidation(PersistenceTestBase):
         attribute_repo_module.db = self.db
         import src.features.models.attributes.user_repository as user_attribute_repo_module
         user_attribute_repo_module.db = self.db
+        import src.features.models.availability_repository as availability_repository_module
+        availability_repository_module.db = self.db
+        # `settings.repository` binds `db` at its own top-level import - a
+        # third, separate name from `database.database` - so the real,
+        # module-level ModelScanner singleton's SettingRepository().get_setting_by_key
+        # call has to be redirected here too, or it queries the real database.
+        import src.platform.settings.repository as settings_repository_module
+        settings_repository_module.db = self.db
 
         self.model_repo = ModelRepository()
         self.tag_repo = TagRepository()
@@ -279,6 +288,10 @@ class TestUpdateModelMetadataValidation(PersistenceTestBase):
             download_manager=Mock(),
             attribute_definition_repository=self.attribute_definitions,
             user_attribute_repository=UserModelAttributeRepository(),
+            # Without it, `__init__` falls through to the real, lazily-constructed
+            # module-level scanner singleton to resolve models_dir, hitting the
+            # settings DB for real.
+            models_root=Path("/tmp/potionui-test-models"),
         )
 
         model = Model(

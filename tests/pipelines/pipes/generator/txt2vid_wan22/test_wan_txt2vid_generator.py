@@ -205,7 +205,7 @@ def test_latent_shape_is_5d_temporal(mock_denoise):
 
     mock_denoise.side_effect = fake_denoise
     # frames 81 -> t_lat = (81-1)//4 + 1 = 21; 832x480 /8 = 104x60
-    _pipe(resolution="832x480", frames=81).process(_pipe_input(), lambda o: None)
+    _pipe(device="cpu", resolution="832x480", frames=81).process(_pipe_input(), lambda o: None)
     assert captured["shape"] == (1, 16, 21, 60, 104)
 
 
@@ -213,7 +213,7 @@ def test_latent_shape_is_5d_temporal(mock_denoise):
 @patch("src.pipelines.pipes.generator.txt2vid_wan22.main.denoise", lambda mf, latents, c, u, **k: latents)
 def test_emits_gallery_with_videos():
     emitted = []
-    result = _pipe(quantity=2).process(_pipe_input(quantity=2, seeds=(5, 6)), lambda o: emitted.append(o))
+    result = _pipe(device="cpu", quantity=2).process(_pipe_input(quantity=2, seeds=(5, 6)), lambda o: emitted.append(o))
     gallery = [o for o in emitted if isinstance(o, GalleryGenerationOutput)]
     assert len(gallery) == 1
     assert len(gallery[0].videos) == 2
@@ -229,7 +229,7 @@ def test_emitted_videos_carry_live_resolution():
     stashes the (post-snap) resolution on self so emit_results() can stamp
     it onto every video it emits, matching what image pipes already do."""
     emitted = []
-    _pipe(resolution="1000x540", quantity=2).process(_pipe_input(quantity=2, seeds=(5, 6)), lambda o: emitted.append(o))
+    _pipe(device="cpu", resolution="1000x540", quantity=2).process(_pipe_input(quantity=2, seeds=(5, 6)), lambda o: emitted.append(o))
     gallery = [o for o in emitted if isinstance(o, GalleryGenerationOutput)][0]
     assert [v.resolution for v in gallery.videos] == [(992, 544), (992, 544)]
 
@@ -240,7 +240,7 @@ def test_true_cfg_uncond_passed_through():
     captured = {}
     with patch("src.pipelines.pipes.generator.txt2vid_wan22.main.denoise") as md:
         md.side_effect = lambda mf, latents, cond, uncond, **k: captured.update(cond=cond, uncond=uncond) or latents
-        _pipe().process(_pipe_input(), lambda o: None)
+        _pipe(device="cpu").process(_pipe_input(), lambda o: None)
     assert "context" in captured["cond"]
     assert captured["uncond"] is not None  # negative encoded for true CFG
 
@@ -484,7 +484,7 @@ def test_freeinit_default_off_is_exactly_one_denoise_call():
             calls["n"] += 1
             return latents
         md.side_effect = fake_denoise
-        _pipe().process(_pipe_input(), lambda o: None)
+        _pipe(device="cpu").process(_pipe_input(), lambda o: None)
     assert calls["n"] == 1
 
 
@@ -610,7 +610,7 @@ def test_sampler_options_step_cache_absent_reach_denoise_as_none():
     captured = {}
     with patch("src.pipelines.pipes.generator.txt2vid_wan22.main.denoise") as md:
         md.side_effect = lambda mf, latents, cond, uncond, **k: captured.update(k) or latents
-        _pipe().process(_pipe_input(), lambda o: None)
+        _pipe(device="cpu").process(_pipe_input(), lambda o: None)
     assert captured["sampler_options"] is None
     assert captured["step_cache_options"] is None
 
@@ -622,7 +622,7 @@ def test_sampler_options_step_cache_present_reach_denoise():
     step_cache_opts = {"rel_threshold": 0.12, "warmup_steps": 3}
     with patch("src.pipelines.pipes.generator.txt2vid_wan22.main.denoise") as md:
         md.side_effect = lambda mf, latents, cond, uncond, **k: captured.update(k) or latents
-        _pipe(sampler_options=sampler_opts, step_cache=step_cache_opts).process(_pipe_input(), lambda o: None)
+        _pipe(device="cpu", sampler_options=sampler_opts, step_cache=step_cache_opts).process(_pipe_input(), lambda o: None)
     assert captured["sampler_options"] == sampler_opts
     assert captured["step_cache_options"] == step_cache_opts
 
@@ -634,7 +634,7 @@ def test_stochastic_sampler_populates_generator_in_sampler_options():
     captured = {}
     with patch("src.pipelines.pipes.generator.txt2vid_wan22.main.denoise") as md:
         md.side_effect = lambda mf, latents, cond, uncond, **k: captured.update(k) or latents
-        _pipe(sampler="euler_sde").process(_pipe_input(), lambda o: None)
+        _pipe(device="cpu", sampler="euler_sde").process(_pipe_input(), lambda o: None)
     assert isinstance(captured["sampler_options"]["generator"], torch.Generator)
 
 
@@ -643,7 +643,7 @@ def test_deterministic_sampler_leaves_sampler_options_none():
     captured = {}
     with patch("src.pipelines.pipes.generator.txt2vid_wan22.main.denoise") as md:
         md.side_effect = lambda mf, latents, cond, uncond, **k: captured.update(k) or latents
-        _pipe(sampler="unipc").process(_pipe_input(), lambda o: None)
+        _pipe(device="cpu", sampler="unipc").process(_pipe_input(), lambda o: None)
     assert captured["sampler_options"] is None
 
 
@@ -653,7 +653,7 @@ def test_stochastic_sampler_explicit_generator_preserved():
     explicit_gen = torch.Generator().manual_seed(4321)
     with patch("src.pipelines.pipes.generator.txt2vid_wan22.main.denoise") as md:
         md.side_effect = lambda mf, latents, cond, uncond, **k: captured.update(k) or latents
-        _pipe(sampler="euler_sde", sampler_options={"eta": 0.5, "generator": explicit_gen}) \
+        _pipe(device="cpu", sampler="euler_sde", sampler_options={"eta": 0.5, "generator": explicit_gen}) \
             .process(_pipe_input(), lambda o: None)
     assert captured["sampler_options"]["generator"] is explicit_gen
 

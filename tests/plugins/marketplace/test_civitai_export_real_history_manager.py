@@ -93,9 +93,13 @@ class TestExportPngAgainstRealHistoryManager(PersistenceTestBase):
         import src.features.generation.parameter_repository
         import src.features.generation.model_repository
         import src.features.generation.source_repository
+        import src.features.generation.segment_repository
+        import src.features.tags.repository
         src.features.generation.parameter_repository.db = self.db
         src.features.generation.model_repository.db = self.db
         src.features.generation.source_repository.db = self.db
+        src.features.generation.segment_repository.db = self.db
+        src.features.tags.repository.db = self.db
 
         self.history = GenerationHistoryManager(
             generation_repo=GenerationRepository(),

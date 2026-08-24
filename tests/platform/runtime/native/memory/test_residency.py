@@ -669,6 +669,8 @@ def test_cache_miss_encodes_then_hit_skips_encode():
     assert second["context"] is not first["context"]
 
 
+@pytest.mark.requires_gpu  # cache.get_on_device() moves the cached tensor with a
+# real .to("cuda:0") -- there is no CPU-only substitute that still exercises it.
 def test_cache_hit_never_moves_encoder_to_gpu(monkeypatch):
     # The whole point of the cache: on a hit the multi-GB encoder never pages onto
     # the device. Prime the entry via a miss (co-resident GPU encode), then assert
@@ -859,6 +861,9 @@ def test_run_text_encode_mark_free_and_needed_gb_on_the_after_evict_path(monkeyp
     mgr.clear()
 
 
+@pytest.mark.requires_gpu  # exercises a real nn.Module.to("cuda:0") split across
+# two params to prove the census reads actual tensor devices, not one sentinel --
+# needs a genuine second device, not mockable.
 def test_run_text_encode_mark_census_catches_a_partial_move(monkeypatch):
     """A single-sentinel device check (the previous
     cut of this instrumentation) reads "cuda:0" as long as SOME real parameter

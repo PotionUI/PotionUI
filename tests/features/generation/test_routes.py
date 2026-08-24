@@ -267,8 +267,11 @@ class TestGenerationController:
         controller.generation_orchestrator.get_generation_status.return_value = None
 
         # Act & Assert
-        with pytest.raises(HTTPException) as exc_info:
-            await controller.get_generation_status("nonexistent", mock_current_user)
+        with patch('src.features.generation.routes.generation_repo') as mock_repo:
+            mock_repo.get_by_id.return_value = None
+
+            with pytest.raises(HTTPException) as exc_info:
+                await controller.get_generation_status("nonexistent", mock_current_user)
 
         assert exc_info.value.status_code == 404
         assert exc_info.value.detail['error'] == "generation_not_found"

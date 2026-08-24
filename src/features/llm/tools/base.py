@@ -33,6 +33,12 @@ class ToolApprovalPreview:
     target: Optional[str] = None  # e.g. "from category camera"
     items: List[str] = field(default_factory=list)  # the concrete items acted on
     note: Optional[str] = None  # a caveat, e.g. "2 values already exist and will be skipped"
+    # Full-fidelity per-operation before/after state, for a tool whose `items`
+    # prose can't carry enough to review a change (e.g. a Video Director
+    # segment/media edit): [{op, summary, before, after}], `before`/`after`
+    # None for an add/remove respectively. Absent for tools that only need
+    # `items`.
+    changes: Optional[List[Dict[str, Any]]] = None
 
 
 @dataclass
@@ -55,6 +61,7 @@ def serialize_approval_preview(preview: Optional[ToolApprovalPreview]) -> Option
         "target": preview.target,
         "items": list(preview.items),
         "note": preview.note,
+        "changes": preview.changes,
     }
 
 

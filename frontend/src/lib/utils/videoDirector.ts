@@ -1083,7 +1083,7 @@ export function deriveDirectorMode(rawValue: VideoDirectorValue, caps: DirectorC
 	const edges = singleShotEdges(value, caps);
 	if (!edges) return 'director';
 	if (edges.leading && edges.trailing) return caps.enabledModes.includes('flf') ? 'flf' : 'director';
-	if (edges.leading) return 'i2v';
+	if (edges.leading) return caps.enabledModes.includes('i2v') ? 'i2v' : 'director';
 	if (edges.trailing) return 'director'; // trailing with no leading has no legacy shape
 	return 't2v';
 }

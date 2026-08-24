@@ -339,6 +339,16 @@ class TestUpdateSession:
         assert result is updated
         self.mock_repo.update_session_name.assert_called_once_with("session-123", "New name")
 
+    def test_update_llm_config(self):
+        """Should rebind the session to a different LLM config."""
+        updated = Mock()
+        self.mock_repo.update_session_llm_config.return_value = updated
+
+        result = self.manager.update_session("session-123", "user-123", llm_config_id="llm-b")
+
+        assert result is updated
+        self.mock_repo.update_session_llm_config.assert_called_once_with("session-123", "llm-b")
+
     def test_access_denied_for_other_user(self):
         """Should raise AccessDeniedException when user doesn't own session."""
         with pytest.raises(AccessDeniedException):
@@ -1584,6 +1594,122 @@ class TestInjectWorkspaceBlockMusicDirector:
 
         block = history[0]["content"]
         assert "Music Director" not in block
+
+
+class TestInjectWorkspaceBlockVideoDirector:
+    """Tests for the shot/media summary `inject_workspace_block` adds for an
+    active Video Director document (shot list with attached media, and any
+    form media not yet attached), mirroring the Music Director coverage
+    above."""
+
+    def setup_method(self):
+        self.mock_preset_manager = Mock()
+        # No `llm:` block resolution needed for these tests -- unwired, a bare
+        # Mock() stands in for `preset_template.llm` and blows up _cap_text.
+        self.mock_preset_manager.file_repo.find_preset_by_id.return_value = None
+        self.manager = ChatManager(
+            chat_repository=Mock(),
+            llm_service=Mock(),
+            response_processor=Mock(),
+            plugin_registry=Mock(),
+            chat_mode_registry=_mode_registry(),
+            model_index_manager=Mock(),
+            preset_manager=self.mock_preset_manager,
+        )
+
+    def _wire_form_schema(self, properties):
+        self.mock_preset_manager.get_form_schema.return_value = {"form_schema": {"properties": properties}}
+
+    def _chain_capabilities(self, max_segments=8):
+        return {
+            "modes": {"t2v": {}, "i2v": {}, "flf": {}, "director": {"max_segments": max_segments}},
+            "segment_routing": True,
+            "limits": {"default_fps": 16, "default_duration": 5},
+        }
+
+    def test_shots_and_attached_and_pool_media_rendered(self):
+        self._wire_form_schema({"refs": {"type": "image", "multiple": True}})
+        doc = {
+            "mode": "director",
+            "chain": {
+                "fps": 16,
+                "segments": [
+                    {"id": "seg-a", "prompt": "a wide shot of the desert at dawn", "duration": 4,
+                     "keyframe": {"path": "generations/x/1.png"}},
+                    {"id": "seg-b", "prompt": "close-up on the rider", "duration": 3},
+                ],
+                "continuation": {"overlap_frames": 4, "stitch": True},
+            },
+        }
+        history = [{"role": "user", "content": "hello"}]
+        context_metadata = {
+            "form_state": {
+                "preset": "native/Wan",
+                "mode": "director",
+                "form_data": {
+                    "refs": [
+                        {"path": "generations/x/1.png", "label": "dawn shot"},
+                        {"path": "generations/x/2.png", "label": "spare shot"},
+                    ],
+                },
+                "video_director": {"active": True, "doc": doc, "capabilities": self._chain_capabilities()},
+            }
+        }
+
+        self.manager._context.inject_workspace_block(history, context_metadata)
+
+        block = history[0]["content"]
+        assert "Video Director: active" in block
+        assert "Shots (2):" in block
+        assert 'id=seg-a: "a wide shot of the desert at dawn" (4s, i2v) -- media: first=1.png' in block
+        assert 'id=seg-b: "close-up on the rider" (3s, chain)' in block
+        assert "Available media not yet attached:" in block
+        assert "\"spare shot\" on 'refs'" in block
+        # the attached item's label never shows -- only its basename does, on the shot line
+        assert "dawn shot" not in block
+
+    def test_shot_list_capped_at_thirty(self):
+        self._wire_form_schema({})
+        segments = [
+            {"id": f"seg-{i}", "prompt": f"shot number {i}", "duration": 2}
+            for i in range(35)
+        ]
+        doc = {"mode": "director", "chain": {"fps": 16, "segments": segments, "continuation": {}}}
+        history = [{"role": "user", "content": "hello"}]
+        context_metadata = {
+            "form_state": {
+                "preset": "native/Wan",
+                "mode": "director",
+                "form_data": {},
+                "video_director": {
+                    "active": True, "doc": doc, "capabilities": self._chain_capabilities(max_segments=40),
+                },
+            }
+        }
+
+        self.manager._context.inject_workspace_block(history, context_metadata)
+
+        block = history[0]["content"]
+        assert "Shots (35):" in block
+        assert "…and 5 more shots" in block
+        assert "id=seg-29" in block
+        assert "shot number 30" not in block
+
+    def test_nothing_added_when_inactive(self):
+        history = [{"role": "user", "content": "hello"}]
+        context_metadata = {
+            "form_state": {
+                "preset": "native/Wan",
+                "mode": "director",
+                "form_data": {},
+                "video_director": {"active": False, "doc": None, "capabilities": None},
+            }
+        }
+
+        self.manager._context.inject_workspace_block(history, context_metadata)
+
+        block = history[0]["content"]
+        assert "Shots (" not in block
 
 
 def _make_preset_template(name="Some Preset", llm=None):

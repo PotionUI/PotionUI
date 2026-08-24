@@ -13,8 +13,9 @@
 	import { chatModes } from '$lib/stores/chatModes';
 	import { deriveApprovalQueue } from '$lib/chat/approvalQueue';
 	import { resolveApproval, type ApprovalResolution } from '$lib/chat/approvalResolve';
-	import { buildApprovalDiff, humanizeApprovalArguments } from '$lib/chat/approvalPreview';
+	import { buildApprovalDiff, buildDirectorChangeGroups, humanizeApprovalArguments } from '$lib/chat/approvalPreview';
 	import { composeQuestionAnswer, deriveQuestionQueue, dismissedQuestions } from '$lib/chat/questionQueue';
+	import { Badge } from '$lib/components/ui';
 
 	export let messages: UnifiedChatMessageData[] = [];
 	export let sessionId: string = '';
@@ -83,13 +84,26 @@
 		return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 	}
 
-	$: diff = current ? buildApprovalDiff(current.execution) : null;
-	$: preview = !diff ? (current?.execution.preview ?? null) : null;
+	$: changeGroups = current ? buildDirectorChangeGroups(current.execution.preview) : null;
+	$: shownChangeGroups = changeGroups
+		? itemsExpanded
+			? changeGroups
+			: changeGroups.slice(0, ITEM_PREVIEW_COUNT)
+		: [];
+	$: hiddenChangeGroupCount = (changeGroups?.length ?? 0) - shownChangeGroups.length;
+	$: diff = !changeGroups && current ? buildApprovalDiff(current.execution) : null;
+	$: preview = !changeGroups && !diff ? (current?.execution.preview ?? null) : null;
 	$: items = preview?.items ?? [];
 	$: shownItems = itemsExpanded ? items : items.slice(0, ITEM_PREVIEW_COUNT);
 	$: hiddenCount = items.length - shownItems.length;
 	$: fallbackSummary =
-		current && !diff && !preview ? humanizeApprovalArguments(current.execution) : '';
+		current && !changeGroups && !diff && !preview ? humanizeApprovalArguments(current.execution) : '';
+
+	const changeKindVariant: Record<'add' | 'remove' | 'update', 'success' | 'danger' | 'info'> = {
+		add: 'success',
+		remove: 'danger',
+		update: 'info'
+	};
 
 	async function approve() {
 		await resolveOne(true);
@@ -170,7 +184,41 @@
 		</div>
 
 		<div class="mt-2 min-w-0">
-			{#if diff}
+			{#if changeGroups}
+				<div class="space-y-1.5">
+					{#each shownChangeGroups as group}
+						<div class="rounded border border-line bg-canvas p-2">
+							<div class="flex items-center gap-2 flex-wrap">
+								<Badge variant={changeKindVariant[group.kind]} size="sm">{group.kind}</Badge>
+								<span class="text-xs text-fg-muted break-words">{group.summary}</span>
+							</div>
+							{#if group.rows.length}
+								<div class="mt-1 font-mono text-xs space-y-1">
+									{#each group.rows as row}
+										<div class="flex items-start gap-2 flex-wrap">
+											<span class="text-fg-subtle flex-shrink-0">{row.field}</span>
+											<span class="text-fg-disabled line-through break-all">{row.oldValue}</span>
+											<svg class="w-3 h-3 mt-0.5 text-fg-subtle flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+											</svg>
+											<span class="text-fg break-all">{row.newValue}</span>
+										</div>
+									{/each}
+								</div>
+							{/if}
+						</div>
+					{/each}
+					{#if hiddenChangeGroupCount > 0 || itemsExpanded}
+						<button
+							type="button"
+							class="text-xs text-fg-subtle hover:text-fg-muted transition-colors"
+							on:click={() => (itemsExpanded = !itemsExpanded)}
+						>
+							{itemsExpanded ? 'Show less' : `+${hiddenChangeGroupCount} more`}
+						</button>
+					{/if}
+				</div>
+			{:else if diff}
 				<div class="font-mono text-xs bg-canvas border border-line rounded p-2 space-y-1">
 					{#each diff as row}
 						<div class="flex items-center gap-2 flex-wrap">

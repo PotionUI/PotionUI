@@ -1,4 +1,4 @@
-import type { ToolExecution } from '$lib/types/chat';
+import type { ToolApprovalChange, ToolApprovalPreview, ToolExecution } from '$lib/types/chat';
 
 /** One field change row for the mono diff block. */
 export interface ApprovalDiffRow {
@@ -6,6 +6,17 @@ export interface ApprovalDiffRow {
 	oldValue: string;
 	newValue: string;
 	reason?: string;
+}
+
+/** One `changes` operation rendered as a labeled group of field diff rows —
+ * `rows` reuses the same mono diff idiom as `ApprovalDiffRow` (this module's
+ * plain `field_name`/`old_value`/`new_value` shape) so the dock has a single
+ * diff renderer for both `proposed_changes` and `changes`. */
+export interface DirectorChangeGroup {
+	op: string;
+	summary: string;
+	kind: 'add' | 'remove' | 'update';
+	rows: ApprovalDiffRow[];
 }
 
 /** Every approval preview parses its execution result the same way: the
@@ -43,6 +54,68 @@ export function buildApprovalDiff(execution: ToolExecution): ApprovalDiffRow[] |
 		newValue: formatValue(change.new_value),
 		reason: change.reason
 	}));
+}
+
+/**
+ * Recursively flattens a segment/media/settings object into dot-path leaves
+ * (`media.path`, `role`, …) so a generic key-by-key diff surfaces exactly the
+ * fields that changed — whatever shape the director wire format hands it —
+ * without hardcoding per-op field names. Arrays are left as leaf values
+ * (JSON-rendered by `formatValue`); diffing array elements isn't worth the
+ * complexity here.
+ */
+function flattenChangeObject(obj: Record<string, unknown> | null, prefix = ''): Map<string, unknown> {
+	const out = new Map<string, unknown>();
+	if (!obj) return out;
+	for (const [key, value] of Object.entries(obj)) {
+		const path = prefix ? `${prefix}.${key}` : key;
+		if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+			const nested = flattenChangeObject(value as Record<string, unknown>, path);
+			if (nested.size === 0) {
+				out.set(path, value);
+			} else {
+				for (const [nestedPath, nestedValue] of nested) out.set(nestedPath, nestedValue);
+			}
+		} else {
+			out.set(path, value);
+		}
+	}
+	return out;
+}
+
+/**
+ * Builds the structured rendering for a video-director-style approval preview
+ * whose `changes` carry full before/after objects (see docs/video-director.md
+ * for the segment/media/settings wire shapes). Returns null when `changes` is
+ * absent or empty so older previews (or other tools' `items`/`proposed_changes`
+ * shapes) fall through to their existing renderers untouched.
+ *
+ * Each change becomes one group of field-diff rows: an add (`before: null`)
+ * or remove (`after: null`) shows every leaf of the side that exists; an
+ * update shows only the leaves that actually differ (e.g. a segment prompt
+ * edit surfaces just the `prompt` row, not the whole segment). No value is
+ * truncated — `formatValue` renders full text and full JSON alike.
+ */
+export function buildDirectorChangeGroups(
+	preview: ToolApprovalPreview | null | undefined
+): DirectorChangeGroup[] | null {
+	if (!preview?.changes || preview.changes.length === 0) return null;
+	return preview.changes.map((change: ToolApprovalChange) => {
+		const kind: DirectorChangeGroup['kind'] =
+			change.before == null ? 'add' : change.after == null ? 'remove' : 'update';
+		const beforeMap = flattenChangeObject(change.before);
+		const afterMap = flattenChangeObject(change.after);
+		const fields = new Set([...beforeMap.keys(), ...afterMap.keys()]);
+		const rows: ApprovalDiffRow[] = [];
+		for (const field of fields) {
+			const oldRaw = beforeMap.get(field);
+			const newRaw = afterMap.get(field);
+			if (kind === 'update' && formatValue(oldRaw) === formatValue(newRaw)) continue;
+			rows.push({ field, oldValue: formatValue(oldRaw), newValue: formatValue(newRaw) });
+		}
+		rows.sort((a, b) => a.field.localeCompare(b.field));
+		return { op: change.op, summary: change.summary, kind, rows };
+	});
 }
 
 const MAX_HUMANIZED_ARGS = 4;

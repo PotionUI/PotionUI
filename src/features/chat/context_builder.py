@@ -584,6 +584,10 @@ class ChatContextBuilder:
 
             if video_director and video_director.get("active"):
                 lines.append("Video Director: active — form changes go through update_video_director.")
+                lines.extend(self._render_video_director_summary(
+                    video_director.get("doc") or {}, video_director.get("capabilities") or {},
+                    form_data, preset_id, mode, variant,
+                ))
             else:
                 lines.append("Video Director: no document active — form changes go through update_form_settings.")
 
@@ -634,6 +638,44 @@ class ChatContextBuilder:
             logger.error("Failed to inject workspace block")
             logger.debug(traceback.format_exc())
             return empty
+
+    def _render_video_director_summary(
+        self,
+        doc: Dict[str, Any],
+        capabilities: Dict[str, Any],
+        form_data: Dict[str, Any],
+        preset_id: Optional[str],
+        mode: Optional[str],
+        variant: Optional[str],
+    ) -> List[str]:
+        """Compact snapshot of an active Video Director document: shot list
+        (id, prompt, length, sub_type, its own attached media) and any form
+        media not yet attached to a shot -- the pool `upsert_media`'s
+        `form_media` can address. Delegates the flatten/render work to
+        `render_context_summary` (owns the document shape already);
+        this method's own job is resolving which form fields hold media,
+        from the active mode's schema, the same way `_render_form_context`
+        does. Mirrors `_render_music_director_summary`'s terseness --
+        get_video_director is where the model goes for the full document.
+        """
+        from src.features.llm.tools.builtin.video_director_tool import render_context_summary
+        from src.features.llm.tools.media_values import media_field_names
+
+        media_fields: List[str] = []
+        if self._m.preset_manager and preset_id:
+            try:
+                schema_data = self._m.preset_manager.get_form_schema(preset_id, mode=mode, form_name=variant)
+                props = (schema_data.get("form_schema") or {}).get("properties")
+                media_fields = sorted(media_field_names(props))
+            except Exception:
+                media_fields = []
+
+        try:
+            return render_context_summary(doc, capabilities, form_data, mode, media_fields)
+        except Exception:
+            logger.error("Failed to render Video Director context summary")
+            logger.debug(traceback.format_exc())
+            return []
 
     @staticmethod
     def _render_music_director_summary(doc: Dict[str, Any]) -> List[str]:

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildApprovalDiff, humanizeApprovalArguments } from './approvalPreview';
-import type { ToolExecution } from '$lib/types/chat';
+import { buildApprovalDiff, buildDirectorChangeGroups, humanizeApprovalArguments } from './approvalPreview';
+import type { ToolApprovalPreview, ToolExecution } from '$lib/types/chat';
 
 function execution(data: string | undefined, args: Record<string, unknown> = {}): ToolExecution {
 	return {
@@ -33,6 +33,106 @@ describe('buildApprovalDiff', () => {
 
 	it('returns null for an empty proposed_changes array', () => {
 		expect(buildApprovalDiff(execution(JSON.stringify({ proposed_changes: [] })))).toBeNull();
+	});
+});
+
+describe('buildDirectorChangeGroups', () => {
+	it('returns null when the preview carries no changes (older/other-tool previews fall back untouched)', () => {
+		expect(buildDirectorChangeGroups(null)).toBeNull();
+		expect(buildDirectorChangeGroups(undefined)).toBeNull();
+		expect(buildDirectorChangeGroups({ action: 'Update segments', items: [] })).toBeNull();
+		expect(buildDirectorChangeGroups({ action: 'Update segments', items: [], changes: [] })).toBeNull();
+	});
+
+	it('an update shows only the fields that actually differ, e.g. just the prompt', () => {
+		const preview: ToolApprovalPreview = {
+			action: 'Update Video Director',
+			items: [],
+			changes: [
+				{
+					op: 'update_segment_prompt',
+					summary: 'Update prompt on segment seg-1',
+					before: { id: 'seg-1', prompt: 'A quiet forest at dawn' },
+					after: { id: 'seg-1', prompt: 'A quiet forest at dawn, mist rising, warm golden light' }
+				}
+			]
+		};
+		expect(buildDirectorChangeGroups(preview)).toEqual([
+			{
+				op: 'update_segment_prompt',
+				summary: 'Update prompt on segment seg-1',
+				kind: 'update',
+				rows: [
+					{
+						field: 'prompt',
+						oldValue: 'A quiet forest at dawn',
+						newValue: 'A quiet forest at dawn, mist rising, warm golden light'
+					}
+				]
+			}
+		]);
+	});
+
+	it('an add (before: null) shows the full new value, empty -> value for every field', () => {
+		const preview: ToolApprovalPreview = {
+			action: 'Update Video Director',
+			items: [],
+			changes: [
+				{
+					op: 'add_segment',
+					summary: 'Add segment seg-3',
+					before: null,
+					after: { id: 'seg-3', prompt: 'Wide shot of the mountain range' }
+				}
+			]
+		};
+		const [group] = buildDirectorChangeGroups(preview)!;
+		expect(group.kind).toBe('add');
+		expect(group.rows).toEqual(
+			expect.arrayContaining([
+				{ field: 'id', oldValue: '(empty)', newValue: 'seg-3' },
+				{ field: 'prompt', oldValue: '(empty)', newValue: 'Wide shot of the mountain range' }
+			])
+		);
+	});
+
+	it('a media op flattens nested media fields into full, untruncated path/label rows', () => {
+		const preview: ToolApprovalPreview = {
+			action: 'Update Video Director',
+			items: [],
+			changes: [
+				{
+					op: 'attach_media',
+					summary: 'Attach first-frame image to segment seg-3',
+					before: null,
+					after: {
+						role: 'first',
+						segment_id: 'seg-3',
+						media: {
+							path: 'outputs/2026-08-24/a-very-long-descriptive-mountain-frame-filename.png',
+							relative_path: '2026-08-24/a-very-long-descriptive-mountain-frame-filename.png'
+						}
+					}
+				}
+			]
+		};
+		const [group] = buildDirectorChangeGroups(preview)!;
+		expect(group.rows).toEqual(
+			expect.arrayContaining([
+				{ field: 'role', oldValue: '(empty)', newValue: 'first' },
+				{ field: 'segment_id', oldValue: '(empty)', newValue: 'seg-3' },
+				{
+					field: 'media.path',
+					oldValue: '(empty)',
+					newValue: 'outputs/2026-08-24/a-very-long-descriptive-mountain-frame-filename.png'
+				},
+				{
+					field: 'media.relative_path',
+					oldValue: '(empty)',
+					newValue: '2026-08-24/a-very-long-descriptive-mountain-frame-filename.png'
+				}
+			])
+		);
 	});
 });
 

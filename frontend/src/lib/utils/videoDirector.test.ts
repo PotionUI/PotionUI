@@ -2873,6 +2873,18 @@ describe('deriveDirectorMode', () => {
 		expect(deriveDirectorMode(v, caps)).toBe('flf');
 	});
 
+	it('timeline routing: a leading-only keyframe stays director when the capability does not declare i2v', () => {
+		const noI2vCaps = parseDirectorCapabilities({
+			modes: { t2v: {}, flf: {}, director: {} },
+			limits: { default_duration: 5, default_fps: 24 }
+		})!;
+		const v = normalizeDirectorValue(
+			{ mode: 'director', timeline: { keyframes: [{ id: 'k1', start: 0, role: 'first', strength: 1, media: media('/s.png') }] } },
+			noI2vCaps
+		);
+		expect(deriveDirectorMode(v, noI2vCaps)).toBe('director');
+	});
+
 	it('timeline routing: leading + trailing stays director when the capability does not declare flf', () => {
 		const noFlfCaps = parseDirectorCapabilities({
 			modes: { t2v: {}, i2v: {}, director: {} },

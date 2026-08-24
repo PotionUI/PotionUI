@@ -930,6 +930,91 @@ class TestUpdateVideoDirectorToolApprovalPreview:
         assert payload["reason"] == "User wants an image-conditioned shot"
 
 
+class TestUpdateVideoDirectorToolApprovalPreviewChanges:
+    """`ToolApprovalPreview.changes` -- the full-fidelity before/after
+    counterpart to the truncated `items` prose, so the approval surface can
+    render an actual diff instead of a one-line summary."""
+
+    @pytest.mark.asyncio
+    async def test_set_mode_change_carries_before_and_after(self):
+        doc = make_timeline_doc(mode="t2v")
+        form_state = make_form_state(doc, make_timeline_capabilities())
+        ctx = make_context(session_metadata={"form_state": form_state})
+
+        result = await UpdateVideoDirectorTool().execute(
+            ctx, operations=[{"op": "set_mode", "mode": "director"}]
+        )
+        assert result.preview.changes == [{
+            "op": "set_mode", "summary": "Set mode: director",
+            "before": {"mode": "t2v"}, "after": {"mode": "director"},
+        }]
+
+    @pytest.mark.asyncio
+    async def test_upsert_segment_update_carries_the_prior_segment_as_before(self):
+        doc = make_h3_doc()
+        form_state = make_form_state(doc, make_h3_capabilities())
+        ctx = make_context(session_metadata={"form_state": form_state})
+
+        result = await UpdateVideoDirectorTool().execute(
+            ctx, operations=[{"op": "upsert_segment", "segment": {"id": "seg-a", "prompt": "a lighthouse at dusk"}}]
+        )
+        assert result.success is True, result.error
+        change = result.preview.changes[0]
+        assert change["op"] == "upsert_segment"
+        assert change["before"]["id"] == "seg-a"
+        assert change["before"]["prompt"] == "a lighthouse in fog"
+        assert change["after"]["prompt"] == "a lighthouse at dusk"
+
+    @pytest.mark.asyncio
+    async def test_upsert_segment_add_carries_a_null_before(self):
+        doc = make_h3_doc()
+        form_state = make_form_state(doc, make_h3_capabilities())
+        ctx = make_context(session_metadata={"form_state": form_state})
+
+        result = await UpdateVideoDirectorTool().execute(
+            ctx, operations=[{"op": "upsert_segment", "segment": {"prompt": "a submarine dives beneath the waves", "duration": 4}}]
+        )
+        assert result.success is True, result.error
+        change = result.preview.changes[0]
+        assert change["before"] is None
+        assert change["after"]["prompt"] == "a submarine dives beneath the waves"
+
+    @pytest.mark.asyncio
+    async def test_upsert_media_add_carries_a_null_before_and_the_resolved_path_after(self):
+        doc = make_timeline_doc(mode="i2v")
+        form_state = make_form_state(doc, make_timeline_capabilities(), form_data=make_hero_form_data())
+        ctx = make_context(session_metadata={"form_state": form_state})
+
+        result = await UpdateVideoDirectorTool().execute(
+            ctx,
+            operations=[{
+                "op": "upsert_media",
+                "media": {"role": "first", "form_media": {"field": "reference_image", "label": "hero"}},
+            }],
+        )
+        assert result.success is True, result.error
+        change = result.preview.changes[0]
+        assert change["op"] == "upsert_media"
+        assert change["before"] is None
+        assert change["after"]["path"] == "uploads/hero.png"
+        assert change["after"]["role"] == "first"
+
+    @pytest.mark.asyncio
+    async def test_remove_segment_carries_the_removed_segment_as_before_and_a_null_after(self):
+        doc = make_h3_doc()
+        form_state = make_form_state(doc, make_h3_capabilities())
+        ctx = make_context(session_metadata={"form_state": form_state})
+
+        result = await UpdateVideoDirectorTool().execute(
+            ctx, operations=[{"op": "remove_segment", "id": "seg-b"}]
+        )
+        assert result.success is True, result.error
+        change = result.preview.changes[0]
+        assert change["op"] == "remove_segment"
+        assert change["before"]["id"] == "seg-b"
+        assert change["after"] is None
+
+
 # ---------------------------------------------------------------------------
 # UpdateVideoDirectorTool - execute_confirmed
 # ---------------------------------------------------------------------------
@@ -1940,6 +2025,70 @@ class TestUpdateVideoDirectorToolShotMarkers:
         assert result.success is True, result.error
 
 
+class TestUpdateVideoDirectorToolDuplicateGuard:
+    """A model shown only add-shaped examples imitates them and re-describes
+    an existing shot as a new upsert_segment instead of updating it by id --
+    the guard catches the clear cases and names the id to retry with."""
+
+    @pytest.mark.asyncio
+    async def test_exact_duplicate_prompt_case_and_whitespace_insensitive_is_rejected(self):
+        doc = make_h3_doc()
+        ctx = make_context(session_metadata={"form_state": make_form_state(doc, make_h3_capabilities())})
+
+        result = await UpdateVideoDirectorTool().execute(
+            ctx, operations=[{"op": "upsert_segment", "segment": {"prompt": "  A Lighthouse In Fog  ", "duration": 6}}],
+        )
+        assert result.success is False
+        assert "seg-a" in result.error
+        assert 'upsert_segment with "id": \'seg-a\'' in result.error
+
+    @pytest.mark.asyncio
+    async def test_long_prefix_duplicate_is_rejected(self):
+        doc = make_h3_doc(segments=[
+            {"id": "seg-a", "prompt": "a wide establishing shot of the canyon at sunrise", "duration": 6,
+             "loras": None, "keyframe": None, "keyframe_strength": 1, "sub_type_override": None},
+        ])
+        ctx = make_context(session_metadata={"form_state": make_form_state(doc, make_h3_capabilities())})
+
+        result = await UpdateVideoDirectorTool().execute(
+            ctx, operations=[{"op": "upsert_segment", "segment": {
+                "prompt": "a wide establishing shot of the canyon at sunrise, with birds", "duration": 6,
+            }}],
+        )
+        assert result.success is False
+        assert "seg-a" in result.error
+
+    @pytest.mark.asyncio
+    async def test_short_coincidental_prefix_is_not_flagged(self):
+        doc = make_h3_doc()
+        ctx = make_context(session_metadata={"form_state": make_form_state(doc, make_h3_capabilities())})
+
+        result = await UpdateVideoDirectorTool().execute(
+            ctx, operations=[{"op": "upsert_segment", "segment": {"prompt": "a lighthouse", "duration": 6}}],
+        )
+        assert result.success is True, result.error
+
+    @pytest.mark.asyncio
+    async def test_updating_by_id_with_the_same_prompt_is_never_flagged(self):
+        doc = make_h3_doc()
+        ctx = make_context(session_metadata={"form_state": make_form_state(doc, make_h3_capabilities())})
+
+        result = await UpdateVideoDirectorTool().execute(
+            ctx, operations=[{"op": "upsert_segment", "segment": {"id": "seg-a", "prompt": "a lighthouse in fog", "duration": 7}}],
+        )
+        assert result.success is True, result.error
+
+    @pytest.mark.asyncio
+    async def test_a_genuinely_different_new_shot_is_not_flagged(self):
+        doc = make_h3_doc()
+        ctx = make_context(session_metadata={"form_state": make_form_state(doc, make_h3_capabilities())})
+
+        result = await UpdateVideoDirectorTool().execute(
+            ctx, operations=[{"op": "upsert_segment", "segment": {"prompt": "a submarine dives beneath the waves", "duration": 6}}],
+        )
+        assert result.success is True, result.error
+
+
 class TestUpdateVideoDirectorToolDescriptionRecipe:
     def test_the_composition_recipe_leads_the_description(self):
         """Small models truncate attention over a long spec, so the rule they
@@ -2041,6 +2190,29 @@ class TestUpdateVideoDirectorToolExampleShape:
         described = UpdateVideoDirectorTool().parameters["properties"]["operations"]["description"]
         assert "<tool_call>" not in described
         assert described.rstrip().endswith("]")
+
+    def test_operations_example_parses_and_shows_both_update_and_add(self):
+        described = UpdateVideoDirectorTool().parameters["properties"]["operations"]["description"]
+        example = described.rsplit("This argument's value looks like: ", 1)[-1]
+        ops = json.loads(example)
+        assert len(ops) == 2
+        assert ops[0]["op"] == "upsert_segment" and ops[0]["segment"]["id"] == "seg-a"
+        assert ops[1]["op"] == "upsert_segment" and "id" not in ops[1]["segment"]
+
+    def test_media_example_parses_and_is_taught_in_the_hint(self):
+        # Lives in `hint`, not `description` -- `description` feeds the
+        # reshipped-every-turn tool schema under a tight char budget
+        # (test_tool_schema_sizes.py); `hint` doesn't.
+        from src.features.llm.tools.builtin.video_director_tool import _MEDIA_OPERATION_EXAMPLE
+
+        op = json.loads(_MEDIA_OPERATION_EXAMPLE)
+        assert op["op"] == "upsert_media"
+        assert op["media"]["form_media"]["field"]
+        assert _MEDIA_OPERATION_EXAMPLE in UpdateVideoDirectorTool().hint
+
+    def test_description_states_id_semantics_for_upsert_segment(self):
+        description = UpdateVideoDirectorTool().description
+        assert "'id' updates that shot, absent adds a new one" in description
 
     @pytest.mark.asyncio
     async def test_the_no_operations_error_teaches_the_whole_call(self):

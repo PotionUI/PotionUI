@@ -18,7 +18,7 @@ import json
 import logging
 import re
 import uuid
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
 from src.features.llm.tools.builtin.utils import video_director_active
@@ -80,9 +80,19 @@ _OP_PAYLOADS = {
     "set_continuation": ("continuation", ("overlap_frames", "stitch")),
 }
 
+# Shows BOTH shapes upsert_segment accepts: an "id" updates that existing
+# shot (a model shown only add-shaped examples imitates them and adds
+# duplicate shots instead of updating -- repo lore), an omitted "id" adds a
+# new one.
 _OPERATIONS_EXAMPLE = (
-    '[{"op": "upsert_segment", "segment": {"prompt": "a wide shot of the desert", "duration": 4}}, '
+    '[{"op": "upsert_segment", "segment": {"id": "seg-a", "prompt": "a wide shot of the desert", "duration": 4}}, '
     '{"op": "upsert_segment", "segment": {"prompt": "close-up on the rider", "duration": 3}}]'
+)
+# Referenced from the tool's `hint`, not `description` -- `hint` isn't part
+# of the reshipped-every-turn tool schema `test_tool_schema_sizes.py` caps.
+_MEDIA_OPERATION_EXAMPLE = (
+    '{"op": "upsert_media", "media": {"role": "first", "segment_id": "seg-a", '
+    '"form_media": {"field": "start_image", "label": "sunset.png"}}}'
 )
 # Every example the model READS is the whole call, never a bare
 # `operations = [...]` assignment: sitting in the same context as the
@@ -190,6 +200,33 @@ def _shot_marker_problem(text: Any, context: str, field: str) -> Optional[str]:
     )
 
 
+# A model shown only add-shaped examples imitates them and re-describes an
+# existing shot as a new upsert_segment instead of updating it by id -- this
+# catches the clearest case of that (kept conservative: a short coincidental
+# prefix match is not flagged).
+_DUPLICATE_PROMPT_MIN_CHARS = 20
+
+
+def _duplicate_segment_id(prompt: Any, segments: Dict[str, Dict[str, Any]]) -> Optional[str]:
+    """The id of an existing segment whose prompt reads as the same shot as
+    `prompt` (normalized equality, or one is a prefix of the other and the
+    shorter side is long enough that a coincidental match is unlikely), or
+    None."""
+    needle = (prompt or "").strip().lower() if isinstance(prompt, str) else ""
+    if not needle:
+        return None
+    for seg_id, seg in segments.items():
+        existing = (seg.get("prompt") or "").strip().lower()
+        if not existing:
+            continue
+        if existing == needle:
+            return seg_id
+        shorter, longer = (existing, needle) if len(existing) <= len(needle) else (needle, existing)
+        if len(shorter) >= _DUPLICATE_PROMPT_MIN_CHARS and longer.startswith(shorter):
+            return seg_id
+    return None
+
+
 def _style_for(mode: str, capabilities: Dict[str, Any]) -> str:
     return "chain" if mode == "director" and bool(capabilities.get("segment_routing")) else "timeline"
 
@@ -247,7 +284,7 @@ def _new_audio_id() -> str:
     return f"audio_{uuid.uuid4().hex[:8]}"
 
 
-def _truncate(text: Any, limit: int = 60) -> str:
+def _truncate(text: Any, limit: int = 160) -> str:
     text = text if isinstance(text, str) else ""
     return text[:limit] + ("..." if len(text) > limit else "")
 
@@ -561,6 +598,96 @@ def _flatten_audio(entries: Any, form_data: Dict[str, Any]) -> List[Dict[str, An
     return out
 
 
+# Caps for render_context_summary -- a chat context block, not the full
+# document (get_video_director returns that), so it stays budget-conscious
+# the same way _render_music_director_summary does for Music Director.
+_CONTEXT_SUMMARY_MAX_SHOTS = 30
+_CONTEXT_SUMMARY_PROMPT_CHARS = 80
+_CONTEXT_SUMMARY_MAX_POOL_ITEMS = 20
+
+
+def _media_basename(path: Optional[str]) -> str:
+    return path.rsplit("/", 1)[-1] if isinstance(path, str) else "?"
+
+
+def render_context_summary(
+    doc: Dict[str, Any],
+    capabilities: Dict[str, Any],
+    form_data: Dict[str, Any],
+    preset_mode: Optional[str],
+    media_fields: Sequence[str] = (),
+) -> List[str]:
+    """Compact snapshot of the active Video Director document for the chat
+    workspace block: a capped shot list (id, prompt, length, sub_type in
+    chain style, its own attached media) plus any form media not yet
+    attached to a shot -- the same pool `upsert_media`'s `form_media`
+    addresses (mirrors `_resolve_form_media`/`_form_media_items`).
+    `media_fields` names the form's media-loader fields (from the active
+    schema); an empty sequence just skips that section. Called by
+    `ChatContextBuilder._render_video_director_summary`, parallel to
+    `_render_music_director_summary` for Music Director.
+    """
+    flat = _flatten(doc, apply_preset_mode_overlay(capabilities, preset_mode), form_data)
+    style = flat["style"]
+
+    media_by_segment: Dict[Optional[str], List[Dict[str, Any]]] = {}
+    attached_paths = set()
+    for m in flat["media"]:
+        media_by_segment.setdefault(m.get("segment_id"), []).append(m)
+        if m.get("path"):
+            attached_paths.add(m["path"])
+
+    lines: List[str] = [f"  Mode: {flat['mode']} ({style} style)"]
+
+    segments = flat["segments"]
+    shown = segments[:_CONTEXT_SUMMARY_MAX_SHOTS]
+    if shown:
+        lines.append(f"  Shots ({len(segments)}):")
+        for seg in shown:
+            prompt = _truncate(seg.get("prompt") or "(no prompt)", _CONTEXT_SUMMARY_PROMPT_CHARS)
+            if seg.get("duration") is not None:
+                timing = f"{seg['duration']}s"
+            elif seg.get("frames") is not None:
+                timing = f"{seg['frames']}f"
+            else:
+                timing = f"{seg.get('start')}s-{seg.get('end')}s"
+            detail = f"{timing}, {seg['sub_type']}" if style == "chain" else timing
+            line = f'    - id={seg["id"]}: "{prompt}" ({detail})'
+            seg_media = media_by_segment.get(seg["id"]) or []
+            if seg_media:
+                line += " -- media: " + ", ".join(
+                    f"{m['role']}={_media_basename(m.get('path'))}" for m in seg_media
+                )
+            lines.append(line)
+        overflow = len(segments) - len(shown)
+        if overflow > 0:
+            lines.append(f"    …and {overflow} more shots -- call get_video_director for the rest.")
+
+    loose_media = media_by_segment.get(None) or []
+    if loose_media:
+        lines.append(
+            "  Other media: " + ", ".join(f"{m['role']}={_media_basename(m.get('path'))}" for m in loose_media)
+        )
+
+    pool: List[str] = []
+    for field_name in media_fields:
+        for item in _form_media_items(field_name, form_data):
+            path = item.get("path") or item.get("relative_path")
+            if not path or path in attached_paths:
+                continue
+            label = item.get("label") or item.get("name") or _media_basename(path)
+            pool.append(f'"{label}" on {field_name!r}')
+    if pool:
+        shown_pool = pool[:_CONTEXT_SUMMARY_MAX_POOL_ITEMS]
+        line = "  Available media not yet attached: " + ", ".join(shown_pool)
+        overflow_pool = len(pool) - len(shown_pool)
+        if overflow_pool > 0:
+            line += f", +{overflow_pool} more"
+        lines.append(line)
+
+    return lines
+
+
 def _capability_summary(capabilities: Dict[str, Any], mode: str, style: str) -> Dict[str, Any]:
     """Everything the model may do to THIS document, derived from the preset's
     declared capabilities -- never hardcoded prose about a family."""
@@ -763,11 +890,14 @@ def _how_to_edit(mode: str, style: str, capabilities: Dict[str, Any]) -> str:
 
 def _apply_operations(
     operations: List[Dict[str, Any]], flat: Dict[str, Any], capabilities: Dict[str, Any], form_data: Dict[str, Any]
-) -> Tuple[List[Dict[str, Any]], List[str]]:
+) -> Tuple[List[Dict[str, Any]], List[str], List[Dict[str, Any]]]:
     """Apply `operations` to a working copy derived from `flat`, validating the
     END state (not each operation in isolation). Returns
-    `(filled_operations, summary_lines)` or raises `_OperationError` carrying
-    every problem found.
+    `(filled_operations, summary_lines, changes)` or raises `_OperationError`
+    carrying every problem found. `changes` is the full-fidelity counterpart
+    to `summary` -- one `{op, summary, before, after}` per applied operation,
+    `before`/`after` None for an add/remove -- for a ToolApprovalPreview that
+    needs more than the prose summary line to render a real diff.
     """
     modes_caps = capabilities.get("modes") or {}
     limits = capabilities.get("limits") or {}
@@ -782,6 +912,8 @@ def _apply_operations(
     segment_order: List[str] = [s["id"] for s in flat["segments"]]
     media: Dict[str, Dict[str, Any]] = {m["id"]: dict(m) for m in flat["media"]}
     audio: Dict[str, Dict[str, Any]] = {a["id"]: dict(a) for a in flat.get("audio") or []}
+    global_prompt = flat.get("global_prompt") or ""
+    global_negative_prompt = flat.get("negative_prompt") or ""
 
     def total_duration() -> Optional[float]:
         """How long the finished composition runs, in seconds: settings.duration
@@ -797,6 +929,7 @@ def _apply_operations(
 
     filled_ops: List[Dict[str, Any]] = []
     summary: List[str] = []
+    changes: List[Dict[str, Any]] = []
     errors: List[str] = []
 
     for i, raw_op in enumerate(operations):
@@ -815,10 +948,15 @@ def _apply_operations(
             if new_mode not in allowed_modes:
                 errors.append(f"{context}: mode {new_mode!r} is not enabled for this preset (allowed: {allowed_modes})")
                 continue
+            old_mode = mode
             mode = new_mode
             style = _style_for(mode, capabilities)
             filled_ops.append({"op": "set_mode", "mode": mode})
             summary.append(f"Set mode: {mode}")
+            changes.append({
+                "op": "set_mode", "summary": summary[-1],
+                "before": {"mode": old_mode}, "after": {"mode": mode},
+            })
 
         elif op == "set_settings":
             patch = raw_op.get("settings")
@@ -841,9 +979,14 @@ def _apply_operations(
                     "of its shots; set each segment's own duration with upsert_segment instead"
                 )
                 continue
+            old_settings = {k: settings.get(k) for k in applied}
             settings.update(applied)
             filled_ops.append({"op": "set_settings", "settings": applied})
             summary.append("Update settings: " + ", ".join(f"{k}={v}" for k, v in applied.items()))
+            changes.append({
+                "op": "set_settings", "summary": summary[-1],
+                "before": old_settings, "after": dict(applied),
+            })
 
         elif op == "set_prompt":
             prompt = raw_op.get("prompt")
@@ -854,16 +997,29 @@ def _apply_operations(
             if marker_problem:
                 errors.append(marker_problem)
                 continue
+            old_global_prompt = global_prompt
+            global_prompt = prompt
             filled_ops.append({"op": "set_prompt", "prompt": prompt})
             summary.append(f'Set direction prompt: "{_truncate(prompt)}"')
+            changes.append({
+                "op": "set_prompt", "summary": summary[-1],
+                "before": {"prompt": old_global_prompt}, "after": {"prompt": prompt},
+            })
 
         elif op == "set_negative_prompt":
             negative_prompt = raw_op.get("negative_prompt")
             if not isinstance(negative_prompt, str):
                 errors.append(f"{context}: 'negative_prompt' must be a string")
                 continue
+            old_global_negative_prompt = global_negative_prompt
+            global_negative_prompt = negative_prompt
             filled_ops.append({"op": "set_negative_prompt", "negative_prompt": negative_prompt})
             summary.append(f'Set negative prompt: "{_truncate(negative_prompt)}"')
+            changes.append({
+                "op": "set_negative_prompt", "summary": summary[-1],
+                "before": {"negative_prompt": old_global_negative_prompt},
+                "after": {"negative_prompt": negative_prompt},
+            })
 
         elif op == "upsert_segment":
             seg_patch = raw_op.get("segment")
@@ -875,6 +1031,7 @@ def _apply_operations(
             is_new = requested_id not in segments
             seg_id = requested_id if requested_id else _new_segment_id()
 
+            before_segment = dict(segments[seg_id]) if not is_new else None
             current = dict(segments[seg_id]) if not is_new else {
                 "id": seg_id, "prompt": "", "negative_prompt": None, "start": None,
                 "end": None, "frames": None, "duration": None, "seed": None,
@@ -889,6 +1046,17 @@ def _apply_operations(
             for key in ("prompt", "negative_prompt", "seed"):
                 if key in seg_patch:
                     current[key] = seg_patch[key]
+
+            if is_new:
+                dup_id = _duplicate_segment_id(current.get("prompt"), segments)
+                if dup_id:
+                    errors.append(
+                        f"{context}: this reads as the same shot as existing segment {dup_id!r} "
+                        f"(prompt: {_truncate(segments[dup_id].get('prompt') or '', 60)!r}) -- if you meant "
+                        f"to change that shot, upsert_segment with \"id\": {dup_id!r} instead of adding a "
+                        "new one"
+                    )
+                    continue
 
             if style == "chain":
                 for key in ("start", "end"):
@@ -961,32 +1129,43 @@ def _apply_operations(
 
             # `sub_type` is derived from the end state (media + position), never
             # sent: the backend owns that derivation.
-            filled_ops.append({
-                "op": "upsert_segment",
-                "segment": {k: v for k, v in current.items() if k != "sub_type"},
-            })
+            after_segment = {k: v for k, v in current.items() if k != "sub_type"}
+            filled_ops.append({"op": "upsert_segment", "segment": after_segment})
             label = current.get("prompt") or seg_id
             timing = f"frames {current.get('frames')}" if style == "chain" else f"{current.get('start')}s-{current.get('end')}s"
             summary.append(f'{"Add" if is_new else "Update"} segment "{_truncate(label)}" ({timing})')
+            changes.append({
+                "op": "upsert_segment", "summary": summary[-1],
+                "before": before_segment, "after": after_segment,
+            })
 
         elif op == "remove_segment":
             seg_id = raw_op.get("id")
             if not seg_id or seg_id not in segments:
                 errors.append(f"{context}: unknown segment id {seg_id!r}")
                 continue
-            del segments[seg_id]
+            removed_segment = segments.pop(seg_id)
             segment_order = [s for s in segment_order if s != seg_id]
             filled_ops.append({"op": "remove_segment", "id": seg_id})
             summary.append(f"Remove segment {seg_id}")
+            changes.append({
+                "op": "remove_segment", "summary": summary[-1],
+                "before": removed_segment, "after": None,
+            })
 
         elif op == "reorder_segments":
             ids = raw_op.get("ids")
             if not isinstance(ids, list) or sorted(map(str, ids)) != sorted(map(str, segment_order)):
                 errors.append(f"{context}: 'ids' must be a permutation of the current segment ids {segment_order}")
                 continue
+            old_order = segment_order
             segment_order = list(ids)
             filled_ops.append({"op": "reorder_segments", "ids": segment_order})
             summary.append("Reorder segments: " + ", ".join(segment_order))
+            changes.append({
+                "op": "reorder_segments", "summary": summary[-1],
+                "before": {"ids": old_order}, "after": {"ids": list(segment_order)},
+            })
 
         elif op == "upsert_media":
             media_patch = raw_op.get("media")
@@ -1053,6 +1232,7 @@ def _apply_operations(
             requested_id = media_patch.get("id")
             is_new = requested_id not in media
             media_id = requested_id if requested_id else _new_media_id()
+            before_media = dict(media[media_id]) if not is_new else None
 
             entry = {
                 "id": media_id, "role": role, "segment_id": segment_id, "at": media_patch.get("at"),
@@ -1071,15 +1251,23 @@ def _apply_operations(
             filled_ops.append({"op": "upsert_media", "media": filled_media})
             source = f" (from form field {form_ref['field']!r})" if form_ref else ""
             summary.append(f'{"Add" if is_new else "Update"} {role} media: {path}{source}')
+            changes.append({
+                "op": "upsert_media", "summary": summary[-1],
+                "before": before_media, "after": filled_media,
+            })
 
         elif op == "remove_media":
             media_id = raw_op.get("id")
             if not media_id or media_id not in media:
                 errors.append(f"{context}: unknown media id {media_id!r}")
                 continue
-            del media[media_id]
+            removed_media = media.pop(media_id)
             filled_ops.append({"op": "remove_media", "id": media_id})
             summary.append(f"Remove media {media_id}")
+            changes.append({
+                "op": "remove_media", "summary": summary[-1],
+                "before": removed_media, "after": None,
+            })
 
         elif op == "upsert_audio":
             if not _mode_caps(mode, capabilities).get("audio"):
@@ -1118,6 +1306,7 @@ def _apply_operations(
             requested_id = audio_patch.get("id")
             is_new = requested_id not in audio
             audio_id = requested_id if requested_id else _new_audio_id()
+            before_audio = dict(audio[audio_id]) if not is_new else None
             entry = {
                 "id": audio_id, "role": audio_role, "start": start,
                 "trim_start": trim_start, "length": length, "path": audio_path,
@@ -1125,15 +1314,23 @@ def _apply_operations(
             audio[audio_id] = entry
             filled_ops.append({"op": "upsert_audio", "audio": dict(entry)})
             summary.append(f'{"Add" if is_new else "Update"} {audio_role} audio: {audio_path}')
+            changes.append({
+                "op": "upsert_audio", "summary": summary[-1],
+                "before": before_audio, "after": dict(entry),
+            })
 
         elif op == "remove_audio":
             audio_id = raw_op.get("id")
             if not audio_id or audio_id not in audio:
                 errors.append(f"{context}: unknown audio id {audio_id!r}")
                 continue
-            del audio[audio_id]
+            removed_audio = audio.pop(audio_id)
             filled_ops.append({"op": "remove_audio", "id": audio_id})
             summary.append(f"Remove audio {audio_id}")
+            changes.append({
+                "op": "remove_audio", "summary": summary[-1],
+                "before": removed_audio, "after": None,
+            })
 
         elif op == "set_continuation":
             if style != "chain":
@@ -1149,6 +1346,7 @@ def _apply_operations(
             if not isinstance(patch, dict):
                 errors.append(f"{context}: 'continuation' must be an object")
                 continue
+            before_continuation = dict(continuation) if isinstance(continuation, dict) else None
             declared = _mode_caps(mode, capabilities).get("continuation") or {}
             current_continuation = dict(continuation or {
                 "overlap_frames": declared.get("overlap_frames", 0),
@@ -1177,6 +1375,10 @@ def _apply_operations(
                 f"Set shot joining: overlap {continuation['overlap_frames']} frames, "
                 f"stitch {'on' if continuation['stitch'] else 'off'}"
             )
+            changes.append({
+                "op": "set_continuation", "summary": summary[-1],
+                "before": before_continuation, "after": dict(continuation),
+            })
 
         else:
             errors.append(f"{context}: unknown op {op!r}")
@@ -1219,7 +1421,7 @@ def _apply_operations(
     if errors:
         raise _OperationError("; ".join(errors))
 
-    return filled_ops, summary
+    return filled_ops, summary, changes
 
 
 def _validate_chain_end_state(
@@ -1406,7 +1608,8 @@ class UpdateVideoDirectorTool(BaseTool):
             "NOT call this tool; emit one tag per version in your reply text instead: "
             '<tool_action type="update_director_segment" segment_index="N" segment_id="ID">'
             "proposed prompt text</tool_action>, using the index and id from "
-            "get_video_director's segments."
+            "get_video_director's segments. To attach existing form media to a shot: "
+            f"{_MEDIA_OPERATION_EXAMPLE}."
         )
 
     @property
@@ -1432,7 +1635,8 @@ class UpdateVideoDirectorTool(BaseTool):
             "'duration' rejected in chain style (it's the sum of the shots there).\n"
             "- set_prompt {prompt} / set_negative_prompt {negative_prompt}: the global prompts.\n"
             "- upsert_segment {segment: {id?, prompt?, negative_prompt?, start?, end?, duration?, "
-            "frames?, sub_type_override?, seed?, steps?, cfg?, references?}}: upserts by id. "
+            "frames?, sub_type_override?, seed?, steps?, cfg?, references?}}: "
+            "upserts by id ('id' updates that shot, absent adds a new one). "
             "duration/frames/sub_type_override/steps/cfg are chain-only; start/end (start<end) "
             "are timeline-only. 'references' -- {form_media: {field, label?, path?}} or {path} "
             "entries -- picks a subset of the reference pool for this shot, where "
@@ -1512,7 +1716,7 @@ class UpdateVideoDirectorTool(BaseTool):
         flat = _flatten(doc, capabilities, form_data)
 
         try:
-            filled_ops, summary = _apply_operations(operations, flat, capabilities, form_data)
+            filled_ops, summary, changes = _apply_operations(operations, flat, capabilities, form_data)
         except _OperationError as e:
             return ToolResult(success=False, data="", error=str(e))
 
@@ -1525,7 +1729,7 @@ class UpdateVideoDirectorTool(BaseTool):
         if kwargs.get("reason"):
             result["reason"] = kwargs["reason"]
 
-        preview = ToolApprovalPreview(action="Update Video Director", items=list(summary))
+        preview = ToolApprovalPreview(action="Update Video Director", items=list(summary), changes=changes)
         return ToolResult(success=True, data=json.dumps(result), preview=preview)
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
@@ -1541,7 +1745,7 @@ class UpdateVideoDirectorTool(BaseTool):
         flat = _flatten(doc, capabilities, form_data)
 
         try:
-            filled_ops, summary = _apply_operations(operations, flat, capabilities, form_data)
+            filled_ops, summary, _changes = _apply_operations(operations, flat, capabilities, form_data)
         except _OperationError as e:
             return ToolResult(success=False, data="", error=str(e))
 

@@ -23,6 +23,19 @@ export interface ChatMessageData {
 }
 
 /**
+ * One full-fidelity operation inside a `ToolApprovalPreview.changes` list —
+ * richer than the chip-list `items`, since `before`/`after` carry the actual
+ * segment/media/settings shape rather than a truncated string. `before: null`
+ * marks an add, `after: null` a removal; both set is an update.
+ */
+export interface ToolApprovalChange {
+	op: string;
+	summary: string;
+	before: Record<string, unknown> | null;
+	after: Record<string, unknown> | null;
+}
+
+/**
  * A structured, human-facing preview of an action awaiting approval, filled by
  * a `requires_approval` tool. Lets the approval surface state intent — the
  * action verb, what it acts on, and the concrete items — instead of dumping raw
@@ -33,6 +46,9 @@ export interface ToolApprovalPreview {
 	target?: string | null;
 	items: string[];
 	note?: string | null;
+	/** Present only for tools (currently video director) that preview full
+	 * before/after operations rather than a flat item list. */
+	changes?: ToolApprovalChange[] | null;
 }
 
 export interface ToolExecution {

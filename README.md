@@ -59,6 +59,15 @@ losing any of them. Switching presets swaps the form to match the model; the
 same tab handles txt2img, img2img, inpainting, or a video/audio mode,
 whichever the preset declares.
 
+## History, tags, and collections
+
+https://github.com/user-attachments/assets/f46cde26-0288-4e05-ac90-c3be31f0d2dd
+
+Everything you generate is saved automatically, with the exact parameters
+that produced it. Tag generations to group and re-find them, bulk-delete by
+tag when you're clearing out throwaway experiments, sort work into
+collections, and pull two results up side by side to compare.
+
 ## Video Director
 
 <!--
@@ -85,19 +94,6 @@ with lyrics/tags filled in.
 MiniMax-Music3 gets the same treatment: sections compile straight to tagged
 lyrics, so you write verses and choruses instead of hand-authoring bracketed
 section tags — the compiler does that part.
-
-## History, tags, and collections
-
-<!--
-SCREENSHOT SLOT — HISTORY
-History page, grid view populated with a handful of generations, tag filter
-bar visible, collections sidebar open.
--->
-
-Everything you generate is saved automatically, with the exact parameters
-that produced it. Tag generations to group and re-find them, bulk-delete by
-tag when you're clearing out throwaway experiments, sort work into
-collections, and pull two results up side by side to compare.
 
 ## Prompt tooling
 

@@ -116,3 +116,52 @@ def test_no_build_dir_is_a_no_op(tmp_path):
 
     assert resp.status_code == 404
     assert client.get("/api/ping").status_code == 200
+
+
+def _app_with_slash_routes() -> FastAPI:
+    """Routers registered with a prefix expose their root at `/prefix/` -
+    the frontend calls `/prefix` (no slash) and has always relied on
+    Starlette's 307 slash redirect to bridge the gap."""
+    app = FastAPI()
+
+    @app.get("/api/keybindings/")
+    async def list_bindings():
+        return {"bindings": []}
+
+    @app.post("/api/workspaces/")
+    async def save_workspace():
+        return {"saved": True}
+
+    return app
+
+
+def test_get_near_miss_still_slash_redirects_with_frontend_mounted(build_dir):
+    app = _app_with_slash_routes()
+    mount_frontend(app, build_dir=build_dir)
+    client = TestClient(app)
+
+    resp = client.get("/api/keybindings", follow_redirects=False)
+
+    assert resp.status_code == 307
+    assert resp.headers["location"].endswith("/api/keybindings/")
+
+
+def test_post_near_miss_slash_redirects_instead_of_405(build_dir):
+    app = _app_with_slash_routes()
+    mount_frontend(app, build_dir=build_dir)
+    client = TestClient(app)
+
+    resp = client.post("/api/workspaces", follow_redirects=False)
+
+    assert resp.status_code == 307
+    assert resp.headers["location"].endswith("/api/workspaces/")
+
+
+def test_wrong_method_on_a_real_api_route_is_still_a_405(build_dir):
+    app = _app_with_slash_routes()
+    mount_frontend(app, build_dir=build_dir)
+    client = TestClient(app)
+
+    resp = client.post("/api/keybindings/", follow_redirects=False)
+
+    assert resp.status_code == 405

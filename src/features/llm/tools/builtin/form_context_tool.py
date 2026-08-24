@@ -4,7 +4,7 @@ import json
 import logging
 from typing import Any, Dict, Optional
 
-from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
+from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
 from src.features.llm.tools.builtin.utils import video_director_active
 from src.platform.resources.prompt_variables import render_prompt_variable_lines
 
@@ -35,69 +35,13 @@ def _compact_media_value(value: Any) -> Any:
 
 
 _SEGMENT_UPDATE_INSTRUCTION = (
-    'To propose changes to segments, call the update_segment tool with an '
-    '`updates` array of {segment_id, segment_index, content} — the user approves '
-    'before anything is applied. Never print the replacement text in your reply. '
+    'To propose changes to segments, include '
+    '<tool_action type="update_segment" segment_index="N" segment_id="ID">'
+    'new content</tool_action> blocks in your response text. '
     'Existing `#...` tokens in segment content are phrasebook chips — keep them unless '
     'you are intentionally changing them. You may embed new markers obtained from '
     'get_phrasebook_values into your proposed content.'
 )
-
-
-def _content_preview(content: str, limit: int = 60) -> str:
-    text = (content or "").strip()
-    if len(text) <= limit:
-        return text
-    return text[:limit].rstrip() + "…"
-
-
-def _resolve_segment(update: Dict[str, Any], segments: list):
-    """Resolve one update against the live segment list. Id is authoritative,
-    index is the fallback — same semantics as the frontend's
-    locateSegmentIndex. Returns ``(index, segment, error)``."""
-    segment_id = update.get("segment_id")
-    if segment_id:
-        for idx, seg in enumerate(segments):
-            if seg.get("id") == segment_id:
-                return idx, seg, None
-
-    segment_index = update.get("segment_index")
-    if segment_index is not None:
-        try:
-            idx = int(segment_index)
-        except (TypeError, ValueError):
-            idx = None
-        if idx is not None and 0 <= idx < len(segments):
-            return idx, segments[idx], None
-
-    valid_ids = ", ".join(seg.get("id", "") for seg in segments if seg.get("id")) or "none"
-    valid_indices = f"0-{len(segments) - 1}" if segments else "none"
-    return None, None, (
-        f"No segment matches segment_id={segment_id!r} / segment_index={segment_index!r}. "
-        f"Valid ids: {valid_ids}. Valid indices: {valid_indices}."
-    )
-
-
-def _resolve_updates(updates: list, segments: list):
-    """Resolve every requested update, building the payload shape and a terse
-    per-segment preview. Returns ``(payload_updates, summary, error)`` — error
-    is set (and the other two empty) the moment any one update fails to
-    resolve, so a partial apply never reaches the user."""
-    payload_updates = []
-    summary = []
-    for update in updates:
-        idx, seg, error = _resolve_segment(update, segments)
-        if error:
-            return [], [], error
-        content = update.get("content", "")
-        label = seg.get("name") or f"segment {idx}"
-        summary.append(f"{label}: {_content_preview(content)}")
-        payload_updates.append({
-            "segment_id": seg.get("id", ""),
-            "segment_index": idx,
-            "content": content,
-        })
-    return payload_updates, summary, None
 
 
 class GetCurrentSegmentsTool(BaseTool):
@@ -199,136 +143,6 @@ class GetCurrentSegmentsTool(BaseTool):
         except Exception as e:
             logger.error(f"Error reading current segments from session metadata: {e}")
             return ToolResult(success=False, data="", error=str(e))
-
-
-class UpdateSegmentTool(BaseTool):
-    """Proposes new content for the user's prompt segments."""
-
-    modes = ["generation"]
-    icon = "text-cursor-input"
-
-    def is_available(self, form_state: Optional[Dict[str, Any]]) -> bool:
-        # Same gate as GetCurrentSegmentsTool -- with the Video Director active,
-        # "segment #N" means a shot, not a prompt segment.
-        return not video_director_active(form_state)
-
-    @property
-    def name(self) -> str:
-        return "update_segment"
-
-    @property
-    def group(self) -> str:
-        return "Form & segments"
-
-    @property
-    def user_description(self) -> str:
-        return "Proposes new text for one or more of your prompt segments."
-
-    @property
-    def requires_approval(self) -> bool:
-        return True
-
-    @property
-    def hint(self) -> str:
-        return (
-            "When you propose new text for a prompt segment -- including presenting an "
-            "enhance_prompt result -- call this tool; never print the replacement text in "
-            "your reply."
-            "{{#if get_current_segments}} Use the index and id from get_current_segments.{{/if}} "
-            "Existing `#...` tokens in segment content are phrasebook chips -- keep them "
-            "unless you are intentionally changing them."
-        )
-
-    @property
-    def description(self) -> str:
-        return (
-            "Propose new content for one or more prompt segments. `updates` is an array of "
-            "{segment_id, segment_index, content} -- segment_id is authoritative, "
-            "segment_index is a fallback used when the id is unknown or stale. "
-            "The user approves before anything is applied."
-        )
-
-    @property
-    def parameters(self) -> Dict[str, Any]:
-        return {
-            "type": "object",
-            "properties": {
-                "updates": {
-                    "type": "array",
-                    "description": "One entry per segment to change.",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "segment_id": {
-                                "type": "string",
-                                "description": "The segment's id (authoritative).",
-                            },
-                            "segment_index": {
-                                "type": "integer",
-                                "description": "The segment's index (fallback when id is unknown).",
-                            },
-                            "content": {
-                                "type": "string",
-                                "description": "The proposed new content for the segment.",
-                            },
-                        },
-                        "required": ["content"],
-                    },
-                },
-                "reason": {
-                    "type": "string",
-                    "description": "Optional explanation for why these changes are proposed.",
-                },
-            },
-            "required": ["updates"],
-        }
-
-    async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
-        updates = kwargs.get("updates")
-        if not updates:
-            return ToolResult(
-                success=False, data="",
-                error="No updates provided. Specify at least one segment update.",
-            )
-
-        segments = context.session_metadata.get("segments")
-        if segments is None:
-            return ToolResult(
-                success=False, data="",
-                error="No segment data available. The user may not have any segments loaded.",
-            )
-
-        payload_updates, summary, error = _resolve_updates(updates, segments)
-        if error:
-            return ToolResult(success=False, data="", error=error)
-
-        result: Dict[str, Any] = {
-            "status": "pending_approval",
-            "updates": payload_updates,
-            "update_count": len(payload_updates),
-        }
-        if kwargs.get("reason"):
-            result["reason"] = kwargs["reason"]
-
-        preview = ToolApprovalPreview(action="Update segments", items=summary)
-        return ToolResult(success=True, data=json.dumps(result), preview=preview)
-
-    async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
-        updates = kwargs.get("updates") or []
-        segments = context.session_metadata.get("segments") or []
-
-        payload_updates, summary, error = _resolve_updates(updates, segments)
-        if error:
-            return ToolResult(success=False, data="", error=error)
-
-        return ToolResult(
-            success=True,
-            data=json.dumps({
-                "action": "apply_segment_updates",
-                "updates": payload_updates,
-                "summary": summary,
-            }),
-        )
 
 
 class GetFormStateTool(BaseTool):

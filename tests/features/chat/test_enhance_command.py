@@ -223,12 +223,11 @@ class TestEnhancePromptToolStream:
         exec_data = next(te for te in tool_execs if te["tool_name"] == "enhance_prompt")
         # The Apply-able payload: the enhanced prompt plus the presentation
         # instruction, unchanged whether the tool is model-chosen or (formerly)
-        # slash-forced. The instruction now points the model at a real
-        # update_segment tool call, not the <tool_action> markup convention.
+        # slash-forced. The instruction wraps it in the update_segment
+        # <tool_action> tag, never printed as plain reply text.
         payload = json.loads(exec_data["result"]["data"])
         assert payload["enhanced_prompt"] == "rich prompt one"
-        assert "update_segment" in payload["instruction"]
-        assert "tool_action" not in payload["instruction"]
+        assert 'tool_action type="update_segment"' in payload["instruction"]
 
     @pytest.mark.asyncio
     async def test_plain_message_does_not_call_enhancement(self):

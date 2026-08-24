@@ -158,17 +158,29 @@ class TestBuildGenerationMode:
         assert "tool_action" in prompt
         assert "update_segment" in prompt
 
-    def test_segment_update_is_taught_as_a_real_tool_call(self):
-        """Prompt edits are taught as a real update_segment tool call now, not
-        the <tool_action> markup a local model otherwise generalizes to any
-        tool it has seen named (observed:
-        `<tool_action type="update_video_director" operations=[...]>`)."""
+    def test_segment_tag_is_scoped_and_complete(self):
+        """The prompt teaches a `<tool_action type="...">` tag for prompt-version
+        proposals, which a local model otherwise generalizes to any tool it has
+        seen named (observed: `<tool_action type="update_video_director"
+        operations=[...]>`). The scoping sentence has to sit WITH the example,
+        not sections away -- same contract shape update_director_segment mirrors.
+        Gated on get_current_segments alone (no Video Director involved) so the
+        gate is exercised, not just the unrestricted (allowed_names=None) case."""
         registry = ChatModeRegistry()
-        prompt = registry.resolve_system_prompt(build_generation_mode(), "- echo: Use to echo.")
-        instruction = "call the update_segment tool"
-        assert instruction in prompt
-        nearby = prompt[prompt.index(instruction):prompt.index(instruction) + 200]
-        assert "tool_action" not in nearby
+        prompt = registry.resolve_system_prompt(
+            build_generation_mode(), "- echo: Use to echo.", ["get_current_segments"]
+        )
+        tag_example = '<tool_action type="update_segment" segment_index="N" segment_id="ID">'
+        assert tag_example in prompt
+        scoping = "ONLY for offering prompt versions"
+        assert scoping in prompt
+        assert 0 < prompt.index(scoping) - prompt.index(tag_example) < 400
+
+    def test_segment_tag_absent_without_get_current_segments(self):
+        registry = ChatModeRegistry()
+        prompt = registry.resolve_system_prompt(build_generation_mode(), "- echo: Use to echo.", [])
+        assert "update_segment" not in prompt
+        assert "## Changing the prompt" not in prompt
 
     def test_director_segment_tag_is_scoped_and_complete(self):
         """The Video Director prompt-variant tag mirrors update_segment's contract:

@@ -19,11 +19,7 @@ from src.features.llm.tools.builtin.phrasebook_tool import (
     UpdatePhrasebookValuesTool,
 )
 from src.features.llm.tools.builtin.enhance_prompt_tool import EnhancePromptTool
-from src.features.llm.tools.builtin.form_context_tool import (
-    GetCurrentSegmentsTool,
-    GetFormStateTool,
-    UpdateSegmentTool,
-)
+from src.features.llm.tools.builtin.form_context_tool import GetCurrentSegmentsTool, GetFormStateTool
 from src.features.llm.tools.builtin.active_models_tool import GetActiveModelsTool
 from src.features.llm.tools.builtin.update_form_settings_tool import UpdateFormSettingsTool
 from src.features.llm.tools.builtin.search_prompts_tool import SearchModelPromptsTool
@@ -64,7 +60,6 @@ def register_builtin_tools(registry) -> None:
         UpdatePhrasebookValuesTool(),
         EnhancePromptTool(),
         GetCurrentSegmentsTool(),
-        UpdateSegmentTool(),
         GetFormStateTool(),
         GetActiveModelsTool(),
         UpdateFormSettingsTool(),

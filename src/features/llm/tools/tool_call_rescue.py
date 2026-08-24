@@ -12,14 +12,10 @@ is deliberately client-agnostic: it scans a finished assistant string, the one
 place every client's content-embedded output converges.
 
 The discriminator that keeps it from firing on legitimate text is the registered
-tool set: a ``<tool_action type="update_director_segment">`` (a real frontend
-convention, not a registered tool) is never touched, while
-``type="update_music_director"`` or ``type="update_segment"`` (registered
-tools) are. ``update_segment``'s tag carries its payload as inner TEXT between
-the open and close tags, unlike every other ``<tool_action>`` tag, whose
-attributes hold the whole payload — that shape gets a small special case (see
-``_update_segment_arguments``) to fold the tag into the tool's ``updates``
-array instead of the generic attribute dump.
+tool set: a ``<tool_action type="update_director_segment">`` or
+``type="update_segment"`` (real frontend conventions, not registered tools)
+is never touched, while ``type="update_music_director"`` (a registered tool)
+is.
 
 Inside a tag that clears that bar, the payload itself is decoded forgivingly,
 because a local model mangles the transport in ways that say nothing about what
@@ -316,50 +312,13 @@ def _parse_attributes(text: str) -> Tuple[Optional[str], Dict[str, Any], List[st
             problems.append(f"'{key}' could not be read: {problem}")
 
 
-_TOOL_ACTION_CLOSE_RE = re.compile(r"</tool_action>", re.IGNORECASE)
-
-
-def _update_segment_arguments(
-    content: str, attrs: Dict[str, Any], open_end: int
-) -> Tuple[Optional[Dict[str, Any]], Tuple[int, int]]:
-    """``update_segment``'s markup puts the proposed text BETWEEN the open and
-    close tags -- every other ``<tool_action>`` tag holds its whole payload in
-    attributes. Fold ``segment_id``/``segment_index``/the inner text into one
-    entry of the tool's ``updates`` array, and extend the span past the close
-    tag so the rescued call leaves no markup behind.
-
-    Returns ``(None, open_span)`` when the opening tag itself was truncated --
-    there is no reliable content boundary to recover from, so this falls back
-    to the generic (ambiguous) attribute dump.
-    """
-    if content[open_end - 1:open_end] != ">":
-        return None, (open_end, open_end)
-    close = _TOOL_ACTION_CLOSE_RE.search(content, open_end)
-    inner_end = close.start() if close else len(content)
-    span_end = close.end() if close else len(content)
-    update: Dict[str, Any] = {}
-    if "segment_id" in attrs:
-        update["segment_id"] = attrs["segment_id"]
-    if "segment_index" in attrs:
-        update["segment_index"] = attrs["segment_index"]
-    update["content"] = content[open_end:inner_end].strip()
-    return {"updates": [update]}, (open_end, span_end)
-
-
 def _detect_tool_action(content: str, registered: Set[str], out: List[NearMiss]) -> None:
     for m in _TOOL_ACTION_RE.finditer(content):
         type_name, attrs, problems = _parse_attributes(demangle_quote_tokens(m.group(1)))
         if type_name not in registered:
             continue
-        arguments = attrs or None
-        span = m.span()
-        if type_name == "update_segment":
-            segment_arguments, inner_span = _update_segment_arguments(content, attrs, m.end())
-            if segment_arguments is not None:
-                arguments = segment_arguments
-                span = (span[0], inner_span[1])
         out.append(NearMiss(
-            type_name, arguments, "tool_action_tag", span, "; ".join(problems) or None
+            type_name, attrs or None, "tool_action_tag", m.span(), "; ".join(problems) or None
         ))
 
 

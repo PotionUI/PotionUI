@@ -20,7 +20,6 @@ from src.features.llm.tools.builtin import (
     UpdatePhrasebookValuesTool,
     EnhancePromptTool,
     GetCurrentSegmentsTool,
-    UpdateSegmentTool,
     GetFormStateTool,
     GetActiveModelsTool,
     register_builtin_tools,
@@ -102,7 +101,6 @@ class TestRegisterBuiltinTools:
             "update_phrasebook_values",
             "enhance_prompt",
             "get_current_segments",
-            "update_segment",
             "get_form_state",
             "get_active_models",
             "update_form_settings",
@@ -2099,13 +2097,12 @@ class TestEnhancePromptTool:
         assert result.success is False
 
     @pytest.mark.asyncio
-    async def test_segment_instruction_calls_the_real_tool(self):
-        """The enhanced prompt is presented by calling update_segment as a real
-        tool -- never wrapped in <tool_action> markup in the reply text."""
+    async def test_segment_instruction_wraps_in_tool_action_tag(self):
+        """The enhanced prompt is presented wrapped in the update_segment
+        <tool_action> tag, never printed as plain reply text."""
         ctx = make_context(prompt_enhancement_manager=self._manager(), llm_id="llm-1")
         instruction = json.loads((await self._tool().execute(ctx, brief="a cat")).data)["instruction"]
-        assert "update_segment" in instruction
-        assert "tool_action" not in instruction
+        assert 'tool_action type="update_segment"' in instruction
 
     @pytest.mark.asyncio
     async def test_brief_passed_to_manager(self):
@@ -2169,7 +2166,7 @@ class TestEnhancePromptTool:
 
     def test_unavailable_when_video_director_active(self):
         """enhance_prompt's returned instruction points the model at the
-        update_segment tool, which has no target once the Video Director owns
+        update_segment tag, which has no target once the Video Director owns
         "segment #N" (a shot) -- so the tool drops out entirely there."""
         form_state = {"video_director": {"active": True}}
         assert self._tool().is_available(form_state) is False
@@ -2272,8 +2269,7 @@ class TestGetCurrentSegmentsTool:
         assert result.success is True
         data = json.loads(result.data)
         assert "instruction" in data
-        assert "update_segment" in data["instruction"]
-        assert "tool_action" not in data["instruction"]
+        assert 'tool_action type="update_segment"' in data["instruction"]
         assert "phrasebook chips" in data["instruction"]
         assert "get_phrasebook_values" in data["instruction"]
 
@@ -2287,158 +2283,6 @@ class TestGetCurrentSegmentsTool:
     def test_unavailable_when_video_director_active(self):
         form_state = {"video_director": {"active": True}}
         assert self._tool().is_available(form_state) is False
-
-
-# ---------------------------------------------------------------------------
-# UpdateSegmentTool
-# ---------------------------------------------------------------------------
-
-class TestUpdateSegmentToolSchema:
-    def _tool(self):
-        return UpdateSegmentTool()
-
-    def test_name_and_requires_approval(self):
-        tool = self._tool()
-        assert tool.name == "update_segment"
-        assert tool.requires_approval is True
-
-    def test_parameters_requires_updates(self):
-        schema = self._tool().to_schema()["function"]["parameters"]
-        assert schema["required"] == ["updates"]
-        item_props = schema["properties"]["updates"]["items"]["properties"]
-        assert set(item_props) == {"segment_id", "segment_index", "content"}
-
-    def test_available_without_form_state(self):
-        assert self._tool().is_available(None) is True
-
-    def test_unavailable_when_video_director_active(self):
-        form_state = {"video_director": {"active": True}}
-        assert self._tool().is_available(form_state) is False
-
-
-class TestUpdateSegmentToolExecute:
-    def _tool(self):
-        return UpdateSegmentTool()
-
-    def _segments(self):
-        return [
-            {"id": "seg-1", "content": "a lone hiker", "name": "Subject", "type": "content", "enabled": True},
-            {"id": "seg-2", "content": "golden hour lighting", "name": "Light", "type": "lighting", "enabled": True},
-        ]
-
-    @pytest.mark.asyncio
-    async def test_no_updates_is_an_error(self):
-        ctx = make_context(session_metadata={"segments": self._segments()})
-        result = await self._tool().execute(ctx)
-        assert result.success is False
-        assert "No updates provided" in result.error
-
-    @pytest.mark.asyncio
-    async def test_no_segments_loaded_is_an_error(self):
-        ctx = make_context(session_metadata={})
-        result = await self._tool().execute(ctx, updates=[{"segment_id": "seg-1", "content": "x"}])
-        assert result.success is False
-        assert "No segment data available" in result.error
-
-    @pytest.mark.asyncio
-    async def test_resolves_by_id(self):
-        ctx = make_context(session_metadata={"segments": self._segments()})
-        result = await self._tool().execute(ctx, updates=[
-            {"segment_id": "seg-2", "segment_index": 99, "content": "blue hour lighting"},
-        ])
-        assert result.success is True
-        data = json.loads(result.data)
-        assert data["status"] == "pending_approval"
-        assert data["updates"] == [
-            {"segment_id": "seg-2", "segment_index": 1, "content": "blue hour lighting"},
-        ]
-
-    @pytest.mark.asyncio
-    async def test_resolves_by_index_when_id_missing(self):
-        ctx = make_context(session_metadata={"segments": self._segments()})
-        result = await self._tool().execute(ctx, updates=[
-            {"segment_index": 0, "content": "a lone hiker in a red parka"},
-        ])
-        assert result.success is True
-        data = json.loads(result.data)
-        assert data["updates"] == [
-            {"segment_id": "seg-1", "segment_index": 0, "content": "a lone hiker in a red parka"},
-        ]
-
-    @pytest.mark.asyncio
-    async def test_resolves_by_index_when_id_unknown(self):
-        ctx = make_context(session_metadata={"segments": self._segments()})
-        result = await self._tool().execute(ctx, updates=[
-            {"segment_id": "stale-id", "segment_index": 1, "content": "blue hour lighting"},
-        ])
-        assert result.success is True
-        data = json.loads(result.data)
-        assert data["updates"] == [
-            {"segment_id": "seg-2", "segment_index": 1, "content": "blue hour lighting"},
-        ]
-
-    @pytest.mark.asyncio
-    async def test_unknown_segment_lists_valid_ids_and_indices(self):
-        ctx = make_context(session_metadata={"segments": self._segments()})
-        result = await self._tool().execute(ctx, updates=[
-            {"segment_id": "nope", "segment_index": 99, "content": "x"},
-        ])
-        assert result.success is False
-        assert "seg-1" in result.error
-        assert "seg-2" in result.error
-        assert "0-1" in result.error
-
-    @pytest.mark.asyncio
-    async def test_preview_summarizes_each_change(self):
-        ctx = make_context(session_metadata={"segments": self._segments()})
-        result = await self._tool().execute(ctx, updates=[
-            {"segment_id": "seg-1", "content": "a lone hiker in a red parka"},
-        ])
-        assert result.preview is not None
-        assert result.preview.action == "Update segments"
-        assert result.preview.items == ["Subject: a lone hiker in a red parka"]
-
-    @pytest.mark.asyncio
-    async def test_reason_is_included_when_provided(self):
-        ctx = make_context(session_metadata={"segments": self._segments()})
-        result = await self._tool().execute(ctx, updates=[
-            {"segment_id": "seg-1", "content": "x"},
-        ], reason="sharper subject")
-        data = json.loads(result.data)
-        assert data["reason"] == "sharper subject"
-
-
-class TestUpdateSegmentToolExecuteConfirmed:
-    def _tool(self):
-        return UpdateSegmentTool()
-
-    def _segments(self):
-        return [
-            {"id": "seg-1", "content": "a lone hiker", "name": "Subject", "type": "content", "enabled": True},
-        ]
-
-    @pytest.mark.asyncio
-    async def test_confirmed_returns_apply_action_payload(self):
-        ctx = make_context(session_metadata={"segments": self._segments()})
-        result = await self._tool().execute_confirmed(ctx, updates=[
-            {"segment_id": "seg-1", "content": "a lone hiker in a red parka"},
-        ])
-        assert result.success is True
-        data = json.loads(result.data)
-        assert data["action"] == "apply_segment_updates"
-        assert data["updates"] == [
-            {"segment_id": "seg-1", "segment_index": 0, "content": "a lone hiker in a red parka"},
-        ]
-        assert data["summary"] == ["Subject: a lone hiker in a red parka"]
-
-    @pytest.mark.asyncio
-    async def test_confirmed_revalidates_and_rejects_unknown_segment(self):
-        ctx = make_context(session_metadata={"segments": []})
-        result = await self._tool().execute_confirmed(ctx, updates=[
-            {"segment_id": "seg-1", "content": "x"},
-        ])
-        assert result.success is False
-        assert "No segment matches" in result.error
 
 
 # ---------------------------------------------------------------------------

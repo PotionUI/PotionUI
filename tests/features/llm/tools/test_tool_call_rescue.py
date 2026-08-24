@@ -2,13 +2,7 @@
 
 from src.features.llm.tools import tool_call_rescue as rescue
 
-REGISTERED = {"update_video_director", "update_segment", "echo"}
-
-UPDATE_SEGMENT_SCHEMA = {
-    "type": "object",
-    "properties": {"updates": {"type": "array"}},
-    "required": ["updates"],
-}
+REGISTERED = {"update_video_director", "echo"}
 
 
 class TestFindNearMiss:
@@ -34,45 +28,14 @@ class TestFindNearMiss:
         assert near[0].tool_name == "update_video_director"
         assert rescue.validate_arguments(near[0].arguments, UPDATE_SCHEMA) is False
 
-    def test_update_segment_tool_action_is_rescued_into_updates_array(self):
-        # update_segment's payload is inner TEXT, not attributes -- unlike
-        # every other tool_action tag, so it takes the special-case mapping
-        # into the tool's `updates` array shape.
+    def test_segment_tool_action_tags_are_not_a_near_miss(self):
+        # update_segment and update_director_segment are both frontend-only
+        # conventions, never registered tools -- neither is flagged even
+        # though update_video_director (a similarly-named real tool) IS
+        # registered.
         content = (
             '<tool_action type="update_segment" segment_index="0" '
-            'segment_id="seg-1">a lone hiker in a red parka</tool_action> trailing prose'
-        )
-        near = rescue.find_near_miss_invocations(content, REGISTERED)
-        assert len(near) == 1
-        nm = near[0]
-        assert nm.tool_name == "update_segment"
-        assert nm.original_format == "tool_action_tag"
-        assert nm.arguments == {
-            "updates": [{
-                "segment_id": "seg-1",
-                "segment_index": 0,
-                "content": "a lone hiker in a red parka",
-            }]
-        }
-        assert rescue.validate_arguments(nm.arguments, UPDATE_SEGMENT_SCHEMA) is True
-        # The span swallows the closing tag too -- nothing of the markup, but
-        # the trailing prose, survives a strip.
-        assert rescue.strip_spans(content, [nm.span]) == "trailing prose"
-
-    def test_update_segment_with_truncated_opening_tag_is_ambiguous(self):
-        # No closing '>' means no reliable content boundary -- falls back to
-        # the generic attribute dump, which won't satisfy the schema.
-        content = '<tool_action type="update_segment" segment_index="0" segment_id="seg-1'
-        near = rescue.find_near_miss_invocations(content, REGISTERED)
-        assert len(near) == 1
-        assert near[0].tool_name == "update_segment"
-        assert rescue.validate_arguments(near[0].arguments, UPDATE_SEGMENT_SCHEMA) is False
-
-    def test_director_segment_tool_action_is_not_a_near_miss(self):
-        # update_director_segment stays a frontend-only convention, unlike
-        # update_segment -- must not be flagged even though update_segment
-        # and update_video_director (similarly-named real tools) ARE registered.
-        content = (
+            'segment_id="seg-1">a lone hiker in a red parka</tool_action>'
             '<tool_action type="update_director_segment" segment_index="0" '
             'segment_id="a">new shot text</tool_action>'
         )

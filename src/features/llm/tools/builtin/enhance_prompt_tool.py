@@ -17,7 +17,7 @@ class EnhancePromptTool(BaseTool):
     icon = "sparkles"
 
     def is_available(self, form_state: Optional[Dict[str, Any]]) -> bool:
-        # The result is taught to be applied via the update_segment tool, which
+        # The result is taught to be applied via the update_segment tag, which
         # has no meaning once the Video Director owns "segment #N" (a shot).
         return not video_director_active(form_state)
 
@@ -39,8 +39,8 @@ class EnhancePromptTool(BaseTool):
             "When the user wants their prompt made richer — 'improve it', 'make it better', "
             "'expand this', 'help me' — or the prompt is thin or generic. This runs a full "
             "creative pipeline (model grounding, community examples, ideation, writing); do NOT "
-            "rewrite the prompt yourself first. Present the returned prompt EXACTLY as-is by "
-            "calling the update_segment tool with it."
+            "rewrite the prompt yourself first. Present the returned prompt EXACTLY as-is inside "
+            "a tool_action update_segment tag."
         )
 
     @property
@@ -110,9 +110,13 @@ class EnhancePromptTool(BaseTool):
         payload = {
             "enhanced_prompt": candidates[0],
             "instruction": (
-                "Present this prompt to the user EXACTLY as-is by calling the "
-                "update_segment tool, targeting their positive segment. Do not print "
-                "it in your reply text and do not shorten, rephrase, or summarize it."
+                "Present this prompt to the user EXACTLY as-is, wrapped in the "
+                "segment-update tag with every attribute quoted, targeting their "
+                "positive segment: "
+                '<tool_action type="update_segment" segment_index="N" segment_id="ID">'
+                "the prompt</tool_action>. This tag is only for update_segment; every "
+                "other tool is called as a real tool call. Do not shorten, rephrase, "
+                "or summarize the prompt."
             ),
         }
         if len(candidates) > 1:

@@ -1,5 +1,35 @@
 # Docker Configuration for PotionUI
 
+## Distribution image — `Dockerfile`
+
+The single-process production image, published to GHCR on every version tag
+by `.github/workflows/docker-publish.yml`:
+
+```bash
+docker run --gpus all -p 8005:8005 \
+  -v potionui-models:/app/models \
+  -v potionui-storage:/app/storage \
+  -v potionui-outputs:/app/outputs \
+  ghcr.io/potionui/potionui:latest
+
+# open http://localhost:8005
+```
+
+Unlike the rig-simulation harness below, this image runs exactly one process
+on exactly one port: the backend serves the prebuilt SvelteKit SPA itself
+(`src/bootstrap/static_frontend.py`), so there is no node runtime, no dev
+server, and nothing to configure beyond the three volumes (`models`,
+`storage`, `outputs` — all runtime state lives there; the image contains
+none). GPU access works the same way as everything else in this directory:
+[nvidia-container-toolkit](https://github.com/NVIDIA/nvidia-container-toolkit)
+and `--gpus all`. The container binds `0.0.0.0` internally (a container's
+published port is its access control; the bare-metal loopback default would
+only make `-p` dead) — scope exposure with the `-p` flag, e.g.
+`-p 127.0.0.1:8005:8005` to keep it host-local.
+
+Build locally instead of pulling: `docker build -f docker/Dockerfile -t
+potionui .` from the repo root.
+
 ## Rig-simulation harness — `Dockerfile.dev` + `docker-compose.yml`
 
 Supported, and the current entry point into this directory. It exists to let
@@ -125,13 +155,14 @@ The legacy pre-SvelteKit Dockerfiles/compose files/build scripts that used to
 live here (`docker.sh`, `dockerfiles/`, `compose/`,
 `scripts/docker-{build,quick-rebuild,smart-build}.sh`,
 `requirements-core.txt`) predated the current `frontend/` and never built or
-ran against it; they have been removed. `Dockerfile.dev` +
-`docker-compose.yml` above are the only supported images in this directory.
+ran against it; they have been removed. Everything in the directory
+structure below is supported; nothing else is.
 
 ## Directory Structure
 
 ```
 docker/
+├── Dockerfile             # Supported: distribution image, published to GHCR (see above)
 ├── Dockerfile.dev         # Supported: rig-simulation image (see above)
 ├── docker-compose.yml     # Supported: rig-mid / rig-small profiles (see above)
 ├── worker.Dockerfile      # Supported: RunPod worker image (see below)
@@ -144,8 +175,8 @@ docker/
 
 Supported. A reference image for the Remote Native worker
 (`worker.py`, [`docs/remote-native.md`](../docs/remote-native.md)) that the
-`runpod-provider` plugin (`content/plugins/marketplace/runpod-provider/`) points a
-RunPod GPU Pod at. Unlike `Dockerfile.dev` above, this image runs no
+`runpod-provider` plugin (distributed separately, not part of this
+repository) points a RunPod GPU Pod at. Unlike `Dockerfile.dev` above, this image runs no
 frontend and no PotionUI database - just `worker.py`, speaking worker
 protocol v1 over HTTP+SSE.
 
@@ -157,9 +188,8 @@ docker push <registry>/<image>:<tag>
 
 `<registry>/<image>:<tag>` is deliberately not filled in here - which
 registry (Docker Hub, GHCR, a private one) and account to push to is the
-operator's choice, made once, and then entered as this plugin's
-`worker_image` setting (Admin -> Plugins -> RunPod Provider) or passed as
-`image_ref` on a `POST /api/plugins/runpod-provider/provision` call. RunPod
+operator's choice, made once, and then entered as the provider plugin's
+worker-image setting (Admin -> Plugins). RunPod
 must be able to pull the reference: a public registry needs nothing further;
 a private one needs a RunPod Container Registry Auth entry, which this
 plugin does not manage.

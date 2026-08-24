@@ -173,7 +173,7 @@ generation on CPU.
 | Windows / WSL2             | Untested — community reports welcome                                      |
 | macOS                      | Untested — community reports welcome                                      |
 | AMD GPU (ROCm)             | Untested — community reports welcome                                      |
-| Docker                     | `./potionui start-docker` runs a containerized dev harness (requires an NVIDIA GPU + [nvidia-container-toolkit](https://github.com/NVIDIA/nvidia-container-toolkit)) — see [`docker/README.md`](docker/README.md); a distribution image is still planned |
+| Docker                     | `docker run --gpus all -p 8005:8005 ghcr.io/potionui/potionui:latest` (requires an NVIDIA GPU + [nvidia-container-toolkit](https://github.com/NVIDIA/nvidia-container-toolkit)) — volumes and details in [`docker/README.md`](docker/README.md); `./potionui start-docker` runs the contributor-facing dev harness instead |
 
 ### Running backend and frontend separately
 

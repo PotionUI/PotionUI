@@ -1,0 +1,84 @@
+# Builds docker/Dockerfile (the single-process distribution image) and
+# publishes it to GHCR as ghcr.io/<owner>/<repo>.
+#
+# Runs on version tags (v0.1.0 -> :0.1.0 + :latest) and on manual dispatch
+# (-> :sha-<commit>, no :latest) — never on plain pushes: the image is
+# multi-GB and takes ~half an hour, so it is a release artifact, not CI.
+#
+# No secrets needed: GITHUB_TOKEN with `packages: write` authenticates to
+# GHCR. The image inherits the repository's visibility the first time it is
+# pushed (public repo -> public package), so users can `docker pull` it with
+# no login.
+
+name: docker-publish
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  distribution-image:
+    name: build + push distribution image
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      # The CUDA torch stack makes this a >10GB image and the default runner
+      # only has ~20GB free. Dropping the preinstalled toolchains this build
+      # never touches frees ~25GB more.
+      - name: Free runner disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+            /usr/local/.ghcup /usr/share/swift /opt/hostedtoolcache/CodeQL
+          sudo docker system prune -af
+          df -h /
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Registry refs must be lowercase; github.repository is not guaranteed
+      # to be. metadata-action lowercases its own output, but the cache ref
+      # below is built by hand.
+      - name: Compute lowercase image name
+        id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Docker metadata (tags + OCI labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=sha,enable=${{ github.event_name == 'workflow_dispatch' }}
+
+      # cache-from the previously published image + inline cache metadata in
+      # the pushed one: the multi-GB pip layer is reused across releases
+      # whenever requirements.txt/constraints.txt didn't change, without
+      # maintaining a separate multi-GB cache artifact.
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ steps.image.outputs.name }}:latest
+          cache-to: type=inline

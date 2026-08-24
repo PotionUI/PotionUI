@@ -1,7 +1,7 @@
 # Reference image for the Remote Native worker (`worker.py`,
-# `docs/remote-native.md`) - what the runpod-provider plugin
-# (`content/plugins/marketplace/runpod-provider/`) expects to find at whatever image
-# reference its `worker_image` setting names. See `docker/README.md` for the
+# `docs/remote-native.md`) - what a remote-execution provider plugin (e.g.
+# the runpod-provider plugin, distributed separately) expects to find at
+# whatever image reference its worker-image setting names. See `docker/README.md` for the
 # "RunPod worker image" section: build/push instructions and why this is a
 # reference image, not something the plugin builds or pushes for you.
 #
@@ -80,7 +80,7 @@ EXPOSE 8100
 
 # `POTIONUI_WORKER_TOKEN` is required and has no default (worker.py refuses
 # to start without it) and `POTIONUI_WORKER_HOST` must be set to `0.0.0.0`
-# for the RunPod proxy to reach it - both are supplied as Pod env vars by
-# the runpod-provider plugin's `provision()` call, never baked into the
-# image. See docs/remote-native.md's configuration table for the full list.
+# for the RunPod proxy to reach it - both are supplied as Pod env vars at
+# provision time by the provider plugin, never baked into the image. See
+# docs/remote-native.md's configuration table for the full list.
 CMD ["python", "worker.py"]

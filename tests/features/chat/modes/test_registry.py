@@ -185,8 +185,9 @@ class TestBuildGenerationMode:
         scoping = "ONLY for offering prompt versions"
         assert scoping in prompt
         assert 0 < prompt.index(scoping) - prompt.index(tag_example) < 400
-        # update_video_director stays a real tool call, not this markup.
-        assert "call update_video_director" in prompt or "update_video_director as a real tool call" in prompt
+        # Everything else about the document is user-only -- there is no tool
+        # call, real or markup, for structural changes.
+        assert "is user-only" in prompt
 
     def test_director_segment_tag_absent_without_get_video_director(self):
         registry = ChatModeRegistry()
@@ -194,16 +195,17 @@ class TestBuildGenerationMode:
         assert "update_director_segment" not in prompt
         assert "Video Director shots" not in prompt
 
-    def test_global_direction_prompt_routes_through_set_prompt(self):
+    def test_global_direction_prompt_is_named_as_user_only(self):
         """The director paragraph must not leave "segment #N" as the only
-        lever the model has heard of -- changing the shared Direction prompt
-        goes through set_prompt, not segment markup."""
+        lever the model has heard of -- the shared Direction prompt is named
+        explicitly as something the model has no tool for, same as
+        durations/media/mode/shot count."""
         registry = ChatModeRegistry()
         prompt = registry.resolve_system_prompt(
             build_generation_mode(), "- echo: Use to echo.", ["get_video_director"]
         )
-        assert "set_prompt" in prompt
         assert "shared Direction prompt" in prompt
+        assert "is user-only" in prompt
 
     def test_global_direction_prompt_line_absent_without_get_video_director(self):
         registry = ChatModeRegistry()

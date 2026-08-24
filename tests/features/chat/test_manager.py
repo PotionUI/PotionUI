@@ -1467,7 +1467,7 @@ class TestInjectWorkspaceBlock:
         assert "Preset: native/LTX-2 · Mode: video" in block
         assert "Variant:" not in block
 
-    def test_steering_line_points_at_update_video_director_when_active(self):
+    def test_steering_line_points_at_update_director_segment_when_active(self):
         history = [{"role": "user", "content": "hello"}]
         context_metadata = {
             "form_state": {
@@ -1482,7 +1482,7 @@ class TestInjectWorkspaceBlock:
 
         block = history[0]["content"]
         assert "Video Director: active" in block
-        assert "update_video_director" in block
+        assert "update_director_segment" in block
         assert "update_form_settings" not in block
 
     def test_steering_line_points_at_update_form_settings_when_inactive(self):
@@ -1500,7 +1500,7 @@ class TestInjectWorkspaceBlock:
 
         block = history[0]["content"]
         assert "update_form_settings" in block
-        assert "update_video_director" not in block
+        assert "update_director_segment" not in block
 
     def test_steering_line_points_at_update_form_settings_when_video_director_absent(self):
         history = [{"role": "user", "content": "hello"}]
@@ -1512,7 +1512,7 @@ class TestInjectWorkspaceBlock:
 
         block = history[0]["content"]
         assert "update_form_settings" in block
-        assert "update_video_director" not in block
+        assert "update_director_segment" not in block
 
 
 class TestInjectWorkspaceBlockMusicDirector:

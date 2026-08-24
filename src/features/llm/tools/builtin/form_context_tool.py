@@ -15,7 +15,7 @@ _MEDIA_FIELD_TYPES = ("image", "video", "audio", "media")
 
 def _compact_media_item(item: Any) -> Any:
     """A media-loader item trimmed to what a tool caller needs to ADDRESS it
-    (`update_video_director`'s `upsert_media.form_media`) -- `path`, and the
+    (a `form_media` reference: field + path/label) -- `path`, and the
     label/name/type a model would read to pick the right one -- dropping the
     verbose `url`/`relative_path`/`metadata` (width, height, duration, size)
     a form value otherwise carries."""

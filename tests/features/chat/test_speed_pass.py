@@ -162,14 +162,10 @@ class TestFormStateAwareToolAvailability:
 
     def _make_builder(self):
         from src.features.llm.tools.registry import ToolRegistry
-        from src.features.llm.tools.builtin.video_director_tool import (
-            GetVideoDirectorTool,
-            UpdateVideoDirectorTool,
-        )
+        from src.features.llm.tools.builtin.video_director_tool import GetVideoDirectorTool
 
         tool_registry = ToolRegistry()
         tool_registry.register(GetVideoDirectorTool())
-        tool_registry.register(UpdateVideoDirectorTool())
 
         manager = Mock()
         manager.chat_mode_registry = _mode_registry()
@@ -199,22 +195,22 @@ class TestFormStateAwareToolAvailability:
         _prompt, allowed, _ = builder.resolve_session_prompt_and_tools(
             _session(), form_state=self._active_form_state(),
         )
-        assert set(allowed) == {"get_video_director", "update_video_director"}
+        assert set(allowed) == {"get_video_director"}
 
     def test_unavailable_tools_drop_from_hints_and_schemas(self):
         builder = self._make_builder()
         registry = builder._m.tool_executor.tool_registry
 
         _prompt, allowed_inactive, _ = builder.resolve_session_prompt_and_tools(_session())
-        assert "update_video_director" not in registry.get_tool_hints_text(allowed_inactive)
+        assert "get_video_director" not in registry.get_tool_hints_text(allowed_inactive)
         assert registry.get_schemas(allowed_inactive) == []
 
         _prompt, allowed_active, _ = builder.resolve_session_prompt_and_tools(
             _session(), form_state=self._active_form_state(),
         )
-        assert "update_video_director" in registry.get_tool_hints_text(allowed_active)
+        assert "get_video_director" in registry.get_tool_hints_text(allowed_active)
         schema_names = {s["function"]["name"] for s in registry.get_schemas(allowed_active)}
-        assert schema_names == {"get_video_director", "update_video_director"}
+        assert schema_names == {"get_video_director"}
 
     def test_cache_does_not_leak_active_prompt_into_inactive_turn(self):
         builder = self._make_builder()
@@ -229,8 +225,8 @@ class TestFormStateAwareToolAvailability:
 
         assert active_allowed != inactive_allowed
         assert inactive_allowed == []
-        assert "update_video_director" in active_prompt
-        assert "update_video_director" not in inactive_prompt
+        assert "get_video_director" in active_prompt
+        assert "get_video_director" not in inactive_prompt
 
     def test_cache_does_not_leak_inactive_prompt_into_active_turn(self):
         """Same scenario, opposite call order — the cache key must key on
@@ -246,7 +242,7 @@ class TestFormStateAwareToolAvailability:
         )
 
         assert inactive_allowed == []
-        assert set(active_allowed) == {"get_video_director", "update_video_director"}
+        assert set(active_allowed) == {"get_video_director"}
         assert active_prompt != inactive_prompt
 
 

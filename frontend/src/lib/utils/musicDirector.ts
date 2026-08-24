@@ -539,7 +539,8 @@ export function buildMusicDirectorSubmission(value: MusicDirectorValue, caps: Mu
 // applyDirectorOperations, an upsert without a server-assigned `id` is simply
 // skipped rather than invented here (update_music_director's confirmed result
 // always fills one in). Callers normalize the result afterward
-// (normalizeMusicDirectorValue), the same way handleVideoDirectorApplied does.
+// (normalizeMusicDirectorValue), the same way applyDirectorSegmentPrompt's
+// caller does for Video Director.
 // Operation names/schemas are the wire-section shape the LLM already knows
 // (upsert_section {id?, kind, lyrics}, remove_section {id}, reorder_sections
 // {ids}) -- applied here onto the segment list: `kind` becomes the segment's

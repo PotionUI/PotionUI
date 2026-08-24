@@ -119,7 +119,6 @@ class TestRegisterBuiltinTools:
             "delete_memory",
             "set_prompt_relay_timeline",
             "get_video_director",
-            "update_video_director",
             "get_music_director",
             "update_music_director",
             "manage_collections",

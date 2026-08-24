@@ -1938,8 +1938,9 @@ describe('representativeDirectorPrompt', () => {
 	});
 });
 
-// Pure reducer for the `update_video_director` chat tool's approved
-// op list. `caps` decides timeline (LTX) vs chain (Wan) style the same way
+// Pure reducer for a Video Director operations array (the Stage & Rail
+// editor's own writes; applyDirectorSegmentPrompt is the only chat-side
+// producer). `caps` decides timeline (LTX) vs chain (Wan) style the same way
 // buildDirectorSubmission/validateDirector do -- it isn't carried on the
 // value itself.
 describe('applyDirectorOperations', () => {

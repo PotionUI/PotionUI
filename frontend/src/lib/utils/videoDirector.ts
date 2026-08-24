@@ -244,8 +244,7 @@ export function dereferenceFormMediaRefs(
 	);
 
 	// A segment's `references` entries address the whole-form reference pool by
-	// `form_media` (field + label-or-path), the same addressing style the
-	// `update_video_director` chat tool uses -- resolved here the same way
+	// `form_media` (field + label-or-path) -- resolved here the same way
 	// `_resolve_form_media` resolves it server-side (exact path match, or a
 	// case-insensitive trimmed label match).
 	function resolveSegmentReference(value: SegmentReference, context: string): SegmentReference {
@@ -1749,7 +1748,10 @@ export function representativeDirectorPrompt(value: VideoDirectorValue, caps: Di
 }
 
 // ─── Chat operation application ──────────────────────────────────────
-// Pure reducer for the `update_video_director` chat tool's approved op list.
+// Pure reducer for a Video Director operations array. The only live producer
+// is applyDirectorSegmentPrompt below (the update_director_segment tag's
+// single-op upsert_segment) -- kept general-purpose since it mirrors the
+// document's full wire-op vocabulary, not just that one caller's shape.
 // Ids on upserts are pre-assigned by the backend -- this never mints one or
 // reads a clock, so replaying the same (value, operations, caps) is
 // byte-deterministic. Unknown op types, and known ops touching a field the
@@ -2062,11 +2064,11 @@ function applySetContinuation(value: VideoDirectorValue, raw: unknown, caps: Dir
 }
 
 /**
- * Applies the `update_video_director` chat tool's approved operations onto
- * an already-normalized value. Pure and deterministic: same inputs, same
- * output, every time. `operations` is treated as untyped wire data (it
- * arrives as JSON on a tool result) -- each entry is defensively narrowed;
- * anything malformed or unrecognized is skipped rather than thrown.
+ * Applies a Video Director operations array onto an already-normalized
+ * value. Pure and deterministic: same inputs, same output, every time.
+ * `operations` is treated as untyped wire data (it arrives as JSON on a
+ * tool result) -- each entry is defensively narrowed; anything malformed or
+ * unrecognized is skipped rather than thrown.
  */
 export function applyDirectorOperations(
 	value: VideoDirectorValue,

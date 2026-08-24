@@ -38,7 +38,6 @@
 	import {
 		resolveDirectorCapabilities,
 		normalizeDirectorValue,
-		applyDirectorOperations,
 		applyDirectorSegmentPrompt
 	} from '$lib/utils/videoDirector';
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';
@@ -1045,9 +1044,6 @@
 				if (resultData.action === 'apply_form_changes') {
 					handleFormChangesApplied(resultData.applied_changes);
 				}
-				if (resultData.action === 'apply_video_director_ops') {
-					handleVideoDirectorApplied(resultData.operations);
-				}
 				if (resultData.action === 'apply_music_director_ops') {
 					handleMusicDirectorApplied(resultData.operations);
 				}
@@ -1121,14 +1117,6 @@
 			updatedFormData[change.field_name] = change.new_value;
 		}
 		tabsStore.updateTab(tab.id, { formData: updatedFormData });
-	}
-
-	function handleVideoDirectorApplied(operations: unknown[]) {
-		const tab = contextTab;
-		if (!tab || !videoDirectorCaps) return;
-		const doc = normalizeDirectorValue(tab.videoDirector, videoDirectorCaps);
-		const next = applyDirectorOperations(doc, operations, videoDirectorCaps);
-		tabsStore.updateTab(tab.id, { videoDirector: normalizeDirectorValue(next, videoDirectorCaps) });
 	}
 
 	function handleMusicDirectorApplied(operations: unknown[]) {

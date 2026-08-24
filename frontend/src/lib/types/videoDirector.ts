@@ -335,10 +335,11 @@ export interface VideoDirectorWireDoc {
 	ic_lora: WireIcLora[];
 }
 
-// ─── Chat operations (update_video_director tool) ──────────────────────
-// The wire shape of one op in the `operations` array the chat tool's approval
-// result carries. Ids on upserts are pre-assigned by the backend; the frontend
-// reducer (`applyDirectorOperations` in utils/videoDirector.ts) never mints one.
+// ─── Document operations ─────────────────────────────────────────────
+// The wire shape of one op in a Video Director `operations` array -- the
+// Stage & Rail editor's own write vocabulary. Ids on upserts are pre-assigned
+// by the backend; the frontend reducer (`applyDirectorOperations` in
+// utils/videoDirector.ts) never mints one.
 
 export interface DirectorOpSetMode {
 	op: 'set_mode';

@@ -474,11 +474,12 @@ class ChatContextBuilder:
         Reads the CURRENT turn's ``context_metadata['form_state']`` and emits one
         compact system block: the active preset (by name)/mode/variant, the selected
         checkpoint with its admin prompting guidance, every active (non-zero-strength)
-        LoRA with its trigger words and guidance, and one steering line naming which
-        tool the model must use to change the form (``update_video_director`` when a
-        Video Director document is active, ``update_form_settings`` otherwise) — this
-        is the same signal the tools' own availability is gated on, restated for the
-        model. This is the guidance the system prompt promises; injecting it
+        LoRA with its trigger words and guidance, and one steering line naming what the
+        model may do to the form (``update_form_settings`` normally; when a Video
+        Director document is active, prompt VERSIONS only via the
+        ``update_director_segment`` tag — everything else on that document is
+        user-only) — this is the same signal the tools' own availability is gated on,
+        restated for the model. This is the guidance the system prompt promises; injecting it
         deterministically means the model never has to guess a prompt because a tool
         went uncalled. Guidance excerpts are capped so a verbose admin guide can't
         flood the context — the full text stays fetchable via get_model_info.
@@ -583,7 +584,11 @@ class ChatContextBuilder:
                 lines.append(_cap_text(guide, _WORKSPACE_MAX_GUIDE_CHARS, "… (truncated)"))
 
             if video_director and video_director.get("active"):
-                lines.append("Video Director: active — form changes go through update_video_director.")
+                lines.append(
+                    "Video Director: active — you may only suggest per-shot prompt "
+                    "VERSIONS via the update_director_segment tag; shot count, durations, "
+                    "media, mode, and settings are user-only."
+                )
                 lines.extend(self._render_video_director_summary(
                     video_director.get("doc") or {}, video_director.get("capabilities") or {},
                     form_data, preset_id, mode, variant,

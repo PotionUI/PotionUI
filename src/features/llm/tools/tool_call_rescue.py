@@ -14,7 +14,7 @@ place every client's content-embedded output converges.
 The discriminator that keeps it from firing on legitimate text is the registered
 tool set: a ``<tool_action type="update_director_segment">`` (a real frontend
 convention, not a registered tool) is never touched, while
-``type="update_video_director"`` or ``type="update_segment"`` (registered
+``type="update_music_director"`` or ``type="update_segment"`` (registered
 tools) are. ``update_segment``'s tag carries its payload as inner TEXT between
 the open and close tags, unlike every other ``<tool_action>`` tag, whose
 attributes hold the whole payload — that shape gets a small special case (see

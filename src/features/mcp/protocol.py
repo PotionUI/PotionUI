@@ -52,7 +52,6 @@ EXCLUDED_TOOL_NAMES = frozenset({
     "update_form_settings",
     "run_generation",
     "get_video_director",
-    "update_video_director",
     "get_music_director",
     "update_music_director",
     "set_prompt_relay_timeline",

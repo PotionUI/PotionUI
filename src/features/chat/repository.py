@@ -475,6 +475,12 @@ class ChatRepository:
         """Update the session name"""
         return self.session_repo.update_name(session_id, name)
 
+    def update_session_llm_config(self, session_id: str, llm_config_id: str) -> Optional[SessionResponse]:
+        """Rebind the session to a different LLM configuration."""
+        if not self.session_repo.update(session_id, llm_config_id=llm_config_id):
+            return None
+        return self.session_repo.get_by_id(session_id)
+
     def set_session_title(self, session_id: str, name: str) -> Optional[SessionResponse]:
         """Set the LLM-generated title and mark the session as titled."""
         return self.session_repo.set_title(session_id, name)

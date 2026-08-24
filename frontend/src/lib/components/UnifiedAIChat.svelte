@@ -384,8 +384,27 @@
 		chatSession.patch({ disabledTools: loadDisabledTools(mode) });
 	}
 
+	// Unlike mode, the LLM config can be switched mid-session. The session's
+	// llm_config_id is what the backend actually sends the next turn to, so an
+	// already-created session must be rebound server-side too — otherwise the
+	// composer's selection is cosmetic and gets clobbered by the session's
+	// original config the next time it's loaded (e.g. on refresh).
 	function handleSelectConfig(id: string) {
 		selectedConfigId = id;
+		if (sessionId) {
+			void updateSessionLLMConfig(sessionId, id);
+		}
+	}
+
+	async function updateSessionLLMConfig(id: string, llmConfigId: string) {
+		try {
+			const response = await api.updateChatSession(id, { llm_config_id: llmConfigId });
+			if (!response.success) {
+				logger.error('Failed to persist LLM config selection on session:', response.message);
+			}
+		} catch (err) {
+			logger.error('Failed to persist LLM config selection on session:', err);
+		}
 	}
 
 	function handleSelectMode(modeId: string) {

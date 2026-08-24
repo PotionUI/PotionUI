@@ -557,6 +557,19 @@ class TestChatRepository(PersistenceTestBase):
         retrieved = self.repo.get_session(session.id)
         self.assertEqual(retrieved.name, 'Updated Name')
 
+    def test_update_session_llm_config(self):
+        """Test rebinding a session to a different LLM config"""
+        session = self.repo.create_session(
+            user_id=self.test_user_id,
+            llm_config_id='llm-a'
+        )
+
+        result = self.repo.update_session_llm_config(session.id, 'llm-b')
+        self.assertTrue(result)
+
+        retrieved = self.repo.get_session(session.id)
+        self.assertEqual(retrieved.llm_config_id, 'llm-b')
+
     def test_delete_session(self):
         """Test deleting a session"""
         session = self.repo.create_session(user_id=self.test_user_id)

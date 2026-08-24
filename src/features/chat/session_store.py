@@ -184,6 +184,7 @@ class ChatSessionStore:
         session_id: str,
         user_id: str,
         name: Optional[str] = None,
+        llm_config_id: Optional[str] = None,
     ) -> SessionResponse:
         """Update session properties.
 
@@ -200,6 +201,11 @@ class ChatSessionStore:
             updated = self._m.chat_repository.update_session_name(session_id, name)
             if not updated:
                 raise SessionCreationFailedException("Failed to update session name")
+
+        if llm_config_id is not None:
+            updated = self._m.chat_repository.update_session_llm_config(session_id, llm_config_id)
+            if not updated:
+                raise SessionCreationFailedException("Failed to update session LLM configuration")
 
         # Return current session if no changes
         return updated or session

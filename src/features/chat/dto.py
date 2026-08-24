@@ -69,6 +69,7 @@ class SendMessageResponse(BaseModel):
 class UpdateSessionRequest(BaseModel):
     """Request model for updating a chat session"""
     name: Optional[str] = None
+    llm_config_id: Optional[str] = None
 
 
 class ToolApprovalRequest(BaseModel):

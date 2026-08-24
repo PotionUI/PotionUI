@@ -463,6 +463,33 @@ class TestChatController:
         assert result.success is False
         assert "access_denied" in result.error
 
+    def test_update_session_passes_llm_config_id(
+        self, controller, mock_chat_manager, sample_user
+    ):
+        """Switching the composer's LLM config on an existing session must
+        reach the manager, not just update local frontend state."""
+        updated_session = SessionResponse(
+            id="session-123",
+            user_id="user-123",
+            mode="generation",
+            status="active",
+            llm_config_id="llm-b",
+            created_at=datetime.now().isoformat(),
+            updated_at=datetime.now().isoformat()
+        )
+        mock_chat_manager.update_session.return_value = updated_session
+
+        request = UpdateSessionRequest(llm_config_id="llm-b")
+        result = controller.update_session("session-123", request, sample_user)
+
+        assert result.success is True
+        mock_chat_manager.update_session.assert_called_once_with(
+            session_id="session-123",
+            user_id=sample_user.id,
+            name=None,
+            llm_config_id="llm-b",
+        )
+
     # Delete session tests
     def test_delete_session_success(
         self, controller, mock_chat_manager, sample_user

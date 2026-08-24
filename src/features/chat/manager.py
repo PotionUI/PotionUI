@@ -222,8 +222,9 @@ class ChatManager:
         session_id: str,
         user_id: str,
         name: Optional[str] = None,
+        llm_config_id: Optional[str] = None,
     ) -> SessionResponse:
-        return self._sessions.update_session(session_id, user_id, name=name)
+        return self._sessions.update_session(session_id, user_id, name=name, llm_config_id=llm_config_id)
 
     def delete_session(self, session_id: str, user_id: str) -> bool:
         return self._sessions.delete_session(session_id, user_id)

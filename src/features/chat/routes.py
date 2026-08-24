@@ -419,6 +419,7 @@ class ChatController(BaseController):
                 session_id=session_id,
                 user_id=user.id,
                 name=request.name,
+                llm_config_id=request.llm_config_id,
             )
             return self.success_response(
                 data=session.model_dump(),

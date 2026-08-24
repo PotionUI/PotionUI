@@ -211,6 +211,14 @@ export function createChatApi(client: AxiosInstance, getToken: () => string | nu
 			return response.data;
 		},
 
+		async updateChatSession(
+			sessionId: string,
+			request: { name?: string; llm_config_id?: string }
+		): Promise<APIResponse<ChatSessionResponse>> {
+			const response = await client.put(`/api/chat/sessions/${sessionId}`, request);
+			return response.data;
+		},
+
 		async suggestChatResources(
 			query: string,
 			mode?: string,

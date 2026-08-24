@@ -17,6 +17,10 @@ import logging
 import pytest
 import torch
 
+# vendor/sla_attn/block_map.py imports triton at module level; triton only
+# ships with GPU torch builds, so on CPU-only CI this whole module skips.
+pytest.importorskip("triton")
+
 import vendor.sla_attn as sla_attn_vendor
 from src.platform.runtime.native import sla_attn as sla_attn_module
 from src.platform.runtime.native.sla_attn import (

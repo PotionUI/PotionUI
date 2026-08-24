@@ -1,9 +1,13 @@
+from __future__ import annotations
+
 import os
-from typing import Dict, Any, List, Tuple, Literal
+from typing import Dict, Any, List, Tuple, Literal, TYPE_CHECKING
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
-from ultralytics import YOLO
 import logging
+
+if TYPE_CHECKING:
+    from ultralytics import YOLO
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +35,10 @@ class DetailerHelper:
         Args:
             model_path: Full path to the YOLO model file (e.g., "models/detection_bbox/face_yolov12m.pt")
         """
+        # Deferred so merely importing this module doesn't require ultralytics
+        # (requirements-ci.txt excludes it on that basis).
+        from ultralytics import YOLO
+
         detector = YOLO(model_path)
         return detector.to(self.config.get("device", "cuda"))
 

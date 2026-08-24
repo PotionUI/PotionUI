@@ -265,7 +265,7 @@ TYPE_DIR_MAP = {
     "upscaler": "upscalers",
     "controlnet": "controlnet",
     "vae": "vae",
-    "clip": "clip",
+    "text_encoder": "text_encoders",
     "unet": "unet",
 }
 

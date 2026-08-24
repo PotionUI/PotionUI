@@ -43,9 +43,9 @@ fields:
         label: "Text Encoder (UMT5-XXL)"
         required: true
         configuration:
-          model_type: "clip"
+          model_type: "text_encoder"
           placeholder: "Select UMT5-XXL..."
-          filter_tags: "@config:clip_tags"
+          filter_tags: "@config:text_encoder_tags"
 
       - name: "vae"
         type: "model"

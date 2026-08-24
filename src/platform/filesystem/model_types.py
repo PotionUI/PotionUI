@@ -19,7 +19,7 @@ DIRECTORY_TO_MODEL_TYPE = {
     'vae': 'vae',
     'controlnet': 'controlnet',
     'adetailer': 'adetailer',
-    'clip': 'clip',
+    'text_encoders': 'text_encoder',
     'unet': 'unet',
     'insightface': 'insightface',
     'facerestore': 'facerestore',

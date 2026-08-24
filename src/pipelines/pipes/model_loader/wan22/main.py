@@ -79,7 +79,7 @@ class ModelLoaderWan22Pipe(BaseModelLoaderPipe):
     def outputs(cls) -> List[PipeOutputSpec]:
         return [
             PipeOutputSpec("model", IOType.MODEL, "Wan model bundle (DiT(s) + TE + VAE)", is_array=False),
-            PipeOutputSpec("clip", IOType.CLIP, "Wan UMT5 text encoder (ClipTextEncoder ABC)", is_array=False),
+            PipeOutputSpec("text_encoder", IOType.TEXT_ENCODER, "Wan UMT5 text encoder (ClipTextEncoder ABC)", is_array=False),
         ]
 
     def progress_message(self) -> str:
@@ -150,7 +150,7 @@ class ModelLoaderWan22Pipe(BaseModelLoaderPipe):
         clip = WanClipTextEncoder(
             te_model.module, device=device, model_fingerprint=f"{te_path}|{high_path}|{low_path or ''}"
         )
-        return PipeOutput(output={"model": bundle, "clip": clip})
+        return PipeOutput(output={"model": bundle, "text_encoder": clip})
 
     def _vram_budget(self, pipe_input: PipeInput) -> Optional[float]:
         return _vram_budget_fn(pipe_input, self.config.get("vram_limit_gb", None), "MODEL LOADER WAN")

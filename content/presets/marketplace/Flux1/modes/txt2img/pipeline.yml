@@ -2,7 +2,7 @@
 #
 #   model_loader/flux -> prompt_encoder -> seed_generator -> generator/flux -> gallery
 #
-# Conditioning flows the mandated shared path: model_loader emits `clip`
+# Conditioning flows the mandated shared path: model_loader emits `text_encoder`
 # (a FluxClipTextEncoder), prompt_encoder turns prompts into `conditioning`,
 # and generator/flux consumes that — it never re-encodes the prompt itself.
 pipeline:
@@ -36,7 +36,7 @@ pipeline:
   ############
   - name: "prompt_encoder"
     input:
-      - ["clip", "model_loader/flux", "clip"]
+      - ["text_encoder", "model_loader/flux", "text_encoder"]
     enabled: true
     configuration:
       p_prompt:

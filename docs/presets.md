@@ -554,7 +554,7 @@ catches an undeclared `@config:` reference on a core preset's field catches it h
 **Real example**: `content/plugins/marketplace/krea2-edit/` contributes an `edit` mode onto the native
 Krea-2 preset (`content/presets/marketplace/Krea2/`) - instruction-based image editing is a mode of Krea 2, not
 a separate model, so it ships as a contribution rather than the standalone preset it used to be.
-Its fields keep their existing `@config:checkpoint_tags`/`clip_tags`/`vae_tags`/`lora_tags`
+Its fields keep their existing `@config:checkpoint_tags`/`text_encoder_tags`/`vae_tags`/`lora_tags`
 indirection unchanged, since the native Krea2 preset already declares those same four keys.
 
 ## Variants
@@ -705,7 +705,7 @@ Model picker (`type: "model"` — the canonical name; `model_type` selects the m
   label: "Model"
   ai_hint: "The base checkpoint. Realistic models produce photorealistic results..."
   configuration:
-    model_type: "checkpoint"        # checkpoint | lora | vae | clip | upscaler | ...
+    model_type: "checkpoint"        # checkpoint | lora | vae | text_encoder | upscaler | ...
     allow_info_modal: true
     placeholder: "Select model..."
 ```

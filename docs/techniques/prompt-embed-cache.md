@@ -37,7 +37,7 @@ don't touch the prompt itself. It provides no benefit when every request uses a 
 ## How to enable it
 
 No configuration is needed or available. The cache activates automatically whenever the active text
-encoder has a stable identity fingerprint it can key on; it is currently wired into the CLIP-loading
+encoder has a stable identity fingerprint it can key on; it is currently wired into the text-encoder-loading
 pipes for Flux, Krea-2, Qwen-Image, Wan, LTX, Z-Image, Anima, and MiniMax-H3. Encoders or code paths without a stable fingerprint
 (for example, image-conditioned encodes) skip the cache automatically and simply run the normal
 encode path — that fallback is an implementation detail, not a setting you need to manage.

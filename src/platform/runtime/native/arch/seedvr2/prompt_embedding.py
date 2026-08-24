@@ -2,7 +2,7 @@
 
 SeedVR2 is a restoration/upscale model that does NOT run a live text encoder:
 it conditions on two *precomputed* text embeddings — a generic positive and a
-generic negative — shipped as raw ``torch.save``d tensors (``models/clip/
+generic negative — shipped as raw ``torch.save``d tensors (``models/text_encoders/
 seedvr2_pos_emb.pt`` / ``seedvr2_neg_emb.pt``). Each is a ``(sequence, 5120)``
 tensor in the model's text-encoder width (``txt_in_dim``), fed straight into the
 DiT's ``txt_in`` projection as the cross-modal ``txt`` stream. The model loader

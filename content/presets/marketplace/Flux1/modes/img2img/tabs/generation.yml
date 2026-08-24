@@ -45,18 +45,18 @@ fields:
         label: "Text Encoder"
         required: true
         configuration:
-          model_type: "clip"
+          model_type: "text_encoder"
           placeholder: "Select the T5-XXL text encoder..."
-          filter_tags: "@config:clip_tags"
+          filter_tags: "@config:text_encoder_tags"
 
       - name: "clip_l"
         type: "model"
         label: "CLIP-L"
         required: true
         configuration:
-          model_type: "clip"
+          model_type: "text_encoder"
           placeholder: "Select the CLIP-L text encoder..."
-          filter_tags: "@config:clip_tags"
+          filter_tags: "@config:text_encoder_tags"
 
       - name: "vae"
         type: "model"

@@ -515,7 +515,7 @@ class TestModelGenerationOutput:
 
     def test_model_types(self):
         """Test with different model types."""
-        model_types = ["checkpoint", "upscaler", "lora", "clip", "vae", "other", "embedding"]
+        model_types = ["checkpoint", "upscaler", "lora", "text_encoder", "vae", "other", "embedding"]
         
         for model_type in model_types:
             output = ModelGenerationOutput(

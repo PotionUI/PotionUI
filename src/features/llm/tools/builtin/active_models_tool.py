@@ -21,7 +21,6 @@ MODEL_TYPE_HINTS = {
     "vae": "The VAE converts between pixels and the model's internal latent space; it is not prompted.",
     "upscaler": "An upscaler model that increases output resolution; it is not prompted.",
     "upscalers": "An upscaler model that increases output resolution; it is not prompted.",
-    "clip": "The text encoder that interprets prompts; not prompted directly.",
     "text_encoder": "The text encoder that interprets prompts; not prompted directly.",
     "controlnet": "A ControlNet that guides composition from a reference input.",
     "embedding": "A textual embedding usable as a word inside prompts.",

@@ -862,7 +862,7 @@ class DownloadManager:
         `target_dir` is used as given and returned as given - it is where the
         bytes actually land, which is what lets a caller pass it straight to
         `from_pretrained`. It is a complete directory, NOT a subdir joined onto
-        the depot, so callers pass a depot-rooted path (`<models_dir>/clip/...`)
+        the depot, so callers pass a depot-rooted path (`<models_dir>/text_encoders/...`)
         rather than a bare subdir. It must still resolve inside the configured
         model depot; one that escapes is refused, not re-rooted.
 

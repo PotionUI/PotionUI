@@ -108,7 +108,7 @@ def make_pipeline() -> ProcessedPipelineV1:
                 pipe_type="sdxl_generator",
                 enabled=True,
                 config={"steps": 30, "cfg": 5.5, "seed": 1234, "size": [1024, 1024]},
-                inputs={"model": "loader.model", "clip": "loader.clip"},
+                inputs={"model": "loader.model", "text_encoder": "loader.text_encoder"},
             ),
         )
     )

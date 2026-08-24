@@ -15,7 +15,7 @@ files:
   - role: dit
     dir: models/checkpoints
   - role: text_encoder
-    dir: models/clip
+    dir: models/text_encoders
     note: Qwen3-VL-4B
   - role: vae
     dir: models/vae

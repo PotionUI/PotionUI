@@ -367,7 +367,7 @@ class NativeLLMClient:
     @staticmethod
     def _resolve_model(name: str) -> tuple[str, bool]:
         """Resolve ``config.model`` to ``(absolute_path, is_adopted_te)``. An
-        adopted single-file text encoder is referenced as ``clip/<file>``; every
+        adopted single-file text encoder is referenced as ``text_encoders/<file>``; every
         other value is an HF-layout directory under ``models/llm/``."""
         if is_adopted_te_reference(name):
             return resolve_adopted_te_path(name), True

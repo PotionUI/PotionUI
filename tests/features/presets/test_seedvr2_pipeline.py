@@ -57,7 +57,7 @@ def _process(seedvr2_template, form_over=None):
         "input_image": "/storage/uploads/source.png",
         "diffusion_model": "models/diffusion_models/seedvr2_ema_3b_fp16.safetensors",
         "vae": "models/vae/ema_vae_fp16.safetensors",
-        "prompt_embedding": "models/clip/pos_emb.pt",
+        "prompt_embedding": "models/text_encoders/pos_emb.pt",
         "scale": 2.0,
         "color_correction": "wavelet",
         "seed": -1,
@@ -84,7 +84,7 @@ def _process_minimal(seedvr2_template, form_over=None):
         "input_image": "/storage/uploads/source.png",
         "diffusion_model": "models/diffusion_models/seedvr2_ema_3b_fp16.safetensors",
         "vae": "models/vae/ema_vae_fp16.safetensors",
-        "prompt_embedding": "models/clip/pos_emb.pt",
+        "prompt_embedding": "models/text_encoders/pos_emb.pt",
     }
     if form_over:
         form_data.update(form_over)
@@ -127,7 +127,7 @@ def test_model_loader_receives_the_three_components(seedvr2_template):
     cfg = loader["config"]
     assert cfg["diffusion_model"]["file_path"] == "models/diffusion_models/seedvr2_ema_3b_fp16.safetensors"
     assert cfg["vae"]["file_path"] == "models/vae/ema_vae_fp16.safetensors"
-    assert cfg["prompt_embedding"]["file_path"] == "models/clip/pos_emb.pt"
+    assert cfg["prompt_embedding"]["file_path"] == "models/text_encoders/pos_emb.pt"
 
 
 def test_generator_wired_to_media_loader_and_model_loader(seedvr2_template):

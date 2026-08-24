@@ -1,7 +1,7 @@
 """The `model` payload produced by `model_loader/seedvr2`.
 
 SeedVR2 is the first native family with NO live text encoder: it conditions on a
-*fixed* precomputed positive prompt embedding (``models/clip/seedvr2_pos_emb.pt``,
+*fixed* precomputed positive prompt embedding (``models/text_encoders/seedvr2_pos_emb.pt``,
 a ``(seq, 5120)`` tensor) fed straight into the DiT's ``txt_in`` projection. So
 this bundle carries only the NaDiT (33->16ch restoration transformer) + the
 self-normalizing causal-video VAE + that fixed embedding tensor — no TE, no LoRAs.

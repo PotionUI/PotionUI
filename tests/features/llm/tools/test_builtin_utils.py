@@ -31,7 +31,7 @@ NESTED_SCHEMA_PROPERTIES = {
                             {
                                 "type": "model",
                                 "name": "text_encoder",
-                                "configuration": {"model_type": "clip"},
+                                "configuration": {"model_type": "text_encoder"},
                                 "ai_hint": "Pick the matching text encoder.",
                             },
                         ],

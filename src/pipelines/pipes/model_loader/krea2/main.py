@@ -102,7 +102,7 @@ class ModelLoaderKrea2Pipe(BaseModelLoaderPipe):
     def outputs(cls) -> List[PipeOutputSpec]:
         return [
             PipeOutputSpec("model", IOType.MODEL, "Krea-2 model bundle (DiT + TE + VAE)", is_array=False),
-            PipeOutputSpec("clip", IOType.CLIP, "Krea-2 text encoder (ClipTextEncoder ABC)", is_array=False),
+            PipeOutputSpec("text_encoder", IOType.TEXT_ENCODER, "Krea-2 text encoder (ClipTextEncoder ABC)", is_array=False),
         ]
 
     def progress_message(self) -> str:
@@ -184,7 +184,7 @@ class ModelLoaderKrea2Pipe(BaseModelLoaderPipe):
 
         bundle = Krea2ModelBundle(dit=dit_model, te=te_model, vae=vae_model, te_cache_key=f"native/te/{te_path}")
         clip = Krea2ClipTextEncoder(te_model.module, device=device, model_fingerprint=f"{te_fp}|{dit_fp}")
-        return PipeOutput(output={"model": bundle, "clip": clip})
+        return PipeOutput(output={"model": bundle, "text_encoder": clip})
 
     def _vram_budget(self, pipe_input: PipeInput) -> Optional[float]:
         return _vram_budget_fn(pipe_input, self.config.get("vram_limit_gb", None), "MODEL LOADER KREA2")

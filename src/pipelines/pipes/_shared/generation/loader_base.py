@@ -51,7 +51,7 @@ class BaseModelLoaderPipe(BasePipe):
 
     def build_output(self, model: Any, pipe_input: PipeInput, fingerprint: str) -> Dict[str, Any]:
         """Default PipeOutput payload: {"model": model}. Override to add
-        additional outputs (e.g. clip/vae)."""
+        additional outputs (e.g. text_encoder/vae)."""
         return {"model": model}
 
     def validate(self) -> None:

@@ -51,7 +51,7 @@ pipeline:
 
   - name: "prompt_encoder"
     input:
-      - ["clip", "model_loader/ltx", "clip"]
+      - ["text_encoder", "model_loader/ltx", "text_encoder"]
     enabled: true
     configuration:
       # Legacy scalar passthrough (see video/pipeline.yml's identical

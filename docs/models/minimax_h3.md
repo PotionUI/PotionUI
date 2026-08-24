@@ -17,7 +17,7 @@ files:
     dir: models/diffusion_models
     note: fl2va or ref2va, pruned (rank-8 AdaLN) or full; fp8-scaled or bf16
   - role: text_encoder
-    dir: models/clip
+    dir: models/text_encoders
     note: the trimmed Qwen3-VL-32B repack (layers 0–49, no final norm, no lm_head)
   - role: vae
     dir: models/vae

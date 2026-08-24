@@ -28,7 +28,7 @@ from src.platform.runtime.native.text_encoders.gemma4 import (  # noqa: E402
 from src.platform.runtime.native.text_encoders.loader import _SPECS, _build_config  # noqa: E402
 
 _REPO_ROOT = Path(__file__).resolve().parents[5]
-_REAL_TE = _REPO_ROOT / "models/clip/gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors"
+_REAL_TE = _REPO_ROOT / "models/text_encoders/gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors"
 
 
 def _tiny_tokenizer_json_bytes() -> bytes:

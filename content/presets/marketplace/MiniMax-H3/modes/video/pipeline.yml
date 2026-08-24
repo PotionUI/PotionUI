@@ -141,7 +141,7 @@ pipeline:
   ############
   - name: "prompt_encoder"
     input:
-      - ["clip", "model_loader/minimax_h3", "clip"]
+      - ["text_encoder", "model_loader/minimax_h3", "text_encoder"]
       - ["image", "keyframes", "image"]
     enabled: true
     configuration:
@@ -170,7 +170,7 @@ pipeline:
   - name: "prompt_encoder"
     id: "prompt_encoder_director"
     input:
-      - ["clip", "model_loader/minimax_h3", "clip"]
+      - ["text_encoder", "model_loader/minimax_h3", "text_encoder"]
     enabled: "{{ form.video_director is defined and form.video_director.mode == 'director' }}"
     configuration:
       p_prompt:

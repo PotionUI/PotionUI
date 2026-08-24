@@ -55,7 +55,7 @@ def _process(seedvr2_template, form_over=None):
         "input_video": "/storage/uploads/source.mp4",
         "diffusion_model": "models/diffusion_models/seedvr2_ema_3b_fp16.safetensors",
         "vae": "models/vae/ema_vae_fp16.safetensors",
-        "prompt_embedding": "models/clip/pos_emb.pt",
+        "prompt_embedding": "models/text_encoders/pos_emb.pt",
         "scale": 2.0,
         "color_correction": "wavelet",
         "seed": -1,
@@ -87,7 +87,7 @@ def _process_minimal(seedvr2_template, form_over=None):
         "input_video": "/storage/uploads/source.mp4",
         "diffusion_model": "models/diffusion_models/seedvr2_ema_3b_fp16.safetensors",
         "vae": "models/vae/ema_vae_fp16.safetensors",
-        "prompt_embedding": "models/clip/pos_emb.pt",
+        "prompt_embedding": "models/text_encoders/pos_emb.pt",
     }
     if form_over:
         form_data.update(form_over)
@@ -141,7 +141,7 @@ def test_batch_size_defaults_to_zero_auto_when_form_omits_it(seedvr2_template):
         "input_video": "/storage/uploads/source.mp4",
         "diffusion_model": "models/diffusion_models/seedvr2_ema_3b_fp16.safetensors",
         "vae": "models/vae/ema_vae_fp16.safetensors",
-        "prompt_embedding": "models/clip/pos_emb.pt",
+        "prompt_embedding": "models/text_encoders/pos_emb.pt",
     }
     pipes = processor.process(
         seedvr2_template, {"prompts": [], "mode": "video_upscale", "form_data": form_data}

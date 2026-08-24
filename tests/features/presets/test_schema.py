@@ -521,12 +521,12 @@ class TestPipelineFile:
                     "id": "checkpoint_loader",
                     "name": "checkpoint_loader/sdxl",
                     "enabled": "true",
-                    "cache": ["model", "clip"],
+                    "cache": ["model", "text_encoder"],
                     "configuration": {"model": {"file_path": "{{ get_form('custom', ['model']) }}"}},
                 },
                 {
                     "name": "prompt_encoder",
-                    "input": [["clip", "checkpoint_loader/sdxl", "clip"]],
+                    "input": [["text_encoder", "checkpoint_loader/sdxl", "text_encoder"]],
                 },
             ]
         }

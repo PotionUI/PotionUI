@@ -26,8 +26,8 @@ from src.platform.runtime.native.text_encoders.loader import (  # noqa: E402
 from src.platform.runtime.native.text_encoders.t5xxl import T5XXLModel  # noqa: E402
 
 _REPO_ROOT = Path(__file__).resolve().parents[5]
-_BF16 = _REPO_ROOT / "models/clip/umt5-xxl-enc-bf16.safetensors"
-_FP8 = _REPO_ROOT / "models/clip/umt5_xxl_fp8_e4m3fn_scaled.safetensors"
+_BF16 = _REPO_ROOT / "models/text_encoders/umt5-xxl-enc-bf16.safetensors"
+_FP8 = _REPO_ROOT / "models/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors"
 
 TINY = {"hidden_size": 64, "num_layers": 3, "vocab_size": 256384, "d_kv": 16,
         "num_heads": 4, "d_ff": 128, "per_layer_bias": True}

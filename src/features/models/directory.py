@@ -7,6 +7,7 @@ the filesystem side - the directory layout and the on-disk index over it.
 from typing import Optional
 
 from src.platform.observability.logger import logger
+from src.platform.filesystem.model_types import DIRECTORY_TO_MODEL_TYPE, MODEL_TYPE_TO_DIRECTORY
 import json
 import hashlib
 from pathlib import Path
@@ -30,17 +31,7 @@ class ModelManager:
 
     def _get_model_subdir(self, model_type: str) -> str:
         """Get the appropriate subdirectory for a model type"""
-        type_mapping = {
-            'checkpoint': 'checkpoints',
-            'lora': 'loras',
-            'embedding': 'embeddings',
-            'upscaler': 'upscalers',
-            'vae': 'vae',
-            'controlnet': 'controlnet',
-            'adetailer': 'adetailer',
-            'clip': 'clip',
-        }
-        return type_mapping.get(model_type.lower(), 'checkpoint')
+        return MODEL_TYPE_TO_DIRECTORY.get(model_type.lower(), 'checkpoint')
 
     def get_model_dir(self, model_type: str) -> Path:
         """Get the directory for a specific model type"""
@@ -73,18 +64,7 @@ class ModelIndex:
 
 class ModelIndexer:
 
-    TYPE_MAPPING = {
-        'stable-diffusion': 'checkpoint',
-        'loras': 'lora',
-        'embeddings': 'embedding',
-        'upscalers': 'upscaler',
-        'vae': 'vae',
-        'controlnet': 'controlnet',
-        'adetailer': 'adetailer',
-        'checkpoints': 'checkpoint',
-        'clip': 'clip',  # Added CLIP model type
-        'vfi': 'vfi',
-    }
+    TYPE_MAPPING = {**DIRECTORY_TO_MODEL_TYPE, 'stable-diffusion': 'checkpoint'}
 
     def __init__(self, model_manager: ModelManager, cache_file: str = "model_cache.json", follow_symlinks: bool = True):
         self.model_manager = model_manager

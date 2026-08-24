@@ -41,7 +41,7 @@ export interface Model {
 	file_path: string;
 	file_size?: number;
 	sha256?: string;
-	model_type: 'checkpoint' | 'lora' | 'embedding' | 'upscaler' | 'vae' | 'controlnet' | 'adetailer' | 'clip';
+	model_type: 'checkpoint' | 'lora' | 'embedding' | 'upscaler' | 'vae' | 'controlnet' | 'adetailer' | 'text_encoder';
 	created_at?: string;
 	updated_at?: string;
 	indexed_at?: string;
@@ -175,7 +175,7 @@ export interface ModelFieldValue {
 }
 
 export interface ModelFieldConfig {
-	model_type?: 'checkpoint' | 'lora' | 'embedding' | 'upscaler' | 'vae' | 'controlnet' | 'adetailer' | 'clip';
+	model_type?: 'checkpoint' | 'lora' | 'embedding' | 'upscaler' | 'vae' | 'controlnet' | 'adetailer' | 'text_encoder';
 	allow_tag_filters?: boolean;
 	limit?: number;
 	placeholder?: string;

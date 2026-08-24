@@ -17,7 +17,7 @@ files:
     dir: models/checkpoints
     note: single-file .safetensors, Flux1 or Flux2/Klein shape
   - role: text_encoder
-    dir: models/clip
+    dir: models/text_encoders
     note: T5-XXL + CLIP-L for Flux1, Qwen3 for Flux2/Klein
   - role: vae
     dir: models/vae

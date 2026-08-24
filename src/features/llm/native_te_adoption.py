@@ -1,7 +1,7 @@
 """Adopting a single-file diffusion text encoder as a native chat model.
 
 A Gemma-3 / Qwen3 language model already on disk as a ComfyUI-style single-file
-safetensors (under ``models/clip/`` — this app's text-encoder depot, see
+safetensors (under ``models/text_encoders/`` — this app's text-encoder depot, see
 ``src.features.models.catalog``) can, for the tied/bf16 cases, be reused as a
 chat model instead of the user downloading a second ~24GB HF-layout copy.
 
@@ -24,7 +24,7 @@ can show why it doesn't qualify:
     (``assets/gemma3_spiece/spiece.model``) — no chat template. That gap is
     lifted: a ``tokenizer.json`` + ``tokenizer_config.json`` (which carries the
     chat template) can be fetched on demand — see ``ensure_gemma3_chat_tokenizer``
-    — and cached next to the TE depot at ``clip/_chat_tokenizer/gemma3/``. Until
+    — and cached next to the TE depot at ``text_encoders/_chat_tokenizer/gemma3/``. Until
     fetched, gemma3 stays gated with an actionable reason naming what's missing.
   * fp8-scaled repacks are detected and dequantized to bf16 at adoption time
     (``_dequantize_fp8_state_dict``) — reusing the exact per-tensor
@@ -64,10 +64,11 @@ from src.platform.settings.repository import SettingRepository
 
 logger = logging.getLogger(__name__)
 
-# This app indexes ComfyUI-style text encoders under models/clip/ (model_type
-# "clip"; see src.platform.filesystem.model_types.DIRECTORY_TO_MODEL_TYPE) — NOT
-# a comfy-style text_encoders/ folder. The adoption scan reads that same depot.
-NATIVE_TE_SUBDIR = "clip"
+# This app indexes ComfyUI-style text encoders under models/text_encoders/
+# (model_type "text_encoder"; see
+# src.platform.filesystem.model_types.DIRECTORY_TO_MODEL_TYPE). The adoption
+# scan reads that same depot.
+NATIVE_TE_SUBDIR = "text_encoders"
 
 # safetensors header dtype tokens that mean the weights are fp8 (scaled). Such a
 # file is dequantized to bf16 at adoption time (see `_dequantize_fp8_state_dict`)
@@ -113,7 +114,7 @@ _QWEN3_CHAT_TEMPLATE = (
 # ``DownloadManager.ensure_local_hf_repo`` (src/features/downloads/manager.py),
 # the core download queue's HF-repo fetch, so the request shows up in the admin
 # download history like any other model fetch. Landed next to the TE depot
-# (``clip/_chat_tokenizer/gemma3/``), not in-repo — see ``ensure_gemma3_chat_tokenizer``.
+# (``text_encoders/_chat_tokenizer/gemma3/``), not in-repo — see ``ensure_gemma3_chat_tokenizer``.
 #
 # The canonical origin, ``google/gemma-3-12b-it``, is GATED (Gemma license +
 # HF token required), which sent this on-demand fetch through the same
@@ -146,7 +147,7 @@ _GEMMA3_CHAT_TOKENIZER_SUBDIR = "_chat_tokenizer/gemma3"
 
 @dataclass
 class AdoptedTEEntry:
-    name: str                 # "clip/<file>.safetensors" — what LLMConfig.model stores
+    name: str                 # "text_encoders/<file>.safetensors" — what LLMConfig.model stores
     path: str                  # absolute path, display only
     model_type: Optional[str]  # "qwen3" | "gemma3"
     tied: bool                 # embeddings tied -> lm_head reconstructable when absent
@@ -211,7 +212,7 @@ def _qwen3_is_tied(hidden_size: int) -> bool:
 
 def gemma3_chat_tokenizer_dir(models_dir: Optional[Path] = None) -> Path:
     """Where the on-demand gemma3 chat tokenizer lands — next to the TE depot
-    (``clip/_chat_tokenizer/gemma3/``), not in-repo (see the module docstring
+    (``text_encoders/_chat_tokenizer/gemma3/``), not in-repo (see the module docstring
     and ``ensure_gemma3_chat_tokenizer``)."""
     return native_te_dir(models_dir) / _GEMMA3_CHAT_TOKENIZER_SUBDIR
 
@@ -303,7 +304,7 @@ def _eligibility(
 
 
 def list_adopted_te_checkpoints(models_dir: Optional[Path] = None) -> list[AdoptedTEEntry]:
-    """Scan ``<models_dir>/clip/*.safetensors`` for causal-LM text encoders that
+    """Scan ``<models_dir>/text_encoders/*.safetensors`` for causal-LM text encoders that
     can be shared with the native chat provider. Non-causal TEs are
     skipped; detected-but-ineligible ones are listed with a ``reason``. The
     ``_chat_tokenizer/`` cache subdirectory (see ``gemma3_chat_tokenizer_dir``)
@@ -322,7 +323,7 @@ def list_adopted_te_checkpoints(models_dir: Optional[Path] = None) -> list[Adopt
 
 
 def resolve_adopted_te_path(name: str, models_dir: Optional[Path] = None) -> str:
-    """Resolve an ``LLMConfig.model`` value of the form ``clip/<file>.safetensors``
+    """Resolve an ``LLMConfig.model`` value of the form ``text_encoders/<file>.safetensors``
     to its absolute path, guarding against traversal outside the TE depot."""
     prefix = f"{NATIVE_TE_SUBDIR}/"
     if not name.startswith(prefix):
@@ -656,7 +657,7 @@ def build_adopted_te(path: str) -> tuple[Any, Any, str]:
 
     # The gemma3 chat tokenizer lives next to the TE depot for the checkpoint's
     # OWN models_dir, not a bundled in-repo asset — derive it from the
-    # checkpoint's own path (`<models_dir>/clip/<file>`) rather than threading a
+    # checkpoint's own path (`<models_dir>/text_encoders/<file>`) rather than threading a
     # models_dir parameter through every caller of build_adopted_te.
     models_dir = Path(path).resolve().parents[1] if family == "gemma3" else None
     tokenizer = _load_chat_tokenizer(family, models_dir)

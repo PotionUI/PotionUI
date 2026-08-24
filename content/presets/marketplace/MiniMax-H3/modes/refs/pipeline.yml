@@ -148,7 +148,7 @@ pipeline:
   ############
   - name: "prompt_encoder"
     input:
-      - ["clip", "model_loader/minimax_h3", "clip"]
+      - ["text_encoder", "model_loader/minimax_h3", "text_encoder"]
       - ["reference_image", "references", "image"]
       - ["reference_video", "reference_videos", "video"]
       - ["reference_audio", "reference_audios", "audio"]
@@ -195,7 +195,7 @@ pipeline:
   - name: "prompt_encoder"
     id: "prompt_encoder_director"
     input:
-      - ["clip", "model_loader/minimax_h3", "clip"]
+      - ["text_encoder", "model_loader/minimax_h3", "text_encoder"]
       - ["reference_image", "references", "image"]
       - ["reference_video", "reference_videos", "video"]
       - ["reference_audio", "reference_audios", "audio"]

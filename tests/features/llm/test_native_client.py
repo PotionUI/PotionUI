@@ -697,11 +697,11 @@ def test_acquire_te_fingerprint_and_key_include_quant_mode(client, monkeypatch):
     monkeypatch.setattr(client, "_models", lambda: _FakeModels())
     config = _config("qwen3-tiny", provider_options={"quantization": "nf4"})
 
-    result = client._acquire("/models/clip/qwen3-te.safetensors", config, is_te=True)
+    result = client._acquire("/models/text_encoders/qwen3-te.safetensors", config, is_te=True)
 
     assert result == "sentinel"
     assert "quant=nf4" in captured["fingerprint"]
-    assert captured["key"] == "native/llm-te//models/clip/qwen3-te.safetensors"
+    assert captured["key"] == "native/llm-te//models/text_encoders/qwen3-te.safetensors"
 
 
 def test_acquire_te_fingerprint_differs_by_quant_mode(client, monkeypatch):
@@ -715,7 +715,7 @@ def test_acquire_te_fingerprint_differs_by_quant_mode(client, monkeypatch):
     monkeypatch.setattr(client, "_models", lambda: _FakeModels())
     for mode in (None, "int8", "nf4"):
         opts = {"quantization": mode} if mode else {}
-        client._acquire("/models/clip/qwen3-te.safetensors", _config("qwen3-tiny", provider_options=opts), is_te=True)
+        client._acquire("/models/text_encoders/qwen3-te.safetensors", _config("qwen3-tiny", provider_options=opts), is_te=True)
 
     assert len(set(captured)) == 3
 
@@ -816,18 +816,18 @@ def test_resolve_model_flags_adopted_te_reference(monkeypatch):
     import src.features.llm.clients.native as native_module
 
     monkeypatch.setattr(native_module, "resolve_adopted_te_path", lambda n: f"/abs/{n}")
-    path, is_te = NativeLLMClient._resolve_model("clip/qwen3-te.safetensors")
+    path, is_te = NativeLLMClient._resolve_model("text_encoders/qwen3-te.safetensors")
     assert is_te is True
-    assert path == "/abs/clip/qwen3-te.safetensors"
+    assert path == "/abs/text_encoders/qwen3-te.safetensors"
 
 
 @pytest.mark.asyncio
 async def test_adopted_te_generate_uses_distinct_lifecycle_key(client, models_manager, monkeypatch):
-    """A clip/ model reference loads via the adoption builder and is cached under
+    """A text_encoders/ model reference loads via the adoption builder and is cached under
     the native/llm-te/ kind, never colliding with native/llm/."""
     import src.features.llm.clients.native as native_module
 
-    resolved_path = "/models/clip/qwen3-te.safetensors"
+    resolved_path = "/models/text_encoders/qwen3-te.safetensors"
     monkeypatch.setattr(native_module, "resolve_adopted_te_path", lambda n: resolved_path)
 
     class _Model:
@@ -849,7 +849,7 @@ async def test_adopted_te_generate_uses_distinct_lifecycle_key(client, models_ma
 
     monkeypatch.setattr(native_module, "build_adopted_te", lambda p: (_Model(), _Tok(), "qwen3"))
 
-    config = _config("clip/qwen3-te.safetensors")
+    config = _config("text_encoders/qwen3-te.safetensors")
     response = await client.generate_with_history(
         [{"role": "user", "content": "hi"}], config, config.system_message
     )

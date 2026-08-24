@@ -32,19 +32,19 @@ _CASES = {
         fx.QWEN3_4B,
         Qwen3Model,
         {"hidden_size": 64, "num_layers": 36, "vocab_size": 151936, "intermediate_size": 128},
-        "models/clip/qwen_3_4b.safetensors",
+        "models/text_encoders/qwen_3_4b.safetensors",
     ),
     "t5xxl": (
         fx.T5XXL,
         T5XXLModel,
         {"hidden_size": 64, "num_layers": 24, "vocab_size": 32128, "num_heads": 4, "d_kv": 16, "d_ff": 128},
-        "models/clip/t5xxl_fp8_e4m3fn_scaled.safetensors",
+        "models/text_encoders/t5xxl_fp8_e4m3fn_scaled.safetensors",
     ),
     "clip_l": (
         fx.CLIP_L,
         CLIPLModel,
         {"hidden_size": 24, "num_layers": 12, "vocab_size": 49408, "intermediate_size": 48},
-        "models/clip/clip_l.safetensors",
+        "models/text_encoders/clip_l.safetensors",
     ),
 }
 

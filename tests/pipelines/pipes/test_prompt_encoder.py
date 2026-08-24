@@ -108,19 +108,19 @@ class TestImagesThreadedToClip:
     def test_no_image_input_never_adds_images_key(self):
         clip = _FakeClip()
         pipe = PromptEncoderPipe(config=_config())
-        pipe.process(PipeInput(input={"clip": clip}), lambda o: None)
+        pipe.process(PipeInput(input={"text_encoder": clip}), lambda o: None)
         assert all("images" not in r for r in clip.requests)
 
     def test_image_input_added_to_every_request(self):
         clip = _FakeClip()
         pipe = PromptEncoderPipe(config=_config(quantity=2))
-        pipe.process(PipeInput(input={"clip": clip, "image": ["IMG"]}), lambda o: None)
+        pipe.process(PipeInput(input={"text_encoder": clip, "image": ["IMG"]}), lambda o: None)
         assert all(r["images"] == ["IMG"] for r in clip.requests)
 
     def test_image_input_clamps_to_last_when_batch_outruns_the_list(self):
         clip = _FakeClip()
         pipe = PromptEncoderPipe(config=_config(quantity=3))
-        pipe.process(PipeInput(input={"clip": clip, "image": ["A", "B"]}), lambda o: None)
+        pipe.process(PipeInput(input={"text_encoder": clip, "image": ["A", "B"]}), lambda o: None)
         assert [r["images"] for r in clip.requests] == [["A"], ["B"], ["B"]]
 
     def test_default_encoder_never_declares_the_full_batch_marker(self):
@@ -145,13 +145,13 @@ class TestFullImageBatchForwarding:
     def test_every_request_gets_the_whole_image_list(self):
         clip = _FakeClipFullImageBatch()
         pipe = PromptEncoderPipe(config=_config(quantity=3))
-        pipe.process(PipeInput(input={"clip": clip, "image": ["FIRST", "LAST"]}), lambda o: None)
+        pipe.process(PipeInput(input={"text_encoder": clip, "image": ["FIRST", "LAST"]}), lambda o: None)
         assert [r["images"] for r in clip.requests] == [["FIRST", "LAST"]] * 3
 
     def test_single_image_still_forwarded_as_a_one_item_list(self):
         clip = _FakeClipFullImageBatch()
         pipe = PromptEncoderPipe(config=_config())
-        pipe.process(PipeInput(input={"clip": clip, "image": ["ONLY"]}), lambda o: None)
+        pipe.process(PipeInput(input={"text_encoder": clip, "image": ["ONLY"]}), lambda o: None)
         assert clip.requests[0]["images"] == ["ONLY"]
 
     def test_no_image_input_still_never_adds_images_key(self):
@@ -159,7 +159,7 @@ class TestFullImageBatchForwarding:
         # some; it must not fabricate an images key out of nothing.
         clip = _FakeClipFullImageBatch()
         pipe = PromptEncoderPipe(config=_config())
-        pipe.process(PipeInput(input={"clip": clip}), lambda o: None)
+        pipe.process(PipeInput(input={"text_encoder": clip}), lambda o: None)
         assert all("images" not in r for r in clip.requests)
 
     def test_forwarded_list_is_a_copy_not_the_same_object(self):
@@ -169,7 +169,7 @@ class TestFullImageBatchForwarding:
         clip = _FakeClipFullImageBatch()
         images_in = ["FIRST", "LAST"]
         pipe = PromptEncoderPipe(config=_config(quantity=2))
-        pipe.process(PipeInput(input={"clip": clip, "image": images_in}), lambda o: None)
+        pipe.process(PipeInput(input={"text_encoder": clip, "image": images_in}), lambda o: None)
         for request in clip.requests:
             assert request["images"] is not images_in
 
@@ -198,7 +198,7 @@ class TestReferenceInputs:
         pipe = PromptEncoderPipe(config=_config())
         with pytest.raises(ValueError, match="mutually exclusive"):
             pipe.process(
-                PipeInput(input={"clip": clip, "image": ["KEYFRAME"], "reference_image": ["REF"]}),
+                PipeInput(input={"text_encoder": clip, "image": ["KEYFRAME"], "reference_image": ["REF"]}),
                 lambda o: None,
             )
 
@@ -208,7 +208,7 @@ class TestReferenceInputs:
         pipe = PromptEncoderPipe(config=_config())
         with pytest.raises(ValueError, match="mutually exclusive"):
             pipe.process(
-                PipeInput(input={"clip": clip, "image": ["KEYFRAME"], modality: ["REF"]}),
+                PipeInput(input={"text_encoder": clip, "image": ["KEYFRAME"], modality: ["REF"]}),
                 lambda o: None,
             )
 
@@ -216,7 +216,7 @@ class TestReferenceInputs:
         clip = _FakeClipFullImageBatch()
         pipe = PromptEncoderPipe(config=_config(quantity=2))
         pipe.process(
-            PipeInput(input={"clip": clip, "reference_image": ["REF1", "REF2"]}), lambda o: None,
+            PipeInput(input={"text_encoder": clip, "reference_image": ["REF1", "REF2"]}), lambda o: None,
         )
         assert all(
             r["references"] == [{"kind": "image", "media": "REF1"}, {"kind": "image", "media": "REF2"}]
@@ -230,7 +230,7 @@ class TestReferenceInputs:
         clip = _FakeClipFullImageBatch()
         pipe = PromptEncoderPipe(config=_config())
         pipe.process(PipeInput(input={
-            "clip": clip,
+            "text_encoder": clip,
             "reference_audio": ["A1"], "reference_video": ["V1", "V2"], "reference_image": ["I1"],
         }), lambda o: None)
         # Declared audio-first above on purpose: the packed order is the
@@ -243,25 +243,25 @@ class TestReferenceInputs:
     def test_reference_video_frames_is_forwarded_only_with_references(self):
         clip = _FakeClipFullImageBatch()
         pipe = PromptEncoderPipe(config=_config(reference_video_frames=124))
-        pipe.process(PipeInput(input={"clip": clip, "reference_video": ["V1"]}), lambda o: None)
+        pipe.process(PipeInput(input={"text_encoder": clip, "reference_video": ["V1"]}), lambda o: None)
         assert clip.requests[0]["reference_video_frames"] == 124
 
         plain = _FakeClipFullImageBatch()
         PromptEncoderPipe(config=_config(reference_video_frames=124)).process(
-            PipeInput(input={"plain": None, "clip": plain, "image": ["KEYFRAME"]}), lambda o: None,
+            PipeInput(input={"plain": None, "text_encoder": plain, "image": ["KEYFRAME"]}), lambda o: None,
         )
         assert all("reference_video_frames" not in r for r in plain.requests)
 
     def test_plain_image_input_never_carries_references(self):
         clip = _FakeClipFullImageBatch()
         pipe = PromptEncoderPipe(config=_config())
-        pipe.process(PipeInput(input={"clip": clip, "image": ["KEYFRAME"]}), lambda o: None)
+        pipe.process(PipeInput(input={"text_encoder": clip, "image": ["KEYFRAME"]}), lambda o: None)
         assert all("references" not in r for r in clip.requests)
 
     def test_no_reference_input_never_adds_references(self):
         clip = _FakeClipFullImageBatch()
         pipe = PromptEncoderPipe(config=_config())
-        pipe.process(PipeInput(input={"clip": clip}), lambda o: None)
+        pipe.process(PipeInput(input={"text_encoder": clip}), lambda o: None)
         assert all("references" not in r for r in clip.requests)
 
 
@@ -280,7 +280,7 @@ class TestReferenceSelections:
         clip = _FakeClipFullImageBatch()
         pipe = PromptEncoderPipe(config=_config(quantity=2))
         pipe.process(
-            PipeInput(input={"clip": clip, "reference_image": ["REF1", "REF2"]}), lambda o: None,
+            PipeInput(input={"text_encoder": clip, "reference_image": ["REF1", "REF2"]}), lambda o: None,
         )
         assert all(
             r["references"] == [{"kind": "image", "media": "REF1"}, {"kind": "image", "media": "REF2"}]
@@ -291,7 +291,7 @@ class TestReferenceSelections:
         clip = _FakeClipFullImageBatch()
         pipe = PromptEncoderPipe(config=_config(quantity=2, reference_selections=[[1], []]))
         pipe.process(
-            PipeInput(input={"clip": clip, "reference_image": ["REF1", "REF2"]}), lambda o: None,
+            PipeInput(input={"text_encoder": clip, "reference_image": ["REF1", "REF2"]}), lambda o: None,
         )
         # Output 0: subset [1] -> only REF2, re-labeled to its own list.
         assert clip.requests[0]["references"] == [{"kind": "image", "media": "REF2"}]
@@ -304,7 +304,7 @@ class TestReferenceSelections:
         clip = _FakeClipFullImageBatch()
         pipe = PromptEncoderPipe(config=_config(reference_selections=[[1, 0]]))
         pipe.process(
-            PipeInput(input={"clip": clip, "reference_image": ["REF1", "REF2"]}), lambda o: None,
+            PipeInput(input={"text_encoder": clip, "reference_image": ["REF1", "REF2"]}), lambda o: None,
         )
         assert clip.requests[0]["references"] == [
             {"kind": "image", "media": "REF2"}, {"kind": "image", "media": "REF1"},
@@ -315,7 +315,7 @@ class TestReferenceSelections:
         pipe = PromptEncoderPipe(config=_config(reference_selections=[[5]]))
         with pytest.raises(ValueError, match="reference_selections"):
             pipe.process(
-                PipeInput(input={"clip": clip, "reference_image": ["REF1"]}), lambda o: None,
+                PipeInput(input={"text_encoder": clip, "reference_image": ["REF1"]}), lambda o: None,
             )
 
     def test_bite_check_a_missing_selection_entry_would_also_pass_a_vacuous_subset_assertion(self):
@@ -327,7 +327,7 @@ class TestReferenceSelections:
         clip = _FakeClipFullImageBatch()
         pipe = PromptEncoderPipe(config=_config(quantity=2, reference_selections=[[1]]))
         pipe.process(
-            PipeInput(input={"clip": clip, "reference_image": ["REF1", "REF2"]}), lambda o: None,
+            PipeInput(input={"text_encoder": clip, "reference_image": ["REF1", "REF2"]}), lambda o: None,
         )
         assert clip.requests[0]["references"] == [{"kind": "image", "media": "REF2"}]
         assert clip.requests[1]["references"] == [
@@ -356,13 +356,13 @@ class TestFingerprintTracksFinalPrompt:
         cfg = _config()
         cfg["p_prompt"] = {"input": "a cat", "output": "a cat"}
         PromptEncoderPipe(config=cfg).process(
-            PipeInput(input={"clip": _FakeClip(), "MODELS": models}), lambda o: None
+            PipeInput(input={"text_encoder": _FakeClip(), "MODELS": models}), lambda o: None
         )
 
         cfg2 = _config()
         cfg2["p_prompt"] = {"input": "a cat", "output": "a cat, best quality, sharp focus"}
         PromptEncoderPipe(config=cfg2).process(
-            PipeInput(input={"clip": _FakeClip(), "MODELS": models}), lambda o: None
+            PipeInput(input={"text_encoder": _FakeClip(), "MODELS": models}), lambda o: None
         )
 
         assert models.fingerprints[0] != models.fingerprints[1]
@@ -371,10 +371,10 @@ class TestFingerprintTracksFinalPrompt:
         models = _FakeModels()
         cfg = _config()
         PromptEncoderPipe(config=cfg).process(
-            PipeInput(input={"clip": _FakeClip(), "MODELS": models}), lambda o: None
+            PipeInput(input={"text_encoder": _FakeClip(), "MODELS": models}), lambda o: None
         )
         PromptEncoderPipe(config=_config()).process(
-            PipeInput(input={"clip": _FakeClip(), "MODELS": models}), lambda o: None
+            PipeInput(input={"text_encoder": _FakeClip(), "MODELS": models}), lambda o: None
         )
         assert models.fingerprints[0] == models.fingerprints[1]
 
@@ -384,21 +384,21 @@ class TestNewlineNormalization:
         clip = _FakeClip()
         cfg = _config()
         cfg["p_prompt"] = {"input": "red\ncar", "output": "red\ncar"}
-        PromptEncoderPipe(config=cfg).process(PipeInput(input={"clip": clip}), lambda o: None)
+        PromptEncoderPipe(config=cfg).process(PipeInput(input={"text_encoder": clip}), lambda o: None)
         assert clip.requests[0]["prompt"] == "red car"
 
     def test_no_double_spaces_from_multiple_newlines(self):
         clip = _FakeClip()
         cfg = _config()
         cfg["p_prompt"] = {"input": "red\n\ncar", "output": "red\n\ncar"}
-        PromptEncoderPipe(config=cfg).process(PipeInput(input={"clip": clip}), lambda o: None)
+        PromptEncoderPipe(config=cfg).process(PipeInput(input={"text_encoder": clip}), lambda o: None)
         assert clip.requests[0]["prompt"] == "red car"
 
     def test_no_double_commas_from_a_newline_next_to_a_comma(self):
         clip = _FakeClip()
         cfg = _config()
         cfg["p_prompt"] = {"input": "red,\ncar", "output": "red,\ncar"}
-        PromptEncoderPipe(config=cfg).process(PipeInput(input={"clip": clip}), lambda o: None)
+        PromptEncoderPipe(config=cfg).process(PipeInput(input={"text_encoder": clip}), lambda o: None)
         assert clip.requests[0]["prompt"] == "red, car"
 
 
@@ -418,19 +418,19 @@ class TestNagForcesNegativeEncode:
     def test_cfg_off_and_nag_off_does_not_request_the_negative_pass(self):
         clip = _FakeClip()
         cfg = _config(guidance_scale=1.0, nag_scale=1.0)
-        PromptEncoderPipe(config=cfg).process(PipeInput(input={"clip": clip}), lambda o: None)
+        PromptEncoderPipe(config=cfg).process(PipeInput(input={"text_encoder": clip}), lambda o: None)
         assert clip.requests[0]["do_classifier_free_guidance"] is False
 
     def test_cfg_off_but_nag_on_still_requests_the_negative_pass(self):
         clip = _FakeClip()
         cfg = _config(guidance_scale=1.0, nag_scale=1.5)
-        PromptEncoderPipe(config=cfg).process(PipeInput(input={"clip": clip}), lambda o: None)
+        PromptEncoderPipe(config=cfg).process(PipeInput(input={"text_encoder": clip}), lambda o: None)
         assert clip.requests[0]["do_classifier_free_guidance"] is True
 
     def test_cfg_on_regardless_of_nag_still_requests_the_negative_pass(self):
         clip = _FakeClip()
         cfg = _config(guidance_scale=5.0, nag_scale=1.0)
-        PromptEncoderPipe(config=cfg).process(PipeInput(input={"clip": clip}), lambda o: None)
+        PromptEncoderPipe(config=cfg).process(PipeInput(input={"text_encoder": clip}), lambda o: None)
         assert clip.requests[0]["do_classifier_free_guidance"] is True
 
     def test_nag_scale_change_busts_the_fingerprint_cache(self):
@@ -438,10 +438,10 @@ class TestNagForcesNegativeEncode:
         # cached conditioning: one needs n_embeds populated, the other doesn't.
         models = _FakeModels()
         PromptEncoderPipe(config=_config(guidance_scale=1.0, nag_scale=1.0)).process(
-            PipeInput(input={"clip": _FakeClip(), "MODELS": models}), lambda o: None
+            PipeInput(input={"text_encoder": _FakeClip(), "MODELS": models}), lambda o: None
         )
         PromptEncoderPipe(config=_config(guidance_scale=1.0, nag_scale=1.5)).process(
-            PipeInput(input={"clip": _FakeClip(), "MODELS": models}), lambda o: None
+            PipeInput(input={"text_encoder": _FakeClip(), "MODELS": models}), lambda o: None
         )
         assert models.fingerprints[0] != models.fingerprints[1]
 
@@ -457,7 +457,7 @@ class TestNegativeAppliedMarker:
         from src.pipelines.outputs import ParamGenerationOutput, DiffTextGenerationOutput
         outputs = []
         PromptEncoderPipe(config=cfg).process(
-            PipeInput(input={"clip": _FakeClip()}), outputs.append
+            PipeInput(input={"text_encoder": _FakeClip()}), outputs.append
         )
         params = {o.name: o.values for o in outputs if isinstance(o, ParamGenerationOutput)}
         diffs = {o.name: o for o in outputs if isinstance(o, DiffTextGenerationOutput)}
@@ -495,7 +495,7 @@ class TestNegativeAppliedMarker:
 
         outputs = []
         PromptEncoderPipe(config=_config(guidance_scale=1.0, nag_scale=1.0)).process(
-            PipeInput(input={"clip": _FakeClip(), "MODELS": _CachedModels()}), outputs.append
+            PipeInput(input={"text_encoder": _FakeClip(), "MODELS": _CachedModels()}), outputs.append
         )
         params = {o.name: o.values for o in outputs if isinstance(o, ParamGenerationOutput)}
         assert params["negative_applied"] == [False]
@@ -513,8 +513,8 @@ class TestImageFingerprint:
 
         models = _FakeModels()
         pipe = PromptEncoderPipe(config=_config())
-        pipe.process(PipeInput(input={"clip": _FakeClip(), "MODELS": models, "image": [b"\x00\x01"]}), lambda o: None)
-        pipe.process(PipeInput(input={"clip": _FakeClip(), "MODELS": models, "image": [b"\xff\xfe"]}), lambda o: None)
+        pipe.process(PipeInput(input={"text_encoder": _FakeClip(), "MODELS": models, "image": [b"\x00\x01"]}), lambda o: None)
+        pipe.process(PipeInput(input={"text_encoder": _FakeClip(), "MODELS": models, "image": [b"\xff\xfe"]}), lambda o: None)
         assert models.fingerprints[0] != models.fingerprints[1]
 
     def test_no_image_and_absent_image_key_fingerprint_the_same(self):
@@ -528,8 +528,8 @@ class TestImageFingerprint:
 
         models = _FakeModels()
         pipe = PromptEncoderPipe(config=_config())
-        pipe.process(PipeInput(input={"clip": _FakeClip(), "MODELS": models}), lambda o: None)
-        pipe.process(PipeInput(input={"clip": _FakeClip(), "MODELS": models, "image": []}), lambda o: None)
+        pipe.process(PipeInput(input={"text_encoder": _FakeClip(), "MODELS": models}), lambda o: None)
+        pipe.process(PipeInput(input={"text_encoder": _FakeClip(), "MODELS": models, "image": []}), lambda o: None)
         assert models.fingerprints[0] == models.fingerprints[1]
 
 
@@ -547,7 +547,7 @@ class TestImagePixelBudget:
         clip = _FakeClipFullImageBatch()
         cfg = _config(quantity=2, image_pixel_budget=2, output_resolution="1344x768")
         PromptEncoderPipe(config=cfg).process(
-            PipeInput(input={"clip": clip, "image": ["FIRST"]}), lambda o: None
+            PipeInput(input={"text_encoder": clip, "image": ["FIRST"]}), lambda o: None
         )
         assert all(r["image_max_pixels"] == 2 * 1344 * 768 for r in clip.requests)
 
@@ -557,21 +557,21 @@ class TestImagePixelBudget:
         clip = _FakeClipFullImageBatch()
         cfg = _config(image_pixel_budget="1", output_resolution="640x384")
         PromptEncoderPipe(config=cfg).process(
-            PipeInput(input={"clip": clip, "image": ["FIRST"]}), lambda o: None
+            PipeInput(input={"text_encoder": clip, "image": ["FIRST"]}), lambda o: None
         )
         assert clip.requests[0]["image_max_pixels"] == 640 * 384
 
     def test_absent_budget_never_adds_the_key(self):
         clip = _FakeClipFullImageBatch()
         PromptEncoderPipe(config=_config(output_resolution="1344x768")).process(
-            PipeInput(input={"clip": clip, "image": ["FIRST"]}), lambda o: None
+            PipeInput(input={"text_encoder": clip, "image": ["FIRST"]}), lambda o: None
         )
         assert all("image_max_pixels" not in r for r in clip.requests)
 
     def test_budget_without_a_resolution_never_adds_the_key(self):
         clip = _FakeClipFullImageBatch()
         PromptEncoderPipe(config=_config(image_pixel_budget=2)).process(
-            PipeInput(input={"clip": clip, "image": ["FIRST"]}), lambda o: None
+            PipeInput(input={"text_encoder": clip, "image": ["FIRST"]}), lambda o: None
         )
         assert all("image_max_pixels" not in r for r in clip.requests)
 
@@ -579,14 +579,14 @@ class TestImagePixelBudget:
         clip = _FakeClipFullImageBatch()
         cfg = _config(image_pixel_budget=2, output_resolution="auto")
         PromptEncoderPipe(config=cfg).process(
-            PipeInput(input={"clip": clip, "image": ["FIRST"]}), lambda o: None
+            PipeInput(input={"text_encoder": clip, "image": ["FIRST"]}), lambda o: None
         )
         assert all("image_max_pixels" not in r for r in clip.requests)
 
     def test_budget_is_inert_without_an_image(self):
         clip = _FakeClipFullImageBatch()
         cfg = _config(image_pixel_budget=2, output_resolution="1344x768")
-        PromptEncoderPipe(config=cfg).process(PipeInput(input={"clip": clip}), lambda o: None)
+        PromptEncoderPipe(config=cfg).process(PipeInput(input={"text_encoder": clip}), lambda o: None)
         assert all("image_max_pixels" not in r for r in clip.requests)
 
     def test_a_different_budget_busts_the_fingerprint(self):
@@ -597,7 +597,7 @@ class TestImagePixelBudget:
             PromptEncoderPipe(
                 config=_config(image_pixel_budget=budget, output_resolution="1344x768")
             ).process(
-                PipeInput(input={"clip": _FakeClip(), "MODELS": models, "image": [b"\x00\x01"]}),
+                PipeInput(input={"text_encoder": _FakeClip(), "MODELS": models, "image": [b"\x00\x01"]}),
                 lambda o: None,
             )
         assert models.fingerprints[0] != models.fingerprints[1]
@@ -608,7 +608,7 @@ class TestImagePixelBudget:
             PromptEncoderPipe(
                 config=_config(image_pixel_budget=2, output_resolution=resolution)
             ).process(
-                PipeInput(input={"clip": _FakeClip(), "MODELS": models, "image": [b"\x00\x01"]}),
+                PipeInput(input={"text_encoder": _FakeClip(), "MODELS": models, "image": [b"\x00\x01"]}),
                 lambda o: None,
             )
         assert models.fingerprints[0] != models.fingerprints[1]
@@ -619,7 +619,7 @@ class TestImagePixelBudget:
             PromptEncoderPipe(
                 config=_config(image_pixel_budget=2, output_resolution="1344x768")
             ).process(
-                PipeInput(input={"clip": _FakeClip(), "MODELS": models, "image": [b"\x00\x01"]}),
+                PipeInput(input={"text_encoder": _FakeClip(), "MODELS": models, "image": [b"\x00\x01"]}),
                 lambda o: None,
             )
         assert models.fingerprints[0] == models.fingerprints[1]

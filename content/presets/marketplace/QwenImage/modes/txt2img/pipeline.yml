@@ -2,7 +2,7 @@
 #
 #   model_loader/qwen -> prompt_encoder -> seed_generator -> generator/qwen -> gallery
 #
-# Conditioning flows the mandated shared path: model_loader emits `clip`
+# Conditioning flows the mandated shared path: model_loader emits `text_encoder`
 # (a QwenClipTextEncoder), prompt_encoder turns prompts into `conditioning`,
 # and generator/qwen consumes that — it never re-encodes the prompt itself.
 pipeline:
@@ -33,7 +33,7 @@ pipeline:
   ############
   - name: "prompt_encoder"
     input:
-      - ["clip", "model_loader/qwen", "clip"]
+      - ["text_encoder", "model_loader/qwen", "text_encoder"]
     enabled: true
     configuration:
       p_prompt:

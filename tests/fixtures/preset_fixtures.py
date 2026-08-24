@@ -132,7 +132,7 @@ def sample_mode_template(sample_form_template, sample_pipe_template) -> ModeTemp
                 enabled=True,
                 configuration={},
                 input=[
-                    ('clip', 'checkpoint_loader', 'clip'),
+                    ('text_encoder', 'checkpoint_loader', 'text_encoder'),
                     ('prompt', 'form', 'prompt'),
                     ('negative_prompt', 'form', 'negative_prompt')
                 ]

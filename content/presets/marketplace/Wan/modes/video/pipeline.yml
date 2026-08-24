@@ -9,7 +9,7 @@
 #
 #   t2v_loader (model_loader/wan22, t2v checkpoint set)   \
 #   i2v_loader (model_loader/wan22, i2v checkpoint set)   / one or both, gated
-#     -> prompt_encoder (clip from whichever set is loaded) -> seed_generator
+#     -> prompt_encoder (text_encoder from whichever set is loaded) -> seed_generator
 #     -> media_first / media_last (media_loader, gated on doc.media roles)
 #     -> generator/txt2vid_wan22 (mode t2v)      <- t2v_loader
 #        | generator/img2vid_wan22 (mode i2v/flf) <- i2v_loader
@@ -115,10 +115,10 @@ pipeline:
 
   - name: "prompt_encoder"
     input:
-      # Both sets share the UMT5 text encoder, so either loader's clip is
-      # identical; name whichever one is actually enabled for this request
+      # Both sets share the UMT5 text encoder, so either loader's text_encoder
+      # is identical; name whichever one is actually enabled for this request
       # (at least one of needs_t2v_set / needs_i2v_set is always true).
-      - ["clip", "{% if form.video_director.needs_t2v_set %}t2v_loader{% else %}i2v_loader{% endif %}", "clip"]
+      - ["text_encoder", "{% if form.video_director.needs_t2v_set %}t2v_loader{% else %}i2v_loader{% endif %}", "text_encoder"]
     enabled: true
     configuration:
       # Legacy scalar passthrough (empty for a Director request -- no top-level

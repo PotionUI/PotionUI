@@ -90,7 +90,7 @@ class ModelLoaderQwenPipe(BaseModelLoaderPipe):
     def outputs(cls) -> List[PipeOutputSpec]:
         return [
             PipeOutputSpec("model", IOType.MODEL, "Qwen-Image model bundle (DiT + TE + VAE)", is_array=False),
-            PipeOutputSpec("clip", IOType.CLIP, "Qwen2.5-VL text encoder (ClipTextEncoder ABC)", is_array=False),
+            PipeOutputSpec("text_encoder", IOType.TEXT_ENCODER, "Qwen2.5-VL text encoder (ClipTextEncoder ABC)", is_array=False),
         ]
 
     # -- BaseModelLoaderPipe hooks reused by our process() -----------------
@@ -173,7 +173,7 @@ class ModelLoaderQwenPipe(BaseModelLoaderPipe):
         clip = QwenClipTextEncoder(
             te_model.module, device=device, model_fingerprint=f"{te_fp}|{dit_fp}"
         )
-        return PipeOutput(output={"model": bundle, "clip": clip})
+        return PipeOutput(output={"model": bundle, "text_encoder": clip})
 
     # -- helpers -----------------------------------------------------------
 

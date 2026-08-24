@@ -38,7 +38,7 @@ from src.platform.runtime.native.text_encoders.tokenization import (
 
 from . import _fixtures as fx
 
-_REAL_VL = Path("models/clip/qwen3vl_4b_fp8_scaled.safetensors")
+_REAL_VL = Path("models/text_encoders/qwen3vl_4b_fp8_scaled.safetensors")
 
 # Tiny 36-layer Qwen3 (needs >= 35 layers to reach KREA2_LAYERS[-1] == 34).
 _TINY_CFG = {

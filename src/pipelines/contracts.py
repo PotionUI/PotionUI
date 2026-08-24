@@ -34,7 +34,7 @@ class IOType(Enum):
     AUDIO = "AUDIO"  # Audio files for text-to-audio generation
     MESH = "MESH"  # 3D mesh (.glb) for text/image-to-3D generation
     MODEL = "MODEL"
-    CLIP = "CLIP"
+    TEXT_ENCODER = "TEXT_ENCODER"
     VAE = "VAE"
     CONTROLNET = "CONTROLNET"  # ControlNet model(s) for guided generation
     NUMPY = "NUMPY"
@@ -80,7 +80,7 @@ class IOType(Enum):
 @dataclass
 class PipeInputSpec:
     """Specification for a pipe input parameter"""
-    name: str           # Parameter name (e.g., "clip", "model")
+    name: str           # Parameter name (e.g., "text_encoder", "model")
     io_type: IOType     # Expected data type
     required: bool = True  # Whether this input is required
     description: str = ""  # Optional description
@@ -90,7 +90,7 @@ class PipeInputSpec:
 @dataclass
 class PipeOutputSpec:
     """Specification for a pipe output variable"""
-    name: str           # Variable name (e.g., "clip", "model")
+    name: str           # Variable name (e.g., "text_encoder", "model")
     io_type: IOType     # Data type being output
     description: str = ""  # Optional description
     is_array: bool = False  # Whether this output produces an array/list of values

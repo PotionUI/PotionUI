@@ -16,7 +16,7 @@ files:
     dir: models/checkpoints
     note: covers turbo, base, and finetune checkpoints — one model spec, different preset defaults
   - role: text_encoder
-    dir: models/clip
+    dir: models/text_encoders
     note: Qwen3-4B
   - role: vae
     dir: models/vae

@@ -279,11 +279,11 @@ class TestDepotRootedDestinationIsRootedOnce:
     ):
         with patch.object(DownloadManager, "_enumerate_hf_repo", return_value=list(_FILES)):
             result = cwd_manager.ensure_local_hf_repo(
-                "org/tiny", "depot/clip/org-tiny", poll_interval=0.01
+                "org/tiny", "depot/text_encoders/org-tiny", poll_interval=0.01
             )
 
-        assert Path(result) == Path("depot/clip/org-tiny")
-        assert self._child_dirs(repo) == {Path("depot/clip/org-tiny")}
+        assert Path(result) == Path("depot/text_encoders/org-tiny")
+        assert self._child_dirs(repo) == {Path("depot/text_encoders/org-tiny")}
 
     def test_ensure_local_hf_repo_uses_an_absolute_depot_path_as_given(
         self, cwd_manager, repo, tmp_path
@@ -291,7 +291,7 @@ class TestDepotRootedDestinationIsRootedOnce:
         """The documented contract: `target_dir` is where the bytes land, and
         it is returned unchanged so the caller can hand it to
         `from_pretrained`."""
-        target = tmp_path / "depot" / "clip" / "org-tiny"
+        target = tmp_path / "depot" / "text_encoders" / "org-tiny"
         with patch.object(DownloadManager, "_enumerate_hf_repo", return_value=list(_FILES)):
             result = cwd_manager.ensure_local_hf_repo(
                 "org/tiny", str(target), poll_interval=0.01
@@ -410,7 +410,7 @@ class TestTrustedDestinationIsStillContained:
 
         with patch.object(DownloadManager, "_enumerate_hf_repo", return_value=list(_FILES)):
             parent = await cwd_manager.queue_hf_repo_download(
-                "org/tiny", trusted_destination_dir="depot/clip/org-tiny"
+                "org/tiny", trusted_destination_dir="depot/text_encoders/org-tiny"
             )
 
         assert Path(parent.destination_path) == Path("depot/hooked/sub")
@@ -424,7 +424,7 @@ class TestTrustedDestinationIsStillContained:
         with patch.object(DownloadManager, "_enumerate_hf_repo", enumerate_mock):
             with pytest.raises(DownloadQueueException, match="escapes the configured directory"):
                 await cwd_manager.queue_hf_repo_download(
-                    "org/tiny", trusted_destination_dir="depot/clip/org-tiny"
+                    "org/tiny", trusted_destination_dir="depot/text_encoders/org-tiny"
                 )
         enumerate_mock.assert_not_called()
         assert repo.rows == {}

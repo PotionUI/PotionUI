@@ -27,7 +27,7 @@ from src.platform.runtime.native.text_encoders.qwen_vl_vision import (  # noqa: 
 )
 
 _REPO_ROOT = Path(__file__).resolve().parents[5]
-_REAL = _REPO_ROOT / "models/clip/qwen_2.5_vl_7b_fp8_scaled.safetensors"
+_REAL = _REPO_ROOT / "models/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors"
 
 
 # --- preprocessing geometry -------------------------------------------------

@@ -16,7 +16,7 @@ files:
     dir: models/checkpoints
     note: an all-in-one safetensors file bundling the DiT, video VAE, audio VAE, vocoder, and text-embedding projection (2.0/2.3); LTX-2.5 ships the DiT alone, transformer-only
   - role: text_encoder
-    dir: models/clip
+    dir: models/text_encoders
     note: Gemma3-12B (2.0/2.3) or Gemma4-12B-with-proj (2.5, also carries the text-embedding projection) — or T5-XXL (legacy ltxv)
   - role: vae
     dir: models/vae
@@ -39,7 +39,7 @@ Two checkpoint shapes share the LTX family: `ltxav` (2.0, 2.3, and 2.5 all detec
 | Component | 2.0 / 2.3 | 2.5 | Pipe config | model_type → dir |
 | --- | --- | --- | --- | --- |
 | DiT | sliced from the all-in-one `model` file | `ltx-2.5-22b-{dev,distilled}-transformer-bf16.safetensors` (transformer-only) | `model` | `checkpoint` → `models/checkpoints` |
-| Text encoder + projection | Gemma3-12B; `text_embedding_projection` embedded in the DiT file | `gemma4-12b-with-proj-ltx-2.5-bf16.safetensors` (Gemma4-Unified-12B; carries `text_embedding_projection`, relocated off the DiT) | `text_encoder` | `clip` → `models/clip` |
+| Text encoder + projection | Gemma3-12B; `text_embedding_projection` embedded in the DiT file | `gemma4-12b-with-proj-ltx-2.5-bf16.safetensors` (Gemma4-Unified-12B; carries `text_embedding_projection`, relocated off the DiT) | `text_encoder` | `text_encoder` → `models/text_encoders` |
 | Video VAE | sliced `vae.*` from the all-in-one file | `ltx-2.5-video-vae-conv-bf16.safetensors` (conv decode) or `ltx-2.5-video-vae-bf16.safetensors` (diffusion decode — see below) | `vae` | `vae` → `models/vae` |
 | Audio VAE + vocoder | sliced `audio_vae.*`/`vocoder.*` from the all-in-one file | `ltx-2.5-audio-vae-bf16.safetensors` | `audio_model` | `vae` → `models/vae` |
 | Spatial upscaler | — (2.3+ optional) | `ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors` | `upscale_model` | `upscaler` → `models/upscalers` |

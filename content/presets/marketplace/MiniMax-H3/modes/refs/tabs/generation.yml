@@ -101,9 +101,9 @@ fields:
         label: "Text Encoder (Qwen3-VL-32B)"
         required: true
         configuration:
-          model_type: "clip"
+          model_type: "text_encoder"
           placeholder: "Select the Qwen3-VL-32B encoder..."
-          filter_tags: "@config:clip_tags"
+          filter_tags: "@config:text_encoder_tags"
 
       - name: "video_vae"
         type: "model"

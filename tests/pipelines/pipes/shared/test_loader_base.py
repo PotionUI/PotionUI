@@ -140,13 +140,13 @@ class TestLoaderBaseHooks:
                 self.after_acquire_called_with = (model, fingerprint)
 
             def build_output(self, model, pipe_input, fingerprint):
-                return {"model": model, "clip": "fake-clip"}
+                return {"model": model, "text_encoder": "fake-text-encoder"}
 
         pipe = HookedPipe(config=HookedPipe.get_default_config())
         result = pipe.process(PipeInput(input={}), lambda o: None)
 
         assert pipe.after_acquire_called_with == ("loaded:fake-model", "fake-model")
-        assert result.output == {"model": "loaded:fake-model", "clip": "fake-clip"}
+        assert result.output == {"model": "loaded:fake-model", "text_encoder": "fake-text-encoder"}
 
     def test_validate_hook_runs_before_any_emission(self):
         class ValidatingPipe(_FakeLoaderPipe):

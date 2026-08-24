@@ -424,7 +424,7 @@ def test_chain_generator_wired_to_both_model_sets(wan_template):
 def test_prompt_encoder_clip_from_an_enabled_loader(wan_template, doc, expected_clip_provider):
     pipes = _process(wan_template, doc)
     pe = _pipe(pipes, "prompt_encoder")
-    clip_input = next(i for i in pe["input"] if i["name"] == "clip")
+    clip_input = next(i for i in pe["input"] if i["name"] == "text_encoder")
     assert clip_input["provider"] == expected_clip_provider
 
 

@@ -140,18 +140,18 @@ def test_eligibility_no_longer_gates_on_fp8():
 # --- scanner + listing ----------------------------------------------------
 
 def test_list_adopted_skips_non_safetensors_and_non_causal(tmp_path):
-    _write_synthetic(tmp_path / "clip" / "t5.safetensors", {"shared.weight": (64, 32)})
-    (tmp_path / "clip" / "notes.txt").write_text("nope")
+    _write_synthetic(tmp_path / "text_encoders" / "t5.safetensors", {"shared.weight": (64, 32)})
+    (tmp_path / "text_encoders" / "notes.txt").write_text("nope")
     assert list_adopted_te_checkpoints(tmp_path) == []
 
 
 def test_list_adopted_flags_qwen3_adoptable(tmp_path):
-    _write_synthetic(tmp_path / "clip" / "qwen3-te.safetensors", _QWEN3_MIN_KEYS,
+    _write_synthetic(tmp_path / "text_encoders" / "qwen3-te.safetensors", _QWEN3_MIN_KEYS,
                      extra={"lm_head.weight": torch.zeros(64, 32, dtype=torch.bfloat16)})
     entries = list_adopted_te_checkpoints(tmp_path)
     assert len(entries) == 1
     e = entries[0]
-    assert e.name == "clip/qwen3-te.safetensors"
+    assert e.name == "text_encoders/qwen3-te.safetensors"
     assert e.model_type == "qwen3"
     assert e.has_lm_head is True
     assert e.adoptable is True
@@ -159,7 +159,7 @@ def test_list_adopted_flags_qwen3_adoptable(tmp_path):
 
 
 def test_list_adopted_flags_gemma3_gated_without_tokenizer_assets(tmp_path):
-    _write_synthetic(tmp_path / "clip" / "gemma3-te.safetensors", _GEMMA3_MIN_KEYS)
+    _write_synthetic(tmp_path / "text_encoders" / "gemma3-te.safetensors", _GEMMA3_MIN_KEYS)
     entries = list_adopted_te_checkpoints(tmp_path)
     assert entries[0].model_type == "gemma3"
     assert entries[0].adoptable is False
@@ -169,9 +169,9 @@ def test_list_adopted_flags_gemma3_gated_without_tokenizer_assets(tmp_path):
 
 def test_list_adopted_gemma3_gate_lifts_once_tokenizer_assets_are_present(tmp_path):
     """The gate is informational, not permanent — once the on-demand
-    chat tokenizer assets land at clip/_chat_tokenizer/gemma3/, the SAME
+    chat tokenizer assets land at text_encoders/_chat_tokenizer/gemma3/, the SAME
     checkpoint file becomes chat-capable without touching the checkpoint."""
-    _write_synthetic(tmp_path / "clip" / "gemma3-te.safetensors", _GEMMA3_MIN_KEYS)
+    _write_synthetic(tmp_path / "text_encoders" / "gemma3-te.safetensors", _GEMMA3_MIN_KEYS)
     d = gemma3_chat_tokenizer_dir(tmp_path)
     d.mkdir(parents=True)
     (d / "tokenizer.json").write_text("{}")
@@ -221,7 +221,7 @@ def test_list_adopted_rejects_untied_qwen3_missing_lm_head(tmp_path):
     keys["model.layers.0.self_attn.k_proj.weight"] = (8, 4096)
     keys["model.layers.0.mlp.gate_proj.weight"] = (48, 4096)
     keys["model.norm.weight"] = (4096,)
-    _write_synthetic(tmp_path / "clip" / "qwen3-8b-te.safetensors", keys)
+    _write_synthetic(tmp_path / "text_encoders" / "qwen3-8b-te.safetensors", keys)
     e = list_adopted_te_checkpoints(tmp_path)[0]
     assert e.tied is False
     assert e.has_lm_head is False
@@ -233,7 +233,7 @@ def test_list_adopted_detects_fp8_marker_but_no_longer_gates_it(tmp_path):
     """fp8 is metadata on the listing (`e.fp8`), not a rejection —
     this fixture is tied qwen3 (hidden_size 32 < 4096) with no lm_head, which
     is adoptable via the tied-reconstruction path regardless of fp8."""
-    _write_synthetic(tmp_path / "clip" / "qwen3-fp8.safetensors", _QWEN3_MIN_KEYS,
+    _write_synthetic(tmp_path / "text_encoders" / "qwen3-fp8.safetensors", _QWEN3_MIN_KEYS,
                      extra={"scaled_fp8": torch.zeros(1, dtype=torch.float32)})
     e = list_adopted_te_checkpoints(tmp_path)[0]
     assert e.fp8 is True
@@ -244,21 +244,21 @@ def test_list_adopted_detects_fp8_marker_but_no_longer_gates_it(tmp_path):
 # --- resolve / traversal guard --------------------------------------------
 
 def test_resolve_adopted_te_path_success(tmp_path):
-    p = tmp_path / "clip" / "qwen3-te.safetensors"
+    p = tmp_path / "text_encoders" / "qwen3-te.safetensors"
     _write_synthetic(p, {"model.embed_tokens.weight": (8, 8)})
-    assert resolve_adopted_te_path("clip/qwen3-te.safetensors", tmp_path) == str(p.resolve())
+    assert resolve_adopted_te_path("text_encoders/qwen3-te.safetensors", tmp_path) == str(p.resolve())
 
 
 def test_resolve_adopted_te_path_rejects_traversal(tmp_path):
-    (tmp_path / "clip").mkdir(parents=True)
+    (tmp_path / "text_encoders").mkdir(parents=True)
     with pytest.raises(ValueError, match="Invalid adopted text-encoder name"):
-        resolve_adopted_te_path("clip/../../etc/passwd", tmp_path)
+        resolve_adopted_te_path("text_encoders/../../etc/passwd", tmp_path)
 
 
 def test_resolve_adopted_te_path_missing_raises(tmp_path):
-    (tmp_path / "clip").mkdir(parents=True)
+    (tmp_path / "text_encoders").mkdir(parents=True)
     with pytest.raises(ValueError, match="not found"):
-        resolve_adopted_te_path("clip/nope.safetensors", tmp_path)
+        resolve_adopted_te_path("text_encoders/nope.safetensors", tmp_path)
 
 
 # --- end-to-end adoption of a tiny real Qwen3 single-file -----------------
@@ -283,12 +283,12 @@ def tiny_qwen3_single_file(tmp_path_factory):
     sd = {k: v.clone().contiguous() for k, v in model.state_dict().items()}
 
     base = tmp_path_factory.mktemp("te_models")
-    (base / "clip").mkdir()
-    full = base / "clip" / "qwen3-tiny-te.safetensors"
+    (base / "text_encoders").mkdir()
+    full = base / "text_encoders" / "qwen3-tiny-te.safetensors"
     save_file(sd, str(full), metadata={"format": "pt"})
 
     tied_sd = {k: v for k, v in sd.items() if k != "lm_head.weight"}
-    tied = base / "clip" / "qwen3-tiny-tied-te.safetensors"
+    tied = base / "text_encoders" / "qwen3-tiny-tied-te.safetensors"
     save_file(tied_sd, str(tied), metadata={"format": "pt"})
     return base, str(full), str(tied)
 
@@ -317,9 +317,9 @@ def test_build_adopted_te_reconstructs_tied_lm_head(tiny_qwen3_single_file):
 
 def test_build_adopted_te_rejects_unsupported_family(tmp_path):
     """A non-causal TE (T5/CLIP-shaped) never reaches a family builder."""
-    _write_synthetic(tmp_path / "clip" / "t5.safetensors", {"shared.weight": (64, 32)})
+    _write_synthetic(tmp_path / "text_encoders" / "t5.safetensors", {"shared.weight": (64, 32)})
     with pytest.raises(ValueError, match="qwen3/gemma3 families only"):
-        build_adopted_te(str(tmp_path / "clip" / "t5.safetensors"))
+        build_adopted_te(str(tmp_path / "text_encoders" / "t5.safetensors"))
 
 
 # --- end-to-end adoption of a tiny real Gemma3 single-file -------
@@ -358,7 +358,7 @@ def tiny_gemma3_single_file(tmp_path_factory, tiny_gemma3_chat_tokenizer_files):
     constant, not recovered from shapes, see ``_GEMMA3_HEAD_DIM``), saved as
     ONE comfy-style safetensors with NO config.json/tokenizer - exactly like a
     real LTX-2 Gemma3 TE repack. The fixture chat tokenizer is written to the
-    on-disk location this checkpoint's OWN clip/_chat_tokenizer/gemma3/ cache
+    on-disk location this checkpoint's OWN text_encoders/_chat_tokenizer/gemma3/ cache
     dir resolves to (derived from the checkpoint's path, not passed in)."""
     from transformers import Gemma3TextConfig, Gemma3ForCausalLM
 
@@ -374,8 +374,8 @@ def tiny_gemma3_single_file(tmp_path_factory, tiny_gemma3_chat_tokenizer_files):
     sd = {k: v.clone().contiguous() for k, v in model.state_dict().items()}
 
     base = tmp_path_factory.mktemp("gemma3_te_models")
-    (base / "clip").mkdir()
-    full = base / "clip" / "gemma3-tiny-te.safetensors"
+    (base / "text_encoders").mkdir()
+    full = base / "text_encoders" / "gemma3-tiny-te.safetensors"
     save_file(sd, str(full), metadata={"format": "pt"})
 
     # Land the fixture chat tokenizer at the exact cache dir build_adopted_te
@@ -383,7 +383,7 @@ def tiny_gemma3_single_file(tmp_path_factory, tiny_gemma3_chat_tokenizer_files):
     # which is where THIS transformers version actually reads the chat
     # template from (not embedded in tokenizer_config.json — see the
     # _GEMMA3_CHAT_TOKENIZER_OPTIONAL_FILES comment).
-    chat_dir = base / "clip" / "_chat_tokenizer" / "gemma3"
+    chat_dir = base / "text_encoders" / "_chat_tokenizer" / "gemma3"
     chat_dir.mkdir(parents=True)
     for name in ("tokenizer.json", "tokenizer_config.json", "chat_template.jinja"):
         src = tok_dir / name
@@ -391,7 +391,7 @@ def tiny_gemma3_single_file(tmp_path_factory, tiny_gemma3_chat_tokenizer_files):
             (chat_dir / name).write_bytes(src.read_bytes())
 
     tied_sd = {k: v for k, v in sd.items() if k != "lm_head.weight"}
-    tied = base / "clip" / "gemma3-tiny-tied-te.safetensors"
+    tied = base / "text_encoders" / "gemma3-tiny-tied-te.safetensors"
     save_file(tied_sd, str(tied), metadata={"format": "pt"})
     return base, str(full), str(tied)
 
@@ -433,7 +433,7 @@ def tiny_gemma3_multimodal_single_file(tiny_gemma3_single_file):
     sd["vision_model.encoder.layers.0.self_attn.q_proj.weight"] = torch.zeros(4, 4, dtype=torch.bfloat16)
     sd["multi_modal_projector.mm_input_projection_weight"] = torch.zeros(4, 4, dtype=torch.bfloat16)
     sd["spiece_model"] = torch.zeros(4, dtype=torch.uint8)
-    path = base / "clip" / "gemma3-tiny-multimodal-te.safetensors"
+    path = base / "text_encoders" / "gemma3-tiny-multimodal-te.safetensors"
     save_file(sd, str(path), metadata={"format": "pt"})
     return str(path)
 
@@ -474,7 +474,7 @@ def test_build_adopted_te_still_rejects_genuine_unknown_key_gemma3(tiny_gemma3_s
     base, full, _tied = tiny_gemma3_single_file
     sd = load_file(full)
     sd["totally_unrecognized_junk_key"] = torch.zeros(2, 2, dtype=torch.bfloat16)
-    path = base / "clip" / "gemma3-junk-te.safetensors"
+    path = base / "text_encoders" / "gemma3-junk-te.safetensors"
     save_file(sd, str(path), metadata={"format": "pt"})
 
     with pytest.raises(ValueError, match="did not map cleanly"):
@@ -493,8 +493,8 @@ def test_build_adopted_te_gemma3_without_tokenizer_assets_raises_actionable_erro
         tie_word_embeddings=True,
     )
     model = Gemma3ForCausalLM(config)
-    (tmp_path / "clip").mkdir(parents=True)
-    path = tmp_path / "clip" / "gemma3-no-tok.safetensors"
+    (tmp_path / "text_encoders").mkdir(parents=True)
+    path = tmp_path / "text_encoders" / "gemma3-no-tok.safetensors"
     save_file({k: v.clone().contiguous() for k, v in model.state_dict().items()}, str(path))
 
     with pytest.raises(ValueError, match="tokenizer assets are not present"):
@@ -592,8 +592,8 @@ def tiny_qwen3_fp8_single_file(tmp_path_factory):
     quantized["scaled_fp8"] = torch.zeros(1, dtype=torch.float32)
 
     base = tmp_path_factory.mktemp("qwen3_fp8_te_models")
-    (base / "clip").mkdir()
-    path = base / "clip" / "qwen3-tiny-fp8-te.safetensors"
+    (base / "text_encoders").mkdir()
+    path = base / "text_encoders" / "qwen3-tiny-fp8-te.safetensors"
     save_file(quantized, str(path), metadata={"format": "pt"})
     return str(path)
 
@@ -763,11 +763,11 @@ def tiny_gemma3_nvfp4_single_file(tmp_path_factory, tiny_gemma3_chat_tokenizer_f
             quantized[key] = tensor
 
     base = tmp_path_factory.mktemp("gemma3_nvfp4_te_models")
-    (base / "clip").mkdir()
-    path = base / "clip" / "gemma3-tiny-nvfp4-te.safetensors"
+    (base / "text_encoders").mkdir()
+    path = base / "text_encoders" / "gemma3-tiny-nvfp4-te.safetensors"
     save_file(quantized, str(path), metadata={"format": "pt"})
 
-    chat_dir = base / "clip" / "_chat_tokenizer" / "gemma3"
+    chat_dir = base / "text_encoders" / "_chat_tokenizer" / "gemma3"
     chat_dir.mkdir(parents=True)
     for name in ("tokenizer.json", "tokenizer_config.json", "chat_template.jinja"):
         src = tok_dir / name
@@ -816,12 +816,12 @@ def test_list_adopted_te_checkpoints_flags_nvfp4_gemma3(tiny_gemma3_nvfp4_single
 def test_native_checkpoints_listing_includes_adopted_te_flagged(tmp_path):
     from src.features.llm.native_library import list_native_checkpoints
 
-    _write_synthetic(tmp_path / "clip" / "qwen3-te.safetensors", _QWEN3_MIN_KEYS,
+    _write_synthetic(tmp_path / "text_encoders" / "qwen3-te.safetensors", _QWEN3_MIN_KEYS,
                      extra={"lm_head.weight": torch.zeros(64, 32, dtype=torch.bfloat16)})
     entries = list_native_checkpoints(tmp_path)
     te = [e for e in entries if e.shared_te]
     assert len(te) == 1
-    assert te[0].name == "clip/qwen3-te.safetensors"
+    assert te[0].name == "text_encoders/qwen3-te.safetensors"
     assert te[0].supported is True
     # An adoptable single-file checkpoint can also be bnb-quantized in
     # place (NativeLLMClient._quantize_adopted_module), same modes as an

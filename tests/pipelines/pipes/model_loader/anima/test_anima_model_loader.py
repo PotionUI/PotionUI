@@ -49,7 +49,7 @@ def test_name_and_outputs():
     assert ModelLoaderAnimaPipe.name == "model_loader"
     out_names = {o.name: o.io_type for o in ModelLoaderAnimaPipe.outputs()}
     assert out_names["model"] == IOType.MODEL
-    assert out_names["clip"] == IOType.CLIP
+    assert out_names["text_encoder"] == IOType.TEXT_ENCODER
 
 
 def test_single_text_encoder_no_clip_l():
@@ -71,7 +71,7 @@ def test_three_distinct_acquire_keys():
 def test_outputs_are_bundle_and_clip():
     _models, out = _run(ModelLoaderAnimaPipe(config=_config()))
     assert isinstance(out.output["model"], AnimaModelBundle)
-    assert isinstance(out.output["clip"], AnimaClipTextEncoder)
+    assert isinstance(out.output["text_encoder"], AnimaClipTextEncoder)
 
 
 def test_bundle_carries_the_te_cache_key():

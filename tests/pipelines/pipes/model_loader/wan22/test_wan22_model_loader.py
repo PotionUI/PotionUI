@@ -40,7 +40,7 @@ def _run(cfg):
 def test_name_and_outputs():
     assert ModelLoaderWan22Pipe.name == "model_loader"
     out = {o.name: o.io_type for o in ModelLoaderWan22Pipe.outputs()}
-    assert out["model"] == IOType.MODEL and out["clip"] == IOType.CLIP
+    assert out["model"] == IOType.MODEL and out["text_encoder"] == IOType.TEXT_ENCODER
 
 
 def test_dual_expert_four_acquires():
@@ -55,7 +55,7 @@ def test_dual_expert_four_acquires():
     bundle = out.output["model"]
     assert isinstance(bundle, WanModelBundle)
     assert bundle.is_dual_expert
-    assert isinstance(out.output["clip"], WanClipTextEncoder)
+    assert isinstance(out.output["text_encoder"], WanClipTextEncoder)
 
 
 def test_single_expert_three_acquires():

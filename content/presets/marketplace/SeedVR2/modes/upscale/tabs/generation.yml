@@ -99,9 +99,9 @@ fields:
         required: true
         ai_hint: "SeedVR2 has no live text encoder; this is a fixed, precomputed positive prompt embedding tensor."
         configuration:
-          model_type: "clip"
+          model_type: "text_encoder"
           placeholder: "Select the fixed SeedVR2 prompt embedding..."
-          filter_tags: "@config:clip_tags"
+          filter_tags: "@config:text_encoder_tags"
           recommendations:
             - name: "SeedVR2 prompt embedding"
               link: "https://huggingface.co/ByteDance-Seed/SeedVR2-3B/resolve/main/pos_emb.pt"

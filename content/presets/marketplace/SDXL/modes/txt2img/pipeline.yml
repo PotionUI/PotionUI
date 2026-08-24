@@ -25,7 +25,7 @@ pipeline:
   - name: "prompt_encoder"
     id: "prompt_encoder"
     input:
-      - [ "clip", "checkpoint_loader/sdxl", "clip" ]
+      - ["text_encoder", "checkpoint_loader/sdxl", "text_encoder"]
     enabled: true
     configuration:
       p_prompt:

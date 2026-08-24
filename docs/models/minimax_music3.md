@@ -17,7 +17,7 @@ files:
     dir: models/diffusion_models
     note: flow-matching DiT with the condition encoder fused in (fp16 quality set; int8_convrot exists but is untested here)
   - role: text_encoder
-    dir: models/clip
+    dir: models/text_encoders
     note: fused Qwen3-8B LLM + RVQ depth decoder + embedded tokenizer, pruned or full-vocab layout
   - role: vae
     dir: models/vae

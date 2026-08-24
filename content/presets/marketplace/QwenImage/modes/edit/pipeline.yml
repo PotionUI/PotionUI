@@ -69,7 +69,7 @@ pipeline:
   ############
   - name: "prompt_encoder"
     input:
-      - ["clip", "model_loader/qwen", "clip"]
+      - ["text_encoder", "model_loader/qwen", "text_encoder"]
       - ["image", "media_loader", "image"]
     enabled: true
     configuration:

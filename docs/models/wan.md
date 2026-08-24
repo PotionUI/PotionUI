@@ -16,7 +16,7 @@ files:
     dir: models/checkpoints
     note: one file for a single-DiT variant, two files (high/low-noise experts) for a dual-expert 14B pair
   - role: text_encoder
-    dir: models/clip
+    dir: models/text_encoders
     note: UMT5
   - role: vae
     dir: models/vae

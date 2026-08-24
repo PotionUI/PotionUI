@@ -24,7 +24,7 @@ from src.platform.runtime.native.text_encoders.qwen25_vl import Qwen25VLModel  #
 from src.platform.runtime.native.text_encoders.qwen_vl_vision import VISION_NUM_HEADS as _VISION_NUM_HEADS  # noqa: E402
 
 _REPO_ROOT = Path(__file__).resolve().parents[5]
-_REAL = _REPO_ROOT / "models/clip/qwen_2.5_vl_7b_fp8_scaled.safetensors"
+_REAL = _REPO_ROOT / "models/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors"
 
 TINY = {"hidden_size": 64, "num_layers": 3, "vocab_size": 152064, "intermediate_size": 128,
         "num_attention_heads": 2, "num_key_value_heads": 1, "head_dim": 32}

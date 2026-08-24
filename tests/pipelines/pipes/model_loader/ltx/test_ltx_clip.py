@@ -401,7 +401,7 @@ def test_te_eviction_actually_frees_the_module_after_prompt_encoder_caches_condi
     # so the pipe goes through models.acquire(key="prompt_encoder.conditioning", ...).
     pipe = PromptEncoderPipe({"quantity": 1, "guidance_scale": 7.5})
     pipe_input = PipeInput(input={
-        "clip": clip, "MODELS": models, "p_prompt": "a cat", "n_prompt": "",
+        "text_encoder": clip, "MODELS": models, "p_prompt": "a cat", "n_prompt": "",
     })
     result = pipe.process(pipe_input, generation_outputs=lambda _o: None)
     assert result.output["conditioning"], "prompt_encoder must have produced conditioning"

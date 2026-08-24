@@ -119,10 +119,10 @@ class CheckpointLoaderSDXLPipe(BaseModelLoaderPipe):
 
     @classmethod
     def outputs(cls) -> List[PipeOutputSpec]:
-        """CheckpointLoader produces model, clip, and vae outputs"""
+        """CheckpointLoader produces model, text_encoder, and vae outputs"""
         return [
             PipeOutputSpec("model", IOType.MODEL, "Loaded SDXL model", is_array=False),
-            PipeOutputSpec("clip", IOType.CLIP, "CLIP text encoder for prompt processing", is_array=False),
+            PipeOutputSpec("text_encoder", IOType.TEXT_ENCODER, "CLIP text encoder for prompt processing", is_array=False),
             PipeOutputSpec("vae", IOType.VAE, "VAE for image encoding/decoding", is_array=False),
         ]
 
@@ -291,6 +291,6 @@ class CheckpointLoaderSDXLPipe(BaseModelLoaderPipe):
 
         return {
             "model": model,
-            "clip": clip,
+            "text_encoder": clip,
             "vae": model.pipe.vae,
         }

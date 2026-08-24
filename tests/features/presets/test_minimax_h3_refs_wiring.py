@@ -419,7 +419,7 @@ def test_the_director_encoder_sends_the_shot_s_own_prompt_to_the_text_encoder(h3
 
     pipe = PromptEncoderPipe(config)
     pipe_input = PipeInput(input={
-        "clip": _StubClip(),
+        "text_encoder": _StubClip(),
         "reference_image": [Mock() for _ in _REFERENCES],
         "reference_video": [],
         "reference_audio": [],

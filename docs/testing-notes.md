@@ -17,7 +17,7 @@ three categories of test behind explicit env vars, so a plain
 - `@pytest.mark.requires_models` — reads a real model checkpoint/header off
   disk. Skipped unless `POTIONUI_MODEL_TESTS=1` is set. **No test may read a
   real model file without this marker** — `models/checkpoints`, `models/vae`,
-  `models/diffusion_models` and `models/clip` may be symlinks into a live
+  `models/diffusion_models` and `models/text_encoders` may be symlinks into a live
   production model depot, and a test that reads them by default
   violates the maintainer's hard rule even when it happens to skip cleanly on
   a host where the file is absent. Most `requires_models` tests keep their

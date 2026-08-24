@@ -239,7 +239,7 @@ class DiffTextGenerationOutput(GenerationOutput):
 class ModelGenerationOutput(GenerationOutput):
     type = "artifact_output"
     name: str
-    type: Literal["checkpoint", "upscaler", "lora", "clip", "vae", "other", "embedding"]
+    type: Literal["checkpoint", "upscaler", "lora", "text_encoder", "vae", "other", "embedding"]
     weight: float = None
 
 @dataclass

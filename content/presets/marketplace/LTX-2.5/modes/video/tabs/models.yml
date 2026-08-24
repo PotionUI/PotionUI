@@ -25,9 +25,9 @@ fields:
     label: "Text Encoder (Gemma4-12B with projection)"
     required: true
     configuration:
-      model_type: "clip"
+      model_type: "text_encoder"
       placeholder: "gemma4-12b-with-proj-ltx-2.5-bf16..."
-      filter_tags: "@config:clip_tags"
+      filter_tags: "@config:text_encoder_tags"
 
   - type: "section"
     label: "VAEs"

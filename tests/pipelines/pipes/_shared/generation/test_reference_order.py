@@ -77,7 +77,7 @@ def _prompt_encoder_kinds(images, videos, audios):
         "reference_video_frames": 124,
     })
     pipe.process(PipeInput(input={
-        "clip": clip, "reference_image": images, "reference_video": videos, "reference_audio": audios,
+        "text_encoder": clip, "reference_image": images, "reference_video": videos, "reference_audio": audios,
     }), lambda output: None)
     return [entry["kind"] for entry in clip.requests[0]["references"]]
 

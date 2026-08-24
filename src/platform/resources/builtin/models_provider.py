@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 MODEL_TYPES = [
     "checkpoint", "lora", "embedding", "vae",
-    "upscaler", "controlnet", "adetailer", "clip",
+    "upscaler", "controlnet", "adetailer", "text_encoder",
 ]
 
 MAX_CONTENT_CHARS = 4000

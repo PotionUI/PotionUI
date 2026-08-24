@@ -67,7 +67,7 @@ class Model:
     file_path: Optional[str] = None
     file_size: Optional[int] = None
     sha256: Optional[str] = None
-    model_type: Optional[str] = None  # checkpoint, lora, embedding, upscaler, vae, controlnet, adetailer, clip
+    model_type: Optional[str] = None  # checkpoint, lora, embedding, upscaler, vae, controlnet, adetailer, text_encoder
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     indexed_at: Optional[datetime] = None
@@ -234,7 +234,7 @@ class Model:
             'vae': 'VAE',
             'controlnet': 'ControlNet',
             'adetailer': 'ADetailer',
-            'clip': 'CLIP'
+            'text_encoder': 'Text Encoder'
         }
         return type_map.get(self.model_type, self.model_type.title() if self.model_type else 'Unknown')
 

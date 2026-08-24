@@ -124,7 +124,7 @@ class TestBuildA1111Parameters:
         """VAE/text-encoder/embedding rows contribute neither Model nor Lora hashes."""
         supporting = [
             {"model_type": "vae", "name": "vae", "sha256": "1" * 40},
-            {"model_type": "clip", "name": "clip", "sha256": "2" * 40},
+            {"model_type": "text_encoder", "name": "text_encoder", "sha256": "2" * 40},
             {"model_type": "embedding", "name": "emb", "sha256": "3" * 40},
         ]
         result = build_a1111_parameters({"positive_prompt": "p"}, supporting)

@@ -52,7 +52,7 @@ def test_name_and_outputs():
     assert ModelLoaderQwenPipe.name == "model_loader"
     out_names = {o.name: o.io_type for o in ModelLoaderQwenPipe.outputs()}
     assert out_names["model"] == IOType.MODEL
-    assert out_names["clip"] == IOType.CLIP
+    assert out_names["text_encoder"] == IOType.TEXT_ENCODER
 
 
 def test_no_clip_l_in_config():
@@ -77,7 +77,7 @@ def test_three_distinct_acquire_keys():
 def test_outputs_are_bundle_and_clip():
     _models, out = _run(ModelLoaderQwenPipe(config=_config()))
     assert isinstance(out.output["model"], QwenModelBundle)
-    assert isinstance(out.output["clip"], QwenClipTextEncoder)
+    assert isinstance(out.output["text_encoder"], QwenClipTextEncoder)
 
 
 def test_bundle_carries_the_te_cache_key(monkeypatch):

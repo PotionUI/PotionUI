@@ -49,7 +49,7 @@ def _run(cfg=None):
 def test_name_and_outputs():
     assert ModelLoaderLtxPipe.name == "model_loader"
     out = {o.name: o.io_type for o in ModelLoaderLtxPipe.outputs()}
-    assert out["model"] == IOType.MODEL and out["clip"] == IOType.CLIP
+    assert out["model"] == IOType.MODEL and out["text_encoder"] == IOType.TEXT_ENCODER
 
 
 def test_three_component_acquires_plus_projection():
@@ -63,7 +63,7 @@ def test_three_component_acquires_plus_projection():
     ]
     bundle = out.output["model"]
     assert isinstance(bundle, LTXModelBundle)
-    assert isinstance(out.output["clip"], LTXClipTextEncoder)
+    assert isinstance(out.output["text_encoder"], LTXClipTextEncoder)
     assert bundle.projections == {"video_projection_weight": torch.zeros(1)}
 
 
@@ -210,7 +210,7 @@ def test_lora_changes_dit_fingerprint_only():
 
 def test_clip_fingerprint_includes_te_and_dit_path():
     _, out = _run()
-    clip = out.output["clip"]
+    clip = out.output["text_encoder"]
     assert clip._model_fingerprint == "/m/gemma3.safetensors|/m/ltx_dit.safetensors"
 
 

@@ -33,7 +33,7 @@ configuration:
     type: "model_tags"
     label: "Checkpoint tags"
     description: "Only models with any of these tags appear in the MiniMax-H3 DiT picker."
-  clip_tags:
+  text_encoder_tags:
     type: "model_tags"
     label: "Text encoder tags"
     description: "Only models with any of these tags appear in the Text Encoder picker."

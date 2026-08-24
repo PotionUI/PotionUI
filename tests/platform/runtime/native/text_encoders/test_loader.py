@@ -102,11 +102,11 @@ def test_load_mixed_fp8_and_nvfp4_qwen(tmp_path):
 
 
 @pytest.mark.skipif(
-    not (Path("models/clip/qwen_3_8b_fp8mixed.safetensors").is_file() and os.environ.get("POTIONUI_NVFP4_REALFILE")),
+    not (Path("models/text_encoders/qwen_3_8b_fp8mixed.safetensors").is_file() and os.environ.get("POTIONUI_NVFP4_REALFILE")),
     reason="real 8B checkpoint absent or POTIONUI_NVFP4_REALFILE not set (slow, ~50s / 9GB)",
 )
 def test_real_8b_mixed_loads_and_encodes():
-    enc = load_text_encoder("models/clip/qwen_3_8b_fp8mixed.safetensors", device="cpu")
+    enc = load_text_encoder("models/text_encoders/qwen_3_8b_fp8mixed.safetensors", device="cpu")
     out = enc.encode(["a cat"])
     assert out["context"].shape == (1, 512, 12288)
     assert torch.isfinite(out["context"]).all()

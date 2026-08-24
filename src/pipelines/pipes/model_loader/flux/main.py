@@ -95,7 +95,7 @@ class ModelLoaderFluxPipe(BaseModelLoaderPipe):
     def outputs(cls) -> List[PipeOutputSpec]:
         return [
             PipeOutputSpec("model", IOType.MODEL, "Flux model bundle (DiT + TE + VAE)", is_array=False),
-            PipeOutputSpec("clip", IOType.CLIP, "Flux text encoder (ClipTextEncoder ABC)", is_array=False),
+            PipeOutputSpec("text_encoder", IOType.TEXT_ENCODER, "Flux text encoder (ClipTextEncoder ABC)", is_array=False),
         ]
 
     # -- BaseModelLoaderPipe hooks reused by our process() -----------------
@@ -193,7 +193,7 @@ class ModelLoaderFluxPipe(BaseModelLoaderPipe):
         clip = FluxClipTextEncoder(
             te_model.module, device=device, model_fingerprint=f"{te_fp}|{dit_fp}"
         )
-        return PipeOutput(output={"model": bundle, "clip": clip})
+        return PipeOutput(output={"model": bundle, "text_encoder": clip})
 
     # -- helpers -----------------------------------------------------------
 

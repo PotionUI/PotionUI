@@ -57,6 +57,6 @@ fields:
         label: "Text Encoder (Gemma3-12B)"
         required: true
         configuration:
-          model_type: "clip"
+          model_type: "text_encoder"
           placeholder: "Select Gemma3-12B (gemma_3_12B_it)..."
-          filter_tags: "@config:clip_tags"
+          filter_tags: "@config:text_encoder_tags"

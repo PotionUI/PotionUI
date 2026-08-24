@@ -22,7 +22,7 @@ from src.platform.runtime.native.text_encoders.gemma3 import Gemma3Model, _Gemma
 from src.platform.runtime.native.text_encoders.loader import _SPECS, _build_config  # noqa: E402
 
 _REPO_ROOT = Path(__file__).resolve().parents[5]
-_REAL = _REPO_ROOT / "models/clip/gemma_3_12B_it.safetensors"
+_REAL = _REPO_ROOT / "models/text_encoders/gemma_3_12B_it.safetensors"
 
 # head_dim 256 so the loader's GQA derivation (shape // 256) works.
 TINY = {"hidden_size": 64, "num_layers": 8, "vocab_size": 262208, "intermediate_size": 128,

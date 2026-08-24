@@ -170,7 +170,7 @@ class PromptEncoderPipe(BasePipe):
 
         generation_outputs(ProgressGenerationOutput(state="Encoding prompts"))
 
-        clip: ClipTextEncoder = pipe_input.input["clip"]
+        clip: ClipTextEncoder = pipe_input.input["text_encoder"]
         models = pipe_input.input.get("MODELS", None)
         # Optional source image(s) (Qwen-Image-Edit's vision-conditioned text
         # encoder, or an H3 fl2va keyframe pair) — absent for every other
@@ -641,9 +641,9 @@ class PromptEncoderPipe(BasePipe):
 
     @classmethod
     def inputs(cls) -> List[PipeInputSpec]:
-        """PromptEncoder requires CLIP for text encoding, optionally accepts expanded prompts"""
+        """PromptEncoder requires a text encoder, optionally accepts expanded prompts"""
         return [
-            PipeInputSpec("clip", IOType.CLIP, True, "CLIP text encoder for prompt processing", is_array=False),
+            PipeInputSpec("text_encoder", IOType.TEXT_ENCODER, True, "Text encoder for prompt processing", is_array=False),
             PipeInputSpec("p_prompt", IOType.TEXT, False, "Positive prompt (optional, from prompt_expander)", is_array=False),
             PipeInputSpec("n_prompt", IOType.TEXT, False, "Negative prompt (optional, from prompt_expander)", is_array=False),
             PipeInputSpec("MODELS", IOType.SERVICE, False, "Model lifecycle service for cross-generation reuse", is_array=False),

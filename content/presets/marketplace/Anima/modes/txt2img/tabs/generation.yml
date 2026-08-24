@@ -43,9 +43,9 @@ fields:
         label: "Text Encoder (Qwen3-0.6B)"
         required: true
         configuration:
-          model_type: "clip"
+          model_type: "text_encoder"
           placeholder: "Select Qwen3-0.6B text encoder..."
-          filter_tags: "@config:clip_tags"
+          filter_tags: "@config:text_encoder_tags"
 
       - name: "vae"
         type: "model"

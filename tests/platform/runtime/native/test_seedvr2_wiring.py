@@ -29,8 +29,8 @@ _DIT_3B_FP8_PATH = Path("models/diffusion_models/seedvr2_ema_3b_fp8_e4m3fn.safet
 _DIT_7B_PATH = Path("models/diffusion_models/seedvr2_ema_7b_fp16.safetensors")
 _VAE_PATH = Path("models/vae/ema_vae_fp16.safetensors")
 # Filenames match what the preset recommendations download (URL basenames).
-_POS_EMB_PATH = Path("models/clip/pos_emb.pt")
-_NEG_EMB_PATH = Path("models/clip/neg_emb.pt")
+_POS_EMB_PATH = Path("models/text_encoders/pos_emb.pt")
+_NEG_EMB_PATH = Path("models/text_encoders/neg_emb.pt")
 
 
 def _safetensors_shapes(path: Path) -> dict[str, torch.Tensor]:

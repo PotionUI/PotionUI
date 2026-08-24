@@ -47,7 +47,7 @@ def _run(cfg=None):
 def test_name_and_outputs():
     assert ModelLoaderMinimaxH3Pipe.name == "model_loader"
     out = {o.name: o.io_type for o in ModelLoaderMinimaxH3Pipe.outputs()}
-    assert out["model"] == IOType.MODEL and out["clip"] == IOType.CLIP
+    assert out["model"] == IOType.MODEL and out["text_encoder"] == IOType.TEXT_ENCODER
 
 
 def test_three_eager_standalone_component_acquires():
@@ -79,7 +79,7 @@ def test_te_is_not_acquired_at_load_time():
 
 def test_te_is_acquired_lazily_on_first_clip_encoder_access():
     models, out = _run()
-    clip = out.output["clip"]
+    clip = out.output["text_encoder"]
     assert not any(key.startswith("native/te/") for key, _ in models.calls)
     _ = clip.encoder  # the first genuine "need to encode" moment
     keys = [k for k, _ in models.calls]
@@ -93,7 +93,7 @@ def test_te_fingerprint_folds_in_vision_enabled():
     # handed back for a vision (fl2va) request. Fingerprint is only known
     # once the (lazy) TE acquire actually runs.
     models, out = _run()
-    _ = out.output["clip"].encoder
+    _ = out.output["text_encoder"].encoder
     te_fingerprint = dict(models.calls)["native/te//m/qwen3vl_32b.safetensors"]
     assert "vision=True" in te_fingerprint
 
@@ -103,7 +103,7 @@ def test_clip_model_fingerprint_available_without_resolving_the_te():
     # directly -- must be set at construction, with zero TE acquisition, or
     # the cache lookup itself would force the very load this fix avoids.
     models, out = _run()
-    assert out.output["clip"]._model_fingerprint == "/m/qwen3vl_32b.safetensors|vision=True"
+    assert out.output["text_encoder"]._model_fingerprint == "/m/qwen3vl_32b.safetensors|vision=True"
     assert not any(key.startswith("native/te/") for key, _ in models.calls)
 
 
@@ -120,7 +120,7 @@ def test_dit_fingerprint_changes_with_loras():
 def test_returns_bundle_and_clip():
     _, out = _run()
     assert isinstance(out.output["model"], MiniMaxH3ModelBundle)
-    assert isinstance(out.output["clip"], MiniMaxH3ClipTextEncoder)
+    assert isinstance(out.output["text_encoder"], MiniMaxH3ClipTextEncoder)
     bundle = out.output["model"]
     assert bundle.te_cache_key == "native/te//m/qwen3vl_32b.safetensors"
 
@@ -148,6 +148,6 @@ def test_no_models_service_loads_directly():
     ) as mock_load:
         out = ModelLoaderMinimaxH3Pipe(cfg).process(PipeInput(input={}), lambda o: None)
         assert mock_load.call_count == 3  # dit, video_vae, audio_vae
-        _ = out.output["clip"].encoder  # force the deferred 4th (TE) load
+        _ = out.output["text_encoder"].encoder  # force the deferred 4th (TE) load
         assert mock_load.call_count == 4
     assert isinstance(out.output["model"], MiniMaxH3ModelBundle)

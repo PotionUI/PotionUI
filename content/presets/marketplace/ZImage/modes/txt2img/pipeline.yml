@@ -2,7 +2,7 @@
 #
 #   model_loader/z_image -> prompt_encoder -> seed_generator -> generator/z_image -> gallery
 #
-# Conditioning flows the mandated shared path: model_loader emits `clip`
+# Conditioning flows the mandated shared path: model_loader emits `text_encoder`
 # (a ZImageClipTextEncoder), prompt_encoder turns prompts into `conditioning`,
 # and generator/z_image consumes that — it never re-encodes the prompt itself.
 pipeline:
@@ -33,7 +33,7 @@ pipeline:
   ############
   - name: "prompt_encoder"
     input:
-      - ["clip", "model_loader/z_image", "clip"]
+      - ["text_encoder", "model_loader/z_image", "text_encoder"]
     enabled: true
     configuration:
       p_prompt:

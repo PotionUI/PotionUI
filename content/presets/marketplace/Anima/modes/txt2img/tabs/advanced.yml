@@ -1,0 +1,65 @@
+# Krea-2 layout: Sampling section holds steps/sampler/cfg in that order, each
+# carrying audience: advanced individually. Shift has no Krea-2 counterpart
+# (Anima-specific sigma-shift override) and is grouped after the canonical
+# three. Step cache section mirrors Krea-2/Wan/LTX-2.5.
+fields:
+  - type: "section"
+    label: "Sampling"
+    children:
+      - name: "steps"
+        type: "slider"
+        label: "Steps"
+        audience: "advanced"
+        default: 24
+        configuration: {min: 1, max: 100, step: 1}
+
+      - name: "sampler"
+        type: "select"
+        label: "Sampler"
+        audience: "advanced"
+        default: "euler"
+        configuration:
+          options:
+            - { label: "Euler", value: "euler" }
+            - { label: "DPM++ 2M", value: "dpmpp_2m" }
+            - { label: "UniPC", value: "unipc" }
+
+      - name: "cfg"
+        type: "slider"
+        label: "CFG Scale"
+        audience: "advanced"
+        default: 6.0
+        configuration: {min: 1.0, max: 12.0, step: 0.5}
+
+      # Optional sigma-shift override. Leave blank to use the model's built-in
+      # default (ComfyUI Anima 3.0).
+      - name: "shift"
+        type: "number"
+        label: "Shift (override)"
+        audience: "advanced"
+        configuration: {min: 0.1, max: 10.0, step: 0.05}
+
+  - type: "section"
+    label: "Step cache (FBCache)"
+    audience: "advanced"
+    children:
+      - type: "row"
+        children:
+          - name: "step_cache_threshold"
+            type: "slider"
+            label: "Cache threshold"
+            default: 0.0
+            ai_hint: "A speed-for-fidelity trade, never a quality improvement -- it only removes work. Suggest 0.08 when the user explicitly wants an Anima render faster and can accept some softening of fine detail; 0.15 only if they ask for aggressive speed. Keep it at 0.0 for final renders."
+            configuration: {min: 0.0, max: 0.3, step: 0.01}
+          - name: "step_cache_warmup_steps"
+            type: "slider"
+            label: "Warmup steps"
+            default: 4
+            ai_hint: "Only has an effect when Cache threshold is above 0. Raise toward 6-8 if a cached run loses composition -- it gives back some of the speed."
+            configuration: {min: 0, max: 12, step: 1}
+          - name: "step_cache_max_skips"
+            type: "slider"
+            label: "Max consecutive skips"
+            default: 3
+            ai_hint: "Only has an effect when Cache threshold is above 0. Lower to 1-2 if a cached run drifts or loses detail late in the trajectory."
+            configuration: {min: 0, max: 10, step: 1}

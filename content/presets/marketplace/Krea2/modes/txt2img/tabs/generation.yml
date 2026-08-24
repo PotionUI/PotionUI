@@ -1,0 +1,70 @@
+fields:
+  - name: "speed_profile"
+    type: "select"
+    label: "Speed profile"
+    default: "turbo"
+    configuration:
+      options:
+        - { label: "Turbo", value: "turbo", sub_label: "8 steps · distilled turbo checkpoint · CFG off" }
+        - { label: "Balanced", value: "balanced", sub_label: "14 steps · distilled turbo checkpoint · CFG off" }
+        - { label: "Quality", value: "quality", sub_label: "25 steps · DPM++ 2M · distilled turbo checkpoint · CFG on" }
+        - { label: "Base", value: "base", sub_label: "52 steps · raw (non-distilled) checkpoint · CFG on" }
+        - { label: "Custom", value: "custom", sub_label: "your own steps · sampler · CFG, left alone" }
+
+  - type: "section"
+    label: "Image"
+    children:
+      - type: "row"
+        children:
+          - name: "seed"
+            type: "seed"
+            label: "Seed"
+            default: -1
+            width: "3/5"
+
+          - name: "quantity"
+            type: "stepper"
+            label: "Quantity"
+            default: 1
+            width: "2/5"
+            full_width: true
+            configuration: {min: 1, max: 10, step: 1}
+
+      - name: "resolution"
+        type: "resolution"
+        label: "Resolution"
+        configuration:
+          files:
+            - { path: "{{ paths._shared }}/resolutions/flux.yml", group: "Krea-2" }
+            - { path: "{{ paths._shared }}/resolutions/flux_2k.yml", group: "2K" }
+        default: "1024x1024"
+
+  - type: "section"
+    label: "Models"
+    children:
+      - name: "diffusion_model"
+        type: "model"
+        label: "Diffusion Model"
+        required: true
+        configuration:
+          model_type: "diffusion_model"
+          placeholder: "Select Krea-2 DiT (bf16)..."
+          filter_tags: "@config:checkpoint_tags"
+
+      - name: "text_encoder"
+        type: "model"
+        label: "Text Encoder (Qwen3-VL-4B)"
+        required: true
+        configuration:
+          model_type: "clip"
+          placeholder: "Select Qwen3-VL-4B text encoder..."
+          filter_tags: "@config:clip_tags"
+
+      - name: "vae"
+        type: "model"
+        label: "VAE (Qwen-Image)"
+        required: true
+        configuration:
+          model_type: "vae"
+          placeholder: "Select Qwen-Image VAE..."
+          filter_tags: "@config:vae_tags"

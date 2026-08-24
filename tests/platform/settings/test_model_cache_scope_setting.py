@@ -1,0 +1,110 @@
+"""model_cache_scope setting: seeded row (migration 080) + manager/controller path.
+
+Regression for the missing seed row that made PUT /api/settings/model_cache_scope
+return setting_not_found so an admin could never flip it to 'global'.
+
+The migration is loaded FRESH under the patched test DB (via spec_from_file_location)
+so its module-level ``db`` binds to the test database deterministically, independent
+of session-wide import order.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+from pathlib import Path
+from unittest.mock import Mock, patch
+
+import pytest
+
+from src.features.settings.routes import SettingsController
+from src.features.settings.dto import SettingUpdateRequest
+from src.platform.settings.settings import SettingsManager
+from src.platform.settings.records import SettingType
+from src.platform.security.user import AccountType, User
+from src.platform.settings.repository import SettingRepository
+
+import tests.conftest as ct
+
+_MIGRATIONS = Path("src/platform/database/migrations")
+
+
+def _load(stem: str, name: str):
+    """Load a migration module FRESH so its ``from ... import db`` binds to the
+    currently-patched test DB (session-order-independent)."""
+    spec = importlib.util.spec_from_file_location(name, _MIGRATIONS / f"{stem}.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.fixture
+def seeded_db():
+    """A fresh isolated in-memory DB with the settings schema + migration 080
+    applied, so model_cache_scope is deterministically seeded.
+
+    Patches the ``db`` reference in BOTH the database module (for the freshly-
+    loaded migrations) AND the setting repository module (which binds its own
+    ``db`` name at import), so writes and reads hit the same test DB.
+    """
+    test_database = ct.TestDatabase()
+    with patch("src.platform.database.database.db", test_database), \
+         patch("src.platform.settings.repository.db", test_database):
+        _load("013_create_settings", f"m013_{id(test_database)}").up()
+        _load("080_add_model_cache_scope_setting", f"m080_{id(test_database)}").up()
+        yield test_database
+    test_database.close()
+
+
+# --- migration seeds the row ----------------------------------------------
+
+def test_migration_seeds_default_preset(seeded_db):
+    setting = SettingRepository().get_setting_by_key("model_cache_scope")
+    assert setting is not None
+    assert setting.value == "preset"
+    assert setting.type == SettingType.SYSTEM
+
+
+# --- manager get / set / invalid-clamp ------------------------------------
+
+def test_manager_get_set_and_invalid_clamp(seeded_db):
+    mgr = SettingsManager(SettingRepository())
+    assert mgr.get_model_cache_scope() == "preset"          # seeded default
+    assert mgr.set_setting("model_cache_scope", "global")
+    assert mgr.get_model_cache_scope() == "global"          # flip persists
+    # An unrecognised value is clamped to 'preset' on read (validity-at-read,
+    # the same pattern as native_attention_backend).
+    mgr.set_setting("model_cache_scope", "bogus")
+    assert mgr.get_model_cache_scope() == "preset"
+
+
+# --- controller path (row now exists -> no setting_not_found) --------------
+
+def _controller():
+    repo = SettingRepository()
+    return SettingsController(SettingsManager(repo), repo, Mock(), Mock(), Mock())
+
+
+def _admin():
+    return User(id="a", username="admin", email="a@x.com",
+                password_hash="h", account_type=AccountType.ADMIN)
+
+
+@pytest.mark.asyncio
+async def test_controller_put_succeeds_for_admin(seeded_db):
+    resp = await _controller().update_setting_by_key(
+        "model_cache_scope", SettingUpdateRequest(value="global"), _admin())
+    assert resp.success is True                              # was error='setting_not_found'
+    assert SettingsManager(SettingRepository()).get_model_cache_scope() == "global"
+
+
+@pytest.mark.asyncio
+async def test_controller_put_requires_admin(seeded_db):
+    from fastapi import HTTPException
+    non_admin = User(id="u", username="u", email="u@x.com",
+                     password_hash="h", account_type=AccountType.USER)
+    # A SYSTEM setting can only be changed by an admin: the call raises and the
+    # value is left untouched.
+    with pytest.raises(HTTPException):
+        await _controller().update_setting_by_key(
+            "model_cache_scope", SettingUpdateRequest(value="global"), non_admin)
+    assert SettingsManager(SettingRepository()).get_model_cache_scope() == "preset"

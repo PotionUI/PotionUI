@@ -1,0 +1,104 @@
+{
+  "mode": "remove_background",
+  "pipes": [
+    {
+      "config": {
+        "auto_detect_type": {
+          "type": "bool",
+          "value": true
+        },
+        "max_file_size": {
+          "type": "int",
+          "value": 52428800
+        },
+        "media": {
+          "type": "list",
+          "value": [
+            {
+              "path": "/GOLDEN/media/input_image.png",
+              "type": "image"
+            }
+          ]
+        },
+        "validate_files": {
+          "type": "bool",
+          "value": true
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "media_loader",
+      "name": "media_loader"
+    },
+    {
+      "config": {
+        "parameters": {
+          "type": "list",
+          "value": [
+            [
+              "model",
+              "/GOLDEN/models/matting_model.safetensors"
+            ],
+            [
+              "matte_strength",
+              50
+            ],
+            [
+              "matte_feather",
+              0
+            ]
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "param_emitter",
+      "name": "param_emitter"
+    },
+    {
+      "config": {
+        "feather": {
+          "type": "int",
+          "value": 0
+        },
+        "matte_strength": {
+          "type": "int",
+          "value": 50
+        },
+        "model.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/matting_model.safetensors"
+        },
+        "model.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/matting_model.safetensors"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "matting",
+      "name": "matting/birefnet"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "gallery",
+      "name": "gallery"
+    }
+  ],
+  "preset_id": "01KXIMAGETOOLS0000000000IT",
+  "preset_name": "Image Tools"
+}

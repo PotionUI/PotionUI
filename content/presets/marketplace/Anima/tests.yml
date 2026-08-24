@@ -1,0 +1,33 @@
+########
+## Anima: E2E test suite (grounded in a maintainer TXT 2 IMG session).
+## Authoring reference: docs/presets.md "Testing presets"
+########
+schema: 1
+
+cases:
+  # Baseline smoke: session's CFG / shift kept verbatim, steps cut from 25,
+  # smallest square resolution. DiT + Qwen3-0.6B TE + Wan-2.1 VAE pinned by
+  # real sha256 (present on disk).
+  - name: "anima-draft-baseline-fast"
+    mode: "txt2img"
+    seed: 12345
+    tags: ["fast"]
+    form:
+      prompt: "a young woman with braided hair standing in a garden"
+      negative_prompt: "worst quality, low quality, score_1, score_2, score_3, bad hands, bad fingers, watermark"
+      steps: 10
+      cfg: 5
+      sampler: "euler"
+      shift: 3
+      resolution: "1024x1024"
+    models:
+      diffusion_model:
+        sha256: "49d1e23b9a7415ac56f4719017570a5f8d295184faba578e07fe76f41bee0fcc"
+      text_encoder:
+        sha256: "cd2a512003e2f9f3cd3c32a9c3573f820bb28c940f73c57b1ddaa983d9223eba"
+      vae:
+        sha256: "2fc39d31359a4b0a64f55876d8ff7fa8d780956ae2cb13463b0223e15148976b"
+    checks:
+      min_outputs: 1
+      resolution: "1024x1024"
+      not_black: true

@@ -1,0 +1,294 @@
+########
+## MiniMax-H3 video + audio (native engine)
+##
+## H3 samples the picture and its soundtrack as ONE packed sequence, so the
+## audio track is part of the model rather than an optional second pass -- there
+## is no "generate audio" toggle to turn off. It is guidance-distilled: no CFG
+## scale, no negative prompt, one forward pass per step.
+##
+## Every component ships as its own file (Comfy-Org single-file repacks), so the
+## Models tab has four pickers: the DiT, the Qwen3-VL-32B text encoder, the video
+## VAE and the audio VAE.
+##
+## WEIGHTS LICENSE: the MiniMax H3 weights are published under the MiniMax H3
+## Community License, whose Applicable Territory EXCLUDES the European Union,
+## the United Kingdom, the United States and the Republic of Korea -- and the
+## exclusion covers the model's outputs as well as the weights. Read
+## description.md before enabling this preset.
+##
+## Authoring reference: docs/presets.md
+########
+schema: 1
+id: "01KX47H3MINIMAX000000000VA"
+name: "MiniMax-H3"
+category: "video"
+version: "1.0.0"
+engine: "native"
+tags: ["minimax", "minimax-h3", "video", "audio", "t2va", "fl2va", "flow-matching", "local"]
+
+# Admin-set values (Admin -> Presets -> Configuration). Model pickers reference
+# these via `filter_tags: "@config:<key>"`; unset = no filtering (all models shown).
+configuration:
+  checkpoint_tags:
+    type: "model_tags"
+    label: "Checkpoint tags"
+    description: "Only models with any of these tags appear in the MiniMax-H3 DiT picker."
+  clip_tags:
+    type: "model_tags"
+    label: "Text encoder tags"
+    description: "Only models with any of these tags appear in the Text Encoder picker."
+  vae_tags:
+    type: "model_tags"
+    label: "VAE tags"
+    description: "Only models with any of these tags appear in the video VAE and audio VAE pickers."
+  lora_tags:
+    type: "model_tags"
+    label: "LoRA tags"
+    description: "Only LoRAs with any of these tags appear in the LoRA picker."
+
+# Selectable speed profiles (docs/presets.md "Speed profiles"), same pattern as
+# presets/native/LTX-2 and presets/native/Krea2. Each profile bakes the ACTUAL
+# steps the recipe runs at, via the reactions on the Steps slider
+# (modes/video/tabs/advanced.yml, shared by refs/form.yml), so the visible
+# field can never disagree with what executes.
+#
+# `steps` is the only knob here, and that is not an omission: MiniMax-H3 is
+# guidance-distilled, so there is no guidance, sampler or schedule for a profile
+# to carry. Every SpeedProfile key is optional (src/features/presets/schema.py),
+# so a steps-only profile is a valid one rather than a partial one.
+speed_profiles:
+  quality:
+    steps: 24
+  turbo:
+    # Works with OR without the distillation LoRA -- the base model turns out to
+    # be a capable few-step generator on the shift-12 schedule, just softer in
+    # detail than 24 steps. The LoRA sharpens it, but it is not a prerequisite.
+    #
+    # If you do load the LoRA, the strength matters more than usual: the
+    # original ModelTC file ships without its PEFT alpha metadata, so applying
+    # it at face value runs it 8x too strong and produces noise. See the LoRA
+    # tab's ai_hint and ai/minimax_h3/TURBO_LORA_FINDINGS.md.
+    steps: 4
+  # Frees the Steps slider: the named profiles' reactions re-pin their step
+  # count on every form change (the reaction engine is level-triggered), so a
+  # hand-set count only survives under a profile that pins nothing. The steps
+  # here are only the pipeline's fallback if the form ever omits the field.
+  custom:
+    steps: 24
+
+vars:
+  # H3's frame rate is fixed by the model, not chosen per request: the audio
+  # stream's latent count is derived from it (40 latents per second of video),
+  # so this is a constant the pipeline reports rather than a knob.
+  fps: 24
+  default_frames: 124
+
+  # Video Director capabilities for the `video` mode. Read by
+  # normalize_video_director() (src/features/video_director/normalize.py) via
+  # `preset_template.vars.video_director` in src/features/generation/orchestrator.py
+  # -- the ONLY source of truth for what a submitted document may contain.
+  # `preset_modes` is a frontend-only convention (frontend/src/lib/utils/
+  # videoDirector.ts) naming the preset modes that show the Director editor.
+  #
+  # `t2v`/`i2v`/`flf` are declared (empty capability, same as Wan/LTX-2) so the
+  # Director editor's default document is NOT `director`: MODE_ORDER in
+  # frontend/src/lib/utils/videoDirector.ts picks `enabledModes[0]` as the
+  # default mode, and with `director` the only declared mode that default was
+  # always a routed multi-segment chain -- every submit, even a plain
+  # Generation-tab prompt with no edges, carried a `video_director` document
+  # whose `mode == "director"`, which is exactly what `build_director_plan()`
+  # (video_minimax_h3/windows.py) treats as a Director run. That took over
+  # `generate_one()` before it ever read the `keyframe_images`/`keyframe_anchors`
+  # a single-shot request needs, so those -- and plain t2va -- were unreachable.
+  # There is no manual Keyframes tab: the Video Director's own edge wells are
+  # the only way to attach a first/last frame (modes/video/pipeline.yml's
+  # `keyframes` media_loader reads them straight off a single-shot document's
+  # `media`); Wan and LTX-2 read the same document shape, just through their
+  # own generators.
+  video_director:
+    # `refs` (ref2va) additionally exposes the Director here, but with a
+    # different capability set -- see `preset_mode_overrides` below
+    # (apply_preset_mode_overlay(), src/features/video_director/normalize.py).
+    preset_modes: ["video", "refs"]
+    # Resolve each segment to a t2v/i2v/flf/chain sub-type. The generator reads
+    # exactly that: `chain` is the only sub-type that continues from the
+    # previous window's tail, and a segment carrying its own start image is a
+    # hard cut instead.
+    segment_routing: true
+    modes:
+      t2v: {}
+      i2v: {}
+      flf: {}
+      director:
+        keyframes: "anywhere"
+        audio: true
+        max_keyframes: 8
+        # Six shots of up to ~10.8s is ~65s of finished video, and every shot
+        # is a full-canvas H3 generation -- past that a run stops being
+        # something a user waits through.
+        max_segments: 6
+        # 345 frames is 17*20+5 -- on the VAE's lattice, so it snaps to
+        # itself, and 14.375s at 24 fps: the longest single window inside the
+        # 5-15s range MiniMax-H3 was released for (the pipe holds every window
+        # to that range, so a shot is also at least 124 frames / 5.17s). A
+        # declared cap overrides the normalizer's Wan-derived 257 default.
+        max_frames_per_segment: 345
+        continuation:
+          # 17 pixel frames is exactly one VAE chunk = 5 latent frames, the
+          # one overlap where the "how many latents to carry" and "how many
+          # decoded frames to trim" walks of the VAE's (1,4,4,4,4) cycle give
+          # the same answer. 34 (two chunks) is the other exact value.
+          source: "tail_frames"
+          overlap_frames: 17
+          stitch: true
+        max_overlap_frames: 34
+    limits:
+      default_duration: 5
+      default_fps: 24
+      # The per-SHOT ceiling. A Director run's total is the sum of its shots
+      # and is deliberately unbounded -- that is the point of the feature.
+      max_duration: 15
+
+    # Effective capabilities in `refs` mode = the block above, shallow-merged
+    # with this override (modes.<x> merges per composition mode -- see
+    # apply_preset_mode_overlay()'s docstring). `video` mode is byte-identical
+    # to what it was before this key existed.
+    preset_mode_overrides:
+      refs:
+        # ref2va's whole-film reference pool lives on the References tab's own
+        # picker fields (modes/refs/tabs/references.yml), never duplicated
+        # into the Director document -- a segment SELECTS from it.
+        references: "per_shot"
+        reference_fields: ["references", "reference_videos", "reference_audios"]
+        modes:
+          director:
+            # ref2va's own reference pickers already condition the model on
+            # images/video/audio; the director timeline's own keyframe/audio
+            # lanes are a SEPARATE conditioning path video mode uses instead,
+            # not one this mode also needs. Turning both off here keeps the
+            # two from being offered side by side.
+            keyframes: null
+            audio: false
+            # Architecture verdict: continuation and ref2va references can't
+            # coexist -- both build their window's condition rows through a
+            # packed-sequence layout (continuation's OVERLAY prefix vs.
+            # ref2va's reference-block prefix), and there is no ported layout
+            # that combines the two. `continuation: null` (the key PRESENT,
+            # not merely absent) makes every shot a hard cut in this mode --
+            # see normalize.py's `chain_continuation_disabled`. Mirrored at
+            # generation time by generator/video_minimax_h3/main.py's
+            # `_validate_refs_director_plan` (windows.py: "ref2va Director
+            # runs are hard-cut-only").
+            continuation: null
+            max_overlap_frames: null
+
+llm:
+  guide: |
+    The prompt IS a structured document the model was trained on - write it in
+    exactly this shape, three labeled fields in this order:
+
+    integrated_multimodal_description: [Shot 1] <style>, <initial composition>...
+    (the whole timeline: visuals, actions, cuts, camera, speakers, dialogue,
+    in-scene sound)
+
+    overall_soundscape: 1-4 sentences of ambient sound, physical action sounds and
+    non-verbal human sounds across the whole video (no dialogue or music here);
+    "N/A" only if the user wants total silence.
+
+    non_diegetic_music: 1-3 sentences of background score by instrumentation,
+    tempo, rhythm and dynamics - never abstract mood words; "N/A" when no score.
+
+    Rules for the multimodal description:
+    - Open [Shot 1] with the overall style (Cinematic, live-action, 2D-animated,
+      3D CG, claymation, watercolor, vintage film) and initial composition; no
+      timestamp on Shot 1.
+    - Later shots: "[Shot 2] At 00:03.500, the camera cuts to..." with strictly
+      increasing times inside the duration. Cut only to introduce new subject,
+      space, state, viewpoint or time; for smaller changes prefer camera motion.
+    - Camera motion as natural English inside the shot: zoom in/out, push in /
+      pull out, pan left/right, truck left/right, tilt up/down, pedestal up/down,
+      arc shot, tracking shot, static shot, POV, roll clockwise/counterclockwise,
+      shake slightly/strongly - optionally "with small/large amplitude" and
+      "at slow/fast speed" (omit medium amplitude / normal speed).
+    - Speakers get stable IDs (S1), (S2) ((S1,S2) when together); establish the
+      voice at first appearance (age, gender, pitch, timbre, pace). Identifying
+      phrase, ID and action go outside the tag; exact words inside:
+      (S1) says: <d>[English] I get off at the next station.</d> Preserve the
+      user's words and punctuation verbatim, never translate. Voiceover uses
+      exactly "says in an off-screen voiceover" and states the on-screen lips
+      stay closed. <scenetrans> marks a line crossing a cut; <cutoff> marks
+      speech truncated by the video's end.
+    - On-screen text (signs, labels) goes verbatim in double quotes.
+    - Reference-image modes: the first line, followed by a blank line, is the
+      alignment instruction. First frame: "For the target video, at 0.00 seconds
+      into the target video, <Picture 1> (from [Shot 1]) is fully referenced."
+      First+last: "How the reference pictures align with the target video -
+      Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target
+      video; Picture 2 (from Shot N) aligns with the S.SS-second mark of the
+      target video." Then describe the motion path between anchors - never
+      re-describe the static image content.
+    Natural prose throughout, no tag lists. In Video Director mode, put one shot
+    per segment through the director tool instead of [Shot] markers in one prompt.
+
+  # Per-mode override: the `refs` entry REPLACES the guide above whenever that
+  # mode is active (PresetLLMModeSpec, docs/presets.md "LLM context"). It has
+  # to replace rather than extend -- ref2va's six-section document is a
+  # different contract from the three-field one, not an addition to it, and the
+  # alignment-instruction rule above is actively wrong for a reference request.
+  #
+  # Distilled from MiniMax's own VIDEO_PROMPT_WRITING_GUIDE_ref_en.md.
+  modes:
+    refs:
+      guide: |
+        Reference mode uses a SIX-SECTION prompt that REPLACES the three-field format.
+        Each reference picker numbers its own items by order: images are <Picture 1>,
+        <Picture 2>...; videos <Video 1>...; audio <Audio 1>.... Their labels name the
+        subjects. Write all sections in English, in exactly this order:
+
+        subject_definitions: define each referenced thing and its label. <Subject N>
+        is an abstraction over the assets (it has NO attachment of its own); images
+        that only define a character/costume/style are cited INSIDE the Subject
+        definition, never as standalone Picture entries. Examples:
+        "<Subject 1> is the young woman in <Picture 1>, with long dark hair and a
+        blue cardigan." / "<Picture 2> is the first frame of [Shot 1], showing a
+        woman seated beside a cafe window."
+
+        summary: one short paragraph opening with bracketed task types, combined
+        with " + ", chosen from: keyframe completion, reference generation, video
+        editing, video continuation, audio reuse, audio reference. E.g.
+        "[reference generation] ...". A reference merely existing does not create
+        a task type. Introduce no new labels here.
+
+        retention_analysis: one line per label with a FIXED marker - visual
+        (<Subject/Picture/Video N>): fully_preserved | partially_preserved |
+        attribute_transfer | weak_reference; audio (<Audio N>): fully_copy |
+        partially_copy | reference | weak_reference. Format:
+        "<Subject 1> (appears in [Shot 1], [Shot 3]): fully_preserved - ...".
+        No (Sx) speaker IDs in this section.
+
+        detailed_description: the main body, 350-500 words. State the overall style
+        in one or two sentences BEFORE [Shot 1] (unlike base mode). Then timed shots
+        in playback order: [Shot 1] no timestamp; later shots "[Shot 2] At
+        00:03.500, the camera cuts to...", strictly increasing. There is NO
+        alignment-instruction line - anchor frames in prose: "the shot begins from
+        <Picture 1>", "the shot ends on <Picture 3>". Cite <Subject N>/<Picture N>
+        at first appearance and where their role applies. Camera motion as natural
+        English: zoom/push/pan/truck/tilt/pedestal, arc, tracking, static, POV,
+        roll, shake - optionally "with small/large amplitude", "at slow/fast
+        speed". Speakers get stable (S1)/(S2) IDs assigned by order of first vocal
+        event; a referenced subject speaking keeps both: "<Subject 2> (S1) says,
+        <d>[English] ...</d>". Preserve user-provided words verbatim inside <d>;
+        on-screen text verbatim in double quotes.
+
+        overall_soundscape: 1-4 sentences of ambience, physical action sounds,
+        non-verbal human sounds for the whole video; no dialogue or music here;
+        "N/A" only for explicit total silence.
+
+        non_diegetic_music: 1-3 sentences, instrumentation/tempo/rhythm/dynamics,
+        never abstract mood words; "N/A" when no score. When reference audio is
+        reused, state the copy/reference relationship only in the section matching
+        the audible layer.
+
+modes:
+  - video
+  - refs

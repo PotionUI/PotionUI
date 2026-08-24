@@ -1,0 +1,56 @@
+# Pipeline for the 'trim' mode.
+#
+#   media_loader -> param_emitter -> audio_trim
+#
+# audio_trim is the terminal pipe: `gallery` now has an `audio` input/output
+# (it did not when this preset first landed), but audio_trim still emits its
+# own final `AudioGenerationOutput` directly (temporary=false) rather than
+# routing through it -- the same pattern `video_speed` uses for video. This
+# is a deliberate choice, not a leftover gap: gallery exists to merge
+# *parallel* media branches (e.g. image + video from one generation) into a
+# single combined output, and trim never has more than one branch to merge.
+# Routing through it here would also strip the sample_rate/channels this
+# pipe already knows precisely from the source file read (the shared
+# `audio`/`video`/`image` pipeline channels carry bare paths, no metadata --
+# gallery would have to rebuild an `AudioGenerationOutput` from just the
+# path and lose them, the same way video's resolution/fps already go null
+# for anything routed through gallery today). No text encoder, no denoise
+# loop, no seed: this is a deterministic sample-accurate cut.
+pipeline:
+  #############
+  ## Media Loader - Load the source audio from the form file path
+  #############
+  - name: "media_loader"
+    id: "media_loader"
+    enabled: true
+    configuration:
+      validate_files: true
+      max_file_size: 104857600  # 100MB
+      auto_detect_type: true
+      media:
+        - type: "audio"
+          path: "{{ form.input_audio }}"
+
+  #############
+  ## Parameter Emitter - record the run's settings on the generation
+  #############
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    configuration:
+      quantity: 1
+      parameters:
+        - ["start_seconds", "{{ form.start_seconds | default(0.0) }}"]
+        - ["duration_seconds", "{{ form.duration_seconds | default(10.0) }}"]
+
+  #############
+  ## Audio Trim - cut the (start, duration) window, clamped to the source
+  #############
+  - name: "audio_trim"
+    id: "audio_trim"
+    enabled: true
+    input:
+      - ["audio", "media_loader", "audio"]
+    configuration:
+      start_seconds: "{{ form.start_seconds | default(0.0) }}"
+      duration_seconds: "{{ form.duration_seconds | default(10.0) }}"

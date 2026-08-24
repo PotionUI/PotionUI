@@ -1,0 +1,271 @@
+"""HTTP boundary for the normalized prompt aggregate API."""
+
+import logging
+from typing import Any, Dict, TYPE_CHECKING, Optional
+
+from fastapi import APIRouter, Body, Depends, Query
+
+from src.platform.http.base_controller import APIResponse, BaseController
+from src.platform.security.current_user import get_current_active_user, get_current_admin_user
+from src.features.prompt_database.dto import (
+    PromptBulkDeleteRequest,
+    PromptRequest,
+)
+from src.features.prompt_database.embedding import LocalEmbeddingProvider
+from src.features.prompt_database.manager import PromptDatabaseManager
+from src.features.generation.repository import generation_repo
+from src.features.presets.name_resolver import PresetNameResolver
+from src.platform.security.user import User
+
+if TYPE_CHECKING:
+    from src.bootstrap.container import AppContainer
+
+logger = logging.getLogger(__name__)
+
+
+def _user_id(user: User) -> str:
+    """Authenticated users are persisted records and therefore always have an id."""
+    if not user.id:
+        raise RuntimeError("Authenticated user is missing an id")
+    return user.id
+
+
+class PromptDatabaseController(BaseController):
+    def __init__(self, manager: PromptDatabaseManager):
+        super().__init__()
+        self.manager = manager
+
+    async def create(self, request: PromptRequest, user: User) -> APIResponse:
+        try:
+            prompt = await self.manager.create_prompt(_user_id(user), request)
+            return self.success_response(prompt.to_dict())
+        except ValueError as exc:
+            return self.error_response("validation_error", str(exc), 422)
+        except Exception as exc:
+            return self.handle_exception(exc, "create_prompt_error")
+
+    async def replace(self, prompt_id: str, request: PromptRequest, user: User) -> APIResponse:
+        try:
+            prompt = await self.manager.replace_prompt(_user_id(user), prompt_id, request)
+            if prompt is None:
+                return self.error_response("not_found", "Prompt not found", 404)
+            return self.success_response(prompt.to_dict())
+        except ValueError as exc:
+            return self.error_response("validation_error", str(exc), 422)
+        except Exception as exc:
+            return self.handle_exception(exc, "update_prompt_error")
+
+
+def build_router(container: "AppContainer") -> APIRouter:
+    controller = container.prompt_database_controller
+    settings_manager = container.settings_manager
+    download_manager = container.download_manager
+    prompt_importer_registry = container.prompt_importer_registry
+    router = APIRouter(prefix="/api/prompts", tags=["Prompts"])
+
+    @router.get(
+        "/embedding-status",
+        response_model=APIResponse,
+        summary="Local prompt-embedding model status",
+    )
+    async def embedding_status(
+        model_name: Optional[str] = Query(
+            None, description="Override the saved model id (e.g. an unsaved admin edit)"
+        ),
+        current_user: User = Depends(get_current_admin_user),
+    ):
+        """Presence/path/size of the local text-embedder weights on disk, plus
+        whether they're currently resident in memory and any in-flight fetch
+        job for them. Admin only.
+
+        `present` is disk-only and never implies `loaded` - the active
+        provider instance can be evicted (or simply never yet loaded) while
+        the weights remain on disk. The in-flight job is included so a
+        reloading or reconnecting admin client can reconstruct "a fetch is
+        already running" from this call alone - it never has to keep its own
+        record of which download id maps to which asset.
+        """
+        name = model_name or settings_manager.get_setting(
+            "prompt_embedding_model", LocalEmbeddingProvider.DEFAULT_MODEL
+        )
+        data = LocalEmbeddingProvider.resolve_status(name, settings_manager.get_models_dir())
+        active = download_manager.find_active_download_for_repo(name)
+        data["active_download"] = active.to_dict() if active else None
+        # Only the active provider instance can report residency, and only
+        # for the model it was actually constructed with - an admin querying
+        # an unsaved override model_name gets an honest `false`, not a
+        # residency reading for a different model.
+        provider = controller.manager.embedding_provider
+        is_loaded = getattr(provider, "is_loaded", None)
+        data["loaded"] = bool(
+            is_loaded and getattr(provider, "model_name", None) == name and is_loaded()
+        )
+        return APIResponse(success=True, data=data)
+
+    @router.get("/importers", response_model=APIResponse, summary="List available prompt import sources")
+    async def list_importers(current_user: User = Depends(get_current_active_user)):
+        return APIResponse(success=True, data=prompt_importer_registry.frontend_manifest())
+
+    @router.post("/import/{importer_id}", response_model=APIResponse, summary="Run a prompt import source")
+    async def run_import(
+        importer_id: str,
+        payload: Dict[str, Any] = Body(default_factory=dict),
+        current_user: User = Depends(get_current_active_user),
+    ):
+        definition = prompt_importer_registry.get(importer_id)
+        if definition is None:
+            return controller.error_response("not_found", "Unknown prompt importer", 404)
+        outcome = await definition.backend.run(payload, _user_id(current_user))
+        return APIResponse(success=outcome.error is None, data={
+            "imported": outcome.imported, "skipped": outcome.skipped, "total": outcome.total,
+            "items": outcome.items, "error": outcome.error,
+        })
+
+    @router.get("/search", response_model=APIResponse, summary="Semantic-search saved prompts")
+    async def search_prompts(
+        q: str = Query(..., min_length=1), limit: int = Query(20, ge=1, le=100),
+        base_model: Optional[str] = None, model_id: Optional[str] = None,
+        source_provider: Optional[str] = None,
+        current_user: User = Depends(get_current_active_user),
+    ):
+        prompts = await controller.manager.search(
+            _user_id(current_user), q, limit, base_model, model_id, source_provider,
+        )
+        return APIResponse(success=True, data=[prompt.to_dict() for prompt in prompts])
+
+    @router.post("/find-duplicates", response_model=APIResponse, summary="Find near-duplicate prompts")
+    async def find_duplicates(
+        threshold: float = Query(0.1, ge=0.01, le=1.0),
+        model_id: Optional[str] = None,
+        current_user: User = Depends(get_current_active_user),
+    ):
+        groups = await controller.manager.find_duplicates(
+            _user_id(current_user), threshold, model_id,
+        )
+        return APIResponse(
+            success=True,
+            data={
+                "groups": groups,
+                "total_duplicates": sum(len(group["prompts"]) - 1 for group in groups),
+            },
+        )
+
+    @router.post("/bulk-delete", response_model=APIResponse, summary="Delete multiple prompts")
+    async def bulk_delete(
+        request: PromptBulkDeleteRequest,
+        current_user: User = Depends(get_current_active_user),
+    ):
+        count = controller.manager.bulk_delete_prompts(
+            _user_id(current_user), request.prompt_ids,
+        )
+        return APIResponse(success=True, data={"deleted": count})
+
+    @router.delete("/purge-model/{model_id}", response_model=APIResponse, summary="Delete all prompts for a model")
+    async def purge_model(model_id: str, current_user: User = Depends(get_current_active_user)):
+        count = controller.manager.purge_model_prompts(
+            _user_id(current_user), model_id
+        )
+        return APIResponse(success=True, data={"deleted": count})
+
+    @router.post("/embed-pending", response_model=APIResponse, summary="Embed prompts awaiting vectorization")
+    async def embed_pending(current_user: User = Depends(get_current_active_user)):
+        count = await controller.manager.embed_pending(
+            _user_id(current_user)
+        )
+        return APIResponse(success=True, data={"embedded": count})
+
+    @router.post("", response_model=APIResponse, summary="Create a prompt")
+    @router.post("/", response_model=APIResponse, include_in_schema=False)
+    async def create_prompt(
+        request: PromptRequest,
+        current_user: User = Depends(get_current_active_user),
+    ):
+        return await controller.create(request, current_user)
+
+    @router.get("", response_model=APIResponse, summary="List saved prompts")
+    @router.get("/", response_model=APIResponse, include_in_schema=False)
+    async def list_prompts(
+        limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0),
+        source_provider: Optional[str] = None, base_model: Optional[str] = None,
+        model_id: Optional[str] = None, usage_hint: Optional[str] = None,
+        collection_id: Optional[str] = Query(None, description="Only prompts in this 'prompts'-scope collection"),
+        sort_by: str = "created_at", sort_order: str = "desc",
+        current_user: User = Depends(get_current_active_user),
+    ):
+        user_id = _user_id(current_user)
+        data = controller.manager.list_prompts(
+            user_id=user_id, limit=limit, offset=offset,
+            source_provider=source_provider, base_model=base_model, model_id=model_id,
+            usage_hint=usage_hint, collection_id=collection_id,
+            sort_by=sort_by, sort_order=sort_order,
+        )
+        # Single grouped query for the whole page rather than one lookup per
+        # prompt - see GenerationRepository.usage_stats_by_source_prompt.
+        prompt_ids = [item["id"] for item in data["items"]]
+        usage = generation_repo.usage_stats_by_source_prompt(prompt_ids, user_id)
+        for item in data["items"]:
+            stats = usage.get(item["id"])
+            item["usage_count"] = stats["usage_count"] if stats else 0
+            item["last_used_at"] = stats["last_used_at"] if stats else None
+        return APIResponse(success=True, data=data)
+
+    @router.get("/{prompt_id}", response_model=APIResponse, summary="Get a prompt")
+    async def get_prompt(prompt_id: str, current_user: User = Depends(get_current_active_user)):
+        prompt = controller.manager.get_prompt(
+            _user_id(current_user), prompt_id
+        )
+        if prompt is None:
+            return controller.error_response("not_found", "Prompt not found", 404)
+        return APIResponse(success=True, data=prompt.to_dict())
+
+    @router.get(
+        "/{prompt_id}/generations", response_model=APIResponse,
+        summary="Generations that used this prompt",
+    )
+    async def get_prompt_generations(
+        prompt_id: str,
+        limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0),
+        current_user: User = Depends(get_current_active_user),
+    ):
+        """Completed generations submitted from this library prompt, newest first.
+
+        Scoped to the caller the same way generation history is - a second
+        user's generations never surface here even if they happen to carry
+        this prompt's id.
+        """
+        user_id = _user_id(current_user)
+        generations = generation_repo.get_by_source_prompt(prompt_id, user_id, limit=limit, offset=offset)
+        total = generation_repo.count_by_source_prompt(prompt_id, user_id)
+        names = PresetNameResolver(container.preset_template_loader).name_map()
+        items = [
+            {
+                "id": generation.id,
+                "preset_id": generation.preset_id,
+                "preset_name": names.get(generation.preset_id, generation.preset_id) if generation.preset_id else None,
+                "created_at": generation.created_at.isoformat() if generation.created_at else None,
+                "files": [file.to_dict() for file in generation.files],
+            }
+            for generation in generations
+        ]
+        return APIResponse(success=True, data={"items": items, "total": total, "limit": limit, "offset": offset})
+
+    @router.put("/{prompt_id}", response_model=APIResponse, summary="Replace a prompt")
+    async def replace_prompt(
+        prompt_id: str, request: PromptRequest,
+        current_user: User = Depends(get_current_active_user),
+    ):
+        return await controller.replace(prompt_id, request, current_user)
+
+    @router.delete("/{prompt_id}", response_model=APIResponse, summary="Delete a prompt")
+    async def delete_prompt(prompt_id: str, current_user: User = Depends(get_current_active_user)):
+        if not controller.manager.delete_prompt(
+            _user_id(current_user), prompt_id
+        ):
+            return controller.error_response("not_found", "Prompt not found", 404)
+        return APIResponse(success=True, message="Prompt deleted")
+
+    return router
+
+
+# Alias kept for plugin manifests that reference this module by this name.
+PromptController = PromptDatabaseController

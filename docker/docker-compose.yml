@@ -1,0 +1,95 @@
+# PotionUI rig-simulation harness.
+#
+# Two profiles that squeeze the maintainer's 96GB/RTX 5090 box down to what a
+# weaker machine actually has, so onboarding + generation can be exercised
+# under real constraints instead of guessed at:
+#
+#   rig-mid   - 32GB RAM (hard cap, no swap escape), 8 CPUs, 16GB "VRAM"
+#   rig-small - 16GB RAM (hard cap, no swap escape), 4 CPUs,  8GB "VRAM"
+#
+# "VRAM" is in scare quotes deliberately: both services still see the real
+# RTX 5090 (nvidia-container-toolkit --gpus all is not partitionable at the
+# Docker level), but POTIONUI_VRAM_CAP_GB (src/platform/runtime/vram_cap.py)
+# caps what every placement/admission decision in the process PERCEIVES as
+# the card's total/free VRAM. It logs loudly at startup specifically so a
+# capped run's numbers are never mistaken for the real card's - watch the
+# container logs for the "*** VRAM capped ***" line.
+#
+# RAM is a REAL hard cap (mem_limit == memswap_limit -> no swap escape valve,
+# same failure mode a genuinely RAM-constrained box hits), enforced by the
+# kernel cgroup, and read correctly from inside the container via
+# src/platform/runtime/system_memory.py (cgroup-v2-aware; without it,
+# psutil.virtual_memory() would report the HOST's 96GB and every RAM-budgeted
+# admission decision would overshoot the container's real ceiling).
+#
+# Usage (from the repo root):
+#   docker compose -f docker/docker-compose.yml up rig-mid
+#   docker compose -f docker/docker-compose.yml up rig-small
+#   docker compose -f docker/docker-compose.yml config   # validate without building
+#
+# Requires nvidia-container-toolkit installed and configured as the Docker
+# GPU runtime (https://github.com/NVIDIA/nvidia-container-toolkit) - `docker
+# info | grep -i nvidia` should show the nvidia runtime before `up`.
+#
+# Models/outputs/settings persist in named volumes across runs (and across
+# rig-mid <-> rig-small - a model downloaded under one profile doesn't need
+# re-downloading under the other). Drop a volume to force a truly clean
+# onboarding run, e.g.: `docker volume rm docker_potionui-storage`.
+
+x-potionui-base: &potionui-base
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile.dev
+  image: potionui-dev:latest
+  restart: "no"
+  # nvidia-container-toolkit device reservation - the Compose Specification
+  # honors `deploy.resources.reservations.devices` outside swarm mode too
+  # (docker compose up, not just `docker stack deploy`).
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]
+  volumes:
+    - potionui-models:/app/models
+    - potionui-outputs:/app/outputs
+    - potionui-storage:/app/storage
+
+services:
+  rig-mid:
+    <<: *potionui-base
+    container_name: potionui-rig-mid
+    # Hard RAM cap: mem_limit == memswap_limit means zero swap headroom, so
+    # RAM pressure hits the same wall a real 32GB box would hit, not a slow
+    # swap-thrashing escape hatch.
+    mem_limit: 32g
+    memswap_limit: 32g
+    cpus: 8
+    environment:
+      BACKEND_PORT: "8005"
+      FRONTEND_PORT: "3001"
+      POTIONUI_VRAM_CAP_GB: "16"
+    ports:
+      - "8005:8005"
+      - "3001:3001"
+
+  rig-small:
+    <<: *potionui-base
+    container_name: potionui-rig-small
+    mem_limit: 16g
+    memswap_limit: 16g
+    cpus: 4
+    environment:
+      BACKEND_PORT: "8006"
+      FRONTEND_PORT: "3002"
+      POTIONUI_VRAM_CAP_GB: "8"
+    ports:
+      - "8006:8006"
+      - "3002:3002"
+
+volumes:
+  potionui-models:
+  potionui-outputs:
+  potionui-storage:

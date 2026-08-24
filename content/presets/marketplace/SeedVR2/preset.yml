@@ -1,0 +1,59 @@
+########
+## SeedVR2 upscale/restoration (native engine)
+##
+## SeedVR2 (ByteDance) is a one-step diffusion restoration transformer (NaDiT) plus
+## a self-normalizing causal-video VAE. Unlike the other native families it has NO
+## live text encoder -- conditioning uses a fixed, precomputed positive prompt
+## embedding shipped as a raw `.pt` tensor. There is no denoise loop, no CFG, no
+## sampler: one DiT forward at a fixed timestep produces the restored/upscaled
+## image. See src/pipelines/pipes/model_loader/seedvr2/main.py and
+## src/pipelines/pipes/generator/seedvr2/main.py for the exact contract.
+## Authoring reference: docs/presets.md
+########
+schema: 1
+id: "01KXB7C553THYMSMKY1QSYESFM"
+name: "SeedVR2"
+category: "utility"
+version: "1.1.0"
+engine: "native"
+tags: ["seedvr2", "upscale", "restoration", "local", "utility"]
+
+media:
+  cover: "public/examples/moon-portrait.webp"
+  gallery:
+    - src: "public/examples/moon-portrait.webp"
+      mode: "upscale"
+    - src: "public/examples/bar-restore.mp4"
+      mode: "video_upscale"
+
+# Exempt from speed_profiles by design -- one-step restoration, no sampling regime axis.
+vars:
+  default_scale: 2.0
+  promptless_modes: [upscale, video_upscale]
+
+# Admin-set values (Admin -> Presets -> Configuration). Model pickers reference
+# these via `filter_tags: "@config:<key>"`; unset = no filtering (all models shown).
+configuration:
+  checkpoint_tags:
+    type: "model_tags"
+    label: "Checkpoint tags"
+    description: "Only models with any of these tags appear in the Checkpoint picker."
+  clip_tags:
+    type: "model_tags"
+    label: "Text encoder tags"
+    description: "Only models with any of these tags appear in the Text Encoder picker."
+  vae_tags:
+    type: "model_tags"
+    label: "VAE tags"
+    description: "Only models with any of these tags appear in the VAE picker."
+
+llm:
+  guide: |
+    SeedVR2 is a restoration/upscale family with NO live text encoder — the loader
+    injects fixed prompt embeddings, so text prompts have zero effect on output.
+    Never write or improve prompts here. Help the user configure upscale settings
+    (resolution, tiling, video vs image mode) from the form summary below.
+
+modes:
+  - upscale
+  - video_upscale

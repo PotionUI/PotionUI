@@ -1,0 +1,162 @@
+# enhance ("Whole-Frame Enhance", experimental) pipeline for native Krea-2.
+#
+#   model_loader/krea2 -> media_loader -> prompt_encoder -> seed_generator
+#     -> generator/krea2 (mode=img2img, refine_tail=<detail_change>) -> gallery
+#
+# Same model-loader/prompt-encoder wiring as txt2img (same LoRA chain, same
+# NAG wire) plus a media_loader source image, exactly like QwenImage's img2img
+# mode. The one thing unique to this mode: generator/krea2's `refine_tail`
+# makes it walk only the TAIL of the official fixed-mu 8-step Euler
+# grid (build_sigmas(8, fixed_mu=<spec>)) instead of a denoise-truncated
+# schedule -- see src/pipelines/pipes/generator/krea2/main.py. `denoise` is
+# set to a fixed, positive-but-inert value: img2img_denoise() no-ops on
+# denoise<=0 regardless of an explicit sigmas list, and sigmas (once set)
+# fully determines the noise blend/schedule on its own.
+pipeline:
+  - name: "model_loader/krea2"
+    enabled: true
+    configuration:
+      diffusion_model:
+        file_path: "{{ form.diffusion_model }}"
+        name: "{{ form.diffusion_model }}"
+      text_encoder:
+        file_path: "{{ form.text_encoder }}"
+        name: "{{ form.text_encoder }}"
+      vae:
+        file_path: "{{ form.vae }}"
+        name: "{{ form.vae }}"
+      loras:
+        "@loop":
+          items: "{{ form.loras | default([]) }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+
+  #############
+  ## Media Loader (Source Image)
+  ############
+  - name: "media_loader"
+    id: "media_loader"
+    enabled: true
+    configuration:
+      media:
+        - type: "image"
+          path: "{{ form.source_image }}"
+
+  - name: "prompt_encoder"
+    input:
+      - ["clip", "model_loader/krea2", "clip"]
+    enabled: true
+    configuration:
+      p_prompt:
+        input: "{{ generation.prompts.first.positive }}"
+        output: "{{ generation.prompts.first.positive }}"
+      n_prompt:
+        input: "{{ generation.prompts.first.negative }}"
+        output: "{{ generation.prompts.first.negative }}"
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity | default(1) }}"
+      # guidance_scale <= 1 tells the encoder to skip the negative pass -- unless
+      # NAG is on, which needs the negative encoded to work at all. Must move in
+      # lockstep with generator/krea2's `guidance` below (and param_emitter's
+      # "cfg") -- same expression, same value. No speed_profile in this mode
+      # (see the pipeline header comment), so `cfg` defaults straight to 1.0
+      # (today's single-forward behavior) rather than through a profile lookup.
+      guidance_scale: "{{ form.cfg | default(1.0) }}"
+      nag_scale: "{{ form.nag_scale | default(1.0) }}"
+
+  - name: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed | default(-1) }}"
+      quantity: "{{ form.quantity | default(1) }}"
+
+  #############
+  ## Rendered prompts (provenance)
+  ## Surfaces the per-image expanded prompts ({a|b}, ${variables}, phrasebook
+  ## already resolved on the backend - see src/features/prompt/expander.py) as
+  ## pipe artifacts, the prompt counterpart of seed_generator. `pairs` is the
+  ## real list, handed in exactly as prompt_encoder receives it.
+  ############
+  - name: "dynamic_prompts_renderer"
+    id: "dynamic_prompts_renderer"
+    enabled: true
+    configuration:
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity | default(1) }}"
+
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: "{{ form.quantity | default(1) }}"
+      parameters:
+        - ["model", "{{ form.diffusion_model }}"]
+        - ["model", "{{ form.text_encoder }}"]
+        - ["model", "{{ form.vae }}"]
+        - "@loop":
+            items: "{{ form.loras | default([]) | active_loras }}"
+            template: ["model", "{{ item.model }}"]
+        # Per-image arrays, so history records the prompt each image actually ran with.
+        - ["positive_prompt", "{{ generation.prompts.positives }}"]
+        - ["negative_prompt", "{{ generation.prompts.negatives }}"]
+        # Same expression as prompt_encoder's guidance_scale and generator's
+        # guidance. 1.0 = single forward (today's behavior); above 1.0 runs a
+        # real negative-conditioned pass each step.
+        - ["cfg", "{{ form.cfg | default(1.0) }}"]
+        - ["upscale_by", "{{ form.upscale_by | default('2x') }}"]
+        # Form-facing name for the generator's `refine_tail` config (the pipe
+        # itself also emits a "refine_tail" + "refine_tail_sigmas" param with
+        # the exact sigma values it ran — see generator/krea2's emit_results).
+        - ["detail_change", "{{ form.detail_change | default('balanced') }}"]
+        # Denoise-mode: fixed positive-but-inert value (see pipeline comment above).
+        - ["denoise", 1.0]
+
+  - name: "generator/krea2"
+    input:
+      - ["model", "model_loader/krea2", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+      - ["image", "media_loader", "image"]
+    enabled: true
+    configuration:
+      mode: "img2img"
+      refine_tail: "{{ form.detail_change | default('balanced') }}"
+      # Inert once refine_tail's sigmas are set (see pipeline comment above);
+      # must stay > 0 or img2img_denoise() no-ops the whole refine pass.
+      denoise: 1.0
+      steps: 8
+      # Same expression as prompt_encoder's guidance_scale and param_emitter's
+      # "cfg" -- all three must move together (see prompt_encoder's comment).
+      guidance: "{{ form.cfg | default(1.0) }}"
+      sampler: "euler"
+      # "Upscale by" (Generation tab) is a literal multiplier of the SOURCE
+      # image's own (width, height) -- img2img_scale (img2img.py's
+      # _img2img_target_size) multiplies the actual uploaded/selected image's
+      # real dimensions at runtime and snaps to the model's granularity,
+      # bypassing the resolution-area-match path entirely. No `resolution:`
+      # here on purpose: it would be dead for this mode (img2img_scale wins
+      # outright) and the pipe's own default ("1024x1024") is never read.
+      img2img_scale: "{{ 1.5 if (form.upscale_by | default('2x')) == '1_5x' else (4.0 if (form.upscale_by | default('2x')) == '4x' else 2.0) }}"
+      quantity: "{{ form.quantity | default(1) }}"
+      nag_scale: "{{ form.nag_scale | default(1.0) }}"
+      nag_tau: "{{ form.nag_tau | default(3.5) }}"
+      nag_alpha: "{{ form.nag_alpha | default(0.5) }}"
+
+  - name: "gallery"
+    input:
+      - ["image", "generator/krea2", "image"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: true
+    configuration:
+      save: "true"

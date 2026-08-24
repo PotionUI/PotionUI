@@ -1,0 +1,54 @@
+# LTX-2.5 ships its components as SEPARATE files, unlike the 2.0/2.3
+# all-in-one checkpoints the `LTX-2 / 2.3` preset targets: the DiT file is
+# transformer-only, the video VAE and audio VAE(+vocoder) are standalone, and
+# the text-embedding projection has moved off the DiT onto the Gemma4 text
+# encoder. Every picker on this tab therefore points at a different file --
+# see docs/models/ltx.md's split-file layout table.
+#
+# `video_vae` is REQUIRED, not optional: with a transformer-only DiT there is
+# no embedded `vae.*` to slice, and model_loader/ltx's `_require_embedded_
+# component` pre-flight would reject the run. `audio_vae` stays optional
+# because audio itself is optional (Generate Audio, Generation tab) -- the
+# same pre-flight raises only when audio is actually requested.
+fields:
+  - name: "model"
+    type: "model"
+    label: "LTX-2.5 DiT (transformer-only)"
+    required: true
+    configuration:
+      model_type: "diffusion_model"
+      placeholder: "ltx-2.5-22b-dev-transformer-bf16 / -distilled-..."
+      filter_tags: "@config:checkpoint_tags"
+
+  - name: "text_encoder"
+    type: "model"
+    label: "Text Encoder (Gemma4-12B with projection)"
+    required: true
+    configuration:
+      model_type: "clip"
+      placeholder: "gemma4-12b-with-proj-ltx-2.5-bf16..."
+      filter_tags: "@config:clip_tags"
+
+  - type: "section"
+    label: "VAEs"
+    children:
+      # Only the conv-decode video VAE is supported -- the non-conv variant
+      # needs a diffusion decoder this engine doesn't implement
+      # (docs/models/ltx.md "Not yet supported").
+      - name: "video_vae"
+        type: "model"
+        label: "Video VAE"
+        required: true
+        configuration:
+          model_type: "vae"
+          placeholder: "ltx-2.5-video-vae-bf16 (diffusion decode) or -conv- (conv decode)..."
+          filter_tags: "@config:vae_tags"
+
+      - name: "audio_vae"
+        type: "model"
+        label: "Audio VAE (required for Generate Audio)"
+        ai_hint: "Only needed when Generate Audio (Generation tab) is on, or when the Director timeline carries its own audio clips. Leave empty for a silent render -- the audio VAE and vocoder are then never loaded, costing nothing."
+        configuration:
+          model_type: "vae"
+          placeholder: "ltx-2.5-audio-vae-bf16..."
+          filter_tags: "@config:vae_tags"

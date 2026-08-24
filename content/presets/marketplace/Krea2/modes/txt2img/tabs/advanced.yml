@@ -1,0 +1,87 @@
+fields:
+  - type: "section"
+    label: "Sampling"
+    children:
+      - name: "steps"
+        type: "slider"
+        label: "Steps"
+        audience: "advanced"
+        default: 8
+        # max 60, not 50: the Base profile's 52 steps must be representable.
+        configuration: {min: 1, max: 60, step: 1}
+        reactions:
+          - when: { field: "speed_profile", equals: "turbo" }
+            then: { set_value: 8, set_disabled: false }
+          - when: { field: "speed_profile", equals: "balanced" }
+            then: { set_value: 14, set_disabled: false }
+          - when: { field: "speed_profile", equals: "quality" }
+            then: { set_value: 25, set_disabled: false }
+          - when: { field: "speed_profile", equals: "base" }
+            then: { set_value: 52, set_disabled: false }
+          - when: { field: "speed_profile", equals: "custom" }
+            then: { set_disabled: false }
+
+      - name: "sampler"
+        type: "select"
+        label: "Sampler"
+        audience: "advanced"
+        default: "euler"
+        configuration:
+          options:
+            - { label: "Euler", value: "euler" }
+            - { label: "DPM++ 2M", value: "dpmpp_2m" }
+            - { label: "UniPC", value: "unipc" }
+        reactions:
+          - when: { field: "speed_profile", in: ["turbo", "balanced"] }
+            then: { set_value: "euler", set_disabled: false }
+          - when: { field: "speed_profile", equals: "quality" }
+            then: { set_value: "dpmpp_2m", set_disabled: false }
+          - when: { field: "speed_profile", equals: "base" }
+            then: { set_value: "euler", set_disabled: false }
+          - when: { field: "speed_profile", equals: "custom" }
+            then: { set_disabled: false }
+
+      - name: "cfg"
+        type: "slider"
+        label: "CFG Scale"
+        audience: "advanced"
+        default: 1.0
+        configuration:
+          min: 1.0
+          max: 15.0
+          step: 0.5
+        reactions:
+          - when: { field: "speed_profile", in: ["turbo", "balanced"] }
+            then: { set_value: 1.0, set_disabled: false }
+          - when: { field: "speed_profile", equals: "quality" }
+            then: { set_value: 4.0, set_disabled: false }
+          - when: { field: "speed_profile", equals: "base" }
+            then: { set_value: 4.0, set_disabled: false }
+          - when: { field: "speed_profile", equals: "custom" }
+            then: { set_disabled: false }
+
+  - type: "section"
+    label: "Step cache (FBCache)"
+    audience: "advanced"
+    children:
+      - type: "row"
+        children:
+          - name: "step_cache_threshold"
+            type: "slider"
+            label: "Cache threshold"
+            default: 0.0
+            ai_hint: "A speed-for-fidelity trade, never a quality improvement -- it only removes work. Suggest 0.08 when the user explicitly wants a Krea-2 render faster and can accept some softening of fine detail; 0.15 only if they ask for aggressive speed. Keep it at 0.0 for final renders, and on the Turbo/Balanced profiles where the low step count leaves almost nothing to skip -- it's most useful on Quality/Base."
+            configuration: {min: 0.0, max: 0.3, step: 0.01}
+          - name: "step_cache_warmup_steps"
+            type: "slider"
+            label: "Warmup steps"
+            default: 4
+            ai_hint: "Only has an effect when Cache threshold is above 0. Raise toward 6-8 if a cached run loses composition -- it gives back some of the speed."
+            configuration: {min: 0, max: 12, step: 1}
+          - name: "step_cache_max_skips"
+            type: "slider"
+            label: "Max consecutive skips"
+            default: 3
+            ai_hint: "Only has an effect when Cache threshold is above 0. Lower to 1-2 if a cached run drifts or loses detail late in the trajectory."
+            configuration: {min: 0, max: 10, step: 1}
+

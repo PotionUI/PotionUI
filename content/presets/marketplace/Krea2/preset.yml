@@ -1,0 +1,75 @@
+########
+## Krea-2 standard preset (turbo txt2img)
+## Authoring reference: docs/presets.md
+########
+schema: 1
+id: "4TK1KBQZ2XMB8ME0PTMXS1YJQP"
+name: "Krea-2"
+category: "image"
+version: "1.1.0"
+engine: "native"
+tags: []
+
+media:
+  cover: "public/examples/potion.png"
+  gallery:
+    - src: "public/examples/potion.png"
+      prompt: "An extreme macro photograph of an antique, hand-blown glass potion bottle resting on a chipped, aged stone alchemist's bench. The liquid inside is a violently swirling, hyper-detailed vortex of bioluminescent liquids, mixing deep ultraviolet, electric cyan, and stark gold, that glows fiercely from within. Suspended perfectly clear in the center of the vortex is a tiny, fully functional brass and steel clockwork mechanism with visible microscopic gears and sapphire jewels. The bottle's exterior features intricate, relief-carved glass patterns and is sealed with a complex stopper made of worn leather, engraved metal rings, and a single large, polished crystal. A delicate, wispy volumetric mist, illuminated from below by the potion's own light, rises from the slightly unsealed neck. The background is a deeply blurred (bokeh) alchemy lab with aged copper tubing, leather books, and dust motes catching a single, cinematic shaft of sunlight, creating dramatic rim lighting and sharp, raytraced reflections on the glass and liquid. Shot on a 100mm macro lens, f/2.8, razor-sharp focus on the internal clockwork, 8k, photorealistic masterpiece, extreme depth of field."
+      mode: "txt2img"
+
+# Hardware guidance (docs/user/hardware-requirements.md): 12 GB is viable via
+# the fp8 quantize-at-load path; 16 GB+ is the comfortable bf16 tier.
+requires:
+  min_vram_gb: 12
+  recommended_vram_gb: 16
+
+speed_profiles:
+  turbo:    { steps: 8,  guidance: 1.0, sampler: "euler" }
+  balanced: { steps: 14, guidance: 1.0, sampler: "euler" }
+  quality:  { steps: 25, guidance: 4.0, sampler: "dpmpp_2m" }
+  base:     { steps: 52, guidance: 4.0, sampler: "euler" }
+  # `custom` exists so the user's own steps/sampler/cfg survive: it is the one
+  # profile value no reaction in modes/*/tabs/ names, so selecting it overwrites
+  # nothing. It still needs an entry here because the pipelines spell the
+  # fallback as `form.steps | default(get_speed_profile(...)['steps'])` and Jinja
+  # evaluates a filter's arguments eagerly -- an undeclared profile raises and
+  # kills the render even when the form did submit every field. Values mirror
+  # `turbo` (the form's own defaults), which is also the only pairing coherent
+  # with the fixed_mu schedule every non-`base` profile keeps.
+  custom:   { steps: 8,  guidance: 1.0, sampler: "euler" }
+
+# Admin-set values (Admin -> Presets -> Configuration). Model pickers reference
+# these via `filter_tags: "@config:<key>"`; unset = no filtering (all models shown).
+configuration:
+  checkpoint_tags:
+    type: "model_tags"
+    label: "Checkpoint tags"
+    description: "Only models with any of these tags appear in the Diffusion Model picker."
+  clip_tags:
+    type: "model_tags"
+    label: "Text encoder tags"
+    description: "Only models with any of these tags appear in the Text Encoder picker."
+  vae_tags:
+    type: "model_tags"
+    label: "VAE tags"
+    description: "Only models with any of these tags appear in the VAE picker."
+  lora_tags:
+    type: "model_tags"
+    label: "LoRA tags"
+    description: "Only LoRAs with any of these tags appear in the LoRA picker."
+
+llm:
+  guide: |
+    Write natural-language prose, not tag lists - the official guide recommends
+    natural language, and long detailed prompts yield the best results, though the
+    model also performs well with minimal prompting. Krea's intended workflow is
+    exploratory: when the user is still searching, start with a short bare prompt
+    ("a cat riding a bicycle"), generate a few, then lock in what works and tighten
+    with specifics - style, medium, lighting, composition ("retro cartoon
+    illustration"). When the user knows exactly what they want, go straight to a
+    full detailed description. For text in the image, put the exact words in
+    double quotes.
+
+modes:
+  - txt2img
+  - enhance

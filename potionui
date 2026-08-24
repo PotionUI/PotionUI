@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# PotionUI bootstrap CLI — single blessed entry point for `doctor` / `start` /
+# `status` / `stop` / `start-docker`. This shim only locates a Python 3.12+
+# interpreter (the one real prerequisite bash can check cheaply); everything
+# else — checks, process supervision, readiness polling — lives in
+# scripts/potionui_cli.py so it stays unit-testable. See README.md's
+# quickstart and CLAUDE.md for the project overview.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+find_python() {
+    local candidate version major minor
+    for candidate in python3.13 python3.12 python3; do
+        if command -v "$candidate" >/dev/null 2>&1; then
+            version="$("$candidate" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || true)"
+            if [[ -n "$version" ]]; then
+                major="${version%%.*}"
+                minor="${version##*.}"
+                if (( major > 3 || (major == 3 && minor >= 12) )); then
+                    echo "$candidate"
+                    return 0
+                fi
+            fi
+        fi
+    done
+    return 1
+}
+
+if ! PYTHON_BIN="$(find_python)"; then
+    echo "error: PotionUI needs Python 3.12 or newer, but none was found on PATH." >&2
+    echo "Install it (e.g. \`sudo apt install python3.12 python3.12-venv\` on Debian/Ubuntu," >&2
+    echo "or via pyenv/uv), then re-run: ./potionui doctor" >&2
+    exit 1
+fi
+
+exec "$PYTHON_BIN" "$SCRIPT_DIR/scripts/potionui_cli.py" "$@"

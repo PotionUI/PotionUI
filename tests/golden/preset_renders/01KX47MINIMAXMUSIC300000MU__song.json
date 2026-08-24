@@ -1,0 +1,134 @@
+{
+  "mode": "song",
+  "pipes": [
+    {
+      "config": {
+        "model.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/model.safetensors"
+        },
+        "model.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/model.safetensors"
+        },
+        "text_encoder.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/text_encoder.safetensors"
+        },
+        "text_encoder.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/text_encoder.safetensors"
+        },
+        "vae.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/vae.safetensors"
+        },
+        "vae.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/vae.safetensors"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "model_loader/minimax_music3"
+    },
+    {
+      "config": {
+        "parameters": {
+          "type": "list",
+          "value": [
+            [
+              "model",
+              "/GOLDEN/models/model.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/text_encoder.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/vae.safetensors"
+            ],
+            [
+              "steps",
+              30
+            ],
+            [
+              "cfg_scale",
+              1.7
+            ],
+            [
+              "ar_cfg_scale",
+              1.5
+            ],
+            [
+              "top_k",
+              50
+            ],
+            [
+              "duration",
+              60
+            ]
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "param_emitter",
+      "name": "param_emitter"
+    },
+    {
+      "config": {
+        "ar_cfg_scale": {
+          "type": "float",
+          "value": 1.5
+        },
+        "caption": {
+          "type": "str",
+          "value": "GOLDEN placeholder text"
+        },
+        "cfg_scale": {
+          "type": "float",
+          "value": 1.7
+        },
+        "duration": {
+          "type": "int",
+          "value": 60
+        },
+        "lyrics": {
+          "type": "str",
+          "value": "golden positive prompt"
+        },
+        "seed": {
+          "type": "int",
+          "value": -1
+        },
+        "steps": {
+          "type": "int",
+          "value": 30
+        },
+        "top_k": {
+          "type": "int",
+          "value": 50
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "generator/audio_minimax_music3"
+    }
+  ],
+  "preset_id": "01KX47MINIMAXMUSIC300000MU",
+  "preset_name": "MiniMax-Music3"
+}

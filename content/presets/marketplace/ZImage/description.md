@@ -1,0 +1,1 @@
+Turn a text prompt into a sharp, detailed image, with defaults tuned for its extra-fast turbo version. Built for Z-Image, a compact open image model designed to deliver high quality quickly on modest hardware.

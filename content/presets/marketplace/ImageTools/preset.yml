@@ -1,0 +1,52 @@
+########
+## Image Tools (native engine)
+##
+## Utility toolbox for operating on EXISTING images -- no diffusion model, no
+## prompt, no seed. Four deterministic pipes (matting/birefnet, crop_subject,
+## canvas_fit, color_key) all take an `image` in and emit an `image` out, so
+## they chain: `prepare` runs the whole chain, the other four modes expose one
+## stage each on its own.
+##
+## The headline mode is `prepare` ("Prepare for animation"): generate a
+## character at 2048 so it fills the frame, matte it while it still does,
+## normalise the framing to the subject, then place it small on a padded
+## canvas so an image-to-video model has room for the character to MOVE
+## without walking out of frame on frame 3.
+## Authoring reference: docs/presets.md
+########
+schema: 1
+id: "01KXIMAGETOOLS0000000000IT"
+name: "Image Tools"
+category: "utility"
+version: "1.0.0"
+engine: "native"
+tags: ["image", "utility", "matting", "background-removal", "canvas", "chroma-key", "local"]
+
+vars:
+  # Nothing here is text-conditioned: every mode is a deterministic transform
+  # of an image the user supplies. Hides the prompt pane and drops the
+  # "prompt required" gate on Generate (docs/presets.md `promptless_modes`).
+  promptless_modes: [prepare, remove_background, fit_canvas, color_key, crop_subject]
+
+# Admin-set values (Admin -> Presets -> Configuration). Model pickers reference
+# these via `filter_tags: "@config:<key>"`; unset = no filtering (all models shown).
+configuration:
+  matting_tags:
+    type: "model_tags"
+    label: "Matting model tags"
+    description: "Only models with any of these tags appear in the Matting Model picker."
+
+llm:
+  guide: |
+    This is a utility preset — there is no diffusion model and no text prompt to write.
+    Your job is to help the user pick the right mode and configure its fields:
+    remove_background / crop_subject (subject matting), color_key (chroma removal),
+    fit_canvas (resize/pad to target dimensions), prepare (crop + spritesheet prep).
+    Read the form summary below and use update_form_settings; never suggest prompt text.
+
+modes:
+  - prepare
+  - remove_background
+  - fit_canvas
+  - color_key
+  - crop_subject

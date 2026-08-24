@@ -1,0 +1,79 @@
+# "Prepare for animation": matte -> trim -> place on a padded canvas.
+# The two upstream stages are gates because neither is always wanted -- a
+# source that already carries alpha should not be re-matted, and a source
+# already framed the way you want should not be re-cropped. The canvas
+# controls at the bottom always run; they are the point of the mode.
+fields:
+  - type: "section"
+    label: "Source Image"
+    children:
+      - name: "input_image"
+        type: "image"
+        label: "Input Image"
+        required: true
+        ai_hint: "Feed this the LARGEST version of the character you have -- the frame-filling 2048px generation, not something already downscaled or already padded. Every stage after this one only removes pixels, so the matte edge, the crop and the final downscale are all limited by what arrives here. If the source is already a padded, letterboxed or composited frame, prepare will happily re-pad it and you end up with a subject twice as small as intended."
+
+  - name: "remove_background"
+    type: "gate"
+    label: "Remove Background"
+    default: true
+    configuration:
+      summary: "BiRefNet matte -> RGBA cutout, before anything is cropped or scaled"
+    children:
+      - name: "matting_model"
+        type: "model"
+        label: "Matting Model"
+        required: false
+        ai_hint: "A BiRefNet checkpoint, dropped in `models/detection_segm/`. Two work, and they are the same architecture so either loads: BiRefNet-general (ZhengPeng7/BiRefNet, MIT) or RMBG-2.0 (briaai/RMBG-2.0, stronger on product shots but licensed non-commercial). Required whenever this gate is on -- with the gate on and no model selected the run fails at the matting stage rather than silently skipping it. Prefer BiRefNet-general unless the subject is a product/packshot on a busy background, where RMBG-2.0 separates edges more confidently; check its licence before commercial use. If the source image ALREADY has an alpha channel (a previous Remove Background run, a PNG cutout), turn this gate OFF instead of picking a model: re-matting an existing cutout re-decides edges that were already decided and usually eats hair and thin limbs."
+        configuration:
+          model_type: "detection_segm"
+          placeholder: "Select a BiRefNet checkpoint..."
+          filter_tags: "@config:matting_tags"
+          allow_info_modal: true
+
+  - name: "trim_to_subject"
+    type: "gate"
+    label: "Trim to Subject"
+    default: true
+    configuration:
+      summary: "Crop to the alpha bounding box so framing stops depending on the generator"
+    children:
+      - name: "crop_margin"
+        type: "slider"
+        label: "Margin"
+        default: 0
+        ai_hint: "Extra pixels kept on every side of the subject's bounding box, measured on the source image before it is scaled onto the canvas. 0 is a tight crop to the last non-transparent pixel and is the right default -- the canvas step below is what adds the breathing room, so padding twice just shrinks the subject for no reason. Raise this only when the matte is clipping something you want kept: a wisp of hair, a cast shadow you deliberately matted in, or a prop the alpha threshold nibbled at. Values above ~64 start reintroducing the framing bias the crop exists to remove."
+        configuration:
+          min: 0
+          max: 256
+          step: 4
+
+  - type: "section"
+    label: "Canvas"
+
+  - name: "canvas_resolution"
+    type: "resolution"
+    label: "Canvas Size"
+    default: "832x480"
+    ai_hint: "This is the FINAL frame size handed to the video model, not the size of the subject -- match it to the resolution the video model you are feeding actually runs at. Pick from the Video group when the output feeds an image-to-video model -- 832x480 and 480x832 are the native Wan sizes, 1280x720/720x1280 the HD ones; an off-native canvas costs quality before a single frame is sampled. The Image group is for stills. Orientation matters more than pixel count here: a character that will walk left-to-right wants a landscape canvas, one that will jump or grow wants portrait."
+    configuration:
+      files:
+        - { path: "{{ paths._shared }}/resolutions/video.yml", group: "Video" }
+        - { path: "{{ paths._shared }}/resolutions/1k.yml", group: "Image" }
+        - { path: "{{ paths._shared }}/resolutions/social_media.yml", group: "Social Media" }
+
+  - name: "scale_percent"
+    type: "slider"
+    label: "Subject Scale"
+    default: 70
+    ai_hint: "How large the subject is drawn on the canvas, as a percentage of the CANVAS'S SHORT SIDE -- not of the canvas area and not of the source image. So on an 832x480 canvas, 100% means the subject's long side is 480px and 70% means 336px, regardless of whether the subject is portrait or landscape. That definition is what makes the setting orientation-independent: the same number gives the same visual headroom on 832x480 and 480x832. 100% is 'fills the frame', which is exactly the framing that makes animation walk out of shot, so it is the wrong answer here. 60-75% is the useful band for a character that will walk, gesture or turn; go down to 45-55% for large motion (jumping, running across frame, a camera push); 85%+ only for a talking-head or portrait shot where nothing below the shoulders moves."
+    configuration:
+      min: 10
+      max: 100
+      step: 1
+
+  - name: "fill"
+    type: "string"
+    label: "Padding Fill"
+    default: "#00B140"
+    ai_hint: "The colour the padding around the subject is filled with -- a hex colour like `#00B140`, or the literal word `transparent`. Do not leave this transparent for anything that feeds a video model. Video models take opaque RGB; hand one an alpha channel and it gets flattened by whichever component touches it first -- usually to white, sometimes to black, never with a warning and never consistently. Picking the colour yourself is the whole trick: you know exactly what the background is, so you can pull it back out afterwards (this preset's Colour Key mode, or any compositor) instead of guessing. #00B140 is broadcast chroma-key green and is the default for that reason. Use #0047BB (chroma blue) instead when the subject has green in it -- foliage, green clothing, green hair -- since a key can only remove a colour the subject does not also wear. Flat neutrals (#808080, #000000, #FFFFFF) are fine when you never intend to key it back out and just want a stable, predictable backdrop."

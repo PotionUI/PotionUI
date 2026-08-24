@@ -1,0 +1,11 @@
+# Dev-only tooling (testing, formatting, linting, type-checking). Nothing in
+# src/ imports these at runtime — only requirements.txt is needed to run
+# PotionUI. Contributors: pip install -r requirements-dev.txt -c constraints.txt
+pytest>=7.4.0
+pytest-asyncio>=0.23.0
+pytest-cov>=4.1.0
+pytest-timeout>=2.2.0
+black>=23.11.0
+isort>=5.12.0
+mypy>=1.7.0
+ruff>=0.1.6

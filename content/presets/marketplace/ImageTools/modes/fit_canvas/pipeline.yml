@@ -1,0 +1,60 @@
+# Pipeline for the 'fit_canvas' mode.
+#
+#   media_loader -> param_emitter -> canvas_fit -> gallery
+#
+# The placement stage of the `prepare` chain on its own: scale the source so
+# its long side spans `scale_percent`% of the canvas's SHORT side, place it at
+# `anchor`, and fill everything else with `fill`. Deterministic -- no text
+# encoder, no denoise loop, no seed.
+pipeline:
+  #############
+  ## Media Loader - Load the source image from the form file path
+  #############
+  - name: "media_loader"
+    id: "media_loader"
+    enabled: true
+    configuration:
+      validate_files: true
+      max_file_size: 52428800  # 50MB
+      auto_detect_type: true
+      media:
+        - type: "image"
+          path: "{{ form.input_image }}"
+
+  #############
+  ## Parameter Emitter - record the run's settings on the generation
+  #############
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    configuration:
+      quantity: 1
+      parameters:
+        - ["canvas", "{{ form.canvas_resolution | default('1024x1024') }}"]
+        - ["scale_percent", "{{ form.scale_percent | default(100) }}"]
+        - ["anchor", "{{ form.anchor | default('center') }}"]
+        - ["fill", "{{ form.fill | default('transparent') }}"]
+
+  #############
+  ## Canvas fit - scale and place onto a fixed canvas
+  #############
+  - name: "canvas_fit"
+    id: "canvas_fit"
+    enabled: true
+    input:
+      - ["image", "media_loader", "image"]
+    configuration:
+      width: "{{ (form.canvas_resolution | default('1024x1024')).split('x')[0] | int }}"
+      height: "{{ (form.canvas_resolution | default('1024x1024')).split('x')[1] | int }}"
+      scale_percent: "{{ form.scale_percent | default(100) }}"
+      anchor: "{{ form.anchor | default('center') }}"
+      fill: "{{ form.fill | default('transparent') }}"
+
+  #############
+  ## Gallery - save the placed image
+  #############
+  - name: "gallery"
+    id: "gallery"
+    enabled: true
+    input:
+      - ["image", "canvas_fit", "image"]

@@ -1,0 +1,9 @@
+# Generic 2K resolution tier - ~4.2 MP standard aspect set (64px-snapped).
+- { value: "2048x2048", ratio: [1, 1], description: "Square 2K" }
+- { value: "2496x1664", ratio: [3, 2], description: "Wide Landscape 2K" }
+- { value: "1664x2496", ratio: [2, 3], description: "Tall Portrait 2K" }
+- { value: "2752x1536", ratio: [16, 9], description: "Widescreen 2K" }
+- { value: "1536x2752", ratio: [9, 16], description: "Vertical 2K" }
+- { value: "2368x1792", ratio: [4, 3], description: "Landscape 2K" }
+- { value: "1792x2368", ratio: [3, 4], description: "Portrait 2K" }
+- { value: "3136x1344", ratio: [21, 9], description: "Ultra Wide 2K" }

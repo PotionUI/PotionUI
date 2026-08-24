@@ -1,0 +1,18 @@
+# MiniMax-H3 native canvas: short edge 768, area capped at 768*1344, both axes
+# on the 32px grid (VAE spatial compression 16 x patch size 2). These are the
+# sizes resolve_canvas_size() itself produces for the common display aspect
+# ratios, so a request never gets silently reshaped.
+#
+# Every value here MUST stay a multiple of 32 and inside the 1:4..4:1 aspect
+# range -- generator/video_minimax_h3 REJECTS anything else outright (it snaps
+# frame counts, but not resolutions).
+- { value: "1344x768", ratio: [16, 9], description: "Widescreen (the released canvas)" }
+- { value: "768x1344", ratio: [9, 16], description: "Vertical" }
+- { value: "1536x672", ratio: [16, 7], description: "Ultrawide" }
+- { value: "1152x768", ratio: [3, 2], description: "Landscape 3:2" }
+- { value: "768x1152", ratio: [2, 3], description: "Portrait 2:3" }
+- { value: "1024x768", ratio: [4, 3], description: "Landscape 4:3" }
+- { value: "768x1024", ratio: [3, 4], description: "Portrait 3:4" }
+- { value: "960x768", ratio: [5, 4], description: "Landscape 5:4" }
+- { value: "768x960", ratio: [4, 5], description: "Portrait 4:5" }
+- { value: "768x768", ratio: [1, 1], description: "Square" }

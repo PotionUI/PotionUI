@@ -1,0 +1,409 @@
+{
+  "mode": "video",
+  "pipes": [
+    {
+      "config": {
+        "high_noise_model.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/t2v_high_noise_model.safetensors"
+        },
+        "high_noise_model.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/t2v_high_noise_model.safetensors"
+        },
+        "loras_high": {
+          "type": "list",
+          "value": []
+        },
+        "loras_low": {
+          "type": "list",
+          "value": []
+        },
+        "low_noise_model.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/t2v_low_noise_model.safetensors"
+        },
+        "low_noise_model.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/t2v_low_noise_model.safetensors"
+        },
+        "text_encoder.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/text_encoder.safetensors"
+        },
+        "text_encoder.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/text_encoder.safetensors"
+        },
+        "vae.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/vae.safetensors"
+        },
+        "vae.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/vae.safetensors"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "t2v_loader",
+      "name": "model_loader/wan22"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "i2v_loader",
+      "name": "model_loader/wan22"
+    },
+    {
+      "config": {
+        "guidance_scale": {
+          "type": "float",
+          "value": 5.0
+        },
+        "n_prompt.input": {
+          "type": "str",
+          "value": "golden negative prompt"
+        },
+        "n_prompt.output": {
+          "type": "str",
+          "value": "golden negative prompt"
+        },
+        "nag_scale": {
+          "type": "float",
+          "value": 1.0
+        },
+        "p_prompt.input": {
+          "type": "str",
+          "value": "golden positive prompt"
+        },
+        "p_prompt.output": {
+          "type": "str",
+          "value": "golden positive prompt"
+        },
+        "pairs": {
+          "type": "list",
+          "value": [
+            {
+              "negative": "golden negative prompt",
+              "positive": "golden positive prompt"
+            }
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "prompt_encoder"
+    },
+    {
+      "config": {
+        "quantity": {
+          "type": "int",
+          "value": 1
+        },
+        "seed": {
+          "type": "int",
+          "value": 42
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "seed_generator"
+    },
+    {
+      "config": {
+        "from": {
+          "type": "str",
+          "value": "seed"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "from_iotype",
+      "name": "from_iotype"
+    },
+    {
+      "config": {
+        "parameters": {
+          "type": "list",
+          "value": [
+            [
+              "model",
+              "/GOLDEN/models/t2v_high_noise_model.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/t2v_low_noise_model.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/i2v_high_noise_model.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/i2v_low_noise_model.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/text_encoder.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/vae.safetensors"
+            ],
+            [],
+            [
+              "positive_prompt",
+              [
+                "golden positive prompt"
+              ]
+            ],
+            [
+              "negative_prompt",
+              [
+                "golden negative prompt"
+              ]
+            ],
+            [
+              "cfg",
+              5.0
+            ],
+            [
+              "steps",
+              30
+            ],
+            [
+              "sampler",
+              "unipc"
+            ],
+            [
+              "resolution",
+              "832x480"
+            ],
+            [
+              "fps",
+              24
+            ],
+            [
+              "director_mode",
+              "t2v"
+            ]
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "param_emitter",
+      "name": "param_emitter"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "media_first",
+      "name": "media_loader"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "media_last",
+      "name": "media_loader"
+    },
+    {
+      "config": {
+        "apg_eta": {
+          "type": "float",
+          "value": 1.0
+        },
+        "apg_momentum": {
+          "type": "float",
+          "value": 0.0
+        },
+        "apg_norm_threshold": {
+          "type": "float",
+          "value": 0.0
+        },
+        "cfg": {
+          "type": "float",
+          "value": 5.0
+        },
+        "cfg_zero_star": {
+          "type": "bool",
+          "value": true
+        },
+        "expert_boundary": {
+          "type": "str",
+          "value": ""
+        },
+        "expert_switch_step": {
+          "type": "str",
+          "value": ""
+        },
+        "fps": {
+          "type": "int",
+          "value": 24
+        },
+        "frames": {
+          "type": "int",
+          "value": 120
+        },
+        "freeinit_cutoff": {
+          "type": "float",
+          "value": 0.25
+        },
+        "freeinit_iterations": {
+          "type": "int",
+          "value": 0
+        },
+        "freeinit_order": {
+          "type": "int",
+          "value": 4
+        },
+        "manual_sigmas": {
+          "type": "str",
+          "value": ""
+        },
+        "nag_alpha": {
+          "type": "float",
+          "value": 0.5
+        },
+        "nag_scale": {
+          "type": "float",
+          "value": 1.0
+        },
+        "nag_tau": {
+          "type": "float",
+          "value": 3.5
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        },
+        "resolution": {
+          "type": "str",
+          "value": "832x480"
+        },
+        "riflex": {
+          "type": "bool",
+          "value": false
+        },
+        "riflex_trained_frames": {
+          "type": "str",
+          "value": ""
+        },
+        "sampler": {
+          "type": "str",
+          "value": "unipc"
+        },
+        "schedule": {
+          "type": "str",
+          "value": ""
+        },
+        "slg_layers": {
+          "type": "str",
+          "value": ""
+        },
+        "slg_scale": {
+          "type": "float",
+          "value": 0.0
+        },
+        "slg_sigma_end": {
+          "type": "float",
+          "value": 0.0
+        },
+        "slg_sigma_start": {
+          "type": "float",
+          "value": 1.0
+        },
+        "step_cache_max_skips": {
+          "type": "int",
+          "value": 3
+        },
+        "step_cache_threshold": {
+          "type": "float",
+          "value": 0.0
+        },
+        "step_cache_warmup_steps": {
+          "type": "int",
+          "value": 4
+        },
+        "steps": {
+          "type": "int",
+          "value": 30
+        },
+        "zero_init_steps": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "generator/txt2vid_wan22"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": null,
+      "name": "generator/img2vid_wan22"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": null,
+      "name": "generator/chain_video_wan22"
+    },
+    {
+      "config": {
+        "save": {
+          "type": "str",
+          "value": "true"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "gallery"
+    }
+  ],
+  "preset_id": "01KX47WANVIDEO0000000000TV",
+  "preset_name": "Wan 2.1 / 2.2"
+}

@@ -1,0 +1,87 @@
+# PotionUI dev/rig-simulation image.
+#
+# Purpose: let the maintainer's box (96GB RAM / RTX 5090 / i9) exercise
+# onboarding + generation the way a weaker machine experiences it, by running
+# the REAL source bootstrap (`./potionui doctor` + `run.sh`) inside a
+# resource-capped container (see docker/docker-compose.yml's `rig-mid` /
+# `rig-small` profiles). It also doubles as the head start for a future
+# Docker distribution image — nothing here shortcuts a check a real user
+# wouldn't also get: no faked doctor output, no disabled admission control,
+# no hand-rolled process supervision that skips the checks `./potionui
+# doctor` performs.
+#
+# Base image: matches the CUDA userspace `constraints.txt` pins (torch==2.12.1,
+# cuda-toolkit==13.0.2, nvidia-cuda-runtime==13.0.96 -> CUDA 13.0). torch's own
+# PyPI wheel already pulls its CUDA runtime libraries as ordinary pip deps (see
+# constraints.txt's header), so this base image is not strictly load-bearing for
+# `import torch` to work - it exists so `nvidia-container-toolkit` mounts a
+# matching driver/CUDA userspace (libcuda.so, NVML) and `nvidia-smi` behaves
+# exactly as it would on a bare-metal install of the same CUDA version, which is
+# the whole point of a rig-SIMULATION harness: don't let the container's own
+# plumbing diverge from what a real install looks like.
+FROM nvidia/cuda:13.0.2-runtime-ubuntu24.04
+
+LABEL org.opencontainers.image.title="potionui-dev" \
+      org.opencontainers.image.description="PotionUI dev / rig-simulation image - runs the real ./potionui + run.sh bootstrap, not a shortcut."
+
+# Non-interactive apt (no tzdata/etc prompt hanging the build); unbuffered
+# Python output so `docker logs -f` shows backend output as it happens, same
+# as running it in a bare-metal terminal.
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1
+
+# Ubuntu 24.04's system `python3` is already 3.12 (potionui's MIN_PYTHON).
+# Node 20.x matches the CI onboarding-smoke gate (.github/workflows/onboarding-smoke.yml)
+# and clears potionui_cli.py's MIN_NODE_MAJOR=18 floor.
+# libgl1/libglib2.0-0/libsm6/libxext6/libxrender-dev/libgomp1 are the opencv-python
+# / Pillow / kornia runtime libs (CLAUDE.md's documented "libgthread-2.0.so.0
+# missing" env-noise note names libglib2.0-0 as the fix).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 \
+        python3-venv \
+        python3-pip \
+        curl \
+        ca-certificates \
+        git \
+        build-essential \
+        libgl1 \
+        libglib2.0-0 \
+        libsm6 \
+        libxext6 \
+        libxrender-dev \
+        libgomp1 \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/* \
+    && python3 --version && node --version && npm --version
+
+WORKDIR /app
+
+# --- Backend dependencies -----------------------------------------------
+# Same install contract documented in constraints.txt's header and run by
+# `./potionui start` itself (scripts/potionui_cli.py:backend_pip_install_args):
+#   pip install -r requirements.txt -c constraints.txt
+# Copied separately from the rest of the source tree so this (multi-GB,
+# slow) layer only rebuilds when the dependency set actually changes.
+COPY requirements.txt constraints.txt ./
+RUN python3 -m venv venv \
+    && venv/bin/pip install --no-cache-dir --upgrade pip \
+    && venv/bin/pip install --no-cache-dir -r requirements.txt -c constraints.txt
+
+# --- Frontend dependencies -----------------------------------------------
+COPY frontend/package.json frontend/package-lock.json ./frontend/
+RUN cd frontend && npm ci
+
+# --- Application source ---------------------------------------------------
+# Everything else (respecting docker/.dockerignore - notably models/, outputs/,
+# and storage/*.db/cache/, which are runtime state, not image content).
+COPY . .
+
+RUN chmod +x ./potionui ./run.sh docker/scripts/entrypoint.sh \
+    && mkdir -p storage models outputs
+
+# Backend + frontend dev-server ports (see run.sh). Published/consumed via
+# docker-compose.yml's rig profiles.
+EXPOSE 8005 3001
+
+ENTRYPOINT ["docker/scripts/entrypoint.sh"]

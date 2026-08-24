@@ -1,0 +1,84 @@
+id: "ollama"
+name: "Ollama"
+version: "1.0.0"
+description: "Quick action to free VRAM held by a local Ollama daemon"
+author: "PotionUI Team"
+type: "backend-only"
+category: "system"
+
+capabilities:
+  - "gpu-management"
+
+api:
+  module: "backend/api.py"
+
+automation_nodes:
+  - key: "action.ollama_unload"
+    kind: "action"
+    title: "Unload Ollama Model(s)"
+    description: "Frees VRAM by unloading loaded Ollama models (keep_alive=0). Leave the model empty to unload all currently loaded."
+    icon: "trash-2"
+    category: "gpu"
+    handler: "backend.automation.unload_ollama_models"
+    config_schema:
+      - name: "model"
+        type: "string"
+        title: "Model (optional)"
+        default: ""
+        description: "Name of a single model to unload. Empty unloads every currently loaded model."
+    outputs:
+      - key: "unloaded"
+        type: "array"
+        label: "Unloaded"
+        description: "Names of the models that were unloaded."
+        example: ["llama3:8b"]
+      - key: "count"
+        type: "number"
+        label: "Count"
+        description: "How many models were unloaded."
+        example: 1
+      - key: "freed_vram_bytes"
+        type: "number"
+        label: "Freed VRAM (bytes)"
+        description: "Sum of the VRAM the unloaded models were holding, per /api/ps."
+        example: 5100273664
+      - key: "errors"
+        type: "array"
+        label: "Errors"
+        description: "Per-model failures, if any."
+        example: []
+      - key: "connected"
+        type: "boolean"
+        label: "Connected"
+        description: "False when the Ollama daemon could not be reached."
+        example: true
+      - key: "success"
+        type: "boolean"
+        label: "Success"
+        description: "True when the daemon was reachable and every targeted model unloaded."
+        example: true
+
+quick_actions:
+  - id: "clear-ollama-vram"
+    label: "Clear Ollama VRAM"
+    icon: "M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+    endpoint: "/api/plugins/ollama/actions/clear-vram"
+    method: "POST"
+    confirm: "Unload all loaded Ollama models? They will reload on next use."
+    require_role: "ADMIN"
+
+settings:
+  - name: "ollama_host"
+    type: "string"
+    label: "Ollama Host URL"
+    description: "Base URL of the Ollama daemon, e.g. http://localhost:11434"
+    default: "http://localhost:11434"
+    required: false
+  - name: "connection_timeout"
+    type: "number"
+    label: "Connection Timeout (seconds)"
+    description: "Timeout for HTTP calls to the Ollama daemon"
+    default: 10
+    min: 1
+    max: 60
+    required: false

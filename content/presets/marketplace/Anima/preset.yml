@@ -1,0 +1,71 @@
+########
+## Anima text-to-image (native engine)
+##
+## Anima is NVIDIA-Cosmos-Predict2's MiniTrainDIT (adaLN 3D DiT) with an in-model
+## LLMAdapter that fuses a Qwen3-0.6B hidden state with T5 token ids into the
+## cross-attention context. Single-checkpoint DiT + ONE text encoder (Qwen3-0.6B)
+## + the Wan-2.1 causal-3D VAE (16ch, shared with Qwen-Image / Krea-2). Guidance
+## is TRUE CFG (the sampler runs a cond/uncond pass), so the negative prompt is
+## encoded. Sampling is flow-matching (ModelType.FLOW), shift 3.0.
+## Authoring reference: docs/presets.md
+########
+schema: 1
+id: "01KX5GRNWFC9S2F6T15155H41C"
+name: "Anima"
+category: "image"
+version: "1.0.1"
+engine: "native"
+tags: ["anima", "cosmos", "local", "transformer", "anime"]
+
+media:
+  cover: "public/examples/potion.png"
+  gallery:
+    - src: "public/examples/potion.png"
+      prompt: "masterpiece, best quality, ultra-detailed, intricate detail, anime, illustration, 1girl, young alchemist, serious expression, detailed eyes with sparkling highlights, braided chestnut hair, wearing an intricate alchemist vest over a white tunic, utility belt with small vials, detailed gloves, detailed hands, holding a massive ornate glass bottle, focal point on glowing potion, complex etched symbols, arcane runes, metal filigree, miniature clockwork gears on bottle neck, worn leather straps, swirling bioluminescent liquid, deep ultraviolet liquid, electric cyan liquid, bright gold liquid, internal galaxy effect, miniature nebulae, tiny stars, internal crystals glowing, intense light source within, alchemist laboratory background, messy workshop, blurred background, wooden shelves, leather-bound books, copper tubing, dried lavender bunches, glass apparatus, atmospheric perspective, cinematic lighting, dramatic rim lighting, light shafts piercing background from high window, dust motes, volumetric mist, subsurface scattering, glowing effects, bloom, depth of field, shallow depth of field, background bokeh, high contrast, clean composition, close-up view."
+      mode: "txt2img"
+
+# Hardware guidance (docs/user/hardware-requirements.md): measured peak 20.7 GB
+# on a 32 GB card (incl. the causal-3D fp32 decode spike); the 12 GB tier is
+# "marginal" - no min_vram_gb until a smaller tier is confirmed.
+requires:
+  recommended_vram_gb: 24
+
+# Admin-set values (Admin -> Presets -> Configuration). Model pickers reference
+# these via `filter_tags: "@config:<key>"`; unset = no filtering (all models shown).
+configuration:
+  checkpoint_tags:
+    type: "model_tags"
+    label: "Checkpoint tags"
+    description: "Only models with any of these tags appear in the Diffusion Model picker."
+  clip_tags:
+    type: "model_tags"
+    label: "Text encoder tags"
+    description: "Only models with any of these tags appear in the Text Encoder picker."
+  vae_tags:
+    type: "model_tags"
+    label: "VAE tags"
+    description: "Only models with any of these tags appear in the VAE picker."
+  lora_tags:
+    type: "model_tags"
+    label: "LoRA tags"
+    description: "Only LoRAs with any of these tags appear in the LoRA picker."
+
+vars:
+  default_steps: 24
+  default_cfg: 6.0
+  default_sampler: "euler"
+  default_shift: 3.0
+
+llm:
+  guide: |
+    Anime model accepting danbooru tags, natural language, or both mixed in any order.
+    Tag structure: [quality tags] [character count: 1girl/1boy/1other] [character name]
+    [series] [artist] [general tags]. Quality tags: "masterpiece, best quality" or
+    machine scores (score_9 down to score_1; aim score_7+). Prefix artist tags with @.
+    For natural language, name the character and describe appearance in at least two
+    sentences; tags and prose can be combined freely. Recommended negative prompt:
+    "worst quality, low quality, score_1, score_2, score_3, artist name, blurry, jpeg
+    artifacts, chromatic aberration."
+
+modes:
+  - txt2img

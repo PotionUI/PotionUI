@@ -1,0 +1,39 @@
+# Same split-file pickers as the video mode's Models tab (see that file for
+# why `video_vae` is required), minus `audio_vae`: this mode never generates
+# audio, so model_loader/ltx is given no `audio:`/`audio_model:` config at all.
+fields:
+  - name: "model"
+    type: "model"
+    label: "LTX-2.5 DiT (transformer-only)"
+    required: true
+    configuration:
+      model_type: "diffusion_model"
+      placeholder: "ltx-2.5-22b-dev-transformer-bf16 / -distilled-..."
+      filter_tags: "@config:checkpoint_tags"
+
+  - name: "text_encoder"
+    type: "model"
+    label: "Text Encoder (Gemma4-12B with projection)"
+    required: true
+    configuration:
+      model_type: "clip"
+      placeholder: "gemma4-12b-with-proj-ltx-2.5-bf16..."
+      filter_tags: "@config:clip_tags"
+
+  - name: "video_vae"
+    type: "model"
+    label: "Video VAE"
+    required: true
+    configuration:
+      model_type: "vae"
+      placeholder: "ltx-2.5-video-vae-bf16 (diffusion decode) or -conv- (conv decode)..."
+      filter_tags: "@config:vae_tags"
+
+  - name: "upscale_model"
+    type: "model"
+    label: "Spatial Upscaler"
+    required: true
+    configuration:
+      model_type: "upscaler"
+      placeholder: "ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0..."
+      filter_tags: "@config:upscaler_tags"

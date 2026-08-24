@@ -1,0 +1,204 @@
+# ControlNet Unit 1
+- type: "accordion"
+  label: "ControlNet Unit 1"
+  configuration:
+    collapsible: true
+    collapsed: false
+  children:
+    - name: "controlnet_1_enabled"
+      type: "checkbox"
+      label: "Enable"
+      default: false
+
+    - name: "controlnet_1_image"
+      type: "image"
+      label: "Input Image"
+
+    - name: "controlnet_1_model"
+      type: "select"
+      label: "Model"
+      configuration:
+        files:
+          in: "{{ path('controlnet') }}"
+
+    - name: "controlnet_1_preprocessor"
+      type: "select"
+      label: "Preprocessor"
+      default: "none"
+      configuration:
+        options:
+          - { label: "None", value: "none" }
+          - { label: "Canny", value: "canny" }
+          - { label: "Depth", value: "depth" }
+          - { label: "OpenPose", value: "openpose" }
+          - { label: "Scribble", value: "scribble" }
+          - { label: "Soft Edge", value: "soft_edge" }
+          - { label: "Lineart", value: "lineart" }
+          - { label: "Anime Lineart", value: "lineart_anime" }
+          - { label: "Normal Map", value: "normal_map" }
+          - { label: "Seg", value: "seg" }
+          - { label: "Tile", value: "tile" }
+          - { label: "IP-Adapter", value: "ip_adapter" }
+
+    - type: "row"
+      configuration: { padding: false }
+      children:
+        - name: "controlnet_1_weight"
+          type: "slider"
+          label: "Control Weight"
+          default: 1.0
+          configuration: { min: 0, max: 2, step: 0.1 }
+
+        - name: "controlnet_1_guidance_start"
+          type: "slider"
+          label: "Starting Control Step"
+          default: 0.0
+          configuration: { min: 0, max: 1, step: 0.01 }
+
+    - type: "row"
+      configuration: { padding: false }
+      children:
+        - name: "controlnet_1_guidance_end"
+          type: "slider"
+          label: "Ending Control Step"
+          default: 1.0
+          configuration: { min: 0, max: 1, step: 0.01 }
+
+        - name: "controlnet_1_processor_res"
+          type: "number"
+          label: "Preprocessor Resolution"
+          default: 512
+          configuration: { min: 64, max: 2048, step: 64 }
+
+    - name: "controlnet_1_control_mode"
+      type: "select"
+      label: "Control Mode"
+      default: "balanced"
+      configuration:
+        options:
+          - { label: "Balanced", value: "balanced" }
+          - { label: "My prompt is more important", value: "prompt_more_important" }
+          - { label: "ControlNet is more important", value: "controlnet_more_important" }
+
+    - name: "controlnet_1_resize_mode"
+      type: "select"
+      label: "Resize Mode"
+      default: "crop_and_resize"
+      configuration:
+        options:
+          - { label: "Just Resize", value: "just_resize" }
+          - { label: "Crop and Resize", value: "crop_and_resize" }
+          - { label: "Resize and Fill", value: "resize_and_fill" }
+
+    - name: "controlnet_1_low_vram"
+      type: "checkbox"
+      label: "Low VRAM"
+      default: false
+
+    - name: "controlnet_1_pixel_perfect"
+      type: "checkbox"
+      label: "Pixel Perfect"
+      default: false
+
+# ControlNet Unit 2
+- type: "accordion"
+  label: "ControlNet Unit 2"
+  configuration:
+    collapsible: true
+    collapsed: true
+  children:
+    - name: "controlnet_2_enabled"
+      type: "checkbox"
+      label: "Enable"
+      default: false
+
+    - name: "controlnet_2_image"
+      type: "image"
+      label: "Input Image"
+
+    - name: "controlnet_2_model"
+      type: "select"
+      label: "Model"
+      configuration:
+        files:
+          in: "{{ path('controlnet') }}"
+
+    - name: "controlnet_2_preprocessor"
+      type: "select"
+      label: "Preprocessor"
+      default: "none"
+      configuration:
+        options:
+          - { label: "None", value: "none" }
+          - { label: "Canny", value: "canny" }
+          - { label: "Depth", value: "depth" }
+          - { label: "OpenPose", value: "openpose" }
+          - { label: "Scribble", value: "scribble" }
+          - { label: "Soft Edge", value: "soft_edge" }
+          - { label: "Lineart", value: "lineart" }
+          - { label: "Anime Lineart", value: "lineart_anime" }
+          - { label: "Normal Map", value: "normal_map" }
+          - { label: "Seg", value: "seg" }
+          - { label: "Tile", value: "tile" }
+          - { label: "IP-Adapter", value: "ip_adapter" }
+
+    - type: "row"
+      configuration: { padding: false }
+      children:
+        - name: "controlnet_2_weight"
+          type: "slider"
+          label: "Control Weight"
+          default: 1.0
+          configuration: { min: 0, max: 2, step: 0.1 }
+
+        - name: "controlnet_2_guidance_start"
+          type: "slider"
+          label: "Starting Control Step"
+          default: 0.0
+          configuration: { min: 0, max: 1, step: 0.01 }
+
+    - type: "row"
+      configuration: { padding: false }
+      children:
+        - name: "controlnet_2_guidance_end"
+          type: "slider"
+          label: "Ending Control Step"
+          default: 1.0
+          configuration: { min: 0, max: 1, step: 0.01 }
+
+        - name: "controlnet_2_processor_res"
+          type: "number"
+          label: "Preprocessor Resolution"
+          default: 512
+          configuration: { min: 64, max: 2048, step: 64 }
+
+    - name: "controlnet_2_control_mode"
+      type: "select"
+      label: "Control Mode"
+      default: "balanced"
+      configuration:
+        options:
+          - { label: "Balanced", value: "balanced" }
+          - { label: "My prompt is more important", value: "prompt_more_important" }
+          - { label: "ControlNet is more important", value: "controlnet_more_important" }
+
+    - name: "controlnet_2_resize_mode"
+      type: "select"
+      label: "Resize Mode"
+      default: "crop_and_resize"
+      configuration:
+        options:
+          - { label: "Just Resize", value: "just_resize" }
+          - { label: "Crop and Resize", value: "crop_and_resize" }
+          - { label: "Resize and Fill", value: "resize_and_fill" }
+
+    - name: "controlnet_2_low_vram"
+      type: "checkbox"
+      label: "Low VRAM"
+      default: false
+
+    - name: "controlnet_2_pixel_perfect"
+      type: "checkbox"
+      label: "Pixel Perfect"
+      default: false
+

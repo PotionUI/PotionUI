@@ -1,0 +1,154 @@
+# txt2img pipeline for the native Z-Image family.
+#
+#   model_loader/z_image -> prompt_encoder -> seed_generator -> generator/z_image -> gallery
+#
+# Conditioning flows the mandated shared path: model_loader emits `clip`
+# (a ZImageClipTextEncoder), prompt_encoder turns prompts into `conditioning`,
+# and generator/z_image consumes that — it never re-encodes the prompt itself.
+pipeline:
+  #############
+  ## Model loader (NextDiT + Qwen3-4B TE + 2D AE, per-component cached)
+  ############
+  - name: "model_loader/z_image"
+    enabled: true
+    configuration:
+      diffusion_model:
+        file_path: "{{ form.diffusion_model }}"
+        name: "{{ form.diffusion_model }}"
+      text_encoder:
+        file_path: "{{ form.text_encoder }}"
+        name: "{{ form.text_encoder }}"
+      vae:
+        file_path: "{{ form.vae }}"
+        name: "{{ form.vae }}"
+      loras:
+        "@loop":
+          items: "{{ form.loras | default([]) }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+
+  #############
+  ## Prompt encoder (shared pipe; produces the conditioning)
+  ############
+  - name: "prompt_encoder"
+    input:
+      - ["clip", "model_loader/z_image", "clip"]
+    enabled: true
+    configuration:
+      p_prompt:
+        input: "{{ generation.prompts.first.positive }}"
+        output: "{{ generation.prompts.first.positive }}"
+      n_prompt:
+        input: "{{ generation.prompts.first.negative }}"
+        output: "{{ generation.prompts.first.negative }}"
+      # Per-image expanded prompt pairs (src/core/prompt/expander.py).
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity | default(1) }}"
+      # Z-Image uses true CFG; the negative is encoded (turbo simply runs cfg 1.0,
+      # which makes TrueCFG skip the uncond forward at sample time).
+      guidance_scale: "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('turbo'))['guidance']) }}"
+
+  #############
+  ## Seed generator
+  ############
+  - name: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed | default(-1) }}"
+      quantity: "{{ form.quantity | default(1) }}"
+
+  #############
+  ## Rendered prompts (provenance)
+  ## Surfaces the per-image expanded prompts ({a|b}, ${variables}, phrasebook
+  ## already resolved on the backend - see src/features/prompt/expander.py) as
+  ## pipe artifacts, the prompt counterpart of seed_generator. `pairs` is the
+  ## real list, handed in exactly as prompt_encoder receives it.
+  ############
+  - name: "dynamic_prompts_renderer"
+    id: "dynamic_prompts_renderer"
+    enabled: true
+    configuration:
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity | default(1) }}"
+
+  #############
+  ## IOType to Value Converter
+  ############
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  #############
+  ## Parameter Emitter
+  ############
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: "{{ form.quantity | default(1) }}"
+      parameters:
+        - ["model", "{{ form.diffusion_model }}"]
+        - ["model", "{{ form.text_encoder }}"]
+        - ["model", "{{ form.vae }}"]
+        - "@loop":
+            items: "{{ form.loras | default([]) | active_loras }}"
+            template: ["model", "{{ item.model }}"]
+        # Per-image arrays, so history records the prompt each image actually ran with.
+        - ["positive_prompt", "{{ generation.prompts.positives }}"]
+        - ["negative_prompt", "{{ generation.prompts.negatives }}"]
+        - ["cfg", "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('turbo'))['guidance']) }}"]
+        - ["steps", "{{ form.steps | default(get_speed_profile(form.speed_profile | default('turbo'))['steps']) }}"]
+        - ["sampler", "{{ form.sampler | default(get_speed_profile(form.speed_profile | default('turbo'))['sampler']) }}"]
+        - ["resolution", "{{ form.resolution }}"]
+
+  #############
+  ## Generator
+  ############
+  - name: "generator/z_image"
+    input:
+      - ["model", "model_loader/z_image", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: true
+    configuration:
+      steps: "{{ form.steps | default(get_speed_profile(form.speed_profile | default('turbo'))['steps']) }}"
+      guidance: "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('turbo'))['guidance']) }}"
+      # Optional shift override; blank -> spec default (3.0).
+      shift: "{% set s = form.shift | default('') %}{% if s is not none and s != '' %}{{ s }}{% endif %}"
+      sampler: "{{ form.sampler | default(get_speed_profile(form.speed_profile | default('turbo'))['sampler']) }}"
+      resolution: "{{ form.resolution }}"
+      quantity: "{{ form.quantity | default(1) }}"
+      # Step cache (FBCache, Advanced tab): assembled into the nested
+      # `step_cache` dict FlowMatchGeneratorPipe.build_context reads directly
+      # -- mirrors the Flux/Krea-2 preset wiring. rel_threshold 0.0 (default)
+      # never wraps the guidance strategy, so an untouched form renders
+      # byte-identical to before this knob existed.
+      step_cache:
+        rel_threshold: "{{ form.step_cache_threshold | default(0.0) }}"
+        warmup_steps: "{{ form.step_cache_warmup_steps | default(4) }}"
+        max_consecutive_skips: "{{ form.step_cache_max_skips | default(3) }}"
+      # Spectral Progressive Diffusion (Advanced tab, off by default -- prototype).
+      # The "enabled" key is popped by the engine's own eligibility check
+      # (SpectralProgressiveConfig doesn't declare it), so an empty/false toggle
+      # renders a config the engine treats as disabled without needing a
+      # separate presence check here.
+      spectral_progressive:
+        enabled: "{{ form.spectral_progressive_enabled | default(false) }}"
+
+  #############
+  ## Gallery
+  ############
+  - name: "gallery"
+    input:
+      - ["image", "generator/z_image", "image"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: true
+    configuration:
+      save: "true"

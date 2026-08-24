@@ -1,0 +1,22 @@
+# Extended ComfyUI Samplers - Additional samplers including RES family
+- { label: "DPM++ 3SDE", value: "dpmpp_3sde" }
+- { label: "RES MULTISTEP", value: "res_multistep" }
+- { label: "RES MULTISTEP A", value: "res_multistep_ancestral" }
+- { label: "RES 2M (Multistep)", value: "res_2m" }
+- { label: "RES 3M (Multistep)", value: "res_3m" }
+- { label: "RES 2S (Substep)", value: "res_2s" }
+- { label: "RES 3S (Substep)", value: "res_3s" }
+- { label: "RES 3S Alt", value: "res_3s_alt" }
+- { label: "RES 3S Cox Matthews", value: "res_3s_cox_matthews" }
+- { label: "RES 3S Lie", value: "res_3s_lie" }
+- { label: "RES 3S Strehmel Weiner", value: "res_3s_strehmel_weiner" }
+- { label: "RES 4S Krogstad", value: "res_4s_krogstad" }
+- { label: "RES 4S Strehmel Weiner", value: "res_4s_strehmel_weiner" }
+- { label: "RES 4S Cox Matthews", value: "res_4s_cox_matthews" }
+- { label: "RES 4S Munthe-Kaas", value: "res_4s_munthe_kaas" }
+- { label: "RES 5S", value: "res_5s" }
+- { label: "RES 6S", value: "res_6s" }
+- { label: "RES 8S", value: "res_8s" }
+- { label: "RES 10S", value: "res_10s" }
+- { label: "RES 15S", value: "res_15s" }
+- { label: "RES 16S", value: "res_16s" }

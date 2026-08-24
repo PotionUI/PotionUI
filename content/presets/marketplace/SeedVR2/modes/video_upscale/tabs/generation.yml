@@ -1,0 +1,77 @@
+# Intent-first UX (Krea-2 template), mirrors modes/upscale/tabs/generation.yml
+# for the video path. Restoration Intent and Output Size are plain-language
+# selects that bake real config values (Advanced tab, via reactions),
+# playing the same top-level role Krea-2's own Speed profile select plays.
+# The Model tab has been dissolved into this one -- pickers grouped into a
+# "Models" section, matching Krea-2's own Generation-tab layout.
+fields:
+  - name: "restoration_intent"
+    type: "select"
+    label: "Restoration Intent"
+    default: "faithful"
+    configuration:
+      options:
+        - { label: "Faithful upscale (recommended)", value: "faithful", sub_label: "No re-imagining -- restores detail while staying true to the source. Matches SeedVR2's upstream default (noise 0)." }
+        - { label: "Heavy restoration (experimental)", value: "heavy", sub_label: "Forward-noises the conditioning so the model leans harder on generation to fix badly degraded sources (heavy compression, blur, low resolution) -- at some cost to fidelity. Conservative, experimental values; not an upstream-documented recipe." }
+
+  - name: "resolution_target"
+    type: "select"
+    label: "Output Size"
+    default: "fhd1080"
+    configuration:
+      options:
+        - { label: "x1.5", value: "x1_5", sub_label: "1.5x the input's area -- the lightest upscale, keeps the most native detail." }
+        - { label: "x2", value: "x2", sub_label: "2x the input's area -- SeedVR2's previous default here." }
+        - { label: "HD (720p)", value: "hd720", sub_label: "Pins the short side to 720px. Shrinks sources already above 720p on their short side." }
+        - { label: "Full HD (1080p)", value: "fhd1080", sub_label: "Pins the short side to 1080px -- recommended default, matches the upstream ComfyUI node." }
+        - { label: "QHD (1440p)", value: "qhd1440", sub_label: "Pins the short side to 1440px. Shrinks sources already above 1440p on their short side." }
+        - { label: "4K (2160p)", value: "uhd2160", sub_label: "Pins the short side to 2160px, the highest supported target -- heaviest on VRAM and runtime." }
+
+  - type: "section"
+    label: "Video"
+    children:
+      - name: "input_video"
+        type: "video"
+        label: "Input Video"
+        required: true
+        ai_hint: "Upload a video to restore/upscale. Every frame is upscaled and the clip is re-encoded at its original frame rate."
+
+      - name: "seed"
+        type: "seed"
+        label: "Seed"
+        default: -1
+
+  - type: "section"
+    label: "Models"
+    children:
+      # Same SeedVR2 components as the image 'upscale' mode's Generation tab,
+      # without the download recommendations (that sibling tab owns the
+      # recommendation copy). A user who has already fetched the model for
+      # image upscale reuses the identical files here.
+      - name: "diffusion_model"
+        type: "model"
+        label: "Diffusion Model (NaDiT)"
+        required: true
+        configuration:
+          model_type: "diffusion_model"
+          placeholder: "Select the SeedVR2 3B NaDiT checkpoint..."
+          filter_tags: "@config:checkpoint_tags"
+
+      - name: "vae"
+        type: "model"
+        label: "VAE"
+        required: true
+        configuration:
+          model_type: "vae"
+          placeholder: "Select the SeedVR2 self-normalizing causal-video VAE..."
+          filter_tags: "@config:vae_tags"
+
+      - name: "prompt_embedding"
+        type: "model"
+        label: "Prompt Embedding"
+        required: true
+        ai_hint: "SeedVR2 has no live text encoder; this is a fixed, precomputed positive prompt embedding tensor."
+        configuration:
+          model_type: "clip"
+          placeholder: "Select the fixed SeedVR2 prompt embedding..."
+          filter_tags: "@config:clip_tags"

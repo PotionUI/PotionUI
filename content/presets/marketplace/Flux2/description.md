@@ -1,0 +1,1 @@
+Turn a text prompt into a detailed, high-quality image. Built for the Flux2 architecture from Black Forest Labs — founded by the original Stable Diffusion researchers — including Klein 9B, known for crisp detail and faithful prompt following.

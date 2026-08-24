@@ -1,0 +1,26 @@
+# Base ComfyUI Samplers - Core samplers available in most ComfyUI workflows
+- { label: "Euler", value: "euler" }
+- { label: "Euler Ancestral", value: "euler_ancestral" }
+- { label: "Euler CFG++", value: "euler_cfg_pp" }
+- { label: "Heun", value: "heun" }
+- { label: "Heun++", value: "heun_pp" }
+- { label: "DPM 2", value: "dpm_2" }
+- { label: "DPM 2 Ancestral", value: "dpm_2_ancestral" }
+- { label: "DPM Fast", value: "dpm_fast" }
+- { label: "DPM Adaptive", value: "dpm_adaptive" }
+- { label: "DPM++ 2S Ancestral", value: "dpmpp_2s_ancestral" }
+- { label: "DPM++ SDE", value: "dpmpp_sde" }
+- { label: "DPM++ SDE GPU", value: "dpmpp_sde_gpu" }
+- { label: "DPM++ 2M", value: "dpmpp_2m" }
+- { label: "DPM++ 2M SDE", value: "dpmpp_2m_sde" }
+- { label: "DPM++ 2M SDE GPU", value: "dpmpp_2m_sde_gpu" }
+- { label: "DPM++ 3M SDE", value: "dpmpp_3m_sde" }
+- { label: "DPM++ 3M SDE GPU", value: "dpmpp_3m_sde_gpu" }
+- { label: "DDIM", value: "ddim" }
+- { label: "DDPM", value: "ddpm" }
+- { label: "LCM", value: "lcm" }
+- { label: "LMS", value: "lms" }
+- { label: "UniPC", value: "uni_pc" }
+- { label: "UniPC BH2", value: "uni_pc_bh2" }
+- { label: "iPNDM", value: "ipndm" }
+- { label: "DEIS", value: "deis" }

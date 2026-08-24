@@ -1,0 +1,15 @@
+name: "custom"
+fields:
+  - type: "tabs"
+    children:
+      - type: "tab"
+        label: "Generation"
+        configuration:
+          icon: "generation"
+        children: "{{ paths.preset }}/modes/upscale/tabs/generation.yml"
+      - type: "tab"
+        label: "Advanced"
+        audience: "advanced"
+        configuration:
+          icon: "settings"
+        children: "{{ paths.preset }}/modes/upscale/tabs/advanced.yml"

@@ -1,0 +1,53 @@
+name: "custom"
+fields:
+  - type: "tabs"
+    children:
+      - type: "tab"
+        label: "Generation"
+        configuration:
+          icon: "generation"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/txt2img/tabs/generation.yml"
+
+      - type: "tab"
+        label: "LoRA"
+        configuration:
+          icon: "lora"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/txt2img/tabs/lora.yml"
+
+      - type: "tab"
+        label: "Embeddings"
+        configuration:
+          icon: "embedding"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/txt2img/tabs/embeddings.yml"
+
+      - type: "tab"
+        label: "Enhance"
+        configuration:
+          icon: "sparkles"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/txt2img/tabs/post-processing.yml"
+
+      - type: "tab"
+        label: "Face & Hand Detailer"
+        configuration:
+          icon: "face"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/txt2img/tabs/face-hand-detailer.yml"
+
+      - type: "tab"
+        label: "ControlNet"
+        configuration:
+          icon: "image"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/txt2img/tabs/controlnet.yml"
+
+      - type: "tab"
+        label: "Advanced"
+        audience: "advanced"
+        configuration:
+          icon: "settings"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/txt2img/tabs/advanced.yml"

@@ -1,0 +1,240 @@
+# Standalone "upscale" mode for the native LTX-2.5 family: spatially upscale an
+# EXISTING video the user already has (e.g. a video-mode output) rather than the
+# in-flow two-stage option on that mode -- "generate once, decide separately
+# whether to upscale."
+#
+#   media_loader -> model_loader/ltx -> prompt_encoder -> seed_generator
+#     -> latent_upscaler/ltx (VAE-encodes the source video, then upsamples the
+#        latent x factor via the checkpoint's own embedded scale)
+#     -> generator/txt2vid_ltx (refine pass: `initial_latent` = the upsampled
+#        latent, `refine_sigmas` = Lightricks' own stage-2 recipe)
+#     -> gallery
+#
+# Same refine recipe/knobs as video/pipeline.yml's in-flow `upscale: 1.5x | 2.0x`
+# option (see that file's header for the full reasoning) -- this mode just swaps
+# "generator_stage1 with decode:false" for "VAE-encode an existing file",
+# everything downstream of the raw latent is identical. Uses
+# `generator/txt2vid_ltx` (not `generator/video_ltx`) since this mode has no
+# Director document/media conditioning at all -- the plain t2v generator pipe is
+# the simpler fit.
+#
+# LTX-2.5 split checkpoints: `vae:` below comes from a REQUIRED picker (a 2.5
+# DiT is transformer-only, so there is no embedded `vae.*` to slice -- see the
+# video mode's header note). There is no `audio:`/`audio_model:` config here at
+# all: this mode never generates audio, so the audio VAE is never loaded and
+# the Models tab has no audio picker.
+#
+# Neither generator here selects `schedule: "ltx_dynamic"` -- unlike the video
+# mode's stage 1, this pipeline's only sampling pass runs an explicit
+# `refine_sigmas` list, which leaves no generated curve for a dynamic shift to
+# shape.
+pipeline:
+  - name: "media_loader"
+    id: "media_loader"
+    enabled: true
+    configuration:
+      validate_files: true
+      max_file_size: 524288000  # 500MB
+      auto_detect_type: true
+      media:
+        - type: "video"
+          path: "{{ form.input_video }}"
+
+  - name: "model_loader/ltx"
+    enabled: true
+    configuration:
+      model:
+        file_path: "{{ form.model }}"
+        name: "{{ form.model }}"
+      text_encoder:
+        file_path: "{{ form.text_encoder }}"
+        name: "{{ form.text_encoder }}"
+      vae:
+        file_path: "{{ form.video_vae }}"
+        name: "{{ form.video_vae }}"
+      upscale_model:
+        file_path: "{{ form.upscale_model }}"
+        name: "{{ form.upscale_model }}"
+      loras:
+        "@loop":
+          items: "{{ form.loras | default([]) }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+
+  - name: "prompt_encoder"
+    input:
+      - ["clip", "model_loader/ltx", "clip"]
+    enabled: true
+    configuration:
+      # Legacy scalar passthrough (see video/pipeline.yml's identical comment):
+      # input==output makes `pairs` fully override the per-video prompt below.
+      #
+      # Restoration-intent quality prompting (preset.vars.refine_quality_prompt
+      # -- see preset.yml for the full rationale): applied here, NOT in the video
+      # mode's in-flow upscale, since this mode's prompt_encoder is a dedicated
+      # encode for the refine pass rather than conditioning shared with an
+      # earlier stage. `apply_quality_prompt` (Advanced tab, default true) is the
+      # escape hatch. When the user typed a prompt, the suffix is appended after
+      # ", "; when they left the prompt pane empty (this mode's prompt is
+      # optional), the quality prompt is used alone rather than sending an empty
+      # string to the TE.
+      p_prompt:
+        input: "{{ generation.prompts.first.positive }}"
+        output: "{{ (generation.prompts.first.positive ~ ', ' ~ preset.vars.refine_quality_prompt) if (generation.prompts.first.positive and (form.apply_quality_prompt | default(true))) else (preset.vars.refine_quality_prompt if (form.apply_quality_prompt | default(true)) else generation.prompts.first.positive) }}"
+      n_prompt:
+        input: "{{ generation.prompts.first.negative }}"
+        output: "{{ generation.prompts.first.negative }}"
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity | default(1) }}"
+      # Refine pass runs at CFG 1.0 (Lightricks' SimpleDenoiser, no negative
+      # pass) -- see generator_refine's `cfg` below; guidance_scale <= 1.0 here
+      # means the negative branch is never encoded (do_cfg check in
+      # prompt_encoder), matching that recipe exactly.
+      guidance_scale: 1.0
+
+  - name: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed | default(-1) }}"
+      quantity: "{{ form.quantity | default(1) }}"
+
+  #############
+  ## Rendered prompts (provenance)
+  ## Surfaces the per-image expanded prompts ({a|b}, ${variables}, phrasebook
+  ## already resolved on the backend - see src/features/prompt/expander.py) as
+  ## pipe artifacts, the prompt counterpart of seed_generator. `pairs` is the
+  ## real list, handed in exactly as prompt_encoder receives it.
+  ############
+  - name: "dynamic_prompts_renderer"
+    id: "dynamic_prompts_renderer"
+    enabled: true
+    configuration:
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity | default(1) }}"
+
+  #############
+  ## IOType to Value Converter
+  ############
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  #############
+  ## Parameter Emitter
+  ############
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: "{{ form.quantity | default(1) }}"
+      parameters:
+        - ["model", "{{ form.model }}"]
+        - ["model", "{{ form.text_encoder }}"]
+        - ["model", "{{ form.video_vae }}"]
+        - ["model", "{{ form.upscale_model }}"]
+        - "@loop":
+            items: "{{ form.loras | default([]) | active_loras }}"
+            template: ["model", "{{ item.model }}"]
+        - ["positive_prompt", "{{ generation.prompts.positives }}"]
+        - ["negative_prompt", "{{ generation.prompts.negatives }}"]
+        - ["cfg", 1.0]
+        - ["sampler", "euler"]
+        - ["refine_strength", "{{ form.refine_strength | default('strong') }}"]
+
+  #############
+  ## VAE-encode the source video, then upsample its latent via the model
+  ## bundle's spatial upscaler.
+  #############
+  - name: "latent_upscaler/ltx"
+    id: "latent_upscaler"
+    input:
+      - ["video", "media_loader", "video"]
+      - ["model", "model_loader/ltx", "model"]
+    enabled: true
+    configuration: {}
+
+  #############
+  ## Refine the upsampled latent at its own (post-upsample) resolution --
+  ## `initial_latent` connected means the `resolution`/`frames` config is
+  ## ignored (see generator/txt2vid_ltx's module docstring).
+  #############
+  - name: "generator/txt2vid_ltx"
+    id: "generator_refine"
+    input:
+      - ["model", "model_loader/ltx", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+      - ["initial_latent", "latent_upscaler", "latent"]
+      # This mode has no audio latents of its own (see generator/txt2vid_ltx's
+      # module docstring) -- the source video's own audio track, when it has
+      # one, is muxed straight through into the refined output instead of being
+      # silently dropped. Also lets the generator sync its output fps to the
+      # source (see that pipe's build_context) since this mode has no fps field.
+      - ["audio_source", "media_loader", "video"]
+      # Original (pre-temporal-padding) frame count of the source video, from
+      # latent_upscaler/ltx's VAE-encode (see its `_encode_video`) -- lets the
+      # generator trim latent_upscaler's repeated-last-frame padding back out of
+      # its own decoded output before mux.
+      - ["source_frame_count", "latent_upscaler", "source_frame_count"]
+    enabled: true
+    configuration:
+      quantity: "{{ form.quantity | default(1) }}"
+      decode: true
+      # Lightricks' own two-stage recipe: CFG 1 (SimpleDenoiser, no negative
+      # pass) and a plain DETERMINISTIC Euler loop for the refine stage --
+      # unchanged from 2.3 to 2.5. Stage-1 ancestral sampling (the video mode)
+      # does not apply to a refine pass.
+      cfg: 1.0
+      sampler: "euler"
+      # Step cache (FBCache) is deliberately NOT bound here -- unlike
+      # video/pipeline.yml's two-stage mode, this pipeline has no earlier
+      # generator_stage1 to point at: this node IS the whole generative step in
+      # this mode, not a base generation pass with a real steps budget to spend
+      # cheap-but-slightly-lossy speed on. Caching would skip exactly the fine
+      # detail this refine pass exists to add.
+      # `refine_sigmas`, NOT `manual_sigmas` -- see generator/txt2vid_ltx's
+      # module docstring for why (manual_sigmas forces sigma[0]=1.0, which would
+      # silently turn this refine back into a fresh generation).
+      # `or`, NOT `| default(...)`: see video/pipeline.yml's identical comment --
+      # the Advanced tab field's own default is "" (a DEFINED empty string, not
+      # Undefined), so `| default()` would never apply.
+      refine_sigmas: "{{ form.refine_sigmas or (preset.vars.stage2_sigma_recipe_balanced if (form.refine_strength | default('strong')) == 'balanced' else (preset.vars.stage2_sigma_recipe_light if (form.refine_strength | default('strong')) == 'light' else preset.vars.stage2_sigma_recipe)) }}"
+
+  #############
+  ## Face/hand enhancement: refine detected faces and hands as stabilized
+  ## spatiotemporal tubes with the SAME model bundle, after the upscale refine.
+  ## Off by default; the source's audio survives (the detailer re-encodes with
+  ## the refined clip's own audio track passed through).
+  ##
+  ## `enabled:` must be an exact `{{ expression }}` (native bool) -- see the
+  ## video mode's identical comment.
+  #############
+  - name: "detailer/video_ltx"
+    id: "detailer"
+    input:
+      - ["video", "generator_refine", "video"]
+      - ["model", "model_loader/ltx", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: "{{ form.enhance_faces_hands | default(false) }}"
+    configuration:
+      strength: "{{ form.enhancement_strength | default('balanced') }}"
+      # `or`, not `default()` -- an unpicked `model` field submits "", which
+      # `default()` would not catch (see the video mode's identical comment).
+      face_model: "{{ form.face_detector_model or 'models/mediapipe/face_landmarker.task' }}"
+      hand_model: "{{ form.hand_detector_model or 'models/mediapipe/hand_landmarker.task' }}"
+
+  - name: "gallery"
+    input:
+      - ["video", "{% if form.enhance_faces_hands | default(false) %}detailer{% else %}generator_refine{% endif %}", "video"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: true
+    configuration:
+      save: "true"

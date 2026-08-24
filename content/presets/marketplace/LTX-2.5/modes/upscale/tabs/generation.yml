@@ -1,0 +1,90 @@
+# The file pickers live on the Models tab (see the video mode's identical
+# split). Krea-2 layout: a "Video" section holds the source clip plus
+# seed/quantity (Krea-2's own Image section pairs seed+quantity the same
+# way), and an "Enhancement" section (no Krea-2 counterpart) groups this
+# mode's own refine/detailer knobs.
+fields:
+  - type: "section"
+    label: "Video"
+    children:
+      - name: "input_video"
+        type: "video"
+        label: "Input Video"
+        required: true
+        ai_hint: "An existing video to upscale, for example a clip generated in the Video mode. Upscaled in latent space and refined at the new resolution. Any frame count or resolution works; the output can end with up to ~0.3s of a frozen final frame due to grid alignment."
+
+      - type: "row"
+        children:
+          - name: "seed"
+            type: "seed"
+            label: "Seed"
+            default: -1
+
+          - name: "quantity"
+            type: "slider"
+            label: "Quantity"
+            default: 1
+            configuration: {min: 1, max: 4, step: 1}
+
+  - type: "section"
+    label: "Enhancement"
+    children:
+      - name: "refine_strength"
+        type: "select"
+        label: "Refine Strength"
+        ai_hint: "Friendly control for the standalone upscale mode's refine pass. Strong is Lightricks' first-party recipe and the recommended default; suggest Balanced/Light only if the user wants the refine to preserve more of the upsampled source video as-is. The Advanced tab's Refine Sigmas field is an expert override of this same knob -- prefer this select."
+        default: "strong"
+        configuration:
+          options:
+            - { label: "Strong (recommended)", value: "strong" }
+            - { label: "Balanced", value: "balanced" }
+            - { label: "Light", value: "light" }
+
+      - name: "enhance_faces_hands"
+        type: "checkbox"
+        label: "Enhance faces and hands"
+        default: false
+
+      - name: "enhancement_strength"
+        type: "select"
+        label: "Enhancement strength"
+        ai_hint: "Only used when Enhance faces and hands is on. Balanced is the safe default; suggest Light when the user worries the enhancement changes a face's identity, Strong only when they explicitly want maximum detail and accept more deviation."
+        default: "balanced"
+        configuration:
+          options:
+            - { label: "Light", value: "light" }
+            - { label: "Balanced", value: "balanced" }
+            - { label: "Strong", value: "strong" }
+        reactions:
+          - when: { field: "enhance_faces_hands", equals: false }
+            then: { set_visibility: false }
+          - when: { field: "enhance_faces_hands", equals: true }
+            then: { set_visibility: true }
+
+      #############
+      # Detection models: same idiom as the video mode's fields of the same name
+      # (see that mode's tabs/enhance.yml for the full rationale) -- a plain
+      # `model` field over model_type "mediapipe", no bespoke recommendations/
+      # download flow.
+      #############
+      - name: "face_detector_model"
+        type: "model"
+        label: "Face Detection Model"
+        configuration:
+          model_type: "mediapipe"
+        reactions:
+          - when: { field: "enhance_faces_hands", equals: false }
+            then: { set_visibility: false }
+          - when: { field: "enhance_faces_hands", equals: true }
+            then: { set_visibility: true }
+
+      - name: "hand_detector_model"
+        type: "model"
+        label: "Hand Detection Model"
+        configuration:
+          model_type: "mediapipe"
+        reactions:
+          - when: { field: "enhance_faces_hands", equals: false }
+            then: { set_visibility: false }
+          - when: { field: "enhance_faces_hands", equals: true }
+            then: { set_visibility: true }

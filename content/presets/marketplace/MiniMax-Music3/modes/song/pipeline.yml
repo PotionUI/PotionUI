@@ -1,0 +1,78 @@
+# t2m pipeline for the native MiniMax-Music3 family.
+#
+#   model_loader/minimax_music3 -> generator/audio_minimax_music3
+#
+# No prompt_encoder, no seed_generator, no gallery: this family has no
+# separate text-encode stage (the tokenizer lives on the loaded bundle
+# itself and the AR core IS the conditioning, built fresh inside the
+# generator every run -- see that pipe's module docstring), the generator
+# reads `seed` as a plain config value rather than a wired pipe input
+# (one song per generation, no quantity), and the generator emits its own
+# terminal `AudioGenerationOutput` directly (temporary=false) the same way
+# AudioTools' `audio_trim` does -- there is nothing for a gallery node to
+# merge.
+#
+# CAPTION/DURATION/INSTRUMENTAL ARE PLAIN FORM FIELDS (modes/song/tabs/
+# generation.yml). Lyrics are the STANDARD prompt section -- the same
+# segmented editor every image preset uses, with [Verse]/[Chorus]/etc. tags
+# typed by hand or by the LLM as plain text. There is no compiler: the
+# pipeline consumes the resolved prompt string verbatim, the same idiom
+# every native single-prompt preset uses (see Krea2's txt2img pipeline).
+#
+#   - `caption` = `form.description`, empty-safe default "".
+#   - `lyrics` = "[instrumental]" when `form.instrumental` is true; otherwise
+#     the resolved positive prompt.
+#   - `duration` = `form.duration`, falling back to 60 only for a doc-less/
+#     field-less submission (API/MCP caller that skipped form binding).
+pipeline:
+  #############
+  ## Model loader (DiT + fused TE + DAV, three standalone files, each cached
+  ## independently by the lifecycle service)
+  ############
+  - name: "model_loader/minimax_music3"
+    enabled: true
+    configuration:
+      model:
+        file_path: "{{ form.model }}"
+        name: "{{ form.model }}"
+      text_encoder:
+        file_path: "{{ form.text_encoder }}"
+        name: "{{ form.text_encoder }}"
+      vae:
+        file_path: "{{ form.vae }}"
+        name: "{{ form.vae }}"
+
+  #############
+  ## Parameter Emitter - record the run's settings on the generation
+  #############
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    configuration:
+      quantity: 1
+      parameters:
+        - ["model", "{{ form.model }}"]
+        - ["model", "{{ form.text_encoder }}"]
+        - ["model", "{{ form.vae }}"]
+        - ["steps", "{{ form.steps | default(30) }}"]
+        - ["cfg_scale", "{{ form.cfg_scale | default(1.7) }}"]
+        - ["ar_cfg_scale", "{{ form.ar_cfg_scale | default(1.5) }}"]
+        - ["top_k", "{{ form.top_k | default(50) }}"]
+        - ["duration", "{{ form.duration if form.duration is defined else 60 }}"]
+
+  #############
+  ## Generator (AR semantic+residual stage -> windowed flow-matching -> DAV decode)
+  ############
+  - name: "generator/audio_minimax_music3"
+    input:
+      - ["model", "model_loader/minimax_music3", "model"]
+    enabled: true
+    configuration:
+      caption: "{{ form.description if form.description is defined else '' }}"
+      lyrics: "{{ '[instrumental]' if (form.instrumental is defined and form.instrumental) else generation.prompts.first.positive }}"
+      duration: "{{ form.duration if form.duration is defined else 60 }}"
+      steps: "{{ form.steps | default(30) }}"
+      seed: "{{ form.seed | default(-1) }}"
+      ar_cfg_scale: "{{ form.ar_cfg_scale | default(1.5) }}"
+      cfg_scale: "{{ form.cfg_scale | default(1.7) }}"
+      top_k: "{{ form.top_k | default(50) }}"

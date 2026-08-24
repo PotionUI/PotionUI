@@ -1,0 +1,31 @@
+########
+## Audio Tools (native engine)
+##
+## Utility toolbox for operating on EXISTING audio -- no diffusion model, no
+## prompt, no seed. The first tool is Trim (audio_trim pipe): a sample-accurate
+## start/duration window cut, no re-encoding pass beyond the write itself.
+## More audio utilities will land here as additional modes.
+## Authoring reference: docs/presets.md
+########
+schema: 1
+id: "01KYSG8QH2EXKBDR6P53QQZJA6"
+name: "Audio Tools"
+category: "utility"
+version: "1.0.0"
+engine: "native"
+tags: ["audio", "utility", "trim", "local"]
+
+vars:
+  # Nothing here is text-conditioned: trim is a deterministic transform of an
+  # audio file the user supplies. Hides the prompt pane and drops the "prompt
+  # required" gate on Generate (docs/presets.md `promptless_modes`).
+  promptless_modes: [trim]
+
+llm:
+  guide: |
+    Utility preset — no model, no prompt. The trim mode cuts an audio file to a
+    start/length range. Help the user set the trim fields from the form summary
+    below; never suggest prompt text.
+
+modes:
+  - trim

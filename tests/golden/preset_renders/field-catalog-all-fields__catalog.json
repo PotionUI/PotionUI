@@ -1,0 +1,21 @@
+{
+  "mode": "catalog",
+  "pipes": [
+    {
+      "config": {
+        "mode": {
+          "type": "str",
+          "value": "save"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "gallery",
+      "name": "gallery"
+    }
+  ],
+  "preset_id": "field-catalog-all-fields",
+  "preset_name": "[Custom] Frontend Field Catalog"
+}

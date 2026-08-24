@@ -1,0 +1,74 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# Node (node_modules/ with no leading slash matches at any depth, so this
+# already covers frontend/node_modules/ and content/plugins/node_modules/ too)
+node_modules/
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Project specific
+models/
+outputs/
+# Model weights ANYWHERE in the context: a models depot is a runtime volume,
+# never image content - this catches ad-hoc depot dirs (models_onboarding/,
+# test depots, ...) regardless of what they're named. The **/ prefix matters:
+# without it, dockerignore patterns only match at the context root.
+**/*.safetensors
+**/*.ckpt
+**/*.pt
+**/*.pth
+**/*.gguf
+# The whole storage tree: generated outputs/DB/cache can be tens of GB and a
+# fresh-instance image must contain none of it (the container gets its own
+# empty volume; the app recreates the layout on first start).
+storage/
+logs/
+*.log
+.runtime/
+
+# Git
+.git/
+.gitignore
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Documentation: docs/ is RUNTIME content, not build noise - DocsManager
+# serves it in-app (Admin -> Documentation), so excluding it shipped
+# onboarding images with an empty documentation tab. It's
+# well under 1MB. Only repo-root markdown (README, CLAUDE.md, ...) stays out.
+*.md
+
+# Testing
+tests/
+test_*.py
+*_test.py

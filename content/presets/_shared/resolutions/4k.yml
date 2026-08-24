@@ -1,0 +1,9 @@
+# Generic 4K resolution tier - ~8.3 MP standard aspect set (64px-snapped).
+- { value: "2880x2880", ratio: [1, 1], description: "Square 4K" }
+- { value: "3520x2368", ratio: [3, 2], description: "Wide Landscape 4K" }
+- { value: "2368x3520", ratio: [2, 3], description: "Tall Portrait 4K" }
+- { value: "3840x2176", ratio: [16, 9], description: "Widescreen 4K" }
+- { value: "2176x3840", ratio: [9, 16], description: "Vertical 4K" }
+- { value: "3328x2496", ratio: [4, 3], description: "Landscape 4K" }
+- { value: "2496x3328", ratio: [3, 4], description: "Portrait 4K" }
+- { value: "4416x1856", ratio: [21, 9], description: "Ultra Wide 4K" }

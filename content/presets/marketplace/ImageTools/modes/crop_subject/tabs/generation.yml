@@ -1,0 +1,18 @@
+# A cutout in, a tightly-framed cutout out. The threshold that decides what
+# counts as "subject" lives on the Advanced tab.
+fields:
+  - name: "input_image"
+    type: "image"
+    label: "Input Image"
+    required: true
+    ai_hint: "This mode reads the ALPHA channel and nothing else -- it does not detect a subject, it measures where the transparency is not. Feed it an RGBA cutout: a Remove Background output, a keyed image, a PNG with real transparency. An opaque JPEG has a full-frame bounding box, so the crop is a no-op and the output is byte-for-byte the framing you started with; that is the expected behaviour, not a failure. Run Remove Background first if you need one made."
+
+  - name: "crop_margin"
+    type: "slider"
+    label: "Margin"
+    default: 0
+    ai_hint: "Extra pixels kept on every side of the subject's bounding box. 0 is a tight crop to the last pixel above the alpha threshold, and is the right default when the output feeds a further placement step (Fit to Canvas, or a compositor) -- padding added here just has to be accounted for again later. Raise it when the crop is clipping something you want kept: a wisp of hair, a soft shadow you deliberately matted in, a prop the threshold nibbled at. It is also the knob to reach for when you want the cutout to keep a little visual breathing room as a standalone asset -- 16-48px reads as deliberate framing rather than a mechanical trim."
+    configuration:
+      min: 0
+      max: 256
+      step: 4

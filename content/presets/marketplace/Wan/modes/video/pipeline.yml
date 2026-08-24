@@ -1,0 +1,374 @@
+# Video Director pipeline for the native Wan family. One preset mode ("video")
+# covers all four Director modes (t2v/i2v/flf/director, the last a routed
+# multi-segment chain). The canonical document
+# (normalize_video_director() in the orchestrator) arrives ALREADY resolved:
+# absolute media paths, non -1 seed, capability-checked segments, AND a
+# per-segment `sub_type` (t2v/i2v/flf/chain, see derive_segment_routing) plus
+# the request-level `needs_t2v_set` / `needs_i2v_set` flags this pipeline
+# branches its two model-set loaders on.
+#
+#   t2v_loader (model_loader/wan22, t2v checkpoint set)   \
+#   i2v_loader (model_loader/wan22, i2v checkpoint set)   / one or both, gated
+#     -> prompt_encoder (clip from whichever set is loaded) -> seed_generator
+#     -> media_first / media_last (media_loader, gated on doc.media roles)
+#     -> generator/txt2vid_wan22 (mode t2v)      <- t2v_loader
+#        | generator/img2vid_wan22 (mode i2v/flf) <- i2v_loader
+#        | generator/chain_video_wan22 (mode director, per-segment sub-type routing)
+#             <- BOTH loaders (t2v shots on the t2v set, i2v/chain continuations
+#                on the i2v set)
+#     -> gallery (one instance; `video` provider name templated on doc.mode)
+#
+# `doc.*` in the comments refers to `form.video_director` (a top-level form_data
+# key set by the Director editor -- see src/features/video_director/normalize.py
+# and src/features/generation/orchestrator.py around normalize_video_director()).
+#
+# -- two checkpoint SETS, loaded on demand --
+# Wan 2.2 ships architecturally-separate t2v (in_dim=16) and i2v (in_dim=36,
+# 20-channel concat conditioning) checkpoints. The form carries both sets
+# (t2v_high/t2v_low + i2v_high/i2v_low, shared TE + VAE); each loader is enabled
+# ONLY when the document contains a segment that needs it (needs_t2v_set /
+# needs_i2v_set), so a pure-t2v document never loads the i2v pair, a pure-chain
+# document never loads the t2v pair, and a chain that opens on a fresh t2v shot
+# and continues as i2v loads both. Picking the SAME file in both sets (the 5B
+# TI2V checkpoint) is a single load -- the lifecycle cache keys DiTs by path.
+#
+# -- i2v/flf as one generator instance --
+# generator/img2vid_wan22 declares `end_image` OPTIONAL. Its `image` input stays
+# REQUIRED and is always satisfiable (media_first is enabled in i2v AND flf).
+# Its `end_image` is wired to media_last, DISABLED in i2v -- but
+# GenerationManager.validate_pipeline() only validates a pipe's REQUIRED inputs,
+# so an optional input's provider is never checked, disabled or not. At runtime
+# a disabled provider's output simply isn't found and img2vid_wan22 treats a
+# missing end_image as "no FLF". One instance safely covers i2v and flf.
+#
+# -- chain's model inputs are OPTIONAL --
+# The chain generator's `model` (i2v set) and `model_t2v` (t2v set) inputs are
+# both OPTIONAL: a given chain document may need only one set (a pure-i2v chain
+# never enables t2v_loader, and vice-versa). validate_pipeline only checks
+# REQUIRED inputs, so wiring an optional input to a disabled loader is safe; the
+# pipe raises a clear error at runtime if a segment needs a set that wasn't
+# loaded.
+#
+# -- single gallery, not one per generator --
+# PresetProcessor renders EVERY string in an `input:` triple through Jinja, so
+# the PROVIDER NAME ITSELF is templated on doc.mode to always name whichever
+# generator is enabled for this request. One gallery, one `enabled: "true"`.
+pipeline:
+  - name: "model_loader/wan22"
+    id: "t2v_loader"
+    enabled: "{{ form.video_director.needs_t2v_set }}"
+    configuration:
+      high_noise_model:
+        file_path: "{{ form.t2v_high_noise_model }}"
+        name: "{{ form.t2v_high_noise_model }}"
+      # Low-noise expert: Wan 2.2 14B dual-expert only. Empty for 2.1 / 5B.
+      low_noise_model:
+        file_path: "{{ form.t2v_low_noise_model | default('') }}"
+        name: "{{ form.t2v_low_noise_model | default('') }}"
+      text_encoder:
+        file_path: "{{ form.text_encoder }}"
+        name: "{{ form.text_encoder }}"
+      vae:
+        file_path: "{{ form.vae }}"
+        name: "{{ form.vae }}"
+      loras_high:
+        "@loop":
+          items: "{{ form.t2v_loras_high | default([]) }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+      loras_low:
+        "@loop":
+          items: "{{ form.t2v_loras_low | default([]) }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+
+  - name: "model_loader/wan22"
+    id: "i2v_loader"
+    enabled: "{{ form.video_director.needs_i2v_set }}"
+    configuration:
+      high_noise_model:
+        file_path: "{{ form.i2v_high_noise_model }}"
+        name: "{{ form.i2v_high_noise_model }}"
+      low_noise_model:
+        file_path: "{{ form.i2v_low_noise_model | default('') }}"
+        name: "{{ form.i2v_low_noise_model | default('') }}"
+      text_encoder:
+        file_path: "{{ form.text_encoder }}"
+        name: "{{ form.text_encoder }}"
+      vae:
+        file_path: "{{ form.vae }}"
+        name: "{{ form.vae }}"
+      loras_high:
+        "@loop":
+          items: "{{ form.i2v_loras_high | default([]) }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+      loras_low:
+        "@loop":
+          items: "{{ form.i2v_loras_low | default([]) }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+
+  - name: "prompt_encoder"
+    input:
+      # Both sets share the UMT5 text encoder, so either loader's clip is
+      # identical; name whichever one is actually enabled for this request
+      # (at least one of needs_t2v_set / needs_i2v_set is always true).
+      - ["clip", "{% if form.video_director.needs_t2v_set %}t2v_loader{% else %}i2v_loader{% endif %}", "clip"]
+    enabled: true
+    configuration:
+      # Legacy scalar passthrough (empty for a Director request -- no top-level
+      # prompt is submitted): input==output makes `pairs` fully override the
+      # per-image prompt below, same trick the other Wan modes use.
+      p_prompt:
+        input: "{{ generation.prompts.first.positive }}"
+        output: "{{ generation.prompts.first.positive }}"
+      n_prompt:
+        input: "{{ generation.prompts.first.negative }}"
+        output: "{{ generation.prompts.first.negative }}"
+      # One pair per Director segment (literal per-segment prompts -- no
+      # `{a|b}` template grammar in v1, see normalize.py). t2v/i2v/flf always
+      # have exactly one segment; chain has N.
+      pairs:
+        "@loop":
+          items: "{{ form.video_director.segments }}"
+          template:
+            positive: "{{ item.prompt }}"
+            negative: "{{ item.negative_prompt }}"
+      quantity: "{{ form.video_director.segments | length }}"
+      guidance_scale: "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('balanced'))['guidance']) }}"
+      nag_scale: "{{ form.nag_scale | default(1.0) }}"
+
+  - name: "seed_generator"
+    enabled: true
+    configuration:
+      # Already resolved (never -1) by normalize_video_director() before this
+      # pipeline runs. Only t2v/i2v/flf consume this pipe's output -- chain
+      # computes its own per-segment seeds from the same document field
+      # (base + index, or a segment's own pinned seed) inside the pipe itself.
+      seed: "{{ form.video_director.settings.seed }}"
+      quantity: 1
+
+  #############
+  ## IOType to Value Converter
+  ############
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  #############
+  ## Parameter Emitter
+  ############
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: "{{ form.video_director.segments | length }}"
+      parameters:
+        - ["model", "{{ form.t2v_high_noise_model | default('') }}"]
+        - ["model", "{{ form.t2v_low_noise_model | default('') }}"]
+        - ["model", "{{ form.i2v_high_noise_model | default('') }}"]
+        - ["model", "{{ form.i2v_low_noise_model | default('') }}"]
+        - ["model", "{{ form.text_encoder }}"]
+        - ["model", "{{ form.vae }}"]
+        - "@loop":
+            items: "{{ (form.t2v_loras_high | default([])) + (form.t2v_loras_low | default([])) + (form.i2v_loras_high | default([])) + (form.i2v_loras_low | default([])) | active_loras }}"
+            template: ["model", "{{ item.model }}"]
+        - ["positive_prompt", "{{ form.video_director.segments | map(attribute='prompt') | list }}"]
+        - ["negative_prompt", "{{ form.video_director.segments | map(attribute='negative_prompt') | list }}"]
+        - ["cfg", "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('balanced'))['guidance']) }}"]
+        - ["steps", "{{ form.steps | default(get_speed_profile(form.speed_profile | default('balanced'))['steps']) }}"]
+        - ["sampler", "{{ form.sampler | default(get_speed_profile(form.speed_profile | default('balanced'))['sampler']) }}"]
+        - ["resolution", "{{ form.resolution }}"]
+        - ["fps", "{{ form.video_director.settings.fps }}"]
+        - ["director_mode", "{{ form.video_director.mode | default('') }}"]
+
+  - name: "media_loader"
+    id: "media_first"
+    enabled: "{{ (form.video_director.media | selectattr('role', 'equalto', 'first') | list | length) > 0 }}"
+    configuration:
+      media:
+        "@loop":
+          items: "{{ form.video_director.media | selectattr('role', 'equalto', 'first') | list }}"
+          template:
+            type: "image"
+            path: "{{ item.media.path }}"
+
+  - name: "media_loader"
+    id: "media_last"
+    enabled: "{{ (form.video_director.media | selectattr('role', 'equalto', 'last') | list | length) > 0 }}"
+    configuration:
+      media:
+        "@loop":
+          items: "{{ form.video_director.media | selectattr('role', 'equalto', 'last') | list }}"
+          template:
+            type: "image"
+            path: "{{ item.media.path }}"
+
+  - name: "generator/txt2vid_wan22"
+    input:
+      - ["model", "t2v_loader", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: "{{ form.video_director.mode == 't2v' }}"
+    configuration:
+      steps: "{{ form.steps | default(get_speed_profile(form.speed_profile | default('balanced'))['steps']) }}"
+      cfg: "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('balanced'))['guidance']) }}"
+      sampler: "{{ form.sampler | default(get_speed_profile(form.speed_profile | default('balanced'))['sampler']) }}"
+      expert_boundary: "{% set b = form.expert_boundary_preset | default('') %}{% if b is not none and b != '' %}{{ b }}{% endif %}"
+      expert_switch_step: "{% set s = form.expert_switch_step | default('') %}{% if s is not none and s != '' %}{{ s }}{% endif %}"
+      nag_scale: "{{ form.nag_scale | default(1.0) }}"
+      nag_tau: "{{ form.nag_tau | default(3.5) }}"
+      nag_alpha: "{{ form.nag_alpha | default(0.5) }}"
+      # Advanced guidance / schedule knobs (advanced.yml). Every default here is
+      # the technique's own no-op value, so an untouched form is byte-identical to
+      # not threading them at all. FreeInit is txt2vid-only (no spec on i2v/chain).
+      cfg_zero_star: "{{ form.cfg_zero_star | default(true) }}"
+      zero_init_steps: "{{ form.zero_init_steps | default(0) }}"
+      apg_eta: "{{ form.apg_eta | default(1.0) }}"
+      apg_norm_threshold: "{{ form.apg_norm_threshold | default(0.0) }}"
+      apg_momentum: "{{ form.apg_momentum | default(0.0) }}"
+      slg_scale: "{{ form.slg_scale | default(0.0) }}"
+      slg_layers: "{{ form.slg_layers | default('') }}"
+      slg_sigma_start: "{{ form.slg_sigma_start | default(1.0) }}"
+      slg_sigma_end: "{{ form.slg_sigma_end | default(0.0) }}"
+      schedule: "{{ form.schedule | default('') }}"
+      manual_sigmas: "{{ form.manual_sigmas | default('') }}"
+      riflex: "{{ form.riflex | default(false) }}"
+      riflex_trained_frames: "{% set r = form.riflex_trained_frames | default('') %}{% if r is not none and r != '' %}{{ r }}{% endif %}"
+      freeinit_iterations: "{{ form.freeinit_iterations | default(0) }}"
+      freeinit_cutoff: "{{ form.freeinit_cutoff | default(0.25) }}"
+      freeinit_order: "{{ form.freeinit_order | default(4) }}"
+      step_cache_threshold: "{{ form.step_cache_threshold | default(0.0) }}"
+      step_cache_warmup_steps: "{{ form.step_cache_warmup_steps | default(4) }}"
+      step_cache_max_skips: "{{ form.step_cache_max_skips | default(3) }}"
+      resolution: "{{ form.resolution }}"
+      # duration is only guaranteed non-None for t2v/i2v/flf (chain leaves it
+      # unset) -- these generators are disabled for chain, but every pipe's
+      # config is still rendered regardless of enabled state, so guard the
+      # multiplication to avoid a stray "None * fps" template error in the logs.
+      frames: "{{ ((form.video_director.settings.duration or 0) * form.video_director.settings.fps) | round | int }}"
+      fps: "{{ form.video_director.settings.fps }}"
+      quantity: "{{ form.video_director.segments | length }}"
+
+  - name: "generator/img2vid_wan22"
+    input:
+      - ["model", "i2v_loader", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["image", "media_first", "image"]
+      - ["end_image", "media_last", "image"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: "{{ form.video_director.mode in ['i2v', 'flf'] }}"
+    configuration:
+      steps: "{{ form.steps | default(get_speed_profile(form.speed_profile | default('balanced'))['steps']) }}"
+      cfg: "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('balanced'))['guidance']) }}"
+      sampler: "{{ form.sampler | default(get_speed_profile(form.speed_profile | default('balanced'))['sampler']) }}"
+      expert_boundary: "{% set b = form.expert_boundary_preset | default('') %}{% if b is not none and b != '' %}{{ b }}{% endif %}"
+      expert_switch_step: "{% set s = form.expert_switch_step | default('') %}{% if s is not none and s != '' %}{{ s }}{% endif %}"
+      nag_scale: "{{ form.nag_scale | default(1.0) }}"
+      nag_tau: "{{ form.nag_tau | default(3.5) }}"
+      nag_alpha: "{{ form.nag_alpha | default(0.5) }}"
+      # Advanced guidance / schedule knobs (advanced.yml); no-op defaults. FreeInit
+      # is txt2vid-only, so it is deliberately not threaded here.
+      cfg_zero_star: "{{ form.cfg_zero_star | default(true) }}"
+      zero_init_steps: "{{ form.zero_init_steps | default(0) }}"
+      apg_eta: "{{ form.apg_eta | default(1.0) }}"
+      apg_norm_threshold: "{{ form.apg_norm_threshold | default(0.0) }}"
+      apg_momentum: "{{ form.apg_momentum | default(0.0) }}"
+      slg_scale: "{{ form.slg_scale | default(0.0) }}"
+      slg_layers: "{{ form.slg_layers | default('') }}"
+      slg_sigma_start: "{{ form.slg_sigma_start | default(1.0) }}"
+      slg_sigma_end: "{{ form.slg_sigma_end | default(0.0) }}"
+      schedule: "{{ form.schedule | default('') }}"
+      manual_sigmas: "{{ form.manual_sigmas | default('') }}"
+      riflex: "{{ form.riflex | default(false) }}"
+      riflex_trained_frames: "{% set r = form.riflex_trained_frames | default('') %}{% if r is not none and r != '' %}{{ r }}{% endif %}"
+      step_cache_threshold: "{{ form.step_cache_threshold | default(0.0) }}"
+      step_cache_warmup_steps: "{{ form.step_cache_warmup_steps | default(4) }}"
+      step_cache_max_skips: "{{ form.step_cache_max_skips | default(3) }}"
+      resolution: "{{ form.resolution }}"
+      frames: "{{ ((form.video_director.settings.duration or 0) * form.video_director.settings.fps) | round | int }}"
+      fps: "{{ form.video_director.settings.fps }}"
+      quantity: "{{ form.video_director.segments | length }}"
+
+  - name: "generator/chain_video_wan22"
+    input:
+      - ["model", "i2v_loader", "model"]
+      - ["model_t2v", "t2v_loader", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["image", "media_first", "image"]
+      - ["end_image", "media_last", "image"]
+    # The routed multi-segment `director` mode (t2v/i2v/flf are separate modes
+    # with their own generators above); a single-segment director doc is a
+    # degenerate chain of one.
+    enabled: "{{ form.video_director.mode == 'director' }}"
+    configuration:
+      # Raw passthrough (bypasses Jinja stringification, same idiom as
+      # `pairs: "{{ generation.prompts.pairs }}"` elsewhere) -- the chain pipe
+      # reads document.segments/['settings']/['media'] directly and needs real
+      # nested dicts/lists, not a str()'d-and-reparsed copy.
+      document: "{{ form.video_director }}"
+      # SVI Pro 2.0 continuity knobs (svi_pro.yml tab); flat field names.
+      motion_latent_count: "{{ form.svi_motion_latent_count | default(1) }}"
+      anchor_latent_strength: "{{ form.svi_anchor_latent_strength | default(1.0) }}"
+      steps: "{{ form.steps | default(get_speed_profile(form.speed_profile | default('balanced'))['steps']) }}"
+      cfg: "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('balanced'))['guidance']) }}"
+      sampler: "{{ form.sampler | default(get_speed_profile(form.speed_profile | default('balanced'))['sampler']) }}"
+      nag_scale: "{{ form.nag_scale | default(1.0) }}"
+      nag_tau: "{{ form.nag_tau | default(3.5) }}"
+      nag_alpha: "{{ form.nag_alpha | default(0.5) }}"
+      # Advanced guidance / schedule knobs (advanced.yml); no-op defaults. Applied
+      # to every segment of the chain. FreeInit is txt2vid-only (not threaded).
+      cfg_zero_star: "{{ form.cfg_zero_star | default(true) }}"
+      zero_init_steps: "{{ form.zero_init_steps | default(0) }}"
+      apg_eta: "{{ form.apg_eta | default(1.0) }}"
+      apg_norm_threshold: "{{ form.apg_norm_threshold | default(0.0) }}"
+      apg_momentum: "{{ form.apg_momentum | default(0.0) }}"
+      slg_scale: "{{ form.slg_scale | default(0.0) }}"
+      slg_layers: "{{ form.slg_layers | default('') }}"
+      slg_sigma_start: "{{ form.slg_sigma_start | default(1.0) }}"
+      slg_sigma_end: "{{ form.slg_sigma_end | default(0.0) }}"
+      schedule: "{{ form.schedule | default('') }}"
+      manual_sigmas: "{{ form.manual_sigmas | default('') }}"
+      riflex: "{{ form.riflex | default(false) }}"
+      riflex_trained_frames: "{% set r = form.riflex_trained_frames | default('') %}{% if r is not none and r != '' %}{{ r }}{% endif %}"
+      step_cache_threshold: "{{ form.step_cache_threshold | default(0.0) }}"
+      step_cache_warmup_steps: "{{ form.step_cache_warmup_steps | default(4) }}"
+      step_cache_max_skips: "{{ form.step_cache_max_skips | default(3) }}"
+      resolution: "{{ form.resolution }}"
+      fps: "{{ form.video_director.settings.fps }}"
+      expert_boundary: "{% set b = form.expert_boundary_preset | default('') %}{% if b is not none and b != '' %}{{ b }}{% endif %}"
+      expert_switch_step: "{% set s = form.expert_switch_step | default('') %}{% if s is not none and s != '' %}{{ s }}{% endif %}"
+      dtype: "bfloat16"
+      # Per-set re-acquire targets for per-segment LoRA swaps (a t2v segment
+      # patches the t2v experts, an i2v/chain segment the i2v experts).
+      t2v_high_noise_model:
+        file_path: "{{ form.t2v_high_noise_model | default('') }}"
+        name: "{{ form.t2v_high_noise_model | default('') }}"
+      t2v_low_noise_model:
+        file_path: "{{ form.t2v_low_noise_model | default('') }}"
+        name: "{{ form.t2v_low_noise_model | default('') }}"
+      i2v_high_noise_model:
+        file_path: "{{ form.i2v_high_noise_model | default('') }}"
+        name: "{{ form.i2v_high_noise_model | default('') }}"
+      i2v_low_noise_model:
+        file_path: "{{ form.i2v_low_noise_model | default('') }}"
+        name: "{{ form.i2v_low_noise_model | default('') }}"
+
+  - name: "gallery"
+    input:
+      - ["video", "{% if form.video_director.mode == 't2v' %}generator/txt2vid_wan22{% elif form.video_director.mode in ['i2v', 'flf'] %}generator/img2vid_wan22{% else %}generator/chain_video_wan22{% endif %}", "video"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: true
+    configuration:
+      save: "true"

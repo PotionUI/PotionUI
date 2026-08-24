@@ -1,0 +1,35 @@
+# Canvas size, how big the image is drawn on it, and what the rest is filled
+# with. Placement lives on the Advanced tab.
+fields:
+  - name: "input_image"
+    type: "image"
+    label: "Input Image"
+    required: true
+    ai_hint: "Aspect ratio is preserved -- the image is scaled, never stretched. An RGBA source keeps its transparency, so a cutout placed here shows the fill colour through wherever it was transparent, not just around the edges. If you want a subject sitting on the fill with no background of its own, run Remove Background (or the whole Prepare mode) first -- this mode does not cut anything out, it only scales and places."
+
+  - name: "canvas_resolution"
+    type: "resolution"
+    label: "Canvas Size"
+    default: "1024x1024"
+    ai_hint: "This is the final output size, independent of the source's own dimensions -- the source is scaled to fit it, never cropped. Pick from the Video group when the result feeds an image-to-video model (832x480/480x832 are the native Wan sizes, 1280x720/720x1280 the HD ones; off-native canvases cost quality before sampling starts). The Image and Social Media groups are for stills and platform-specific deliverables."
+    configuration:
+      files:
+        - { path: "{{ paths._shared }}/resolutions/1k.yml", group: "Image" }
+        - { path: "{{ paths._shared }}/resolutions/video.yml", group: "Video" }
+        - { path: "{{ paths._shared }}/resolutions/social_media.yml", group: "Social Media" }
+
+  - name: "scale_percent"
+    type: "slider"
+    label: "Image Scale"
+    default: 100
+    ai_hint: "How large the image is drawn on the canvas, as a percentage of the CANVAS'S SHORT SIDE -- not of the canvas area, and not of the source image's own size. On a 1920x1080 canvas, 100% means the image's long side is 1080px, so a landscape source ends up letterboxed left and right rather than filling the frame; that is the definition that makes the setting behave identically on portrait and landscape canvases. 100% is 'as large as fits'; anything less deliberately adds padding. Drop to 55-75% when the output feeds a video model and the subject needs room to move (or just use the Prepare mode, which is this plus matting and cropping in the right order)."
+    configuration:
+      min: 10
+      max: 100
+      step: 1
+
+  - name: "fill"
+    type: "string"
+    label: "Padding Fill"
+    default: "transparent"
+    ai_hint: "What the area around the image is filled with -- a hex colour like `#00B140`, or the literal word `transparent`. Transparent is the honest default for a still: the padding carries no colour and the result composites cleanly anywhere. It is the WRONG answer whenever the output feeds a video model -- those take opaque RGB, and an alpha channel handed to one gets flattened by whatever touches it first, usually to white, sometimes to black, never announced. In that case pick the colour yourself: #00B140 (broadcast chroma green) or #0047BB (chroma blue, for subjects that contain green) if you intend to key the background back out later, or a flat neutral like #808080 if you do not."

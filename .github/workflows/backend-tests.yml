@@ -1,0 +1,91 @@
+name: Backend + frontend tests
+
+# Runs the real pytest suite (not just the dry-run resolve + architecture
+# guard onboarding-smoke.yml already covers) on a CPU-only runner, plus the
+# frontend unit tests. GPU-bound and real-model-file tests are excluded via
+# the `requires_gpu`/`requires_models` markers (see tests/conftest.py) - this
+# runner has no CUDA device and, per the maintainer's hard rule, must never
+# read a real model checkpoint even if one happened to be present.
+#
+# requirements-ci.txt is a trimmed copy of requirements.txt (see its own
+# header for what's excluded and why); constraints.txt is NOT used here, as
+# it pins the maintainer's CUDA-specific transitive closure, which has no
+# CPU-only equivalent.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-tests:
+    name: backend pytest (CPU-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements-ci.txt
+            requirements-dev.txt
+
+      # libglib2.0-0 supplies libgthread-2.0.so.0, which `import cv2` needs
+      # (see docs/testing-notes.md) - without it the cv2-dependent suites
+      # skip silently rather than fail, so install it for real coverage.
+      # ffmpeg unlocks the media-editing suite's video/audio round-trips the
+      # same way.
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libglib2.0-0 ffmpeg
+
+      # pytest-timeout backs pytest.ini's `timeout = 300` - it is not in
+      # requirements-dev.txt today, so it's installed explicitly here rather
+      # than assumed present.
+      - name: Install backend dependencies (CPU-only torch)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-ci.txt --extra-index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements-dev.txt
+          pip install pytest-timeout
+
+      - name: pytest (CPU-only, no GPU/model-file/gc-sensitive tests)
+        run: >
+          python -m pytest tests/ -q --timeout=300
+          -m "not requires_gpu and not requires_models and not gc_sensitive"
+
+  frontend-tests:
+    name: frontend unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: npm ci
+        working-directory: frontend
+        run: npm ci
+
+      # onboarding-smoke.yml's frontend-build job already covers
+      # `svelte-kit sync` + a production build; this job adds the vitest
+      # suite that job doesn't run. `npm run check` is deliberately not
+      # added here to avoid duplicating that coverage.
+      - name: npm run test:unit
+        working-directory: frontend
+        run: npm run test:unit

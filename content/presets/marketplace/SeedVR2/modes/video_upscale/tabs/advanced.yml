@@ -1,0 +1,190 @@
+# Technical knobs live here now. "Output Size" and "Restoration Intent"
+# (Generation tab) are the plain-language controls; the fields below are their
+# expert overrides, kept visible but locked (Output Size) or freely editable
+# (Restoration Intent) via reactions -- see modes/upscale/tabs/advanced.yml
+# for the same idiom on the image path.
+fields:
+  - type: "section"
+    label: "Output Size (Expert Override)"
+    children:
+      - type: "row"
+        children:
+          - name: "scale"
+            type: "slider"
+            label: "Scale"
+            audience: "advanced"
+            default: 2.0
+            ai_hint: "Output area multiplier; only takes effect for the x1.5/x2 relative Output Size options (a named pixel target overrides it). Baked to and locked by the Output Size selection on the Generation tab -- change it there instead."
+            configuration:
+              min: 1.0
+              max: 4.0
+              step: 0.1
+            reactions:
+              - when: { field: "resolution_target", equals: "x1_5" }
+                then: { set_value: 1.5, set_disabled: true }
+              - when: { field: "resolution_target", equals: "x2" }
+                then: { set_value: 2.0, set_disabled: true }
+              - when: { field: "resolution_target", equals: "hd720" }
+                then: { set_value: 2.0, set_disabled: true }
+              - when: { field: "resolution_target", equals: "fhd1080" }
+                then: { set_value: 2.0, set_disabled: true }
+              - when: { field: "resolution_target", equals: "qhd1440" }
+                then: { set_value: 2.0, set_disabled: true }
+              - when: { field: "resolution_target", equals: "uhd2160" }
+                then: { set_value: 2.0, set_disabled: true }
+
+          - name: "target_short_side"
+            type: "number"
+            label: "Target Short Side (px)"
+            audience: "advanced"
+            default: 1080
+            ai_hint: "0 = use Scale instead. Baked to and locked by the Output Size selection on the Generation tab -- change it there instead."
+            configuration:
+              min: 0
+              max: 4096
+              step: 8
+            reactions:
+              - when: { field: "resolution_target", equals: "x1_5" }
+                then: { set_value: 0, set_disabled: true }
+              - when: { field: "resolution_target", equals: "x2" }
+                then: { set_value: 0, set_disabled: true }
+              - when: { field: "resolution_target", equals: "hd720" }
+                then: { set_value: 720, set_disabled: true }
+              - when: { field: "resolution_target", equals: "fhd1080" }
+                then: { set_value: 1080, set_disabled: true }
+              - when: { field: "resolution_target", equals: "qhd1440" }
+                then: { set_value: 1440, set_disabled: true }
+              - when: { field: "resolution_target", equals: "uhd2160" }
+                then: { set_value: 2160, set_disabled: true }
+
+  - type: "section"
+    label: "Restoration Intent (Expert Override)"
+    children:
+      - type: "row"
+        children:
+          - name: "latent_noise_scale"
+            type: "slider"
+            label: "Latent Noise Scale"
+            audience: "advanced"
+            default: 0
+            ai_hint: "Forward-noise the conditioning latent. Baked to the Restoration Intent selection on the Generation tab (0 = Faithful; 0.2 for Heavy Restoration -- a conservative, experimental value with no upstream-recommended recipe). Freely editable for a custom value."
+            configuration:
+              min: 0.0
+              max: 1.0
+              step: 0.05
+            reactions:
+              - when: { field: "restoration_intent", equals: "faithful" }
+                then: { set_value: 0.0 }
+              - when: { field: "restoration_intent", equals: "heavy" }
+                then: { set_value: 0.2 }
+
+          - name: "input_noise_scale"
+            type: "slider"
+            label: "Input Noise Scale"
+            audience: "advanced"
+            default: 0
+            ai_hint: "Small gaussian blended into the input pixels before encoding. Baked to the Restoration Intent selection on the Generation tab (0 = Faithful; 0.1 for Heavy Restoration -- experimental). Freely editable for a custom value."
+            configuration:
+              min: 0.0
+              max: 1.0
+              step: 0.05
+            reactions:
+              - when: { field: "restoration_intent", equals: "faithful" }
+                then: { set_value: 0.0 }
+              - when: { field: "restoration_intent", equals: "heavy" }
+                then: { set_value: 0.1 }
+
+  - name: "color_correction"
+    type: "select"
+    label: "Color Correction"
+    audience: "advanced"
+    default: "wavelet"
+    configuration:
+      options:
+        - { label: "Wavelet", value: "wavelet", sub_label: "Match each output frame's colors to its input frame via wavelet decomposition (recommended)" }
+        - { label: "AdaIN", value: "adain", sub_label: "Match colors via adaptive instance normalization" }
+        - { label: "None", value: "none", sub_label: "No color correction" }
+
+  - type: "section"
+    label: "Temporal Batching"
+    children:
+      - type: "row"
+        children:
+          - name: "batch_size"
+            type: "number"
+            label: "Batch Size (frames)"
+            audience: "advanced"
+            default: 0
+            ai_hint: "Frames per temporal batch, snapped to the VAE's 4n+1 lattice (1, 5, 9, 13, …). This is the temporal VRAM knob — one batch is on the GPU at a time. 0 = auto-size to ~72% of free VRAM (recommended). Larger = better temporal coherence and faster (fewer, bigger passes), more VRAM; if it ever runs out the batch is halved and retried automatically."
+            configuration:
+              min: 0
+              max: 49
+              step: 4
+
+          - name: "temporal_overlap"
+            type: "number"
+            label: "Temporal Overlap"
+            audience: "advanced"
+            default: 0
+            ai_hint: "Frames cross-faded between consecutive batches to smooth seams. 0 = hard cut (fastest)."
+            configuration:
+              min: 0
+              max: 16
+              step: 1
+
+      - type: "row"
+        children:
+          - name: "prepend_frames"
+            type: "number"
+            label: "Prepend Frames"
+            audience: "advanced"
+            default: 0
+            ai_hint: "Reversed head frames prepended before upscaling to reduce clip-start artifacts (auto-removed from the output)."
+            configuration:
+              min: 0
+              max: 16
+              step: 1
+
+          - name: "uniform_batch_size"
+            type: "checkbox"
+            label: "Uniform Batch Size"
+            audience: "advanced"
+            default: true
+            ai_hint: "Pad a short final batch up to the full batch size (avoids seam artifacts at the clip end)."
+
+  - type: "section"
+    label: "Audio"
+    children:
+      - name: "keep_audio"
+        type: "checkbox"
+        label: "Keep Audio"
+        audience: "advanced"
+        default: true
+        ai_hint: "Mux the source video's audio track into the upscaled output."
+
+  - type: "section"
+    label: "VAE Decode Tiling"
+    children:
+      - type: "row"
+        children:
+          - name: "tile_size"
+            type: "number"
+            label: "Tile Size (px)"
+            audience: "advanced"
+            default: 2048
+            ai_hint: "Advisory VAE decode tile size; the decode auto-tiles by live free VRAM."
+            configuration:
+              min: 256
+              max: 2048
+              step: 64
+
+          - name: "tile_overlap"
+            type: "number"
+            label: "Tile Overlap (px)"
+            audience: "advanced"
+            default: 256
+            ai_hint: "Advisory VAE decode tile overlap."
+            configuration:
+              min: 0
+              max: 512
+              step: 16

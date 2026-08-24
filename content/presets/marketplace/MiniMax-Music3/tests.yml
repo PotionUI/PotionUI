@@ -1,0 +1,93 @@
+########
+## MiniMax-Music3: E2E test suite.
+## Authoring reference: docs/presets.md "Testing presets"
+##
+## KNOWN HARNESS GAP (same one AudioTools/tests.yml documents): `TestCase.kind`
+## (`src.features.presets.tests_schema`) is a strict `Literal["image", "video"]`
+## with no `"audio"` option, and the runner
+## (`src.features.preset_suite.runner.PresetSuiteRunner._run_generation`) only
+## ever collects `ImageGenerationOutput`/`GalleryGenerationOutput.images` into
+## `CaseOutcome.images` -- it has no code path for `AudioGenerationOutput`.
+## `min_outputs` MUST be 0 below for every case, or it fails unconditionally --
+## zero images will ever exist for this audio-only pipeline. These cases can
+## only assert "the generation completed without raising", not the actual
+## song length or audio content, until the harness grows an audio-shaped
+## outcome + check.
+##
+## ONE MODE. Lyrics are the standard prompt (a `prompt` key inside `form:`
+## maps to the top-level generation prompt, per docs/presets.md) -- no
+## Director document. `caption`/`duration`/`instrumental` are plain form
+## fields (modes/song/tabs/generation.yml).
+########
+schema: 1
+
+cases:
+  # A single lyric section, Suno-style tag on its own line.
+  - name: "minimax-music3-song-fast"
+    mode: "song"
+    kind: "image"  # no "audio" literal exists yet -- see harness-gap note above
+    seed: 12345
+    tags: ["fast", "needs-model"]
+    form:
+      steps: 8
+      description: "warm 90s boom-bap, vinyl crackle. bpm is 92. key is C, and scale is minor. female alto, warm and breathy. electric guitar lead, upright bass, brushed drums."
+      duration: 10
+      prompt: "[Verse]\nrain on the window, slow and low\nnowhere to be, nowhere to go"
+    models:
+      model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 0
+      not_black: false
+
+  # The "Instrumental (no vocals)" toggle: no lyrics needed at all -- the
+  # pipeline sends the literal "[instrumental]" lyrics string itself
+  # regardless of what the prompt box carries.
+  - name: "minimax-music3-instrumental-fast"
+    mode: "song"
+    kind: "image"
+    seed: 12345
+    tags: ["fast", "needs-model"]
+    form:
+      steps: 8
+      description: "cinematic ambient, sparse piano and strings. bpm is 70."
+      duration: 10
+      instrumental: true
+    models:
+      model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 0
+      not_black: false
+
+  # Multiple sections in one prompt, each tag on its own line -- the shape a
+  # user builds with a segment template (one segment per section) that
+  # flattens to paragraph-joined lyrics (`vars.prompt.segment_join`).
+  - name: "minimax-music3-song-multi-section-fast"
+    mode: "song"
+    kind: "image"
+    seed: 12345
+    tags: ["fast", "needs-model"]
+    form:
+      steps: 8
+      description: "warm 90s boom-bap, vinyl crackle, female vocal. bpm is 92."
+      duration: 10
+      prompt: "[Verse]\nrain on the window, slow and low\n\n[Chorus]\nnowhere to be, nowhere to go"
+    models:
+      model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 0
+      not_black: false

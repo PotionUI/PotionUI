@@ -1,0 +1,83 @@
+{
+  "mode": "trim",
+  "pipes": [
+    {
+      "config": {
+        "auto_detect_type": {
+          "type": "bool",
+          "value": true
+        },
+        "max_file_size": {
+          "type": "int",
+          "value": 104857600
+        },
+        "media": {
+          "type": "list",
+          "value": [
+            {
+              "path": "/GOLDEN/media/input_audio.wav",
+              "type": "audio"
+            }
+          ]
+        },
+        "validate_files": {
+          "type": "bool",
+          "value": true
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "media_loader",
+      "name": "media_loader"
+    },
+    {
+      "config": {
+        "parameters": {
+          "type": "list",
+          "value": [
+            [
+              "start_seconds",
+              0.0
+            ],
+            [
+              "duration_seconds",
+              10.0
+            ]
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "param_emitter",
+      "name": "param_emitter"
+    },
+    {
+      "config": {
+        "duration_seconds": {
+          "type": "float",
+          "value": 10.0
+        },
+        "start_seconds": {
+          "type": "float",
+          "value": 0.0
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "audio_trim",
+      "name": "audio_trim"
+    }
+  ],
+  "preset_id": "01KYSG8QH2EXKBDR6P53QQZJA6",
+  "preset_name": "Audio Tools"
+}

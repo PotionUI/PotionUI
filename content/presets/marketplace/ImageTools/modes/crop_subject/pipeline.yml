@@ -1,0 +1,56 @@
+# Pipeline for the 'crop_subject' mode.
+#
+#   media_loader -> param_emitter -> crop_subject -> gallery
+#
+# The trim stage of the `prepare` chain on its own: measure the bounding box
+# of everything above `alpha_threshold` and crop to it (plus `margin`). It
+# reads the ALPHA channel, so the source must already be a cutout -- an
+# opaque image has a full-frame bbox and comes out unchanged. Deterministic --
+# no text encoder, no denoise loop, no seed.
+pipeline:
+  #############
+  ## Media Loader - Load the source image from the form file path
+  #############
+  - name: "media_loader"
+    id: "media_loader"
+    enabled: true
+    configuration:
+      validate_files: true
+      max_file_size: 52428800  # 50MB
+      auto_detect_type: true
+      media:
+        - type: "image"
+          path: "{{ form.input_image }}"
+
+  #############
+  ## Parameter Emitter - record the run's settings on the generation
+  #############
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    configuration:
+      quantity: 1
+      parameters:
+        - ["crop_margin", "{{ form.crop_margin | default(0) }}"]
+        - ["crop_alpha_threshold", "{{ form.crop_alpha_threshold | default(16) }}"]
+
+  #############
+  ## Crop to subject - trim to the alpha bounding box
+  #############
+  - name: "crop_subject"
+    id: "crop_subject"
+    enabled: true
+    input:
+      - ["image", "media_loader", "image"]
+    configuration:
+      margin: "{{ form.crop_margin | default(0) }}"
+      alpha_threshold: "{{ form.crop_alpha_threshold | default(16) }}"
+
+  #############
+  ## Gallery - save the trimmed cutout
+  #############
+  - name: "gallery"
+    id: "gallery"
+    enabled: true
+    input:
+      - ["image", "crop_subject", "image"]

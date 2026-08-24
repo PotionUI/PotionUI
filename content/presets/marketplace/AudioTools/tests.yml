@@ -1,0 +1,40 @@
+########
+## Audio Tools: E2E test suite.
+## Authoring reference: docs/presets.md "Testing presets"
+##
+## KNOWN HARNESS GAP (as of this preset landing): the runner
+## (`src.features.preset_suite.runner.PresetSuiteRunner._run_generation`)
+## only ever collects `ImageGenerationOutput`/`GalleryGenerationOutput.images`
+## into `CaseOutcome.images` -- it has no code path that captures
+## `AudioGenerationOutput` at all, `CaseOutcome` has no `audios` field, and
+## `TestCase.kind` (`src.features.presets.tests_schema`) is a strict
+## `Literal["image", "video"]` with no `"audio"` option, so this case can't
+## even *label* itself correctly, let alone get a duration check
+## (`src.features.preset_suite.checks` is explicit: "Image checks only for
+## now (video/audio outputs are out of scope)"). Concretely: `min_outputs`
+## MUST be 0 below, or this case fails unconditionally forever (zero images
+## will ever exist for an audio-only pipeline) -- that is a hard requirement
+## of the current schema, not a choice. Until the harness grows an audio-
+## shaped outcome + check (kind: "audio", CaseOutcome.audios, a duration
+## check), this case can only assert "the generation completed without
+## raising", not the actual trimmed length. Flagged for follow-up rather than
+## silently claiming coverage the runner cannot provide yet.
+########
+schema: 1
+
+cases:
+  # Trim needs no model and no GPU -- the only thing the headless suite can't
+  # supply is the input audio file itself, hence `needs-input` (informational
+  # -- see the harness-gap note above for why this case's checks are
+  # deliberately minimal rather than asserting the kept duration).
+  - name: "audiotools-trim-basic"
+    mode: "trim"
+    kind: "image"  # no "audio" literal exists yet -- see harness-gap note above
+    seed: 12345
+    tags: ["fast", "needs-input"]
+    form:
+      start_seconds: 2.0
+      duration_seconds: 3.0
+    checks:
+      min_outputs: 0
+      not_black: false

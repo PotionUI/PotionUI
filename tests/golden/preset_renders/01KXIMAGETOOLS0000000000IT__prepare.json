@@ -1,0 +1,186 @@
+{
+  "mode": "prepare",
+  "pipes": [
+    {
+      "config": {
+        "auto_detect_type": {
+          "type": "bool",
+          "value": true
+        },
+        "max_file_size": {
+          "type": "int",
+          "value": 52428800
+        },
+        "media": {
+          "type": "list",
+          "value": [
+            {
+              "path": "/GOLDEN/media/input_image.png",
+              "type": "image"
+            }
+          ]
+        },
+        "validate_files": {
+          "type": "bool",
+          "value": true
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "media_loader",
+      "name": "media_loader"
+    },
+    {
+      "config": {
+        "parameters": {
+          "type": "list",
+          "value": [
+            [
+              [
+                "model",
+                "/GOLDEN/models/matting_model.safetensors"
+              ]
+            ],
+            [
+              "remove_background",
+              true
+            ],
+            [
+              "matte_strength",
+              50
+            ],
+            [
+              "matte_feather",
+              0
+            ],
+            [
+              "trim_to_subject",
+              true
+            ],
+            [
+              "crop_margin",
+              0
+            ],
+            [
+              "crop_alpha_threshold",
+              16
+            ],
+            [
+              "canvas",
+              "832x480"
+            ],
+            [
+              "scale_percent",
+              70
+            ],
+            [
+              "anchor",
+              "center"
+            ],
+            [
+              "fill",
+              "#00B140"
+            ]
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "param_emitter",
+      "name": "param_emitter"
+    },
+    {
+      "config": {
+        "feather": {
+          "type": "int",
+          "value": 0
+        },
+        "matte_strength": {
+          "type": "int",
+          "value": 50
+        },
+        "model.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/matting_model.safetensors"
+        },
+        "model.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/matting_model.safetensors"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "matting",
+      "name": "matting/birefnet"
+    },
+    {
+      "config": {
+        "alpha_threshold": {
+          "type": "int",
+          "value": 16
+        },
+        "margin": {
+          "type": "int",
+          "value": 0
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "crop_subject",
+      "name": "crop_subject"
+    },
+    {
+      "config": {
+        "anchor": {
+          "type": "str",
+          "value": "center"
+        },
+        "fill": {
+          "type": "str",
+          "value": "#00B140"
+        },
+        "height": {
+          "type": "int",
+          "value": 480
+        },
+        "scale_percent": {
+          "type": "int",
+          "value": 70
+        },
+        "width": {
+          "type": "int",
+          "value": 832
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "canvas_fit",
+      "name": "canvas_fit"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "gallery",
+      "name": "gallery"
+    }
+  ],
+  "preset_id": "01KXIMAGETOOLS0000000000IT",
+  "preset_name": "Image Tools"
+}

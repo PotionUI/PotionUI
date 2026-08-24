@@ -1,0 +1,43 @@
+name: Feature request
+description: Suggest something PotionUI should do
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What's missing or painful today
+      description: What are you trying to do, and where does PotionUI get in the way?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you'd like to see
+      description: The feature, preset, model family, or workflow you want. As concrete as you can make it.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Presets / model support
+        - Generation (native engine)
+        - Generation (ComfyUI backend)
+        - Frontend / UI
+        - Plugins
+        - Chat / LLM assistant
+        - Docs
+        - Other
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Links, references, screenshots from other tools, whatever helps explain it.
+    validations:
+      required: false

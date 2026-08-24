@@ -1,0 +1,146 @@
+/*
+ * Design tokens — "Instrument"
+ * Achromatic (chroma-0) neutral ramp; white = action, signal blue = state.
+ * Color tokens are space-separated RGB triplets so Tailwind's
+ * `rgb(var(--x) / <alpha-value>)` alpha utilities work (bg-surface-1/50 etc).
+ * Dark is the default theme; light overrides via [data-theme='light'].
+ */
+
+:root {
+	/* Neutrals — grays spread apart from a near-black clump so surfaces,
+	   borders, and muted text stay legible against the page background. */
+	--canvas: 12 13 15; /* #0C0D0F app background */
+	--surface-1: 22 24 28; /* #16181C panels, sidebars, cards */
+	--surface-2: 31 33 38; /* #1F2126 inputs, hover fills */
+	--surface-3: 39 42 49; /* #272A31 popovers, active fills */
+	--line: 36 38 44; /* #24262C hairline dividers */
+	--line-strong: 43 46 53; /* #2B2E35 input borders */
+	--line-hover: 58 62 71; /* #3A3E47 hover borders, handles */
+
+	/* Field chrome — distinct from generic surfaces so editable controls can
+	   diverge from popovers/hover fills independently. Dark: same values as
+	   surface-2/line-strong today; a deliberate seam, not a dupe. */
+	--field-bg: 31 33 38; /* #1F2126 */
+	--field-border: 43 46 53; /* #2B2E35 */
+
+	/* Text — #FFFFFF is reserved for accent; fg tops out at #E8EAED */
+	--fg: 232 234 237; /* #E8EAED headings, values */
+	--fg-muted: 169 174 184; /* #A9AEB8 body, descriptions */
+	--fg-subtle: 122 128 144; /* #7A8090 meta; never on surface-2+ */
+	--fg-disabled: 92 98 112; /* #5C6270 disabled only, never information */
+
+	/* Accent — white = "do" (actions). Never a blue button. */
+	--accent: 255 255 255;
+	--accent-hover: 230 230 230; /* #E6E6E6 */
+	--accent-active: 217 217 217; /* #D9D9D9 */
+	--accent-contrast: 22 22 22; /* text on accent fills */
+
+	/* Signal — blue = "where you are / what's chosen". Never a white link. */
+	--signal: 91 157 255; /* #5B9DFF links, active nav, selection, progress */
+	--signal-solid: 61 127 232; /* #3D7FE8 solid fills needing white labels */
+
+	/* Status — text role (DEFAULT) + solid fills; tints via alpha utilities */
+	--success: 61 214 140; /* #3DD68C */
+	--success-solid: 47 163 107; /* #2FA36B black label */
+	--danger: 255 138 138; /* #FF8A8A */
+	--danger-solid: 217 48 54; /* #D93036 white label */
+	--warning: 255 197 61; /* #FFC53D */
+	--warning-solid: 255 178 36; /* #FFB224 black label */
+	--info: 91 157 255; /* = signal */
+	--info-solid: 61 127 232;
+
+	/* AI — iridescent gradient-border idiom, reserved for the single AI Chat
+	   entry point (rail). Not a general accent; never fill a surface with it. */
+	--ai-1: 192 132 252; /* #C084FC violet */
+	--ai-2: 96 165 250; /* #60A5FA blue */
+	--ai-3: 244 114 182; /* #F472B6 pink */
+
+	/* Elevation — dark: hairline + inset machined-edge highlight + deep shadow */
+	--shadow-raised: inset 0 1px 0 rgb(255 255 255 / 0.04);
+	--shadow-floating: inset 0 1px 0 rgb(255 255 255 / 0.06), 0 4px 16px rgb(0 0 0 / 0.5);
+	--shadow-overlay: inset 0 1px 0 rgb(255 255 255 / 0.06), 0 16px 48px rgb(0 0 0 / 0.6);
+	--shadow-well: inset 0 1px 2px rgb(0 0 0 / 0.35);
+
+	/* Layout */
+	--header-h: 69px;
+
+	/* Motion */
+	--ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+	--ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+
+	/* Viz — categorical series (fixed slot order, colorblind-safe); never cycle a 9th hue */
+	--viz-1: 57 135 229; /* #3987E5 blue */
+	--viz-2: 25 158 112; /* #199E70 aqua */
+	--viz-3: 201 133 0; /* #C98500 yellow */
+	--viz-4: 0 131 0; /* #008300 green */
+	--viz-5: 144 133 233; /* #9085E9 violet */
+	--viz-6: 230 103 103; /* #E66767 red */
+	--viz-7: 213 81 129; /* #D55181 magenta */
+	--viz-8: 217 89 38; /* #D95926 orange */
+	--viz-grid: 44 44 42; /* #2C2C2A hairline gridlines */
+	--viz-axis: 56 56 53; /* #383835 axis lines/ticks */
+
+	color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+	--canvas: 247 247 247; /* #F7F7F7 */
+	--surface-1: 255 255 255;
+	--surface-2: 241 241 241; /* #F1F1F1 */
+	--surface-3: 255 255 255; /* differentiated by shadow, not fill */
+	--line: 232 232 232; /* #E8E8E8 */
+	--line-strong: 214 214 214; /* #D6D6D6 */
+	--line-hover: 173 173 173; /* #ADADAD */
+
+	/* Field chrome — light theme already has enough surface/border
+	   separation, so this just aliases the existing surface-2/line-strong. */
+	--field-bg: 241 241 241; /* #F1F1F1 */
+	--field-border: 214 214 214; /* #D6D6D6 */
+
+	--fg: 23 23 23; /* #171717 */
+	--fg-muted: 85 85 85; /* #555555 */
+	--fg-subtle: 112 112 112; /* #707070 */
+	--fg-disabled: 168 168 168; /* #A8A8A8 */
+
+	--accent: 23 23 23; /* near-black action color */
+	--accent-hover: 51 51 51; /* #333333 */
+	--accent-active: 0 0 0;
+	--accent-contrast: 250 250 250;
+
+	--signal: 13 116 206; /* #0D74CE */
+	--signal-solid: 13 116 206;
+
+	--success: 26 127 78; /* #1A7F4E */
+	--success-solid: 33 131 88; /* #218358 */
+	--danger: 198 47 52; /* #C62F34 */
+	--danger-solid: 217 48 54;
+	--warning: 154 103 0; /* #9A6700 */
+	--warning-solid: 232 155 12; /* #E89B0C */
+	--info: 13 116 206;
+	--info-solid: 13 116 206;
+
+	/* AI — same idiom, deepened so it doesn't wash out on a near-white canvas */
+	--ai-1: 147 51 234; /* #9333EA violet */
+	--ai-2: 37 99 235; /* #2563EB blue */
+	--ai-3: 219 39 119; /* #DB2777 pink */
+
+	/* Viz — categorical series (fixed slot order, colorblind-safe); never cycle a 9th hue */
+	--viz-1: 42 120 214; /* #2A78D6 blue */
+	--viz-2: 27 175 122; /* #1BAF7A aqua */
+	--viz-3: 237 161 0; /* #EDA100 yellow */
+	--viz-4: 0 131 0; /* #008300 green */
+	--viz-5: 74 58 167; /* #4A3AA7 violet */
+	--viz-6: 227 73 72; /* #E34948 red */
+	--viz-7: 232 123 164; /* #E87BA4 magenta */
+	--viz-8: 235 104 52; /* #EB6834 orange */
+	--viz-grid: 232 232 232; /* #E8E8E8 hairline gridlines */
+	--viz-axis: 195 194 183; /* #C3C2B7 axis lines/ticks */
+
+	/* Elevation — light: borders + layered soft shadows */
+	--shadow-raised: 0 1px 2px rgb(0 0 0 / 0.04);
+	--shadow-floating: 0 4px 12px rgb(0 0 0 / 0.08), 0 1px 3px rgb(0 0 0 / 0.06);
+	--shadow-overlay: 0 16px 40px rgb(0 0 0 / 0.14), 0 4px 12px rgb(0 0 0 / 0.08);
+	--shadow-well: inset 0 1px 2px rgb(0 0 0 / 0.06);
+
+	color-scheme: light;
+}

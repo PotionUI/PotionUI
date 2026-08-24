@@ -1,0 +1,109 @@
+# Intent-first UX (Krea-2 template). The old flat "Scale" / "Target
+# Short Side" / "Batch size"-style knobs are gone from this tab -- Restoration
+# Intent and Output Size are plain-language selects that bake real config
+# values (Advanced tab, via reactions), playing the same top-level role
+# Krea-2's own Speed profile select plays. The Model tab has been dissolved
+# into this one -- pickers grouped into a "Models" section, matching Krea-2's
+# own Generation-tab layout (Image section, then Models section).
+fields:
+  - name: "restoration_intent"
+    type: "select"
+    label: "Restoration Intent"
+    default: "faithful"
+    configuration:
+      options:
+        - { label: "Faithful upscale (recommended)", value: "faithful", sub_label: "No re-imagining -- restores detail while staying true to the source. Matches SeedVR2's upstream default (noise 0)." }
+        - { label: "Heavy restoration (experimental)", value: "heavy", sub_label: "Forward-noises the conditioning so the model leans harder on generation to fix badly degraded sources (heavy compression, blur, low resolution) -- at some cost to fidelity. Conservative, experimental values; not an upstream-documented recipe." }
+
+  - name: "resolution_target"
+    type: "select"
+    label: "Output Size"
+    default: "fhd1080"
+    configuration:
+      options:
+        - { label: "x1.5", value: "x1_5", sub_label: "1.5x the input's area -- the lightest upscale, keeps the most native detail." }
+        - { label: "x2", value: "x2", sub_label: "2x the input's area -- SeedVR2's previous default here." }
+        - { label: "HD (720p)", value: "hd720", sub_label: "Pins the short side to 720px. Shrinks sources already above 720p on their short side." }
+        - { label: "Full HD (1080p)", value: "fhd1080", sub_label: "Pins the short side to 1080px -- recommended default, matches the upstream ComfyUI node." }
+        - { label: "QHD (1440p)", value: "qhd1440", sub_label: "Pins the short side to 1440px. Shrinks sources already above 1440p on their short side." }
+        - { label: "4K (2160p)", value: "uhd2160", sub_label: "Pins the short side to 2160px, the highest supported target -- heaviest on VRAM and runtime." }
+
+  - type: "section"
+    label: "Image"
+    children:
+      - name: "input_image"
+        type: "image"
+        label: "Input Image"
+        required: true
+        ai_hint: "Upload an image to restore/upscale, or pick one of your previous generations from history."
+
+      - name: "seed"
+        type: "seed"
+        label: "Seed"
+        default: -1
+
+  - type: "section"
+    label: "Models"
+    children:
+      - name: "diffusion_model"
+        type: "model"
+        label: "Diffusion Model (NaDiT)"
+        required: true
+        configuration:
+          model_type: "diffusion_model"
+          placeholder: "Select a SeedVR2 NaDiT checkpoint (3B or 7B)..."
+          filter_tags: "@config:checkpoint_tags"
+          recommendations:
+            - name: "SeedVR2 3B (fp16)"
+              link: "https://huggingface.co/numz/SeedVR2_comfyUI/resolve/main/seedvr2_ema_3b_fp16.safetensors"
+              size: "6.78 GB"
+              description: "Full-precision 3B restoration DiT. Fast and light; recommended default."
+            - name: "SeedVR2 3B (fp8 e4m3fn)"
+              link: "https://huggingface.co/numz/SeedVR2_comfyUI/resolve/main/seedvr2_ema_3b_fp8_e4m3fn.safetensors"
+              size: "3.39 GB"
+              description: "Quantized 3B. Roughly half the VRAM/disk of fp16, small quality trade-off."
+            - name: "SeedVR2 7B (fp16)"
+              link: "https://huggingface.co/numz/SeedVR2_comfyUI/resolve/main/seedvr2_ema_7b_fp16.safetensors"
+              size: "16.48 GB"
+              description: "Full-precision 7B. Higher fidelity than 3B at ~2.4x the VRAM and compute."
+            - name: "SeedVR2 7B (fp8 e4m3fn)"
+              link: "https://huggingface.co/numz/SeedVR2_comfyUI/resolve/main/seedvr2_ema_7b_fp8_e4m3fn.safetensors"
+              size: "8.24 GB"
+              description: "Quantized 7B. Half the footprint; known to skew slightly plastic/glossy on skin — prefer fp16 or 3B if that bothers you."
+            - name: "SeedVR2 7B Sharp (fp16)"
+              link: "https://huggingface.co/numz/SeedVR2_comfyUI/resolve/main/seedvr2_ema_7b_sharp_fp16.safetensors"
+              size: "16.48 GB"
+              description: "7B 'sharp' variant: crisper micro-detail; can oversharpen lightly-degraded inputs."
+            - name: "SeedVR2 7B Sharp (fp8 e4m3fn)"
+              link: "https://huggingface.co/numz/SeedVR2_comfyUI/resolve/main/seedvr2_ema_7b_sharp_fp8_e4m3fn.safetensors"
+              size: "8.24 GB"
+              description: "Quantized 7B sharp variant. Same fp8 gloss caveat as the plain 7B fp8."
+
+      - name: "vae"
+        type: "model"
+        label: "VAE"
+        required: true
+        configuration:
+          model_type: "vae"
+          placeholder: "Select the SeedVR2 self-normalizing causal-video VAE..."
+          filter_tags: "@config:vae_tags"
+          recommendations:
+            - name: "SeedVR2 causal-video VAE (fp16)"
+              link: "https://huggingface.co/numz/SeedVR2_comfyUI/resolve/main/ema_vae_fp16.safetensors"
+              size: "501 MB"
+              description: "Self-normalizing causal-video VAE paired with the SeedVR2 DiT."
+
+      - name: "prompt_embedding"
+        type: "model"
+        label: "Prompt Embedding"
+        required: true
+        ai_hint: "SeedVR2 has no live text encoder; this is a fixed, precomputed positive prompt embedding tensor."
+        configuration:
+          model_type: "clip"
+          placeholder: "Select the fixed SeedVR2 prompt embedding..."
+          filter_tags: "@config:clip_tags"
+          recommendations:
+            - name: "SeedVR2 prompt embedding"
+              link: "https://huggingface.co/ByteDance-Seed/SeedVR2-3B/resolve/main/pos_emb.pt"
+              size: "595 kB"
+              description: "Fixed positive prompt embedding tensor (sequence x 5120). Required — there is no text encoder."

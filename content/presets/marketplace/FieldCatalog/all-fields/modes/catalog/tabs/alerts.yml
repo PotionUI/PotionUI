@@ -1,0 +1,53 @@
+fields:
+  - type: "header"
+    label: "AlertField coverage"
+
+  # `description` is the body fallback when `configuration.content` is absent.
+  - type: "alert"
+    name: "alert_default"
+    label: "Default title from label"
+    description: "This default alert demonstrates the top-level description body fallback."
+    configuration:
+      variant: "default"
+
+  - type: "alert"
+    name: "alert_primary"
+    label: "Primary label (overridden)"
+    description: "The configured title wins over this field label."
+    configuration:
+      variant: "primary"
+      title: "Configured primary title"
+      content: "A single-line content body reaches the Alert component slot."
+
+  - type: "alert"
+    name: "alert_secondary"
+    label: "Secondary alert"
+    configuration:
+      variant: "secondary"
+      title: "Secondary title"
+      content: |
+        A multiline content body preserves line breaks.
+
+        It is useful for explanatory, non-blocking guidance.
+
+  - type: "alert"
+    name: "alert_success"
+    label: "Success title from label"
+    configuration:
+      variant: "success"
+      content: "The action completed successfully."
+
+  - type: "alert"
+    name: "alert_warning"
+    label: "Warning title from label"
+    description: "This warning uses description as its body, like the default variant."
+    configuration:
+      variant: "warning"
+
+  # No `name` or `label` is intentional: AlertField treats an absent title as
+  # valid and renders only this content body.
+  - type: "alert"
+    description: "An untitled danger alert still has a description fallback."
+    configuration:
+      variant: "danger"
+      content: "Untitled danger content explicitly supplied by the preset."

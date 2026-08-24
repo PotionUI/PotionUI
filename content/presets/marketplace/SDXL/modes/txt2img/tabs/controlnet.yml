@@ -1,0 +1,95 @@
+fields:
+  - type: "section"
+    label: "General"
+    children:
+      - name: "enable_controlnet"
+        type: "checkbox"
+        label: "Enable ControlNet"
+        default: false
+
+      - name: "controlnet_auto_preprocess"
+        type: "checkbox"
+        label: "Auto-preprocess control images"
+        default: false
+
+  - type: "section"
+    label: "ControlNet Units"
+    children:
+      # Loop to generate multiple ControlNet configuration groups
+      - type: "@loop"
+        configuration:
+          count: 3
+          template:
+            type: "accordion"
+            label: "ControlNet {{ loop.index }}"
+            configuration:
+              icon: "image"
+              collapsed: true
+            children:
+              - name: "controlnet_{{ loop.index }}_model"
+                type: "model"
+                label: "ControlNet Model"
+                configuration:
+                  model_type: "controlnet"
+                  allow_info_modal: true
+                  placeholder: "Select a ControlNet model..."
+                  filter_tags: "@config:controlnet_tags"
+
+              - name: "controlnet_{{ loop.index }}_type"
+                type: "select"
+                label: "ControlNet Type"
+                configuration:
+                  options:
+                    - label: "Canny Edge"
+                      value: "canny"
+                    - label: "Depth"
+                      value: "depth"
+                    - label: "OpenPose"
+                      value: "openpose"
+                    - label: "Normal Map"
+                      value: "normal"
+                    - label: "Scribble"
+                      value: "scribble"
+                    - label: "Line Art"
+                      value: "lineart"
+                    - label: "MLSD"
+                      value: "mlsd"
+                    - label: "HED"
+                      value: "hed"
+                  placeholder: "Select type..."
+                default: "canny"
+
+              - name: "controlnet_{{ loop.index }}_image"
+                type: "image"
+                label: "Control Image"
+                configuration:
+                  placeholder: "Upload control image..."
+
+              - type: "row"
+                children:
+                  - name: "controlnet_{{ loop.index }}_start"
+                    type: "slider"
+                    label: "Guidance Start"
+                    configuration:
+                      min: 0.0
+                      max: 1.0
+                      step: 0.05
+                    default: 0.0
+
+                  - name: "controlnet_{{ loop.index }}_end"
+                    type: "slider"
+                    label: "Guidance End"
+                    configuration:
+                      min: 0.0
+                      max: 1.0
+                      step: 0.05
+                    default: 1.0
+
+              - name: "controlnet_{{ loop.index }}_scale"
+                type: "slider"
+                label: "Conditioning Scale"
+                configuration:
+                  min: 0.0
+                  max: 2.0
+                  step: 0.05
+                default: 1.0

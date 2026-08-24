@@ -1,0 +1,140 @@
+# txt2img pipeline for the native Qwen-Image family.
+#
+#   model_loader/qwen -> prompt_encoder -> seed_generator -> generator/qwen -> gallery
+#
+# Conditioning flows the mandated shared path: model_loader emits `clip`
+# (a QwenClipTextEncoder), prompt_encoder turns prompts into `conditioning`,
+# and generator/qwen consumes that — it never re-encodes the prompt itself.
+pipeline:
+  #############
+  ## Model loader (MMDiT + Qwen2.5-VL TE + causal-3D VAE, per-component cached)
+  ############
+  - name: "model_loader/qwen"
+    enabled: true
+    configuration:
+      diffusion_model:
+        file_path: "{{ form.diffusion_model }}"
+        name: "{{ form.diffusion_model }}"
+      text_encoder:
+        file_path: "{{ form.text_encoder }}"
+        name: "{{ form.text_encoder }}"
+      vae:
+        file_path: "{{ form.vae }}"
+        name: "{{ form.vae }}"
+      loras:
+        "@loop":
+          items: "{{ form.loras | default([]) }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+
+  #############
+  ## Prompt encoder (shared pipe; produces the conditioning)
+  ############
+  - name: "prompt_encoder"
+    input:
+      - ["clip", "model_loader/qwen", "clip"]
+    enabled: true
+    configuration:
+      p_prompt:
+        input: "{{ generation.prompts.first.positive }}"
+        output: "{{ generation.prompts.first.positive }}"
+      n_prompt:
+        input: "{{ generation.prompts.first.negative }}"
+        output: "{{ generation.prompts.first.negative }}"
+      # Per-image expanded prompt pairs (src/core/prompt/expander.py).
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity | default(1) }}"
+      # Qwen-Image uses true CFG -> encode the negative pass (guidance_scale > 1).
+      guidance_scale: "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('balanced'))['guidance']) }}"
+
+  #############
+  ## Seed generator
+  ############
+  - name: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed | default(-1) }}"
+      quantity: "{{ form.quantity | default(1) }}"
+
+  #############
+  ## Rendered prompts (provenance)
+  ## Surfaces the per-image expanded prompts ({a|b}, ${variables}, phrasebook
+  ## already resolved on the backend - see src/features/prompt/expander.py) as
+  ## pipe artifacts, the prompt counterpart of seed_generator. `pairs` is the
+  ## real list, handed in exactly as prompt_encoder receives it.
+  ############
+  - name: "dynamic_prompts_renderer"
+    id: "dynamic_prompts_renderer"
+    enabled: true
+    configuration:
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity | default(1) }}"
+
+  #############
+  ## IOType to Value Converter
+  ############
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  #############
+  ## Parameter Emitter
+  ############
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: "{{ form.quantity | default(1) }}"
+      parameters:
+        - ["model", "{{ form.diffusion_model }}"]
+        - ["model", "{{ form.text_encoder }}"]
+        - ["model", "{{ form.vae }}"]
+        - "@loop":
+            items: "{{ form.loras | default([]) | active_loras }}"
+            template: ["model", "{{ item.model }}"]
+        # Per-image arrays, so history records the prompt each image actually ran with.
+        - ["positive_prompt", "{{ generation.prompts.positives }}"]
+        - ["negative_prompt", "{{ generation.prompts.negatives }}"]
+        - ["cfg", "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('balanced'))['guidance']) }}"]
+        - ["steps", "{{ form.steps | default(get_speed_profile(form.speed_profile | default('balanced'))['steps']) }}"]
+        - ["sampler", "{{ form.sampler | default(get_speed_profile(form.speed_profile | default('balanced'))['sampler']) }}"]
+        - ["resolution", "{{ form.resolution }}"]
+
+  #############
+  ## Generator
+  ############
+  - name: "generator/qwen"
+    input:
+      - ["model", "model_loader/qwen", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: true
+    configuration:
+      steps: "{{ form.steps | default(get_speed_profile(form.speed_profile | default('balanced'))['steps']) }}"
+      guidance: "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('balanced'))['guidance']) }}"
+      # Optional shift override; blank -> spec default (1.15).
+      shift: "{% set s = form.shift | default('') %}{% if s is not none and s != '' %}{{ s }}{% endif %}"
+      sampler: "{{ form.sampler | default(get_speed_profile(form.speed_profile | default('balanced'))['sampler']) }}"
+      resolution: "{{ form.resolution }}"
+      quantity: "{{ form.quantity | default(1) }}"
+      # Trajectory warm-start (Advanced tab). Only engages on the Euler
+      # sampler for this txt2img pass -- ignored elsewhere by the engine.
+      iterate_mode: "{{ form.iterate_mode | default(false) }}"
+
+  #############
+  ## Gallery
+  ############
+  - name: "gallery"
+    input:
+      - ["image", "generator/qwen", "image"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: true
+    configuration:
+      save: "true"

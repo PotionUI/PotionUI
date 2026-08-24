@@ -1,0 +1,154 @@
+# Enhancement extras split out of the Generation tab: the two-stage latent
+# upscale, negative-prompt guidance and face/hand detailing. Upscale and
+# Generate Audio (Generation tab) are independent choices -- see
+# pipeline.yml's "audio + upscale interaction" header note -- so this tab
+# carries no cross-tab reaction between them. Krea-2 layout: Upscale plays the
+# role of Krea-2's own Enhance gate (both are the "refine pass" toggle), NAG
+# comes right after it, and face/hand detailing (LTX-specific, no Krea-2
+# counterpart) is grouped last.
+fields:
+  #############
+  # Two-stage latent upscale (same recipe as the standalone Upscale mode).
+  #############
+  - name: "upscale"
+    type: "select"
+    label: "Upscale"
+    ai_hint: "Two-stage latent upscale, same recipe as the standalone Upscale mode -- Requires the Spatial Upscaler selected below on this tab. The selected Resolution (Generation tab) is always stage 1's resolution; Upscale multiplies it -- 2.0x doubles your selected resolution for stage 2 and the final output (e.g. 544x960 selected + 2.0x -> 1088x1920 out), 1.5x scales it by 1.5x. 2.0x is the first-party recipe and the recommended choice (any /32-aligned resolution doubles onto the /64 grid the DiT needs, so 2.0x always works); 1.5x keeps more of stage 1's detail but only lands on a clean grid when both Resolution axes are multiples of 64px -- an off-grid pick (e.g. most of the built-in Resolution presets) is now rejected immediately at submission time with the nearest achievable resolution named in the error, rather than failing after stage 1 has already rendered. Mind VRAM: stage 1 now renders at the FULL selected resolution (heavier than before) and stage 2 at factor x that -- warn users combining a large selected resolution with 2.0x. Composes freely with audio (Generate Audio checkbox, or a Director timeline with its own audio clips): stage 1's audio track (generated or muxed from a user file) is decoded/passed through independently of the video refine and gets muxed into stage 2's refined output -- no need to disable Upscale when audio is on."
+    default: "off"
+    configuration:
+      options:
+        - { label: "Off (single pass)", value: "off" }
+        - { label: "1.5x (selected resolution x1.5)", value: "1.5x" }
+        - { label: "2.0x (selected resolution x2, recommended)", value: "2.0x" }
+
+  - name: "refine_strength"
+    type: "select"
+    label: "Refine Strength"
+    ai_hint: "Friendly control for the two-stage upscale refine pass (Upscale field, this tab). Strong is Lightricks' first-party recipe and the recommended default; suggest Balanced/Light only if the user wants the refine to preserve more of the upsampled latent as-is. The Advanced tab's Upscale Refine Sigmas field is an expert override of this same knob -- prefer this select."
+    default: "strong"
+    configuration:
+      options:
+        - { label: "Strong (recommended)", value: "strong" }
+        - { label: "Balanced", value: "balanced" }
+        - { label: "Light", value: "light" }
+    reactions:
+      - when: { field: "upscale", equals: "off" }
+        then: { set_visibility: false }
+      - when: { field: "upscale", not_equals: "off" }
+        then: { set_visibility: true }
+
+  - name: "upscale_model"
+    type: "model"
+    label: "Spatial Upscaler (optional)"
+    configuration:
+      model_type: "upscaler"
+      placeholder: "Select an LTX-2.3 spatial upscaler..."
+      filter_tags: "@config:upscaler_tags"
+
+  - name: "enhancement_loras"
+    type: "lora_picker"
+    default: []
+    label: "Refine LoRAs (stage 2)"
+    ai_hint: "ADDED to the generation LoRAs (Generation tab's LoRAs field) for the two-stage refine pass ONLY -- stage 1 renders with the plain generation LoRA stack, unaffected. First-party recipe: put the distilled LoRA here at strength 1.0 (stage 1 stays undistilled, full CFG/steps; stage 2 becomes Lightricks' short, low-CFG distilled refine) and keep style/character LoRAs on the Generation tab's LoRAs field, not here. Empty = the refine pass shares the generation LoRA stack exactly as before this field existed."
+    configuration:
+      model_type: "lora"
+      placeholder: "Select a refine-stage LoRA..."
+      allow_info_modal: true
+      strength_min: -10.0
+      strength_max: 10.0
+      strength_step: 0.1
+      strength_default: 1.0
+      max_items: 10
+      filter_tags: "@config:lora_tags"
+    reactions:
+      - when: { field: "upscale", equals: "off" }
+        then: { set_visibility: false }
+      - when: { field: "upscale", not_equals: "off" }
+        then: { set_visibility: true }
+
+  #############
+  # Negative prompt guidance (NAG) -- Krea-2 keeps this right after its own
+  # Enhance gate on the Enhance tab; each field carries audience: advanced
+  # individually since this tab (unlike Advanced) is not audience-gated.
+  #############
+  - type: "section"
+    label: "Negative prompt guidance (NAG)"
+    children:
+      - type: "row"
+        children:
+          - name: "nag_scale"
+            type: "slider"
+            label: "NAG scale"
+            audience: "advanced"
+            default: 1.0
+            ai_hint: "Applies the negative prompt through attention instead of a second guidance pass, so it keeps working at CFG 1.0 -- the Distilled speed profile and the upscale refine stage, where the negative prompt would otherwise be inert. Suggest 1.1-1.5 when the user wants something kept OUT of a video in that situation; leave at 1.0 (off) otherwise. Cheaper than raising CFG for the same goal, but not free -- it costs a second cross-attention pass per step -- and pointless if the negative prompt is empty."
+            configuration:
+              min: 1.0
+              max: 2.0
+              step: 0.05
+          - name: "nag_tau"
+            type: "slider"
+            label: "Tau"
+            audience: "advanced"
+            default: 3.5
+            ai_hint: "How far NAG may push a token before its magnitude is clamped back; paper default 3.5, lower = safer and weaker. Only suggest changing it if NAG at a sane scale is visibly distorting the video."
+            configuration:
+              min: 1.0
+              max: 10.0
+              step: 0.5
+          - name: "nag_alpha"
+            type: "slider"
+            label: "Alpha"
+            audience: "advanced"
+            default: 0.5
+            ai_hint: "How much of the guided result is blended back toward the plain positive attention; paper default 0.5. Lower it if NAG is costing prompt adherence."
+            configuration:
+              min: 0.0
+              max: 1.0
+              step: 0.05
+
+  #############
+  # Face/hand enhancement (detailer pass). LTX-specific, no Krea-2
+  # counterpart -- grouped last, after the canonical Upscale/NAG sections.
+  #############
+  - type: "gate"
+    name: "enhance_faces_hands"
+    label: "Enhance faces and hands"
+    default: false
+    configuration:
+      summary: "Detects and refines faces and hands after generation"
+    children:
+      - name: "enhancement_strength"
+        type: "select"
+        label: "Enhancement strength"
+        ai_hint: "Only used when Enhance faces and hands is on. Balanced is the safe default; suggest Light when the user worries the enhancement changes a face's identity, Strong only when they explicitly want maximum detail and accept more deviation."
+        default: "balanced"
+        configuration:
+          options:
+            - { label: "Light", value: "light" }
+            - { label: "Balanced", value: "balanced" }
+            - { label: "Strong", value: "strong" }
+
+      #############
+      # Detection models: same idiom as SDXL's
+      # face_detector_model/hand_detector_model (presets/native/SDXL/modes/txt2img/
+      # tabs/face-hand-detailer.yml) -- a plain `model` field over model_type
+      # "mediapipe", no bespoke recommendations/download flow. A maintainer who has
+      # never downloaded the MediaPipe .task files fetches them the same way they
+      # fetch any other model type: Admin -> Downloader (paste the URL, pick
+      # "mediapipe" as the type) or Scan Models after placing the file by hand.
+      # Left unset, the pipe falls back to the standard models/mediapipe/*.task
+      # paths. Detection degrades independently per kind (see detection.py), so
+      # picking only one of these still enables that half of the enhancement.
+      #############
+      - name: "face_detector_model"
+        type: "model"
+        label: "Face Detection Model"
+        configuration:
+          model_type: "mediapipe"
+
+      - name: "hand_detector_model"
+        type: "model"
+        label: "Hand Detection Model"
+        configuration:
+          model_type: "mediapipe"

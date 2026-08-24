@@ -1,0 +1,52 @@
+# The references (ref2va). These are the inputs that make this mode what it
+# is: each list is fed to the text encoder's vision tower AND VAE-encoded
+# into reference rows, from the SAME loader node per kind, so the order the
+# user sees here is the order the model is told about.
+#
+# The three pickers are ONE packed sequence, in this order: every image
+# first, then every video, then every audio track. That is the order the
+# generator packs its reference rows in and the order the encoder numbers
+# its labels in, so the numbering a prompt is written against is each
+# picker's own array position.
+#
+# At least one reference of some kind is required -- the generator refuses
+# an empty ref2va request rather than falling back to text-only, which on
+# the reference partition would return plausible video that ignores the
+# request. It is deliberately not a per-field `required`, because any one
+# of the three satisfies it.
+fields:
+  - name: "references"
+    type: "image"
+    label: "Reference images"
+    ai_hint: "Up to 9 images, and the first block of the packed reference sequence. Their ORDER is the contract: item 1 is <Picture 1>, item 2 is <Picture 2>, and so on, in the prompt's subject_definitions and retention_analysis sections — reordering the list renumbers every reference. Each item's label names the subject it carries (\"the woman in the blue cardigan\", \"the cafe interior\"); write the subject_definitions from those labels rather than inventing new ones. When several images define one character, costume or style, cite them together inside a single <Subject N> definition instead of listing each as a standalone Picture. At least one reference of some kind is required, but it does not have to be an image."
+    configuration:
+      multi: true
+      max_items: 9
+
+  - name: "reference_videos"
+    type: "video"
+    label: "Reference videos"
+    ai_hint: "Up to 3 clips, packed AFTER every image: item 1 is <Video 1>, item 2 is <Video 2>. Numbering runs on its own counter, so adding an image never renumbers a video. A video reference carries motion and continuity — a walk cycle, a camera move, a lighting change over time — which a still cannot; use one when the request is about how something MOVES and images when it is about how something LOOKS. It costs far more than an image: it is VAE-encoded as a whole frame stack, and it is truncated to the generated clip's own length, so a reference longer than Clip length contributes only its opening. Its own soundtrack is ignored — sound comes only from the Reference audio picker below."
+    configuration:
+      multi: true
+      max_items: 3
+
+  - name: "reference_audios"
+    type: "audio"
+    label: "Reference audio"
+    ai_hint: "Up to 3 tracks, packed LAST: item 1 is <Audio 1>, item 2 is <Audio 2>, again on its own counter. An audio reference conditions the soundtrack H3 generates — a voice to keep, a room's ambience, a piece of music to stay in the style of — and contributes no picture at all, so it cannot be the only reference on a request: pair it with at least one image or video. Only its opening is used, truncated to Clip length. The waveform never reaches the text encoder, which is told only that an audio reference exists, so describe the sound you want in overall_soundscape and non_diegetic_music rather than assuming the model can hear the file and infer it."
+    configuration:
+      multi: true
+      max_items: 3
+
+  - name: "reference_pixel_budget"
+    type: "select"
+    label: "Reference detail budget"
+    default: "0"
+    ai_hint: "Caps how much of each reference the text encoder's vision tower reads — the VAE-encoded reference rows are unaffected and always run at the picked Resolution. Uncapped reads up to 16MP per image and is paid for by area, which with nine references is the slowest part of the request. '0' (uncapped) is the right answer when the user cares about likeness. Suggest 2x once there are more than three or four references, or 1x when encoding is slow and the references are large photos. Values are multiples of the output canvas AREA, not edge length."
+    configuration:
+      options:
+        - { label: "Uncapped (model default)", value: "0" }
+        - { label: "1x output area (fastest)", value: "1" }
+        - { label: "2x output area", value: "2" }
+        - { label: "4x output area", value: "4" }

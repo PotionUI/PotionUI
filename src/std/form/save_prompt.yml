@@ -1,0 +1,15 @@
+form:
+  name: "std_form_prompts_management"
+  fields:
+    - type: "row"
+      configuration: { padding: false, equal_height: true }
+      children:
+        - type: "label"
+          label: "Save current prompts as: "
+        - name: "prompts_title"
+          type: "textbox"
+          container: false
+        - name: "save_prompts"
+          type: "button"
+          configuration:
+            icon: ["save"]

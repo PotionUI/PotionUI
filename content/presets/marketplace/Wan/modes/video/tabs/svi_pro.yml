@@ -1,0 +1,32 @@
+# SVI Pro 2.0 continuity knobs for the routed multi-segment (director) chain.
+# These only take effect for a director-mode request -- the chain generator
+# reads them; t2v/i2v/flf single-shot modes ignore them. Field names are flat
+# (they address values directly, not via the tab), and pipeline.yml threads them
+# into generator/chain_video_wan22's config.
+fields:
+  - type: "section"
+    label: "SVI Pro 2.0 continuity"
+    children:
+      - type: "alert"
+        configuration:
+          variant: "primary"
+          content: |
+            Tune how each chain segment hands motion off to the next. The
+            defaults are the field-validated starting point (two motion latents,
+            a 0.75 anchor lock — pair them with the SVI LoRAs at ~0.9 strength);
+            raise the anchor toward 1.0 for a harder identity lock, or lower
+            motion latents to 1 for the lightest recipe hand-off.
+
+      - name: "svi_motion_latent_count"
+        type: "slider"
+        label: "Motion latents carried"
+        default: 2
+        configuration: {min: 1, max: 4, step: 1}
+        ai_hint: "How many temporal latent slots of the previous segment's tail seed the next segment (1 slot ~= 4 frames). 1 (recipe default) keeps a light hand-off; raise to re-inject more of the tail if continuations feel disconnected."
+
+      - name: "svi_anchor_latent_strength"
+        type: "slider"
+        label: "Anchor lock strength"
+        default: 0.75
+        configuration: {min: 0.0, max: 1.0, step: 0.05}
+        ai_hint: "How hard each segment is pinned to its anchor (start) frame. 1.0 = identity lock (default); 0.7-0.9 loosens the lock so dynamic scenes can move off the anchor. End (last-frame) locks are unaffected."

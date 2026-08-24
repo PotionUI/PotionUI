@@ -1,0 +1,18 @@
+fields:
+  # LoRAs stay visible in Simple mode deliberately — they're a core part of the
+  # casual workflow, not an expert knob.
+  - name: "loras"
+    type: "lora_picker"
+    default: []
+    label: "LoRAs"
+    ai_hint: "LoRAs add specialized styles, concepts, or characters to Krea-2. Multiple LoRAs can be combined. 0.5-0.8 is recommended for most LoRAs, 1.0 = full effect. Note: Krea-2 is a new model — LoRA key mapping uses the kohya/comfy convention over the native key names; verify a specific LoRA takes effect (0 params patched = format mismatch)."
+    configuration:
+      model_type: "lora"
+      placeholder: "Select a Krea-2 LoRA..."
+      allow_info_modal: true
+      strength_min: -10.0
+      strength_max: 10.0
+      strength_step: 0.1
+      strength_default: 1.0
+      max_items: 10
+      filter_tags: "@config:lora_tags"

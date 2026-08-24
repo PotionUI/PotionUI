@@ -1,0 +1,162 @@
+# img2img pipeline for the native Flux family.
+#
+#   model_loader/flux -> media_loader -> prompt_encoder -> seed_generator -> generator/flux -> gallery
+#
+# Conditioning flows the mandated shared path: model_loader emits `clip`
+# (a FluxClipTextEncoder), prompt_encoder turns prompts into `conditioning`,
+# and generator/flux consumes that — it never re-encodes the prompt itself.
+# generator/flux's own img2img mode (Img2ImgGeneratorMixin, shared with every
+# native flow-matching family) does the VAE-encode + partial-denoise + decode;
+# this pipeline only feeds it a source image and sets `mode: img2img`.
+pipeline:
+  #############
+  ## Model loader (DiT + text encoder + VAE, per-component cached)
+  ############
+  - name: "model_loader/flux"
+    enabled: true
+    configuration:
+      diffusion_model:
+        file_path: "{{ form.diffusion_model }}"
+        name: "{{ form.diffusion_model }}"
+      text_encoder:
+        file_path: "{{ form.text_encoder }}"
+        name: "{{ form.text_encoder }}"
+      clip_l:
+        file_path: "{{ form.clip_l }}"
+        name: "{{ form.clip_l }}"
+      vae:
+        file_path: "{{ form.vae }}"
+        name: "{{ form.vae }}"
+      loras:
+        "@loop":
+          items: "{{ form.loras | default([]) }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+
+  #############
+  ## Media Loader (Source Image)
+  ############
+  - name: "media_loader"
+    id: "media_loader"
+    enabled: true
+    configuration:
+      media:
+        - type: "image"
+          path: "{{ form.source_image }}"
+
+  #############
+  ## Prompt encoder (shared pipe; produces the conditioning)
+  ############
+  - name: "prompt_encoder"
+    input:
+      - ["clip", "model_loader/flux", "clip"]
+    enabled: true
+    configuration:
+      p_prompt:
+        input: "{{ generation.prompts.first.positive }}"
+        output: "{{ generation.prompts.first.positive }}"
+      n_prompt:
+        input: "{{ generation.prompts.first.negative }}"
+        output: "{{ generation.prompts.first.negative }}"
+      # Per-image expanded prompt pairs (src/core/prompt/expander.py).
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity | default(1) }}"
+      # Flux uses embedded (distilled) guidance, not CFG: guidance_scale <= 1
+      # tells the encoder not to encode a negative pass.
+      guidance_scale: 1.0
+
+  #############
+  ## Seed generator
+  ############
+  - name: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed | default(-1) }}"
+      quantity: "{{ form.quantity | default(1) }}"
+
+  #############
+  ## Rendered prompts (provenance)
+  ## Surfaces the per-image expanded prompts ({a|b}, ${variables}, phrasebook
+  ## already resolved on the backend - see src/features/prompt/expander.py) as
+  ## pipe artifacts, the prompt counterpart of seed_generator. `pairs` is the
+  ## real list, handed in exactly as prompt_encoder receives it.
+  ############
+  - name: "dynamic_prompts_renderer"
+    id: "dynamic_prompts_renderer"
+    enabled: true
+    configuration:
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity | default(1) }}"
+
+  #############
+  ## IOType to Value Converter
+  ############
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  #############
+  ## Parameter Emitter
+  ############
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: "{{ form.quantity | default(1) }}"
+      parameters:
+        - ["model", "{{ form.diffusion_model }}"]
+        - ["model", "{{ form.text_encoder }}"]
+        - ["model", "{{ form.vae }}"]
+        - ["model", "{{ form.clip_l }}"]
+        - "@loop":
+            items: "{{ form.loras | default([]) | active_loras }}"
+            template: ["model", "{{ item.model }}"]
+        # Per-image arrays, so history records the prompt each image actually ran with.
+        - ["positive_prompt", "{{ generation.prompts.positives }}"]
+        - ["negative_prompt", "{{ generation.prompts.negatives }}"]
+        # Flux uses embedded (distilled) guidance, not CFG.
+        - ["cfg", "{{ form.guidance | default(preset.vars.default_guidance) }}"]
+        - ["steps", "{{ form.steps | default(preset.vars.default_steps) }}"]
+        - ["sampler", "{{ form.sampler | default(preset.vars.default_sampler) }}"]
+        - ["denoise", "{{ form.denoise | default(0.55) }}"]
+
+  #############
+  ## Generator (img2img mode: encode -> partial denoise -> decode; resolution
+  ## comes from the source image itself, snapped to the model's patch grid,
+  ## not from a form field)
+  ############
+  - name: "generator/flux"
+    input:
+      - ["model", "model_loader/flux", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+      - ["image", "media_loader", "image"]
+    enabled: true
+    configuration:
+      mode: "img2img"
+      denoise: "{{ form.denoise | default(0.55) }}"
+      steps: "{{ form.steps | default(preset.vars.default_steps) }}"
+      guidance: "{{ form.guidance | default(preset.vars.default_guidance) }}"
+      # Flux1 uses its own dynamic-mu shift schedule; leave blank for the
+      # engine's spec default (this form has no shift override field).
+      shift: ""
+      sampler: "{{ form.sampler | default(preset.vars.default_sampler) }}"
+      quantity: "{{ form.quantity | default(1) }}"
+
+  #############
+  ## Gallery
+  ############
+  - name: "gallery"
+    input:
+      - ["image", "generator/flux", "image"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: true
+    configuration:
+      save: "true"

@@ -1,0 +1,25 @@
+id: "system-monitor"
+name: "System Monitor"
+version: "1.0.0"
+description: "Real-time system resource monitoring (GPU, RAM, CPU) in the sidebar"
+author: "PotionUI Team"
+type: "frontend-only"
+category: "system"
+
+capabilities:
+  - "system-monitoring"
+  - "sidebar-widget-provider"
+
+sidebar_widgets:
+  - id: "system-monitor"
+    position: "bottom"
+    component: "SystemMonitorWidget.js"
+    order: 10
+    label: "System Monitor"
+
+settings:
+  - name: "enabled"
+    type: "boolean"
+    label: "Show in Sidebar"
+    description: "Display system resource monitor in the sidebar"
+    default: true

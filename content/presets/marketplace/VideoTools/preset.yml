@@ -1,0 +1,34 @@
+########
+## Video Tools (native engine)
+##
+## Utility toolbox for operating on EXISTING videos -- no diffusion model, no
+## prompt, no seed. The first tool is RIFE 4.x frame interpolation
+## (interpolator/rife pipe): deterministic optical-flow frame synthesis that
+## multiplies a clip's frame rate while preserving its duration and audio.
+## More video utilities will land here as additional modes.
+## Authoring reference: docs/presets.md
+########
+schema: 1
+id: "01KXVIDEOTOOLS0000000000VT"
+name: "Video Tools"
+category: "utility"
+version: "1.0.0"
+engine: "native"
+tags: ["video", "utility", "interpolation", "rife", "local"]
+
+# Admin-set values (Admin -> Presets -> Configuration). Model pickers reference
+# these via `filter_tags: "@config:<key>"`; unset = no filtering (all models shown).
+configuration:
+  vfi_tags:
+    type: "model_tags"
+    label: "Interpolation model tags"
+    description: "Only models with any of these tags appear in the Interpolation Model picker."
+
+llm:
+  guide: |
+    Utility preset — no diffusion model, no prompt. The interpolate mode raises a
+    video's frame rate via frame interpolation. Help the user choose input video
+    and interpolation settings from the form summary below; never suggest prompt text.
+
+modes:
+  - interpolate

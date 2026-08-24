@@ -1,0 +1,31 @@
+name: "custom"
+label: "Whole-Frame Enhance (Experimental)"
+description: "Refines an already-upscaled image by walking only the tail of Krea-2's official fixed-mu 8-step schedule instead of a full resample. Experimental: an unconventional generation path -- output quality across arbitrary sources isn't yet validated the way txt2img is."
+fields:
+  - type: "tabs"
+    children:
+      - type: "tab"
+        label: "Generation"
+        configuration:
+          icon: "generation"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/enhance/tabs/generation.yml"
+      - type: "tab"
+        label: "References"
+        configuration:
+          icon: "image"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/enhance/tabs/references.yml"
+      - type: "tab"
+        label: "LoRA"
+        configuration:
+          icon: "lora"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/enhance/tabs/lora.yml"
+      - type: "tab"
+        label: "Advanced"
+        audience: "advanced"
+        configuration:
+          icon: "settings"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/enhance/tabs/advanced.yml"

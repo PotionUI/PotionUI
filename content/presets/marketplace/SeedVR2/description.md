@@ -1,0 +1,1 @@
+Restore and sharpen any image or video and upscale it to a higher resolution — no prompt needed, just drop in a file or a previous generation. Built for SeedVR2, ByteDance's open restoration model, which cleans up detail in a single fast pass instead of regenerating the content.

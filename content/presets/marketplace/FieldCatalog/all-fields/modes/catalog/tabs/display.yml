@@ -1,0 +1,22 @@
+fields:
+  - type: "markdown"
+    label: "Markdown"
+    configuration:
+      content: |
+        ## Display-only fields
+
+        This catalog intentionally combines **interactive**, structural, and display-only fields.
+        It is safe to assign to a development account because its pipeline only contains a gallery sink.
+      className: "prose prose-sm max-w-none"
+
+  - type: "section"
+    label: "Visual helpers"
+    configuration:
+      experimental: true
+
+  - type: "alert"
+    label: "Alert index"
+    description: "Every alert variant is exercised in the Alerts tab, including a valid untitled alert."
+    configuration:
+      variant: "primary"
+      content: "Use the Alerts tab to inspect title and body fallbacks."

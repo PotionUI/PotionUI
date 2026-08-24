@@ -1,0 +1,41 @@
+# LoRAs applied to the DiT at load time. A LoRA change busts the DiT's
+# fingerprint in the model cache, so switching one forces a reload of the
+# checkpoint — not of the text encoder or the VAEs.
+fields:
+  - name: "loras"
+    type: "lora_picker"
+    label: "LoRAs"
+    default: []
+    ai_hint: >-
+      LoRAs for the MiniMax-H3 DiT. The one in circulation is the 4-step turbo
+      distillation LoRA, and WHICH FILE you have decides the strength to use.
+      Kijai's conversion is the recommended artifact — it bakes the correct
+      scale in, and is applied at about 0.75. Download it from
+      https://huggingface.co/Kijai/MiniMax-H3_comfy, file
+      minimax_h3_fl2v_lightx2v_turbo_4step_v0.1_comfy.safetensors. The original ModelTC release ships WITHOUT its PEFT alpha
+      metadata (trained at alpha 16, rank 128, so the intended scale is 0.125),
+      which means anything applying it at face value runs it 8x too strong and
+      produces noise rather than a rough result; if you only have that file, set
+      the strength to 0.125 by hand to compensate. The turbo speed profile does
+      not require either file — the base model is a capable 3-4 step generator
+      on its own schedule, just softer in detail than 24 steps. Full analysis in
+      ai/minimax_h3/TURBO_LORA_FINDINGS.md.
+    configuration:
+      model_type: "lora"
+      placeholder: "Select a MiniMax-H3 LoRA..."
+      filter_tags: "@config:lora_tags"
+      allow_info_modal: true
+      show_triggers: true
+      strength_min: -2.0
+      strength_max: 2.0
+      strength_step: 0.05
+      strength_default: 1.0
+      max_items: 6
+      # No `recommendations:` here on purpose, even though the turbo LoRA is
+      # exactly the kind of file one would offer: `recommendations` is a
+      # `model`-field feature only. `lora_picker.output()`
+      # (src/features/fields/lora_picker.py) builds an allowlisted configuration
+      # dict that drops the key, so the block would load, lint as an unknown
+      # key, and silently never reach the frontend. The download URL lives in
+      # the ai_hint above and in docs/models/minimax_h3.md until lora_picker
+      # grows the field.

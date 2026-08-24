@@ -1,0 +1,35 @@
+# RIFE is deterministic and promptless: one clip in, one higher-fps clip out.
+# Everything the pipe needs fits on this tab; the only expert knob (flow
+# scale) lives on the Advanced tab.
+fields:
+  - name: "input_video"
+    type: "video"
+    label: "Input Video"
+    required: true
+    ai_hint: "Content and duration are unchanged -- only the frame rate goes up."
+
+  - name: "model"
+    type: "model"
+    label: "Interpolation Model"
+    required: true
+    ai_hint: "A RIFE 4.x IFNet checkpoint (rife46 through rife49). rife49 is the newest and the usual pick; any of the family works -- the loader detects the variant from the weights."
+    configuration:
+      model_type: "vfi"
+      placeholder: "Select a RIFE checkpoint (rife46 - rife49)..."
+      filter_tags: "@config:vfi_tags"
+
+  - name: "factor"
+    type: "select"
+    label: "Frame Rate Multiplier"
+    default: 2
+    ai_hint: "Output fps = source fps x this factor; the clip's duration is unchanged (new frames are synthesized between the originals) and the audio track is preserved. 2x is the safe default; 4x is for very smooth motion or slow-motion material and takes roughly twice as long."
+    configuration:
+      options:
+        - { label: "2x (double fps)", value: 2, sub_label: "One synthesized frame between each source pair, e.g. 30fps -> 60fps." }
+        - { label: "4x (quadruple fps)", value: 4, sub_label: "Three synthesized frames between each source pair, e.g. 30fps -> 120fps." }
+
+  - name: "keep_audio"
+    type: "checkbox"
+    label: "Keep Audio"
+    default: true
+    ai_hint: "Mux the source video's audio track into the interpolated output."

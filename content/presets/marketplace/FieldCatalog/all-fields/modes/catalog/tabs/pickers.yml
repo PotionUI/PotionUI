@@ -1,0 +1,119 @@
+fields:
+  - type: "header"
+    label: "Media, model, and helper widgets"
+
+  - name: "resolution_picker"
+    type: "resolution"
+    label: "Resolution"
+    configuration:
+      options: ["768x768", "832x1216", "1216x832"]
+    default: "768x768"
+
+  - name: "carousel_picker"
+    type: "carousel"
+    label: "Carousel"
+    description: "Selectable tiles rendered without external assets."
+    configuration:
+      items:
+        - label: "Warm"
+          value: "warm"
+          description: "Amber and sunset tones"
+        - label: "Cool"
+          value: "cool"
+          description: "Blue and twilight tones"
+        - label: "Neutral"
+          value: "neutral"
+          description: "Balanced palette"
+      rows: 1
+      columns: 3
+      mode: "grid"
+      show_labels: true
+    default: "warm"
+
+  - type: "row"
+    children:
+      - name: "image_media"
+        type: "image"
+        label: "Image upload"
+        description: "MediaLoader image mode"
+        configuration:
+          formats: [".png", ".jpg", ".webp"]
+      - name: "video_media"
+        type: "video"
+        label: "Video upload"
+        description: "MediaLoader video mode"
+        configuration:
+          formats: [".mp4", ".webm"]
+
+  - type: "row"
+    children:
+      - name: "audio_media"
+        type: "audio"
+        label: "Audio upload"
+        description: "MediaLoader audio mode"
+        configuration:
+          formats: [".mp3", ".wav"]
+      - name: "generic_media"
+        type: "media"
+        label: "Generic media upload"
+        description: "The generic media alias"
+
+  - type: "row"
+    children:
+      - name: "model_picker"
+        type: "model"
+        label: "Model"
+        configuration:
+          model_type: "checkpoint"
+          placeholder: "Select a checkpoint..."
+          allow_info_modal: true
+      - name: "models_picker"
+        type: "models"
+        label: "Models alias"
+        configuration:
+          model_type: "checkpoint"
+          placeholder: "Select one or more models..."
+          allow_info_modal: true
+
+  - name: "lora_picker"
+    type: "lora_picker"
+    label: "LoRA picker"
+    configuration:
+      model_type: "lora"
+      placeholder: "Select a LoRA..."
+      strength_min: -1
+      strength_max: 1
+      strength_step: 0.1
+      strength_default: 0.8
+      max_items: 3
+      allow_info_modal: true
+      show_triggers: true
+    default: []
+
+  - name: "llm_picker"
+    type: "llm"
+    label: "LLM configuration"
+    description: "Uses the current user's enabled LLM configurations."
+    configuration:
+      show_llm_select: true
+      show_prompt: true
+      allow_empty: true
+      tooltip: "The catalog remains usable when no LLM is configured."
+
+  - name: "camera_shot_picker"
+    type: "camera_shot"
+    label: "Camera & shot phrasebook"
+    configuration:
+      categories: [angle, distance, orientation, motion]
+      vocabulary:
+        overhead: "from the ceiling, looking straight down"
+        orbit_left: "slow orbit left around the subject"
+
+  - name: "prompt_timeline"
+    type: "prompt_timeline"
+    label: "Prompt timeline"
+    description: "Timeline editing widget with an empty initial timeline."
+    default:
+      duration: 5
+      fps: 24
+      segments: []

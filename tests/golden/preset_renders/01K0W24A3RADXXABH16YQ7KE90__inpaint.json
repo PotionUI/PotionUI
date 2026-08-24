@@ -1,0 +1,395 @@
+{
+  "mode": "inpaint",
+  "pipes": [
+    {
+      "config": {
+        "clip_skip": {
+          "type": "int",
+          "value": 2
+        },
+        "loras": {
+          "type": "list",
+          "value": []
+        },
+        "model.base": {
+          "type": "str",
+          "value": "SDXL"
+        },
+        "model.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/model.safetensors"
+        },
+        "model.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/model.safetensors"
+        },
+        "nsfw": {
+          "type": "bool",
+          "value": false
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "checkpoint_loader",
+      "name": "checkpoint_loader/sdxl"
+    },
+    {
+      "config": {
+        "media": {
+          "type": "list",
+          "value": [
+            {
+              "path": "/GOLDEN/media/source_image.png",
+              "type": "image"
+            }
+          ]
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "media_loader",
+      "name": "media_loader"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "mask_loader",
+      "name": "media_loader"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "mask_preprocessor",
+      "name": "mask_preprocessor"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "inpaint_region_crop",
+      "name": "inpaint_region_crop"
+    },
+    {
+      "config": {
+        "n_prompt.input": {
+          "type": "str",
+          "value": "golden negative prompt"
+        },
+        "n_prompt.output": {
+          "type": "str",
+          "value": "golden negative prompt\n\n negative_embedding_1 negative_embedding_2 negative_embedding_3"
+        },
+        "negative_embeddings": {
+          "type": "list",
+          "value": [
+            {
+              "enabled": true,
+              "file_path": "/GOLDEN/models/negative_embedding_1.safetensors",
+              "token": "negative_embedding_1"
+            },
+            {
+              "enabled": true,
+              "file_path": "/GOLDEN/models/negative_embedding_2.safetensors",
+              "token": "negative_embedding_2"
+            },
+            {
+              "enabled": true,
+              "file_path": "/GOLDEN/models/negative_embedding_3.safetensors",
+              "token": "negative_embedding_3"
+            }
+          ]
+        },
+        "p_prompt.input": {
+          "type": "str",
+          "value": "golden positive prompt"
+        },
+        "p_prompt.output": {
+          "type": "str",
+          "value": "golden positive prompt\n\n positive_embedding_1 positive_embedding_2 positive_embedding_3"
+        },
+        "pairs": {
+          "type": "list",
+          "value": [
+            {
+              "negative": "golden negative prompt",
+              "positive": "golden positive prompt"
+            }
+          ]
+        },
+        "positive_embeddings": {
+          "type": "list",
+          "value": [
+            {
+              "enabled": true,
+              "file_path": "/GOLDEN/models/positive_embedding_1.safetensors",
+              "token": "positive_embedding_1"
+            },
+            {
+              "enabled": true,
+              "file_path": "/GOLDEN/models/positive_embedding_2.safetensors",
+              "token": "positive_embedding_2"
+            },
+            {
+              "enabled": true,
+              "file_path": "/GOLDEN/models/positive_embedding_3.safetensors",
+              "token": "positive_embedding_3"
+            }
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "prompt_encoder",
+      "name": "prompt_encoder"
+    },
+    {
+      "config": {
+        "quantity": {
+          "type": "int",
+          "value": 1
+        },
+        "seed": {
+          "type": "int",
+          "value": -1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "seed_generator",
+      "name": "seed_generator"
+    },
+    {
+      "config": {
+        "pairs": {
+          "type": "list",
+          "value": [
+            {
+              "negative": "golden negative prompt",
+              "positive": "golden positive prompt"
+            }
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "dynamic_prompts_renderer",
+      "name": "dynamic_prompts_renderer"
+    },
+    {
+      "config": {
+        "from": {
+          "type": "str",
+          "value": "seed"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "from_iotype",
+      "name": "from_iotype"
+    },
+    {
+      "config": {
+        "parameters": {
+          "type": "list",
+          "value": [
+            [
+              "model",
+              "/GOLDEN/models/model.safetensors"
+            ],
+            [],
+            [
+              "positive_prompt",
+              [
+                "golden positive prompt"
+              ]
+            ],
+            [
+              "negative_prompt",
+              [
+                "golden negative prompt"
+              ]
+            ],
+            [
+              "cfg",
+              4
+            ],
+            [
+              "steps",
+              20
+            ],
+            [
+              "sampler",
+              "DPMPP_SDE"
+            ],
+            [
+              "scheduler",
+              "karras"
+            ],
+            [
+              "clip_skip",
+              2
+            ],
+            [
+              "denoise",
+              0.75
+            ],
+            [
+              "mask_blur",
+              4
+            ]
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "param_emitter",
+      "name": "param_emitter"
+    },
+    {
+      "config": {
+        "negative_scale": {
+          "type": "float",
+          "value": 0.8
+        },
+        "positive_scale": {
+          "type": "float",
+          "value": 1.5
+        },
+        "scaler_end": {
+          "type": "float",
+          "value": 0.3
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "adm_guidance",
+      "name": "adm_guidance/sdxl"
+    },
+    {
+      "config": {
+        "strength": {
+          "type": "float",
+          "value": 2.0
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "sharpness",
+      "name": "sharpness/sdxl"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "sag",
+      "name": "sag/sdxl"
+    },
+    {
+      "config": {
+        "cfg": {
+          "type": "int",
+          "value": 4
+        },
+        "denoise": {
+          "type": "float",
+          "value": 0.75
+        },
+        "inpaint_mode": {
+          "type": "bool",
+          "value": false
+        },
+        "mask_blur": {
+          "type": "int",
+          "value": 4
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        },
+        "sampler": {
+          "type": "str",
+          "value": "DPMPP_SDE"
+        },
+        "scheduler": {
+          "type": "str",
+          "value": "karras"
+        },
+        "steps": {
+          "type": "int",
+          "value": 20
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "generator",
+      "name": "generator/sdxl"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "inpaint_region_restore",
+      "name": "inpaint_region_restore"
+    },
+    {
+      "config": {
+        "save": {
+          "type": "str",
+          "value": "true"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "gallery",
+      "name": "gallery"
+    }
+  ],
+  "preset_id": "01K0W24A3RADXXABH16YQ7KE90",
+  "preset_name": "SDXL"
+}

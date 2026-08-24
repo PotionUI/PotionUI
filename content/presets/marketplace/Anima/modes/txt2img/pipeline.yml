@@ -1,0 +1,147 @@
+# txt2img pipeline for the native Anima family.
+#
+#   model_loader/anima -> prompt_encoder -> seed_generator -> generator/anima -> gallery
+#
+# Conditioning flows the mandated shared path: model_loader emits `clip`
+# (an AnimaClipTextEncoder), prompt_encoder turns prompts into `conditioning`,
+# and generator/anima consumes that — it never re-encodes the prompt itself. The
+# DiT's in-model LLMAdapter does the Qwen3+T5 fusion inside its forward.
+pipeline:
+  #############
+  ## Model loader (MiniTrainDIT + Qwen3-0.6B TE + causal-3D VAE, per-component cached)
+  ############
+  - name: "model_loader/anima"
+    enabled: true
+    configuration:
+      diffusion_model:
+        file_path: "{{ form.diffusion_model }}"
+        name: "{{ form.diffusion_model }}"
+      text_encoder:
+        file_path: "{{ form.text_encoder }}"
+        name: "{{ form.text_encoder }}"
+      vae:
+        file_path: "{{ form.vae }}"
+        name: "{{ form.vae }}"
+      loras:
+        "@loop":
+          items: "{{ form.loras | default([]) }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+
+  #############
+  ## Prompt encoder (shared pipe; produces the conditioning)
+  ############
+  - name: "prompt_encoder"
+    input:
+      - ["clip", "model_loader/anima", "clip"]
+    enabled: true
+    configuration:
+      p_prompt:
+        input: "{{ generation.prompts.first.positive }}"
+        output: "{{ generation.prompts.first.positive }}"
+      n_prompt:
+        input: "{{ generation.prompts.first.negative }}"
+        output: "{{ generation.prompts.first.negative }}"
+      # Per-image expanded prompt pairs (src/core/prompt/expander.py).
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity | default(1) }}"
+      # Anima uses true CFG -> encode the negative pass (guidance_scale > 1).
+      guidance_scale: "{{ form.cfg | default(preset.vars.default_cfg) }}"
+
+  #############
+  ## Seed generator
+  ############
+  - name: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed | default(-1) }}"
+      quantity: "{{ form.quantity | default(1) }}"
+
+  #############
+  ## Rendered prompts (provenance)
+  ## Surfaces the per-image expanded prompts ({a|b}, ${variables}, phrasebook
+  ## already resolved on the backend - see src/features/prompt/expander.py) as
+  ## pipe artifacts, the prompt counterpart of seed_generator. `pairs` is the
+  ## real list, handed in exactly as prompt_encoder receives it.
+  ############
+  - name: "dynamic_prompts_renderer"
+    id: "dynamic_prompts_renderer"
+    enabled: true
+    configuration:
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity | default(1) }}"
+
+  #############
+  ## IOType to Value Converter
+  ############
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  #############
+  ## Parameter Emitter
+  ############
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: "{{ form.quantity | default(1) }}"
+      parameters:
+        - ["model", "{{ form.diffusion_model }}"]
+        - ["model", "{{ form.text_encoder }}"]
+        - ["model", "{{ form.vae }}"]
+        - "@loop":
+            items: "{{ form.loras | default([]) | active_loras }}"
+            template: ["model", "{{ item.model }}"]
+        # Per-image arrays, so history records the prompt each image actually ran with.
+        - ["positive_prompt", "{{ generation.prompts.positives }}"]
+        - ["negative_prompt", "{{ generation.prompts.negatives }}"]
+        - ["cfg", "{{ form.cfg | default(preset.vars.default_cfg) }}"]
+        - ["steps", "{{ form.steps | default(preset.vars.default_steps) }}"]
+        - ["sampler", "{{ form.sampler | default(preset.vars.default_sampler) }}"]
+        - ["resolution", "{{ form.resolution }}"]
+
+  #############
+  ## Generator
+  ############
+  - name: "generator/anima"
+    input:
+      - ["model", "model_loader/anima", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: true
+    configuration:
+      steps: "{{ form.steps | default(preset.vars.default_steps) }}"
+      guidance: "{{ form.cfg | default(preset.vars.default_cfg) }}"
+      # Optional shift override; blank -> spec default (3.0).
+      shift: "{% set s = form.shift | default('') %}{% if s is not none and s != '' %}{{ s }}{% endif %}"
+      sampler: "{{ form.sampler | default(preset.vars.default_sampler) }}"
+      resolution: "{{ form.resolution }}"
+      quantity: "{{ form.quantity | default(1) }}"
+      # Step cache (FBCache, Advanced tab): assembled into the nested
+      # `step_cache` dict FlowMatchGeneratorPipe.build_context reads directly
+      # -- mirrors the Flux/Krea-2/Z-Image preset wiring. rel_threshold 0.0
+      # (default) never wraps the guidance strategy, so an untouched form
+      # renders byte-identical to before this knob existed.
+      step_cache:
+        rel_threshold: "{{ form.step_cache_threshold | default(0.0) }}"
+        warmup_steps: "{{ form.step_cache_warmup_steps | default(4) }}"
+        max_consecutive_skips: "{{ form.step_cache_max_skips | default(3) }}"
+
+  #############
+  ## Gallery
+  ############
+  - name: "gallery"
+    input:
+      - ["image", "generator/anima", "image"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: true
+    configuration:
+      save: "true"

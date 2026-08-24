@@ -1,0 +1,213 @@
+@import './lib/styles/tokens.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* IBM Plex Mono — the identity face (seeds, dimensions, micro-labels, keybinds) */
+@font-face {
+	font-family: 'IBM Plex Mono';
+	font-style: normal;
+	font-weight: 400;
+	font-display: swap;
+	src: url('/fonts/ibm-plex-mono-400.woff2') format('woff2');
+}
+@font-face {
+	font-family: 'IBM Plex Mono';
+	font-style: normal;
+	font-weight: 500;
+	font-display: swap;
+	src: url('/fonts/ibm-plex-mono-500.woff2') format('woff2');
+}
+@font-face {
+	font-family: 'IBM Plex Mono';
+	font-style: normal;
+	font-weight: 600;
+	font-display: swap;
+	src: url('/fonts/ibm-plex-mono-600.woff2') format('woff2');
+}
+
+/* Global base styles — themed via tokens.css (dark default, [data-theme='light']) */
+@layer base {
+	body {
+		@apply m-0 p-0 bg-canvas text-fg;
+	}
+
+	html {
+		@apply m-0 p-0 bg-canvas;
+		scrollbar-gutter: stable;
+	}
+
+	::selection {
+		background: rgb(var(--signal) / 0.35);
+	}
+
+	:root[data-theme='light'] ::selection {
+		background: rgb(var(--signal) / 0.22);
+	}
+
+	/* Ensure modals cover entire viewport */
+	.modal-backdrop {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		margin: 0;
+		padding: 0;
+	}
+}
+
+/* Shared component classes — token-based.
+   .btn-* / .btn-header-* are deprecated aliases: prefer the Button/IconButton
+   primitives in src/lib/components/ui/ for new code.
+   .input / .label / .field-card are the DynamicForm form-fields contract. */
+@layer components {
+	.btn {
+		@apply px-4 py-2 rounded font-medium transition-colors;
+	}
+
+	.btn-primary {
+		@apply bg-accent text-accent-contrast hover:bg-accent-hover active:bg-accent-active disabled:opacity-50 disabled:cursor-not-allowed;
+	}
+
+	.btn-secondary {
+		@apply bg-surface-3 text-fg hover:bg-line-hover disabled:opacity-50 disabled:cursor-not-allowed;
+	}
+
+	.btn-danger {
+		@apply bg-danger-solid text-white hover:bg-danger-solid/90 disabled:opacity-50 disabled:cursor-not-allowed;
+	}
+
+	.input {
+		@apply w-full min-h-9 px-3 py-2 bg-field-bg border border-field-border text-fg rounded focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent transition-all placeholder-fg-subtle;
+	}
+
+	/* Enhanced select styling */
+	select.input {
+		@apply appearance-none bg-field-bg cursor-pointer pr-10;
+		background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23c2c2c2' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+		background-position: right 0.5rem center;
+		background-repeat: no-repeat;
+		background-size: 1.5em 1.5em;
+	}
+
+	:root[data-theme='light'] select.input {
+		background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23555555' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+	}
+
+	select.input:hover {
+		@apply border-line-hover bg-surface-3;
+	}
+
+	select.input:focus {
+		@apply bg-field-bg;
+	}
+
+	select.input:disabled {
+		@apply cursor-not-allowed opacity-50 bg-surface-1;
+	}
+
+	/* Mono micro-label — the camera-HUD label style (SEED 4211984, 1024×1024 …) */
+	.label {
+		@apply inline-block font-mono text-2xs font-medium uppercase tracking-[0.07em] text-fg-subtle mb-1;
+	}
+
+	/* Header button styles for consistent page headers */
+	.btn-header-primary {
+		@apply px-3 py-1.5 bg-surface-3 text-fg text-xs rounded hover:bg-line-hover transition-colors flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed;
+	}
+
+	.btn-header-secondary {
+		@apply px-3 py-1.5 bg-surface-2/50 text-fg-muted text-xs rounded hover:bg-surface-3/50 hover:text-fg transition-colors flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed;
+	}
+
+	.btn-header-ghost {
+		@apply p-1.5 min-w-[44px] min-h-[44px] flex items-center justify-center text-fg-muted hover:text-fg hover:bg-surface-3/50 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+	}
+
+	/* Fields flow directly on the panel — the catalog's boxes are column
+	   presentation, not per-field chrome. Structure comes from labels,
+	   whitespace, and section rules. */
+	.field-card {
+		@apply py-1.5;
+	}
+
+	.keybinding-hint {
+		@apply ml-2 px-1.5 py-0.5 text-2xs font-mono rounded-sm bg-surface-3 text-fg-muted border border-line-hover;
+	}
+
+	/* Dot-grid backing — empty states and transparent-media backdrops */
+	.dot-grid {
+		background-image: radial-gradient(rgb(var(--fg) / 0.06) 1px, transparent 1px);
+		background-size: 16px 16px;
+	}
+}
+
+/* Loading spinner */
+.spinner {
+	border: 2px solid rgb(var(--line-strong));
+	border-top-color: rgb(var(--accent));
+	border-radius: 50%;
+	width: 1.5rem;
+	height: 1.5rem;
+	animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+/* Hide scrollbar utility */
+.no-scrollbar {
+	-ms-overflow-style: none;
+	scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+	display: none;
+}
+
+/* Custom themed scrollbar */
+::-webkit-scrollbar {
+	width: 8px;
+	height: 8px;
+}
+
+::-webkit-scrollbar-track {
+	background: rgb(var(--surface-1));
+}
+
+::-webkit-scrollbar-thumb {
+	background: rgb(var(--line-strong));
+	border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background: rgb(var(--line-hover));
+}
+
+/* Focus visible indicator for keyboard users */
+:focus-visible {
+	outline: 2px solid rgb(var(--accent));
+	outline-offset: 2px;
+}
+
+/* Remove outline for mouse/touch */
+:focus:not(:focus-visible) {
+	outline: none;
+}
+
+/* Respect reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+		scroll-behavior: auto !important;
+	}
+}

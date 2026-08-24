@@ -1,0 +1,31 @@
+id: "huggingface-provider"
+name: "HuggingFace Provider"
+version: "1.0.0"
+description: "Marketplace provider for HuggingFace Hub - resolve repo files to download URLs, search public models, and authenticate gated/private downloads"
+author: "PotionUI Team"
+type: "backend-only"
+category: "models"
+
+capabilities:
+  - "marketplace-provider"
+  - "model-lookup"
+
+hooks:
+  backend:
+    - hook: "provider.register"
+      handler: "hooks.provider_hooks.register_provider"
+
+settings:
+  - name: "api_key"
+    type: "string"
+    format: "password"
+    label: "HuggingFace Access Token"
+    description: "Your HuggingFace access token (optional - only needed for gated or private repos; public repos download anonymously)"
+    required: false
+  - name: "rate_limit_delay"
+    type: "number"
+    label: "Rate Limit Delay (seconds)"
+    description: "Delay between API requests to avoid rate limiting"
+    default: 0.5
+    min: 0.0
+    max: 10.0

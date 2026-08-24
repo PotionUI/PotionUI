@@ -1,0 +1,21 @@
+# Where on the canvas the scaled image lands. Only has a visible effect when
+# the image does not already fill the canvas (Image Scale below 100%, or a
+# source whose aspect ratio differs from the canvas's).
+fields:
+  - name: "anchor"
+    type: "select"
+    label: "Canvas Anchor"
+    audience: "advanced"
+    default: "center"
+    ai_hint: "Where the scaled image is placed on the canvas -- the padding goes wherever the image is not. Centre is the safe default and the only one that gives symmetric padding on every side. Anchoring matters when the padding is asymmetric on purpose: bottom for a grounded subject on a taller canvas (so it stands on the floor instead of floating), left or right to reserve space on the opposite side for a title, a logo or motion headroom. On an image that already fills the canvas exactly this setting does nothing -- there is no padding to distribute."
+    configuration:
+      options:
+        - { label: "Center", value: "center", sub_label: "Padding shared equally on all four sides. The default." }
+        - { label: "Top", value: "top", sub_label: "Flush to the top edge; all vertical padding below." }
+        - { label: "Bottom", value: "bottom", sub_label: "Flush to the bottom edge; all vertical padding above -- the grounded-subject choice." }
+        - { label: "Left", value: "left", sub_label: "Flush to the left edge; all horizontal padding to the right." }
+        - { label: "Right", value: "right", sub_label: "Flush to the right edge; all horizontal padding to the left." }
+        - { label: "Top left", value: "top_left", sub_label: "Flush into the top-left corner." }
+        - { label: "Top right", value: "top_right", sub_label: "Flush into the top-right corner." }
+        - { label: "Bottom left", value: "bottom_left", sub_label: "Flush into the bottom-left corner." }
+        - { label: "Bottom right", value: "bottom_right", sub_label: "Flush into the bottom-right corner." }

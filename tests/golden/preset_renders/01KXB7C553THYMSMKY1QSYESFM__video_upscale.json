@@ -1,0 +1,199 @@
+{
+  "mode": "video_upscale",
+  "pipes": [
+    {
+      "config": {
+        "auto_detect_type": {
+          "type": "bool",
+          "value": true
+        },
+        "max_file_size": {
+          "type": "int",
+          "value": 524288000
+        },
+        "media": {
+          "type": "list",
+          "value": [
+            {
+              "path": "/GOLDEN/media/input_video.mp4",
+              "type": "video"
+            }
+          ]
+        },
+        "validate_files": {
+          "type": "bool",
+          "value": true
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "media_loader",
+      "name": "media_loader"
+    },
+    {
+      "config": {
+        "diffusion_model.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/diffusion_model.safetensors"
+        },
+        "diffusion_model.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/diffusion_model.safetensors"
+        },
+        "prompt_embedding.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/prompt_embedding.safetensors"
+        },
+        "prompt_embedding.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/prompt_embedding.safetensors"
+        },
+        "vae.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/vae.safetensors"
+        },
+        "vae.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/vae.safetensors"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "model_loader",
+      "name": "model_loader/seedvr2"
+    },
+    {
+      "config": {
+        "parameters": {
+          "type": "list",
+          "value": [
+            [
+              "model",
+              "/GOLDEN/models/diffusion_model.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/vae.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/prompt_embedding.safetensors"
+            ],
+            [
+              "seed",
+              -1
+            ],
+            [
+              "scale",
+              2.0
+            ],
+            [
+              "resolution_target",
+              "fhd1080"
+            ],
+            [
+              "color_correction",
+              "wavelet"
+            ],
+            [
+              "restoration_intent",
+              "faithful"
+            ]
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "param_emitter",
+      "name": "param_emitter"
+    },
+    {
+      "config": {
+        "batch_size": {
+          "type": "int",
+          "value": 0
+        },
+        "color_correction": {
+          "type": "str",
+          "value": "wavelet"
+        },
+        "input_noise_scale": {
+          "type": "int",
+          "value": 0
+        },
+        "keep_audio": {
+          "type": "bool",
+          "value": true
+        },
+        "latent_noise_scale": {
+          "type": "int",
+          "value": 0
+        },
+        "prepend_frames": {
+          "type": "int",
+          "value": 0
+        },
+        "scale": {
+          "type": "float",
+          "value": 2.0
+        },
+        "seed": {
+          "type": "int",
+          "value": -1
+        },
+        "target_short_side": {
+          "type": "int",
+          "value": 1080
+        },
+        "temporal_overlap": {
+          "type": "int",
+          "value": 0
+        },
+        "tile_overlap": {
+          "type": "int",
+          "value": 256
+        },
+        "tile_size": {
+          "type": "int",
+          "value": 2048
+        },
+        "uniform_batch_size": {
+          "type": "bool",
+          "value": true
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "generator",
+      "name": "generator/seedvr2"
+    },
+    {
+      "config": {
+        "support_video": {
+          "type": "bool",
+          "value": true
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "gallery",
+      "name": "gallery"
+    }
+  ],
+  "preset_id": "01KXB7C553THYMSMKY1QSYESFM",
+  "preset_name": "SeedVR2"
+}

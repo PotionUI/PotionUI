@@ -1,0 +1,51 @@
+# All ComfyUI Samplers - Combined base + extended samplers
+# Base samplers
+- { label: "Euler", value: "euler" }
+- { label: "Euler Ancestral", value: "euler_ancestral" }
+- { label: "Euler CFG++", value: "euler_cfg_pp" }
+- { label: "Euler Ancestral CFG++", value: "euler_ancestral_cfg_pp" }
+- { label: "Heun", value: "heun" }
+- { label: "Heun++", value: "heun_pp" }
+- { label: "DPM 2", value: "dpm_2" }
+- { label: "DPM 2 Ancestral", value: "dpm_2_ancestral" }
+- { label: "DPM Fast", value: "dpm_fast" }
+- { label: "DPM Adaptive", value: "dpm_adaptive" }
+- { label: "DPM++ 2S Ancestral", value: "dpmpp_2s_ancestral" }
+- { label: "DPM++ SDE", value: "dpmpp_sde" }
+- { label: "DPM++ SDE GPU", value: "dpmpp_sde_gpu" }
+- { label: "DPM++ 2M", value: "dpmpp_2m" }
+- { label: "DPM++ 2M SDE", value: "dpmpp_2m_sde" }
+- { label: "DPM++ 2M SDE GPU", value: "dpmpp_2m_sde_gpu" }
+- { label: "DPM++ 3M SDE", value: "dpmpp_3m_sde" }
+- { label: "DPM++ 3M SDE GPU", value: "dpmpp_3m_sde_gpu" }
+- { label: "DPM++ 3SDE", value: "dpmpp_3sde" }
+- { label: "DDIM", value: "ddim" }
+- { label: "DDPM", value: "ddpm" }
+- { label: "LCM", value: "lcm" }
+- { label: "LMS", value: "lms" }
+- { label: "iPNDM", value: "ipndm" }
+- { label: "DEIS", value: "deis" }
+# RES samplers
+- { label: "RES MULTISTEP", value: "res_multistep" }
+- { label: "RES MULTISTEP A", value: "res_multistep_ancestral" }
+- { label: "RES 2M (Multistep)", value: "res_2m" }
+- { label: "RES 3M (Multistep)", value: "res_3m" }
+- { label: "RES 2S (Substep)", value: "res_2s" }
+- { label: "RES 3S (Substep)", value: "res_3s" }
+- { label: "RES 3S Alt", value: "res_3s_alt" }
+- { label: "RES 3S Cox Matthews", value: "res_3s_cox_matthews" }
+- { label: "RES 3S Lie", value: "res_3s_lie" }
+- { label: "RES 3S Strehmel Weiner", value: "res_3s_strehmel_weiner" }
+- { label: "RES 4S Krogstad", value: "res_4s_krogstad" }
+- { label: "RES 4S Strehmel Weiner", value: "res_4s_strehmel_weiner" }
+- { label: "RES 4S Cox Matthews", value: "res_4s_cox_matthews" }
+- { label: "RES 4S Munthe-Kaas", value: "res_4s_munthe_kaas" }
+- { label: "RES 5S", value: "res_5s" }
+- { label: "RES 6S", value: "res_6s" }
+- { label: "RES 8S", value: "res_8s" }
+- { label: "RES 10S", value: "res_10s" }
+- { label: "RES 15S", value: "res_15s" }
+- { label: "RES 16S", value: "res_16s" }
+# UniPC samplers
+- { label: "UniPC", value: "uni_pc" }
+- { label: "UniPC BH2", value: "uni_pc_bh2" }

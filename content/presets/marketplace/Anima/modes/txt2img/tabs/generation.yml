@@ -1,0 +1,57 @@
+fields:
+  - type: "section"
+    label: "Image"
+    children:
+      - type: "row"
+        children:
+          - name: "seed"
+            type: "seed"
+            label: "Seed"
+            default: -1
+
+          - name: "quantity"
+            type: "slider"
+            label: "Quantity"
+            default: 1
+            configuration: {min: 1, max: 10, step: 1}
+
+      - name: "resolution"
+        type: "resolution"
+        label: "Resolution"
+        configuration:
+          files:
+            - { path: "{{ paths._shared }}/resolutions/sdxl.yml", group: "SDXL" }
+            - { path: "{{ paths._shared }}/resolutions/social_media.yml", group: "Social Media" }
+        default: "1024x1024"
+
+  - type: "section"
+    label: "Models"
+    children:
+      - name: "diffusion_model"
+        type: "model"
+        label: "Diffusion Model"
+        required: true
+        configuration:
+          model_type: "diffusion_model"
+          placeholder: "Select Anima DiT (e.g. anima_aestheticV10b)..."
+          filter_tags: "@config:checkpoint_tags"
+
+      # Single text encoder: Qwen3-0.6B. The T5 tokenizer is bundled (no T5 model,
+      # no CLIP-L) — the DiT's LLMAdapter owns the T5-vocab embedding.
+      - name: "text_encoder"
+        type: "model"
+        label: "Text Encoder (Qwen3-0.6B)"
+        required: true
+        configuration:
+          model_type: "clip"
+          placeholder: "Select Qwen3-0.6B text encoder..."
+          filter_tags: "@config:clip_tags"
+
+      - name: "vae"
+        type: "model"
+        label: "VAE (Wan 2.1)"
+        required: true
+        configuration:
+          model_type: "vae"
+          placeholder: "Select the Wan-2.1 VAE (wan_2.1_vae / qwen_image_vae)..."
+          filter_tags: "@config:vae_tags"

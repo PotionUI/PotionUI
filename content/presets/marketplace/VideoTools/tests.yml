@@ -1,0 +1,25 @@
+########
+## Video Tools: E2E test suite.
+## Authoring reference: docs/presets.md "Testing presets"
+########
+schema: 1
+
+cases:
+  # Interpolation smoke: 2x, full-resolution flow, audio kept. Requires an
+  # input video the headless suite can't supply, so the model ref is
+  # placeholder+needs-model to make the case skip cleanly.
+  - name: "videotools-interpolate-2x-fast"
+    mode: "interpolate"
+    kind: "video"
+    seed: 12345
+    tags: ["fast", "needs-model"]
+    form:
+      factor: 2
+      flow_scale: 1.0
+      keep_audio: true
+    models:
+      model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 1
+      not_black: true

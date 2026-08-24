@@ -1,0 +1,26 @@
+id: "image-modal"
+name: "Image Modal Viewer"
+version: "1.0.0"
+description: "View generated images in a full-screen modal with zoom and pan capabilities"
+author: "PotionUI Team"
+type: "frontend-only"
+category: "media"
+
+hooks:
+  frontend:
+    - hook: "workbench.actions"
+      component: "ImageModalAction.js"
+      position: "top-right"
+      order: 200
+
+settings:
+  - name: "default_zoom"
+    type: "slider"
+    label: "Default Zoom Level"
+    min: 50
+    max: 200
+    default: 100
+  - name: "show_metadata"
+    type: "checkbox"
+    label: "Show Image Metadata"
+    default: true

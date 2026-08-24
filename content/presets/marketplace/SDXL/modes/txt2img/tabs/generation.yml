@@ -1,0 +1,41 @@
+fields:
+  - type: "section"
+    label: "Image"
+    children:
+      - type: "row"
+        children:
+          - name: "seed"
+            type: "seed"
+            label: "Seed"
+            default: -1
+            width: "3/5"
+          - name: "quantity"
+            type: "stepper"
+            label: "Quantity"
+            default: 1
+            width: "2/5"
+            full_width: true
+            configuration: { min: 1, max: 30, step: 1 }
+      - name: "resolution"
+        type: "resolution"
+        label: "Resolution"
+        ai_hint: "SDXL works best at 1024x1024 total pixel area. Portrait: 896x1152 or 832x1216. Landscape: 1152x896 or 1216x832. Going much larger may cause duplicate subjects or distortion."
+        configuration:
+          files:
+            - { path: "{{ paths._shared }}/resolutions/sdxl.yml", group: "SDXL" }
+            - { path: "{{ paths._shared }}/resolutions/social_media.yml", group: "Social Media" }
+        default: "896x1152"
+
+  - type: "section"
+    label: "Model"
+    children:
+      - name: "model"
+        type: "model"
+        label: "Model"
+        ai_hint: "The base checkpoint model. Realistic models like RealVisXL, JuggernautXL produce photorealistic results. Anime models like AnimagineXL are for stylized art. The model choice determines the overall style and quality."
+        configuration:
+          model_type: "checkpoint"
+          allow_info_modal: true
+          placeholder: "Select model..."
+          filter_tags: "@config:checkpoint_tags"
+

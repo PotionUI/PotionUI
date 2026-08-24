@@ -1,0 +1,70 @@
+fields:
+  - name: "speed_profile"
+    type: "select"
+    label: "Speed profile"
+    default: "turbo"
+    configuration:
+      options:
+        - { label: "Turbo", value: "turbo", sub_label: "8 steps, distilled checkpoint" }
+        - { label: "Base", value: "base", sub_label: "30 steps" }
+        - { label: "Custom", value: "custom", sub_label: "set steps/CFG freely" }
+
+  - type: "section"
+    label: "Image"
+    children:
+      - type: "row"
+        children:
+          - name: "seed"
+            type: "seed"
+            label: "Seed"
+            default: -1
+            width: "3/5"
+
+          - name: "quantity"
+            type: "stepper"
+            label: "Quantity"
+            default: 1
+            configuration: {min: 1, max: 10, step: 1}
+            width: "2/5"
+            full_width: true
+
+      - name: "resolution"
+        type: "resolution"
+        label: "Resolution"
+        configuration:
+          files:
+            - { path: "{{ paths._shared }}/resolutions/sdxl.yml", group: "Z-Image" }
+            - { path: "{{ paths._shared }}/resolutions/social_media.yml", group: "Social Media" }
+            - { path: "{{ paths._shared }}/resolutions/2k.yml", group: "2K" }
+        default: "1024x1024"
+
+  - type: "section"
+    label: "Models"
+    children:
+      - name: "diffusion_model"
+        type: "model"
+        label: "Diffusion Model"
+        required: true
+        configuration:
+          model_type: "diffusion_model"
+          placeholder: "Select Z-Image NextDiT (e.g. zImage_turbo)..."
+          filter_tags: "@config:checkpoint_tags"
+
+      # Single text encoder: Qwen3-4B. No CLIP-L for Z-Image.
+      - name: "text_encoder"
+        type: "model"
+        label: "Text Encoder (Qwen3-4B)"
+        required: true
+        configuration:
+          model_type: "clip"
+          placeholder: "Select Z-Image text encoder..."
+          filter_tags: "@config:clip_tags"
+
+      - name: "vae"
+        type: "model"
+        label: "VAE"
+        required: true
+        configuration:
+          model_type: "vae"
+          placeholder: "Select Z-Image VAE..."
+          filter_tags: "@config:vae_tags"

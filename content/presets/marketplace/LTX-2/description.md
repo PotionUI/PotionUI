@@ -1,0 +1,1 @@
+Direct short video scenes — with optional synchronized sound — on a timeline where each part of the clip gets its own prompt, reference images or audio. A separate mode upscales finished clips to higher resolution. Built for LTX-2 and 2.3 from Lightricks, open video models that generate picture and audio together.

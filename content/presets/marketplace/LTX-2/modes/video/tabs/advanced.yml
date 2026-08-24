@@ -1,0 +1,114 @@
+# Krea-2 layout: Sampling section holds the knobs the Generation tab's Speed
+# profile bakes (steps/sampler/cfg reactions live here now, matching where
+# Krea-2 keeps them). NAG moved to the Enhance tab (Krea-2 keeps its NAG gate
+# there too); this tab keeps LTX's own sigma-schedule overrides and the
+# Step cache section, in that order.
+fields:
+  - type: "section"
+    label: "Sampling"
+    children:
+      - name: "steps"
+        type: "slider"
+        label: "Steps"
+        audience: "advanced"
+        default: 24
+        configuration: {min: 1, max: 100, step: 1}
+        reactions:
+          - when: { field: "speed_profile", equals: "balanced" }
+            then: { set_value: 24, set_disabled: false }
+          - when: { field: "speed_profile", equals: "distilled" }
+            then: { set_value: 8, set_disabled: false }
+          - when: { field: "speed_profile", equals: "quality" }
+            then: { set_value: 30, set_disabled: false }
+          - when: { field: "speed_profile", equals: "custom" }
+            then: { set_disabled: false }
+
+      - name: "sampler"
+        type: "select"
+        label: "Sampler"
+        audience: "advanced"
+        default: "euler"
+        configuration:
+          options:
+            - { label: "Euler", value: "euler" }
+            - { label: "Euler CFG++", value: "euler_cfg_pp" }
+            - { label: "Euler Ancestral CFG++", value: "euler_ancestral_cfg_pp" }
+        reactions:
+          - when: { field: "speed_profile", equals: "balanced" }
+            then: { set_value: "euler", set_disabled: false }
+          - when: { field: "speed_profile", equals: "distilled" }
+            then: { set_value: "euler_cfg_pp", set_disabled: false }
+          - when: { field: "speed_profile", equals: "quality" }
+            then: { set_value: "euler", set_disabled: false }
+          - when: { field: "speed_profile", equals: "custom" }
+            then: { set_disabled: false }
+
+      - name: "cfg"
+        type: "slider"
+        label: "CFG Scale"
+        audience: "advanced"
+        default: 4.0
+        configuration: {min: 1.0, max: 20.0, step: 0.5}
+        reactions:
+          - when: { field: "speed_profile", equals: "balanced" }
+            then: { set_value: 4.0, set_disabled: false }
+          - when: { field: "speed_profile", equals: "distilled" }
+            then: { set_value: 1.0, set_disabled: false }
+          - when: { field: "speed_profile", equals: "quality" }
+            then: { set_value: 3.0, set_disabled: false }
+          - when: { field: "speed_profile", equals: "custom" }
+            then: { set_disabled: false }
+
+  - type: "section"
+    label: "Sigma schedule"
+    children:
+      - name: "manual_sigmas"
+        type: "textbox"
+        label: "Manual Sigmas"
+        ai_hint: "Manual override for the sigma schedule, only relevant when the Speed profile (Generation tab) is Balanced. Prefer the Distilled speed profile for the maintainer's validated ComfyUI LTX-2.3 distilled-refine recipe -- only suggest hand-typing this field for a CUSTOM schedule no profile covers."
+        configuration:
+          placeholder: "Comma-separated sigma values, e.g. 1.0, 0.99375, ..., 0.0"
+        default: ""
+        reactions:
+          - when: { field: "speed_profile", equals: "balanced" }
+            then: { set_visibility: true }
+          - when: { field: "speed_profile", equals: "distilled" }
+            then: { set_visibility: false }
+          - when: { field: "speed_profile", equals: "quality" }
+            then: { set_visibility: false }
+          - when: { field: "speed_profile", equals: "custom" }
+            then: { set_visibility: true }
+
+      - name: "upscale_refine_sigmas"
+        type: "textbox"
+        label: "Upscale Refine Sigmas"
+        audience: "advanced"
+        ai_hint: "Expert-only override for the two-stage upscale refine pass -- prefer suggesting the Refine Strength select (Enhance tab) instead. Only suggest hand-typing this for a deliberate custom schedule no Refine Strength option covers (lower first value = less noise re-injected = more faithful to the upsampled latent; higher = more freedom to fix upsampling artifacts, closer to a fresh generation)."
+        configuration:
+          placeholder: "Comma-separated sigma values, first value < 1.0, e.g. 0.909375, 0.725, 0.421875, 0.0"
+        default: ""
+
+  - type: "section"
+    label: "Step cache (FBCache)"
+    audience: "advanced"
+    children:
+      - type: "row"
+        children:
+          - name: "step_cache_threshold"
+            type: "slider"
+            label: "Cache threshold"
+            default: 0.0
+            ai_hint: "Skips an entire transformer forward pass when the model's first block barely moved since the last actually-computed step, reusing that step's cached output -- a speed-for-fidelity trade, never a quality improvement. Suggest 0.08 (roughly 1.3x faster) when the user explicitly wants a long LTX run faster and can accept some softening and smoothed motion; 0.15 (roughly 1.8-2.2x) only if they ask for aggressive speed. Keep it at 0.0 for final renders, and for short distilled runs (under ~15 steps) where the warmup steps already cover most of the trajectory. Applies to the base generation pass only -- the upscale refine pass is not cached."
+            configuration: {min: 0.0, max: 0.3, step: 0.01}
+          - name: "step_cache_warmup_steps"
+            type: "slider"
+            label: "Warmup steps"
+            default: 4
+            ai_hint: "Leading steps forced to compute in full before any skipping is allowed -- the early steps decide the shot's composition and motion and must not be reused. Only has an effect when Cache threshold is above 0. Raise toward 6-8 if a cached run loses composition or motion, at the cost of some of the speed."
+            configuration: {min: 0, max: 12, step: 1}
+          - name: "step_cache_max_skips"
+            type: "slider"
+            label: "Max consecutive skips"
+            default: 3
+            ai_hint: "How many steps in a row the cache may skip before one is forced to recompute, capping how far the reused output can drift from the real trajectory. Only has an effect when Cache threshold is above 0. Lower to 1-2 if a cached run drifts or loses detail late in the trajectory."
+            configuration: {min: 0, max: 10, step: 1}

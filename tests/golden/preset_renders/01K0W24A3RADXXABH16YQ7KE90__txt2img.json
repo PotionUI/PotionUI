@@ -1,0 +1,647 @@
+{
+  "mode": "txt2img",
+  "pipes": [
+    {
+      "config": {
+        "clip_skip": {
+          "type": "int",
+          "value": 2
+        },
+        "loras": {
+          "type": "list",
+          "value": []
+        },
+        "model.base": {
+          "type": "str",
+          "value": "SDXL"
+        },
+        "model.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/model.safetensors"
+        },
+        "model.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/model.safetensors"
+        },
+        "nsfw": {
+          "type": "bool",
+          "value": false
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "checkpoint_loader",
+      "name": "checkpoint_loader/sdxl"
+    },
+    {
+      "config": {
+        "n_prompt.input": {
+          "type": "str",
+          "value": "golden negative prompt"
+        },
+        "n_prompt.output": {
+          "type": "str",
+          "value": "golden negative prompt\n\n negative_embedding_1 negative_embedding_2 negative_embedding_3"
+        },
+        "negative_embeddings": {
+          "type": "list",
+          "value": [
+            {
+              "enabled": true,
+              "file_path": "/GOLDEN/models/negative_embedding_1.safetensors",
+              "token": "negative_embedding_1"
+            },
+            {
+              "enabled": true,
+              "file_path": "/GOLDEN/models/negative_embedding_2.safetensors",
+              "token": "negative_embedding_2"
+            },
+            {
+              "enabled": true,
+              "file_path": "/GOLDEN/models/negative_embedding_3.safetensors",
+              "token": "negative_embedding_3"
+            }
+          ]
+        },
+        "p_prompt.input": {
+          "type": "str",
+          "value": "golden positive prompt"
+        },
+        "p_prompt.output": {
+          "type": "str",
+          "value": "golden positive prompt\n\n positive_embedding_1 positive_embedding_2 positive_embedding_3"
+        },
+        "pairs": {
+          "type": "list",
+          "value": [
+            {
+              "negative": "golden negative prompt",
+              "positive": "golden positive prompt"
+            }
+          ]
+        },
+        "positive_embeddings": {
+          "type": "list",
+          "value": [
+            {
+              "enabled": true,
+              "file_path": "/GOLDEN/models/positive_embedding_1.safetensors",
+              "token": "positive_embedding_1"
+            },
+            {
+              "enabled": true,
+              "file_path": "/GOLDEN/models/positive_embedding_2.safetensors",
+              "token": "positive_embedding_2"
+            },
+            {
+              "enabled": true,
+              "file_path": "/GOLDEN/models/positive_embedding_3.safetensors",
+              "token": "positive_embedding_3"
+            }
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "prompt_encoder",
+      "name": "prompt_encoder"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "controlnet_loader",
+      "name": "controlnet_loader/sdxl"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": null,
+      "name": "media_loader"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "controlnet_preprocessor",
+      "name": "controlnet_preprocessor"
+    },
+    {
+      "config": {
+        "quantity": {
+          "type": "int",
+          "value": 1
+        },
+        "seed": {
+          "type": "int",
+          "value": -1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "seed_generator",
+      "name": "seed_generator"
+    },
+    {
+      "config": {
+        "pairs": {
+          "type": "list",
+          "value": [
+            {
+              "negative": "golden negative prompt",
+              "positive": "golden positive prompt"
+            }
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "dynamic_prompts_renderer",
+      "name": "dynamic_prompts_renderer"
+    },
+    {
+      "config": {
+        "from": {
+          "type": "str",
+          "value": "seed"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "from_iotype",
+      "name": "from_iotype"
+    },
+    {
+      "config": {
+        "parameters": {
+          "type": "list",
+          "value": [
+            [
+              "model",
+              "/GOLDEN/models/model.safetensors"
+            ],
+            [],
+            [
+              "positive_prompt",
+              [
+                "golden positive prompt"
+              ]
+            ],
+            [
+              "negative_prompt",
+              [
+                "golden negative prompt"
+              ]
+            ],
+            [
+              "cfg",
+              4
+            ],
+            [
+              "steps",
+              20
+            ],
+            [
+              "sampler",
+              "DPMPP_SDE"
+            ],
+            [
+              "scheduler",
+              "karras"
+            ],
+            [
+              "resolution",
+              "896x1152"
+            ],
+            [
+              "clip_skip",
+              2
+            ]
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "param_emitter",
+      "name": "param_emitter"
+    },
+    {
+      "config": {
+        "negative_scale": {
+          "type": "float",
+          "value": 0.8
+        },
+        "positive_scale": {
+          "type": "float",
+          "value": 1.5
+        },
+        "scaler_end": {
+          "type": "float",
+          "value": 0.3
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "adm_guidance",
+      "name": "adm_guidance/sdxl"
+    },
+    {
+      "config": {
+        "strength": {
+          "type": "float",
+          "value": 2.0
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "sharpness",
+      "name": "sharpness/sdxl"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "sag",
+      "name": "sag/sdxl"
+    },
+    {
+      "config": {
+        "cfg": {
+          "type": "int",
+          "value": 4
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        },
+        "resolution": {
+          "type": "str",
+          "value": "  896x1152\n"
+        },
+        "sampler": {
+          "type": "str",
+          "value": "DPMPP_SDE"
+        },
+        "scheduler": {
+          "type": "str",
+          "value": "karras"
+        },
+        "steps": {
+          "type": "int",
+          "value": 20
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "generator",
+      "name": "generator/sdxl"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "upscaler",
+      "name": "upscaler"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "tiled_detailer",
+      "name": "tiled_detailer/sdxl"
+    },
+    {
+      "config": {
+        "detect": {
+          "type": "list",
+          "value": [
+            "face",
+            "hand",
+            "eyes",
+            "teeth",
+            "person"
+          ]
+        },
+        "detections.eyes.cfg": {
+          "type": "float",
+          "value": 4.5
+        },
+        "detections.eyes.confidence": {
+          "type": "float",
+          "value": 0.5
+        },
+        "detections.eyes.enabled": {
+          "type": "bool",
+          "value": false
+        },
+        "detections.eyes.eye_padding": {
+          "type": "int",
+          "value": 10
+        },
+        "detections.eyes.eye_v_padding": {
+          "type": "int",
+          "value": 15
+        },
+        "detections.eyes.mask_blur": {
+          "type": "int",
+          "value": 1
+        },
+        "detections.eyes.model": {
+          "type": "str",
+          "value": "models/mediapipe/face_landmarker.task"
+        },
+        "detections.eyes.sampler": {
+          "type": "str",
+          "value": "DPMPP_SDE"
+        },
+        "detections.eyes.scheduler": {
+          "type": "str",
+          "value": "karras"
+        },
+        "detections.eyes.steps": {
+          "type": "int",
+          "value": 20
+        },
+        "detections.eyes.strength": {
+          "type": "float",
+          "value": 0.15
+        },
+        "detections.eyes.type": {
+          "type": "str",
+          "value": "mediapipe"
+        },
+        "detections.face.cfg": {
+          "type": "float",
+          "value": 2.0
+        },
+        "detections.face.confidence": {
+          "type": "float",
+          "value": 0.3
+        },
+        "detections.face.enabled": {
+          "type": "bool",
+          "value": true
+        },
+        "detections.face.mask_blur": {
+          "type": "float",
+          "value": 0.5
+        },
+        "detections.face.min_size_for_upscale": {
+          "type": "int",
+          "value": 256
+        },
+        "detections.face.model": {
+          "type": "str",
+          "value": "/GOLDEN/models/face_detector_model.safetensors"
+        },
+        "detections.face.padding": {
+          "type": "int",
+          "value": 32
+        },
+        "detections.face.sampler": {
+          "type": "str",
+          "value": "DPMPP_SDE"
+        },
+        "detections.face.scheduler": {
+          "type": "str",
+          "value": "karras"
+        },
+        "detections.face.steps": {
+          "type": "int",
+          "value": 8
+        },
+        "detections.face.strength": {
+          "type": "float",
+          "value": 0.75
+        },
+        "detections.face.type": {
+          "type": "str",
+          "value": "yolo"
+        },
+        "detections.face.upscale_factor": {
+          "type": "float",
+          "value": 1.5
+        },
+        "detections.hand.cfg": {
+          "type": "float",
+          "value": 2.0
+        },
+        "detections.hand.confidence": {
+          "type": "float",
+          "value": 0.3
+        },
+        "detections.hand.enabled": {
+          "type": "bool",
+          "value": false
+        },
+        "detections.hand.mask_blur": {
+          "type": "int",
+          "value": 2
+        },
+        "detections.hand.model": {
+          "type": "str",
+          "value": "/GOLDEN/models/hand_detector_model.safetensors"
+        },
+        "detections.hand.padding": {
+          "type": "int",
+          "value": 32
+        },
+        "detections.hand.sampler": {
+          "type": "str",
+          "value": "DPMPP_SDE"
+        },
+        "detections.hand.scheduler": {
+          "type": "str",
+          "value": "karras"
+        },
+        "detections.hand.steps": {
+          "type": "int",
+          "value": 8
+        },
+        "detections.hand.strength": {
+          "type": "float",
+          "value": 0.6
+        },
+        "detections.hand.type": {
+          "type": "str",
+          "value": "yolo"
+        },
+        "detections.person.cfg": {
+          "type": "float",
+          "value": 5.0
+        },
+        "detections.person.confidence": {
+          "type": "float",
+          "value": 0.4
+        },
+        "detections.person.enabled": {
+          "type": "bool",
+          "value": false
+        },
+        "detections.person.mask_blur": {
+          "type": "int",
+          "value": 3
+        },
+        "detections.person.model": {
+          "type": "str",
+          "value": "/GOLDEN/models/person_detector_model.safetensors"
+        },
+        "detections.person.padding": {
+          "type": "int",
+          "value": 48
+        },
+        "detections.person.sampler": {
+          "type": "str",
+          "value": "DPMPP_SDE"
+        },
+        "detections.person.scheduler": {
+          "type": "str",
+          "value": "karras"
+        },
+        "detections.person.steps": {
+          "type": "int",
+          "value": 20
+        },
+        "detections.person.strength": {
+          "type": "float",
+          "value": 0.25
+        },
+        "detections.person.type": {
+          "type": "str",
+          "value": "yolo"
+        },
+        "detections.teeth.cfg": {
+          "type": "float",
+          "value": 4.5
+        },
+        "detections.teeth.confidence": {
+          "type": "float",
+          "value": 0.5
+        },
+        "detections.teeth.enabled": {
+          "type": "bool",
+          "value": false
+        },
+        "detections.teeth.mask_blur": {
+          "type": "int",
+          "value": 0
+        },
+        "detections.teeth.model": {
+          "type": "str",
+          "value": "/GOLDEN/models/teeth_detector_model.safetensors"
+        },
+        "detections.teeth.mouth_open_threshold": {
+          "type": "float",
+          "value": 0.015
+        },
+        "detections.teeth.sampler": {
+          "type": "str",
+          "value": "DPMPP_SDE"
+        },
+        "detections.teeth.scheduler": {
+          "type": "str",
+          "value": "karras"
+        },
+        "detections.teeth.steps": {
+          "type": "int",
+          "value": 20
+        },
+        "detections.teeth.strength": {
+          "type": "float",
+          "value": 0.12
+        },
+        "detections.teeth.teeth_padding": {
+          "type": "int",
+          "value": 5
+        },
+        "detections.teeth.teeth_v_padding": {
+          "type": "int",
+          "value": 8
+        },
+        "detections.teeth.type": {
+          "type": "str",
+          "value": "mediapipe"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "detailer",
+      "name": "detailer/sdxl"
+    },
+    {
+      "config": {
+        "preset": {
+          "type": "str",
+          "value": "classic_35mm"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "film_grain",
+      "name": "film_grain"
+    },
+    {
+      "config": {
+        "save": {
+          "type": "str",
+          "value": "true"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "gallery",
+      "name": "gallery"
+    }
+  ],
+  "preset_id": "01K0W24A3RADXXABH16YQ7KE90",
+  "preset_name": "SDXL"
+}

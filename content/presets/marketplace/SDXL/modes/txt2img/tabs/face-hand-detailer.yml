@@ -1,0 +1,290 @@
+fields:
+  - type: "gate"
+    name: "face_detailer_enabled"
+    label: "Face Detailer"
+    default: true
+    configuration:
+      summary: "Detects and refines faces"
+    children:
+      - name: "face_strength"
+        type: "slider"
+        label: "Face Improve Strength"
+        default: 0.75
+        configuration: { min: 0.1, max: 1.0, step: 0.05 }
+
+      - name: "face_confidence"
+        type: "slider"
+        label: "Face Detection Confidence"
+        default: 0.3
+        configuration: { min: 0.1, max: 1.0, step: 0.05 }
+
+      - name: "face_steps"
+        type: "slider"
+        label: "Face Improve Steps"
+        default: 8
+        configuration: { min: 1, max: 30, step: 1 }
+
+      - name: "face_cfg"
+        type: "slider"
+        label: "Face Improve CFG"
+        default: 2.0
+        configuration: { min: 1.0, max: 15.0, step: 0.5 }
+
+      - name: "face_min_size"
+        type: "slider"
+        label: "Min Face Size for Upscale"
+        default: 256
+        configuration: { min: 64, max: 512, step: 32 }
+
+      - name: "face_upscale_factor"
+        type: "slider"
+        label: "Face Upscale Factor"
+        default: 1.5
+        configuration: { min: 1.0, max: 2.5, step: 0.1 }
+
+      - name: "face_mask_blur"
+        type: "slider"
+        label: "Face Mask Blur"
+        default: 0.5
+        configuration: { min: 0, max: 10, step: 0.5 }
+
+      - name: "face_padding"
+        type: "slider"
+        label: "Face Region Padding"
+        default: 32
+        configuration: { min: 0, max: 200, step: 8 }
+
+      - name: "face_detector_model"
+        type: "model"
+        label: "Face Detection Model"
+        configuration:
+          model_type: "detection_bbox"
+          filter_tags: "@config:detection_bbox_tags"
+
+  - type: "gate"
+    name: "hand_detailer_enabled"
+    label: "Hand Detailer"
+    default: false
+    configuration:
+      summary: "Detects and refines hands"
+    children:
+      - name: "hand_strength"
+        type: "slider"
+        label: "Hand Improve Strength"
+        default: 0.6
+        configuration: { min: 0.1, max: 1.0, step: 0.05 }
+
+      - name: "hand_confidence"
+        type: "slider"
+        label: "Hand Detection Confidence"
+        default: 0.3
+        configuration: { min: 0.1, max: 1.0, step: 0.05 }
+
+      - name: "hand_steps"
+        type: "slider"
+        label: "Hand Improve Steps"
+        default: 8
+        configuration: { min: 1, max: 30, step: 1 }
+
+      - name: "hand_cfg"
+        type: "slider"
+        label: "Hand Improve CFG"
+        default: 2.0
+        configuration: { min: 1.0, max: 15.0, step: 0.5 }
+
+      - name: "hand_mask_blur"
+        type: "slider"
+        label: "Hand Mask Blur"
+        default: 2
+        configuration: { min: 0, max: 10, step: 0.5 }
+
+      - name: "hand_padding"
+        type: "slider"
+        label: "Hand Region Padding"
+        default: 32
+        configuration: { min: 0, max: 200, step: 8 }
+
+      - name: "hand_detector_model"
+        label: "Hand Detection Model"
+        type: "model"
+        configuration:
+          model_type: "detection_bbox"
+          filter_tags: "@config:detection_bbox_tags"
+
+  - type: "gate"
+    name: "eyes_detailer_enabled"
+    label: "Eyes Detailer"
+    default: false
+    configuration:
+      summary: "Detects and refines eyes"
+    children:
+      - name: "eyes_strength"
+        type: "slider"
+        label: "Eye Improve Strength"
+        default: 0.15
+        configuration: { min: 0.1, max: 0.5, step: 0.05 }
+
+      - name: "eyes_confidence"
+        type: "slider"
+        label: "Eye Detection Confidence"
+        default: 0.5
+        configuration: { min: 0.1, max: 1.0, step: 0.05 }
+
+      - name: "eyes_cfg"
+        type: "slider"
+        label: "Eye Improve CFG"
+        default: 4.5
+        configuration: { min: 1.0, max: 15.0, step: 0.5 }
+
+      - name: "eyes_steps"
+        type: "slider"
+        label: "Eye Improve Steps"
+        default: 20
+        configuration: { min: 1, max: 30, step: 1 }
+
+      - name: "eyes_padding"
+        type: "slider"
+        label: "Eye Detection Padding"
+        default: 10
+        configuration: { min: 5, max: 30, step: 1 }
+
+      - name: "eyes_v_padding"
+        type: "slider"
+        label: "Eye Vertical Padding"
+        default: 15
+        configuration: { min: 5, max: 30, step: 1 }
+
+      - name: "eyes_mask_blur"
+        type: "slider"
+        label: "Eye Mask Blur"
+        default: 1
+        configuration: { min: 0, max: 10, step: 1 }
+
+      - name: "eye_detector_model"
+        label: "Eye Detection Model"
+        type: "model"
+        configuration:
+          model_type: "mediapipe"
+          filter_tags: "@config:mediapipe_tags"
+          recommendations:
+            - name: "MediaPipe Face Landmarker"
+              link: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
+              size: "3.58 MB"
+              description: "Locates facial landmarks so eyes can be found precisely for targeted enhancement."
+
+  - type: "gate"
+    name: "teeth_detailer_enabled"
+    label: "Teeth Detailer"
+    default: false
+    configuration:
+      summary: "Detects and refines teeth"
+    children:
+      - name: "teeth_strength"
+        type: "slider"
+        label: "Teeth Improve Strength"
+        default: 0.12
+        configuration: { min: 0.1, max: 0.5, step: 0.01 }
+
+      - name: "teeth_confidence"
+        type: "slider"
+        label: "Teeth Detection Confidence"
+        default: 0.5
+        configuration: { min: 0.1, max: 1.0, step: 0.05 }
+
+      - name: "teeth_cfg"
+        type: "slider"
+        label: "Teeth Improve CFG"
+        default: 4.5
+        configuration: { min: 1.0, max: 15.0, step: 0.5 }
+
+      - name: "teeth_steps"
+        type: "slider"
+        label: "Teeth Improve Steps"
+        default: 20
+        configuration: { min: 1, max: 30, step: 1 }
+
+      - name: "teeth_mouth_threshold"
+        type: "slider"
+        label: "Mouth Open Threshold"
+        default: 0.015
+        configuration: { min: 0.005, max: 0.05, step: 0.001 }
+
+      - name: "teeth_padding"
+        type: "slider"
+        label: "Teeth Horizontal Padding"
+        default: 5
+        configuration: { min: 3, max: 20, step: 1 }
+
+      - name: "teeth_v_padding"
+        type: "slider"
+        label: "Teeth Vertical Padding"
+        default: 8
+        configuration: { min: 3, max: 20, step: 1 }
+
+      - name: "teeth_mask_blur"
+        type: "slider"
+        label: "Teeth Mask Blur"
+        default: 0
+        configuration: { min: 0, max: 10, step: 1 }
+
+      - name: "teeth_detector_model"
+        label: "Teeth Detection Model"
+        type: "model"
+        configuration:
+          model_type: "mediapipe"
+          filter_tags: "@config:mediapipe_tags"
+          recommendations:
+            - name: "MediaPipe Face Landmarker"
+              link: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"
+              size: "3.58 MB"
+              description: "Locates facial landmarks around the mouth so teeth can be found precisely when the mouth is open."
+
+  - type: "gate"
+    name: "person_detailer_enabled"
+    label: "Person Detailer"
+    default: false
+    configuration:
+      summary: "Detects and refines the whole person"
+    children:
+      - name: "person_strength"
+        type: "slider"
+        label: "Person Improve Strength"
+        default: 0.25
+        configuration: { min: 0.1, max: 1.0, step: 0.05 }
+
+      - name: "person_confidence"
+        type: "slider"
+        label: "Person Detection Confidence"
+        default: 0.4
+        configuration: { min: 0.1, max: 1.0, step: 0.05 }
+
+      - name: "person_steps"
+        type: "slider"
+        label: "Person Improve Steps"
+        default: 20
+        configuration: { min: 1, max: 30, step: 1 }
+
+      - name: "person_cfg"
+        type: "slider"
+        label: "Person Improve CFG"
+        default: 5.0
+        configuration: { min: 1.0, max: 15.0, step: 0.5 }
+
+      - name: "person_mask_blur"
+        type: "slider"
+        label: "Person Mask Blur"
+        default: 3
+        configuration: { min: 0, max: 10, step: 0.5 }
+
+      - name: "person_padding"
+        type: "slider"
+        label: "Person Region Padding"
+        default: 48
+        configuration: { min: 0, max: 200, step: 8 }
+
+      - name: "person_detector_model"
+        label: "Person Detection Model"
+        type: "model"
+        configuration:
+          model_type: "detection_bbox"
+          filter_tags: "@config:detection_bbox_tags"

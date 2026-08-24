@@ -1,0 +1,106 @@
+# Krea-2 layout: a "Video" section holds the source clip plus seed/quantity
+# (Krea-2's own Image section pairs seed+quantity the same way), a "Models"
+# section holds the file pickers, and an "Enhancement" section (no Krea-2
+# counterpart) groups this mode's own refine/detailer knobs.
+fields:
+  - type: "section"
+    label: "Video"
+    children:
+      - name: "input_video"
+        type: "video"
+        label: "Input Video"
+        required: true
+        ai_hint: "An existing video to upscale, for example a clip generated in the Text to Video or Director modes. Upscaled in latent space and refined at the new resolution. Any frame count or resolution works; the output can end with up to ~0.3s of a frozen final frame due to grid alignment."
+
+      - type: "row"
+        children:
+          - name: "seed"
+            type: "seed"
+            label: "Seed"
+            default: -1
+
+          - name: "quantity"
+            type: "slider"
+            label: "Quantity"
+            default: 1
+            configuration: {min: 1, max: 4, step: 1}
+
+  - type: "section"
+    label: "Models"
+    children:
+      - name: "model"
+        type: "model"
+        label: "LTX checkpoint (all-in-one)"
+        required: true
+        configuration:
+          model_type: "checkpoint"
+          placeholder: "ltx-2-19b-dev / ltx-2.3-22b-dev..."
+          filter_tags: "@config:checkpoint_tags"
+
+      - name: "text_encoder"
+        type: "model"
+        label: "Text Encoder (Gemma3-12B)"
+        required: true
+        configuration:
+          model_type: "clip"
+          placeholder: "Select Gemma3-12B (gemma_3_12B_it)..."
+          filter_tags: "@config:clip_tags"
+
+      - name: "upscale_model"
+        type: "model"
+        label: "Spatial Upscaler"
+        required: true
+        configuration:
+          model_type: "upscaler"
+          placeholder: "Select an LTX-2.3 spatial upscaler..."
+          filter_tags: "@config:upscaler_tags"
+
+  - type: "section"
+    label: "Enhancement"
+    children:
+      - name: "refine_strength"
+        type: "select"
+        label: "Refine Strength"
+        ai_hint: "Friendly control for the standalone upscale mode's refine pass. Strong is Lightricks' first-party recipe and the recommended default; suggest Balanced/Light only if the user wants the refine to preserve more of the upsampled source video as-is. The Advanced tab's Refine Sigmas field is an expert override of this same knob -- prefer this select."
+        default: "strong"
+        configuration:
+          options:
+            - { label: "Strong (recommended)", value: "strong" }
+            - { label: "Balanced", value: "balanced" }
+            - { label: "Light", value: "light" }
+
+      - type: "gate"
+        name: "enhance_faces_hands"
+        label: "Enhance faces and hands"
+        default: false
+        configuration:
+          summary: "Detects and refines faces and hands on the refined video"
+        children:
+          - name: "enhancement_strength"
+            type: "select"
+            label: "Enhancement strength"
+            ai_hint: "Only used when Enhance faces and hands is on. Balanced is the safe default; suggest Light when the user worries the enhancement changes a face's identity, Strong only when they explicitly want maximum detail and accept more deviation."
+            default: "balanced"
+            configuration:
+              options:
+                - { label: "Light", value: "light" }
+                - { label: "Balanced", value: "balanced" }
+                - { label: "Strong", value: "strong" }
+
+          #############
+          # Detection models: same idiom as the video mode's fields of the same
+          # name (see that mode's tabs/enhance.yml for the full rationale) -- a
+          # plain `model` field over model_type "mediapipe", no bespoke
+          # recommendations/download flow.
+          #############
+          - name: "face_detector_model"
+            type: "model"
+            label: "Face Detection Model"
+            configuration:
+              model_type: "mediapipe"
+
+          - name: "hand_detector_model"
+            type: "model"
+            label: "Hand Detection Model"
+            configuration:
+              model_type: "mediapipe"

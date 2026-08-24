@@ -1,0 +1,66 @@
+form:
+  name: "std_form_basic"
+  fields:
+    # Preset selector
+    - name: "preset"
+      type: "preset_select"
+      label: "Preset"
+
+    # Model selector
+    - name: "model"
+      type: "select"
+      label: "Model"
+      configuration:
+        files:
+          in: "{{ path('checkpoint') }}"
+
+    # Resolution selector
+    - name: "resolution"
+      type: "resolution"
+      label: "Resolution"
+      default: "1024x1024"
+      save_into: "session"
+      input:
+        - [ "preset", "{{ internal['preset'] }}" ]
+      when: "{% if internal['preset'] is defined and internal['preset'] %}true{% else %}false{% endif %}"
+
+    # Seed
+    - type: "row"
+      when: "{% if internal['preset'] is defined and internal['preset'] %}true{% else %}false{% endif %}"
+      children:
+        - name: "seed"
+          type: "number"
+          label: "Seed"
+          default: "-1"
+          when: "{% if internal['preset'] is defined and internal['preset'] %}true{% else %}false{% endif %}"
+          configuration:
+            min: -1
+          input:
+            - [ "preset", "{{ internal['preset'] }}" ]
+          save_into: "session"
+
+        - name: "random_seed_btn"
+          type: "button"
+          configuration:
+            icon: [ "shuffle" ]
+          when: "{% if internal['preset'] is defined and internal['preset'] %}true{% else %}false{% endif %}"
+
+    # Number of images
+    - name: "num_images"
+      type: "slider"
+      label: "Number of images"
+      default: "1"
+      save_into: "session"
+      when: "{% if internal['preset'] is defined and internal['preset'] %}true{% else %}false{% endif %}"
+      input:
+        - [ "preset", "{{ internal['preset'] }}" ]
+      configuration:
+        min: 0
+        max: 16
+
+    - type: "alert"
+      configuration:
+        type: "warning"
+        message: |
+          Changing the value to 0 will generate infinite images.
+      when: "{% if internal['preset'] is defined and internal['preset'] and internal['num_images'] == 0 %}true{% else %}false{% endif %}"

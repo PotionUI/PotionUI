@@ -1,0 +1,9 @@
+# Social Media Resolutions - Common sizes for social media platforms
+- { value: "1920x1080", ratio: [16, 9], description: "YouTube / Twitter" }
+- { value: "1080x1080", ratio: [1, 1], description: "Instagram Square" }
+- { value: "1080x1350", ratio: [4, 5], description: "Instagram Portrait" }
+- { value: "1280x1600", ratio: [4, 5], description: "Instagram Portrait (HD)" }
+- { value: "1080x1920", ratio: [9, 16], description: "Stories / Reels / TikTok" }
+- { value: "1000x1500", ratio: [2, 3], description: "Pinterest" }
+- { value: "1200x630", ratio: [40, 21], description: "Facebook Share" }
+- { value: "1280x720", ratio: [16, 9], description: "YouTube Thumbnail" }

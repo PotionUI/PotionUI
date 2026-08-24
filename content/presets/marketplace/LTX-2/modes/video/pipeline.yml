@@ -1,0 +1,595 @@
+# Video Director pipeline for the native LTX-2 / LTX-2.3 family. Unlike Wan
+# (three generator classes routed by templated enabled:/provider), EVERY
+# Director mode here (t2v/i2v/flf/director) goes through the SAME
+# generator/video_ltx pipe -- it already handles plain t2v when given zero
+# media placements (see src/pipelines/pipes/generator/video_ltx/main.py). So this
+# pipeline is simpler: one generator, one always-on gallery, no provider
+# templating, no per-mode enabled: gating on the generator itself.
+#
+# Upscale: off (default) --
+#   model_loader/ltx -> prompt_encoder -> seed_generator
+#     -> media_images / media_videos / media_audio (media_loader, gated on
+#        whether the document actually has anything of that kind)
+#     -> generator_stage1 (decode) -> gallery
+#
+# Upscale: 1.5x | 2.0x (ports the txt2vid-mode in-flow
+# upscale option onto this mode, now that the standalone txt2vid MODE is
+# retired; `video` (Director) covers plain t2v too, a document with no
+# keyframes) -- the picked Resolution is STAGE 1's resolution (maintainer
+# decision: reject the "LTX workflow" idiom of rendering stage 1 at
+# Resolution/factor and upscaling back UP to the picked Resolution).
+# generator_stage1 generates at the plain picked Resolution with
+# decode=false (emits a raw latent, no VAE round trip; its audio decode
+# still runs independently of `decode` -- see the "audio + upscale" note
+# below), latent_upscaler upsamples that latent x factor in latent space,
+# and generator_stage2 refines the upsampled latent at Resolution x factor
+# (e.g. 544x960 + 2.0x -> stage 1 at 544x960, stage 2/output at 1088x1920)
+# with a short, low-noise pass (Lightricks' own stage-2 recipe, preset.vars.
+# ltx23_stage2_sigma_recipe) before decoding. Any /32-grid Resolution x 2.0
+# lands on the /64 grid the DiT requires; 1.5x can still land off-grid (e.g.
+# 544 x 1.5 = 816) -- preflight
+# (GenerationOrchestrator._check_ltx_two_stage_geometry, src/features/
+# generation/orchestrator.py) now rejects an off-grid 1.5x pick at submission
+# time, before stage 1 ever runs, using the same geometry math
+# (src/pipelines/pipes/latent_upscaler/ltx/geometry.py) stage 1/2 actually
+# run -- rather than what used to be generator/video_ltx's own
+# "initial_latent token count" mismatch error AFTER the expensive stage-1
+# render:
+#
+#   model_loader/ltx -> prompt_encoder -> seed_generator
+#     -> media_images / media_videos / media_audio
+#     -> generator_stage1 (no video decode; audio decode still runs)
+#     -> latent_upscaler/ltx -> generator_stage2 (decode, SAME
+#        media_images/media_videos/media_placements as stage 1, PLUS
+#        stage 1's `audio` output muxed in passthrough) -> gallery
+#
+# generator_stage1/generator_stage2 are the SAME generator/video_ltx pipe (two
+# instances, distinct `id:`s) reading the SAME `model` bundle, so the refine
+# pass automatically shares stage 1's exact model + LoRA chain -- no separate
+# wiring needed (project rule: refinement shares the generation's LoRA
+# chain). Stage 2 ALSO reconnects image/media_placements --
+# generator/video_ltx's build_context re-VAE-encodes image-sourced keyframe
+# conditioning at stage 2's OWN (full) resolution and merges it into the
+# upsampled latent at the keyframe-anchored (mask=1) positions, so i2v/FLF/
+# director keyframe identity is reapplied at target resolution rather than
+# only surviving through stage 1's lower-res encode. Video-sourced
+# conditioning (this mode's IC-LoRA references) and `initial_latent` stay
+# mutually exclusive -- generator/video_ltx raises a clear error rather than
+# silently mis-apply reference tokens at a refined resolution (see that
+# pipe's build_context and module docstring). This mirrors txt2vid/
+# pipeline.yml's stage1/stage2 split, just reusing THIS pipe's own two-stage
+# machinery instead of reaching for generator/txt2vid_ltx.
+#
+# -- audio + upscale interaction --
+# Upscale and audio now compose: generator/video_ltx decodes its audio track
+# INDEPENDENTLY of the `decode` (video) flag -- the audio VAE + vocoder round
+# trip has no dependency on the video VAE, so generator_stage1 still produces
+# a finished `audio` output even with decode=false (see that pipe's module
+# docstring and `generate_one`). generator_stage2 reconnects THAT output into
+# its own `audio` input with `audio_source: "passthrough"` -- mux the
+# already-decoded (or already-user-supplied) track verbatim, no re-decode, no
+# re-generation, no re-noising. `effective_upscale` below is therefore just
+# `form.upscale` defaulted to "off" -- it no longer forces "off" when audio is
+# requested; Upscale and Generate Audio (or a Director timeline with its own
+# audio clips) are fully independent choices now.
+#
+# `doc.*` in the comments below refers to `form.video_director` (a
+# top-level form_data key set by the Director editor -- see
+# src/core/video_director/normalize.py and src/core/generation/orchestrator.py).
+#
+# -- media index alignment (the part that has to stay in lockstep) --
+# `generator/video_ltx`'s `media_placements` entries carry a bare `index`
+# into whichever of its `image`/`video` ARRAY inputs their `source` names --
+# there's no id-based lookup, so the loader's load order and the placement
+# list's index values must be built by the EXACT SAME traversal, in the SAME
+# order, or a placement silently binds to the wrong media. `media_images`,
+# `media_videos` and `media_placements` are ALL precomputed together by
+# `derive_ltx_media_fields()` (src/features/video_director/normalize.py) --
+# unlike the plain first/last/keyframe entries, this is the one place the
+# index-alignment contract is enforced by construction rather than by
+# copy-pasted Jinja traversals: `media_images` walks `doc.media` in
+# first -> last -> keyframes-sorted-by-`at` order (image-typed entries only;
+# see the v1 cut note) and THEN appends image-typed `ic_lora[].reference`
+# entries (document order); `media_videos` holds ONLY video-typed
+# `ic_lora[].reference` entries (document order). Each `ic_lora` reference is
+# routed to whichever list matches its OWN media type -- an image reference
+# is a `source: "image"` placement into `media_images`, a video reference is
+# a `source: "video"` placement into `media_videos` -- because the video
+# loader below is cv2-backed and cannot read a still image file. The
+# `@loop`s below just replay these three precomputed lists verbatim; there is
+# no separate Jinja-side filter to keep in sync.
+#
+# -- v1 cut: image-only keyframe/first/last media --
+# MediaRef carries an optional `type` (frontend/src/lib/types/tabs.ts).
+# Keyframe clips (video-typed first/last/keyframe media) are allowed by the
+# document schema and by generator/video_ltx's `media_placements` contract
+# (`source: "image"|"video"`), but wiring a video-typed keyframe through this
+# pipeline would mean interleaving TWO different media_loader outputs into
+# ONE placement's index space depending on its type -- video-typed
+# first/last/keyframe entries are dropped here (not loaded, not placed) to
+# keep the index math simple. IC-LoRA `reference` entries are NOT subject to
+# this cut -- both image- and video-typed references are routed (see the
+# index-alignment note above); only the "keyframe" (first/last/keyframe
+# role) side stays image-only. Revisit if keyframe video clips become a real
+# feature request.
+#
+# -- audio routing --
+# doc.audio can only be non-empty in director mode (normalize.py rejects
+# it for t2v/i2v/flf). Precedence: user audio clips present -> mux the first
+# one (audio_source="file"); else the generate_audio form toggle decides
+# whether the AV DiT generates a soundtrack (audio_source="generate").
+# model_loader/ltx's own `audio:` bool mirrors the generator's, so the audio
+# VAE + vocoder are loaded exactly when they'll be used. This same `audio`
+# expression is reused on generator_stage2's own `audio` config (below) so it
+# knows whether to expect a mux-through track at all -- when audio isn't
+# requested, stage 2 ignores whatever (nothing) rides its `audio` input,
+# same as stage 1 would.
+pipeline:
+  - name: "model_loader/ltx"
+    enabled: true
+    configuration:
+      model:
+        file_path: "{{ form.model }}"
+        name: "{{ form.model }}"
+      text_encoder:
+        file_path: "{{ form.text_encoder }}"
+        name: "{{ form.text_encoder }}"
+      audio: "{{ form.generate_audio | default(false) or (form.video_director.audio | length) > 0 }}"
+      # Only acquired by model_loader/ltx when a path is
+      # actually set (blank -> no-op, zero extra VRAM/RAM cost) -- no need to
+      # gate this on `form.upscale` here, the loader's own `_path_of` check
+      # already handles "unset". See txt2vid/pipeline.yml's identical comment
+      # this ports.
+      upscale_model:
+        file_path: "{{ form.upscale_model | default('') }}"
+        name: "{{ form.upscale_model | default('') }}"
+      loras:
+        "@loop":
+          # Form loras + Director IC-LoRA references, merged into one stack
+          # (both are plain DiT LoRAs applied at load time -- the IC-LoRA
+          # reference VIDEO is a separate `video` input + placement, wired
+          # below; only its LoRA file goes through the loader).
+          # Native-list concat: raw form loras followed by Director IC-LoRA
+          # entries mapped to their `.lora` sub-object -- both shapes then
+          # expose `.model`/`.strength` uniformly, so `template:` needs no
+          # branching (unlike the old `| tojson` round-trip, @loop's native
+          # evaluator requires items to yield an actual list, not a string).
+          items: "{{ (form.loras | default([])) + (form.video_director.ic_lora | map(attribute='lora') | list) }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+
+  - name: "prompt_encoder"
+    input:
+      - ["clip", "model_loader/ltx", "clip"]
+    enabled: true
+    configuration:
+      # Legacy scalar passthrough (empty for a Director request): input==output
+      # makes `pairs` fully override the per-image prompt below.
+      p_prompt:
+        input: "{{ generation.prompts.first.positive }}"
+        output: "{{ generation.prompts.first.positive }}"
+      n_prompt:
+        input: "{{ generation.prompts.first.negative }}"
+        output: "{{ generation.prompts.first.negative }}"
+      # v1: ONE generation, ONE prompt -- segment prompts (already in start
+      # order per normalize.py's director sort) are joined with a space;
+      # negative is the first segment's (t2v/i2v/flf only ever have one).
+      pairs:
+        "@loop":
+          # items must be Jinja-templated ("{{ }}") or _process_loop leaves it
+          # as a raw string and iterates its CHARACTERS, not a 1-element list.
+          items: "{{ [0] }}"
+          template:
+            positive: "{{ form.video_director.segments | map(attribute='prompt') | join(' ') }}"
+            negative: "{{ form.video_director.segments[0].negative_prompt }}"
+      quantity: 1
+      # LTX uses true CFG -> encode the negative pass (guidance_scale > 1).
+      # form.cfg is the Generation tab's visible CFG slider, which the speed
+      # profile's reactions bake to the ACTUAL recipe value (1.0 distilled,
+      # 3.0 quality, whatever the user set for balanced) -- so this is the
+      # SAME source the generator's own cfg/quality_cfg below read, kept in
+      # sync only because there is exactly one visible field now (no more
+      # separate distilled_mode/quality_mode ternaries that could disagree;
+      # see this file's header comment for the identical
+      # per-field-independent-render constraint this mirrors).
+      guidance_scale: "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('balanced'))['guidance']) }}"
+      # NAG needs the negative pass ENCODED even when true CFG is off, and
+      # both generator stages can request it (stage 2 runs at a hardcoded cfg
+      # 1.0). Without mirroring it here, prompt_encoder._do_cfg() returns
+      # False at cfg 1.0, n_embeds comes back {}, and _attach_nag's
+      # `uncond is None` guard silently drops NAG -- the exact distilled case
+      # NAG exists for.
+      nag_scale: "{{ form.nag_scale | default(1.0) }}"
+
+  - name: "seed_generator"
+    enabled: true
+    configuration:
+      # Already resolved (never -1) by normalize_video_director() before this
+      # pipeline runs.
+      seed: "{{ form.video_director.settings.seed }}"
+      quantity: 1
+
+  #############
+  ## IOType to Value Converter
+  ############
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  #############
+  ## Parameter Emitter (Director mode had no param_emitter,
+  ## so history recorded no parameters/models for any Director generation).
+  ############
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: 1
+      parameters:
+        - ["model", "{{ form.model }}"]
+        - ["model", "{{ form.text_encoder }}"]
+        - ["model", "{{ form.upscale_model | default('') }}"]
+        - "@loop":
+            items: "{{ (form.loras | default([])) + (form.video_director.ic_lora | map(attribute='lora') | list) | active_loras }}"
+            template: ["model", "{{ item.model }}"]
+        - ["positive_prompt", "{{ form.video_director.segments | map(attribute='prompt') | join(' ') }}"]
+        - ["negative_prompt", "{{ form.video_director.segments[0].negative_prompt }}"]
+        - ["cfg", "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('balanced'))['guidance']) }}"]
+        - ["steps", "{{ form.steps | default(get_speed_profile(form.speed_profile | default('balanced'))['steps']) }}"]
+        - ["sampler", "{{ form.sampler | default(get_speed_profile(form.speed_profile | default('balanced'))['sampler']) }}"]
+        - ["resolution", "{{ form.resolution }}"]
+        - ["fps", "{{ form.video_director.settings.fps }}"]
+        - ["director_mode", "{{ form.video_director.mode | default('') }}"]
+
+  - name: "media_loader"
+    id: "media_images"
+    # `media_images` is precomputed by normalize_video_director()'s
+    # derive_ltx_media_fields() (src/features/video_director/normalize.py) --
+    # the strict/native @loop evaluator requires `items:` to already BE a
+    # list, so the old imperative {% set ns = namespace() %} traversal moved
+    # to the boundary that owns materialization instead of trying to build
+    # one at render time (see that function's docstring for the exact
+    # ordering contract this mirrors: first, then last, then keyframes
+    # sorted by `at`, image-typed entries only, then image-typed
+    # `ic_lora[].reference` entries).
+    enabled: "{{ (form.video_director.media_images | length) > 0 }}"
+    configuration:
+      media:
+        "@loop":
+          items: "{{ form.video_director.media_images }}"
+          template:
+            type: "image"
+            path: "{{ item }}"
+
+  - name: "media_loader"
+    id: "media_videos"
+    # `media_videos` is precomputed alongside `media_images` by the SAME
+    # derive_ltx_media_fields() call -- video-typed `ic_lora[].reference`
+    # entries only (document order); image-typed references are routed into
+    # `media_images` above instead. See the media-index-alignment note in
+    # this file's header (:75-93).
+    enabled: "{{ (form.video_director.media_videos | length) > 0 }}"
+    configuration:
+      media:
+        "@loop":
+          items: "{{ form.video_director.media_videos }}"
+          template:
+            type: "video"
+            path: "{{ item }}"
+
+  - name: "media_loader"
+    id: "media_audio"
+    enabled: "{{ (form.video_director.audio | length) > 0 }}"
+    configuration:
+      media:
+        "@loop":
+          items: "{{ ([form.video_director.audio[0].media.path] if form.video_director.audio else []) }}"
+          template:
+            type: "audio"
+            path: "{{ item }}"
+
+  #############
+  ## Stage 1 -- Off: the single full-resolution pass (decode=true). Upscale
+  ## on: generates at Resolution/factor and hands its raw latent to
+  ## latent_upscaler/ltx instead of decoding (decode=false); its `audio`
+  ## output still decodes/passes through independently of that (see this
+  ## file's header "audio + upscale interaction" note).
+  #############
+  - name: "generator/video_ltx"
+    id: "generator_stage1"
+    input:
+      - ["model", "model_loader/ltx", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+      - ["image", "media_images", "image"]
+      - ["video", "media_videos", "video"]
+      - ["audio", "media_audio", "audio"]
+    enabled: true
+    configuration:
+      # Krea-2-style idiom (docs/presets.md "Speed profiles"): the profile
+      # supplies the baseline, the visible form field (baked to the profile's
+      # exact value by the reactions in tabs/generation.yml) is what actually
+      # wins once a profile is selected.
+      steps: "{{ form.steps | default(get_speed_profile(form.speed_profile | default('balanced'))['steps']) }}"
+      cfg: "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('balanced'))['guidance']) }}"
+      sampler: "{{ form.sampler | default(get_speed_profile(form.speed_profile | default('balanced'))['sampler']) }}"
+      # Manual sigma schedule override (Advanced tab): non-empty wins over
+      # steps/shift entirely -- see guidance_options.py's schedule_settings_*.
+      # Distilled profile supplies preset.vars.distilled_sigma_recipe (single
+      # source of truth) directly; Quality profile clears manual_sigmas. The
+      # one genuinely-needed ternary left -- neither branch is a
+      # SpeedProfile-typed knob the get_speed_profile() idiom above covers.
+      manual_sigmas: "{{ preset.vars.distilled_sigma_recipe if (form.speed_profile | default('balanced') == 'distilled') else ('' if (form.speed_profile | default('balanced') == 'quality') else (form.manual_sigmas | default(''))) }}"
+      # Quality recipe: MultiModalGuider params. quality_cfg
+      # reads the SAME baked cfg value as the plain `cfg` key above (by
+      # design, for the quality profile they're the same 3.0).
+      quality_mode: "{{ (form.speed_profile | default('balanced')) == 'quality' }}"
+      quality_cfg: "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('balanced'))['guidance']) }}"
+      quality_stg: "{{ preset.vars.quality_stg }}"
+      quality_rescale: "{{ preset.vars.quality_rescale }}"
+      quality_modality: "{{ preset.vars.quality_modality }}"
+      quality_stg_blocks: "{{ preset.vars.quality_stg_blocks }}"
+      # NAG (Advanced tab): attention-level negative prompt, the only negative
+      # mechanism that survives cfg 1.0. 1.0 = off, and at 1.0 _attach_nag
+      # returns the cond dict untouched -- byte-identical to before it was
+      # wired here.
+      nag_scale: "{{ form.nag_scale | default(1.0) }}"
+      nag_tau: "{{ form.nag_tau | default(3.5) }}"
+      nag_alpha: "{{ form.nag_alpha | default(0.5) }}"
+      # Step cache (FBCache, Advanced tab): first-block-residual step
+      # skipping on the base generation pass, via generator/video_ltx's own
+      # sampler_step_cache_config_specs()/sampler_step_cache_kwargs() (see
+      # guidance_options.py) -- threshold 0.0 (default) resolves to
+      # step_cache_options=None, byte-identical to before these keys
+      # existed. Deliberately bound to generator_stage1 ONLY, not
+      # generator_stage2 below (nor the standalone upscale mode's own
+      # refine pass): both of those are short, low-noise REFINE passes
+      # where a skipped step costs exactly the fine detail the refine
+      # exists to add, whereas the base pass is the one with a real steps
+      # budget to spend cheap-but-slightly-lossy speed on. Add the same
+      # three keys to generator_stage2's configuration below to extend
+      # caching there.
+      step_cache_threshold: "{{ form.step_cache_threshold | default(0.0) }}"
+      step_cache_warmup_steps: "{{ form.step_cache_warmup_steps | default(4) }}"
+      step_cache_max_skips: "{{ form.step_cache_max_skips | default(3) }}"
+      # Stage 1 always renders at the picked Resolution, unchanged by
+      # Upscale -- the factor scales stage 2 UP from here instead (see this
+      # file's header comment). Byte-identical to before this option existed
+      # on this mode when Upscale is off (factor was always 1.0 there too);
+      # differs from the old behavior when Upscale is on, where stage 1 used
+      # to render at Resolution/factor instead (maintainer-rejected "LTX
+      # workflow" idiom).
+      resolution: "{{ form.resolution }}"
+      # duration is required for every LTX Director mode (LTX has no chain
+      # mode, so unlike Wan there's no None case) -- `or 0` stays defensive.
+      frames: "{{ ((form.video_director.settings.duration or 0) * form.video_director.settings.fps) | round | int }}"
+      fps: "{{ form.video_director.settings.fps }}"
+      quantity: 1
+      media_placements:
+        "@loop":
+          # Precomputed by derive_ltx_media_fields() alongside media_images
+          # (see that pipe's comment above) -- SAME traversal order, so
+          # `index` stays aligned with media_images'/media_videos' load
+          # order. Every entry carries all five keys (role defaults to
+          # "keyframe" for image placements, "frame" is unread by the
+          # generator for role="reference" placements) so the template below
+          # never has to branch on source.
+          items: "{{ form.video_director.media_placements }}"
+          template:
+            source: "{{ item.source }}"
+            index: "{{ item.index }}"
+            frame: "{{ item.frame }}"
+            strength: "{{ item.strength }}"
+            role: "{{ item.role }}"
+      audio: "{{ form.generate_audio | default(false) or (form.video_director.audio | length) > 0 }}"
+      audio_source: "{% if (form.video_director.audio | length) > 0 %}file{% else %}generate{% endif %}"
+      # Decode straight to video when Off (unchanged behaviour); when
+      # upscaling, skip decode -- latent_upscaler/ltx reads this pipe's raw
+      # `latent` output instead. Audio decodes independently of this flag
+      # (see that pipe's module docstring / the "audio + upscale
+      # interaction" header note above), so an upscale-on request still gets
+      # a finished `audio` output here for stage 2 to mux. Must be an exact
+      # `{{ expression }}` (no `{% set %}` preamble, unlike `resolution`
+      # above) -- `decode` is read back as `bool(self.config.get("decode",
+      # True))` in generator/video_ltx, and Python's `bool("False")` is True
+      # (non-empty string), so a string-rendered "False" here would silently
+      # defeat this gate and always decode. Same effective-upscale
+      # expression as `resolution` above, just without the `{% set %}`
+      # shorthand (see latent_upscaler/ltx's `enabled:` comment below for
+      # the identical exact-expression requirement).
+      decode: "{{ (form.upscale | default('off')) == 'off' }}"
+
+  #############
+  ## Latent-space spatial upscale (only when the effective
+  ## upscale selection -- see generator_stage1's `decode` comment -- is not
+  ## "off").
+  #############
+  - name: "latent_upscaler/ltx"
+    id: "latent_upscaler"
+    input:
+      - ["latent", "generator_stage1", "latent"]
+      - ["model", "model_loader/ltx", "model"]
+    # `enabled:` must be an exact `{{ expression }}` (no `{% set %}` preamble)
+    # to evaluate to a native bool -- see TemplateProcessor.process_template's
+    # docstring; a `{% set %}`-prefixed string string-renders instead and the
+    # pipe is never enabled. Same effective-upscale expression as `decode`/
+    # `resolution` above, just without the `{% set %}` shorthand.
+    enabled: "{{ (form.upscale | default('off')) != 'off' }}"
+    configuration: {}
+
+  #############
+  ## Stage-2 refine of the upsampled latent at full Resolution
+  ## (only when the effective upscale selection is not "off"). Same `model`
+  ## bundle as stage 1 -> same LoRA chain automatically. Reconnects the SAME
+  ## image/video/media_placements inputs as stage 1 -- generator/
+  ## video_ltx's own build_context re-VAE-encodes image-sourced keyframes at
+  ## THIS node's (full) resolution and MERGES them into the upsampled latent
+  ## at the mask-1 (keyframe-anchored) positions, so i2v/FLF/director
+  ## keyframe identity survives the upscale instead of being diluted by
+  ## stage 1's lower-res encode (see that pipe's module docstring). Video-
+  ## sourced conditioning (this mode's IC-LoRA `ic_lora.reference` clips,
+  ## always role="reference" per the v1-cut note above) and `initial_latent`
+  ## remain mutually exclusive -- the generator raises a clear error rather
+  ## than silently drop or mis-apply reference tokens at a refined
+  ## resolution, so a document with an IC-LoRA reference clip and Upscale
+  ## both on will fail loudly at generation time (out of scope for now, see
+  ## that pipe's build_context). `media_images` and `media_placements`
+  ## below MUST stay the identical pair stage 1 uses (see the media-index-
+  ## alignment contract in this file's header, :68-98) -- same node
+  ## outputs, same @loop, so index alignment is automatic.
+  ##
+  ## Restoration-intent quality prompting (preset.vars.
+  ## refine_quality_prompt) is deliberately NOT applied here, for the exact
+  ## same reason txt2vid/pipeline.yml's (retired) stage 2 skipped it:
+  ## `conditioning` above is the SAME `prompt_encoder` node's output stage 1
+  ## already consumed -- splicing the quality suffix in here would either
+  ## mutate the shared conditioning (silently changing stage 1's prompt too)
+  ## or require a second Gemma3-12B encode just for stage 2. Verdict
+  ## unchanged: not worth it for an in-flow refine of a source generated
+  ## seconds ago from the same prompt/model/LoRA chain (the standalone
+  ## upscale mode, refining an arbitrary pre-existing video, is the case
+  ## where the quality-prompt suffix earns its keep).
+  ##
+  ## `audio` input reads generator_stage1's OWN `audio` OUTPUT, not
+  ## media_audio -- stage 1 already normalized "generate" vs. "file" into one
+  ## finished track (see the "audio + upscale interaction" header note);
+  ## `audio_source: "passthrough"` below just muxes it verbatim, no
+  ## re-decode/re-generation.
+  #############
+  - name: "generator/video_ltx"
+    id: "generator_stage2"
+    input:
+      - ["model", "model_loader/ltx", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+      - ["initial_latent", "latent_upscaler", "latent"]
+      - ["image", "media_images", "image"]
+      - ["video", "media_videos", "video"]
+      - ["audio", "generator_stage1", "audio"]
+    # See latent_upscaler/ltx's identical comment above -- `enabled:` needs
+    # an exact `{{ expression }}`, not a `{% set %}`-prefixed string.
+    enabled: "{{ (form.upscale | default('off')) != 'off' }}"
+    configuration:
+      # Resolution x factor -- the inverse of stage 1's (now-plain)
+      # `form.resolution` (see this file's header comment and generator_
+      # stage1's own resolution comment above). 544x960 + 2.0x -> 1088x1920.
+      # `latent_upscaler/ltx` needs no matching change: it's a fixed-factor
+      # model, its own output shape already lands here.
+      resolution: "{% set effective_upscale = (form.upscale | default('off')) %}{% set factor = 1.5 if effective_upscale == '1.5x' else (2.0 if effective_upscale == '2.0x' else 1.0) %}{{ (form.resolution.split('x')[0] | int * factor) | round | int }}x{{ (form.resolution.split('x')[1] | int * factor) | round | int }}"
+      frames: "{{ ((form.video_director.settings.duration or 0) * form.video_director.settings.fps) | round | int }}"
+      fps: "{{ form.video_director.settings.fps }}"
+      quantity: 1
+      # Mirrors generator_stage1's own `audio` bool (see this file's header
+      # "audio routing" note) -- stage 2 only looks at its `audio` input
+      # (stage 1's passthrough output) when audio was actually requested.
+      audio: "{{ form.generate_audio | default(false) or (form.video_director.audio | length) > 0 }}"
+      audio_source: "passthrough"
+      # Identical @loop to generator_stage1's -- see the media-index-alignment
+      # contract in this file's header (:68-98): `media_images`/`media_videos`
+      # and this @loop must walk the SAME traversal in the SAME order as
+      # stage 1's copy, since `media_placements` binds by bare index into the
+      # image/video arrays above, not by id.
+      media_placements:
+        "@loop":
+          items: "{{ form.video_director.media_placements }}"
+          template:
+            source: "{{ item.source }}"
+            index: "{{ item.index }}"
+            frame: "{{ item.frame }}"
+            strength: "{{ item.strength }}"
+            role: "{{ item.role }}"
+      decode: true
+      # Lightricks' own two-stage recipe: CFG 1 (SimpleDenoiser, no negative
+      # pass) and a plain deterministic Euler loop for the refine stage --
+      # see docs/models/ltx.md's distilled-refine section for the citation.
+      cfg: 1.0
+      sampler: "euler"
+      # NAG applies here too, and this is the stage that needs it most: the
+      # cfg 1.0 above means the negative prompt has NO effect on this pass
+      # through the guider, so NAG's attention-level injection is the only
+      # path by which it reaches stage 2 at all. Same three form values as
+      # stage 1 -- one slider governs the whole render, rather than the
+      # control's reach depending on the Upscale setting.
+      nag_scale: "{{ form.nag_scale | default(1.0) }}"
+      nag_tau: "{{ form.nag_tau | default(3.5) }}"
+      nag_alpha: "{{ form.nag_alpha | default(0.5) }}"
+      # Step cache (Advanced tab) is deliberately NOT bound here -- see
+      # generator_stage1's identical-name config above for the reasoning
+      # (this is a short refine pass, not the base generation pass). Add
+      # step_cache_threshold/step_cache_warmup_steps/step_cache_max_skips
+      # here, unchanged, to extend caching to the refine stage.
+      # `refine_sigmas`, NOT `manual_sigmas` -- see generator/video_ltx's
+      # module docstring for why (manual_sigmas forces sigma[0]=1.0, which
+      # would silently turn this refine back into a fresh generation).
+      # `or`, NOT `| default(...)`: the Advanced-tab field's own default is ""
+      # (a defined, non-Undefined empty string), and Jinja's `default()`
+      # filter only substitutes for an UNDEFINED value -- it would silently
+      # pass an empty string through otherwise, and the generator raises
+      # "refine_sigmas' is empty" on every real submission. `or` correctly
+      # treats the empty string as falsy and falls back to the recipe.
+      #
+      # UX: the explicit Advanced-tab override (empty by
+      # default) still wins first via `or`; absent that, the friendly Refine
+      # Strength select (Generation tab) picks which suffix of Lightricks'
+      # recipe to use -- Strong (default, unset falls through to it too) is
+      # the untouched, byte-identical-to-before-this-change full recipe.
+      refine_sigmas: "{{ form.upscale_refine_sigmas or (preset.vars.ltx23_stage2_sigma_recipe_balanced if (form.refine_strength | default('strong')) == 'balanced' else (preset.vars.ltx23_stage2_sigma_recipe_light if (form.refine_strength | default('strong')) == 'light' else preset.vars.ltx23_stage2_sigma_recipe)) }}"
+      # Enhance tab's own LoRA picker (stage 2 only): ADDED on top of
+      # model_loader/ltx's `loras` above, applied around this call's sampling
+      # alone (generator/video_ltx's own stage2_loras config). Same
+      # file_path/weight flattening as the `loras` @loop above. Empty -> [].
+      stage2_loras:
+        "@loop":
+          items: "{{ form.enhancement_loras | default([]) }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+
+  #############
+  ## Face/hand enhancement: refine detected faces and hands as
+  ## stabilized spatiotemporal tubes with the SAME model bundle (-> same LoRA
+  ## chain). Reads whichever stage actually decoded (stage 2 when upscaling,
+  ## else stage 1), and its own output feeds the gallery when enabled. Off by
+  ## default; audio survives (the detailer re-encodes with the source clip's
+  ## own audio track passed through).
+  ##
+  ## `enabled:` must be an exact `{{ expression }}` (no `{% set %}` preamble)
+  ## so it evaluates to a native bool -- see latent_upscaler/ltx's identical
+  ## comment above (a `{% set %}`-prefixed string renders "False", and
+  ## bool("False") is True, silently forcing the pipe on).
+  #############
+  - name: "detailer/video_ltx"
+    id: "detailer"
+    input:
+      - ["video", "{% set effective_upscale = (form.upscale | default('off')) %}{% if effective_upscale != 'off' %}generator_stage2{% else %}generator_stage1{% endif %}", "video"]
+      - ["model", "model_loader/ltx", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: "{{ form.enhance_faces_hands | default(false) }}"
+    configuration:
+      strength: "{{ form.enhancement_strength | default('balanced') }}"
+      # `or`, not `default()` -- an unpicked `model` field submits "" (see
+      # docs/presets.md / the templating gotcha), which `default()` would not
+      # catch, silently handing the pipe an empty path.
+      face_model: "{{ form.face_detector_model or 'models/mediapipe/face_landmarker.task' }}"
+      hand_model: "{{ form.hand_detector_model or 'models/mediapipe/hand_landmarker.task' }}"
+
+  #############
+  ## Gallery -- reads the enhanced result when face/hand enhancement is on,
+  ## otherwise whichever stage decoded (effective upscale off: stage 1 direct;
+  ## on: stage 2, the refined/upsampled result).
+  #############
+  - name: "gallery"
+    input:
+      - ["video", "{% set effective_upscale = (form.upscale | default('off')) %}{% if form.enhance_faces_hands | default(false) %}detailer{% elif effective_upscale != 'off' %}generator_stage2{% else %}generator_stage1{% endif %}", "video"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: true
+    configuration:
+      save: "true"

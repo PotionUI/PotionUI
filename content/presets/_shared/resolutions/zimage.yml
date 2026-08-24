@@ -1,0 +1,75 @@
+# zImage Resolutions - Full resolution set across multiple tiers
+# Lower tiers for lower-VRAM cards, snapped to zImage's 16px granularity
+# (src/pipelines/pipes/_shared/generation/flow_generator_pipe.py).
+# Minimum (~512px)
+- { value: "512x512", ratio: [1, 1], description: "Minimum Square", tier: "Minimum" }
+- { value: "576x448", ratio: [9, 7], description: "Minimum Landscape", tier: "Minimum" }
+- { value: "448x576", ratio: [7, 9], description: "Minimum Portrait", tier: "Minimum" }
+- { value: "592x448", ratio: [4, 3], description: "Minimum Landscape", tier: "Minimum" }
+- { value: "448x592", ratio: [3, 4], description: "Minimum Portrait", tier: "Minimum" }
+- { value: "624x416", ratio: [3, 2], description: "Minimum Wide Landscape", tier: "Minimum" }
+- { value: "416x624", ratio: [2, 3], description: "Minimum Tall Portrait", tier: "Minimum" }
+- { value: "688x384", ratio: [16, 9], description: "Minimum Widescreen", tier: "Minimum" }
+- { value: "384x688", ratio: [9, 16], description: "Minimum Vertical", tier: "Minimum" }
+- { value: "784x336", ratio: [7, 3], description: "Minimum Ultra Wide", tier: "Minimum" }
+- { value: "336x784", ratio: [3, 7], description: "Minimum Ultra Tall", tier: "Minimum" }
+# Small (~640px)
+- { value: "640x640", ratio: [1, 1], description: "Small Square", tier: "Small" }
+- { value: "720x560", ratio: [9, 7], description: "Small Landscape", tier: "Small" }
+- { value: "560x720", ratio: [7, 9], description: "Small Portrait", tier: "Small" }
+- { value: "736x560", ratio: [4, 3], description: "Small Landscape", tier: "Small" }
+- { value: "560x736", ratio: [3, 4], description: "Small Portrait", tier: "Small" }
+- { value: "784x528", ratio: [3, 2], description: "Small Wide Landscape", tier: "Small" }
+- { value: "528x784", ratio: [2, 3], description: "Small Tall Portrait", tier: "Small" }
+- { value: "848x480", ratio: [16, 9], description: "Small Widescreen", tier: "Small" }
+- { value: "480x848", ratio: [9, 16], description: "Small Vertical", tier: "Small" }
+- { value: "976x416", ratio: [7, 3], description: "Small Ultra Wide", tier: "Small" }
+- { value: "416x976", ratio: [3, 7], description: "Small Ultra Tall", tier: "Small" }
+# Compact (~768px)
+- { value: "768x768", ratio: [1, 1], description: "Compact Square", tier: "Compact" }
+- { value: "864x672", ratio: [9, 7], description: "Compact Landscape", tier: "Compact" }
+- { value: "672x864", ratio: [7, 9], description: "Compact Portrait", tier: "Compact" }
+- { value: "880x672", ratio: [4, 3], description: "Compact Landscape", tier: "Compact" }
+- { value: "672x880", ratio: [3, 4], description: "Compact Portrait", tier: "Compact" }
+- { value: "944x624", ratio: [3, 2], description: "Compact Wide Landscape", tier: "Compact" }
+- { value: "624x944", ratio: [2, 3], description: "Compact Tall Portrait", tier: "Compact" }
+- { value: "1024x576", ratio: [16, 9], description: "Compact Widescreen", tier: "Compact" }
+- { value: "576x1024", ratio: [9, 16], description: "Compact Vertical", tier: "Compact" }
+- { value: "1168x496", ratio: [7, 3], description: "Compact Ultra Wide", tier: "Compact" }
+- { value: "496x1168", ratio: [3, 7], description: "Compact Ultra Tall", tier: "Compact" }
+# Standard (~1024px)
+- { value: "1024x1024", ratio: [1, 1], description: "Standard Square", tier: "Standard" }
+- { value: "1152x896", ratio: [9, 7], description: "Standard Landscape", tier: "Standard" }
+- { value: "896x1152", ratio: [7, 9], description: "Standard Portrait", tier: "Standard" }
+- { value: "1152x864", ratio: [4, 3], description: "Standard Landscape", tier: "Standard" }
+- { value: "864x1152", ratio: [3, 4], description: "Standard Portrait", tier: "Standard" }
+- { value: "1248x832", ratio: [3, 2], description: "Standard Wide Landscape", tier: "Standard" }
+- { value: "832x1248", ratio: [2, 3], description: "Standard Tall Portrait", tier: "Standard" }
+- { value: "1280x720", ratio: [16, 9], description: "Standard Widescreen", tier: "Standard" }
+- { value: "720x1280", ratio: [9, 16], description: "Standard Vertical", tier: "Standard" }
+- { value: "1344x576", ratio: [7, 3], description: "Standard Ultra Wide", tier: "Standard" }
+- { value: "576x1344", ratio: [3, 7], description: "Standard Ultra Tall", tier: "Standard" }
+# Large (~1280px)
+- { value: "1280x1280", ratio: [1, 1], description: "Large Square", tier: "Large" }
+- { value: "1440x1120", ratio: [9, 7], description: "Large Landscape", tier: "Large" }
+- { value: "1120x1440", ratio: [7, 9], description: "Large Portrait", tier: "Large" }
+- { value: "1472x1104", ratio: [4, 3], description: "Large Landscape", tier: "Large" }
+- { value: "1104x1472", ratio: [3, 4], description: "Large Portrait", tier: "Large" }
+- { value: "1536x1024", ratio: [3, 2], description: "Large Wide Landscape", tier: "Large" }
+- { value: "1024x1536", ratio: [2, 3], description: "Large Tall Portrait", tier: "Large" }
+- { value: "1536x864", ratio: [16, 9], description: "Large Widescreen", tier: "Large" }
+- { value: "864x1536", ratio: [9, 16], description: "Large Vertical", tier: "Large" }
+- { value: "1680x720", ratio: [7, 3], description: "Large Ultra Wide", tier: "Large" }
+- { value: "720x1680", ratio: [3, 7], description: "Large Ultra Tall", tier: "Large" }
+# XL (~1536px)
+- { value: "1536x1536", ratio: [1, 1], description: "XL Square", tier: "XL" }
+- { value: "1728x1344", ratio: [9, 7], description: "XL Landscape", tier: "XL" }
+- { value: "1344x1728", ratio: [7, 9], description: "XL Portrait", tier: "XL" }
+- { value: "1728x1296", ratio: [4, 3], description: "XL Landscape", tier: "XL" }
+- { value: "1296x1728", ratio: [3, 4], description: "XL Portrait", tier: "XL" }
+- { value: "1872x1248", ratio: [3, 2], description: "XL Wide Landscape", tier: "XL" }
+- { value: "1248x1872", ratio: [2, 3], description: "XL Tall Portrait", tier: "XL" }
+- { value: "2048x1152", ratio: [16, 9], description: "2K Widescreen", tier: "XL" }
+- { value: "1152x2048", ratio: [9, 16], description: "2K Vertical", tier: "XL" }
+- { value: "2016x864", ratio: [7, 3], description: "2K Ultra Wide", tier: "XL" }
+- { value: "864x2016", ratio: [3, 7], description: "2K Ultra Tall", tier: "XL" }

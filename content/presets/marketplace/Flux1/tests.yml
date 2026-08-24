@@ -1,0 +1,37 @@
+########
+## Flux1 standard: E2E test suite.
+## Authoring reference: docs/presets.md "Testing presets"
+########
+schema: 1
+
+# NOTE: the pre-split Flux preset's tests.yml only ever pinned Klein/Flux2
+# cases (see content/presets/marketplace/Flux2/tests.yml) -- there was no
+# Flux1-specific case to carry over. This suite is a scaffold with the same
+# structural shape (one `fast` baseline case) so a maintainer with the Flux1
+# DiT/T5-XXL/CLIP-L/VAE weights on disk can fill in real sha256 values.
+cases:
+  - name: "flux1-baseline-fast"
+    mode: "txt2img"
+    seed: 12345
+    tags: ["fast", "needs-model"]
+    form:
+      # `prompt` is not a preset form field (Flux1/standard has none) -- it
+      # maps to the generation request's top-level prompt, per convention.
+      prompt: "a small red boat on a calm lake at sunset, photograph"
+      steps: 10
+      guidance: 3.5
+      sampler: "euler"
+      resolution: "1024x1024"
+    models:
+      diffusion_model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      clip_l:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 1
+      resolution: "1024x1024"
+      not_black: true

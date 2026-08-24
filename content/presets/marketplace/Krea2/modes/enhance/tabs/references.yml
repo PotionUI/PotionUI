@@ -1,0 +1,6 @@
+fields:
+  - name: "source_image"
+    type: "image"
+    label: "Source Image"
+    required: true
+    ai_hint: "The image to enhance. Snapped to the model's patch granularity before encoding."

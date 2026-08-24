@@ -1,0 +1,67 @@
+{
+  "schema": "potionui.automation",
+  "schema_version": 1,
+  "kind": "automation",
+  "exported_at": "2026-07-15T00:00:00+00:00",
+  "automation": {
+    "name": "Index new model files",
+    "description": "Watch a model directory, index newly added weights, and notify administrators.",
+    "graph": {
+      "nodes": [
+        {
+          "id": "watch_models",
+          "type": "trigger.filesystem",
+          "position": { "x": 0, "y": 0 },
+          "config": {
+            "directory": "__custom__",
+            "custom_path": "/configure/model-directory",
+            "recursive": true,
+            "event": "created",
+            "pattern": "*.safetensors",
+            "debounce_ms": 2000
+          }
+        },
+        {
+          "id": "index_model",
+          "type": "action.index_model",
+          "position": { "x": 320, "y": 0 },
+          "config": {
+            "path": "{{ event.path }}",
+            "model_type": ""
+          }
+        },
+        {
+          "id": "notify_indexed",
+          "type": "action.send_notification",
+          "position": { "x": 640, "y": 0 },
+          "config": {
+            "title": "Model indexed",
+            "message": "Indexed {{ upstream.index_model.name }}",
+            "level": "success"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "watch_to_index",
+          "source": "watch_models",
+          "source_handle": "out",
+          "target": "index_model",
+          "target_handle": "in"
+        },
+        {
+          "id": "index_to_notify",
+          "source": "index_model",
+          "source_handle": "out",
+          "target": "notify_indexed",
+          "target_handle": "in"
+        }
+      ]
+    }
+  },
+  "node_types": [
+    "action.index_model",
+    "action.send_notification",
+    "trigger.filesystem"
+  ]
+}

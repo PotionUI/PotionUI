@@ -1,0 +1,223 @@
+﻿hair:
+  style:
+    - bob cut
+    - inverted bob
+    - bowl cut
+    - buzz cut
+    - chonmage
+    - crew cut
+    - flattop
+    - okappa
+    - pixie cut
+    - undercut
+    - flipped hair
+    - wolf cut
+    - hime cut
+    - mullet
+    - bantu knots
+    - bow-shaped hair
+    - shuangyaji
+    - braid
+    - braided bangs
+    - front braid
+    - side braid
+    - french braid
+    - cornrows
+    - crown braid
+    - dreadlocks
+    - single braid
+    - multiple braids
+    - twin braids
+    - low twin braids
+    - tri braids
+    - quad braids
+    - flower-shaped hair
+    - hair bun
+    - braided bun
+    - single hair bun
+    - double bun
+    - cone hair bun
+    - doughnut hair bun
+    - heart hair bun
+    - triple bun
+    - cone hair bun
+    - hair rings
+    - feixianji
+    - katsuyamamage
+    - single hair ring
+    - half updo
+    - half up braid
+    - half up half down braid
+    - one side up
+    - two side up
+    - low-braided long hair
+    - low-tied long hair
+    - mizura
+    - multi-tied hair
+    - nihongami
+    - ponytail
+    - folded ponytail
+    - front ponytail
+    - high ponytail
+    - short ponytail
+    - side ponytail
+    - split ponytail
+    - star-shaped hair
+    - topknot
+    - twintails
+    - low twintails
+    - short twintails
+    - uneven twintails
+    - tri tails
+    - quad tails
+    - quin tails
+    - twisted hair
+    - afro
+    - huge afro
+    - beehive hairdo
+    - crested hair
+    - liangbatou
+    - pompadour
+    - quiff
+    - shouten pegasus mix mori
+    - asymmetrical hair
+    - sidecut
+  front:
+    - bangs
+    - arched bangs
+    - asymmetrical bangs
+    - bangs pinned back
+    - blunt bangs
+    - braided bangs
+    - crossed bangs
+    - choppy bangs
+    - diagonal bangs
+    - dyed bangs
+    - fanged bangs
+    - hair over eyes
+    - hair over one eye
+    - long bangs
+    - parted bangs
+    - curtained hair
+    - wispy bangs
+    - short bangs
+    - swept bangs
+    - hair between eyes
+    - hair intakes
+    - single hair intake
+    - sidelocks
+    - asymmetrical sidelocks
+    - drill sidelocks
+    - low-tied sidelocks
+    - sidelocks tied back
+    - single sidelock
+    - widow's peak
+  top:
+    - ahoge
+    - heart ahoge
+    - huge ahoge
+    - antenna hair
+    - heart antenna hair
+    - comb over
+    - hair pulled back
+    - hair slicked back
+    - mohawk
+    - oseledets
+  texture:
+    - curly hair
+    - drill hair
+    - twin drills
+    - tri drills
+    - hair flaps
+    - messy hair
+    - pointy hair
+    - ringlets
+    - spiked hair
+    - straight hair
+    - wavy hair
+    - blunt ends
+  length:
+    - very short hair
+    - short hair
+    - medium hair
+    - long hair
+    - very long hair
+    - absurdly long hair
+    - big hair
+  color:
+    - aqua hair
+    - black hair
+    - blonde hair
+    - blue hair
+    - light blue hair
+    - dark blue hair
+    - brown hair
+    - light brown hair
+    - green hair
+    - dark green hair
+    - grey hair
+    - orange hair
+    - pink hair
+    - purple hair
+    - light purple hair
+    - red hair
+    - white hair
+  multicolor:
+    - multicolored hair
+    - colored inner hair
+    - colored tips
+    - gradient hair
+    - patterned hair
+    - rainbow hair
+    - split-color hair
+    - spotted hair
+    - streaked hair
+    - striped hair
+    - raccoon tails
+    - two-tone hair
+  fantasy:
+    - cloud hair
+    - chocolate hair
+    - crystal hair
+    - energy hair
+    - feather hair
+    - fiery hair
+    - food-themed hair
+    - glowing hair
+    - intestine hair
+    - liquid hair
+    - mechanical hair
+    - plant hair
+    - prehensile hair
+    - helicopter hair
+    - tentacle hair
+    - living hair
+    - snake hair
+    - starry hair
+  accessory:
+    - arrow through hair
+    - bun cover
+    - hairpods
+    - chopsticks
+    - comb
+    - hair extensions
+    - cyberlox
+    - hair ornament
+    - hair bell
+    - hair bobbles
+    - hair bow
+    - hair ribbon
+    - hairclip
+    - hairpin
+    - hair flower
+    - hair tubes
+    - frilled hair tubes
+    - single hair tube
+    - kanzashi
+    - hair tie
+    - hairband
+    - hair weapon
+    - headband
+    - knife in hair
+    - scrunchie
+    - wig

@@ -1,0 +1,59 @@
+########
+## LTX-2 / 2.3: E2E test suite (grounded in maintainer VIDEO + upscale sessions).
+## Authoring reference: docs/presets.md "Testing presets"
+########
+schema: 1
+
+cases:
+  # Distilled t2v smoke: session's Distilled speed profile (8 steps, CFG 1.0,
+  # Euler CFG++ -- Lightricks' own deterministic distilled-refine recipe, see
+  # preset.yml's speed_profiles.distilled comment) at the smallest SD portrait
+  # size. The video mode is a Video Director flow, so prompts come from the
+  # submitted director document (none set here). Checkpoint + Gemma3 TE are
+  # placeholder+needs-model; the ~0.5 distilled LoRA is omitted (a lora_picker
+  # stack can't be resolved through the models: sha mechanism).
+  - name: "ltx-video-distilled-t2v-fast"
+    mode: "video"
+    kind: "video"
+    seed: 12345
+    tags: ["fast", "needs-model"]
+    form:
+      speed_profile: "distilled"
+      resolution: "480x832"
+      steps: 8
+      cfg: 1
+      sampler: "euler_cfg_pp"
+      upscale: "off"
+      refine_strength: "strong"
+      generate_audio: true
+    models:
+      model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 1
+      not_black: true
+
+  # Standalone upscale smoke: session's Balanced refine strength; face/hand
+  # enhancement disabled to keep the pass cheap. Requires an input video the
+  # headless suite can't supply, so placeholder+needs-model makes it skip.
+  - name: "ltx-upscale-refine-fast"
+    mode: "upscale"
+    kind: "video"
+    seed: 12345
+    tags: ["fast", "needs-model"]
+    form:
+      refine_strength: "balanced"
+      enhance_faces_hands: false
+      apply_quality_prompt: true
+    models:
+      model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      upscale_model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 1
+      not_black: true

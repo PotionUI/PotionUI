@@ -1,0 +1,31 @@
+# Edge shaping and spill suppression -- the difference between a cutout that
+# composites and one that looks pasted.
+fields:
+  - name: "softness"
+    type: "slider"
+    label: "Softness"
+    audience: "advanced"
+    default: 10
+    ai_hint: "How wide the partial-transparency band is at the edge of the keyed region, as a percentage; 0 gives a hard in-or-out decision at the tolerance boundary. Tolerance decides WHERE the cut happens; softness decides how gradual it is. At 0 every pixel is either fully kept or fully removed, which aliases badly on anything but a perfectly sharp source and shows as a jagged, stair-stepped silhouette. 10-20 covers most cases. Push to 30-50 when the subject has genuinely semi-transparent parts -- hair, motion blur, glass, smoke -- where a binary decision throws away exactly the pixels that sell the composite. Distinct from Feather below: softness widens the tolerance band in COLOUR space (which pixels are partially keyed), feather blurs the finished alpha in SPACE."
+    configuration:
+      min: 0
+      max: 100
+      step: 1
+
+  - name: "despill"
+    type: "checkbox"
+    label: "Suppress Spill"
+    audience: "advanced"
+    default: true
+    ai_hint: "Leave this on. Spill is light from the background reflecting off the subject -- most visible on hair, shoulders and other light edges -- so it survives the key by definition: those pixels are subject, they are just tinted. Without suppression a cutout carries a green or blue rim that reads as obviously composited on any new background, and no amount of tolerance removes it (raising tolerance far enough to catch spill eats the subject first). Turn it off only when the subject legitimately contains a lot of the key colour -- green clothing against a green screen -- and suppression is draining real colour out of it; the better fix there is to re-key against the other chroma colour instead."
+
+  - name: "key_feather"
+    type: "slider"
+    label: "Feather"
+    audience: "advanced"
+    default: 0
+    ai_hint: "Blur radius in pixels applied to the finished alpha channel; 0 leaves the keyed edge exactly where the key put it. A spatial blur of the alpha, applied after the key is decided -- it smooths the edge geometry, where Softness smooths the colour decision. Keep it at 0 unless the edge is visibly stepped after Softness has already been raised; feathering is destructive and no later stage can sharpen the edge back. 1-2px settles a slightly ragged edge on a low-resolution or heavily compressed source. Above ~4px the subject visibly dissolves at the border, which is rarely what you want on a cutout that will be composited onto something else."
+    configuration:
+      min: 0
+      max: 16
+      step: 0.5

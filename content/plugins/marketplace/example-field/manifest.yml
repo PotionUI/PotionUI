@@ -1,0 +1,11 @@
+id: "example-field"
+name: "Example Field Type"
+version: "1.0.0"
+description: "Reference implementation of a plugin-provided form field type (A4) - a 1-5 star rating widget"
+author: "PotionUI Team"
+type: "frontend-only"
+category: "developer"
+
+field_types:
+  - type: "example_stars"
+    component: "ExampleStarsField.js"

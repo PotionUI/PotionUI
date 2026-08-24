@@ -1,0 +1,39 @@
+name: "custom"
+fields:
+  - type: "tabs"
+    children:
+      - type: "tab"
+        label: "Inpainting"
+        configuration:
+          icon: "generation"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/inpaint/tabs/inpainting.yml"
+
+      - type: "tab"
+        label: "References"
+        configuration:
+          icon: "image"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/inpaint/tabs/references.yml"
+
+      - type: "tab"
+        label: "LoRA"
+        configuration:
+          icon: "lora"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/inpaint/tabs/lora.yml"
+
+      - type: "tab"
+        label: "Embeddings"
+        configuration:
+          icon: "embedding"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/inpaint/tabs/embeddings.yml"
+
+      - type: "tab"
+        label: "Advanced"
+        audience: "advanced"
+        configuration:
+          icon: "settings"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/inpaint/tabs/advanced.yml"

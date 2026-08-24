@@ -1,0 +1,12 @@
+# Social Media Video Resolutions - Social media aspect ratios scaled for video models
+# Small variants (~480P area), HD variants (~720P area, ~921,600 pixels)
+- { value: "720x720", ratio: [1, 1], description: "Square" }
+- { value: "960x960", ratio: [1, 1], description: "Square (720P)" }
+- { value: "576x720", ratio: [4, 5], description: "Portrait (4:5)" }
+- { value: "832x1040", ratio: [4, 5], description: "Portrait (4:5 720P)" }
+- { value: "720x576", ratio: [5, 4], description: "Landscape (5:4)" }
+- { value: "1040x832", ratio: [5, 4], description: "Landscape (5:4 720P)" }
+- { value: "480x720", ratio: [2, 3], description: "Tall Portrait (2:3)" }
+- { value: "768x1152", ratio: [2, 3], description: "Tall Portrait (2:3 720P)" }
+- { value: "720x480", ratio: [3, 2], description: "Wide Landscape (3:2)" }
+- { value: "1152x768", ratio: [3, 2], description: "Wide Landscape (3:2 720P)" }

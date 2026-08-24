@@ -1,0 +1,18 @@
+fields:
+  # No steps/sampler here — "Detail Change" (Generation tab) picks the tail of
+  # the fixed-mu schedule directly; a steps field would be misleading since
+  # the effective step count is exactly the tail length, not a form value.
+  #
+  # No speed profile in this mode (see pipeline.yml header comment), so `cfg`
+  # is a standalone field rather than a profile-driven one -- it tracks
+  # whatever regime the base generation used, but nothing here enforces that.
+  - name: "cfg"
+    type: "slider"
+    label: "CFG Scale"
+    audience: "advanced"
+    default: 1.0
+    ai_hint: "Classifier-free guidance scale for the refine pass. 1.0 = off (today's behavior, single forward). Above 1.0 enables a real negative-prompt pass each step -- set to match whatever CFG the base generation used."
+    configuration:
+      min: 1.0
+      max: 15.0
+      step: 0.5

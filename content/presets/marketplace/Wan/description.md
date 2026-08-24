@@ -1,0 +1,1 @@
+Turn a text prompt into a short video clip, or bring a still photo to life as moving footage. Also includes a director mode for composing longer clips from multiple shots. Built for Wan 2.1 and 2.2, Alibaba's open video models, widely regarded for smooth, natural motion.

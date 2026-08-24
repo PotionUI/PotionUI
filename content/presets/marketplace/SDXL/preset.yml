@@ -1,0 +1,131 @@
+########
+## Preset definition
+########
+schema: 1
+id: "01K0W24A3RADXXABH16YQ7KE90"
+name: "SDXL"
+version: "1.0.1"
+category: "image"
+engine: "native"
+tags: ["sdxl", "realistic", "photorealistic", "local"]
+
+media:
+  cover: "public/examples/potion.png"
+  gallery:
+    - src: "public/examples/potion.png"
+      prompt: "masterpiece, best quality, ultra-detailed, macro photography, focal point on glowing ornate glass potion bottle, alchemical artifact, swirling bioluminescent liquid, deep ultraviolet, electric cyan, bright gold, suspended microscopic clockwork mechanism, intricate brass gears, sapphire jewels, complex etched glass surface, arcane geometry, aged leather stopper, polished crystal cap, weathered stone bench, background bokeh, glowing liquid caustics, dramatic rim lighting, volumetric mist, cinematic lighting, subsurface scattering, 8k resolution, sharp focus, extreme depth of field"
+      mode: "txt2img"
+
+# Hardware guidance (docs/user/hardware-requirements.md): SDXL is the
+# supported floor - the one native/diffusers family PotionUI guarantees
+# works at 8 GB VRAM + 16 GB system RAM.
+requires:
+  min_vram_gb: 8
+  min_ram_gb: 16
+
+# Admin-set values (Admin -> Presets -> Configuration). Model pickers reference
+# these via `filter_tags: "@config:<key>"`; unset = no filtering (all models shown).
+configuration:
+  checkpoint_tags:
+    type: "model_tags"
+    label: "Checkpoint tags"
+    description: "Only models with any of these tags appear in the Checkpoint picker."
+  lora_tags:
+    type: "model_tags"
+    label: "LoRA tags"
+    description: "Only LoRAs with any of these tags appear in the LoRA picker."
+  controlnet_tags:
+    type: "model_tags"
+    label: "ControlNet tags"
+    description: "Only models with any of these tags appear in the ControlNet picker."
+  upscaler_tags:
+    type: "model_tags"
+    label: "Upscaler tags"
+    description: "Only models with any of these tags appear in the Upscaler picker."
+  embedding_tags:
+    type: "model_tags"
+    label: "Embedding tags"
+    description: "Only models with any of these tags appear in the Embedding picker."
+  detection_bbox_tags:
+    type: "model_tags"
+    label: "Detection Bbox tags"
+    description: "Only models with any of these tags appear in the Detection Bbox picker."
+  mediapipe_tags:
+    type: "model_tags"
+    label: "Mediapipe tags"
+    description: "Only models with any of these tags appear in the Mediapipe picker."
+
+vars:
+  # Model configuration
+  main_model: "cyberrealisticPony_v180Coreshift"
+  model_base: "SDXL"
+
+  # ControlNet configuration
+  num_controlnet_slots: 3
+
+  # Generation defaults
+  sampler: "DPMPP_2M"
+  scheduler: "karras"
+  default_steps: 30
+  default_cfg: 5
+  generator_denoise: 0.7
+
+  # Detailer settings
+  tiled_detailer_denoise: 0.25
+  tiled_detailer_steps: 30
+  tiled_detailer_cfg: "5.5"
+  tiled_detailer_boost: 2
+
+  # Face/hand fix settings
+  face_fix_strength: 0.4
+  face_fix_confidence: 0.5
+  face_fix_steps: 30
+  face_fix_cfg: 7
+
+  # Embeddings configuration
+  embeddings:
+    - name: "CyberRealistic_Negative_PONY-neg"
+      form_key: "cyberrealistic_pony_negative"
+    - name: "CyberRealisticPony_POSV1"
+      form_key: "cyberrealistic_pony_positive"
+
+  # Wildcards to download
+  wildcards:
+    - "ponyxlWildcardsVault_expressions"
+    - "ponyxlWildcardsVault_artstylesIII"
+    - "ponyxlWildcardsVault_stereotypesG1"
+    - "ponyxlWildcardsVault_posesAndActionsI"
+    - "ponyxlWildcardsVault_scenesAndLocations"
+
+  # Upscaler configuration
+  upscaler_model: "remacri_original"
+
+  # Other settings
+  sharpness: 2
+  clip_skip: "1"  # Use 1 for SDXL models (uses penultimate hidden state)
+
+llm:
+  guide: |
+    Pick the style by checkpoint type (check the active model's name and guidance).
+    Photoreal / general checkpoints: natural-language description plus a few weighted
+    tags; no "masterpiece" boilerplate needed - base SDXL understands plain semantic
+    descriptions. Anime checkpoints use danbooru tag lists - [quality tags]
+    [character count] [character] [series] [artist] [general tags] - but the
+    quality-tag convention depends on the LINEAGE and they are NOT interchangeable:
+    - Pony (V6 XL): must lead with the full cumulative chain "score_9, score_8_up,
+      score_7_up, score_6_up, score_5_up, score_4_up" - "score_9" alone is
+      documented as much weaker. No masterpiece-style tags.
+    - Illustrious: lead with "masterpiece, best quality"; no score tags.
+    - NoobAI: lead with "masterpiece, best quality, newest, absurdres, highres,
+      safe"; no score tags; typical negative "nsfw, worst quality, old, early,
+      low quality, lowres, signature, username, logo, bad hands".
+    If the lineage isn't clear from the model name or its guidance notes, use
+    "masterpiece, best quality". (tag:1.2) weighting works on all of them. Either
+    way, CLIP encodes in ~75-token chunks - front-load the most important
+    tags/phrases into the first chunk and keep prompts focused. Negative prompts
+    are standard on SDXL: quality negatives (worst quality, low quality, bad
+    anatomy, extra fingers) plus whatever the specific image risks.
+
+modes:
+  - txt2img
+  - inpaint

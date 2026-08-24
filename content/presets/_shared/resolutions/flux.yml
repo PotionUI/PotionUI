@@ -1,0 +1,40 @@
+# FLUX Resolutions - Optimized for FLUX and Klein models
+- { value: "1024x1024", ratio: [1, 1], description: "Square", tier: "Full" }
+- { value: "1140x1472", ratio: [5, 6], description: "Portrait", tier: "Full" }
+- { value: "1472x1140", ratio: [6, 5], description: "Landscape", tier: "Full" }
+- { value: "1056x1584", ratio: [2, 3], description: "Tall Portrait", tier: "Full" }
+- { value: "1584x1056", ratio: [3, 2], description: "Wide Landscape", tier: "Full" }
+- { value: "1328x1776", ratio: [3, 4], description: "Tall", tier: "Full" }
+- { value: "1776x1328", ratio: [4, 3], description: "Wide", tier: "Full" }
+- { value: "1920x1080", ratio: [16, 9], description: "Widescreen", tier: "Full" }
+- { value: "1080x1920", ratio: [9, 16], description: "Vertical", tier: "Full" }
+# Compact tiers for lower-VRAM cards. Snapped to 32px (Flux2/Klein's
+# granularity, the stricter of the two this file serves -- Flux1 only needs
+# 16px, see src/pipelines/pipes/_shared/generation/flow_generator_pipe.py).
+- { value: "768x768", ratio: [1, 1], description: "Square (Compact)", tier: "Compact" }
+- { value: "704x832", ratio: [5, 6], description: "Portrait (Compact)", tier: "Compact" }
+- { value: "832x704", ratio: [6, 5], description: "Landscape (Compact)", tier: "Compact" }
+- { value: "640x928", ratio: [2, 3], description: "Tall Portrait (Compact)", tier: "Compact" }
+- { value: "928x640", ratio: [3, 2], description: "Wide Landscape (Compact)", tier: "Compact" }
+- { value: "672x896", ratio: [3, 4], description: "Tall (Compact)", tier: "Compact" }
+- { value: "896x672", ratio: [4, 3], description: "Wide (Compact)", tier: "Compact" }
+- { value: "1024x576", ratio: [16, 9], description: "Widescreen (Compact)", tier: "Compact" }
+- { value: "576x1024", ratio: [9, 16], description: "Vertical (Compact)", tier: "Compact" }
+- { value: "640x640", ratio: [1, 1], description: "Square (Small)", tier: "Small" }
+- { value: "576x704", ratio: [5, 6], description: "Portrait (Small)", tier: "Small" }
+- { value: "704x576", ratio: [6, 5], description: "Landscape (Small)", tier: "Small" }
+- { value: "512x768", ratio: [2, 3], description: "Tall Portrait (Small)", tier: "Small" }
+- { value: "768x512", ratio: [3, 2], description: "Wide Landscape (Small)", tier: "Small" }
+- { value: "544x736", ratio: [3, 4], description: "Tall (Small)", tier: "Small" }
+- { value: "736x544", ratio: [4, 3], description: "Wide (Small)", tier: "Small" }
+- { value: "864x480", ratio: [16, 9], description: "Widescreen (Small)", tier: "Small" }
+- { value: "480x864", ratio: [9, 16], description: "Vertical (Small)", tier: "Small" }
+- { value: "512x512", ratio: [1, 1], description: "Square (Minimum)", tier: "Minimum" }
+- { value: "480x576", ratio: [5, 6], description: "Portrait (Minimum)", tier: "Minimum" }
+- { value: "576x480", ratio: [6, 5], description: "Landscape (Minimum)", tier: "Minimum" }
+- { value: "416x640", ratio: [2, 3], description: "Tall Portrait (Minimum)", tier: "Minimum" }
+- { value: "640x416", ratio: [3, 2], description: "Wide Landscape (Minimum)", tier: "Minimum" }
+- { value: "448x576", ratio: [3, 4], description: "Tall (Minimum)", tier: "Minimum" }
+- { value: "576x448", ratio: [4, 3], description: "Wide (Minimum)", tier: "Minimum" }
+- { value: "672x384", ratio: [16, 9], description: "Widescreen (Minimum)", tier: "Minimum" }
+- { value: "384x672", ratio: [9, 16], description: "Vertical (Minimum)", tier: "Minimum" }

@@ -1,0 +1,13 @@
+# Where the kept window begins. Left at 0 the trim just shortens the clip
+# from its own start; raised, it also skips whatever comes before it.
+fields:
+  - name: "start_seconds"
+    type: "slider"
+    label: "Trim Start"
+    audience: "advanced"
+    default: 0.0
+    ai_hint: "Where the kept window starts, in seconds from the beginning of the source. A start at or past the source's own length produces an empty (but still valid) output rather than an error -- if the result comes back silent, this is almost always why. There is no upper bound tied to the actual source here (the slider's max is just a practical UI limit); a value beyond the real file length is clamped at generation time, not rejected up front."
+    configuration:
+      min: 0
+      max: 600
+      step: 0.1

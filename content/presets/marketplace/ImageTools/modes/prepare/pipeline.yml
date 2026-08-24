@@ -1,0 +1,107 @@
+# Pipeline for the 'prepare' mode -- "Prepare for animation".
+#
+#   media_loader -> [matting/birefnet] -> [crop_subject] -> canvas_fit -> gallery
+#
+# The two bracketed stages are individually toggleable from the form (a source
+# that already carries alpha should not be re-matted; a source already framed
+# the way you want should not be re-cropped). A toggled-off pipe produces NO
+# output, so each consumer's `input:` provider is a template that names
+# whichever upstream pipe actually ran -- the same idiom SDXL's txt2img uses
+# for its optional upscaler/tiled_detailer stages. Order matters: matting must
+# run BEFORE cropping (crop_subject trims to the ALPHA bbox, so without a
+# matte there is nothing to trim to) and both before canvas_fit.
+#
+# Deterministic throughout: no text encoder, no denoise loop, no seed -- so
+# there is no prompt_encoder and no seed_generator pipe.
+pipeline:
+  #############
+  ## Media Loader - Load the source image from the form file path
+  #############
+  - name: "media_loader"
+    id: "media_loader"
+    enabled: true
+    configuration:
+      validate_files: true
+      max_file_size: 52428800  # 50MB
+      auto_detect_type: true
+      media:
+        - type: "image"
+          path: "{{ form.input_image }}"
+
+  #############
+  ## Parameter Emitter - record the run's settings on the generation
+  #############
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    configuration:
+      quantity: 1
+      parameters:
+        # Only record a model when matting actually ran with one selected --
+        # an empty "model" row in history is noise, not provenance.
+        - "@loop":
+            items: "{{ [form.matting_model | default('')] if (form.remove_background | default(true)) and (form.matting_model | default('')) != '' else [] }}"
+            template: ["model", "{{ item }}"]
+        - ["remove_background", "{{ form.remove_background | default(true) }}"]
+        - ["matte_strength", "{{ form.matte_strength | default(50) }}"]
+        - ["matte_feather", "{{ form.matte_feather | default(0) }}"]
+        - ["trim_to_subject", "{{ form.trim_to_subject | default(true) }}"]
+        - ["crop_margin", "{{ form.crop_margin | default(0) }}"]
+        - ["crop_alpha_threshold", "{{ form.crop_alpha_threshold | default(16) }}"]
+        - ["canvas", "{{ form.canvas_resolution | default('832x480') }}"]
+        - ["scale_percent", "{{ form.scale_percent | default(70) }}"]
+        - ["anchor", "{{ form.anchor | default('center') }}"]
+        - ["fill", "{{ form.fill | default('#00B140') }}"]
+
+  #############
+  ## Matting - BiRefNet cutout, run while the subject still fills the frame
+  #############
+  - name: "matting/birefnet"
+    id: "matting"
+    enabled: "{{ form.remove_background | default(true) }}"
+    input:
+      - ["image", "media_loader", "image"]
+    configuration:
+      model:
+        file_path: "{{ form.matting_model | default('') }}"
+        name: "{{ form.matting_model | default('') }}"
+      matte_strength: "{{ form.matte_strength | default(50) }}"
+      feather: "{{ form.matte_feather | default(0) }}"
+
+  #############
+  ## Crop to subject - trim to the alpha bbox so framing stops depending on
+  ## wherever the generator happened to place the character
+  #############
+  - name: "crop_subject"
+    id: "crop_subject"
+    enabled: "{{ form.trim_to_subject | default(true) }}"
+    input:
+      - ["image", "{% if form.remove_background | default(true) %}matting{% else %}media_loader{% endif %}", "image"]
+    configuration:
+      margin: "{{ form.crop_margin | default(0) }}"
+      alpha_threshold: "{{ form.crop_alpha_threshold | default(16) }}"
+
+  #############
+  ## Canvas fit - scale the subject down onto the target video canvas so the
+  ## character has room to MOVE, and fill the padding with an opaque colour
+  #############
+  - name: "canvas_fit"
+    id: "canvas_fit"
+    enabled: true
+    input:
+      - ["image", "{% if form.trim_to_subject | default(true) %}crop_subject{% elif form.remove_background | default(true) %}matting{% else %}media_loader{% endif %}", "image"]
+    configuration:
+      width: "{{ (form.canvas_resolution | default('832x480')).split('x')[0] | int }}"
+      height: "{{ (form.canvas_resolution | default('832x480')).split('x')[1] | int }}"
+      scale_percent: "{{ form.scale_percent | default(70) }}"
+      anchor: "{{ form.anchor | default('center') }}"
+      fill: "{{ form.fill | default('#00B140') }}"
+
+  #############
+  ## Gallery - save the prepared image
+  #############
+  - name: "gallery"
+    id: "gallery"
+    enabled: true
+    input:
+      - ["image", "canvas_fit", "image"]

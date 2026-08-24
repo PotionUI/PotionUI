@@ -1,0 +1,59 @@
+# Pipeline for the 'remove_background' mode.
+#
+#   media_loader -> param_emitter -> matting/birefnet -> gallery
+#
+# One stage of the `prepare` chain on its own: BiRefNet predicts an alpha
+# matte for the subject and the result is emitted as an RGBA cutout, at the
+# source's own resolution. Deterministic -- no text encoder, no denoise loop,
+# no seed -- so there is no prompt_encoder and no seed_generator pipe.
+pipeline:
+  #############
+  ## Media Loader - Load the source image from the form file path
+  #############
+  - name: "media_loader"
+    id: "media_loader"
+    enabled: true
+    configuration:
+      validate_files: true
+      max_file_size: 52428800  # 50MB
+      auto_detect_type: true
+      media:
+        - type: "image"
+          path: "{{ form.input_image }}"
+
+  #############
+  ## Parameter Emitter - record the run's settings on the generation
+  #############
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    configuration:
+      quantity: 1
+      parameters:
+        - ["model", "{{ form.matting_model }}"]
+        - ["matte_strength", "{{ form.matte_strength | default(50) }}"]
+        - ["matte_feather", "{{ form.matte_feather | default(0) }}"]
+
+  #############
+  ## Matting - BiRefNet cutout
+  #############
+  - name: "matting/birefnet"
+    id: "matting"
+    enabled: true
+    input:
+      - ["image", "media_loader", "image"]
+    configuration:
+      model:
+        file_path: "{{ form.matting_model }}"
+        name: "{{ form.matting_model }}"
+      matte_strength: "{{ form.matte_strength | default(50) }}"
+      feather: "{{ form.matte_feather | default(0) }}"
+
+  #############
+  ## Gallery - save the RGBA cutout
+  #############
+  - name: "gallery"
+    id: "gallery"
+    enabled: true
+    input:
+      - ["image", "matting", "image"]

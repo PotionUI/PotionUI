@@ -1,0 +1,11 @@
+form:
+  name: "std_form_prompts_management"
+  fields:
+    - type: "row"
+      configuration: { padding: false, equal_height: true }
+      children:
+        - type: "label"
+          label: "Populate saved prompts:"
+        - name: "select_saved_prompt"
+          type: "select"
+          container: false

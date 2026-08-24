@@ -1,0 +1,172 @@
+fields:
+  - type: "section"
+    label: "Sampling"
+    children:
+      - name: "steps"
+        type: "slider"
+        label: "Steps"
+        audience: "advanced"
+        default: 4
+        ai_hint: "Denoising steps; video and audio share the count but step their own sigma schedules. 20-25 is the base model's working range, 4 is the Turbo recipe's."
+        configuration: {min: 2, max: 100, step: 1}
+        reactions:
+          - when: { field: "speed_profile", equals: "quality" }
+            then: { set_value: 24, set_disabled: false }
+          - when: { field: "speed_profile", equals: "turbo" }
+            then: { set_value: 4, set_disabled: false }
+          - when: { field: "speed_profile", equals: "custom" }
+            then: { set_disabled: false }
+      - type: "row"
+        children:
+          - name: "sampler"
+            type: "select"
+            label: "Sampler"
+            audience: "advanced"
+            default: "euler"
+            ai_hint: >-
+              How each step advances between two sigmas. Euler is the reference
+              solver and what the model was distilled against — leave it there for
+              an ordinary request. Res multistep, DPM++ 2M and SA-Solver are
+              deterministic second-order solvers: they reuse the previous step's
+              estimate, so they cost no extra time and mostly buy sharpness at LOW
+              step counts (the 4-step Turbo profile, or a hand-set 8-12). ER-SDE is
+              stochastic instead — it injects noise every step, seeded like the
+              rest of the request, trading exact reproducibility for more variety.
+              Suggest a non-default one only when the user asks for better quality
+              at a low step count, or wants to try the community's MiniMax-H3
+              recipes — res multistep with the Simple scheduler, DPM++ 2M with
+              Beta.
+            configuration:
+              options:
+                - { label: "Euler (reference)", value: "euler" }
+                - { label: "Res multistep", value: "res_multistep" }
+                - { label: "DPM++ 2M", value: "dpmpp_2m" }
+                - { label: "ER-SDE (stochastic)", value: "er_sde" }
+                - { label: "SA-Solver", value: "sa_solver" }
+
+          - name: "scheduler"
+            type: "select"
+            label: "Scheduler"
+            audience: "advanced"
+            default: "simple"
+            ai_hint: >-
+              Where the steps land on the noise curve. Simple is the model's own
+              uniform grid and the right answer unless asked otherwise. Beta pulls
+              knots toward both ends — more steps on early composition and on the
+              final detail, fewer in the middle — which tends to help short runs
+              and pairs with DPM++ 2M in the community recipe. Both video and audio
+              are derived from the same knots either way. Cannot be combined with
+              this tab's manual sigmas; that combination is refused rather than
+              silently ignored.
+            configuration:
+              options:
+                - { label: "Simple (reference)", value: "simple" }
+                - { label: "Beta", value: "beta" }
+          - name: "manual_sigmas"
+            type: "textbox"
+            label: "Manual sigmas (video)"
+            default: ""
+            ai_hint: "An expert escape hatch for reshaping where the model spends its steps -- front-load values near 1.0 for more composition work, cluster them low for more detail refinement. Do not offer it for ordinary requests; Steps and the speed profile cover those. Only reach for it when the user explicitly asks for a custom or non-uniform sigma schedule, or is transplanting a schedule from another tool. Always end the list at 0.0 or the render is refused. The list is the grid, not the step count: N values run N-1 steps. The computed default is shift 12 (video) / shift 3 (audio)."
+            configuration:
+              placeholder: "e.g. 1.0, 0.93, 0.8, 0.55, 0.0"
+          - name: "manual_audio_sigmas"
+            type: "textbox"
+            label: "Manual sigmas (audio)"
+            default: ""
+            ai_hint: "Rarely needed on its own. Leave blank even when Manual sigmas (video) is set, unless the user specifically wants a different noise curve for the soundtrack than for the picture. If both lists are filled they must have the same number of values."
+            configuration:
+              placeholder: "blank = matched to the video schedule"
+
+  - type: "section"
+    label: "Sparse attention"
+    audience: "advanced"
+    children:
+      - name: "sparse_attn"
+        type: "select"
+        label: "Sparse attention"
+        default: "off"
+        ai_hint: "A speed-for-fidelity trade on long MiniMax-H3 sequences, never a quality improvement. Offer it only when the user explicitly asks for a faster render and accepts some loss of fine detail and texture stability, and prefer it over the step cache when the run is long (many frames) rather than many-stepped. Sol-Attn scores every KV block against a threshold; SLA instead keeps a fixed top-k fraction of blocks and pairs with the lightx2v SLA turbo LoRA, distilled against ~85% sparsity (0.85-0.90 is the sensible range once that LoRA is loaded). SLA's extra VRAM need is far smaller than Sol-Attn's. Neither does anything on machines without a recent CUDA GPU -- do not promise a speedup, and do not enable either for a final render."
+        configuration:
+          options:
+            - { label: "Off", value: "off" }
+            - { label: "Sol-Attn (threshold)", value: "sol" }
+            - { label: "SLA (top-k, pairs with SLA turbo LoRA)", value: "sla" }
+      - type: "row"
+        children:
+          - name: "sol_attn_tau"
+            type: "slider"
+            label: "Sol-Attn sparsity"
+            default: 1.0
+            ai_hint: "Only has an effect when Sparse attention is Sol-Attn. Higher skips more attention work: faster and less faithful. Stay in 0.8-1.5; leave at 1.0 unless the user asks for more speed (raise) or reports lost detail and wants to keep the feature on (lower)."
+            configuration: {min: 0.0, max: 3.0, step: 0.1}
+          - name: "sla_sparsity"
+            type: "slider"
+            label: "SLA sparsity"
+            default: 0.9
+            ai_hint: "Only has an effect when Sparse attention is SLA. Fraction of key blocks skipped -- higher is faster and less faithful. The SLA turbo LoRA is distilled against ~85% sparsity, so 0.85-0.90 is the sensible range once it is loaded; below roughly 0.6 SLA is slower than dense attention, not faster."
+            configuration: {min: 0.0, max: 0.95, step: 0.05}
+      - type: "row"
+        children:
+          - name: "sla_block_size"
+            type: "select"
+            label: "SLA block size"
+            default: "64"
+            ai_hint: "Only has an effect when Sparse attention is SLA. 64 is the audio-safe choice. 128 forces roughly 1.6s of audio through one attention pattern and made speech robotic in upstream testing -- use it only for runs where the audio track does not matter."
+            configuration:
+              options:
+                - { label: "64 (audio-safe)", value: "64" }
+                - { label: "128", value: "128" }
+          - name: "sparse_attn_dense_last_steps"
+            type: "slider"
+            label: "Exact final steps"
+            default: 2
+            ai_hint: "Only has an effect when Sparse attention is not Off. The last steps of a trajectory carry the least noise, so an approximation there is the most visible -- these run on the normal exact path. Raise to 3-4 if a sparse run looks soft or shimmery at the end; that gives back some of the speed. At or above the step count the feature is effectively off."
+            configuration: {min: 0, max: 10, step: 1}
+
+  - type: "section"
+    label: "Keyframe encoding"
+    audience: "advanced"
+    children:
+      - name: "keyframe_pixel_budget"
+        type: "select"
+        label: "Keyframe detail budget"
+        default: "0"
+        ai_hint: "Only has any effect when the Video Director attaches a first/last frame. The keyframe reaches the model twice -- as condition frames (always at the picked Resolution) and as a picture the text encoder reads for style/content; only the second read is capped here. Uncapped reads up to 16MP and is paid for by area. '0' (uncapped) is the safest answer when the user cares about keyframe fidelity. Suggest 2x as the speed/fidelity compromise, or 1x when keyframe encoding is slow and the keyframe is a large photo. Values are multiples of the output canvas AREA, not edge length."
+        configuration:
+          options:
+            - { label: "Uncapped (model default)", value: "0" }
+            - { label: "1x output area (fastest)", value: "1" }
+            - { label: "2x output area", value: "2" }
+            - { label: "4x output area", value: "4" }
+
+  # Krea-2 layout: Step cache (FBCache) is the last section on the Advanced
+  # tab.
+  - type: "section"
+    label: "Step cache (FBCache)"
+    audience: "advanced"
+    children:
+      - type: "row"
+        children:
+          - name: "step_cache_threshold"
+            type: "slider"
+            label: "Cache threshold"
+            default: 0.0
+            ai_hint: "A speed-for-fidelity trade, never a quality improvement -- it only removes work. Suggest 0.08 when the user explicitly wants a long MiniMax-H3 run faster and can accept some softening, smoothed motion and a slightly duller soundtrack. 0.15 only if they ask for aggressive speed. Keep it at 0.0 for final renders, and for short runs (under ~15 steps) where the warmup steps already cover most of the trajectory and there is almost nothing left to skip. Be more conservative again when the Sampler is Res multistep or DPM++ 2M: a skipped step replays the previous velocity, and a second-order sampler takes that replayed estimate into its history, so one skip biases the steps after it as well. Halve whatever threshold you would suggest under Euler, and prefer 0.0 outright on a low step count -- the sampler was chosen there precisely to buy quality that caching then spends."
+            configuration: {min: 0.0, max: 0.3, step: 0.01}
+          - name: "step_cache_warmup_steps"
+            type: "slider"
+            label: "Warmup steps"
+            default: 4
+            ai_hint: "Only has an effect when Cache threshold is above 0. Raise toward 6-8 if a cached run loses composition or motion -- it gives back some of the speed."
+            configuration: {min: 0, max: 12, step: 1}
+          - name: "step_cache_max_skips"
+            type: "slider"
+            label: "Max consecutive skips"
+            default: 3
+            ai_hint: "Only has an effect when Cache threshold is above 0. Lower to 1-2 if a cached run drifts or loses detail late in the trajectory. Cap it at 1-2 whenever the Sampler is Res multistep or DPM++ 2M even if the run looks fine: consecutive skips feed the same replayed velocity into the sampler's two-step history, which is the case second-order solvers degrade on fastest. The Spectrum project reaches the same conclusion from the other side, keeping RES's final three steps uncached."
+            configuration: {min: 0, max: 10, step: 1}
+
+  - name: "preview"
+    type: "checkbox"
+    label: "Live preview"
+    default: true

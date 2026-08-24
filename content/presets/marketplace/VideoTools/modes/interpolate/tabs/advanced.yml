@@ -1,0 +1,12 @@
+# RIFE's only expert knob: the resolution the optical flow is computed at.
+fields:
+  - name: "flow_scale"
+    type: "select"
+    label: "Flow Scale"
+    audience: "advanced"
+    default: 1.0
+    ai_hint: "Scale the optical-flow computation runs at. Keep Full resolution unless the source is above ~2K on its long side -- at very high resolutions half-scale flow is faster, uses less VRAM, and often tracks large motion better."
+    configuration:
+      options:
+        - { label: "Full resolution flow", value: 1.0, sub_label: "Best detail for SD/HD sources (recommended)." }
+        - { label: "Half resolution flow (for >2K sources)", value: 0.5, sub_label: "Computes flow at half scale -- for 2K+/4K sources." }

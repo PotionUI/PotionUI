@@ -1,0 +1,54 @@
+# Expert knobs for the three stages. Only Matte Feather and Canvas Anchor
+# default to neutral values -- Matte Strength at 50 is already a fairly
+# aggressive clean-up; 0, not 50, is the model's raw alpha.
+fields:
+  - name: "matte_strength"
+    type: "slider"
+    label: "Matte Strength"
+    audience: "advanced"
+    default: 50
+    ai_hint: "How hard the alpha is pushed toward a clean in-or-out decision. 0 is identity -- the model's raw alpha, completely unchanged. 100 is a hard step at alpha 128: every pixel ends up either fully opaque or fully transparent. In between it is a smoothstep centred on 128 whose transition band narrows as the value rises, so the default of 50 is already a fairly aggressive clean-up, not a neutral setting. This is the knob for 'background removal removed nothing'. The matting model emits a raw sigmoid probability and applies no threshold of its own, so every background pixel it was merely lukewarm about comes back at a mid-grey alpha and stays PARTLY OPAQUE -- the old background survives as a ghost across the whole frame rather than as a fringe at the edge, and in this mode it then gets composited over the padding fill where it is unmissable. Raising this commits those undecided pixels. Concretely the transition band's half-width is 128 at strength 0, 64 at 50, and 0 at 100, so the interval of alpha values left partially transparent shrinks linearly toward a hard cut at 128. Direction trap, and it is the important one: the smoothstep is centred on 128, so it pushes anything ALREADY above 128 toward FULLY opaque. If the surviving background is sitting above 128, raising the strength cements it instead of removing it, and the fix is a better matte (a different checkpoint, a cleaner source) or a chroma key -- not more strength. Read the symptom before turning it: ghosted background still visible and getting fainter as you raise -> keep going (70-90); ghosted background getting more solid as you raise -> stop, the matte itself is wrong; hair, fur, motion blur or glass turned into a hard-edged blob -> come down (20-40), or to 0 to see exactly what the model actually produced. A leaky matte here also poisons the next stage: Trim to Subject measures its bounding box from this alpha, so background residue left partly opaque holds the crop box open to the full frame."
+    configuration:
+      min: 0
+      max: 100
+      step: 1
+
+  - name: "matte_feather"
+    type: "slider"
+    label: "Matte Feather"
+    audience: "advanced"
+    default: 0
+    ai_hint: "Blur radius in pixels applied to the alpha edge after matting; 0 leaves the edge exactly as the model cut it. This softens the ALPHA, not the image -- it makes the transition from subject to transparent gradual instead of a hard step. Keep it at 0 for anything that will be keyed or composited precisely; a feathered edge is a blurry edge and no later stage can sharpen it back. 1-2px is worth trying when the cutout looks stamped-on or aliased against the new background, typically on small subjects or low-resolution sources. Above ~4px the subject visibly dissolves at the border. Distinct from Matte Strength: strength remaps alpha VALUES around the 128 threshold (deciding which pixels count as subject at all), feather blurs the finished alpha SPATIALLY. Reach for strength when the background survives; reach for feather only when the edge geometry looks stepped."
+    configuration:
+      min: 0
+      max: 16
+      step: 0.5
+
+  - name: "crop_alpha_threshold"
+    type: "slider"
+    label: "Crop Alpha Threshold"
+    audience: "advanced"
+    default: 16
+    ai_hint: "The alpha value (0-255) a pixel must exceed to count as part of the subject when the bounding box is measured. Only affects WHERE the crop box is drawn -- it never changes a pixel. 16 ignores near-invisible matte residue (the faint dust matting models leave in corners) while still catching real soft edges. Raise it (40-80) when the crop box comes back suspiciously close to the full frame: that means near-zero alpha noise somewhere out at the edges is dragging the bounding box open. Lower it toward 1-4 only when the subject genuinely has very faint extremities you must keep -- smoke, a veil, a glow -- and you would rather include stray noise than lose them."
+    configuration:
+      min: 0
+      max: 255
+      step: 1
+
+  - name: "anchor"
+    type: "select"
+    label: "Canvas Anchor"
+    audience: "advanced"
+    default: "center"
+    ai_hint: "Where the scaled subject is placed on the canvas -- the padding goes wherever the subject is not. Centre is right for almost every animation prep -- symmetric headroom means the character can move in any direction. Move the anchor when the motion is known and one-directional and you want the headroom on the far side: anchor bottom for a standing figure that will jump or grow (padding ends up above it), anchor left for a character walking right. Anchoring also decides where the subject's feet sit, so bottom is the natural choice whenever the character is grounded and the canvas is taller than the subject."
+    configuration:
+      options:
+        - { label: "Center", value: "center", sub_label: "Padding shared equally on all four sides. The default." }
+        - { label: "Top", value: "top", sub_label: "Flush to the top edge; all vertical padding below." }
+        - { label: "Bottom", value: "bottom", sub_label: "Flush to the bottom edge; all vertical padding above -- the grounded-character choice." }
+        - { label: "Left", value: "left", sub_label: "Flush to the left edge; all horizontal padding to the right." }
+        - { label: "Right", value: "right", sub_label: "Flush to the right edge; all horizontal padding to the left." }
+        - { label: "Top left", value: "top_left", sub_label: "Flush into the top-left corner." }
+        - { label: "Top right", value: "top_right", sub_label: "Flush into the top-right corner." }
+        - { label: "Bottom left", value: "bottom_left", sub_label: "Flush into the bottom-left corner." }
+        - { label: "Bottom right", value: "bottom_right", sub_label: "Flush into the bottom-right corner." }

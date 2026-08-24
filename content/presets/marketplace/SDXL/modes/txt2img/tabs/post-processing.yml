@@ -1,0 +1,169 @@
+fields:
+  - type: "section"
+    label: "Camera"
+    children:
+      - name: "camera"
+        type: "camera_shot"
+        label: "Camera & Shot"
+        configuration:
+          # Image preset — the default categories (angle, distance, orientation) already
+          # omit camera motion, so `categories` is left unset. `vocabulary` tunes a few
+          # phrases to how SDXL checkpoints tend to respond; unset shots use the defaults.
+          vocabulary:
+            overhead: "from directly above, top-down view"
+            low_angle: "low angle shot, looking up at the subject"
+            over_shoulder: "over-the-shoulder shot, framed past the near figure"
+            close_up: "close-up portrait, tight framing on the face"
+
+  - type: "section"
+    label: "Effects"
+    children:
+      - name: "film_grain"
+        type: "select"
+        label: "Film Grain Effect"
+        default: "classic_35mm"
+        configuration:
+          options:
+            - { label: "Classic 35mm", value: "classic_35mm" }
+            - { label: "Cinematic Portra", value: "cinematic_portra" }
+            - { label: "Vintage Push", value: "vintage_push" }
+            - { label: "Modern Cine", value: "modern_cine" }
+            - { label: "Hihg Iso", value: "high_iso" }
+            - { label: "Super 8", value: "super8" }
+            - { label: "Subtle Digital", value: "subtle_digital" }
+            - { label: "Trix 400", value: "trix400" }
+          allow_empty: true
+      - name: "sharpness"
+        type: "slider"
+        label: "Sharpness Enhancement"
+        ai_hint: "Post-processing edge enhancement. 0 = no sharpening, 1-3 = subtle, 4-6 = noticeable, 7+ = very sharp. Use 1-3 for portraits to avoid making skin look harsh. Higher values work well for architecture and landscapes."
+        default: 2.0
+        configuration: { min: 0.0, max: 30.0, step: 0.5 }
+
+  - type: "section"
+    label: "Upscaler"
+    children:
+      - name: "upscale_model"
+        type: "model"
+        label: "Upscaler Model"
+        configuration:
+          model_type: "upscaler"
+          recommendations:
+            - name: "RealESRGAN 4x+ Anime"
+              link: "https://huggingface.co/ai-forever/Real-ESRGAN/resolve/main/RealESRGAN_x4plus_anime_6B.pth"
+              size: "17.9 MB"
+              sha256: "f872d837d3c90ed2e05227bed711af5671a6fd1c9f7d7e91c911a61f155e99da"
+              description: "Optimized for anime-style images with sharp details and vibrant colors"
+            - name: "RealESRGAN 4x+"
+              link: "https://huggingface.co/ai-forever/Real-ESRGAN/resolve/main/RealESRGAN_x4plus.pth"
+              size: "63.9 MB"
+              sha256: "4fa0d38905f75ac06eb49a7951b426670021be3018265fd191d2125df9d682f1"
+              description: "General-purpose upscaler for photorealistic images, works well on a wide variety of content"
+          filter_tags: "@config:upscaler_tags"
+
+      - name: "upscale_factor"
+        type: "slider"
+        label: "Upscale Factor"
+        # Explicit default (was previously unset): without it, the frontend's
+        # schema-default seeding (frontend/src/lib/form/defaults.ts) omits this
+        # key from form_data entirely until the user touches the slider, which
+        # broke pipeline.yml's `form.upscale_factor > 1` checks for
+        # any first-time submission (see task #45's SDXL triage). 1.0 matches
+        # `min:` below -- "no upscaling", the coherent no-op default.
+        default: 1.0
+        configuration:
+          min: 1.0
+          max: 4.0
+          step: 0.1
+
+  - name: "td_enable"
+    type: "gate"
+    label: "Enable Tiled-Detailer Post-Processing"
+    default: true
+    configuration:
+      summary: "Second img2img refine pass on the generated image before saving."
+    children:
+      - name: "td_tile_size"
+        type: "slider"
+        label: "Tile Size"
+        default: 1536
+        configuration: { min: 256, max: 4096, step: 64 }
+
+      - name: "td_overlap"
+        type: "slider"
+        label: "Tile Overlap"
+        default: 128
+        configuration: { min: 16, max: 512, step: 16 }
+
+      - name: "td_denoise"
+        type: "slider"
+        label: "Enhancement Strength"
+        default: 0.25
+        configuration: { min: 0.0, max: 1.0, step: 0.05 }
+
+      - name: "td_steps"
+        type: "slider"
+        label: "Processing Steps"
+        default: 20
+        configuration: { min: 1, max: 150, step: 1 }
+
+      - name: "td_cfg"
+        type: "slider"
+        label: "CFG Scale"
+        default: 5.5
+        configuration: { min: 1.0, max: 30.0, step: 0.5 }
+
+      - name: "td_detail_boost"
+        type: "slider"
+        label: "Detail Boost Multiplier"
+        default: 1.1
+        configuration: { min: 0.5, max: 2.0, step: 0.1 }
+
+      - name: "td_feather_amount"
+        type: "slider"
+        label: "Tile Blending"
+        default: 96
+        configuration: { min: 16, max: 512, step: 16 }
+
+      - name: "td_min_tile_size"
+        type: "slider"
+        label: "Minimum Tile Size"
+        default: 896
+        configuration: { min: 256, max: 2048, step: 64 }
+
+      - name: "td_adaptive_tiles"
+        type: "checkbox_group"
+        label: "Advanced Options"
+        default: ["adaptive_tiles", "enable_detail_conditioning", "content_aware_denoise"]
+        configuration:
+          options:
+            - { label: "Adaptive Tile Sizing", value: "adaptive_tiles", description: "Automatically adjust tile sizes based on image content and VRAM" }
+            - { label: "Detail-Focused Conditioning", value: "enable_detail_conditioning", description: "Enhance prompts to focus on detail generation" }
+            - { label: "Content-Aware Enhancement", value: "content_aware_denoise", description: "Adjust enhancement strength based on content complexity" }
+
+      - type: "group"
+        label: "Content-Aware Enhancement Settings"
+        visible: false
+        children:
+          - name: "td_min_denoise"
+            type: "slider"
+            label: "Minimum Enhancement"
+            default: 0.1
+            configuration: { min: 0.0, max: 1.0, step: 0.05 }
+
+          - name: "td_max_denoise"
+            type: "slider"
+            label: "Maximum Enhancement"
+            default: 0.35
+            configuration: { min: 0.0, max: 1.0, step: 0.05 }
+        reactions:
+          - when:
+              field: "td_adaptive_tiles"
+              contains: "content_aware_denoise"
+            then:
+              set_visibility: true
+          - when:
+              field: "td_adaptive_tiles"
+              not_contains: "content_aware_denoise"
+            then:
+              set_visibility: false

@@ -1,0 +1,34 @@
+name: "catalog"
+fields:
+  - type: "tabs"
+    children:
+      - type: "tab"
+        label: "Inputs"
+        configuration:
+          icon: "sliders"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/catalog/tabs/inputs.yml"
+      - type: "tab"
+        label: "Pickers"
+        configuration:
+          icon: "model"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/catalog/tabs/pickers.yml"
+      - type: "tab"
+        label: "Layout"
+        configuration:
+          icon: "generation"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/catalog/tabs/layout.yml"
+      - type: "tab"
+        label: "Display"
+        configuration:
+          icon: "information-circle"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/catalog/tabs/display.yml"
+      - type: "tab"
+        label: "Alerts"
+        configuration:
+          icon: "warning"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/catalog/tabs/alerts.yml"

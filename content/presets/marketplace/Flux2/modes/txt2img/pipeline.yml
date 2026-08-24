@@ -1,0 +1,163 @@
+# txt2img pipeline for the native Flux family.
+#
+#   model_loader/flux -> prompt_encoder -> seed_generator -> generator/flux -> gallery
+#
+# Conditioning flows the mandated shared path: model_loader emits `clip`
+# (a FluxClipTextEncoder), prompt_encoder turns prompts into `conditioning`,
+# and generator/flux consumes that — it never re-encodes the prompt itself.
+pipeline:
+  #############
+  ## Model loader (DiT + text encoder + VAE, per-component cached)
+  ############
+  - name: "model_loader/flux"
+    enabled: true
+    configuration:
+      diffusion_model:
+        file_path: "{{ form.diffusion_model }}"
+        name: "{{ form.diffusion_model }}"
+      text_encoder:
+        file_path: "{{ form.text_encoder }}"
+        name: "{{ form.text_encoder }}"
+      vae:
+        file_path: "{{ form.vae }}"
+        name: "{{ form.vae }}"
+      loras:
+        "@loop":
+          items: "{{ form.loras | default([]) }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+
+  #############
+  ## Prompt encoder (shared pipe; produces the conditioning)
+  ############
+  - name: "prompt_encoder"
+    input:
+      - ["clip", "model_loader/flux", "clip"]
+    enabled: true
+    configuration:
+      p_prompt:
+        input: "{{ generation.prompts.first.positive }}"
+        output: "{{ generation.prompts.first.positive }}"
+      n_prompt:
+        input: "{{ generation.prompts.first.negative }}"
+        output: "{{ generation.prompts.first.negative }}"
+      # Per-image expanded prompt pairs (src/core/prompt/expander.py).
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity | default(1) }}"
+      # Flux uses embedded (distilled) guidance, not CFG: guidance_scale <= 1
+      # tells the encoder not to encode a negative pass.
+      guidance_scale: 1.0
+
+  #############
+  ## Seed generator
+  ############
+  - name: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed | default(-1) }}"
+      quantity: "{{ form.quantity | default(1) }}"
+
+  #############
+  ## Rendered prompts (provenance)
+  ## Surfaces the per-image expanded prompts ({a|b}, ${variables}, phrasebook
+  ## already resolved on the backend - see src/features/prompt/expander.py) as
+  ## pipe artifacts, the prompt counterpart of seed_generator. `pairs` is the
+  ## real list, handed in exactly as prompt_encoder receives it.
+  ############
+  - name: "dynamic_prompts_renderer"
+    id: "dynamic_prompts_renderer"
+    enabled: true
+    configuration:
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity | default(1) }}"
+
+  #############
+  ## IOType to Value Converter
+  ############
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  #############
+  ## Parameter Emitter
+  ############
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: "{{ form.quantity | default(1) }}"
+      parameters:
+        - ["model", "{{ form.diffusion_model }}"]
+        - ["model", "{{ form.text_encoder }}"]
+        - ["model", "{{ form.vae }}"]
+        - "@loop":
+            items: "{{ form.loras | default([]) | active_loras }}"
+            template: ["model", "{{ item.model }}"]
+        # Per-image arrays, so history records the prompt each image actually ran with.
+        - ["positive_prompt", "{{ generation.prompts.positives }}"]
+        - ["negative_prompt", "{{ generation.prompts.negatives }}"]
+        # Flux uses embedded (distilled) guidance, not CFG.
+        - ["cfg", "{{ form.guidance | default(preset.vars.default_guidance) }}"]
+        - ["steps", "{{ form.steps | default(preset.vars.default_steps) }}"]
+        - ["sampler", "{{ form.sampler | default(preset.vars.default_sampler) }}"]
+        - ["resolution", "{{ form.resolution }}"]
+
+  #############
+  ## Generator
+  ############
+  - name: "generator/flux"
+    input:
+      - ["model", "model_loader/flux", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: true
+    configuration:
+      steps: "{{ form.steps | default(preset.vars.default_steps) }}"
+      guidance: "{{ form.guidance | default(preset.vars.default_guidance) }}"
+      # Optional shift override (constant-shift variants only); blank -> spec default.
+      shift: "{% set s = form.shift | default('') %}{% if s is not none and s != '' %}{{ s }}{% endif %}"
+      sampler: "{{ form.sampler | default(preset.vars.default_sampler) }}"
+      resolution: "{{ form.resolution }}"
+      quantity: "{{ form.quantity | default(1) }}"
+      # Step cache (FBCache, Advanced tab): assembled here into the nested
+      # `step_cache` dict FlowMatchGeneratorPipe.build_context reads directly
+      # (self.config.get("step_cache")) -- this family has no
+      # sampler_step_cache_kwargs()-style flat-key resolver to fall back on
+      # (that's a Wan/LTX video-pipe mechanism), so the dict is built from
+      # the same three flat form fields those presets use. rel_threshold 0.0
+      # (default) never wraps the guidance strategy (StepCacheSet.enabled
+      # checks rel_threshold > 0), so an untouched form renders
+      # byte-identical to before this knob existed.
+      step_cache:
+        rel_threshold: "{{ form.step_cache_threshold | default(0.0) }}"
+        warmup_steps: "{{ form.step_cache_warmup_steps | default(4) }}"
+        max_consecutive_skips: "{{ form.step_cache_max_skips | default(3) }}"
+      # Trajectory warm-start (Advanced tab). Only engages on the Euler
+      # sampler for this txt2img pass -- ignored elsewhere by the engine.
+      iterate_mode: "{{ form.iterate_mode | default(false) }}"
+      # Spectral Progressive Diffusion (Advanced tab). `enabled` is always
+      # rendered explicitly (rather than the dict being present/absent) so an
+      # untouched form never engages it -- FlowMatchGeneratorPipe.build_context
+      # forwards any non-empty dict, and the engine's own opts.pop("enabled",
+      # True) default would otherwise turn this on the moment the dict exists.
+      spectral_progressive:
+        enabled: "{{ form.spectral_progressive_enabled | default(false) }}"
+        scales: ["{{ form.spectral_progressive_start_scale | default(0.5) }}", 1.0]
+
+  #############
+  ## Gallery
+  ############
+  - name: "gallery"
+    input:
+      - ["image", "generator/flux", "image"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: true
+    configuration:
+      save: "true"

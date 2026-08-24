@@ -1,0 +1,9 @@
+fields:
+  - name: "source_image"
+    type: "image"
+    label: "Reference Images"
+    required: true
+    configuration:
+      multi: true
+      max_items: 3
+    ai_hint: "Up to 3 images, jointly conditioned. The FIRST image is the edit target — it sets the output's size and aspect ratio and is what gets edited. Any additional images are blended in as references (a style, an object, a second subject) but do not affect output sizing. Each is automatically resized to its own ~1-megapixel budget (aspect preserved) before encoding — there is no separate resolution control for edit mode."

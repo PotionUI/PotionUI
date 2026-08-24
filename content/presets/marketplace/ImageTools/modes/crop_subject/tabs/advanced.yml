@@ -1,0 +1,12 @@
+# The one decision this stage makes: what alpha value counts as subject.
+fields:
+  - name: "crop_alpha_threshold"
+    type: "slider"
+    label: "Alpha Threshold"
+    audience: "advanced"
+    default: 16
+    ai_hint: "The alpha value (0-255) a pixel must exceed to count as part of the subject when the bounding box is measured. This only affects WHERE the crop box is drawn -- it never changes a pixel's colour or its transparency. 16 ignores the near-invisible residue matting models leave scattered in the corners while still catching genuinely soft edges. Raise it (40-80) when the crop comes back suspiciously close to the full frame: that is the signature of near-zero alpha noise out at the edges holding the bounding box open. Lower it toward 1-4 only when the subject really does have very faint extremities you must keep -- smoke, a veil, a glow -- and you would rather include some stray noise than lose them."
+    configuration:
+      min: 0
+      max: 255
+      step: 1

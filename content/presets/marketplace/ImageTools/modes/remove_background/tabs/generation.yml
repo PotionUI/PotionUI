@@ -1,0 +1,19 @@
+# Everything the matting pipe needs: an image and a checkpoint. The two edge
+# knobs live on the Advanced tab.
+fields:
+  - name: "input_image"
+    type: "image"
+    label: "Input Image"
+    required: true
+    ai_hint: "Give this the largest, least-processed version of the image you have -- matting quality is limited by the pixels it can see along the subject's edge, and there is no later stage that can recover an edge decided badly here. A source that already has an alpha channel does not need this mode at all; running it again re-decides edges that were already decided, which typically costs hair and thin limbs. Output is an RGBA image at the same resolution as the source."
+
+  - name: "matting_model"
+    type: "model"
+    label: "Matting Model"
+    required: true
+    ai_hint: "A BiRefNet checkpoint, dropped in `models/detection_segm/`. BiRefNet-general (ZhengPeng7/BiRefNet, MIT) is the default pick and the permissively-licensed one. RMBG-2.0 (briaai/RMBG-2.0) separates edges more confidently on products, packshots and objects photographed against busy backgrounds, at the cost of a non-commercial licence -- check that before shipping anything made with it. Both are swin_v1_l-backbone BiRefNet with 754 tensors, so the loader accepts either file without any variant selection."
+    configuration:
+      model_type: "detection_segm"
+      placeholder: "Select a BiRefNet checkpoint..."
+      filter_tags: "@config:matting_tags"
+      allow_info_modal: true

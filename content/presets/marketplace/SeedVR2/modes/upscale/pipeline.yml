@@ -1,0 +1,97 @@
+# Pipeline for the 'upscale' mode.
+#
+#   media_loader -> model_loader/seedvr2 -> generator/seedvr2 -> gallery
+#
+# SeedVR2 has no text encoder and no denoise loop (see src/pipelines/pipes/generator/seedvr2/
+# main.py), so there is no prompt_encoder pipe. There is also no seed_generator --
+# the form seed is passed straight into generator/seedvr2's own `seed` config
+# (-1 means "random per image", handled inside the pipe itself).
+pipeline:
+  #############
+  ## Media Loader - Load the source image from the form file path
+  #############
+  - name: "media_loader"
+    id: "media_loader"
+    enabled: true
+    configuration:
+      validate_files: true
+      max_file_size: 52428800  # 50MB
+      auto_detect_type: true
+      media:
+        - type: "image"
+          path: "{{ form.input_image }}"
+
+  #############
+  ## Model loader (NaDiT + self-normalizing causal-video VAE + fixed prompt embedding)
+  #############
+  - name: "model_loader/seedvr2"
+    id: "model_loader"
+    enabled: true
+    configuration:
+      diffusion_model:
+        file_path: "{{ form.diffusion_model }}"
+        name: "{{ form.diffusion_model }}"
+      vae:
+        file_path: "{{ form.vae }}"
+        name: "{{ form.vae }}"
+      prompt_embedding:
+        file_path: "{{ form.prompt_embedding }}"
+        name: "{{ form.prompt_embedding }}"
+
+  #############
+  ## Parameter Emitter (this mode had no param_emitter, so
+  ## history recorded no parameters/models for a SeedVR2 upscale generation.
+  ## No seed_generator/from_iotype pipe here -- see the module comment above
+  ## -- so seed is read straight off the form, same as the generator does.)
+  #############
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    configuration:
+      quantity: 1
+      parameters:
+        - ["model", "{{ form.diffusion_model }}"]
+        - ["model", "{{ form.vae }}"]
+        - ["model", "{{ form.prompt_embedding }}"]
+        - ["seed", "{{ form.seed | default(-1) }}"]
+        - ["scale", "{{ form.scale | default(1.5 if (form.resolution_target | default('fhd1080')) == 'x1_5' else (2.0 if (form.resolution_target | default('fhd1080')) == 'x2' else preset.vars.default_scale)) }}"]
+        - ["resolution_target", "{{ form.resolution_target | default('fhd1080') }}"]
+        - ["color_correction", "{{ form.color_correction | default('wavelet') }}"]
+        - ["restoration_intent", "{{ form.restoration_intent | default('faithful') }}"]
+
+  #############
+  ## Generator - one-step restoration/upscale (no CFG, no denoise loop)
+  #############
+  - name: "generator/seedvr2"
+    id: "generator"
+    input:
+      - ["image", "media_loader", "image"]
+      - ["model", "model_loader", "model"]
+    enabled: true
+    configuration:
+      # "Output Size" (Generation tab) is the intent-first control;
+      # scale/target_short_side (Advanced tab) are its expert overrides, kept
+      # in sync via reactions. This ternary chain is the server-side fallback
+      # for API callers who submit resolution_target without the two raw
+      # fields -- mirrors LTX-2's own upscale-factor ternary
+      # (presets/native/LTX-2/modes/video/pipeline.yml).
+      scale: "{{ form.scale | default(1.5 if (form.resolution_target | default('fhd1080')) == 'x1_5' else (2.0 if (form.resolution_target | default('fhd1080')) == 'x2' else preset.vars.default_scale)) }}"
+      target_short_side: "{{ form.target_short_side | default(720 if (form.resolution_target | default('fhd1080')) == 'hd720' else (1080 if (form.resolution_target | default('fhd1080')) == 'fhd1080' else (1440 if (form.resolution_target | default('fhd1080')) == 'qhd1440' else (2160 if (form.resolution_target | default('fhd1080')) == 'uhd2160' else 0)))) }}"
+      color_correction: "{{ form.color_correction | default('wavelet') }}"
+      # "Restoration Intent" (Generation tab) bakes these two noise knobs;
+      # 'heavy' values are conservative/experimental (no upstream-documented
+      # nonzero recipe -- see docs/models/seedvr2.md).
+      latent_noise_scale: "{{ form.latent_noise_scale | default(0.2 if (form.restoration_intent | default('faithful')) == 'heavy' else 0.0) }}"
+      input_noise_scale: "{{ form.input_noise_scale | default(0.1 if (form.restoration_intent | default('faithful')) == 'heavy' else 0.0) }}"
+      seed: "{{ form.seed | default(-1) }}"
+      tile_size: "{{ form.tile_size | default(2048) }}"
+      tile_overlap: "{{ form.tile_overlap | default(256) }}"
+
+  #############
+  ## Gallery - Save the restored/upscaled image
+  #############
+  - name: "gallery"
+    id: "gallery"
+    input:
+      - ["image", "generator", "image"]
+    enabled: true

@@ -1,0 +1,270 @@
+pipeline:
+  #############
+  ## Checkpoint loader
+  ############
+  - name: "checkpoint_loader/sdxl"
+    id: "checkpoint_loader"
+    enabled: true
+    configuration:
+      model:
+        file_path: "{{ form.model }}"
+        name: "{{ form.model }}"
+        base: "SDXL"
+      # LoRAs (the picker value only contains selected entries, may be empty)
+      loras:
+        "@loop":
+          items: "{{ form.loras | default([]) }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+      nsfw: "{{ runtime.settings.nsfw }}"
+      clip_skip: "{{ form.clip_skip | default(2) }}"
+
+  #############
+  ## Media Loader (Source Image)
+  ############
+  - name: "media_loader"
+    id: "media_loader"
+    enabled: true
+    configuration:
+      media:
+        # Check: not absolute path AND not already starting with storage directory
+        - type: "image"
+          path: "{{ form.source_image }}"
+
+  #############
+  ## Inpaint Mask Loader
+  ############
+  - name: "media_loader"
+    id: "mask_loader"
+    enabled: "{{ (form.source_image_inpaint_mask | default('')) != '' }}"
+    configuration:
+      media:
+        # Check: not absolute path AND not already starting with storage directory
+        - type: "image"
+          path: "{{ (form.source_image_inpaint_mask | default('')) }}"
+
+  #############
+  ## Mask Preprocessor (Fooocus-style: dilate + blur)
+  ############
+  - name: "mask_preprocessor"
+    id: "mask_preprocessor"
+    enabled: "{{ (form.source_image_inpaint_mask | default('')) != '' }}"
+    input:
+      - [ "mask", "mask_loader", "image" ]
+    configuration:
+      dilate_iterations: 4
+      blur_radius: "{{ form.mask_blur | default(4) }}"
+
+  #############
+  ## Inpaint Region Crop (Fooocus-style: crop to masked region for VRAM savings)
+  ## This is THE KEY to reducing VRAM usage - only process the masked region!
+  ############
+  - name: "inpaint_region_crop"
+    id: "inpaint_region_crop"
+    enabled: "{{ (form.source_image_inpaint_mask | default('')) != '' }}"
+    input:
+      - [ "image", "media_loader", "image" ]
+      - [ "mask", "mask_preprocessor", "mask" ]
+    configuration:
+      k: 0.618  # Fooocus default padding factor
+      min_size: 1024  # Upscale if smaller
+      max_size: 1024  # Downscale if larger
+
+  #############
+  ## Prompt encoder
+  ############
+  - name: "prompt_encoder"
+    id: "prompt_encoder"
+    input:
+      - [ "clip", "checkpoint_loader/sdxl", "clip" ]
+    enabled: true
+    configuration:
+      p_prompt:
+        input: "{{ generation.prompts.first.positive }}"
+        output: |
+          {{ generation.prompts.first.positive }}
+
+          {% for i in range(1, 4) %}{% if form['positive_embedding_' ~ i] and form['positive_embedding_' ~ i] != '' %} positive_embedding_{{ i }}{% endif %}{% endfor %}
+      n_prompt:
+        input: "{{ generation.prompts.first.negative }}"
+        output: |
+          {{ generation.prompts.first.negative }}
+
+          {% for i in range(1, 4) %}{% if form['negative_embedding_' ~ i] and form['negative_embedding_' ~ i] != '' %} negative_embedding_{{ i }}{% endif %}{% endfor %}
+      positive_embeddings:
+        "@loop":
+          count: 3
+          template:
+            token: "positive_embedding_{{ loop.index }}"
+            file_path: "{{ form['positive_embedding_' ~ loop.index] }}"
+            enabled: "{{ form['positive_embedding_' ~ loop.index] and form['positive_embedding_' ~ loop.index] != '' }}"
+      negative_embeddings:
+        "@loop":
+          count: 3
+          template:
+            token: "negative_embedding_{{ loop.index }}"
+            file_path: "{{ form['negative_embedding_' ~ loop.index] }}"
+            enabled: "{{ form['negative_embedding_' ~ loop.index] and form['negative_embedding_' ~ loop.index] != '' }}"
+      # Per-image expanded prompt pairs (see src/core/prompt/expander.py). `@object:`
+      # hands the pipe the real list instead of a rendered string.
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity | default(1) }}"
+
+  #############
+  ## Seed Generator
+  ############
+  - name: "seed_generator"
+    id: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed | default(-1) }}"
+      quantity: "{{ form.quantity | default(1) }}"
+
+  #############
+  ## Rendered prompts (provenance)
+  ## Surfaces the per-image expanded prompts ({a|b}, ${variables}, phrasebook
+  ## already resolved on the backend - see src/features/prompt/expander.py) as
+  ## pipe artifacts, the prompt counterpart of seed_generator. `pairs` is the
+  ## real list, handed in exactly as prompt_encoder receives it.
+  ############
+  - name: "dynamic_prompts_renderer"
+    id: "dynamic_prompts_renderer"
+    enabled: true
+    configuration:
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity | default(1) }}"
+
+  #############
+  ## IOType to Value Converter
+  ############
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - [ "seed", "seed_generator", "seed" ]
+    configuration:
+      from: "seed"
+
+  #############
+  ## Parameter Emitter
+  ############
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - [ "seed", "from_iotype", "seed" ]
+    configuration:
+      quantity: "{{ form.quantity | default(1) }}"
+      parameters:
+        - ["model", "{{ form.model }}"]
+        - "@loop":
+            items: "{{ form.loras | default([]) | active_loras }}"
+            template: ["model", "{{ item.model }}"]
+        # Per-image arrays, so history records the prompt each image actually ran
+        # with rather than the shared template. param_emitter keeps arrays per-index.
+        - ["positive_prompt", "{{ generation.prompts.positives }}"]
+        - ["negative_prompt", "{{ generation.prompts.negatives }}"]
+        - ["cfg", "{{ form.cfg | default(preset.vars.default_cfg) }}"]
+        - ["steps", "{{ form.steps | default(preset.vars.default_steps) }}"]
+        - ["sampler", "{{ form.sampler | default(preset.vars.sampler) }}"]
+        - ["scheduler", "{{ form.scheduler | default(preset.vars.scheduler) }}"]
+        - ["clip_skip", "{{ form.clip_skip | default(2) }}"]
+        - ["denoise", "{{ form.denoise | default(0.75) }}"]
+        - ["mask_blur", "{{ form.mask_blur | default(4) }}"]
+
+  #############
+  ## ADM Guidance (optional enhancement)
+  ############
+  - name: "adm_guidance/sdxl"
+    id: "adm_guidance"
+    enabled: "{{ form.adm_guidance_enabled | default(true) }}"
+    input:
+      - ["model", "checkpoint_loader/sdxl", "model"]
+    configuration:
+      positive_scale: "{{ form.adm_positive_scale | default(1.5) }}"
+      negative_scale: "{{ form.adm_negative_scale | default(0.8) }}"
+      scaler_end: "{{ form.adm_scaler_end | default(0.3) }}"
+
+  #############
+  ## Sharpness (optional enhancement)
+  ############
+  - name: "sharpness/sdxl"
+    id: "sharpness"
+    enabled: "{{ form.sharpness | default(0)|float > 0 }}"
+    input:
+      - ["model", "checkpoint_loader/sdxl", "model"]
+    configuration:
+      strength: "{{ form.sharpness | default(0) }}"
+
+  #############
+  ## Self-Attention Guidance (optional enhancement, ~15-20% overhead when
+  ## enabled - see src/pipelines/pipes/sag/sdxl/main.py's docstring). Was previously
+  ## dead UI: advanced.yml's sag_enabled/sag_scale/sag_sigma/sag_threshold
+  ## group existed but no pipe consumed them (task #45 sweep). Wired the same
+  ## way as adm_guidance/sharpness above - sag/sdxl registers a hook directly
+  ## on the shared model object, so it only needs `checkpoint_loader/sdxl`'s
+  ## model as input, not a chain through the other guidance pipes.
+  ############
+  - name: "sag/sdxl"
+    id: "sag"
+    enabled: "{{ form.sag_enabled | default(false) }}"
+    input:
+      - ["model", "checkpoint_loader/sdxl", "model"]
+    configuration:
+      # Defaults match SAGPipe.get_default_config() (src/pipelines/pipes/sag/sdxl/main.py)
+      # exactly, the single source of truth for these three numbers - the
+      # form's own defaults were reconciled to match (see advanced.yml).
+      scale: "{{ form.sag_scale | default(0.75) }}"
+      sigma: "{{ form.sag_sigma | default(2.0) }}"
+      sag_threshold: "{{ form.sag_threshold | default(1.0) }}"
+
+  #############
+  ## Generator (Inpainting Mode - Fooocus-style with region cropping)
+  ############
+  - name: "generator/sdxl"
+    id: "generator"
+    enabled: true
+    input:
+      - [ "model", "checkpoint_loader/sdxl", "model" ]
+      - [ "conditioning", "prompt_encoder", "conditioning" ]
+      - [ "seed", "seed_generator", "seed" ]
+      - [ "image", "inpaint_region_crop", "image" ]
+      - [ "mask", "inpaint_region_crop", "mask" ]
+    configuration:
+      cfg: "{{ form.cfg | default(preset.vars.default_cfg) }}"
+      steps: "{{ form.steps | default(preset.vars.default_steps) }}"
+      sampler: "{{ form.sampler | default(preset.vars.sampler) }}"
+      scheduler: "{{ form.scheduler | default(preset.vars.scheduler) }}"
+      quantity: "{{ form.quantity | default(1) }}"
+      denoise: "{{ form.denoise | default(0.75) }}"
+      mask_blur: "{{ form.mask_blur | default(4) }}"
+      # Inpainting mode flags
+      inpaint_mode: "{{ (form.source_image_inpaint_mask | default('')) != '' }}"
+
+  #############
+  ## Inpaint Region Restore (Paste inpainted region back into full image)
+  ## Uses full-size original mask for Fooocus-style color correction
+  ############
+  - name: "inpaint_region_restore"
+    id: "inpaint_region_restore"
+    enabled: "{{ (form.source_image_inpaint_mask | default('')) != '' }}"
+    input:
+      - [ "inpainted_image", "generator/sdxl", "image" ]
+      - [ "crop_region", "inpaint_region_crop", "crop_region" ]
+      - [ "original_image", "inpaint_region_crop", "original_image" ]
+      - [ "original_mask", "inpaint_region_crop", "original_mask" ]
+    configuration:
+      color_correction: true
+
+  ##############
+  ## Gallery
+  ##############
+  - name: "gallery"
+    id: "gallery"
+    enabled: true
+    input:
+      - ["image", "{% if (form.source_image_inpaint_mask | default('')) != '' %}inpaint_region_restore{% else %}generator/sdxl{% endif %}", "image"]
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      save: "true"

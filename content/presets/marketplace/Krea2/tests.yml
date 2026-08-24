@@ -1,0 +1,31 @@
+########
+## Krea-2: E2E test suite (grounded in a maintainer TXT2IMG session).
+## Authoring reference: docs/presets.md "Testing presets"
+########
+schema: 1
+
+cases:
+  # Turbo smoke: session's turbo profile (8 steps, euler) at the smallest
+  # square from this preset's FLUX resolution list. DiT + Qwen3-VL-4B TE +
+  # Qwen-Image VAE are pinned by real sha256 (present on disk).
+  - name: "krea2-turbo-baseline-fast"
+    mode: "txt2img"
+    seed: 12345
+    tags: ["fast"]
+    form:
+      prompt: "a red fox sitting in a sunlit forest clearing"
+      speed_profile: "turbo"
+      steps: 8
+      sampler: "euler"
+      resolution: "1024x1024"
+    models:
+      diffusion_model:
+        sha256: "78bbf8f4165eda19cea3cb06c78089221932a39e2eed8af9da741f942c47ffb3"
+      text_encoder:
+        sha256: "54bd5144df0bbc25dd6ccadfcb826b521445a1b06ae5a42570bdd2974ca87094"
+      vae:
+        sha256: "a70580f0213e67967ee9c95f05bb400e8fb08307e017a924bf3441223e023d1f"
+    checks:
+      min_outputs: 1
+      resolution: "1024x1024"
+      not_black: true

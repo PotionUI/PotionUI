@@ -1,0 +1,11 @@
+# Base ComfyUI Schedulers - Core schedulers available in most ComfyUI workflows
+- { label: "Normal", value: "normal" }
+- { label: "Simple", value: "simple" }
+- { label: "Karras", value: "karras" }
+- { label: "Exponential", value: "exponential" }
+- { label: "SGM Uniform", value: "sgm_uniform" }
+- { label: "DDIM Uniform", value: "ddim_uniform" }
+- { label: "LCM", value: "lcm" }
+- { label: "Beta", value: "beta" }
+- { label: "Beta57", value: "beta57" }
+- { label: "GITS", value: "gits" }

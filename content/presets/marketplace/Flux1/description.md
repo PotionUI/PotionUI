@@ -1,0 +1,1 @@
+Turn a text prompt into a detailed, high-quality image. Built for Flux 1 from Black Forest Labs — founded by the original Stable Diffusion researchers — known for crisp detail and faithful prompt following.

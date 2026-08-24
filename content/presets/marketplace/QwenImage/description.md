@@ -1,0 +1,1 @@
+Turn a text prompt into a detailed image — including posters, signs and labels with readable text, in both English and Chinese. Built for Qwen-Image, Alibaba's open image model, which stands out at rendering written text accurately inside pictures.

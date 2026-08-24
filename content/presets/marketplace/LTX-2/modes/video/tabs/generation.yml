@@ -1,0 +1,62 @@
+# Video Director mode -- the director editor (form_data.video_director, a
+# separate document submitted outside this dynamic form) owns prompts, frames,
+# fps, and keyframe/reference/audio media. This tab keeps only what the
+# document does NOT carry: model-run parameters for the one generation this
+# preset always makes (t2v/i2v/flf/director all route through the same
+# generator/video_ltx call). Steps/Sampler/CFG live on the Advanced tab's
+# Sampling section (Krea-2 layout) -- the Speed profile below still bakes
+# their actual values via reactions.
+fields:
+  - name: "speed_profile"
+    type: "select"
+    label: "Speed"
+    default: "balanced"
+    configuration:
+      options:
+        - { label: "Balanced (24 steps)", value: "balanced" }
+        - { label: "Distilled (fast, 8 steps)", value: "distilled" }
+        - { label: "Quality (slow, 30 steps)", value: "quality" }
+        - { label: "Custom (set steps/CFG freely)", value: "custom" }
+
+  - type: "section"
+    label: "Video"
+    children:
+      - name: "seed"
+        type: "seed"
+        label: "Seed"
+        default: -1
+
+      - name: "resolution"
+        type: "resolution"
+        label: "Resolution"
+        configuration:
+          files:
+            - { path: "{{ paths._shared }}/resolutions/video.yml", group: "Video" }
+            - { path: "{{ paths._shared }}/resolutions/social_media_video.yml", group: "Social Media" }
+        default: "768x512"
+
+      - name: "generate_audio"
+        type: "checkbox"
+        label: "Generate Audio"
+        default: false
+
+  - type: "section"
+    label: "Models"
+    children:
+      - name: "model"
+        type: "model"
+        label: "LTX checkpoint (all-in-one)"
+        required: true
+        configuration:
+          model_type: "checkpoint"
+          placeholder: "ltx-2-19b-dev / ltx-2.3-22b-dev..."
+          filter_tags: "@config:checkpoint_tags"
+
+      - name: "text_encoder"
+        type: "model"
+        label: "Text Encoder (Gemma3-12B)"
+        required: true
+        configuration:
+          model_type: "clip"
+          placeholder: "Select Gemma3-12B (gemma_3_12B_it)..."
+          filter_tags: "@config:clip_tags"

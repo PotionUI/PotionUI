@@ -1,0 +1,12 @@
+schema: 1
+id: "field-catalog-all-fields"
+name: "[Custom] Frontend Field Catalog"
+version: "1.0.0"
+category: "utility"
+engine: "native"
+tags: [development, frontend, form-catalog]
+
+# A deliberately inert preset for inspecting form rendering.  Its gallery-only
+# pipeline keeps the catalog loadable without claiming to generate media.
+modes:
+  - catalog

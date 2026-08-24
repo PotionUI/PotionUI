@@ -1,0 +1,1 @@
+Turn a text prompt into a polished, photorealistic image, or paint over part of a picture and have it seamlessly redrawn. Built for SDXL, the most widely supported open image model, with a huge ecosystem of community checkpoints and styles to choose from.

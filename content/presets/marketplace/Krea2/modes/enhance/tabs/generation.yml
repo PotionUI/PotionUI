@@ -1,0 +1,112 @@
+fields:
+  - type: "section"
+    label: "Image"
+    children:
+      - type: "row"
+        children:
+          - name: "seed"
+            type: "seed"
+            label: "Seed"
+            default: -1
+            width: "3/5"
+
+          - name: "quantity"
+            type: "stepper"
+            label: "Quantity"
+            default: 1
+            configuration: {min: 1, max: 10, step: 1}
+            width: "2/5"
+            full_width: true
+
+      - name: "upscale_by"
+        type: "select"
+        label: "Upscale by"
+        default: "2x"
+        ai_hint: "This IS the upscale control: the source is Lanczos-fit to (upscale factor)x its own resolution (aspect preserved) before the refine pass runs."
+        configuration:
+          options:
+            - { label: "1.5x", value: "1_5x", sub_label: "Lightest upscale, keeps the most native detail" }
+            - { label: "2x", value: "2x", sub_label: "Default" }
+            - { label: "4x", value: "4x", sub_label: "Heaviest upscale, most compute" }
+
+      - name: "enhance_detail"
+        type: "select"
+        label: "Enhance detail"
+        default: "balanced"
+        ai_hint: "How much of the fixed-mu schedule's tail to walk: more steps = more added detail/change, fewer = closer to the base image."
+        configuration:
+          options:
+            - { label: "Subtle", value: "subtle", sub_label: "1 step · closest to the base image" }
+            - { label: "Balanced", value: "balanced", sub_label: "2 steps · default" }
+            - { label: "Strong", value: "strong", sub_label: "3 steps · most added detail" }
+
+  - type: "gate"
+    name: "nag_enabled"
+    label: "NAG"
+    default: false
+    configuration:
+      experimental: true
+      summary: "Enable negative prompt"
+    children:
+      - name: "nag_scale"
+        type: "slider"
+        label: "NAG Scale"
+        audience: "advanced"
+        default: 1.0
+        ai_hint: "Normalized Attention Guidance: makes the negative prompt actually work on the CFG-free turbo. 1.0 = off (today's behavior); above 1 suppresses the negative prompt's concepts in attention space without breaking the distilled recipe."
+        configuration:
+          min: 1.0
+          max: 2.0
+          step: 0.05
+
+      - name: "nag_tau"
+        type: "slider"
+        label: "NAG Tau"
+        audience: "advanced"
+        default: 3.5
+        ai_hint: "Norm clamp for the guided branch. Lower reins in artifacts at high NAG scale; only used when NAG Scale is above 1."
+        configuration:
+          min: 1.0
+          max: 10.0
+          step: 0.5
+
+      - name: "nag_alpha"
+        type: "slider"
+        label: "NAG Alpha"
+        audience: "advanced"
+        default: 0.5
+        ai_hint: "Blend between the guided and original attention output. 0 = original (NAG fully off), 1 = fully guided; only used when NAG Scale is above 1."
+        configuration:
+          min: 0.0
+          max: 1.0
+          step: 0.05
+
+  - type: "section"
+    label: "Models"
+    children:
+      - name: "diffusion_model"
+        type: "model"
+        label: "Diffusion Model"
+        required: true
+        configuration:
+          model_type: "diffusion_model"
+          placeholder: "Select Krea-2 DiT (bf16)..."
+          filter_tags: "@config:checkpoint_tags"
+
+      - name: "text_encoder"
+        type: "model"
+        label: "Text Encoder (Qwen3-VL-4B)"
+        required: true
+        configuration:
+          model_type: "clip"
+          placeholder: "Select Qwen3-VL-4B text encoder..."
+          filter_tags: "@config:clip_tags"
+
+      - name: "vae"
+        type: "model"
+        label: "VAE (Qwen-Image)"
+        required: true
+        configuration:
+          model_type: "vae"
+          placeholder: "Select Qwen-Image VAE..."
+          filter_tags: "@config:vae_tags"

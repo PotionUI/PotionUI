@@ -1,0 +1,134 @@
+# Technical knobs live here now. "Output Size" and "Restoration Intent"
+# (Generation tab) are the plain-language controls; the fields below are their
+# expert overrides, kept visible but locked (Output Size) or freely editable
+# (Restoration Intent) via reactions -- see docs/presets.md's field-reactions
+# section for the `set_value`/`set_disabled` idiom (mirrors LTX-2/Wan speed
+# profiles and Krea-2's own Advanced tab).
+fields:
+  - type: "section"
+    label: "Output Size (Expert Override)"
+    children:
+      - type: "row"
+        children:
+          - name: "scale"
+            type: "slider"
+            label: "Scale"
+            audience: "advanced"
+            default: 2.0
+            ai_hint: "Output area multiplier; only takes effect for the x1.5/x2 relative Output Size options (a named pixel target overrides it). Baked to and locked by the Output Size selection on the Generation tab -- change it there instead."
+            configuration:
+              min: 1.0
+              max: 4.0
+              step: 0.1
+            reactions:
+              - when: { field: "resolution_target", equals: "x1_5" }
+                then: { set_value: 1.5, set_disabled: true }
+              - when: { field: "resolution_target", equals: "x2" }
+                then: { set_value: 2.0, set_disabled: true }
+              - when: { field: "resolution_target", equals: "hd720" }
+                then: { set_value: 2.0, set_disabled: true }
+              - when: { field: "resolution_target", equals: "fhd1080" }
+                then: { set_value: 2.0, set_disabled: true }
+              - when: { field: "resolution_target", equals: "qhd1440" }
+                then: { set_value: 2.0, set_disabled: true }
+              - when: { field: "resolution_target", equals: "uhd2160" }
+                then: { set_value: 2.0, set_disabled: true }
+
+          - name: "target_short_side"
+            type: "number"
+            label: "Target Short Side (px)"
+            audience: "advanced"
+            default: 1080
+            ai_hint: "0 = use Scale instead. Baked to and locked by the Output Size selection on the Generation tab -- change it there instead."
+            configuration:
+              min: 0
+              max: 4096
+              step: 8
+            reactions:
+              - when: { field: "resolution_target", equals: "x1_5" }
+                then: { set_value: 0, set_disabled: true }
+              - when: { field: "resolution_target", equals: "x2" }
+                then: { set_value: 0, set_disabled: true }
+              - when: { field: "resolution_target", equals: "hd720" }
+                then: { set_value: 720, set_disabled: true }
+              - when: { field: "resolution_target", equals: "fhd1080" }
+                then: { set_value: 1080, set_disabled: true }
+              - when: { field: "resolution_target", equals: "qhd1440" }
+                then: { set_value: 1440, set_disabled: true }
+              - when: { field: "resolution_target", equals: "uhd2160" }
+                then: { set_value: 2160, set_disabled: true }
+
+  - type: "section"
+    label: "Restoration Intent (Expert Override)"
+    children:
+      - type: "row"
+        children:
+          - name: "latent_noise_scale"
+            type: "slider"
+            label: "Latent Noise Scale"
+            audience: "advanced"
+            default: 0
+            ai_hint: "Forward-noise the conditioning latent. Baked to the Restoration Intent selection on the Generation tab (0 = Faithful; 0.2 for Heavy Restoration -- a conservative, experimental value with no upstream-recommended recipe). Freely editable for a custom value."
+            configuration:
+              min: 0.0
+              max: 1.0
+              step: 0.05
+            reactions:
+              - when: { field: "restoration_intent", equals: "faithful" }
+                then: { set_value: 0.0 }
+              - when: { field: "restoration_intent", equals: "heavy" }
+                then: { set_value: 0.2 }
+
+          - name: "input_noise_scale"
+            type: "slider"
+            label: "Input Noise Scale"
+            audience: "advanced"
+            default: 0
+            ai_hint: "Small gaussian blended into the input pixels before encoding. Baked to the Restoration Intent selection on the Generation tab (0 = Faithful; 0.1 for Heavy Restoration -- experimental). Freely editable for a custom value."
+            configuration:
+              min: 0.0
+              max: 1.0
+              step: 0.05
+            reactions:
+              - when: { field: "restoration_intent", equals: "faithful" }
+                then: { set_value: 0.0 }
+              - when: { field: "restoration_intent", equals: "heavy" }
+                then: { set_value: 0.1 }
+
+  - name: "color_correction"
+    type: "select"
+    label: "Color Correction"
+    audience: "advanced"
+    default: "wavelet"
+    configuration:
+      options:
+        - { label: "Wavelet", value: "wavelet", sub_label: "Match output colors to the input via wavelet decomposition (recommended)" }
+        - { label: "AdaIN", value: "adain", sub_label: "Match output colors via adaptive instance normalization" }
+        - { label: "None", value: "none", sub_label: "No color correction" }
+
+  - type: "section"
+    label: "VAE Decode Tiling"
+    children:
+      - type: "row"
+        children:
+          - name: "tile_size"
+            type: "number"
+            label: "Tile Size (px)"
+            audience: "advanced"
+            default: 2048
+            ai_hint: "Advisory VAE decode tile size; the decode auto-tiles by live free VRAM."
+            configuration:
+              min: 256
+              max: 2048
+              step: 64
+
+          - name: "tile_overlap"
+            type: "number"
+            label: "Tile Overlap (px)"
+            audience: "advanced"
+            default: 256
+            ai_hint: "Advisory VAE decode tile overlap."
+            configuration:
+              min: 0
+              max: 512
+              step: 16

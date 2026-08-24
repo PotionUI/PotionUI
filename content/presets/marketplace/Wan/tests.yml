@@ -1,0 +1,33 @@
+########
+## Wan 2.1 / 2.2: E2E test suite (grounded in a maintainer Video Director session).
+## Authoring reference: docs/presets.md "Testing presets"
+########
+schema: 1
+
+cases:
+  # Video Director (t2v) smoke: the video mode routes prompts through the
+  # submitted director document, so no top-level prompt here. Session's 6-step
+  # CFG-1 euler regime at the smallest SD portrait size.
+  - name: "wan-video-director-t2v-fast"
+    mode: "video"
+    kind: "video"
+    seed: 12345
+    tags: ["fast", "needs-model"]
+    form:
+      resolution: "480x832"
+      steps: 6
+      cfg: 1
+      sampler: "euler"
+      expert_boundary: 0.875
+    models:
+      high_noise_model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      low_noise_model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 1
+      not_black: true

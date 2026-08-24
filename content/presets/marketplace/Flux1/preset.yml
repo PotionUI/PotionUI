@@ -1,0 +1,58 @@
+########
+## Flux1 standard preset configuration
+## Authoring reference: docs/presets.md
+########
+schema: 1
+id: "01M0J6CPKRJZW0SVEXMZ90CM7K"
+name: "Flux1"
+category: "image"
+version: "1.0.0"
+engine: "native"
+tags: []
+
+media:
+  cover: "public/examples/potion.png"
+  gallery:
+    - src: "public/examples/potion.png"
+      prompt: "A photorealistic, highly detailed cinematic macro photograph set within a dimly lit, cluttered alchemist's workshop. The central focus is a single, intricately hand-blown glass potion flask with a distinct twisted and warped sculptural form. The flask is filled with a vibrant, intensely glowing cobalt blue bioluminescent liquid. This central glowing flask sits upon a heavily weathered, dark, aged wooden alchemist's bench, which is dusted with fine, scattered blue pigment powders. The glowing liquid in the flask casts a dramatic, shimmering, and complex blue caustic light pattern directly onto the wooden table surface beneath and in front of it. To the left of the flask sits an old, worn, dark leather-bound journal with straps and a buckle, angled slightly away. To the right of the flask, an open, aged parchment book covered in illegible, handwritten alchemical script, complex symbols, formulas, and small, faded illustrative diagrams of various potion bottles is displayed. The background consists of receding wooden shelves heavily cluttered with dozens of glass vials, bottles, and flasks of varying sizes, containing differing blue liquids and powders, all receding into a soft bokeh. Bunches of dried herbs, like lavender, hang from the shelves. The lighting is dominated by the internal bioluminescence of the central flask, creating an intimate, mysterious atmosphere. Shallow depth of field, sharp focus on the twisted glass bottle, photorealistic textures."
+      mode: "txt2img"
+
+# Preset-wide constants. Reference them in pipeline.yml as {{ preset.vars.<name> }}.
+vars:
+  default_steps: 30
+  default_guidance: 3.5
+  default_sampler: "euler"
+
+# Admin-set values (Admin -> Presets -> Configuration). Model pickers reference
+# these via `filter_tags: "@config:<key>"`; unset = no filtering (all models shown).
+configuration:
+  checkpoint_tags:
+    type: "model_tags"
+    label: "Checkpoint tags"
+    description: "Only models with any of these tags appear in the Diffusion Model picker."
+  clip_tags:
+    type: "model_tags"
+    label: "Text encoder tags"
+    description: "Only models with any of these tags appear in the Text Encoder picker."
+  vae_tags:
+    type: "model_tags"
+    label: "VAE tags"
+    description: "Only models with any of these tags appear in the VAE picker."
+  lora_tags:
+    type: "model_tags"
+    label: "LoRA tags"
+    description: "Only LoRAs with any of these tags appear in the LoRA picker."
+
+llm:
+  guide: |
+    Write natural-language prose, never comma-separated tags - the T5 encoder was
+    trained on descriptive captions and handles long, flowing prompts. Structure:
+    subject + action + style + context + lighting + technical details. Lighting is
+    critical: say "golden hour sunlight through blinds", not "well lit". Be specific about colors and materials. For text in the image, put the
+    exact words in quotes. Describe what you WANT - Flux runs guidance-distilled with no
+    negative prompt, so express constraints positively ("empty street" not "no people").
+    More concrete detail yields better results; think of briefing a photographer.
+
+modes:
+  - txt2img
+  - img2img

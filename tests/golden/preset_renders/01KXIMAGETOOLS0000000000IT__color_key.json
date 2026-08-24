@@ -1,0 +1,124 @@
+{
+  "mode": "color_key",
+  "pipes": [
+    {
+      "config": {
+        "auto_detect_type": {
+          "type": "bool",
+          "value": true
+        },
+        "max_file_size": {
+          "type": "int",
+          "value": 52428800
+        },
+        "media": {
+          "type": "list",
+          "value": [
+            {
+              "path": "/GOLDEN/media/input_image.png",
+              "type": "image"
+            }
+          ]
+        },
+        "validate_files": {
+          "type": "bool",
+          "value": true
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "media_loader",
+      "name": "media_loader"
+    },
+    {
+      "config": {
+        "parameters": {
+          "type": "list",
+          "value": [
+            [
+              "key_mode",
+              "auto"
+            ],
+            [
+              "key_color",
+              "#00B140"
+            ],
+            [
+              "tolerance",
+              25
+            ],
+            [
+              "softness",
+              10
+            ],
+            [
+              "despill",
+              true
+            ],
+            [
+              "key_feather",
+              0
+            ]
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "param_emitter",
+      "name": "param_emitter"
+    },
+    {
+      "config": {
+        "despill": {
+          "type": "bool",
+          "value": true
+        },
+        "feather": {
+          "type": "int",
+          "value": 0
+        },
+        "key_color": {
+          "type": "str",
+          "value": "#00B140"
+        },
+        "key_mode": {
+          "type": "str",
+          "value": "auto"
+        },
+        "softness": {
+          "type": "int",
+          "value": 10
+        },
+        "tolerance": {
+          "type": "int",
+          "value": 25
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "color_key",
+      "name": "color_key"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "gallery",
+      "name": "gallery"
+    }
+  ],
+  "preset_id": "01KXIMAGETOOLS0000000000IT",
+  "preset_name": "Image Tools"
+}

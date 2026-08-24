@@ -1,0 +1,211 @@
+########
+## LTX-2 / LTX-2.3 text-to-video (native engine)
+##
+## One preset covers the LTX audio-video family, video-only for now (the
+## audio track is engine-ready but not yet wired into the pipeline). Works
+## with the all-in-one checkpoints (ltx-2-19b-dev, ltx-2.3-22b-dev fp8/nvfp4):
+## the DiT, text-embedding projection and connectors all live in that single
+## file. Pair the matching video VAE (LTX2_video_vae for 19b,
+## LTX23_video_vae for 2.3) and the Gemma3-12B text encoder.
+## Authoring reference: docs/presets.md
+########
+schema: 1
+id: "01KX47LTXVIDEO0000000000TV"
+# The 2 vs 2.3 split is decided by the CHECKPOINT you pick, not the preset:
+# the loader detects 2.3 from its prompt_adaln keys and switches the DiT to
+# the 2.3 forward path (9-row tables, cross-timestep, per-token RMS cond).
+name: "LTX-2 / 2.3"
+category: "video"
+version: "1.0.1"
+engine: "native"
+tags: ["ltx", "ltx-2", "ltx-2.3", "video", "t2v", "flow-matching", "local"]
+
+media:
+  cover: "public/examples/potion.jpg"
+  gallery:
+    - src: "public/examples/potion.mp4"
+      prompt: "Cinematic, hyper-detailed macro video tracking shot of an ornate glass potion bottle on an old alchemist's wooden desk. The camera starts in a tight close-up on the bottle's surface and smoothly glides backward and upward in a dramatic crane shot, revealing the full cluttered workshop environment. Inside the flask, a thick, viscous bioluminescent liquid in swirling gradients of deep neon purple and shimmering gold moves with realistic fluid dynamics, creating small waves and bubbles that interact with the inner glass walls. The intense internal light pulses rhythmically, casting intricate, moving caustic light patterns across the textured dark wood and onto nearby scattered parchment pages. A slow, wispy volumetric smoke column gently rises from the flask's neck, catching the light. The background features a deep, smooth bokeh blur of shelves filled with glass vials and books. Perfect temporal consistency, photorealistic textures, seamless physics integration, and high dynamic range lighting."
+      mode: "video"
+
+# Replaces the old distilled_mode/quality_mode checkboxes --
+# selectable speed profiles (docs/presets.md "Speed profiles"), same pattern
+# as presets/native/Krea2. Each profile bakes the ACTUAL steps/guidance/
+# sampler the recipe runs at, so the visible Steps/CFG/Sampler fields
+# (modes/*/tabs/generation.yml reactions) always match what actually
+# executes -- no more independently-toggleable booleans that could disagree
+# with each other (the old bug: CFG slider showing 1 while generation ran
+# CFG~3 because both checkboxes ended up engaged at once).
+speed_profiles:
+  balanced:
+    steps: 24
+    guidance: 4.0
+    sampler: "euler"
+  distilled:
+    steps: 8
+    guidance: 1.0
+    # Lightricks' own distilled-refine recipe (packages/ltx-pipelines,
+    # Apache-2.0) runs plain deterministic Euler with NO classifier-free
+    # guidance -- see euler_cfg_pp.py's module docstring and
+    # euler_ancestral_cfg_pp.py's "First-party delta" section for the
+    # citation. euler_cfg_pp at this profile's cfg=1.0 is bit-identical to
+    # plain euler (no uncond branch => no CFG++ split); the earlier
+    # euler_ancestral_cfg_pp default additionally injected ancestral noise
+    # every step, which Lightricks' own pipeline never does.
+    sampler: "euler_cfg_pp"
+  quality:
+    steps: 30
+    guidance: 3.0
+    sampler: "euler"
+  custom:
+    steps: 24
+    guidance: 4.0
+    sampler: "euler"
+
+# Admin-set values (Admin -> Presets -> Configuration). Model pickers reference
+# these via `filter_tags: "@config:<key>"`; unset = no filtering (all models shown).
+configuration:
+  checkpoint_tags:
+    type: "model_tags"
+    label: "Checkpoint tags"
+    description: "Only models with any of these tags appear in the Checkpoint picker."
+  clip_tags:
+    type: "model_tags"
+    label: "Text encoder tags"
+    description: "Only models with any of these tags appear in the Text encoder picker."
+  lora_tags:
+    type: "model_tags"
+    label: "LoRA tags"
+    description: "Only LoRAs with any of these tags appear in the LoRA picker."
+  upscaler_tags:
+    type: "model_tags"
+    label: "Spatial upscaler tags"
+    description: "Only models with any of these tags appear in the Spatial Upscaler picker."
+
+vars:
+  # Distilled recipe: Lightricks' own DISTILLED_SIGMA_VALUES
+  # constant (packages/ltx-pipelines in github.com/Lightricks/LTX-2,
+  # Apache-2.0) -- a digit-for-digit match to the maintainer's validated
+  # ComfyUI distilled-refine recipe. Single source of truth: read by both
+  # modes' pipeline.yml for the "Distilled" speed profile above (see
+  # modes/*/tabs/generation.yml for the profile selector, docs/models/ltx.md
+  # for the full recipe).
+  distilled_sigma_recipe: "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0"
+  default_frames: 49
+  default_fps: 25
+  # Quality recipe MultiModalGuider-only knobs: Lightricks'
+  # first-party LTX_2_3_PARAMS (packages/ltx-pipelines/src/ltx_pipelines/
+  # utils/constants.py, Apache-2.0, rev a2c3f24). The recipe's steps/guidance/
+  # sampler live in speed_profiles.quality above (SpeedProfile-typed knobs);
+  # these four have no SpeedProfile-typed home, so they stay preset-wide vars.
+  quality_stg: 1.0
+  quality_rescale: 0.7
+  quality_modality: 3.0
+  quality_stg_blocks: "28"
+  # Known gap: the ComfyUI F-pass reference for Quality uses
+  # a distilled LoRA at 0.2 strength (vs. this preset's default 0.5 LoRA
+  # slider) -- not wired into the LoRA tab; unused by pipeline.yml today.
+  quality_distilled_strength: 0.2
+
+  # Spatial-upscale stage-2 refine recipe: Lightricks' own
+  # STAGE_2_DISTILLED_SIGMA_VALUES constant (packages/ltx-pipelines/src/
+  # ltx_pipelines/utils/constants.py, Apache-2.0, rev a2c3f24) -- a suffix of
+  # distilled_sigma_recipe above (see that var's docstring), used verbatim by
+  # Lightricks' own TI2VidTwoStagesPipeline as the refine pass after latent
+  # upsampling: noise_scale = this list's FIRST value (0.909375), i.e. only
+  # ~91% noise re-injected into the upsampled latent, not a fresh generation.
+  # Read by video/pipeline.yml's stage-2 generator (`refine_sigmas` config --
+  # NOT `manual_sigmas`, which would force sigma[0] back to 1.0 and turn the
+  # refine into plain regeneration; see generator/video_ltx's module
+  # docstring).
+  #
+  # The raw sigma-list textbox
+  # (upscale_refine_sigmas / refine_sigmas, Advanced tab, audience: advanced)
+  # is now an expert override only -- the friendly control is the "Refine
+  # Strength" select (Generation tab, both video-with-upscale (ported
+  # from the retired txt2vid mode) and the standalone upscale
+  # mode), which maps to a SUFFIX of this same list:
+  # Strong = the full recipe below (recommended, unchanged default output),
+  # Balanced/Light start later in the schedule (less noise re-injected, more
+  # faithful to the upsampled latent). The two suffixes are their own vars
+  # (single source of truth, same reasoning as this one) since Jinja can't
+  # slice a comma-string cleanly inside pipeline.yml.
+  ltx23_stage2_sigma_recipe: "0.909375, 0.725, 0.421875, 0.0"
+  ltx23_stage2_sigma_recipe_balanced: "0.725, 0.421875, 0.0"
+  ltx23_stage2_sigma_recipe_light: "0.421875, 0.0"
+
+  # Refine-pass quality prompting. Gemma3-12B is
+  # an instruction-tuned LLM encoder, not a CLIP-style tag encoder -- natural
+  # language reads as a coherent restoration instruction to it, where
+  # comma-separated tag soup ("masterpiece, best quality, 8k") reads as
+  # disconnected keywords the way it would to any chat model. Appended to the
+  # user's own prompt (", " + this) by the standalone upscale mode's
+  # prompt_encoder (modes/upscale/pipeline.yml) -- and used ALONE when the
+  # user leaves the prompt empty, since that mode's prompt pane is optional
+  # (docs/presets.md `promptless_modes` doesn't apply here on purpose: the
+  # pane stays visible so a prompt can still steer content, it's merely no
+  # longer REQUIRED now that this var covers the quality half on its own).
+  # NOT applied to the video mode's in-flow upscale stage-2 refine -- see
+  # that pipeline.yml's stage-2 comment for why (shared conditioning with
+  # stage 1, first-party parity with Lightricks' own two-stage pipeline).
+  refine_quality_prompt: "the video is sharp and richly detailed, with clean well-defined edges, natural skin and material texture, smooth coherent motion, and free of compression artifacts, noise, or blurring"
+
+  # Video Director capabilities for the `video` mode. Read by
+  # normalize_video_director() (src/core/video_director/normalize.py) via
+  # `preset_template.vars.video_director` in src/core/generation/orchestrator.py.
+  # `preset_modes` is a frontend-only convention (frontend/src/lib/utils/
+  # videoDirector.ts) telling the UI which preset modes show the Director editor.
+  #
+  # Unlike Wan, LTX has no "chain" mode -- t2v/i2v/flf all route through the
+  # SAME generator/video_ltx pipe (it handles t2v with zero media placements),
+  # and "director" is ONE generation with keyframe/reference conditioning +
+  # optional audio, not a sequential multi-segment reload.
+  video_director:
+    preset_modes: ["video"]
+    modes:
+      t2v: {}
+      i2v: {}
+      flf: {}
+      director:
+        audio: true
+        ic_lora: true
+        max_keyframes: 8
+    limits:
+      default_duration: 5
+      default_fps: 25
+      # Raised 15 -> 40 so long-clip DiT-placement fixes are
+      # actually reachable from the Director editor's duration field.
+      max_duration: 40
+      # The real generator ceiling: generator/video_ltx and
+      # generator/txt2vid_ltx (src/pipelines/pipes/generator/{video_ltx,
+      # txt2vid_ltx}/main.py) both cap PipeConfigSpec("frames", ...) at
+      # max_value=1001. normalize_video_director() rejects a
+      # duration/fps combination that would need more frames than this
+      # BEFORE generation, instead of the pipe rejecting it later (or
+      # duration=40/fps=60 silently exceeding it altogether).
+      max_frames: 1001
+
+llm:
+  guide: |
+    Write ONE chronological paragraph of natural English prose, 4-8 sentences and
+    at most ~150 words, in present tense, ordered: subject -> action -> camera ->
+    mood. Sentence 1 states the primary action directly - never open with
+    scene-setting. Then: precise movements and gestures, character/object
+    appearance, environment, camera language (tracks, pans, circles, tilts,
+    handheld), lighting (candlelight, neon, tungsten, rim light), textures and
+    color. Think literally; describe what the lens sees, not plot or intent. The
+    model generates AUDIO with the video: put dialogue in quotation marks
+    (optionally noting language or accent), describe ambient sound and volume
+    cues, and state audio continuity across cuts ("the piano score continues
+    across the cut"). The text encoder is an instruction-tuned LLM (Gemma) -
+    natural language reads as a coherent instruction, comma-separated tag soup
+    reads as disconnected keywords; never use tags, quality boilerplate, or vague
+    directives. Image-to-video: describe ONE dominant event developing from the
+    image - focus on motion and camera, do not re-describe what the image already
+    shows, avoid competing moments. Recommended negative prompt: "shaky, glitchy,
+    low quality, worst quality, deformed, distorted, disfigured, motion smear,
+    motion artifacts, fused fingers, bad anatomy, weird hand, ugly, transition,
+    static." Trim items that don't apply and add what the shot risks.
+
+modes:
+  - video
+  - upscale

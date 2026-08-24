@@ -1,0 +1,149 @@
+########
+## Test Preset Definition
+########
+id: "test-preset-123"
+name: "Test Preset"
+version: "1.0.0"
+resolutions: [ "512x512", "768x768", "1024x1024" ]
+extras:
+  test_flag: "true"
+  
+prompt_helpers:
+  emotions:
+    label: "Emotions"
+    description: "Character emotional expressions"
+    options:
+      - { label: "Happy", value: "happy" }
+      - { label: "Sad", value: "sad" }
+      - { label: "Angry", value: "angry" }
+  camera_angles:
+    label: "Camera Angles"
+    description: "Different camera perspectives"
+    options:
+      - { label: "Close-up", value: "close-up" }
+      - { label: "Wide Shot", value: "wide shot" }
+      - { label: "Bird's Eye", value: "bird's eye view" }
+
+vars:
+  scheduler: "DPMPP_2M_KARRAS"
+  sharpness: 40
+
+modes:
+  txt2img:
+    forms:
+      - name: "custom"
+        fields:
+          - type: "tabs"
+            children:
+              - type: "tab"
+                label: "Basic Settings"
+                children:
+                  - type: "row"
+                    configuration: { padding: false }
+                    children:
+                      - name: "style"
+                        type: "select"
+                        label: "Style"
+                        configuration: 
+                          options:
+                            - { label: "Realistic", value: "realistic" }
+                            - { label: "Anime", value: "anime" }
+                            - { label: "Cartoon", value: "cartoon" }
+                        save_into: "session"
+                        
+                      - name: "quality"
+                        type: "select"
+                        label: "Quality"
+                        configuration:
+                          options:
+                            - { label: "High", value: "high" }
+                            - { label: "Medium", value: "medium" }
+                            - { label: "Low", value: "low" }
+                        save_into: "session"
+                        
+                  - type: "row"
+                    children:
+                      - name: "strength"
+                        type: "slider"
+                        label: "Strength"
+                        configuration:
+                          min: 0.0
+                          max: 1.0
+                          step: 0.1
+                          default: 0.8
+                        save_into: "session"
+                        
+                      - name: "enable_enhancement"
+                        type: "checkbox"
+                        label: "Enable Enhancement"
+                        configuration:
+                          default: true
+                        save_into: "session"
+    pipes:
+      - name: "downloader"
+        enabled: true
+        configuration:
+          models:
+            - { model: "test_model", download: "true" }
+        
+      - name: "checkpoint_loader"
+        enabled: true
+        configuration:
+          model:
+            file_path: "checkpoints/test_model.safetensors"
+            name: "test_model"
+            base: "SDXL"
+            
+      - name: "generator"
+        enabled: true
+        input:
+          - [ "model", "checkpoint_loader", "model" ]
+          - [ "conditioning", "prompt_encoder", "conditioning" ]
+        configuration:
+          steps: 20
+          cfg: 7.5
+          scheduler: "DPMPP_2M_KARRAS"
+          
+  img2img:
+    forms:
+      - name: "custom"
+        fields:
+          - type: "tabs"
+            children:
+              - type: "tab"
+                label: "Input"
+                children:
+                  - name: "input_image"
+                    type: "image_upload"
+                    label: "Input Image"
+                    required: true
+                    
+                  - name: "strength"
+                    type: "slider"
+                    label: "Denoising Strength"
+                    default: 0.75
+                    configuration: { min: 0, max: 1, step: 0.05 }
+    pipes:
+      - name: "downloader"
+        enabled: true
+        configuration:
+          models:
+            - { model: "test_model", download: "true" }
+        
+      - name: "checkpoint_loader"
+        enabled: true
+        configuration:
+          model:
+            file_path: "checkpoints/test_model.safetensors"
+            name: "test_model"
+            base: "SDXL"
+            
+      - name: "generator"
+        enabled: true
+        input:
+          - [ "model", "checkpoint_loader", "model" ]
+          - [ "conditioning", "prompt_encoder", "conditioning" ]
+        configuration:
+          steps: 15
+          cfg: 6.0
+          denoise: 0.8

@@ -1,0 +1,30 @@
+########
+## Test Models Configuration
+########
+models:
+  checkpoints:
+    - name: "test_model"
+      url: "https://huggingface.co/test/test_model/resolve/main/test_model.safetensors"
+      file_path: "checkpoints/test_model.safetensors"
+      provider: "huggingface"
+      type: "checkpoint"
+      sha256: "abcd1234567890abcd1234567890abcd1234567890abcd1234567890abcd1234"
+      base: "SDXL"
+      
+  loras:
+    - name: "test_lora"
+      url: "https://huggingface.co/test/test_lora/resolve/main/test_lora.safetensors"
+      file_path: "loras/test_lora.safetensors"
+      provider: "huggingface"
+      type: "lora"
+      sha256: "efgh5678901234efgh5678901234efgh5678901234efgh5678901234efgh5678"
+      base: "SDXL"
+      
+  embeddings:
+    - name: "test_embedding"
+      url: "https://huggingface.co/test/test_embedding/resolve/main/test_embedding.safetensors"
+      file_path: "embeddings/test_embedding.safetensors"
+      provider: "huggingface"
+      type: "embedding"
+      sha256: "ijkl9012345678ijkl9012345678ijkl9012345678ijkl9012345678ijkl9012"
+      base: "SDXL"

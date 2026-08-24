@@ -1,0 +1,116 @@
+fields:
+  - type: "section"
+    label: "Sampling"
+    children:
+      - name: "steps"
+        type: "slider"
+        label: "Steps"
+        default: 20
+        configuration: { min: 1, max: 50, step: 1 }
+
+      - name: "cfg"
+        type: "slider"
+        label: "CFG Scale"
+        default: 4
+        configuration: { min: 1, max: 30, step: 0.5 }
+
+      - name: "clip_skip"
+        type: "number"
+        label: "Clip Skip"
+        default: 2
+        configuration: { min: 0, max: 12, step: 1 }
+
+      - type: "row"
+        children:
+          - name: "sampler"
+            type: "select"
+            label: "Sampler"
+            default: "DPMPP_SDE"
+            configuration:
+              options:
+                - { label: "EULER", value: "EULER" }
+                - { label: "EULER_A", value: "EULER_A" }
+                - { label: "HEUN", value: "HEUN" }
+                - { label: "DPM2", value: "DPM2" }
+                - { label: "DPM2_A", value: "DPM2_A" }
+                - { label: "LMS", value: "LMS" }
+                - { label: "DPMPP_2S_A", value: "DPMPP_2S_A" }
+                - { label: "DPMPP_SDE", value: "DPMPP_SDE" }
+                - { label: "DPMPP_2M", value: "DPMPP_2M" }
+                - { label: "DPMPP_2M_SDE", value: "DPMPP_2M_SDE" }
+                - { label: "DPMPP_3M_SDE", value: "DPMPP_3M_SDE" }
+            reactions:
+              - when: { field: "generation_preset", in: ["gp_sdxl_anime", "gp_ponyxl_anime", "gp_illustrious_anime"] }
+                then: { set_value: "EULER_A" }
+              - when: { field: "generation_preset", in: ["gp_sdxl_realistic", "gp_ponyxl_realistic", "gp_illustrious_realistic"] }
+                then: { set_value: "DPMPP_2M_SDE" }
+
+          - name: "scheduler"
+            type: "select"
+            label: "Scheduler"
+            default: "karras"
+            configuration:
+              options:
+                - { label: "Normal", value: "normal" }
+                - { label: "Karras", value: "karras" }
+                - { label: "Exponential", value: "exponential" }
+                - { label: "SGM Uniform", value: "sgm_uniform" }
+                - { label: "Simple", value: "simple" }
+                - { label: "DDIM Uniform", value: "ddim_uniform" }
+
+  - type: "gate"
+    name: "adm_guidance_enabled"
+    label: "Adaptive Diffusion Model (ADM) Guidance"
+    default: true
+    configuration:
+      summary: "Improves texture quality by modifying SDXL conditioning during early generation"
+    children:
+      - name: "adm_positive_scale"
+        type: "slider"
+        label: "ADM Positive Scale"
+        default: 1.5
+        configuration: { min: 1.0, max: 2.0, step: 0.1, tooltip: "Scale for positive conditioning (higher = stronger structure)" }
+
+      - name: "adm_negative_scale"
+        type: "slider"
+        label: "ADM Negative Scale"
+        default: 0.8
+        configuration: { min: 0.0, max: 1.0, step: 0.1, tooltip: "Scale for negative conditioning (lower = reduced influence)" }
+
+      - name: "adm_scaler_end"
+        type: "slider"
+        label: "ADM End Point"
+        default: 0.3
+        configuration: { min: 0.0, max: 1.0, step: 0.05, tooltip: "Apply ADM during first N% of generation (0.3 = first 30%)" }
+
+  - type: "gate"
+    name: "sag_enabled"
+    label: "Self-Attention Guidance (SAG)"
+    default: false
+    configuration:
+      summary: "Improves detail by comparing normal vs blurred attention (WARNING: doubles compute time)"
+    children:
+      - name: "sag_scale"
+        type: "slider"
+        label: "SAG Scale"
+        default: 0.75
+        configuration: { min: 0.0, max: 2.0, step: 0.05, tooltip: "Strength of SAG guidance (higher = stronger detail enhancement)" }
+
+      - name: "sag_sigma"
+        type: "slider"
+        label: "SAG Blur Sigma"
+        # Reconciled to SAGPipe.get_default_config()'s 2.0 (src/pipelines/pipes/sag/sdxl/main.py)
+        # -- was 1.0, no documented rationale for the mismatch (task #45 sweep).
+        default: 2.0
+        configuration: { min: 0.5, max: 3.0, step: 0.1, tooltip: "Blur strength for attention maps" }
+
+      - name: "sag_threshold"
+        type: "slider"
+        label: "SAG Threshold"
+        # Reconciled to SAGPipe.get_default_config()'s 1.0 (src/pipelines/pipes/sag/sdxl/main.py,
+        # ComfyUI-parity value) -- was 0.5, no documented rationale for the
+        # mismatch (task #45 sweep). `max:` widened from 1.0 (which pinned the
+        # old default exactly at the slider's ceiling) towards the pipe's own
+        # max_value=5.0, kept at 3.0 for a sane UI range.
+        default: 1.0
+        configuration: { min: 0.0, max: 3.0, step: 0.05, tooltip: "Attention-magnitude cutoff used to build the blur mask (ComfyUI-parity; higher = more of the image gets blurred before the SAG correction is computed). Not a generation-progress gate." }

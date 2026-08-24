@@ -1,0 +1,92 @@
+fields:
+  - type: "header"
+    label: "Text and numeric inputs"
+
+  - type: "row"
+    children:
+      - name: "string_input"
+        type: "string"
+        label: "String"
+        description: "The canonical one-line text input."
+        default: "A short value"
+      - name: "textbox_input"
+        type: "textbox"
+        label: "Textbox alias"
+        description: "The textbox alias uses the same frontend text component."
+        default: "A longer sample value"
+
+  - type: "row"
+    children:
+      - name: "number_input"
+        type: "number"
+        label: "Number"
+        default: 2.5
+      - name: "integer_input"
+        type: "integer"
+        label: "Integer"
+        default: 7
+      - name: "stepper_input"
+        type: "stepper"
+        label: "Stepper"
+        configuration:
+          min: 1
+          max: 8
+          step: 1
+          tooltip: "Compact numeric controls share NumberInput."
+        default: 3
+
+  - name: "slider_input"
+    type: "slider"
+    label: "Slider"
+    description: "A fractional slider with an explicit range and tooltip."
+    configuration:
+      min: 0
+      max: 10
+      step: 0.5
+      tooltip: "Fractional range example"
+    default: 4.5
+
+  - name: "seed_input"
+    type: "seed"
+    label: "Seed"
+    default: -1
+
+  - type: "row"
+    children:
+      - name: "boolean_input"
+        type: "boolean"
+        label: "Boolean alias"
+        default: true
+      - name: "checkbox_input"
+        type: "checkbox"
+        label: "Checkbox"
+        default: false
+
+  - name: "select_input"
+    type: "select"
+    label: "Select"
+    configuration:
+      allow_empty: true
+      options:
+        - label: "Balanced"
+          value: "balanced"
+        - label: "Quality"
+          value: "quality"
+          sub_label: "Slower, more detailed"
+        - label: "Fast"
+          value: "fast"
+    default: "balanced"
+
+  - name: "checkbox_group_input"
+    type: "checkbox_group"
+    label: "Checkbox group"
+    configuration:
+      layout: "horizontal"
+      options:
+        - label: "PNG"
+          value: "png"
+        - label: "JPG"
+          value: "jpg"
+        - label: "WEBP"
+          value: "webp"
+    default: ["png", "webp"]

@@ -1,0 +1,57 @@
+# Video Director mode -- the director editor (form_data.video_director, a
+# separate document submitted outside this dynamic form) owns prompts, frames,
+# fps, and start/end media per segment. This tab keeps only what the document
+# does NOT carry: model-run parameters shared by every segment of a request
+# (resolution is constant across a chain; the Speed profile below, and the
+# steps/cfg/sampler/expert boundary it bakes on the Advanced tab, are
+# per-request DEFAULTS -- chain segments may still individually override
+# steps/cfg, see generator/chain_video_wan22). The per-set DiT + LoRA pickers
+# live on the T2V Models / I2V Models tabs.
+fields:
+  - name: "speed_profile"
+    type: "select"
+    label: "Speed"
+    default: "balanced"
+    configuration:
+      options:
+        - { label: "Balanced (30 steps)", value: "balanced", sub_label: "30 steps" }
+        - { label: "Fast", value: "fast", sub_label: "(6 steps, pair with Wan lightning/lightx2v LoRAs high+low)" }
+        - { label: "Custom", value: "custom", sub_label: "(set steps/CFG freely)" }
+
+  - type: "section"
+    label: "Video"
+    children:
+      - name: "seed"
+        type: "seed"
+        label: "Seed"
+        default: -1
+
+      - name: "resolution"
+        type: "resolution"
+        label: "Resolution"
+        configuration:
+          files:
+            - { path: "{{ paths._shared }}/resolutions/video.yml", group: "Video" }
+            - { path: "{{ paths._shared }}/resolutions/social_media_video.yml", group: "Social Media" }
+        default: "832x480"
+
+  - type: "section"
+    label: "Text Encoder & VAE"
+    children:
+      - name: "text_encoder"
+        type: "model"
+        label: "Text Encoder (UMT5-XXL)"
+        required: true
+        configuration:
+          model_type: "clip"
+          placeholder: "Select UMT5-XXL..."
+          filter_tags: "@config:clip_tags"
+
+      - name: "vae"
+        type: "model"
+        label: "VAE"
+        required: true
+        configuration:
+          model_type: "vae"
+          placeholder: "Select Wan VAE..."
+          filter_tags: "@config:vae_tags"

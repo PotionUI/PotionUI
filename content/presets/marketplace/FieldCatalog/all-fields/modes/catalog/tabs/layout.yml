@@ -1,0 +1,73 @@
+fields:
+  - type: "header"
+    label: "Containers and progressive disclosure"
+    configuration:
+      variant: "h3"
+
+  - type: "section"
+    label: "Plain section divider"
+    configuration:
+      badge: "no children"
+      tooltip: "A section can be a divider only."
+
+  - type: "section"
+    label: "Foldable section"
+    configuration:
+      badge: "two children"
+      collapsed: false
+    children:
+      - name: "section_detail"
+        type: "string"
+        label: "Section child"
+        default: "Visible child"
+      - name: "section_strength"
+        type: "slider"
+        label: "Section slider"
+        configuration: { min: 0, max: 1, step: 0.1 }
+        default: 0.5
+
+  - type: "group"
+    label: "Group container"
+    children:
+      - name: "group_value"
+        type: "string"
+        label: "Grouped value"
+        default: "A group has visual containment."
+
+  - type: "accordion"
+    label: "Collapsed accordion"
+    configuration:
+      collapsed: true
+      collapsible: true
+    children:
+      - name: "accordion_value"
+        type: "integer"
+        label: "Accordion child"
+        default: 42
+
+  - type: "gate"
+    name: "advanced_gate"
+    label: "Optional advanced settings"
+    configuration:
+      summary: "Off by default; expands its nested controls when enabled."
+      experimental: true
+    default: false
+    children:
+      - name: "gated_setting"
+        type: "checkbox"
+        label: "Nested setting"
+        default: true
+
+  - type: "row"
+    children:
+      - name: "narrow_row_value"
+        type: "string"
+        label: "One third"
+        width: "1/3"
+        default: "1/3"
+      - name: "wide_row_value"
+        type: "string"
+        label: "Two thirds"
+        width: "2/3"
+        full_width: true
+        default: "2/3"

@@ -1,0 +1,39 @@
+# Which colour to pull out, and how much of the colour space around it counts
+# as "that colour". Edge shaping and spill suppression live on Advanced.
+fields:
+  - name: "input_image"
+    type: "image"
+    label: "Input Image"
+    required: true
+    ai_hint: "This mode only works on a FLAT background -- one deliberately-chosen colour, evenly lit, like the padding a Prepare run filled in or a chroma-key backdrop. It is not a background remover: on a photographed or generated scene, where the background is a hundred different colours, it will punch holes in the subject and miss most of the background. For those, use Remove Background, which segments the subject instead of matching a colour. Output is an RGBA image at the same resolution as the source."
+
+  - name: "key_mode"
+    type: "select"
+    label: "Key Source"
+    default: "auto"
+    ai_hint: "Auto samples the image's dominant border colour, which is exactly right for round-tripping a Prepare output -- you do not have to remember which fill you picked, and it stays correct if the fill was changed upstream. Switch to Colour when auto guesses wrong, which happens when the subject touches the frame edge on several sides (so the border is mostly subject, not background) or when the background is not the most common colour in the image. Naming the colour explicitly is also the reproducible choice for a batch: every image gets the same key regardless of its own content."
+    configuration:
+      options:
+        - { label: "Auto-detect from image", value: "auto", sub_label: "Samples the dominant background colour from the image's own border pixels." }
+        - { label: "Specific colour", value: "color", sub_label: "Removes the colour you name below, whatever the image's border happens to contain." }
+
+  - name: "key_color"
+    type: "string"
+    label: "Key Colour"
+    default: "#00B140"
+    ai_hint: "Only used when Key Source is set to Specific colour. Name the exact fill that was used upstream -- #00B140 is broadcast chroma green and this preset's own Prepare default, #0047BB is chroma blue (the choice when the subject contains green). Give the hex the background actually is, not the hex you would like it to be: if the source went through a lossy re-encode or a video codec, sample the real pixel value rather than assuming the nominal colour survived. Tolerance below is what absorbs the small drift; it is not a substitute for naming the wrong colour."
+    reactions:
+      - when: { field: "key_mode", equals: "auto" }
+        then: { set_disabled: true }
+      - when: { field: "key_mode", equals: "color" }
+        then: { set_disabled: false }
+
+  - name: "tolerance"
+    type: "slider"
+    label: "Tolerance"
+    default: 25
+    ai_hint: "How far a pixel may differ from the key colour and still be removed, as a percentage of the colour space. This is the single knob that decides whether the key works. Too low and the background survives in patches -- wherever lighting, compression or a gradient pushed it off the nominal colour. Too high and it starts eating the subject, beginning with whatever the subject wears closest to the key colour. Tune it by watching the SUBJECT, not the background: raise until the background is gone, then back off the moment anything on the subject starts to disappear. 20-30 suits a clean synthetic fill (a Prepare output, a flat render); 35-50 is the band for a photographed or re-encoded backdrop with real lighting variation; above 60 you are almost always destroying subject detail and should fix the source or use Remove Background instead."
+    configuration:
+      min: 0
+      max: 100
+      step: 1

@@ -1,0 +1,385 @@
+# ref2va pipeline for the native MiniMax-H3 family.
+#
+#   model_loader/minimax_h3
+#     -> references / reference_videos / reference_audios (media_loader)
+#     -> prompt_encoder (or prompt_encoder_director) -> seed_generator
+#     -> generator/video_minimax_h3 -> gallery
+#
+# Ordinarily a single window: reference-to-video is one generation conditioned
+# on a fixed reference set. A Video Director document turns this into a
+# SLIDING WINDOW of independent ref2va generations, hard-cut only -- see
+# generator/video_minimax_h3/windows.py's module docstring ("ref2va Director
+# runs are hard-cut-only") for why continuation and per-window keyframes are
+# refused rather than combined with the reference prefix. There is still no
+# `image`/`keyframe_anchors` here in either shape. The audio track is not a
+# branch either -- H3 samples it inside the same packed sequence as the video
+# and the generator muxes it into the finished mp4 itself.
+#
+# The references are consumed TWICE, by two pipes that need them for different
+# reasons: `prompt_encoder` puts them through the text encoder, which labels
+# them `<Picture i>: `/`<Video k>: `/`<Audio j>: ` per modality IN ARRAY ORDER,
+# and the generator VAE-encodes them into reference rows. Both consumers read
+# the SAME loader node per kind, which is what makes the numbering the prompt is
+# written against identical to the numbering the model is conditioned on. Never
+# split one kind across two loaders.
+#
+# THE PACKED ORDER ACROSS THE THREE KINDS is fixed by the pipes, not by this
+# file: `pack_references` (`pipes/_shared/generation/reference_order.py`) puts
+# every image first, then every video, then every audio, and both consumers
+# derive their traversal from it. This file's part of the contract is only that
+# each kind's loader is the one source both consumers read.
+#
+# Pipes run in DECLARATION ORDER (an input whose provider hasn't run yet
+# resolves to nothing and only logs a warning), which is why `references` is
+# declared up here rather than next to the generator that also reads it.
+#
+# The gallery deliberately reads only `video`. The generator's `audio` output is
+# an in-memory AudioTrack (a waveform), not a file path, and the gallery writes
+# whatever it gets on that input straight out as an audio asset path -- wiring it
+# would both break and duplicate the soundtrack that is already inside the mp4.
+pipeline:
+  #############
+  ## Model loader (DiT + Qwen3-VL-32B TE + video VAE + audio VAE, four
+  ## standalone files, each cached independently by the lifecycle service)
+  ##
+  ## The DiT is expected to be the ref2va partition. Nothing here can check
+  ## that -- it is byte-identical in architecture to the fl2va file -- so the
+  ## warning lives on the Models tab's picker where a human reads it.
+  ############
+  - name: "model_loader/minimax_h3"
+    enabled: true
+    configuration:
+      model:
+        file_path: "{{ form.model }}"
+        name: "{{ form.model }}"
+      text_encoder:
+        file_path: "{{ form.text_encoder }}"
+        name: "{{ form.text_encoder }}"
+      video_vae:
+        file_path: "{{ form.video_vae }}"
+        name: "{{ form.video_vae }}"
+      audio_vae:
+        file_path: "{{ form.audio_vae }}"
+        name: "{{ form.audio_vae }}"
+      # Applied to the DiT at load time. `@loop` `items:` must be an exact
+      # `{{ expression }}` evaluating to a real list -- a mixed/string template
+      # there iterates the string's CHARACTERS instead.
+      loras:
+        "@loop":
+          items: "{{ form.loras | default([]) }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+
+  #############
+  ## Reference images. ONE loader for BOTH consumers -- see the header.
+  ##
+  ## `form.references` is a multi-item media field, so an entry is a media
+  ## reference (`{path, relative_path, url, name, type, label}`); `item.path |
+  ## default(item)` also accepts the bare path string the field's validator
+  ## still allows, so a hand-written tests.yml form works unchanged.
+  ##
+  ## `enabled:` must be an exact `{{ expression }}` so it evaluates to a real
+  ## bool: a `{% set %}`-prefixed string renders "False", and bool("False") is
+  ## True, which would force the loader on with nothing to load.
+  ##
+  ## `type:` stays declared per loader rather than left to media_loader's
+  ## extension auto-detect: an explicit kind is a hard cross-check against the
+  ## file's own extension, and it is the one seam a stale form value or a
+  ## direct API call still has to pass.
+  ############
+  - name: "media_loader"
+    id: "references"
+    enabled: "{{ (form.references | default([], true) | length) > 0 }}"
+    configuration:
+      media:
+        "@loop":
+          items: "{{ form.references | default([], true) }}"
+          template:
+            type: "image"
+            path: "{{ item.path | default(item) }}"
+
+  #############
+  ## Reference videos -- second in packed order. Same one-loader-per-kind
+  ## rule as the images above.
+  ############
+  - name: "media_loader"
+    id: "reference_videos"
+    enabled: "{{ (form.reference_videos | default([], true) | length) > 0 }}"
+    configuration:
+      media:
+        "@loop":
+          items: "{{ form.reference_videos | default([], true) }}"
+          template:
+            type: "video"
+            path: "{{ item.path | default(item) }}"
+
+  #############
+  ## Reference audio -- last in packed order. The generator refuses a request
+  ## whose only references are audio, so this loader on its own is not a
+  ## runnable configuration; the form's hint says so too.
+  ############
+  - name: "media_loader"
+    id: "reference_audios"
+    enabled: "{{ (form.reference_audios | default([], true) | length) > 0 }}"
+    configuration:
+      media:
+        "@loop":
+          items: "{{ form.reference_audios | default([], true) }}"
+          template:
+            type: "audio"
+            path: "{{ item.path | default(item) }}"
+
+  #############
+  ## Prompt encoder (shared pipe; produces the conditioning)
+  ##
+  ## `reference_image`/`reference_video`/`reference_audio` -- not `image` --
+  ## are what make this ref2va: the pipe routes the packed reference list to
+  ## the H3 adapter's `encode_reference_request`, which numbers the
+  ## `<Picture i>: `/`<Video k>: `/`<Audio j>: ` labels per modality itself.
+  ## They are mutually exclusive with `image` by contract, so this node
+  ## carries no `image` edge at all.
+  ##
+  ## No `n_prompt` block and guidance_scale pinned at 1.0: MiniMax-H3 is
+  ## guidance-distilled and has no unconditional branch to encode. The H3 clip
+  ## adapter returns an empty `n_embeds` no matter what it is handed, so 1.0
+  ## here is what keeps the recorded `negative_applied` provenance honest
+  ## instead of claiming a negative pass that never runs.
+  ############
+  - name: "prompt_encoder"
+    input:
+      - ["clip", "model_loader/minimax_h3", "clip"]
+      - ["reference_image", "references", "image"]
+      - ["reference_video", "reference_videos", "video"]
+      - ["reference_audio", "reference_audios", "audio"]
+    enabled: true
+    configuration:
+      p_prompt:
+        input: "{{ generation.prompts.first.positive }}"
+        output: "{{ generation.prompts.first.positive }}"
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity | default(1) }}"
+      guidance_scale: 1.0
+      # Caps the reference area the TE's vision tower sees, as a multiple of
+      # the output canvas. Inert with no references picked.
+      image_pixel_budget: "{{ form.reference_pixel_budget | default(0) }}"
+      output_resolution: "{{ form.resolution }}"
+      # The generated clip's frame count, mirrored from the generator's own
+      # `frames` below. A reference VIDEO is truncated to it before it is
+      # presented, and the generator's condition-encode truncates it to the
+      # same count -- the two cuts have to land on the same frame or the
+      # `<t seconds>` blocks the encoder labels and the rows the model is
+      # conditioned on describe two different videos. Inert with no reference
+      # videos picked.
+      # A document's `settings.duration` wins over the form's own Clip length
+      # slider once one is attached -- the same rule modes/video/pipeline.yml
+      # applies to its `frames`, and for the same reason: a derived single-
+      # shot document (`document` on the generator node below stays
+      # `mode != 'director'`) still carries the shot's own duration here, and
+      # the Clip length slider is not synced from it (see form.yml's header).
+      reference_video_frames: "{{ ((form.video_director.settings.duration * preset.vars.fps) | round(0, 'floor') | int) if (form.video_director is defined and form.video_director.settings is defined and form.video_director.settings.duration is not none) else (((form.duration | default(5)) * preset.vars.fps) | round(0, 'floor') | int if form.duration is defined else preset.vars.default_frames) }}"
+
+  #############
+  ## Prompt encoder, director mode: ONE conditioning per shot, presenting the
+  ## SAME packed reference set (or a per-shot subset) as the node above.
+  ##
+  ## A separate node rather than a conditional `pairs:` on the one above, for
+  ## the same reason modes/video/pipeline.yml's `prompt_encoder_director`
+  ## node is separate from ITS single-window node -- see that file's comment.
+  ## The generator picks whichever node ran.
+  ##
+  ## `reference_image`/`reference_video`/`reference_audio` read the SAME
+  ## loader nodes the node above does, so a segment's `reference_indices`
+  ## always indexes into the identical packed order both nodes see.
+  ############
+  - name: "prompt_encoder"
+    id: "prompt_encoder_director"
+    input:
+      - ["clip", "model_loader/minimax_h3", "clip"]
+      - ["reference_image", "references", "image"]
+      - ["reference_video", "reference_videos", "video"]
+      - ["reference_audio", "reference_audios", "audio"]
+    enabled: "{{ form.video_director is defined and form.video_director.mode == 'director' }}"
+    configuration:
+      p_prompt:
+        input: "{{ generation.prompts.first.positive }}"
+        output: "{{ generation.prompts.first.positive }}"
+      pairs:
+        "@loop":
+          items: "{{ form.video_director.segments if form.video_director is defined else [] }}"
+          template:
+            positive: "{{ item.prompt }}"
+            negative: ""
+      # Per-shot reference SUBSET, index-aligned with `pairs` above. A
+      # segment with no `reference_indices` (the common, whole-film case)
+      # renders an empty list here, which `prompt_encoder` reads as "present
+      # every packed reference" -- same default the single-window node above
+      # gets by never setting this key at all.
+      reference_selections:
+        "@loop":
+          items: "{{ form.video_director.segments if form.video_director is defined else [] }}"
+          template: "{{ item.reference_indices | default([]) }}"
+      quantity: "{{ (form.video_director.segments | length) if form.video_director is defined else 1 }}"
+      guidance_scale: 1.0
+      image_pixel_budget: "{{ form.reference_pixel_budget | default(0) }}"
+      output_resolution: "{{ form.resolution }}"
+      reference_video_frames: "{{ ((form.video_director.settings.duration * preset.vars.fps) | round(0, 'floor') | int) if (form.video_director is defined and form.video_director.settings is defined and form.video_director.settings.duration is not none) else (((form.duration | default(5)) * preset.vars.fps) | round(0, 'floor') | int if form.duration is defined else preset.vars.default_frames) }}"
+
+  #############
+  ## Seed generator
+  ############
+  - name: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed | default(-1) }}"
+      quantity: "{{ form.quantity | default(1) }}"
+
+  #############
+  ## Rendered prompts (provenance): surfaces the per-clip expanded prompts as
+  ## pipe artifacts, the prompt counterpart of seed_generator.
+  ############
+  - name: "dynamic_prompts_renderer"
+    id: "dynamic_prompts_renderer"
+    enabled: true
+    configuration:
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity | default(1) }}"
+
+  #############
+  ## IOType to Value Converter
+  ############
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  #############
+  ## Parameter Emitter
+  ############
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: "{{ form.quantity | default(1) }}"
+      parameters:
+        - ["model", "{{ form.model }}"]
+        - ["model", "{{ form.text_encoder }}"]
+        - ["model", "{{ form.video_vae }}"]
+        - ["model", "{{ form.audio_vae }}"]
+        - "@loop":
+            items: "{{ form.loras | default([]) | active_loras }}"
+            template: ["model", "{{ item.model }}"]
+        - ["positive_prompt", "{{ generation.prompts.positives }}"]
+        - ["steps", "{{ form.steps | default(get_speed_profile(form.speed_profile | default('quality'))['steps']) }}"]
+        - ["speed_profile", "{{ form.speed_profile | default('quality') }}"]
+        - ["resolution", "{{ form.resolution }}"]
+        - ["frames", "{{ ((form.video_director.settings.duration * preset.vars.fps) | round(0, 'floor') | int) if (form.video_director is defined and form.video_director.settings is defined and form.video_director.settings.duration is not none) else (((form.duration | default(5)) * preset.vars.fps) | round(0, 'floor') | int if form.duration is defined else preset.vars.default_frames) }}"]
+        - ["fps", "{{ preset.vars.fps }}"]
+
+  #############
+  ## Generator (ref2va, one pipe, one checkpoint)
+  ##
+  ## `frames` is snapped UP to the next 17n+5 by the pipe itself, but
+  ## `resolution` is NOT snapped -- an off-grid canvas is rejected outright, so
+  ## the Resolution field's option files are the contract (see
+  ## files/form/resolutions_canvas.yml).
+  ##
+  ## No `image` and no `keyframe_anchors`: both are refused alongside any
+  ## reference kind, so this mode leaves them off the node entirely rather
+  ## than rendering an empty one. `document` IS wired -- see the header for
+  ## the hard-cut-only Director case this now supports.
+  ############
+  - name: "generator/video_minimax_h3"
+    input:
+      - ["model", "model_loader/minimax_h3", "model"]
+      - ["conditioning", "{% if form.video_director is defined and form.video_director.mode == 'director' %}prompt_encoder_director{% else %}prompt_encoder{% endif %}", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+      - ["reference_images", "references", "image"]
+      - ["reference_videos", "reference_videos", "video"]
+      - ["reference_audios", "reference_audios", "audio"]
+    enabled: true
+    configuration:
+      # ref2va, not t2va/fl2va: the pipe refuses a request that resolved to no
+      # references at all rather than generating a text-only clip on the
+      # reference partition, which is what makes it safe for none of the three
+      # pickers to be individually `required`.
+      mode: "references"
+      # The whole normalized Director document, raw -- same idiom as the
+      # video mode's `document`. Absent for every ordinary request, which is
+      # what leaves this pipe on its single-window ref2va path below. The
+      # pipe refuses (DirectorPlanError) a document whose segments would need
+      # continuation or their own keyframe while references are active --
+      # see the header comment.
+      document: "{{ form.video_director if (form.video_director is defined and form.video_director.mode == 'director') else none }}"
+      # Each references form field's RAW value, alongside the loaded media on
+      # the three inputs above. An exact `{{ }}` scalar bypasses Jinja
+      # stringification, so the pipe reads real dicts (same idiom as the video
+      # mode's `document`).
+      #
+      # The pipe cross-validates each pair of counts in both directions and
+      # raises on a mismatch. That is the point: if a loader silently drops an
+      # unreadable file, every label after it would slide onto the wrong
+      # reference, and a shorter array is the only trace.
+      references: "{{ form.references | default([], true) }}"
+      reference_videos: "{{ form.reference_videos | default([], true) }}"
+      reference_audios: "{{ form.reference_audios | default([], true) }}"
+      # The profile supplies the baseline; the visible Steps slider (baked to
+      # the profile's exact value by the reactions in tabs/generation.yml) is
+      # what actually wins once a profile is selected.
+      steps: "{{ form.steps | default(get_speed_profile(form.speed_profile | default('quality'))['steps']) }}"
+      resolution: "{{ form.resolution }}"
+      # Seconds on the form, frames on the pipe: fixed 24 fps, floored here and
+      # snapped UP to the next 17n+5 by the pipe itself. A document's own
+      # `settings.duration` wins once one is attached -- see the
+      # `reference_video_frames` comment above; same rule, same reason.
+      frames: "{{ ((form.video_director.settings.duration * preset.vars.fps) | round(0, 'floor') | int) if (form.video_director is defined and form.video_director.settings is defined and form.video_director.settings.duration is not none) else (((form.duration | default(5)) * preset.vars.fps) | round(0, 'floor') | int if form.duration is defined else preset.vars.default_frames) }}"
+      quantity: "{{ form.quantity | default(1) }}"
+      preview: "{{ form.preview | default(true) }}"
+      # H3 always samples an audio stream; this only picks which track gets
+      # muxed. "generate" = the one the model just produced. The pipe's other
+      # choices ("file"/"passthrough") need an `audio` input this preset has no
+      # form field for yet.
+      audio_source: "generate"
+      decode: true
+      # FBCache. The pipe's own defaults are off (threshold 0.0), so an
+      # untouched Advanced tab renders exactly the pipeline it did before
+      # these three controls existed.
+      step_cache_threshold: "{{ form.step_cache_threshold | default(0.0) }}"
+      step_cache_warmup_steps: "{{ form.step_cache_warmup_steps | default(4) }}"
+      step_cache_max_skips: "{{ form.step_cache_max_skips | default(3) }}"
+      # Sparse attention: ONE method knob (off/sol/sla). Off by default like
+      # FBCache above, and for the same reason: an untouched Advanced tab must
+      # render exactly the pipeline it did before these controls existed.
+      # Independent of the cache -- a step the cache skips never reaches
+      # attention at all.
+      sparse_attn: "{{ form.sparse_attn | default('off') }}"
+      sol_attn_tau: "{{ form.sol_attn_tau | default(1.0) }}"
+      sla_sparsity: "{{ form.sla_sparsity | default(0.9) }}"
+      sla_block_size: "{{ form.sla_block_size | default(64) | int }}"
+      sparse_attn_dense_last_steps: "{{ form.sparse_attn_dense_last_steps | default(2) }}"
+      # Solver and knot placement. The pipe's defaults (euler/simple) ARE the
+      # reference schedule, so an untouched Generation tab renders exactly the
+      # pipeline it did before these two controls existed.
+      sampler: "{{ form.sampler | default('euler') }}"
+      scheduler: "{{ form.scheduler | default('simple') }}"
+      # Blank (the default) leaves the schedules computed from `steps` above;
+      # a filled-in list owns the step count outright, profile included, and
+      # is refused outright alongside a non-simple `scheduler`.
+      manual_sigmas: "{{ form.manual_sigmas | default('') }}"
+      manual_audio_sigmas: "{{ form.manual_audio_sigmas | default('') }}"
+
+  #############
+  ## Gallery
+  ############
+  - name: "gallery"
+    input:
+      - ["video", "generator/video_minimax_h3", "video"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: true
+    configuration:
+      save: "true"

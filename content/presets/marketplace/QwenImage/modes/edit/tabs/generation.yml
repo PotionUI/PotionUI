@@ -1,0 +1,64 @@
+fields:
+  - name: "speed_profile"
+    type: "select"
+    label: "Speed profile"
+    default: "balanced"
+    configuration:
+      options:
+        - { label: "Balanced", value: "balanced", sub_label: "20 steps" }
+        - { label: "Turbo", value: "turbo", sub_label: "8 steps, pair with a Qwen Lightning LoRA" }
+        - { label: "Turbo 4-step", value: "turbo_4", sub_label: "4-step Lightning LoRA" }
+        - { label: "Custom", value: "custom", sub_label: "set steps/CFG freely" }
+
+  - type: "section"
+    label: "Image"
+    children:
+      - type: "row"
+        children:
+          - name: "seed"
+            type: "seed"
+            label: "Seed"
+            default: -1
+            width: "3/5"
+
+          - name: "quantity"
+            type: "stepper"
+            label: "Quantity"
+            default: 1
+            width: "2/5"
+            full_width: true
+            configuration: {min: 1, max: 10, step: 1}
+
+  - type: "section"
+    label: "Models"
+    children:
+      - name: "diffusion_model"
+        type: "model"
+        label: "Diffusion Model"
+        required: true
+        configuration:
+          model_type: "diffusion_model"
+          placeholder: "Select a Qwen-Image-Edit MMDiT (e.g. qwen_image_edit_2511_fp8)..."
+          filter_tags: "@config:checkpoint_tags"
+
+      # Single text encoder: Qwen2.5-VL. The vision tower is loaded for this mode
+      # (model_loader/qwen's `vision: true`, see pipeline.yml) so the same file
+      # ALSO grounds the text conditioning on the source image, not just its text
+      # description.
+      - name: "text_encoder"
+        type: "model"
+        label: "Text Encoder (Qwen2.5-VL)"
+        required: true
+        configuration:
+          model_type: "clip"
+          placeholder: "Select Qwen2.5-VL text encoder..."
+          filter_tags: "@config:clip_tags"
+
+      - name: "vae"
+        type: "model"
+        label: "VAE"
+        required: true
+        configuration:
+          model_type: "vae"
+          placeholder: "Select Qwen-Image VAE..."
+          filter_tags: "@config:vae_tags"

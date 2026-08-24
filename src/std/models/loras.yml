@@ -1,0 +1,7 @@
+models:
+  - name: "inpaint_v26_fooocus"
+    url: "https://huggingface.co/lllyasviel/fooocus_inpaint/resolve/main/inpaint_v26.fooocus.patch"
+    provider: "huggingface"
+    file_path: "{{ path('lora', 'inpaint_v26.fooocus.patch') }}"
+    type: "lora"
+    sha256: "f8657a025104e22d70f9c060635d8e8c2196f433871a2f68dc40abd2171f0d59"

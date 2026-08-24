@@ -1,0 +1,39 @@
+fields:
+  - type: "section"
+    label: "Sampling"
+    children:
+      - name: "steps"
+        type: "slider"
+        label: "Steps"
+        audience: "advanced"
+        default: 30
+        ai_hint: "Flow-matching Euler steps per denoising window (each ~14s window runs this many steps twice, once conditional and once unconditional). 30 is the reference count; lower trades fidelity for speed."
+        configuration: {min: 4, max: 100, step: 1}
+
+      - type: "row"
+        children:
+          - name: "cfg_scale"
+            type: "slider"
+            label: "CFG scale (flow)"
+            default: 1.7
+            audience: "advanced"
+            ai_hint: "Classifier-free guidance for the flow-matching DiT. Both the reference source and the port's arch code default to 1.7 -- leave it there unless the user is specifically A/B-ing guidance strength."
+            configuration: {min: 1.0, max: 10.0, step: 0.1}
+            width: "1/2"
+
+          - name: "ar_cfg_scale"
+            type: "slider"
+            label: "CFG scale (AR)"
+            default: 1.5
+            audience: "advanced"
+            ai_hint: "Classifier-free guidance for the autoregressive semantic + residual-code sampling stage. The reference diffusers/ComfyUI code defaults to 1.5, but MiniMax's own published workflow ships 1.7 -- this is an open A/B pending real-weight GPU validation (docs/models/minimax_music3.md). 1.5 is the shipped default; try 1.7 if the AR stage sounds under-guided."
+            configuration: {min: 1.0, max: 10.0, step: 0.1}
+            width: "1/2"
+
+      - name: "top_k"
+        type: "slider"
+        label: "Top-k (AR)"
+        default: 50
+        audience: "advanced"
+        ai_hint: "Restricts AR sampling to the top-k most likely tokens before applying CFG. 50 is the reference value; there is no temperature parameter in this family's sampler."
+        configuration: {min: 1, max: 200, step: 1}

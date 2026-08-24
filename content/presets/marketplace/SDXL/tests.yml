@@ -1,0 +1,85 @@
+########
+## SDXL realistic: E2E test suite.
+## Authoring reference: docs/presets.md "Testing presets"
+########
+schema: 1
+
+cases:
+  # Cheapest possible smoke test: low steps, the smallest resolution this
+  # preset's resolution list offers (content/presets/_shared/resolutions/sdxl.yml --
+  # smallest square entry is 1024x1024), pinned seed. SDXL loads a single
+  # checkpoint file (from_single_file()) so there is only one model field
+  # to resolve, unlike Flux/QwenImage's split DiT+TE+VAE.
+  #
+  # `cyberrealisticPony_v180Coreshift.safetensors` matches this preset's own
+  # bundled loras/wildcards (CyberRealisticPony_POSV1, the ponyxlWildcards*
+  # files in preset.yml) and is present on this checkout's disk, so this
+  # case uses its REAL computed sha256 (via `sha256sum`) rather than a
+  # placeholder -- it is expected to actually run, not be skipped.
+  - name: "sdxl-cyberrealistic-pony-baseline-fast"
+    mode: "txt2img"
+    seed: 999
+    tags: ["fast"]
+    form:
+      # `prompt` is not a preset form field (SDXL/realistic has none) -- it
+      # maps to the generation request's top-level prompt, per convention.
+      prompt: "portrait of a woman standing on a city street, natural lighting"
+      steps: 10
+      cfg: 4
+      resolution: "1024x1024"
+      # `upscale_factor`/`td_enable` are deliberately OMITTED, not oversight:
+      # this exercises the exact "minimal/first-run form" path a real UI user
+      # hits before ever touching the Post Processing tab (upscale_factor has
+      # no `default:` in post-processing.yml, so the frontend's schema-default
+      # seeding never puts it in form_data until the slider is touched -- see
+      # frontend/src/lib/form/defaults.ts). This case previously crashed
+      # pipeline validation ("references non-existent provider pipe 'None'")
+      # because several form.upscale_factor calls in
+      # pipeline.yml had no fallback default, unlike every other numeric
+      # get_form() in this file; fixed by adding `, 1` (the slider's own
+      # `min: 1.0`, i.e. "no upscaling") to each. Keep this case's form AS-IS
+      # (without upscale_factor/td_enable) so it stays a regression guard for
+      # that exact bug class.
+    models:
+      model:
+        sha256: "1d580c1c3f3612fa4db88af65372255582d5509ca0b28f85387273368301941b"
+    checks:
+      min_outputs: 1
+      resolution: "1024x1024"
+      not_black: true
+
+  # Regression guard for a second, more severe bug found while wiring SAG
+  # into this preset (task #45 sweep): `enabled: "{{ get_form(...) }}"` (a
+  # bare Jinja expression, no `{% if %}` wrapping) renders Python's `True`/
+  # `False` via str() -> "True"/"False" (capitalized), but
+  # PresetProcessor.process() compares the rendered string against the
+  # lowercase literal 'true' -- so a pipe wired that way is NEVER enabled,
+  # regardless of the form value. This silently broke `adm_guidance/sdxl`
+  # (previously "on by default" per this codebase's own docs, actually
+  # always off) and would have broken `sag/sdxl`'s wiring the same way if
+  # copied verbatim from adm_guidance's pattern; both are now fixed to use
+  # the same `{% if %}true{% else %}false{% endif %}` idiom every other
+  # boolean-gated pipe in this file already uses. This case pins
+  # `sag_enabled: true` so a regression back to the bare-expression pattern
+  # would show up as SAG's hook never running (not a crash -- generation
+  # would "succeed" with a subtly different image, so `not_black` alone
+  # can't catch it; this case exists as an explicit marker for a human/CI
+  # diff review, and is picked up automatically if #46's runner grows a
+  # config-echo/pipe-graph check).
+  - name: "sdxl-cyberrealistic-pony-sag-enabled"
+    mode: "txt2img"
+    seed: 999
+    tags: ["fast"]
+    form:
+      prompt: "portrait of a woman standing on a city street, natural lighting"
+      steps: 10
+      cfg: 4
+      resolution: "1024x1024"
+      sag_enabled: true
+    models:
+      model:
+        sha256: "1d580c1c3f3612fa4db88af65372255582d5509ca0b28f85387273368301941b"
+    checks:
+      min_outputs: 1
+      resolution: "1024x1024"
+      not_black: true

@@ -1,0 +1,150 @@
+# IDEs and editors
+.idea
+.zed
+.vscode
+*.swp
+*.swo
+*~
+
+# Configuration
+config
+.env
+
+# Model and storage directories
+# /models stays local, except the tracked skeleton of the models/tests
+# fixture depot (weight files there stay ignored too - only .gitkeep travels).
+/models/*
+!/models/tests/
+/models/tests/**
+!/models/tests/**/
+!/models/tests/**/.gitkeep
+/storage
+outputs
+temp
+
+# Python virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.Python
+
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+
+# Python packaging
+.build/
+dist/
+eggs/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Testing and coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# Log files
+*.log
+
+# Claude Code (AI assistant)
+*.local.md
+ai/
+.claude/settings.local.json
+.claude/plans/
+
+# Codex review tooling (personal, machine-local MCP config)
+.codex/
+
+# Test files in root (should be in tests/)
+/test_*.py
+
+# Installed presets
+installed_presets.json
+
+# User-owned content roots - yours, never committed
+content/presets/local/
+content/automation/local/
+content/recipes/local/
+content/plugins/local/
+
+# Frontend (Next.js - legacy)
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.env.local
+frontend/.env.*.local
+
+# Frontend (SvelteKit)
+frontend/.svelte-kit/
+frontend/node_modules/
+frontend/build/
+
+# Repo-root equivalents: npm/vite invoked from the repo root instead of
+# frontend/ drops these here, where the frontend-scoped rules above miss them.
+/node_modules/
+/.svelte-kit/
+/.vite/
+
+# Scratch model depot used by the onboarding harness - weights, never committed.
+/models_onboarding/
+
+# Plugin frontends (unified build toolchain - see content/plugins/package.json)
+content/plugins/node_modules/
+content/plugins/package-lock.json
+# The generic `dist/` rule above (Python packaging) would otherwise also
+# match every plugin's frontend/dist/ - those ARE meant to be committed
+# (they're what plugin_controller serves as static assets at runtime).
+!content/plugins/*/*/frontend/dist/
+!content/plugins/*/*/frontend/dist/**
+
+# Remotion render cache (headless-Chrome download, hundreds of MB)
+.remotion/
+
+# Backup files
+*.backup
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Preset E2E test-suite output (scripts/preset_test_suite.py)
+test-runs/
+storage/model_hash_cache.json
+
+# Test-run generation artifacts written to repo root
+/generations/
+
+# ./potionui runtime state (pidfiles, supervised-process logs)
+/.runtime/
+
+# Browser-UI journey artifacts (screenshots, video clips, preview log) — tests/e2e/ui/run.py
+/tests/e2e/ui/artifacts/
+# Playwright browser-E2E run output
+frontend/tests/e2e/.playwright-artifacts/
+frontend/test-results/
+frontend/playwright-report/
+# scripts/marketing_capture.py run output — tests/e2e-marketing/
+frontend/tests/e2e-marketing/.playwright-artifacts/
+frontend/tests/e2e-marketing/preview.log
+
+# Internal tooling and working notes - never published
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+.impeccable.md
+.mockups/
+docs/audits/
+frontend/src/lib/storage/

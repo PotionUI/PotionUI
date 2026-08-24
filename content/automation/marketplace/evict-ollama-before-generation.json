@@ -1,0 +1,61 @@
+{
+  "schema": "potionui.automation",
+  "schema_version": 1,
+  "kind": "automation",
+  "exported_at": "2026-07-21T00:00:00+00:00",
+  "automation": {
+    "name": "Free VRAM before a generation (automatic)",
+    "description": "Before each generation, unload Ollama's models when the generation needs more VRAM than is currently free - or when the need can't be estimated (eviction is cheap and chat reloads in seconds, so 'when in doubt, clear the room'). The generation waits for the eviction (or a short timeout) before it starts. To use a fixed threshold instead, swap the Expression node for a Compare node on event.vram_free_gb (e.g. lt 8).",
+    "graph": {
+      "nodes": [
+        {
+          "id": "before_generation",
+          "type": "trigger.hook_event",
+          "position": { "x": 0, "y": 0 },
+          "config": {
+            "hook_name": "generation.before_start",
+            "wait_for_completion": true,
+            "wait_timeout_s": 30
+          }
+        },
+        {
+          "id": "needs_room",
+          "type": "condition.jinja_expression",
+          "position": { "x": 320, "y": 0 },
+          "config": {
+            "expression": "event.vram_estimate_gb is none or event.vram_free_gb is none or event.vram_estimate_gb > event.vram_free_gb"
+          }
+        },
+        {
+          "id": "unload_ollama",
+          "type": "action.ollama_unload",
+          "position": { "x": 640, "y": 0 },
+          "config": {
+            "model": ""
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "before_to_check",
+          "source": "before_generation",
+          "source_handle": "out",
+          "target": "needs_room",
+          "target_handle": "in"
+        },
+        {
+          "id": "check_to_unload",
+          "source": "needs_room",
+          "source_handle": "true",
+          "target": "unload_ollama",
+          "target_handle": "in"
+        }
+      ]
+    }
+  },
+  "node_types": [
+    "action.ollama_unload",
+    "condition.jinja_expression",
+    "trigger.hook_event"
+  ]
+}

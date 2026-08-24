@@ -1,0 +1,16 @@
+fields:
+  - name: "loras"
+    type: "lora_picker"
+    default: []
+    label: "LoRAs"
+    ai_hint: "LTX-2 LoRAs. 0.5-1.0 typical strength. Leave empty if not needed. Do NOT put a distilled/turbo LoRA here while the Speed profile (Generation tab) is Balanced (CFG 4, 24 steps, sampler euler) -- distilled LoRAs are trained for a short, low-CFG (~1.0) refine schedule and will produce noisy/garbage output at full-CFG/many-step settings. Single-stage (Upscale off): to use a distilled LoRA, add it here at ~0.5 strength AND set the Speed profile to Distilled. Two-stage (Upscale on): use the Enhance tab's Refine LoRAs picker for the distilled LoRA (at strength 1.0) instead -- stage 1 renders undistilled at full CFG/steps from this field's (style-only) stack, stage 2 becomes the short distilled refine; do not also add the distilled LoRA here for a two-stage run. For the Quality speed profile (full model): the recipe expects NO distilled LoRA, but if you have one loaded, set its strength to 0.2 (the ComfyUI F-pass reference uses 0.2)."
+    configuration:
+      model_type: "lora"
+      placeholder: "Select an LTX LoRA..."
+      allow_info_modal: true
+      strength_min: -10.0
+      strength_max: 10.0
+      strength_step: 0.1
+      strength_default: 1.0
+      max_items: 10
+      filter_tags: "@config:lora_tags"

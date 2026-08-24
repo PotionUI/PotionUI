@@ -1,0 +1,73 @@
+name: Bug report
+description: Something in PotionUI isn't working right
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open preset '...'
+        2. Set '...'
+        3. Hit generate
+    validations:
+      required: false
+
+  - type: input
+    id: install-method
+    attributes:
+      label: Install method
+      description: How did you start PotionUI?
+      placeholder: "potionui start / potionui start-docker / manual (venv + npm)"
+    validations:
+      required: true
+
+  - type: input
+    id: preset
+    attributes:
+      label: Preset and mode
+      description: Which preset were you generating with, and which mode/tab?
+      placeholder: "e.g. SDXL / txt2img, or LTX-2.5 / video_director"
+    validations:
+      required: false
+
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU model and VRAM
+      placeholder: "e.g. RTX 4090, 24GB"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "e.g. Ubuntu 22.04, Windows 11 + WSL2"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Backend logs
+      description: Relevant output from the backend process (terminal, or `logs/` if running via a service manager). Paste as text, not a screenshot.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Screenshots, related presets/plugins, anything that might help.
+    validations:
+      required: false

@@ -1,0 +1,66 @@
+########
+## LTX-2.5: E2E test suite. Mirrors presets/native/LTX-2/tests.yml, with the
+## split-checkpoint pickers (video_vae, audio_vae) added to `models:` -- a 2.5
+## run cannot resolve without them.
+## Authoring reference: docs/presets.md "Testing presets"
+########
+schema: 1
+
+cases:
+  # Distilled t2v smoke: the Distilled speed profile (8 steps, CFG 1.0,
+  # euler_ancestral -- LTX-2.5's base pass is ancestral for the distilled
+  # checkpoint too, see preset.yml's speed_profiles comment) at the smallest SD
+  # portrait size. The video mode is a Video Director flow, so prompts come from
+  # the submitted director document (none set here). Every model is
+  # placeholder+needs-model.
+  - name: "ltx25-video-distilled-t2v-fast"
+    mode: "video"
+    kind: "video"
+    seed: 12345
+    tags: ["fast", "needs-model"]
+    form:
+      speed_profile: "distilled"
+      resolution: "480x832"
+      steps: 8
+      cfg: 1
+      sampler: "euler_ancestral"
+      upscale: "off"
+      refine_strength: "strong"
+      generate_audio: true
+    models:
+      model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      video_vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      audio_vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 1
+      not_black: true
+
+  # Standalone upscale smoke: Balanced refine strength; face/hand enhancement
+  # disabled to keep the pass cheap. Requires an input video the headless suite
+  # can't supply, so placeholder+needs-model makes it skip.
+  - name: "ltx25-upscale-refine-fast"
+    mode: "upscale"
+    kind: "video"
+    seed: 12345
+    tags: ["fast", "needs-model"]
+    form:
+      refine_strength: "balanced"
+      enhance_faces_hands: false
+      apply_quality_prompt: true
+    models:
+      model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      video_vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      upscale_model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 1
+      not_black: true

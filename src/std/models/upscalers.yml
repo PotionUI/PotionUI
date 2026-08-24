@@ -1,0 +1,38 @@
+models:
+  ##################################
+  #### ESRGAN
+  ##################################
+  - name: "RealESRGANx2"
+    url: "https://huggingface.co/ai-forever/Real-ESRGAN/resolve/main/RealESRGAN_x2.pth"
+    file_path: "{{ path('upscaler', 'RealESRGAN_x2.pth') }}"
+    type: "upscaler"
+    provider: "huggingface"
+    sha256: "c830d067d54fc767b9543a8432f36d91bc2de313584e8bbfe4ac26a47339e899"
+
+  - name: "RealESRGANx4"
+    url: "https://huggingface.co/ai-forever/Real-ESRGAN/resolve/main/RealESRGAN_x4.pth"
+    file_path: "{{ path('upscaler', 'RealESRGAN_x4.pth') }}"
+    type: "upscaler"
+    provider: "huggingface"
+    sha256: "aa00f09ad753d88576b21ed977e97d634976377031b178acc3b5b238df463400"
+
+  - name: "RealESRGANx8"
+    url: "https://huggingface.co/ai-forever/Real-ESRGAN/resolve/main/RealESRGAN_x8.pth"
+    file_path: "{{ path('upscaler', 'RealESRGAN_x8.pth') }}"
+    type: "upscaler"
+    provider: "huggingface"
+    sha256: "8b72fb469d12f05a4770813d2603eb1b550f40df6fb8b37d6c7bc2db3d2bff5e"
+
+  - name: "4x_NMKD-Superscale-SP_178000_G"
+    url: "https://huggingface.co/uwg/upscaler/resolve/main/ESRGAN/4x_NMKD-Superscale-SP_178000_G.pth"
+    file_path: "{{ path('upscaler', '4x_NMKD-Superscale-SP_178000_G.pth') }}"
+    type: "upscaler"
+    provider: "huggingface"
+    sha256: "1d1b0078fe71446e0469d8d4df59e96baa80d83cda600d68237d655830821bcc"
+
+  - name: "remacri_original"
+    url: "https://civitai.com/api/download/models/164821?type=Model&format=PickleTensor"
+    file_path: "{{ path('upscaler', 'remacri_original.pt') }}"
+    type: "upscaler"
+    provider: "civitai"
+    sha256: "E1A73BD89C2DA1AE494774746398689048B5A892BD9653E146713F9DF8BCA86A"

@@ -1,0 +1,63 @@
+# T2V checkpoint set + its BASE LoRA stacks. Wan 2.2 ships architecturally-
+# separate t2v (in_dim=16) and i2v (in_dim=36) checkpoints; the Director loads
+# only the set(s) a request actually needs (a pure-t2v document never loads the
+# i2v pair). Wan 2.2 14B is a HIGH/LOW-noise expert PAIR -- supply both files and
+# the generator's expert router switches at the sampling boundary; Wan 2.1 / the
+# 5B ti2v are single-DiT, so leave the low-noise picker empty. The 5B TI2V
+# checkpoint does both jobs -- pick the same file in the T2V and I2V high-noise
+# pickers and the lifecycle cache (path-keyed) loads it once.
+fields:
+  - type: "section"
+    label: "T2V Models"
+    children:
+      - name: "t2v_high_noise_model"
+        type: "model"
+        label: "t2v DiT (high-noise / single)"
+        configuration:
+          model_type: "diffusion_model"
+          placeholder: "Wan t2v DiT — high-noise expert, or the only DiT..."
+          filter_tags: "@config:checkpoint_tags"
+
+      # Wan 2.2 14B dual-expert only; leave empty for 2.1 / 5B.
+      - name: "t2v_low_noise_model"
+        type: "model"
+        label: "t2v DiT (low-noise expert)"
+        configuration:
+          model_type: "diffusion_model"
+          placeholder: "Wan 2.2 t2v low-noise expert — leave empty for 2.1 / 5B..."
+          filter_tags: "@config:checkpoint_tags"
+
+  - type: "section"
+    label: "T2V LoRAs"
+    children:
+      - name: "t2v_loras_high"
+        type: "lora_picker"
+        default: []
+        label: "t2v LoRAs — high-noise expert"
+        ai_hint: "LoRAs for the t2v high-noise expert (the HIGH file of a Wan 2.2 t2v pair, e.g. Lightning/lightx2v t2v HighNoise). 0.5-1.0 typical. Leave empty if not needed."
+        configuration:
+          model_type: "lora"
+          placeholder: "Select a t2v high-noise LoRA..."
+          filter_tags: "@config:lora_tags"
+          allow_info_modal: true
+          strength_min: -10.0
+          strength_max: 10.0
+          strength_step: 0.1
+          strength_default: 1.0
+          max_items: 10
+
+      - name: "t2v_loras_low"
+        type: "lora_picker"
+        default: []
+        label: "t2v LoRAs — low-noise expert"
+        ai_hint: "LoRAs for the t2v low-noise expert (the LOW file of a Wan 2.2 t2v pair). Ignored when no t2v low-noise model is set."
+        configuration:
+          model_type: "lora"
+          placeholder: "Select a t2v low-noise LoRA..."
+          filter_tags: "@config:lora_tags"
+          allow_info_modal: true
+          strength_min: -10.0
+          strength_max: 10.0
+          strength_step: 0.1
+          strength_default: 1.0
+          max_items: 10

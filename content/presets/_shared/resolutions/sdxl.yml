@@ -1,0 +1,40 @@
+# SDXL Standard Resolutions - Optimal for Stable Diffusion XL models
+- { value: "1024x1024", ratio: [1, 1], description: "Square", tier: "Full" }
+- { value: "1152x896", ratio: [9, 7], description: "Landscape", tier: "Full" }
+- { value: "896x1152", ratio: [7, 9], description: "Portrait", tier: "Full" }
+- { value: "1216x832", ratio: [19, 13], description: "Wide Landscape", tier: "Full" }
+- { value: "832x1216", ratio: [13, 19], description: "Tall Portrait", tier: "Full" }
+- { value: "1344x768", ratio: [7, 4], description: "Cinematic", tier: "Full" }
+- { value: "768x1344", ratio: [4, 7], description: "Tall", tier: "Full" }
+- { value: "1536x640", ratio: [12, 5], description: "Ultra Wide", tier: "Full" }
+- { value: "640x1536", ratio: [5, 12], description: "Ultra Tall", tier: "Full" }
+# Compact tiers for lower-VRAM cards. Snapped to 64px -- also this list's
+# other consumers (Anima/QwenImage/ZImage) only need 16px, so 64 stays a safe
+# superset for all of them.
+- { value: "768x768", ratio: [1, 1], description: "Square (Compact)", tier: "Compact" }
+- { value: "896x704", ratio: [9, 7], description: "Landscape (Compact)", tier: "Compact" }
+- { value: "704x896", ratio: [7, 9], description: "Portrait (Compact)", tier: "Compact" }
+- { value: "896x640", ratio: [19, 13], description: "Wide Landscape (Compact)", tier: "Compact" }
+- { value: "640x896", ratio: [13, 19], description: "Tall Portrait (Compact)", tier: "Compact" }
+- { value: "1024x576", ratio: [7, 4], description: "Cinematic (Compact)", tier: "Compact" }
+- { value: "576x1024", ratio: [4, 7], description: "Tall (Compact)", tier: "Compact" }
+- { value: "1216x512", ratio: [12, 5], description: "Ultra Wide (Compact)", tier: "Compact" }
+- { value: "512x1216", ratio: [5, 12], description: "Ultra Tall (Compact)", tier: "Compact" }
+- { value: "640x640", ratio: [1, 1], description: "Square (Small)", tier: "Small" }
+- { value: "704x576", ratio: [9, 7], description: "Landscape (Small)", tier: "Small" }
+- { value: "576x704", ratio: [7, 9], description: "Portrait (Small)", tier: "Small" }
+- { value: "768x512", ratio: [19, 13], description: "Wide Landscape (Small)", tier: "Small" }
+- { value: "512x768", ratio: [13, 19], description: "Tall Portrait (Small)", tier: "Small" }
+- { value: "832x512", ratio: [7, 4], description: "Cinematic (Small)", tier: "Small" }
+- { value: "512x832", ratio: [4, 7], description: "Tall (Small)", tier: "Small" }
+- { value: "960x384", ratio: [12, 5], description: "Ultra Wide (Small)", tier: "Small" }
+- { value: "384x960", ratio: [5, 12], description: "Ultra Tall (Small)", tier: "Small" }
+- { value: "512x512", ratio: [1, 1], description: "Square (Minimum)", tier: "Minimum" }
+- { value: "576x448", ratio: [9, 7], description: "Landscape (Minimum)", tier: "Minimum" }
+- { value: "448x576", ratio: [7, 9], description: "Portrait (Minimum)", tier: "Minimum" }
+- { value: "640x448", ratio: [19, 13], description: "Wide Landscape (Minimum)", tier: "Minimum" }
+- { value: "448x640", ratio: [13, 19], description: "Tall Portrait (Minimum)", tier: "Minimum" }
+- { value: "704x384", ratio: [7, 4], description: "Cinematic (Minimum)", tier: "Minimum" }
+- { value: "384x704", ratio: [4, 7], description: "Tall (Minimum)", tier: "Minimum" }
+- { value: "768x320", ratio: [12, 5], description: "Ultra Wide (Minimum)", tier: "Minimum" }
+- { value: "320x768", ratio: [5, 12], description: "Ultra Tall (Minimum)", tier: "Minimum" }

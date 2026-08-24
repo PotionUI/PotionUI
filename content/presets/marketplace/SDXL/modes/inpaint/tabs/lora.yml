@@ -1,0 +1,16 @@
+fields:
+  - name: "loras"
+    type: "lora_picker"
+    default: []
+    label: "LoRAs"
+    ai_hint: "LoRAs add specialized styles, concepts, or characters to the base model. Multiple LoRAs can be combined. Check model page for recommended strength values. 0.5-0.8 is recommended for most LoRAs, 1.0 = full effect; negative values invert the effect. Leave empty if not needed."
+    configuration:
+      model_type: "lora"
+      placeholder: "Select a LoRA..."
+      allow_info_modal: true
+      strength_min: -5.0
+      strength_max: 5.0
+      strength_step: 0.1
+      strength_default: 1.0
+      max_items: 6
+      filter_tags: "@config:lora_tags"

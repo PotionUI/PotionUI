@@ -1,0 +1,186 @@
+name: Onboarding smoke gate
+
+# Guards the 0.0.1 onboarding contract on a clean checkout, CPU-only runner:
+# - `./potionui doctor` sees a healthy toolchain and reports no blocking errors.
+# - frontend installs and builds.
+# - requirements.txt / requirements-dev.txt resolve against constraints.txt.
+#
+# What this does NOT do: boot the real backend. `src/bootstrap/container.py`
+# imports `GpuManager`, which does `import torch` at module level, so
+# `build_container()` (and therefore `api.py`) transitively requires the full
+# ML stack before any preset is ever selected — there is no lazy-import seam
+# today that would let a CPU-only/API-only subset boot standalone. Splitting
+# that out was evaluated and explicitly deferred for 0.0.1 (see the
+# "Feasibility note" in constraints.txt). Until that lands,
+# `pip install --dry-run` is as close as this gate gets to validating the
+# backend dependency set without installing multi-GB CUDA wheels on a
+# free-tier runner.
+#
+# TODO(post-0.0.1): once a CPU-only / lazy-torch profile exists, replace the
+# dry-run resolve job below with a real `pip install` + `python -c "import
+# api"` boot check. If tests/scripts/test_constraints_cover_requirements.py
+# (referenced in constraints.txt's header) lands, wire it into the
+# constraints-resolve job so drift between requirements*.txt and
+# constraints.txt fails CI, not just a stale comment.
+#
+# `release-gate-cpu-safe` runs tests/release/release_gate.py --skip-gpu
+# — recipe lint, the architecture layering guard, and the setup feature test
+# suite, with the GPU-gated preset E2E gate force-skipped (loudly, not
+# silently) since this runner has no CUDA and no model files. Same
+# requirements-dev.txt-only install as `layering` above. Known risk shared
+# with the `layering` job: tests/conftest.py's top-level `pytest_plugins`
+# list unconditionally imports tests.fixtures.generation_fixtures, which
+# transitively imports torch (src/features/generation/profile_paths.py ->
+# src/platform/observability/profiling/profiler.py) — so ANY pytest run
+# under tests/ actually needs torch importable, which requirements-dev.txt
+# does not install. This predates both CI jobs; tracked as a follow-up, not
+# fixed here (fixing it means touching tests/conftest.py / tests/fixtures/,
+# outside this task's scope).
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: onboarding-smoke-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  doctor:
+    name: potionui doctor
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Ensure ./potionui is executable
+        run: chmod +x ./potionui
+
+      # Human-readable report in the job log.
+      - name: potionui doctor
+        run: ./potionui doctor
+
+      # Machine-readable form, asserted the same way `cmd_doctor` does
+      # internally (exit 1 iff any row is severity=error) — this step fails
+      # the job outright on a blocking check, nothing swallows the exit code.
+      - name: potionui doctor --json
+        run: ./potionui doctor --json | tee doctor.json
+
+      - name: Upload doctor report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: potionui-doctor-report
+          path: doctor.json
+          retention-days: 14
+
+  frontend-build:
+    name: frontend install + build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: npm ci
+        working-directory: frontend
+        run: npm ci
+
+      - name: npm run build
+        working-directory: frontend
+        run: npm run build
+
+  backend-deps-resolve:
+    name: backend dependency resolution (dry run)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+
+      # Resolves the full dependency graph against the pinned transitive
+      # closure in constraints.txt without installing anything (no multi-GB
+      # CUDA wheels on the runner). Catches real regressions cheaply: a bad
+      # version pin, a dropped/renamed package, or requirements.txt drifting
+      # out of what constraints.txt can satisfy. `set -o pipefail` is on by
+      # default for bash `run:` steps, and there is no `|| true` anywhere in
+      # this job — a resolution failure fails the job.
+      - name: pip install --dry-run -r requirements.txt -c constraints.txt
+        run: pip install --dry-run -r requirements.txt -c constraints.txt
+
+      - name: pip install --dry-run -r requirements-dev.txt -c constraints.txt
+        run: pip install --dry-run -r requirements-dev.txt -c constraints.txt
+
+  layering:
+    name: architecture layering guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # requirements-dev.txt has no ML deps (pytest/black/isort/mypy/ruff) —
+      # cheap to install for real, unlike requirements.txt.
+      - name: Install dev tooling
+        run: pip install -r requirements-dev.txt -c constraints.txt
+
+      # Stdlib-only test (ast/re over source files, no imports of src/) per
+      # CLAUDE.md — enforces the package layering contracts (features/
+      # platform/pipelines import direction, dissolved-package guard).
+      - name: pytest tests/architecture/ + constraints coverage
+        run: python -m pytest tests/architecture/ tests/scripts/test_constraints_cover_requirements.py -q --no-cov
+
+  release-gate-cpu-safe:
+    name: release gate (CPU-safe gates only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Same cheap, ML-free dependency set as the `layering` job above
+      # (pytest + friends, no torch/diffusers/transformers) — this job only
+      # runs tests/release/release_gate.py's CPU-safe gates.
+      - name: Install dev tooling
+        run: pip install -r requirements-dev.txt -c constraints.txt
+
+      # tests/release/release_gate.py orchestrates, in order: recipe
+      # lint over content/recipes/, the architecture layering guard, the setup
+      # feature test suite, and a GPU-gated preset E2E smoke case. This
+      # runner is CPU-only, so `--skip-gpu` forces the last gate to a loud,
+      # non-failing SKIP unconditionally — it never attempts a real preset
+      # generation here. (The script also auto-skips that gate whenever no
+      # CUDA device is detected, which is always true on this runner, but
+      # `--skip-gpu` makes the CPU-only intent explicit and immune to any
+      # future change in that auto-detection logic.)
+      - name: python tests/release/release_gate.py --skip-gpu
+        run: python tests/release/release_gate.py --skip-gpu

@@ -1,0 +1,73 @@
+# Lyrics are the standard prompt section (see PromptSection.svelte) -- caption,
+# duration, the instrumental toggle and seed are the only settings this
+# preset's form owns. Krea-2 layout: Style description plays the role of
+# Krea-2's top-level Speed profile field (both are the first thing the form
+# asks for), a "Song" section holds this mode's own core generation knobs
+# (no Krea-2 counterpart for duration/instrumental, but seed lives here the
+# same way it lives in Krea-2's Image section), and "Models" closes it out.
+fields:
+  - name: "description"
+    type: "string"
+    label: "Style description"
+    required: true
+    configuration:
+      input_type: "textarea"
+      rows: 4
+      placeholder: "style & tempo · vocals · arrangement"
+    ai_hint: "The generator's only conditioning signal besides lyrics -- an empty caption fails generation outright. Aim for roughly 250-450 words covering genre/tempo/mood, vocal character (omit entirely for an instrumental track), and arrangement -- see this preset's llm.guide for the full recipe."
+
+  - type: "section"
+    label: "Song"
+    children:
+      - type: "row"
+        children:
+          - name: "duration"
+            type: "integer"
+            label: "Max duration (seconds, 0 = auto)"
+            default: 60
+            configuration: {min: 0, max: 360}
+            ai_hint: "A hard CAP, not a target -- the model has no length input and ends a song with its own stop token when the lyrics run out; a cap below the natural ending cuts the song mid-phrase. 0 = auto: generate until the song ends (up to the 360s model max). Song length is really steered by how many sections the lyrics (the Prompt box) carry."
+            width: "1/2"
+
+          - name: "instrumental"
+            type: "boolean"
+            label: "Instrumental (no vocals)"
+            default: false
+            ai_hint: "Composes the literal '[instrumental]' lyrics regardless of what the Prompt box contains."
+            width: "1/2"
+
+      - name: "seed"
+        type: "seed"
+        label: "Seed"
+        default: -1
+        ai_hint: "Drives both the AR stage's token sampling and every flow-matching window -- one seed reproduces the whole song, same device only (sampled tokens are not reproducible across dtype/device)."
+
+  - type: "section"
+    label: "Models"
+    children:
+      - name: "model"
+        type: "model"
+        label: "MiniMax-Music3 DiT"
+        required: true
+        configuration:
+          model_type: "diffusion_model"
+          placeholder: "minimax_music3_dit_fp16..."
+          filter_tags: "@config:checkpoint_tags"
+
+      - name: "text_encoder"
+        type: "model"
+        label: "Text Encoder (fused LLM + depth decoder)"
+        required: true
+        configuration:
+          model_type: "clip"
+          placeholder: "minimax_music3_text_encoder_pruned_bf16..."
+          filter_tags: "@config:clip_tags"
+
+      - name: "vae"
+        type: "model"
+        label: "DAV Vocoder"
+        required: true
+        configuration:
+          model_type: "vae"
+          placeholder: "minimax_music3_dav..."
+          filter_tags: "@config:vae_tags"

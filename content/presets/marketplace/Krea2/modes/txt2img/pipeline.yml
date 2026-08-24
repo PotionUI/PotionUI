@@ -1,0 +1,268 @@
+# txt2img pipeline for native Krea-2.
+#
+#   model_loader/krea2 -> prompt_encoder -> seed_generator -> generator/krea2 (id: generator)
+#                                                                  \-> enhancer (optional)
+#                                                                        \-> compare_enhance (optional) -> gallery
+#
+# Conditioning flows the mandated shared path: model_loader emits `clip`
+# (a Krea2ClipTextEncoder over the Qwen3-VL TE), prompt_encoder turns prompts
+# into `conditioning`, and generator/krea2 consumes that (never re-encodes).
+#
+# cfg/guidance is driven by the selected speed profile (get_speed_profile),
+# overridable by form.cfg: turbo/balanced default to <=1 (NoCFG, a single
+# forward pass), base/quality default higher (a real negative-conditioned
+# pass). prompt_encoder's guidance_scale, both generator instances' guidance,
+# and param_emitter's "cfg" row all share the exact same expression and must
+# move in lockstep.
+#
+# `enhancer` is a second generator/krea2 instance chaining the whole-frame
+# enhance pass (mode=img2img, refine_tail) directly onto the base generator's
+# output, gated on `form.enhance_enabled`. Two instances of the same pipe name
+# need distinct `id`s (see generation.py's pipe_identifier_map: a name that
+# appears more than once is only resolvable by id) - the base generator is
+# `id: "generator"` so both `gallery` and the enhancer's image input can
+# reference it unambiguously.
+#
+# Product decision is ONE gallery file per seed - the enhanced image when
+# Enhance is ON, the base image when it's OFF. There is a single `gallery`
+# pipe (mirrors presets/native/SDXL/modes/txt2img/pipeline.yml, which
+# Jinja-selects its `image` input from whichever post-processing stage
+# actually ran instead of branching into parallel gallery pipes); `gallery`
+# has moved to the end of the pipeline because it now depends on
+# `compare_enhance`, which itself depends on `enhancer` - pipes execute in
+# declared order (generation.py), so a pipe must be declared after everything
+# it reads from. `compare_enhance` (the `artifact` pipe, mode=compare) is the
+# generic before/after bridge: it takes the base and enhanced image arrays as
+# two separate inputs (they come from two different generator instances,
+# unlike tiled_refiner/detailer/upscaler which emit their own compare
+# artifact inline because one pipe holds both images), emits a
+# pipe_artifact/compare-images entry per index so the base stays inspectable,
+# and forwards the `right` (enhanced) image on to `gallery`. The base image is
+# never itself passed to a gallery pipe when Enhance is ON, so it is never
+# saved as a file.
+#
+# param_emitter's resolution/steps/sampler always describe the base
+# generator's pass; the enhance pass's own settings, when it runs, are
+# recorded separately in the enhance_detail/upscale_by rows rather than
+# overwriting these.
+pipeline:
+  - name: "model_loader/krea2"
+    enabled: true
+    configuration:
+      diffusion_model:
+        file_path: "{{ form.diffusion_model }}"
+        name: "{{ form.diffusion_model }}"
+      text_encoder:
+        file_path: "{{ form.text_encoder }}"
+        name: "{{ form.text_encoder }}"
+      vae:
+        file_path: "{{ form.vae }}"
+        name: "{{ form.vae }}"
+      loras:
+        "@loop":
+          items: "{{ form.loras | default([]) }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+
+  - name: "prompt_encoder"
+    input:
+      - ["clip", "model_loader/krea2", "clip"]
+    enabled: true
+    configuration:
+      p_prompt:
+        input: "{{ generation.prompts.first.positive }}"
+        output: "{{ generation.prompts.first.positive }}"
+      n_prompt:
+        input: "{{ generation.prompts.first.negative }}"
+        output: "{{ generation.prompts.first.negative }}"
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity | default(1) }}"
+      # guidance_scale <= 1 tells the encoder to skip the negative pass -- unless
+      # NAG is on, which needs the negative encoded to work at all. Must move in
+      # lockstep with generator/krea2's `guidance` below (and param_emitter's
+      # "cfg") -- same expression, same value, every mode.
+      guidance_scale: "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('turbo'))['guidance']) }}"
+      nag_scale: "{{ form.nag_scale | default(1.0) }}"
+
+  - name: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed | default(-1) }}"
+      quantity: "{{ form.quantity | default(1) }}"
+
+  #############
+  ## Rendered prompts (provenance)
+  ## Surfaces the per-image expanded prompts ({a|b}, ${variables}, phrasebook
+  ## already resolved on the backend - see src/features/prompt/expander.py) as
+  ## pipe artifacts, the prompt counterpart of seed_generator. `pairs` is the
+  ## real list, handed in exactly as prompt_encoder receives it.
+  ############
+  - name: "dynamic_prompts_renderer"
+    id: "dynamic_prompts_renderer"
+    enabled: true
+    configuration:
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity | default(1) }}"
+
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: "{{ form.quantity | default(1) }}"
+      parameters:
+        - ["model", "{{ form.diffusion_model }}"]
+        - ["model", "{{ form.text_encoder }}"]
+        - ["model", "{{ form.vae }}"]
+        - "@loop":
+            items: "{{ form.loras | default([]) | active_loras }}"
+            template: ["model", "{{ item.model }}"]
+        # Per-image arrays, so history records the prompt each image actually ran with.
+        - ["positive_prompt", "{{ generation.prompts.positives }}"]
+        - ["negative_prompt", "{{ generation.prompts.negatives }}"]
+        # Turbo/Balanced: cfg<=1 (single forward, byte-identical to the old
+        # NoCFG path). Quality/Base: cfg>1 (real negative-conditioned pass).
+        # Same expression as prompt_encoder's guidance_scale and generator's
+        # guidance - the enhancer tracks the same cfg (see its own `guidance`
+        # comment below).
+        - ["cfg", "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('turbo'))['guidance']) }}"]
+        # steps/sampler/resolution always describe the base generator's pass;
+        # the enhance pass's own settings, when it runs, are recorded
+        # separately below (enhance_detail/enhance_resolution) rather than
+        # overwriting these.
+        - ["steps", "{{ form.steps | default(get_speed_profile(form.speed_profile | default('turbo'))['steps']) }}"]
+        - ["sampler", "{{ form.sampler | default(get_speed_profile(form.speed_profile | default('turbo'))['sampler']) }}"]
+        - ["resolution", "{{ form.resolution }}"]
+        # Always-present toggle param; detail/resolution are only meaningful
+        # (and only emitted) when the pass actually ran.
+        - ["enhance", "{{ form.enhance_enabled | default(false) }}"]
+        - "@loop":
+            items: ["{{ form.enhance_detail | default('balanced') }}"]
+            when: "{{ form.enhance_enabled | default(false) }}"
+            template: ["enhance_detail", "{{ item }}"]
+        - "@loop":
+            items: ["{{ form.upscale_by | default('2x') }}"]
+            when: "{{ form.enhance_enabled | default(false) }}"
+            template: ["upscale_by", "{{ item }}"]
+
+  - name: "generator/krea2"
+    id: "generator"
+    input:
+      - ["model", "model_loader/krea2", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: true
+    configuration:
+      # Speed profile is the baseline; the submitted form fields (kept in sync by
+      # the speed_profile field's reactions) override it. The profile fallback
+      # covers API callers that submit a profile but no explicit steps/sampler.
+      steps: "{{ form.steps | default(get_speed_profile(form.speed_profile | default('turbo'))['steps']) }}"
+      # Same expression as prompt_encoder's guidance_scale and param_emitter's
+      # "cfg" -- all three must move together (see prompt_encoder's comment).
+      guidance: "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('turbo'))['guidance']) }}"
+      # "base" speed profile -> the resolution-anchored dynamic-mu schedule a
+      # raw/non-distilled checkpoint needs; every other profile keeps the
+      # ModelSpec's own official fixed_mu=1.15 (turbo distilled schedule).
+      mu_schedule: "{{ 'dynamic' if (form.speed_profile | default('turbo')) == 'base' else 'fixed' }}"
+      sampler: "{{ form.sampler | default(get_speed_profile(form.speed_profile | default('turbo'))['sampler']) }}"
+      resolution: "{{ form.resolution }}"
+      quantity: "{{ form.quantity | default(1) }}"
+      nag_scale: "{{ form.nag_scale | default(1.0) }}"
+      nag_tau: "{{ form.nag_tau | default(3.5) }}"
+      nag_alpha: "{{ form.nag_alpha | default(0.5) }}"
+      # Step cache (FBCache, Advanced tab): assembled here into the nested
+      # `step_cache` dict FlowMatchGeneratorPipe.build_context reads directly
+      # (self.config.get("step_cache")) -- mirrors the Flux preset's wiring.
+      # rel_threshold 0.0 (default) never wraps the guidance strategy
+      # (StepCacheSet.enabled checks rel_threshold > 0), so an untouched form
+      # renders byte-identical to before this knob existed. Base generator only
+      # -- the `enhancer` pass below is already a short fixed-schedule refine.
+      step_cache:
+        rel_threshold: "{{ form.step_cache_threshold | default(0.0) }}"
+        warmup_steps: "{{ form.step_cache_warmup_steps | default(4) }}"
+        max_consecutive_skips: "{{ form.step_cache_max_skips | default(3) }}"
+
+  #############
+  ## Inline Enhance (optional)
+  ## Same generator, mode=img2img + refine_tail, chained onto the base image
+  ## above. denoise stays a fixed, positive-but-inert 1.0 - see the enhance
+  ## mode's pipeline.yml comment: img2img_denoise() no-ops on denoise<=0, and
+  ## refine_tail's sigmas (once set) fully own the schedule.
+  ############
+  - name: "generator/krea2"
+    id: "enhancer"
+    enabled: "{{ form.enhance_enabled | default(false) }}"
+    input:
+      - ["model", "model_loader/krea2", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+      - ["image", "generator", "image"]
+    configuration:
+      mode: "img2img"
+      refine_tail: "{{ form.enhance_detail | default('balanced') }}"
+      denoise: 1.0
+      steps: 8
+      # Tracks the base generation's cfg (same expression as the base
+      # `generator` above) -- refine_tail's own sigmas fully own the schedule
+      # either way, but guidance must still match what prompt_encoder encoded.
+      guidance: "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('turbo'))['guidance']) }}"
+      sampler: "euler"
+      # "Upscale by" (Enhance tab) is a literal multiplier of the SOURCE image's
+      # own (width, height) -- img2img_scale (img2img.py's _img2img_target_size)
+      # multiplies the just-generated base image's actual dimensions at runtime
+      # and snaps to the model's granularity. Exact by construction here: the
+      # source is always this pipeline's own base `generator` output, whose
+      # real size is `form.resolution` (snapped), so e.g. 2x always doubles
+      # exactly what the base pass rendered. No `resolution:` here on purpose --
+      # it would be dead once img2img_scale wins, same as the standalone
+      # enhance mode's own pipeline.yml.
+      img2img_scale: "{{ 1.5 if (form.upscale_by | default('2x')) == '1_5x' else (4.0 if (form.upscale_by | default('2x')) == '4x' else 2.0) }}"
+      quantity: "{{ form.quantity | default(1) }}"
+      nag_scale: "{{ form.nag_scale | default(1.0) }}"
+      nag_tau: "{{ form.nag_tau | default(3.5) }}"
+      nag_alpha: "{{ form.nag_alpha | default(0.5) }}"
+
+  #############
+  ## Before/after compare (optional)
+  ## Bridges the base and enhanced image arrays: emits a compare artifact per
+  ## index (base inspectable even though it's never saved) and forwards the
+  ## enhanced image on to `gallery`. See the file-header comment.
+  ############
+  - name: "artifact"
+    id: "compare_enhance"
+    enabled: "{{ form.enhance_enabled | default(false) }}"
+    input:
+      - ["before_image", "generator", "image"]
+      - ["after_image", "enhancer", "image"]
+    configuration:
+      mode: "compare"
+      left: "Base"
+      right: "Enhanced"
+      output: "right"
+
+  #############
+  ## Gallery
+  ## Single save point. With Enhance ON the image comes from
+  ## `compare_enhance` (the enhanced pass); with it OFF, straight from the
+  ## base `generator`. Either way exactly N files land at indices 0..N-1,
+  ## aligned with param_emitter's per-image rows (no derived, param-less
+  ## files anymore).
+  ############
+  - name: "gallery"
+    id: "gallery"
+    input:
+      - ["image", "{% if form.enhance_enabled | default(false) %}compare_enhance{% else %}generator{% endif %}", "image"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: true
+    configuration:
+      save: "true"

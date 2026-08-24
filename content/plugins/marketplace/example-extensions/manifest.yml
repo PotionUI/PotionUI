@@ -1,0 +1,18 @@
+id: "example-extensions"
+name: "Example Frontend Extensions"
+version: "1.0.0"
+description: "Reference implementation of plugin-provided renderers and extension slot contributions (A5) - a fake history artifact renderer and an admin tab"
+author: "PotionUI Team"
+type: "frontend-only"
+category: "developer"
+
+renderers:
+  - kind: "history.artifact"
+    key: "example_fake_artifact"
+    component: "FakeArtifact.js"
+
+contributions:
+  - slot: "admin.tabs"
+    component: "ExampleAdminTab.js"
+    label: "Example Extension"
+    order: 500

@@ -1,0 +1,206 @@
+﻿pose:
+  position:
+    - kneeling
+    - on one knee
+    - lying
+    - crossed legs
+    - fetal position
+    - on back
+    - on side
+    - on stomach
+    - sitting
+    - butterfly sitting
+    - crossed legs
+    - figure four sitting
+    - indian style
+    - hugging own legs
+    - lotus position
+    - seiza
+    - sitting on lap
+    - sitting on person
+    - straddling
+    - thigh straddling
+    - upright straddle
+    - wariza
+    - yokozuwari
+    - standing
+    - balancing
+    - crossed legs
+    - legs apart
+    - standing on one leg
+
+  movement:
+    - balancing
+    - crawling
+    - idle animation
+    - jumping
+    - running
+    - walking
+    - walk cycle
+    - wallwalking
+
+  body:
+    - all fours
+    - top-down bottom-up
+    - prostration
+    - bear position
+    - bowlegged pose
+    - chest stand
+    - chest stand handstand
+    - triplefold
+    - ruppelbend
+    - quadfold
+    - cowering
+    - crucifixion
+    - faceplant
+    - fighting stance
+    - battoujutsu stance
+    - full scorpion
+    - reclining
+    - spread eagle position
+    - squatting
+    - stretching
+    - superhero landing
+    - upside-down
+    - handstand
+    - headstand
+    - yoga
+    - scorpion pose
+  hands:
+    - Adjusting eyewear
+    - Hand on own ear
+    - Hand on own head
+    - hand on own face
+    - Hand on own forehead
+    - hand on own cheek
+    - hand on own chin
+    - head rest
+    - hand on headwear
+    - hand on own neck
+    - hand on own chest
+    - hand on own shoulder
+    - hand on own stomach
+    - hand on own arm
+    - hand on own elbow
+    - breast hold
+    - grabbing own breast
+    - grabbing another's breast
+    - flat chest grab
+    - guided breast grab
+    - breast lift
+    - breast poke
+    - breasts squeezed together
+    - breast suppress
+    - groping
+    - arm between breasts
+    - hand in bra
+    - nipple tweak
+    - "{hand on own crotch|hands on own crotch}"
+    - "{hand on own ass|hands on ass}"
+    - "{hand on own hip|hands on own hips}"
+    - "{hand on own leg|hands on own legs}"
+    - "{hand on own thigh|hands on own thighs}"
+    - "{hand on own knee|hands on own knees}"
+    - hand between legs
+    - "{hand on own foot|hands on own feet}"
+    - "{hand in pocket|hands in pockets}"
+  gesture:
+    - air quotes
+    - carry me
+    - clenched hands
+    - cupping hands
+    - double finger gun
+    - double v
+    - fidgeting
+    - finger counting
+    - finger frame
+    - fist bump
+    - fist in hand
+    - groping motion
+    - hand glasses
+    - heart arms
+    - heart hands
+    - heart hands duo
+    - heart hands trio
+    - heart hands quartet
+    - high five
+    - horns pose
+    - kitsune no mado
+    - noogie
+    - own hands clasped
+    - palm-fist greeting
+    - palm-fist tap
+    - penetration gesture
+    - pinky swear
+    - rabbit pose
+    - shadow puppet
+    - steepled fingers
+    - tsuki ni kawatte oshioki yo
+    - x arms
+    - x fingers
+    - akanbe
+    - beckoning
+    - twirling hair
+    - index finger raised
+    - middle finger
+    - pinky out
+    - pointing
+    - pointing at another
+    - pointing at self
+    - pointing at viewer
+    - pointing spider-man /(meme/)
+    - pointing down
+    - pointing forward
+    - pointing up
+    - kamina pose
+    - saturday night fever
+    - shushing
+    - slit throat /(gesture/)
+    - thumbs down
+    - thumbs up
+    - \n//
+    - crossed fingers
+    - finger gun
+    - finger heart
+    - fox shadow puppet
+    - gyaru v
+    - inward v
+    - shaka sign
+    - two-finger salute
+    - v
+    - v over eye
+    - v over mouth
+    - \m//
+    - middle w
+    - money gesture
+    - ok sign
+    - w
+    - \||//
+    - claw pose
+    - facepalm
+    - ohikaenasutte
+    - open hand
+    - reaching
+    - salute
+    - spread fingers
+    - stop (gesture)
+    - straight-arm salute
+    - vulcan salute
+    - waving
+    - clenched hand
+    - curled fingers
+    - dojikko pose
+    - fig sign
+    - paw pose
+    - power fist
+    - raised fist
+    - che_vuoi?_/(italian_gesture/)
+    - beckoning
+    - cunnilingus gesture
+    - fellatio gesture
+    - handjob gesture
+    - hat tip
+    - oral invitation
+    - oral simulation
+    - shocker /(gesture/)
+    - stroking own chin

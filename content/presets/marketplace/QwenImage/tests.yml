@@ -1,0 +1,41 @@
+########
+## QwenImage standard: E2E test suite.
+## Authoring reference: docs/presets.md "Testing presets"
+########
+schema: 1
+
+cases:
+  # Cheapest possible smoke test: low steps, the smallest resolution this
+  # preset's own resolution list offers (same shared sdxl.yml resolution
+  # file as Flux/standard -- smallest square entry is 1024x1024), pinned
+  # seed.
+  #
+  # None of the three weight files this case needs (the 2512 DiT, the
+  # Qwen2.5-VL-7B text encoder, and the Qwen-Image VAE) are on this
+  # checkout's disk right now, so every models: entry uses the placeholder
+  # sha256 and the case is tagged `needs-model` per the convention
+  # documented in tests_schema.py's module docstring -- the runner is
+  # expected to skip it, not fail it.
+  - name: "qwen-image-baseline-fast"
+    mode: "txt2img"
+    seed: 4242
+    tags: ["fast", "needs-model"]
+    form:
+      # `prompt` is not a preset form field (QwenImage/standard has none) --
+      # it maps to the generation request's top-level prompt, per convention.
+      prompt: "a stack of ceramic bowls on a kitchen counter, soft daylight"
+      steps: 10
+      cfg: 3.0
+      sampler: "euler"
+      resolution: "1024x1024"
+    models:
+      diffusion_model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 1
+      resolution: "1024x1024"
+      not_black: true

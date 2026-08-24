@@ -1,0 +1,66 @@
+########
+## SeedVR2: E2E test suite (grounded in maintainer IMG + video_upscale sessions).
+## Authoring reference: docs/presets.md "Testing presets"
+########
+schema: 1
+
+cases:
+  # Image restore/upscale smoke: session's Heavy restoration intent (latent /
+  # input noise 0.2 / 0.1), output size cut from 4K to a x2 relative upscale.
+  # Requires an input image the headless suite can't supply, so the model refs
+  # are placeholder+needs-model to make the case skip cleanly.
+  - name: "seedvr2-image-upscale-heavy-fast"
+    mode: "upscale"
+    seed: 12345
+    tags: ["fast", "needs-model"]
+    form:
+      restoration_intent: "heavy"
+      resolution_target: "x2"
+      scale: 2
+      latent_noise_scale: 0.2
+      input_noise_scale: 0.1
+      color_correction: "wavelet"
+      tile_size: 1024
+      tile_overlap: 128
+    models:
+      diffusion_model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      prompt_embedding:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 1
+      not_black: true
+
+  # Video restore smoke: session's 1x/720p faithful-noise path, small batch,
+  # audio kept. Requires an input video the headless suite can't supply, so the
+  # model refs are placeholder+needs-model to make the case skip cleanly.
+  - name: "seedvr2-video-upscale-fast"
+    mode: "video_upscale"
+    kind: "video"
+    seed: 12345
+    tags: ["fast", "needs-model"]
+    form:
+      scale: 1
+      target_short_side: 720
+      color_correction: "wavelet"
+      batch_size: 5
+      temporal_overlap: 5
+      prepend_frames: 1
+      uniform_batch_size: true
+      keep_audio: true
+      latent_noise_scale: 0.4
+      input_noise_scale: 0.4
+      tile_size: 1024
+      tile_overlap: 128
+    models:
+      diffusion_model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      prompt_embedding:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 1
+      not_black: true

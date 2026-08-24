@@ -1,0 +1,97 @@
+########
+## Flux2 standard: E2E test suite.
+## Authoring reference: docs/presets.md "Testing presets"
+########
+schema: 1
+
+cases:
+  # Cheapest possible smoke test: low steps, the smallest resolution this
+  # preset's own resolution list offers (its form only ships
+  # content/presets/_shared/resolutions/sdxl.yml, whose smallest square entry is
+  # 1024x1024 -- there is no smaller option to pick from), pinned seed.
+  #
+  # `diffusion_model` targets Klein (Flux2's 9B distillation), `text_encoder`
+  # is Qwen3. None of the three weight files this case needs (DiT + Qwen3 TE +
+  # Flux2 VAE) are on this checkout's disk right now, so every models: entry
+  # uses the placeholder sha256 and the case is tagged `needs-model` per the
+  # convention documented in tests_schema.py's module docstring -- the
+  # runner is expected to skip it, not fail it.
+  - name: "flux-klein-baseline-fast"
+    mode: "txt2img"
+    seed: 12345
+    tags: ["fast", "needs-model"]
+    form:
+      # `prompt` is not a preset form field (Flux2/standard has none) -- it
+      # maps to the generation request's top-level prompt, per convention.
+      prompt: "a small red boat on a calm lake at sunset, photograph"
+      steps: 10
+      guidance: 3.5
+      sampler: "euler"
+      resolution: "1024x1024"
+    models:
+      diffusion_model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 1
+      resolution: "1024x1024"
+      not_black: true
+
+  # Klein turbo settings from a maintainer KLEIN session (8 steps, guidance 1.0,
+  # shift 3.0). Flux2-Klein DiT + Qwen3-8B TE + Flux2 VAE pinned by real
+  # sha256 (present on disk).
+  - name: "flux-klein-turbo-session-fast"
+    mode: "txt2img"
+    seed: 20260713
+    tags: ["fast"]
+    form:
+      prompt: "a red fox sitting in a sunlit forest clearing"
+      steps: 8
+      guidance: 1.0
+      sampler: "euler"
+      shift: 3.0
+      resolution: "1024x1024"
+    models:
+      diffusion_model:
+        sha256: "0975d6b77b5f510b99547d6724a208e36527df654e8f6134f59ece3f9f30da58"
+      text_encoder:
+        sha256: "abad16806e0cbabc54e0325d6565847443fe396d5f0be38bb3cd3fe75a1201d6"
+      vae:
+        sha256: "d64f3a68e1cc4f9f4e29b6e0da38a0204fe9a49f2d4053f0ec1fa1ca02f9c4b5"
+    checks:
+      min_outputs: 1
+      resolution: "1024x1024"
+      not_black: true
+
+  # Second case: exercises the step-skipping cache threshold (Advanced tab's
+  # "Step cache (FBCache)" group) on top of the baseline. The Advanced tab
+  # only exposes the flat step_cache_threshold/warmup_steps/max_skips
+  # sliders (mirroring the Wan/LTX video presets); this preset's
+  # generator/flux configuration assembles them into the `step_cache` dict
+  # generator/flux itself reads, so form: below sets the flat field, not the
+  # dict.
+  - name: "flux-klein-step-cache-sprint"
+    mode: "txt2img"
+    seed: 777
+    tags: ["fast", "sprint", "needs-model"]
+    form:
+      prompt: "a small red boat on a calm lake at sunset, photograph"
+      steps: 8
+      guidance: 3.5
+      sampler: "euler"
+      resolution: "1024x1024"
+      step_cache_threshold: 0.08
+    models:
+      diffusion_model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 1
+      resolution: "1024x1024"
+      not_black: true

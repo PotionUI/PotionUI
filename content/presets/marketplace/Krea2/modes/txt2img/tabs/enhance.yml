@@ -1,0 +1,115 @@
+fields:
+  - name: "enhance_enabled"
+    type: "gate"
+    label: "Enhance"
+    default: false
+    configuration:
+      experimental: true
+      summary: "Second img2img refine pass on the generated image before saving."
+    children:
+      - name: "upscale_by"
+        type: "select"
+        label: "Upscale by"
+        default: "2x"
+        ai_hint: "This IS the upscale control: the just-generated base image is Lanczos-fit to (upscale factor)x its own resolution (aspect preserved) before refining."
+        configuration:
+          options:
+            - { label: "1.5x", value: "1_5x", sub_label: "Lightest upscale, keeps the most native detail" }
+            - { label: "2x", value: "2x", sub_label: "Default" }
+            - { label: "4x", value: "4x", sub_label: "Heaviest upscale, most compute" }
+
+      - name: "enhance_detail"
+        type: "select"
+        label: "Enhance detail"
+        default: "balanced"
+        ai_hint: "How much of the fixed-mu schedule's tail to walk: more steps = more added detail/change, fewer = closer to the base image."
+        configuration:
+          options:
+            - { label: "Subtle", value: "subtle", sub_label: "1 step · closest to the base image" }
+            - { label: "Balanced", value: "balanced", sub_label: "2 steps · default" }
+            - { label: "Strong", value: "strong", sub_label: "3 steps · most added detail" }
+
+  - type: "gate"
+    name: "nag_enabled"
+    label: "NAG"
+    default: false
+    configuration:
+      experimental: true
+      summary: "Enable negative prompt"
+    reactions:
+      - when: { field: "speed_profile", equals: "quality" }
+        then: { set_value: false }
+      - when: { field: "speed_profile", equals: "base" }
+        then: { set_value: false }
+    children:
+      - name: "nag_scale"
+        type: "slider"
+        label: "NAG Scale"
+        audience: "advanced"
+        default: 1.0
+        ai_hint: "Normalized Attention Guidance: makes the negative prompt actually work on the CFG-free turbo. 1.0 = off (today's behavior); above 1 suppresses the negative prompt's concepts in attention space without breaking the distilled recipe. Redundant with (and unvalidated alongside) real CFG -- leave off on Quality/Base."
+        configuration:
+          min: 1.0
+          max: 2.0
+          step: 0.05
+        reactions:
+          - when: { field: "speed_profile", equals: "quality" }
+            then: { set_value: 1.0 }
+          - when: { field: "speed_profile", equals: "base" }
+            then: { set_value: 1.0 }
+
+      - name: "nag_tau"
+        type: "slider"
+        label: "NAG Tau"
+        audience: "advanced"
+        default: 3.5
+        ai_hint: "Norm clamp for the guided branch. Lower reins in artifacts at high NAG scale; only used when NAG Scale is above 1."
+        configuration:
+          min: 1.0
+          max: 10.0
+          step: 0.5
+
+      - name: "nag_alpha"
+        type: "slider"
+        label: "NAG Alpha"
+        audience: "advanced"
+        default: 0.5
+        ai_hint: "Blend between the guided and original attention output. 0 = original (NAG fully off), 1 = fully guided; only used when NAG Scale is above 1."
+        configuration:
+          min: 0.0
+          max: 1.0
+          step: 0.05
+
+  - type: "section"
+    label: "Camera"
+    configuration:
+      experimental: true
+    children:
+      - name: "camera"
+        type: "camera_shot"
+        label: "Camera & Shot"
+        configuration:
+          # Krea-2 is image-only, so the default image categories (angle, distance,
+          # orientation) apply — no `categories`, no motion. Krea-2 responds to
+          # natural-language photographic descriptions, so every phrase is written as
+          # a full photographic clause rather than a terse tag.
+          vocabulary:
+            eye_level: "photographed at eye level, a natural straight-on perspective"
+            low_angle: "photographed from a low angle, the camera looking up at the subject"
+            high_angle: "photographed from a high angle, the camera looking down on the subject"
+            overhead: "photographed from directly overhead, a top-down perspective"
+            worms_eye: "photographed from a worm's-eye view, the camera near the ground looking steeply up"
+            dutch_angle: "photographed with a dutch tilt, the horizon canted at an angle"
+            front: "the subject facing the camera directly, a frontal view"
+            three_quarter: "the subject turned to a three-quarter view"
+            profile: "the subject seen from the side, a full profile"
+            back: "the subject seen from behind, a rear view"
+            over_shoulder: "an over-the-shoulder composition, framed past a foreground figure"
+            extreme_close_up: "an extreme close-up, filling the frame with fine detail"
+            close_up: "a close-up shot, tightly framed on the subject"
+            medium_close_up: "a medium close-up, head and shoulders in frame"
+            medium: "a medium shot, framing the subject from the waist up"
+            cowboy: "a cowboy shot, framed from mid-thigh up"
+            full: "a full shot, the subject head to toe in frame"
+            wide: "a wide shot, the subject set within the surrounding scene"
+            extreme_wide: "an extreme wide shot, the subject small within a vast setting"

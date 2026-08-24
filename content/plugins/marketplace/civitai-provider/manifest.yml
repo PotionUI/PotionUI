@@ -1,0 +1,52 @@
+id: "civitai-provider"
+name: "CivitAI Provider"
+version: "1.0.0"
+description: "Marketplace provider for CivitAI - fetch model metadata, preview images, and download links"
+author: "PotionUI Team"
+type: "full-stack"
+category: "models"
+
+capabilities:
+  - "marketplace-provider"
+  - "model-lookup"
+  - "media-download"
+
+api:
+  module: "backend/api.py"
+
+hooks:
+  backend:
+    - hook: "provider.register"
+      handler: "hooks.provider_hooks.register_provider"
+  frontend:
+    - hook: "image.actions"
+      component: "ExportCivitaiButton.js"
+      position: "top-right"
+      order: 100
+
+settings:
+  - name: "api_key"
+    type: "string"
+    format: "password"
+    label: "CivitAI API Key"
+    description: "Your CivitAI API key (optional but recommended for higher rate limits)"
+    required: false
+  - name: "rate_limit_delay"
+    type: "number"
+    label: "Rate Limit Delay (seconds)"
+    description: "Delay between API requests to avoid rate limiting"
+    default: 1.0
+    min: 0.5
+    max: 10.0
+  - name: "download_media"
+    type: "boolean"
+    label: "Download Preview Media"
+    description: "Download preview images and videos when fetching model info"
+    default: true
+  - name: "max_media_files"
+    type: "number"
+    label: "Max Media Files"
+    description: "Maximum number of preview media files to download per model"
+    default: 10
+    min: 1
+    max: 50

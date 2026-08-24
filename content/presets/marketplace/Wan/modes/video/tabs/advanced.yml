@@ -1,0 +1,266 @@
+fields:
+  - type: "section"
+    label: "Sampling"
+    children:
+      # Krea-2 layout: steps, sampler, cfg in that order, each carrying
+      # audience: advanced individually. Scheduler and Manual sigmas have no
+      # Krea-2 counterpart and are grouped after the canonical three.
+      - name: "steps"
+        type: "slider"
+        label: "Steps"
+        audience: "advanced"
+        default: 30
+        configuration: {min: 1, max: 100, step: 1}
+        reactions:
+          - when: { field: "speed_profile", equals: "balanced" }
+            then: { set_value: 30, set_disabled: false }
+          - when: { field: "speed_profile", equals: "fast" }
+            then: { set_value: 6, set_disabled: false }
+          - when: { field: "speed_profile", equals: "custom" }
+            then: { set_disabled: false }
+
+      - name: "sampler"
+        type: "select"
+        label: "Sampler"
+        audience: "advanced"
+        default: "unipc"
+        configuration:
+          options:
+            - { label: "UniPC", value: "unipc" }
+            - { label: "Euler", value: "euler" }
+            - { label: "DPM++ 2M", value: "dpmpp_2m" }
+        reactions:
+          - when: { field: "speed_profile", equals: "balanced" }
+            then: { set_value: "unipc", set_disabled: false }
+          - when: { field: "speed_profile", equals: "fast" }
+            then: { set_value: "unipc", set_disabled: false }
+          - when: { field: "speed_profile", equals: "custom" }
+            then: { set_disabled: false }
+
+      - name: "cfg"
+        type: "slider"
+        label: "CFG Scale"
+        audience: "advanced"
+        default: 5.0
+        configuration: {min: 1.0, max: 20.0, step: 0.5}
+        reactions:
+          - when: { field: "speed_profile", equals: "balanced" }
+            then: { set_value: 5.0, set_disabled: false }
+          - when: { field: "speed_profile", equals: "fast" }
+            then: { set_value: 1.0, set_disabled: false }
+          - when: { field: "speed_profile", equals: "custom" }
+            then: { set_disabled: false }
+
+      - name: "schedule"
+        type: "select"
+        label: "Scheduler"
+        default: ""
+        configuration:
+          options:
+            - { label: "Model default (shift)", value: "" }
+            - { label: "Beta", value: "beta" }
+            - { label: "Exponential", value: "exponential" }
+
+      - name: "manual_sigmas"
+        type: "textbox"
+        label: "Manual sigmas"
+        default: ""
+        configuration:
+          placeholder: "Comma-separated descending, e.g. 1.0, 0.75, 0.5, 0.0"
+
+  - type: "section"
+    label: "Expert switching"
+    children:
+      - type: "row"
+        children:
+          # Wan 2.2 14B is a high/low-noise expert PAIR; the high expert runs while
+          # the flow sigma is above a boundary, the low one below. Pick a named
+          # boundary instead of typing a sigma from memory. "Model default" lets each
+          # loaded set use its own native boundary (t2v 0.875, i2v 0.900).
+          - name: "expert_boundary_preset"
+            type: "select"
+            label: "Expert boundary"
+            default: ""
+            configuration:
+              options:
+                - { label: "Model default (t2v σ 0.875 · i2v σ 0.900)", value: "" }
+                - { label: "Official t2v (σ 0.875)", value: "0.875" }
+                - { label: "Official i2v (σ 0.900)", value: "0.900" }
+
+          # Optional: switch experts at a specific step instead of a sigma. When set,
+          # this wins over the boundary picker (the generator converts it to the sigma
+          # at that step in the run's own schedule). Leave empty to use the picker.
+          - name: "expert_switch_step"
+            type: "number"
+            label: "Switch at step (optional)"
+            full_width: true
+            configuration: {min: 0, step: 1, placeholder: "Use boundary above"}
+
+  - type: "section"
+    label: "Negative prompt guidance (NAG)"
+    children:
+      # NAG applies the negative prompt through attention instead of a second
+      # CFG forward pass -- the way to keep a working negative prompt on
+      # distilled/turbo runs where cfg is 1.0. 1.0 = off; typical 1.1-1.5.
+      # Stacks with true CFG when both are active.
+      - type: "row"
+        children:
+          - name: "nag_scale"
+            type: "slider"
+            label: "NAG scale"
+            default: 1.0
+            configuration: {min: 1.0, max: 2.0, step: 0.05}
+          - name: "nag_tau"
+            type: "slider"
+            label: "Tau"
+            default: 3.5
+            configuration: {min: 1.0, max: 10.0, step: 0.5}
+          - name: "nag_alpha"
+            type: "slider"
+            label: "Alpha"
+            default: 0.5
+            configuration: {min: 0.0, max: 1.0, step: 0.05}
+
+  - type: "section"
+    label: "CFG-Zero*"
+    children:
+      # CFG-Zero* rescales the uncond branch onto cond before extrapolation -- a
+      # near-free quality correction, on by default. Zero-init returns a zero
+      # velocity for the first N steps (0 = off). True-CFG path only: no effect on
+      # turbo runs at cfg 1.0.
+      - type: "row"
+        children:
+          - name: "cfg_zero_star"
+            type: "checkbox"
+            label: "CFG-Zero* rescale"
+            default: true
+          - name: "zero_init_steps"
+            type: "number"
+            label: "Zero-init steps"
+            default: 0
+            configuration: {min: 0, step: 1, placeholder: "0 = off"}
+
+  - type: "section"
+    label: "Adaptive Projected Guidance (APG)"
+    audience: "advanced"
+    children:
+      # APG reshapes the CFG delta to cut oversaturation/artifacts at high CFG.
+      # eta down-weights the delta's component parallel to the cond prediction
+      # (1.0 = plain CFG / off; ~0.0-0.5 tames high cfg); norm caps the delta's
+      # magnitude (0 = off); momentum accumulates it across steps (0 = off).
+      - type: "row"
+        children:
+          - name: "apg_eta"
+            type: "slider"
+            label: "APG eta"
+            default: 1.0
+            configuration: {min: 0.0, max: 1.0, step: 0.05}
+          - name: "apg_norm_threshold"
+            type: "slider"
+            label: "Norm cap"
+            default: 0.0
+            configuration: {min: 0.0, max: 30.0, step: 0.5}
+          - name: "apg_momentum"
+            type: "slider"
+            label: "Momentum"
+            default: 0.0
+            configuration: {min: -1.0, max: 1.0, step: 0.05}
+
+  - type: "section"
+    label: "Skip-Layer Guidance (SLG)"
+    audience: "advanced"
+    children:
+      # SLG pushes the prediction away from a degraded pass that skips certain
+      # transformer blocks -- a structure/detail lever. Scale 0 = off. Layers is a
+      # comma-separated block-index list (empty = off even if scale > 0); the
+      # sigma window bounds where it applies (defaults span the whole trajectory).
+      - type: "row"
+        children:
+          - name: "slg_scale"
+            type: "slider"
+            label: "SLG scale"
+            default: 0.0
+            configuration: {min: 0.0, max: 10.0, step: 0.1}
+          - name: "slg_layers"
+            type: "textbox"
+            label: "Skip layers"
+            default: ""
+            configuration: {placeholder: "e.g. 9, 10"}
+      - type: "row"
+        children:
+          - name: "slg_sigma_start"
+            type: "slider"
+            label: "Sigma start"
+            default: 1.0
+            configuration: {min: 0.0, max: 1.0, step: 0.05}
+          - name: "slg_sigma_end"
+            type: "slider"
+            label: "Sigma end"
+            default: 0.0
+            configuration: {min: 0.0, max: 1.0, step: 0.05}
+
+  - type: "section"
+    label: "FreeInit (temporal flicker) -- text-to-video only"
+    audience: "advanced"
+    children:
+      # FreeInit runs extra full denoise passes, re-noising the previous pass's
+      # result in 3D frequency space to inject real temporal structure and cut
+      # flicker. 0 iterations = off (single pass); each iteration re-pays the full
+      # sampling cost, so 1-2 is practical. Only the text-to-video generator
+      # supports it (ignored for image-to-video / director chains).
+      - type: "row"
+        children:
+          - name: "freeinit_iterations"
+            type: "number"
+            label: "FreeInit iterations"
+            default: 0
+            configuration: {min: 0, max: 5, step: 1, placeholder: "0 = off"}
+          - name: "freeinit_cutoff"
+            type: "slider"
+            label: "Cutoff"
+            default: 0.25
+            configuration: {min: 0.01, max: 1.0, step: 0.01}
+          - name: "freeinit_order"
+            type: "number"
+            label: "Filter order"
+            default: 4
+            configuration: {min: 1, max: 8, step: 1}
+
+  - type: "gate"
+    name: "riflex"
+    label: "Long-video RoPE (RIFLEx)"
+    audience: "advanced"
+    default: false
+    configuration:
+      summary: "Clamps an intrinsic RoPE frequency so the model can extrapolate past its trained frame count without the looping/degradation long clips otherwise show -- relevant to long single shots and director chains"
+    children:
+      # Trained-frames override is blank = use the family's known trained length.
+      - name: "riflex_trained_frames"
+        type: "number"
+        label: "Trained frames (optional)"
+        configuration: {min: 1, step: 1, placeholder: "Family default"}
+
+  - type: "section"
+    label: "Step cache (FBCache)"
+    audience: "advanced"
+    children:
+      - type: "row"
+        children:
+          - name: "step_cache_threshold"
+            type: "slider"
+            label: "Cache threshold"
+            default: 0.0
+            ai_hint: "A speed-for-fidelity trade, never a quality improvement -- it only removes work. Suggest 0.08 when the user explicitly wants a long Wan run faster and can accept some softening and smoothed motion; 0.15 only if they ask for aggressive speed. Keep it at 0.0 for final renders, and for short distilled/turbo runs (under ~15 steps) where the warmup steps already cover most of the trajectory and there is almost nothing left to skip."
+            configuration: {min: 0.0, max: 0.3, step: 0.01}
+          - name: "step_cache_warmup_steps"
+            type: "slider"
+            label: "Warmup steps"
+            default: 4
+            ai_hint: "Only has an effect when Cache threshold is above 0. Raise toward 6-8 if a cached run loses composition or motion -- it gives back some of the speed."
+            configuration: {min: 0, max: 12, step: 1}
+          - name: "step_cache_max_skips"
+            type: "slider"
+            label: "Max consecutive skips"
+            default: 3
+            ai_hint: "Only has an effect when Cache threshold is above 0. Lower to 1-2 if a cached run drifts or loses detail late in the trajectory."
+            configuration: {min: 0, max: 10, step: 1}

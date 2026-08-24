@@ -1,0 +1,109 @@
+# Backend dependencies for the `./potionui start --no-gpu` profile — hosts
+# with no NVIDIA card that use a remote generation backend, NOT a
+# CPU-generation mode. Install with:
+#   pip install -r requirements-cpu.txt --extra-index-url https://download.pytorch.org/whl/cpu
+#
+# This is requirements.txt's full package surface (every direct dependency
+# the app imports, not a trimmed test subset like requirements-ci.txt) with
+# one line removed:
+#   - xformers: CUDA-specific attention kernels with no CPU build. diffusers/
+#     accelerate use it opportunistically if present, but nothing in this
+#     repo requires it, and no-gpu hosts have no CUDA to build it against.
+#
+# torch/torchvision keep the same version floors as requirements.txt; the
+# `--extra-index-url` above resolves them to CPU-only wheels (no CUDA deps
+# pulled in), the same way `.github/workflows/backend-tests.yml` installs
+# requirements-ci.txt for CI.
+#
+# Deliberately NOT run through constraints.txt: that file pins the exact
+# CUDA 13 transitive closure (nvidia-cu13-*, GPU-build triton, ...), which
+# does not exist for a CPU-only install and would make
+# `pip install -c constraints.txt` unsatisfiable here.
+#
+# Keep in sync with requirements.txt by hand whenever it changes; regenerate
+# by diffing the two files and re-applying this header's exclusion list.
+
+# Core dependencies
+torch>=2.5.1
+torchvision>=0.20.1
+diffusers>=0.34.0
+transformers>=4.46.3
+accelerate>=1.1.1
+safetensors>=0.4.5
+gguf>=0.10.0  # For GGUF quantized model loading
+peft>=0.13.2
+injector>=0.3.0
+fastapi==0.115.6  # Holds starlette <0.42; bumping fastapi/starlette together is planned work
+dctorch>=0.1.2  # For DCT operations
+einops>=0.8.0  # For tensor operations
+torchdiffeq>=0.2.3  # For differential equation solvers
+torchsde>=0.2.5  # For stochastic differential equations
+ftfy>=6.1.0  # For text fixing
+
+# Image processing
+Pillow>=11.0.0
+opencv-python>=4.10.0.84
+numpy>=1.21.0
+scipy>=1.11.0  # For scientific computing
+scikit-image>=0.21.0  # For image processing
+kornia>=0.7.0  # Computer vision library
+
+# UI
+markdown2>=2.4.0
+
+# Model handling
+huggingface-hub>=0.20.0
+omegaconf>=2.3.0
+pyyaml>=6.0.1
+
+# Pipeline dependencies
+ultralytics>=8.3.199  # For ADetailer - minimum version for A2C2f class support
+mediapipe>=0.10.0   # For ADetailer face detection
+
+# API and networking
+uvicorn>=0.27.0  # ASGI server for FastAPI
+uvloop>=0.20.0  # High performance event loop
+httptools>=0.6.0  # Fast HTTP parser for uvicorn
+websockets>=12.0  # For WebSocket client connections
+aiohttp>=3.14.3
+aiofiles>=23.2.0  # For async file operations
+requests>=2.31.0
+urllib3>=2.0.0
+tqdm>=4.66.0
+httpx>=0.27.0  # For LLM API calls
+
+# Prompt database (semantic search)
+chromadb>=0.5.0  # Vector store for prompt embeddings (src/features/prompt_database/vector_store.py)
+
+# Media index (system tags)
+timm>=1.0.11  # Loads the WD tagger checkpoints (src/features/media_index/tagger.py)
+
+# Authentication
+python-jose[cryptography]>=3.3.0  # For JWT tokens
+cryptography>=42.0  # Fernet, for credential encryption at rest (already pinned in constraints.txt)
+bcrypt>=4.0  # For password hashing
+python-multipart>=0.0.9  # For form data handling
+pydantic[email]>=2.0.0  # For email validation
+
+# Dev-only tooling (testing, formatting, linting, type-checking) lives in
+# requirements-dev.txt — it's not needed to run PotionUI.
+
+# Utilities
+rich>=13.7.0  # For better console output
+python-dotenv>=1.0.0  # For environment variables
+packaging>=23.2
+typing-extensions>=4.8.0
+nvidia-ml-py3>=7.352.0
+dynamicprompts==0.31.0
+psutil>=6.0.0  # For system monitoring (CPU, RAM)
+python-ulid>=2.7.0  # For ULID generation
+jsonmerge>=1.9.0  # For JSON merging operations
+watchdog>=4.0.0  # For automation module filesystem triggers
+croniter>=2.0.0  # For automation module cron schedule triggers
+
+sentencepiece>=0.1.99  # SentencePiece tokenizer for native text encoders
+tokenizers>=0.20  # HF fast-tokenizer runtime for checkpoint-embedded tokenizer.json (Gemma4)
+
+# Maya text-to-speech model dependencies
+snac>=0.2.0  # SNAC neural audio codec for Maya TTS (24kHz output)
+soundfile>=0.12.0  # Audio file I/O (WAV, FLAC, etc.)

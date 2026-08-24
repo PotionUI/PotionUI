@@ -1,0 +1,128 @@
+########
+## Image Tools: E2E test suite.
+## Authoring reference: docs/presets.md "Testing presets"
+##
+## Every case needs an input image the headless suite cannot supply, so none
+## of these run unattended today. The two matting-dependent cases carry the
+## placeholder sha256 + `needs-model` so the runner skips them cleanly; the
+## three model-free cases are tagged `needs-input` (informational -- the
+## runner has no special handling for it) so it is obvious at a glance WHY
+## they are not green rather than looking like silently-passing tests.
+########
+schema: 1
+
+cases:
+  # The headline chain, end to end: matte -> trim -> place on a padded canvas.
+  # Canvas is 832x480 (native Wan SD landscape) and the subject is drawn at
+  # 70% of the canvas short side, which is the framing the mode exists to
+  # produce. Output must be exactly the canvas size regardless of the source.
+  - name: "imagetools-prepare-for-animation"
+    mode: "prepare"
+    kind: "image"
+    seed: 12345
+    tags: ["fast", "needs-model", "needs-input"]
+    form:
+      remove_background: true
+      trim_to_subject: true
+      matte_strength: 50
+      matte_feather: 0
+      crop_margin: 0
+      crop_alpha_threshold: 16
+      canvas_resolution: "832x480"
+      scale_percent: 70
+      anchor: "center"
+      fill: "#00B140"
+    models:
+      matting_model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 1
+      resolution: "832x480"
+      not_black: true
+
+  # Same chain with both upstream gates off: the toggles must reroute
+  # canvas_fit straight to media_loader instead of leaving it starved of an
+  # input. A regression in the templated `input:` provider shows up here as
+  # zero outputs. No matting model is referenced, on purpose.
+  - name: "imagetools-prepare-no-matte-no-crop"
+    mode: "prepare"
+    kind: "image"
+    seed: 12345
+    tags: ["fast", "needs-input"]
+    form:
+      remove_background: false
+      trim_to_subject: false
+      canvas_resolution: "1024x1024"
+      scale_percent: 100
+      anchor: "center"
+      fill: "#808080"
+    checks:
+      min_outputs: 1
+      resolution: "1024x1024"
+      not_black: true
+
+  # Matting on its own: an RGBA cutout at the SOURCE's resolution, so no
+  # `resolution` check -- it depends on whatever image the runner supplied.
+  - name: "imagetools-remove-background"
+    mode: "remove_background"
+    kind: "image"
+    seed: 12345
+    tags: ["fast", "needs-model", "needs-input"]
+    form:
+      matte_strength: 50
+      matte_feather: 0
+    models:
+      matting_model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 1
+      not_black: true
+
+  # Placement on its own, model-free. Fills the padding rather than leaving
+  # it transparent so `not_black` is meaningful on a letterboxed result.
+  - name: "imagetools-fit-canvas-720p"
+    mode: "fit_canvas"
+    kind: "image"
+    seed: 12345
+    tags: ["fast", "needs-input"]
+    form:
+      canvas_resolution: "1280x720"
+      scale_percent: 80
+      anchor: "bottom"
+      fill: "#808080"
+    checks:
+      min_outputs: 1
+      resolution: "1280x720"
+      not_black: true
+
+  # Trim on its own, model-free. Needs an RGBA source: on an opaque input the
+  # bbox is the full frame and the crop is a no-op (documented behaviour, but
+  # it makes the case vacuous), so the runner must feed it a cutout.
+  - name: "imagetools-crop-subject"
+    mode: "crop_subject"
+    kind: "image"
+    seed: 12345
+    tags: ["fast", "needs-input"]
+    form:
+      crop_margin: 0
+      crop_alpha_threshold: 16
+    checks:
+      min_outputs: 1
+      not_black: true
+
+  # Colour key on its own, model-free: the inverse of the prepare fill.
+  # Auto-detect is the round-trip path a prepare output takes.
+  - name: "imagetools-color-key-auto"
+    mode: "color_key"
+    kind: "image"
+    seed: 12345
+    tags: ["fast", "needs-input"]
+    form:
+      key_mode: "auto"
+      tolerance: 25
+      softness: 10
+      despill: true
+      key_feather: 0
+    checks:
+      min_outputs: 1
+      not_black: true

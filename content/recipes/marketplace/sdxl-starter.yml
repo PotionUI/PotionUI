@@ -1,0 +1,136 @@
+########
+## Setup recipe: SDXL on the native engine
+##
+## See src/features/setup/recipe_schema.py for the schema this file is
+## validated against (scripts/recipe_lint.py) and
+## src/features/setup/executors/ for what each step kind actually does.
+########
+schema_version: 1
+id: "sdxl-starter"
+version: 1
+name: "SDXL Starter"
+engine: "native"
+category: "image"
+summary: "Get a working SDXL setup on your local GPU and produce a first image."
+description: >
+  Installs the bundled SDXL preset on the native (in-process) engine, makes
+  sure its checkpoint is available, and proves the pipeline is wired up
+  correctly before handing you a ready-to-use preset.
+
+plugins:
+  - id: "civitai-provider"
+    reason: "Finds the checkpoint on CivitAI (by its checksum) when it needs downloading."
+
+backend:
+  engine: "native"
+
+artifacts:
+  - id: "sdxl-checkpoint"
+    kind: "checkpoint"
+    model_type: "checkpoint"
+    filename: "cyberrealisticPony_v180Coreshift.safetensors"
+    display_name: "CyberRealistic Pony v18.0 Coreshift (SDXL checkpoint)"
+    required: true
+    size_bytes: 6938041288
+    checksum:
+      algorithm: "sha256"
+      value: "1d580c1c3f3612fa4db88af65372255582d5509ca0b28f85387273368301941b"
+    # Declared by capability, never by a concrete plugin id - core resolves a
+    # download source through whichever enabled plugin advertises this
+    # capability (see plugin manifest `capabilities:`).
+    capability: "model-lookup"
+    provider_hint:
+      source: "civitai"
+
+presets:
+  - preset_id: "01K0W24A3RADXXABH16YQ7KE90"
+    path_hint: "marketplace/SDXL"
+    assign_to_owner: true
+
+smoke:
+  preset_id: "01K0W24A3RADXXABH16YQ7KE90"
+  mode: "txt2img"
+  prompt: "a small red fox sitting in a sunlit forest clearing"
+  seed: 12345
+  # Tiny/fast on purpose - this proves the pipeline works, it isn't meant to
+  # be a good image. Matches content/presets/marketplace/SDXL/tests.yml's own fast smoke
+  # case: the smallest square entry in content/presets/_shared/resolutions/sdxl.yml,
+  # with a low step count.
+  form:
+    resolution: "1024x1024"
+    steps: 10
+    cfg: 4
+    # Minimal on purpose: the preset enables face-fixing by default, but the
+    # smoke must not depend on optional extras (detailer detection models)
+    # that the recipe doesn't fetch - an empty model path reaching the
+    # detector was exactly the failure a real clean-machine run produced.
+    detailer: []
+    upscale_factor: 1
+
+steps:
+  - key: "plugins.ensure"
+    kind: "plugins.ensure"
+    title: "Enable required plugins"
+    params:
+      # civitai-provider is needed so the download step can resolve the
+      # checkpoint by its checksum when it isn't already present.
+      plugin_ids: ["civitai-provider"]
+
+  - key: "backend.ensure"
+    kind: "backend.ensure"
+    title: "Prepare the native backend"
+    params:
+      engine: "native"
+
+  # Index BEFORE planning downloads: on a fresh instance nothing is indexed
+  # yet, so without this pass artifacts.plan cannot see files the user
+  # already has and would ask to download them (caught live in the Docker
+  # sandbox, where nothing pre-indexes the mounted models directory).
+  - key: "models.index"
+    kind: "models.index"
+    title: "Find models you already have"
+    params:
+      engine: "native"
+
+  - key: "artifacts.plan"
+    kind: "artifacts.plan"
+    title: "Plan required downloads"
+    params:
+      artifact_ids: ["sdxl-checkpoint"]
+
+  - key: "artifacts.fetch"
+    kind: "artifacts.fetch"
+    title: "Download the SDXL checkpoint"
+    params:
+      artifact_ids: ["sdxl-checkpoint"]
+
+  - key: "models.index.downloads"
+    kind: "models.index"
+    title: "Register downloaded models"
+    params:
+      engine: "native"
+
+  - key: "preset.ensure"
+    kind: "preset.ensure"
+    title: "Install and assign the SDXL preset"
+    params:
+      preset_id: "01K0W24A3RADXXABH16YQ7KE90"
+
+  - key: "pipeline.render"
+    kind: "pipeline.render"
+    title: "Validate the pipeline"
+    params:
+      preset_id: "01K0W24A3RADXXABH16YQ7KE90"
+      mode: "txt2img"
+
+  - key: "generation.smoke"
+    kind: "generation.smoke"
+    title: "Run a first real generation"
+    params:
+      preset_id: "01K0W24A3RADXXABH16YQ7KE90"
+      mode: "txt2img"
+
+  - key: "workspace.activate"
+    kind: "workspace.activate"
+    title: "Finish onboarding"
+    params: {}

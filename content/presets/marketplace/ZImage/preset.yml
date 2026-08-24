@@ -1,0 +1,72 @@
+########
+## Z-Image text-to-image (native engine)
+##
+## Z-Image is a single-checkpoint NextDiT (Lumina-Image-2.0 backbone at dim 3840)
+## plus ONE text encoder (Qwen3-4B, no CLIP-L) and the Flux-style 2D AE. Guidance
+## is TRUE CFG (spec "cfg"): the DEFAULTS here target the distilled *turbo*
+## (~8 steps, cfg 1.0 -> a single forward per step), but base / finetune
+## checkpoints just raise steps (~30) and cfg (~4) to enable the uncond pass.
+## Authoring reference: docs/presets.md
+########
+schema: 1
+id: "01KX5GS4P8HHCB63FY8SA7QSBH"
+name: "Z-Image"
+category: "image"
+version: "1.0.1"
+engine: "native"
+tags: ["z-image", "zimage", "lumina", "nextdit", "local", "transformer", "turbo"]
+
+# Cover + example gallery, served from this preset's public/ directory.
+# Each gallery entry carries the settings that produced it.
+media:
+  cover: "public/examples/potion.png"
+  gallery:
+    - src: "public/examples/potion.png"
+      prompt: "A hyper-realistic, ultra-high-speed macro photograph of an ornate, ancient glass potion bottle suspended in mid-air, frozen at the exact millisecond of shattering. The shards of intricately carved crystal and heavy gold filigree are expanding outward in a perfect radial burst. The escaping liquid is a dense, swirling, violently kinetic mixture of glowing neon-emerald and vibrant magenta bioluminescence, splashing outward with perfect fluid dynamics, suspended droplets, and micro-bubbles. The scene is set against a pitch-black, dark studio void to maximize the HDR contrast. Dramatic, focused rim lighting highlights the edges of the flying glass, while the glowing liquid casts complex, multi-colored raytraced caustics through the refracting crystal shards. Shot on a 100mm macro lens at f/1.4, razor-sharp focus on the central splash and nearest flying glass fragments, extreme depth of field blurring the furthest shards. 8k resolution, raw photography, uncompressed visual masterpiece, perfect material rendering."
+      mode: "txt2img"
+
+# Admin-set values (Admin -> Presets -> Configuration). Model pickers reference
+# these via `filter_tags: "@config:<key>"`; unset = no filtering (all models shown).
+configuration:
+  checkpoint_tags:
+    type: "model_tags"
+    label: "Checkpoint tags"
+    description: "Only models with any of these tags appear in the Checkpoint picker."
+  clip_tags:
+    type: "model_tags"
+    label: "Text encoder tags"
+    description: "Only models with any of these tags appear in the Text Encoder picker."
+  vae_tags:
+    type: "model_tags"
+    label: "VAE tags"
+    description: "Only models with any of these tags appear in the VAE picker."
+  lora_tags:
+    type: "model_tags"
+    label: "LoRA tags"
+    description: "Only LoRAs with any of these tags appear in the LoRA picker."
+
+# Turbo is not just a fast-sampling toggle -- it's the distilled CHECKPOINT
+# regime (single forward per step, cfg 1.0). Base is sourced from this
+# preset's own header prose above (~30 steps / cfg ~4 to enable the uncond
+# pass on a base/finetune checkpoint).
+speed_profiles:
+  turbo:  { steps: 8,  guidance: 1.0, sampler: "euler" }
+  base:   { steps: 30, guidance: 4.0, sampler: "euler" }
+  custom: { steps: 30, guidance: 4.0, sampler: "euler" }
+
+vars:
+  default_shift: 3.0
+
+llm:
+  guide: |
+    Write detailed, camera-style descriptive prompts covering subject, appearance,
+    environment, lighting, mood, and style; English+Chinese both work. Lighting
+    keywords are especially effective. IMPORTANT variant split: the Turbo (distilled,
+    ~8 step) checkpoints IGNORE negative prompts entirely - embed every constraint as
+    a positive descriptor ("wearing modest formal attire", "empty street"). The base
+    model runs full CFG and does respond to negative prompts for artifact suppression.
+    If you don't know which variant is loaded, write constraints positively - that
+    works on both.
+
+modes:
+  - txt2img

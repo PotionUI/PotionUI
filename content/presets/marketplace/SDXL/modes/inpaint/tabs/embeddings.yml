@@ -1,0 +1,56 @@
+fields:
+  - type: "section"
+    label: "Positive Embeddings"
+    children:
+      - name: "positive_embedding_1"
+        type: "model"
+        label: "POSITIVE EMBEDDING 1"
+        configuration:
+          model_type: "embedding"
+          allow_info_modal: true
+          placeholder: "Select Positive Embedding..."
+          filter_tags: "@config:embedding_tags"
+      - name: "positive_embedding_2"
+        type: "model"
+        label: "POSITIVE EMBEDDING 2"
+        configuration:
+          model_type: "embedding"
+          allow_info_modal: true
+          placeholder: "Select Positive Embedding..."
+          filter_tags: "@config:embedding_tags"
+      - name: "positive_embedding_3"
+        type: "model"
+        label: "POSITIVE EMBEDDING 3"
+        configuration:
+          model_type: "embedding"
+          allow_info_modal: true
+          placeholder: "Select Positive Embedding..."
+          filter_tags: "@config:embedding_tags"
+
+  - type: "section"
+    label: "Negative Embeddings"
+    children:
+      - name: "negative_embedding_1"
+        type: "model"
+        label: "NEGATIVE EMBEDDING 1"
+        configuration:
+          model_type: "embedding"
+          allow_info_modal: true
+          placeholder: "Select Negative Embedding..."
+          filter_tags: "@config:embedding_tags"
+      - name: "negative_embedding_2"
+        type: "model"
+        label: "NEGATIVE EMBEDDING 2"
+        configuration:
+          model_type: "embedding"
+          allow_info_modal: true
+          placeholder: "Select Negative Embedding..."
+          filter_tags: "@config:embedding_tags"
+      - name: "negative_embedding_3"
+        type: "model"
+        label: "NEGATIVE EMBEDDING 3"
+        configuration:
+          model_type: "embedding"
+          allow_info_modal: true
+          placeholder: "Select Negative Embedding..."
+          filter_tags: "@config:embedding_tags"

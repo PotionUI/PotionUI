@@ -1,0 +1,40 @@
+form:
+  name: "std_form_prompts"
+  fields:
+    - name: "p_prompt"
+      type: "textbox"
+      label: "Positive"
+      configuration:
+        placeholder: "Enter a positive prompt"
+        lines: 5
+      save_into: "session"
+      input:
+        - ["preset", "{{ external['std_form_basic']['preset'] }}"]
+      when: "{% if external['std_form_basic']['preset'] is defined and external['std_form_basic']['preset'] %}true{% else %}false{% endif %}"
+
+    - name: "n_prompt"
+      type: "textbox"
+      label: "Negative"
+      configuration:
+        placeholder: "Enter a negative prompt"
+        lines: 5
+      save_into: "session"
+      input:
+        - ["preset", "{{ external['std_form_basic']['preset'] }}"]
+      when: "{% if external['std_form_basic']['preset'] is defined and external['std_form_basic']['preset'] %}true{% else %}false{% endif %}"
+
+    - type: "alert"
+      configuration:
+        type: "info"
+        message: "Choose an existing preset to see the prompts form."
+      input:
+        - ["preset", "{{ external['std_form_basic']['preset'] }}"]
+      when: "{% if not external['std_form_basic']['preset'] %}true{% else %}false{% endif %}"
+
+    - type: "alert"
+      configuration:
+        type: "info"
+        message: "It seems that you used a Wildcard, you can check available wildcards <<here>>."
+      input:
+        - ["preset", "{{ external['std_form_basic']['preset'] }}"]
+      when: "{% if internal['p_prompt'] and (internal['p_prompt'] | matches('__(.*?)__') or internal['n_prompt'] | matches('__(.*?)__')) %}true{% else %}false{% endif %}"

@@ -1,0 +1,7 @@
+# The field catalog is a visual/development aid, not a generation preset.
+pipeline:
+  - name: "gallery"
+    id: "gallery"
+    enabled: true
+    configuration:
+      mode: "save"

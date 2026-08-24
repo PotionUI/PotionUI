@@ -1,0 +1,11 @@
+# Video Resolutions - Optimized for video generation models (WAN, etc.)
+- { value: "832x480", ratio: [16, 9], description: "SD Landscape" }
+- { value: "480x832", ratio: [9, 16], description: "SD Portrait" }
+- { value: "960x544", ratio: [16, 9], description: "HQ Landscape" }
+- { value: "544x960", ratio: [9, 16], description: "HQ Portrait" }
+- { value: "640x480", ratio: [4, 3], description: "Classic" }
+- { value: "480x640", ratio: [3, 4], description: "Classic Portrait" }
+- { value: "1280x720", ratio: [16, 9], description: "HD Landscape" }
+- { value: "720x1280", ratio: [9, 16], description: "HD Portrait" }
+- { value: "512x512", ratio: [1, 1], description: "HD Portrait" }
+- { value: "1024x1024", ratio: [1, 1], description: "HD Portrait" }

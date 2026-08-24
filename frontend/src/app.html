@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="icon" type="image/svg+xml" href="%sveltekit.assets%/favicon.svg" />
+		<link rel="icon" type="image/png" href="%sveltekit.assets%/favicon.png" />
+		<link rel="manifest" href="/manifest.json" />
+		<meta name="theme-color" content="#0D0D0D" />
+		<script>
+			// Set theme before first paint to avoid FOUC. Unset defaults to dark
+			// while the light theme rollout is gated (see src/lib/stores/theme.ts).
+			(function () {
+				try {
+					var p = localStorage.getItem('potionui-theme');
+					var t =
+						p === 'light' || p === 'dark'
+							? p
+							: p === 'system' && matchMedia('(prefers-color-scheme: light)').matches
+								? 'light'
+								: 'dark';
+					document.documentElement.dataset.theme = t;
+					var m = document.querySelector('meta[name="theme-color"]');
+					if (m) m.content = t === 'light' ? '#F7F7F7' : '#0D0D0D';
+				} catch (e) {
+					document.documentElement.dataset.theme = 'dark';
+				}
+			})();
+		</script>
+		<meta name="apple-mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+		<meta name="apple-mobile-web-app-title" content="PotionUI" />
+		<link rel="apple-touch-icon" href="/icons/potion-orb-192.png" />
+		<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+		%sveltekit.head%
+	</head>
+	<body data-sveltekit-preload-data="hover">
+		<div style="display: contents">%sveltekit.body%</div>
+	</body>
+</html>

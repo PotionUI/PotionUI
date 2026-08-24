@@ -1,0 +1,89 @@
+fields:
+  - name: "speed_profile"
+    type: "select"
+    label: "Speed"
+    default: "turbo"
+    ai_hint: >-
+      Turbo is a 4-step recipe. It works on the base model alone — MiniMax-H3
+      turns out to be a capable few-step generator on its own schedule — so no
+      LoRA is required; expect softer detail than the 24-step Quality profile.
+      The turbo distillation LoRA on the LoRA tab sharpens it further, but read
+      that field's hint before loading one: the original ModelTC file omits its
+      PEFT alpha metadata and produces noise unless its strength is set to 0.125
+      by hand, while Kijai's conversion is correct at about 0.75. Pick Quality
+      for anything final. Custom pins nothing and hands the Steps slider to the
+      user — suggest it whenever they ask for a specific step count.
+    configuration:
+      options:
+        - { label: "Quality (24 steps)", value: "quality" }
+        - { label: "Turbo (4 steps, optional distillation LoRA)", value: "turbo" }
+        - { label: "Custom (set Steps yourself)", value: "custom" }
+
+  - type: "section"
+    label: "Video"
+    children:
+      # Krea-2 layout: seed+quantity row first, then resolution.
+      - type: "row"
+        children:
+          - name: "seed"
+            type: "seed"
+            label: "Seed"
+            default: -1
+            width: "3/5"
+
+          - name: "quantity"
+            type: "stepper"
+            label: "Quantity"
+            default: 1
+            configuration: {min: 1, max: 4, step: 1}
+            width: "2/5"
+            full_width: true
+
+      - name: "resolution"
+        type: "resolution"
+        label: "Resolution"
+        ai_hint: "Both axes must be multiples of 32, aspect ratio between 1:4 and 4:1 — the offered sizes are what MiniMax-H3's own canvas math produces. Area is the dominant cost."
+        configuration:
+          files:
+            - { path: "{{ paths.preset }}/files/form/resolutions_canvas.yml", group: "Native canvas (768 short edge)" }
+            - { path: "{{ paths.preset }}/files/form/resolutions_fast.yml", group: "Faster (below native canvas)" }
+        default: "1344x768"
+
+  - type: "section"
+    label: "Models"
+    children:
+      - name: "model"
+        type: "model"
+        label: "MiniMax-H3 DiT"
+        required: true
+        configuration:
+          model_type: "diffusion_model"
+          placeholder: "minimax_h3_fl2va_pruned_fp8_scaled..."
+          filter_tags: "@config:checkpoint_tags"
+
+      - name: "text_encoder"
+        type: "model"
+        label: "Text Encoder (Qwen3-VL-32B)"
+        required: true
+        configuration:
+          model_type: "clip"
+          placeholder: "Select the Qwen3-VL-32B encoder..."
+          filter_tags: "@config:clip_tags"
+
+      - name: "video_vae"
+        type: "model"
+        label: "Video VAE"
+        required: true
+        configuration:
+          model_type: "vae"
+          placeholder: "minimax_h3_video_vae..."
+          filter_tags: "@config:vae_tags"
+
+      - name: "audio_vae"
+        type: "model"
+        label: "Audio VAE"
+        required: true
+        configuration:
+          model_type: "vae"
+          placeholder: "minimax_h3_audio_vae..."
+          filter_tags: "@config:vae_tags"

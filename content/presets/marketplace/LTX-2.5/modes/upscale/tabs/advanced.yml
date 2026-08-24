@@ -1,0 +1,23 @@
+# This mode has no Speed profile (there is no fresh-generation stage, only a
+# refine of an already-upsampled latent), so there is no Sampling section
+# here -- the only advanced knobs are the refine pass' own prompt/schedule
+# overrides, grouped into one section.
+fields:
+  - type: "section"
+    label: "Refine"
+    children:
+      - name: "apply_quality_prompt"
+        type: "checkbox"
+        label: "Add Quality Prompt"
+        audience: "advanced"
+        ai_hint: "Escape hatch for the automatic quality-prompt suffix on the refine pass. Leave on (default) unless the user explicitly wants the raw prompt sent to the text encoder untouched."
+        default: true
+
+      - name: "refine_sigmas"
+        type: "textbox"
+        label: "Refine Sigmas"
+        audience: "advanced"
+        ai_hint: "Expert-only override for the standalone upscale mode's refine pass -- prefer suggesting the Refine Strength select (Generation tab) instead. Only suggest hand-typing this for a deliberate custom schedule no Refine Strength option covers (lower first value = less noise re-injected = more faithful to the upsampled source video; higher = more freedom to fix upsampling artifacts, closer to a fresh generation)."
+        configuration:
+          placeholder: "Comma-separated sigma values, first value < 1.0, e.g. 0.909375, 0.725, 0.421875, 0.0"
+        default: ""

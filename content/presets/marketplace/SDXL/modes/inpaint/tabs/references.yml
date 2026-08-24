@@ -1,0 +1,8 @@
+fields:
+  - name: "source_image"
+    type: "image"
+    label: "Source Image"
+    required: true
+    ai_hint: "Upload the image you want to inpaint. Click 'Inpaint' button after upload to draw mask."
+    configuration:
+      allow_inpaint: true

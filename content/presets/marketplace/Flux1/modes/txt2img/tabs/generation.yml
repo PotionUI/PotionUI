@@ -1,0 +1,67 @@
+fields:
+  - type: "section"
+    label: "Image"
+    children:
+      - type: "row"
+        children:
+          - name: "seed"
+            type: "seed"
+            label: "Seed"
+            default: -1
+            width: "3/5"
+
+          - name: "quantity"
+            type: "stepper"
+            label: "Quantity"
+            default: 1
+            width: "2/5"
+            full_width: true
+            configuration: {min: 1, max: 10, step: 1}
+
+      - name: "resolution"
+        type: "resolution"
+        label: "Resolution"
+        configuration:
+          files:
+            - { path: "{{ paths._shared }}/resolutions/flux.yml", group: "Flux" }
+            - { path: "{{ paths._shared }}/resolutions/flux_2k.yml", group: "2K" }
+        default: "1024x1024"
+
+  - type: "section"
+    label: "Models"
+    children:
+      - name: "diffusion_model"
+        type: "model"
+        label: "Diffusion Model"
+        required: true
+        configuration:
+          model_type: "diffusion_model"
+          placeholder: "Select a Flux1 DiT..."
+          filter_tags: "@config:checkpoint_tags"
+
+      - name: "text_encoder"
+        type: "model"
+        label: "Text Encoder"
+        required: true
+        configuration:
+          model_type: "clip"
+          placeholder: "Select the T5-XXL text encoder..."
+          filter_tags: "@config:clip_tags"
+
+      - name: "clip_l"
+        type: "model"
+        label: "CLIP-L"
+        required: true
+        configuration:
+          model_type: "clip"
+          placeholder: "Select the CLIP-L text encoder..."
+          filter_tags: "@config:clip_tags"
+
+      - name: "vae"
+        type: "model"
+        label: "VAE"
+        required: true
+        configuration:
+          model_type: "vae"
+          placeholder: "Select Flux VAE..."
+          filter_tags: "@config:vae_tags"

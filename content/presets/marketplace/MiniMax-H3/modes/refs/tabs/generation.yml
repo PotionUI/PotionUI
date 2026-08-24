@@ -1,0 +1,124 @@
+# Same knobs as the `video` mode's Generation tab -- MiniMax-H3 is
+# guidance-distilled here too, so there is no CFG scale and no negative prompt,
+# and the soundtrack is sampled in the same packed sequence either way.
+# Sampler and Scheduler live on the Advanced tab (modes/video/tabs/
+# advanced.yml, shared with `video` mode), like every other native preset's
+# solver knobs -- not here.
+#
+# The one addition is Clip length, in SECONDS (the app-wide duration unit; the
+# pipeline converts to frames at the fixed 24 fps). It is the fallback only:
+# a request that attaches a Video Director document (every UI generation, per
+# preset.yml's `video_director.preset_modes`) has its clip length taken from
+# the document's own `settings.duration` instead (modes/refs/pipeline.yml) --
+# this slider is live only for a caller that submits with no document at all
+# (a direct API/test request). `hidden_when_video_director: true` keeps it out
+# of the rendered form for the only surface where it would actually be read
+# (the UI, which always attaches a document in this mode) while leaving it in
+# the schema -- and therefore still submittable -- for a standalone caller.
+fields:
+  - name: "speed_profile"
+    type: "select"
+    label: "Speed"
+    default: "quality"
+    ai_hint: >-
+      Turbo is a 4-step recipe. It works on the base model alone — MiniMax-H3
+      turns out to be a capable few-step generator on its own schedule — so no
+      LoRA is required; expect softer detail than the 24-step Quality profile.
+      Be more careful than usual about offering it here: a 4-step run holds a
+      reference's likeness less well than a 24-step one, so pick Quality
+      whenever the references carry a face or a costume the user expects back.
+      The turbo distillation LoRA on the LoRA tab sharpens it further, but read
+      that field's hint before loading one: the original ModelTC file omits its
+      PEFT alpha metadata and produces noise unless its strength is set to 0.125
+      by hand, while Kijai's conversion is correct at about 0.75. Custom pins
+      nothing and hands the Steps slider to the user — suggest it whenever they
+      ask for a specific step count.
+    configuration:
+      options:
+        - { label: "Quality (24 steps)", value: "quality" }
+        - { label: "Turbo (4 steps, optional distillation LoRA)", value: "turbo" }
+        - { label: "Custom (set Steps yourself)", value: "custom" }
+
+  - type: "section"
+    label: "Video"
+    children:
+      # Krea-2 layout: seed+quantity row first, then resolution. Clip length
+      # has no Krea-2 counterpart -- grouped after, next to the resolution
+      # it shapes the output alongside.
+      - type: "row"
+        children:
+          - name: "seed"
+            type: "seed"
+            label: "Seed"
+            default: -1
+            width: "3/5"
+
+          - name: "quantity"
+            type: "stepper"
+            label: "Quantity"
+            default: 1
+            configuration: {min: 1, max: 4, step: 1}
+            width: "2/5"
+            full_width: true
+
+      - name: "resolution"
+        type: "resolution"
+        label: "Resolution"
+        ai_hint: "Both axes must be multiples of 32, aspect ratio between 1:4 and 4:1 — the offered sizes are what MiniMax-H3's own canvas math produces. Area is the dominant cost. References are fitted onto this canvas, so pick the aspect ratio the finished video should have rather than the references' own."
+        configuration:
+          files:
+            - { path: "{{ paths.preset }}/files/form/resolutions_canvas.yml", group: "Native canvas (768 short edge)" }
+            - { path: "{{ paths.preset }}/files/form/resolutions_fast.yml", group: "Faster (below native canvas)" }
+        default: "1344x768"
+
+      # Seconds, like every other duration surface in the app (Director
+      # limits, chat tools). The pipeline converts to frames at the model's
+      # fixed 24 fps and the generator snaps UP to the next 17n+5 on its
+      # lattice, so any value in the released 5-15s range is valid here.
+      - name: "duration"
+        type: "slider"
+        label: "Clip length (seconds)"
+        default: 5
+        hidden_when_video_director: true
+        ai_hint: "Seconds of video (and audio) to generate; the model's released range is 5-15s. Cost is close to linear in this, and it is the single biggest knob on how long a run takes. Stay near 5 unless the user asked for a longer clip, and keep in mind that every extra second is more time for a reference's likeness to drift."
+        configuration: {min: 5, max: 14.3, step: 0.1}
+
+  - type: "section"
+    label: "Models"
+    children:
+      - name: "model"
+        type: "model"
+        label: "MiniMax-H3 DiT (reference partition)"
+        required: true
+        ai_hint: "This mode requires the ref2va DiT (the reference-to-video partition, e.g. minimax_h3_ref2va_*), not the fl2va file the Video mode uses. Insist on the ref2va checkpoint and say why. The ref2va and fl2va files are byte-identical in architecture and key set, so PotionUI cannot detect a wrong pick — an fl2va DiT loads cleanly here and then silently generates a video that ignores the reference images entirely. If the user's picker only lists an fl2va file, tell them they need to download the ref2va partition; do not suggest running the reference mode on it."
+        configuration:
+          model_type: "diffusion_model"
+          placeholder: "minimax_h3_ref2va_pruned_fp8_scaled..."
+          filter_tags: "@config:checkpoint_tags"
+
+      - name: "text_encoder"
+        type: "model"
+        label: "Text Encoder (Qwen3-VL-32B)"
+        required: true
+        configuration:
+          model_type: "clip"
+          placeholder: "Select the Qwen3-VL-32B encoder..."
+          filter_tags: "@config:clip_tags"
+
+      - name: "video_vae"
+        type: "model"
+        label: "Video VAE"
+        required: true
+        configuration:
+          model_type: "vae"
+          placeholder: "minimax_h3_video_vae..."
+          filter_tags: "@config:vae_tags"
+
+      - name: "audio_vae"
+        type: "model"
+        label: "Audio VAE"
+        required: true
+        configuration:
+          model_type: "vae"
+          placeholder: "minimax_h3_audio_vae..."
+          filter_tags: "@config:vae_tags"

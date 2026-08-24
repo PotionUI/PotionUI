@@ -1,0 +1,78 @@
+########
+## Qwen-Image text-to-image (native engine)
+##
+## Qwen-Image is a single-checkpoint MMDiT plus ONE text encoder (Qwen2.5-VL,
+## no CLIP-L) and the Wan-2.1 causal-3D VAE. Guidance is TRUE CFG (the sampler
+## runs a cond/uncond pass), so the negative prompt is encoded. The 2512 t2i
+## checkpoint is not distilled -> ~20 steps at cfg ~4.0.
+## Authoring reference: docs/presets.md
+########
+schema: 1
+id: "01K0W24A3RADXXABH16YQ7KF00"
+name: "Qwen-Image"
+category: "image"
+version: "2.0.1"
+engine: "native"
+tags: ["qwen", "qwenimage", "local", "transformer", "text-rendering"]
+
+media:
+  cover: "public/examples/potion.png"
+  gallery:
+    - src: "public/examples/potion.png"
+      prompt: "A photorealistic, highly detailed macro photograph of a central, highly ornate spherical glass potion vessel resting on an aged dark oak alchemist's bench in a cluttered, atmospheric workshop. Inside the potion, a violently swirling, pearlescent and bioluminescent liquid nebula, composed of deep ultraviolet, sapphire, and molten gold hues, creates intense internal light. Perfectly visible within this cosmic liquid is a detailed, miniature functional clockwork mechanism made of intricate brass and gold gears, sapphire bearings, and crystal components. Above the bottle, a complex, swirling wisp of bioluminescent blue smoke forms glowing, runic patterns. The bottle's exterior features subtle arcane etchings, sealed with a decorative metal cap, a complex leather strap, and miniature gears. The bench surface around the bottle shows deep, complex, blue-green glowing caustic light patterns cast through the liquid onto the weathered wood grain. In the deeply blurred (bokeh) background, other alchemical apparatus, old books, and dried herbs are present. A young woman alchemist with complex braided hair, wearing a detailed vest with filigree and leather gear, is positioned to the right of the bottle, her face in close-up portrait, her eyes focused intently on the internal mechanism, her expression one of serious analysis. Atmospheric perspective, cinematic lighting mixing warm workshop light with cool internal glow, volumetric dust motes, subsurface scattering, extreme depth of field with the internal gears in razor-sharp focus. High definition digital painting style with photorealistic textures."
+      mode: "txt2img"
+
+# Hardware guidance (docs/user/hardware-requirements.md): measured peak 19.37 GB
+# on a 32 GB card; the 12 GB tier is "marginal" (close to the fp8 file size
+# itself), not a confirmed floor - no min_vram_gb until one is.
+requires:
+  recommended_vram_gb: 16
+
+# Admin-set values (Admin -> Presets -> Configuration). Model pickers reference
+# these via `filter_tags: "@config:<key>"`; unset = no filtering (all models shown).
+configuration:
+  checkpoint_tags:
+    type: "model_tags"
+    label: "Checkpoint tags"
+    description: "Only models with any of these tags appear in the Diffusion Model picker."
+  clip_tags:
+    type: "model_tags"
+    label: "Text encoder tags"
+    description: "Only models with any of these tags appear in the Text Encoder picker."
+  vae_tags:
+    type: "model_tags"
+    label: "VAE tags"
+    description: "Only models with any of these tags appear in the VAE picker."
+  lora_tags:
+    type: "model_tags"
+    label: "LoRA tags"
+    description: "Only LoRAs with any of these tags appear in the LoRA picker."
+
+# balanced sourced from this preset's own header prose above (2512 checkpoint,
+# not distilled -> ~20 steps at cfg ~4.0). turbo is a PROPOSED fast profile
+# (no distilled Qwen-Image checkpoint exists yet) -- pair it with a Qwen
+# Lightning LoRA on the LoRA tab for acceptable quality at 8 steps/cfg 1.0.
+speed_profiles:
+  balanced: { steps: 20, guidance: 4.0, sampler: "euler" }
+  turbo:    { steps: 8,  guidance: 1.0, sampler: "euler" }
+  turbo_4:  { steps: 4,  guidance: 1.0, sampler: "euler" }
+  custom:   { steps: 20, guidance: 4.0, sampler: "euler" }
+
+vars:
+  default_shift: 1.15
+
+llm:
+  guide: |
+    Write dense, descriptive prompts with specifics about composition, style, and
+    visual elements - the model was trained progressively up to paragraph-level
+    captions, so long complex prompts work well. Its signature strength is text
+    rendering in English and Chinese: put exact display text in quotes ('the sign reads
+    "Qwen Coffee"'). Bilingual English+Chinese prompts are supported. The authors'
+    own examples append a quality suffix - end English prompts with ", Ultra HD, 4K,
+    cinematic composition." Negative prompts are supported; keep them short and
+    targeted, or empty when nothing needs suppressing.
+
+modes:
+  - txt2img
+  - img2img
+  - edit

@@ -1,0 +1,19 @@
+# The source clip and how much of it to keep. Where the window starts is on
+# the Advanced tab -- the length of the result is the decision most people
+# make first.
+fields:
+  - name: "input_audio"
+    type: "audio"
+    label: "Input Audio"
+    required: true
+    ai_hint: "Sample rate and channel count (mono/stereo) are carried over unchanged. There is no dedicated time-scrubbing UI here yet -- listen to the source elsewhere to find the start/duration numbers, then dial them in on this form. The trim itself is sample-accurate and never re-encodes beyond the final write, so repeated trims of the same source lose nothing."
+
+  - name: "duration_seconds"
+    type: "slider"
+    label: "Duration"
+    default: 10.0
+    ai_hint: "How many seconds to keep, starting at Trim Start (Advanced tab). This is the length of the OUTPUT, not a position in the source -- pair it with Trim Start on the Advanced tab, which is the position it counts from. If Trim Start plus this value overshoots the source's own length, the result is silently clamped to 'everything remaining after Trim Start', which is almost always what's wanted; there is no separate 'trim to end' toggle because clamping already produces that result whenever Duration is set larger than the remainder."
+    configuration:
+      min: 0.1
+      max: 600
+      step: 0.1

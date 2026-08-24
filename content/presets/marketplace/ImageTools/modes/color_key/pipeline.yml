@@ -1,0 +1,63 @@
+# Pipeline for the 'color_key' mode.
+#
+#   media_loader -> param_emitter -> color_key -> gallery
+#
+# The inverse of the Prepare mode's padding fill: pull a flat background
+# colour back out to transparency, with spill suppression so the subject does
+# not keep the tint the background bounced onto it. Deterministic -- no text
+# encoder, no denoise loop, no seed.
+pipeline:
+  #############
+  ## Media Loader - Load the source image from the form file path
+  #############
+  - name: "media_loader"
+    id: "media_loader"
+    enabled: true
+    configuration:
+      validate_files: true
+      max_file_size: 52428800  # 50MB
+      auto_detect_type: true
+      media:
+        - type: "image"
+          path: "{{ form.input_image }}"
+
+  #############
+  ## Parameter Emitter - record the run's settings on the generation
+  #############
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    configuration:
+      quantity: 1
+      parameters:
+        - ["key_mode", "{{ form.key_mode | default('auto') }}"]
+        - ["key_color", "{{ form.key_color | default('#00B140') }}"]
+        - ["tolerance", "{{ form.tolerance | default(25) }}"]
+        - ["softness", "{{ form.softness | default(10) }}"]
+        - ["despill", "{{ form.despill | default(true) }}"]
+        - ["key_feather", "{{ form.key_feather | default(0) }}"]
+
+  #############
+  ## Colour key - flat background colour -> alpha
+  #############
+  - name: "color_key"
+    id: "color_key"
+    enabled: true
+    input:
+      - ["image", "media_loader", "image"]
+    configuration:
+      key_mode: "{{ form.key_mode | default('auto') }}"
+      key_color: "{{ form.key_color | default('#00B140') }}"
+      tolerance: "{{ form.tolerance | default(25) }}"
+      softness: "{{ form.softness | default(10) }}"
+      despill: "{{ form.despill | default(true) }}"
+      feather: "{{ form.key_feather | default(0) }}"
+
+  #############
+  ## Gallery - save the keyed RGBA image
+  #############
+  - name: "gallery"
+    id: "gallery"
+    enabled: true
+    input:
+      - ["image", "color_key", "image"]

@@ -1,0 +1,55 @@
+fields:
+  - type: "section"
+    label: "I2V Models"
+    children:
+      - name: "i2v_high_noise_model"
+        type: "model"
+        label: "i2v DiT (high-noise / single)"
+        configuration:
+          model_type: "diffusion_model"
+          placeholder: "Wan i2v DiT — high-noise expert, or the only DiT..."
+          filter_tags: "@config:checkpoint_tags"
+
+      # Wan 2.2 14B dual-expert only; leave empty for 2.1 / 5B.
+      - name: "i2v_low_noise_model"
+        type: "model"
+        label: "i2v DiT (low-noise expert)"
+        configuration:
+          model_type: "diffusion_model"
+          placeholder: "Wan 2.2 i2v low-noise expert — leave empty for 2.1 / 5B..."
+          filter_tags: "@config:checkpoint_tags"
+
+  - type: "section"
+    label: "I2V LoRAs"
+    children:
+      - name: "i2v_loras_high"
+        type: "lora_picker"
+        default: []
+        label: "i2v LoRAs — high-noise expert"
+        ai_hint: "LoRAs for the i2v high-noise expert (the HIGH file of a Wan 2.2 i2v pair, e.g. the SVI Pro 2.0 HighNoise LoRA chain mode wants). 0.5-1.0 typical. Leave empty if not needed."
+        configuration:
+          model_type: "lora"
+          placeholder: "Select an i2v high-noise LoRA..."
+          filter_tags: "@config:lora_tags"
+          allow_info_modal: true
+          strength_min: -10.0
+          strength_max: 10.0
+          strength_step: 0.1
+          strength_default: 1.0
+          max_items: 10
+
+      - name: "i2v_loras_low"
+        type: "lora_picker"
+        default: []
+        label: "i2v LoRAs — low-noise expert"
+        ai_hint: "LoRAs for the i2v low-noise expert (the LOW file of a Wan 2.2 i2v pair). Ignored when no i2v low-noise model is set."
+        configuration:
+          model_type: "lora"
+          placeholder: "Select an i2v low-noise LoRA..."
+          filter_tags: "@config:lora_tags"
+          allow_info_modal: true
+          strength_min: -10.0
+          strength_max: 10.0
+          strength_step: 0.1
+          strength_default: 1.0
+          max_items: 10

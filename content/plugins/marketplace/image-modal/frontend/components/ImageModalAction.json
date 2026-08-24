@@ -1,0 +1,6 @@
+{
+  "type": "action-button",
+  "icon": "🔍",
+  "label": "Full Screen",
+  "tooltip": "View image in full-screen modal"
+}

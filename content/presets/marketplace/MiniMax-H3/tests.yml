@@ -1,0 +1,152 @@
+########
+## MiniMax-H3: E2E test suite.
+## Authoring reference: docs/presets.md "Testing presets"
+########
+schema: 1
+
+cases:
+  # t2va: prompt only, shortest clip on the fastest canvas.
+  - name: "minimax-h3-t2va-fast"
+    mode: "video"
+    kind: "video"
+    seed: 12345
+    tags: ["fast", "needs-model"]
+    form:
+      prompt: "a paper boat drifting down a rain-filled gutter, close-up, soft afternoon light, the sound of running water"
+      resolution: "832x480"
+      frames: 124
+      steps: 8
+    models:
+      model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      video_vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      audio_vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 1
+      not_black: true
+
+  # Turbo: the 4-step recipe, exercised LoRA-FREE. That is the real baseline --
+  # the base model is a capable few-step generator on its own schedule, so this
+  # case tests the profile rather than the LoRA.
+  #
+  # A LoRA could not be pinned here anyway: `models:` maps a form-field name to
+  # ONE sha256 and injects the resolved path as a bare string, but a
+  # `lora_picker` field's value is a list of {model, strength} mappings, so the
+  # shapes don't meet. If you add a stack to `form.loras` by hand, mind the
+  # strength -- the original ModelTC file needs 0.125 and Kijai's conversion
+  # ~0.75 (see modes/video/tabs/lora.yml and
+  # ai/minimax_h3/TURBO_LORA_FINDINGS.md).
+  - name: "minimax-h3-turbo-fast"
+    mode: "video"
+    kind: "video"
+    seed: 12345
+    tags: ["fast", "needs-model"]
+    form:
+      prompt: "a paper boat drifting down a rain-filled gutter, close-up, soft afternoon light, the sound of running water"
+      resolution: "832x480"
+      frames: 124
+      speed_profile: "turbo"
+      steps: 4
+    models:
+      model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      video_vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      audio_vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 1
+      not_black: true
+
+  # ref2va: the reference mode. TWO placeholders here, not one -- besides the
+  # reference image itself, `model` has to resolve to the ref2va DiT partition,
+  # a DIFFERENT file from the one the cases above pin. Nothing in the stack can
+  # tell the two apart (identical architecture and key set), so pinning the
+  # fl2va checkpoint here would run green and prove nothing.
+  #
+  # `references` is written as bare path strings: a multi-item media field
+  # accepts those as well as full media references, and the pipeline's loader
+  # reads either.
+  - name: "minimax-h3-ref2va-fast"
+    mode: "refs"
+    kind: "video"
+    seed: 12345
+    tags: ["fast", "needs-model"]
+    form:
+      prompt: "the woman from the reference walks through a rainy street at night, neon reflections on the pavement, her footsteps and the rain"
+      resolution: "832x480"
+      frames: 124
+      steps: 8
+      references:
+        - "PLACEHOLDER/minimax-h3-reference-1.png"
+    models:
+      model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      video_vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      audio_vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 1
+      not_black: true
+
+  # fl2va: the same request with opening and closing keyframes, which routes
+  # the generator through the VAE-encoded condition-row path instead of pure
+  # t2va. There is no manual Keyframes tab -- the only way to attach one is a
+  # Video Director document, so the request is shaped exactly like the wire
+  # doc `buildDirectorSubmission`'s flf branch (frontend/src/lib/utils/
+  # videoDirector.ts) sends for a single shot with both edge wells filled.
+  # Both `media[].media.path` values are PLACEHOLDERs -- no keyframe fixtures
+  # ship with this preset, so supply real images before dropping the
+  # needs-model tag; unlike the old form field, a missing file here fails
+  # document normalization outright rather than silently degrading to t2va.
+  - name: "minimax-h3-fl2va-fast"
+    mode: "video"
+    kind: "video"
+    seed: 12345
+    tags: ["fast", "needs-model"]
+    form:
+      prompt: "the paper boat drifts out of frame as the rain stops"
+      resolution: "832x480"
+      steps: 8
+      video_director:
+        schema_version: 1
+        mode: "flf"
+        settings: {fps: 24, duration: 5.17, seed: -1}
+        segments:
+          - {id: "seg-1", prompt: "the paper boat drifts out of frame as the rain stops"}
+        media:
+          - id: "m-1"
+            role: "first"
+            segment_id: "seg-1"
+            at: 0
+            strength: 1
+            media: {path: "PLACEHOLDER/minimax-h3-first-frame.png", type: "image"}
+          - id: "m-2"
+            role: "last"
+            segment_id: "seg-1"
+            at: 5.17
+            strength: 1
+            media: {path: "PLACEHOLDER/minimax-h3-last-frame.png", type: "image"}
+        audio: []
+        ic_lora: []
+    models:
+      model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      video_vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      audio_vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 1
+      not_black: true

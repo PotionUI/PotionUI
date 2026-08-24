@@ -1,0 +1,174 @@
+# Edit pipeline for the native Qwen-Image family.
+#
+#   model_loader/qwen (vision: true) -> media_loader -> prompt_encoder (+image)
+#     -> seed_generator -> generator/qwen (mode=edit) -> gallery
+#
+# Unlike img2img (a truncated-schedule denoise of a NOISED copy of the source),
+# edit runs a full generation from noise whose text conditioning is
+# vision-grounded on the source image (the Qwen2.5-VL text encoder's vision
+# tower, loaded here via `vision: true`) AND whose DiT call receives the
+# source's clean VAE latent as `ref_latents` (the checkpoint's in-context edit
+# path — see generator/qwen's GeneratorQwenPipe.maybe_edit). The source image
+# is wired into BOTH prompt_encoder (vision-conditions the text) and
+# generator/qwen (VAE-encoded into ref_latents) — the same media_loader output,
+# two consumers.
+pipeline:
+  #############
+  ## Model loader (MMDiT + Qwen2.5-VL TE + causal-3D VAE, per-component cached)
+  ############
+  - name: "model_loader/qwen"
+    enabled: true
+    configuration:
+      diffusion_model:
+        file_path: "{{ form.diffusion_model }}"
+        name: "{{ form.diffusion_model }}"
+      text_encoder:
+        file_path: "{{ form.text_encoder }}"
+        name: "{{ form.text_encoder }}"
+      vae:
+        file_path: "{{ form.vae }}"
+        name: "{{ form.vae }}"
+      loras:
+        "@loop":
+          items: "{{ form.loras | default([]) }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+      # The whole point of this mode: keep+load the vision tower so the text
+      # encoder can see the source image, not just describe it in text.
+      vision: true
+
+  #############
+  ## Media Loader (Reference Images, 1-3, upload order preserved)
+  ##
+  ## `form.source_image` is a multi-item media field (`multi: true`,
+  ## max_items 3), so an entry is a media reference (`{path, relative_path,
+  ## url, name, type, label}`); `item.path | default(item)` also accepts the
+  ## bare path string the field's validator still allows -- same `@loop`
+  ## idiom as MiniMax-H3's references loader
+  ## (content/presets/marketplace/MiniMax-H3/modes/refs/pipeline.yml). The
+  ## order here IS the contract: item 1 is the edit target/sizing anchor
+  ## (generator/qwen's GeneratorQwenPipe.maybe_edit), the rest are additional
+  ## references -- both `prompt_encoder` (vision-grounding) and
+  ## `generator/qwen` (VAE-encoded ref_latents) read this SAME loader output,
+  ## so the order the model is told about matches what the user picked.
+  ############
+  - name: "media_loader"
+    id: "media_loader"
+    enabled: true
+    configuration:
+      media:
+        "@loop":
+          items: "{{ form.source_image }}"
+          template:
+            type: "image"
+            path: "{{ item.path | default(item) }}"
+
+  #############
+  ## Prompt encoder (shared pipe; produces the vision-grounded conditioning)
+  ############
+  - name: "prompt_encoder"
+    input:
+      - ["clip", "model_loader/qwen", "clip"]
+      - ["image", "media_loader", "image"]
+    enabled: true
+    configuration:
+      p_prompt:
+        input: "{{ generation.prompts.first.positive }}"
+        output: "{{ generation.prompts.first.positive }}"
+      n_prompt:
+        input: "{{ generation.prompts.first.negative }}"
+        output: "{{ generation.prompts.first.negative }}"
+      # Per-image expanded prompt pairs (src/core/prompt/expander.py).
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity | default(1) }}"
+      # Qwen-Image uses true CFG -> encode the negative pass (guidance_scale > 1).
+      guidance_scale: "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('balanced'))['guidance']) }}"
+
+  #############
+  ## Seed generator
+  ############
+  - name: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed | default(-1) }}"
+      quantity: "{{ form.quantity | default(1) }}"
+
+  #############
+  ## Rendered prompts (provenance)
+  ## Surfaces the per-image expanded prompts ({a|b}, ${variables}, phrasebook
+  ## already resolved on the backend - see src/features/prompt/expander.py) as
+  ## pipe artifacts, the prompt counterpart of seed_generator. `pairs` is the
+  ## real list, handed in exactly as prompt_encoder receives it.
+  ############
+  - name: "dynamic_prompts_renderer"
+    id: "dynamic_prompts_renderer"
+    enabled: true
+    configuration:
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity | default(1) }}"
+
+  #############
+  ## IOType to Value Converter
+  ############
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  #############
+  ## Parameter Emitter
+  ############
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: "{{ form.quantity | default(1) }}"
+      parameters:
+        - ["model", "{{ form.diffusion_model }}"]
+        - ["model", "{{ form.text_encoder }}"]
+        - ["model", "{{ form.vae }}"]
+        - "@loop":
+            items: "{{ form.loras | default([]) | active_loras }}"
+            template: ["model", "{{ item.model }}"]
+        # Per-image arrays, so history records the prompt each image actually ran with.
+        - ["positive_prompt", "{{ generation.prompts.positives }}"]
+        - ["negative_prompt", "{{ generation.prompts.negatives }}"]
+        - ["cfg", "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('balanced'))['guidance']) }}"]
+        - ["steps", "{{ form.steps | default(get_speed_profile(form.speed_profile | default('balanced'))['steps']) }}"]
+        - ["sampler", "{{ form.sampler | default(get_speed_profile(form.speed_profile | default('balanced'))['sampler']) }}"]
+
+  #############
+  ## Generator (edit mode: vision-grounded conditioning + ref_latents)
+  ############
+  - name: "generator/qwen"
+    input:
+      - ["model", "model_loader/qwen", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+      - ["image", "media_loader", "image"]
+    enabled: true
+    configuration:
+      mode: "edit"
+      steps: "{{ form.steps | default(get_speed_profile(form.speed_profile | default('balanced'))['steps']) }}"
+      guidance: "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('balanced'))['guidance']) }}"
+      # Optional shift override; blank -> spec default (1.15).
+      shift: "{% set s = form.shift | default('') %}{% if s is not none and s != '' %}{{ s }}{% endif %}"
+      sampler: "{{ form.sampler | default(get_speed_profile(form.speed_profile | default('balanced'))['sampler']) }}"
+      quantity: "{{ form.quantity | default(1) }}"
+
+  #############
+  ## Gallery
+  ############
+  - name: "gallery"
+    input:
+      - ["image", "generator/qwen", "image"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: true
+    configuration:
+      save: "true"

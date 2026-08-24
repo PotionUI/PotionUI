@@ -1,0 +1,138 @@
+########
+## Wan 2.1 / 2.2 text-to-video (native engine)
+##
+## One preset covers the Wan video family. Wan 2.2 14B is a HIGH/LOW-noise
+## expert pair — supply both DiT files and the generator's expert router
+## switches at the sampling boundary. Wan 2.1 / the 5B ti2v are single-DiT:
+## leave the low-noise picker empty. Authoring reference: docs/presets.md
+########
+schema: 1
+id: "01KX47WANVIDEO0000000000TV"
+name: "Wan 2.1 / 2.2"
+category: "video"
+version: "1.0.1"
+engine: "native"
+tags: ["wan", "wan2.2", "video", "t2v", "flow-matching", "local"]
+
+media:
+  cover: "public/examples/potion.jpg"
+  gallery:
+    - src: "public/examples/potion.mp4"
+      prompt: "Cinematic macro slow-motion video of an ornate, hand-blown glass potion bottle resting on a weathered dark oak bench. The camera slowly and smoothly orbits the bottle in a semi-circle. Inside the flask, a bioluminescent liquid mixture of deep ultraviolet and molten gold violently swirls in a hypnotic vortex, with thousands of tiny glowing micro-particles and bubbles circulating dynamically in real-time. The intense internal glow of the liquid pulses gently, casting fluid, rapidly shifting blue and gold caustic light patterns across the textured wood grain of the bench. A delicate, wispy volumetric mist slowly and realistically wafts upward from the slightly unsealed neck of the bottle, illuminated by the internal light. The background is a darkly lit, softly blurred alchemy workshop. Extreme shallow depth of field, razor-sharp focus on the swirling liquid and etched glass details, hyper-realistic textures, seamless motion, and lifelike fluid physics."
+      mode: "video"
+
+# Hardware guidance (docs/user/hardware-requirements.md): 12 GB covers the
+# 5B ti2v variant this preset also serves (the realistic small-card option);
+# 16 GB+ is recommended for the 14B dual-expert path (measured 15.2 GB peak
+# on a 32 GB card for a short low-res clip).
+requires:
+  min_vram_gb: 12
+  recommended_vram_gb: 16
+
+# Admin-set values (Admin -> Presets -> Configuration). Model pickers reference
+# these via `filter_tags: "@config:<key>"`; unset = no filtering (all models shown).
+configuration:
+  checkpoint_tags:
+    type: "model_tags"
+    label: "Checkpoint tags"
+    description: "Only models with any of these tags appear in the Checkpoint picker."
+  clip_tags:
+    type: "model_tags"
+    label: "Text encoder tags"
+    description: "Only models with any of these tags appear in the Text Encoder picker."
+  vae_tags:
+    type: "model_tags"
+    label: "VAE tags"
+    description: "Only models with any of these tags appear in the VAE picker."
+  lora_tags:
+    type: "model_tags"
+    label: "LoRA tags"
+    description: "Only LoRAs with any of these tags appear in the LoRA picker."
+
+# Krea2-style speed profiles (docs/presets.md "Speed
+# profiles"). balanced is the sourced default across all 3 modes (unchanged
+# steps/cfg/sampler). fast is the lightning/lightx2v-LoRA regime -- pair it
+# with the Wan lightning/lightx2v LoRA PAIR (high+low) on the LoRA tab.
+speed_profiles:
+  balanced:
+    steps: 30
+    guidance: 5.0
+    sampler: "unipc"
+  fast:
+    steps: 6
+    guidance: 1.0
+    sampler: "unipc"
+  custom:
+    steps: 30
+    guidance: 5.0
+    sampler: "unipc"
+
+vars:
+  default_frames: 81
+  default_fps: 16
+
+  # Video Director capabilities for the `video` mode. Read by
+  # normalize_video_director() (src/core/video_director/normalize.py) via
+  # `preset_template.vars.video_director` in src/core/generation/orchestrator.py
+  # -- this is the ONLY source of truth for what a submitted document may
+  # contain; `preset_modes` is a frontend-only convention (see
+  # frontend/src/lib/utils/videoDirector.ts) telling the UI which preset
+  # modes should show the Director editor.
+  video_director:
+    preset_modes: ["video"]
+    # Resolve each segment to a t2v/i2v/flf/chain sub-type and precompute the
+    # needs_t2v_set/needs_i2v_set flags the pipeline branches its two model-set
+    # loaders on (normalize_video_director -> derive_segment_routing). Wan ships
+    # SEPARATE t2v (in_dim=16) and i2v (in_dim=36) checkpoints, so a chain that
+    # opens on a fresh t2v shot and continues as i2v needs both loaded.
+    segment_routing: true
+    modes:
+      t2v: {}
+      i2v: {}
+      flf: {}
+      # Wan's `director` sub-mode is a routed multi-segment chain: each shot
+      # continues from the previous shot's tail frames (or opens on a fresh
+      # cut/start image), and the shots optionally stitch into one long video.
+      # segment_routing (above) is what makes the shared Director editor render
+      # Wan's shot composer here instead of LTX's keyframe/audio timeline, and
+      # what makes normalize route this mode through derive_segment_routing.
+      director:
+        per_segment_loras: true
+        keyframes: "first_only"
+        max_segments: 8
+        max_frames_per_segment: 81
+        # Defaults the editor seeds the continuity controls with (overlap frames
+        # dropped when stitching consecutive shots together).
+        continuation:
+          source: "tail_frames"
+          overlap_frames: 4
+          stitch: true
+    limits:
+      default_duration: 5
+      default_fps: 16
+      max_duration: 60
+
+llm:
+  guide: |
+    Structure prompts as: entity (specific description) + scene (specific description) +
+    motion (specific description) + aesthetic control + stylization, written as natural
+    English prose, not tags. Weak prompts skip the last two and produce a static camera
+    in an undefined void - always add camera work (push-in, pull-out, tracking shot,
+    orbit), lighting (soft light, hard light, rim light, side light), shot type
+    (close-up, wide-angle, aerial, establishing), precise motion adverbs (swaying
+    violently, drifting slowly), and a visual style when appropriate (cyberpunk, line
+    art, wasteland style). English and Chinese prose both work. Image-to-video:
+    describe motion, action, camera movement and scene evolution forward from the
+    image - do not re-describe what the image already shows. The official default
+    negative prompt is: "Bright tones, overexposed, static, blurred details,
+    subtitles, style, works, paintings, images, static, overall gray, worst
+    quality, low quality, JPEG compression residue, ugly, incomplete, extra
+    fingers, poorly drawn hands, poorly drawn faces, deformed, disfigured,
+    misshapen limbs, fused fingers, still picture, messy background, three legs,
+    many people in the background, walking backwards" - use it as the baseline
+    and adjust for the specific shot. Avoid: named real people, rapid scene
+    changes in one clip, legible-text requirements, long choreographed sequences,
+    lip-synced dialogue.
+
+modes:
+  - video

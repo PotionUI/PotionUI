@@ -1,0 +1,112 @@
+{
+  "mode": "fit_canvas",
+  "pipes": [
+    {
+      "config": {
+        "auto_detect_type": {
+          "type": "bool",
+          "value": true
+        },
+        "max_file_size": {
+          "type": "int",
+          "value": 52428800
+        },
+        "media": {
+          "type": "list",
+          "value": [
+            {
+              "path": "/GOLDEN/media/input_image.png",
+              "type": "image"
+            }
+          ]
+        },
+        "validate_files": {
+          "type": "bool",
+          "value": true
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "media_loader",
+      "name": "media_loader"
+    },
+    {
+      "config": {
+        "parameters": {
+          "type": "list",
+          "value": [
+            [
+              "canvas",
+              "1024x1024"
+            ],
+            [
+              "scale_percent",
+              100
+            ],
+            [
+              "anchor",
+              "center"
+            ],
+            [
+              "fill",
+              "transparent"
+            ]
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "param_emitter",
+      "name": "param_emitter"
+    },
+    {
+      "config": {
+        "anchor": {
+          "type": "str",
+          "value": "center"
+        },
+        "fill": {
+          "type": "str",
+          "value": "transparent"
+        },
+        "height": {
+          "type": "int",
+          "value": 1024
+        },
+        "scale_percent": {
+          "type": "int",
+          "value": 100
+        },
+        "width": {
+          "type": "int",
+          "value": 1024
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "canvas_fit",
+      "name": "canvas_fit"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "gallery",
+      "name": "gallery"
+    }
+  ],
+  "preset_id": "01KXIMAGETOOLS0000000000IT",
+  "preset_name": "Image Tools"
+}

@@ -1,0 +1,95 @@
+########
+## MiniMax-Music3 text-to-music (native engine)
+##
+## Two-stage generation: an autoregressive stage samples a semantic + 7-way
+## residual code per frame (25 fps) from a caption/lyrics prompt, then a
+## windowed flow-matching DiT turns those frame hiddens into a 44.1 kHz
+## stereo latent the DAV vocoder decodes. One song per generation -- there is
+## no quantity knob, unlike the image/video families.
+##
+## Text-to-music ONLY: the shipped checkpoint has no audio encoder, so there
+## is no style/reference, extend or repaint mode -- see description.md.
+##
+## WEIGHTS LICENSE: MiniMax-Music3 Community License. Unlike MiniMax-H3, its
+## Applicable Territory has NO exclusions. Two live obligations still apply --
+## see description.md.
+##
+## Authoring reference: docs/presets.md
+########
+schema: 1
+id: "01KX47MINIMAXMUSIC300000MU"
+name: "MiniMax-Music3"
+category: "audio"
+version: "1.0.0"
+engine: "native"
+tags: ["minimax", "minimax-music3", "audio", "music", "t2m", "flow-matching", "local"]
+
+# Admin-set values (Admin -> Presets -> Configuration). Model pickers reference
+# these via `filter_tags: "@config:<key>"`; unset = no filtering (all models shown).
+configuration:
+  checkpoint_tags:
+    type: "model_tags"
+    label: "Checkpoint tags"
+    description: "Only models with any of these tags appear in the MiniMax-Music3 DiT picker."
+  clip_tags:
+    type: "model_tags"
+    label: "Text encoder tags"
+    description: "Only models with any of these tags appear in the Text Encoder picker."
+  vae_tags:
+    type: "model_tags"
+    label: "VAE tags"
+    description: "Only models with any of these tags appear in the DAV vocoder picker."
+
+vars:
+  # No Music Director: lyrics are the STANDARD prompt section (the same
+  # segmented editor every image preset uses). The generator has no audio
+  # encoder, so there is nothing for a negative prompt to condition against
+  # -- see PromptSection's `negativePromptSupported` gate in generate/+page.svelte.
+  supports_negative_prompt: false
+  # Song sections are prose blocks, not tag fragments -- flattening enabled
+  # segments with "\n\n" instead of the default ", " keeps each [Verse]/
+  # [Chorus] block on its own paragraph. See richSegments.ts's `SegmentJoin`.
+  prompt:
+    segment_join: "paragraph"
+
+llm:
+  guide: |
+    There is no structured caption form -- the Generation tab's "Style
+    description" field is the whole caption, sent to the model verbatim as
+    free prose. Aim for roughly 250-450 words covering, in whatever order
+    reads naturally:
+
+    Global metadata: genre + tempo/key (e.g. "warm 90s boom-bap, vinyl
+    crackle. bpm is 92. key is C, and scale is minor." -- exact BPM only when
+    the user gave one or a clear reference; otherwise describe tempo
+    qualitatively) and the mood ARC across the song, not one static adjective.
+    Optionally the visual/narrative scene the song evokes, and mix character
+    (lo-fi/hi-fi, analog warmth, space, era).
+
+    Vocal details: gender & timbre whenever the song has vocals -- the model
+    drifts instrumental without it (e.g. "female alto, warm and breathy").
+    Delivery (breathy, belted, rap cadence, whispered), harmony/backing
+    arrangement, and vocal FX (autotune, reverb tails, doubling) as needed.
+    Omit all vocal wording entirely for an instrumental track -- even
+    describing an absent voice pulls the model toward adding one; use the
+    form's "Instrumental (no vocals)" toggle instead, which needs no vocal
+    text at all.
+
+    Arrangement: lead instruments, supporting/texture layers, and rhythm feel
+    plus ear-candy (fills, risers, glitches).
+
+    Lyrics live in the standard Prompt box, not the Style description --
+    write them Suno-style, with section tags on their OWN line: [Intro],
+    [Verse], [Pre-Chorus], [Chorus], [Post-Chorus], [Bridge], [Instrumental],
+    [Solo], [Outro] are the model's vocabulary. A tag sharing a line with
+    lyric text gets that text dropped, so never inline one. Segment templates
+    and saved segments are the reusable way to store a song structure across
+    generations -- one segment per section works well since each keeps its
+    own tag on its own line. Never put bracket tags in the Style
+    description -- that field is prose for the caption, not lyrics. Song
+    length follows the lyrics: more sections make a longer song, and with
+    Max duration at 0 (auto) the model ends the song itself; a low cap cuts
+    it mid-phrase instead.
+
+modes:
+  - song

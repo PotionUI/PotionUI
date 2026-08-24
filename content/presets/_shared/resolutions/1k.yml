@@ -1,0 +1,9 @@
+# Generic 1K resolution tier - ~1.0 MP standard aspect set (64px-snapped).
+- { value: "1024x1024", ratio: [1, 1], description: "Square 1K" }
+- { value: "1280x832", ratio: [3, 2], description: "Wide Landscape 1K" }
+- { value: "832x1280", ratio: [2, 3], description: "Tall Portrait 1K" }
+- { value: "1344x768", ratio: [16, 9], description: "Widescreen 1K" }
+- { value: "768x1344", ratio: [9, 16], description: "Vertical 1K" }
+- { value: "1152x896", ratio: [4, 3], description: "Landscape 1K" }
+- { value: "896x1152", ratio: [3, 4], description: "Portrait 1K" }
+- { value: "1536x640", ratio: [21, 9], description: "Ultra Wide 1K" }

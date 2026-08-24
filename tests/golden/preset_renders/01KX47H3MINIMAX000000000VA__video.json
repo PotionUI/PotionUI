@@ -1,0 +1,426 @@
+{
+  "mode": "video",
+  "pipes": [
+    {
+      "config": {
+        "audio_vae.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/audio_vae.safetensors"
+        },
+        "audio_vae.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/audio_vae.safetensors"
+        },
+        "loras": {
+          "type": "list",
+          "value": []
+        },
+        "model.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/model.safetensors"
+        },
+        "model.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/model.safetensors"
+        },
+        "text_encoder.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/text_encoder.safetensors"
+        },
+        "text_encoder.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/text_encoder.safetensors"
+        },
+        "video_vae.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/video_vae.safetensors"
+        },
+        "video_vae.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/video_vae.safetensors"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "model_loader/minimax_h3"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "keyframes",
+      "name": "media_loader"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "director_media",
+      "name": "media_loader"
+    },
+    {
+      "config": {
+        "guidance_scale": {
+          "type": "float",
+          "value": 1.0
+        },
+        "image_pixel_budget": {
+          "type": "str",
+          "value": "0"
+        },
+        "output_resolution": {
+          "type": "str",
+          "value": "1344x768"
+        },
+        "p_prompt.input": {
+          "type": "str",
+          "value": "golden positive prompt"
+        },
+        "p_prompt.output": {
+          "type": "str",
+          "value": "golden positive prompt"
+        },
+        "pairs": {
+          "type": "list",
+          "value": [
+            {
+              "negative": "golden negative prompt",
+              "positive": "golden positive prompt"
+            }
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "prompt_encoder"
+    },
+    {
+      "config": {},
+      "enabled": {
+        "type": "bool",
+        "value": false
+      },
+      "id": "prompt_encoder_director",
+      "name": "prompt_encoder"
+    },
+    {
+      "config": {
+        "quantity": {
+          "type": "int",
+          "value": 1
+        },
+        "seed": {
+          "type": "int",
+          "value": -1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "seed_generator"
+    },
+    {
+      "config": {
+        "pairs": {
+          "type": "list",
+          "value": [
+            {
+              "negative": "golden negative prompt",
+              "positive": "golden positive prompt"
+            }
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "dynamic_prompts_renderer",
+      "name": "dynamic_prompts_renderer"
+    },
+    {
+      "config": {
+        "from": {
+          "type": "str",
+          "value": "seed"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "from_iotype",
+      "name": "from_iotype"
+    },
+    {
+      "config": {
+        "parameters": {
+          "type": "list",
+          "value": [
+            [
+              "model",
+              "/GOLDEN/models/model.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/text_encoder.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/video_vae.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/audio_vae.safetensors"
+            ],
+            [],
+            [
+              "positive_prompt",
+              [
+                "golden positive prompt"
+              ]
+            ],
+            [
+              "steps",
+              4
+            ],
+            [
+              "speed_profile",
+              "turbo"
+            ],
+            [
+              "resolution",
+              "1344x768"
+            ],
+            [
+              "frames",
+              120
+            ],
+            [
+              "fps",
+              24
+            ]
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "param_emitter",
+      "name": "param_emitter"
+    },
+    {
+      "config": {
+        "audio_source": {
+          "type": "str",
+          "value": "generate"
+        },
+        "decode": {
+          "type": "bool",
+          "value": true
+        },
+        "document.audio": {
+          "type": "list",
+          "value": []
+        },
+        "document.ic_lora": {
+          "type": "list",
+          "value": []
+        },
+        "document.media": {
+          "type": "list",
+          "value": []
+        },
+        "document.media_images": {
+          "type": "list",
+          "value": []
+        },
+        "document.media_placements": {
+          "type": "list",
+          "value": []
+        },
+        "document.media_videos": {
+          "type": "list",
+          "value": []
+        },
+        "document.mode": {
+          "type": "str",
+          "value": "t2v"
+        },
+        "document.needs_i2v_set": {
+          "type": "bool",
+          "value": false
+        },
+        "document.needs_t2v_set": {
+          "type": "bool",
+          "value": true
+        },
+        "document.schema_version": {
+          "type": "int",
+          "value": 1
+        },
+        "document.segments": {
+          "type": "list",
+          "value": [
+            {
+              "cfg": null,
+              "end": null,
+              "frames": null,
+              "id": "seg-0",
+              "loras": null,
+              "negative_prompt": "golden negative prompt",
+              "prompt": "golden positive prompt",
+              "seed": null,
+              "start": null,
+              "steps": null,
+              "sub_type": "t2v"
+            }
+          ]
+        },
+        "document.settings.continuation": {
+          "type": "NoneType",
+          "value": null
+        },
+        "document.settings.duration": {
+          "type": "float",
+          "value": 5.0
+        },
+        "document.settings.fps": {
+          "type": "int",
+          "value": 24
+        },
+        "document.settings.resolution": {
+          "type": "str",
+          "value": ""
+        },
+        "document.settings.seed": {
+          "type": "int",
+          "value": 42
+        },
+        "frames": {
+          "type": "int",
+          "value": 120
+        },
+        "keyframe_anchors": {
+          "type": "list",
+          "value": []
+        },
+        "manual_audio_sigmas": {
+          "type": "str",
+          "value": ""
+        },
+        "manual_sigmas": {
+          "type": "str",
+          "value": ""
+        },
+        "mode": {
+          "type": "str",
+          "value": "video"
+        },
+        "preview": {
+          "type": "bool",
+          "value": true
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        },
+        "resolution": {
+          "type": "str",
+          "value": "1344x768"
+        },
+        "sampler": {
+          "type": "str",
+          "value": "euler"
+        },
+        "scheduler": {
+          "type": "str",
+          "value": "simple"
+        },
+        "sla_block_size": {
+          "type": "int",
+          "value": 64
+        },
+        "sla_sparsity": {
+          "type": "float",
+          "value": 0.9
+        },
+        "sol_attn_tau": {
+          "type": "float",
+          "value": 1.0
+        },
+        "sparse_attn": {
+          "type": "str",
+          "value": "off"
+        },
+        "sparse_attn_dense_last_steps": {
+          "type": "int",
+          "value": 2
+        },
+        "step_cache_max_skips": {
+          "type": "int",
+          "value": 3
+        },
+        "step_cache_threshold": {
+          "type": "float",
+          "value": 0.0
+        },
+        "step_cache_warmup_steps": {
+          "type": "int",
+          "value": 4
+        },
+        "steps": {
+          "type": "int",
+          "value": 4
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "generator/video_minimax_h3"
+    },
+    {
+      "config": {
+        "save": {
+          "type": "str",
+          "value": "true"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": null,
+      "name": "gallery"
+    }
+  ],
+  "preset_id": "01KX47H3MINIMAX000000000VA",
+  "preset_name": "MiniMax-H3"
+}

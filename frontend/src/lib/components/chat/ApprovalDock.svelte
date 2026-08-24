@@ -9,6 +9,7 @@
 	 */
 	import { slide } from 'svelte/transition';
 	import { logger } from '$lib/utils/logger';
+	import { processMarkdown } from '$lib/utils/markdown';
 	import type { UnifiedChatMessageData, ToolExecution } from '$lib/types/chat';
 	import { chatModes } from '$lib/stores/chatModes';
 	import { deriveApprovalQueue } from '$lib/chat/approvalQueue';
@@ -319,7 +320,7 @@
 			from reply{#if currentQuestion.messageTimestamp} · {formatTime(currentQuestion.messageTimestamp)}{/if}
 		</div>
 
-		<div class="mt-2 text-sm text-fg leading-snug">{currentQuestion.text}</div>
+		<div class="mt-2 text-sm text-fg leading-snug">{@html processMarkdown(currentQuestion.text)}</div>
 
 		{#if currentQuestion.options.length}
 			<div class="mt-2 flex flex-wrap gap-1.5">

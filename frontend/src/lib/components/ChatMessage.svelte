@@ -228,7 +228,7 @@
 							{#each replyContract.improved as line}
 								<li class="flex items-start gap-1.5 text-sm text-fg-muted">
 									<span class="mt-1.5 w-1 h-1 rounded-full bg-fg-subtle flex-shrink-0" aria-hidden="true"></span>
-									<span>{line}</span>
+									<span>{@html processMarkdown(line, { variableChips })}</span>
 								</li>
 							{/each}
 						</ul>

@@ -20,6 +20,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # Every module that boot must NOT eagerly import. Any of these being present
@@ -36,14 +38,30 @@ print("PRESENT:" + ",".join(present))
 """
 
 
-def _run_boot_import_check() -> list[str]:
+def _subprocess_env() -> dict[str, str]:
     site_packages = REPO_ROOT / "venv" / "lib" / "python3.12" / "site-packages"
     env_pythonpath = f"{site_packages}:{REPO_ROOT}" if site_packages.is_dir() else str(REPO_ROOT)
+    return {"PYTHONPATH": env_pythonpath, "PATH": "/usr/bin:/bin:/usr/local/bin"}
 
+
+def _app_deps_available() -> bool:
+    # Probed in the same subprocess environment the real check runs in, so the
+    # verdict tracks what `import src.bootstrap.app` will actually see there.
+    probe = subprocess.run(
+        [sys.executable, "-c", "import fastapi, yaml"],
+        cwd=str(REPO_ROOT),
+        env=_subprocess_env(),
+        capture_output=True,
+        timeout=60,
+    )
+    return probe.returncode == 0
+
+
+def _run_boot_import_check() -> list[str]:
     result = subprocess.run(
         [sys.executable, "-c", _CHECK_SCRIPT.format(forbidden=_FORBIDDEN_AT_BOOT)],
         cwd=str(REPO_ROOT),
-        env={"PYTHONPATH": env_pythonpath, "PATH": "/usr/bin:/bin:/usr/local/bin"},
+        env=_subprocess_env(),
         capture_output=True,
         text=True,
         timeout=60,
@@ -62,6 +80,11 @@ def _run_boot_import_check() -> list[str]:
 
 
 def test_bootstrap_app_import_leaves_heavy_modules_unimported():
+    if not _app_deps_available():
+        pytest.skip(
+            "app dependencies (fastapi/yaml) not installed — the boot-import "
+            "guard needs a real `pip install -r requirements.txt` environment"
+        )
     present = _run_boot_import_check()
     assert not present, (
         "Importing src.bootstrap.app pulled in module(s) boot must not pay for: "

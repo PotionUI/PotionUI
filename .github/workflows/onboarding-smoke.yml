@@ -153,8 +153,11 @@ jobs:
       # Stdlib-only test (ast/re over source files, no imports of src/) per
       # CLAUDE.md — enforces the package layering contracts (features/
       # platform/pipelines import direction, dissolved-package guard).
+      # --noconftest: tests/conftest.py loads fixture plugins that import the
+      # app (yaml, fastapi, …) at collection time; this job deliberately has
+      # no app deps installed, and these tests need no fixtures.
       - name: pytest tests/architecture/ + constraints coverage
-        run: python -m pytest tests/architecture/ tests/scripts/test_constraints_cover_requirements.py -q --no-cov
+        run: python -m pytest tests/architecture/ tests/scripts/test_constraints_cover_requirements.py -q --no-cov --noconftest
 
   release-gate-cpu-safe:
     name: release gate (CPU-safe gates only)

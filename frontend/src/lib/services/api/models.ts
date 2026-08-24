@@ -18,6 +18,20 @@ export interface ModelsLocationConfig {
 	windows_unsupported: boolean;
 }
 
+export interface ModelIndexResult {
+	indexed: number;
+	skipped: number;
+	failed: number;
+	total: number;
+	duration: number;
+	new_files: number;
+}
+
+export interface UnindexedModelsCount {
+	total: number;
+	by_type: Record<string, number>;
+}
+
 export function createModelsApi(client: AxiosInstance) {
 	return {
 		async getModels(params?: {
@@ -284,10 +298,15 @@ export function createModelsApi(client: AxiosInstance) {
 			return response.data;
 		},
 
-		async indexModels(): Promise<
-			APIResponse<{ indexed: number; failed: number; total: number }>
-		> {
+		async indexModels(): Promise<APIResponse<ModelIndexResult>> {
 			const response = await client.post('/api/models/index');
+			return response.data;
+		},
+
+		// Cheap directory-walk + DB diff (no hashing, no writes) - how many files on
+		// disk aren't indexed yet. Admin-only, same gate as indexModels().
+		async getUnindexedModelsCount(): Promise<APIResponse<UnindexedModelsCount>> {
+			const response = await client.get('/api/models/unindexed-count');
 			return response.data;
 		},
 

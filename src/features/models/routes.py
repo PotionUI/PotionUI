@@ -260,6 +260,18 @@ class ModelController(BaseController):
 
     # --- Indexing Endpoints ---
 
+    async def count_unindexed_models(self) -> APIResponse:
+        """Count model files on disk not yet indexed, by type. No hashing, no writes."""
+        try:
+            data = self.manager.count_unindexed()
+            return self.success_response(data=data)
+        except Exception as e:
+            logger.exception(f"Error counting unindexed models: {e}")
+            return self.error_api_response(
+                error="count_unindexed_failed",
+                message=f"Failed to count unindexed models: {str(e)}"
+            )
+
     async def index_models(self, background_tasks: BackgroundTasks) -> APIResponse:
         """Start model indexing process."""
         try:
@@ -1051,6 +1063,12 @@ def build_router(container: "AppContainer") -> APIRouter:
     ):
         """Get available model types and their counts."""
         return await controller.get_model_types(current_user, user_scoped, include_empty)
+
+
+    @router.get("/unindexed-count", response_model=APIResponse, summary="Count Unindexed Models")
+    async def count_unindexed_models(current_user: User = Depends(get_current_admin_user)):
+        """Count model files on disk not yet indexed, by type - no hashing, no writes."""
+        return await controller.count_unindexed_models()
 
 
     # Static, so it must be registered before the "/{model_id}" catch-all below -

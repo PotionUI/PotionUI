@@ -126,6 +126,9 @@ class ModelIndexManager:
     def cleanup_deleted_models(self) -> Dict[str, Any]:
         return self._indexing.cleanup_deleted_models()
 
+    def count_unindexed(self) -> Dict[str, Any]:
+        return self._indexing.count_unindexed()
+
     # ========== Models location ==========
 
     def get_models_location(self) -> Dict[str, Any]:

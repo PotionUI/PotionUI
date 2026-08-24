@@ -16,6 +16,7 @@
 	import { onDestroy, onMount } from 'svelte';
 	import { logger } from '$lib/utils/logger';
 	import { api } from '$lib/services/api/index';
+	import { authStore } from '$lib/stores/auth';
 	import { Badge } from '$lib/components/ui';
 	import Icon from '../Icon.svelte';
 	import ModelResultRow from './ModelResultRow.svelte';
@@ -54,6 +55,9 @@
 
 	let models: any[] = [];
 	let pickerView: 'global' | 'collections' = 'global';
+	// Admin-only: how many files of this type sit on disk unindexed, so the empty
+	// state can point at Admin -> Models instead of just saying "no models".
+	let unindexedForType = 0;
 
 	$: visibleModels = models.filter((m) => !excludeIds.has(m.id));
 	$: pickerEntries = recommendations
@@ -156,8 +160,20 @@
 	onMount(() => {
 		lastParams = { tagFilters: tagFilters.join(','), searchQuery, favoritesOnly };
 		fetchModels();
+		if ($authStore.user?.account_type === 'ADMIN') void loadUnindexedForType();
 		mounted = true;
 	});
+
+	async function loadUnindexedForType() {
+		try {
+			const response = await api.getUnindexedModelsCount();
+			if (response.success && response.data) {
+				unindexedForType = response.data.by_type[modelType] ?? 0;
+			}
+		} catch (error) {
+			logger.error('[ModelBrowserPanel] Failed to load unindexed models count:', error);
+		}
+	}
 
 	/** Force-refetch with the current filters, bypassing the debounce/no-change
 	 *  guard above - used by a caller's own "refresh" button (see ModelField.svelte). */
@@ -330,6 +346,11 @@
 			</ModelResultRow>
 		{/if}
 	{/each}
+{:else if unindexedForType > 0}
+	<div class="p-3 text-center text-fg-muted text-sm">
+		{unindexedForType} file{unindexedForType === 1 ? '' : 's'} on disk not yet indexed — see
+		<a href="/admin?tab=models" class="text-signal hover:underline">Admin → Models</a>.
+	</div>
 {:else}
 	<div class="p-3 text-center text-fg-muted text-sm">No models found</div>
 {/if}

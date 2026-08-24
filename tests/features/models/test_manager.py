@@ -430,6 +430,16 @@ class TestIndexing:
 
         assert 'Test block' in str(exc_info.value)
 
+    def test_count_unindexed_delegates_to_the_scanner(self, manager):
+        """The manager is a thin facade here - the diff itself is the scanner's
+        (see tests/features/models/test_indexer.py)."""
+        manager._indexing.scanner = MagicMock()
+        manager._indexing.scanner.count_unindexed.return_value = {'total': 3, 'by_type': {'lora': 3}}
+
+        result = manager.count_unindexed()
+
+        assert result == {'total': 3, 'by_type': {'lora': 3}}
+
     def test_delete_model_success(self, manager, mock_model_repository, mock_plugin_registry):
         """Test deleting a model from index."""
         mock_model = Mock()

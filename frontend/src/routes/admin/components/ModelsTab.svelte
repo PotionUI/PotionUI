@@ -10,9 +10,11 @@
 	import { confirmDialog } from '$lib/stores/confirm';
 	import { formatTagUsageError } from '$lib/utils/tagUsage';
 	import type { TagUsageRef } from '$lib/types/api';
+	import type { ModelIndexResult, UnindexedModelsCount } from '$lib/services/api/models';
 	import ModelCard from '$lib/components/ModelCard.svelte';
 	import AdminModelDetailsModal from '$lib/components/modals/AdminModelDetailsModal.svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Button, IconButton, Badge, Spinner, EmptyState, Pagination, SegmentedControl } from '$lib/components/ui';
 	import AdminTabShell from './AdminTabShell.svelte';
 	import AdminFilterBar from './AdminFilterBar.svelte';
@@ -86,7 +88,10 @@
 	let sortBy = 'indexed_at';
 	let sortOrder = 'desc';
 	let indexing = false;
-	let indexingStats: { indexed: number; failed: number; total: number } | null = null;
+	let indexingStats: ModelIndexResult | null = null;
+	// Files sitting in models/<type>/ that no admin has indexed yet - surfaced next
+	// to the Index Models button so a manual drop-in doesn't go unnoticed.
+	let unindexedCount: UnindexedModelsCount | null = null;
 	let fetchingProviderInfo = false;
 	let isProviderDropdownOpen = false;
 	let currentPage = 1;
@@ -154,7 +159,8 @@
 				loadAvailableTags(),
 				loadModelTypesDictionary(),
 				loadBackendNames(),
-				loadAssignmentSummary()
+				loadAssignmentSummary(),
+				loadUnindexedCount()
 			]);
 		} catch (error) {
 			logger.error('Error loading data:', error);
@@ -260,17 +266,24 @@
 		}
 	}
 
+	async function loadUnindexedCount() {
+		try {
+			const response = await api.getUnindexedModelsCount();
+			if (response.success && response.data) {
+				unindexedCount = response.data;
+			}
+		} catch (error) {
+			logger.error('Error loading unindexed models count:', error);
+		}
+	}
+
 	async function handleIndexModels() {
 		try {
 			indexing = true;
 			indexingStats = null;
 			const response = await api.indexModels();
 			if (response.success && response.data) {
-				indexingStats = {
-					indexed: response.data.indexed,
-					failed: response.data.failed,
-					total: response.data.total
-				};
+				indexingStats = response.data;
 				setTimeout(() => {
 					loadData();
 					indexing = false;
@@ -433,7 +446,7 @@
 		<Button variant="secondary" size="sm" icon="refresh" onclick={handleIndexModels} disabled={indexing}>
 			{#if indexing}
 				{#if indexingStats}
-					Indexed {indexingStats.indexed}/{indexingStats.total} ({indexingStats.failed} failed)
+					Indexed {indexingStats.indexed}/{indexingStats.new_files} new ({indexingStats.failed} failed)
 				{:else}
 					Indexing...
 				{/if}
@@ -441,6 +454,11 @@
 				Index Models
 			{/if}
 		</Button>
+		{#if !indexing && unindexedCount && unindexedCount.total > 0}
+			<Tooltip text={`${unindexedCount.total} file${unindexedCount.total === 1 ? '' : 's'} on disk not yet indexed`}>
+				<Badge variant="signal">{unindexedCount.total}</Badge>
+			</Tooltip>
+		{/if}
 
 		<!-- Provider Selector and Fetch Button -->
 		{#if providers.length > 0}

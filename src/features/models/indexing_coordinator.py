@@ -68,6 +68,11 @@ class ModelIndexingCoordinator:
         except Exception as e:
             logger.error(f"Error during background indexing: {e}")
 
+    def count_unindexed(self) -> Dict[str, Any]:
+        """Cheap directory-walk + DB diff: how many files on disk await indexing,
+        by type. No hashing, no writes."""
+        return self.scanner.count_unindexed()
+
     def cleanup_deleted_models(self) -> Dict[str, Any]:
         """Remove index rows whose backing file no longer exists on disk."""
         all_models = self.model_repo.get_all(include_providers=False)

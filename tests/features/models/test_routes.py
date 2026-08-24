@@ -220,7 +220,10 @@ class TestRouteOrder:
             if isinstance(r, APIRoute) and "GET" in r.methods
         ]
         catch_all = get_paths.index("/api/models/{model_id}")
-        for static in ("/api/models/location", "/api/models/stats", "/api/models/types", "/api/models/assignment-summary"):
+        for static in (
+            "/api/models/location", "/api/models/stats", "/api/models/types",
+            "/api/models/assignment-summary", "/api/models/unindexed-count",
+        ):
             assert get_paths.index(static) < catch_all, (
                 f"{static} is registered after /{{model_id}} and can never match"
             )

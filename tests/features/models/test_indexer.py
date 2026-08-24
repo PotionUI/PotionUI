@@ -220,6 +220,52 @@ class TestModelScanner:
         assert all(total == 2 for _, total in ticks[1:])
 
     @patch('src.features.models.indexer.model_repo')
+    def test_count_unindexed_counts_files_on_disk_not_in_the_index(self, mock_repo):
+        """Files on disk with no matching row (by path) are "unindexed"; an
+        already-indexed file is not - and nothing gets hashed or written."""
+        indexed_file = self._create_test_file("checkpoints/indexed.safetensors")
+        self._create_test_file("checkpoints/new.safetensors")
+        self._create_test_file("loras/new_lora.safetensors")
+
+        existing = Mock(spec=Model)
+        existing.file_path = indexed_file
+        existing.is_available = True
+        mock_repo.get_all.return_value = [existing]
+
+        result = self.indexer.count_unindexed()
+
+        assert result['total'] == 2
+        assert result['by_type'] == {'checkpoint': 1, 'lora': 1}
+        mock_repo.create.assert_not_called()
+        mock_repo.update.assert_not_called()
+
+    @patch('src.features.models.indexer.model_repo')
+    def test_count_unindexed_never_hashes_files(self, mock_repo):
+        """The whole point is a cheap page-load call - hashing a large checkpoint
+        would defeat that."""
+        self._create_test_file("checkpoints/new.safetensors")
+        mock_repo.get_all.return_value = []
+
+        with patch.object(ModelScanner, 'calculate_sha256') as mock_hash:
+            result = self.indexer.count_unindexed()
+
+        mock_hash.assert_not_called()
+        assert result['total'] == 1
+
+    @patch('src.features.models.indexer.model_repo')
+    def test_count_unindexed_zero_when_everything_is_indexed(self, mock_repo):
+        file1 = self._create_test_file("checkpoints/model1.safetensors")
+        existing = Mock(spec=Model)
+        existing.file_path = file1
+        existing.is_available = True
+        mock_repo.get_all.return_value = [existing]
+
+        result = self.indexer.count_unindexed()
+
+        assert result['total'] == 0
+        assert result['by_type'] == {}
+
+    @patch('src.features.models.indexer.model_repo')
     def test_index_models_no_new_files(self, mock_repo):
         """Test index_models when all files are already indexed"""
         # Create test files

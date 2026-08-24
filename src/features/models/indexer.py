@@ -1,7 +1,7 @@
 import os
 import hashlib
 import logging
-from typing import List, Dict, Optional, Tuple
+from typing import Any, List, Dict, Optional, Tuple
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -363,6 +363,48 @@ class ModelScanner:
             logger.error(f"Error indexing model {file_path}: {e}")
             return None
 
+    def _diff_against_index(
+        self, all_model_files: List[Tuple[str, str, int]]
+    ) -> Tuple[List[Tuple[str, str, int]], int]:
+        """Split an already-scanned file list into (files not yet in the index,
+        count already indexed). No hashing and no database writes - just a set
+        diff against known file paths. Shared by `index_models` (which then hashes
+        and upserts the new files) and `count_unindexed` (which stops right here).
+        """
+        # A model marked unavailable (see _cleanup_deleted_models) is deliberately
+        # left OUT of this set even though its row still exists - so if a scan finds
+        # a file at that path again (the models location switched back, say), it is
+        # treated as "new" and run back through index_single_model, which revives
+        # the row.
+        existing_models = model_repo.get_all(include_providers=False, include_tags=False)
+        existing_paths = {
+            model.file_path for model in existing_models
+            if getattr(model, 'is_available', True)
+        }
+
+        new_model_files = [
+            (file_path, model_type, file_size)
+            for file_path, model_type, file_size in all_model_files
+            if file_path not in existing_paths
+        ]
+
+        skipped_count = len(all_model_files) - len(new_model_files)
+        return new_model_files, skipped_count
+
+    def count_unindexed(self) -> Dict[str, Any]:
+        """Cheap disk-vs-index diff for admin UI badges: how many files on disk
+        aren't indexed yet, broken down by type. No hashing, no writes - safe to
+        call on every page load.
+        """
+        new_model_files, _ = self._diff_against_index(self.scan_models_directory())
+        by_type: Dict[str, int] = {}
+        for _, model_type, _ in new_model_files:
+            by_type[model_type] = by_type.get(model_type, 0) + 1
+        return {
+            'total': len(new_model_files),
+            'by_type': by_type,
+        }
+
     def index_models(self, max_workers: int = 4) -> Dict[str, any]:
         """
         Index only new models that aren't already in the database
@@ -386,25 +428,7 @@ class ModelScanner:
                 'new_files': 0
             }
 
-        # Get all existing file paths from database. A model marked unavailable
-        # (see _cleanup_deleted_models) is deliberately left OUT of this set even
-        # though its row still exists - so if a scan finds a file at that path
-        # again (the models location switched back, say), it is treated as "new"
-        # and run back through index_single_model, which revives the row.
-        existing_models = model_repo.get_all(include_providers=False, include_tags=False)
-        existing_paths = {
-            model.file_path for model in existing_models
-            if getattr(model, 'is_available', True)
-        }
-
-        # Filter to only new files not in database
-        new_model_files = [
-            (file_path, model_type, file_size)
-            for file_path, model_type, file_size in all_model_files
-            if file_path not in existing_paths
-        ]
-
-        skipped_count = len(all_model_files) - len(new_model_files)
+        new_model_files, skipped_count = self._diff_against_index(all_model_files)
 
         if not new_model_files:
             logger.info(f"No new model files to index. Skipped {skipped_count} already indexed files.")

@@ -32,8 +32,7 @@ def storage_settings():
     test_database = ct.TestDatabase()
     with patch("src.platform.database.database.db", test_database), \
          patch("src.platform.settings.repository.db", test_database):
-        _load("013_create_settings", f"m013_{id(test_database)}").up()
-        _load("122_add_s3_storage_settings", f"m122_{id(test_database)}").up()
+        _load("001_baseline", f"m001_{id(test_database)}").up()
         settings_manager = SettingsManager(SettingRepository())
         yield StorageSettingsManager(settings_manager)
     test_database.close()

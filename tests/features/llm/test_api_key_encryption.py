@@ -56,23 +56,14 @@ def db(tmp_path, key):
     with patch("src.platform.database.database.db", database), \
          patch("src.platform.database.db", database), \
          patch("src.features.llm.repository.db", database):
-        _load("004_create_llm_tables", f"m004_{id(database)}").up()
-        _add_later_columns(database)
+        _load("001_baseline", f"m001_{id(database)}").up()
+        # The migration sets WAL (correct for a real install) on this same
+        # persistent connection - put DELETE back so a committed write keeps
+        # landing in the main file, which is what raw_bytes() below relies on.
+        database._connection.execute("PRAGMA journal_mode=DELETE").close()
         yield database
     configure_secret_cipher(None)
     database.close()
-
-
-def _add_later_columns(database):
-    """Columns added by migrations 031/054/.../127 that the repository writes."""
-    with database.get_cursor() as cursor:
-        for column, ddl in (
-            ("supports_vision", "BOOLEAN NOT NULL DEFAULT 0"),
-            ("disable_system_prompt", "BOOLEAN NOT NULL DEFAULT 0"),
-            ("memory_reflection", "BOOLEAN NOT NULL DEFAULT 1"),
-            ("provider_options", "TEXT"),
-        ):
-            cursor.execute(f"ALTER TABLE llm_configurations ADD COLUMN {column} {ddl}")
 
 
 def test_api_key_is_absent_from_the_raw_database_file(db):
@@ -135,22 +126,6 @@ def test_empty_api_key_is_left_alone(db):
     repo = LLMConfigurationRepository()
     repo.create(_config(api_key=None))
     assert repo.get_by_id("llm-1").api_key is None
-
-
-def test_migration_encrypts_a_preexisting_plaintext_key(db):
-    with db.get_cursor() as cursor:
-        cursor.execute(
-            "INSERT INTO llm_configurations "
-            "(id, name, type, enabled, base_url, api_key, model, system_message) "
-            "VALUES ('legacy', 'Legacy', 'openai', 1, 'https://api.openai.com/v1', ?, 'gpt-4', 'hi')",
-            (PLAINTEXT_KEY,),
-        )
-    assert PLAINTEXT_KEY.encode() in db.raw_bytes()
-
-    _load("111_encrypt_stored_credentials", f"m111_llm_{id(db)}").up()
-
-    assert PLAINTEXT_KEY.encode() not in db.raw_bytes()
-    assert LLMConfigurationRepository().get_by_id("legacy").api_key == PLAINTEXT_KEY
 
 
 def test_rotation_reencrypts_without_loss(db, key):

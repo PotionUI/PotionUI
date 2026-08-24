@@ -1,4 +1,4 @@
-"""model_cache_scope setting: seeded row (migration 080) + manager/controller path.
+"""model_cache_scope setting: seeded row (001_baseline) + manager/controller path.
 
 Regression for the missing seed row that made PUT /api/settings/model_cache_scope
 return setting_not_found so an admin could never flip it to 'global'.
@@ -39,18 +39,17 @@ def _load(stem: str, name: str):
 
 @pytest.fixture
 def seeded_db():
-    """A fresh isolated in-memory DB with the settings schema + migration 080
-    applied, so model_cache_scope is deterministically seeded.
+    """A fresh isolated in-memory DB with the full baseline schema applied, so
+    model_cache_scope is deterministically seeded.
 
     Patches the ``db`` reference in BOTH the database module (for the freshly-
-    loaded migrations) AND the setting repository module (which binds its own
+    loaded migration) AND the setting repository module (which binds its own
     ``db`` name at import), so writes and reads hit the same test DB.
     """
     test_database = ct.TestDatabase()
     with patch("src.platform.database.database.db", test_database), \
          patch("src.platform.settings.repository.db", test_database):
-        _load("013_create_settings", f"m013_{id(test_database)}").up()
-        _load("080_add_model_cache_scope_setting", f"m080_{id(test_database)}").up()
+        _load("001_baseline", f"m001_{id(test_database)}").up()
         yield test_database
     test_database.close()
 

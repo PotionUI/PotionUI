@@ -82,13 +82,6 @@ class FileDatabase:
         self._connection.close()
 
 
-def _create_users_table(database):
-    """plugin_settings.user_id carries an FK to users; the plugin migration
-    predates nothing here, so the referenced table has to exist."""
-    with database.get_cursor() as cursor:
-        cursor.execute("CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY)")
-
-
 def _load(stem: str, name: str):
     spec = importlib.util.spec_from_file_location(name, _MIGRATIONS / f"{stem}.py")
     module = importlib.util.module_from_spec(spec)
@@ -110,13 +103,11 @@ def db(tmp_path, key):
          patch("src.platform.database.db", database), \
          patch("src.features.plugins.repository.db", database), \
          patch("src.features.backends.repository.db", database):
-        _create_users_table(database)
-        _load("041_create_plugins", f"m041_{id(database)}").up()
-        _load("011_create_backends", f"m011_{id(database)}").up()
-        with database.get_cursor() as cursor:
-            cursor.execute("ALTER TABLE backends RENAME COLUMN type TO engine")
-        _load("111_encrypt_stored_credentials", f"m111_{id(database)}").up()
-        _load("119_add_backend_driver", f"m119_{id(database)}").up()
+        _load("001_baseline", f"m001_{id(database)}").up()
+        # The migration sets WAL (correct for a real install) on this same
+        # persistent connection - put DELETE back so a committed write keeps
+        # landing in the main file, which is what raw_bytes() below relies on.
+        database._connection.execute("PRAGMA journal_mode=DELETE").close()
         yield database
     configure_secret_cipher(None)
     database.close()
@@ -406,61 +397,13 @@ def test_legacy_plaintext_value_is_still_readable(db):
     assert PluginRepository().get_plugin_setting(plugin_id, "api_key").setting_value == PLAINTEXT_KEY
 
 
-# --- migration 111 ---------------------------------------------------------
+# --- audit trail -------------------------------------------------------
 
 
-def test_migration_encrypts_preexisting_plaintext_credentials(tmp_path, key):
-    """A user who configured credentials before this landed keeps them, and they
-    are no longer in the dump."""
-    database = FileDatabase(tmp_path / "legacy.sqlite")
-    configure_secret_cipher(SecretCipher([key]))
-    try:
-        with patch("src.platform.database.database.db", database), \
-             patch("src.platform.database.db", database), \
-             patch("src.features.plugins.repository.db", database):
-            _create_users_table(database)
-            _load("041_create_plugins", f"m041_legacy_{id(database)}").up()
-            _install_plugin(database)
-            with database.get_cursor() as cursor:
-                cursor.execute(
-                    "INSERT INTO plugin_settings (plugin_id, setting_key, setting_value, is_secret) "
-                    "VALUES (?, ?, ?, 1)",
-                    ("acme-provider", "api_key", PLAINTEXT_KEY),
-                )
-                cursor.execute(
-                    "INSERT INTO plugin_settings (plugin_id, setting_key, setting_value, is_secret) "
-                    "VALUES (?, ?, ?, 0)",
-                    ("acme-provider", "base_url", "https://example.test"),
-                )
-            assert PLAINTEXT_KEY.encode() in database.raw_bytes()
-
-            _load("111_encrypt_stored_credentials", f"m111_legacy_{id(database)}").up()
-
-            assert PLAINTEXT_KEY.encode() not in database.raw_bytes()
-            repo = PluginRepository()
-            assert repo.get_plugin_setting("acme-provider", "api_key").setting_value == PLAINTEXT_KEY
-            assert repo.get_plugin_setting("acme-provider", "base_url").setting_value == "https://example.test"
-    finally:
-        configure_secret_cipher(None)
-        database.close()
-
-
-def test_migration_is_idempotent(db):
-    plugin_id = _install_plugin(db)
-    repo = PluginRepository()
-    repo.set_plugin_setting(plugin_id=plugin_id, setting_key="api_key",
-                            setting_value=PLAINTEXT_KEY, is_secret=True)
-    _load("111_encrypt_stored_credentials", f"m111_again_{id(db)}").up()
-    assert repo.get_plugin_setting(plugin_id, "api_key").setting_value == PLAINTEXT_KEY
-
-
-def test_migration_creates_the_audit_table(db):
+def test_schema_has_the_audit_table(db):
     with db.get_cursor() as cursor:
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='plugin_setting_audit'")
         assert cursor.fetchone() is not None
-
-
-# --- audit trail -----------------------------------------------------------
 
 
 def test_audit_records_who_changed_what_and_never_the_value(db):

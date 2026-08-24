@@ -7,10 +7,8 @@ a real file - not the shared in-memory connection the generic `test_db` fixture
 uses - and include a genuine threaded race.
 """
 
-import importlib.util
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 
 import pytest
 
@@ -19,17 +17,6 @@ from src.platform.database.migration_runner import MigrationManager
 from src.platform.security.user import AccountType
 from src.features.users.repository import UserRepository
 from src.features.setup.repository import InstanceClaimRepository
-
-
-def _load_migration_089():
-    path = (
-        Path(__file__).resolve().parents[3]
-        / "src/platform/database/migrations/089_add_instance_claim.py"
-    )
-    spec = importlib.util.spec_from_file_location("migration_089", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 @pytest.fixture
@@ -175,32 +162,3 @@ def test_regular_create_does_not_claim(file_db):
         account_type=AccountType.USER,
     )
     assert claim.is_claimed() is False
-
-
-def test_migration_backfills_existing_admin_as_owner(file_db):
-    """An install that already has users is treated as claimed on upgrade.
-
-    Simulates the pre-089 world: existing users, empty claim sentinel. Re-running
-    the migration must backfill the earliest admin as the owner so registration
-    does not silently reopen.
-    """
-    users = UserRepository()
-    claim = InstanceClaimRepository()
-
-    # Existing users, none of which claimed (created via the plain path).
-    admin = users.create(
-        username="oldadmin", email="oldadmin@example.com",
-        password_hash="$2b$12$fakehashfakehashfakehashfake",
-        account_type=AccountType.ADMIN,
-    )
-    users.create(
-        username="olduser", email="olduser@example.com",
-        password_hash="$2b$12$fakehashfakehashfakehashfake",
-        account_type=AccountType.USER,
-    )
-    assert claim.is_claimed() is False
-
-    _load_migration_089().up()  # idempotent re-run performs the backfill
-
-    assert claim.is_claimed() is True
-    assert claim.owner_user_id() == admin.id

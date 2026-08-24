@@ -1,9 +1,4 @@
-"""GenerationRunReportRepository against a real scratch SQLite database.
-
-Only migrations 002 (creates `generations`, the FK target) and 117 (creates
-`generation_run_reports`) are run - the repository under test needs nothing
-else from the 121-migration chain.
-"""
+"""GenerationRunReportRepository against a real scratch SQLite database."""
 
 import importlib.util
 import sys
@@ -39,8 +34,7 @@ class TestGenerationRunReportRepository(unittest.TestCase):
         self.db.db_path = Path(self.temp_dir) / "test.sqlite"
         self.db._initialized = True
 
-        _load_migration("002_create_generations", self.db).up()
-        _load_migration("117_add_generation_run_reports", self.db).up()
+        _load_migration("001_baseline", self.db).up()
 
         run_report_repository_module.db = self.db
         self.repo = GenerationRunReportRepository()
@@ -59,7 +53,7 @@ class TestGenerationRunReportRepository(unittest.TestCase):
     def _insert_generation(self, generation_id):
         with self.db.get_connection() as conn:
             conn.execute(
-                "INSERT INTO generations (id, preset_name, form_data) VALUES (?, ?, ?)",
+                "INSERT INTO generations (id, preset_id, form_data) VALUES (?, ?, ?)",
                 (generation_id, "preset", "{}"),
             )
             conn.commit()

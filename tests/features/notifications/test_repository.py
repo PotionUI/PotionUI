@@ -231,27 +231,3 @@ class TestNotificationRepository:
 
         assert len(repository.list_for_user("user-1")) == 1
         assert len(repository.list_for_user("user-2")) == 3
-
-
-class TestMigration059Idempotency:
-    """Migration 059 (notifications.type column + notification_preferences setting) is idempotent."""
-
-    def test_running_migration_twice_does_not_raise(self, mock_db):
-        import importlib.util
-
-        migration_path = "src/platform/database/migrations/059_add_notification_type_and_prefs.py"
-        spec = importlib.util.spec_from_file_location("migration_059_test", migration_path)
-        module = importlib.util.module_from_spec(spec)
-
-        with patch('src.platform.database.database.db', mock_db):
-            spec.loader.exec_module(module)
-            module.up()
-            module.up()  # must not raise the second time (mock_db's own migration run already applied it once)
-
-        with mock_db.get_cursor() as cursor:
-            cursor.execute("PRAGMA table_info(notifications)")
-            columns = [col[1] for col in cursor.fetchall()]
-            assert "type" in columns
-
-            cursor.execute("SELECT COUNT(*) as cnt FROM settings WHERE key = 'notification_preferences'")
-            assert cursor.fetchone()["cnt"] == 1

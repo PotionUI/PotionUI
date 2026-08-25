@@ -847,22 +847,20 @@ def test_seq_chunk_rows_composes_with_sparse_attn(monkeypatch):
 
 # --- attention OOM fallback: query-chunked retry (exact math) ---
 
-class _OomThenChunkDispatch:
-    """Raises OOM on the full-length call, serves chunked calls with real
-    sdpa -- the CPU stand-in for sage tipping a nearly-full card over."""
+class _AlwaysOomDispatch:
+    """The primary dispatch tipping a nearly-full card over -- the rescue
+    must NOT come back through here (a sage retry re-quantizes the full
+    key/value set per call, keeping the exact transients that just OOM'd)."""
 
-    def __init__(self, full_rows: int):
-        self.full_rows = full_rows
+    def __init__(self):
         self.calls = []
 
     def __call__(self, q, k, v, heads=None, mask=None):
         self.calls.append(q.shape[2])
-        if q.shape[2] == self.full_rows:
-            raise torch.OutOfMemoryError("synthetic full-length OOM")
-        return F.scaled_dot_product_attention(q, k, v)
+        raise torch.OutOfMemoryError("synthetic full-length OOM")
 
 
-def test_attention_oom_retries_query_chunked_and_matches_the_dense_output(monkeypatch):
+def test_attention_oom_retries_query_chunked_sdpa_and_matches_the_dense_output(monkeypatch):
     import src.platform.runtime.native.arch.minimax_h3.model as model_module
 
     torch.manual_seed(5)
@@ -876,29 +874,41 @@ def test_attention_oom_retries_query_chunked_and_matches_the_dense_output(monkey
 
     dense = attn(x, None)  # real dispatch (sdpa on CPU) -- the reference
 
-    oom = _OomThenChunkDispatch(full_rows=s)
+    oom = _AlwaysOomDispatch()
+    sdpa_rows = []
+
+    def recording_sdpa(q, k, v):
+        sdpa_rows.append(q.shape[2])
+        return F.scaled_dot_product_attention(q, k, v)
+
     monkeypatch.setattr(model_module, "_dispatch_attention", oom)
+    monkeypatch.setattr(model_module, "_fallback_sdpa", recording_sdpa)
     # seq_chunk_rows=4 -> chunks of 4,4,2 (ragged tail exercised too)
     out = attn(x, None, None, 4)
 
-    # Full-length attempt first, then the three query chunks.
-    assert oom.calls == [s, 4, 4, 2]
+    # ONE full-length attempt through the dispatch, then every chunk through
+    # the lean sdpa rescue -- never back through the dispatch.
+    assert oom.calls == [s]
+    assert sdpa_rows == [4, 4, 2]
     # Query-chunked softmax attends the FULL key set per row -> exact.
     assert torch.allclose(out, dense, atol=1e-6)
 
 
-def test_attention_oom_fallback_reraises_when_chunking_cannot_shrink_the_call(monkeypatch):
-    # Without seq_chunk_rows the fallback chunk is 16384; for a sequence
-    # SHORTER than that the retry is the identical full-length call, so a
-    # second OOM must surface honestly (exactly one retry, no loop).
+def test_attention_oom_fallback_reraises_when_the_rescue_also_ooms(monkeypatch):
     import src.platform.runtime.native.arch.minimax_h3.model as model_module
 
     ops = _fp32_ops()
     attn = MiniMaxH3Attention(8, 2, 4, 1e-5, ops, dtype=torch.float32)
     x = torch.randn(1, 6, 8)
-    oom = _OomThenChunkDispatch(full_rows=6)
-    monkeypatch.setattr(model_module, "_dispatch_attention", oom)
+    oom = _AlwaysOomDispatch()
 
+    def raising_sdpa(q, k, v):
+        raise torch.OutOfMemoryError("rescue OOM too")
+
+    monkeypatch.setattr(model_module, "_dispatch_attention", oom)
+    monkeypatch.setattr(model_module, "_fallback_sdpa", raising_sdpa)
+
+    # Exactly one dispatch attempt, one rescue attempt, honest re-raise.
     with pytest.raises(torch.OutOfMemoryError):
         attn(x, None)
-    assert oom.calls == [6, 6]
+    assert oom.calls == [6]

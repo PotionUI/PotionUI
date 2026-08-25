@@ -65,6 +65,10 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from ...attention import attention as _dispatch_attention
+
+# The OOM-rescue attention core (module-level so tests can stub it): plain
+# SDPA on (B, H, L, D) -- see the fallback comment in MiniMaxH3Attention.
+_fallback_sdpa = F.scaled_dot_product_attention
 from ...base import NativeArchModule
 from ...sla_attn import SlaAttnContext
 from ...sol_attn import SolAttnContext
@@ -216,16 +220,22 @@ class MiniMaxH3Attention(nn.Module):
             try:
                 out = _dispatch_attention(qT, kT, vT, heads=self.heads, mask=None)
             except torch.OutOfMemoryError:
+                # Retry with query-chunked SDPA, NOT the normal dispatch: sage
+                # re-quantizes the FULL key/value set per call (k_int8 +
+                # v_transposed_permutted + v_fp8, several GB at ~78k rows), so
+                # a sage retry keeps the exact transients that just OOM'd.
+                # SDPA's flash/mem-efficient kernels allocate no full-size
+                # copies, need no V-prescale guard (no fp16 quant internals),
+                # and full-key softmax per query chunk is exact.
                 chunk = seq_chunk_rows if seq_chunk_rows else 16384
                 logging.getLogger(__name__).warning(
-                    "[MINIMAX_H3] attention OOM at %d rows; retrying query-chunked (%d rows/call)",
+                    "[MINIMAX_H3] attention OOM at %d rows; retrying query-chunked sdpa (%d rows/call)",
                     s, chunk,
                 )
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
                 out = torch.cat(
-                    [_dispatch_attention(qc, kT, vT, heads=self.heads, mask=None)
-                     for qc in qT.split(chunk, dim=2)],
+                    [_fallback_sdpa(qc, kT, vT) for qc in qT.split(chunk, dim=2)],
                     dim=2,
                 )
             out = out.transpose(1, 2).reshape(b, s, -1)

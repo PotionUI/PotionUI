@@ -425,12 +425,20 @@ _SAGE_V_SAFE_MAX = 1024.0
 _SAGE_SYNC_ROWS = 32768
 
 
+def _absmax(t: Tensor) -> Tensor:
+    """``t.abs().amax()`` without materializing a full-size ``|t|`` temp --
+    two scalar reductions instead. On a 78k-row H3 refine V that temp is
+    ~2.8GB, and it was the allocation that OOM'd a real 5090 run inside the
+    prescale CHECK itself."""
+    return torch.maximum(t.amax(), t.amin().neg())
+
+
 def _sage(q: Tensor, k: Tensor, v: Tensor) -> Tensor:
     # sageattn accepts head-split (B, H, L, D) via tensor_layout="HND".
     from sageattention import sageattn
 
     if v.shape[2] >= _SAGE_SYNC_ROWS:
-        if float(v.abs().amax()) > _SAGE_V_SAFE_MAX:
+        if float(_absmax(v)) > _SAGE_V_SAFE_MAX:
             out = sageattn(q, k, v / _SAGE_V_SCALE, tensor_layout="HND", is_causal=False)
             out = out * _SAGE_V_SCALE
         else:
@@ -441,7 +449,7 @@ def _sage(q: Tensor, k: Tensor, v: Tensor) -> Tensor:
         return torch.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
 
     scale = torch.where(
-        v.abs().amax() > _SAGE_V_SAFE_MAX,
+        _absmax(v) > _SAGE_V_SAFE_MAX,
         v.new_tensor(_SAGE_V_SCALE),
         v.new_tensor(1.0),
     )

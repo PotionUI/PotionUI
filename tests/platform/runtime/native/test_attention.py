@@ -728,3 +728,11 @@ def test_sage_below_the_row_threshold_keeps_the_sync_free_path(monkeypatch):
     called_v = fake.calls[0]["v"]
     assert torch.equal(called_v, v)
     assert called_v is not v
+
+
+def test_absmax_matches_abs_amax_without_the_full_size_temp():
+    # _absmax must equal abs().amax() on mixed-sign, all-negative, and
+    # all-positive tensors -- the all-negative case is the one a naive
+    # `t.amax()` alone would get wrong.
+    for t in (torch.randn(3, 5) * 100, -torch.rand(4, 4) - 5.0, torch.rand(2, 8) + 3.0):
+        assert torch.equal(att._absmax(t), t.abs().amax())

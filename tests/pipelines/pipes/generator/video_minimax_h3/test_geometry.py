@@ -8,6 +8,7 @@ import pytest
 from src.pipelines.pipes.generator.video_minimax_h3.geometry import (
     align_num_frames,
     audio_latent_num_frames,
+    pixel_frames_for_latent_frames,
     resolve_canvas_size,
     resolve_request_geometry,
     video_latent_num_frames,
@@ -89,6 +90,35 @@ def test_align_num_frames_rejects_nonpositive():
 def test_video_latent_num_frames_rejects_unaligned_input():
     with pytest.raises(ValueError):
         video_latent_num_frames(100)  # 100 % 17 != 5
+
+
+# -- pixel_frames_for_latent_frames: inverse of video_latent_num_frames -----
+
+@pytest.mark.parametrize("requested,aligned,latents", [
+    (124, 124, 37),
+    (5, 5, 2),
+    (6, 22, 7),
+    (22, 22, 7),
+    (23, 39, 12),
+])
+def test_pixel_frames_for_latent_frames_inverts_the_table(requested, aligned, latents):
+    assert pixel_frames_for_latent_frames(latents) == aligned
+
+
+def test_pixel_frames_for_latent_frames_round_trips_video_latent_num_frames():
+    for aligned in (5, 22, 39, 124, 141):
+        latents = video_latent_num_frames(aligned)
+        assert pixel_frames_for_latent_frames(latents) == aligned
+
+
+def test_pixel_frames_for_latent_frames_rejects_a_count_below_the_minimum():
+    with pytest.raises(ValueError):
+        pixel_frames_for_latent_frames(1)
+
+
+def test_pixel_frames_for_latent_frames_rejects_a_count_off_the_5n_plus_2_grid():
+    with pytest.raises(ValueError, match="not of the form"):
+        pixel_frames_for_latent_frames(8)  # 8 - 2 = 6, not a multiple of 5
 
 
 # -- audio latent count -------------------------------------------------------

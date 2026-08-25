@@ -49,10 +49,34 @@ same guarantee every other family's loop gets from `denoise()`.
 **Two-stage `decode`/`audio` contract** (mirrors LTX's `generator/video_ltx`):
 `decode=false` skips VAE decode/mp4 encode and returns the raw video latent
 via the `latent` output instead; the `audio` output is still populated
-independent of `decode` (a later stage can mux it without re-sampling). Not
-wired to a `latent_upscaler`/refine pipe yet (none exists for this family) --
-the knob exists for forward compatibility with the same contract LTX
-established.
+independent of `decode` (a later stage can mux it without re-sampling).
+
+**Refine entry path** (`initial_latent`, native equivalent of a ComfyUI
+"detailer" second pass): connecting a raw, un-normalized video latent -- a
+`latent_upscaler`'s output, same idiom as `generator/txt2vid_ltx`'s own
+`initial_latent` -- switches the request onto a refine, mutually exclusive
+with `document`/`image`/every reference input (dossier: a refine has no
+keyframe/reference overlay to combine with). `resolution`/`frames` are then
+DERIVED from the latent's own shape rather than read from config, exactly as
+`txt2vid_ltx` derives them. `denoise` (default `1.0`, a no-op) truncates the
+schedule the ComfyUI `BasicScheduler` way (see `schedule.build_t_grid`);
+`video_sigma_shift` (default `schedule.VIDEO_SHIFT`) lets the refine run its
+video stream at a different shift than a fresh generation without touching
+the audio stream's own (always `AUDIO_SHIFT`). The initial latent is noised
+up to the truncated schedule's first kept sigma with `schedule.scale_noise`
+-- the same math `prepare_keyframe_condition_rows` already uses for a
+keyframe anchor, reused rather than reinvented.
+
+**Audio on a refine.** This pipe does not lock the target audio rows clean
+during a refine (that needs a THIRD row-timestep category the packed-
+sequence/scheduler machinery has no seam for today, on top of the existing
+condition/target split -- out of scope here, see the port notes). The
+pragmatic route instead: audio samples normally over the truncated schedule,
+and a caller that wants to preserve the source clip's lipsync sets
+`audio_source="passthrough"` with the existing `audio` input wired to the
+source track, which mutes this pipe's own audio and mux'es the source's
+verbatim (`_resolve_audio`'s existing "file"/"passthrough" branch -- no new
+machinery needed for this).
 """
 
 from __future__ import annotations
@@ -104,6 +128,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
 from src.pipelines.pipes.generator.video_minimax_h3.geometry import (
     FPS,
     audio_latent_num_frames,
+    pixel_frames_for_latent_frames,
     resolve_request_geometry,
     video_latent_num_frames,
 )
@@ -120,6 +145,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.schedule import (
     KEYFRAME_NOISE_AUG,
     SCHEDULERS,
     SIMPLE_SCHEDULER,
+    VIDEO_SHIFT,
     data_estimate,
     parse_manual_sigmas,
     resolve_schedules,
@@ -478,6 +504,13 @@ class _MiniMaxH3Ctx:
     # keeps every other request on the single-window path below.
     plan: Optional[DirectorPlan] = None
     director_images: list = field(default_factory=list)
+    # Refine entry path (module docstring, "Refine entry path"). One raw
+    # (un-normalized) video latent per seed, in the video VAE's own native
+    # space -- `[]` is the ordinary from-noise path, unchanged.
+    initial_latents: list = field(default_factory=list)
+    source_frame_count: Optional[int] = None
+    denoise: float = 1.0
+    video_sigma_shift: float = VIDEO_SHIFT
 
 
 class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
@@ -510,6 +543,8 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             "scheduler": SIMPLE_SCHEDULER,
             "manual_sigmas": "",
             "manual_audio_sigmas": "",
+            "denoise": 1.0,
+            "video_sigma_shift": VIDEO_SHIFT,
             "document": None,
             "references": [],
             "reference_videos": [],
@@ -642,6 +677,25 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 required=False,
             ),
             PipeConfigSpec(
+                "denoise", float, 1.0,
+                "Refine strength for a run seeded from the 'initial_latent' input: the fraction "
+                "of the full schedule actually walked. 1.0 (default) is a full generation from "
+                "pure noise, byte-identical to what 'steps' alone would produce. Below 1.0, "
+                "ComfyUI's BasicScheduler convention: 'steps' knots are kept off the TAIL of a "
+                "longer ceil(steps/denoise)-step schedule, so the run starts short of full noise "
+                "instead of at it -- a detailer-style second pass (e.g. 4 steps, denoise 0.45). "
+                "Only meaningful with 'initial_latent' connected; set otherwise is refused.",
+                required=False, min_value=0.01, max_value=1.0,
+            ),
+            PipeConfigSpec(
+                "video_sigma_shift", float, VIDEO_SHIFT,
+                f"Video stream's exponential-shift constant (default {VIDEO_SHIFT:g}, the "
+                "released checkpoint's own -- see 'manual_sigmas'). A refine pass over an "
+                "already-upsampled latent typically runs at a lower shift (e.g. 9) than a fresh "
+                "generation; the audio stream's own shift (3.0) is a separate, unaffected knob.",
+                required=False, min_value=0.1, max_value=50.0,
+            ),
+            PipeConfigSpec(
                 "document", dict, None,
                 "A normalized Video Director document. With a routed multi-segment `director` "
                 "document this pipe runs a SLIDING WINDOW: one full MiniMax-H3 generation per "
@@ -708,6 +762,21 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                           "document's own `media_placements`. Kept apart from 'image' on purpose: these "
                           "condition latent frames only and never reach the text encoder's vision tower",
                           is_array=True),
+            PipeInputSpec("initial_latent", IOType.LATENT, False,
+                          "Seed latent for a refine pass, one per seed: a raw MiniMax-H3 VIDEO latent "
+                          "(B, 24, T_lat, H_lat, W_lat) in the video VAE's own native (un-normalized) "
+                          "space -- this pipe normalizes it itself, the exact inverse of the "
+                          "'* latents_std + latents_mean' step 'decode' applies. Connected -> "
+                          "'resolution'/'frames' config are ignored and DERIVED from the latent's own "
+                          "shape instead, and 'denoise' controls how much of the schedule is walked. "
+                          "Absent -> ordinary generation from pure noise, unchanged. Mutually exclusive "
+                          "with 'document', 'image'/'keyframe_anchors' and every reference input",
+                          is_array=True),
+            PipeInputSpec("source_frame_count", IOType.INT, False,
+                          "Original (pre-temporal-padding) frame count of a refine's source clip, from "
+                          "the upstream latent_upscaler's own 'source_frame_count' output -- used to "
+                          "trim the padded duplicate tail frames from this pipe's decoded output before "
+                          "mux. Absent -> no trim", is_array=False),
             PipeInputSpec("audio", IOType.AUDIO, False, "User audio track (audio_source=file/passthrough)",
                           is_array=True),
             PipeInputSpec("seed", IOType.SEED, False, "Random seeds", is_array=True),
@@ -735,6 +804,18 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         reference_videos = list(pipe_input.input.get("reference_videos") or [])
         reference_audios = list(pipe_input.input.get("reference_audios") or [])
         audio_files = pipe_input.input.get("audio") or []
+        # `or []` is unusable here: a bare Tensor raises on truthiness (same
+        # trap `txt2vid_ltx.build_context` documents for its own
+        # `initial_latent`) -- the upstream latent_upscaler may deliver a
+        # single Tensor or a list.
+        raw_initial_latent = pipe_input.input.get("initial_latent")
+        if raw_initial_latent is None:
+            initial_latents: list = []
+        elif isinstance(raw_initial_latent, (list, tuple)):
+            initial_latents = list(raw_initial_latent)
+        else:
+            initial_latents = [raw_initial_latent]
+        source_frame_count = pipe_input.input.get("source_frame_count")
 
         if bundle.spec.family != "minimax_h3":
             raise ValueError(
@@ -760,6 +841,22 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 "generator/video_minimax_h3: 'reference_images'/'reference_videos'/'reference_audios' "
                 "(ref2va) are mutually exclusive with 'image'/'keyframe_anchors' (fl2va) -- a request "
                 "is one or the other"
+            )
+        # A refine pass (module docstring, "Refine entry path") has no
+        # keyframe/reference overlay layout to combine with -- it seeds the
+        # target rows directly from `initial_latent`, which is the ONLY
+        # condition a refine carries.
+        if initial_latents and (packed or images or configured_anchors or self.config.get("document")):
+            raise ValueError(
+                "generator/video_minimax_h3: 'initial_latent' (a refine pass) is mutually exclusive with "
+                "'document' (Video Director), 'image'/'keyframe_anchors' (fl2va) and every reference "
+                "input (ref2va) -- a refine pass has no keyframe/reference overlay to combine it with"
+            )
+        denoise = float(self.config.get("denoise", 1.0))
+        if not initial_latents and denoise < 1.0:
+            raise ValueError(
+                "generator/video_minimax_h3: 'denoise' < 1.0 has no effect without 'initial_latent' "
+                "connected -- connect a refine seed latent, or leave 'denoise' at its default 1.0"
             )
         for name, loaded, limit in (
             ("reference_images", reference_images, _MAX_REFERENCE_IMAGES),
@@ -812,18 +909,43 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         # always fit onto the CONFIGURED canvas (`conditioning.
         # fit_keyframe_to_canvas`). Documented gap, not a silent behavior
         # difference.
-        resolution = str(self.config.get("resolution", "1344x768")).split("x")
-        width, height = int(resolution[0]), int(resolution[1])
-        frames = int(self.config.get("frames", 124))
-        height, width, frames, num_latent_frames, latent_height, latent_width, num_audio_latents = (
-            resolve_request_geometry(height, width, frames)
-        )
+        if initial_latents:
+            # A refine pass derives width/height/frames from the SEED
+            # LATENT's own shape rather than 'resolution'/'frames' config --
+            # an upstream latent's source is only known at runtime, never at
+            # preset-render time (same rationale `txt2vid_ltx.build_context`
+            # documents for its own 'initial_latent').
+            b0, c0, t_lat0, h_lat0, w_lat0 = initial_latents[0].shape
+            if int(c0) != VIDEO_LATENT_CHANNELS:
+                raise ValueError(
+                    f"generator/video_minimax_h3: 'initial_latent' must carry {VIDEO_LATENT_CHANNELS} "
+                    f"channels, got {int(c0)}"
+                )
+            latent_height, latent_width = int(h_lat0), int(w_lat0)
+            height, width = latent_height * 16, latent_width * 16
+            num_latent_frames = int(t_lat0)
+            frames = pixel_frames_for_latent_frames(num_latent_frames)
+            num_audio_latents = audio_latent_num_frames(frames)
+        else:
+            # This pipe's `resolution` config always applies (no "auto"
+            # sentinel): unlike the reference, which derives the canvas from
+            # a keyframe's own aspect ratio when `height`/`width` are unset, a
+            # keyframe here is always fit onto the CONFIGURED canvas
+            # (`conditioning.fit_keyframe_to_canvas`). Documented gap, not a
+            # silent behavior difference.
+            resolution = str(self.config.get("resolution", "1344x768")).split("x")
+            width, height = int(resolution[0]), int(resolution[1])
+            frames = int(self.config.get("frames", 124))
+            height, width, frames, num_latent_frames, latent_height, latent_width, num_audio_latents = (
+                resolve_request_geometry(height, width, frames)
+            )
 
         spec = bundle.spec
         steps = int(self.config.get("steps", 24))
         quantity = int(self.config.get("quantity", 1))
         device = self.config.get("device", "cuda")
         decode = bool(self.config.get("decode", True))
+        video_sigma_shift = float(self.config.get("video_sigma_shift", VIDEO_SHIFT))
 
         plan = build_director_plan(self.config.get("document"), default_seed=int(self.config.get("seed", -1)))
         director_images = list(pipe_input.input.get("director_image") or [])
@@ -853,6 +975,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         scheduler = str(self.config.get("scheduler", SIMPLE_SCHEDULER))
         video_schedule, _ = resolve_schedules(
             steps, manual_video=manual_sigmas, manual_audio=manual_audio_sigmas, scheduler=scheduler,
+            video_shift=video_sigma_shift, denoise=denoise,
         )
         effective_steps = int(video_schedule.timesteps.numel())
 
@@ -877,6 +1000,14 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 " (manual sigmas)" if (manual_sigmas.strip() or manual_audio_sigmas.strip()) else "",
                 sampler, scheduler,
                 ", ".join(kind for kind, _media in packed), audio_source,
+            )
+        elif initial_latents:
+            logger.info(
+                "[GENERATOR MINIMAX-H3] %s: refine of %d frame(s) @ %dx%d (derived from initial_latent), "
+                "%d steps%s (%s/%s), denoise=%.2f, video_sigma_shift=%.1f, audio_source=%s",
+                spec.variant, frames, width, height, effective_steps,
+                " (manual sigmas)" if (manual_sigmas.strip() or manual_audio_sigmas.strip()) else "",
+                sampler, scheduler, denoise, video_sigma_shift, audio_source,
             )
         else:
             logger.info(
@@ -916,6 +1047,9 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 manual_sigmas=manual_sigmas, manual_audio_sigmas=manual_audio_sigmas,
                 sampler=sampler, scheduler=scheduler,
                 plan=plan, director_images=director_images,
+                initial_latents=initial_latents,
+                source_frame_count=int(source_frame_count) if source_frame_count else None,
+                denoise=denoise, video_sigma_shift=video_sigma_shift,
             ),
         )
 
@@ -1080,6 +1214,35 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             return c.references
         return tuple(c.references[i] for i in window.reference_indices)
 
+    @staticmethod
+    def _normalized_initial_latent(c: "_MiniMaxH3Ctx", index: int, video_vae_module: Any) -> Optional[Tensor]:
+        """This seed's `initial_latent`, normalized into the DiT's own
+        working space -- `None` when the request carries none (the ordinary
+        from-noise path).
+
+        `c.initial_latents[index]`, falling back to the last entry for a
+        seed beyond the list (same "one latent may serve every seed"
+        fallback `txt2vid_ltx.generate_one` uses for its own
+        `initial_latents`). The input arrives in the video VAE's native
+        (un-normalized) space -- see the `initial_latent` `PipeInputSpec` --
+        so this applies the exact inverse of `_decode_video`'s
+        `* latents_std + latents_mean` denormalize.
+        """
+        if not c.initial_latents:
+            return None
+        raw = c.initial_latents[index] if index < len(c.initial_latents) else c.initial_latents[-1]
+        expected_shape = (1, VIDEO_LATENT_CHANNELS, c.num_latent_frames, c.latent_height, c.latent_width)
+        if tuple(raw.shape) != expected_shape:
+            raise ValueError(
+                f"generator/video_minimax_h3: initial_latent[{index}] shape {tuple(raw.shape)} does not "
+                f"match initial_latent[0]'s derived geometry {expected_shape} -- every seed's refine "
+                f"latent in one call must share the same dimensions"
+            )
+        latent = raw.to(device=c.device, dtype=torch.float32)
+        lmean = torch.as_tensor(video_vae_module.latents_mean, device=c.device, dtype=torch.float32)
+        lstd = torch.as_tensor(video_vae_module.latents_std, device=c.device, dtype=torch.float32)
+        return (latent - lmean.view(1, -1, 1, 1, 1)) / lstd.view(1, -1, 1, 1, 1)
+
     # -- per-seed generation ---------------------------------------------
 
     def generate_one(self, ctx: GeneratorContext, index: int, seed: int, progress) -> Any:
@@ -1097,6 +1260,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
 
         ref2va_layout = None
         condition_audio_rows = None
+        initial_latent: Optional[Tensor] = None
         if c.references:
             ref2va_layout, condition_rows, condition_audio_rows = self._build_ref2va_layout(
                 c, c.references, text_token_tags,
@@ -1113,6 +1277,13 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                     latents_mean=video_vae_module.latents_mean, latents_std=video_vae_module.latents_std,
                     generator=gen,
                 )
+                # Refine entry path (module docstring, "Refine entry path"):
+                # normalized while the video VAE is still resident, the exact
+                # inverse of `_decode_video`'s `* latents_std + latents_mean`.
+                # `c.keyframe_images`/`c.references` are both empty here (the
+                # mutual-exclusion guard in `build_context` guarantees it), so
+                # `condition_rows` above is always the empty tensor already.
+                initial_latent = self._normalized_initial_latent(c, index, video_vae_module)
             finally:
                 c.bundle.video_vae.offload()
 
@@ -1121,7 +1292,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             condition_rows=condition_rows, keyframe_anchors=c.keyframe_anchors,
             num_latent_frames=c.num_latent_frames, num_audio_latents=c.num_audio_latents,
             condition_audio_rows=condition_audio_rows, steps=c.steps, generator=gen, progress=progress,
-            layout=ref2va_layout, is_cancelled=ctx.is_cancelled,
+            layout=ref2va_layout, is_cancelled=ctx.is_cancelled, initial_latent=initial_latent,
         )
         if ctx.is_cancelled():
             # Sampling completed (or was mid-step cancellation lost the race
@@ -1147,6 +1318,12 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             return video_latent
 
         frames_np = self._decode_video(c, video_latent)
+        if c.source_frame_count and 0 < c.source_frame_count < frames_np.shape[0]:
+            # A refine's source clip was padded (repeated tail frames) to hit
+            # the video VAE's 17*n+5 alignment before it was ever encoded --
+            # trim that padding back off before mux, same idiom
+            # `txt2vid_ltx`'s own `trim_to_frame_count` uses.
+            frames_np = frames_np[: c.source_frame_count]
         out_path = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
         encode_frames_to_mp4(frames_np, out_path, fps=FPS, audio=audio_track)
 
@@ -1162,6 +1339,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         condition_audio_rows: Optional[Tensor], steps: int, generator: torch.Generator, progress,
         progress_offset: int = 0, progress_total: Optional[int] = None, progress_state: str = "VIDEO",
         layout: Optional[PackedLayout] = None, is_cancelled: Optional[Callable[[], bool]] = None,
+        initial_latent: Optional[Tensor] = None,
     ) -> tuple[Tensor, Tensor, PackedLayout]:
         """Sample ONE packed sequence to completion; returns the final
         `(video_rows, audio_rows, layout)` with the condition prefixes still
@@ -1190,6 +1368,16 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         `SamplingCancelled` rather than returning a partial trajectory -- this
         loop has no shared `denoise()`/`denoise_prenoised()` to inherit that
         check from (see the module docstring's "bespoke, not denoise" note).
+
+        `initial_latent`: already NORMALIZED (module docstring, "Refine entry
+        path"), `(1, VIDEO_LATENT_CHANNELS, num_latent_frames, latent_height,
+        latent_width)`. `None` (default) is the ordinary path: the video
+        target rows start from pure noise. Given, they instead start from
+        `initial_latent` noised up to `c.denoise`'s truncated schedule's
+        FIRST kept sigma (`schedule.scale_noise`, the same math a keyframe
+        anchor's own noise augmentation uses) -- the video noise draw below
+        still happens either way, same shape, so the generator's draw count
+        is unchanged by which branch runs.
         """
         if layout is None:
             # `device=c.device` explicit: build_packed_sequence builds every
@@ -1209,11 +1397,33 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 device=c.device,
             )
 
+        # Resolved BEFORE the video noise draw below (moved up from this
+        # method's original order) -- a refine (`initial_latent` given) needs
+        # the truncated schedule's first sigma to noise up to, so the
+        # schedule has to exist before that draw is even shaped.
+        video_schedule, audio_schedule = resolve_schedules(
+            steps, manual_video=c.manual_sigmas, manual_audio=c.manual_audio_sigmas, scheduler=c.scheduler,
+            video_shift=c.video_sigma_shift, denoise=c.denoise,
+        )
+        num_steps = int(video_schedule.timesteps.numel())
+
         video_noise = torch.randn(
             (1, VIDEO_LATENT_CHANNELS, num_latent_frames, c.latent_height, c.latent_width),
             generator=generator, device=c.device, dtype=torch.float32,
         )
-        video_target_rows = patchify_video_latents(video_noise, PATCH_SIZE).to(c.dtype)
+        if initial_latent is not None:
+            # `t = 1 - sigma`, data-ward (schedule.py module docstring) --
+            # the SAME noise-augmentation math `prepare_keyframe_condition_
+            # rows` uses for a keyframe anchor, at the truncated schedule's
+            # own first kept timestep instead of the fixed `KEYFRAME_NOISE_
+            # AUG`. `denoise=1.0` (the default) makes `timesteps[0] == 0.0`
+            # (t=0, pure noise) -- `scale_noise` there just returns the raw
+            # draw, so this is byte-identical to the plain-noise branch below.
+            first_video_t = float(video_schedule.timesteps[0])
+            noised = scale_noise(initial_latent.to(torch.float32), first_video_t, video_noise)
+            video_target_rows = patchify_video_latents(noised.to(c.dtype), PATCH_SIZE)
+        else:
+            video_target_rows = patchify_video_latents(video_noise, PATCH_SIZE).to(c.dtype)
         video_rows = (
             torch.cat([condition_rows.to(c.dtype), video_target_rows], dim=0)
             if condition_rows.shape[0] else video_target_rows
@@ -1227,11 +1437,6 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             torch.cat([condition_audio_rows.to(c.dtype), audio_target_rows], dim=0)
             if condition_audio_rows is not None else audio_target_rows
         )
-
-        video_schedule, audio_schedule = resolve_schedules(
-            steps, manual_video=c.manual_sigmas, manual_audio=c.manual_audio_sigmas, scheduler=c.scheduler,
-        )
-        num_steps = int(video_schedule.timesteps.numel())
 
         # One stepper per STREAM (they walk different sigma grids) and one set
         # per WINDOW (a window is its own trajectory, so a multistep history
@@ -1521,6 +1726,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         video_schedule, _ = resolve_schedules(
             window.steps if window.steps is not None else c.steps,
             manual_video=c.manual_sigmas, manual_audio=c.manual_audio_sigmas, scheduler=c.scheduler,
+            video_shift=c.video_sigma_shift, denoise=c.denoise,
         )
         return int(video_schedule.timesteps.numel())
 

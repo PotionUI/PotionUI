@@ -18,10 +18,12 @@ from src.pipelines.pipes.generator.video_minimax_h3.schedule import (
     AUDIO_SHIFT,
     VIDEO_SHIFT,
     build_sigma_schedule,
+    build_t_grid,
     data_estimate,
     euler_step,
     parse_manual_sigmas,
     resolve_schedules,
+    scale_noise,
 )
 
 
@@ -201,6 +203,90 @@ def test_resolve_schedules_treats_blank_and_whitespace_as_no_override():
         video, audio = resolve_schedules(7, manual_video=blank, manual_audio=blank)
         torch.testing.assert_close(video.sigmas, build_sigma_schedule(7, VIDEO_SHIFT).sigmas, rtol=0, atol=0)
         torch.testing.assert_close(audio.sigmas, build_sigma_schedule(7, AUDIO_SHIFT).sigmas, rtol=0, atol=0)
+
+
+# -- refine entry path: denoise truncation / video_shift ----------------------
+
+def test_denoise_default_is_byte_identical_to_the_untruncated_grid():
+    for steps in (1, 4, 9, 24):
+        full = build_t_grid(steps)
+        truncated = build_t_grid(steps, denoise=1.0)
+        torch.testing.assert_close(full, truncated, rtol=0, atol=0)
+
+
+def test_denoise_truncation_keeps_the_tail_of_a_longer_grid():
+    # denoise=0.45, steps=4 -> total = ceil(4/0.45) = 9 steps -> 10 knots,
+    # keep the LAST 5 (steps + 1).
+    got = build_t_grid(4, denoise=0.45)
+    full = build_t_grid(9)
+    assert got.numel() == 5
+    torch.testing.assert_close(got, full[-5:], rtol=0, atol=0)
+    # The kept head is short of full noise (t < 1.0), the load-bearing
+    # property of a refine: the trajectory starts partway through.
+    assert float(got[0]) < 1.0
+
+
+def test_denoise_truncated_grid_always_returns_steps_plus_one_knots():
+    for steps, denoise in ((4, 0.45), (8, 0.2), (3, 0.9), (10, 0.99)):
+        got = build_t_grid(steps, denoise=denoise)
+        assert got.numel() == steps + 1
+
+
+@pytest.mark.parametrize("denoise", (0.0, -0.1, 1.0001, 2.0))
+def test_denoise_out_of_range_is_rejected(denoise):
+    with pytest.raises(ValueError, match="denoise must be in"):
+        build_t_grid(4, denoise=denoise)
+
+
+def test_video_and_audio_schedules_stay_paired_under_denoise_truncation():
+    # Both derive from the SAME truncated t grid (module docstring, "Scheduler
+    # vs shift") -- their timesteps must still land on the same knot indices.
+    video, audio = resolve_schedules(4, video_shift=VIDEO_SHIFT, denoise=0.45)
+    assert video.timesteps.numel() == audio.timesteps.numel() == 4
+    ref_grid = build_t_grid(4, denoise=0.45)
+    expected_video = VIDEO_SHIFT * ref_grid / (1 + (VIDEO_SHIFT - 1) * ref_grid)
+    expected_audio = AUDIO_SHIFT * ref_grid / (1 + (AUDIO_SHIFT - 1) * ref_grid)
+    torch.testing.assert_close(video.sigmas, torch.unique_consecutive(expected_video), rtol=0, atol=1e-6)
+    torch.testing.assert_close(audio.sigmas, torch.unique_consecutive(expected_audio), rtol=0, atol=1e-6)
+
+
+def test_resolve_schedules_denoise_default_matches_undenoised_pair():
+    with_default = resolve_schedules(12)
+    explicit = resolve_schedules(12, denoise=1.0)
+    torch.testing.assert_close(with_default[0].sigmas, explicit[0].sigmas, rtol=0, atol=0)
+    torch.testing.assert_close(with_default[1].sigmas, explicit[1].sigmas, rtol=0, atol=0)
+
+
+def test_video_sigma_shift_default_matches_video_shift_constant():
+    got = resolve_schedules(8)
+    default_shift = resolve_schedules(8, video_shift=VIDEO_SHIFT)
+    torch.testing.assert_close(got[0].sigmas, default_shift[0].sigmas, rtol=0, atol=0)
+
+
+def test_bite_check_video_sigma_shift_9_differs_from_the_default_shift_12():
+    shift_12 = resolve_schedules(8, video_shift=12.0)[0]
+    shift_9 = resolve_schedules(8, video_shift=9.0)[0]
+    assert not torch.allclose(shift_12.sigmas, shift_9.sigmas)
+    # The audio stream's own shift (3.0) is untouched by video_shift.
+    audio_default = resolve_schedules(8, video_shift=12.0)[1]
+    audio_alt = resolve_schedules(8, video_shift=9.0)[1]
+    torch.testing.assert_close(audio_default.sigmas, audio_alt.sigmas, rtol=0, atol=0)
+
+
+def test_scale_noise_matches_the_data_ward_forward_process():
+    sample = torch.tensor([1.0, -2.0, 0.5])
+    noise = torch.tensor([0.2, 0.4, -0.6])
+    t = 0.7
+    got = scale_noise(sample, t, noise)
+    ref = t * sample + (1.0 - t) * noise
+    torch.testing.assert_close(got, ref, rtol=0, atol=1e-6)
+
+
+def test_scale_noise_at_t_zero_is_pure_noise_and_at_t_one_is_the_sample():
+    sample = torch.tensor([3.0, -1.0])
+    noise = torch.tensor([9.0, 9.0])
+    torch.testing.assert_close(scale_noise(sample, 0.0, noise), noise)
+    torch.testing.assert_close(scale_noise(sample, 1.0, noise), sample)
 
 
 # -- data_estimate / euler_step ------------------------------------------------

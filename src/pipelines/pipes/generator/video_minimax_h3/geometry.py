@@ -129,6 +129,30 @@ def audio_latent_num_frames(
     return int(round(num_frames / fps * latents_per_second))
 
 
+def pixel_frames_for_latent_frames(
+    num_latent_frames: int, *, frames_per_chunk: int = FRAMES_PER_CHUNK, latents_per_chunk: int = LATENTS_PER_CHUNK,
+) -> int:
+    """Inverse of :func:`video_latent_num_frames`: the aligned (`17*n+5`)
+    pixel frame count that encodes to exactly `num_latent_frames` (`5*n+2`)
+    latent frames.
+
+    A refine pass derives `frames` from an upstream LATENT's own shape rather
+    than request config (no pixel-frame count travels with a raw latent, only
+    its own `T_lat`) -- this is that derivation. Raises when
+    `num_latent_frames` is not itself of the `5*n+2` form the video VAE ever
+    produces, which means the latent did not come from this VAE's own encode.
+    """
+    if num_latent_frames < 2:
+        raise ValueError(f"num_latent_frames must be >= 2, got {num_latent_frames}")
+    chunks, remainder = divmod(num_latent_frames - 2, latents_per_chunk)
+    if remainder:
+        raise ValueError(
+            f"{num_latent_frames} latent frames is not of the form {latents_per_chunk}*n+2 this video VAE "
+            f"produces -- not a latent this pipe's own encoder could have made"
+        )
+    return chunks * frames_per_chunk + latents_per_chunk
+
+
 def head_frames_for_latents(
     num_latents: int, *, spans: tuple[int, ...] = LATENT_FRAME_PIXEL_SPANS,
 ) -> int:

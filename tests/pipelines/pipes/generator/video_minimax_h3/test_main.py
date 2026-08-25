@@ -333,6 +333,162 @@ def _fake_bundle():
     )
 
 
+# -- refine entry path: contract + build_context (initial_latent/denoise) ---
+
+def test_inputs_contract_includes_the_refine_entry_path():
+    names = {spec.name for spec in GeneratorMinimaxH3Pipe.inputs()}
+    assert "initial_latent" in names
+    assert "source_frame_count" in names
+
+
+def test_configuration_contract_includes_denoise_and_video_sigma_shift():
+    names = {spec.name for spec in GeneratorMinimaxH3Pipe.configuration()}
+    assert "denoise" in names
+    assert "video_sigma_shift" in names
+
+
+def _refine_latent(t_lat=7, h_lat=3, w_lat=4):
+    return torch.zeros(1, 24, t_lat, h_lat, w_lat)
+
+
+def test_build_context_derives_geometry_from_initial_latent():
+    pipe = GeneratorMinimaxH3Pipe(GeneratorMinimaxH3Pipe.get_default_config())
+    bundle = _fake_bundle()
+    ctx = pipe.build_context(_pipe_input(
+        model=bundle, conditioning=[_fake_conditioning(3)], initial_latent=[_refine_latent()],
+    ))
+    # 7 latent frames = n=1 chunk -> 22 aligned pixel frames (17*1+5).
+    assert ctx.extra.num_latent_frames == 7
+    assert ctx.extra.latent_height == 3
+    assert ctx.extra.latent_width == 4
+    assert ctx.extra.height == 48   # 3 * 16
+    assert ctx.extra.width == 64    # 4 * 16
+    assert ctx.extra.frames == 22
+    assert len(ctx.extra.initial_latents) == 1
+    assert ctx.extra.denoise == pytest.approx(1.0)
+    assert ctx.extra.video_sigma_shift == pytest.approx(VIDEO_SHIFT)
+
+
+def test_build_context_accepts_a_bare_tensor_initial_latent_not_just_a_list():
+    pipe = GeneratorMinimaxH3Pipe(GeneratorMinimaxH3Pipe.get_default_config())
+    bundle = _fake_bundle()
+    ctx = pipe.build_context(_pipe_input(
+        model=bundle, conditioning=[_fake_conditioning(3)], initial_latent=_refine_latent(),
+    ))
+    assert len(ctx.extra.initial_latents) == 1
+
+
+def test_build_context_carries_denoise_and_video_sigma_shift_off_config():
+    pipe = GeneratorMinimaxH3Pipe({
+        **GeneratorMinimaxH3Pipe.get_default_config(), "denoise": 0.45, "video_sigma_shift": 9.0,
+    })
+    bundle = _fake_bundle()
+    ctx = pipe.build_context(_pipe_input(
+        model=bundle, conditioning=[_fake_conditioning(3)], initial_latent=[_refine_latent()],
+    ))
+    assert ctx.extra.denoise == pytest.approx(0.45)
+    assert ctx.extra.video_sigma_shift == pytest.approx(9.0)
+
+
+def test_build_context_without_initial_latent_is_the_ordinary_from_noise_path():
+    pipe = GeneratorMinimaxH3Pipe(GeneratorMinimaxH3Pipe.get_default_config())
+    bundle = _fake_bundle()
+    ctx = pipe.build_context(_pipe_input(model=bundle, conditioning=[_fake_conditioning(3)]))
+    assert ctx.extra.initial_latents == []
+    assert ctx.extra.denoise == pytest.approx(1.0)
+
+
+def test_build_context_rejects_initial_latent_with_a_director_document():
+    pipe = GeneratorMinimaxH3Pipe({
+        **GeneratorMinimaxH3Pipe.get_default_config(), "document": _director_document(1),
+    })
+    bundle = _fake_bundle()
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        pipe.build_context(_pipe_input(
+            model=bundle, conditioning=[_fake_conditioning(3)], initial_latent=[_refine_latent()],
+        ))
+
+
+def test_build_context_rejects_initial_latent_with_an_fl2va_image():
+    pipe = GeneratorMinimaxH3Pipe(GeneratorMinimaxH3Pipe.get_default_config())
+    bundle = _fake_bundle()
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        pipe.build_context(_pipe_input(
+            model=bundle, conditioning=[_fake_conditioning(3)],
+            initial_latent=[_refine_latent()], image=["a_keyframe"],
+        ))
+
+
+def test_build_context_rejects_initial_latent_with_reference_images():
+    pipe = GeneratorMinimaxH3Pipe(GeneratorMinimaxH3Pipe.get_default_config())
+    bundle = _fake_bundle()
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        pipe.build_context(_pipe_input(
+            model=bundle, conditioning=[_fake_conditioning(3)],
+            initial_latent=[_refine_latent()], reference_images=[_reference_image()],
+        ))
+
+
+def test_build_context_rejects_denoise_below_1_without_initial_latent():
+    pipe = GeneratorMinimaxH3Pipe({**GeneratorMinimaxH3Pipe.get_default_config(), "denoise": 0.45})
+    bundle = _fake_bundle()
+    with pytest.raises(ValueError, match="has no effect without"):
+        pipe.build_context(_pipe_input(model=bundle, conditioning=[_fake_conditioning(3)]))
+
+
+def test_build_context_rejects_an_initial_latent_with_the_wrong_channel_count():
+    pipe = GeneratorMinimaxH3Pipe(GeneratorMinimaxH3Pipe.get_default_config())
+    bundle = _fake_bundle()
+    with pytest.raises(ValueError, match="24 channels"):
+        pipe.build_context(_pipe_input(
+            model=bundle, conditioning=[_fake_conditioning(3)],
+            initial_latent=[torch.zeros(1, 16, 7, 3, 4)],
+        ))
+
+
+# -- refine entry path: _normalized_initial_latent ---------------------------
+
+def _bare_ctx(**overrides) -> _MiniMaxH3Ctx:
+    kwargs = dict(
+        bundle=None, conditioning=[], steps=1, height=48, width=64,
+        frames=22, num_latent_frames=7, latent_height=3, latent_width=4,
+        num_audio_latents=2, device="cpu", dtype=torch.float32, spec=None,
+    )
+    kwargs.update(overrides)
+    return _MiniMaxH3Ctx(**kwargs)
+
+
+class _NormalizingVae:
+    latents_mean = torch.full((24,), 1.0)
+    latents_std = torch.full((24,), 2.0)
+
+
+def test_normalized_initial_latent_is_none_without_initial_latents():
+    c = _bare_ctx()
+    assert GeneratorMinimaxH3Pipe._normalized_initial_latent(c, 0, _NormalizingVae()) is None
+
+
+def test_normalized_initial_latent_inverts_the_decode_denormalize():
+    c = _bare_ctx(initial_latents=[torch.full((1, 24, 7, 3, 4), 5.0)])
+    got = GeneratorMinimaxH3Pipe._normalized_initial_latent(c, 0, _NormalizingVae())
+    # `_decode_video` reverses this with `* latents_std + latents_mean`; this
+    # is the exact inverse: (5.0 - 1.0) / 2.0 = 2.0.
+    torch.testing.assert_close(got, torch.full((1, 24, 7, 3, 4), 2.0), rtol=0, atol=1e-6)
+
+
+def test_normalized_initial_latent_falls_back_to_the_last_entry_for_a_later_seed():
+    latent0 = torch.full((1, 24, 7, 3, 4), 1.0)
+    c = _bare_ctx(initial_latents=[latent0])
+    got = GeneratorMinimaxH3Pipe._normalized_initial_latent(c, 3, _NormalizingVae())
+    torch.testing.assert_close(got, (latent0 - 1.0) / 2.0, rtol=0, atol=1e-6)
+
+
+def test_normalized_initial_latent_rejects_a_mismatched_shape():
+    c = _bare_ctx(initial_latents=[torch.zeros(1, 24, 5, 3, 4)])  # wrong num_latent_frames
+    with pytest.raises(ValueError, match="does not match"):
+        GeneratorMinimaxH3Pipe._normalized_initial_latent(c, 0, _NormalizingVae())
+
+
 # -- H3_INNER_DIM: the wider of attn-inner (7168) and hidden (5376) --------
 
 def test_h3_inner_dim_is_the_wider_of_attn_inner_and_hidden():
@@ -1010,6 +1166,75 @@ def test_bite_check_a_different_manual_schedule_moves_the_latent():
         {}, steps=steps, ctx_overrides={"decode": False, "manual_sigmas": _MANUAL_VIDEO},
     )
     assert not torch.allclose(overridden._last_result, baseline._last_result)
+
+
+# -- refine entry path: denoise=1.0 no-op, denoise<1.0 actually refines -------
+
+def test_denoise_1_with_initial_latent_reproduces_the_plain_noise_path():
+    """The load-bearing no-op property (schedule.py's `scale_noise`, `t=0` at
+    denoise=1.0's first kept sigma): connecting ANY `initial_latent` at
+    `denoise=1.0` must reproduce the SAME seed's ordinary from-noise
+    generation bit for bit -- the latent's own content is fully discarded,
+    the same as an img2img `denoise=1.0` request ignores its source image."""
+    plain, _ = _run_generate_one({}, ctx_overrides={"decode": False})
+    refine, _ = _run_generate_one({}, ctx_overrides={
+        "decode": False, "denoise": 1.0,
+        "initial_latents": [torch.rand(1, 24, 2, 2, 2)],  # arbitrary -- must be ignored
+    })
+    torch.testing.assert_close(refine._last_result, plain._last_result, rtol=0, atol=0)
+
+
+def test_bite_check_denoise_below_1_moves_the_latent_off_the_plain_noise_path():
+    # BITE CHECK for the no-op test above: a genuinely partial denoise must
+    # not be vacuously identical to the from-noise path.
+    plain, _ = _run_generate_one({}, ctx_overrides={"decode": False})
+    refine, _ = _run_generate_one({}, ctx_overrides={
+        "decode": False, "denoise": 0.45,
+        "initial_latents": [torch.rand(1, 24, 2, 2, 2)],
+    })
+    assert not torch.allclose(refine._last_result, plain._last_result)
+
+
+def test_bite_check_the_initial_latent_content_reaches_the_refine_trajectory():
+    # BITE CHECK isolating the noising wire (not just the schedule
+    # truncation): same seed, same denoise/steps, only the INITIAL LATENT's
+    # own content differs -- the two outputs must diverge, or the latent
+    # never actually reached `scale_noise`.
+    run_a, _ = _run_generate_one({}, ctx_overrides={
+        "decode": False, "denoise": 0.5,
+        "initial_latents": [torch.full((1, 24, 2, 2, 2), 3.0)],
+    })
+    run_b, _ = _run_generate_one({}, ctx_overrides={
+        "decode": False, "denoise": 0.5,
+        "initial_latents": [torch.full((1, 24, 2, 2, 2), -3.0)],
+    })
+    assert not torch.allclose(run_a._last_result, run_b._last_result)
+
+
+def test_denoise_below_1_runs_the_same_number_of_model_evaluations():
+    # The truncated schedule always returns `steps + 1` knots (module
+    # docstring "Refine entry path") -- denoise changes WHERE the trajectory
+    # starts, never how many steps the loop takes.
+    steps = 4
+    _, seen_plain = _run_generate_one({}, steps=steps, ctx_overrides={"decode": False})
+    _, seen_refine = _run_generate_one({}, steps=steps, ctx_overrides={
+        "decode": False, "denoise": 0.45,
+        "initial_latents": [torch.rand(1, 24, 2, 2, 2)],
+    })
+    assert len(seen_plain) == len(seen_refine) == steps
+
+
+def test_video_sigma_shift_reaches_the_loop_and_changes_the_refine_latent():
+    fixed_latent = torch.rand(1, 24, 2, 2, 2)
+    default_shift, _ = _run_generate_one({}, ctx_overrides={
+        "decode": False, "denoise": 0.6, "video_sigma_shift": VIDEO_SHIFT,
+        "initial_latents": [fixed_latent],
+    })
+    alt_shift, _ = _run_generate_one({}, ctx_overrides={
+        "decode": False, "denoise": 0.6, "video_sigma_shift": 9.0,
+        "initial_latents": [fixed_latent],
+    })
+    assert not torch.allclose(default_shift._last_result, alt_shift._last_result)
 
 
 # -- Video Director windowed generation -----------------------------------------

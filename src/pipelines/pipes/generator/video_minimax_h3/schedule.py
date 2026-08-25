@@ -37,6 +37,7 @@ step's two timesteps into one forward. `simple` is the reference grid above;
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import torch
@@ -73,7 +74,7 @@ class MiniMaxH3Sigmas:
     timesteps: Tensor
 
 
-def build_t_grid(num_inference_steps: int, scheduler: str = SIMPLE_SCHEDULER) -> Tensor:
+def build_t_grid(num_inference_steps: int, scheduler: str = SIMPLE_SCHEDULER, *, denoise: float = 1.0) -> Tensor:
     """The underlying knot grid, descending from exactly 1.0 to exactly 0.0,
     BEFORE either stream's shift is applied. `n` steps produce `n + 1` knots.
 
@@ -93,31 +94,58 @@ def build_t_grid(num_inference_steps: int, scheduler: str = SIMPLE_SCHEDULER) ->
     `[1, 0.75, 0.5, 0.25, 0]` (video sigmas `[1, .973, .923, .8] -> 0` at
     shift 12). Changed here 2026-08-11 -- it previously read the argument as
     a GRID size and silently ran one evaluation fewer on the wrong knots.
+
+    `denoise` (default `1.0`, a no-op -- byte-identical to the untruncated
+    grid): a REFINE pass's partial-denoise strength, ComfyUI's
+    ``BasicScheduler`` convention. Builds the full grid for
+    `max(num_inference_steps, ceil(num_inference_steps / denoise))` steps and
+    keeps only the trailing `num_inference_steps + 1` knots, so the returned
+    grid always has the same length as the untruncated one but starts short
+    of `t = 1.0` (partial noise) rather than at it.
     """
     if num_inference_steps < 1:
         raise ValueError(f"num_inference_steps must be >= 1, got {num_inference_steps}")
-    grid_points = int(num_inference_steps) + 1
+    if not (0.0 < denoise <= 1.0):
+        raise ValueError(f"denoise must be in (0, 1], got {denoise}")
+
+    total_steps = num_inference_steps
+    if denoise < 1.0:
+        total_steps = max(num_inference_steps, math.ceil(num_inference_steps / denoise))
+
+    grid_points = int(total_steps) + 1
     if scheduler == SIMPLE_SCHEDULER:
-        return torch.linspace(1.0, 0.0, grid_points, dtype=torch.float32)
-    if scheduler == BETA_SCHEDULER:
+        grid = torch.linspace(1.0, 0.0, grid_points, dtype=torch.float32)
+    elif scheduler == BETA_SCHEDULER:
         from scipy.stats import beta as beta_distribution
 
         quantiles = torch.linspace(1.0, 0.0, grid_points, dtype=torch.float64)
         knots = beta_distribution.ppf(quantiles.numpy(), BETA_ALPHA, BETA_BETA)
-        return torch.from_numpy(knots).to(torch.float32)
-    raise ValueError(f"scheduler must be one of {SCHEDULERS}, got {scheduler!r}")
+        grid = torch.from_numpy(knots).to(torch.float32)
+    else:
+        raise ValueError(f"scheduler must be one of {SCHEDULERS}, got {scheduler!r}")
+
+    if total_steps == num_inference_steps:
+        return grid
+    return grid[-(num_inference_steps + 1):]
 
 
 def build_sigma_schedule(
-    num_inference_steps: int, shift: float, scheduler: str = SIMPLE_SCHEDULER,
+    num_inference_steps: int, shift: float, scheduler: str = SIMPLE_SCHEDULER, *, denoise: float = 1.0,
 ) -> MiniMaxH3Sigmas:
     """The scheduler's `t` grid (`num_inference_steps + 1` knots for
     `num_inference_steps` model evaluations) pushed through the exponential
     shift `sigma' = shift*sigma / (1 + (shift-1)*sigma)`, float32 collisions
     from the shift collapsed with `unique_consecutive` (NOT a general
     dedup -- collisions only ever occur consecutively here, since the input
-    is monotonic and the shift map is monotonic)."""
-    base = build_t_grid(num_inference_steps, scheduler)
+    is monotonic and the shift map is monotonic).
+
+    `denoise` (default `1.0`) is forwarded to :func:`build_t_grid` -- see its
+    docstring. Because the truncation happens on the PRE-SHIFT `t` grid, the
+    video and audio schedules built from the same `(num_inference_steps,
+    denoise)` pair stay paired the same way the untruncated grid keeps them
+    paired (schedule.py module docstring, "Scheduler vs shift").
+    """
+    base = build_t_grid(num_inference_steps, scheduler, denoise=denoise)
     sigmas = shift * base / (1 + (shift - 1) * base)
     sigmas = torch.unique_consecutive(sigmas)
     timesteps = 1.0 - sigmas[:-1]
@@ -163,7 +191,7 @@ def parse_manual_sigmas(raw: str, *, label: str = "manual sigmas") -> MiniMaxH3S
 
 def resolve_schedules(
     num_inference_steps: int, manual_video: str = "", manual_audio: str = "",
-    scheduler: str = SIMPLE_SCHEDULER,
+    scheduler: str = SIMPLE_SCHEDULER, *, video_shift: float = VIDEO_SHIFT, denoise: float = 1.0,
 ) -> tuple[MiniMaxH3Sigmas, MiniMaxH3Sigmas]:
     """The pair of schedules one generation runs on, either computed from
     `num_inference_steps` under `scheduler` (both empty strings -- the
@@ -181,6 +209,11 @@ def resolve_schedules(
     than resolved by precedence: the two knobs are both answers to "where do
     the knots go", and a silent winner would have the scheduler picker read
     as if it were doing something on a run it has no say in.
+
+    `video_shift` (default :data:`VIDEO_SHIFT`) and `denoise` (default
+    `1.0`) only affect a COMPUTED side (a manual list is used verbatim, as
+    always); both are no-ops at their defaults, so an unset caller is
+    byte-identical to before either knob existed.
     """
     if scheduler not in SCHEDULERS:
         raise ValueError(f"scheduler must be one of {SCHEDULERS}, got {scheduler!r}")
@@ -194,12 +227,12 @@ def resolve_schedules(
     audio = parse_manual_sigmas(manual_audio, label="'manual_audio_sigmas'") if manual_audio.strip() else None
 
     if video is None and audio is None:
-        video = build_sigma_schedule(num_inference_steps, VIDEO_SHIFT, scheduler)
-        audio = build_sigma_schedule(num_inference_steps, AUDIO_SHIFT, scheduler)
+        video = build_sigma_schedule(num_inference_steps, video_shift, scheduler, denoise=denoise)
+        audio = build_sigma_schedule(num_inference_steps, AUDIO_SHIFT, scheduler, denoise=denoise)
     elif video is None:
-        video = build_sigma_schedule(int(audio.timesteps.numel()), VIDEO_SHIFT, scheduler)
+        video = build_sigma_schedule(int(audio.timesteps.numel()), video_shift, scheduler, denoise=denoise)
     elif audio is None:
-        audio = build_sigma_schedule(int(video.timesteps.numel()), AUDIO_SHIFT, scheduler)
+        audio = build_sigma_schedule(int(video.timesteps.numel()), AUDIO_SHIFT, scheduler, denoise=denoise)
 
     if video.timesteps.numel() != audio.timesteps.numel():
         raise ValueError(

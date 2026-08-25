@@ -2,7 +2,7 @@
 type: model
 title: Anima
 family_key: anima
-modes: [txt2img, img2img]
+modes: [txt2img]
 spec:
   arch: Cosmos-Predict2 MiniTrainDIT backbone with an in-model LLMAdapter
   latent: 16-channel, Wan21-format causal-3D VAE latent (image-only, single frame)
@@ -35,7 +35,7 @@ The shipped Anima preset ships `txt2img`.
 
 ## Sampling
 
-Default generation parameters: 24 steps, guidance 6.0 (true CFG scale), sampler `euler`, img2img strength 0.55.
+Default generation parameters: 24 steps, guidance 6.0 (true CFG scale), sampler `euler`.
 
 ## Limitations
 

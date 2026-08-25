@@ -2,7 +2,7 @@
 type: model
 title: Qwen-Image
 family_key: qwen_image
-modes: [txt2img, img2img]
+modes: [txt2img, img2img, edit]
 spec:
   arch: dual-stream joint-attention MMDiT
   latent: 16-channel, Wan21-format causal-3D VAE latent (image-only, single frame)

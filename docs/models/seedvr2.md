@@ -2,7 +2,7 @@
 type: model
 title: SeedVR2
 family_key: seedvr2
-modes: [upscale]
+modes: [upscale, video_upscale]
 spec:
   arch: ByteDance NaDiT, one-step APT (adversarial post-training) upscaler
   latent: causal-video VAE latent, self-normalizing

@@ -28,19 +28,19 @@ results land.
 
 On the native engine alone, presets currently cover:
 
-| Model family    | What it does           | Docs                                       |
-| ---------------- | ----------------------- | ------------------------------------------- |
-| SDXL             | Image (txt2img, img2img, inpaint) | [docs/models/sdxl.md](docs/models/sdxl.md) |
-| Flux (1 / 2 Klein) | Image (txt2img, img2img) | [docs/models/flux.md](docs/models/flux.md) |
-| Qwen-Image       | Image (txt2img, img2img) | [docs/models/qwen_image.md](docs/models/qwen_image.md) |
-| Krea-2           | Image (txt2img, img2img) | [docs/models/krea2.md](docs/models/krea2.md) |
-| Z-Image          | Image (txt2img, img2img) | [docs/models/z_image.md](docs/models/z_image.md) |
-| Anima            | Image (txt2img, img2img) | [docs/models/anima.md](docs/models/anima.md) |
-| Wan 2.1 / 2.2    | Video                   | [docs/models/wan.md](docs/models/wan.md) |
-| LTX-2 / 2.3 / 2.5 | Video (with audio)     | [docs/models/ltx.md](docs/models/ltx.md) |
-| MiniMax-H3       | Video                   | [docs/models/minimax_h3.md](docs/models/minimax_h3.md) |
-| MiniMax-Music3   | Audio (song)            | [docs/models/minimax_music3.md](docs/models/minimax_music3.md) |
-| SeedVR2          | Upscale / restore       | [docs/models/seedvr2.md](docs/models/seedvr2.md) |
+| Model family       | What it does                      | Docs                                                           |
+| ------------------ | --------------------------------- | -------------------------------------------------------------- |
+| SDXL               | Image (txt2img, inpaint)          | [docs/models/sdxl.md](docs/models/sdxl.md)                     |
+| Flux (1 / 2 Klein) | Image (txt2img, img2img)          | [docs/models/flux.md](docs/models/flux.md)                     |
+| Qwen-Image         | Image (txt2img, img2img, edit)    | [docs/models/qwen_image.md](docs/models/qwen_image.md)         |
+| Krea-2             | Image (txt2img, enhance)          | [docs/models/krea2.md](docs/models/krea2.md)                   |
+| Z-Image            | Image (txt2img)                   | [docs/models/z_image.md](docs/models/z_image.md)               |
+| Anima              | Image (txt2img)                   | [docs/models/anima.md](docs/models/anima.md)                   |
+| Wan 2.1 / 2.2      | Video                             | [docs/models/wan.md](docs/models/wan.md)                       |
+| LTX-2 / 2.3 / 2.5  | Video (with audio), video upscale | [docs/models/ltx.md](docs/models/ltx.md)                       |
+| MiniMax-H3         | Video (with reference images)     | [docs/models/minimax_h3.md](docs/models/minimax_h3.md)         |
+| MiniMax-Music3     | Audio (song)                      | [docs/models/minimax_music3.md](docs/models/minimax_music3.md) |
+| SeedVR2            | Image & video upscale / restore   | [docs/models/seedvr2.md](docs/models/seedvr2.md)               |
 
 All in the same workspace.
 

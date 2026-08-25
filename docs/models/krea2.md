@@ -2,7 +2,7 @@
 type: model
 title: Krea-2
 family_key: krea2
-modes: [txt2img, img2img]
+modes: [txt2img, enhance]
 spec:
   arch: Krea2 distilled turbo MMDiT (forked from diffusers' transformer_krea2, Apache-2.0)
   latent: 16-channel, Wan21-format causal-3D VAE latent (image-only, single frame)
@@ -49,7 +49,6 @@ The shipped Krea-2 preset ships `txt2img` and `enhance`.
 
 Turbo/Balanced stay CFG-off (`cfg=1.0`, single forward) — byte-identical to the preset's pre-CFG behavior. Quality turns on real CFG as an experiment on the still-distilled checkpoint, keeping the official fixed-mu=1.15 schedule. Base is for a raw (non-distilled) Krea-2 checkpoint: real CFG plus the resolution-anchored mu interpolation upstream (`krea-ai/krea-2` `sampling.py`) documents for the un-distilled/midtrain schedule (`x1_px=256/x2_px=1280/y1=0.5/y2=1.15/align=16`, wired through `generator/krea2`'s `mu_schedule` config knob and `engine._sampling_settings_for`'s `fixed_mu`/`dynamic_shift` whitelist). A "CFG Scale" advanced field lets any profile's value be overridden manually. The `enhance` mode has no speed profile; its own standalone "CFG Scale" field defaults to 1.0 (off) and should track whatever regime the base generation used.
 
-img2img strength defaults to 0.55.
 
 **NAG vs CFG**: `nag_scale`/`nag_tau`/`nag_alpha` (Normalized Attention Guidance) exist to give the negative prompt influence at `cfg=1.0`, when no negative-conditioned forward runs. Real CFG (`cfg>1.0`) already runs that forward pass; stacking NAG on top of it is unvalidated and likely redundant. The Turbo/Balanced-only NAG toggle resets to off when the form's speed profile switches to Quality or Base.
 

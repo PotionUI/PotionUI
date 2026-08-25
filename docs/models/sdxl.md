@@ -2,7 +2,7 @@
 type: model
 title: SDXL
 family_key: sdxl
-modes: [txt2img, img2img, inpaint]
+modes: [txt2img, inpaint]
 spec:
   arch: SDXL U-Net (diffusers pipeline stack, not the native transformer engine)
   latent: 4-channel SD-VAE latent, 2D
@@ -36,7 +36,7 @@ The shipped SDXL preset lives under the same directory layout as the native-engi
 
 ## Sampling
 
-Default generation parameters: 25 steps, CFG scale 6.0, sampler `DPMPP_2M`, scheduler `karras`, 1024×1024 resolution, CLIP-skip 2, img2img/inpaint strength 0.8. This is SDXL's own sampler/scheduler configuration (U-Net + k-diffusion-style samplers), independent of the flow-matching sampler menu documented for the transformer families — the names overlap in places (`dpmpp_2m`) but the two are not the same code path. A separate `guidance_rescale` knob (default 0.0) exists here; it is not the same mechanism as CFG-Zero* on the transformer families.
+Default generation parameters: 25 steps, CFG scale 6.0, sampler `DPMPP_2M`, scheduler `karras`, 1024×1024 resolution, CLIP-skip 2, inpaint strength 0.8. This is SDXL's own sampler/scheduler configuration (U-Net + k-diffusion-style samplers), independent of the flow-matching sampler menu documented for the transformer families — the names overlap in places (`dpmpp_2m`) but the two are not the same code path. A separate `guidance_rescale` knob (default 0.0) exists here; it is not the same mechanism as CFG-Zero* on the transformer families.
 
 Prompt weighting and CLIP-skip both apply here specifically — unlike the transformer families, which have no CLIP-skip concept at all.
 

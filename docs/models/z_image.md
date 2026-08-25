@@ -2,7 +2,7 @@
 type: model
 title: Z-Image
 family_key: z_image
-modes: [txt2img, img2img]
+modes: [txt2img]
 spec:
   arch: NextDiT (Alpha-VLLM Lumina-Image-2.0 lineage), hidden dim 3840
   latent: 16-channel, Flux-format 2D VAE latent
@@ -36,7 +36,7 @@ The shipped Z-Image preset ships `txt2img`.
 
 ## Sampling
 
-Default generation parameters: 8 steps, guidance 1.0 (turbo default — the single-forward collapse point), sampler `euler`, img2img strength 0.55.
+Default generation parameters: 8 steps, guidance 1.0 (turbo default — the single-forward collapse point), sampler `euler`.
 
 ## Limitations
 

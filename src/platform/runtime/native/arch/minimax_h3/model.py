@@ -55,6 +55,7 @@ engine's standing rule for every rotary buffer).
 
 from __future__ import annotations
 
+import logging
 import math
 from typing import Any
 
@@ -204,10 +205,29 @@ class MiniMaxH3Attention(nn.Module):
         else:
             # MiniMax-H3 packs one request into a single attention document: no
             # mask, ever (see the module docstring), so every attention backend
-            # is eligible. The attention core itself is never chunked — it is
-            # already memory-bounded by its own kernel.
-            out = _dispatch_attention(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2),
-                                       heads=self.heads, mask=None)
+            # is eligible. The attention core itself is never chunked up front —
+            # its kernels are memory-bounded — but the backends' own quant/copy
+            # transients (sage: q_int8/k_int8/v_fp8 + padding) can still tip a
+            # nearly-full card over at very long sequences, so an OOM here
+            # retries QUERY-chunked: softmax over the full key set per query
+            # row, so the math is exact; only peak memory (and, for sage, a
+            # per-chunk k/v re-quant) changes.
+            qT, kT, vT = q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)
+            try:
+                out = _dispatch_attention(qT, kT, vT, heads=self.heads, mask=None)
+            except torch.OutOfMemoryError:
+                chunk = seq_chunk_rows if seq_chunk_rows else 16384
+                logging.getLogger(__name__).warning(
+                    "[MINIMAX_H3] attention OOM at %d rows; retrying query-chunked (%d rows/call)",
+                    s, chunk,
+                )
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                out = torch.cat(
+                    [_dispatch_attention(qc, kT, vT, heads=self.heads, mask=None)
+                     for qc in qT.split(chunk, dim=2)],
+                    dim=2,
+                )
             out = out.transpose(1, 2).reshape(b, s, -1)
         if seq_chunk_rows and seq_chunk_rows < s:
             return torch.cat([self.out_proj(c) for c in out.split(seq_chunk_rows, dim=1)], dim=1)

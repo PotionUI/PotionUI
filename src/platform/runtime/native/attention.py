@@ -415,9 +415,30 @@ _SAGE_V_SCALE = 256.0
 _SAGE_V_SAFE_MAX = 1024.0
 
 
+# Above this row count, `_sage` trades its zero-sync `torch.where` scale for
+# ONE host sync per call: at e.g. the H3 upscale refine's ~78k rows the two
+# full-V copies (`v / scale`, `out * scale`) cost ~2.3GB of transient VRAM in
+# a regime that is exactly where OOMs happen, while the call count is a few
+# hundred per refine — so a ~1ms sync is the cheaper side of the trade there.
+# Below it, the production-validated sync-free path is untouched (the sync
+# variant was previously measured to erase sage's speed edge on hot paths).
+_SAGE_SYNC_ROWS = 32768
+
+
 def _sage(q: Tensor, k: Tensor, v: Tensor) -> Tensor:
     # sageattn accepts head-split (B, H, L, D) via tensor_layout="HND".
     from sageattention import sageattn
+
+    if v.shape[2] >= _SAGE_SYNC_ROWS:
+        if float(v.abs().amax()) > _SAGE_V_SAFE_MAX:
+            out = sageattn(q, k, v / _SAGE_V_SCALE, tensor_layout="HND", is_causal=False)
+            out = out * _SAGE_V_SCALE
+        else:
+            # Raw pass-through with NO copy of V -- numerically identical to
+            # the scale=1.0 branch below (`v / 1.0` is IEEE-exact), minus the
+            # two full-size allocations.
+            out = sageattn(q, k, v, tensor_layout="HND", is_causal=False)
+        return torch.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
 
     scale = torch.where(
         v.abs().amax() > _SAGE_V_SAFE_MAX,

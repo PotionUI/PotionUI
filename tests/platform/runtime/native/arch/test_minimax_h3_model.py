@@ -843,3 +843,62 @@ def test_seq_chunk_rows_composes_with_sparse_attn(monkeypatch):
     main_block_shapes = [s for s, c in zip(seen_shapes, seen_ctx) if c is ctx]
     assert len(main_block_shapes) == TINY_FULL["num_layers"]
     assert all(s[1] == seq_len for s in main_block_shapes)  # full-length rows, not a 6-row chunk
+
+
+# --- attention OOM fallback: query-chunked retry (exact math) ---
+
+class _OomThenChunkDispatch:
+    """Raises OOM on the full-length call, serves chunked calls with real
+    sdpa -- the CPU stand-in for sage tipping a nearly-full card over."""
+
+    def __init__(self, full_rows: int):
+        self.full_rows = full_rows
+        self.calls = []
+
+    def __call__(self, q, k, v, heads=None, mask=None):
+        self.calls.append(q.shape[2])
+        if q.shape[2] == self.full_rows:
+            raise torch.OutOfMemoryError("synthetic full-length OOM")
+        return F.scaled_dot_product_attention(q, k, v)
+
+
+def test_attention_oom_retries_query_chunked_and_matches_the_dense_output(monkeypatch):
+    import src.platform.runtime.native.arch.minimax_h3.model as model_module
+
+    torch.manual_seed(5)
+    ops = _fp32_ops()
+    hidden, heads, head_dim, s = 8, 2, 4, 10
+    attn = MiniMaxH3Attention(hidden, heads, head_dim, 1e-5, ops, dtype=torch.float32)
+    with torch.no_grad():
+        attn.qkv_proj.weight.copy_(torch.randn_like(attn.qkv_proj.weight))
+        attn.out_proj.weight.copy_(torch.randn_like(attn.out_proj.weight))
+    x = torch.randn(1, s, hidden)
+
+    dense = attn(x, None)  # real dispatch (sdpa on CPU) -- the reference
+
+    oom = _OomThenChunkDispatch(full_rows=s)
+    monkeypatch.setattr(model_module, "_dispatch_attention", oom)
+    # seq_chunk_rows=4 -> chunks of 4,4,2 (ragged tail exercised too)
+    out = attn(x, None, None, 4)
+
+    # Full-length attempt first, then the three query chunks.
+    assert oom.calls == [s, 4, 4, 2]
+    # Query-chunked softmax attends the FULL key set per row -> exact.
+    assert torch.allclose(out, dense, atol=1e-6)
+
+
+def test_attention_oom_fallback_reraises_when_chunking_cannot_shrink_the_call(monkeypatch):
+    # Without seq_chunk_rows the fallback chunk is 16384; for a sequence
+    # SHORTER than that the retry is the identical full-length call, so a
+    # second OOM must surface honestly (exactly one retry, no loop).
+    import src.platform.runtime.native.arch.minimax_h3.model as model_module
+
+    ops = _fp32_ops()
+    attn = MiniMaxH3Attention(8, 2, 4, 1e-5, ops, dtype=torch.float32)
+    x = torch.randn(1, 6, 8)
+    oom = _OomThenChunkDispatch(full_rows=6)
+    monkeypatch.setattr(model_module, "_dispatch_attention", oom)
+
+    with pytest.raises(torch.OutOfMemoryError):
+        attn(x, None)
+    assert oom.calls == [6, 6]

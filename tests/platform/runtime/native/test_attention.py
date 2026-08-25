@@ -671,3 +671,60 @@ def test_sage_output_is_never_nan_or_inf_even_if_the_kernel_returns_them(monkeyp
     assert out[0, 0, 0, 1].item() == 0.0
     assert out[0, 0, 0, 2].item() == 0.0
     assert out[0, 0, 0, 3].item() == pytest.approx(1.0)
+
+
+# --------------------------------------------------------------------------- #
+# Large-row regime (task: H3 upscale refine OOM at ~78k rows): above
+# _SAGE_SYNC_ROWS, _sage pays one host sync to decide the V-prescale so the
+# pass-through case allocates NO V copy at all (the torch.where path's
+# `v / scale` + `out * scale` cost ~2.3GB there). Numerics are identical in
+# both regimes -- only allocation behavior changes, and only above the
+# threshold.
+# --------------------------------------------------------------------------- #
+
+def _large_row_tensors(magnitude: float):
+    rows = att._SAGE_SYNC_ROWS
+    q = torch.randn(1, 1, rows, 8)
+    k = torch.randn(1, 1, rows, 8)
+    v = torch.randn(1, 1, rows, 8) * magnitude
+    return q, k, v
+
+
+def test_sage_large_rows_small_v_skips_the_copy_entirely(monkeypatch):
+    q, k, v = _large_row_tensors(10.0)
+    fake = _FakeSageModule(return_value=torch.zeros_like(v))
+    _patch_sageattention(monkeypatch, fake)
+
+    att._sage(q, k, v)
+
+    # THE SAME OBJECT, not an equal copy -- the entire point of the branch.
+    assert fake.calls[0]["v"] is v
+    assert fake.calls[0]["q"] is q
+    assert fake.calls[0]["k"] is k
+
+
+def test_sage_large_rows_hot_v_still_prescales_exactly(monkeypatch):
+    q, k, v = _large_row_tensors(5000.0)
+    kernel_out = torch.full_like(v, 3.0)
+    fake = _FakeSageModule(return_value=kernel_out)
+    _patch_sageattention(monkeypatch, fake)
+
+    out = att._sage(q, k, v)
+
+    assert torch.equal(fake.calls[0]["v"], v / 256.0)
+    assert torch.allclose(out, kernel_out * 256.0)
+
+
+def test_sage_below_the_row_threshold_keeps_the_sync_free_path(monkeypatch):
+    # The validated hot path still goes through torch.where's `v / scale`,
+    # which materializes a copy -- pinned here so a "simplification" can't
+    # silently swap the small-sequence regime onto the syncing branch.
+    v = torch.full((1, 2, 4, 8), 160.0)
+    fake = _FakeSageModule(return_value=torch.zeros(1, 2, 4, 8))
+    _patch_sageattention(monkeypatch, fake)
+
+    att._sage(torch.randn(1, 2, 4, 8), torch.randn(1, 2, 4, 8), v)
+
+    called_v = fake.calls[0]["v"]
+    assert torch.equal(called_v, v)
+    assert called_v is not v

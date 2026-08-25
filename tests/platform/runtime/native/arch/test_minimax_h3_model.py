@@ -847,6 +847,19 @@ def test_seq_chunk_rows_composes_with_sparse_attn(monkeypatch):
 
 # --- attention OOM fallback: query-chunked retry (exact math) ---
 
+def _init_attn_weights(attn) -> None:
+    """EVERY parameter, not just the projections: `operations` layers are
+    built with disable-weight-init (torch.empty), so an untouched q_norm/k_norm
+    weight is raw allocator memory -- sometimes NaN, depending on what the
+    preceding tests happened to free. That garbage made these comparisons
+    flake as all-NaN-vs-all-NaN run to run before this helper existed."""
+    with torch.no_grad():
+        attn.qkv_proj.weight.copy_(torch.randn_like(attn.qkv_proj.weight) * 0.2)
+        attn.out_proj.weight.copy_(torch.randn_like(attn.out_proj.weight) * 0.2)
+        attn.q_norm.weight.copy_(torch.ones_like(attn.q_norm.weight))
+        attn.k_norm.weight.copy_(torch.ones_like(attn.k_norm.weight))
+
+
 class _AlwaysOomDispatch:
     """The primary dispatch tipping a nearly-full card over -- the rescue
     must NOT come back through here (a sage retry re-quantizes the full
@@ -867,12 +880,17 @@ def test_attention_oom_retries_query_chunked_sdpa_and_matches_the_dense_output(m
     ops = _fp32_ops()
     hidden, heads, head_dim, s = 8, 2, 4, 10
     attn = MiniMaxH3Attention(hidden, heads, head_dim, 1e-5, ops, dtype=torch.float32)
-    with torch.no_grad():
-        attn.qkv_proj.weight.copy_(torch.randn_like(attn.qkv_proj.weight))
-        attn.out_proj.weight.copy_(torch.randn_like(attn.out_proj.weight))
+    _init_attn_weights(attn)
     x = torch.randn(1, s, hidden)
 
-    dense = attn(x, None)  # real dispatch (sdpa on CPU) -- the reference
+    # Reference pinned to plain sdpa -- via the REAL dispatch it would depend
+    # on module-level backend state other tests in the process may have
+    # touched (the environment-dependent-reference trap).
+    monkeypatch.setattr(
+        model_module, "_dispatch_attention",
+        lambda q, k, v, heads=None, mask=None: F.scaled_dot_product_attention(q, k, v),
+    )
+    dense = attn(x, None)
 
     oom = _AlwaysOomDispatch()
     sdpa_rows = []
@@ -890,8 +908,13 @@ def test_attention_oom_retries_query_chunked_sdpa_and_matches_the_dense_output(m
     # the lean sdpa rescue -- never back through the dispatch.
     assert oom.calls == [s]
     assert sdpa_rows == [4, 4, 2]
-    # Query-chunked softmax attends the FULL key set per row -> exact.
-    assert torch.allclose(out, dense, atol=1e-6)
+    # Query-chunked softmax attends the FULL key set per row -> mathematically
+    # exact; the tolerance is for kernel-shape-dependent fp32 rounding (a 10-row
+    # GEMM and a 4/4/2-chunked one may reduce in different orders, and the
+    # difference varies with thread scheduling -- an atol=1e-6 version of this
+    # assertion flaked run-to-run under identical code). Real chunk-wiring bugs
+    # produce order-of-magnitude errors, far above this.
+    assert torch.allclose(out, dense, atol=1e-5, rtol=1e-4)
 
 
 def test_attention_oom_fallback_reraises_when_the_rescue_also_ooms(monkeypatch):
@@ -912,3 +935,79 @@ def test_attention_oom_fallback_reraises_when_the_rescue_also_ooms(monkeypatch):
     with pytest.raises(torch.OutOfMemoryError):
         attn(x, None)
     assert oom.calls == [6]
+
+
+def test_oom_rescue_runs_with_the_exception_already_cleared(monkeypatch):
+    # The rescue must execute OUTSIDE the except block: an in-flight handled
+    # exception pins the failed call's frames (including sage's full-size V
+    # copy) via its traceback -- on a real 5090 run that starved the rescue
+    # by 224MB. sys.exc_info() is the direct observable.
+    import sys
+    import src.platform.runtime.native.arch.minimax_h3.model as model_module
+
+    ops = _fp32_ops()
+    attn = MiniMaxH3Attention(8, 2, 4, 1e-5, ops, dtype=torch.float32)
+    x = torch.randn(1, 6, 8)
+    exc_states = []
+
+    def asserting_sdpa(q, k, v):
+        exc_states.append(sys.exc_info())
+        return F.scaled_dot_product_attention(q, k, v)
+
+    monkeypatch.setattr(model_module, "_dispatch_attention", _AlwaysOomDispatch())
+    monkeypatch.setattr(model_module, "_fallback_sdpa", asserting_sdpa)
+
+    attn(x, None, None, 4)
+
+    assert exc_states and all(state == (None, None, None) for state in exc_states)
+
+
+def test_oom_is_sticky_for_equal_or_longer_sequences_only(monkeypatch):
+    import src.platform.runtime.native.arch.minimax_h3.model as model_module
+
+    torch.manual_seed(7)
+    ops = _fp32_ops()
+    attn = MiniMaxH3Attention(8, 2, 4, 1e-5, ops, dtype=torch.float32)
+    oom = _AlwaysOomDispatch()
+    monkeypatch.setattr(model_module, "_dispatch_attention", oom)
+    monkeypatch.setattr(
+        model_module, "_fallback_sdpa",
+        lambda q, k, v: F.scaled_dot_product_attention(q, k, v),
+    )
+
+    x_long = torch.randn(1, 10, 8)
+    attn(x_long, None, None, 4)      # first long call: dispatch OOMs, sticky set
+    attn(x_long, None, None, 4)      # second long call: dispatch NOT attempted again
+    assert oom.calls == [10]
+
+    attn(torch.randn(1, 6, 8), None, None, 4)  # shorter: dispatch attempted again
+    assert oom.calls == [10, 6]
+
+
+def test_sticky_rescue_output_still_matches_the_dense_reference(monkeypatch):
+    import src.platform.runtime.native.arch.minimax_h3.model as model_module
+
+    torch.manual_seed(9)
+    ops = _fp32_ops()
+    attn = MiniMaxH3Attention(8, 2, 4, 1e-5, ops, dtype=torch.float32)
+    _init_attn_weights(attn)
+    x = torch.randn(1, 10, 8)
+    # Reference pinned to plain sdpa (see the identical comment above).
+    monkeypatch.setattr(
+        model_module, "_dispatch_attention",
+        lambda q, k, v, heads=None, mask=None: F.scaled_dot_product_attention(q, k, v),
+    )
+    dense = attn(x, None)
+
+    attn._sdpa_min_rows = 10  # as if an earlier call at this length OOM'd
+    boom = _AlwaysOomDispatch()
+    monkeypatch.setattr(model_module, "_dispatch_attention", boom)
+    monkeypatch.setattr(
+        model_module, "_fallback_sdpa",
+        lambda q, k, v: F.scaled_dot_product_attention(q, k, v),
+    )
+
+    out = attn(x, None, None, 4)
+    assert boom.calls == []  # never touched
+    # Tolerance rationale: see test_attention_oom_retries_query_chunked_sdpa.
+    assert torch.allclose(out, dense, atol=1e-5, rtol=1e-4)

@@ -178,6 +178,9 @@ class MiniMaxH3Attention(nn.Module):
         self.q_norm = operations.RMSNorm(head_dim, eps=qk_norm_eps, dtype=dtype, device=device)
         self.k_norm = operations.RMSNorm(head_dim, eps=qk_norm_eps, dtype=dtype, device=device)
         self.out_proj = operations.Linear(inner_dim, hidden_size, bias=False, dtype=dtype, device=device)
+        # Sticky OOM marker: sequence lengths >= this skip the normal dispatch
+        # and go straight to the query-chunked sdpa rescue (see forward()).
+        self._sdpa_min_rows: int | None = None
 
     def forward(self, x: Tensor, rotary_emb: tuple[Tensor, Tensor] | None,
                 sparse_attn: SolAttnContext | SlaAttnContext | None = None,
@@ -217,21 +220,40 @@ class MiniMaxH3Attention(nn.Module):
             # row, so the math is exact; only peak memory (and, for sage, a
             # per-chunk k/v re-quant) changes.
             qT, kT, vT = q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)
-            try:
-                out = _dispatch_attention(qT, kT, vT, heads=self.heads, mask=None)
-            except torch.OutOfMemoryError:
-                # Retry with query-chunked SDPA, NOT the normal dispatch: sage
-                # re-quantizes the FULL key/value set per call (k_int8 +
-                # v_transposed_permutted + v_fp8, several GB at ~78k rows), so
-                # a sage retry keeps the exact transients that just OOM'd.
-                # SDPA's flash/mem-efficient kernels allocate no full-size
-                # copies, need no V-prescale guard (no fp16 quant internals),
-                # and full-key softmax per query chunk is exact.
+            out = None
+            if self._sdpa_min_rows is None or s < self._sdpa_min_rows:
+                try:
+                    out = _dispatch_attention(qT, kT, vT, heads=self.heads, mask=None)
+                except torch.OutOfMemoryError:
+                    # Once a sequence length has OOM'd the dispatch, every later
+                    # call at >= that length is doomed the same way (sage's
+                    # per-call quant transients scale with the FULL k/v set):
+                    # remember it so the remaining ~hundreds of calls of this
+                    # refine skip straight to the rescue instead of paying a
+                    # failed multi-GB attempt each. Sticky for this module
+                    # instance's cache lifetime -- shorter sequences still take
+                    # the dispatch, and the rescue below is exact either way.
+                    self._sdpa_min_rows = s
+                    logging.getLogger(__name__).warning(
+                        "[MINIMAX_H3] attention OOM at %d rows; using query-chunked sdpa from here on "
+                        "for sequences this long", s,
+                    )
+            if out is None:
+                # The rescue runs OUTSIDE the except block on purpose: while an
+                # exception is being handled, its traceback pins every frame of
+                # the failed call alive -- including sage's own full-size V
+                # copy (~1.1GB at 78k rows), which on a real 5090 run starved
+                # this very fallback by 224MB. Past the except block those
+                # frames are freed and empty_cache() can actually reclaim them.
+                #
+                # Query-chunked SDPA, NOT the normal dispatch: sage re-quantizes
+                # the FULL key/value set per call (k_int8 + v_transposed_permutted
+                # + v_fp8, several GB at ~78k rows), so a sage retry keeps the
+                # exact transients that just OOM'd. SDPA's flash/mem-efficient
+                # kernels allocate no full-size copies, need no V-prescale guard
+                # (no fp16 quant internals), and full-key softmax per query
+                # chunk is exact.
                 chunk = seq_chunk_rows if seq_chunk_rows else 16384
-                logging.getLogger(__name__).warning(
-                    "[MINIMAX_H3] attention OOM at %d rows; retrying query-chunked sdpa (%d rows/call)",
-                    s, chunk,
-                )
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
                 out = torch.cat(

@@ -45,10 +45,6 @@ configuration:
     type: "model_tags"
     label: "LoRA tags"
     description: "Only LoRAs with any of these tags appear in the LoRA picker."
-  upscaler_tags:
-    type: "model_tags"
-    label: "Latent upscaler tags"
-    description: "Only models with any of these tags appear in the Latent Upscaler picker (upscale mode)."
 
 # Selectable speed profiles (docs/presets.md "Speed profiles"), same pattern as
 # presets/native/LTX-2 and presets/native/Krea2. Each profile bakes the ACTUAL
@@ -296,4 +292,3 @@ llm:
 modes:
   - video
   - refs
-  - upscale

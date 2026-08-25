@@ -14,12 +14,9 @@ own once the MODELS cache has moved on to a new fingerprint -- the same
 "lightweight VIEW, not an owner" contract every other native family's bundle
 follows (Flux, Wan, LTX, Krea-2, ...).
 
-``upsampler`` is the same optional-slot shape as LTX's own ``upscale_model``
-(``model_loader/ltx/bundle.py``): populated only when the pipe's
-``upscale_model`` config points at a checkpoint, ``None`` otherwise, at zero
-VRAM/RAM cost when unused. ``latent_upscaler/minimax_h3`` reads
-``bundle.upsampler.module`` (a ``MiniMaxH3LatentUpsampler``, see
-``src/platform/runtime/native/vae/minimax_h3_latent_upsampler.py``).
+There is no latent-upscaler slot on this bundle: the standalone "upscale"
+mode and its 3D upsampler checkpoint moved to the ``minimax-h3-upscale``
+plugin, which acquires and loads that checkpoint itself.
 """
 
 from __future__ import annotations
@@ -42,7 +39,6 @@ class MiniMaxH3ModelBundle:
     te: NativeModel = field(default=WeakModelRef())
     video_vae: NativeModel = field(default=WeakModelRef())
     audio_vae: NativeModel = field(default=WeakModelRef())
-    upsampler: Optional[NativeModel] = field(default=WeakModelRef())
     # The MODELS cache key `te` was acquired under -- lets a generator pipe
     # release the TE explicitly once prompt_encoder is done with it (same
     # `release_idle_te`-style idiom as LTX's `te_cache_key`). `None` for a
@@ -56,7 +52,7 @@ class MiniMaxH3ModelBundle:
         return self.dit.spec
 
     def unload(self) -> None:
-        for component in (self.dit, self.te, self.video_vae, self.audio_vae, self.upsampler):
+        for component in (self.dit, self.te, self.video_vae, self.audio_vae):
             if component is None:
                 continue
             try:

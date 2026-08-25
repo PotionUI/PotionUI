@@ -78,7 +78,6 @@ from .detect.vae_detect import (
     detect_ltx_video_vae_config,
     detect_ltx_vocoder_config,
     detect_minimax_h3_audio_vae_config,
-    detect_minimax_h3_latent_upsampler_config,
     detect_minimax_h3_video_vae_config,
     detect_minimax_music3_dav_config,
     detect_seedvr2_vae_config,
@@ -94,7 +93,6 @@ from .vae.loader import (
     load_ltx_video_vae,
     load_ltx_vocoder,
     load_minimax_h3_audio_vae,
-    load_minimax_h3_latent_upsampler,
     load_minimax_h3_video_vae,
     load_minimax_music3_dav,
     load_seedvr2_vae,
@@ -818,18 +816,11 @@ class NativeEngineLoader:
 
     def _load_latent_upscaler(self, path: str | Path) -> NativeModel:
         """Latent upsampler: a small standalone checkpoint, loaded via the
-        same detect-then-build path as the other VAE-family components. Two
-        unrelated architectures share this ``kind``: the LTX-2.3 spatial
-        upsampler (config embedded in its own metadata -- see
-        ``load_ltx_latent_upsampler``'s docstring) and the MiniMax-H3 3D
-        upsampler (no embedded metadata at all, shape-detected -- see
-        ``load_minimax_h3_latent_upsampler``'s docstring); the two never
-        share a key name (``conv_in``/``norm_out`` vs. ``initial_conv``/
-        ``final_conv``), so detection order is immaterial -- H3's shape
-        check runs first only because it's the cheaper of the two. Only
-        acquired by a model loader when the
-        preset's upscale option is on, so this never runs at zero-extra-cost
-        baseline.
+        same detect-then-build path as the other VAE-family components --
+        the LTX-2.3 spatial upsampler (config embedded in its own metadata --
+        see ``load_ltx_latent_upsampler``'s docstring). Only acquired by a
+        model loader when the preset's upscale option is on, so this never
+        runs at zero-extra-cost baseline.
         """
         sd, metadata = load_torch_file(path, device="cpu")
         get_profiler().mark("load.latent_upscaler.read", est_gb=_estimated_gb(sd))
@@ -839,10 +830,7 @@ class NativeEngineLoader:
         storage_dtype = sd_dtype or compute_dtype
         est_gb = _estimated_gb(sd)
         ops = self._ops_for("vae", est_gb, storage_dtype, compute_dtype, quant_format, sd)
-        if detect_minimax_h3_latent_upsampler_config(sd) is not None:
-            module = load_minimax_h3_latent_upsampler(path, ops, device="cpu", sd=sd, metadata=metadata)
-        else:
-            module = load_ltx_latent_upsampler(path, ops, device="cpu", sd=sd, metadata=metadata)
+        module = load_ltx_latent_upsampler(path, ops, device="cpu", sd=sd, metadata=metadata)
         get_profiler().mark("load.latent_upscaler.built", est_gb=est_gb, quant_format=quant_format)
         return NativeModel(
             "latent_upscaler", module, estimated_vram_gb=est_gb,

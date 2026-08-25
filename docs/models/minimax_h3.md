@@ -2,7 +2,7 @@
 type: model
 title: MiniMax-H3
 family_key: minimax_h3
-modes: [video, refs, upscale]
+modes: [video, refs]
 spec:
   arch: MiniMaxH3Model — one packed sequence carrying video, text and audio rows through 50 shared blocks, no cross-attention
   params: 20B (pruned) / 33B (full)
@@ -58,18 +58,6 @@ The three pickers are **one packed sequence**, in a fixed order: every image, th
 A keyframe is used twice. It goes through the text encoder's vision tower, so it appears in the prompt presentation as a `<Picture i>: ` block; and it is VAE-encoded into condition rows prepended to the packed sequence and pinned to a fixed timestep, rather than blended into the target latent behind a mask the way LTX conditions. Both consumers read one media-loader node in the preset, so they cannot disagree about which images they got or in what order. The keyframes are a fixed set shared by every output of a request rather than one source image per output, which the clip adapter signals with `forwards_full_image_batch` so `prompt_encoder` forwards the whole list to each request instead of indexing into it.
 
 The preset exposes resolution, clip length, steps, sampler, scheduler and seed. There is no guidance scale and no negative prompt to expose, and audio has no toggle because it is inherent to the checkpoint — but the solver and the knot placement are independent of guidance, so both are pickers on the Generation tab.
-
-### The `upscale` mode (HD detailer)
-
-Takes an existing H3 video (a `video`/`refs`-mode output, or anything else on the checkpoint's own canvas grid) and runs it through a latent-space spatial upscale followed by a short partial-denoise refine, rather than a fresh generation. Two pipe stages do the work: `latent_upscaler/minimax_h3` VAE-encodes the source onto the release canvas for its aspect ratio, pads the frame count up to the video VAE's `17n + 5` lattice, and upsamples the resulting latent with a dedicated upscaler checkpoint; `generator/video_minimax_h3` then refines that upsampled latent through its `initial_latent`/`denoise` refine entry path (the same mechanism a from-noise generation's `initial_latent` input uses, described above under "Sampling") instead of starting from pure noise.
-
-The released recipe: target ≈2.1 decimal-megapixel area (1920×1088 for a 16:9 source), 4 refine steps, denoise 0.45, video stream sigma shift 9 (lower than a fresh generation's 12, since the source is already close to the target). The audio stream's own shift stays fixed at 3.0 and is not exposed for a refine. cfg is not a knob here as elsewhere in this family — H3 is guidance-distilled and the generator pipe has none. The source clip's own audio track passes straight through into the refined output unchanged (`audio_source: "passthrough"`); this mode does not re-sample or re-mix the soundtrack.
-
-Three friendly presets are offered for the refine's denoise (Light 0.30 / Balanced 0.45 / Strong 0.60), plus an expert override on the Advanced tab for denoise, video sigma shift and step count directly. A turbo LoRA at ~0.5 strength is an optional accelerant for this pass — it is not required, and this repository's own 4-step turbo recipe is validated LoRA-free. If you do load one, use **Kijai's `_comfy` conversion** (`minimax_h3_fl2v_lightx2v_turbo_4step_v0.1_comfy.safetensors`): the original ModelTC file is missing its alpha metadata and runs 8× too strong at face value, which produces pure structured noise from the first step — see "The original turbo LoRA is missing its alpha metadata" under Known issues below before picking a file.
-
-**Weights provenance.** The default latent upscaler (`LBH-123-AI/Minimax_h3_latent_Upscaler` on Hugging Face, Apache-2.0) is a community-trained checkpoint, not a MiniMax first-party release — trained on roughly 80k latent pairs, with its architecture reconstructed from the checkpoint's own layout rather than documented upstream. Treat it as a useful, unofficial complement to the base model rather than a first-party recipe.
-
-**Caveats.** GPU validation for this mode is pending, same as the rest of the family. A ~2.1MP target over many frames makes the refine pass VRAM-heavy — for long clips, pair it with `sparse_attn: sla` and the SLA turbo LoRA (see "Sampling" below) rather than running it dense.
 
 ## Sampling
 

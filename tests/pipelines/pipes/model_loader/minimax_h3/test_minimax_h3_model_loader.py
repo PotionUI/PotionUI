@@ -194,20 +194,12 @@ def test_wrong_family_video_vae_is_rejected_at_load_time():
     assert "video_vae" in msg
 
 
-def test_wrong_family_audio_vae_and_upsampler_are_rejected_too():
+def test_wrong_family_audio_vae_is_rejected_too():
     models = _FakeModelsWithModule(
         lambda key: _ForeignArchModule() if key.startswith("native/audio_vae/") else object()
     )
     with pytest.raises(ValueError, match="audio_vae"):
         ModelLoaderMinimaxH3Pipe(_config()).process(PipeInput(input={"MODELS": models}), lambda o: None)
-
-    cfg = _config()
-    cfg["upscale_model"] = {"file_path": "/m/ltx_spatial_upscaler.safetensors", "name": "ltx_spatial_upscaler"}
-    models = _FakeModelsWithModule(
-        lambda key: _ForeignArchModule() if key.startswith("native/h3_upsampler/") else object()
-    )
-    with pytest.raises(ValueError, match="upscale_model"):
-        ModelLoaderMinimaxH3Pipe(cfg).process(PipeInput(input={"MODELS": models}), lambda o: None)
 
 
 def test_non_arch_module_fakes_pass_the_family_guard():

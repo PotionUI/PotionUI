@@ -36,13 +36,3 @@ models:
     type: "upscaler"
     provider: "civitai"
     sha256: "E1A73BD89C2DA1AE494774746398689048B5A892BD9653E146713F9DF8BCA86A"
-
-  ##################################
-  #### MiniMax-H3 latent upscaler
-  ##################################
-  - name: "MiniMax-H3-Latent-Upscaler-3D"
-    url: "https://huggingface.co/LBH-123-AI/Minimax_h3_latent_Upscaler/resolve/main/minimax_h3_latent_upscaler_3d_bf16.safetensors"
-    file_path: "{{ path('upscaler', 'minimax_h3_latent_upscaler_3d_bf16.safetensors') }}"
-    type: "upscaler"
-    provider: "huggingface"
-    sha256: "4f57821f5837f32f7142b67d815606dbd7550f194e5c769f7d6c3f83b146a5e6"

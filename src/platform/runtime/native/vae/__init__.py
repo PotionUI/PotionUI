@@ -19,20 +19,12 @@ from .loader import (
     load_ltx_latent_upsampler,
     load_ltx_video_vae,
     load_ltx_vocoder,
-    load_minimax_h3_latent_upsampler,
     load_vae,
 )
 from .ltx_audio import LATENT_DOWNSAMPLE_FACTOR as LTX_AUDIO_LATENT_DOWNSAMPLE_FACTOR
 from .ltx_audio import LTXAudioAutoencoder, LTXVocoder, LTXVocoderAMP, decode_audio_waveform
 from .ltx_causal_video import LTXCausalVideoVAE
 from .ltx_latent_upsampler import LTXLatentUpsampler
-from .minimax_h3_latent_upsampler import MEAN as MINIMAX_H3_UPSCALER_LATENTS_MEAN
-from .minimax_h3_latent_upsampler import STD as MINIMAX_H3_UPSCALER_LATENTS_STD
-from .minimax_h3_latent_upsampler import (
-    MiniMaxH3LatentUpsampler,
-    denormalize_h3_latent,
-    normalize_h3_latent,
-)
 from .tiling import (
     VAE_SPATIAL_DOWNSCALE,
     auto_tile_size,
@@ -50,8 +42,6 @@ __all__ = [
     "CAUSAL3D_V2_SCALE_FACTOR",
     "LATENT_SCALE_SHIFT",
     "LTX_AUDIO_LATENT_DOWNSAMPLE_FACTOR",
-    "MINIMAX_H3_UPSCALER_LATENTS_MEAN",
-    "MINIMAX_H3_UPSCALER_LATENTS_STD",
     "VAE_SPATIAL_DOWNSCALE",
     "AutoEncoder2D",
     "AutoEncoderCausal3D",
@@ -61,19 +51,15 @@ __all__ = [
     "LTXLatentUpsampler",
     "LTXVocoder",
     "LTXVocoderAMP",
-    "MiniMaxH3LatentUpsampler",
     "auto_tile_size",
     "decode_audio_waveform",
-    "denormalize_h3_latent",
     "load_causal3d_v2_vae",
     "load_causal3d_vae",
     "load_ltx_audio_vae",
     "load_ltx_latent_upsampler",
     "load_ltx_video_vae",
     "load_ltx_vocoder",
-    "load_minimax_h3_latent_upsampler",
     "load_vae",
-    "normalize_h3_latent",
     "tiled_decode",
     "tiled_decode_causal3d",
     "tiled_encode",

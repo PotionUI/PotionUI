@@ -5,8 +5,6 @@ models. One app, many model families, no per-model config to hand-wire —
 you pick a preset, describe what you want, and watch it come together in
 real time.
 
-[![Backend + frontend tests](https://github.com/jtyszkiew/imagine/actions/workflows/backend-tests.yml/badge.svg)](https://github.com/jtyszkiew/imagine/actions/workflows/backend-tests.yml)
-[![Onboarding smoke gate](https://github.com/jtyszkiew/imagine/actions/workflows/onboarding-smoke.yml/badge.svg)](https://github.com/jtyszkiew/imagine/actions/workflows/onboarding-smoke.yml)
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/A3B325D031)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/avR4trp3b8)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
@@ -167,12 +165,12 @@ generation on CPU.
 
 ### Supported platforms
 
-| Platform                   | Status                                                                     |
-| --------------------------- | --------------------------------------------------------------------------- |
-| Linux x86_64 + NVIDIA CUDA | Tested and supported for 0.0.1                                            |
-| Windows / WSL2             | Untested — community reports welcome                                      |
-| macOS                      | Untested — community reports welcome                                      |
-| AMD GPU (ROCm)             | Untested — community reports welcome                                      |
+| Platform                   | Status                                                                                                                                                                                                                                                                                                                     |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Linux x86_64 + NVIDIA CUDA | Tested and supported for 0.0.1                                                                                                                                                                                                                                                                                             |
+| Windows / WSL2             | Untested — community reports welcome                                                                                                                                                                                                                                                                                       |
+| macOS                      | Untested — community reports welcome                                                                                                                                                                                                                                                                                       |
+| AMD GPU (ROCm)             | Untested — community reports welcome                                                                                                                                                                                                                                                                                       |
 | Docker                     | `docker run --gpus all -p 8005:8005 ghcr.io/potionui/potionui:latest` (requires an NVIDIA GPU + [nvidia-container-toolkit](https://github.com/NVIDIA/nvidia-container-toolkit)) — volumes and details in [`docker/README.md`](docker/README.md); `./potionui start-docker` runs the contributor-facing dev harness instead |
 
 ### Running backend and frontend separately

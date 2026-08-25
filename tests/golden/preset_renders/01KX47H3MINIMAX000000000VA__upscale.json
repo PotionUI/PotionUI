@@ -302,6 +302,10 @@
           "type": "str",
           "value": "simple"
         },
+        "seq_chunk_rows": {
+          "type": "int",
+          "value": 16384
+        },
         "sla_block_size": {
           "type": "int",
           "value": 64

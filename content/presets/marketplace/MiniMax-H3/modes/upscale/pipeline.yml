@@ -209,6 +209,11 @@ pipeline:
       sla_sparsity: "{{ form.sla_sparsity | default(0.9) }}"
       sla_block_size: "{{ form.sla_block_size | default(64) | int }}"
       sparse_attn_dense_last_steps: "{{ form.sparse_attn_dense_last_steps | default(2) }}"
+      # This mode's refine sequences are always huge (a spatially-upscaled
+      # latent's row count, easily tens of thousands of packed rows) -- the
+      # low-VRAM default the video mode does NOT need (its own YAML is
+      # untouched, still config default 0).
+      seq_chunk_rows: "{{ form.seq_chunk_rows | default(16384) }}"
 
   #############
   ## Gallery

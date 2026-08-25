@@ -464,6 +464,7 @@ class _MiniMaxH3Forward:
         self, video_rows: Tensor, audio_rows: Tensor, unique_timesteps: Tensor, timestep_indices: Tensor,
         step_cache: Optional[FirstBlockCache] = None,
         sparse_attn_ctx: Optional[SolAttnContext | SlaAttnContext] = None,
+        seq_chunk_rows: int = 0,
     ) -> tuple[Tensor, Tensor]:
         video_pred, audio_pred = self.dit_module(
             hidden_states=video_rows[None],
@@ -478,6 +479,7 @@ class _MiniMaxH3Forward:
             text_indices=self.layout.text_indices,
             step_cache=step_cache,
             sparse_attn_ctx=sparse_attn_ctx,
+            seq_chunk_rows=seq_chunk_rows,
         )
         return video_pred[0], audio_pred[0]
 
@@ -550,6 +552,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             "sla_sparsity": 0.90,
             "sla_block_size": 64,
             "sparse_attn_dense_last_steps": 2,
+            "seq_chunk_rows": 0,
             "sampler": "euler",
             "scheduler": SIMPLE_SCHEDULER,
             "manual_sigmas": "",
@@ -649,6 +652,20 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 "sparse approximation there is the most visible. At or above the step count the "
                 "feature is effectively off.",
                 required=False, min_value=0, max_value=10,
+            ),
+            PipeConfigSpec(
+                "seq_chunk_rows", int, 0,
+                "Low-VRAM sequence chunking: row-chunks the DiT's per-block qkv "
+                "projection and SwiGLU MLP over the packed sequence so their "
+                "intermediate transients (fused qkv, 2x ffn_dim) never exist "
+                "full-length at once -- the attention core itself is unaffected. "
+                "0 (default) is off and byte-identical to a run without the "
+                "feature; a value below the packed sequence length trades a "
+                "small perf cost (quantized weights are re-dequantized per "
+                "chunk) for materially lower peak VRAM. Only worth setting on "
+                "very long sequences (e.g. a high-resolution refine); leave off "
+                "for an ordinary generation.",
+                required=False, min_value=0,
             ),
             PipeConfigSpec(
                 "sampler", str, "euler",
@@ -1487,6 +1504,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         sparse_attn_ctx = build_sparse_attn_ctx(self.config, layout)
         dense_last_steps = sparse_attn_dense_last_steps(self.config)
         sparse_attn_reserve = sparse_attn_reserve_gb(sparse_attn_ctx, layout)
+        seq_chunk_rows = int(self.config.get("seq_chunk_rows", 0) or 0)
         if isinstance(sparse_attn_ctx, SolAttnContext):
             logger.info(
                 "[GENERATOR MINIMAX-H3] Sol-Attn requested: tau=%.2f, %d exact prefix row(s) of %d, "
@@ -1566,6 +1584,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 video_rows, audio_rows, unique_timesteps.to(c.device), timestep_indices.to(c.device),
                 step_cache=None if is_final_step else step_cache,
                 sparse_attn_ctx=sparse_attn_ctx,
+                seq_chunk_rows=seq_chunk_rows,
             )
 
             # A step the cache skipped hands back the previous step's velocity;

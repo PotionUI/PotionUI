@@ -175,18 +175,22 @@ class MiniMaxH3Attention(nn.Module):
         self.out_proj = operations.Linear(inner_dim, hidden_size, bias=False, dtype=dtype, device=device)
 
     def forward(self, x: Tensor, rotary_emb: tuple[Tensor, Tensor] | None,
-                sparse_attn: SolAttnContext | SlaAttnContext | None = None) -> Tensor:
+                sparse_attn: SolAttnContext | SlaAttnContext | None = None,
+                seq_chunk_rows: int = 0) -> Tensor:
         b, s, _ = x.shape
-        q, k, v = self.qkv_proj(x).chunk(3, dim=-1)
-        q = q.view(b, s, self.heads, self.head_dim)
-        k = k.view(b, s, self.heads, self.head_dim)
-        v = v.view(b, s, self.heads, self.head_dim)
-        # Per-head RMSNorm BEFORE RoPE — order matters (dossier §A.5).
-        q = self.q_norm(q)
-        k = self.k_norm(k)
-        cos, sin = rotary_emb if rotary_emb is not None else (None, None)
-        q = _apply_rotary_emb(q, cos, sin)
-        k = _apply_rotary_emb(k, cos, sin)
+        if seq_chunk_rows and seq_chunk_rows < s:
+            q, k, v = self._chunked_qkv(x, rotary_emb, seq_chunk_rows)
+        else:
+            q, k, v = self.qkv_proj(x).chunk(3, dim=-1)
+            q = q.view(b, s, self.heads, self.head_dim)
+            k = k.view(b, s, self.heads, self.head_dim)
+            v = v.view(b, s, self.heads, self.head_dim)
+            # Per-head RMSNorm BEFORE RoPE — order matters (dossier §A.5).
+            q = self.q_norm(q)
+            k = self.k_norm(k)
+            cos, sin = rotary_emb if rotary_emb is not None else (None, None)
+            q = _apply_rotary_emb(q, cos, sin)
+            k = _apply_rotary_emb(k, cos, sin)
         # sparse_attention dispatches on the context's own type (Sol-Attn or
         # SLA) and consumes this pre-transpose BTHD layout directly. It
         # returns None whenever it did not run (off, dense-forced step,
@@ -196,13 +200,52 @@ class MiniMaxH3Attention(nn.Module):
         # option existed.
         sparse = sparse_attention(q, k, v, sparse_attn)
         if sparse is not None:
-            return self.out_proj(sparse.reshape(b, s, -1))
-        # MiniMax-H3 packs one request into a single attention document: no mask,
-        # ever (see the module docstring), so every attention backend is eligible.
-        out = _dispatch_attention(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2),
-                                   heads=self.heads, mask=None)
-        out = out.transpose(1, 2).reshape(b, s, -1)
+            out = sparse.reshape(b, s, -1)
+        else:
+            # MiniMax-H3 packs one request into a single attention document: no
+            # mask, ever (see the module docstring), so every attention backend
+            # is eligible. The attention core itself is never chunked — it is
+            # already memory-bounded by its own kernel.
+            out = _dispatch_attention(q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2),
+                                       heads=self.heads, mask=None)
+            out = out.transpose(1, 2).reshape(b, s, -1)
+        if seq_chunk_rows and seq_chunk_rows < s:
+            return torch.cat([self.out_proj(c) for c in out.split(seq_chunk_rows, dim=1)], dim=1)
         return self.out_proj(out)
+
+    def _chunked_qkv(self, x: Tensor, rotary_emb: tuple[Tensor, Tensor] | None,
+                      chunk_rows: int) -> tuple[Tensor, Tensor, Tensor]:
+        """Row-chunked qkv projection + per-head RMSNorm(q,k) + RoPE.
+
+        The fused ``qkv_proj`` output (``3*inner_dim`` wide) and the norm/RoPE
+        transients derived from it are the memory cost being bounded here — q,
+        k and v themselves must exist FULL-LENGTH for the attention core below,
+        so this writes each chunk's result into preallocated full-size buffers
+        rather than deferring the concatenation. Every op inside the loop
+        (linear projection, per-row RMSNorm, per-row RoPE) is row-independent,
+        so this is exact under chunking regardless of chunk size or a ragged
+        final chunk — see ``test_seq_chunk_rows_matches_unchunked_output``.
+        """
+        b, s, _ = x.shape
+        cos, sin = rotary_emb if rotary_emb is not None else (None, None)
+        q_full = x.new_empty(b, s, self.heads, self.head_dim)
+        k_full = x.new_empty(b, s, self.heads, self.head_dim)
+        v_full = x.new_empty(b, s, self.heads, self.head_dim)
+        start = 0
+        for x_chunk in x.split(chunk_rows, dim=1):
+            n = x_chunk.shape[1]
+            q_c, k_c, v_c = self.qkv_proj(x_chunk).chunk(3, dim=-1)
+            q_c = self.q_norm(q_c.view(b, n, self.heads, self.head_dim))
+            k_c = self.k_norm(k_c.view(b, n, self.heads, self.head_dim))
+            v_c = v_c.view(b, n, self.heads, self.head_dim)
+            if cos is not None:
+                q_c = _apply_rotary_emb(q_c, cos[start:start + n], sin[start:start + n])
+                k_c = _apply_rotary_emb(k_c, cos[start:start + n], sin[start:start + n])
+            q_full[:, start:start + n] = q_c
+            k_full[:, start:start + n] = k_c
+            v_full[:, start:start + n] = v_c
+            start += n
+        return q_full, k_full, v_full
 
 
 class MiniMaxH3MLP(nn.Module):
@@ -224,7 +267,16 @@ class MiniMaxH3MLP(nn.Module):
         self.fc1 = operations.Linear(hidden_size, 2 * ffn_dim, bias=False, dtype=dtype, device=device)
         self.fc2 = operations.Linear(ffn_dim, hidden_size, bias=False, dtype=dtype, device=device)
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: Tensor, seq_chunk_rows: int = 0) -> Tensor:
+        if seq_chunk_rows and seq_chunk_rows < x.shape[-2]:
+            # Row-chunked over the sequence axis so the ``2*ffn_dim`` fc1
+            # output only ever exists chunk-sized -- fc1/fc2 are per-row
+            # linears, exact under chunking regardless of a ragged tail.
+            chunks = []
+            for x_chunk in x.split(seq_chunk_rows, dim=-2):
+                gate, value = self.fc1(x_chunk).chunk(2, dim=-1)
+                chunks.append(self.fc2(F.silu(gate) * value))
+            return torch.cat(chunks, dim=-2)
         gate, value = self.fc1(x).chunk(2, dim=-1)
         return self.fc2(F.silu(gate) * value)
 
@@ -280,7 +332,8 @@ class MiniMaxH3Block(nn.Module):
                                               operations, dtype=dtype, device=device)
 
     def forward(self, x: Tensor, temb: Tensor, adaln_indices: Tensor, rotary_emb: tuple[Tensor, Tensor],
-                sparse_attn: SolAttnContext | SlaAttnContext | None = None) -> Tensor:
+                sparse_attn: SolAttnContext | SlaAttnContext | None = None,
+                seq_chunk_rows: int = 0) -> Tensor:
         # The AdaLN table inherits temb's fp32 (the time embedder is an fp32
         # island); applying it as-is would promote the whole packed stream to
         # fp32 for every block downstream — fp32 attention loses the flash
@@ -291,16 +344,20 @@ class MiniMaxH3Block(nn.Module):
             m.to(x.dtype) for m in self.adaln_proj(temb)
         )
 
+        # The modulation multiply/add below is per-row and elementwise (not
+        # the memory cost seq_chunk_rows targets, see model.py's forward-stage
+        # docstring), so it stays a plain full-tensor op; only attn/mlp's own
+        # internal transients get chunked.
         residual = x
         h = self.norm1(x)
         h = h * (1.0 + scale_msa.index_select(0, adaln_indices)) + shift_msa.index_select(0, adaln_indices)
-        h = self.attn(h, rotary_emb, sparse_attn)
+        h = self.attn(h, rotary_emb, sparse_attn, seq_chunk_rows)
         x = residual + gate_msa.index_select(0, adaln_indices) * h
 
         residual = x
         h = self.norm2(x)
         h = h * (1.0 + scale_mlp.index_select(0, adaln_indices)) + shift_mlp.index_select(0, adaln_indices)
-        h = self.mlp(h)
+        h = self.mlp(h, seq_chunk_rows)
         x = residual + gate_mlp.index_select(0, adaln_indices) * h
         return x
 
@@ -479,6 +536,7 @@ class MiniMaxH3Model(NativeArchModule):
                                      rotary_emb: tuple[Tensor, Tensor],
                                      step_cache=None,
                                      sparse_attn: SolAttnContext | SlaAttnContext | None = None,
+                                     seq_chunk_rows: int = 0,
                                      ) -> tuple[Tensor, Tensor | None, bool]:
         """Run the block stack, optionally gated by FBCache (see
         ``sampling/step_cache.py``).
@@ -497,7 +555,7 @@ class MiniMaxH3Model(NativeArchModule):
         """
         probe = None
         for i, block in enumerate(self.blocks):
-            hidden_states = block(hidden_states, temb, adaln_indices, rotary_emb, sparse_attn)
+            hidden_states = block(hidden_states, temb, adaln_indices, rotary_emb, sparse_attn, seq_chunk_rows)
             if i == 0 and step_cache is not None:
                 probe = hidden_states
                 if step_cache.should_skip(probe):
@@ -558,6 +616,18 @@ class MiniMaxH3Model(NativeArchModule):
         of FBCache: a step the cache skips never reaches attention at all, and
         a dense-forced sparse-attention step is an ordinary cached-or-computed
         step.
+
+        ``seq_chunk_rows`` (keyword, optional): low-VRAM sequence chunking.
+        ``0`` (default) is off and byte-identical to a build without the
+        feature. Above ``0``, every block's qkv projection + RMSNorm(q,k) +
+        RoPE, and its SwiGLU MLP, run row-chunked over the packed sequence
+        instead of materializing their full-length intermediate transients at
+        once (the ``2*ffn_dim`` SwiGLU output and the fused ``3*inner_dim``
+        qkv projection are the two that OOM first on a long refine sequence).
+        The attention core itself is never chunked. A quantized DiT
+        (fp8/int8) dequantizes its weight on every ``Linear.forward`` call, so
+        this trades a smaller peak transient for one extra dequant per chunk
+        per chunked Linear — pick the chunk size accordingly.
         """
         if position_ids.ndim != 2 or position_ids.shape[-1] != 3:
             raise ValueError(f"position_ids must be (seq_len, 3), got {list(position_ids.shape)}")
@@ -587,8 +657,10 @@ class MiniMaxH3Model(NativeArchModule):
 
         step_cache = kwargs.pop("step_cache", None)
         sparse_attn_ctx = kwargs.pop("sparse_attn_ctx", None)
+        seq_chunk_rows = kwargs.pop("seq_chunk_rows", 0)
         packed, probe, skipped = self._process_transformer_blocks(
             packed, temb, adaln_indices, rotary_emb, step_cache=step_cache, sparse_attn=sparse_attn_ctx,
+            seq_chunk_rows=seq_chunk_rows,
         )
         if skipped:
             return step_cache.record_skip()

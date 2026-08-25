@@ -134,6 +134,18 @@ fields:
             configuration: {min: 0, max: 10, step: 1}
 
   - type: "section"
+    label: "Low-VRAM"
+    audience: "advanced"
+    children:
+      - name: "seq_chunk_rows"
+        type: "slider"
+        label: "Sequence chunk rows"
+        audience: "advanced"
+        default: 16384
+        ai_hint: "Row-chunks the DiT's internal qkv projection and SwiGLU MLP over this refine's (always large) packed sequence, so a high-resolution refine fits on smaller GPUs. A speed-for-memory trade, never a quality change -- it produces the exact same output, just with a small per-chunk overhead. 0 disables it (full-sequence, fastest, most VRAM); only lower it further than the default if the refine still runs out of memory, or raise it (or set to 0) on a GPU with room to spare."
+        configuration: {min: 0, max: 32768, step: 1024}
+
+  - type: "section"
     label: "Step cache (FBCache)"
     audience: "advanced"
     children:

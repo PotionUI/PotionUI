@@ -748,3 +748,98 @@ def test_sol_attn_composes_with_the_step_cache(monkeypatch):
     # The skipped step ran block 0 only, so exactly one more sparse-eligible
     # attention happened, not another full stack.
     assert len([c for c in seen if c is ctx]) == first_pass + 1
+
+
+# --- seq_chunk_rows (low-VRAM sequence chunking) -----------------------------
+
+def test_seq_chunk_rows_default_off_is_byte_identical():
+    """Called without the kwarg at all -- the model's whole forward signature
+    predates the feature -- must behave exactly as before it existed."""
+    m = _build_ready(TINY_FULL)
+    layout = _tiny_layout(text_n=2, video_n=13, audio_n=7)
+    torch.manual_seed(40)
+    inputs = _fbcache_inputs(TINY_FULL, layout)
+    ts = torch.tensor([0.2, 0.9])
+    no_kwarg = _fbcache_forward(m, layout, inputs, ts)
+    explicit_zero = _fbcache_forward(m, layout, inputs, ts, seq_chunk_rows=0)
+    for a, b in zip(no_kwarg, explicit_zero):
+        assert torch.equal(a, b)
+
+
+def test_seq_chunk_rows_matches_unchunked_output_evenly_dividing():
+    """22-row packed sequence (2 text + 13 video + 7 audio), chunk=11 divides
+    it evenly. Every chunked computation (qkv projection, RMSNorm(q,k), RoPE,
+    SwiGLU MLP) is row-independent, so this must be bit-exact, not merely
+    close."""
+    m = _build_ready(TINY_FULL)
+    layout = _tiny_layout(text_n=2, video_n=13, audio_n=7)
+    torch.manual_seed(41)
+    inputs = _fbcache_inputs(TINY_FULL, layout)
+    ts = torch.tensor([0.2, 0.9])
+    base = _fbcache_forward(m, layout, inputs, ts)
+    chunked = _fbcache_forward(m, layout, inputs, ts, seq_chunk_rows=11)
+    for a, b in zip(base, chunked):
+        assert torch.equal(a, b)
+
+
+def test_seq_chunk_rows_matches_unchunked_output_ragged_tail():
+    """Same 22-row sequence, chunk=6 does NOT divide it evenly (22 = 3*6 + 4)
+    -- the last chunk is a partial one. Still bit-exact: torch.split already
+    handles a ragged final chunk, and every op inside the chunked path is
+    row-independent regardless of chunk width."""
+    m = _build_ready(TINY_FULL)
+    layout = _tiny_layout(text_n=2, video_n=13, audio_n=7)
+    torch.manual_seed(42)
+    inputs = _fbcache_inputs(TINY_FULL, layout)
+    ts = torch.tensor([0.2, 0.9])
+    base = _fbcache_forward(m, layout, inputs, ts)
+    chunked = _fbcache_forward(m, layout, inputs, ts, seq_chunk_rows=6)
+    for a, b in zip(base, chunked):
+        assert torch.equal(a, b)
+
+
+def test_seq_chunk_rows_larger_than_sequence_is_a_noop():
+    """A chunk width at or above the sequence length must take the same
+    unchunked branch as seq_chunk_rows=0 (both guard conditions in
+    MiniMaxH3Attention.forward/MiniMaxH3MLP.forward are `seq_chunk_rows <
+    seq_len`), not merely produce an equal result via a single-iteration
+    loop."""
+    m = _build_ready(TINY_FULL)
+    layout = _tiny_layout(text_n=2, video_n=13, audio_n=7)  # seq_len = 22
+    torch.manual_seed(43)
+    inputs = _fbcache_inputs(TINY_FULL, layout)
+    ts = torch.tensor([0.2, 0.9])
+    base = _fbcache_forward(m, layout, inputs, ts)
+    chunked = _fbcache_forward(m, layout, inputs, ts, seq_chunk_rows=1000)
+    for a, b in zip(base, chunked):
+        assert torch.equal(a, b)
+
+
+def test_seq_chunk_rows_composes_with_sparse_attn(monkeypatch):
+    """The attention core (dispatched via sparse_attention/_dispatch_attention)
+    is never chunked -- only the qkv projection and out_proj feeding it are.
+    Sol-Attn must still see the FULL-length q/k/v every chunked call
+    assembles, not a chunk-sized slice."""
+    seq_len = 22  # 2 text + 13 video + 7 audio
+    seen_shapes: list[tuple[int, ...]] = []
+    seen_ctx: list = []
+
+    def recording(q, k, v, ctx):
+        seen_shapes.append(tuple(q.shape))
+        seen_ctx.append(ctx)
+        return None  # dense fallback, same as the real seam on this CPU box
+
+    monkeypatch.setattr(
+        "src.platform.runtime.native.arch.minimax_h3.model.sparse_attention", recording,
+    )
+    m = _build_ready(TINY_FULL)
+    layout = _tiny_layout(text_n=2, video_n=13, audio_n=7)
+    torch.manual_seed(44)
+    inputs = _fbcache_inputs(TINY_FULL, layout)
+    ctx = SolAttnContext(tau=1.2, sink_tokens=4)
+
+    _fbcache_forward(m, layout, inputs, torch.tensor([0.2, 0.9]), sparse_attn_ctx=ctx, seq_chunk_rows=6)
+
+    main_block_shapes = [s for s, c in zip(seen_shapes, seen_ctx) if c is ctx]
+    assert len(main_block_shapes) == TINY_FULL["num_layers"]
+    assert all(s[1] == seq_len for s in main_block_shapes)  # full-length rows, not a 6-row chunk

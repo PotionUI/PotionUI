@@ -549,7 +549,7 @@ def _fake_dit_module(video_patch_dim: int, audio_channels: int = 32, seen_step_c
 
     def forward(*, hidden_states, audio_hidden_states, encoder_hidden_states, timestep,
                 timestep_indices, token_tags, position_ids, video_indices, audio_indices, text_indices,
-                step_cache=None, sparse_attn_ctx=None):
+                step_cache=None, sparse_attn_ctx=None, seq_chunk_rows=0):
         seen_step_caches.append(step_cache)
         if seen_sol_attn is not None:
             # ONE context is reused across the window and its `dense` flag is

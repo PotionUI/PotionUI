@@ -1,0 +1,222 @@
+# Standalone "upscale" mode for the native MiniMax-H3 family -- the HD
+# detailer: spatially upscale an EXISTING H3 video the user already has (e.g.
+# a video/refs-mode output), then run a short partial-denoise refine pass at
+# the new resolution.
+#
+#   media_loader -> model_loader/minimax_h3 -> prompt_encoder -> seed_generator
+#     -> latent_upscaler/minimax_h3 (VAE-encodes the source video onto H3's own
+#        release canvas, then upsamples the resulting latent via the model
+#        bundle's upscale_model)
+#     -> generator/video_minimax_h3 (refine pass: `initial_latent` = the
+#        upsampled latent, `denoise`/`video_sigma_shift`/`steps` = this
+#        mode's own recipe, source audio passed straight through)
+#     -> gallery
+#
+# Same shape as LTX-2's modes/upscale/pipeline.yml (VAE-encode an existing
+# file -> upsample the latent -> refine at the new resolution), adapted to
+# H3's own refine contract: a flat `denoise`/`video_sigma_shift` config
+# rather than a sigma-list override, and the joint video+audio packed
+# sequence -- `audio_source: "passthrough"` below mutes this pipe's own
+# sampled soundtrack and mux'es the source's verbatim instead (see
+# generator/video_minimax_h3's module docstring, "Audio on a refine").
+#
+# No refine-quality prompt suffix (unlike LTX's `refine_quality_prompt`): H3's
+# prompt is a structured multi-field document (preset.yml's `llm.guide`), not
+# free English text a quality clause can be appended to without breaking the
+# format the text encoder was trained on -- the prompt pane stays visible and
+# optional, same as the video mode's own plain-t2va path already handles an
+# empty prompt.
+pipeline:
+  - name: "media_loader"
+    id: "media_loader"
+    enabled: true
+    configuration:
+      validate_files: true
+      max_file_size: 524288000  # 500MB
+      auto_detect_type: true
+      media:
+        - type: "video"
+          path: "{{ form.input_video }}"
+
+  - name: "model_loader/minimax_h3"
+    enabled: true
+    configuration:
+      model:
+        file_path: "{{ form.model }}"
+        name: "{{ form.model }}"
+      text_encoder:
+        file_path: "{{ form.text_encoder }}"
+        name: "{{ form.text_encoder }}"
+      video_vae:
+        file_path: "{{ form.video_vae }}"
+        name: "{{ form.video_vae }}"
+      audio_vae:
+        file_path: "{{ form.audio_vae }}"
+        name: "{{ form.audio_vae }}"
+      upscale_model:
+        file_path: "{{ form.upscale_model }}"
+        name: "{{ form.upscale_model }}"
+      loras:
+        "@loop":
+          items: "{{ form.loras | default([]) }}"
+          template:
+            file_path: "{{ item.model }}"
+            weight: "{{ item.strength }}"
+
+  #############
+  ## Prompt encoder. No `image`/reference input -- this mode has no
+  ## keyframe/reference overlay, only the refine's own `initial_latent`
+  ## (module docstring). No `n_prompt` block and guidance_scale pinned at
+  ## 1.0, same reasoning as the video mode's own prompt_encoder: H3 is
+  ## guidance-distilled and has no negative branch to encode.
+  #############
+  - name: "prompt_encoder"
+    input:
+      - ["text_encoder", "model_loader/minimax_h3", "text_encoder"]
+    enabled: true
+    configuration:
+      p_prompt:
+        input: "{{ generation.prompts.first.positive }}"
+        output: "{{ generation.prompts.first.positive }}"
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity | default(1) }}"
+      guidance_scale: 1.0
+
+  - name: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed | default(-1) }}"
+      quantity: "{{ form.quantity | default(1) }}"
+
+  #############
+  ## Rendered prompts (provenance)
+  ############
+  - name: "dynamic_prompts_renderer"
+    id: "dynamic_prompts_renderer"
+    enabled: true
+    configuration:
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity | default(1) }}"
+
+  #############
+  ## IOType to Value Converter
+  ############
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  #############
+  ## Parameter Emitter
+  ############
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: "{{ form.quantity | default(1) }}"
+      parameters:
+        - ["model", "{{ form.model }}"]
+        - ["model", "{{ form.text_encoder }}"]
+        - ["model", "{{ form.video_vae }}"]
+        - ["model", "{{ form.audio_vae }}"]
+        - ["model", "{{ form.upscale_model }}"]
+        - "@loop":
+            items: "{{ form.loras | default([]) | active_loras }}"
+            template: ["model", "{{ item.model }}"]
+        - ["positive_prompt", "{{ generation.prompts.positives }}"]
+        - ["target_size", "{{ form.target_size | default('hd') }}"]
+        - ["refine_strength", "{{ form.refine_strength | default('balanced') }}"]
+        - ["denoise", "{{ form.denoise | default(0.45) }}"]
+        - ["steps", "{{ form.steps | default(4) }}"]
+
+  #############
+  ## VAE-encode the source video onto H3's own release canvas, then upsample
+  ## the resulting latent via the model bundle's upscale_model. The friendly
+  ## Target Size select (Generation tab) maps onto the pipe's own
+  ## target_mode/megapixels/scale knobs here in pipeline.yml (not a reaction
+  ## -- unlike Refine Strength -> denoise, this one selects between two
+  ## DIFFERENT config keys the pipe reads mutually exclusively, which a
+  ## reaction can't express in one step): 'hd'/'2k' pick a decimal-megapixel
+  ## area target off the source's own encode canvas; '1.5x'/'2x' pick a
+  ## straight axis multiplier instead.
+  #############
+  - name: "latent_upscaler/minimax_h3"
+    id: "latent_upscaler"
+    input:
+      - ["video", "media_loader", "video"]
+      - ["model", "model_loader/minimax_h3", "model"]
+    enabled: true
+    configuration:
+      target_mode: "{{ 'scale' if (form.target_size | default('hd')) in ['1.5x', '2x'] else 'megapixels' }}"
+      megapixels: "{{ 3.7 if (form.target_size | default('hd')) == '2k' else 2.1 }}"
+      scale: "{{ 2.0 if (form.target_size | default('hd')) == '2x' else 1.5 }}"
+
+  #############
+  ## Refine the upsampled latent at its own (post-upsample) resolution --
+  ## `initial_latent` connected means `resolution`/`frames` config are
+  ## ignored and derived from the latent's own shape instead (see
+  ## generator/video_minimax_h3's module docstring, "Refine entry path").
+  #############
+  - name: "generator/video_minimax_h3"
+    id: "generator_refine"
+    input:
+      - ["model", "model_loader/minimax_h3", "model"]
+      - ["conditioning", "prompt_encoder", "conditioning"]
+      - ["seed", "seed_generator", "seed"]
+      - ["initial_latent", "latent_upscaler", "latent"]
+      # Original (pre-temporal-padding) frame count of the source video, from
+      # latent_upscaler's own VAE-encode -- lets the generator trim that
+      # padding's repeated tail frames back out of its decoded output before
+      # mux (same idiom as LTX's own upscale mode).
+      - ["source_frame_count", "latent_upscaler", "source_frame_count"]
+      # The source video's own audio track, passed straight through into the
+      # refined output -- `audio_source: "passthrough"` below mutes this
+      # pipe's own sampled soundtrack instead of muxing it. A plain video
+      # path is a valid AudioInput (`_shared/media/video_encode.py`'s
+      # `encode_frames_to_mp4` docstring: "an existing video whose audio
+      # track should carry over into this new encode"), so the SAME
+      # media_loader "video" output the upscaler VAE-encodes is wired here
+      # too, unprobed until mux time.
+      - ["audio", "media_loader", "video"]
+    enabled: true
+    configuration:
+      mode: "video"
+      quantity: "{{ form.quantity | default(1) }}"
+      preview: "{{ form.preview | default(true) }}"
+      decode: true
+      audio_source: "passthrough"
+      # Refine strength: the friendly select (Generation tab) pins this
+      # tab's own `denoise` field via a reaction -- same friendly-select-
+      # pins-raw-field idiom the family's Speed profile already uses for
+      # `steps` (modes/video/tabs/advanced.yml).
+      denoise: "{{ form.denoise | default(0.45) }}"
+      video_sigma_shift: "{{ form.video_sigma_shift | default(9.0) }}"
+      steps: "{{ form.steps | default(4) }}"
+      sampler: "{{ form.sampler | default('euler') }}"
+      scheduler: "{{ form.scheduler | default('simple') }}"
+      manual_sigmas: "{{ form.manual_sigmas | default('') }}"
+      manual_audio_sigmas: "{{ form.manual_audio_sigmas | default('') }}"
+      step_cache_threshold: "{{ form.step_cache_threshold | default(0.0) }}"
+      step_cache_warmup_steps: "{{ form.step_cache_warmup_steps | default(4) }}"
+      step_cache_max_skips: "{{ form.step_cache_max_skips | default(3) }}"
+      sparse_attn: "{{ form.sparse_attn | default('off') }}"
+      sol_attn_tau: "{{ form.sol_attn_tau | default(1.0) }}"
+      sla_sparsity: "{{ form.sla_sparsity | default(0.9) }}"
+      sla_block_size: "{{ form.sla_block_size | default(64) | int }}"
+      sparse_attn_dense_last_steps: "{{ form.sparse_attn_dense_last_steps | default(2) }}"
+
+  #############
+  ## Gallery
+  ############
+  - name: "gallery"
+    input:
+      - ["video", "generator_refine", "video"]
+      - ["seed", "seed_generator", "seed"]
+    enabled: true
+    configuration:
+      save: "true"

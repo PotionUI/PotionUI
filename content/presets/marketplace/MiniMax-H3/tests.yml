@@ -98,6 +98,34 @@ cases:
       min_outputs: 1
       not_black: true
 
+  # Upscale (HD detailer): latent-space upscale of an existing video plus a
+  # short refine pass. Requires an input video the headless suite can't
+  # supply, so placeholder+needs-model makes it skip -- same idiom as LTX-2's
+  # own "ltx-upscale-refine-fast" case.
+  - name: "minimax-h3-upscale-fast"
+    mode: "upscale"
+    kind: "video"
+    seed: 12345
+    tags: ["fast", "needs-model"]
+    form:
+      target_size: "hd"
+      refine_strength: "balanced"
+      steps: 4
+    models:
+      model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      text_encoder:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      video_vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      audio_vae:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+      upscale_model:
+        sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    checks:
+      min_outputs: 1
+      not_black: true
+
   # fl2va: the same request with opening and closing keyframes, which routes
   # the generator through the VAE-encoded condition-row path instead of pure
   # t2va. There is no manual Keyframes tab -- the only way to attach one is a

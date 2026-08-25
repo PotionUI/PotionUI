@@ -1,0 +1,164 @@
+# NOT a reuse of modes/video/tabs/advanced.yml (unlike the LoRA tab) -- that
+# file's "Keyframe encoding" section has no keyframe path on this mode's
+# refine-only request to bind to, and its Sampling section's Steps slider
+# carries speed_profile reactions this mode has no speed_profile field for.
+# Sampler/Scheduler/manual sigmas, Sparse attention and Step cache below are
+# the SAME knobs on the SAME generator pipe as that file's, kept by hand
+# rather than shared -- see that file if either drifts.
+fields:
+  - type: "section"
+    label: "Refine"
+    children:
+      - name: "denoise"
+        type: "slider"
+        label: "Refine denoise"
+        audience: "advanced"
+        default: 0.45
+        ai_hint: "Expert override of the Refine Strength select (Generation tab) -- prefer that select for ordinary use. Fraction of the schedule actually walked: lower stays closer to the upsampled source (less fixing of upsampling softness), higher gives the refine more freedom to add detail at the cost of drifting further from the source. Only has an effect on this mode -- it needs the upscaled latent this pipeline always connects."
+        configuration: {min: 0.05, max: 1.0, step: 0.05}
+        reactions:
+          - when: { field: "refine_strength", equals: "light" }
+            then: { set_value: 0.30 }
+          - when: { field: "refine_strength", equals: "balanced" }
+            then: { set_value: 0.45 }
+          - when: { field: "refine_strength", equals: "strong" }
+            then: { set_value: 0.60 }
+
+      - name: "video_sigma_shift"
+        type: "slider"
+        label: "Video sigma shift"
+        audience: "advanced"
+        default: 9.0
+        ai_hint: "The video stream's exponential-shift constant for this refine pass (the audio stream's own shift, 3.0, is unaffected and not exposed here). The released recipe uses 9 -- lower than a fresh generation's 12, since a refine starts from the upsampled source rather than pure noise. Only change this for a deliberate custom refine schedule."
+        configuration: {min: 0.1, max: 50.0, step: 0.5}
+
+      - name: "steps"
+        type: "slider"
+        label: "Refine steps"
+        audience: "advanced"
+        default: 4
+        ai_hint: "Denoising steps for the refine pass; video and audio share the count but step their own sigma schedules. The released recipe runs 4 -- raise only if the refine looks under-cooked at Strong denoise, or the user explicitly asks for more steps."
+        configuration: {min: 2, max: 24, step: 1}
+
+  - type: "section"
+    label: "Sampling"
+    audience: "advanced"
+    children:
+      - type: "row"
+        children:
+          - name: "sampler"
+            type: "select"
+            label: "Sampler"
+            audience: "advanced"
+            default: "euler"
+            ai_hint: "How each step advances between two sigmas. Euler is the reference solver and what the model was distilled against -- leave it there for an ordinary refine. Res multistep, DPM++ 2M and SA-Solver are deterministic second-order solvers that cost no extra time and mostly buy sharpness at this mode's low step counts. ER-SDE is stochastic instead, trading exact reproducibility for more variety."
+            configuration:
+              options:
+                - { label: "Euler (reference)", value: "euler" }
+                - { label: "Res multistep", value: "res_multistep" }
+                - { label: "DPM++ 2M", value: "dpmpp_2m" }
+                - { label: "ER-SDE (stochastic)", value: "er_sde" }
+                - { label: "SA-Solver", value: "sa_solver" }
+
+          - name: "scheduler"
+            type: "select"
+            label: "Scheduler"
+            audience: "advanced"
+            default: "simple"
+            ai_hint: "Where the steps land on the noise curve. Simple is the model's own uniform grid and the right answer unless asked otherwise. Beta pulls knots toward both ends, which tends to help short runs. Cannot be combined with this tab's manual sigmas."
+            configuration:
+              options:
+                - { label: "Simple (reference)", value: "simple" }
+                - { label: "Beta", value: "beta" }
+
+      - name: "manual_sigmas"
+        type: "textbox"
+        label: "Manual sigmas (video)"
+        default: ""
+        ai_hint: "An expert escape hatch for reshaping the refine's own schedule -- prefer Refine denoise/Refine steps above for ordinary use. Only reach for this when the user explicitly asks for a custom or non-uniform sigma schedule. Always end the list at 0.0 or the render is refused. The list is the grid, not the step count: N values run N-1 steps."
+        configuration:
+          placeholder: "e.g. 1.0, 0.93, 0.8, 0.55, 0.0"
+
+      - name: "manual_audio_sigmas"
+        type: "textbox"
+        label: "Manual sigmas (audio)"
+        default: ""
+        ai_hint: "Rarely needed -- this mode always mutes its own sampled audio and passes the source track through instead, so the audio schedule only affects an intermediate stream never muxed into the output. Leave blank."
+        configuration:
+          placeholder: "blank = matched to the video schedule"
+
+  - type: "section"
+    label: "Sparse attention"
+    audience: "advanced"
+    children:
+      - name: "sparse_attn"
+        type: "select"
+        label: "Sparse attention"
+        default: "off"
+        ai_hint: "A speed-for-fidelity trade on long MiniMax-H3 sequences, never a quality improvement. Offer it only when the user explicitly asks for a faster refine and accepts some loss of fine detail. Sol-Attn scores every KV block against a threshold; SLA keeps a fixed top-k fraction of blocks and pairs with the lightx2v SLA turbo LoRA. Neither does anything on machines without a recent CUDA GPU."
+        configuration:
+          options:
+            - { label: "Off", value: "off" }
+            - { label: "Sol-Attn (threshold)", value: "sol" }
+            - { label: "SLA (top-k, pairs with SLA turbo LoRA)", value: "sla" }
+      - type: "row"
+        children:
+          - name: "sol_attn_tau"
+            type: "slider"
+            label: "Sol-Attn sparsity"
+            default: 1.0
+            ai_hint: "Only has an effect when Sparse attention is Sol-Attn. Higher skips more attention work: faster and less faithful."
+            configuration: {min: 0.0, max: 3.0, step: 0.1}
+          - name: "sla_sparsity"
+            type: "slider"
+            label: "SLA sparsity"
+            default: 0.9
+            ai_hint: "Only has an effect when Sparse attention is SLA. Fraction of key blocks skipped -- higher is faster and less faithful. 0.85-0.90 is the sensible range once the SLA turbo LoRA is loaded."
+            configuration: {min: 0.0, max: 0.95, step: 0.05}
+      - type: "row"
+        children:
+          - name: "sla_block_size"
+            type: "select"
+            label: "SLA block size"
+            default: "64"
+            ai_hint: "Only has an effect when Sparse attention is SLA. 64 is the audio-safe choice. Since this mode always mutes its own sampled audio, 128 costs nothing here."
+            configuration:
+              options:
+                - { label: "64 (audio-safe)", value: "64" }
+                - { label: "128", value: "128" }
+          - name: "sparse_attn_dense_last_steps"
+            type: "slider"
+            label: "Exact final steps"
+            default: 2
+            ai_hint: "Only has an effect when Sparse attention is not Off. At this mode's low step counts, keep this close to the total step count -- there is little trajectory left to approximate."
+            configuration: {min: 0, max: 10, step: 1}
+
+  - type: "section"
+    label: "Step cache (FBCache)"
+    audience: "advanced"
+    children:
+      - type: "row"
+        children:
+          - name: "step_cache_threshold"
+            type: "slider"
+            label: "Cache threshold"
+            default: 0.0
+            ai_hint: "A speed-for-fidelity trade, never a quality improvement. This mode's refine already runs few steps (4 by default), so there is little left to skip -- keep at 0.0 unless the user explicitly raised Refine steps and wants the extra length faster."
+            configuration: {min: 0.0, max: 0.3, step: 0.01}
+          - name: "step_cache_warmup_steps"
+            type: "slider"
+            label: "Warmup steps"
+            default: 4
+            ai_hint: "Only has an effect when Cache threshold is above 0. At this mode's default 4 steps, a warmup of 4 leaves nothing for the cache to skip -- lower it if step count and warmup are both raised together."
+            configuration: {min: 0, max: 12, step: 1}
+          - name: "step_cache_max_skips"
+            type: "slider"
+            label: "Max consecutive skips"
+            default: 3
+            ai_hint: "Only has an effect when Cache threshold is above 0. Cap at 1-2 whenever the Sampler is Res multistep or DPM++ 2M -- consecutive skips feed the same replayed velocity into those samplers' history."
+            configuration: {min: 0, max: 10, step: 1}
+
+  - name: "preview"
+    type: "checkbox"
+    label: "Live preview"
+    default: true

@@ -38,7 +38,7 @@ On the native engine alone, presets currently cover:
 | Anima              | Image (txt2img)                   | [docs/models/anima.md](docs/models/anima.md)                   |
 | Wan 2.1 / 2.2      | Video                             | [docs/models/wan.md](docs/models/wan.md)                       |
 | LTX-2 / 2.3 / 2.5  | Video (with audio), video upscale | [docs/models/ltx.md](docs/models/ltx.md)                       |
-| MiniMax-H3         | Video (with reference images)     | [docs/models/minimax_h3.md](docs/models/minimax_h3.md)         |
+| MiniMax-H3         | Video (with reference images), video upscale | [docs/models/minimax_h3.md](docs/models/minimax_h3.md)         |
 | MiniMax-Music3     | Audio (song)                      | [docs/models/minimax_music3.md](docs/models/minimax_music3.md) |
 | SeedVR2            | Image & video upscale / restore   | [docs/models/seedvr2.md](docs/models/seedvr2.md)               |
 

@@ -1,0 +1,102 @@
+# Krea-2/LTX-upscale layout: a "Video" section holds the source clip plus
+# seed/quantity and this mode's own friendly upscale controls, a "Models"
+# section holds the file pickers (the video mode's own four plus the latent
+# upscaler). No Resolution field -- the target size is derived from the
+# SOURCE video, not picked independently the way a fresh generation's canvas
+# is.
+fields:
+  - type: "section"
+    label: "Video"
+    children:
+      - name: "input_video"
+        type: "video"
+        label: "Input Video"
+        required: true
+        ai_hint: "An existing MiniMax-H3 video to upscale and refine (the 'HD detailer' pass), for example a Text to Video or References mode output. Latent-space upscale followed by a short partial-denoise refine at the new resolution. Any frame count or resolution works; frame count is padded up to the video VAE's own lattice, which can add up to ~0.7s of a frozen final frame."
+
+      - type: "row"
+        children:
+          - name: "seed"
+            type: "seed"
+            label: "Seed"
+            default: -1
+            width: "3/5"
+
+          - name: "quantity"
+            type: "stepper"
+            label: "Quantity"
+            default: 1
+            configuration: {min: 1, max: 4, step: 1}
+            width: "2/5"
+            full_width: true
+
+      - name: "target_size"
+        type: "select"
+        label: "Target Size"
+        default: "hd"
+        ai_hint: "How large the upscale targets, as an area or a straight multiple of the source's own encode canvas. 'HD' is the checkpoint's own release canvas area and the recommended default. '2K' is a heavier area target for a source that is already close to HD. The two multiplier options scale the source canvas directly rather than hitting a fixed area -- reach for those when the user wants a specific size relationship to the source rather than a fixed resolution class. All four still round onto the model's own 32px canvas grid."
+        configuration:
+          options:
+            - { label: "HD (~2.1MP, native H3 canvas)", value: "hd" }
+            - { label: "2K (~3.7MP)", value: "2k" }
+            - { label: "1.5x source", value: "1.5x" }
+            - { label: "2x source", value: "2x" }
+
+      - name: "refine_strength"
+        type: "select"
+        label: "Refine Strength"
+        default: "balanced"
+        ai_hint: "Friendly control for the refine pass that follows the latent upscale. Balanced is the recommended default. Suggest Light only when the user wants the refine to stay close to the upsampled source as-is (less fixing of upsampling softness, less risk of drifting from the source); suggest Strong only when they explicitly want the refine to work harder on detail and accept more deviation. The Advanced tab's Refine denoise field is an expert override of this same knob -- prefer this select."
+        configuration:
+          options:
+            - { label: "Light", value: "light" }
+            - { label: "Balanced (recommended)", value: "balanced" }
+            - { label: "Strong", value: "strong" }
+
+  - type: "section"
+    label: "Models"
+    children:
+      - name: "model"
+        type: "model"
+        label: "MiniMax-H3 DiT"
+        required: true
+        configuration:
+          model_type: "diffusion_model"
+          placeholder: "minimax_h3_fl2va_pruned_fp8_scaled..."
+          filter_tags: "@config:checkpoint_tags"
+
+      - name: "text_encoder"
+        type: "model"
+        label: "Text Encoder (Qwen3-VL-32B)"
+        required: true
+        configuration:
+          model_type: "text_encoder"
+          placeholder: "Select the Qwen3-VL-32B encoder..."
+          filter_tags: "@config:text_encoder_tags"
+
+      - name: "video_vae"
+        type: "model"
+        label: "Video VAE"
+        required: true
+        configuration:
+          model_type: "vae"
+          placeholder: "minimax_h3_video_vae..."
+          filter_tags: "@config:vae_tags"
+
+      - name: "audio_vae"
+        type: "model"
+        label: "Audio VAE"
+        required: true
+        configuration:
+          model_type: "vae"
+          placeholder: "minimax_h3_audio_vae..."
+          filter_tags: "@config:vae_tags"
+
+      - name: "upscale_model"
+        type: "model"
+        label: "Latent Upscaler"
+        required: true
+        configuration:
+          model_type: "upscaler"
+          placeholder: "Select a MiniMax-H3 3D latent upscaler..."
+          filter_tags: "@config:upscaler_tags"

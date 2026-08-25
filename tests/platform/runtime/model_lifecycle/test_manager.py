@@ -57,6 +57,20 @@ def _no_real_cuda_calls(monkeypatch):
     monkeypatch.setattr("torch.cuda.empty_cache", lambda: None, raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _plentiful_host_ram(monkeypatch):
+    # `acquire()` reads real host RAM through `get_system_memory()`; on a
+    # small-RAM runner (CI has ~16GB) the RAM-pressure path fires and evicts
+    # entries mid-test. Pin it high so only tests that patch it themselves
+    # (TestRamPressureEviction - their later setattr wins) exercise eviction.
+    gb = 1024**3
+    monkeypatch.setattr(
+        manager_module,
+        "get_system_memory",
+        lambda: SystemMemory(total=int(256 * gb), available=int(200 * gb)),
+    )
+
+
 @pytest.fixture
 def fake_gpu_manager():
     gpu = Mock()

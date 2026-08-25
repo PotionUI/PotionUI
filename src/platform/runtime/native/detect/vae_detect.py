@@ -186,6 +186,20 @@ see ``detect_seedvr2_vae_config`` below, not renumbered into this list):
    (``video_cross_attention_dim``, ``audio_cross_attention_dim``,
    ``pooler_hidden_dim``, ``num_queries``, ``num_pooler_heads``,
    ``mlp_hidden_dim``).
+
+11. **MiniMax-H3 3D latent upsampler** (``detect_minimax_h3_latent_upsampler_config``)
+   -- the Apache-2.0 ``LBH-123-AI/Minimax_h3_latent_Upscaler`` checkpoint
+   (``minimax_h3_latent_upscaler_3d_bf16.safetensors``). Unlike every LTX
+   component above, this checkpoint carries no embedded ``__metadata__`` at
+   all (verified against the real header), so detection is entirely
+   shape-derived from ``sd`` -- same pattern as #8/#9. Signature:
+   ``conv_in.weight`` (a 5D conv) plus ``embed.0.weight`` and
+   ``norm_out.weight`` both present. See ``vae/minimax_h3_latent_upsampler.py``
+   for the full architecture.
+
+   Config dict schema: matches ``MiniMaxH3LatentUpsampler.from_config``'s
+   kwargs (``in_channels``, ``channels``, ``num_res_blocks``,
+   ``temporal_every``, ``temporal_kernel``, ``embed_dim``).
 """
 
 from __future__ import annotations
@@ -702,5 +716,43 @@ def detect_minimax_music3_dav_config(
     logger.debug(
         "detected minimax_music3 DAV vocoder: latent_channels=%d decoder_hidden_dim=%d",
         latent_channels, decoder_hidden_dim,
+    )
+    return config
+
+
+def detect_minimax_h3_latent_upsampler_config(sd: dict[str, torch.Tensor]) -> dict | None:
+    """Return a config dict for a MiniMax-H3 3D latent upsampler state dict
+    (the Apache-2.0 ``LBH-123-AI/Minimax_h3_latent_Upscaler`` checkpoint --
+    see ``vae/minimax_h3_latent_upsampler.py``), else ``None``. No embedded
+    metadata exists for this checkpoint (unlike the LTX latent upsampler
+    above), so every field is shape-derived from ``sd``.
+    """
+    conv_in = sd.get("conv_in.weight")
+    if conv_in is None or conv_in.ndim != 5:
+        return None
+    if "embed.0.weight" not in sd or "norm_out.weight" not in sd:
+        return None
+
+    channels = int(conv_in.shape[0])
+    in_channels = int(conv_in.shape[1])
+    num_res_blocks = len({
+        int(k.split(".")[1]) for k in sd
+        if k.startswith("in_blocks.") and ".in_layers." in k
+    })
+    dwconv_key = next((k for k in sd if k.endswith(".dwconv.weight")), None)
+    temporal_kernel = int(sd[dwconv_key].shape[2]) if dwconv_key is not None else 5
+    embed_dim = int(sd["embed.0.weight"].shape[0])
+
+    config = {
+        "in_channels": in_channels,
+        "channels": channels,
+        "num_res_blocks": num_res_blocks,
+        "temporal_every": 2,  # not shape-derived -- single released variant
+        "temporal_kernel": temporal_kernel,
+        "embed_dim": embed_dim,
+    }
+    logger.debug(
+        "detected minimax_h3 latent upsampler: in=%d channels=%d res_blocks=%d embed_dim=%d",
+        in_channels, channels, num_res_blocks, embed_dim,
     )
     return config

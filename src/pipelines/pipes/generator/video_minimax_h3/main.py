@@ -58,7 +58,15 @@ independent of `decode` (a later stage can mux it without re-sampling).
 with `document`/`image`/every reference input (dossier: a refine has no
 keyframe/reference overlay to combine with). `resolution`/`frames` are then
 DERIVED from the latent's own shape rather than read from config, exactly as
-`txt2vid_ltx` derives them. `denoise` (default `1.0`, a no-op) truncates the
+`txt2vid_ltx` derives them -- NOT run through `resolve_request_geometry`'s own
+area cap/short-edge canvas rule, deliberately: a refine latent already exists
+at whatever resolution its own upstream generation produced it at (e.g. a
+1920x1088 latent-upscaled target, well above the release canvas's
+`CANVAS_MAX_PIXELS`), and that cap is a fresh-generation rule this pipe has no
+business re-applying to a latent it played no part in sizing. Only an
+even-latent-dimension check (pixel = latent * 16 must land on the 32px canvas
+grid) and an aspect-ratio sanity check still apply. `denoise` (default `1.0`,
+a no-op) truncates the
 schedule the ComfyUI `BasicScheduler` way (see `schedule.build_t_grid`);
 `video_sigma_shift` (default `schedule.VIDEO_SHIFT`) lets the refine run its
 video stream at a different shift than a fresh generation without touching
@@ -126,7 +134,10 @@ from src.pipelines.pipes.generator.video_minimax_h3.conditioning import (
     prepare_reference_conditioning,
 )
 from src.pipelines.pipes.generator.video_minimax_h3.geometry import (
+    CANVAS_MULTIPLE,
     FPS,
+    MAX_ASPECT_RATIO,
+    MIN_ASPECT_RATIO,
     audio_latent_num_frames,
     pixel_frames_for_latent_frames,
     resolve_request_geometry,
@@ -768,9 +779,14 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                           "space -- this pipe normalizes it itself, the exact inverse of the "
                           "'* latents_std + latents_mean' step 'decode' applies. Connected -> "
                           "'resolution'/'frames' config are ignored and DERIVED from the latent's own "
-                          "shape instead, and 'denoise' controls how much of the schedule is walked. "
-                          "Absent -> ordinary generation from pure noise, unchanged. Mutually exclusive "
-                          "with 'document', 'image'/'keyframe_anchors' and every reference input",
+                          "shape instead (H_lat/W_lat must be even -- pixel = latent * 16 has to land "
+                          "on the 32px canvas grid), and 'denoise' controls how much of the schedule is "
+                          "walked. NOT bound by the release canvas's own area cap/short edge -- a refine "
+                          "latent already exists at whatever resolution its own upstream generation "
+                          "used (e.g. 1920x1088, well above that cap); only an aspect-ratio sanity check "
+                          "still applies. Absent -> ordinary generation from pure noise, unchanged. "
+                          "Mutually exclusive with 'document', 'image'/'keyframe_anchors' and every "
+                          "reference input",
                           is_array=True),
             PipeInputSpec("source_frame_count", IOType.INT, False,
                           "Original (pre-temporal-padding) frame count of a refine's source clip, from "
@@ -903,18 +919,19 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 )
             audio_file = audio_files[0]
 
-        # This pipe's `resolution` config always applies (no "auto" sentinel):
-        # unlike the reference, which derives the canvas from a keyframe's own
-        # aspect ratio when `height`/`width` are unset, a keyframe here is
-        # always fit onto the CONFIGURED canvas (`conditioning.
-        # fit_keyframe_to_canvas`). Documented gap, not a silent behavior
-        # difference.
         if initial_latents:
             # A refine pass derives width/height/frames from the SEED
             # LATENT's own shape rather than 'resolution'/'frames' config --
             # an upstream latent's source is only known at runtime, never at
             # preset-render time (same rationale `txt2vid_ltx.build_context`
-            # documents for its own 'initial_latent').
+            # documents for its own 'initial_latent'). Deliberately NOT
+            # `resolve_request_geometry`/`resolve_canvas_size`: those enforce
+            # the RELEASE canvas's own area cap (CANVAS_MAX_PIXELS) and short
+            # edge, which is a fresh-generation rule -- a refine latent
+            # already exists at whatever resolution its own upstream
+            # generation used (e.g. a 1920x1088 latent-upscaled target, well
+            # above that cap), and re-applying the cap here would reject a
+            # latent this pipe had no part in sizing.
             b0, c0, t_lat0, h_lat0, w_lat0 = initial_latents[0].shape
             if int(c0) != VIDEO_LATENT_CHANNELS:
                 raise ValueError(
@@ -922,7 +939,26 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                     f"channels, got {int(c0)}"
                 )
             latent_height, latent_width = int(h_lat0), int(w_lat0)
+            if latent_height % 2 or latent_width % 2:
+                # pixel = latent * 16 has to land on the CANVAS_MULTIPLE=32
+                # grid (16 * patch_size[1]/[2]=2) -- an odd latent dimension
+                # produces a pixel size off that grid and the packed-sequence
+                # patchify (layout.py) would fail on it far less clearly.
+                raise ValueError(
+                    f"generator/video_minimax_h3: 'initial_latent' must have an even latent height and "
+                    f"width (pixel = latent * 16 has to land on the {CANVAS_MULTIPLE}px canvas grid), "
+                    f"got {latent_height}x{latent_width}"
+                )
             height, width = latent_height * 16, latent_width * 16
+            # Aspect-ratio sanity only -- see the area-cap note above for why
+            # the release canvas's own bound is skipped here.
+            aspect = width / height
+            if not (MIN_ASPECT_RATIO <= aspect <= MAX_ASPECT_RATIO):
+                raise ValueError(
+                    f"generator/video_minimax_h3: 'initial_latent' resolves to {width}x{height}, outside "
+                    f"MiniMax-H3's supported aspect range 1:{1 / MIN_ASPECT_RATIO:g} to "
+                    f"{MAX_ASPECT_RATIO:g}:1"
+                )
             num_latent_frames = int(t_lat0)
             frames = pixel_frames_for_latent_frames(num_latent_frames)
             num_audio_latents = audio_latent_num_frames(frames)

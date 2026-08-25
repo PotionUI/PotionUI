@@ -347,7 +347,7 @@ def test_configuration_contract_includes_denoise_and_video_sigma_shift():
     assert "video_sigma_shift" in names
 
 
-def _refine_latent(t_lat=7, h_lat=3, w_lat=4):
+def _refine_latent(t_lat=7, h_lat=4, w_lat=6):
     return torch.zeros(1, 24, t_lat, h_lat, w_lat)
 
 
@@ -359,10 +359,10 @@ def test_build_context_derives_geometry_from_initial_latent():
     ))
     # 7 latent frames = n=1 chunk -> 22 aligned pixel frames (17*1+5).
     assert ctx.extra.num_latent_frames == 7
-    assert ctx.extra.latent_height == 3
-    assert ctx.extra.latent_width == 4
-    assert ctx.extra.height == 48   # 3 * 16
-    assert ctx.extra.width == 64    # 4 * 16
+    assert ctx.extra.latent_height == 4
+    assert ctx.extra.latent_width == 6
+    assert ctx.extra.height == 64   # 4 * 16
+    assert ctx.extra.width == 96    # 6 * 16
     assert ctx.extra.frames == 22
     assert len(ctx.extra.initial_latents) == 1
     assert ctx.extra.denoise == pytest.approx(1.0)
@@ -444,6 +444,45 @@ def test_build_context_rejects_an_initial_latent_with_the_wrong_channel_count():
             model=bundle, conditioning=[_fake_conditioning(3)],
             initial_latent=[torch.zeros(1, 16, 7, 3, 4)],
         ))
+
+
+def test_build_context_rejects_odd_latent_height_or_width():
+    pipe = GeneratorMinimaxH3Pipe(GeneratorMinimaxH3Pipe.get_default_config())
+    bundle = _fake_bundle()
+    for h_lat, w_lat in ((3, 6), (4, 5)):
+        with pytest.raises(ValueError, match="even latent height and width"):
+            pipe.build_context(_pipe_input(
+                model=bundle, conditioning=[_fake_conditioning(3)],
+                initial_latent=[_refine_latent(h_lat=h_lat, w_lat=w_lat)],
+            ))
+
+
+def test_build_context_rejects_an_initial_latent_outside_the_aspect_range():
+    # latent 2x40 -> pixel 32x640, aspect 20:1, outside the 1:4..4:1 bound.
+    pipe = GeneratorMinimaxH3Pipe(GeneratorMinimaxH3Pipe.get_default_config())
+    bundle = _fake_bundle()
+    with pytest.raises(ValueError, match="aspect range"):
+        pipe.build_context(_pipe_input(
+            model=bundle, conditioning=[_fake_conditioning(3)],
+            initial_latent=[_refine_latent(h_lat=2, w_lat=40)],
+        ))
+
+
+def test_build_context_accepts_an_initial_latent_above_the_generation_canvas_cap():
+    # 1920x1088 (~2.09 MP) is deliberately ABOVE the release canvas's own
+    # CANVAS_MAX_PIXELS (768*1344 =~ 1.03 MP) -- a refine latent already
+    # exists at whatever resolution its own upstream generation used, and the
+    # release canvas's area cap must not reject it (module docstring, "Refine
+    # entry path"). latent = pixel / 16: 1088/16=68, 1920/16=120.
+    pipe = GeneratorMinimaxH3Pipe(GeneratorMinimaxH3Pipe.get_default_config())
+    bundle = _fake_bundle()
+    ctx = pipe.build_context(_pipe_input(
+        model=bundle, conditioning=[_fake_conditioning(3)],
+        initial_latent=[_refine_latent(h_lat=68, w_lat=120)],
+    ))
+    assert ctx.extra.height == 1088
+    assert ctx.extra.width == 1920
+    assert ctx.extra.height * ctx.extra.width > 768 * 1344  # above the release canvas cap, on purpose
 
 
 # -- refine entry path: _normalized_initial_latent ---------------------------

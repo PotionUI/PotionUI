@@ -56,8 +56,34 @@ from src.pipelines.pipes._shared.generation.loader_helpers import (
     path_of as _path_of,
     vram_budget as _vram_budget_fn,
 )
+from src.platform.runtime.native.base import NativeArchModule
+from src.platform.runtime.native.arch.minimax_h3.model import MiniMaxH3Model
+from src.platform.runtime.native.vae.minimax_h3_audio import MiniMaxH3AudioVAE
+from src.platform.runtime.native.vae.minimax_h3_latent_upsampler import MiniMaxH3LatentUpsampler
+from src.platform.runtime.native.vae.minimax_h3_video import MiniMaxH3VideoVAE
 from src.pipelines.pipes.model_loader.minimax_h3.bundle import MiniMaxH3ModelBundle
 from src.pipelines.pipes.model_loader.minimax_h3.clip import MiniMaxH3ClipTextEncoder
+
+
+def _assert_h3_component(label: str, model: Any, expected_cls: type, path: str) -> None:
+    """Refuse a component whose file loaded as a DIFFERENT family's arch.
+
+    The generic kinds ("vae", "latent_upscaler", "diffusion_model") route by
+    state-dict detection, and the model pickers filter by model_type only --
+    so e.g. an LTX VAE file selected in this preset's Video VAE picker loads
+    cleanly as the LTX class and then fails far downstream (a real 5090 run
+    OOM'd inside the LTX whole-clip encoder before any shape check could
+    fire). Only a constructed ``NativeArchModule`` of the wrong class is
+    rejected: test fakes and duck-typed stand-ins pass through untouched.
+    """
+    module = getattr(model, "module", None)
+    if isinstance(module, NativeArchModule) and not isinstance(module, expected_cls):
+        raise ValueError(
+            f"model_loader/minimax_h3: the '{label}' file {Path(path).name!r} loaded as "
+            f"{type(module).__name__} -- not a MiniMax-H3 {label}. The picker lists every model of the "
+            f"matching type, including other families' files; select the minimax_h3 file for this slot "
+            f"(or set the preset's model-tag filters to hide foreign files)."
+        )
 
 
 class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
@@ -209,6 +235,14 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
             return acquire(
                 f"native/te/{te_path}", f"{te_path}|{dtype}|vision=True", "text_encoder", te_path, vision=True,
             ).module
+
+        _assert_h3_component("model", dit_model, MiniMaxH3Model, model_path)
+        _assert_h3_component("video_vae", video_vae_model, MiniMaxH3VideoVAE, video_vae_path)
+        _assert_h3_component("audio_vae", audio_vae_model, MiniMaxH3AudioVAE, audio_vae_path)
+        if upsampler_model is not None:
+            _assert_h3_component(
+                "upscale_model", upsampler_model, MiniMaxH3LatentUpsampler, upscale_model_path,
+            )
 
         bundle = MiniMaxH3ModelBundle(
             dit=dit_model, te=None, video_vae=video_vae_model, audio_vae=audio_vae_model,

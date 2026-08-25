@@ -10,9 +10,11 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
 import torch
 
 from src.pipelines.contracts import IOType, PipeInput
+from src.platform.runtime.native.base import NativeArchModule
 from src.pipelines.pipes.model_loader.minimax_h3.bundle import MiniMaxH3ModelBundle
 from src.pipelines.pipes.model_loader.minimax_h3.clip import MiniMaxH3ClipTextEncoder
 from src.pipelines.pipes.model_loader.minimax_h3.main import ModelLoaderMinimaxH3Pipe
@@ -151,3 +153,65 @@ def test_no_models_service_loads_directly():
         _ = out.output["text_encoder"].encoder  # force the deferred 4th (TE) load
         assert mock_load.call_count == 4
     assert isinstance(out.output["model"], MiniMaxH3ModelBundle)
+
+
+class _ForeignArchModule(NativeArchModule):
+    """Stands in for e.g. an LTX VAE loaded from a file the picker offered:
+    a REAL engine arch module, just the wrong family for this preset."""
+
+    @classmethod
+    def from_config(cls, config, operations):
+        return cls()
+
+    def post_load(self):
+        return None
+
+
+class _FakeModelsWithModule(_FakeModels):
+    def __init__(self, module_for_key):
+        super().__init__()
+        self._module_for_key = module_for_key
+
+    def acquire(self, key, fingerprint, loader, estimated_vram_gb=None):
+        self.calls.append((key, fingerprint))
+        module = self._module_for_key(key)
+        return SimpleNamespace(module=module, spec=None, estimated_vram_gb=1.0, compute_dtype=torch.bfloat16)
+
+
+def test_wrong_family_video_vae_is_rejected_at_load_time():
+    # The real 5090 failure this guards: an LTX VAE file picked in the Video
+    # VAE slot loads cleanly (generic "vae" kind routes by state-dict
+    # detection) and only fails deep inside the LTX whole-clip encoder as an
+    # OOM. The loader must name the file and the wrong class instead.
+    models = _FakeModelsWithModule(
+        lambda key: _ForeignArchModule() if key.startswith("native/vae/") else object()
+    )
+    with pytest.raises(ValueError) as exc:
+        ModelLoaderMinimaxH3Pipe(_config()).process(PipeInput(input={"MODELS": models}), lambda o: None)
+    msg = str(exc.value)
+    assert "h3_video_vae.safetensors" in msg
+    assert "_ForeignArchModule" in msg
+    assert "video_vae" in msg
+
+
+def test_wrong_family_audio_vae_and_upsampler_are_rejected_too():
+    models = _FakeModelsWithModule(
+        lambda key: _ForeignArchModule() if key.startswith("native/audio_vae/") else object()
+    )
+    with pytest.raises(ValueError, match="audio_vae"):
+        ModelLoaderMinimaxH3Pipe(_config()).process(PipeInput(input={"MODELS": models}), lambda o: None)
+
+    cfg = _config()
+    cfg["upscale_model"] = {"file_path": "/m/ltx_spatial_upscaler.safetensors", "name": "ltx_spatial_upscaler"}
+    models = _FakeModelsWithModule(
+        lambda key: _ForeignArchModule() if key.startswith("native/h3_upsampler/") else object()
+    )
+    with pytest.raises(ValueError, match="upscale_model"):
+        ModelLoaderMinimaxH3Pipe(cfg).process(PipeInput(input={"MODELS": models}), lambda o: None)
+
+
+def test_non_arch_module_fakes_pass_the_family_guard():
+    # Duck-typed stand-ins (every other test in this file) must not trip the
+    # guard -- only a REAL NativeArchModule of the wrong class is rejected.
+    models, out = _run()
+    assert out.output["model"] is not None

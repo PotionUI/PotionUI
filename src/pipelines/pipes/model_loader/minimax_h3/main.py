@@ -20,6 +20,13 @@ here at load time -- `clip` is handed a lazy `te_factory` closure instead
 (see `clip.py`'s "Lazy TE acquisition"), so a `prompt_encoder`-level
 conditioning-cache hit (same prompt as a prior generation) never touches the
 TE, never mind reloads it from disk.
+
+Latent upscaler (``upscale_model``): an optional, standalone MiniMax-H3
+3D latent-upsampler checkpoint (``minimax_h3_latent_upscaler_3d_bf16.safetensors``),
+the same optional-slot shape as ``model_loader/ltx``'s own ``upscale_model`` --
+acquired only when configured, ``None`` (and uncached) otherwise, at zero
+extra VRAM/RAM cost when unset. ``latent_upscaler/minimax_h3`` reads
+``bundle.upsampler``.
 """
 
 from __future__ import annotations
@@ -64,6 +71,7 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
             "text_encoder": None,
             "video_vae": None,
             "audio_vae": None,
+            "upscale_model": None,
             "loras": [],
             "device": "cuda",
             "dtype": "bfloat16",
@@ -76,6 +84,7 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
             PipeConfigSpec("text_encoder", dict, None, "Qwen3-VL-32B text encoder", required=True),
             PipeConfigSpec("video_vae", dict, None, "MiniMax-H3 video VAE", required=True),
             PipeConfigSpec("audio_vae", dict, None, "MiniMax-H3 audio VAE (always loaded -- audio is inherent)", required=True),
+            PipeConfigSpec("upscale_model", dict, None, "Optional MiniMax-H3 3D latent-upscaler checkpoint", required=False),
             PipeConfigSpec("loras", list, [], "DiT LoRAs", required=False),
             PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
             PipeConfigSpec("dtype", str, "bfloat16", "Compute dtype", required=False,
@@ -108,6 +117,7 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
             ("text_encoder", "minimax_h3_qwen3vl_32b"),
             ("video_vae", "minimax_h3_video_vae"),
             ("audio_vae", "minimax_h3_audio_vae"),
+            ("upscale_model", "minimax_h3_latent_upscaler"),
         ):
             cfg = self.config.get(key)
             if _path_of(cfg):
@@ -162,7 +172,9 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
                 )
             return load()
 
-        progress = ComponentProgress(generation_outputs, models, self.progress_message(), total=3)
+        upscale_model_path = _path_of(self.config.get("upscale_model"))
+        total_components = 3 + (1 if upscale_model_path else 0)
+        progress = ComponentProgress(generation_outputs, models, self.progress_message(), total=total_components)
         progress.advance("DiT", f"native/dit/{model_path}")
         dit_model = acquire_dit()
         progress.advance("video VAE", f"native/vae/{video_vae_path}")
@@ -171,6 +183,16 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
         audio_vae_model = acquire(
             f"native/audio_vae/{audio_vae_path}", f"{audio_vae_path}|{dtype}", "audio_vae", audio_vae_path,
         )
+
+        # Same optional-slot shape as `model_loader/ltx`'s own `upscale_model`
+        # (module docstring): acquired only when configured, `None` otherwise.
+        upsampler_model: Optional[NativeModel] = None
+        if upscale_model_path:
+            progress.advance("latent upsampler", f"native/h3_upsampler/{upscale_model_path}")
+            upsampler_model = acquire(
+                f"native/h3_upsampler/{upscale_model_path}", f"{upscale_model_path}|{dtype}",
+                "latent_upscaler", upscale_model_path,
+            )
 
         # The TE is NOT acquired here -- deferred into `clip`'s own lazy
         # `te_factory` (see clip.py's module docstring "Lazy TE acquisition"):
@@ -190,7 +212,7 @@ class ModelLoaderMinimaxH3Pipe(BaseModelLoaderPipe):
 
         bundle = MiniMaxH3ModelBundle(
             dit=dit_model, te=None, video_vae=video_vae_model, audio_vae=audio_vae_model,
-            te_cache_key=f"native/te/{te_path}",
+            upsampler=upsampler_model, te_cache_key=f"native/te/{te_path}",
         )
         clip = MiniMaxH3ClipTextEncoder(
             _acquire_te, device=device, model_fingerprint=f"{te_path}|vision=True",

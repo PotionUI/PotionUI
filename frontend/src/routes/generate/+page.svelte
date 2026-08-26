@@ -132,6 +132,24 @@
 		touchDeltaX = 0;
 		isSwiping = false;
 	}
+
+	// The browser fires touchcancel — not touchend — when it takes the gesture
+	// over mid-swipe (long-press text selection, notification shade, screenshot
+	// gesture). Without this reset the half-swiped transform stays latched and
+	// the carousel appears permanently misaligned.
+	function handleTouchCancel() {
+		touchDeltaX = 0;
+		isSwiping = false;
+	}
+
+	// Programmatic panel changes (indicator taps, auto-switch on submit) happen
+	// OUTSIDE the swipe container, so they must also discard any in-flight or
+	// stranded swipe delta — otherwise they jump panels but keep the offset.
+	function setMobilePanel(i: number) {
+		mobilePanel = i;
+		touchDeltaX = 0;
+		isSwiping = false;
+	}
 	let mounted = false;
 	let isLoading = false;
 	let canGenerate = false;
@@ -1271,7 +1289,7 @@
 
 				// Auto-switch to generation panel on mobile
 				if ($isMobile) {
-					mobilePanel = 2;
+					setMobilePanel(2);
 				}
 
 				// Subscribe to WebSocket updates — a queued generation gets
@@ -1568,7 +1586,7 @@
 							{/if}
 						</p>
 						{#if mobile}
-							<button type="button" class="mt-3 text-xs text-fg-subtle underline" on:click={() => mobilePanel = 0}>Go to Preset</button>
+							<button type="button" class="mt-3 text-xs text-fg-subtle underline" on:click={() => setMobilePanel(0)}>Go to Preset</button>
 						{:else}
 							<div class="inline-flex items-center gap-2 px-4 py-2 bg-surface-1/50 border border-line-strong/50 rounded-lg text-sm text-fg-muted">
 								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1592,7 +1610,7 @@
 								type="button"
 								class="flex-1 py-2.5 text-xs font-medium text-center transition-colors relative
 									{mobilePanel === 0 ? 'text-signal' : 'text-fg-subtle'}"
-								on:click={() => mobilePanel = 0}
+								on:click={() => setMobilePanel(0)}
 							>
 								<span class="flex items-center justify-center gap-1.5">
 									<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1608,7 +1626,7 @@
 								type="button"
 								class="flex-1 py-2.5 text-xs font-medium text-center transition-colors relative
 									{mobilePanel === 1 ? 'text-signal' : 'text-fg-subtle'}"
-								on:click={() => mobilePanel = 1}
+								on:click={() => setMobilePanel(1)}
 							>
 								<span class="flex items-center justify-center gap-1.5">
 									<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1624,7 +1642,7 @@
 								type="button"
 								class="flex-1 py-2.5 text-xs font-medium text-center transition-colors relative
 									{mobilePanel === 2 ? 'text-signal' : 'text-fg-subtle'}"
-								on:click={() => mobilePanel = 2}
+								on:click={() => setMobilePanel(2)}
 							>
 								<span class="flex items-center justify-center gap-1.5">
 									<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1640,7 +1658,7 @@
 								type="button"
 								class="flex-1 py-2.5 text-xs font-medium text-center transition-colors relative
 									{mobilePanel === 3 ? 'text-signal' : 'text-fg-subtle'}"
-								on:click={() => mobilePanel = 3}
+								on:click={() => setMobilePanel(3)}
 							>
 								<span class="flex items-center justify-center gap-1.5">
 									<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1655,13 +1673,16 @@
 						</div>
 
 						<!-- Swipeable panels container -->
+						<!-- touch-action: pan-y — vertical scrolling stays native, horizontal
+							is ours, and fewer gestures escalate into a touchcancel. -->
 						<div
-							class="flex-1 overflow-hidden relative min-h-0"
+							class="flex-1 overflow-hidden relative min-h-0 touch-pan-y"
 							role="region"
 							aria-label="Swipeable panels"
 							on:touchstart={handleTouchStart}
 							on:touchmove={handleTouchMove}
 							on:touchend={handleTouchEnd}
+							on:touchcancel={handleTouchCancel}
 						>
 							<!-- Geometry is container-relative on purpose: 100vw panels drift
 								out of alignment whenever the layout viewport ≠ container width

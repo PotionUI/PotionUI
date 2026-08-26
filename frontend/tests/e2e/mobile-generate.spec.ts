@@ -58,6 +58,31 @@ test('generate page fits and aligns at phone width', async ({ page }) => {
 
 	await screenshot(page, JOURNEY, 'form-panel');
 
+	// Regression: the browser fires touchcancel (not touchend) when it takes a
+	// gesture over mid-swipe — long-press selection, notification shade, the
+	// screenshot gesture. The stranded drag delta must not freeze the carousel
+	// at a fractional offset, and tapping the panel strip (which lives outside
+	// the swipe container) must always land exactly aligned.
+	await page.evaluate(() => {
+		const region = document.querySelector('[aria-label="Swipeable panels"]')!;
+		const touch = (x: number) =>
+			new Touch({ identifier: 1, target: region, clientX: x, clientY: 300 });
+		const fire = (type: string, touches: Touch[]) =>
+			region.dispatchEvent(
+				new TouchEvent(type, { bubbles: true, cancelable: true, touches, changedTouches: touches })
+			);
+		fire('touchstart', [touch(300)]);
+		fire('touchmove', [touch(100)]); // 200px left drag — swipe latched
+		fire('touchcancel', []);
+	});
+	await page.getByRole('button', { name: 'Generate', exact: true }).first().click();
+	await page.waitForTimeout(500);
+	const recoveredBox = await panels.nth(2).boundingBox();
+	expect(
+		Math.abs(recoveredBox!.x - containerBox!.x),
+		'carousel realigned after touchcancel + strip tap'
+	).toBeLessThanOrEqual(1);
+
 	// The bottom tab bar must sit fully inside the viewport.
 	const tabBar = page.locator('nav.fixed.bottom-0');
 	const tabBox = await tabBar.boundingBox();

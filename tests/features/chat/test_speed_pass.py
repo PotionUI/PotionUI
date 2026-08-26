@@ -438,7 +438,9 @@ class TestResolveMessageResourcesParallel:
         registry.resolve = AsyncMock(side_effect=resolve)
         manager.resource_registry = registry
         manager.model_index_manager = None
-        manager.phrasebook_manager = None
+        manager.phrasebook_category_repository = None
+        manager.phrasebook_value_repository = None
+        manager.phrasebook_search = None
         manager.preset_manager = None
         manager.generation_repository = None
         manager.generation_parameter_repository = None

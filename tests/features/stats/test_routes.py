@@ -5,9 +5,9 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
+from src.features.presets.file_repository import FilePresetRepository
+from src.features.stats.repository import DIMENSIONS, StatsRepository
 from src.features.stats.routes import StatsController, build_router
-from src.features.stats import StatsManager
-from src.features.stats.repository import StatsRepository
 from src.platform.security.current_user import get_current_active_user
 from src.platform.security.user import AccountType, User
 
@@ -28,19 +28,19 @@ class TestStatsController:
     controller tests do, and assert the gate by passing different account types."""
 
     @pytest.fixture
-    def mock_stats_manager(self):
-        manager = Mock(spec=StatsManager)
-        manager.timeseries.return_value = {'metric': 'count', 'bucket': 'day', 'points': []}
-        manager.breakdown.return_value = {'dimension': 'preset', 'items': [], 'total_distinct': 0}
-        manager.storage.return_value = {'by_type': []}
-        manager.dimensions.return_value = ['preset', 'model']
-        return manager
-
-    @pytest.fixture
     def mock_stats_repository(self):
         repo = Mock(spec=StatsRepository)
         repo.overview.return_value = {'total_generations': 42}
         repo.durations.return_value = {'buckets': [], 'p50_ms': 17000}
+        repo.timeseries.return_value = []
+        repo.breakdown.return_value = {'dimension': 'preset', 'items': [], 'total_distinct': 0}
+        repo.storage.return_value = {'by_type': []}
+        return repo
+
+    @pytest.fixture
+    def mock_file_preset_repository(self):
+        repo = Mock(spec=FilePresetRepository)
+        repo.list_all_presets.return_value = []
         return repo
 
     @pytest.fixture
@@ -53,10 +53,10 @@ class TestStatsController:
         return repo
 
     @pytest.fixture
-    def controller(self, mock_stats_manager, mock_stats_repository, mock_generation_stats_repository):
+    def controller(self, mock_stats_repository, mock_file_preset_repository, mock_generation_stats_repository):
         return StatsController(
-            stats_manager=mock_stats_manager,
             stats_repository=mock_stats_repository,
+            file_preset_repository=mock_file_preset_repository,
             generation_stats_repository=mock_generation_stats_repository,
         )
 
@@ -111,19 +111,23 @@ class TestStatsController:
         mock_stats_repository.overview.assert_called_once_with(date_from='2026-01-01', date_to='2026-01-31')
 
     @pytest.mark.asyncio
-    async def test_breakdown_forwards_dimension_and_limit(self, controller, admin, mock_stats_manager):
+    async def test_breakdown_forwards_dimension_and_limit(self, controller, admin, mock_stats_repository):
         await controller.get_breakdown('model', 5, '2026-01-01', None, user=admin)
-        mock_stats_manager.breakdown.assert_called_once_with('model', 5, '2026-01-01', None)
+        mock_stats_repository.breakdown.assert_called_once_with(
+            dimension='model', limit=5, date_from='2026-01-01', date_to=None
+        )
 
     @pytest.mark.asyncio
     async def test_dimensions_lists_valid_dimensions(self, controller, admin):
         response = await controller.get_dimensions(user=admin)
-        assert response.data['dimensions'] == ['preset', 'model']
+        assert response.data['dimensions'] == list(DIMENSIONS)
 
     @pytest.mark.asyncio
-    async def test_storage_forwards_limit(self, controller, admin, mock_stats_manager):
+    async def test_storage_forwards_limit(self, controller, admin, mock_stats_repository):
         await controller.get_storage('2026-01-01', None, 'day', 15, user=admin)
-        mock_stats_manager.storage.assert_called_once_with('2026-01-01', None, 'day', 15)
+        mock_stats_repository.storage.assert_called_once_with(
+            date_from='2026-01-01', date_to=None, bucket='day', limit=15
+        )
 
     # --- generation_stats -------------------------------------------------
 
@@ -140,10 +144,10 @@ class TestStatsController:
         assert response.data['items'] == [{'preset_id': 'p1', 'peak_vram_mb': 8000.0}]
 
     @pytest.mark.asyncio
-    async def test_preset_timing_with_no_generation_stats_repository_returns_empty(self, admin, mock_stats_manager, mock_stats_repository):
+    async def test_preset_timing_with_no_generation_stats_repository_returns_empty(self, admin, mock_stats_repository, mock_file_preset_repository):
         controller = StatsController(
-            stats_manager=mock_stats_manager,
             stats_repository=mock_stats_repository,
+            file_preset_repository=mock_file_preset_repository,
             generation_stats_repository=None,
         )
         response = await controller.get_preset_timing(user=admin)
@@ -167,16 +171,14 @@ class TestStatsController:
 
 
 class TestClosedQuerySets:
-    """metric/bucket/dimension validation moved out of the manager onto the
-    route's Enum Query types (MetricParam/BucketParam/DimensionParam) - an
-    unknown value is now a 422 straight from FastAPI, not a manager-raised
-    ValueError translated to a 400."""
+    """metric/bucket/dimension validation moved out onto the route's Enum
+    Query types (MetricParam/BucketParam/DimensionParam) - an unknown value
+    is now a 422 straight from FastAPI, not a ValueError translated to a 400."""
 
     @pytest.fixture
     def client(self):
         container = MagicMock()
         container.stats_controller = StatsController(
-            stats_manager=Mock(spec=StatsManager),
             stats_repository=Mock(spec=StatsRepository),
         )
 

@@ -102,11 +102,14 @@ class McpToolCollaborators:
     tool_registry: ToolRegistry
     tool_governance_repository: ToolGovernanceRepository
     llm_repository: Any
-    segment_manager: Any = None
+    segment_category_repository: Any = None
+    saved_segment_repository: Any = None
+    segment_template_repository: Any = None
     model_index_manager: Any = None
     preset_manager: Any = None
-    phrasebook_manager: Any = None
-    prompt_database_manager: Any = None
+    phrasebook_category_repository: Any = None
+    phrasebook_value_repository: Any = None
+    prompt_database: Any = None
     generation_orchestrator: Any = None
     llm_memory_repository: Any = None
     prompt_enhancement_manager: Any = None
@@ -152,12 +155,15 @@ def _build_tool_context(collaborators: McpToolCollaborators, user_id: str) -> To
         user_id=user_id,
         mode_id=_MCP_SCOPE.id,
         session_metadata={},
-        segment_manager=collaborators.segment_manager,
+        segment_category_repository=collaborators.segment_category_repository,
+        saved_segment_repository=collaborators.saved_segment_repository,
+        segment_template_repository=collaborators.segment_template_repository,
         model_index_manager=collaborators.model_index_manager,
         preset_manager=collaborators.preset_manager,
-        phrasebook_manager=collaborators.phrasebook_manager,
+        phrasebook_category_repository=collaborators.phrasebook_category_repository,
+        phrasebook_value_repository=collaborators.phrasebook_value_repository,
         llm_repository=llm_repository,
-        prompt_database_manager=collaborators.prompt_database_manager,
+        prompt_database=collaborators.prompt_database,
         generation_orchestrator=collaborators.generation_orchestrator,
         llm_memory_repository=collaborators.llm_memory_repository,
         prompt_enhancement_manager=collaborators.prompt_enhancement_manager,

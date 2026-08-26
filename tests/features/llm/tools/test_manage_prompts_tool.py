@@ -1,13 +1,22 @@
-"""Tests for approval-gated detached rich Prompt tools."""
+"""Tests for approval-gated detached rich Prompt tools.
+
+The tools call `src.features.prompt_database.operations` functions directly
+(module-level, no injected manager) against `context.prompt_database` (a
+`PromptDatabaseCollaborators` stand-in - a plain MagicMock here). `mock_operations`
+patches the `operations` module as imported into `manage_prompts_tool.py`, so
+tests assert against it exactly like the previous manager mock. Reads
+(`_existing`) go straight to `context.prompt_database.repository.get_by_id`.
+"""
 
 import json
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 
 from src.features.segments.dto import RichSegment
 from src.features.llm.tools.base import ToolContext
+from src.features.llm.tools.builtin import manage_prompts_tool as manage_prompts_tool_module
 from src.features.llm.tools.builtin.manage_prompts_tool import (
     AddPromptTool,
     DeletePromptTool,
@@ -16,8 +25,16 @@ from src.features.llm.tools.builtin.manage_prompts_tool import (
 from src.features.prompt_database.records import Prompt
 
 
-def make_context(manager=None, user_id: str = "user-1") -> ToolContext:
-    return ToolContext(user_id=user_id, prompt_database_manager=manager)
+@pytest.fixture
+def mock_operations(monkeypatch):
+    """Patch the `operations` module as seen by manage_prompts_tool.py."""
+    mock = Mock()
+    monkeypatch.setattr(manage_prompts_tool_module, "operations", mock)
+    return mock
+
+
+def make_context(prompt_database=None, user_id: str = "user-1") -> ToolContext:
+    return ToolContext(user_id=user_id, prompt_database=prompt_database)
 
 
 def make_prompt(prompt_id: str = "prompt-1") -> Prompt:
@@ -57,10 +74,10 @@ def test_edit_schema_replaces_aggregate_without_negative_pair_contract():
 
 
 @pytest.mark.asyncio
-async def test_add_proposal_round_trips_rich_ordered_segments_without_mutating():
-    manager = MagicMock()
+async def test_add_proposal_round_trips_rich_ordered_segments_without_mutating(mock_operations):
+    prompt_database = MagicMock()
     result = await AddPromptTool().execute(
-        make_context(manager),
+        make_context(prompt_database),
         name="Fox study",
         usage_hint="negative",
         segments=[
@@ -85,7 +102,7 @@ async def test_add_proposal_round_trips_rich_ordered_segments_without_mutating()
     assert proposal["segments"][0]["name"] == "Quality"
     assert proposal["segments"][0]["color"] == "#ef4444"
     assert "negative_prompt" not in proposal
-    manager.create_prompt.assert_not_called()
+    mock_operations.create_prompt.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -98,20 +115,21 @@ async def test_add_rejects_an_empty_aggregate():
 
 
 @pytest.mark.asyncio
-async def test_add_confirmed_calls_aggregate_manager():
-    manager = MagicMock()
-    manager.create_prompt = AsyncMock(return_value=make_prompt("saved-1"))
+async def test_add_confirmed_calls_aggregate_manager(mock_operations):
+    prompt_database = MagicMock()
+    mock_operations.create_prompt = AsyncMock(return_value=make_prompt("saved-1"))
 
     result = await AddPromptTool().execute_confirmed(
-        make_context(manager, "owner-1"),
+        make_context(prompt_database, "owner-1"),
         name="Saved composition",
         segments=[{"content": "first"}, {"content": "second"}],
     )
 
     assert result.success is True
     assert json.loads(result.data)["prompt_id"] == "saved-1"
-    manager.create_prompt.assert_awaited_once()
-    user_id, request = manager.create_prompt.await_args.args
+    mock_operations.create_prompt.assert_awaited_once()
+    collab_arg, user_id, request = mock_operations.create_prompt.await_args.args
+    assert collab_arg is prompt_database
     assert user_id == "owner-1"
     assert [segment.content for segment in request.segments] == ["first", "second"]
     assert not hasattr(request, "negative_prompt")
@@ -119,11 +137,11 @@ async def test_add_confirmed_calls_aggregate_manager():
 
 @pytest.mark.asyncio
 async def test_edit_proposal_shows_old_and_new_ordered_aggregates():
-    manager = MagicMock()
-    manager.get_prompt.return_value = make_prompt()
+    prompt_database = MagicMock()
+    prompt_database.repository.get_by_id.return_value = make_prompt()
 
     result = await EditPromptTool().execute(
-        make_context(manager),
+        make_context(prompt_database),
         prompt_id="prompt-1",
         name="Reworked",
         usage_hint="negative",
@@ -142,49 +160,50 @@ async def test_edit_proposal_shows_old_and_new_ordered_aggregates():
 
 
 @pytest.mark.asyncio
-async def test_edit_confirmed_delegates_atomic_replacement():
+async def test_edit_confirmed_delegates_atomic_replacement(mock_operations):
     existing = make_prompt()
-    manager = MagicMock()
-    manager.get_prompt.return_value = existing
-    manager.replace_prompt = AsyncMock(return_value=existing)
+    prompt_database = MagicMock()
+    prompt_database.repository.get_by_id.return_value = existing
+    mock_operations.replace_prompt = AsyncMock(return_value=existing)
 
     result = await EditPromptTool().execute_confirmed(
-        make_context(manager),
+        make_context(prompt_database),
         prompt_id="prompt-1",
         segments=[{"content": "replacement"}],
     )
 
     assert result.success is True
-    manager.replace_prompt.assert_awaited_once()
-    user_id, prompt_id, request = manager.replace_prompt.await_args.args
+    mock_operations.replace_prompt.assert_awaited_once()
+    collab_arg, user_id, prompt_id, request = mock_operations.replace_prompt.await_args.args
+    assert collab_arg is prompt_database
     assert (user_id, prompt_id) == ("user-1", "prompt-1")
     assert [segment.content for segment in request.segments] == ["replacement"]
 
 
 @pytest.mark.asyncio
 async def test_edit_requires_an_existing_prompt_and_at_least_one_change():
-    manager = MagicMock()
-    manager.get_prompt.return_value = None
+    prompt_database = MagicMock()
+    prompt_database.repository.get_by_id.return_value = None
     missing = await EditPromptTool().execute(
-        make_context(manager), prompt_id="missing", segments=[{"content": "x"}]
+        make_context(prompt_database), prompt_id="missing", segments=[{"content": "x"}]
     )
     assert missing.success is False
     assert missing.error is not None
     assert "not found" in missing.error
 
-    manager.get_prompt.return_value = make_prompt()
-    unchanged = await EditPromptTool().execute(make_context(manager), prompt_id="prompt-1")
+    prompt_database.repository.get_by_id.return_value = make_prompt()
+    unchanged = await EditPromptTool().execute(make_context(prompt_database), prompt_id="prompt-1")
     assert unchanged.success is False
     assert unchanged.error is not None
     assert "No Prompt fields" in unchanged.error
 
 
 @pytest.mark.asyncio
-async def test_delete_proposal_and_confirmation_operate_on_one_detached_prompt():
-    manager = MagicMock()
-    manager.get_prompt.return_value = make_prompt()
-    manager.delete_prompt.return_value = True
-    context = make_context(manager)
+async def test_delete_proposal_and_confirmation_operate_on_one_detached_prompt(mock_operations):
+    prompt_database = MagicMock()
+    prompt_database.repository.get_by_id.return_value = make_prompt()
+    mock_operations.delete_prompt.return_value = True
+    context = make_context(prompt_database)
 
     proposal = await DeletePromptTool().execute(context, prompt_id="prompt-1")
     applied = await DeletePromptTool().execute_confirmed(context, prompt_id="prompt-1")
@@ -196,4 +215,4 @@ async def test_delete_proposal_and_confirmation_operate_on_one_detached_prompt()
         "preview": "a fox BREAK",
     }
     assert applied.success is True
-    manager.delete_prompt.assert_called_once_with("user-1", "prompt-1")
+    mock_operations.delete_prompt.assert_called_once_with(prompt_database, "user-1", "prompt-1")

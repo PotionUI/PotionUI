@@ -1,8 +1,6 @@
 """
 Segment domain module.
 
-Provides management of saved Segments, ordered Segment Templates, and categories.
+Business logic for saved Segments, ordered Segment Templates, and categories
+lives in `src.features.segments.operations` (formerly `SegmentManager`).
 """
-from src.features.segments.manager import SegmentManager
-
-__all__ = ["SegmentManager"]

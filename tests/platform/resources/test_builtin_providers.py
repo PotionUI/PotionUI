@@ -121,7 +121,9 @@ class TestModelsProvider:
 class TestPhrasebookProvider:
     def setup_method(self):
         self.provider = PhrasebookResourceProvider()
-        self.manager = Mock()
+        self.categories = Mock()
+        self.values = Mock()
+        self.search = Mock()
 
     def _value(self, label, value):
         v = Mock()
@@ -130,14 +132,22 @@ class TestPhrasebookProvider:
         v.value = value
         return v
 
+    def _ctx(self, **kwargs):
+        return _ctx(
+            phrasebook_category_repository=self.categories,
+            phrasebook_value_repository=self.values,
+            phrasebook_search=self.search,
+            **kwargs,
+        )
+
     @pytest.mark.asyncio
     async def test_suggest_maps_search_result(self):
-        self.manager.search_phrasebook.return_value = {
+        self.search.return_value = {
             "current_category": {"path": "camera", "name": "Camera"},
             "child_categories": [{"path": "camera.angles", "name": "Angles", "description": "Camera angles"}],
             "values": [{"label": "Dutch", "value": "dutch angle"}],
         }
-        suggestions = await self.provider.suggest(["camera"], "", _ctx(phrasebook_manager=self.manager))
+        suggestions = await self.provider.suggest(["camera"], "", self._ctx())
         uris = [s.uri for s in suggestions]
         assert "phrasebook.camera.angles" in uris
         assert "phrasebook.camera.Dutch" in uris
@@ -149,12 +159,12 @@ class TestPhrasebookProvider:
         """Typing the exact path of a category must surface the category
         itself as a selectable, attachable entry — not just its children and
         values — otherwise there's no way to attach the whole category."""
-        self.manager.search_phrasebook.return_value = {
+        self.search.return_value = {
             "current_category": {"path": "camera", "name": "Camera"},
             "child_categories": [{"path": "camera.angles", "name": "Angles", "description": "Camera angles"}],
             "values": [{"label": "Dutch", "value": "dutch angle"}],
         }
-        suggestions = await self.provider.suggest(["camera"], "", _ctx(phrasebook_manager=self.manager))
+        suggestions = await self.provider.suggest(["camera"], "", self._ctx())
 
         self_entry = next(s for s in suggestions if s.uri == "phrasebook.camera")
         assert self_entry.kind == "category"
@@ -177,12 +187,12 @@ class TestPhrasebookProvider:
         """Root-level browsing (no exact match yet) must not make categories
         attachable either — clicking them still has to navigate deeper, or
         the whole tree becomes unreachable by click past the first level."""
-        self.manager.search_phrasebook.return_value = {
+        self.search.return_value = {
             "current_category": None,
             "child_categories": [{"path": "camera", "name": "Camera", "description": None}],
             "values": [],
         }
-        suggestions = await self.provider.suggest([], "", _ctx(phrasebook_manager=self.manager))
+        suggestions = await self.provider.suggest([], "", self._ctx())
         assert suggestions[0].attachable is False
 
     @pytest.mark.asyncio
@@ -191,24 +201,24 @@ class TestPhrasebookProvider:
         itself as attachable — this was the exact case that used to leave
         users staring at a bare value list with no way to attach the whole
         category."""
-        self.manager.search_phrasebook.return_value = {
+        self.search.return_value = {
             "current_category": {"path": "camera.angles", "name": "Angles"},
             "child_categories": [],
             "values": [{"label": "Dutch", "value": "dutch angle"}],
         }
-        suggestions = await self.provider.suggest(["camera", "angles"], "", _ctx(phrasebook_manager=self.manager))
+        suggestions = await self.provider.suggest(["camera", "angles"], "", self._ctx())
 
         self_entry = next(s for s in suggestions if s.uri == "phrasebook.camera.angles")
         assert self_entry.attachable is True
 
     @pytest.mark.asyncio
     async def test_suggest_no_self_entry_when_browsing_root(self):
-        self.manager.search_phrasebook.return_value = {
+        self.search.return_value = {
             "current_category": None,
             "child_categories": [{"path": "camera", "name": "Camera", "description": None}],
             "values": [],
         }
-        suggestions = await self.provider.suggest([], "", _ctx(phrasebook_manager=self.manager))
+        suggestions = await self.provider.suggest([], "", self._ctx())
         assert len(suggestions) == 1
         assert suggestions[0].uri == "phrasebook.camera"
 
@@ -219,12 +229,12 @@ class TestPhrasebookProvider:
         category.name = "Angles"
         category.description = "Camera angles"
         category.is_active = True
-        self.manager.categories.get_by_path.return_value = category
-        self.manager.categories.get_children.return_value = []
-        self.manager.values.get_by_category.return_value = [
+        self.categories.get_by_path.return_value = category
+        self.categories.get_children.return_value = []
+        self.values.get_by_category.return_value = [
             self._value("Dutch", "dutch angle"), self._value("Low", "low angle"),
         ]
-        resolved = await self.provider.resolve(["camera", "angles"], _ctx(phrasebook_manager=self.manager))
+        resolved = await self.provider.resolve(["camera", "angles"], self._ctx())
         assert resolved.kind == "category"
         assert "Dutch: dutch angle" in resolved.content
         assert "id=val-Dutch" in resolved.content
@@ -241,10 +251,10 @@ class TestPhrasebookProvider:
         category.is_active = True
         value = self._value("Dutch", "dutch angle")
         value.is_active = False
-        self.manager.categories.get_by_path.return_value = category
-        self.manager.categories.get_children.return_value = []
-        self.manager.values.get_by_category.return_value = [value]
-        resolved = await self.provider.resolve(["camera", "angles"], _ctx(phrasebook_manager=self.manager))
+        self.categories.get_by_path.return_value = category
+        self.categories.get_children.return_value = []
+        self.values.get_by_category.return_value = [value]
+        resolved = await self.provider.resolve(["camera", "angles"], self._ctx())
         assert "(inactive)" in resolved.content
 
     @pytest.mark.asyncio
@@ -255,10 +265,10 @@ class TestPhrasebookProvider:
         category.description = None
         category.is_active = True
         values = [self._value(f"Angle{i}", f"angle {i}") for i in range(50)]
-        self.manager.categories.get_by_path.return_value = category
-        self.manager.categories.get_children.return_value = []
-        self.manager.values.get_by_category.return_value = values
-        resolved = await self.provider.resolve(["camera", "angles"], _ctx(phrasebook_manager=self.manager))
+        self.categories.get_by_path.return_value = category
+        self.categories.get_children.return_value = []
+        self.values.get_by_category.return_value = values
+        resolved = await self.provider.resolve(["camera", "angles"], self._ctx())
         assert resolved.content.count("- id=val-Angle") == 20
         assert resolved.metadata["sample_count"] == 20
         assert resolved.metadata["value_count"] == 50
@@ -276,31 +286,31 @@ class TestPhrasebookProvider:
         child.id = "cat-2"
         child.name = "Angles"
         child.path = "camera.angles"
-        self.manager.categories.get_by_path.return_value = category
-        self.manager.categories.get_children.return_value = [child]
-        self.manager.values.get_by_category.side_effect = [
+        self.categories.get_by_path.return_value = category
+        self.categories.get_children.return_value = [child]
+        self.values.get_by_category.side_effect = [
             [self._value("Wide", "wide shot")],  # values for the requested category
             [self._value("Dutch", "dutch angle"), self._value("Low", "low angle")],  # child's values
         ]
-        resolved = await self.provider.resolve(["camera"], _ctx(phrasebook_manager=self.manager))
+        resolved = await self.provider.resolve(["camera"], self._ctx())
         assert "Subcategories (1)" in resolved.content
         assert "Angles (camera.angles): 2 values" in resolved.content
         assert resolved.metadata["subcategory_count"] == 1
 
     @pytest.mark.asyncio
     async def test_resolve_cross_user_isolation_category_not_found(self):
-        """resolve() passes ctx.user_id straight through to the manager; a
-        category owned by another user must resolve as unknown, never as
+        """resolve() passes ctx.user_id straight through to the repositories;
+        a category owned by another user must resolve as unknown, never as
         that user's values."""
         def get_by_path(path, user_id):
             return None if user_id != "owner" else Mock(id="cat-1", name="Angles", description=None, is_active=True)
 
-        self.manager.categories.get_by_path.side_effect = get_by_path
-        ctx = _ctx(phrasebook_manager=self.manager)
+        self.categories.get_by_path.side_effect = get_by_path
+        ctx = self._ctx()
         ctx.user_id = "intruder"
         resolved = await self.provider.resolve(["camera", "angles"], ctx)
         assert resolved is None
-        self.manager.values.get_by_category.assert_not_called()
+        self.values.get_by_category.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_resolve_single_value(self):
@@ -309,9 +319,9 @@ class TestPhrasebookProvider:
         category.id = "cat-1"
         category.name = "Angles"
         category.description = None
-        self.manager.categories.get_by_path.side_effect = [None, category]
-        self.manager.values.get_by_category.return_value = [self._value("Dutch", "dutch angle")]
-        resolved = await self.provider.resolve(["camera", "angles", "Dutch"], _ctx(phrasebook_manager=self.manager))
+        self.categories.get_by_path.side_effect = [None, category]
+        self.values.get_by_category.return_value = [self._value("Dutch", "dutch angle")]
+        resolved = await self.provider.resolve(["camera", "angles", "Dutch"], self._ctx())
         assert resolved.kind == "value"
         assert "Dutch: dutch angle" in resolved.content
         assert "id=val-Dutch" in resolved.content
@@ -319,10 +329,9 @@ class TestPhrasebookProvider:
 
     @pytest.mark.asyncio
     async def test_resolve_unknown_returns_none(self):
-        self.manager.categories.get_by_path.return_value = None
-        resolved = await self.provider.resolve(["nope"], _ctx(phrasebook_manager=self.manager))
+        self.categories.get_by_path.return_value = None
+        resolved = await self.provider.resolve(["nope"], self._ctx())
         assert resolved is None
-
 
 class TestPresetsProvider:
     def setup_method(self):

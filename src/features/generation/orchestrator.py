@@ -41,7 +41,7 @@ if TYPE_CHECKING:
     from src.features.presets.repository import DatabasePresetRepository
     from src.features.models.access_policy import ModelAccessPolicy
     from src.features.users.repository import UserRepository
-    from src.features.stats.generation_stats_manager import GenerationStatsManager
+    from src.features.stats.generation_stats_repository import GenerationStatsRepository
     from src.features.media_index.manager import MediaIndexManager
     from src.platform.runtime.gpu import GpuManager
 
@@ -346,7 +346,7 @@ class GenerationOrchestrator:
         database_preset_repository: Optional['DatabasePresetRepository'] = None,
         model_access_policy: Optional['ModelAccessPolicy'] = None,
         user_repository: Optional['UserRepository'] = None,
-        generation_stats_manager: Optional['GenerationStatsManager'] = None,
+        generation_stats_repository: Optional['GenerationStatsRepository'] = None,
         media_index_manager: Optional['MediaIndexManager'] = None,
         gpu_manager: Optional['GpuManager'] = None,
     ):
@@ -378,7 +378,7 @@ class GenerationOrchestrator:
             user_repository: Resolves `user_id` to a full `User` (for
                 `account_type`) for `model_access_policy`. `None` skips
                 enforcement (paired with `model_access_policy` above).
-            generation_stats_manager: Writes the durable per-generation
+            generation_stats_repository: Writes the durable per-generation
                 resource/timing row at completion. `None` (e.g. tests
                 that don't need it) skips the write entirely.
             media_index_manager: Queues a completed generation's final files
@@ -388,7 +388,12 @@ class GenerationOrchestrator:
         self.pipeline_builder = pipeline_builder
         self.preset_template_loader = preset_template_loader
         self.backend_registry = backend_registry
-        self.generation_stats_manager = generation_stats_manager
+        self.generation_stats_repository = generation_stats_repository
+        # Cheap stateless wrapper over `preset_template_loader`, used solely to
+        # resolve a preset's display name at generation_stats write time (see
+        # `src.features.stats.operations.record_completion`).
+        from src.features.presets.file_repository import FilePresetRepository
+        self._file_preset_repository_for_stats = FilePresetRepository(preset_template_loader)
         self.media_index_manager = media_index_manager
         self.connection_manager = connection_manager
         self.settings_manager = settings_manager
@@ -1195,8 +1200,10 @@ class GenerationOrchestrator:
         # duration/resources are noise, not a data point a preset's cold/warm
         # averages should absorb. Every step here is best-effort: a stats
         # write must never be able to break generation completion.
-        if self.generation_stats_manager is not None and record.state == GenerationState.COMPLETED:
+        if self.generation_stats_repository is not None and record.state == GenerationState.COMPLETED:
             try:
+                from src.features.stats.operations import record_completion
+
                 engine = None
                 resource_stats: Optional[Dict[str, Any]] = None
                 backend = self.backend_registry.get_backend(record.backend_id) if record.backend_id else None
@@ -1208,7 +1215,9 @@ class GenerationOrchestrator:
                         resource_stats = pop(generation_id)
                 resource_stats = resource_stats or {}
 
-                self.generation_stats_manager.record_completion(
+                record_completion(
+                    self.generation_stats_repository,
+                    self._file_preset_repository_for_stats,
                     generation_id=generation_id,
                     preset_id=record.preset_id,
                     engine=engine,

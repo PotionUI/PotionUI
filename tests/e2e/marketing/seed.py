@@ -473,9 +473,9 @@ def _seed_library_and_collections(
 
 
 # Two top-level categories (no dots - a bare `#camera`/`#lighting` matches the
-# category path exactly, so `PhrasebookManager.search_phrasebook` returns
-# the category's own values immediately instead of requiring a `#camera.`
-# navigation step first - see its "exact_category" branch). Values are real
+# category path exactly, so `src.features.phrasebook.operations.search_phrasebook`
+# returns the category's own values immediately instead of requiring a
+# `#camera.` navigation step first - see its "exact_category" branch). Values are real
 # prompt-craft vocabulary, on theme with the potion prompts above rather than
 # placeholder text, since the prompt-segments-phrasebook marketing scene
 # shows these labels on screen. 8 values each so a picked chip's alternate

@@ -1,3 +1,5 @@
-from .manager import StatsManager
+"""Usage statistics for the admin Stats page.
 
-__all__ = ['StatsManager']
+See `src.features.stats.operations` for the business logic (formerly
+`StatsManager`/`GenerationStatsManager`).
+"""

@@ -60,7 +60,7 @@ def make_prompt_db(approved=None, community=None):
 def make_manager(llm, prompt_db=None, feedback_repo=None):
     return PromptEnhancementManager(
         llm_service=llm,
-        prompt_database_manager=prompt_db,
+        prompt_database=prompt_db,
         model_index_manager=None,
         feedback_repository=feedback_repo,
     )

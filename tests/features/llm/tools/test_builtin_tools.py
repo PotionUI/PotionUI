@@ -4,6 +4,7 @@ import json
 import pytest
 from unittest.mock import MagicMock, AsyncMock
 
+import src.features.llm.tools.builtin.phrasebook_tool as phrasebook_tool_module
 from src.features.llm.tools.base import ToolContext
 from src.features.llm.tools.builtin import (
     ListSegmentCategoriesTool,
@@ -210,9 +211,9 @@ class TestListSegmentCategoriesTool:
             make_category("c1", "Style", description="Visual style", color="#ff0000"),
             make_category("c2", "Environment", description="", color=""),
         ]
-        sm = MagicMock()
-        sm.get_categories.return_value = cats
-        ctx = make_context(segment_manager=sm)
+        repo = MagicMock()
+        repo.get_all.return_value = cats
+        ctx = make_context(segment_category_repository=repo)
 
         result = await self._tool().execute(ctx)
 
@@ -222,7 +223,7 @@ class TestListSegmentCategoriesTool:
         assert data["categories"][0]["id"] == "c1"
         assert data["categories"][0]["name"] == "Style"
         assert data["categories"][0]["color"] == "#ff0000"
-        sm.get_categories.assert_called_once_with(user_id="user-test")
+        repo.get_all.assert_called_once_with("user-test")
 
     @pytest.mark.asyncio
     async def test_no_segment_manager(self):
@@ -233,9 +234,9 @@ class TestListSegmentCategoriesTool:
 
     @pytest.mark.asyncio
     async def test_empty_categories(self):
-        sm = MagicMock()
-        sm.get_categories.return_value = []
-        ctx = make_context(segment_manager=sm)
+        repo = MagicMock()
+        repo.get_all.return_value = []
+        ctx = make_context(segment_category_repository=repo)
         result = await self._tool().execute(ctx)
         assert result.success is True
         data = json.loads(result.data)
@@ -244,9 +245,9 @@ class TestListSegmentCategoriesTool:
 
     @pytest.mark.asyncio
     async def test_exception_returns_error(self):
-        sm = MagicMock()
-        sm.get_categories.side_effect = RuntimeError("db error")
-        ctx = make_context(segment_manager=sm)
+        repo = MagicMock()
+        repo.get_all.side_effect = RuntimeError("db error")
+        ctx = make_context(segment_category_repository=repo)
         result = await self._tool().execute(ctx)
         assert result.success is False
         assert "db error" in result.error
@@ -273,10 +274,15 @@ class TestGetSavedSegmentsTool:
                 "s1", "Cinematic", "cinematic shot", tags=["film"], category_id="c1"
             )
         ]
-        sm = MagicMock()
-        sm.get_segments.return_value = segments
+        segment_repo = MagicMock()
+        segment_repo.get_all.return_value = segments
+        category_repo = MagicMock()
         result = await self._tool().execute(
-            make_context(segment_manager=sm), category_id="c1"
+            make_context(
+                saved_segment_repository=segment_repo,
+                segment_category_repository=category_repo,
+            ),
+            category_id="c1",
         )
 
         assert result.success is True
@@ -284,9 +290,8 @@ class TestGetSavedSegmentsTool:
         assert data["count"] == 1
         assert data["segments"][0]["content"] == "cinematic shot"
         assert data["segments"][0]["category_id"] == "c1"
-        sm.get_segments.assert_called_once_with(
-            user_id="user-test", category_id="c1"
-        )
+        category_repo.get_by_id.assert_called_once_with("c1", "user-test")
+        segment_repo.get_all.assert_called_once_with("user-test", "c1")
 
     @pytest.mark.asyncio
     async def test_no_segment_manager(self):
@@ -319,9 +324,9 @@ class TestGetSegmentTemplatesTool:
                 ],
             ),
         ]
-        sm = MagicMock()
-        sm.get_templates.return_value = tmpls
-        ctx = make_context(segment_manager=sm)
+        repo = MagicMock()
+        repo.get_all.return_value = tmpls
+        ctx = make_context(segment_template_repository=repo)
 
         result = await self._tool().execute(ctx)
 
@@ -332,7 +337,7 @@ class TestGetSegmentTemplatesTool:
         assert data["templates"][0]["segments"][0]["content"] == "cinematic shot"
         assert data["templates"][0]["segments"][1]["type"] == "break"
         assert data["templates"][0]["tags"] == ["film"]
-        sm.get_templates.assert_called_once_with(user_id="user-test")
+        repo.get_all.assert_called_once_with("user-test")
 
     @pytest.mark.asyncio
     async def test_no_segment_manager(self):
@@ -342,9 +347,9 @@ class TestGetSegmentTemplatesTool:
 
     @pytest.mark.asyncio
     async def test_exception_returns_error(self):
-        sm = MagicMock()
-        sm.get_templates.side_effect = ValueError("db error")
-        ctx = make_context(segment_manager=sm)
+        repo = MagicMock()
+        repo.get_all.side_effect = ValueError("db error")
+        ctx = make_context(segment_template_repository=repo)
         result = await self._tool().execute(ctx)
         assert result.success is False
         assert "db error" in result.error
@@ -782,9 +787,9 @@ class TestListPhrasebookCategoriesTool:
             make_category("a1", "Camera Angles", description="Angles", path="/camera", is_active=True),
             make_category("a2", "Art Styles", description="", path="", is_active=False),
         ]
-        am = MagicMock()
-        am.categories.get_all.return_value = cats
-        ctx = make_context(phrasebook_manager=am)
+        category_repo = MagicMock()
+        category_repo.get_all.return_value = cats
+        ctx = make_context(phrasebook_category_repository=category_repo)
 
         result = await self._tool().execute(ctx)
 
@@ -797,16 +802,16 @@ class TestListPhrasebookCategoriesTool:
         assert data["categories"][0]["marker"] == "#/camera"
         assert data["categories"][1]["is_active"] is False
         assert "marker" not in data["categories"][1]
-        am.categories.get_all.assert_called_once_with(user_id="user-test")
+        category_repo.get_all.assert_called_once_with(user_id="user-test")
 
     @pytest.mark.asyncio
     async def test_marker_uses_bracket_form_when_path_has_spaces(self):
         cats = [
             make_category("a1", "Camera Angles", description="", path="camera angles", is_active=True),
         ]
-        am = MagicMock()
-        am.categories.get_all.return_value = cats
-        ctx = make_context(phrasebook_manager=am)
+        category_repo = MagicMock()
+        category_repo.get_all.return_value = cats
+        ctx = make_context(phrasebook_category_repository=category_repo)
 
         result = await self._tool().execute(ctx)
 
@@ -822,9 +827,9 @@ class TestListPhrasebookCategoriesTool:
 
     @pytest.mark.asyncio
     async def test_exception_returns_error(self):
-        am = MagicMock()
-        am.categories.get_all.side_effect = ConnectionError("timeout")
-        ctx = make_context(phrasebook_manager=am)
+        category_repo = MagicMock()
+        category_repo.get_all.side_effect = ConnectionError("timeout")
+        ctx = make_context(phrasebook_category_repository=category_repo)
         result = await self._tool().execute(ctx)
         assert result.success is False
         assert "timeout" in result.error
@@ -851,10 +856,11 @@ class TestGetPhrasebookValuesTool:
             make_phrasebook_value("v1", "Wide angle", "wide angle lens"),
             make_phrasebook_value("v2", "Close-up", "extreme close-up shot"),
         ]
-        am = MagicMock()
-        am.values.get_by_category.return_value = vals
-        am.get_category_by_id.side_effect = ValueError("Category not found")
-        ctx = make_context(phrasebook_manager=am)
+        category_repo = MagicMock()
+        value_repo = MagicMock()
+        value_repo.get_by_category.return_value = vals
+        category_repo.get_by_id.return_value = None
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute(ctx, category_id="cat-cam")
 
@@ -864,7 +870,7 @@ class TestGetPhrasebookValuesTool:
         assert data["values"][0]["id"] == "v1"
         assert data["values"][0]["label"] == "Wide angle"
         assert data["values"][0]["value"] == "wide angle lens"
-        am.values.get_by_category.assert_called_once_with(
+        value_repo.get_by_category.assert_called_once_with(
             category_id="cat-cam", user_id="user-test"
         )
 
@@ -874,10 +880,11 @@ class TestGetPhrasebookValuesTool:
             make_phrasebook_value("v1", "Wide angle", "wide angle lens"),
         ]
         cat = make_category("cat-cam", "Camera Angles", path="camera.angles")
-        am = MagicMock()
-        am.values.get_by_category.return_value = vals
-        am.get_category_by_id.return_value = cat
-        ctx = make_context(phrasebook_manager=am)
+        category_repo = MagicMock()
+        value_repo = MagicMock()
+        value_repo.get_by_category.return_value = vals
+        category_repo.get_by_id.return_value = cat
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute(ctx, category_id="cat-cam")
 
@@ -887,19 +894,18 @@ class TestGetPhrasebookValuesTool:
         assert data["category_marker"] == "#camera.angles"
         assert data["values"][0]["marker"] == "#[camera.angles.Wide angle]"
         assert "instruction" in data
-        am.get_category_by_id.assert_called_once_with(
-            category_id="cat-cam", user_id="user-test"
-        )
+        category_repo.get_by_id.assert_called_once_with("cat-cam", "user-test")
 
     @pytest.mark.asyncio
     async def test_still_succeeds_without_markers_when_category_lookup_fails(self):
         vals = [
             make_phrasebook_value("v1", "Wide angle", "wide angle lens"),
         ]
-        am = MagicMock()
-        am.values.get_by_category.return_value = vals
-        am.get_category_by_id.side_effect = ValueError("Category not found")
-        ctx = make_context(phrasebook_manager=am)
+        category_repo = MagicMock()
+        value_repo = MagicMock()
+        value_repo.get_by_category.return_value = vals
+        category_repo.get_by_id.return_value = None
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute(ctx, category_id="cat-cam")
 
@@ -920,17 +926,18 @@ class TestGetPhrasebookValuesTool:
 
     @pytest.mark.asyncio
     async def test_missing_category_id(self):
-        am = MagicMock()
-        ctx = make_context(phrasebook_manager=am)
+        category_repo = MagicMock()
+        ctx = make_context(phrasebook_category_repository=category_repo)
         result = await self._tool().execute(ctx)
         assert result.success is False
         assert "category_id is required" in result.error
 
     @pytest.mark.asyncio
     async def test_empty_values(self):
-        am = MagicMock()
-        am.values.get_by_category.return_value = []
-        ctx = make_context(phrasebook_manager=am)
+        category_repo = MagicMock()
+        value_repo = MagicMock()
+        value_repo.get_by_category.return_value = []
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
         result = await self._tool().execute(ctx, category_id="empty-cat")
         assert result.success is True
         data = json.loads(result.data)
@@ -939,9 +946,10 @@ class TestGetPhrasebookValuesTool:
 
     @pytest.mark.asyncio
     async def test_exception_returns_error(self):
-        am = MagicMock()
-        am.values.get_by_category.side_effect = PermissionError("access denied")
-        ctx = make_context(phrasebook_manager=am)
+        category_repo = MagicMock()
+        value_repo = MagicMock()
+        value_repo.get_by_category.side_effect = PermissionError("access denied")
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
         result = await self._tool().execute(ctx, category_id="restricted")
         assert result.success is False
         assert "access denied" in result.error
@@ -949,10 +957,11 @@ class TestGetPhrasebookValuesTool:
     @pytest.mark.asyncio
     async def test_default_limit_is_100_and_reports_has_more(self):
         vals = [make_phrasebook_value(f"v{i}", f"Label {i}", f"value {i}") for i in range(150)]
-        am = MagicMock()
-        am.values.get_by_category.return_value = vals
-        am.get_category_by_id.side_effect = ValueError("Category not found")
-        ctx = make_context(phrasebook_manager=am)
+        category_repo = MagicMock()
+        value_repo = MagicMock()
+        value_repo.get_by_category.return_value = vals
+        category_repo.get_by_id.return_value = None
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute(ctx, category_id="cat-cam")
 
@@ -965,10 +974,11 @@ class TestGetPhrasebookValuesTool:
     @pytest.mark.asyncio
     async def test_limit_is_hard_capped_at_200(self):
         vals = [make_phrasebook_value(f"v{i}", f"Label {i}", f"value {i}") for i in range(500)]
-        am = MagicMock()
-        am.values.get_by_category.return_value = vals
-        am.get_category_by_id.side_effect = ValueError("Category not found")
-        ctx = make_context(phrasebook_manager=am)
+        category_repo = MagicMock()
+        value_repo = MagicMock()
+        value_repo.get_by_category.return_value = vals
+        category_repo.get_by_id.return_value = None
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute(ctx, category_id="cat-cam", limit=1000)
 
@@ -979,10 +989,11 @@ class TestGetPhrasebookValuesTool:
     @pytest.mark.asyncio
     async def test_offset_pages_through_results(self):
         vals = [make_phrasebook_value(f"v{i}", f"Label {i}", f"value {i}") for i in range(10)]
-        am = MagicMock()
-        am.values.get_by_category.return_value = vals
-        am.get_category_by_id.side_effect = ValueError("Category not found")
-        ctx = make_context(phrasebook_manager=am)
+        category_repo = MagicMock()
+        value_repo = MagicMock()
+        value_repo.get_by_category.return_value = vals
+        category_repo.get_by_id.return_value = None
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute(ctx, category_id="cat-cam", offset=8, limit=5)
 
@@ -998,10 +1009,11 @@ class TestGetPhrasebookValuesTool:
             make_phrasebook_value("v1", "Wide angle", "wide angle lens"),
             make_phrasebook_value("v-cat", "Cat closeup", "a close up of a cat"),
         ]
-        am = MagicMock()
-        am.values.get_by_category.return_value = vals
-        am.get_category_by_id.side_effect = ValueError("Category not found")
-        ctx = make_context(phrasebook_manager=am)
+        category_repo = MagicMock()
+        value_repo = MagicMock()
+        value_repo.get_by_category.return_value = vals
+        category_repo.get_by_id.return_value = None
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute(ctx, category_id="cat-cam", search="cat")
 
@@ -1016,10 +1028,11 @@ class TestGetPhrasebookValuesTool:
             make_phrasebook_value("v-cat", "Cat closeup", "a close up of a cat"),
         ]
         cat = make_category("cat-cam", "Camera Angles", path="camera.angles")
-        am = MagicMock()
-        am.values.get_by_category.return_value = vals
-        am.get_category_by_id.return_value = cat
-        ctx = make_context(phrasebook_manager=am)
+        category_repo = MagicMock()
+        value_repo = MagicMock()
+        value_repo.get_by_category.return_value = vals
+        category_repo.get_by_id.return_value = cat
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute(ctx, category_id="cat-cam", search="cat")
 
@@ -1048,11 +1061,12 @@ class TestListPhrasebookValuesTool:
 
     @pytest.mark.asyncio
     async def test_resolves_category_by_id(self):
-        am = MagicMock()
+        category_repo = MagicMock()
+        value_repo = MagicMock()
         cat = make_category("cat-cam", "Camera Angles", path="camera.angles")
-        am.get_category_by_id.return_value = cat
-        am.values.get_by_category.return_value = self._values(3)
-        ctx = make_context(phrasebook_manager=am)
+        category_repo.get_by_id.return_value = cat
+        value_repo.get_by_category.return_value = self._values(3)
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute(ctx, category="cat-cam")
 
@@ -1060,28 +1074,29 @@ class TestListPhrasebookValuesTool:
         data = json.loads(result.data)
         assert data["category_path"] == "camera.angles"
         assert data["total"] == 3
-        am.values.get_by_category.assert_called_once_with("cat-cam", "user-test")
+        value_repo.get_by_category.assert_called_once_with("cat-cam", "user-test")
 
     @pytest.mark.asyncio
     async def test_resolves_category_by_path_when_id_lookup_fails(self):
-        am = MagicMock()
+        category_repo = MagicMock()
+        value_repo = MagicMock()
         cat = make_category("cat-cam", "Camera Angles", path="camera.angles")
-        am.get_category_by_id.side_effect = ValueError("Category not found")
-        am.categories.get_by_path.return_value = cat
-        am.values.get_by_category.return_value = self._values(1)
-        ctx = make_context(phrasebook_manager=am)
+        category_repo.get_by_id.return_value = None
+        category_repo.get_by_path.return_value = cat
+        value_repo.get_by_category.return_value = self._values(1)
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute(ctx, category="camera.angles")
 
         assert result.success is True
-        am.categories.get_by_path.assert_called_once_with("camera.angles", "user-test")
+        category_repo.get_by_path.assert_called_once_with("camera.angles", "user-test")
 
     @pytest.mark.asyncio
     async def test_unknown_category_returns_error(self):
-        am = MagicMock()
-        am.get_category_by_id.side_effect = ValueError("Category not found")
-        am.categories.get_by_path.return_value = None
-        ctx = make_context(phrasebook_manager=am)
+        category_repo = MagicMock()
+        category_repo.get_by_id.return_value = None
+        category_repo.get_by_path.return_value = None
+        ctx = make_context(phrasebook_category_repository=category_repo)
 
         result = await self._tool().execute(ctx, category="missing.category")
 
@@ -1090,11 +1105,12 @@ class TestListPhrasebookValuesTool:
 
     @pytest.mark.asyncio
     async def test_default_limit_is_100_and_reports_has_more(self):
-        am = MagicMock()
+        category_repo = MagicMock()
+        value_repo = MagicMock()
         cat = make_category("cat-cam", "Camera", path="camera")
-        am.get_category_by_id.return_value = cat
-        am.values.get_by_category.return_value = self._values(150)
-        ctx = make_context(phrasebook_manager=am)
+        category_repo.get_by_id.return_value = cat
+        value_repo.get_by_category.return_value = self._values(150)
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute(ctx, category="cat-cam")
 
@@ -1107,11 +1123,12 @@ class TestListPhrasebookValuesTool:
 
     @pytest.mark.asyncio
     async def test_limit_is_hard_capped_at_200(self):
-        am = MagicMock()
+        category_repo = MagicMock()
+        value_repo = MagicMock()
         cat = make_category("cat-cam", "Camera", path="camera")
-        am.get_category_by_id.return_value = cat
-        am.values.get_by_category.return_value = self._values(500)
-        ctx = make_context(phrasebook_manager=am)
+        category_repo.get_by_id.return_value = cat
+        value_repo.get_by_category.return_value = self._values(500)
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute(ctx, category="cat-cam", limit=1000)
 
@@ -1121,11 +1138,12 @@ class TestListPhrasebookValuesTool:
 
     @pytest.mark.asyncio
     async def test_offset_pages_through_results(self):
-        am = MagicMock()
+        category_repo = MagicMock()
+        value_repo = MagicMock()
         cat = make_category("cat-cam", "Camera", path="camera")
-        am.get_category_by_id.return_value = cat
-        am.values.get_by_category.return_value = self._values(10)
-        ctx = make_context(phrasebook_manager=am)
+        category_repo.get_by_id.return_value = cat
+        value_repo.get_by_category.return_value = self._values(10)
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute(ctx, category="cat-cam", offset=8, limit=5)
 
@@ -1137,15 +1155,16 @@ class TestListPhrasebookValuesTool:
 
     @pytest.mark.asyncio
     async def test_search_filters_by_label_or_value_case_insensitive(self):
-        am = MagicMock()
+        category_repo = MagicMock()
+        value_repo = MagicMock()
         cat = make_category("cat-cam", "Camera", path="camera")
-        am.get_category_by_id.return_value = cat
-        am.values.get_by_category.return_value = [
+        category_repo.get_by_id.return_value = cat
+        value_repo.get_by_category.return_value = [
             self._values(1)[0],
             make_phrasebook_value("v-cat", "Cat closeup", "a close up of a cat"),
             make_phrasebook_value("v-kitten", "Kitten macro", "macro shot of a kitten"),
         ]
-        ctx = make_context(phrasebook_manager=am)
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute(ctx, category="cat-cam", search="cat")
 
@@ -1155,13 +1174,14 @@ class TestListPhrasebookValuesTool:
 
     @pytest.mark.asyncio
     async def test_returns_dense_id_text_active_shape(self):
-        am = MagicMock()
+        category_repo = MagicMock()
+        value_repo = MagicMock()
         cat = make_category("cat-cam", "Camera", path="camera")
-        am.get_category_by_id.return_value = cat
+        category_repo.get_by_id.return_value = cat
         val = self._values(1)[0]
         val.is_active = False
-        am.values.get_by_category.return_value = [val]
-        ctx = make_context(phrasebook_manager=am)
+        value_repo.get_by_category.return_value = [val]
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute(ctx, category="cat-cam")
 
@@ -1180,8 +1200,8 @@ class TestListPhrasebookValuesTool:
 
     @pytest.mark.asyncio
     async def test_missing_category_returns_error(self):
-        am = MagicMock()
-        ctx = make_context(phrasebook_manager=am)
+        category_repo = MagicMock()
+        ctx = make_context(phrasebook_category_repository=category_repo)
         result = await self._tool().execute(ctx)
         assert result.success is False
         assert "category" in result.error
@@ -1190,7 +1210,8 @@ class TestListPhrasebookValuesTool:
     async def test_cross_user_isolation_category_not_found(self):
         """A category owned by another user must resolve as not-found for both
         the id and the path lookup, never leaking that user's values."""
-        am = MagicMock()
+        category_repo = MagicMock()
+        value_repo = MagicMock()
 
         def get_by_id(category_id, user_id):
             if user_id != "owner":
@@ -1200,16 +1221,16 @@ class TestListPhrasebookValuesTool:
         def get_by_path(path, user_id):
             return None if user_id != "owner" else make_category("cat-cam", "Camera Angles", path=path)
 
-        am.get_category_by_id.side_effect = get_by_id
-        am.categories.get_by_path.side_effect = get_by_path
-        ctx = make_context(phrasebook_manager=am)
+        category_repo.get_by_id.side_effect = get_by_id
+        category_repo.get_by_path.side_effect = get_by_path
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
         ctx.user_id = "intruder"
 
         result = await self._tool().execute(ctx, category="cat-cam")
 
         assert result.success is False
         assert "not found" in result.error
-        am.values.get_by_category.assert_not_called()
+        value_repo.get_by_category.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -1229,7 +1250,7 @@ class TestCreatePhrasebookCategoryTool:
 
     @pytest.mark.asyncio
     async def test_preview_nested_path_with_existing_parent(self):
-        am = MagicMock()
+        category_repo = MagicMock()
         parent = make_category("cat-parent", "Camera", path="camera")
 
         def get_by_path(path, user_id):
@@ -1239,8 +1260,8 @@ class TestCreatePhrasebookCategoryTool:
                 return parent
             return None
 
-        am.categories.get_by_path.side_effect = get_by_path
-        ctx = make_context(phrasebook_manager=am)
+        category_repo.get_by_path.side_effect = get_by_path
+        ctx = make_context(phrasebook_category_repository=category_repo)
 
         result = await self._tool().execute(ctx, path="camera.angles", description="Camera angle options")
 
@@ -1254,9 +1275,9 @@ class TestCreatePhrasebookCategoryTool:
 
     @pytest.mark.asyncio
     async def test_preview_uses_explicit_name(self):
-        am = MagicMock()
-        am.categories.get_by_path.return_value = None
-        ctx = make_context(phrasebook_manager=am)
+        category_repo = MagicMock()
+        category_repo.get_by_path.return_value = None
+        ctx = make_context(phrasebook_category_repository=category_repo)
 
         result = await self._tool().execute(ctx, path="lighting", name="Lighting Setups")
 
@@ -1266,9 +1287,9 @@ class TestCreatePhrasebookCategoryTool:
 
     @pytest.mark.asyncio
     async def test_duplicate_path_returns_error(self):
-        am = MagicMock()
-        am.categories.get_by_path.return_value = make_category("existing-1", "Angles", path="camera.angles")
-        ctx = make_context(phrasebook_manager=am)
+        category_repo = MagicMock()
+        category_repo.get_by_path.return_value = make_category("existing-1", "Angles", path="camera.angles")
+        ctx = make_context(phrasebook_category_repository=category_repo)
 
         result = await self._tool().execute(ctx, path="camera.angles")
 
@@ -1277,9 +1298,9 @@ class TestCreatePhrasebookCategoryTool:
 
     @pytest.mark.asyncio
     async def test_missing_parent_returns_error(self):
-        am = MagicMock()
-        am.categories.get_by_path.return_value = None  # neither the path nor the parent exist
-        ctx = make_context(phrasebook_manager=am)
+        category_repo = MagicMock()
+        category_repo.get_by_path.return_value = None  # neither the path nor the parent exist
+        ctx = make_context(phrasebook_category_repository=category_repo)
 
         result = await self._tool().execute(ctx, path="camera.angles")
 
@@ -1289,7 +1310,7 @@ class TestCreatePhrasebookCategoryTool:
 
     @pytest.mark.asyncio
     async def test_invalid_path_returns_error(self):
-        ctx = make_context(phrasebook_manager=MagicMock())
+        ctx = make_context(phrasebook_category_repository=MagicMock())
         result = await self._tool().execute(ctx, path="")
         assert result.success is False
         assert "path" in result.error.lower()
@@ -1302,12 +1323,13 @@ class TestCreatePhrasebookCategoryTool:
         assert "not available" in result.error
 
     @pytest.mark.asyncio
-    async def test_confirmed_creates_category(self):
-        am = MagicMock()
-        am.categories.get_by_path.return_value = None
+    async def test_confirmed_creates_category(self, monkeypatch):
+        category_repo = MagicMock()
+        category_repo.get_by_path.return_value = None
         created = make_category("cat-new", "Angles", path="angles")
-        am.create_category.return_value = created
-        ctx = make_context(phrasebook_manager=am)
+        mock_create_category = MagicMock(return_value=created)
+        monkeypatch.setattr(phrasebook_tool_module.operations, "create_category", mock_create_category)
+        ctx = make_context(phrasebook_category_repository=category_repo)
 
         result = await self._tool().execute_confirmed(
             ctx, path="angles", name="Angles", description="desc"
@@ -1320,18 +1342,24 @@ class TestCreatePhrasebookCategoryTool:
         assert data["category"]["path"] == "angles"
         assert data["marker"] == "#angles"
 
-        call_args = am.create_category.call_args
-        request = call_args[0][0]
+        call_args = mock_create_category.call_args
+        assert call_args[0][0] is category_repo
+        assert call_args[0][1] == ctx.plugin_registry
+        request = call_args[0][2]
         assert request.name == "Angles"
         assert request.path == "angles"
         assert request.description == "desc"
+        assert call_args[0][3] == "user-test"
 
     @pytest.mark.asyncio
-    async def test_confirmed_maps_value_error_to_failure(self):
-        am = MagicMock()
-        am.categories.get_by_path.return_value = None
-        am.create_category.side_effect = ValueError("Category with this path already exists")
-        ctx = make_context(phrasebook_manager=am)
+    async def test_confirmed_maps_value_error_to_failure(self, monkeypatch):
+        category_repo = MagicMock()
+        category_repo.get_by_path.return_value = None
+        monkeypatch.setattr(
+            phrasebook_tool_module.operations, "create_category",
+            MagicMock(side_effect=ValueError("Category with this path already exists")),
+        )
+        ctx = make_context(phrasebook_category_repository=category_repo)
 
         result = await self._tool().execute_confirmed(ctx, path="angles")
 
@@ -1339,16 +1367,18 @@ class TestCreatePhrasebookCategoryTool:
         assert "already exists" in result.error
 
     @pytest.mark.asyncio
-    async def test_confirmed_missing_parent_returns_error(self):
-        am = MagicMock()
-        am.categories.get_by_path.return_value = None
-        ctx = make_context(phrasebook_manager=am)
+    async def test_confirmed_missing_parent_returns_error(self, monkeypatch):
+        category_repo = MagicMock()
+        category_repo.get_by_path.return_value = None
+        mock_create_category = MagicMock()
+        monkeypatch.setattr(phrasebook_tool_module.operations, "create_category", mock_create_category)
+        ctx = make_context(phrasebook_category_repository=category_repo)
 
         result = await self._tool().execute_confirmed(ctx, path="camera.angles")
 
         assert result.success is False
         assert "camera" in result.error
-        am.create_category.assert_not_called()
+        mock_create_category.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -1368,11 +1398,12 @@ class TestCreatePhrasebookValuesTool:
 
     @pytest.mark.asyncio
     async def test_preview_by_category_path(self):
-        am = MagicMock()
+        category_repo = MagicMock()
+        value_repo = MagicMock()
         cat = make_category("cat-cam", "Camera Angles", path="camera.angles")
-        am.categories.get_by_path.return_value = cat
-        am.values.get_by_category.return_value = []
-        ctx = make_context(phrasebook_manager=am)
+        category_repo.get_by_path.return_value = cat
+        value_repo.get_by_category.return_value = []
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute(
             ctx, category_path="camera.angles",
@@ -1386,15 +1417,16 @@ class TestCreatePhrasebookValuesTool:
         assert data["count"] == 2
         assert data["values"][0] == {"label": "Wide angle", "value": "Wide angle"}
         assert data["values"][1] == {"label": "Close-up", "value": "extreme close-up shot"}
-        am.categories.get_by_path.assert_called_once_with("camera.angles", "user-test")
+        category_repo.get_by_path.assert_called_once_with("camera.angles", "user-test")
 
     @pytest.mark.asyncio
     async def test_preview_by_category_id(self):
-        am = MagicMock()
+        category_repo = MagicMock()
+        value_repo = MagicMock()
         cat = make_category("cat-cam", "Camera Angles", path="camera.angles")
-        am.get_category_by_id.return_value = cat
-        am.values.get_by_category.return_value = []
-        ctx = make_context(phrasebook_manager=am)
+        category_repo.get_by_id.return_value = cat
+        value_repo.get_by_category.return_value = []
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute(
             ctx, category_id="cat-cam", values=[{"label": "Wide angle"}]
@@ -1403,13 +1435,13 @@ class TestCreatePhrasebookValuesTool:
         assert result.success is True
         data = json.loads(result.data)
         assert data["category_path"] == "camera.angles"
-        am.get_category_by_id.assert_called_once_with(category_id="cat-cam", user_id="user-test")
+        category_repo.get_by_id.assert_called_once_with("cat-cam", "user-test")
 
     @pytest.mark.asyncio
     async def test_category_not_found_mentions_create_tool(self):
-        am = MagicMock()
-        am.categories.get_by_path.return_value = None
-        ctx = make_context(phrasebook_manager=am)
+        category_repo = MagicMock()
+        category_repo.get_by_path.return_value = None
+        ctx = make_context(phrasebook_category_repository=category_repo)
 
         result = await self._tool().execute(
             ctx, category_path="missing.category", values=[{"label": "Wide angle"}]
@@ -1420,8 +1452,8 @@ class TestCreatePhrasebookValuesTool:
 
     @pytest.mark.asyncio
     async def test_missing_category_identifier_returns_error(self):
-        am = MagicMock()
-        ctx = make_context(phrasebook_manager=am)
+        category_repo = MagicMock()
+        ctx = make_context(phrasebook_category_repository=category_repo)
 
         result = await self._tool().execute(ctx, values=[{"label": "Wide angle"}])
 
@@ -1430,13 +1462,14 @@ class TestCreatePhrasebookValuesTool:
 
     @pytest.mark.asyncio
     async def test_duplicate_labels_excluded_and_warned(self):
-        am = MagicMock()
+        category_repo = MagicMock()
+        value_repo = MagicMock()
         cat = make_category("cat-cam", "Camera Angles", path="camera.angles")
-        am.categories.get_by_path.return_value = cat
-        am.values.get_by_category.return_value = [
+        category_repo.get_by_path.return_value = cat
+        value_repo.get_by_category.return_value = [
             make_phrasebook_value("v1", "Wide angle", "wide angle lens"),
         ]
-        ctx = make_context(phrasebook_manager=am)
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute(
             ctx, category_path="camera.angles",
@@ -1451,16 +1484,16 @@ class TestCreatePhrasebookValuesTool:
 
     @pytest.mark.asyncio
     async def test_empty_values_returns_error(self):
-        am = MagicMock()
-        ctx = make_context(phrasebook_manager=am)
+        category_repo = MagicMock()
+        ctx = make_context(phrasebook_category_repository=category_repo)
         result = await self._tool().execute(ctx, category_path="camera.angles", values=[])
         assert result.success is False
         assert "values" in result.error.lower()
 
     @pytest.mark.asyncio
     async def test_missing_label_returns_error(self):
-        am = MagicMock()
-        ctx = make_context(phrasebook_manager=am)
+        category_repo = MagicMock()
+        ctx = make_context(phrasebook_category_repository=category_repo)
         result = await self._tool().execute(
             ctx, category_path="camera.angles", values=[{"label": ""}]
         )
@@ -1475,17 +1508,19 @@ class TestCreatePhrasebookValuesTool:
         assert "not available" in result.error
 
     @pytest.mark.asyncio
-    async def test_confirmed_creates_each_value_with_markers(self):
-        am = MagicMock()
+    async def test_confirmed_creates_each_value_with_markers(self, monkeypatch):
+        category_repo = MagicMock()
+        value_repo = MagicMock()
         cat = make_category("cat-cam", "Camera Angles", path="camera.angles")
-        am.categories.get_by_path.return_value = cat
-        am.values.get_by_category.return_value = []
+        category_repo.get_by_path.return_value = cat
+        value_repo.get_by_category.return_value = []
 
-        def create_value(request, user_id):
+        def create_value(value_repository, category_repository, plugin_registry, request, user_id):
             return make_phrasebook_value("v-new", request.label, request.value)
 
-        am.create_value.side_effect = create_value
-        ctx = make_context(phrasebook_manager=am)
+        mock_create_value = MagicMock(side_effect=create_value)
+        monkeypatch.setattr(phrasebook_tool_module.operations, "create_value", mock_create_value)
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute_confirmed(
             ctx, category_path="camera.angles",
@@ -1498,22 +1533,25 @@ class TestCreatePhrasebookValuesTool:
         assert data["values"][0]["marker"] == "#[camera.angles.Wide angle]"
         assert data["values"][1]["marker"] == "#camera.angles.Close-up"
         assert "instruction" in data
-        assert am.create_value.call_count == 2
+        assert mock_create_value.call_count == 2
 
     @pytest.mark.asyncio
-    async def test_confirmed_partial_failure_reports_failed_and_succeeds(self):
-        am = MagicMock()
+    async def test_confirmed_partial_failure_reports_failed_and_succeeds(self, monkeypatch):
+        category_repo = MagicMock()
+        value_repo = MagicMock()
         cat = make_category("cat-cam", "Camera Angles", path="camera.angles")
-        am.categories.get_by_path.return_value = cat
-        am.values.get_by_category.return_value = []
+        category_repo.get_by_path.return_value = cat
+        value_repo.get_by_category.return_value = []
 
-        def create_value(request, user_id):
+        def create_value(value_repository, category_repository, plugin_registry, request, user_id):
             if request.label == "Bad":
                 raise ValueError("Category not found")
             return make_phrasebook_value("v-ok", request.label, request.value)
 
-        am.create_value.side_effect = create_value
-        ctx = make_context(phrasebook_manager=am)
+        monkeypatch.setattr(
+            phrasebook_tool_module.operations, "create_value", MagicMock(side_effect=create_value)
+        )
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute_confirmed(
             ctx, category_path="camera.angles",
@@ -1528,13 +1566,17 @@ class TestCreatePhrasebookValuesTool:
         assert data["failed"][0]["label"] == "Bad"
 
     @pytest.mark.asyncio
-    async def test_confirmed_all_fail_returns_failure(self):
-        am = MagicMock()
+    async def test_confirmed_all_fail_returns_failure(self, monkeypatch):
+        category_repo = MagicMock()
+        value_repo = MagicMock()
         cat = make_category("cat-cam", "Camera Angles", path="camera.angles")
-        am.categories.get_by_path.return_value = cat
-        am.values.get_by_category.return_value = []
-        am.create_value.side_effect = ValueError("Category not found")
-        ctx = make_context(phrasebook_manager=am)
+        category_repo.get_by_path.return_value = cat
+        value_repo.get_by_category.return_value = []
+        monkeypatch.setattr(
+            phrasebook_tool_module.operations, "create_value",
+            MagicMock(side_effect=ValueError("Category not found")),
+        )
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute_confirmed(
             ctx, category_path="camera.angles", values=[{"label": "Wide angle"}]
@@ -1544,21 +1586,23 @@ class TestCreatePhrasebookValuesTool:
         assert "Category not found" in result.error
 
     @pytest.mark.asyncio
-    async def test_confirmed_re_excludes_duplicates_created_meanwhile(self):
+    async def test_confirmed_re_excludes_duplicates_created_meanwhile(self, monkeypatch):
         """execute_confirmed receives the ORIGINAL args, so it must re-check for
         duplicates in case a value was created between preview and confirmation."""
-        am = MagicMock()
+        category_repo = MagicMock()
+        value_repo = MagicMock()
         cat = make_category("cat-cam", "Camera Angles", path="camera.angles")
-        am.categories.get_by_path.return_value = cat
-        am.values.get_by_category.return_value = [
+        category_repo.get_by_path.return_value = cat
+        value_repo.get_by_category.return_value = [
             make_phrasebook_value("v1", "Wide angle", "wide angle lens"),
         ]
 
-        def create_value(request, user_id):
+        def create_value(value_repository, category_repository, plugin_registry, request, user_id):
             return make_phrasebook_value("v-new", request.label, request.value)
 
-        am.create_value.side_effect = create_value
-        ctx = make_context(phrasebook_manager=am)
+        mock_create_value = MagicMock(side_effect=create_value)
+        monkeypatch.setattr(phrasebook_tool_module.operations, "create_value", mock_create_value)
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute_confirmed(
             ctx, category_path="camera.angles",
@@ -1569,7 +1613,7 @@ class TestCreatePhrasebookValuesTool:
         data = json.loads(result.data)
         assert data["created_count"] == 1
         assert data["values"][0]["label"] == "Close-up"
-        am.create_value.assert_called_once()
+        mock_create_value.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -1594,9 +1638,10 @@ class TestRemovePhrasebookValuesTool:
 
     @pytest.mark.asyncio
     async def test_preview_returns_matched_values(self):
-        am = MagicMock()
-        am.get_value_by_id.side_effect = lambda vid, user_id: self._value(vid, f"Label {vid}")
-        ctx = make_context(phrasebook_manager=am)
+        category_repo = MagicMock()
+        value_repo = MagicMock()
+        value_repo.get_by_id.side_effect = lambda vid, user_id: self._value(vid, f"Label {vid}")
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute(ctx, value_ids=["v1", "v2"])
 
@@ -1608,15 +1653,16 @@ class TestRemovePhrasebookValuesTool:
 
     @pytest.mark.asyncio
     async def test_preview_skips_unknown_ids(self):
-        am = MagicMock()
+        category_repo = MagicMock()
+        value_repo = MagicMock()
 
-        def get_value(vid, user_id):
+        def get_by_id(vid, user_id):
             if vid == "missing":
-                raise ValueError("Value not found")
+                return None
             return self._value(vid, "Wide angle")
 
-        am.get_value_by_id.side_effect = get_value
-        ctx = make_context(phrasebook_manager=am)
+        value_repo.get_by_id.side_effect = get_by_id
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute(ctx, value_ids=["v1", "missing"])
 
@@ -1627,9 +1673,10 @@ class TestRemovePhrasebookValuesTool:
 
     @pytest.mark.asyncio
     async def test_preview_all_missing_returns_error(self):
-        am = MagicMock()
-        am.get_value_by_id.side_effect = ValueError("Value not found")
-        ctx = make_context(phrasebook_manager=am)
+        category_repo = MagicMock()
+        value_repo = MagicMock()
+        value_repo.get_by_id.return_value = None
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute(ctx, value_ids=["missing"])
 
@@ -1638,13 +1685,14 @@ class TestRemovePhrasebookValuesTool:
 
     @pytest.mark.asyncio
     async def test_preview_category_scope_rejects_mismatched_values(self):
-        am = MagicMock()
+        category_repo = MagicMock()
+        value_repo = MagicMock()
         cat = make_category("cat-cam", "Camera Angles", path="camera.angles")
-        am.categories.get_by_path.return_value = cat
-        am.get_value_by_id.side_effect = lambda vid, user_id: self._value(
+        category_repo.get_by_path.return_value = cat
+        value_repo.get_by_id.side_effect = lambda vid, user_id: self._value(
             vid, "Wide angle", category_id="cat-other" if vid == "wrong" else "cat-cam"
         )
-        ctx = make_context(phrasebook_manager=am)
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute(
             ctx, value_ids=["v1", "wrong"], category_path="camera.angles"
@@ -1658,9 +1706,9 @@ class TestRemovePhrasebookValuesTool:
 
     @pytest.mark.asyncio
     async def test_preview_unknown_category_path_returns_error(self):
-        am = MagicMock()
-        am.categories.get_by_path.return_value = None
-        ctx = make_context(phrasebook_manager=am)
+        category_repo = MagicMock()
+        category_repo.get_by_path.return_value = None
+        ctx = make_context(phrasebook_category_repository=category_repo)
 
         result = await self._tool().execute(
             ctx, value_ids=["v1"], category_path="missing.category"
@@ -1671,8 +1719,8 @@ class TestRemovePhrasebookValuesTool:
 
     @pytest.mark.asyncio
     async def test_missing_value_ids_returns_error(self):
-        am = MagicMock()
-        ctx = make_context(phrasebook_manager=am)
+        category_repo = MagicMock()
+        ctx = make_context(phrasebook_category_repository=category_repo)
         result = await self._tool().execute(ctx)
         assert result.success is False
         assert "value_ids" in result.error
@@ -1685,32 +1733,38 @@ class TestRemovePhrasebookValuesTool:
         assert "not available" in result.error
 
     @pytest.mark.asyncio
-    async def test_confirmed_deletes_each_value(self):
-        am = MagicMock()
-        am.get_value_by_id.side_effect = lambda vid, user_id: self._value(vid, f"Label {vid}")
-        ctx = make_context(phrasebook_manager=am)
+    async def test_confirmed_deletes_each_value(self, monkeypatch):
+        category_repo = MagicMock()
+        value_repo = MagicMock()
+        value_repo.get_by_id.side_effect = lambda vid, user_id: self._value(vid, f"Label {vid}")
+        mock_delete_value = MagicMock()
+        monkeypatch.setattr(phrasebook_tool_module.operations, "delete_value", mock_delete_value)
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute_confirmed(ctx, value_ids=["v1", "v2"])
 
         assert result.success is True
         data = json.loads(result.data)
         assert data["deleted_count"] == 2
-        assert am.delete_value.call_count == 2
-        am.delete_value.assert_any_call("v1", "user-test")
-        am.delete_value.assert_any_call("v2", "user-test")
+        assert mock_delete_value.call_count == 2
+        mock_delete_value.assert_any_call(value_repo, ctx.plugin_registry, "v1", "user-test")
+        mock_delete_value.assert_any_call(value_repo, ctx.plugin_registry, "v2", "user-test")
 
     @pytest.mark.asyncio
-    async def test_confirmed_partial_failure_reports_failed_and_succeeds(self):
-        am = MagicMock()
-        am.get_value_by_id.side_effect = lambda vid, user_id: self._value(vid, f"Label {vid}")
+    async def test_confirmed_partial_failure_reports_failed_and_succeeds(self, monkeypatch):
+        category_repo = MagicMock()
+        value_repo = MagicMock()
+        value_repo.get_by_id.side_effect = lambda vid, user_id: self._value(vid, f"Label {vid}")
 
-        def delete_value(vid, user_id):
+        def delete_value(value_repository, plugin_registry, vid, user_id):
             if vid == "v2":
                 raise ValueError("Value not found")
             return True
 
-        am.delete_value.side_effect = delete_value
-        ctx = make_context(phrasebook_manager=am)
+        monkeypatch.setattr(
+            phrasebook_tool_module.operations, "delete_value", MagicMock(side_effect=delete_value)
+        )
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute_confirmed(ctx, value_ids=["v1", "v2"])
 
@@ -1722,9 +1776,10 @@ class TestRemovePhrasebookValuesTool:
 
     @pytest.mark.asyncio
     async def test_confirmed_all_fail_returns_failure(self):
-        am = MagicMock()
-        am.get_value_by_id.side_effect = ValueError("Value not found")
-        ctx = make_context(phrasebook_manager=am)
+        category_repo = MagicMock()
+        value_repo = MagicMock()
+        value_repo.get_by_id.return_value = None
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute_confirmed(ctx, value_ids=["missing"])
 
@@ -1732,23 +1787,26 @@ class TestRemovePhrasebookValuesTool:
         assert "Failed to delete" in result.error
 
     @pytest.mark.asyncio
-    async def test_cross_user_isolation_value_not_found(self):
+    async def test_cross_user_isolation_value_not_found(self, monkeypatch):
         """A value owned by another user must resolve as not-found, never deleted."""
-        am = MagicMock()
+        category_repo = MagicMock()
+        value_repo = MagicMock()
 
-        def get_value(vid, user_id):
+        def get_by_id(vid, user_id):
             if user_id != "owner":
-                raise ValueError("Value not found")
+                return None
             return self._value(vid, "Wide angle")
 
-        am.get_value_by_id.side_effect = get_value
-        ctx = make_context(phrasebook_manager=am)
+        value_repo.get_by_id.side_effect = get_by_id
+        mock_delete_value = MagicMock()
+        monkeypatch.setattr(phrasebook_tool_module.operations, "delete_value", mock_delete_value)
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
         ctx.user_id = "intruder"
 
         result = await self._tool().execute(ctx, value_ids=["v1"])
 
         assert result.success is False
-        am.delete_value.assert_not_called()
+        mock_delete_value.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -1785,24 +1843,24 @@ class TestUpdatePhrasebookValuesTool:
 
     @pytest.mark.asyncio
     async def test_missing_category_returns_error(self):
-        am = MagicMock()
-        ctx = make_context(phrasebook_manager=am)
+        category_repo = MagicMock()
+        ctx = make_context(phrasebook_category_repository=category_repo)
         result = await self._tool().execute(ctx, edits=[{"id": "v1", "new_label": "x"}])
         assert result.success is False
         assert "category" in result.error.lower()
 
     @pytest.mark.asyncio
     async def test_empty_edits_returns_error(self):
-        am = MagicMock()
-        ctx = make_context(phrasebook_manager=am)
+        category_repo = MagicMock()
+        ctx = make_context(phrasebook_category_repository=category_repo)
         result = await self._tool().execute(ctx, category="camera.angles", edits=[])
         assert result.success is False
         assert "edits" in result.error.lower()
 
     @pytest.mark.asyncio
     async def test_edit_missing_id_returns_error(self):
-        am = MagicMock()
-        ctx = make_context(phrasebook_manager=am)
+        category_repo = MagicMock()
+        ctx = make_context(phrasebook_category_repository=category_repo)
         result = await self._tool().execute(
             ctx, category="camera.angles", edits=[{"new_label": "Wide angle"}]
         )
@@ -1811,8 +1869,8 @@ class TestUpdatePhrasebookValuesTool:
 
     @pytest.mark.asyncio
     async def test_edit_missing_new_fields_returns_error(self):
-        am = MagicMock()
-        ctx = make_context(phrasebook_manager=am)
+        category_repo = MagicMock()
+        ctx = make_context(phrasebook_category_repository=category_repo)
         result = await self._tool().execute(
             ctx, category="camera.angles", edits=[{"id": "v1"}]
         )
@@ -1821,10 +1879,10 @@ class TestUpdatePhrasebookValuesTool:
 
     @pytest.mark.asyncio
     async def test_category_not_found_returns_error(self):
-        am = MagicMock()
-        am.get_category_by_id.side_effect = ValueError("Category not found")
-        am.categories.get_by_path.return_value = None
-        ctx = make_context(phrasebook_manager=am)
+        category_repo = MagicMock()
+        category_repo.get_by_id.return_value = None
+        category_repo.get_by_path.return_value = None
+        ctx = make_context(phrasebook_category_repository=category_repo)
 
         result = await self._tool().execute(
             ctx, category="missing.category", edits=[{"id": "v1", "new_label": "x"}]
@@ -1834,13 +1892,14 @@ class TestUpdatePhrasebookValuesTool:
 
     @pytest.mark.asyncio
     async def test_preview_rename_label(self):
-        am = MagicMock()
+        category_repo = MagicMock()
+        value_repo = MagicMock()
         cat = self._category()
-        am.get_category_by_id.side_effect = ValueError("Category not found")
-        am.categories.get_by_path.return_value = cat
-        am.values.get_by_category.return_value = [self._value("v1", "Wide")]
-        am.get_value_by_id.side_effect = lambda vid, user_id: self._value(vid, "Wide")
-        ctx = make_context(phrasebook_manager=am)
+        category_repo.get_by_id.return_value = None
+        category_repo.get_by_path.return_value = cat
+        value_repo.get_by_category.return_value = [self._value("v1", "Wide")]
+        value_repo.get_by_id.side_effect = lambda vid, user_id: self._value(vid, "Wide")
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute(
             ctx, category="camera.angles", edits=[{"id": "v1", "new_label": "Wide angle"}]
@@ -1861,13 +1920,14 @@ class TestUpdatePhrasebookValuesTool:
 
     @pytest.mark.asyncio
     async def test_preview_change_value_text(self):
-        am = MagicMock()
+        category_repo = MagicMock()
+        value_repo = MagicMock()
         cat = self._category()
-        am.get_category_by_id.side_effect = ValueError("Category not found")
-        am.categories.get_by_path.return_value = cat
-        am.values.get_by_category.return_value = [self._value("v1", "Wide", "wide angle lens")]
-        am.get_value_by_id.side_effect = lambda vid, user_id: self._value(vid, "Wide", "wide angle lens")
-        ctx = make_context(phrasebook_manager=am)
+        category_repo.get_by_id.return_value = None
+        category_repo.get_by_path.return_value = cat
+        value_repo.get_by_category.return_value = [self._value("v1", "Wide", "wide angle lens")]
+        value_repo.get_by_id.side_effect = lambda vid, user_id: self._value(vid, "Wide", "wide angle lens")
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute(
             ctx, category="camera.angles",
@@ -1882,13 +1942,14 @@ class TestUpdatePhrasebookValuesTool:
 
     @pytest.mark.asyncio
     async def test_preview_both_label_and_value(self):
-        am = MagicMock()
+        category_repo = MagicMock()
+        value_repo = MagicMock()
         cat = self._category()
-        am.get_category_by_id.side_effect = ValueError("Category not found")
-        am.categories.get_by_path.return_value = cat
-        am.values.get_by_category.return_value = [self._value("v1", "Wide", "wide angle lens")]
-        am.get_value_by_id.side_effect = lambda vid, user_id: self._value(vid, "Wide", "wide angle lens")
-        ctx = make_context(phrasebook_manager=am)
+        category_repo.get_by_id.return_value = None
+        category_repo.get_by_path.return_value = cat
+        value_repo.get_by_category.return_value = [self._value("v1", "Wide", "wide angle lens")]
+        value_repo.get_by_id.side_effect = lambda vid, user_id: self._value(vid, "Wide", "wide angle lens")
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute(
             ctx, category="camera.angles",
@@ -1903,19 +1964,20 @@ class TestUpdatePhrasebookValuesTool:
 
     @pytest.mark.asyncio
     async def test_preview_skips_unknown_id(self):
-        am = MagicMock()
+        category_repo = MagicMock()
+        value_repo = MagicMock()
         cat = self._category()
-        am.get_category_by_id.side_effect = ValueError("Category not found")
-        am.categories.get_by_path.return_value = cat
-        am.values.get_by_category.return_value = [self._value("v1", "Wide")]
+        category_repo.get_by_id.return_value = None
+        category_repo.get_by_path.return_value = cat
+        value_repo.get_by_category.return_value = [self._value("v1", "Wide")]
 
-        def get_value(vid, user_id):
+        def get_by_id(vid, user_id):
             if vid == "missing":
-                raise ValueError("Value not found")
+                return None
             return self._value(vid, "Wide")
 
-        am.get_value_by_id.side_effect = get_value
-        ctx = make_context(phrasebook_manager=am)
+        value_repo.get_by_id.side_effect = get_by_id
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute(
             ctx, category="camera.angles",
@@ -1929,13 +1991,14 @@ class TestUpdatePhrasebookValuesTool:
 
     @pytest.mark.asyncio
     async def test_preview_all_unknown_returns_error(self):
-        am = MagicMock()
+        category_repo = MagicMock()
+        value_repo = MagicMock()
         cat = self._category()
-        am.get_category_by_id.side_effect = ValueError("Category not found")
-        am.categories.get_by_path.return_value = cat
-        am.values.get_by_category.return_value = []
-        am.get_value_by_id.side_effect = ValueError("Value not found")
-        ctx = make_context(phrasebook_manager=am)
+        category_repo.get_by_id.return_value = None
+        category_repo.get_by_path.return_value = cat
+        value_repo.get_by_category.return_value = []
+        value_repo.get_by_id.return_value = None
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute(
             ctx, category="camera.angles", edits=[{"id": "missing", "new_label": "x"}]
@@ -1946,18 +2009,19 @@ class TestUpdatePhrasebookValuesTool:
 
     @pytest.mark.asyncio
     async def test_preview_label_collision_skipped(self):
-        am = MagicMock()
+        category_repo = MagicMock()
+        value_repo = MagicMock()
         cat = self._category()
-        am.get_category_by_id.side_effect = ValueError("Category not found")
-        am.categories.get_by_path.return_value = cat
+        category_repo.get_by_id.return_value = None
+        category_repo.get_by_path.return_value = cat
         values_by_id = {
             "v1": self._value("v1", "Wide"),
             "v2": self._value("v2", "Close-up"),
             "v3": self._value("v3", "Macro"),
         }
-        am.values.get_by_category.return_value = list(values_by_id.values())
-        am.get_value_by_id.side_effect = lambda vid, user_id: values_by_id[vid]
-        ctx = make_context(phrasebook_manager=am)
+        value_repo.get_by_category.return_value = list(values_by_id.values())
+        value_repo.get_by_id.side_effect = lambda vid, user_id: values_by_id[vid]
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute(
             ctx, category="camera.angles",
@@ -1975,19 +2039,21 @@ class TestUpdatePhrasebookValuesTool:
         assert "close-up" in data["skipped"][0]["error"]
 
     @pytest.mark.asyncio
-    async def test_confirmed_applies_edit_with_fresh_marker(self):
-        am = MagicMock()
+    async def test_confirmed_applies_edit_with_fresh_marker(self, monkeypatch):
+        category_repo = MagicMock()
+        value_repo = MagicMock()
         cat = self._category()
-        am.get_category_by_id.side_effect = ValueError("Category not found")
-        am.categories.get_by_path.return_value = cat
-        am.values.get_by_category.return_value = [self._value("v1", "Wide")]
-        am.get_value_by_id.side_effect = lambda vid, user_id: self._value(vid, "Wide")
+        category_repo.get_by_id.return_value = None
+        category_repo.get_by_path.return_value = cat
+        value_repo.get_by_category.return_value = [self._value("v1", "Wide")]
+        value_repo.get_by_id.side_effect = lambda vid, user_id: self._value(vid, "Wide")
 
-        def update_value(value_id, request, user_id):
+        def update_value(value_repository, category_repository, plugin_registry, value_id, request, user_id):
             return make_phrasebook_value(value_id, request.label, request.value)
 
-        am.update_value.side_effect = update_value
-        ctx = make_context(phrasebook_manager=am)
+        mock_update_value = MagicMock(side_effect=update_value)
+        monkeypatch.setattr(phrasebook_tool_module.operations, "update_value", mock_update_value)
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute_confirmed(
             ctx, category="camera.angles", edits=[{"id": "v1", "new_label": "Wide angle"}]
@@ -1998,31 +2064,34 @@ class TestUpdatePhrasebookValuesTool:
         assert data["updated_count"] == 1
         assert data["values"][0]["label"] == "Wide angle"
         assert data["values"][0]["marker"] == "#[camera.angles.Wide angle]"
-        am.update_value.assert_called_once()
-        call_args = am.update_value.call_args
-        assert call_args[0][0] == "v1"
-        assert call_args[0][1].label == "Wide angle"
+        mock_update_value.assert_called_once()
+        call_args = mock_update_value.call_args
+        assert call_args[0][3] == "v1"
+        assert call_args[0][4].label == "Wide angle"
 
     @pytest.mark.asyncio
-    async def test_confirmed_partial_failure_reports_failed_and_succeeds(self):
-        am = MagicMock()
+    async def test_confirmed_partial_failure_reports_failed_and_succeeds(self, monkeypatch):
+        category_repo = MagicMock()
+        value_repo = MagicMock()
         cat = self._category()
-        am.get_category_by_id.side_effect = ValueError("Category not found")
-        am.categories.get_by_path.return_value = cat
-        am.values.get_by_category.return_value = [
+        category_repo.get_by_id.return_value = None
+        category_repo.get_by_path.return_value = cat
+        value_repo.get_by_category.return_value = [
             self._value("v1", "Wide"), self._value("v2", "Close-up"),
         ]
-        am.get_value_by_id.side_effect = lambda vid, user_id: (
+        value_repo.get_by_id.side_effect = lambda vid, user_id: (
             self._value("v1", "Wide") if vid == "v1" else self._value("v2", "Close-up")
         )
 
-        def update_value(value_id, request, user_id):
+        def update_value(value_repository, category_repository, plugin_registry, value_id, request, user_id):
             if value_id == "v2":
                 raise ValueError("Value not found")
             return make_phrasebook_value(value_id, request.label, request.value)
 
-        am.update_value.side_effect = update_value
-        ctx = make_context(phrasebook_manager=am)
+        monkeypatch.setattr(
+            phrasebook_tool_module.operations, "update_value", MagicMock(side_effect=update_value)
+        )
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute_confirmed(
             ctx, category="camera.angles",
@@ -2039,15 +2108,19 @@ class TestUpdatePhrasebookValuesTool:
         assert data["failed"][0]["id"] == "v2"
 
     @pytest.mark.asyncio
-    async def test_confirmed_all_fail_returns_failure(self):
-        am = MagicMock()
+    async def test_confirmed_all_fail_returns_failure(self, monkeypatch):
+        category_repo = MagicMock()
+        value_repo = MagicMock()
         cat = self._category()
-        am.get_category_by_id.side_effect = ValueError("Category not found")
-        am.categories.get_by_path.return_value = cat
-        am.values.get_by_category.return_value = [self._value("v1", "Wide")]
-        am.get_value_by_id.side_effect = lambda vid, user_id: self._value(vid, "Wide")
-        am.update_value.side_effect = ValueError("Value not found")
-        ctx = make_context(phrasebook_manager=am)
+        category_repo.get_by_id.return_value = None
+        category_repo.get_by_path.return_value = cat
+        value_repo.get_by_category.return_value = [self._value("v1", "Wide")]
+        value_repo.get_by_id.side_effect = lambda vid, user_id: self._value(vid, "Wide")
+        monkeypatch.setattr(
+            phrasebook_tool_module.operations, "update_value",
+            MagicMock(side_effect=ValueError("Value not found")),
+        )
+        ctx = make_context(phrasebook_category_repository=category_repo, phrasebook_value_repository=value_repo)
 
         result = await self._tool().execute_confirmed(
             ctx, category="camera.angles", edits=[{"id": "v1", "new_label": "Wide angle"}]

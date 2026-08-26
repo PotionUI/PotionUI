@@ -5,6 +5,7 @@ import logging
 from typing import Any, Dict
 
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
+from src.features.segments import operations
 
 logger = logging.getLogger(__name__)
 
@@ -52,11 +53,11 @@ class ListSegmentCategoriesTool(BaseTool):
         }
 
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
-        if not context.segment_manager:
+        if not context.segment_category_repository:
             return ToolResult(success=False, data="", error="Segment manager not available")
 
         try:
-            categories = context.segment_manager.get_categories(user_id=context.user_id)
+            categories = context.segment_category_repository.get_all(context.user_id)
             result = []
             for cat in categories:
                 result.append({
@@ -117,12 +118,13 @@ class GetSavedSegmentsTool(BaseTool):
         }
 
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
-        if not context.segment_manager:
+        if not context.saved_segment_repository:
             return ToolResult(success=False, data="", error="Segment manager not available")
         try:
-            segments = context.segment_manager.get_segments(
-                user_id=context.user_id, category_id=kwargs.get("category_id")
-            )
+            category_id = kwargs.get("category_id")
+            if category_id:
+                operations.get_category(context.segment_category_repository, category_id, context.user_id)
+            segments = context.saved_segment_repository.get_all(context.user_id, category_id)
             return ToolResult(success=True, data=json.dumps({
                 "segments": [item.model_dump(mode="json") for item in segments],
                 "count": len(segments),
@@ -169,11 +171,11 @@ class GetSegmentTemplatesTool(BaseTool):
         return {"type": "object", "properties": {}, "required": []}
 
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
-        if not context.segment_manager:
+        if not context.segment_template_repository:
             return ToolResult(success=False, data="", error="Segment manager not available")
 
         try:
-            templates = context.segment_manager.get_templates(user_id=context.user_id)
+            templates = context.segment_template_repository.get_all(context.user_id)
             result = [tmpl.model_dump(mode="json") for tmpl in templates]
             return ToolResult(
                 success=True,

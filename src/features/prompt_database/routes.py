@@ -7,12 +7,13 @@ from fastapi import APIRouter, Body, Depends, Query
 
 from src.platform.http.base_controller import APIResponse, BaseController
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
+from src.features.prompt_database import operations
+from src.features.prompt_database.collaborators import PromptDatabaseCollaborators
 from src.features.prompt_database.dto import (
     PromptBulkDeleteRequest,
     PromptRequest,
 )
 from src.features.prompt_database.embedding import LocalEmbeddingProvider
-from src.features.prompt_database.manager import PromptDatabaseManager
 from src.features.generation.repository import generation_repo
 from src.features.presets.name_resolver import PresetNameResolver
 from src.platform.security.user import User
@@ -31,13 +32,13 @@ def _user_id(user: User) -> str:
 
 
 class PromptDatabaseController(BaseController):
-    def __init__(self, manager: PromptDatabaseManager):
+    def __init__(self, collaborators: PromptDatabaseCollaborators):
         super().__init__()
-        self.manager = manager
+        self.collaborators = collaborators
 
     async def create(self, request: PromptRequest, user: User) -> APIResponse:
         try:
-            prompt = await self.manager.create_prompt(_user_id(user), request)
+            prompt = await operations.create_prompt(self.collaborators, _user_id(user), request)
             return self.success_response(prompt.to_dict())
         except ValueError as exc:
             return self.error_response("validation_error", str(exc), 422)
@@ -46,7 +47,7 @@ class PromptDatabaseController(BaseController):
 
     async def replace(self, prompt_id: str, request: PromptRequest, user: User) -> APIResponse:
         try:
-            prompt = await self.manager.replace_prompt(_user_id(user), prompt_id, request)
+            prompt = await operations.replace_prompt(self.collaborators, _user_id(user), prompt_id, request)
             if prompt is None:
                 return self.error_response("not_found", "Prompt not found", 404)
             return self.success_response(prompt.to_dict())
@@ -95,7 +96,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         # for the model it was actually constructed with - an admin querying
         # an unsaved override model_name gets an honest `false`, not a
         # residency reading for a different model.
-        provider = controller.manager.embedding_provider
+        provider = controller.collaborators.embedding_provider
         is_loaded = getattr(provider, "is_loaded", None)
         data["loaded"] = bool(
             is_loaded and getattr(provider, "model_name", None) == name and is_loaded()
@@ -128,8 +129,8 @@ def build_router(container: "AppContainer") -> APIRouter:
         source_provider: Optional[str] = None,
         current_user: User = Depends(get_current_active_user),
     ):
-        prompts = await controller.manager.search(
-            _user_id(current_user), q, limit, base_model, model_id, source_provider,
+        prompts = await operations.search(
+            controller.collaborators, _user_id(current_user), q, limit, base_model, model_id, source_provider,
         )
         return APIResponse(success=True, data=[prompt.to_dict() for prompt in prompts])
 
@@ -139,8 +140,8 @@ def build_router(container: "AppContainer") -> APIRouter:
         model_id: Optional[str] = None,
         current_user: User = Depends(get_current_active_user),
     ):
-        groups = await controller.manager.find_duplicates(
-            _user_id(current_user), threshold, model_id,
+        groups = await operations.find_duplicates(
+            controller.collaborators, _user_id(current_user), threshold, model_id,
         )
         return APIResponse(
             success=True,
@@ -155,22 +156,22 @@ def build_router(container: "AppContainer") -> APIRouter:
         request: PromptBulkDeleteRequest,
         current_user: User = Depends(get_current_active_user),
     ):
-        count = controller.manager.bulk_delete_prompts(
-            _user_id(current_user), request.prompt_ids,
+        count = operations.bulk_delete_prompts(
+            controller.collaborators, _user_id(current_user), request.prompt_ids,
         )
         return APIResponse(success=True, data={"deleted": count})
 
     @router.delete("/purge-model/{model_id}", response_model=APIResponse, summary="Delete all prompts for a model")
     async def purge_model(model_id: str, current_user: User = Depends(get_current_active_user)):
-        count = controller.manager.purge_model_prompts(
-            _user_id(current_user), model_id
+        count = operations.purge_model_prompts(
+            controller.collaborators, _user_id(current_user), model_id
         )
         return APIResponse(success=True, data={"deleted": count})
 
     @router.post("/embed-pending", response_model=APIResponse, summary="Embed prompts awaiting vectorization")
     async def embed_pending(current_user: User = Depends(get_current_active_user)):
-        count = await controller.manager.embed_pending(
-            _user_id(current_user)
+        count = await operations.embed_pending(
+            controller.collaborators, _user_id(current_user)
         )
         return APIResponse(success=True, data={"embedded": count})
 
@@ -193,12 +194,20 @@ def build_router(container: "AppContainer") -> APIRouter:
         current_user: User = Depends(get_current_active_user),
     ):
         user_id = _user_id(current_user)
-        data = controller.manager.list_prompts(
+        repository = controller.collaborators.repository
+        items = repository.get_all(
             user_id=user_id, limit=limit, offset=offset,
             source_provider=source_provider, base_model=base_model, model_id=model_id,
             usage_hint=usage_hint, collection_id=collection_id,
             sort_by=sort_by, sort_order=sort_order,
         )
+        total = repository.count(
+            user_id, source_provider, model_id, base_model, usage_hint, collection_id,
+        )
+        data = {
+            "items": [item.to_dict() for item in items], "total": total,
+            "limit": limit, "offset": offset,
+        }
         # Single grouped query for the whole page rather than one lookup per
         # prompt - see GenerationRepository.usage_stats_by_source_prompt.
         prompt_ids = [item["id"] for item in data["items"]]
@@ -211,9 +220,7 @@ def build_router(container: "AppContainer") -> APIRouter:
 
     @router.get("/{prompt_id}", response_model=APIResponse, summary="Get a prompt")
     async def get_prompt(prompt_id: str, current_user: User = Depends(get_current_active_user)):
-        prompt = controller.manager.get_prompt(
-            _user_id(current_user), prompt_id
-        )
+        prompt = controller.collaborators.repository.get_by_id(prompt_id, _user_id(current_user))
         if prompt is None:
             return controller.error_response("not_found", "Prompt not found", 404)
         return APIResponse(success=True, data=prompt.to_dict())
@@ -258,9 +265,7 @@ def build_router(container: "AppContainer") -> APIRouter:
 
     @router.delete("/{prompt_id}", response_model=APIResponse, summary="Delete a prompt")
     async def delete_prompt(prompt_id: str, current_user: User = Depends(get_current_active_user)):
-        if not controller.manager.delete_prompt(
-            _user_id(current_user), prompt_id
-        ):
+        if not operations.delete_prompt(controller.collaborators, _user_id(current_user), prompt_id):
             return controller.error_response("not_found", "Prompt not found", 404)
         return APIResponse(success=True, message="Prompt deleted")
 

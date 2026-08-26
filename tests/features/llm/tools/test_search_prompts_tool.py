@@ -1,21 +1,38 @@
-"""Tests for aggregate Prompt search exposed to built-in LLM tools."""
+"""Tests for aggregate Prompt search exposed to built-in LLM tools.
+
+The tool calls `src.features.prompt_database.operations.search` directly
+(module-level, no injected manager) against `context.prompt_database` (a
+`PromptDatabaseCollaborators` stand-in - a plain MagicMock here).
+`mock_operations` patches the `operations` module as imported into
+`search_prompts_tool.py`, so tests assert against it exactly like the
+previous manager mock.
+"""
 
 import json
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 
 from src.features.segments.dto import RichSegment
 from src.features.llm.tools.base import ToolContext
+from src.features.llm.tools.builtin import search_prompts_tool as search_prompts_tool_module
 from src.features.llm.tools.builtin.search_prompts_tool import SearchModelPromptsTool
 from src.features.prompt_database.records import Prompt
 
 
-def make_context(manager=None, **kwargs) -> ToolContext:
+@pytest.fixture
+def mock_operations(monkeypatch):
+    """Patch the `operations` module as seen by search_prompts_tool.py."""
+    mock = Mock()
+    monkeypatch.setattr(search_prompts_tool_module, "operations", mock)
+    return mock
+
+
+def make_context(prompt_database=None, **kwargs) -> ToolContext:
     return ToolContext(
         user_id=kwargs.pop("user_id", "user-1"),
-        prompt_database_manager=manager,
+        prompt_database=prompt_database,
         session_metadata=kwargs.pop("session_metadata", {}),
         model_index_manager=kwargs.pop("model_index_manager", None),
     )
@@ -77,12 +94,12 @@ async def test_missing_manager_or_queries_returns_clear_failure():
 
 
 @pytest.mark.asyncio
-async def test_search_returns_rich_aggregate_fields_without_negative_pair():
-    manager = MagicMock()
-    manager.search = AsyncMock(return_value=[make_prompt()])
+async def test_search_returns_rich_aggregate_fields_without_negative_pair(mock_operations):
+    prompt_database = MagicMock()
+    mock_operations.search = AsyncMock(return_value=[make_prompt()])
 
     result = await SearchModelPromptsTool().execute(
-        make_context(manager), queries=["fox"], model_id="model-1", limit=2
+        make_context(prompt_database), queries=["fox"], model_id="model-1", limit=2
     )
 
     assert result.success is True
@@ -95,17 +112,17 @@ async def test_search_returns_rich_aggregate_fields_without_negative_pair():
     assert entry["segments"][0]["name"] == "Subject"
     assert entry["segments"][0]["color"] == "#f59e0b"
     assert "negative_prompt" not in entry
-    manager.search.assert_awaited_once_with(
-        user_id="user-1", query="fox", limit=2, model_id="model-1"
+    mock_operations.search.assert_awaited_once_with(
+        prompt_database, user_id="user-1", query="fox", limit=2, model_id="model-1"
     )
     assert result.sources is not None
     assert result.sources[0].title == "Fox study"
 
 
 @pytest.mark.asyncio
-async def test_negative_usage_hint_is_an_independent_search_record():
-    manager = MagicMock()
-    manager.search = AsyncMock(
+async def test_negative_usage_hint_is_an_independent_search_record(mock_operations):
+    prompt_database = MagicMock()
+    mock_operations.search = AsyncMock(
         return_value=[
             make_prompt(
                 "prompt-negative",
@@ -117,7 +134,7 @@ async def test_negative_usage_hint_is_an_independent_search_record():
     )
 
     result = await SearchModelPromptsTool().execute(
-        make_context(manager), queries=["quality exclusions"]
+        make_context(prompt_database), queries=["quality exclusions"]
     )
 
     entry = json.loads(result.data)["results"][0]["prompts"][0]
@@ -128,13 +145,13 @@ async def test_negative_usage_hint_is_an_independent_search_record():
 
 
 @pytest.mark.asyncio
-async def test_results_are_deduplicated_across_query_groups():
-    manager = MagicMock()
+async def test_results_are_deduplicated_across_query_groups(mock_operations):
+    prompt_database = MagicMock()
     shared = make_prompt()
-    manager.search = AsyncMock(side_effect=[[shared], [shared]])
+    mock_operations.search = AsyncMock(side_effect=[[shared], [shared]])
 
     result = await SearchModelPromptsTool().execute(
-        make_context(manager), queries=["fox", "wildlife"]
+        make_context(prompt_database), queries=["fox", "wildlife"]
     )
 
     groups = json.loads(result.data)["results"]
@@ -143,20 +160,20 @@ async def test_results_are_deduplicated_across_query_groups():
 
 
 @pytest.mark.asyncio
-async def test_legacy_single_query_is_normalized_and_query_count_is_bounded():
-    manager = MagicMock()
-    manager.search = AsyncMock(return_value=[])
+async def test_legacy_single_query_is_normalized_and_query_count_is_bounded(mock_operations):
+    prompt_database = MagicMock()
+    mock_operations.search = AsyncMock(return_value=[])
     tool = SearchModelPromptsTool()
 
-    single = await tool.execute(make_context(manager), query="portrait")
+    single = await tool.execute(make_context(prompt_database), query="portrait")
     assert single.success is True
-    manager.search.assert_awaited_once_with(
-        user_id="user-1", query="portrait", limit=3
+    mock_operations.search.assert_awaited_once_with(
+        prompt_database, user_id="user-1", query="portrait", limit=3
     )
 
-    manager.search.reset_mock()
+    mock_operations.search.reset_mock()
     many = await tool.execute(
-        make_context(manager), queries=[f"concept-{index}" for index in range(8)]
+        make_context(prompt_database), queries=[f"concept-{index}" for index in range(8)]
     )
-    assert manager.search.await_count == tool.MAX_QUERIES
+    assert mock_operations.search.await_count == tool.MAX_QUERIES
     assert "truncated" in json.loads(many.data)

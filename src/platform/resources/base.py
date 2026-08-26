@@ -71,7 +71,14 @@ class ResourceContext:
     user_id: str
     mode_id: Optional[str] = None
     model_index_manager: Optional[Any] = None
-    phrasebook_manager: Optional[Any] = None
+    phrasebook_category_repository: Optional[Any] = None
+    phrasebook_value_repository: Optional[Any] = None
+    # Duck-typed callable (path, user_id, limit=...) -> dict, bound in the
+    # composition root to `src.features.phrasebook.operations.search_phrasebook`
+    # with its repository collaborators already applied - platform code must
+    # not import a feature module directly (see tests/architecture), so the
+    # search composition itself is not reachable here as a class.
+    phrasebook_search: Optional[Any] = None
     preset_manager: Optional[Any] = None
     generation_repository: Optional[Any] = None
     generation_parameter_repository: Optional[Any] = None

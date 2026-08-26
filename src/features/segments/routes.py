@@ -12,7 +12,13 @@ from src.features.segments.dto import (
     SegmentCategoryRequest,
     SegmentTemplateRequest,
 )
-from src.features.segments import SegmentManager
+from src.features.segments import operations
+from src.features.segments.repository import (
+    SavedSegmentRepository,
+    SegmentCategoryRepository,
+    SegmentTemplateRepository,
+)
+from src.platform.plugins import PluginRegistry
 
 from src.platform.http.base_controller import APIResponse, BaseController
 
@@ -21,15 +27,24 @@ if TYPE_CHECKING:
 
 
 class SegmentController(BaseController):
-    def __init__(self, segment_manager: SegmentManager):
+    def __init__(
+        self,
+        category_repository: SegmentCategoryRepository,
+        segment_repository: SavedSegmentRepository,
+        template_repository: SegmentTemplateRepository,
+        plugin_registry: PluginRegistry,
+    ):
         super().__init__()
-        self.manager = segment_manager
+        self.categories = category_repository
+        self.segments = segment_repository
+        self.templates = template_repository
+        self.plugins = plugin_registry
 
     # Categories ---------------------------------------------------------
 
     def get_categories(self, user_id: str) -> APIResponse:
         try:
-            categories = self.manager.get_categories(user_id)
+            categories = self.categories.get_all(user_id)
             return self.success_response(
                 data={"categories": [item.model_dump() for item in categories]}
             )
@@ -41,7 +56,7 @@ class SegmentController(BaseController):
     ) -> APIResponse:
         try:
             return self.success_response(
-                data=self.manager.create_category(request, user_id).model_dump()
+                data=operations.create_category(self.categories, self.plugins, request, user_id).model_dump()
             )
         except ValueError as exc:
             return self.error_api_response("create_category_failed", str(exc))
@@ -54,8 +69,8 @@ class SegmentController(BaseController):
     ) -> APIResponse:
         try:
             return self.success_response(
-                data=self.manager.update_category(
-                    category_id, request, user_id
+                data=operations.update_category(
+                    self.categories, self.plugins, category_id, request, user_id
                 ).model_dump()
             )
         except ValueError as exc:
@@ -63,7 +78,7 @@ class SegmentController(BaseController):
 
     def delete_category(self, category_id: str, user_id: str) -> APIResponse:
         try:
-            self.manager.delete_category(category_id, user_id)
+            operations.delete_category(self.categories, self.plugins, category_id, user_id)
             return self.success_response(message="Segment Category deleted")
         except ValueError as exc:
             return self.error_api_response("delete_category_failed", str(exc))
@@ -74,7 +89,9 @@ class SegmentController(BaseController):
         self, user_id: str, category_id: Optional[str] = None
     ) -> APIResponse:
         try:
-            segments = self.manager.get_segments(user_id, category_id)
+            if category_id:
+                operations.get_category(self.categories, category_id, user_id)
+            segments = self.segments.get_all(user_id, category_id)
             return self.success_response(
                 data={"segments": [item.model_dump() for item in segments]}
             )
@@ -84,7 +101,7 @@ class SegmentController(BaseController):
     def get_segment_by_id(self, segment_id: str, user_id: str) -> APIResponse:
         try:
             return self.success_response(
-                data=self.manager.get_segment_by_id(segment_id, user_id).model_dump()
+                data=operations.get_segment(self.segments, segment_id, user_id).model_dump()
             )
         except ValueError as exc:
             return self.error_api_response("get_segment_failed", str(exc))
@@ -94,7 +111,9 @@ class SegmentController(BaseController):
     ) -> APIResponse:
         try:
             return self.success_response(
-                data=self.manager.create_segment(request, user_id).model_dump()
+                data=operations.create_segment(
+                    self.segments, self.categories, self.plugins, request, user_id
+                ).model_dump()
             )
         except ValueError as exc:
             return self.error_api_response("create_segment_failed", str(exc))
@@ -107,8 +126,8 @@ class SegmentController(BaseController):
     ) -> APIResponse:
         try:
             return self.success_response(
-                data=self.manager.update_segment(
-                    segment_id, request, user_id
+                data=operations.update_segment(
+                    self.segments, self.categories, self.plugins, segment_id, request, user_id
                 ).model_dump()
             )
         except ValueError as exc:
@@ -116,7 +135,7 @@ class SegmentController(BaseController):
 
     def delete_segment(self, segment_id: str, user_id: str) -> APIResponse:
         try:
-            self.manager.delete_segment(segment_id, user_id)
+            operations.delete_segment(self.segments, self.plugins, segment_id, user_id)
             return self.success_response(message="Saved Segment deleted")
         except ValueError as exc:
             return self.error_api_response("delete_segment_failed", str(exc))
@@ -125,7 +144,7 @@ class SegmentController(BaseController):
 
     def get_templates(self, user_id: str) -> APIResponse:
         try:
-            templates = self.manager.get_templates(user_id)
+            templates = self.templates.get_all(user_id)
             return self.success_response(
                 data={"templates": [item.model_dump() for item in templates]}
             )
@@ -135,7 +154,7 @@ class SegmentController(BaseController):
     def get_template_by_id(self, template_id: str, user_id: str) -> APIResponse:
         try:
             return self.success_response(
-                data=self.manager.get_template_by_id(template_id, user_id).model_dump()
+                data=operations.get_template(self.templates, template_id, user_id).model_dump()
             )
         except ValueError as exc:
             return self.error_api_response("get_template_failed", str(exc))
@@ -145,7 +164,7 @@ class SegmentController(BaseController):
     ) -> APIResponse:
         try:
             return self.success_response(
-                data=self.manager.create_template(request, user_id).model_dump()
+                data=operations.create_template(self.templates, self.plugins, request, user_id).model_dump()
             )
         except ValueError as exc:
             return self.error_api_response("create_template_failed", str(exc))
@@ -158,8 +177,8 @@ class SegmentController(BaseController):
     ) -> APIResponse:
         try:
             return self.success_response(
-                data=self.manager.update_template(
-                    template_id, request, user_id
+                data=operations.update_template(
+                    self.templates, self.plugins, template_id, request, user_id
                 ).model_dump()
             )
         except ValueError as exc:
@@ -167,7 +186,7 @@ class SegmentController(BaseController):
 
     def delete_template(self, template_id: str, user_id: str) -> APIResponse:
         try:
-            self.manager.delete_template(template_id, user_id)
+            operations.delete_template(self.templates, self.plugins, template_id, user_id)
             return self.success_response(message="Segment Template deleted")
         except ValueError as exc:
             return self.error_api_response("delete_template_failed", str(exc))

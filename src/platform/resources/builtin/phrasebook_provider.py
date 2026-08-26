@@ -43,13 +43,11 @@ class PhrasebookResourceProvider(BaseResourceProvider):
         ctx: ResourceContext,
         limit: int = 15,
     ) -> List[ResourceSuggestion]:
-        if not ctx.phrasebook_manager:
+        if not ctx.phrasebook_search:
             return []
 
         query = ".".join(path + [partial]) if (path or partial) else ""
-        result = ctx.phrasebook_manager.search_phrasebook(
-            query, ctx.user_id, limit=limit
-        )
+        result = ctx.phrasebook_search(query, ctx.user_id, limit=limit)
 
         suggestions: List[ResourceSuggestion] = []
         current = result.get("current_category")
@@ -100,22 +98,23 @@ class PhrasebookResourceProvider(BaseResourceProvider):
         return suggestions[:limit]
 
     async def resolve(self, path: List[str], ctx: ResourceContext) -> Optional[ResolvedResource]:
-        if not ctx.phrasebook_manager or not path:
+        if not ctx.phrasebook_category_repository or not path:
             return None
 
-        manager = ctx.phrasebook_manager
+        categories = ctx.phrasebook_category_repository
+        values_repo = ctx.phrasebook_value_repository
         full_path = ".".join(path)
 
         # Exact category → orientation snapshot (state, counts, sample)
-        category = manager.categories.get_by_path(full_path, ctx.user_id)
+        category = categories.get_by_path(full_path, ctx.user_id)
         if category:
-            values = manager.values.get_by_category(category.id, ctx.user_id)
-            children = manager.categories.get_children(category.id, ctx.user_id)
+            values = values_repo.get_by_category(category.id, ctx.user_id)
+            children = categories.get_children(category.id, ctx.user_id)
             children_summary = [
                 {
                     "name": child.name,
                     "path": child.path,
-                    "value_count": len(manager.values.get_by_category(child.id, ctx.user_id)),
+                    "value_count": len(values_repo.get_by_category(child.id, ctx.user_id)),
                 }
                 for child in children
             ]
@@ -125,9 +124,9 @@ class PhrasebookResourceProvider(BaseResourceProvider):
         if len(path) >= 2:
             parent_path = ".".join(path[:-1])
             label = path[-1]
-            category = manager.categories.get_by_path(parent_path, ctx.user_id)
+            category = categories.get_by_path(parent_path, ctx.user_id)
             if category:
-                values = manager.values.get_by_category(category.id, ctx.user_id)
+                values = values_repo.get_by_category(category.id, ctx.user_id)
                 matches = [v for v in values if v.label.lower() == label.lower()]
                 if matches:
                     value = matches[0]

@@ -10,7 +10,7 @@ from src.features.prompt_enhancement.manager import PromptEnhancementManager
 def make_manager(prompt_db=None, feedback_repo=None):
     return PromptEnhancementManager(
         llm_service=MagicMock(),
-        prompt_database_manager=prompt_db,
+        prompt_database=prompt_db,
         feedback_repository=feedback_repo,
     )
 

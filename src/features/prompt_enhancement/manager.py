@@ -6,6 +6,7 @@ import re
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from src.features.llm.tools.builtin.utils import extract_model_path, lookup_model, resolve_active_model_id
+from src.features.prompt_database import operations as prompt_database_operations
 from src.features.prompt_enhancement.guidelines import PROMPT_ENHANCEMENT_GUIDELINES
 
 logger = logging.getLogger(__name__)
@@ -34,14 +35,14 @@ class PromptEnhancementManager:
     def __init__(
         self,
         llm_service: Any,
-        prompt_database_manager: Any = None,
+        prompt_database: Any = None,
         model_index_manager: Any = None,
         llm_memory_repository: Any = None,
         feedback_repository: Any = None,
         preset_manager: Any = None,
     ):
         self.llm_service = llm_service
-        self.prompt_database_manager = prompt_database_manager
+        self.prompt_database = prompt_database
         self.model_index_manager = model_index_manager
         self.llm_memory_repository = llm_memory_repository
         self.feedback_repository = feedback_repository
@@ -135,8 +136,9 @@ class PromptEnhancementManager:
             raise ValueError(f"Invalid verdict '{verdict}'")
 
         prompt_id = None
-        if verdict == "approved" and self.prompt_database_manager:
-            saved = await self.prompt_database_manager.add_prompt(
+        if verdict == "approved" and self.prompt_database:
+            saved = await prompt_database_operations.add_prompt(
+                self.prompt_database,
                 user_id=user_id,
                 prompt_text=prompt_text,
                 model_id=model_id,
@@ -184,7 +186,7 @@ class PromptEnhancementManager:
 
         approved: List[Any] = []
         community: List[Any] = []
-        if self.prompt_database_manager:
+        if self.prompt_database:
             approved = await self._search_prompts(
                 user_id, [brief], model_id,
                 limit_per_query=self.MAX_APPROVED_EXEMPLARS,
@@ -320,7 +322,7 @@ class PromptEnhancementManager:
                     kwargs["model_id"] = model_id
                 if source_provider:
                     kwargs["source_provider"] = source_provider
-                prompts = await self.prompt_database_manager.search(**kwargs)
+                prompts = await prompt_database_operations.search(self.prompt_database, **kwargs)
             except Exception as e:
                 logger.warning(f"Prompt search failed for '{query}': {e}")
                 continue

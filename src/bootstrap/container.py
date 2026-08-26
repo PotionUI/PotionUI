@@ -19,6 +19,7 @@ Routers and the controllers bound to them are assembled in `src.bootstrap.app`.
 from __future__ import annotations
 
 import dataclasses
+import functools
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -48,7 +49,6 @@ from src.platform.security import AuthConfig, PasswordHasher, TokenManager, Auth
 from src.features.setup import SetupManager, InstanceClaimRepository
 from src.features.setup.run_manager import SetupRunManager
 from src.features.setup.recipe_catalog import RecipeCatalog
-from src.features.phrasebook import PhrasebookManager
 from src.features.phrasebook.preview_generator import PhrasebookPreviewGenerator
 from src.features.chat import ChatManager, ResponseProcessor
 from src.features.developer import DeveloperManager
@@ -67,7 +67,6 @@ from src.features.models.attributes.seeding import ensure_builtin_attribute_defi
 from src.features.models import ModelIndexManager
 from src.features.presets.manager import PresetManager
 from src.features.presets.name_resolver import PresetNameResolver
-from src.features.segments import SegmentManager
 from src.features.system_monitor import SystemMonitorManager
 
 from src.features.fields.field_factory import FieldFactory
@@ -119,7 +118,7 @@ if TYPE_CHECKING:
     from src.features.media import MediaManager, MediaTypeResolver, FilePathResolver, ImageProcessor
     from src.features.presets.file_repository import FilePresetRepository
     from src.features.presets.repository import DatabasePresetRepository
-    from src.features.prompt_database.manager import PromptDatabaseManager
+    from src.features.prompt_database.collaborators import PromptDatabaseCollaborators
     from src.features.prompt_database.repository import PromptRepository
     from src.features.prompt_enhancement.repository import EnhancementFeedbackRepository
     from src.features.prompt_enhancement import PromptEnhancementManager
@@ -127,9 +126,7 @@ if TYPE_CHECKING:
     from src.features.media_index.manager import MediaIndexManager
     from src.features.media_index.routes import MediaIndexController
     from src.features.stats.repository import StatsRepository
-    from src.features.stats import StatsManager
     from src.features.stats.generation_stats_repository import GenerationStatsRepository
-    from src.features.stats.generation_stats_manager import GenerationStatsManager
     from src.features.sessions.repository import SessionRepository
     from src.features.sessions.version_repository import SessionVersionRepository
     from src.features.workspaces.repository import WorkspaceRepository
@@ -250,7 +247,6 @@ class AppContainer:
     # Phrasebook
     phrasebook_category_repo: PhrasebookCategoryRepository
     phrasebook_value_repo: PhrasebookValueRepository
-    phrasebook_manager: PhrasebookManager
     phrasebook_preview_generator: PhrasebookPreviewGenerator
 
     # Chat
@@ -288,7 +284,6 @@ class AppContainer:
     segment_category_repo: SegmentCategoryRepository
     saved_segment_repo: SavedSegmentRepository
     segment_template_repo: SegmentTemplateRepository
-    segment_manager: SegmentManager
     segment_controller: "SegmentController"
 
     # Model index / library
@@ -340,7 +335,7 @@ class AppContainer:
 
     # Prompt database / enhancement
     prompt_repository: "PromptRepository"
-    prompt_database_manager: "PromptDatabaseManager"
+    prompt_database: "PromptDatabaseCollaborators"
     prompt_database_controller: "PromptDatabaseController"
     enhancement_feedback_repository: "EnhancementFeedbackRepository"
     prompt_enhancement_manager: "PromptEnhancementManager"
@@ -352,12 +347,10 @@ class AppContainer:
 
     # Stats
     stats_repository: "StatsRepository"
-    stats_manager: "StatsManager"
     stats_controller: "StatsController"
     # Durable generation_stats store (separate from the StatsRepository above,
     # which aggregates the live `generations` table).
     generation_stats_repository: "GenerationStatsRepository"
-    generation_stats_manager: "GenerationStatsManager"
 
     # Sessions
     session_repository: "SessionRepository"
@@ -646,12 +639,14 @@ def build_container() -> AppContainer:
     )
 
     # Initialize phrasebook components
+    from src.features.phrasebook import operations as phrasebook_operations
+
     phrasebook_category_repo = PhrasebookCategoryRepository()
     phrasebook_value_repo = PhrasebookValueRepository()
-    phrasebook_manager = PhrasebookManager(
-        category_repository=phrasebook_category_repo,
-        value_repository=phrasebook_value_repo,
-        plugin_registry=plugin_registry
+    # Bound partial handed to the @phrasebook resource provider (platform code,
+    # which must not import a feature module directly - see tests/architecture).
+    phrasebook_search = functools.partial(
+        phrasebook_operations.search_phrasebook, phrasebook_category_repo, phrasebook_value_repo
     )
     phrasebook_preview_generator = PhrasebookPreviewGenerator(
         category_repository=phrasebook_category_repo,
@@ -782,10 +777,14 @@ def build_container() -> AppContainer:
         plugin_registry=plugin_registry,
         chat_mode_registry=chat_mode_registry,
         tool_executor=tool_executor,
-        segment_manager=None,  # Will be set after segment_manager is created
+        segment_category_repository=None,  # Will be set after the segment repositories are created
+        saved_segment_repository=None,
+        segment_template_repository=None,
         model_index_manager=None,  # Will be set after model_index_manager is created
         preset_manager=None,  # Will be set after preset_manager is created
-        phrasebook_manager=phrasebook_manager,
+        phrasebook_category_repository=phrasebook_category_repo,
+        phrasebook_value_repository=phrasebook_value_repo,
+        phrasebook_search=phrasebook_search,
         resource_registry=resource_registry,
         settings_manager=settings_manager,
     )
@@ -882,17 +881,13 @@ def build_container() -> AppContainer:
 
     # Durable per-generation stats store. Built here (ahead of the main "Stats
     # components" block) because the orchestrator needs it at construction time
-    # to write a row at its generation.after_complete seam. `FilePresetRepository`
-    # is a cheap stateless wrapper over `preset_template_loader`.
+    # to write a row at its generation.after_complete seam (see
+    # `src.features.stats.operations.record_completion`; the orchestrator
+    # builds its own `FilePresetRepository` wrapper around
+    # `preset_template_loader` to resolve a preset's display name at write time).
     from src.features.stats.generation_stats_repository import GenerationStatsRepository
-    from src.features.stats.generation_stats_manager import GenerationStatsManager
-    from src.features.presets.file_repository import FilePresetRepository as _FilePresetRepositoryForStats
 
     generation_stats_repository = GenerationStatsRepository()
-    generation_stats_manager = GenerationStatsManager(
-        generation_stats_repository=generation_stats_repository,
-        file_preset_repository=_FilePresetRepositoryForStats(preset_template_loader),
-    )
 
     file_service = FileStore(storage_driver=storage_driver)
 
@@ -943,7 +938,7 @@ def build_container() -> AppContainer:
         database_preset_repository=_preset_repo_for_orchestrator,
         model_access_policy=model_access_policy,
         user_repository=user_repository,
-        generation_stats_manager=generation_stats_manager,
+        generation_stats_repository=generation_stats_repository,
         media_index_manager=media_index_manager,
         gpu_manager=gpu_manager,
     )
@@ -965,9 +960,9 @@ def build_container() -> AppContainer:
     # Phrasebook controller (needs generation_orchestrator)
     from src.features.phrasebook.routes import PhrasebookController
     phrasebook_controller = PhrasebookController(
-        phrasebook_manager=phrasebook_manager,
         category_repository=phrasebook_category_repo,
         value_repository=phrasebook_value_repo,
+        plugin_registry=plugin_registry,
         preview_generator=phrasebook_preview_generator,
         generation_orchestrator=generation_orchestrator
     )
@@ -977,13 +972,12 @@ def build_container() -> AppContainer:
     segment_category_repo = SegmentCategoryRepository()
     saved_segment_repo = SavedSegmentRepository()
     segment_template_repo = SegmentTemplateRepository()
-    segment_manager = SegmentManager(
+    segment_controller = SegmentController(
         category_repository=segment_category_repo,
-        saved_segment_repository=saved_segment_repo,
+        segment_repository=saved_segment_repo,
         template_repository=segment_template_repo,
-        plugin_registry=plugin_registry
+        plugin_registry=plugin_registry,
     )
-    segment_controller = SegmentController(segment_manager)
 
     # Model index components
     from src.features.models.repository import ModelRepository
@@ -1232,7 +1226,7 @@ def build_container() -> AppContainer:
 
     # Prompt database components
     from src.features.prompt_database.repository import PromptRepository
-    from src.features.prompt_database.manager import PromptDatabaseManager
+    from src.features.prompt_database.collaborators import PromptDatabaseCollaborators
     from src.features.prompt_database.vector_store import PromptVectorStore
     from src.features.prompt_database.routes import PromptDatabaseController
 
@@ -1245,19 +1239,21 @@ def build_container() -> AppContainer:
         persist_dir=str(Path(settings_manager.get_setting("file_storage_directory", "storage")) / "chromadb"),
         embedder_slug=embedding_provider.embedder_slug,
     )
-    prompt_database_manager = PromptDatabaseManager(
+    prompt_database = PromptDatabaseCollaborators(
         repository=prompt_repository,
         vector_store=prompt_vector_store,
         embedding_provider=embedding_provider,
         plugin_registry=plugin_registry,
     )
-    prompt_database_controller = PromptDatabaseController(prompt_database_manager)
+    prompt_database_controller = PromptDatabaseController(prompt_database)
 
     # Wire up deferred service references for ChatManager's tool context
-    chat_manager.segment_manager = segment_manager
+    chat_manager.segment_category_repository = segment_category_repo
+    chat_manager.saved_segment_repository = saved_segment_repo
+    chat_manager.segment_template_repository = segment_template_repo
     chat_manager.model_index_manager = model_index_manager
     chat_manager.preset_manager = preset_manager
-    chat_manager.prompt_database_manager = prompt_database_manager
+    chat_manager.prompt_database = prompt_database
     chat_manager.generation_orchestrator = generation_orchestrator
     chat_manager.llm_memory_repository = llm_memory_repository
     chat_manager.media_index_manager = media_index_manager
@@ -1281,7 +1277,7 @@ def build_container() -> AppContainer:
     enhancement_feedback_repository = EnhancementFeedbackRepository()
     prompt_enhancement_manager = PromptEnhancementManager(
         llm_service=llm_service,
-        prompt_database_manager=prompt_database_manager,
+        prompt_database=prompt_database,
         model_index_manager=model_index_manager,
         llm_memory_repository=llm_memory_repository,
         feedback_repository=enhancement_feedback_repository,
@@ -1302,11 +1298,14 @@ def build_container() -> AppContainer:
         tool_registry=tool_registry,
         tool_governance_repository=tool_governance_repository,
         llm_repository=llm_repository,
-        segment_manager=segment_manager,
+        segment_category_repository=segment_category_repo,
+        saved_segment_repository=saved_segment_repo,
+        segment_template_repository=segment_template_repo,
         model_index_manager=model_index_manager,
         preset_manager=preset_manager,
-        phrasebook_manager=phrasebook_manager,
-        prompt_database_manager=prompt_database_manager,
+        phrasebook_category_repository=phrasebook_category_repo,
+        phrasebook_value_repository=phrasebook_value_repo,
+        prompt_database=prompt_database,
         generation_orchestrator=generation_orchestrator,
         llm_memory_repository=llm_memory_repository,
         prompt_enhancement_manager=prompt_enhancement_manager,
@@ -1322,20 +1321,14 @@ def build_container() -> AppContainer:
 
     # Stats components (depends on file_preset_repository for preset display names)
     from src.features.stats.repository import StatsRepository
-    from src.features.stats import StatsManager
     from src.features.stats.routes import StatsController
 
     stats_repository = StatsRepository()
-    stats_manager = StatsManager(
+    # `generation_stats_repository` was built earlier, ahead of
+    # `generation_orchestrator`'s construction -- reused here, not rebuilt.
+    stats_controller = StatsController(
         stats_repository=stats_repository,
         file_preset_repository=file_preset_repository,
-    )
-    # `generation_stats_repository`/`generation_stats_manager` were built earlier,
-    # ahead of `generation_orchestrator`'s construction -- reused here, not rebuilt.
-    stats_controller = StatsController(
-        stats_manager=stats_manager,
-        stats_repository=stats_repository,
-        generation_stats_manager=generation_stats_manager,
         generation_stats_repository=generation_stats_repository,
     )
 

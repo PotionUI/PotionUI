@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional
 
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult, ToolSource
 from src.features.llm.tools.builtin.utils import resolve_active_model_id, extract_model_path
+from src.features.prompt_database import operations
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +139,7 @@ class SearchModelPromptsTool(BaseTool):
         return p.source_url or (p.flattened_text or "")
 
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
-        if not context.prompt_database_manager:
+        if not context.prompt_database:
             return ToolResult(success=False, data="", error="Prompt database not available")
 
         queries = self._normalize_queries(kwargs)
@@ -172,7 +173,7 @@ class SearchModelPromptsTool(BaseTool):
                 if model_id:
                     search_kwargs["model_id"] = model_id
 
-                prompts = await context.prompt_database_manager.search(**search_kwargs)
+                prompts = await operations.search(context.prompt_database, **search_kwargs)
 
                 group_entries = []
                 for p in prompts or []:

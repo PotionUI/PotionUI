@@ -2,7 +2,8 @@
 Phrasebook Controller
 
 Handles phrasebook categories and values with thin route handlers
-delegating to controller methods. Business logic is in PhrasebookManager.
+delegating to controller methods. Business logic is in
+`src.features.phrasebook.operations`.
 """
 import os
 from typing import Optional, TYPE_CHECKING
@@ -19,12 +20,13 @@ from src.features.phrasebook.dto import (
     ToggleActiveRequest,
     GeneratePreviewRequest,
 )
-from src.features.phrasebook import PhrasebookManager, PhrasebookPreviewGenerator
+from src.features.phrasebook import PhrasebookPreviewGenerator, operations
 from src.features.phrasebook.import_service import phrasebook_import_service
 from src.features.phrasebook.repository import (
     PhrasebookCategoryRepository,
     PhrasebookValueRepository,
 )
+from src.platform.plugins import PluginRegistry
 from src.platform.security.user import User
 from src.features.generation.orchestrator import GenerationOrchestrator
 
@@ -37,21 +39,22 @@ class PhrasebookController(BaseController):
     Controller for phrasebook operations.
 
     Handles CRUD operations for categories and values, search functionality,
-    and YAML import/export. Uses PhrasebookManager for business logic.
+    and YAML import/export. Uses `src.features.phrasebook.operations` for
+    business logic.
     """
 
     def __init__(
         self,
-        phrasebook_manager: PhrasebookManager,
         category_repository: PhrasebookCategoryRepository,
         value_repository: PhrasebookValueRepository,
+        plugin_registry: PluginRegistry,
         preview_generator: PhrasebookPreviewGenerator,
         generation_orchestrator: GenerationOrchestrator
     ):
         super().__init__()
-        self.manager = phrasebook_manager
         self.categories = category_repository
         self.values = value_repository
+        self.plugins = plugin_registry
         self.preview_generator = preview_generator
         self.generation_orchestrator = generation_orchestrator
 
@@ -97,7 +100,7 @@ class PhrasebookController(BaseController):
     async def get_category(self, category_id: str, user: User) -> APIResponse:
         """Get a specific phrasebook category with its values."""
         try:
-            category = self.manager.get_category_by_id(category_id, user.id)
+            category = operations.get_category(self.categories, category_id, user.id)
             values = self.values.get_by_category(category_id, user.id)
             return self.success_response(
                 data={
@@ -115,7 +118,7 @@ class PhrasebookController(BaseController):
     ) -> APIResponse:
         """Create a new phrasebook category."""
         try:
-            category = self.manager.create_category(request, user.id)
+            category = operations.create_category(self.categories, self.plugins, request, user.id)
             return self.success_response(data=category.model_dump())
         except ValueError as e:
             return self.error_api_response(error="create_category_failed", message=str(e))
@@ -127,7 +130,7 @@ class PhrasebookController(BaseController):
     ) -> APIResponse:
         """Update an phrasebook category."""
         try:
-            category = self.manager.update_category(category_id, request, user.id)
+            category = operations.update_category(self.categories, self.plugins, category_id, request, user.id)
             return self.success_response(data=category.model_dump())
         except ValueError as e:
             return self.error_api_response(error="update_category_failed", message=str(e))
@@ -137,7 +140,7 @@ class PhrasebookController(BaseController):
     async def delete_category(self, category_id: str, user: User) -> APIResponse:
         """Delete an phrasebook category and all its values."""
         try:
-            self.manager.delete_category(category_id, user.id)
+            operations.delete_category(self.categories, self.plugins, category_id, user.id)
             return self.success_response(data={"message": "Category deleted successfully"})
         except ValueError as e:
             return self.error_api_response(error="delete_category_failed", message=str(e))
@@ -149,7 +152,7 @@ class PhrasebookController(BaseController):
     ) -> APIResponse:
         """Toggle the active state of a category."""
         try:
-            category = self.manager.toggle_category_active(category_id, request.is_active, user.id)
+            category = operations.toggle_category_active(self.categories, category_id, request.is_active, user.id)
             return self.success_response(data=category.model_dump())
         except ValueError as e:
             return self.error_api_response(error="toggle_category_failed", message=str(e))
@@ -163,7 +166,7 @@ class PhrasebookController(BaseController):
     ) -> APIResponse:
         """Create a new phrasebook value."""
         try:
-            value = self.manager.create_value(request, user.id)
+            value = operations.create_value(self.values, self.categories, self.plugins, request, user.id)
             return self.success_response(data=value.model_dump())
         except ValueError as e:
             return self.error_api_response(error="create_value_failed", message=str(e))
@@ -175,7 +178,7 @@ class PhrasebookController(BaseController):
     ) -> APIResponse:
         """Update an phrasebook value."""
         try:
-            value = self.manager.update_value(value_id, request, user.id)
+            value = operations.update_value(self.values, self.categories, self.plugins, value_id, request, user.id)
             return self.success_response(data=value.model_dump())
         except ValueError as e:
             return self.error_api_response(error="update_value_failed", message=str(e))
@@ -185,7 +188,7 @@ class PhrasebookController(BaseController):
     async def delete_value(self, value_id: str, user: User) -> APIResponse:
         """Delete an phrasebook value."""
         try:
-            self.manager.delete_value(value_id, user.id)
+            operations.delete_value(self.values, self.plugins, value_id, user.id)
             return self.success_response(data={"message": "Value deleted successfully"})
         except ValueError as e:
             return self.error_api_response(error="delete_value_failed", message=str(e))
@@ -197,7 +200,7 @@ class PhrasebookController(BaseController):
     ) -> APIResponse:
         """Toggle the active state of a value."""
         try:
-            value = self.manager.toggle_value_active(value_id, request.is_active, user.id)
+            value = operations.toggle_value_active(self.values, value_id, request.is_active, user.id)
             return self.success_response(data=value.model_dump())
         except ValueError as e:
             return self.error_api_response(error="toggle_value_failed", message=str(e))
@@ -216,7 +219,7 @@ class PhrasebookController(BaseController):
     ) -> APIResponse:
         """Search for phrasebook suggestions by path prefix with state filtering."""
         try:
-            results = self.manager.search_phrasebook(path, user.id, limit, state_filter)
+            results = operations.search_phrasebook(self.categories, self.values, path, user.id, limit, state_filter)
             return self.success_response(data=results)
         except ValueError as e:
             return self.error_api_response(error="search_failed", message=str(e))

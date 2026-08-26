@@ -4,6 +4,7 @@ import json
 import logging
 from typing import Any, Dict, Optional
 
+from src.features.prompt_database import operations
 from src.features.prompt_database.dto import PromptRequest
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
 from src.features.llm.tools.errors import unexpected
@@ -87,7 +88,7 @@ class AddPromptTool(BaseTool):
         }
 
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
-        if not context.prompt_database_manager:
+        if not context.prompt_database:
             return ToolResult(success=False, data="", error="Prompt library not available")
         try:
             request = _prompt_request(**kwargs)
@@ -100,11 +101,11 @@ class AddPromptTool(BaseTool):
         }))
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
-        if not context.prompt_database_manager:
+        if not context.prompt_database:
             return ToolResult(success=False, data="", error="Prompt library not available")
         try:
-            saved = await context.prompt_database_manager.create_prompt(
-                context.user_id, _prompt_request(**kwargs),
+            saved = await operations.create_prompt(
+                context.prompt_database, context.user_id, _prompt_request(**kwargs),
             )
             return ToolResult(success=True, data=json.dumps({
                 "action": "add_prompt", "success": True, "prompt_id": saved.id,
@@ -152,10 +153,10 @@ class EditPromptTool(BaseTool):
         }
 
     def _existing(self, context, prompt_id):
-        return context.prompt_database_manager.get_prompt(context.user_id, prompt_id)
+        return context.prompt_database.repository.get_by_id(prompt_id, context.user_id)
 
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
-        if not context.prompt_database_manager:
+        if not context.prompt_database:
             return ToolResult(success=False, data="", error="Prompt library not available")
         prompt_id = kwargs.get("prompt_id")
         existing = self._existing(context, prompt_id) if prompt_id else None
@@ -179,12 +180,12 @@ class EditPromptTool(BaseTool):
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
         prompt_id = kwargs.get("prompt_id")
-        existing = self._existing(context, prompt_id) if context.prompt_database_manager and prompt_id else None
+        existing = self._existing(context, prompt_id) if context.prompt_database and prompt_id else None
         if existing is None:
             return ToolResult(success=False, data="", error=f"Prompt '{prompt_id}' not found")
         try:
-            saved = await context.prompt_database_manager.replace_prompt(
-                context.user_id, prompt_id, _prompt_request(existing, **kwargs),
+            saved = await operations.replace_prompt(
+                context.prompt_database, context.user_id, prompt_id, _prompt_request(existing, **kwargs),
             )
             return ToolResult(success=bool(saved), data=json.dumps({
                 "action": "edit_prompt", "success": bool(saved), "prompt_id": prompt_id,
@@ -222,7 +223,7 @@ class DeletePromptTool(BaseTool):
 
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
         prompt_id = kwargs.get("prompt_id")
-        existing = context.prompt_database_manager.get_prompt(context.user_id, prompt_id) if context.prompt_database_manager and prompt_id else None
+        existing = context.prompt_database.repository.get_by_id(prompt_id, context.user_id) if context.prompt_database and prompt_id else None
         if existing is None:
             return ToolResult(success=False, data="", error=f"Prompt '{prompt_id}' not found")
         return ToolResult(success=True, data=json.dumps({
@@ -233,9 +234,9 @@ class DeletePromptTool(BaseTool):
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
         prompt_id = kwargs.get("prompt_id")
-        if not context.prompt_database_manager or not prompt_id:
+        if not context.prompt_database or not prompt_id:
             return ToolResult(success=False, data="", error="prompt_id is required")
-        success = context.prompt_database_manager.delete_prompt(context.user_id, prompt_id)
+        success = operations.delete_prompt(context.prompt_database, context.user_id, prompt_id)
         return ToolResult(success=success, data=json.dumps({
             "action": "delete_prompt", "success": success, "prompt_id": prompt_id,
         }), error=None if success else f"Prompt '{prompt_id}' not found")

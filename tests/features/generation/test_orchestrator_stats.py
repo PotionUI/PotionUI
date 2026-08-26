@@ -58,11 +58,11 @@ def mock_preset_template_loader():
 
 
 @pytest.fixture
-def mock_generation_stats_manager():
-    from src.features.stats.generation_stats_manager import GenerationStatsManager
-    manager = Mock(spec=GenerationStatsManager)
-    manager.record_completion = Mock()
-    return manager
+def mock_generation_stats_repository():
+    from src.features.stats.generation_stats_repository import GenerationStatsRepository
+    repository = Mock(spec=GenerationStatsRepository)
+    repository.record_completion = Mock()
+    return repository
 
 
 @pytest.fixture
@@ -76,7 +76,7 @@ def mock_generation_repo():
 def orchestrator(
     mock_pipeline_builder, mock_backend_registry, mock_connection_manager,
     mock_settings_manager, mock_output_processor, mock_preset_template_loader,
-    mock_generation_stats_manager,
+    mock_generation_stats_repository,
 ):
     from src.features.generation.orchestrator import GenerationOrchestrator
     return GenerationOrchestrator(
@@ -86,7 +86,7 @@ def orchestrator(
         settings_manager=mock_settings_manager,
         output_processor=mock_output_processor,
         preset_template_loader=mock_preset_template_loader,
-        generation_stats_manager=mock_generation_stats_manager,
+        generation_stats_repository=mock_generation_stats_repository,
     )
 
 
@@ -101,7 +101,7 @@ def _completed_record():
 class TestRecordCompletionWiring:
     @pytest.mark.asyncio
     async def test_completed_generation_writes_stats_row(
-        self, orchestrator, mock_generation_stats_manager, mock_generation_repo, mock_backend
+        self, orchestrator, mock_generation_stats_repository, mock_generation_repo, mock_backend
     ):
         mock_backend.generation_manager = Mock()
         mock_backend.generation_manager.pop_resource_stats = Mock(return_value={
@@ -114,8 +114,8 @@ class TestRecordCompletionWiring:
 
         await orchestrator._finish_generation('gen-1', record, output_callback=None)
 
-        mock_generation_stats_manager.record_completion.assert_called_once()
-        _, kwargs = mock_generation_stats_manager.record_completion.call_args
+        mock_generation_stats_repository.record_completion.assert_called_once()
+        _, kwargs = mock_generation_stats_repository.record_completion.call_args
         assert kwargs['generation_id'] == 'gen-1'
         assert kwargs['preset_id'] == 'native/SDXL/base'
         assert kwargs['engine'] == 'native'
@@ -127,7 +127,7 @@ class TestRecordCompletionWiring:
 
     @pytest.mark.asyncio
     async def test_failed_generation_does_not_write_stats(
-        self, orchestrator, mock_generation_stats_manager, mock_generation_repo
+        self, orchestrator, mock_generation_stats_repository, mock_generation_repo
     ):
         from src.features.generation.status_tracker import GenerationRecord, GenerationState
         record = GenerationRecord(
@@ -138,11 +138,11 @@ class TestRecordCompletionWiring:
 
         await orchestrator._finish_generation('gen-2', record, output_callback=None)
 
-        mock_generation_stats_manager.record_completion.assert_not_called()
+        mock_generation_stats_repository.record_completion.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_missing_backend_generation_manager_still_records_with_nulls(
-        self, orchestrator, mock_generation_stats_manager, mock_generation_repo, mock_backend
+        self, orchestrator, mock_generation_stats_repository, mock_generation_repo, mock_backend
     ):
         """A backend with no `generation_manager.pop_resource_stats` (e.g. a
         plugin backend that predates the generation-stats feature) must not crash the write -- the
@@ -155,16 +155,16 @@ class TestRecordCompletionWiring:
 
         await orchestrator._finish_generation('gen-1', record, output_callback=None)
 
-        mock_generation_stats_manager.record_completion.assert_called_once()
-        _, kwargs = mock_generation_stats_manager.record_completion.call_args
+        mock_generation_stats_repository.record_completion.assert_called_once()
+        _, kwargs = mock_generation_stats_repository.record_completion.call_args
         assert kwargs['cold_start'] is None
         assert kwargs['peak_vram_mb'] is None
 
     @pytest.mark.asyncio
-    async def test_stats_manager_exception_does_not_break_completion(
-        self, orchestrator, mock_generation_stats_manager, mock_generation_repo
+    async def test_stats_repository_exception_does_not_break_completion(
+        self, orchestrator, mock_generation_stats_repository, mock_generation_repo
     ):
-        mock_generation_stats_manager.record_completion.side_effect = Exception("db is locked")
+        mock_generation_stats_repository.record_completion.side_effect = Exception("db is locked")
         record = _completed_record()
         orchestrator.status_tracker.get = Mock(return_value=record)
         orchestrator.status_tracker.transition = Mock(return_value=record)
@@ -173,7 +173,7 @@ class TestRecordCompletionWiring:
         await orchestrator._finish_generation('gen-1', record, output_callback=None)
 
     @pytest.mark.asyncio
-    async def test_no_generation_stats_manager_is_a_no_op(
+    async def test_no_generation_stats_repository_is_a_no_op(
         self, mock_pipeline_builder, mock_backend_registry, mock_connection_manager,
         mock_settings_manager, mock_output_processor, mock_preset_template_loader,
         mock_generation_repo,
@@ -186,7 +186,7 @@ class TestRecordCompletionWiring:
             settings_manager=mock_settings_manager,
             output_processor=mock_output_processor,
             preset_template_loader=mock_preset_template_loader,
-        )  # no generation_stats_manager passed -- defaults to None
+        )  # no generation_stats_repository passed -- defaults to None
         record = _completed_record()
         orchestrator.status_tracker.get = Mock(return_value=record)
         orchestrator.status_tracker.transition = Mock(return_value=record)

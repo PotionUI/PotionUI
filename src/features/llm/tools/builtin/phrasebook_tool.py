@@ -5,6 +5,7 @@ import logging
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
+from src.features.phrasebook import operations
 from src.features.phrasebook.dto import PhrasebookCategoryRequest, PhrasebookValueRequest
 from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
 
@@ -50,13 +51,13 @@ MAX_LIST_LIMIT = 200
 def _resolve_category_by_id_or_path(context: ToolContext, category_arg: str) -> Tuple[Optional[Any], Optional[str]]:
     """Resolve a category from a single arg that may be an id or a dot-separated path."""
     try:
-        category = context.phrasebook_manager.get_category_by_id(
-            category_id=category_arg, user_id=context.user_id
+        category = operations.get_category(
+            context.phrasebook_category_repository, category_arg, context.user_id
         )
         return category, None
     except ValueError:
         pass
-    category = context.phrasebook_manager.categories.get_by_path(category_arg, context.user_id)
+    category = context.phrasebook_category_repository.get_by_path(category_arg, context.user_id)
     if category:
         return category, None
     return None, f"Category '{category_arg}' not found."
@@ -107,11 +108,11 @@ class ListPhrasebookCategoriesTool(BaseTool):
         }
 
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
-        if not context.phrasebook_manager:
+        if not context.phrasebook_category_repository:
             return ToolResult(success=False, data="", error="Phrasebook manager not available")
 
         try:
-            categories = context.phrasebook_manager.categories.get_all(user_id=context.user_id)
+            categories = context.phrasebook_category_repository.get_all(user_id=context.user_id)
             result = []
             for cat in categories:
                 path = getattr(cat, 'path', '')
@@ -204,7 +205,7 @@ class GetPhrasebookValuesTool(BaseTool):
         }
 
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
-        if not context.phrasebook_manager:
+        if not context.phrasebook_category_repository:
             return ToolResult(success=False, data="", error="Phrasebook manager not available")
 
         category_id = kwargs.get("category_id")
@@ -224,7 +225,7 @@ class GetPhrasebookValuesTool(BaseTool):
         limit = min(max(1, limit), MAX_LIST_LIMIT)
 
         try:
-            values = context.phrasebook_manager.values.get_by_category(
+            values = context.phrasebook_value_repository.get_by_category(
                 category_id=category_id,
                 user_id=context.user_id,
             )
@@ -240,8 +241,8 @@ class GetPhrasebookValuesTool(BaseTool):
 
             category_path = ""
             try:
-                category = context.phrasebook_manager.get_category_by_id(
-                    category_id=category_id, user_id=context.user_id
+                category = operations.get_category(
+                    context.phrasebook_category_repository, category_id, context.user_id
                 )
                 resolved_path = getattr(category, 'path', '') or ''
                 if isinstance(resolved_path, str):
@@ -358,7 +359,7 @@ class ListPhrasebookValuesTool(BaseTool):
         }
 
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
-        if not context.phrasebook_manager:
+        if not context.phrasebook_category_repository:
             return ToolResult(success=False, data="", error="Phrasebook manager not available")
 
         category_arg = (kwargs.get("category") or "").strip()
@@ -382,7 +383,7 @@ class ListPhrasebookValuesTool(BaseTool):
             if error:
                 return ToolResult(success=False, data="", error=error)
 
-            all_values = context.phrasebook_manager.values.get_by_category(category.id, context.user_id)
+            all_values = context.phrasebook_value_repository.get_by_category(category.id, context.user_id)
             if search:
                 all_values = [
                     v for v in all_values
@@ -485,7 +486,7 @@ class CreatePhrasebookCategoryTool(BaseTool):
         parent_path = _parent_path(path)
         if not parent_path:
             return None, None
-        parent = context.phrasebook_manager.categories.get_by_path(parent_path, context.user_id)
+        parent = context.phrasebook_category_repository.get_by_path(parent_path, context.user_id)
         if not parent:
             return None, (
                 f"Parent category '{parent_path}' does not exist. Create it first with "
@@ -494,7 +495,7 @@ class CreatePhrasebookCategoryTool(BaseTool):
         return parent.id, None
 
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
-        if not context.phrasebook_manager:
+        if not context.phrasebook_category_repository:
             return ToolResult(success=False, data="", error="Phrasebook manager not available")
 
         path = (kwargs.get("path") or "").strip()
@@ -506,7 +507,7 @@ class CreatePhrasebookCategoryTool(BaseTool):
         description = kwargs.get("description") or ""
 
         try:
-            existing = context.phrasebook_manager.categories.get_by_path(path, context.user_id)
+            existing = context.phrasebook_category_repository.get_by_path(path, context.user_id)
             if existing:
                 return ToolResult(
                     success=False, data="",
@@ -537,7 +538,7 @@ class CreatePhrasebookCategoryTool(BaseTool):
             return ToolResult(success=False, data="", error=str(e))
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
-        if not context.phrasebook_manager:
+        if not context.phrasebook_category_repository:
             return ToolResult(success=False, data="", error="Phrasebook manager not available")
 
         path = (kwargs.get("path") or "").strip()
@@ -552,7 +553,9 @@ class CreatePhrasebookCategoryTool(BaseTool):
             request = PhrasebookCategoryRequest(
                 name=name, path=path, parent_id=parent_id, description=description,
             )
-            category = context.phrasebook_manager.create_category(request, context.user_id)
+            category = operations.create_category(
+                context.phrasebook_category_repository, context.plugin_registry, request, context.user_id,
+            )
             return ToolResult(
                 success=True,
                 data=json.dumps({
@@ -649,7 +652,7 @@ class RemovePhrasebookValuesTool(BaseTool):
         if category_id:
             return category_id, None
         if category_path:
-            category = context.phrasebook_manager.categories.get_by_path(category_path, context.user_id)
+            category = context.phrasebook_category_repository.get_by_path(category_path, context.user_id)
             if not category:
                 return None, f"Category '{category_path}' not found."
             return category.id, None
@@ -663,7 +666,7 @@ class RemovePhrasebookValuesTool(BaseTool):
         problems: List[Dict[str, str]] = []
         for vid in value_ids:
             try:
-                value = context.phrasebook_manager.get_value_by_id(vid, context.user_id)
+                value = operations.get_value(context.phrasebook_value_repository, vid, context.user_id)
             except ValueError:
                 problems.append({"id": vid, "error": "not found"})
                 continue
@@ -674,7 +677,7 @@ class RemovePhrasebookValuesTool(BaseTool):
         return found, problems
 
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
-        if not context.phrasebook_manager:
+        if not context.phrasebook_category_repository:
             return ToolResult(success=False, data="", error="Phrasebook manager not available")
 
         value_ids = kwargs.get("value_ids")
@@ -724,8 +727,8 @@ class RemovePhrasebookValuesTool(BaseTool):
         category_id = kwargs.get("category_id")
         if category_id:
             try:
-                category = context.phrasebook_manager.get_category_by_id(
-                    category_id=category_id, user_id=context.user_id
+                category = operations.get_category(
+                    context.phrasebook_category_repository, category_id, context.user_id
                 )
                 return getattr(category, "path", None) or None
             except Exception:
@@ -733,7 +736,7 @@ class RemovePhrasebookValuesTool(BaseTool):
         return None
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
-        if not context.phrasebook_manager:
+        if not context.phrasebook_category_repository:
             return ToolResult(success=False, data="", error="Phrasebook manager not available")
 
         value_ids = kwargs.get("value_ids") or []
@@ -749,7 +752,7 @@ class RemovePhrasebookValuesTool(BaseTool):
             failed = list(problems)
             for entry in found:
                 try:
-                    context.phrasebook_manager.delete_value(entry["id"], context.user_id)
+                    operations.delete_value(context.phrasebook_value_repository, context.plugin_registry, entry["id"], context.user_id)
                     deleted.append(entry)
                 except ValueError as e:
                     failed.append({"id": entry["id"], "error": str(e)})
@@ -860,7 +863,7 @@ class UpdatePhrasebookValuesTool(BaseTool):
         self, context: ToolContext, category: Any, edits_in: List[Dict[str, Any]]
     ) -> Tuple[List[Dict[str, str]], List[Dict[str, str]]]:
         """Resolve each requested edit against current values. Returns (resolved, problems)."""
-        existing_values = context.phrasebook_manager.values.get_by_category(
+        existing_values = context.phrasebook_value_repository.get_by_category(
             category_id=category.id, user_id=context.user_id,
         )
         label_owner = {
@@ -872,7 +875,7 @@ class UpdatePhrasebookValuesTool(BaseTool):
         for edit in edits_in:
             vid = edit.get("id")
             try:
-                value = context.phrasebook_manager.get_value_by_id(vid, context.user_id)
+                value = operations.get_value(context.phrasebook_value_repository, vid, context.user_id)
             except ValueError:
                 problems.append({"id": vid, "error": "not found"})
                 continue
@@ -918,7 +921,7 @@ class UpdatePhrasebookValuesTool(BaseTool):
         return None
 
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
-        if not context.phrasebook_manager:
+        if not context.phrasebook_category_repository:
             return ToolResult(success=False, data="", error="Phrasebook manager not available")
 
         category_arg = (kwargs.get("category") or "").strip()
@@ -968,7 +971,7 @@ class UpdatePhrasebookValuesTool(BaseTool):
             return ToolResult(success=False, data="", error=str(e))
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
-        if not context.phrasebook_manager:
+        if not context.phrasebook_category_repository:
             return ToolResult(success=False, data="", error="Phrasebook manager not available")
 
         category_arg = (kwargs.get("category") or "").strip()
@@ -990,8 +993,9 @@ class UpdatePhrasebookValuesTool(BaseTool):
                         category_id=category.id, label=edit["new_label"], value=edit["new_value"],
                         sort_order=edit["sort_order"],
                     )
-                    updated_value = context.phrasebook_manager.update_value(
-                        edit["id"], request, context.user_id
+                    updated_value = operations.update_value(
+                        context.phrasebook_value_repository, context.phrasebook_category_repository,
+                        context.plugin_registry, edit["id"], request, context.user_id,
                     )
                     updated.append({
                         "id": updated_value.id,
@@ -1098,8 +1102,8 @@ class CreatePhrasebookValuesTool(BaseTool):
 
         if category_id:
             try:
-                category = context.phrasebook_manager.get_category_by_id(
-                    category_id=category_id, user_id=context.user_id
+                category = operations.get_category(
+                    context.phrasebook_category_repository, category_id, context.user_id
                 )
                 return category, None
             except Exception:
@@ -1109,7 +1113,7 @@ class CreatePhrasebookValuesTool(BaseTool):
                 )
 
         if category_path:
-            category = context.phrasebook_manager.categories.get_by_path(category_path, context.user_id)
+            category = context.phrasebook_category_repository.get_by_path(category_path, context.user_id)
             if not category:
                 return None, (
                     f"Category '{category_path}' not found. Use create_phrasebook_category "
@@ -1123,7 +1127,7 @@ class CreatePhrasebookValuesTool(BaseTool):
         self, context: ToolContext, category: Any, values_in: List[Dict[str, Any]]
     ) -> Tuple[List[Dict[str, str]], List[str]]:
         """Exclude values whose label already exists in the category (case-insensitive)."""
-        existing_values = context.phrasebook_manager.values.get_by_category(
+        existing_values = context.phrasebook_value_repository.get_by_category(
             category_id=category.id, user_id=context.user_id,
         )
         existing_labels = {getattr(ev, 'label', '').strip().lower() for ev in existing_values}
@@ -1139,7 +1143,7 @@ class CreatePhrasebookValuesTool(BaseTool):
         return to_create, warnings
 
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
-        if not context.phrasebook_manager:
+        if not context.phrasebook_category_repository:
             return ToolResult(success=False, data="", error="Phrasebook manager not available")
 
         values_in = kwargs.get("values")
@@ -1179,7 +1183,7 @@ class CreatePhrasebookValuesTool(BaseTool):
             return ToolResult(success=False, data="", error=str(e))
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
-        if not context.phrasebook_manager:
+        if not context.phrasebook_category_repository:
             return ToolResult(success=False, data="", error="Phrasebook manager not available")
 
         values_in = kwargs.get("values") or []
@@ -1201,7 +1205,10 @@ class CreatePhrasebookValuesTool(BaseTool):
                     request = PhrasebookValueRequest(
                         category_id=category.id, label=label, value=value_text,
                     )
-                    created_value = context.phrasebook_manager.create_value(request, context.user_id)
+                    created_value = operations.create_value(
+                        context.phrasebook_value_repository, context.phrasebook_category_repository,
+                        context.plugin_registry, request, context.user_id,
+                    )
                     created.append({
                         "id": created_value.id,
                         "label": created_value.label,

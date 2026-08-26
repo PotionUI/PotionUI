@@ -54,11 +54,15 @@ class ChatManager:
         plugin_registry: PluginRegistry,
         chat_mode_registry: ChatModeRegistry,
         tool_executor: Optional[Any] = None,
-        segment_manager: Optional[Any] = None,
+        segment_category_repository: Optional[Any] = None,
+        saved_segment_repository: Optional[Any] = None,
+        segment_template_repository: Optional[Any] = None,
         model_index_manager: Optional[Any] = None,
         preset_manager: Optional[Any] = None,
-        phrasebook_manager: Optional[Any] = None,
-        prompt_database_manager: Optional[Any] = None,
+        phrasebook_category_repository: Optional[Any] = None,
+        phrasebook_value_repository: Optional[Any] = None,
+        phrasebook_search: Optional[Any] = None,
+        prompt_database: Optional[Any] = None,
         generation_orchestrator: Optional[Any] = None,
         pre_chat_action_manager: Optional[Any] = None,
         llm_memory_repository: Optional[Any] = None,
@@ -79,11 +83,17 @@ class ChatManager:
             plugin_registry: Plugin registry for hook execution
             chat_mode_registry: Registry of available chat modes
             tool_executor: Optional tool executor for LLM tool calling
-            segment_manager: Optional segment manager for tool context
+            segment_category_repository: Optional segment category repository for tool context
+            saved_segment_repository: Optional saved segment repository for tool context
+            segment_template_repository: Optional segment template repository for tool context
             model_index_manager: Optional model index manager for tool context
             preset_manager: Optional preset manager for tool context
-            phrasebook_manager: Optional phrasebook manager for tool context
-            prompt_database_manager: Optional prompt database manager for tool context
+            phrasebook_category_repository: Optional phrasebook category repository for tool context
+            phrasebook_value_repository: Optional phrasebook value repository for tool context
+            phrasebook_search: Optional callable(path, user_id, limit=...) -> dict, bound to
+                `src.features.phrasebook.operations.search_phrasebook`, for the @phrasebook
+                resource provider (which cannot import a feature module directly)
+            prompt_database: Optional `PromptDatabaseCollaborators` bundle for tool context
             generation_orchestrator: Optional generation orchestrator for tool context
             pre_chat_action_manager: Optional pre-chat action manager for executing actions before LLM calls
             llm_memory_repository: Optional LLM memory repository for tool context
@@ -104,11 +114,15 @@ class ChatManager:
         self.plugins = plugin_registry
         self.chat_mode_registry = chat_mode_registry
         self.tool_executor = tool_executor
-        self.segment_manager = segment_manager
+        self.segment_category_repository = segment_category_repository
+        self.saved_segment_repository = saved_segment_repository
+        self.segment_template_repository = segment_template_repository
         self.model_index_manager = model_index_manager
         self.preset_manager = preset_manager
-        self.phrasebook_manager = phrasebook_manager
-        self.prompt_database_manager = prompt_database_manager
+        self.phrasebook_category_repository = phrasebook_category_repository
+        self.phrasebook_value_repository = phrasebook_value_repository
+        self.phrasebook_search = phrasebook_search
+        self.prompt_database = prompt_database
         self.generation_orchestrator = generation_orchestrator
         self.pre_chat_action_manager = pre_chat_action_manager
         self.llm_memory_repository = llm_memory_repository

@@ -13,9 +13,9 @@ from fastapi import APIRouter, Depends, Query
 
 from src.platform.http.base_controller import APIResponse, BaseController
 from src.platform.security.current_user import get_current_active_user
-from src.features.stats import StatsManager
+from src.features.presets.file_repository import FilePresetRepository
+from src.features.stats import operations
 from src.features.stats.repository import BUCKETS, DIMENSIONS, METRICS, StatsRepository
-from src.features.stats.generation_stats_manager import GenerationStatsManager
 from src.features.stats.generation_stats_repository import GenerationStatsRepository
 from src.platform.security.user import AccountType, User
 
@@ -33,15 +33,13 @@ DimensionParam = Enum("DimensionParam", {v: v for v in DIMENSIONS})
 class StatsController(BaseController):
     def __init__(
         self,
-        stats_manager: StatsManager,
         stats_repository: StatsRepository,
-        generation_stats_manager: Optional[GenerationStatsManager] = None,
+        file_preset_repository: Optional[FilePresetRepository] = None,
         generation_stats_repository: Optional[GenerationStatsRepository] = None,
     ):
         super().__init__()
-        self.stats_manager = stats_manager
         self.stats_repository = stats_repository
-        self.generation_stats_manager = generation_stats_manager
+        self.file_preset_repository = file_preset_repository
         self.generation_stats_repository = generation_stats_repository
 
     def _require_admin(self, user: Optional[User]) -> None:
@@ -70,7 +68,7 @@ class StatsController(BaseController):
         self._require_admin(user)
         try:
             return self.success_response(
-                self.stats_manager.timeseries(metric, bucket, date_from, date_to)
+                operations.timeseries(self.stats_repository, metric, bucket, date_from, date_to)
             )
         except Exception as e:
             return self.handle_exception(e, "stats_timeseries_failed")
@@ -80,7 +78,9 @@ class StatsController(BaseController):
         self._require_admin(user)
         try:
             return self.success_response(
-                self.stats_manager.breakdown(dimension, limit, date_from, date_to)
+                operations.breakdown(
+                    self.stats_repository, self.file_preset_repository, dimension, limit, date_from, date_to
+                )
             )
         except Exception as e:
             return self.handle_exception(e, "stats_breakdown_failed")
@@ -95,13 +95,13 @@ class StatsController(BaseController):
     async def get_storage(self, date_from=None, date_to=None, bucket: str = 'day', limit=30, user=None) -> APIResponse:
         self._require_admin(user)
         try:
-            return self.success_response(self.stats_manager.storage(date_from, date_to, bucket, limit))
+            return self.success_response(operations.storage(self.stats_repository, date_from, date_to, bucket, limit))
         except Exception as e:
             return self.handle_exception(e, "stats_storage_failed")
 
     async def get_dimensions(self, user=None) -> APIResponse:
         self._require_admin(user)
-        return self.success_response({'dimensions': self.stats_manager.dimensions()})
+        return self.success_response({'dimensions': operations.dimensions()})
 
     # --- generation_stats (durable, generation-independent store) ------
 

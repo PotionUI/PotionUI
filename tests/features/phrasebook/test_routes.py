@@ -1,4 +1,8 @@
-"""Controller tests: category/value reads go straight to the repository, not the manager."""
+"""Controller tests: category/value reads go straight to the repository; a
+single "resolve or raise" (get_category) and every mutation go through
+`src.features.phrasebook.operations`, patched here exactly like the retired
+manager mock (see tests/features/user_groups/test_routes.py for the
+established pattern)."""
 
 from datetime import datetime
 from types import SimpleNamespace
@@ -6,8 +10,8 @@ from unittest.mock import Mock
 
 import pytest
 
+from src.features.phrasebook import routes as routes_module
 from src.features.phrasebook.dto import PhrasebookCategory, PhrasebookStateFilter
-from src.features.phrasebook.manager import PhrasebookManager
 from src.features.phrasebook.repository import (
     PhrasebookCategoryRepository,
     PhrasebookValueRepository,
@@ -16,10 +20,11 @@ from src.features.phrasebook.routes import PhrasebookController
 
 
 @pytest.fixture
-def manager():
-    # spec'd so a call to a removed pass-through (e.g. get_categories) raises
-    # AttributeError instead of silently succeeding on an unconstrained Mock.
-    return Mock(spec=PhrasebookManager)
+def mock_operations(monkeypatch):
+    """Patch the `operations` module as seen by routes.py."""
+    mock = Mock()
+    monkeypatch.setattr(routes_module, "operations", mock)
+    return mock
 
 
 @pytest.fixture
@@ -33,11 +38,11 @@ def value_repository():
 
 
 @pytest.fixture
-def controller(manager, category_repository, value_repository):
+def controller(category_repository, value_repository):
     return PhrasebookController(
-        phrasebook_manager=manager,
         category_repository=category_repository,
         value_repository=value_repository,
+        plugin_registry=Mock(),
         preview_generator=Mock(),
         generation_orchestrator=Mock(),
     )
@@ -90,13 +95,13 @@ async def test_get_category_children_reads_from_repository(controller, category_
 
 
 async def test_get_category_values_read_from_repository(
-    controller, manager, value_repository, user, sample_category
+    controller, mock_operations, category_repository, value_repository, user, sample_category
 ):
-    manager.get_category_by_id.return_value = sample_category
+    mock_operations.get_category.return_value = sample_category
     value_repository.get_by_category.return_value = []
 
     result = await controller.get_category("cat-1", user)
 
     assert result.success
-    manager.get_category_by_id.assert_called_once_with("cat-1", "user-1")
+    mock_operations.get_category.assert_called_once_with(category_repository, "cat-1", "user-1")
     value_repository.get_by_category.assert_called_once_with("cat-1", "user-1")

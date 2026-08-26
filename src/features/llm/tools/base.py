@@ -76,12 +76,17 @@ class ToolContext:
     mode_id: Optional[str] = None
     session_metadata: Dict[str, Any] = field(default_factory=dict)
     # Service references - injected at construction time
-    segment_manager: Any = None
+    segment_category_repository: Any = None
+    saved_segment_repository: Any = None
+    segment_template_repository: Any = None
     model_index_manager: Any = None
     preset_manager: Any = None
-    phrasebook_manager: Any = None
+    phrasebook_category_repository: Any = None
+    phrasebook_value_repository: Any = None
     llm_repository: Any = None
-    prompt_database_manager: Any = None
+    # A `PromptDatabaseCollaborators` bundle (see
+    # `src.features.prompt_database.collaborators`), or None.
+    prompt_database: Any = None
     generation_orchestrator: Any = None
     llm_memory_repository: Any = None
     prompt_enhancement_manager: Any = None

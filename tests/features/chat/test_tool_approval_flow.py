@@ -379,13 +379,18 @@ class TestApprovalPreviewPayload:
         from src.features.llm.tools.builtin.phrasebook_tool import RemovePhrasebookValuesTool
         from src.features.llm.tools.base import ToolContext
 
-        mgr = MagicMock()
-        mgr.categories.get_by_path.return_value = SimpleNamespace(id="cat-1", path="camera")
-        mgr.get_value_by_id.side_effect = [
+        category_repo = MagicMock()
+        category_repo.get_by_path.return_value = SimpleNamespace(id="cat-1", path="camera")
+        value_repo = MagicMock()
+        value_repo.get_by_id.side_effect = [
             SimpleNamespace(id="1", label="low angle", value="low angle", category_id="cat-1"),
             SimpleNamespace(id="2", label="high angle", value="high angle", category_id="cat-1"),
         ]
-        ctx = ToolContext(user_id="user-1", phrasebook_manager=mgr)
+        ctx = ToolContext(
+            user_id="user-1",
+            phrasebook_category_repository=category_repo,
+            phrasebook_value_repository=value_repo,
+        )
 
         result = await RemovePhrasebookValuesTool().execute(
             ctx, value_ids=["1", "2"], category_path="camera",

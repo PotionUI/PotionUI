@@ -15,6 +15,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from src.features.prompt_database import operations
 from src.platform.plugins.runtime_registries import get_container
 
 
@@ -54,8 +55,9 @@ async def create_prompt_for_user(
     prompts use. `source_provider` is required - an imported prompt is never
     filed under the manual bucket.
     """
-    manager = get_container().prompt_database_manager
-    prompt = await manager.add_prompt(
+    collaborators = get_container().prompt_database
+    prompt = await operations.add_prompt(
+        collaborators,
         user_id,
         prompt_text,
         name=name,

@@ -8,6 +8,7 @@ from datetime import datetime
 
 from src.platform.plugins.loader import PluginManifest, PluginLoader
 from src.features.plugins.manager import PluginManager
+from src.features.plugins.routes import PluginController
 from src.features.plugins.records import PluginPage, Plugin
 from src.features.plugins.dto import PluginPageResponse
 
@@ -363,6 +364,20 @@ def manager(mock_plugin_repo, mock_plugin_registry):
 
 
 @pytest.fixture
+def controller(mock_plugin_repo, mock_plugin_registry):
+    """Create PluginController instance with mocked dependencies.
+
+    get_active_pages/get_sidebar_items are pure DB reads: they live on the
+    controller, calling the repository directly, not on the manager.
+    """
+    return PluginController(
+        plugin_manager=Mock(),
+        plugin_repository=mock_plugin_repo,
+        plugin_registry=mock_plugin_registry,
+    )
+
+
+@pytest.fixture
 def sample_plugin_pages():
     """Sample plugin pages"""
     return [
@@ -391,41 +406,44 @@ def sample_plugin_pages():
     ]
 
 
-class TestPluginManagerPages:
-    """Test PluginManager page-related methods"""
+class TestPluginControllerPages:
+    """Test PluginController page-related reads (repository-backed, not manager)"""
 
-    def test_get_active_pages_returns_all_pages(self, manager, mock_plugin_repo, sample_plugin_pages):
-        """Test that get_active_pages returns all pages from enabled plugins"""
+    @pytest.mark.asyncio
+    async def test_get_active_pages_returns_all_pages(self, controller, mock_plugin_repo, sample_plugin_pages):
+        """Test that get_plugin_pages returns all pages from enabled plugins"""
         mock_plugin_repo.get_all_active_pages.return_value = sample_plugin_pages
 
-        result = manager.get_active_pages()
+        response = await controller.get_plugin_pages()
 
-        assert len(result) == 2
-        assert all(isinstance(p, PluginPageResponse) for p in result)
-        assert result[0].route == "/video-editor"
-        assert result[1].route == "/video-settings"
+        assert len(response.data) == 2
+        assert response.data[0]['route'] == "/video-editor"
+        assert response.data[1]['route'] == "/video-settings"
         mock_plugin_repo.get_all_active_pages.assert_called_once()
 
-    def test_get_active_pages_empty(self, manager, mock_plugin_repo):
-        """Test get_active_pages when no active pages exist"""
+    @pytest.mark.asyncio
+    async def test_get_active_pages_empty(self, controller, mock_plugin_repo):
+        """Test get_plugin_pages when no active pages exist"""
         mock_plugin_repo.get_all_active_pages.return_value = []
 
-        result = manager.get_active_pages()
+        response = await controller.get_plugin_pages()
 
-        assert result == []
+        assert response.data == []
 
-    def test_get_sidebar_items_filters_show_in_sidebar(self, manager, mock_plugin_repo, sample_plugin_pages):
+    @pytest.mark.asyncio
+    async def test_get_sidebar_items_filters_show_in_sidebar(self, controller, mock_plugin_repo, sample_plugin_pages):
         """Test that get_sidebar_items filters by show_in_sidebar"""
         mock_plugin_repo.get_all_active_pages.return_value = sample_plugin_pages
 
-        result = manager.get_sidebar_items()
+        response = await controller.get_sidebar_items()
 
-        assert len(result) == 1
-        assert result[0].route == "/video-editor"
-        assert result[0].show_in_sidebar is True
+        assert len(response.data) == 1
+        assert response.data[0]['route'] == "/video-editor"
+        assert response.data[0]['show_in_sidebar'] is True
 
-    def test_get_active_pages_includes_require_role(self, manager, mock_plugin_repo):
-        """Test that get_active_pages includes require_role in response"""
+    @pytest.mark.asyncio
+    async def test_get_active_pages_includes_require_role(self, controller, mock_plugin_repo):
+        """Test that get_plugin_pages includes require_role in response"""
         admin_page = PluginPage(
             id=1,
             plugin_id="admin-plugin",
@@ -437,12 +455,13 @@ class TestPluginManagerPages:
         )
         mock_plugin_repo.get_all_active_pages.return_value = [admin_page]
 
-        result = manager.get_active_pages()
+        response = await controller.get_plugin_pages()
 
-        assert len(result) == 1
-        assert result[0].require_role == "ADMIN"
+        assert len(response.data) == 1
+        assert response.data[0]['require_role'] == "ADMIN"
 
-    def test_get_sidebar_items_includes_require_role(self, manager, mock_plugin_repo):
+    @pytest.mark.asyncio
+    async def test_get_sidebar_items_includes_require_role(self, controller, mock_plugin_repo):
         """Test that get_sidebar_items includes require_role in response"""
         admin_page = PluginPage(
             id=1,
@@ -455,12 +474,13 @@ class TestPluginManagerPages:
         )
         mock_plugin_repo.get_all_active_pages.return_value = [admin_page]
 
-        result = manager.get_sidebar_items()
+        response = await controller.get_sidebar_items()
 
-        assert len(result) == 1
-        assert result[0].require_role == "ADMIN"
+        assert len(response.data) == 1
+        assert response.data[0]['require_role'] == "ADMIN"
 
-    def test_get_sidebar_items_empty_when_none_visible(self, manager, mock_plugin_repo):
+    @pytest.mark.asyncio
+    async def test_get_sidebar_items_empty_when_none_visible(self, controller, mock_plugin_repo):
         """Test get_sidebar_items when no pages have show_in_sidebar=True"""
         hidden_page = PluginPage(
             id=1,
@@ -472,9 +492,9 @@ class TestPluginManagerPages:
         )
         mock_plugin_repo.get_all_active_pages.return_value = [hidden_page]
 
-        result = manager.get_sidebar_items()
+        response = await controller.get_sidebar_items()
 
-        assert result == []
+        assert response.data == []
 
 
 class TestPluginManagerRegisterPages:

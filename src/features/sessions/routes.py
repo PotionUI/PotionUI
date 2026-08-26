@@ -4,13 +4,20 @@ Session Controller
 Handles CRUD operations for user sessions (saved preset configurations).
 Delegates business logic to SessionManager.
 """
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from fastapi import APIRouter, Depends
 
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user
 from src.features.sessions.dto import SaveSessionRequest, UpdateSessionRequest
 from src.features.sessions import SessionManager
+from src.features.sessions.mappers import (
+    session_to_response_dict,
+    session_version_summary_to_dict,
+    session_version_to_dict,
+)
+from src.features.sessions.repository import SessionRepository
+from src.features.sessions.version_repository import SessionVersionRepository
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
@@ -19,15 +26,24 @@ if TYPE_CHECKING:
 class SessionController(BaseController):
     """Controller for managing user sessions."""
 
-    def __init__(self, session_manager: SessionManager):
+    def __init__(
+        self,
+        session_manager: SessionManager,
+        session_repository: SessionRepository,
+        session_version_repository: Optional[SessionVersionRepository] = None,
+    ):
         super().__init__()
         self.manager = session_manager
+        self.repository = session_repository
+        # Optional, matching SessionManager - version history is a no-op
+        # (empty list / "not found") when this isn't wired.
+        self.version_repository = session_version_repository
 
     async def get_sessions_for_preset(self, user_id: str, preset_id: str) -> APIResponse:
         """Get all sessions for a user and preset."""
         try:
-            sessions = self.manager.get_sessions_for_preset(user_id, preset_id)
-            return self.success_response(data=sessions)
+            sessions = self.repository.get_by_user_and_preset(user_id, preset_id)
+            return self.success_response(data=[session_to_response_dict(s) for s in sessions])
         except ValueError as e:
             return self.error_api_response(error="get_sessions_failed", message=str(e))
         except Exception as e:
@@ -36,11 +52,34 @@ class SessionController(BaseController):
                 message=f"Failed to get sessions: {str(e)}"
             )
 
+    def _get_owned_session_record(self, user_id: str, session_id: str):
+        """Look up a session by id and enforce ownership, raising distinct
+        errors for "missing" vs "belongs to someone else". Pure DB read."""
+        session = self.repository.get_by_id(session_id)
+
+        if not session:
+            raise ValueError("Session not found")
+
+        if session.user_id != user_id:
+            raise ValueError("Access denied to this session")
+
+        return session
+
+    def _get_session_or_404(self, user_id: str, session_id: str):
+        """Look up a session by id and enforce ownership, collapsing "missing"
+        and "belongs to someone else" into a single "Session not found" -
+        the house 404-not-403 idiom, so the response can't be used to probe
+        which session ids exist. Pure DB read."""
+        session = self.repository.get_by_id(session_id)
+        if not session or session.user_id != user_id:
+            raise ValueError("Session not found")
+        return session
+
     async def get_session_by_id(self, user_id: str, session_id: str) -> APIResponse:
         """Get a specific session by ID."""
         try:
-            session = self.manager.get_session_by_id(user_id, session_id)
-            return self.success_response(data=session)
+            session = self._get_owned_session_record(user_id, session_id)
+            return self.success_response(data=session_to_response_dict(session))
         except ValueError as e:
             error_msg = str(e)
             if "not found" in error_msg.lower():
@@ -110,12 +149,20 @@ class SessionController(BaseController):
     async def list_session_versions(self, user_id: str, session_id: str) -> APIResponse:
         """List a session's version history (newest first, no payloads)."""
         try:
-            versions = self.manager.list_session_versions(user_id, session_id)
+            self._get_session_or_404(user_id, session_id)
+
+            if not self.version_repository:
+                versions: List[Dict[str, Any]] = []
+            else:
+                versions = [
+                    session_version_summary_to_dict(v)
+                    for v in self.version_repository.list_for_session(session_id)
+                ]
             return self.success_response(data=versions)
         except ValueError as e:
             # House 404-not-403 idiom: missing session and "belongs to someone
-            # else" both raise "Session not found" from the manager, so this
-            # single 404 branch can't be used to probe which session ids exist.
+            # else" both raise "Session not found", so this single 404 branch
+            # can't be used to probe which session ids exist.
             return self.error_response(error="session_not_found", message=str(e), status_code=404)
         except Exception as e:
             return self.error_api_response(
@@ -126,8 +173,16 @@ class SessionController(BaseController):
     async def get_session_version(self, user_id: str, session_id: str, version_number: int) -> APIResponse:
         """Get a single version's full payload."""
         try:
-            version = self.manager.get_session_version(user_id, session_id, version_number)
-            return self.success_response(data=version)
+            self._get_session_or_404(user_id, session_id)
+
+            if not self.version_repository:
+                raise ValueError("Version not found")
+
+            version = self.version_repository.get(session_id, version_number)
+            if not version:
+                raise ValueError("Version not found")
+
+            return self.success_response(data=session_version_to_dict(version))
         except ValueError as e:
             error_msg = str(e)
             error_code = "session_not_found" if error_msg == "Session not found" else "session_version_not_found"

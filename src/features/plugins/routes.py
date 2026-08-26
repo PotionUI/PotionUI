@@ -1,14 +1,20 @@
 import logging
-from typing import Optional, TYPE_CHECKING
+from typing import List, Optional, TYPE_CHECKING
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
-from src.features.plugins.dto import PluginSettingsUpdateRequest
+from src.features.plugins.dto import (
+    PluginDetailResponse,
+    PluginPageResponse,
+    PluginSettingsUpdateRequest,
+)
+from src.features.plugins.mappers import hook_to_response, plugin_to_response, setting_to_response
 from src.features.plugins.manager import PluginManager, PluginManifestUnavailableError
 from src.features.plugins.repository import PluginRepository
+from src.platform.plugins.registry import PluginRegistry
 from src.features.providers.registry import reset_provider_registry
 
 if TYPE_CHECKING:
@@ -16,17 +22,40 @@ if TYPE_CHECKING:
 
 
 class PluginController(BaseController):
-    def __init__(self, plugin_manager: PluginManager, plugin_repository: PluginRepository):
+    def __init__(
+        self,
+        plugin_manager: PluginManager,
+        plugin_repository: PluginRepository,
+        plugin_registry: PluginRegistry,
+    ):
         super().__init__()
         self.manager = plugin_manager
         self.repository = plugin_repository
+        self.registry = plugin_registry
 
     # ========== Plugin Pages ==========
+
+    def _get_active_pages(self) -> List[PluginPageResponse]:
+        """Pages from enabled plugins, sorted by sidebar_order. Pure DB read."""
+        pages = self.repository.get_all_active_pages()
+        return [
+            PluginPageResponse(
+                plugin_id=page.plugin_id,
+                route=page.route,
+                component_path=page.component_path,
+                label=page.label,
+                icon_svg=page.icon_svg,
+                sidebar_order=page.sidebar_order,
+                show_in_sidebar=page.show_in_sidebar,
+                require_role=getattr(page, 'require_role', None)
+            )
+            for page in pages
+        ]
 
     async def get_plugin_pages(self) -> APIResponse:
         """Get all active plugin pages sorted by sidebar_order"""
         try:
-            pages = self.manager.get_active_pages()
+            pages = self._get_active_pages()
             return self.success_response(data=[p.model_dump() for p in pages])
         except Exception as e:
             self.logger.error(f"Failed to get plugin pages: {str(e)}")
@@ -39,7 +68,7 @@ class PluginController(BaseController):
     async def get_plugin_page_by_route(self, route: str) -> APIResponse:
         """Get page info for a specific route"""
         try:
-            pages = self.manager.get_active_pages()
+            pages = self._get_active_pages()
             matching = [p for p in pages if p.route == route]
             if not matching:
                 return self.error_response(
@@ -59,7 +88,7 @@ class PluginController(BaseController):
     async def get_sidebar_items(self) -> APIResponse:
         """Get sidebar items from active plugins"""
         try:
-            items = self.manager.get_sidebar_items()
+            items = [p for p in self._get_active_pages() if p.show_in_sidebar]
             return self.success_response(data=[i.model_dump() for i in items])
         except Exception as e:
             self.logger.error(f"Failed to get sidebar items: {str(e)}")
@@ -104,8 +133,9 @@ class PluginController(BaseController):
     async def list_plugins(self) -> APIResponse:
         """List all plugins with their status"""
         try:
-            plugins = self.manager.list_plugins()
-            return self.success_response(data=[p.model_dump() for p in plugins])
+            plugins = self.repository.get_all_plugins()
+            responses = [plugin_to_response(p, self.registry) for p in plugins]
+            return self.success_response(data=[p.model_dump() for p in responses])
         except Exception as e:
             self.logger.error(f"Failed to list plugins: {str(e)}")
             return self.handle_exception(
@@ -117,8 +147,31 @@ class PluginController(BaseController):
     async def get_plugin(self, plugin_id: str) -> APIResponse:
         """Get single plugin details"""
         try:
-            plugin = self.manager.get_plugin(plugin_id)
-            return self.success_response(data=plugin.model_dump())
+            plugin = self.repository.get_plugin_by_id(plugin_id)
+            if not plugin:
+                raise ValueError(f"Plugin '{plugin_id}' not found")
+
+            base = plugin_to_response(plugin, self.registry)
+
+            hooks = self.repository.get_plugin_hooks(plugin_id)
+            hook_responses = [hook_to_response(hook) for hook in hooks]
+
+            manifest = self.registry.get_plugin(plugin_id)
+            settings_schema = manifest.settings if manifest and manifest.settings else []
+
+            settings = self.repository.get_plugin_settings(plugin_id)
+            settings_values = {
+                setting.setting_key: ('***' if setting.is_secret else setting.setting_value)
+                for setting in settings
+            }
+
+            detail = PluginDetailResponse(
+                **base.model_dump(),
+                hooks=hook_responses,
+                settings_schema=settings_schema,
+                settings_values=settings_values
+            )
+            return self.success_response(data=detail.model_dump())
         except ValueError as e:
             return self.error_response(
                 error="plugin_not_found",
@@ -250,8 +303,13 @@ class PluginController(BaseController):
     ) -> APIResponse:
         """Get all settings for a plugin"""
         try:
-            settings = self.manager.get_plugin_settings(plugin_id, user_id)
-            return self.success_response(data=[s.model_dump() for s in settings])
+            plugin = self.repository.get_plugin_by_id(plugin_id)
+            if not plugin:
+                raise ValueError(f"Plugin '{plugin_id}' not found")
+
+            settings = self.repository.get_plugin_settings(plugin_id, user_id)
+            responses = [setting_to_response(s) for s in settings]
+            return self.success_response(data=[s.model_dump() for s in responses])
         except ValueError as e:
             return self.error_response(
                 error="plugin_not_found",
@@ -347,7 +405,14 @@ class PluginController(BaseController):
     async def get_frontend_hooks(self) -> APIResponse:
         """Get all frontend hooks (for frontend component loading)"""
         try:
-            grouped_hooks = self.manager.get_grouped_frontend_hooks()
+            hooks = self.repository.get_hooks_by_type("frontend")
+
+            grouped_hooks: dict = {}
+            for hook in hooks:
+                plugin = self.repository.get_plugin_by_id(hook.plugin_id)
+                hook_response = hook_to_response(hook, plugin)
+                grouped_hooks.setdefault(hook.hook_name, []).append(hook_response)
+
             # Convert hook responses to dicts
             result = {
                 hook_name: [h.model_dump() for h in hooks]
@@ -393,8 +458,7 @@ class PluginController(BaseController):
         """
         try:
             # Get plugin manifest from registry to find plugin directory
-            # Note: We access registry through manager for this route-specific operation
-            plugin_manifest = self.manager.registry.get_plugin(plugin_id)
+            plugin_manifest = self.registry.get_plugin(plugin_id)
             if not plugin_manifest:
                 raise HTTPException(
                     status_code=404,

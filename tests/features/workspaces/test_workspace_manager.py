@@ -10,6 +10,7 @@ from unittest.mock import Mock
 from datetime import datetime
 
 from src.features.workspaces.manager import WorkspaceManager
+from src.features.workspaces.routes import WorkspaceController
 from src.features.workspaces.dto import (
     SaveWorkspaceRequest,
     UpdateWorkspaceRequest,
@@ -50,90 +51,114 @@ def _make_manager():
     return manager, mock_repo, mock_plugins
 
 
+def _make_controller():
+    """Return a WorkspaceController with a mocked repository.
+
+    get_workspaces/get_workspace_by_id are pure DB reads and live on the
+    controller (repository-backed), not on WorkspaceManager.
+    """
+    mock_repo = Mock()
+    controller = WorkspaceController(
+        workspace_manager=Mock(),
+        workspace_repository=mock_repo,
+    )
+    return controller, mock_repo
+
+
 # ---------------------------------------------------------------------------
 # Test classes
 # ---------------------------------------------------------------------------
 
 class TestGetWorkspaces:
-    """Tests for WorkspaceManager.get_workspaces."""
+    """Tests for the workspaces feature's read: get_workspaces."""
 
-    def test_returns_list_of_workspace_responses(self):
-        """get_workspaces returns WorkspaceResponse for each repo result."""
-        manager, mock_repo, _ = _make_manager()
+    @pytest.mark.asyncio
+    async def test_returns_list_of_workspace_responses(self):
+        """get_workspaces returns a WorkspaceResponse dict for each repo result."""
+        controller, mock_repo = _make_controller()
         ws1 = _make_workspace('ws-1', name='Alpha')
         ws2 = _make_workspace('ws-2', name='Beta')
         mock_repo.get_by_user.return_value = [ws1, ws2]
 
-        result = manager.get_workspaces('user-1')
+        response = await controller.get_workspaces('user-1')
 
-        assert len(result) == 2
-        assert all(isinstance(r, WorkspaceResponse) for r in result)
-        assert result[0].id == 'ws-1'
-        assert result[0].name == 'Alpha'
-        assert result[1].id == 'ws-2'
-        assert result[1].name == 'Beta'
+        assert len(response.data) == 2
+        assert response.data[0]['id'] == 'ws-1'
+        assert response.data[0]['name'] == 'Alpha'
+        assert response.data[1]['id'] == 'ws-2'
+        assert response.data[1]['name'] == 'Beta'
         mock_repo.get_by_user.assert_called_once_with('user-1')
 
-    def test_returns_empty_list_when_no_workspaces(self):
+    @pytest.mark.asyncio
+    async def test_returns_empty_list_when_no_workspaces(self):
         """get_workspaces returns empty list when user has no workspaces."""
-        manager, mock_repo, _ = _make_manager()
+        controller, mock_repo = _make_controller()
         mock_repo.get_by_user.return_value = []
 
-        result = manager.get_workspaces('user-1')
+        response = await controller.get_workspaces('user-1')
 
-        assert result == []
+        assert response.data == []
 
-    def test_response_excludes_user_id(self):
+    @pytest.mark.asyncio
+    async def test_response_excludes_user_id(self):
         """WorkspaceResponse must not expose user_id (security)."""
-        manager, mock_repo, _ = _make_manager()
+        controller, mock_repo = _make_controller()
         mock_repo.get_by_user.return_value = [_make_workspace()]
 
-        result = manager.get_workspaces('user-1')
+        response = await controller.get_workspaces('user-1')
 
-        assert not hasattr(result[0], 'user_id') or result[0].model_fields.get('user_id') is None
+        assert 'user_id' not in response.data[0]
 
 
 class TestGetWorkspaceById:
-    """Tests for WorkspaceManager.get_workspace_by_id."""
+    """Tests for the workspaces feature's read: get_workspace_by_id."""
 
-    def test_returns_workspace_response_when_found_and_owner_matches(self):
-        """Returns WorkspaceResponse for the correct owner."""
-        manager, mock_repo, _ = _make_manager()
+    @pytest.mark.asyncio
+    async def test_returns_workspace_response_when_found_and_owner_matches(self):
+        """Returns a WorkspaceResponse dict for the correct owner."""
+        controller, mock_repo = _make_controller()
         ws = _make_workspace(user_id='user-1')
         mock_repo.get_by_id.return_value = ws
 
-        result = manager.get_workspace_by_id('ws-1', 'user-1')
+        response = await controller.get_workspace_by_id('ws-1', 'user-1')
 
-        assert isinstance(result, WorkspaceResponse)
-        assert result.id == 'ws-1'
+        assert response.success is True
+        assert response.data['id'] == 'ws-1'
         mock_repo.get_by_id.assert_called_once_with('ws-1')
 
-    def test_raises_value_error_when_not_found(self):
-        """Raises ValueError when workspace does not exist."""
-        manager, mock_repo, _ = _make_manager()
+    @pytest.mark.asyncio
+    async def test_raises_value_error_when_not_found(self):
+        """Errors with workspace_not_found when the workspace does not exist."""
+        controller, mock_repo = _make_controller()
         mock_repo.get_by_id.return_value = None
 
-        with pytest.raises(ValueError, match="not found"):
-            manager.get_workspace_by_id('ws-missing', 'user-1')
+        response = await controller.get_workspace_by_id('ws-missing', 'user-1')
 
-    def test_raises_value_error_when_wrong_user(self):
-        """Raises ValueError when workspace belongs to a different user."""
-        manager, mock_repo, _ = _make_manager()
+        assert response.success is False
+        assert response.error == 'workspace_not_found'
+
+    @pytest.mark.asyncio
+    async def test_raises_value_error_when_wrong_user(self):
+        """Errors with workspace_access_denied when owned by a different user."""
+        controller, mock_repo = _make_controller()
         ws = _make_workspace(user_id='owner-user')
         mock_repo.get_by_id.return_value = ws
 
-        with pytest.raises(ValueError, match="[Aa]ccess denied"):
-            manager.get_workspace_by_id('ws-1', 'attacker-user')
+        response = await controller.get_workspace_by_id('ws-1', 'attacker-user')
 
-    def test_response_contains_correct_data(self):
-        """Returned WorkspaceResponse carries the correct workspace data."""
-        manager, mock_repo, _ = _make_manager()
+        assert response.success is False
+        assert response.error == 'workspace_access_denied'
+
+    @pytest.mark.asyncio
+    async def test_response_contains_correct_data(self):
+        """Returned response dict carries the correct workspace data."""
+        controller, mock_repo = _make_controller()
         ws = _make_workspace(data={'tabs': [{'name': 'T1'}]})
         mock_repo.get_by_id.return_value = ws
 
-        result = manager.get_workspace_by_id('ws-1', 'user-1')
+        response = await controller.get_workspace_by_id('ws-1', 'user-1')
 
-        assert result.data == {'tabs': [{'name': 'T1'}]}
+        assert response.data['data'] == {'tabs': [{'name': 'T1'}]}
 
 
 class TestSaveWorkspace:

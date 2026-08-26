@@ -1,8 +1,12 @@
 """
 Tests for PluginController.
 
-The controller delegates to PluginManager for all business logic.
-These tests verify the controller correctly handles manager responses.
+Mutations delegate to PluginManager; pure reads (list/get/settings/frontend
+hooks) now go straight from the controller to PluginRepository/PluginRegistry
+and the plugins mappers - managers keep only data-changing actions. These
+tests exercise the controller exactly as wired in
+build_container(): manager mocked for mutations, repository/registry mocked
+for reads.
 """
 import pytest
 from unittest.mock import Mock, MagicMock
@@ -17,6 +21,8 @@ from src.features.plugins.dto import (
     PluginScanResult,
     PluginSettingsUpdateRequest,
 )
+from src.features.plugins.records import Plugin, PluginHook, PluginSetting
+from src.platform.plugins.registry import PluginState
 from src.platform.plugins.loader import PluginManifest
 from pathlib import Path
 
@@ -34,9 +40,69 @@ def mock_plugin_repository():
 
 
 @pytest.fixture
-def controller(mock_plugin_manager, mock_plugin_repository):
+def mock_plugin_registry():
+    """Mock PluginRegistry"""
+    registry = Mock()
+    # Default: no manifest loaded for a plugin - individual tests override
+    # this with a concrete PluginManifest/MagicMock when they need
+    # manifest-derived enrichment.
+    registry.get_plugin.return_value = None
+    return registry
+
+
+@pytest.fixture
+def controller(mock_plugin_manager, mock_plugin_repository, mock_plugin_registry):
     """Create PluginController instance with mocked dependencies"""
-    return PluginController(plugin_manager=mock_plugin_manager, plugin_repository=mock_plugin_repository)
+    return PluginController(
+        plugin_manager=mock_plugin_manager,
+        plugin_repository=mock_plugin_repository,
+        plugin_registry=mock_plugin_registry,
+    )
+
+
+@pytest.fixture
+def sample_plugin():
+    """Sample Plugin database record for testing"""
+    return Plugin(
+        id="test-plugin-1",
+        name="Test Plugin",
+        version="1.0.0",
+        type="full-stack",
+        enabled=True,
+        manifest_path="/content/plugins/local/test-plugin/manifest.yml",
+        description="A test plugin",
+        author="Test Author",
+        installed_at=datetime(2024, 1, 1, 12, 0, 0),
+        updated_at=datetime(2024, 1, 1, 12, 0, 0),
+    )
+
+
+@pytest.fixture
+def sample_plugin_hook():
+    """Sample PluginHook database record for testing"""
+    return PluginHook(
+        id=1,
+        plugin_id="test-plugin-1",
+        hook_name="workbench.image_modal",
+        hook_type="frontend",
+        handler_path=None,
+        component_path="/plugins/test-plugin/ImageModal.svelte",
+        position="center",
+        sort_order=0,
+    )
+
+
+@pytest.fixture
+def sample_plugin_setting():
+    """Sample PluginSetting database record for testing"""
+    return PluginSetting(
+        id=1,
+        plugin_id="test-plugin-1",
+        setting_key="max_iterations",
+        setting_value="10",
+        user_id=None,
+        is_secret=False,
+    )
 
 
 @pytest.fixture
@@ -55,54 +121,6 @@ def sample_plugin_response():
         updated_at=datetime(2024, 1, 1, 12, 0, 0),
         state="enabled",
         error=None
-    )
-
-
-@pytest.fixture
-def sample_plugin_detail_response():
-    """Sample PluginDetailResponse for testing"""
-    return PluginDetailResponse(
-        id="test-plugin-1",
-        name="Test Plugin",
-        version="1.0.0",
-        type="full-stack",
-        enabled=True,
-        manifest_path="/content/plugins/local/test-plugin/manifest.yml",
-        description="A test plugin",
-        author="Test Author",
-        installed_at=datetime(2024, 1, 1, 12, 0, 0),
-        updated_at=datetime(2024, 1, 1, 12, 0, 0),
-        state="enabled",
-        error=None,
-        hooks=[
-            PluginHookResponse(
-                id=1,
-                plugin_id="test-plugin-1",
-                hook_name="workbench.image_modal",
-                hook_type="frontend",
-                handler_path=None,
-                component_path="/plugins/test-plugin/ImageModal.svelte",
-                position="center",
-                sort_order=0,
-                plugin_name="Test Plugin",
-                plugin_version="1.0.0"
-            )
-        ],
-        settings_schema=[{"name": "api_key", "type": "string", "label": "API Key"}],
-        settings_values={}
-    )
-
-
-@pytest.fixture
-def sample_plugin_setting_response():
-    """Sample PluginSettingResponse for testing"""
-    return PluginSettingResponse(
-        id=1,
-        plugin_id="test-plugin-1",
-        setting_key="max_iterations",
-        setting_value="10",
-        user_id=None,
-        is_secret=False
     )
 
 
@@ -144,10 +162,12 @@ def sample_plugin_manifest():
 # ========== Plugin Management Tests ==========
 
 @pytest.mark.asyncio
-async def test_list_plugins_success(controller, mock_plugin_manager, sample_plugin_response):
+async def test_list_plugins_success(controller, mock_plugin_repository, mock_plugin_registry, sample_plugin):
     """Test listing all plugins successfully"""
     # Arrange
-    mock_plugin_manager.list_plugins.return_value = [sample_plugin_response]
+    mock_plugin_repository.get_all_plugins.return_value = [sample_plugin]
+    mock_plugin_registry.get_plugin_state.return_value = PluginState.ENABLED
+    mock_plugin_registry.get_plugin_error.return_value = None
 
     # Act
     response = await controller.list_plugins()
@@ -157,24 +177,17 @@ async def test_list_plugins_success(controller, mock_plugin_manager, sample_plug
     assert len(response.data) == 1
     assert response.data[0]['id'] == "test-plugin-1"
     assert response.data[0]['state'] == "enabled"
-    mock_plugin_manager.list_plugins.assert_called_once()
+    mock_plugin_repository.get_all_plugins.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_list_plugins_with_error_state(controller, mock_plugin_manager):
+async def test_list_plugins_with_error_state(controller, mock_plugin_repository, mock_plugin_registry, sample_plugin):
     """Test listing plugins when one is in error state"""
     # Arrange
-    error_plugin = PluginResponse(
-        id="test-plugin-1",
-        name="Test Plugin",
-        version="1.0.0",
-        type="full-stack",
-        enabled=False,
-        manifest_path="/content/plugins/local/test-plugin/manifest.yml",
-        state="error",
-        error="Failed to load hook handler"
-    )
-    mock_plugin_manager.list_plugins.return_value = [error_plugin]
+    sample_plugin.enabled = False
+    mock_plugin_repository.get_all_plugins.return_value = [sample_plugin]
+    mock_plugin_registry.get_plugin_state.return_value = PluginState.ERROR
+    mock_plugin_registry.get_plugin_error.return_value = "Failed to load hook handler"
 
     # Act
     response = await controller.list_plugins()
@@ -187,10 +200,10 @@ async def test_list_plugins_with_error_state(controller, mock_plugin_manager):
 
 
 @pytest.mark.asyncio
-async def test_list_plugins_exception(controller, mock_plugin_manager):
+async def test_list_plugins_exception(controller, mock_plugin_repository):
     """Test list plugins handles exceptions"""
     # Arrange
-    mock_plugin_manager.list_plugins.side_effect = Exception("Database error")
+    mock_plugin_repository.get_all_plugins.side_effect = Exception("Database error")
 
     # Act & Assert
     with pytest.raises(Exception):
@@ -198,10 +211,28 @@ async def test_list_plugins_exception(controller, mock_plugin_manager):
 
 
 @pytest.mark.asyncio
-async def test_get_plugin_success(controller, mock_plugin_manager, sample_plugin_detail_response):
+async def test_get_plugin_success(
+    controller, mock_plugin_repository, mock_plugin_registry, sample_plugin, sample_plugin_hook
+):
     """Test getting a single plugin successfully"""
     # Arrange
-    mock_plugin_manager.get_plugin.return_value = sample_plugin_detail_response
+    mock_plugin_repository.get_plugin_by_id.return_value = sample_plugin
+    mock_plugin_registry.get_plugin_state.return_value = PluginState.ENABLED
+    mock_plugin_registry.get_plugin_error.return_value = None
+    mock_plugin_repository.get_plugin_hooks.return_value = [sample_plugin_hook]
+
+    mock_manifest = MagicMock()
+    mock_manifest.settings = [{"name": "api_key", "type": "string", "label": "API Key"}]
+    mock_manifest.category = "other"
+    mock_manifest.tags = []
+    mock_manifest.capabilities = []
+    mock_manifest.source = "local"
+    mock_manifest.homepage = None
+    mock_manifest.repository = None
+    mock_manifest.hooks = {}
+    mock_manifest.frontend_hooks = []
+    mock_plugin_registry.get_plugin.return_value = mock_manifest
+    mock_plugin_repository.get_plugin_settings.return_value = []
 
     # Act
     response = await controller.get_plugin("test-plugin-1")
@@ -213,16 +244,16 @@ async def test_get_plugin_success(controller, mock_plugin_manager, sample_plugin
     assert len(response.data['hooks']) == 1
     assert 'settings_schema' in response.data
     assert 'settings_values' in response.data
-    mock_plugin_manager.get_plugin.assert_called_once_with("test-plugin-1")
+    mock_plugin_repository.get_plugin_by_id.assert_called_once_with("test-plugin-1")
 
 
 @pytest.mark.asyncio
-async def test_get_plugin_not_found(controller, mock_plugin_manager):
+async def test_get_plugin_not_found(controller, mock_plugin_repository):
     """Test getting a non-existent plugin"""
     from fastapi import HTTPException
 
     # Arrange
-    mock_plugin_manager.get_plugin.side_effect = ValueError("Plugin 'non-existent' not found")
+    mock_plugin_repository.get_plugin_by_id.return_value = None
 
     # Act & Assert
     with pytest.raises(HTTPException) as exc_info:
@@ -392,10 +423,13 @@ async def test_scan_plugins_updated_version(controller, mock_plugin_manager, sam
 # ========== Plugin Settings Tests ==========
 
 @pytest.mark.asyncio
-async def test_get_plugin_settings_success(controller, mock_plugin_manager, sample_plugin_setting_response):
+async def test_get_plugin_settings_success(
+    controller, mock_plugin_repository, sample_plugin, sample_plugin_setting
+):
     """Test getting plugin settings successfully"""
     # Arrange
-    mock_plugin_manager.get_plugin_settings.return_value = [sample_plugin_setting_response]
+    mock_plugin_repository.get_plugin_by_id.return_value = sample_plugin
+    mock_plugin_repository.get_plugin_settings.return_value = [sample_plugin_setting]
 
     # Act
     response = await controller.get_plugin_settings("test-plugin-1", user_id=None)
@@ -404,15 +438,18 @@ async def test_get_plugin_settings_success(controller, mock_plugin_manager, samp
     assert response.success is True
     assert len(response.data) == 1
     assert response.data[0]['setting_key'] == "max_iterations"
-    mock_plugin_manager.get_plugin_settings.assert_called_once_with("test-plugin-1", None)
+    mock_plugin_repository.get_plugin_settings.assert_called_once_with("test-plugin-1", None)
 
 
 @pytest.mark.asyncio
-async def test_get_plugin_settings_user_specific(controller, mock_plugin_manager, sample_plugin_setting_response):
+async def test_get_plugin_settings_user_specific(
+    controller, mock_plugin_repository, sample_plugin, sample_plugin_setting
+):
     """Test getting user-specific plugin settings"""
     # Arrange
-    sample_plugin_setting_response.user_id = "user-123"
-    mock_plugin_manager.get_plugin_settings.return_value = [sample_plugin_setting_response]
+    sample_plugin_setting.user_id = "user-123"
+    mock_plugin_repository.get_plugin_by_id.return_value = sample_plugin
+    mock_plugin_repository.get_plugin_settings.return_value = [sample_plugin_setting]
 
     # Act
     response = await controller.get_plugin_settings("test-plugin-1", user_id="user-123")
@@ -420,16 +457,16 @@ async def test_get_plugin_settings_user_specific(controller, mock_plugin_manager
     # Assert
     assert response.success is True
     assert len(response.data) == 1
-    mock_plugin_manager.get_plugin_settings.assert_called_once_with("test-plugin-1", "user-123")
+    mock_plugin_repository.get_plugin_settings.assert_called_once_with("test-plugin-1", "user-123")
 
 
 @pytest.mark.asyncio
-async def test_get_plugin_settings_plugin_not_found(controller, mock_plugin_manager):
+async def test_get_plugin_settings_plugin_not_found(controller, mock_plugin_repository):
     """Test getting settings for non-existent plugin"""
     from fastapi import HTTPException
 
     # Arrange
-    mock_plugin_manager.get_plugin_settings.side_effect = ValueError("Plugin 'non-existent' not found")
+    mock_plugin_repository.get_plugin_by_id.return_value = None
 
     # Act & Assert
     with pytest.raises(HTTPException) as exc_info:
@@ -440,13 +477,18 @@ async def test_get_plugin_settings_plugin_not_found(controller, mock_plugin_mana
 
 
 @pytest.mark.asyncio
-async def test_update_plugin_settings_success(controller, mock_plugin_manager, sample_plugin_setting_response):
+async def test_update_plugin_settings_success(controller, mock_plugin_manager):
     """Test updating plugin settings successfully"""
     # Arrange
-    mock_plugin_manager.update_plugin_settings.return_value = [
-        sample_plugin_setting_response,
-        sample_plugin_setting_response
-    ]
+    setting_response = PluginSettingResponse(
+        id=1,
+        plugin_id="test-plugin-1",
+        setting_key="max_iterations",
+        setting_value="10",
+        user_id=None,
+        is_secret=False
+    )
+    mock_plugin_manager.update_plugin_settings.return_value = [setting_response, setting_response]
 
     settings_request = PluginSettingsUpdateRequest(
         settings={
@@ -472,13 +514,18 @@ async def test_update_plugin_settings_success(controller, mock_plugin_manager, s
 
 
 @pytest.mark.asyncio
-async def test_update_plugin_settings_with_complex_types(controller, mock_plugin_manager, sample_plugin_setting_response):
+async def test_update_plugin_settings_with_complex_types(controller, mock_plugin_manager):
     """Test updating plugin settings with dict and list values"""
     # Arrange
-    mock_plugin_manager.update_plugin_settings.return_value = [
-        sample_plugin_setting_response,
-        sample_plugin_setting_response
-    ]
+    setting_response = PluginSettingResponse(
+        id=1,
+        plugin_id="test-plugin-1",
+        setting_key="max_iterations",
+        setting_value="10",
+        user_id=None,
+        is_secret=False
+    )
+    mock_plugin_manager.update_plugin_settings.return_value = [setting_response, setting_response]
 
     settings_request = PluginSettingsUpdateRequest(
         settings={
@@ -568,10 +615,18 @@ async def test_get_hooks_catalog_exception(controller, mock_plugin_manager):
 # ========== Frontend Hooks Tests ==========
 
 @pytest.mark.asyncio
-async def test_get_frontend_hooks_success(controller, mock_plugin_manager, sample_plugin_hook_response):
+async def test_get_frontend_hooks_success(controller, mock_plugin_repository, sample_plugin, sample_plugin_hook):
     """Test getting frontend hooks successfully"""
     # Arrange
-    hook2 = PluginHookResponse(
+    plugin2 = Plugin(
+        id="test-plugin-2",
+        name="Another Plugin",
+        version="2.0.0",
+        type="full-stack",
+        enabled=True,
+        manifest_path="/content/plugins/local/test-plugin-2/manifest.yml"
+    )
+    hook2 = PluginHook(
         id=2,
         plugin_id="test-plugin-2",
         hook_name="workbench.image_modal",
@@ -580,13 +635,10 @@ async def test_get_frontend_hooks_success(controller, mock_plugin_manager, sampl
         component_path="/plugins/test-plugin-2/AnotherModal.svelte",
         position="bottom",
         sort_order=1,
-        plugin_name="Another Plugin",
-        plugin_version="2.0.0"
     )
 
-    mock_plugin_manager.get_grouped_frontend_hooks.return_value = {
-        "workbench.image_modal": [sample_plugin_hook_response, hook2]
-    }
+    mock_plugin_repository.get_hooks_by_type.return_value = [sample_plugin_hook, hook2]
+    mock_plugin_repository.get_plugin_by_id.side_effect = [sample_plugin, plugin2]
 
     # Act
     response = await controller.get_frontend_hooks()
@@ -600,10 +652,12 @@ async def test_get_frontend_hooks_success(controller, mock_plugin_manager, sampl
 
 
 @pytest.mark.asyncio
-async def test_get_frontend_hooks_grouped_by_name(controller, mock_plugin_manager, sample_plugin_hook_response):
+async def test_get_frontend_hooks_grouped_by_name(
+    controller, mock_plugin_repository, sample_plugin, sample_plugin_hook
+):
     """Test that frontend hooks are properly grouped by hook name"""
     # Arrange
-    panel_hook = PluginHookResponse(
+    panel_hook = PluginHook(
         id=2,
         plugin_id="test-plugin-1",
         hook_name="generation.panel",
@@ -612,14 +666,10 @@ async def test_get_frontend_hooks_grouped_by_name(controller, mock_plugin_manage
         component_path="/plugins/test-plugin/Panel.svelte",
         position="left",
         sort_order=0,
-        plugin_name="Test Plugin",
-        plugin_version="1.0.0"
     )
 
-    mock_plugin_manager.get_grouped_frontend_hooks.return_value = {
-        "workbench.image_modal": [sample_plugin_hook_response],
-        "generation.panel": [panel_hook]
-    }
+    mock_plugin_repository.get_hooks_by_type.return_value = [sample_plugin_hook, panel_hook]
+    mock_plugin_repository.get_plugin_by_id.return_value = sample_plugin
 
     # Act
     response = await controller.get_frontend_hooks()
@@ -633,10 +683,10 @@ async def test_get_frontend_hooks_grouped_by_name(controller, mock_plugin_manage
 
 
 @pytest.mark.asyncio
-async def test_get_frontend_hooks_empty(controller, mock_plugin_manager):
+async def test_get_frontend_hooks_empty(controller, mock_plugin_repository):
     """Test getting frontend hooks when none exist"""
     # Arrange
-    mock_plugin_manager.get_grouped_frontend_hooks.return_value = {}
+    mock_plugin_repository.get_hooks_by_type.return_value = []
 
     # Act
     response = await controller.get_frontend_hooks()
@@ -647,10 +697,10 @@ async def test_get_frontend_hooks_empty(controller, mock_plugin_manager):
 
 
 @pytest.mark.asyncio
-async def test_get_frontend_hooks_exception(controller, mock_plugin_manager):
+async def test_get_frontend_hooks_exception(controller, mock_plugin_repository):
     """Test get frontend hooks handles exceptions"""
     # Arrange
-    mock_plugin_manager.get_grouped_frontend_hooks.side_effect = Exception("Database error")
+    mock_plugin_repository.get_hooks_by_type.side_effect = Exception("Database error")
 
     # Act & Assert
     with pytest.raises(Exception):
@@ -712,7 +762,7 @@ async def test_get_frontend_extensions_exception(controller, mock_plugin_manager
 # ========== Plugin Assets Tests ==========
 
 @pytest.mark.asyncio
-async def test_get_plugin_asset_success(controller, mock_plugin_manager, sample_plugin_manifest, tmp_path):
+async def test_get_plugin_asset_success(controller, mock_plugin_registry, sample_plugin_manifest, tmp_path):
     """Test serving plugin asset successfully"""
     # Arrange
     # Create a temporary asset file
@@ -723,7 +773,7 @@ async def test_get_plugin_asset_success(controller, mock_plugin_manager, sample_
 
     # Update manifest to point to temp directory
     sample_plugin_manifest.plugin_dir = tmp_path
-    mock_plugin_manager.registry.get_plugin.return_value = sample_plugin_manifest
+    mock_plugin_registry.get_plugin.return_value = sample_plugin_manifest
 
     # Act
     response = await controller.get_plugin_asset("test-plugin-1", "ImageModalAction.js")
@@ -736,12 +786,12 @@ async def test_get_plugin_asset_success(controller, mock_plugin_manager, sample_
 
 
 @pytest.mark.asyncio
-async def test_get_plugin_asset_plugin_not_found(controller, mock_plugin_manager):
+async def test_get_plugin_asset_plugin_not_found(controller, mock_plugin_registry):
     """Test serving asset for non-existent plugin"""
     from fastapi import HTTPException
 
     # Arrange
-    mock_plugin_manager.registry.get_plugin.return_value = None
+    mock_plugin_registry.get_plugin.return_value = None
 
     # Act & Assert
     with pytest.raises(HTTPException) as exc_info:
@@ -752,7 +802,7 @@ async def test_get_plugin_asset_plugin_not_found(controller, mock_plugin_manager
 
 
 @pytest.mark.asyncio
-async def test_get_plugin_asset_file_not_found(controller, mock_plugin_manager, sample_plugin_manifest, tmp_path):
+async def test_get_plugin_asset_file_not_found(controller, mock_plugin_registry, sample_plugin_manifest, tmp_path):
     """Test serving non-existent asset file"""
     from fastapi import HTTPException
 
@@ -761,7 +811,7 @@ async def test_get_plugin_asset_file_not_found(controller, mock_plugin_manager, 
     dist_dir.mkdir(parents=True)
 
     sample_plugin_manifest.plugin_dir = tmp_path
-    mock_plugin_manager.registry.get_plugin.return_value = sample_plugin_manifest
+    mock_plugin_registry.get_plugin.return_value = sample_plugin_manifest
 
     # Act & Assert
     with pytest.raises(HTTPException) as exc_info:
@@ -772,7 +822,7 @@ async def test_get_plugin_asset_file_not_found(controller, mock_plugin_manager, 
 
 
 @pytest.mark.asyncio
-async def test_get_plugin_asset_directory_traversal_blocked(controller, mock_plugin_manager, sample_plugin_manifest, tmp_path):
+async def test_get_plugin_asset_directory_traversal_blocked(controller, mock_plugin_registry, sample_plugin_manifest, tmp_path):
     """Test that directory traversal attempts are blocked"""
     from fastapi import HTTPException
 
@@ -781,7 +831,7 @@ async def test_get_plugin_asset_directory_traversal_blocked(controller, mock_plu
     dist_dir.mkdir(parents=True)
 
     sample_plugin_manifest.plugin_dir = tmp_path
-    mock_plugin_manager.registry.get_plugin.return_value = sample_plugin_manifest
+    mock_plugin_registry.get_plugin.return_value = sample_plugin_manifest
 
     # Act & Assert - Try to access file outside dist directory
     with pytest.raises(HTTPException) as exc_info:
@@ -791,7 +841,7 @@ async def test_get_plugin_asset_directory_traversal_blocked(controller, mock_plu
 
 
 @pytest.mark.asyncio
-async def test_get_plugin_asset_correct_mime_types(controller, mock_plugin_manager, sample_plugin_manifest, tmp_path):
+async def test_get_plugin_asset_correct_mime_types(controller, mock_plugin_registry, sample_plugin_manifest, tmp_path):
     """Test that correct MIME types are returned for different file types"""
     # Arrange
     dist_dir = tmp_path / "frontend" / "dist"
@@ -805,7 +855,7 @@ async def test_get_plugin_asset_correct_mime_types(controller, mock_plugin_manag
     css_file.write_text("body { color: red; }")
 
     sample_plugin_manifest.plugin_dir = tmp_path
-    mock_plugin_manager.registry.get_plugin.return_value = sample_plugin_manifest
+    mock_plugin_registry.get_plugin.return_value = sample_plugin_manifest
 
     # Act - Test JS file
     js_response = await controller.get_plugin_asset("test-plugin-1", "component.js")
@@ -818,7 +868,7 @@ async def test_get_plugin_asset_correct_mime_types(controller, mock_plugin_manag
 
 @pytest.mark.asyncio
 async def test_get_plugin_asset_sibling_directory_prefix_is_blocked(
-    controller, mock_plugin_manager, sample_plugin_manifest, tmp_path
+    controller, mock_plugin_registry, sample_plugin_manifest, tmp_path
 ):
     """A sibling whose name merely *extends* the allowed directory is not inside it.
 
@@ -840,7 +890,7 @@ async def test_get_plugin_asset_sibling_directory_prefix_is_blocked(
     (sibling / "secrets.json").write_text('{"api_key": "sk-live-leaked"}')
 
     sample_plugin_manifest.plugin_dir = tmp_path
-    mock_plugin_manager.registry.get_plugin.return_value = sample_plugin_manifest
+    mock_plugin_registry.get_plugin.return_value = sample_plugin_manifest
 
     with pytest.raises(HTTPException) as exc_info:
         await controller.get_plugin_asset("test-plugin-1", "../dist-private/secrets.json")
@@ -850,7 +900,7 @@ async def test_get_plugin_asset_sibling_directory_prefix_is_blocked(
 
 @pytest.mark.asyncio
 async def test_get_plugin_asset_sibling_prefix_file_is_blocked(
-    controller, mock_plugin_manager, sample_plugin_manifest, tmp_path
+    controller, mock_plugin_registry, sample_plugin_manifest, tmp_path
 ):
     """The same string-prefix hole one level up: a *file* named like the base."""
     from fastapi import HTTPException
@@ -860,7 +910,7 @@ async def test_get_plugin_asset_sibling_prefix_file_is_blocked(
     (tmp_path / "frontend" / "dist.bak").write_text("stale bundle with a token")
 
     sample_plugin_manifest.plugin_dir = tmp_path
-    mock_plugin_manager.registry.get_plugin.return_value = sample_plugin_manifest
+    mock_plugin_registry.get_plugin.return_value = sample_plugin_manifest
 
     with pytest.raises(HTTPException) as exc_info:
         await controller.get_plugin_asset("test-plugin-1", "../dist.bak")
@@ -870,7 +920,7 @@ async def test_get_plugin_asset_sibling_prefix_file_is_blocked(
 
 @pytest.mark.asyncio
 async def test_get_plugin_asset_absolute_path_is_blocked(
-    controller, mock_plugin_manager, sample_plugin_manifest, tmp_path
+    controller, mock_plugin_registry, sample_plugin_manifest, tmp_path
 ):
     """`Path(base) / "/etc/passwd"` is `/etc/passwd` - the base is discarded."""
     from fastapi import HTTPException
@@ -879,7 +929,7 @@ async def test_get_plugin_asset_absolute_path_is_blocked(
     dist_dir.mkdir(parents=True)
 
     sample_plugin_manifest.plugin_dir = tmp_path
-    mock_plugin_manager.registry.get_plugin.return_value = sample_plugin_manifest
+    mock_plugin_registry.get_plugin.return_value = sample_plugin_manifest
 
     with pytest.raises(HTTPException) as exc_info:
         await controller.get_plugin_asset("test-plugin-1", "/etc/passwd")
@@ -889,7 +939,7 @@ async def test_get_plugin_asset_absolute_path_is_blocked(
 
 @pytest.mark.asyncio
 async def test_get_plugin_asset_nested_legitimate_path_still_serves(
-    controller, mock_plugin_manager, sample_plugin_manifest, tmp_path
+    controller, mock_plugin_registry, sample_plugin_manifest, tmp_path
 ):
     """Containment must not become "flat directory only" - real bundles nest."""
     from fastapi.responses import FileResponse
@@ -899,7 +949,7 @@ async def test_get_plugin_asset_nested_legitimate_path_still_serves(
     (nested / "vendor.js").write_text("export default {}")
 
     sample_plugin_manifest.plugin_dir = tmp_path
-    mock_plugin_manager.registry.get_plugin.return_value = sample_plugin_manifest
+    mock_plugin_registry.get_plugin.return_value = sample_plugin_manifest
 
     response = await controller.get_plugin_asset("test-plugin-1", "chunks/vendor.js")
 

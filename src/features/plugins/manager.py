@@ -12,15 +12,13 @@ from datetime import datetime
 
 from src.features.plugins.dto import (
     PluginResponse,
-    PluginDetailResponse,
-    PluginHookResponse,
     PluginSettingResponse,
-    PluginPageResponse,
     PluginScanResult,
 )
+from src.features.plugins.mappers import plugin_to_response, setting_to_response
 from src.features.plugins.repository import PluginRepository
-from src.features.plugins.records import Plugin, PluginSetting, PluginHook, PluginPage
-from src.platform.plugins.registry import PluginRegistry, PluginState
+from src.features.plugins.records import Plugin, PluginHook, PluginPage
+from src.platform.plugins.registry import PluginRegistry
 from src.platform.plugins.hooks import hooks_registry
 from src.platform.plugins.lifecycle_hooks import PLUGIN_LIFECYCLE_HOOKS
 
@@ -68,105 +66,6 @@ class PluginManager:
         self.pipe_catalog = pipe_catalog
         self.recipe_catalog = recipe_catalog
 
-    def _plugin_to_response(self, plugin: Plugin) -> PluginResponse:
-        """
-        Convert a Plugin model to PluginResponse, enriched with registry state.
-
-        Args:
-            plugin: Plugin database model
-
-        Returns:
-            PluginResponse DTO with runtime state info
-        """
-        state = self.registry.get_plugin_state(plugin.id)
-        error = self.registry.get_plugin_error(plugin.id)
-
-        manifest = self.registry.get_plugin(plugin.id)
-        if manifest:
-            category = manifest.category
-            tags = manifest.tags
-            capabilities = manifest.capabilities
-            source = manifest.source
-            homepage = manifest.homepage
-            repository = manifest.repository
-            hook_count = len(manifest.hooks) + len(manifest.frontend_hooks)
-            settings_count = len(manifest.settings)
-        else:
-            category = "other"
-            tags = []
-            capabilities = []
-            source = "local"
-            homepage = None
-            repository = None
-            hook_count = 0
-            settings_count = 0
-
-        return PluginResponse(
-            id=plugin.id,
-            name=plugin.name,
-            version=plugin.version,
-            type=plugin.type,
-            enabled=plugin.enabled,
-            manifest_path=plugin.manifest_path,
-            description=plugin.description,
-            author=plugin.author,
-            installed_at=plugin.installed_at,
-            updated_at=plugin.updated_at,
-            state=state.value if state else None,
-            error=error,
-            category=category,
-            tags=tags,
-            capabilities=capabilities,
-            source=source,
-            homepage=homepage,
-            repository=repository,
-            hook_count=hook_count,
-            settings_count=settings_count,
-        )
-
-    def _hook_to_response(self, hook: PluginHook, plugin: Optional[Plugin] = None) -> PluginHookResponse:
-        """
-        Convert a PluginHook model to PluginHookResponse.
-
-        Args:
-            hook: PluginHook database model
-            plugin: Optional Plugin for enrichment
-
-        Returns:
-            PluginHookResponse DTO
-        """
-        return PluginHookResponse(
-            id=hook.id,
-            plugin_id=hook.plugin_id,
-            hook_name=hook.hook_name,
-            hook_type=hook.hook_type,
-            handler_path=hook.handler_path,
-            component_path=hook.component_path,
-            position=hook.position,
-            sort_order=hook.sort_order,
-            plugin_name=plugin.name if plugin else None,
-            plugin_version=plugin.version if plugin else None
-        )
-
-    def _setting_to_response(self, setting: PluginSetting) -> PluginSettingResponse:
-        """
-        Convert a PluginSetting model to PluginSettingResponse.
-
-        Args:
-            setting: PluginSetting database model
-
-        Returns:
-            PluginSettingResponse DTO
-        """
-        return PluginSettingResponse(
-            id=setting.id,
-            plugin_id=setting.plugin_id,
-            setting_key=setting.setting_key,
-            setting_value='***' if setting.is_secret else setting.setting_value,
-            user_id=setting.user_id,
-            is_secret=setting.is_secret
-        )
-
     def _notify_plugin_lifecycle(self, level: str, title: str, message: str) -> None:
         """
         Broadcast a system notification for a plugin lifecycle event.
@@ -195,58 +94,6 @@ class PluginManager:
             logger.error(f"Failed to send plugin lifecycle notification: {e}")
 
     # ========== Plugin Operations ==========
-
-    def list_plugins(self) -> List[PluginResponse]:
-        """
-        Get all plugins with their runtime state.
-
-        Returns:
-            List of PluginResponse DTOs
-        """
-        plugins = self.repo.get_all_plugins()
-        return [self._plugin_to_response(plugin) for plugin in plugins]
-
-    def get_plugin(self, plugin_id: str) -> PluginDetailResponse:
-        """
-        Get detailed plugin information.
-
-        Args:
-            plugin_id: Plugin identifier
-
-        Raises:
-            ValueError: If plugin not found
-
-        Returns:
-            PluginDetailResponse with hooks and settings
-        """
-        plugin = self.repo.get_plugin_by_id(plugin_id)
-        if not plugin:
-            raise ValueError(f"Plugin '{plugin_id}' not found")
-
-        base = self._plugin_to_response(plugin)
-
-        # Get hooks
-        hooks = self.repo.get_plugin_hooks(plugin_id)
-        hook_responses = [self._hook_to_response(hook) for hook in hooks]
-
-        # Get settings schema from manifest
-        manifest = self.registry.get_plugin(plugin_id)
-        settings_schema = manifest.settings if manifest and manifest.settings else []
-
-        # Get current settings values
-        settings = self.repo.get_plugin_settings(plugin_id)
-        settings_values = {}
-        for setting in settings:
-            settings_values[setting.setting_key] = (
-                '***' if setting.is_secret else setting.setting_value
-            )
-
-        return PluginDetailResponse(
-            **base.model_dump(),
-            hooks=hook_responses,
-            settings_schema=settings_schema,
-            settings_values=settings_values
-        )
 
     def _rescan_presets_and_pipes(self, reason: str) -> None:
         """Refresh presets + pipes + recipes after a plugin enable/disable/delete.
@@ -349,7 +196,7 @@ class PluginManager:
 
         # Refresh plugin from DB and return
         updated_plugin = self.repo.get_plugin_by_id(plugin_id)
-        return self._plugin_to_response(updated_plugin)
+        return plugin_to_response(updated_plugin, self.registry)
 
     def disable_plugin(self, plugin_id: str) -> PluginResponse:
         """
@@ -394,7 +241,7 @@ class PluginManager:
 
         # Refresh plugin from DB and return
         updated_plugin = self.repo.get_plugin_by_id(plugin_id)
-        return self._plugin_to_response(updated_plugin)
+        return plugin_to_response(updated_plugin, self.registry)
 
     def delete_plugin(self, plugin_id: str) -> str:
         """
@@ -465,7 +312,7 @@ class PluginManager:
                     updated_at=datetime.utcnow()
                 )
                 created_plugin = self.repo.create_plugin(plugin)
-                new_plugins.append(self._plugin_to_response(created_plugin))
+                new_plugins.append(plugin_to_response(created_plugin, self.registry))
 
                 # Register backend hooks in database
                 self._register_plugin_hooks(manifest)
@@ -483,7 +330,7 @@ class PluginManager:
                     db_plugin.updated_at = datetime.utcnow()
 
                     updated_plugin = self.repo.update_plugin(manifest.id, db_plugin)
-                    updated_plugins.append(self._plugin_to_response(updated_plugin))
+                    updated_plugins.append(plugin_to_response(updated_plugin, self.registry))
                     logger.info(f"Updated plugin: {manifest.name} ({manifest.id})")
 
                 # Always refresh hooks for existing plugins
@@ -585,31 +432,6 @@ class PluginManager:
 
     # ========== Settings Operations ==========
 
-    def get_plugin_settings(
-        self,
-        plugin_id: str,
-        user_id: Optional[str] = None
-    ) -> List[PluginSettingResponse]:
-        """
-        Get all settings for a plugin.
-
-        Args:
-            plugin_id: Plugin identifier
-            user_id: Optional user ID for user-specific settings
-
-        Raises:
-            ValueError: If plugin not found
-
-        Returns:
-            List of PluginSettingResponse DTOs
-        """
-        plugin = self.repo.get_plugin_by_id(plugin_id)
-        if not plugin:
-            raise ValueError(f"Plugin '{plugin_id}' not found")
-
-        settings = self.repo.get_plugin_settings(plugin_id, user_id)
-        return [self._setting_to_response(setting) for setting in settings]
-
     def _secret_setting_keys(self, plugin_id: str) -> Optional[set]:
         """Setting names the plugin's manifest marks `is_secret`.
 
@@ -702,7 +524,7 @@ class PluginManager:
                 scope_user_id=user_id,
                 is_secret=is_secret,
             )
-            updated_settings.append(self._setting_to_response(setting))
+            updated_settings.append(setting_to_response(setting))
 
         logger.info(f"Updated {len(updated_settings)} settings for plugin {plugin_id}")
 
@@ -739,53 +561,6 @@ class PluginManager:
                 )
                 promoted += 1
         return promoted
-
-    # ========== Plugin Pages ==========
-
-    def get_active_pages(self) -> List[PluginPageResponse]:
-        """
-        Get pages from enabled plugins.
-
-        Returns:
-            List of PluginPageResponse DTOs sorted by sidebar_order
-        """
-        pages = self.repo.get_all_active_pages()
-        return [
-            PluginPageResponse(
-                plugin_id=page.plugin_id,
-                route=page.route,
-                component_path=page.component_path,
-                label=page.label,
-                icon_svg=page.icon_svg,
-                sidebar_order=page.sidebar_order,
-                show_in_sidebar=page.show_in_sidebar,
-                require_role=getattr(page, 'require_role', None)
-            )
-            for page in pages
-        ]
-
-    def get_sidebar_items(self) -> List[PluginPageResponse]:
-        """
-        Get sidebar entries from enabled plugins (filtered by show_in_sidebar).
-
-        Returns:
-            List of PluginPageResponse DTOs for sidebar display
-        """
-        pages = self.repo.get_all_active_pages()
-        return [
-            PluginPageResponse(
-                plugin_id=page.plugin_id,
-                route=page.route,
-                component_path=page.component_path,
-                label=page.label,
-                icon_svg=page.icon_svg,
-                sidebar_order=page.sidebar_order,
-                show_in_sidebar=page.show_in_sidebar,
-                require_role=getattr(page, 'require_role', None)
-            )
-            for page in pages
-            if page.show_in_sidebar
-        ]
 
     # ========== Quick Actions ==========
 
@@ -905,28 +680,6 @@ class PluginManager:
         return {"renderers": renderers, "contributions": contributions}
 
     # ========== Frontend Hooks ==========
-
-    def get_grouped_frontend_hooks(self) -> Dict[str, List[PluginHookResponse]]:
-        """
-        Get all frontend hooks grouped by hook name.
-
-        Returns:
-            Dictionary mapping hook names to lists of PluginHookResponse
-        """
-        hooks = self.repo.get_hooks_by_type("frontend")
-
-        grouped_hooks: Dict[str, List[PluginHookResponse]] = {}
-        for hook in hooks:
-            # Get plugin info for enrichment
-            plugin = self.repo.get_plugin_by_id(hook.plugin_id)
-            hook_response = self._hook_to_response(hook, plugin)
-
-            if hook.hook_name not in grouped_hooks:
-                grouped_hooks[hook.hook_name] = []
-
-            grouped_hooks[hook.hook_name].append(hook_response)
-
-        return grouped_hooks
 
     def get_hooks_catalog(self) -> List[Dict[str, Any]]:
         """

@@ -8,11 +8,9 @@ from datetime import datetime
 from src.features.plugins.manager import PluginManager
 from src.features.plugins.dto import (
     PluginResponse,
-    PluginDetailResponse,
-    PluginHookResponse,
-    PluginSettingResponse,
     PluginScanResult,
 )
+from src.features.plugins.mappers import plugin_to_response
 from src.features.plugins.records import Plugin, PluginSetting, PluginHook
 from src.platform.plugins.registry import PluginState
 from src.platform.plugins.loader import PluginManifest
@@ -108,191 +106,6 @@ def sample_plugin_hook():
         position="center",
         sort_order=0
     )
-
-
-# ========== _plugin_to_response catalogue enrichment Tests ==========
-
-def test_plugin_to_response_enriches_from_manifest(manager, mock_plugin_registry, sample_plugin):
-    """Test that _plugin_to_response pulls category/tags/capabilities/counts from the manifest"""
-    # Arrange
-    manifest = PluginManifest(
-        id="test-plugin-1",
-        name="Test Plugin",
-        version="1.0.0",
-        description="A test plugin",
-        author="Test Author",
-        plugin_type="full-stack",
-        category="media",
-        tags=["editing", "video"],
-        capabilities=["image-enhancement"],
-        source="marketplace",
-        homepage="https://example.com",
-        repository="https://github.com/example/test-plugin",
-        hooks={"pre_generation": "hooks/pre_generation.py"},
-        frontend_hooks=[{"hook_name": "workbench.image_modal"}],
-        settings=[{"name": "api_key", "type": "string"}, {"name": "timeout", "type": "int"}],
-        manifest_path=Path("/content/plugins/marketplace/test-plugin/manifest.yml"),
-        plugin_dir=Path("/content/plugins/marketplace/test-plugin"),
-    )
-    mock_plugin_registry.get_plugin.return_value = manifest
-    mock_plugin_registry.get_plugin_state.return_value = None
-    mock_plugin_registry.get_plugin_error.return_value = None
-
-    # Act
-    result = manager._plugin_to_response(sample_plugin)
-
-    # Assert
-    assert result.category == "media"
-    assert result.tags == ["editing", "video"]
-    assert result.capabilities == ["image-enhancement"]
-    assert result.source == "marketplace"
-    assert result.homepage == "https://example.com"
-    assert result.repository == "https://github.com/example/test-plugin"
-    assert result.hook_count == 2  # 1 backend hook + 1 frontend hook
-    assert result.settings_count == 2
-
-
-def test_plugin_to_response_falls_back_to_defaults_without_manifest(manager, mock_plugin_registry, sample_plugin):
-    """Test that _plugin_to_response falls back to safe defaults when the registry has no manifest"""
-    # Arrange - registry.get_plugin() returns None (manifest not loaded / errored)
-    mock_plugin_registry.get_plugin.return_value = None
-    mock_plugin_registry.get_plugin_state.return_value = None
-    mock_plugin_registry.get_plugin_error.return_value = None
-
-    # Act
-    result = manager._plugin_to_response(sample_plugin)
-
-    # Assert
-    assert result.category == "other"
-    assert result.tags == []
-    assert result.capabilities == []
-    assert result.source == "local"
-    assert result.homepage is None
-    assert result.repository is None
-    assert result.hook_count == 0
-    assert result.settings_count == 0
-
-
-# ========== list_plugins Tests ==========
-
-def test_list_plugins_enriches_with_registry_state(manager, mock_plugin_repo, mock_plugin_registry, sample_plugin):
-    """Test that list_plugins enriches plugins with registry state"""
-    # Arrange
-    mock_plugin_repo.get_all_plugins.return_value = [sample_plugin]
-    mock_plugin_registry.get_plugin_state.return_value = PluginState.ENABLED
-    mock_plugin_registry.get_plugin_error.return_value = None
-
-    # Act
-    result = manager.list_plugins()
-
-    # Assert
-    assert len(result) == 1
-    assert isinstance(result[0], PluginResponse)
-    assert result[0].id == "test-plugin-1"
-    assert result[0].state == "enabled"
-    assert result[0].error is None
-    mock_plugin_registry.get_plugin_state.assert_called_once_with("test-plugin-1")
-
-
-def test_list_plugins_with_error_state(manager, mock_plugin_repo, mock_plugin_registry, sample_plugin):
-    """Test list_plugins when plugin is in error state"""
-    # Arrange
-    mock_plugin_repo.get_all_plugins.return_value = [sample_plugin]
-    mock_plugin_registry.get_plugin_state.return_value = PluginState.ERROR
-    mock_plugin_registry.get_plugin_error.return_value = "Failed to load hook handler"
-
-    # Act
-    result = manager.list_plugins()
-
-    # Assert
-    assert len(result) == 1
-    assert result[0].state == "error"
-    assert result[0].error == "Failed to load hook handler"
-
-
-def test_list_plugins_empty(manager, mock_plugin_repo):
-    """Test list_plugins with no plugins"""
-    # Arrange
-    mock_plugin_repo.get_all_plugins.return_value = []
-
-    # Act
-    result = manager.list_plugins()
-
-    # Assert
-    assert result == []
-
-
-# ========== get_plugin Tests ==========
-
-def test_get_plugin_success(manager, mock_plugin_repo, mock_plugin_registry, sample_plugin, sample_plugin_hook):
-    """Test getting a plugin by ID successfully"""
-    # Arrange
-    mock_plugin_repo.get_plugin_by_id.return_value = sample_plugin
-    mock_plugin_registry.get_plugin_state.return_value = PluginState.ENABLED
-    mock_plugin_registry.get_plugin_error.return_value = None
-    mock_plugin_repo.get_plugin_hooks.return_value = [sample_plugin_hook]
-    mock_plugin_repo.get_plugin_settings.return_value = []
-
-    mock_manifest = MagicMock()
-    mock_manifest.settings = [{"name": "api_key", "type": "string"}]
-    mock_manifest.category = "developer"
-    mock_manifest.tags = ["example"]
-    mock_manifest.capabilities = ["image-enhancement"]
-    mock_manifest.source = "local"
-    mock_manifest.homepage = None
-    mock_manifest.repository = None
-    mock_manifest.hooks = {"pre_generation": "hooks/pre_generation.py"}
-    mock_manifest.frontend_hooks = []
-    mock_plugin_registry.get_plugin.return_value = mock_manifest
-
-    # Act
-    result = manager.get_plugin("test-plugin-1")
-
-    # Assert
-    assert isinstance(result, PluginDetailResponse)
-    assert result.id == "test-plugin-1"
-    assert result.state == "enabled"
-    assert len(result.hooks) == 1
-    assert len(result.settings_schema) == 1
-    mock_plugin_repo.get_plugin_by_id.assert_called_once_with("test-plugin-1")
-
-
-def test_get_plugin_not_found_raises(manager, mock_plugin_repo):
-    """Test that get_plugin raises ValueError when plugin not found"""
-    # Arrange
-    mock_plugin_repo.get_plugin_by_id.return_value = None
-
-    # Act & Assert
-    with pytest.raises(ValueError) as exc_info:
-        manager.get_plugin("non-existent")
-
-    assert "not found" in str(exc_info.value).lower()
-
-
-def test_get_plugin_masks_secret_settings(manager, mock_plugin_repo, mock_plugin_registry, sample_plugin):
-    """Test that secret settings are masked in response"""
-    # Arrange
-    mock_plugin_repo.get_plugin_by_id.return_value = sample_plugin
-    mock_plugin_registry.get_plugin_state.return_value = PluginState.ENABLED
-    mock_plugin_registry.get_plugin_error.return_value = None
-    mock_plugin_repo.get_plugin_hooks.return_value = []
-
-    secret_setting = PluginSetting(
-        id=1,
-        plugin_id="test-plugin-1",
-        setting_key="api_key",
-        setting_value="secret-value",
-        user_id=None,
-        is_secret=True
-    )
-    mock_plugin_repo.get_plugin_settings.return_value = [secret_setting]
-    mock_plugin_registry.get_plugin.return_value = None
-
-    # Act
-    result = manager.get_plugin("test-plugin-1")
-
-    # Assert
-    assert result.settings_values["api_key"] == "***"
 
 
 # ========== enable_plugin Tests ==========
@@ -664,54 +477,6 @@ def test_scan_plugins_refreshes_hooks(manager, mock_plugin_repo, mock_plugin_reg
 
 # ========== Settings Tests ==========
 
-def test_get_plugin_settings_success(manager, mock_plugin_repo, sample_plugin, sample_plugin_setting):
-    """Test getting plugin settings successfully"""
-    # Arrange
-    mock_plugin_repo.get_plugin_by_id.return_value = sample_plugin
-    mock_plugin_repo.get_plugin_settings.return_value = [sample_plugin_setting]
-
-    # Act
-    result = manager.get_plugin_settings("test-plugin-1", user_id=None)
-
-    # Assert
-    assert len(result) == 1
-    assert isinstance(result[0], PluginSettingResponse)
-    assert result[0].setting_key == "max_iterations"
-
-
-def test_get_plugin_settings_masks_secrets(manager, mock_plugin_repo, sample_plugin):
-    """Test that get_plugin_settings masks secret values"""
-    # Arrange
-    mock_plugin_repo.get_plugin_by_id.return_value = sample_plugin
-    secret_setting = PluginSetting(
-        id=1,
-        plugin_id="test-plugin-1",
-        setting_key="api_key",
-        setting_value="secret-value",
-        user_id=None,
-        is_secret=True
-    )
-    mock_plugin_repo.get_plugin_settings.return_value = [secret_setting]
-
-    # Act
-    result = manager.get_plugin_settings("test-plugin-1")
-
-    # Assert
-    assert result[0].setting_value == "***"
-
-
-def test_get_plugin_settings_not_found_raises(manager, mock_plugin_repo):
-    """Test that get_plugin_settings raises ValueError when plugin not found"""
-    # Arrange
-    mock_plugin_repo.get_plugin_by_id.return_value = None
-
-    # Act & Assert
-    with pytest.raises(ValueError) as exc_info:
-        manager.get_plugin_settings("non-existent")
-
-    assert "not found" in str(exc_info.value).lower()
-
-
 def test_update_settings_serializes_complex_types(
     manager, mock_plugin_repo, mock_plugin_registry, sample_plugin, sample_plugin_setting
 ):
@@ -753,84 +518,6 @@ def test_update_settings_not_found_raises(manager, mock_plugin_repo):
         manager.update_plugin_settings("non-existent", {"key": "value"})
 
     assert "not found" in str(exc_info.value).lower()
-
-
-# ========== Frontend Hooks Tests ==========
-
-def test_get_grouped_frontend_hooks(manager, mock_plugin_repo, sample_plugin, sample_plugin_hook):
-    """Test getting frontend hooks grouped by hook name"""
-    # Arrange
-    hook1 = sample_plugin_hook
-    hook2 = PluginHook(
-        id=2,
-        plugin_id="test-plugin-2",
-        hook_name="workbench.image_modal",
-        hook_type="frontend",
-        handler_path=None,
-        component_path="/plugins/test-plugin-2/AnotherModal.svelte",
-        position="bottom",
-        sort_order=1
-    )
-    hook3 = PluginHook(
-        id=3,
-        plugin_id="test-plugin-1",
-        hook_name="generation.panel",
-        hook_type="frontend",
-        handler_path=None,
-        component_path="/plugins/test-plugin/Panel.svelte",
-        position="left",
-        sort_order=0
-    )
-
-    mock_plugin_repo.get_hooks_by_type.return_value = [hook1, hook2, hook3]
-
-    plugin2 = Plugin(
-        id="test-plugin-2",
-        name="Another Plugin",
-        version="2.0.0",
-        type="full-stack",
-        enabled=True,
-        manifest_path="/content/plugins/local/test-plugin-2/manifest.yml"
-    )
-    mock_plugin_repo.get_plugin_by_id.side_effect = [sample_plugin, plugin2, sample_plugin]
-
-    # Act
-    result = manager.get_grouped_frontend_hooks()
-
-    # Assert
-    assert "workbench.image_modal" in result
-    assert "generation.panel" in result
-    assert len(result["workbench.image_modal"]) == 2
-    assert len(result["generation.panel"]) == 1
-    assert all(isinstance(h, PluginHookResponse) for h in result["workbench.image_modal"])
-
-
-def test_get_grouped_frontend_hooks_empty(manager, mock_plugin_repo):
-    """Test getting frontend hooks when none exist"""
-    # Arrange
-    mock_plugin_repo.get_hooks_by_type.return_value = []
-
-    # Act
-    result = manager.get_grouped_frontend_hooks()
-
-    # Assert
-    assert result == {}
-
-
-def test_get_grouped_frontend_hooks_enriches_plugin_info(manager, mock_plugin_repo, sample_plugin, sample_plugin_hook):
-    """Test that frontend hooks are enriched with plugin info"""
-    # Arrange
-    mock_plugin_repo.get_hooks_by_type.return_value = [sample_plugin_hook]
-    mock_plugin_repo.get_plugin_by_id.return_value = sample_plugin
-
-    # Act
-    result = manager.get_grouped_frontend_hooks()
-
-    # Assert
-    hooks = result["workbench.image_modal"]
-    assert len(hooks) == 1
-    assert hooks[0].plugin_name == "Test Plugin"
-    assert hooks[0].plugin_version == "1.0.0"
 
 
 def test_get_frontend_extensions_from_enabled_plugin(manager, mock_plugin_repo, mock_plugin_registry, sample_plugin):
@@ -1143,7 +830,9 @@ class TestScanPluginsWithInvalidManifest(PersistenceTestBase):
         new_ids = {p.id for p in result.new_plugins}
         assert new_ids == {"valid-plugin", "broken-plugin"}
 
-        responses = {p.id: p for p in self.manager.list_plugins()}
+        responses = {
+            p.id: plugin_to_response(p, self.registry) for p in self.repo.get_all_plugins()
+        }
         assert responses["valid-plugin"].state == "discovered"
         assert responses["valid-plugin"].error is None
 

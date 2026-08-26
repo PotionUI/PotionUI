@@ -11,6 +11,8 @@ from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user
 from src.features.workspaces.dto import SaveWorkspaceRequest, UpdateWorkspaceRequest
 from src.features.workspaces import WorkspaceManager
+from src.features.workspaces.mappers import workspace_to_response
+from src.features.workspaces.repository import WorkspaceRepository
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
@@ -19,15 +21,18 @@ if TYPE_CHECKING:
 class WorkspaceController(BaseController):
     """Controller for managing user workspaces."""
 
-    def __init__(self, workspace_manager: WorkspaceManager):
+    def __init__(self, workspace_manager: WorkspaceManager, workspace_repository: WorkspaceRepository):
         super().__init__()
         self.manager = workspace_manager
+        self.repository = workspace_repository
 
     async def get_workspaces(self, user_id: str) -> APIResponse:
         """Get all workspaces for the current user."""
         try:
-            workspaces = self.manager.get_workspaces(user_id)
-            return self.success_response(data=[w.model_dump() for w in workspaces])
+            workspaces = self.repository.get_by_user(user_id)
+            return self.success_response(
+                data=[workspace_to_response(w).model_dump() for w in workspaces]
+            )
         except Exception as e:
             return self.error_api_response(
                 error="get_workspaces_failed",
@@ -37,8 +42,15 @@ class WorkspaceController(BaseController):
     async def get_workspace_by_id(self, workspace_id: str, user_id: str) -> APIResponse:
         """Get a specific workspace by ID."""
         try:
-            workspace = self.manager.get_workspace_by_id(workspace_id, user_id)
-            return self.success_response(data=workspace.model_dump())
+            workspace = self.repository.get_by_id(workspace_id)
+
+            if not workspace:
+                raise ValueError("Workspace not found")
+
+            if workspace.user_id != user_id:
+                raise ValueError("Access denied to this workspace")
+
+            return self.success_response(data=workspace_to_response(workspace).model_dump())
         except ValueError as e:
             error_msg = str(e)
             if "not found" in error_msg.lower():

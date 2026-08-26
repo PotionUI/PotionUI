@@ -16,6 +16,7 @@ from src.features.workspaces.dto import (
     UpdateWorkspaceRequest,
     WorkspaceResponse,
 )
+from src.features.workspaces.records import Workspace
 
 
 # ---------------------------------------------------------------------------
@@ -39,6 +40,18 @@ def _make_workspace_response(
     )
 
 
+def _make_workspace(workspace_id='ws-1', user_id='user-1', name='Test WS', data=None):
+    """Build a Workspace database record."""
+    return Workspace(
+        id=workspace_id,
+        user_id=user_id,
+        name=name,
+        data=data or {'tabs': []},
+        created_at=datetime(2024, 1, 1, 12, 0, 0),
+        updated_at=datetime(2024, 6, 1, 12, 0, 0),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Test class
 # ---------------------------------------------------------------------------
@@ -52,18 +65,23 @@ class TestWorkspaceController:
         return Mock()
 
     @pytest.fixture
-    def controller(self, mock_manager):
-        """WorkspaceController with mocked manager."""
-        return WorkspaceController(workspace_manager=mock_manager)
+    def mock_repository(self):
+        """Mock WorkspaceRepository."""
+        return Mock()
 
-    # ========== get_workspaces ==========
+    @pytest.fixture
+    def controller(self, mock_manager, mock_repository):
+        """WorkspaceController with mocked manager and repository."""
+        return WorkspaceController(workspace_manager=mock_manager, workspace_repository=mock_repository)
+
+    # ========== get_workspaces (repository-backed pure read) ==========
 
     @pytest.mark.asyncio
-    async def test_get_workspaces_success(self, controller, mock_manager):
+    async def test_get_workspaces_success(self, controller, mock_repository):
         """Returns success response with list of workspace dicts."""
-        ws1 = _make_workspace_response('ws-1', name='Alpha')
-        ws2 = _make_workspace_response('ws-2', name='Beta')
-        mock_manager.get_workspaces.return_value = [ws1, ws2]
+        ws1 = _make_workspace('ws-1', name='Alpha')
+        ws2 = _make_workspace('ws-2', name='Beta')
+        mock_repository.get_by_user.return_value = [ws1, ws2]
 
         result = await controller.get_workspaces('user-1')
 
@@ -74,12 +92,12 @@ class TestWorkspaceController:
         ids = [item['id'] for item in result.data]
         assert 'ws-1' in ids
         assert 'ws-2' in ids
-        mock_manager.get_workspaces.assert_called_once_with('user-1')
+        mock_repository.get_by_user.assert_called_once_with('user-1')
 
     @pytest.mark.asyncio
-    async def test_get_workspaces_empty(self, controller, mock_manager):
+    async def test_get_workspaces_empty(self, controller, mock_repository):
         """Returns success with empty list when user has no workspaces."""
-        mock_manager.get_workspaces.return_value = []
+        mock_repository.get_by_user.return_value = []
 
         result = await controller.get_workspaces('user-1')
 
@@ -87,9 +105,9 @@ class TestWorkspaceController:
         assert result.data == []
 
     @pytest.mark.asyncio
-    async def test_get_workspaces_error(self, controller, mock_manager):
+    async def test_get_workspaces_error(self, controller, mock_repository):
         """Returns error APIResponse on exception."""
-        mock_manager.get_workspaces.side_effect = Exception("DB failure")
+        mock_repository.get_by_user.side_effect = Exception("DB failure")
 
         result = await controller.get_workspaces('user-1')
 
@@ -97,25 +115,25 @@ class TestWorkspaceController:
         assert result.error == 'get_workspaces_failed'
         assert 'DB failure' in result.message
 
-    # ========== get_workspace_by_id ==========
+    # ========== get_workspace_by_id (repository-backed pure read) ==========
 
     @pytest.mark.asyncio
-    async def test_get_workspace_by_id_success(self, controller, mock_manager):
+    async def test_get_workspace_by_id_success(self, controller, mock_repository):
         """Returns success with workspace dict for the correct owner."""
-        ws = _make_workspace_response('ws-1', name='My WS')
-        mock_manager.get_workspace_by_id.return_value = ws
+        ws = _make_workspace('ws-1', user_id='user-1', name='My WS')
+        mock_repository.get_by_id.return_value = ws
 
         result = await controller.get_workspace_by_id('ws-1', 'user-1')
 
         assert result.success is True
         assert result.data['id'] == 'ws-1'
         assert result.data['name'] == 'My WS'
-        mock_manager.get_workspace_by_id.assert_called_once_with('ws-1', 'user-1')
+        mock_repository.get_by_id.assert_called_once_with('ws-1')
 
     @pytest.mark.asyncio
-    async def test_get_workspace_by_id_not_found(self, controller, mock_manager):
-        """Returns workspace_not_found error when manager raises 'not found'."""
-        mock_manager.get_workspace_by_id.side_effect = ValueError("Workspace not found")
+    async def test_get_workspace_by_id_not_found(self, controller, mock_repository):
+        """Returns workspace_not_found error when the workspace does not exist."""
+        mock_repository.get_by_id.return_value = None
 
         result = await controller.get_workspace_by_id('ws-missing', 'user-1')
 
@@ -123,9 +141,10 @@ class TestWorkspaceController:
         assert result.error == 'workspace_not_found'
 
     @pytest.mark.asyncio
-    async def test_get_workspace_by_id_access_denied(self, controller, mock_manager):
-        """Returns workspace_access_denied error when manager raises 'access denied'."""
-        mock_manager.get_workspace_by_id.side_effect = ValueError("Access denied to this workspace")
+    async def test_get_workspace_by_id_access_denied(self, controller, mock_repository):
+        """Returns workspace_access_denied error when owned by a different user."""
+        ws = _make_workspace('ws-1', user_id='owner-user')
+        mock_repository.get_by_id.return_value = ws
 
         result = await controller.get_workspace_by_id('ws-1', 'attacker')
 
@@ -133,9 +152,9 @@ class TestWorkspaceController:
         assert result.error == 'workspace_access_denied'
 
     @pytest.mark.asyncio
-    async def test_get_workspace_by_id_generic_error(self, controller, mock_manager):
+    async def test_get_workspace_by_id_generic_error(self, controller, mock_repository):
         """Returns get_workspace_failed for unexpected exceptions."""
-        mock_manager.get_workspace_by_id.side_effect = Exception("Unexpected error")
+        mock_repository.get_by_id.side_effect = Exception("Unexpected error")
 
         result = await controller.get_workspace_by_id('ws-1', 'user-1')
 

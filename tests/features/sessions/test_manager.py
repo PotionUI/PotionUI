@@ -4,6 +4,7 @@ from unittest.mock import Mock
 from datetime import datetime
 
 from src.features.sessions.manager import SessionManager
+from src.features.sessions.routes import SessionController
 from src.features.sessions.dto import (
     Session,
     SaveSessionRequest,
@@ -11,8 +12,12 @@ from src.features.sessions.dto import (
 )
 
 
-class TestSessionManagerRead:
-    """Tests for SessionManager read operations."""
+class TestSessionControllerRead:
+    """Tests for the sessions feature's read operations.
+
+    get_sessions_for_preset/get_session_by_id are pure DB reads and live on
+    SessionController (repository-backed), not on SessionManager.
+    """
 
     @pytest.fixture
     def mock_session_repo(self):
@@ -20,21 +25,11 @@ class TestSessionManagerRead:
         return Mock()
 
     @pytest.fixture
-    def mock_plugin_registry(self):
-        """Mock plugin registry with execute_hook method."""
-        registry = Mock()
-        # Default hook execution: no blocking
-        context = Mock()
-        context.data = {}
-        registry.execute_hook.return_value = (context, [])
-        return registry
-
-    @pytest.fixture
-    def manager(self, mock_session_repo, mock_plugin_registry):
-        """Create manager with mocked dependencies."""
-        return SessionManager(
+    def controller(self, mock_session_repo):
+        """Create controller with a mocked repository (manager unused for reads)."""
+        return SessionController(
+            session_manager=Mock(),
             session_repository=mock_session_repo,
-            plugin_registry=mock_plugin_registry
         )
 
     @pytest.fixture
@@ -50,50 +45,59 @@ class TestSessionManagerRead:
             updated_at=datetime.now()
         )
 
-    def test_get_sessions_for_preset_success(self, manager, mock_session_repo, sample_session):
+    @pytest.mark.asyncio
+    async def test_get_sessions_for_preset_success(self, controller, mock_session_repo, sample_session):
         """Test getting all sessions for a preset."""
         mock_session_repo.get_by_user_and_preset.return_value = [sample_session]
 
-        result = manager.get_sessions_for_preset("user-123", "preset-456")
+        response = await controller.get_sessions_for_preset("user-123", "preset-456")
 
-        assert len(result) == 1
-        assert result[0]["id"] == "session-123"
-        assert result[0]["name"] == "Test Session"
-        assert "user_id" not in result[0]  # Should not include user_id
+        assert len(response.data) == 1
+        assert response.data[0]["id"] == "session-123"
+        assert response.data[0]["name"] == "Test Session"
+        assert "user_id" not in response.data[0]  # Should not include user_id
         mock_session_repo.get_by_user_and_preset.assert_called_once_with("user-123", "preset-456")
 
-    def test_get_sessions_for_preset_empty(self, manager, mock_session_repo):
+    @pytest.mark.asyncio
+    async def test_get_sessions_for_preset_empty(self, controller, mock_session_repo):
         """Test getting sessions when none exist."""
         mock_session_repo.get_by_user_and_preset.return_value = []
 
-        result = manager.get_sessions_for_preset("user-123", "preset-456")
+        response = await controller.get_sessions_for_preset("user-123", "preset-456")
 
-        assert len(result) == 0
+        assert len(response.data) == 0
 
-    def test_get_session_by_id_success(self, manager, mock_session_repo, sample_session):
+    @pytest.mark.asyncio
+    async def test_get_session_by_id_success(self, controller, mock_session_repo, sample_session):
         """Test getting a session by ID."""
         mock_session_repo.get_by_id.return_value = sample_session
 
-        result = manager.get_session_by_id("user-123", "session-123")
+        response = await controller.get_session_by_id("user-123", "session-123")
 
-        assert result["id"] == "session-123"
-        assert result["name"] == "Test Session"
-        assert "user_id" not in result
+        assert response.data["id"] == "session-123"
+        assert response.data["name"] == "Test Session"
+        assert "user_id" not in response.data
         mock_session_repo.get_by_id.assert_called_once_with("session-123")
 
-    def test_get_session_by_id_not_found(self, manager, mock_session_repo):
+    @pytest.mark.asyncio
+    async def test_get_session_by_id_not_found(self, controller, mock_session_repo):
         """Test getting a non-existent session."""
         mock_session_repo.get_by_id.return_value = None
 
-        with pytest.raises(ValueError, match="Session not found"):
-            manager.get_session_by_id("user-123", "nonexistent")
+        response = await controller.get_session_by_id("user-123", "nonexistent")
 
-    def test_get_session_by_id_access_denied(self, manager, mock_session_repo, sample_session):
+        assert response.success is False
+        assert response.error == "session_not_found"
+
+    @pytest.mark.asyncio
+    async def test_get_session_by_id_access_denied(self, controller, mock_session_repo, sample_session):
         """Test getting a session owned by another user."""
         mock_session_repo.get_by_id.return_value = sample_session
 
-        with pytest.raises(ValueError, match="Access denied"):
-            manager.get_session_by_id("other-user", "session-123")
+        response = await controller.get_session_by_id("other-user", "session-123")
+
+        assert response.success is False
+        assert response.error == "session_access_denied"
 
 
 class TestSessionManagerCreate:

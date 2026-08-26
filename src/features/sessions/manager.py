@@ -5,7 +5,7 @@ Handles all business logic for user sessions (saved preset configurations).
 Framework-agnostic - uses ValueError for errors (controller converts to HTTP responses).
 """
 import logging
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple
 
 
 from src.platform.util.ids import generate_ulid
@@ -14,6 +14,7 @@ from src.features.sessions.dto import (
     SaveSessionRequest,
     UpdateSessionRequest,
 )
+from src.features.sessions.mappers import session_to_response_dict
 from src.features.sessions.repository import SessionRepository
 from src.features.sessions.version_repository import SessionVersionRepository
 from src.platform.plugins import PluginRegistry
@@ -129,134 +130,6 @@ class SessionManager:
             # actual session save.
             logger.exception(f"Failed to record session version for session {session.id}")
 
-    def list_session_versions(self, user_id: str, session_id: str) -> List[Dict[str, Any]]:
-        """
-        List a session's version history, newest first (no payloads).
-
-        Args:
-            user_id: The user's ID (for ownership check)
-            session_id: The session's ID
-
-        Returns:
-            List of {version_number, created_at, summary} dicts, newest first.
-
-        Raises:
-            ValueError: "Session not found" for both a missing session and one
-                owned by another user — the house 404-not-403 idiom, so the
-                response can't be used to probe which session ids exist.
-        """
-        session = self.repository.get_by_id(session_id)
-        if not session or session.user_id != user_id:
-            raise ValueError("Session not found")
-
-        if not self.version_repository:
-            return []
-
-        versions = self.version_repository.list_for_session(session_id)
-        return [
-            {
-                "version_number": v.version_number,
-                "created_at": v.created_at.isoformat() if v.created_at else None,
-                "summary": v.summary,
-            }
-            for v in versions
-        ]
-
-    def get_session_version(self, user_id: str, session_id: str, version_number: int) -> Dict[str, Any]:
-        """
-        Get a single version's full payload.
-
-        Args:
-            user_id: The user's ID (for ownership check)
-            session_id: The session's ID
-            version_number: The version to fetch
-
-        Returns:
-            {version_number, created_at, summary, data} dict.
-
-        Raises:
-            ValueError: "Session not found" (missing/not owned) or
-                "Version not found" (owned session, unknown version_number) —
-                both 404s at the controller.
-        """
-        session = self.repository.get_by_id(session_id)
-        if not session or session.user_id != user_id:
-            raise ValueError("Session not found")
-
-        if not self.version_repository:
-            raise ValueError("Version not found")
-
-        version = self.version_repository.get(session_id, version_number)
-        if not version:
-            raise ValueError("Version not found")
-
-        return {
-            "version_number": version.version_number,
-            "created_at": version.created_at.isoformat() if version.created_at else None,
-            "summary": version.summary,
-            "data": version.data,
-        }
-
-    def _session_to_response_dict(self, session: Session) -> Dict[str, Any]:
-        """
-        Convert session to response dictionary (excludes user_id for security).
-
-        Args:
-            session: Session DTO
-
-        Returns:
-            Dictionary with session data (without user_id)
-        """
-        return {
-            'id': session.id,
-            'preset_id': session.preset_id,
-            'name': session.name,
-            'data': session.data,
-            'created_at': session.created_at.isoformat() if session.created_at else None,
-            'updated_at': session.updated_at.isoformat() if session.updated_at else None
-        }
-
-    # ========== Read Operations ==========
-
-    def get_sessions_for_preset(self, user_id: str, preset_id: str) -> List[Dict[str, Any]]:
-        """
-        Get all sessions for a user and preset.
-
-        Args:
-            user_id: The user's ID
-            preset_id: The preset's ID
-
-        Returns:
-            List of session dictionaries (without user_id)
-        """
-        sessions = self.repository.get_by_user_and_preset(user_id, preset_id)
-        return [self._session_to_response_dict(session) for session in sessions]
-
-    def get_session_by_id(self, user_id: str, session_id: str) -> Dict[str, Any]:
-        """
-        Get a specific session by ID with ownership validation.
-
-        Args:
-            user_id: The user's ID (for ownership check)
-            session_id: The session's ID
-
-        Returns:
-            Session dictionary (without user_id)
-
-        Raises:
-            ValueError: If session not found or access denied
-        """
-        session = self.repository.get_by_id(session_id)
-
-        if not session:
-            raise ValueError("Session not found")
-
-        # Check ownership
-        if session.user_id != user_id:
-            raise ValueError("Access denied to this session")
-
-        return self._session_to_response_dict(session)
-
     # ========== Create/Update Operations ==========
 
     def save_session(
@@ -361,7 +234,7 @@ class SessionManager:
         self._record_version(created_session)
 
         logger.info(f"Session created: {created_session.name} (id: {created_session.id})")
-        return self._session_to_response_dict(created_session), f"Session '{request.name}' saved successfully"
+        return session_to_response_dict(created_session), f"Session '{request.name}' saved successfully"
 
     def _update_existing_session(
         self,
@@ -436,7 +309,7 @@ class SessionManager:
         self._record_version(result)
 
         logger.info(f"Session updated: {result.name} (id: {result.id})")
-        return self._session_to_response_dict(result), f"Session '{result.name}' updated successfully"
+        return session_to_response_dict(result), f"Session '{result.name}' updated successfully"
 
     def update_session(
         self,
@@ -531,7 +404,7 @@ class SessionManager:
         self._record_version(result)
 
         logger.info(f"Session updated: {result.name} (id: {result.id})")
-        return self._session_to_response_dict(result)
+        return session_to_response_dict(result)
 
     # ========== Delete Operations ==========
 

@@ -20,6 +20,7 @@ import src.features.sessions.repository as session_repository_module
 import src.features.sessions.version_repository as version_repository_module
 from src.features.sessions.dto import Session as SessionDTO, SaveSessionRequest, UpdateSessionRequest
 from src.features.sessions.manager import SessionManager
+from src.features.sessions.routes import SessionController
 from src.features.sessions.repository import SessionRepository
 from src.features.sessions.version_repository import (
     SESSION_VERSION_RETENTION_LIMIT,
@@ -216,6 +217,18 @@ class TestSessionManagerVersionHistory:
             file_preset_repository=mock_file_preset_repository,
         ), version_repo
 
+    @pytest.fixture
+    def controller(self, repos, manager):
+        """list_session_versions/get_session_version are pure DB reads and
+        live on SessionController (repository-backed), not on SessionManager."""
+        session_repo, version_repo = repos
+        mgr, _ = manager
+        return SessionController(
+            session_manager=mgr,
+            session_repository=session_repo,
+            session_version_repository=version_repo,
+        )
+
     def test_save_new_session_creates_version_one(self, manager):
         mgr, version_repo = manager
         request = SaveSessionRequest(preset_id="preset-1", name="S", data={"prompt": "a"})
@@ -283,54 +296,79 @@ class TestSessionManagerVersionHistory:
         versions = version_repo.list_for_session(result["id"])
         assert [v.version_number for v in versions] == [2, 1]
 
-    def test_list_session_versions_shape_has_no_payload(self, manager):
+    @pytest.mark.asyncio
+    async def test_list_session_versions_shape_has_no_payload(self, manager, controller):
         mgr, _ = manager
         request = SaveSessionRequest(preset_id="preset-1", name="S", data={"prompt": "a"})
         result, _ = mgr.save_session("user-1", request)
 
-        versions = mgr.list_session_versions("user-1", result["id"])
+        response = await controller.list_session_versions("user-1", result["id"])
 
-        assert len(versions) == 1
-        assert set(versions[0].keys()) == {"version_number", "created_at", "summary"}
+        assert len(response.data) == 1
+        assert set(response.data[0].keys()) == {"version_number", "created_at", "summary"}
 
-    def test_get_session_version_shape_has_payload(self, manager):
+    @pytest.mark.asyncio
+    async def test_get_session_version_shape_has_payload(self, manager, controller):
         mgr, _ = manager
         request = SaveSessionRequest(preset_id="preset-1", name="S", data={"prompt": "a"})
         result, _ = mgr.save_session("user-1", request)
 
-        version = mgr.get_session_version("user-1", result["id"], 1)
+        response = await controller.get_session_version("user-1", result["id"], 1)
 
-        assert version["data"] == {"prompt": "a"}
-        assert set(version.keys()) == {"version_number", "created_at", "summary", "data"}
+        assert response.data["data"] == {"prompt": "a"}
+        assert set(response.data.keys()) == {"version_number", "created_at", "summary", "data"}
 
-    def test_list_session_versions_owner_gating_is_404_style(self, manager):
+    @pytest.mark.asyncio
+    async def test_list_session_versions_owner_gating_is_404_style(self, manager, controller):
+        from fastapi import HTTPException
+
         mgr, _ = manager
         request = SaveSessionRequest(preset_id="preset-1", name="S", data={"prompt": "a"})
         result, _ = mgr.save_session("user-1", request)
 
-        with pytest.raises(ValueError, match="Session not found"):
-            mgr.list_session_versions("user-2", result["id"])
+        with pytest.raises(HTTPException) as exc_info:
+            await controller.list_session_versions("user-2", result["id"])
 
-    def test_get_session_version_owner_gating_is_404_style(self, manager):
+        assert exc_info.value.status_code == 404
+        assert exc_info.value.detail["error"] == "session_not_found"
+
+    @pytest.mark.asyncio
+    async def test_get_session_version_owner_gating_is_404_style(self, manager, controller):
+        from fastapi import HTTPException
+
         mgr, _ = manager
         request = SaveSessionRequest(preset_id="preset-1", name="S", data={"prompt": "a"})
         result, _ = mgr.save_session("user-1", request)
 
-        with pytest.raises(ValueError, match="Session not found"):
-            mgr.get_session_version("user-2", result["id"], 1)
+        with pytest.raises(HTTPException) as exc_info:
+            await controller.get_session_version("user-2", result["id"], 1)
 
-    def test_get_session_version_unknown_number_raises(self, manager):
+        assert exc_info.value.status_code == 404
+        assert exc_info.value.detail["error"] == "session_not_found"
+
+    @pytest.mark.asyncio
+    async def test_get_session_version_unknown_number_raises(self, manager, controller):
+        from fastapi import HTTPException
+
         mgr, _ = manager
         request = SaveSessionRequest(preset_id="preset-1", name="S", data={"prompt": "a"})
         result, _ = mgr.save_session("user-1", request)
 
-        with pytest.raises(ValueError, match="Version not found"):
-            mgr.get_session_version("user-1", result["id"], 999)
+        with pytest.raises(HTTPException) as exc_info:
+            await controller.get_session_version("user-1", result["id"], 999)
 
-    def test_list_session_versions_missing_session_raises(self, manager):
-        mgr, _ = manager
-        with pytest.raises(ValueError, match="Session not found"):
-            mgr.list_session_versions("user-1", "does-not-exist")
+        assert exc_info.value.status_code == 404
+        assert exc_info.value.detail["error"] == "session_version_not_found"
+
+    @pytest.mark.asyncio
+    async def test_list_session_versions_missing_session_raises(self, controller):
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            await controller.list_session_versions("user-1", "does-not-exist")
+
+        assert exc_info.value.status_code == 404
+        assert exc_info.value.detail["error"] == "session_not_found"
 
 
 class TestSessionManagerWithoutVersionRepository:
@@ -357,10 +395,14 @@ class TestSessionManagerWithoutVersionRepository:
         assert result["name"] == "S"
         assert "saved successfully" in message
 
-    def test_list_session_versions_without_repository_returns_empty(self, repos, mock_plugin_registry):
+    @pytest.mark.asyncio
+    async def test_list_session_versions_without_repository_returns_empty(self, repos, mock_plugin_registry):
         session_repo, _version_repo = repos
         mgr = SessionManager(session_repository=session_repo, plugin_registry=mock_plugin_registry)
+        controller = SessionController(session_manager=mgr, session_repository=session_repo)
         request = SaveSessionRequest(preset_id="preset-1", name="S", data={"prompt": "a"})
         result, _ = mgr.save_session("user-1", request)
 
-        assert mgr.list_session_versions("user-1", result["id"]) == []
+        response = await controller.list_session_versions("user-1", result["id"])
+
+        assert response.data == []

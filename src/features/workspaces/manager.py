@@ -5,7 +5,6 @@ Handles all business logic for user workspaces (saved tab layout configurations)
 Framework-agnostic - uses ValueError for errors (controller converts to HTTP responses).
 """
 import logging
-from typing import Dict, Any, List, Optional
 
 
 from src.platform.util.ids import generate_ulid
@@ -14,6 +13,7 @@ from src.features.workspaces.dto import (
     UpdateWorkspaceRequest,
     WorkspaceResponse,
 )
+from src.features.workspaces.mappers import workspace_to_response
 from src.features.workspaces.records import Workspace
 from src.features.workspaces.repository import WorkspaceRepository
 from src.platform.plugins import PluginRegistry
@@ -36,63 +36,6 @@ class WorkspaceManager:
     ):
         self.repository = workspace_repository
         self.plugins = plugin_registry
-
-    def _workspace_to_response(self, workspace: Workspace) -> WorkspaceResponse:
-        """
-        Convert workspace model to response DTO (excludes user_id for security).
-
-        Args:
-            workspace: Workspace model
-
-        Returns:
-            WorkspaceResponse DTO
-        """
-        return WorkspaceResponse(
-            id=workspace.id,
-            name=workspace.name,
-            data=workspace.data,
-            created_at=workspace.created_at.isoformat() if workspace.created_at else None,
-            updated_at=workspace.updated_at.isoformat() if workspace.updated_at else None
-        )
-
-    # ========== Read Operations ==========
-
-    def get_workspaces(self, user_id: str) -> List[WorkspaceResponse]:
-        """
-        Get all workspaces for a user.
-
-        Args:
-            user_id: The user's ID
-
-        Returns:
-            List of WorkspaceResponse DTOs
-        """
-        workspaces = self.repository.get_by_user(user_id)
-        return [self._workspace_to_response(w) for w in workspaces]
-
-    def get_workspace_by_id(self, workspace_id: str, user_id: str) -> WorkspaceResponse:
-        """
-        Get a specific workspace by ID with ownership validation.
-
-        Args:
-            workspace_id: The workspace's ID
-            user_id: The user's ID (for ownership check)
-
-        Returns:
-            WorkspaceResponse DTO
-
-        Raises:
-            ValueError: If workspace not found or access denied
-        """
-        workspace = self.repository.get_by_id(workspace_id)
-
-        if not workspace:
-            raise ValueError("Workspace not found")
-
-        if workspace.user_id != user_id:
-            raise ValueError("Access denied to this workspace")
-
-        return self._workspace_to_response(workspace)
 
     # ========== Create/Update Operations ==========
 
@@ -121,7 +64,7 @@ class WorkspaceManager:
         created_workspace = self.repository.create(workspace)
 
         logger.info(f"Workspace created: {created_workspace.name} (id: {created_workspace.id})")
-        return self._workspace_to_response(created_workspace)
+        return workspace_to_response(created_workspace)
 
     def update_workspace(
         self,
@@ -166,7 +109,7 @@ class WorkspaceManager:
         result = self.repository.update(updated_workspace)
 
         logger.info(f"Workspace updated: {result.name} (id: {result.id})")
-        return self._workspace_to_response(result)
+        return workspace_to_response(result)
 
     # ========== Delete Operations ==========
 

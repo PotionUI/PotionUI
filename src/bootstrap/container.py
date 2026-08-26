@@ -732,7 +732,7 @@ def build_container() -> AppContainer:
         recipe_catalog=recipe_catalog,
     )
     from src.features.plugins.routes import PluginController
-    plugin_controller = PluginController(plugin_manager, plugin_repository)
+    plugin_controller = PluginController(plugin_manager, plugin_repository, plugin_registry)
 
     # Initialize LLM controller
     from src.features.llm.routes import LLMController
@@ -1398,7 +1398,11 @@ def build_container() -> AppContainer:
         session_version_repository=session_version_repository,
         file_preset_repository=file_preset_repository,
     )
-    session_controller = SessionController(session_manager)
+    session_controller = SessionController(
+        session_manager,
+        session_repository=session_repository,
+        session_version_repository=session_version_repository,
+    )
 
     # Workspace components
     from src.features.workspaces.repository import WorkspaceRepository
@@ -1410,7 +1414,7 @@ def build_container() -> AppContainer:
         workspace_repository=workspace_repository,
         plugin_registry=plugin_registry
     )
-    workspace_controller = WorkspaceController(workspace_manager)
+    workspace_controller = WorkspaceController(workspace_manager, workspace_repository=workspace_repository)
 
     # User group components
     from src.features.user_groups.repository import UserGroupRepository

@@ -30,8 +30,21 @@ PASS_PROMPT_EMBED = "prompt_embed"
 
 MAX_ATTEMPTS = 3
 
+# Sentinel outcome (batch path) / exception (per-item path) for a non-IMAGE
+# file whose thumbnail hasn't been written yet: video thumbnails are produced
+# by a background thread that can still be running when the file is enqueued
+# at generation-complete, so `_resolve_source_path` finds nothing yet. This is
+# routed through the same `mark_failed` attempts/give-up gate as a real
+# failure (so a thumbnail that never shows up can't wedge the queue forever),
+# but logged quietly since it is the expected common case, not an error.
+_SOURCE_NOT_READY = "source not ready yet (thumbnail pending)"
+
 SEMANTIC_TOP_K = 100
 RELATIVE_CUTOFF = 0.1
+
+
+class _SourceNotReadyError(Exception):
+    """Raised by `_process_tags_item` for the `_SOURCE_NOT_READY` case."""
 
 
 class MediaIndexManager:
@@ -181,6 +194,13 @@ class MediaIndexManager:
                 if error is None:
                     self.repository.mark_done(item.id)
                     processed += 1
+                elif error == _SOURCE_NOT_READY:
+                    logger.debug(
+                        "media_index: %s pass deferred for file %s (%s)",
+                        pass_type, item.file_id, error,
+                    )
+                    self.repository.mark_failed(item.id, error, MAX_ATTEMPTS)
+                    failed += 1
                 else:
                     logger.error(
                         "media_index: %s pass failed for file %s: %s",
@@ -197,6 +217,13 @@ class MediaIndexManager:
                 processor(item)
                 self.repository.mark_done(item.id)
                 processed += 1
+            except _SourceNotReadyError:
+                logger.debug(
+                    "media_index: %s pass deferred for file %s (%s)",
+                    pass_type, item.file_id, _SOURCE_NOT_READY,
+                )
+                self.repository.mark_failed(item.id, _SOURCE_NOT_READY, MAX_ATTEMPTS)
+                failed += 1
             except Exception as exc:
                 logger.exception(
                     "media_index: %s pass failed for file %s", pass_type, item.file_id
@@ -226,6 +253,10 @@ class MediaIndexManager:
     def _process_tags_item(self, item: MediaIndexQueueItem) -> None:
         source = self._resolve_source_path(item)
         if source is None:
+            if item.file_type != "IMAGE":
+                # Thumbnail not written yet - retry later rather than
+                # finalizing a row that will never get its tags.
+                raise _SourceNotReadyError(item.file_id)
             logger.debug(
                 "media_index: no taggable source for file %s (%s), skipping",
                 item.file_id,
@@ -269,6 +300,11 @@ class MediaIndexManager:
         for item in items:
             source = self._resolve_source_path(item)
             if source is None:
+                if item.file_type != "IMAGE":
+                    # Thumbnail not written yet - retry later rather than
+                    # finalizing a row that will never get embedded.
+                    outcomes[item.id] = _SOURCE_NOT_READY
+                    continue
                 logger.debug(
                     "media_index: no embeddable source for file %s (%s), skipping",
                     item.file_id,

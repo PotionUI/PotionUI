@@ -232,15 +232,75 @@ class TestProcessPending(ManagerTestBase):
         assert manager.process_pending(PASS_TAGS, batch_size=10)["processed"] == 1
         assert self.tagger.calls == ["/storage/thumbs/v1.jpg"]
 
-    def test_video_without_thumbnail_is_skipped_but_done(self):
+    def test_video_without_thumbnail_stays_pending_for_retry(self):
+        """The background thumbnail thread (`video_handler.py`) can still be
+        running when the file gets enqueued at generation-complete - the row
+        must stay pending so a later drain (once the thumbnail lands) retries
+        it, rather than being finalized with zero tags forever."""
         self._make_file("v1", file_type="VIDEO", thumbnail=None)
         self.repo.enqueue_files(["v1"], PASS_TAGS)
         manager = self._manager()
 
-        assert manager.process_pending(PASS_TAGS, batch_size=10)["processed"] == 1
+        result = manager.process_pending(PASS_TAGS, batch_size=10)
+
+        assert result == {"processed": 0, "failed": 1}
         assert self.tagger.calls == []
-        assert self._queue_row("v1")["status"] == "done"
+        row = self._queue_row("v1")
+        assert row["status"] == "pending"
+        assert row["attempts"] == 1
         assert self.repo.get_for_files(["v1"]) == {}
+
+    def test_video_thumbnail_landing_before_retry_gets_tagged(self):
+        """Once the background thumbnail thread has written the path, the
+        next drain finds it and tags normally."""
+        self._make_file("v1", file_type="VIDEO", thumbnail=None)
+        self.repo.enqueue_files(["v1"], PASS_TAGS)
+        manager = self._manager()
+
+        manager.process_pending(PASS_TAGS, batch_size=10)
+        with self.db.get_cursor() as cursor:
+            cursor.execute(
+                "UPDATE files SET thumbnail_medium = ? WHERE id = ?",
+                ("thumbs/v1.jpg", "v1"),
+            )
+
+        result = manager.process_pending(PASS_TAGS, batch_size=10)
+
+        assert result == {"processed": 1, "failed": 0}
+        assert self.tagger.calls == ["/storage/thumbs/v1.jpg"]
+        assert self._queue_row("v1")["status"] == "done"
+
+    def test_video_without_thumbnail_eventually_gives_up(self):
+        """If the thumbnail never shows up, the row must not retry forever -
+        it flips to `failed` once attempts exhaust, same as any other
+        permanent failure."""
+        self._make_file("v1", file_type="VIDEO", thumbnail=None)
+        self.repo.enqueue_files(["v1"], PASS_TAGS)
+        manager = self._manager()
+
+        for _ in range(MAX_ATTEMPTS):
+            assert manager.process_pending(PASS_TAGS, batch_size=10)["failed"] == 1
+
+        row = self._queue_row("v1")
+        assert row["status"] == "failed"
+        assert row["attempts"] == MAX_ATTEMPTS
+        assert manager.process_pending(PASS_TAGS, batch_size=10) == {"processed": 0, "failed": 0}
+
+    def test_image_with_missing_source_is_still_skipped_but_done(self):
+        """Only non-IMAGE files get the thumbnail-race retry - an IMAGE row
+        with no `file_path` isn't a timing race (images get their path
+        synchronously before the row exists) and must keep the old
+        skip-permanently behavior, or a genuinely path-less image would wedge
+        the queue retrying forever."""
+        self._make_file("i1", file_type="IMAGE")
+        with self.db.get_cursor() as cursor:
+            cursor.execute("UPDATE files SET file_path = '' WHERE id = ?", ("i1",))
+        self.repo.enqueue_files(["i1"], PASS_TAGS)
+        manager = self._manager()
+
+        assert manager.process_pending(PASS_TAGS, batch_size=10) == {"processed": 1, "failed": 0}
+        assert self.tagger.calls == []
+        assert self._queue_row("i1")["status"] == "done"
 
     def test_unknown_pass_type_raises(self):
         manager = self._manager()
@@ -405,13 +465,38 @@ class TestClipEmbedPass(ClipDrainTestBase):
         assert row["status"] == "failed"
         assert "no space" in row["last_error"]
 
-    def test_video_without_thumbnail_is_skipped_but_done(self):
+    def test_video_without_thumbnail_stays_pending_for_retry(self):
+        """Same thumbnail race as the tags pass (see
+        `test_video_without_thumbnail_stays_pending_for_retry` there) -
+        `_process_clip_batch` has the identical hole."""
         self._make_file("v1", file_type="VIDEO", thumbnail=None)
         self.repo.enqueue_files(["v1"], PASS_CLIP_EMBED)
         manager = self._clip_manager()
 
-        assert manager.process_pending(PASS_CLIP_EMBED, batch_size=10)["processed"] == 1
+        result = manager.process_pending(PASS_CLIP_EMBED, batch_size=10)
+
+        assert result == {"processed": 0, "failed": 1}
         assert self.embedder.image_calls == []
+        row = self._queue_row("v1", PASS_CLIP_EMBED)
+        assert row["status"] == "pending"
+        assert row["attempts"] == 1
+
+    def test_video_thumbnail_landing_before_retry_gets_embedded(self):
+        self._make_file("v1", file_type="VIDEO", thumbnail=None)
+        self._write_image("thumbs/v1.jpg")
+        self.repo.enqueue_files(["v1"], PASS_CLIP_EMBED)
+        manager = self._clip_manager()
+
+        manager.process_pending(PASS_CLIP_EMBED, batch_size=10)
+        with self.db.get_cursor() as cursor:
+            cursor.execute(
+                "UPDATE files SET thumbnail_medium = ? WHERE id = ?",
+                ("thumbs/v1.jpg", "v1"),
+            )
+
+        result = manager.process_pending(PASS_CLIP_EMBED, batch_size=10)
+
+        assert result == {"processed": 1, "failed": 0}
         assert self._queue_row("v1", PASS_CLIP_EMBED)["status"] == "done"
 
 

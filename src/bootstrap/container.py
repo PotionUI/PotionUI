@@ -64,14 +64,11 @@ from src.features.models.attributes.repository import AttributeDefinitionReposit
 from src.features.models.attributes.user_repository import UserModelAttributeRepository
 from src.features.models.attributes.manager import ModelAttributeDefinitionsManager
 from src.features.models.attributes.seeding import ensure_builtin_attribute_definitions
-from src.features.llm import LLMManager
 from src.features.models import ModelIndexManager
 from src.features.presets.manager import PresetManager
 from src.features.presets.name_resolver import PresetNameResolver
 from src.features.segments import SegmentManager
 from src.features.system_monitor import SystemMonitorManager
-from src.features.users import UserManager
-from src.features.user_groups import UserGroupManager
 
 from src.features.fields.field_factory import FieldFactory
 from src.platform.filesystem import FileStore
@@ -109,7 +106,6 @@ if TYPE_CHECKING:
     from src.features.notifications.repository import NotificationRepository
     from src.features.notifications import NotificationManager
     from src.features.llm_memory.repository import LLMMemoryRepository
-    from src.features.llm_memory import LLMMemoryManager
     from src.platform.websocket.connection_manager import ConnectionManager
     from src.platform.websocket.download_connection_manager import DownloadConnectionManager
     from src.features.models.repository import ModelRepository
@@ -216,9 +212,7 @@ class AppContainer:
     # LLM
     llm_repository: LLMRepository
     llm_service: LLMGateway
-    llm_manager: LLMManager
     llm_memory_repository: "LLMMemoryRepository"
-    llm_memory_manager: "LLMMemoryManager"
 
     # Plugins
     plugin_repository: PluginRepository
@@ -228,8 +222,7 @@ class AppContainer:
     tool_governance_manager: "ToolGovernanceManager"
     tool_governance_controller: "ToolGovernanceController"
     mcp_token_repository: "McpTokenRepository"
-    mcp_manager: "McpManager"
-    mcp_protocol_manager: "McpProtocolManager"
+    mcp_tool_collaborators: "McpToolCollaborators"
 
     # Auth
     user_repository: UserRepository
@@ -242,7 +235,6 @@ class AppContainer:
     setup_manager: SetupManager
     setup_run_manager: SetupRunManager
     recipe_catalog: RecipeCatalog
-    user_manager: UserManager
     user_controller: "UserController"
 
     # Downloads
@@ -380,7 +372,6 @@ class AppContainer:
 
     # User groups
     user_group_repository: "UserGroupRepository"
-    user_group_manager: UserGroupManager
     user_group_controller: "UserGroupController"
 
     # System monitor controller (built alongside the manager, above)
@@ -620,13 +611,6 @@ def build_container() -> AppContainer:
     from src.features.llm.tools.governance import ToolGovernanceRepository
 
     tool_governance_repository = ToolGovernanceRepository()
-    llm_manager = LLMManager(
-        llm_repository=llm_repository,
-        llm_service=llm_service,
-        settings_manager=settings_manager,
-        plugin_registry=plugin_registry,
-        tool_governance_repository=tool_governance_repository,
-    )
 
     # Initialize auth components
     user_repository = UserRepository()
@@ -723,17 +707,23 @@ def build_container() -> AppContainer:
 
     # Initialize LLM controller
     from src.features.llm.routes import LLMController
-    llm_controller = LLMController(llm_manager, download_manager)
+    llm_controller = LLMController(
+        llm_repository=llm_repository,
+        llm_service=llm_service,
+        settings_manager=settings_manager,
+        plugin_registry=plugin_registry,
+        tool_governance_repository=tool_governance_repository,
+        download_manager=download_manager,
+    )
 
     # Initialize user components
     from src.features.users.routes import UserController
-    user_manager = UserManager(
+    user_controller = UserController(
         user_repository=user_repository,
         password_hasher=password_hasher,
         plugin_registry=plugin_registry,
-        settings_manager=settings_manager
+        settings_manager=settings_manager,
     )
-    user_controller = UserController(user_manager)
 
     # Initialize notification components. The connection manager is the
     # module-level singleton from the platform websocket layer
@@ -757,10 +747,8 @@ def build_container() -> AppContainer:
 
     # Initialize LLM memory components
     from src.features.llm_memory.repository import LLMMemoryRepository
-    from src.features.llm_memory import LLMMemoryManager
 
     llm_memory_repository = LLMMemoryRepository()
-    llm_memory_manager = LLMMemoryManager(repository=llm_memory_repository)
 
     # Initialize the LLM tool executor. The tool/chat-mode/resource
     # registries themselves were created earlier (before the plugin
@@ -1271,7 +1259,7 @@ def build_container() -> AppContainer:
     chat_manager.preset_manager = preset_manager
     chat_manager.prompt_database_manager = prompt_database_manager
     chat_manager.generation_orchestrator = generation_orchestrator
-    chat_manager.llm_memory_manager = llm_memory_manager
+    chat_manager.llm_memory_repository = llm_memory_repository
     chat_manager.media_index_manager = media_index_manager
     chat_manager.tool_governance_repository = tool_governance_repository
     chat_manager.collection_repository = collection_repository
@@ -1295,7 +1283,7 @@ def build_container() -> AppContainer:
         llm_service=llm_service,
         prompt_database_manager=prompt_database_manager,
         model_index_manager=model_index_manager,
-        llm_memory_manager=llm_memory_manager,
+        llm_memory_repository=llm_memory_repository,
         feedback_repository=enhancement_feedback_repository,
         preset_manager=preset_manager,
     )
@@ -1306,17 +1294,11 @@ def build_container() -> AppContainer:
     # collaborator the tool context needs (segment/model/preset/prompt
     # database/generation/memory/media managers) is available — the same
     # ordering constraint chat_manager's late-bound assignments above solve.
-    from src.features.mcp.manager import McpManager
-    from src.features.mcp.protocol import McpProtocolManager
+    from src.features.mcp.protocol import McpToolCollaborators
     from src.features.mcp.repository import McpTokenRepository
 
     mcp_token_repository = McpTokenRepository()
-    mcp_manager = McpManager(
-        token_repository=mcp_token_repository,
-        settings_manager=settings_manager,
-        user_repository=user_repository,
-    )
-    mcp_protocol_manager = McpProtocolManager(
+    mcp_tool_collaborators = McpToolCollaborators(
         tool_registry=tool_registry,
         tool_governance_repository=tool_governance_repository,
         llm_repository=llm_repository,
@@ -1326,7 +1308,7 @@ def build_container() -> AppContainer:
         phrasebook_manager=phrasebook_manager,
         prompt_database_manager=prompt_database_manager,
         generation_orchestrator=generation_orchestrator,
-        llm_memory_manager=llm_memory_manager,
+        llm_memory_repository=llm_memory_repository,
         prompt_enhancement_manager=prompt_enhancement_manager,
         media_index_manager=media_index_manager,
         settings_manager=settings_manager,
@@ -1389,11 +1371,10 @@ def build_container() -> AppContainer:
     from src.features.user_groups.routes import UserGroupController
 
     user_group_repository = UserGroupRepository()
-    user_group_manager = UserGroupManager(
+    user_group_controller = UserGroupController(
         user_group_repository=user_group_repository,
-        plugin_registry=plugin_registry
+        plugin_registry=plugin_registry,
     )
-    user_group_controller = UserGroupController(user_group_manager)
 
     # Assemble the container from the locals built above (field name == local
     # variable name). A missing/misnamed field surfaces immediately here.

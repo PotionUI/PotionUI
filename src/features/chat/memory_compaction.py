@@ -13,7 +13,8 @@ from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.features.llm import trace_collector
-from src.features.llm_memory.manager import MAX_CONTENT_LENGTH
+from src.features.llm_memory import operations as memory_operations
+from src.features.llm_memory.operations import MAX_CONTENT_LENGTH
 from src.features.llm_memory.records import LLMMemoryNote
 
 logger = logging.getLogger(__name__)
@@ -71,7 +72,7 @@ class MemoryCompactor:
             self._compacting_users.discard(user_id)
 
     async def _compact_all_groups(self, user_id: str, session_id: str, llm_config_id: str) -> None:
-        notes = self._m.llm_memory_manager.read_notes(user_id=user_id)
+        notes = memory_operations.read_notes(self._m.llm_memory_repository, user_id=user_id)
         groups: Dict[Tuple[str, Optional[str]], List[LLMMemoryNote]] = defaultdict(list)
         for note in notes:
             groups[(note.scope, note.scope_ref)].append(note)
@@ -124,7 +125,8 @@ class MemoryCompactor:
             if not isinstance(key, str) or not key.strip() or not isinstance(content, str) or not content.strip():
                 continue
             try:
-                note = self._m.llm_memory_manager.write_note(
+                note = memory_operations.write_note(
+                    self._m.llm_memory_repository,
                     user_id=user_id,
                     key=ChatReflectionGenerator._slugify(key),
                     content=content.strip()[:MAX_CONTENT_LENGTH],
@@ -148,7 +150,7 @@ class MemoryCompactor:
         for note in group_notes:
             if note.key in written_keys:
                 continue
-            if self._m.llm_memory_manager.delete_note(user_id, note.id):
+            if memory_operations.delete_note(self._m.llm_memory_repository, user_id, note.id):
                 deleted += 1
 
         logger.info(

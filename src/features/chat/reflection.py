@@ -18,7 +18,8 @@ from src.features.chat.dto import SessionResponse
 from src.features.chat.memory_compaction import MemoryCompactor
 from src.features.llm import trace_collector
 from src.features.llm.tools.builtin.utils import resolve_active_model_id, resolve_active_preset_id
-from src.features.llm_memory.manager import MAX_CONTENT_LENGTH
+from src.features.llm_memory import operations as memory_operations
+from src.features.llm_memory.operations import MAX_CONTENT_LENGTH
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ class ChatReflectionGenerator:
     """Extracts and persists durable memory notes from a session's transcript.
 
     Takes the owning ``ChatManager`` rather than its collaborators directly:
-    ``llm_memory_manager`` is late-bound onto the manager by the composition
+    ``llm_memory_repository`` is late-bound onto the manager by the composition
     root *after* construction (see ``ChatManager``'s docstring), so reading it
     back through ``self._m`` at call time - instead of capturing it in
     ``__init__`` - is what makes that late binding actually take effect here.
@@ -57,7 +58,7 @@ class ChatReflectionGenerator:
 
     def should_reflect(self, session: SessionResponse, messages: List[Any]) -> bool:
         """Whether a reflection pass is due for this session right now."""
-        if not self._m.llm_memory_manager or not session.llm_config_id:
+        if not self._m.llm_memory_repository or not session.llm_config_id:
             return False
         config = self._m.llm_service.repository.get_configuration(session.llm_config_id)
         if not config or not getattr(config, "memory_reflection", False):
@@ -272,7 +273,8 @@ class ChatReflectionGenerator:
                 item.get("scope"), item.get("scope_ref"), active_preset_id, active_model_id,
             )
             try:
-                note = self._m.llm_memory_manager.write_note(
+                note = memory_operations.write_note(
+                    self._m.llm_memory_repository,
                     user_id=user_id,
                     key=self._slugify(key),
                     # Defensive truncation: the prompt asks for shorter notes, but a

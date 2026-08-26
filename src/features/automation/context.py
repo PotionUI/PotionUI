@@ -34,8 +34,8 @@ class AutomationServices:
     backend_registry: Optional[Any] = None
     backend_model_indexer: Optional[Any] = None
     # Backs action.assign_user_to_group: goes straight to the repository, not
-    # UserGroupManager - automation runs have no admin HTTP-context for its
-    # `_require_admin` gate to check.
+    # src.features.user_groups.operations - automation runs have no admin
+    # HTTP-context for its `require_admin` gate to check.
     user_group_repository: Optional[Any] = None
     # Backs action.index_media_queue: drains the media-index queue (system
     # tags + gallery search embeddings).

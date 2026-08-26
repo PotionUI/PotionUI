@@ -4,7 +4,7 @@ only actually calls the LLM once its own gating conditions are met."""
 
 import asyncio
 import pytest
-from unittest.mock import Mock, AsyncMock
+from unittest.mock import Mock, AsyncMock, patch
 
 from src.features.chat.dto import MessageResponse
 from src.features.chat.manager import ChatManager
@@ -55,7 +55,14 @@ class TestReflectionFiresOnSend:
             chat_mode_registry=_mode_registry(),
         )
         # Late-bound the same way the composition root does.
-        self.manager.llm_memory_manager = self.mock_memory
+        self.manager.llm_memory_repository = self.mock_memory
+
+        # `memory_operations` (as imported into reflection.py) is patched to a
+        # Mock so tests can assert on write_note calls without exercising the
+        # real validation logic - covered separately by
+        # tests/features/llm_memory/test_operations.py.
+        self._memory_ops_patcher = patch("src.features.chat.reflection.memory_operations")
+        self.mock_memory_ops = self._memory_ops_patcher.start()
 
         session = Mock()
         session.id = "session-1"
@@ -91,7 +98,10 @@ class TestReflectionFiresOnSend:
 
         saved_note = Mock()
         saved_note.to_dict.return_value = {"key": "k"}
-        self.mock_memory.write_note.return_value = saved_note
+        self.mock_memory_ops.write_note.return_value = saved_note
+
+    def teardown_method(self):
+        self._memory_ops_patcher.stop()
 
     async def _drain_background_tasks(self):
         tasks = list(self.manager._reflection_tasks)
@@ -134,7 +144,8 @@ class TestReflectionFiresOnSend:
         await self.manager.send_message("session-1", "user-1", "hello")
         await self._drain_background_tasks()
 
-        self.mock_memory.write_note.assert_called_once_with(
+        self.mock_memory_ops.write_note.assert_called_once_with(
+            self.mock_memory,
             user_id="user-1", key="k",
             content="prefers moody lighting over bright scenes",
             scope="global", scope_ref=None,
@@ -148,7 +159,7 @@ class TestReflectionFiresOnSend:
         await self.manager.send_message("session-1", "user-1", "hello")
         await self._drain_background_tasks()
 
-        self.mock_memory.write_note.assert_not_called()
+        self.mock_memory_ops.write_note.assert_not_called()
         self.mock_repo.record_memory_reflection.assert_not_called()
 
     @pytest.mark.asyncio
@@ -158,7 +169,7 @@ class TestReflectionFiresOnSend:
         await self.manager.send_message("session-1", "user-1", "hello")
         await self._drain_background_tasks()
 
-        self.mock_memory.write_note.assert_not_called()
+        self.mock_memory_ops.write_note.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_already_reflected_span_does_not_double_reflect(self):
@@ -174,4 +185,4 @@ class TestReflectionFiresOnSend:
         await self.manager.send_message("session-1", "user-1", "hello")
         await self._drain_background_tasks()
 
-        self.mock_memory.write_note.assert_not_called()
+        self.mock_memory_ops.write_note.assert_not_called()

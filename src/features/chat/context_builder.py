@@ -22,6 +22,7 @@ from src.features.chat.modes import ChatMode
 from src.features.chat.reply_contract import REPLY_CONTRACT_REMINDER
 from src.features.llm.tools.governance import ToolGovernanceRepository, compute_allowed_tool_names
 from src.features.llm.ttl_cache import TTLCache
+from src.features.llm_memory import operations as memory_operations
 from src.platform.resources import ResolvedResource, ResourceContext, ResourceSuggestion
 
 logger = logging.getLogger(__name__)
@@ -381,7 +382,7 @@ class ChatContextBuilder:
             "by_scope_dropped": {"global": 0, "preset": 0, "model": 0},
             "injected_chars": 0,
         }
-        if not self._m.llm_memory_manager:
+        if not self._m.llm_memory_repository:
             return empty
         try:
             from src.features.llm.tools.builtin.utils import (
@@ -393,7 +394,7 @@ class ChatContextBuilder:
             by_scope = {"global": 0, "preset": 0, "model": 0}
             note_ids: List[str] = []
 
-            global_notes = self._m.llm_memory_manager.read_notes(user_id=user_id, scope="global")
+            global_notes = memory_operations.read_notes(self._m.llm_memory_repository, user_id=user_id, scope="global")
             if global_notes:
                 groups.append(("global", global_notes))
                 by_scope["global"] = len(global_notes)
@@ -403,8 +404,8 @@ class ChatContextBuilder:
 
             preset_ref = resolve_active_preset_id(form_state)
             if preset_ref:
-                preset_notes = self._m.llm_memory_manager.read_notes(
-                    user_id=user_id, scope="preset", scope_ref=preset_ref,
+                preset_notes = memory_operations.read_notes(
+                    self._m.llm_memory_repository, user_id=user_id, scope="preset", scope_ref=preset_ref,
                 )
                 if preset_notes:
                     groups.append(("this preset", preset_notes))
@@ -413,8 +414,8 @@ class ChatContextBuilder:
 
             model_ref = resolve_active_model_id(form_state, self._m.model_index_manager)
             if model_ref:
-                model_notes = self._m.llm_memory_manager.read_notes(
-                    user_id=user_id, scope="model", scope_ref=model_ref,
+                model_notes = memory_operations.read_notes(
+                    self._m.llm_memory_repository, user_id=user_id, scope="model", scope_ref=model_ref,
                 )
                 if model_notes:
                     groups.append(("this model", model_notes))

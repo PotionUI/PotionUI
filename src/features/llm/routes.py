@@ -1,12 +1,11 @@
 """
 LLM Controller - thin layer for HTTP handling.
 
-This controller delegates all business logic to LLMManager and handles:
-- HTTP request/response serialization
-- Exception mapping to HTTP status codes
-- Response formatting for the API
-
-Business logic is in src/features/llm/manager.py
+Pure reads (configuration list/detail, user/config assignment listings, the
+assignment summary) go straight to `LLMRepository` and the llm `mappers`;
+mutations (create/update/delete/set-default, generation, assign/unassign) go
+through `src.features.llm.operations`. See
+`src/features/plugins/operations/` for the reference shape.
 """
 
 import logging
@@ -22,7 +21,6 @@ from src.features.llm.dto import (
     UserLLMAssignmentRequest,
 )
 from src.features.llm import (
-    LLMManager,
     ConfigurationNotFoundException,
     ConfigurationExistsException,
     ConfigurationCreationFailedException,
@@ -35,26 +33,40 @@ from src.features.llm import (
     AssignmentNotFoundException,
     AssignmentFailedException,
 )
+from src.features.llm import operations
+from src.features.llm.mappers import config_to_response, assignment_config_to_response
+from src.features.llm.repository import LLMRepository
+from src.features.llm.gateway import LLMGateway
+from src.platform.plugins import PluginRegistry
+from src.platform.settings.settings import SettingsManager
 from src.platform.security.user import User, AccountType
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
     from src.features.downloads import DownloadManager
+    from src.features.llm.tools.governance import ToolGovernanceRepository
 
 logger = logging.getLogger(__name__)
 
 
 class LLMController(BaseController):
-    """
-    Controller for LLM operations.
+    """Controller for LLM operations: configuration, generation, assignments."""
 
-    Handles LLM configuration and text generation.
-    Delegates all business logic to LLMManager.
-    """
-
-    def __init__(self, llm_manager: LLMManager, download_manager: Optional["DownloadManager"] = None):
+    def __init__(
+        self,
+        llm_repository: LLMRepository,
+        llm_service: LLMGateway,
+        settings_manager: SettingsManager,
+        plugin_registry: PluginRegistry,
+        tool_governance_repository: Optional["ToolGovernanceRepository"] = None,
+        download_manager: Optional["DownloadManager"] = None,
+    ):
         super().__init__()
-        self.manager = llm_manager
+        self.repository = llm_repository
+        self.llm_service = llm_service
+        self.settings_manager = settings_manager
+        self.plugins = plugin_registry
+        self.tool_governance_repository = tool_governance_repository
         # Optional: only needed for the gemma3 chat-tokenizer on-demand fetch —
         # every other endpoint works without it.
         self.download_manager = download_manager
@@ -66,7 +78,15 @@ class LLMController(BaseController):
     def get_all_configurations(self) -> APIResponse:
         """Get all LLM configurations."""
         try:
-            data = self.manager.get_all_configurations()
+            configs = self.repository.get_all_configurations()
+            default_provider = self.repository.default_provider
+            data = {
+                "configurations": [
+                    config_to_response(config, config_id == default_provider)
+                    for config_id, config in configs.items()
+                ],
+                "default_provider": default_provider,
+            }
             return self.success_response(data=data)
         except Exception as e:
             logger.exception(f"Error getting configurations: {e}")
@@ -126,8 +146,13 @@ class LLMController(BaseController):
     def get_configuration(self, config_id: str) -> APIResponse:
         """Get a specific LLM configuration."""
         try:
-            config = self.manager.get_configuration(config_id)
-            return self.success_response(data=config)
+            config = self.repository.get_configuration(config_id)
+            if not config:
+                raise ConfigurationNotFoundException(
+                    f"LLM configuration '{config_id}' not found"
+                )
+            response = config_to_response(config, config_id == self.repository.default_provider)
+            return self.success_response(data=response)
         except ConfigurationNotFoundException as e:
             return self.error_api_response(
                 error="configuration_not_found",
@@ -143,7 +168,7 @@ class LLMController(BaseController):
     def create_configuration(self, request: LLMConfigRequest) -> APIResponse:
         """Create a new LLM configuration."""
         try:
-            config_id = self.manager.create_configuration(request)
+            config_id = operations.create_configuration(self.repository, self.plugins, request)
             return self.success_response(
                 data={"id": config_id},
                 message=f"LLM configuration '{config_id}' created successfully"
@@ -168,7 +193,7 @@ class LLMController(BaseController):
     def update_configuration(self, config_id: str, request: LLMConfigRequest) -> APIResponse:
         """Update an existing LLM configuration."""
         try:
-            updated_id = self.manager.update_configuration(config_id, request)
+            updated_id = operations.update_configuration(self.repository, self.plugins, config_id, request)
             return self.success_response(
                 data={"id": updated_id},
                 message=f"LLM configuration '{updated_id}' updated successfully"
@@ -193,7 +218,9 @@ class LLMController(BaseController):
     def delete_configuration(self, config_id: str) -> APIResponse:
         """Delete an LLM configuration."""
         try:
-            deleted_id = self.manager.delete_configuration(config_id)
+            deleted_id = operations.delete_configuration(
+                self.repository, self.plugins, self.tool_governance_repository, config_id
+            )
             return self.success_response(
                 data={"id": deleted_id},
                 message=f"LLM configuration '{deleted_id}' deleted successfully"
@@ -223,7 +250,7 @@ class LLMController(BaseController):
     def set_default_provider(self, config_id: str) -> APIResponse:
         """Set the default LLM provider."""
         try:
-            default_id = self.manager.set_default_provider(config_id)
+            default_id = operations.set_default_provider(self.repository, config_id)
             return self.success_response(
                 data={"default_provider": default_id},
                 message=f"Default LLM provider set to '{default_id}'"
@@ -248,7 +275,12 @@ class LLMController(BaseController):
     async def test_configuration(self, config_id: str) -> APIResponse:
         """Test an LLM configuration."""
         try:
-            result = await self.manager.test_configuration(config_id)
+            config = self.repository.get_configuration(config_id)
+            if not config:
+                raise ConfigurationNotFoundException(
+                    f"LLM configuration '{config_id}' not found"
+                )
+            result = await self.llm_service.test_configuration(config)
             if result["success"]:
                 return self.success_response(
                     data=result,
@@ -278,7 +310,9 @@ class LLMController(BaseController):
     async def generate_response(self, request: LLMGenerateRequest, user: User) -> APIResponse:
         """Generate a response using an LLM."""
         try:
-            response = await self.manager.generate_response(request, user.id)
+            response = await operations.generate_response(
+                self.repository, self.llm_service, self.settings_manager, self.plugins, request, user.id
+            )
             return self.success_response(data=response)
         except ConfigurationNotFoundException as e:
             return self.error_api_response(
@@ -314,7 +348,7 @@ class LLMController(BaseController):
     def assign_llm_to_user(self, request: UserLLMAssignmentRequest) -> APIResponse:
         """Assign an LLM configuration to a user."""
         try:
-            result = self.manager.assign_llm_to_user(request.user_id, request.llm_config_id)
+            result = operations.assign_llm_to_user(self.repository, request.user_id, request.llm_config_id)
             return self.success_response(
                 data=result,
                 message="LLM assigned to user successfully"
@@ -339,7 +373,7 @@ class LLMController(BaseController):
     def unassign_llm_from_user(self, user_id: str, llm_config_id: str) -> APIResponse:
         """Remove LLM configuration assignment from a user."""
         try:
-            result = self.manager.unassign_llm_from_user(user_id, llm_config_id)
+            result = operations.unassign_llm_from_user(self.repository, user_id, llm_config_id)
             return self.success_response(
                 data=result,
                 message="LLM assignment removed successfully"
@@ -364,7 +398,12 @@ class LLMController(BaseController):
     def get_user_llm_assignments(self, user_id: str) -> APIResponse:
         """Get all LLM configurations assigned to a user."""
         try:
-            data = self.manager.get_user_llm_assignments(user_id)
+            user_configs = self.repository.get_user_llm_configurations(user_id)
+            llm_configs = [assignment_config_to_response(c) for c in user_configs.values()]
+            data = {
+                "user_id": user_id,
+                "llm_configs": [c.model_dump() for c in llm_configs],
+            }
             return self.success_response(
                 data=data,
                 message=f"Found {len(data.get('llm_configs', []))} LLM configurations for user"
@@ -379,7 +418,22 @@ class LLMController(BaseController):
     def get_all_user_llm_assignments(self) -> APIResponse:
         """Get all user LLM assignments (admin only)."""
         try:
-            data = self.manager.get_all_user_llm_assignments()
+            assignments = self.repository.get_all_user_llm_assignments()
+            all_configs = self.repository.get_all_configurations()
+
+            formatted_assignments = []
+            for user_id, llm_config_ids in assignments.items():
+                user_llm_configs = [
+                    assignment_config_to_response(all_configs[config_id])
+                    for config_id in llm_config_ids
+                    if config_id in all_configs
+                ]
+                formatted_assignments.append({
+                    "user_id": user_id,
+                    "llm_configs": [c.model_dump() for c in user_llm_configs],
+                })
+
+            data = {"assignments": formatted_assignments}
             return self.success_response(
                 data=data,
                 message=f"Found {len(data.get('assignments', []))} user LLM assignments"
@@ -394,7 +448,15 @@ class LLMController(BaseController):
     def get_llm_assignments(self, config_id: str) -> APIResponse:
         """Get the users directly assigned to an LLM configuration (admin only)."""
         try:
-            data = self.manager.get_llm_assignments(config_id)
+            if not self.repository.get_configuration(config_id):
+                raise ConfigurationNotFoundException(
+                    f"LLM configuration '{config_id}' not found"
+                )
+            user_ids = self.repository.get_llm_users(config_id)
+            data = {
+                "llm_config_id": config_id,
+                "assignments": [{"user_id": user_id} for user_id in user_ids],
+            }
             return self.success_response(data=data)
         except ConfigurationNotFoundException as e:
             return self.error_api_response(
@@ -411,7 +473,7 @@ class LLMController(BaseController):
     def get_llm_assignment_summary(self) -> APIResponse:
         """Direct-user and group assignment counts for every LLM configuration (admin only)."""
         try:
-            data = self.manager.get_assignment_summary()
+            data = self.repository.get_llm_assignment_summary()
             return self.success_response(data=data)
         except Exception as e:
             logger.exception(f"Error getting LLM assignment summary: {e}")

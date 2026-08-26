@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional
 from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
 from src.features.llm.tools.builtin.utils import resolve_active_model_id, resolve_active_preset_id
 from src.features.llm.tools.errors import unexpected
+from src.features.llm_memory import operations as memory_operations
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,7 @@ def _resolve_target_note(context: ToolContext, kwargs: Dict[str, Any]):
     note_id = kwargs.get("note_id")
     if note_id:
         try:
-            note = context.llm_memory_manager.get_note(user_id=context.user_id, note_id=note_id)
+            note = memory_operations.get_note(context.llm_memory_repository, user_id=context.user_id, note_id=note_id)
         except Exception as e:
             return None, unexpected("update_memory", "fetch note", e)
         if note is None:
@@ -48,8 +49,8 @@ def _resolve_target_note(context: ToolContext, kwargs: Dict[str, Any]):
 
     scope_ref = _resolve_scope_ref(scope, kwargs.get("scope_ref"), context)
     try:
-        note = context.llm_memory_manager.get_note_by_key(
-            user_id=context.user_id, key=key, scope=scope, scope_ref=scope_ref,
+        note = memory_operations.get_note_by_key(
+            context.llm_memory_repository, user_id=context.user_id, key=key, scope=scope, scope_ref=scope_ref,
         )
     except ValueError as e:
         return None, str(e)
@@ -206,7 +207,7 @@ class WriteMemoryTool(BaseTool):
 
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
         """Persist the memory note immediately."""
-        if not context.llm_memory_manager:
+        if not context.llm_memory_repository:
             return ToolResult(success=False, data="", error="Memory manager not available")
 
         key = kwargs.get("key")
@@ -237,7 +238,8 @@ class WriteMemoryTool(BaseTool):
             )
 
         try:
-            note = context.llm_memory_manager.write_note(
+            note = memory_operations.write_note(
+                context.llm_memory_repository,
                 user_id=context.user_id,
                 key=key,
                 content=content,
@@ -320,7 +322,7 @@ class ReadMemoryTool(BaseTool):
         }
 
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
-        if not context.llm_memory_manager:
+        if not context.llm_memory_repository:
             return ToolResult(success=False, data="", error="Memory manager not available")
 
         scope = kwargs.get("scope", "all")
@@ -331,18 +333,21 @@ class ReadMemoryTool(BaseTool):
 
         try:
             if scope == "all":
-                all_notes = context.llm_memory_manager.read_notes(
+                all_notes = memory_operations.read_notes(
+                    context.llm_memory_repository,
                     user_id=context.user_id,
                     scope="global",
                 )
                 if preset_ref:
-                    all_notes += context.llm_memory_manager.read_notes(
+                    all_notes += memory_operations.read_notes(
+                        context.llm_memory_repository,
                         user_id=context.user_id,
                         scope="preset",
                         scope_ref=preset_ref,
                     )
                 if model_ref:
-                    all_notes += context.llm_memory_manager.read_notes(
+                    all_notes += memory_operations.read_notes(
+                        context.llm_memory_repository,
                         user_id=context.user_id,
                         scope="model",
                         scope_ref=model_ref,
@@ -352,7 +357,7 @@ class ReadMemoryTool(BaseTool):
                 filter_kwargs = {"user_id": context.user_id, "scope": scope}
                 if resolved_ref:
                     filter_kwargs["scope_ref"] = resolved_ref
-                all_notes = context.llm_memory_manager.read_notes(**filter_kwargs)
+                all_notes = memory_operations.read_notes(context.llm_memory_repository, **filter_kwargs)
 
             notes_data = [note.to_dict() for note in all_notes]
 
@@ -416,7 +421,7 @@ class DeleteMemoryTool(BaseTool):
 
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
         """Proposal phase: fetch note and show preview for confirmation."""
-        if not context.llm_memory_manager:
+        if not context.llm_memory_repository:
             return ToolResult(success=False, data="", error="Memory manager not available")
 
         note_id = kwargs.get("note_id")
@@ -424,7 +429,8 @@ class DeleteMemoryTool(BaseTool):
             return ToolResult(success=False, data="", error="note_id is required")
 
         try:
-            note = context.llm_memory_manager.get_note(
+            note = memory_operations.get_note(
+                context.llm_memory_repository,
                 user_id=context.user_id,
                 note_id=note_id,
             )
@@ -458,7 +464,7 @@ class DeleteMemoryTool(BaseTool):
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
         """Mutation phase: permanently delete the note."""
-        if not context.llm_memory_manager:
+        if not context.llm_memory_repository:
             return ToolResult(success=False, data="", error="Memory manager not available")
 
         note_id = kwargs.get("note_id")
@@ -466,7 +472,8 @@ class DeleteMemoryTool(BaseTool):
             return ToolResult(success=False, data="", error="note_id is required")
 
         try:
-            success = context.llm_memory_manager.delete_note(
+            success = memory_operations.delete_note(
+                context.llm_memory_repository,
                 user_id=context.user_id,
                 note_id=note_id,
             )
@@ -576,7 +583,7 @@ class UpdateMemoryTool(BaseTool):
 
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
         """Proposal phase: fetch the note and show an old -> new preview for confirmation."""
-        if not context.llm_memory_manager:
+        if not context.llm_memory_repository:
             return ToolResult(success=False, data="", error="Memory manager not available")
 
         new_key = kwargs.get("new_key")
@@ -621,7 +628,7 @@ class UpdateMemoryTool(BaseTool):
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
         """Mutation phase: apply the confirmed key/content update."""
-        if not context.llm_memory_manager:
+        if not context.llm_memory_repository:
             return ToolResult(success=False, data="", error="Memory manager not available")
 
         note, error = _resolve_target_note(context, kwargs)
@@ -632,7 +639,8 @@ class UpdateMemoryTool(BaseTool):
         new_content = kwargs.get("content") or note.content
 
         try:
-            updated = context.llm_memory_manager.update_note(
+            updated = memory_operations.update_note(
+                context.llm_memory_repository,
                 user_id=context.user_id,
                 note_id=note.id,
                 key=new_key,

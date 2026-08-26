@@ -926,13 +926,21 @@ class TestSuggestResources:
 
 
 class TestMemoryEndpoints:
-    """Tests for the persistent LLM memory CRUD endpoints."""
+    """Tests for the persistent LLM memory CRUD endpoints.
+
+    `memory_operations` (as imported into routes.py) is patched to a Mock, so
+    tests assert on write_note/read_notes/etc. calls without exercising the
+    real validation logic (covered separately by
+    tests/features/llm_memory/test_operations.py).
+    """
 
     @pytest.fixture
-    def controller(self):
+    def controller(self, monkeypatch):
         chat_manager = Mock()
-        chat_manager.llm_memory_manager = Mock()
-        return ChatController(chat_manager=chat_manager, turn_registry=ChatTurnRegistry()), chat_manager.llm_memory_manager
+        chat_manager.llm_memory_repository = Mock()
+        mock_ops = Mock()
+        monkeypatch.setattr("src.features.chat.routes.memory_operations", mock_ops)
+        return ChatController(chat_manager=chat_manager, turn_registry=ChatTurnRegistry()), mock_ops, chat_manager.llm_memory_repository
 
     @pytest.fixture
     def user(self):
@@ -951,17 +959,17 @@ class TestMemoryEndpoints:
         return note
 
     def test_list_memory_notes(self, controller, user):
-        ctrl, memory_manager = controller
+        ctrl, memory_manager, memory_repo = controller
         memory_manager.read_notes.return_value = [self._note()]
 
         result = ctrl.list_memory_notes(user, scope="global", scope_ref=None)
 
         assert result.success is True
         assert result.data["notes"] == [self._note().to_dict.return_value]
-        memory_manager.read_notes.assert_called_once_with("user-1", scope="global", scope_ref=None)
+        memory_manager.read_notes.assert_called_once_with(memory_repo, "user-1", scope="global", scope_ref=None)
 
     def test_list_memory_notes_includes_injection_caps(self, controller, user):
-        ctrl, memory_manager = controller
+        ctrl, memory_manager, memory_repo = controller
         memory_manager.read_notes.return_value = []
 
         result = ctrl.list_memory_notes(user)
@@ -969,7 +977,7 @@ class TestMemoryEndpoints:
         assert result.data["injection"] == {"cap_per_group": 20, "max_content_len": 500}
 
     def test_list_memory_notes_no_manager(self, user):
-        ctrl = ChatController(chat_manager=Mock(llm_memory_manager=None), turn_registry=ChatTurnRegistry())
+        ctrl = ChatController(chat_manager=Mock(llm_memory_repository=None), turn_registry=ChatTurnRegistry())
 
         result = ctrl.list_memory_notes(user)
 
@@ -979,7 +987,7 @@ class TestMemoryEndpoints:
     def test_write_memory_note(self, controller, user):
         from src.features.chat.dto import MemoryWriteRequest
 
-        ctrl, memory_manager = controller
+        ctrl, memory_manager, memory_repo = controller
         memory_manager.write_note.return_value = self._note()
         request = MemoryWriteRequest(key="pref", content="likes cinematic lighting", scope="global")
 
@@ -988,6 +996,7 @@ class TestMemoryEndpoints:
         assert result.success is True
         assert result.data["key"] == "pref"
         memory_manager.write_note.assert_called_once_with(
+            memory_repo,
             user_id="user-1", key="pref", content="likes cinematic lighting",
             scope="global", scope_ref=None,
         )
@@ -995,7 +1004,7 @@ class TestMemoryEndpoints:
     def test_write_memory_note_invalid_scope(self, controller, user):
         from src.features.chat.dto import MemoryWriteRequest
 
-        ctrl, memory_manager = controller
+        ctrl, memory_manager, memory_repo = controller
         memory_manager.write_note.side_effect = ValueError("Invalid scope 'bogus'")
         request = MemoryWriteRequest(key="pref", content="c", scope="bogus")
 
@@ -1007,7 +1016,7 @@ class TestMemoryEndpoints:
     def test_update_memory_note(self, controller, user):
         from src.features.chat.dto import MemoryUpdateRequest
 
-        ctrl, memory_manager = controller
+        ctrl, memory_manager, memory_repo = controller
         memory_manager.update_note.return_value = self._note(key="new_key")
         request = MemoryUpdateRequest(key="new_key", content="updated content")
 
@@ -1015,13 +1024,14 @@ class TestMemoryEndpoints:
 
         assert result.success is True
         memory_manager.update_note.assert_called_once_with(
+            memory_repo,
             user_id="user-1", note_id="note-1", key="new_key", content="updated content",
         )
 
     def test_update_memory_note_content_too_long(self, controller, user):
         from src.features.chat.dto import MemoryUpdateRequest
 
-        ctrl, memory_manager = controller
+        ctrl, memory_manager, memory_repo = controller
         memory_manager.update_note.side_effect = ValueError(
             "Memory content is limited to 500 characters - distill the note"
         )
@@ -1035,7 +1045,7 @@ class TestMemoryEndpoints:
     def test_update_memory_note_not_found(self, controller, user):
         from src.features.chat.dto import MemoryUpdateRequest
 
-        ctrl, memory_manager = controller
+        ctrl, memory_manager, memory_repo = controller
         memory_manager.update_note.return_value = None
         request = MemoryUpdateRequest(key="k", content="c")
 
@@ -1045,16 +1055,16 @@ class TestMemoryEndpoints:
         assert result.error == "note_not_found"
 
     def test_delete_memory_note(self, controller, user):
-        ctrl, memory_manager = controller
+        ctrl, memory_manager, memory_repo = controller
         memory_manager.delete_note.return_value = True
 
         result = ctrl.delete_memory_note("note-1", user)
 
         assert result.success is True
-        memory_manager.delete_note.assert_called_once_with(user_id="user-1", note_id="note-1")
+        memory_manager.delete_note.assert_called_once_with(memory_repo, user_id="user-1", note_id="note-1")
 
     def test_delete_memory_note_not_found(self, controller, user):
-        ctrl, memory_manager = controller
+        ctrl, memory_manager, memory_repo = controller
         memory_manager.delete_note.return_value = False
 
         result = ctrl.delete_memory_note("missing", user)

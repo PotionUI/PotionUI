@@ -1,3 +1,6 @@
-from src.features.users.manager import UserManager
+"""User administration: CRUD, avatars.
 
-__all__ = ["UserManager"]
+`operations` (module-level functions over `UserRepository` + collaborators)
+replaces the former `UserManager` class - see that package's docstring.
+`UserController` (`src.features.users.routes`) is the sole caller.
+"""

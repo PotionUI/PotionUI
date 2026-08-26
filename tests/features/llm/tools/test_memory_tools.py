@@ -14,6 +14,20 @@ from src.features.llm.tools.builtin.memory_tool import (
 from src.features.llm_memory.records import LLMMemoryNote
 
 
+@pytest.fixture
+def mock_ops(monkeypatch):
+    """`memory_operations` (as imported into memory_tool.py) patched to a
+    Mock, so tests assert on write_note/read_notes/etc. calls without
+    exercising the real validation logic - covered separately by
+    tests/features/llm_memory/test_operations.py. `mm` (the ToolContext's
+    `llm_memory_repository`) is passed through as the operations' leading
+    repository argument, so it still identifies which repository a call
+    was made against."""
+    mock = MagicMock()
+    monkeypatch.setattr("src.features.llm.tools.builtin.memory_tool.memory_operations", mock)
+    return mock
+
+
 def make_context(**kwargs) -> ToolContext:
     return ToolContext(user_id="user-test", **kwargs)
 
@@ -58,11 +72,11 @@ class TestWriteMemoryTool:
         assert "remember" in tool.hint.lower()
 
     @pytest.mark.asyncio
-    async def test_execute_persists_immediately(self):
+    async def test_execute_persists_immediately(self, mock_ops):
         note = make_note()
         mm = MagicMock()
-        mm.write_note.return_value = note
-        ctx = make_context(llm_memory_manager=mm)
+        mock_ops.write_note.return_value = note
+        ctx = make_context(llm_memory_repository=mm)
 
         result = await self._tool().execute(ctx, key="pref_style", content="likes anime", scope="global")
 
@@ -73,8 +87,8 @@ class TestWriteMemoryTool:
         assert data["note_id"] == "note-1"
         assert data["scope"] == "global"
         assert "scope_hint" not in data
-        mm.write_note.assert_called_once_with(
-            user_id="user-test",
+        mock_ops.write_note.assert_called_once_with(
+            mm, user_id="user-test",
             key="pref_style",
             content="likes anime",
             scope="global",
@@ -82,25 +96,25 @@ class TestWriteMemoryTool:
         )
 
     @pytest.mark.asyncio
-    async def test_execute_requires_scope(self):
+    async def test_execute_requires_scope(self, mock_ops):
         mm = MagicMock()
-        ctx = make_context(llm_memory_manager=mm)
+        ctx = make_context(llm_memory_repository=mm)
 
         result = await self._tool().execute(ctx, key="pref_style", content="likes anime")
 
         assert result.success is False
         assert "scope is required" in result.error
-        mm.write_note.assert_not_called()
+        mock_ops.write_note.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_execute_global_scope_nudges_when_content_names_active_preset(self):
+    async def test_execute_global_scope_nudges_when_content_names_active_preset(self, mock_ops):
         note = make_note()
         mm = MagicMock()
-        mm.write_note.return_value = note
+        mock_ops.write_note.return_value = note
         preset_manager = MagicMock()
         preset_manager.get_preset.return_value = {"preset": {"id": "preset-1", "name": "Krea-2 Turbo"}}
         ctx = make_context(
-            llm_memory_manager=mm,
+            llm_memory_repository=mm,
             preset_manager=preset_manager,
             session_metadata={"form_state": {"preset": "preset-1", "form_data": {}}},
         )
@@ -116,14 +130,14 @@ class TestWriteMemoryTool:
         assert "scope='preset'" in data["scope_hint"]
 
     @pytest.mark.asyncio
-    async def test_execute_global_scope_no_nudge_for_genuinely_global_note(self):
+    async def test_execute_global_scope_no_nudge_for_genuinely_global_note(self, mock_ops):
         note = make_note()
         mm = MagicMock()
-        mm.write_note.return_value = note
+        mock_ops.write_note.return_value = note
         preset_manager = MagicMock()
         preset_manager.get_preset.return_value = {"preset": {"id": "preset-1", "name": "Krea-2 Turbo"}}
         ctx = make_context(
-            llm_memory_manager=mm,
+            llm_memory_repository=mm,
             preset_manager=preset_manager,
             session_metadata={"form_state": {"preset": "preset-1", "form_data": {}}},
         )
@@ -138,16 +152,16 @@ class TestWriteMemoryTool:
         assert "scope_hint" not in data
 
     @pytest.mark.asyncio
-    async def test_execute_model_scope_auto_resolves(self):
+    async def test_execute_model_scope_auto_resolves(self, mock_ops):
         note = make_note(scope="model", scope_ref="model-1")
         mm = MagicMock()
-        mm.write_note.return_value = note
+        mock_ops.write_note.return_value = note
         mim = MagicMock()
         model = MagicMock()
         model.id = "model-1"
         mim.model_repo.get_by_file_path.return_value = model
         ctx = make_context(
-            llm_memory_manager=mm,
+            llm_memory_repository=mm,
             model_index_manager=mim,
             session_metadata={
                 "form_state": {
@@ -159,8 +173,8 @@ class TestWriteMemoryTool:
         result = await self._tool().execute(ctx, key="quirk", content="low cfg", scope="model")
 
         assert result.success is True
-        mm.write_note.assert_called_once_with(
-            user_id="user-test",
+        mock_ops.write_note.assert_called_once_with(
+            mm, user_id="user-test",
             key="quirk",
             content="low cfg",
             scope="model",
@@ -168,20 +182,20 @@ class TestWriteMemoryTool:
         )
 
     @pytest.mark.asyncio
-    async def test_execute_preset_scope_auto_resolves(self):
+    async def test_execute_preset_scope_auto_resolves(self, mock_ops):
         note = make_note(scope="preset", scope_ref="preset-1")
         mm = MagicMock()
-        mm.write_note.return_value = note
+        mock_ops.write_note.return_value = note
         ctx = make_context(
-            llm_memory_manager=mm,
+            llm_memory_repository=mm,
             session_metadata={"form_state": {"preset": "preset-1", "form_data": {}}},
         )
 
         result = await self._tool().execute(ctx, key="quirk", content="use 30 steps", scope="preset")
 
         assert result.success is True
-        mm.write_note.assert_called_once_with(
-            user_id="user-test",
+        mock_ops.write_note.assert_called_once_with(
+            mm, user_id="user-test",
             key="quirk",
             content="use 30 steps",
             scope="preset",
@@ -189,15 +203,15 @@ class TestWriteMemoryTool:
         )
 
     @pytest.mark.asyncio
-    async def test_execute_model_scope_fails_without_scope_ref(self):
+    async def test_execute_model_scope_fails_without_scope_ref(self, mock_ops):
         mm = MagicMock()
-        ctx = make_context(llm_memory_manager=mm)
+        ctx = make_context(llm_memory_repository=mm)
 
         result = await self._tool().execute(ctx, key="test", content="test", scope="model")
 
         assert result.success is False
         assert "scope_ref is required" in result.error
-        mm.write_note.assert_not_called()
+        mock_ops.write_note.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_execute_no_manager(self):
@@ -209,7 +223,7 @@ class TestWriteMemoryTool:
     @pytest.mark.asyncio
     async def test_execute_missing_key(self):
         mm = MagicMock()
-        ctx = make_context(llm_memory_manager=mm)
+        ctx = make_context(llm_memory_repository=mm)
         result = await self._tool().execute(ctx, content="c")
         assert result.success is False
         assert "key is required" in result.error
@@ -217,16 +231,16 @@ class TestWriteMemoryTool:
     @pytest.mark.asyncio
     async def test_execute_missing_content(self):
         mm = MagicMock()
-        ctx = make_context(llm_memory_manager=mm)
+        ctx = make_context(llm_memory_repository=mm)
         result = await self._tool().execute(ctx, key="k")
         assert result.success is False
         assert "content is required" in result.error
 
     @pytest.mark.asyncio
-    async def test_execute_handles_error(self):
+    async def test_execute_handles_error(self, mock_ops):
         mm = MagicMock()
-        mm.write_note.side_effect = RuntimeError("db error")
-        ctx = make_context(llm_memory_manager=mm)
+        mock_ops.write_note.side_effect = RuntimeError("db error")
+        ctx = make_context(llm_memory_repository=mm)
 
         result = await self._tool().execute(ctx, key="k", content="c", scope="global")
 
@@ -256,12 +270,12 @@ class TestReadMemoryTool:
         assert "memory" in tool.hint.lower()
 
     @pytest.mark.asyncio
-    async def test_execute_returns_all_notes(self):
+    async def test_execute_returns_all_notes(self, mock_ops):
         global_notes = [make_note(id="g1", scope="global")]
         preset_notes = [make_note(id="p1", scope="preset", scope_ref="preset-1")]
         model_notes = [make_note(id="m1", scope="model", scope_ref="model-1")]
         mm = MagicMock()
-        mm.read_notes.side_effect = [global_notes, preset_notes, model_notes]
+        mock_ops.read_notes.side_effect = [global_notes, preset_notes, model_notes]
 
         mim = MagicMock()
         model = MagicMock()
@@ -269,7 +283,7 @@ class TestReadMemoryTool:
         mim.model_repo.get_by_file_path.return_value = model
 
         ctx = make_context(
-            llm_memory_manager=mm,
+            llm_memory_repository=mm,
             model_index_manager=mim,
             session_metadata={
                 "form_state": {
@@ -287,18 +301,19 @@ class TestReadMemoryTool:
         assert data["scope_filter"] == "all"
 
     @pytest.mark.asyncio
-    async def test_execute_global_scope(self):
+    async def test_execute_global_scope(self, mock_ops):
         notes = [make_note(id="g1")]
         mm = MagicMock()
-        mm.read_notes.return_value = notes
-        ctx = make_context(llm_memory_manager=mm)
+        mock_ops.read_notes.return_value = notes
+        ctx = make_context(llm_memory_repository=mm)
 
         result = await self._tool().execute(ctx, scope="global")
 
         assert result.success is True
         data = json.loads(result.data)
         assert data["count"] == 1
-        mm.read_notes.assert_called_once_with(user_id="user-test", scope="global")
+        mock_ops.read_notes.assert_called_once_with(
+            mm, user_id="user-test", scope="global")
 
     @pytest.mark.asyncio
     async def test_execute_no_manager(self):
@@ -308,10 +323,10 @@ class TestReadMemoryTool:
         assert "not available" in result.error
 
     @pytest.mark.asyncio
-    async def test_execute_handles_error(self):
+    async def test_execute_handles_error(self, mock_ops):
         mm = MagicMock()
-        mm.read_notes.side_effect = RuntimeError("db error")
-        ctx = make_context(llm_memory_manager=mm)
+        mock_ops.read_notes.side_effect = RuntimeError("db error")
+        ctx = make_context(llm_memory_repository=mm)
 
         result = await self._tool().execute(ctx, scope="global")
 
@@ -319,12 +334,12 @@ class TestReadMemoryTool:
         assert "db error" in result.error
 
     @pytest.mark.asyncio
-    async def test_execute_all_without_model_or_preset(self):
+    async def test_execute_all_without_model_or_preset(self, mock_ops):
         """scope=all without a preset/model returns only global notes."""
         global_notes = [make_note(id="g1")]
         mm = MagicMock()
-        mm.read_notes.return_value = global_notes
-        ctx = make_context(llm_memory_manager=mm)
+        mock_ops.read_notes.return_value = global_notes
+        ctx = make_context(llm_memory_repository=mm)
 
         result = await self._tool().execute(ctx, scope="all")
 
@@ -332,7 +347,7 @@ class TestReadMemoryTool:
         data = json.loads(result.data)
         assert data["count"] == 1
         # Only one call (global), no preset/model calls since refs are None
-        assert mm.read_notes.call_count == 1
+        assert mock_ops.read_notes.call_count == 1
 
 
 # ---------------------------------------------------------------------------
@@ -357,11 +372,11 @@ class TestDeleteMemoryTool:
         assert "memory" in tool.hint.lower()
 
     @pytest.mark.asyncio
-    async def test_execute_returns_preview(self):
+    async def test_execute_returns_preview(self, mock_ops):
         note = make_note()
         mm = MagicMock()
-        mm.get_note.return_value = note
-        ctx = make_context(llm_memory_manager=mm)
+        mock_ops.get_note.return_value = note
+        ctx = make_context(llm_memory_repository=mm)
 
         result = await self._tool().execute(ctx, note_id="note-1")
 
@@ -372,10 +387,10 @@ class TestDeleteMemoryTool:
         assert data["proposal"]["key"] == "pref_style"
 
     @pytest.mark.asyncio
-    async def test_execute_note_not_found(self):
+    async def test_execute_note_not_found(self, mock_ops):
         mm = MagicMock()
-        mm.get_note.return_value = None
-        ctx = make_context(llm_memory_manager=mm)
+        mock_ops.get_note.return_value = None
+        ctx = make_context(llm_memory_repository=mm)
 
         result = await self._tool().execute(ctx, note_id="missing")
 
@@ -392,16 +407,16 @@ class TestDeleteMemoryTool:
     @pytest.mark.asyncio
     async def test_execute_missing_note_id(self):
         mm = MagicMock()
-        ctx = make_context(llm_memory_manager=mm)
+        ctx = make_context(llm_memory_repository=mm)
         result = await self._tool().execute(ctx)
         assert result.success is False
         assert "note_id is required" in result.error
 
     @pytest.mark.asyncio
-    async def test_execute_confirmed_deletes(self):
+    async def test_execute_confirmed_deletes(self, mock_ops):
         mm = MagicMock()
-        mm.delete_note.return_value = True
-        ctx = make_context(llm_memory_manager=mm)
+        mock_ops.delete_note.return_value = True
+        ctx = make_context(llm_memory_repository=mm)
 
         result = await self._tool().execute_confirmed(ctx, note_id="note-1")
 
@@ -409,13 +424,14 @@ class TestDeleteMemoryTool:
         data = json.loads(result.data)
         assert data["success"] is True
         assert data["note_id"] == "note-1"
-        mm.delete_note.assert_called_once_with(user_id="user-test", note_id="note-1")
+        mock_ops.delete_note.assert_called_once_with(
+            mm, user_id="user-test", note_id="note-1")
 
     @pytest.mark.asyncio
-    async def test_execute_confirmed_not_found(self):
+    async def test_execute_confirmed_not_found(self, mock_ops):
         mm = MagicMock()
-        mm.delete_note.return_value = False
-        ctx = make_context(llm_memory_manager=mm)
+        mock_ops.delete_note.return_value = False
+        ctx = make_context(llm_memory_repository=mm)
 
         result = await self._tool().execute_confirmed(ctx, note_id="missing")
 
@@ -423,10 +439,10 @@ class TestDeleteMemoryTool:
         assert "could not be deleted" in result.error
 
     @pytest.mark.asyncio
-    async def test_execute_confirmed_handles_error(self):
+    async def test_execute_confirmed_handles_error(self, mock_ops):
         mm = MagicMock()
-        mm.delete_note.side_effect = RuntimeError("db error")
-        ctx = make_context(llm_memory_manager=mm)
+        mock_ops.delete_note.side_effect = RuntimeError("db error")
+        ctx = make_context(llm_memory_repository=mm)
 
         result = await self._tool().execute_confirmed(ctx, note_id="note-1")
 
@@ -463,11 +479,11 @@ class TestUpdateMemoryTool:
         assert "key" in tool.hint.lower()
 
     @pytest.mark.asyncio
-    async def test_execute_returns_preview_for_content_change(self):
+    async def test_execute_returns_preview_for_content_change(self, mock_ops):
         note = make_note()
         mm = MagicMock()
-        mm.get_note.return_value = note
-        ctx = make_context(llm_memory_manager=mm)
+        mock_ops.get_note.return_value = note
+        ctx = make_context(llm_memory_repository=mm)
 
         result = await self._tool().execute(ctx, note_id="note-1", content="new content")
 
@@ -481,14 +497,15 @@ class TestUpdateMemoryTool:
         assert isinstance(result.preview, ToolApprovalPreview)
         assert result.preview.action == "Edit memory note"
         assert any("new content" in item for item in result.preview.items)
-        mm.get_note.assert_called_once_with(user_id="user-test", note_id="note-1")
+        mock_ops.get_note.assert_called_once_with(
+            mm, user_id="user-test", note_id="note-1")
 
     @pytest.mark.asyncio
-    async def test_execute_returns_preview_for_key_change(self):
+    async def test_execute_returns_preview_for_key_change(self, mock_ops):
         note = make_note()
         mm = MagicMock()
-        mm.get_note.return_value = note
-        ctx = make_context(llm_memory_manager=mm)
+        mock_ops.get_note.return_value = note
+        ctx = make_context(llm_memory_repository=mm)
 
         result = await self._tool().execute(ctx, note_id="note-1", new_key="renamed_key")
 
@@ -500,10 +517,10 @@ class TestUpdateMemoryTool:
         assert any("renamed_key" in item for item in result.preview.items)
 
     @pytest.mark.asyncio
-    async def test_execute_unknown_note_id(self):
+    async def test_execute_unknown_note_id(self, mock_ops):
         mm = MagicMock()
-        mm.get_note.return_value = None
-        ctx = make_context(llm_memory_manager=mm)
+        mock_ops.get_note.return_value = None
+        ctx = make_context(llm_memory_repository=mm)
 
         result = await self._tool().execute(ctx, note_id="missing", content="new content")
 
@@ -511,54 +528,54 @@ class TestUpdateMemoryTool:
         assert "not found" in result.error
 
     @pytest.mark.asyncio
-    async def test_execute_no_addressing_given(self):
+    async def test_execute_no_addressing_given(self, mock_ops):
         mm = MagicMock()
-        ctx = make_context(llm_memory_manager=mm)
+        ctx = make_context(llm_memory_repository=mm)
         result = await self._tool().execute(ctx, content="new content")
         assert result.success is False
         assert "note_id" in result.error
         assert "scope" in result.error
-        mm.get_note.assert_not_called()
+        mock_ops.get_note.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_execute_resolves_by_scope_and_key(self):
+    async def test_execute_resolves_by_scope_and_key(self, mock_ops):
         note = make_note(id="note-9", scope="global")
         mm = MagicMock()
-        mm.get_note_by_key.return_value = note
-        ctx = make_context(llm_memory_manager=mm)
+        mock_ops.get_note_by_key.return_value = note
+        ctx = make_context(llm_memory_repository=mm)
 
         result = await self._tool().execute(ctx, scope="global", key="pref_style", content="new content")
 
         assert result.success is True
         data = json.loads(result.data)
         assert data["note_id"] == "note-9"
-        mm.get_note_by_key.assert_called_once_with(
-            user_id="user-test", key="pref_style", scope="global", scope_ref=None,
+        mock_ops.get_note_by_key.assert_called_once_with(
+            mm, user_id="user-test", key="pref_style", scope="global", scope_ref=None,
         )
-        mm.get_note.assert_not_called()
+        mock_ops.get_note.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_execute_scope_and_key_auto_resolves_scope_ref(self):
+    async def test_execute_scope_and_key_auto_resolves_scope_ref(self, mock_ops):
         note = make_note(id="note-9", scope="preset", scope_ref="preset-1")
         mm = MagicMock()
-        mm.get_note_by_key.return_value = note
+        mock_ops.get_note_by_key.return_value = note
         ctx = make_context(
-            llm_memory_manager=mm,
+            llm_memory_repository=mm,
             session_metadata={"form_state": {"preset": "preset-1", "form_data": {}}},
         )
 
         result = await self._tool().execute(ctx, scope="preset", key="quirk", content="new content")
 
         assert result.success is True
-        mm.get_note_by_key.assert_called_once_with(
-            user_id="user-test", key="quirk", scope="preset", scope_ref="preset-1",
+        mock_ops.get_note_by_key.assert_called_once_with(
+            mm, user_id="user-test", key="quirk", scope="preset", scope_ref="preset-1",
         )
 
     @pytest.mark.asyncio
-    async def test_execute_scope_and_key_not_found(self):
+    async def test_execute_scope_and_key_not_found(self, mock_ops):
         mm = MagicMock()
-        mm.get_note_by_key.return_value = None
-        ctx = make_context(llm_memory_manager=mm)
+        mock_ops.get_note_by_key.return_value = None
+        ctx = make_context(llm_memory_repository=mm)
 
         result = await self._tool().execute(ctx, scope="global", key="missing_key", content="x")
 
@@ -567,10 +584,10 @@ class TestUpdateMemoryTool:
         assert "global" in result.error
 
     @pytest.mark.asyncio
-    async def test_execute_scope_and_key_invalid_scope_propagates_manager_error(self):
+    async def test_execute_scope_and_key_invalid_scope_propagates_manager_error(self, mock_ops):
         mm = MagicMock()
-        mm.get_note_by_key.side_effect = ValueError("Invalid scope 'bogus'. Must be one of: global, model, preset")
-        ctx = make_context(llm_memory_manager=mm)
+        mock_ops.get_note_by_key.side_effect = ValueError("Invalid scope 'bogus'. Must be one of: global, model, preset")
+        ctx = make_context(llm_memory_repository=mm)
 
         result = await self._tool().execute(ctx, scope="bogus", key="k", content="x")
 
@@ -578,15 +595,15 @@ class TestUpdateMemoryTool:
         assert "Invalid scope" in result.error
 
     @pytest.mark.asyncio
-    async def test_execute_no_changes_given(self):
+    async def test_execute_no_changes_given(self, mock_ops):
         mm = MagicMock()
-        ctx = make_context(llm_memory_manager=mm)
+        ctx = make_context(llm_memory_repository=mm)
 
         result = await self._tool().execute(ctx, note_id="note-1")
 
         assert result.success is False
         assert "at least one" in result.error.lower()
-        mm.get_note.assert_not_called()
+        mock_ops.get_note.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_execute_no_manager(self):
@@ -596,10 +613,10 @@ class TestUpdateMemoryTool:
         assert "not available" in result.error
 
     @pytest.mark.asyncio
-    async def test_execute_fetch_error(self):
+    async def test_execute_fetch_error(self, mock_ops):
         mm = MagicMock()
-        mm.get_note.side_effect = RuntimeError("db error")
-        ctx = make_context(llm_memory_manager=mm)
+        mock_ops.get_note.side_effect = RuntimeError("db error")
+        ctx = make_context(llm_memory_repository=mm)
 
         result = await self._tool().execute(ctx, note_id="note-1", content="x")
 
@@ -607,13 +624,13 @@ class TestUpdateMemoryTool:
         assert "db error" in result.error
 
     @pytest.mark.asyncio
-    async def test_execute_confirmed_updates(self):
+    async def test_execute_confirmed_updates(self, mock_ops):
         note = make_note()
         updated_note = make_note(key="pref_style", content="new content")
         mm = MagicMock()
-        mm.get_note.return_value = note
-        mm.update_note.return_value = updated_note
-        ctx = make_context(llm_memory_manager=mm)
+        mock_ops.get_note.return_value = note
+        mock_ops.update_note.return_value = updated_note
+        ctx = make_context(llm_memory_repository=mm)
 
         result = await self._tool().execute_confirmed(ctx, note_id="note-1", content="new content")
 
@@ -622,40 +639,40 @@ class TestUpdateMemoryTool:
         assert data["action"] == "update_memory"
         assert data["success"] is True
         assert data["note_id"] == "note-1"
-        mm.update_note.assert_called_once_with(
-            user_id="user-test",
+        mock_ops.update_note.assert_called_once_with(
+            mm, user_id="user-test",
             note_id="note-1",
             key="pref_style",
             content="new content",
         )
 
     @pytest.mark.asyncio
-    async def test_execute_confirmed_keeps_unspecified_fields(self):
+    async def test_execute_confirmed_keeps_unspecified_fields(self, mock_ops):
         note = make_note()
         updated_note = make_note(key="renamed_key")
         mm = MagicMock()
-        mm.get_note.return_value = note
-        mm.update_note.return_value = updated_note
-        ctx = make_context(llm_memory_manager=mm)
+        mock_ops.get_note.return_value = note
+        mock_ops.update_note.return_value = updated_note
+        ctx = make_context(llm_memory_repository=mm)
 
         result = await self._tool().execute_confirmed(ctx, note_id="note-1", new_key="renamed_key")
 
         assert result.success is True
-        mm.update_note.assert_called_once_with(
-            user_id="user-test",
+        mock_ops.update_note.assert_called_once_with(
+            mm, user_id="user-test",
             note_id="note-1",
             key="renamed_key",
             content=note.content,
         )
 
     @pytest.mark.asyncio
-    async def test_execute_confirmed_resolves_by_scope_and_key(self):
+    async def test_execute_confirmed_resolves_by_scope_and_key(self, mock_ops):
         note = make_note(id="note-9", scope="global")
         updated_note = make_note(id="note-9", content="new content")
         mm = MagicMock()
-        mm.get_note_by_key.return_value = note
-        mm.update_note.return_value = updated_note
-        ctx = make_context(llm_memory_manager=mm)
+        mock_ops.get_note_by_key.return_value = note
+        mock_ops.update_note.return_value = updated_note
+        ctx = make_context(llm_memory_repository=mm)
 
         result = await self._tool().execute_confirmed(
             ctx, scope="global", key="pref_style", content="new content",
@@ -664,29 +681,29 @@ class TestUpdateMemoryTool:
         assert result.success is True
         data = json.loads(result.data)
         assert data["note_id"] == "note-9"
-        mm.update_note.assert_called_once_with(
-            user_id="user-test", note_id="note-9", key="pref_style", content="new content",
+        mock_ops.update_note.assert_called_once_with(
+            mm, user_id="user-test", note_id="note-9", key="pref_style", content="new content",
         )
 
     @pytest.mark.asyncio
-    async def test_execute_confirmed_unknown_note_id(self):
+    async def test_execute_confirmed_unknown_note_id(self, mock_ops):
         mm = MagicMock()
-        mm.get_note.return_value = None
-        ctx = make_context(llm_memory_manager=mm)
+        mock_ops.get_note.return_value = None
+        ctx = make_context(llm_memory_repository=mm)
 
         result = await self._tool().execute_confirmed(ctx, note_id="missing", content="x")
 
         assert result.success is False
         assert "not found" in result.error
-        mm.update_note.assert_not_called()
+        mock_ops.update_note.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_execute_confirmed_not_found_by_manager(self):
+    async def test_execute_confirmed_not_found_by_manager(self, mock_ops):
         note = make_note()
         mm = MagicMock()
-        mm.get_note.return_value = note
-        mm.update_note.return_value = None
-        ctx = make_context(llm_memory_manager=mm)
+        mock_ops.get_note.return_value = note
+        mock_ops.update_note.return_value = None
+        ctx = make_context(llm_memory_repository=mm)
 
         result = await self._tool().execute_confirmed(ctx, note_id="note-1", content="x")
 
@@ -694,12 +711,12 @@ class TestUpdateMemoryTool:
         assert "could not be updated" in result.error
 
     @pytest.mark.asyncio
-    async def test_execute_confirmed_handles_error(self):
+    async def test_execute_confirmed_handles_error(self, mock_ops):
         note = make_note()
         mm = MagicMock()
-        mm.get_note.return_value = note
-        mm.update_note.side_effect = RuntimeError("db error")
-        ctx = make_context(llm_memory_manager=mm)
+        mock_ops.get_note.return_value = note
+        mock_ops.update_note.side_effect = RuntimeError("db error")
+        ctx = make_context(llm_memory_repository=mm)
 
         result = await self._tool().execute_confirmed(ctx, note_id="note-1", content="x")
 
@@ -707,15 +724,15 @@ class TestUpdateMemoryTool:
         assert "db error" in result.error
 
     @pytest.mark.asyncio
-    async def test_execute_confirmed_content_over_limit_raises_teaching_error(self):
+    async def test_execute_confirmed_content_over_limit_raises_teaching_error(self, mock_ops):
         note = make_note()
         mm = MagicMock()
-        mm.get_note.return_value = note
-        mm.update_note.side_effect = ValueError(
+        mock_ops.get_note.return_value = note
+        mock_ops.update_note.side_effect = ValueError(
             "Memory content is limited to 500 characters - distill the durable fact; "
             "details belong in the conversation."
         )
-        ctx = make_context(llm_memory_manager=mm)
+        ctx = make_context(llm_memory_repository=mm)
 
         result = await self._tool().execute_confirmed(ctx, note_id="note-1", content="x" * 501)
 
@@ -723,12 +740,13 @@ class TestUpdateMemoryTool:
         assert "500 characters" in result.error
 
     @pytest.mark.asyncio
-    async def test_execute_scopes_fetch_by_user_id(self):
+    async def test_execute_scopes_fetch_by_user_id(self, mock_ops):
         note = make_note()
         mm = MagicMock()
-        mm.get_note.return_value = note
-        ctx = ToolContext(user_id="another-user", llm_memory_manager=mm)
+        mock_ops.get_note.return_value = note
+        ctx = ToolContext(user_id="another-user", llm_memory_repository=mm)
 
         await self._tool().execute(ctx, note_id="note-1", content="x")
 
-        mm.get_note.assert_called_once_with(user_id="another-user", note_id="note-1")
+        mock_ops.get_note.assert_called_once_with(
+            mm, user_id="another-user", note_id="note-1")

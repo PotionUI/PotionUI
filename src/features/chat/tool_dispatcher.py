@@ -112,7 +112,7 @@ class ToolCallDispatcher:
                 phrasebook_manager=self._m.phrasebook_manager,
                 prompt_database_manager=self._m.prompt_database_manager,
                 generation_orchestrator=self._m.generation_orchestrator,
-                llm_memory_manager=self._m.llm_memory_manager,
+                llm_memory_repository=self._m.llm_memory_repository,
                 prompt_enhancement_manager=self._m.prompt_enhancement_manager,
                 media_index_manager=self._m.media_index_manager,
                 settings_manager=self._m.settings_manager,

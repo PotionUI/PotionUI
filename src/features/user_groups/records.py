@@ -10,7 +10,7 @@ class UserGroup:
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     # True for the built-in groups seeded by migration 095 (ALL_USERS/ALL_ADMINS,
-    # see src.features.user_groups.constants). UserGroupManager.delete_group
+    # see src.features.user_groups.constants). operations.groups.delete_group
     # refuses to delete a group with is_system=True.
     is_system: bool = False
 

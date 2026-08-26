@@ -16,6 +16,12 @@ rather than the chat path's preview-then-approve two-step: an MCP client
 already gates each tool call behind its own user consent UI before the
 request ever reaches this endpoint, so there is no second round trip here to
 collect approval for.
+
+Post-Manager reference shape (see `src.features.plugins.operations`): dispatch
+is module-level functions, not a class. The collaborators a request needs to
+build a `ToolContext` are held in `McpToolCollaborators` - a plain, frozen
+data holder (no behavior beyond field access), built once in the composition
+root and passed in explicitly; nothing here is stored across calls.
 """
 
 import json
@@ -85,174 +91,172 @@ INVALID_PARAMS = -32602
 INTERNAL_ERROR = -32603
 
 
-class McpProtocolManager:
-    """Handles one JSON-RPC request for one authenticated MCP token's user."""
+@dataclass(frozen=True)
+class McpToolCollaborators:
+    """Everything one JSON-RPC request needs to build a `ToolContext` for an
+    authenticated MCP token's user. A plain, frozen data holder - built once
+    in the composition root (mirrors `ToolContext`'s own field list) and
+    passed to the module-level functions below; it has no behavior of its
+    own beyond field access, so it is not the "manager" the dissolution
+    removed."""
+    tool_registry: ToolRegistry
+    tool_governance_repository: ToolGovernanceRepository
+    llm_repository: Any
+    segment_manager: Any = None
+    model_index_manager: Any = None
+    preset_manager: Any = None
+    phrasebook_manager: Any = None
+    prompt_database_manager: Any = None
+    generation_orchestrator: Any = None
+    llm_memory_repository: Any = None
+    prompt_enhancement_manager: Any = None
+    media_index_manager: Any = None
+    settings_manager: Any = None
+    collection_repository: Any = None
+    tag_repository: Any = None
+    plugin_registry: Any = None
+    generation_history_manager: Any = None
 
-    def __init__(
-        self,
-        tool_registry: ToolRegistry,
-        tool_governance_repository: ToolGovernanceRepository,
-        llm_repository: Any,
-        segment_manager: Any = None,
-        model_index_manager: Any = None,
-        preset_manager: Any = None,
-        phrasebook_manager: Any = None,
-        prompt_database_manager: Any = None,
-        generation_orchestrator: Any = None,
-        llm_memory_manager: Any = None,
-        prompt_enhancement_manager: Any = None,
-        media_index_manager: Any = None,
-        settings_manager: Any = None,
-        collection_repository: Any = None,
-        tag_repository: Any = None,
-        plugin_registry: Any = None,
-        generation_history_manager: Any = None,
-    ):
-        self._registry = tool_registry
-        self._governance_repo = tool_governance_repository
-        self._llm_repository = llm_repository
-        self._segment_manager = segment_manager
-        self._model_index_manager = model_index_manager
-        self._preset_manager = preset_manager
-        self._phrasebook_manager = phrasebook_manager
-        self._prompt_database_manager = prompt_database_manager
-        self._generation_orchestrator = generation_orchestrator
-        self._llm_memory_manager = llm_memory_manager
-        self._prompt_enhancement_manager = prompt_enhancement_manager
-        self._media_index_manager = media_index_manager
-        self._settings_manager = settings_manager
-        self._collection_repository = collection_repository
-        self._tag_repository = tag_repository
-        self._plugin_registry = plugin_registry
-        self._generation_history_manager = generation_history_manager
 
-    # --- tool exposure ---
+# --- tool exposure ---
 
-    def _candidate_tools(self) -> List[Any]:
-        """Every tool eligible for MCP exposure, before governance."""
-        return [
-            tool for tool in self._registry.get_for_mode(_MCP_SCOPE)
-            if tool.name not in EXCLUDED_TOOL_NAMES and tool.is_available(None)
-        ]
+def _candidate_tools(collaborators: McpToolCollaborators) -> List[Any]:
+    """Every tool eligible for MCP exposure, before governance."""
+    return [
+        tool for tool in collaborators.tool_registry.get_for_mode(_MCP_SCOPE)
+        if tool.name not in EXCLUDED_TOOL_NAMES and tool.is_available(None)
+    ]
 
-    def _allowed_tool_names(self, user_id: str) -> List[str]:
-        """Candidate tools narrowed by the same admin/user governance rules a
-        chat session's default LLM config applies (see
-        ChatContextBuilder.resolve_session_prompt_and_tools)."""
-        candidate_names = [t.name for t in self._candidate_tools()]
-        default_config = self._llm_repository.get_default_configuration() if self._llm_repository else None
-        llm_config_id = default_config.id if default_config else None
-        snapshot = (
-            self._governance_repo.get_config_snapshot(llm_config_id, candidate_names)
-            if llm_config_id else {}
-        )
-        user_disabled = self._governance_repo.get_user_disabled(user_id)
-        return compute_allowed_tool_names(candidate_names, snapshot, user_disabled)
 
-    def _build_tool_context(self, user_id: str) -> ToolContext:
-        default_config = self._llm_repository.get_default_configuration() if self._llm_repository else None
-        return ToolContext(
-            user_id=user_id,
-            mode_id=_MCP_SCOPE.id,
-            session_metadata={},
-            segment_manager=self._segment_manager,
-            model_index_manager=self._model_index_manager,
-            preset_manager=self._preset_manager,
-            phrasebook_manager=self._phrasebook_manager,
-            llm_repository=self._llm_repository,
-            prompt_database_manager=self._prompt_database_manager,
-            generation_orchestrator=self._generation_orchestrator,
-            llm_memory_manager=self._llm_memory_manager,
-            prompt_enhancement_manager=self._prompt_enhancement_manager,
-            media_index_manager=self._media_index_manager,
-            settings_manager=self._settings_manager,
-            collection_repository=self._collection_repository,
-            tag_repository=self._tag_repository,
-            plugin_registry=self._plugin_registry,
-            generation_history_manager=self._generation_history_manager,
-            llm_id=default_config.id if default_config else None,
-        )
+def _allowed_tool_names(collaborators: McpToolCollaborators, user_id: str) -> List[str]:
+    """Candidate tools narrowed by the same admin/user governance rules a
+    chat session's default LLM config applies (see
+    ChatContextBuilder.resolve_session_prompt_and_tools)."""
+    candidate_names = [t.name for t in _candidate_tools(collaborators)]
+    llm_repository = collaborators.llm_repository
+    default_config = llm_repository.get_default_configuration() if llm_repository else None
+    llm_config_id = default_config.id if default_config else None
+    governance_repo = collaborators.tool_governance_repository
+    snapshot = (
+        governance_repo.get_config_snapshot(llm_config_id, candidate_names)
+        if llm_config_id else {}
+    )
+    user_disabled = governance_repo.get_user_disabled(user_id)
+    return compute_allowed_tool_names(candidate_names, snapshot, user_disabled)
 
-    @staticmethod
-    def _mcp_tool_schema(tool: Any, rendered: Dict[str, Any]) -> Dict[str, Any]:
-        """An OpenAI-shaped `tool.to_schema()` (already tool-conditional
-        resolved by `ToolRegistry.get_schemas`), reshaped into MCP's
-        `{name, description, inputSchema}`."""
-        function = rendered.get("function", {})
+
+def _build_tool_context(collaborators: McpToolCollaborators, user_id: str) -> ToolContext:
+    llm_repository = collaborators.llm_repository
+    default_config = llm_repository.get_default_configuration() if llm_repository else None
+    return ToolContext(
+        user_id=user_id,
+        mode_id=_MCP_SCOPE.id,
+        session_metadata={},
+        segment_manager=collaborators.segment_manager,
+        model_index_manager=collaborators.model_index_manager,
+        preset_manager=collaborators.preset_manager,
+        phrasebook_manager=collaborators.phrasebook_manager,
+        llm_repository=llm_repository,
+        prompt_database_manager=collaborators.prompt_database_manager,
+        generation_orchestrator=collaborators.generation_orchestrator,
+        llm_memory_repository=collaborators.llm_memory_repository,
+        prompt_enhancement_manager=collaborators.prompt_enhancement_manager,
+        media_index_manager=collaborators.media_index_manager,
+        settings_manager=collaborators.settings_manager,
+        collection_repository=collaborators.collection_repository,
+        tag_repository=collaborators.tag_repository,
+        plugin_registry=collaborators.plugin_registry,
+        generation_history_manager=collaborators.generation_history_manager,
+        llm_id=default_config.id if default_config else None,
+    )
+
+
+def _mcp_tool_schema(tool: Any, rendered: Dict[str, Any]) -> Dict[str, Any]:
+    """An OpenAI-shaped `tool.to_schema()` (already tool-conditional
+    resolved by `ToolRegistry.get_schemas`), reshaped into MCP's
+    `{name, description, inputSchema}`."""
+    function = rendered.get("function", {})
+    return {
+        "name": function.get("name", tool.name),
+        "description": function.get("description", tool.description),
+        "inputSchema": function.get("parameters", tool.parameters),
+    }
+
+
+def list_tools(collaborators: McpToolCollaborators, user_id: str) -> Dict[str, Any]:
+    allowed = set(_allowed_tool_names(collaborators, user_id))
+    if not allowed:
+        return {"tools": []}
+    schemas = collaborators.tool_registry.get_schemas(sorted(allowed))
+    by_name = {s.get("function", {}).get("name"): s for s in schemas}
+    tools = [
+        _mcp_tool_schema(tool, by_name[tool.name])
+        for tool in _candidate_tools(collaborators)
+        if tool.name in allowed and tool.name in by_name
+    ]
+    return {"tools": tools}
+
+
+async def call_tool(
+    collaborators: McpToolCollaborators, user_id: str, name: str, arguments: Dict[str, Any]
+) -> Dict[str, Any]:
+    allowed = _allowed_tool_names(collaborators, user_id)
+    if name not in allowed:
+        raise JsonRpcError(INVALID_PARAMS, f"Unknown tool: {name}")
+
+    tool = collaborators.tool_registry.get(name)
+    if tool is None:
+        raise JsonRpcError(INVALID_PARAMS, f"Unknown tool: {name}")
+
+    context = _build_tool_context(collaborators, user_id)
+    try:
+        if tool.requires_approval:
+            # The MCP client already gated this call behind its own
+            # consent UI — run the confirmed action directly.
+            result = await tool.execute_confirmed(context, **arguments)
+        else:
+            result = await tool.execute(context, **arguments)
+    except Exception as exc:
+        logger.error("MCP tool '%s' raised: %s", name, exc, exc_info=True)
+        result = ToolResult(success=False, data="", error=f"Tool execution failed: {exc}")
+
+    text = result.data if result.success else f"Error: {result.error}"
+    return {
+        "content": [{"type": "text", "text": text}],
+        "isError": not result.success,
+    }
+
+
+# --- JSON-RPC dispatch ---
+
+async def handle_method(
+    collaborators: McpToolCollaborators, method: str, params: Dict[str, Any], user_id: str
+) -> Optional[Dict[str, Any]]:
+    """Returns the JSON-RPC `result` payload, or None for a notification
+    that has no response body."""
+    if method == "initialize":
+        requested = params.get("protocolVersion")
+        version = requested if requested in SUPPORTED_PROTOCOL_VERSIONS else DEFAULT_PROTOCOL_VERSION
         return {
-            "name": function.get("name", tool.name),
-            "description": function.get("description", tool.description),
-            "inputSchema": function.get("parameters", tool.parameters),
+            "protocolVersion": version,
+            "capabilities": {"tools": {}},
+            "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
         }
-
-    def list_tools(self, user_id: str) -> Dict[str, Any]:
-        allowed = set(self._allowed_tool_names(user_id))
-        if not allowed:
-            return {"tools": []}
-        schemas = self._registry.get_schemas(sorted(allowed))
-        by_name = {s.get("function", {}).get("name"): s for s in schemas}
-        tools = [
-            self._mcp_tool_schema(tool, by_name[tool.name])
-            for tool in self._candidate_tools()
-            if tool.name in allowed and tool.name in by_name
-        ]
-        return {"tools": tools}
-
-    async def call_tool(self, user_id: str, name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        allowed = self._allowed_tool_names(user_id)
-        if name not in allowed:
-            raise JsonRpcError(INVALID_PARAMS, f"Unknown tool: {name}")
-
-        tool = self._registry.get(name)
-        if tool is None:
-            raise JsonRpcError(INVALID_PARAMS, f"Unknown tool: {name}")
-
-        context = self._build_tool_context(user_id)
-        try:
-            if tool.requires_approval:
-                # The MCP client already gated this call behind its own
-                # consent UI — run the confirmed action directly.
-                result = await tool.execute_confirmed(context, **arguments)
-            else:
-                result = await tool.execute(context, **arguments)
-        except Exception as exc:
-            logger.error("MCP tool '%s' raised: %s", name, exc, exc_info=True)
-            result = ToolResult(success=False, data="", error=f"Tool execution failed: {exc}")
-
-        text = result.data if result.success else f"Error: {result.error}"
-        return {
-            "content": [{"type": "text", "text": text}],
-            "isError": not result.success,
-        }
-
-    # --- JSON-RPC dispatch ---
-
-    async def handle_method(self, method: str, params: Dict[str, Any], user_id: str) -> Optional[Dict[str, Any]]:
-        """Returns the JSON-RPC `result` payload, or None for a notification
-        that has no response body."""
-        if method == "initialize":
-            requested = params.get("protocolVersion")
-            version = requested if requested in SUPPORTED_PROTOCOL_VERSIONS else DEFAULT_PROTOCOL_VERSION
-            return {
-                "protocolVersion": version,
-                "capabilities": {"tools": {}},
-                "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
-            }
-        if method == "notifications/initialized":
-            return None
-        if method == "ping":
-            return {}
-        if method == "tools/list":
-            return self.list_tools(user_id)
-        if method == "tools/call":
-            name = params.get("name")
-            if not name:
-                raise JsonRpcError(INVALID_PARAMS, "Missing required param: name")
-            arguments = params.get("arguments") or {}
-            if not isinstance(arguments, dict):
-                raise JsonRpcError(INVALID_PARAMS, "'arguments' must be an object")
-            return await self.call_tool(user_id, name, arguments)
-        raise JsonRpcError(METHOD_NOT_FOUND, f"Method not found: {method}")
+    if method == "notifications/initialized":
+        return None
+    if method == "ping":
+        return {}
+    if method == "tools/list":
+        return list_tools(collaborators, user_id)
+    if method == "tools/call":
+        name = params.get("name")
+        if not name:
+            raise JsonRpcError(INVALID_PARAMS, "Missing required param: name")
+        arguments = params.get("arguments") or {}
+        if not isinstance(arguments, dict):
+            raise JsonRpcError(INVALID_PARAMS, "'arguments' must be an object")
+        return await call_tool(collaborators, user_id, name, arguments)
+    raise JsonRpcError(METHOD_NOT_FOUND, f"Method not found: {method}")
 
 
 def parse_jsonrpc_request(body: Any) -> "tuple[Optional[Any], str, Dict[str, Any]]":

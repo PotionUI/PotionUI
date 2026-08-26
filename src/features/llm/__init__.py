@@ -2,12 +2,14 @@
 LLM module for PotionUI.
 
 This module provides LLM functionality including:
-- LLMManager: Orchestrates LLM configuration and generation operations
 - LLMResponseProcessor: Processes LLM responses (thinking tag removal, image preparation)
 - Domain exceptions: LLMException and specific subtypes
+
+Configuration/generation/assignment operations live in
+`src.features.llm.operations` (see that package's docstring); `LLMController`
+(`src.features.llm.routes`) is the sole caller.
 """
 
-from src.features.llm.manager import LLMManager
 from src.features.llm.response_processor import LLMResponseProcessor
 from src.features.llm.exceptions import (
     LLMException,
@@ -26,7 +28,6 @@ from src.features.llm.exceptions import (
 
 __all__ = [
     # Main classes
-    "LLMManager",
     "LLMResponseProcessor",
 
     # Exceptions

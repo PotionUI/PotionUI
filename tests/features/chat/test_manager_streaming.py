@@ -1504,12 +1504,16 @@ class TestSendMessageStreamBehaviorTrace(BaseStreamingTest):
         assistant_msg = make_message_response("msg-asst", content=llm_content)
         self.mock_repo.add_message.side_effect = [user_msg, assistant_msg]
 
-        # Memory manager: one global note.
-        mock_memory = Mock()
-        mock_memory.read_notes.side_effect = lambda user_id, scope, scope_ref=None: (
+        # Memory: one global note. `memory_operations` (as imported into
+        # context_builder.py) is patched to a Mock so tests can assert on
+        # read_notes calls without exercising the real validation logic -
+        # covered separately by tests/features/llm_memory/test_operations.py.
+        self._memory_ops_patcher = patch("src.features.chat.context_builder.memory_operations")
+        mock_memory_ops = self._memory_ops_patcher.start()
+        mock_memory_ops.read_notes.side_effect = lambda repo, user_id, scope, scope_ref=None: (
             [_make_memory_note("note-1")] if scope == "global" else []
         )
-        self.manager.llm_memory_manager = mock_memory
+        self.manager.llm_memory_repository = Mock()
 
         # Optional @resource registry.
         if resources:
@@ -1573,6 +1577,9 @@ class TestSendMessageStreamBehaviorTrace(BaseStreamingTest):
             self.mock_llm.stream_with_history = Mock(return_value=make_async_gen([llm_content] if llm_content else []))
 
         return session, user_msg, assistant_msg
+
+    def teardown_method(self):
+        self._memory_ops_patcher.stop()
 
     @pytest.mark.asyncio
     async def test_status_events_full_sequence_with_resources_memory_tools_prechat(self):

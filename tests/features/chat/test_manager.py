@@ -587,6 +587,16 @@ class TestSendMessageBehaviorTrace:
             chat_mode_registry=_mode_registry(),
         )
 
+        # `memory_operations` (as imported into context_builder.py) is patched
+        # to a Mock so tests can assert on read_notes calls without
+        # exercising the real validation logic - covered separately by
+        # tests/features/llm_memory/test_operations.py.
+        self._memory_ops_patcher = patch("src.features.chat.context_builder.memory_operations")
+        self.mock_memory_ops = self._memory_ops_patcher.start()
+
+    def teardown_method(self):
+        self._memory_ops_patcher.stop()
+
     def _setup_session_and_messages(self):
         from src.features.chat.dto import MessageResponse
 
@@ -613,15 +623,14 @@ class TestSendMessageBehaviorTrace:
         mock_llm_response.tool_failures = None
         self.mock_llm.generate_with_history.return_value = mock_llm_response
 
-        mock_memory = Mock()
         note = Mock()
         note.id = "note-1"
         note.key = "pref"
         note.content = "likes cinematic lighting"
-        mock_memory.read_notes.side_effect = lambda user_id, scope, scope_ref=None: (
+        self.mock_memory_ops.read_notes.side_effect = lambda repo, user_id, scope, scope_ref=None: (
             [note] if scope == "global" else []
         )
-        self.manager.llm_memory_manager = mock_memory
+        self.manager.llm_memory_repository = Mock()
 
         return session
 
@@ -703,12 +712,17 @@ class TestMemoryCountedInHistoryBudget:
         self.mock_settings = Mock()
         self.mock_settings.get_setting = Mock(return_value=10)  # 10 tokens = 40 chars
 
-        self.mock_memory = Mock()
+        # `memory_operations` (as imported into context_builder.py) is patched
+        # to a Mock so tests can assert on read_notes calls without
+        # exercising the real validation logic - covered separately by
+        # tests/features/llm_memory/test_operations.py.
+        self._memory_ops_patcher = patch("src.features.chat.context_builder.memory_operations")
+        self.mock_memory_ops = self._memory_ops_patcher.start()
         note = Mock()
         note.id = "note-1"
         note.key = "pref"
         note.content = "a distinctive recalled fact about this user"
-        self.mock_memory.read_notes.side_effect = lambda user_id, scope, scope_ref=None: (
+        self.mock_memory_ops.read_notes.side_effect = lambda repo, user_id, scope, scope_ref=None: (
             [note] if scope == "global" else []
         )
 
@@ -718,7 +732,7 @@ class TestMemoryCountedInHistoryBudget:
             response_processor=self.mock_processor,
             plugin_registry=self.mock_plugins,
             chat_mode_registry=_mode_registry(),
-            llm_memory_manager=self.mock_memory,
+            llm_memory_repository=Mock(),
             settings_manager=self.mock_settings,
         )
 
@@ -754,6 +768,9 @@ class TestMemoryCountedInHistoryBudget:
         mock_llm_response.rescues = None
         mock_llm_response.tool_failures = None
         self.mock_llm.generate_with_history.return_value = mock_llm_response
+
+    def teardown_method(self):
+        self._memory_ops_patcher.stop()
 
     @pytest.mark.asyncio
     async def test_old_turns_drop_while_memory_block_survives(self):
@@ -1139,8 +1156,14 @@ class TestInjectMemoryBlock:
         self.mock_llm = Mock()
         self.mock_processor = Mock()
         self.mock_plugins = Mock()
-        self.mock_memory = Mock()
         self.mock_model_index = Mock()
+
+        # `memory_operations` (as imported into context_builder.py) is patched
+        # to a Mock so tests can assert on read_notes calls without
+        # exercising the real validation logic - covered separately by
+        # tests/features/llm_memory/test_operations.py.
+        self._memory_ops_patcher = patch("src.features.chat.context_builder.memory_operations")
+        self.mock_memory_ops = self._memory_ops_patcher.start()
 
         self.manager = ChatManager(
             chat_repository=self.mock_repo,
@@ -1148,12 +1171,15 @@ class TestInjectMemoryBlock:
             response_processor=self.mock_processor,
             plugin_registry=self.mock_plugins,
             chat_mode_registry=_mode_registry(),
-            llm_memory_manager=self.mock_memory,
+            llm_memory_repository=Mock(),
             model_index_manager=self.mock_model_index,
         )
 
+    def teardown_method(self):
+        self._memory_ops_patcher.stop()
+
     def test_inserts_block_when_notes_exist(self):
-        self.mock_memory.read_notes.return_value = [self._make_note()]
+        self.mock_memory_ops.read_notes.return_value = [self._make_note()]
         history = [{"role": "user", "content": "hello"}]
 
         self.manager._inject_memory_block(history, context_metadata=None, user_id="user-1")
@@ -1165,7 +1191,7 @@ class TestInjectMemoryBlock:
         assert history[1]["content"] == "hello"
 
     def test_inserts_nothing_when_empty(self):
-        self.mock_memory.read_notes.return_value = []
+        self.mock_memory_ops.read_notes.return_value = []
         history = [{"role": "user", "content": "hello"}]
 
         self.manager._inject_memory_block(history, context_metadata=None, user_id="user-1")
@@ -1176,7 +1202,7 @@ class TestInjectMemoryBlock:
         global_notes = [self._make_note(key="g", content="global fact")]
         preset_notes = [self._make_note(key="p", content="preset fact")]
         model_notes = [self._make_note(key="m", content="model fact")]
-        self.mock_memory.read_notes.side_effect = [global_notes, preset_notes, model_notes]
+        self.mock_memory_ops.read_notes.side_effect = [global_notes, preset_notes, model_notes]
 
         model = Mock()
         model.id = "model-1"
@@ -1215,7 +1241,7 @@ class TestInjectMemoryBlock:
         assert history == [{"role": "user", "content": "hello"}]
 
     def test_header_nudges_write_memory_when_available(self):
-        self.mock_memory.read_notes.return_value = [self._make_note()]
+        self.mock_memory_ops.read_notes.return_value = [self._make_note()]
         history = [{"role": "user", "content": "hello"}]
 
         self.manager._context.inject_memory_block(
@@ -1226,7 +1252,7 @@ class TestInjectMemoryBlock:
 
     def test_header_omits_write_memory_nudge_when_disabled(self):
         """The injected block must not point at a tool the session can't call."""
-        self.mock_memory.read_notes.return_value = [self._make_note()]
+        self.mock_memory_ops.read_notes.return_value = [self._make_note()]
         history = [{"role": "user", "content": "hello"}]
 
         self.manager._context.inject_memory_block(
@@ -1237,7 +1263,7 @@ class TestInjectMemoryBlock:
         assert "persistent memory — use it" in history[0]["content"]
 
     def test_read_failure_never_raises(self):
-        self.mock_memory.read_notes.side_effect = RuntimeError("db down")
+        self.mock_memory_ops.read_notes.side_effect = RuntimeError("db down")
         history = [{"role": "user", "content": "hello"}]
 
         self.manager._inject_memory_block(history, context_metadata=None, user_id="user-1")
@@ -1246,7 +1272,7 @@ class TestInjectMemoryBlock:
 
     def test_group_overflow_appends_visible_line_and_reports_dropped_count(self):
         notes = [self._make_note(key=f"k{i}", content=f"note {i}") for i in range(25)]
-        self.mock_memory.read_notes.return_value = notes
+        self.mock_memory_ops.read_notes.return_value = notes
         history = [{"role": "user", "content": "hello"}]
 
         result = self.manager._context.inject_memory_block(history, context_metadata=None, user_id="user-1")
@@ -1258,7 +1284,7 @@ class TestInjectMemoryBlock:
         assert result["by_scope_dropped"] == {"global": 5, "preset": 0, "model": 0}
 
     def test_group_under_cap_reports_no_drops(self):
-        self.mock_memory.read_notes.return_value = [self._make_note()]
+        self.mock_memory_ops.read_notes.return_value = [self._make_note()]
         history = [{"role": "user", "content": "hello"}]
 
         result = self.manager._context.inject_memory_block(history, context_metadata=None, user_id="user-1")
@@ -1268,7 +1294,7 @@ class TestInjectMemoryBlock:
 
     def test_long_note_content_clipped_with_visible_ellipsis(self):
         long_content = "y" * 600
-        self.mock_memory.read_notes.return_value = [self._make_note(content=long_content)]
+        self.mock_memory_ops.read_notes.return_value = [self._make_note(content=long_content)]
         history = [{"role": "user", "content": "hello"}]
 
         self.manager._context.inject_memory_block(history, context_metadata=None, user_id="user-1")
@@ -1278,7 +1304,7 @@ class TestInjectMemoryBlock:
         assert ("y" * 501) not in block
 
     def test_return_value_reports_injected_chars(self):
-        self.mock_memory.read_notes.return_value = [self._make_note()]
+        self.mock_memory_ops.read_notes.return_value = [self._make_note()]
         history = [{"role": "user", "content": "hello"}]
 
         result = self.manager._context.inject_memory_block(history, context_metadata=None, user_id="user-1")
@@ -1287,7 +1313,7 @@ class TestInjectMemoryBlock:
         assert result["injected_chars"] > 0
 
     def test_no_notes_reports_zero_injected_chars(self):
-        self.mock_memory.read_notes.return_value = []
+        self.mock_memory_ops.read_notes.return_value = []
         history = [{"role": "user", "content": "hello"}]
 
         result = self.manager._context.inject_memory_block(history, context_metadata=None, user_id="user-1")

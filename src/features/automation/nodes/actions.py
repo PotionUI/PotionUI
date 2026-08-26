@@ -328,9 +328,9 @@ async def _execute_assign_user_to_group(ctx: NodeExecutionContext) -> NodeResult
 
     Goes straight to `UserGroupRepository.add_user_to_group` (see
     `AutomationServices.user_group_repository`) rather than through
-    `UserGroupManager` - the manager's CRUD methods all call `_require_admin`
-    against a live HTTP-request `User`, which an automation run has no
-    equivalent of. `action.add_tag` above bypasses `src.features.tags.
+    `src.features.user_groups.operations` - its CRUD functions all call
+    `require_admin` against a live HTTP-request `User`, which an automation
+    run has no equivalent of. `action.add_tag` above bypasses `src.features.tags.
     operations` for the same reason.
 
     Idempotent: `add_user_to_group` already no-ops (catches the

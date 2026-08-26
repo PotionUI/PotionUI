@@ -24,7 +24,7 @@ write-time rejections exist specifically to keep memory from turning into a gene
 a note mentioning a seed or a generation ULID, and — at `global` scope only — a note that's
 mostly a parameter dump (`cfg`, `steps`, `sampler`, …) with no descriptive prose (that kind
 of note is legitimate at `preset`/`model` scope, where it belongs). All of this lives in
-`LLMMemoryManager.write_note`/`_validate_content` (`src/features/llm_memory/manager.py`).
+`operations.write_note`/`_validate_content` (`src/features/llm_memory/operations/__init__.py`).
 
 ## How notes reach the model
 

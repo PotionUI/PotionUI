@@ -9,7 +9,7 @@ right one.
 
 ChatManager stays a single injectable object because its collaborators depend on
 it as one handle. The ChatController reaches through it for several attributes
-(``tool_executor``, ``llm_memory_manager``, ``pre_chat_action_manager``,
+(``tool_executor``, ``llm_memory_repository``, ``pre_chat_action_manager``,
 ``chat_mode_registry``), and the composition root late-binds most of the tool /
 resource managers onto it *after* construction. The role classes therefore read
 their dependencies back through this manager, so that late binding keeps working
@@ -61,7 +61,7 @@ class ChatManager:
         prompt_database_manager: Optional[Any] = None,
         generation_orchestrator: Optional[Any] = None,
         pre_chat_action_manager: Optional[Any] = None,
-        llm_memory_manager: Optional[Any] = None,
+        llm_memory_repository: Optional[Any] = None,
         prompt_enhancement_manager: Optional[Any] = None,
         media_index_manager: Optional[Any] = None,
         resource_registry: Optional[Any] = None,
@@ -86,7 +86,7 @@ class ChatManager:
             prompt_database_manager: Optional prompt database manager for tool context
             generation_orchestrator: Optional generation orchestrator for tool context
             pre_chat_action_manager: Optional pre-chat action manager for executing actions before LLM calls
-            llm_memory_manager: Optional LLM memory manager for tool context
+            llm_memory_repository: Optional LLM memory repository for tool context
             prompt_enhancement_manager: Optional manager backing the enhance_prompt tool
             media_index_manager: Optional media index manager backing the
                 search_gallery tool
@@ -111,7 +111,7 @@ class ChatManager:
         self.prompt_database_manager = prompt_database_manager
         self.generation_orchestrator = generation_orchestrator
         self.pre_chat_action_manager = pre_chat_action_manager
-        self.llm_memory_manager = llm_memory_manager
+        self.llm_memory_repository = llm_memory_repository
         self.prompt_enhancement_manager = prompt_enhancement_manager
         self.media_index_manager = media_index_manager
         self.resource_registry = resource_registry
@@ -127,7 +127,7 @@ class ChatManager:
         self.title_generator = ChatTitleGenerator(llm_service, chat_repository)
         # Fire-and-forget title tasks; referenced so they aren't garbage-collected mid-run.
         self._title_tasks: set = set()
-        # Takes `self`, not its collaborators directly — llm_memory_manager is
+        # Takes `self`, not its collaborators directly — llm_memory_repository is
         # late-bound onto this manager after construction (see class docstring).
         self.reflection_generator = ChatReflectionGenerator(self)
         # Fire-and-forget reflection tasks; same GC-safety reason as _title_tasks.

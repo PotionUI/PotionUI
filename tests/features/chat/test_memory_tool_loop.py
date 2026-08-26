@@ -76,11 +76,15 @@ def _wire_repo(repo, content):
     return saved
 
 
-def make_memory_manager():
-    manager = Mock()
-    manager.write_note.return_value = SimpleNamespace(id="note-1", key="lighting_pref", scope="global")
-    manager.read_notes.return_value = []
-    return manager
+def make_memory_repository():
+    """A `LLMMemoryRepository` stand-in: the tool calls the real
+    `src.features.llm_memory.operations.write_note`/`read_notes`, which in
+    turn call `repository.upsert`/`list_notes` - not the old manager's
+    `write_note`/`read_notes` names."""
+    repo = Mock()
+    repo.upsert.return_value = SimpleNamespace(id="note-1", key="lighting_pref", scope="global")
+    repo.list_notes.return_value = []
+    return repo
 
 
 class ScriptedLLMService:
@@ -120,7 +124,7 @@ def make_memory_chat_manager(scripts):
         plugin_registry=plugins,
         chat_mode_registry=_mode_registry(),
         tool_executor=executor,
-        llm_memory_manager=make_memory_manager(),
+        llm_memory_repository=make_memory_repository(),
     )
     return manager, repo, llm_service
 

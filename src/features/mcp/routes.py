@@ -7,6 +7,10 @@ through the existing admin settings surface (`/api/settings`) — no dedicated
 route for it here. Token CRUD and the two status/toggle routes use the app's
 usual `APIResponse` envelope; `/api/mcp` itself does not — it must speak raw
 JSON-RPC 2.0.
+
+Mutations and toggle reads go through `src.features.mcp.operations`
+(formerly `McpManager`); `McpController` holds the token/settings/user
+repositories and passes them in.
 """
 
 import logging
@@ -15,13 +19,15 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from src.features.mcp import operations
 from src.features.mcp.dto import McpTokenCreateRequest, McpUserToggleRequest
-from src.features.mcp.manager import McpManager
-from src.features.mcp.protocol import JsonRpcError, McpProtocolManager, parse_jsonrpc_request
+from src.features.mcp.mappers import token_to_dict
+from src.features.mcp.protocol import JsonRpcError, McpToolCollaborators, handle_method, parse_jsonrpc_request
 from src.features.mcp.repository import McpTokenRepository
 from src.platform.http.base_controller import APIResponse, BaseController
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.platform.security.user import User
+from src.platform.settings.settings import SettingsManager
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
@@ -29,44 +35,38 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _token_dict(token) -> dict:
-    return {
-        "id": token.id,
-        "name": token.name,
-        "token_prefix": token.token_prefix,
-        "created_at": token.created_at,
-        "last_used_at": token.last_used_at,
-        "revoked_at": token.revoked_at,
-    }
-
-
 class McpController(BaseController):
-    def __init__(self, token_repository: McpTokenRepository, manager: McpManager, user_repository):
+    def __init__(
+        self,
+        token_repository: McpTokenRepository,
+        settings_manager: SettingsManager,
+        user_repository,
+    ):
         super().__init__()
         self._tokens = token_repository
-        self._manager = manager
+        self._settings = settings_manager
         self._users = user_repository
 
     async def list_tokens(self, user: User) -> APIResponse:
         tokens = self._tokens.list_for_user(user.id)
-        return self.success_response(data=[_token_dict(t) for t in tokens])
+        return self.success_response(data=[token_to_dict(t) for t in tokens])
 
     async def create_token(self, request: McpTokenCreateRequest, user: User) -> APIResponse:
         name = (request.name or "").strip()
         if not name:
             return self.error_api_response(error="invalid_name", message="name is required")
-        token, plaintext = self._manager.mint_token(user.id, name)
-        return self.success_response(data={**_token_dict(token), "token": plaintext})
+        token, plaintext = operations.mint_token(self._tokens, user.id, name)
+        return self.success_response(data={**token_to_dict(token), "token": plaintext})
 
     async def revoke_token(self, token_id: str, user: User) -> APIResponse:
-        revoked = self._manager.revoke_token(user.id, token_id)
+        revoked = operations.revoke_token(self._tokens, user.id, token_id)
         if not revoked:
             self.error_response(error="token_not_found", message="Token not found", status_code=404)
         return self.success_response(data={"id": token_id, "revoked": True})
 
     async def get_status(self, user: User) -> APIResponse:
-        global_enabled = self._manager.is_globally_enabled()
-        user_enabled = self._manager.is_user_enabled(user.id)
+        global_enabled = operations.is_globally_enabled(self._settings)
+        user_enabled = operations.is_user_enabled(self._settings, user.id)
         return self.success_response(data={
             "enabled": global_enabled and user_enabled,
             "global_enabled": global_enabled,
@@ -76,11 +76,13 @@ class McpController(BaseController):
     async def get_user_toggle(self, user_id: str) -> APIResponse:
         if not self._users.get_by_id(user_id):
             self.error_response(error="user_not_found", message="User not found", status_code=404)
-        return self.success_response(data={"user_id": user_id, "enabled": self._manager.is_user_enabled(user_id)})
+        return self.success_response(
+            data={"user_id": user_id, "enabled": operations.is_user_enabled(self._settings, user_id)}
+        )
 
     async def set_user_toggle(self, user_id: str, enabled: bool) -> APIResponse:
         try:
-            self._manager.set_user_enabled(user_id, enabled)
+            operations.set_user_enabled(self._settings, self._users, user_id, enabled)
         except ValueError:
             self.error_response(error="user_not_found", message="User not found", status_code=404)
         return self.success_response(data={"user_id": user_id, "enabled": enabled})
@@ -94,11 +96,12 @@ def _jsonrpc_error(request_id, code: int, message: str) -> JSONResponse:
 
 
 def build_router(container: "AppContainer") -> APIRouter:
-    manager: McpManager = container.mcp_manager
-    protocol_manager: McpProtocolManager = container.mcp_protocol_manager
+    token_repository = container.mcp_token_repository
+    settings_manager = container.settings_manager
     user_repository = container.user_repository
+    collaborators: McpToolCollaborators = container.mcp_tool_collaborators
     controller = McpController(
-        token_repository=container.mcp_token_repository, manager=manager, user_repository=user_repository,
+        token_repository=token_repository, settings_manager=settings_manager, user_repository=user_repository,
     )
 
     router = APIRouter(prefix="/api/mcp", tags=["MCP"])
@@ -148,20 +151,20 @@ def build_router(container: "AppContainer") -> APIRouter:
                 headers={"WWW-Authenticate": "Bearer"},
             )
         plaintext = auth_header[len("bearer "):].strip()
-        token = manager.resolve_active_token(plaintext)
+        token = operations.resolve_active_token(token_repository, plaintext)
         if token is None:
             raise HTTPException(
                 status_code=401, detail="Invalid or revoked token",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        if not manager.is_globally_enabled():
+        if not operations.is_globally_enabled(settings_manager):
             raise HTTPException(status_code=403, detail="MCP is disabled on this instance")
-        if not manager.is_user_enabled(token.user_id):
+        if not operations.is_user_enabled(settings_manager, token.user_id):
             raise HTTPException(status_code=403, detail="MCP is disabled for this user")
         user = user_repository.get_by_id(token.user_id)
         if user is None:
             raise HTTPException(status_code=401, detail="Token owner no longer exists")
-        manager.record_use(token)
+        operations.record_use(token_repository, token)
         return user
 
     @router.post("")
@@ -181,7 +184,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         is_notification = isinstance(body, dict) and "id" not in body
 
         try:
-            result = await protocol_manager.handle_method(method, params, current_user.id)
+            result = await handle_method(collaborators, method, params, current_user.id)
         except JsonRpcError as exc:
             if is_notification:
                 return JSONResponse(status_code=202, content=None)

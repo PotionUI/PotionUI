@@ -36,14 +36,14 @@ class PromptEnhancementManager:
         llm_service: Any,
         prompt_database_manager: Any = None,
         model_index_manager: Any = None,
-        llm_memory_manager: Any = None,
+        llm_memory_repository: Any = None,
         feedback_repository: Any = None,
         preset_manager: Any = None,
     ):
         self.llm_service = llm_service
         self.prompt_database_manager = prompt_database_manager
         self.model_index_manager = model_index_manager
-        self.llm_memory_manager = llm_memory_manager
+        self.llm_memory_repository = llm_memory_repository
         self.feedback_repository = feedback_repository
         self.preset_manager = preset_manager
 

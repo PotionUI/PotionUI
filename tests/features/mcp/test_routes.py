@@ -2,6 +2,12 @@
 per-user toggle, and the /api/mcp Bearer-auth + toggle gating in front of the
 JSON-RPC endpoint. Mirrors tests/features/llm/tools/test_governance_routes.py's
 stub-container-behind-a-bare-router pattern.
+
+Mutations/toggle reads go through `src.features.mcp.operations` (formerly
+`McpManager`) against real repositories/settings; the JSON-RPC dispatch
+itself (`src.features.mcp.protocol.handle_method`, formerly
+`McpProtocolManager`) is patched to a Mock, as `container.mcp_tool_collaborators`
+carries no real tool registry here.
 """
 
 from types import SimpleNamespace
@@ -11,8 +17,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from src.features.mcp import routes as mcp_routes
-from src.features.mcp.manager import McpManager
+from src.features.mcp import operations, routes as mcp_routes
 from src.features.mcp.repository import McpTokenRepository
 from src.features.users.repository import UserRepository
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
@@ -26,27 +31,24 @@ def _user(account_type: AccountType, uid: str = "user-1") -> User:
 
 
 @pytest.fixture
-def stack(mcp_db):
+def stack(mcp_db, monkeypatch):
     token_repository = McpTokenRepository()
     settings_manager = SettingsManager(SettingRepository())
     user_repository = UserRepository()
-    manager = McpManager(
-        token_repository=token_repository, settings_manager=settings_manager, user_repository=user_repository,
-    )
-    protocol_manager = Mock()
-    protocol_manager.handle_method = AsyncMock(return_value={"ok": True})
+    mock_handle_method = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr(mcp_routes, "handle_method", mock_handle_method)
     container = SimpleNamespace(
         mcp_token_repository=token_repository,
-        mcp_manager=manager,
-        mcp_protocol_manager=protocol_manager,
+        settings_manager=settings_manager,
+        mcp_tool_collaborators=Mock(),
         user_repository=user_repository,
     )
-    return container, manager, user_repository, protocol_manager
+    return container, token_repository, settings_manager, user_repository, mock_handle_method
 
 
 @pytest.fixture
 def make_client(stack):
-    container, manager, user_repository, protocol_manager = stack
+    container, token_repository, settings_manager, user_repository, mock_handle_method = stack
 
     def _make(user: User) -> TestClient:
         app = FastAPI()
@@ -55,7 +57,7 @@ def make_client(stack):
         app.dependency_overrides[get_current_admin_user] = lambda: user
         return TestClient(app, raise_server_exceptions=False)
 
-    return _make, container, manager, user_repository, protocol_manager
+    return _make, container, token_repository, settings_manager, user_repository, mock_handle_method
 
 
 class TestTokenCrud:
@@ -112,11 +114,11 @@ class TestTokenCrud:
         """Token CRUD is never gated on either toggle - a user whose MCP
         access is off must still be able to see and manage their tokens. Only
         POST /api/mcp itself is gated (see TestMcpEndpointAuth)."""
-        _container, manager, user_repository, _protocol = stack
+        _container, _tokens, settings_manager, user_repository, _handle_method = stack
         real_user = user_repository.create(username="dana", email="dana@example.com", password_hash="x")
-        manager.set_user_enabled(real_user.id, False)
+        operations.set_user_enabled(settings_manager, user_repository, real_user.id, False)
         # mcp_enabled defaults to False too (migration 129) - both flags off.
-        assert manager.is_globally_enabled() is False
+        assert operations.is_globally_enabled(settings_manager) is False
 
         make, *_ = make_client
         client = make(_user(AccountType.USER, uid=real_user.id))
@@ -145,11 +147,10 @@ class TestStatus:
         assert data == {"enabled": False, "global_enabled": False, "user_enabled": True}
 
     def test_global_on_user_off(self, make_client, stack):
-        _container, manager, user_repository, _protocol = stack
-        settings_manager = SettingsManager(SettingRepository())
+        _container, _tokens, settings_manager, user_repository, _handle_method = stack
         settings_manager.set_setting("mcp_enabled", True)
         real_user = user_repository.create(username="carol", email="carol@example.com", password_hash="x")
-        manager.set_user_enabled(real_user.id, False)
+        operations.set_user_enabled(settings_manager, user_repository, real_user.id, False)
 
         make, *_ = make_client
         client = make(_user(AccountType.USER, uid=real_user.id))
@@ -157,9 +158,9 @@ class TestStatus:
         assert data == {"enabled": False, "global_enabled": True, "user_enabled": False}
 
     def test_global_off_user_off(self, make_client, stack):
-        _container, manager, user_repository, _protocol = stack
+        _container, _tokens, settings_manager, user_repository, _handle_method = stack
         real_user = user_repository.create(username="eve", email="eve@example.com", password_hash="x")
-        manager.set_user_enabled(real_user.id, False)
+        operations.set_user_enabled(settings_manager, user_repository, real_user.id, False)
 
         make, *_ = make_client
         client = make(_user(AccountType.USER, uid=real_user.id))
@@ -167,8 +168,7 @@ class TestStatus:
         assert data == {"enabled": False, "global_enabled": False, "user_enabled": False}
 
     def test_both_enabled(self, make_client, stack):
-        _container, manager, user_repository, _protocol = stack
-        settings_manager = SettingsManager(SettingRepository())
+        _container, _tokens, settings_manager, user_repository, _handle_method = stack
         settings_manager.set_setting("mcp_enabled", True)
         real_user = user_repository.create(username="frank", email="frank@example.com", password_hash="x")
 
@@ -190,7 +190,7 @@ class TestAdminUserToggle:
         assert resp.status_code == 403
 
     def test_admin_can_read_and_set_the_toggle(self, make_client, stack):
-        _container, _manager, user_repository, _protocol = stack
+        _container, _tokens, _settings, user_repository, _handle_method = stack
         real_user = user_repository.create(username="bob", email="bob@example.com", password_hash="x")
         make, *_ = make_client
         client = make(_user(AccountType.ADMIN))
@@ -215,9 +215,9 @@ class TestAdminUserToggle:
 
 class TestMcpEndpointAuth:
     def _minted(self, stack, uid: str = "user-1"):
-        _container, manager, user_repository, _protocol = stack
+        _container, token_repository, _settings, user_repository, _handle_method = stack
         real_user = user_repository.create(username=f"u-{uid}", email=f"{uid}@example.com", password_hash="x")
-        token, plaintext = manager.mint_token(real_user.id, "cli")
+        token, plaintext = operations.mint_token(token_repository, real_user.id, "cli")
         return real_user, token, plaintext
 
     def _client(self, stack):
@@ -241,9 +241,9 @@ class TestMcpEndpointAuth:
         assert resp.status_code == 401
 
     def test_revoked_token_is_401(self, stack):
-        _container, manager, _users, _protocol = stack
+        _container, token_repository, _settings, _users, _handle_method = stack
         _real_user, token, plaintext = self._minted(stack)
-        manager.revoke_token(token.user_id, token.id)
+        operations.revoke_token(token_repository, token.user_id, token.id)
         client = self._client(stack)
         resp = client.post(
             "/api/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "ping"},
@@ -252,7 +252,7 @@ class TestMcpEndpointAuth:
         assert resp.status_code == 401
 
     def test_global_disabled_is_403_even_with_a_good_token(self, stack):
-        _container, _manager, _users, _protocol = stack
+        _container, _tokens, _settings, _users, _handle_method = stack
         _real_user, _token, plaintext = self._minted(stack)
         # mcp_enabled defaults to False (see migration 129) - nothing to flip.
         client = self._client(stack)
@@ -263,11 +263,10 @@ class TestMcpEndpointAuth:
         assert resp.status_code == 403
 
     def test_user_disabled_is_403_even_when_globally_enabled(self, stack):
-        _container, manager, _users, _protocol = stack
-        settings_manager = SettingsManager(SettingRepository())
+        _container, _tokens, settings_manager, user_repository, _handle_method = stack
         settings_manager.set_setting("mcp_enabled", True)
         real_user, _token, plaintext = self._minted(stack)
-        manager.set_user_enabled(real_user.id, False)
+        operations.set_user_enabled(settings_manager, user_repository, real_user.id, False)
 
         client = self._client(stack)
         resp = client.post(
@@ -277,8 +276,7 @@ class TestMcpEndpointAuth:
         assert resp.status_code == 403
 
     def test_globally_and_per_user_enabled_reaches_the_protocol_manager(self, stack):
-        _container, _manager, _users, protocol_manager = stack
-        settings_manager = SettingsManager(SettingRepository())
+        _container, _tokens, settings_manager, _users, mock_handle_method = stack
         settings_manager.set_setting("mcp_enabled", True)
         _real_user, _token, plaintext = self._minted(stack)
 
@@ -289,12 +287,11 @@ class TestMcpEndpointAuth:
         )
         assert resp.status_code == 200
         assert resp.json() == {"jsonrpc": "2.0", "id": 1, "result": {"ok": True}}
-        protocol_manager.handle_method.assert_called_once()
+        mock_handle_method.assert_called_once()
 
     def test_notification_gets_202_with_no_body(self, stack):
-        _container, _manager, _users, protocol_manager = stack
-        protocol_manager.handle_method = AsyncMock(return_value=None)
-        settings_manager = SettingsManager(SettingRepository())
+        _container, _tokens, settings_manager, _users, mock_handle_method = stack
+        mock_handle_method.return_value = None
         settings_manager.set_setting("mcp_enabled", True)
         _real_user, _token, plaintext = self._minted(stack)
 

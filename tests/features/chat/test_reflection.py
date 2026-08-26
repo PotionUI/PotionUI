@@ -40,8 +40,13 @@ def _session(llm_config_id="llm-1", metadata=None) -> Mock:
     return session
 
 
-def _manager(config_memory_reflection=True):
-    """A minimal stand-in for ChatManager: llm_service, chat_repository, llm_memory_manager."""
+def _manager(monkeypatch, config_memory_reflection=True):
+    """A minimal stand-in for ChatManager: llm_service, chat_repository,
+    llm_memory_repository. `memory_operations` (as imported into
+    `reflection.py`) is patched to a fresh Mock, exposed as
+    `manager.memory_ops`, so tests can assert on write_note/read_notes calls
+    without exercising the real validation logic (covered separately by
+    `tests/features/llm_memory/test_operations.py`)."""
     manager = Mock()
     manager.llm_service = Mock()
     manager.llm_service.repository = Mock()
@@ -49,44 +54,47 @@ def _manager(config_memory_reflection=True):
     config.memory_reflection = config_memory_reflection
     manager.llm_service.repository.get_configuration.return_value = config
     manager.chat_repository = Mock()
-    manager.llm_memory_manager = Mock()
+    manager.llm_memory_repository = Mock()
+    mock_ops = Mock()
+    monkeypatch.setattr("src.features.chat.reflection.memory_operations", mock_ops)
+    manager.memory_ops = mock_ops
     return manager
 
 
 class TestShouldReflect:
-    def test_false_below_message_threshold(self):
-        manager = _manager()
+    def test_false_below_message_threshold(self, monkeypatch):
+        manager = _manager(monkeypatch)
         generator = ChatReflectionGenerator(manager)
         session = _session()
         assert generator.should_reflect(session, _messages(MIN_UNREFLECTED_USER_MESSAGES - 1)) is False
 
-    def test_true_at_message_threshold(self):
-        manager = _manager()
+    def test_true_at_message_threshold(self, monkeypatch):
+        manager = _manager(monkeypatch)
         generator = ChatReflectionGenerator(manager)
         session = _session()
         assert generator.should_reflect(session, _messages(MIN_UNREFLECTED_USER_MESSAGES)) is True
 
-    def test_false_when_toggle_off(self):
-        manager = _manager(config_memory_reflection=False)
+    def test_false_when_toggle_off(self, monkeypatch):
+        manager = _manager(monkeypatch, config_memory_reflection=False)
         generator = ChatReflectionGenerator(manager)
         session = _session()
         assert generator.should_reflect(session, _messages(MIN_UNREFLECTED_USER_MESSAGES)) is False
 
-    def test_false_when_no_memory_manager(self):
-        manager = _manager()
-        manager.llm_memory_manager = None
+    def test_false_when_no_memory_manager(self, monkeypatch):
+        manager = _manager(monkeypatch)
+        manager.llm_memory_repository = None
         generator = ChatReflectionGenerator(manager)
         session = _session()
         assert generator.should_reflect(session, _messages(MIN_UNREFLECTED_USER_MESSAGES)) is False
 
-    def test_false_when_no_llm_config(self):
-        manager = _manager()
+    def test_false_when_no_llm_config(self, monkeypatch):
+        manager = _manager(monkeypatch)
         generator = ChatReflectionGenerator(manager)
         session = _session(llm_config_id=None)
         assert generator.should_reflect(session, _messages(MIN_UNREFLECTED_USER_MESSAGES)) is False
 
-    def test_only_counts_messages_after_last_reflection(self):
-        manager = _manager()
+    def test_only_counts_messages_after_last_reflection(self, monkeypatch):
+        manager = _manager(monkeypatch)
         generator = ChatReflectionGenerator(manager)
         session = _session(metadata={"memory_reflection": {"reflected_up_to_message_id": "a1"}})
         # 3 user turns total, but the reflection marker sits after the 2nd -
@@ -131,8 +139,8 @@ class TestParseItems:
 
 
 class TestReflect:
-    def _setup(self, response_content, memory_reflection=True):
-        manager = _manager(config_memory_reflection=memory_reflection)
+    def _setup(self, monkeypatch, response_content, memory_reflection=True):
+        manager = _manager(monkeypatch, config_memory_reflection=memory_reflection)
         session = _session()
         messages = _messages(MIN_UNREFLECTED_USER_MESSAGES)
         manager.chat_repository.get_session.return_value = session
@@ -145,20 +153,22 @@ class TestReflect:
 
         saved_note = Mock()
         saved_note.to_dict.return_value = {"key": "saved"}
-        manager.llm_memory_manager.write_note.return_value = saved_note
+        manager.memory_ops.write_note.return_value = saved_note
 
         return manager, ChatReflectionGenerator(manager), messages
 
     @pytest.mark.asyncio
-    async def test_happy_path_persists_items_and_records_bookkeeping(self):
+    async def test_happy_path_persists_items_and_records_bookkeeping(self, monkeypatch):
         manager, generator, messages = self._setup(
+            monkeypatch,
             '[{"scope": "global", "key": "likes anime", "content": "prefers anime style over realism"}]'
         )
 
         saved = await generator.reflect("session-1")
 
         assert saved == [{"key": "saved"}]
-        manager.llm_memory_manager.write_note.assert_called_once_with(
+        manager.memory_ops.write_note.assert_called_once_with(
+            manager.llm_memory_repository,
             user_id="user-1", key="likes_anime",
             content="prefers anime style over realism",
             scope="global", scope_ref=None,
@@ -168,29 +178,31 @@ class TestReflect:
         )
 
     @pytest.mark.asyncio
-    async def test_invalid_items_are_dropped_not_fatal(self):
+    async def test_invalid_items_are_dropped_not_fatal(self, monkeypatch):
         """A seed-tainted item is rejected by validation but doesn't blow up the pass."""
         manager, generator, messages = self._setup(
+            monkeypatch,
             '[{"scope": "global", "key": "seed_note", "content": "castle at seed 1234"}, '
             '{"scope": "global", "key": "good", "content": "prefers moody lighting"}]'
         )
 
-        def write_note(user_id, key, content, scope, scope_ref=None):
+        def write_note(repo, user_id, key, content, scope, scope_ref=None):
             if "seed" in content:
                 raise ValueError("Memory note rejected: one generation")
             note = Mock()
             note.to_dict.return_value = {"key": key}
             return note
 
-        manager.llm_memory_manager.write_note.side_effect = write_note
+        manager.memory_ops.write_note.side_effect = write_note
 
         saved = await generator.reflect("session-1")
 
         assert saved == [{"key": "good"}]
 
     @pytest.mark.asyncio
-    async def test_sloppy_json_is_tolerated(self):
+    async def test_sloppy_json_is_tolerated(self, monkeypatch):
         manager, generator, messages = self._setup(
+            monkeypatch,
             'Sure! [{"scope": "global", "key": "k", "content": "prefers dark fantasy over anime"}] done.'
         )
 
@@ -199,18 +211,19 @@ class TestReflect:
         assert saved == [{"key": "saved"}]
 
     @pytest.mark.asyncio
-    async def test_empty_array_saves_nothing_but_still_records_bookkeeping(self):
-        manager, generator, messages = self._setup("[]")
+    async def test_empty_array_saves_nothing_but_still_records_bookkeeping(self, monkeypatch):
+        manager, generator, messages = self._setup(monkeypatch, "[]")
 
         saved = await generator.reflect("session-1")
 
         assert saved == []
-        manager.llm_memory_manager.write_note.assert_not_called()
+        manager.memory_ops.write_note.assert_not_called()
         manager.chat_repository.record_memory_reflection.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_toggle_off_makes_no_llm_call(self):
+    async def test_toggle_off_makes_no_llm_call(self, monkeypatch):
         manager, generator, messages = self._setup(
+            monkeypatch,
             '[{"scope": "global", "key": "k", "content": "c"}]', memory_reflection=False,
         )
 
@@ -221,8 +234,8 @@ class TestReflect:
         manager.chat_repository.record_memory_reflection.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_below_threshold_makes_no_llm_call(self):
-        manager = _manager()
+    async def test_below_threshold_makes_no_llm_call(self, monkeypatch):
+        manager = _manager(monkeypatch)
         session = _session()
         manager.chat_repository.get_session.return_value = session
         manager.chat_repository.get_messages.return_value = _messages(MIN_UNREFLECTED_USER_MESSAGES - 1)
@@ -234,8 +247,8 @@ class TestReflect:
         manager.llm_service.generate_with_history.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_llm_failure_returns_empty_and_does_not_raise(self):
-        manager, generator, messages = self._setup("irrelevant")
+    async def test_llm_failure_returns_empty_and_does_not_raise(self, monkeypatch):
+        manager, generator, messages = self._setup(monkeypatch, "irrelevant")
         manager.llm_service.generate_with_history = AsyncMock(side_effect=RuntimeError("provider down"))
 
         saved = await generator.reflect("session-1")
@@ -244,8 +257,8 @@ class TestReflect:
         manager.chat_repository.record_memory_reflection.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_missing_session_returns_empty(self):
-        manager = _manager()
+    async def test_missing_session_returns_empty(self, monkeypatch):
+        manager = _manager(monkeypatch)
         manager.chat_repository.get_session.return_value = None
         generator = ChatReflectionGenerator(manager)
 
@@ -259,8 +272,8 @@ class TestReflectScoping:
     """Scope/scope_ref validation: only the exact id resolved from this turn's
     form state is ever honored for a 'preset'/'model' note."""
 
-    def _setup(self, response_content):
-        manager = _manager()
+    def _setup(self, monkeypatch, response_content):
+        manager = _manager(monkeypatch)
         session = _session()
         messages = _messages(MIN_UNREFLECTED_USER_MESSAGES)
         manager.chat_repository.get_session.return_value = session
@@ -278,31 +291,34 @@ class TestReflectScoping:
 
         saved_note = Mock()
         saved_note.to_dict.return_value = {"key": "saved"}
-        manager.llm_memory_manager.write_note.return_value = saved_note
+        manager.memory_ops.write_note.return_value = saved_note
         # Compaction rides along after a persist; keep it a no-op so these
         # tests only exercise scoping, not compaction (read_notes returns []).
-        manager.llm_memory_manager.read_notes.return_value = []
+        manager.memory_ops.read_notes.return_value = []
 
         return manager, ChatReflectionGenerator(manager), messages
 
     @pytest.mark.asyncio
-    async def test_valid_preset_scope_ref_accepted(self):
+    async def test_valid_preset_scope_ref_accepted(self, monkeypatch):
         manager, generator, messages = self._setup(
+            monkeypatch,
             '[{"scope": "preset", "scope_ref": "preset-123", "key": "k", '
             '"content": "always uses this preset for portraits"}]'
         )
 
         await generator.reflect("session-1", form_state={"preset": "preset-123", "form_data": {}})
 
-        manager.llm_memory_manager.write_note.assert_called_once_with(
+        manager.memory_ops.write_note.assert_called_once_with(
+            manager.llm_memory_repository,
             user_id="user-1", key="k",
             content="always uses this preset for portraits",
             scope="preset", scope_ref="preset-123",
         )
 
     @pytest.mark.asyncio
-    async def test_valid_model_scope_ref_accepted(self):
+    async def test_valid_model_scope_ref_accepted(self, monkeypatch):
         manager, generator, messages = self._setup(
+            monkeypatch,
             '[{"scope": "model", "scope_ref": "model-1", "key": "k", '
             '"content": "always adds a LoRA with this model"}]'
         )
@@ -312,37 +328,42 @@ class TestReflectScoping:
             form_state={"form_data": {"checkpoint": "model:model-1"}},
         )
 
-        manager.llm_memory_manager.write_note.assert_called_once_with(
+        manager.memory_ops.write_note.assert_called_once_with(
+            manager.llm_memory_repository,
             user_id="user-1", key="k",
             content="always adds a LoRA with this model",
             scope="model", scope_ref="model-1",
         )
 
     @pytest.mark.asyncio
-    async def test_hallucinated_scope_ref_falls_back_to_global(self):
+    async def test_hallucinated_scope_ref_falls_back_to_global(self, monkeypatch):
         manager, generator, messages = self._setup(
+            monkeypatch,
             '[{"scope": "preset", "scope_ref": "preset-999", "key": "k", '
             '"content": "made up preference for a preset never active here"}]'
         )
 
         await generator.reflect("session-1", form_state={"preset": "preset-123", "form_data": {}})
 
-        manager.llm_memory_manager.write_note.assert_called_once_with(
+        manager.memory_ops.write_note.assert_called_once_with(
+            manager.llm_memory_repository,
             user_id="user-1", key="k",
             content="made up preference for a preset never active here",
             scope="global", scope_ref=None,
         )
 
     @pytest.mark.asyncio
-    async def test_no_form_state_everything_lands_global(self):
+    async def test_no_form_state_everything_lands_global(self, monkeypatch):
         manager, generator, messages = self._setup(
+            monkeypatch,
             '[{"scope": "preset", "scope_ref": "preset-123", "key": "k", '
             '"content": "a preference reported with no active context at all"}]'
         )
 
         await generator.reflect("session-1")
 
-        manager.llm_memory_manager.write_note.assert_called_once_with(
+        manager.memory_ops.write_note.assert_called_once_with(
+            manager.llm_memory_repository,
             user_id="user-1", key="k",
             content="a preference reported with no active context at all",
             scope="global", scope_ref=None,

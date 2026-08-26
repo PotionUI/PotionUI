@@ -1,9 +1,9 @@
-"""Tests for LLMMemoryManager."""
+"""Tests for src.features.llm_memory.operations (formerly LLMMemoryManager)."""
 
 import pytest
 from unittest.mock import MagicMock
 
-from src.features.llm_memory.manager import LLMMemoryManager
+from src.features.llm_memory import operations
 from src.features.llm_memory.records import LLMMemoryNote
 
 
@@ -25,9 +25,9 @@ class TestWriteNote:
         repo = MagicMock()
         note = make_note()
         repo.upsert.return_value = note
-        manager = LLMMemoryManager(repository=repo)
 
-        result = manager.write_note(
+        result = operations.write_note(
+            repo,
             user_id="user-1",
             key="test_key",
             content="test content",
@@ -46,9 +46,9 @@ class TestWriteNote:
         repo = MagicMock()
         note = make_note(scope="model", scope_ref="model-1")
         repo.upsert.return_value = note
-        manager = LLMMemoryManager(repository=repo)
 
-        result = manager.write_note(
+        result = operations.write_note(
+            repo,
             user_id="user-1",
             key="model_quirk",
             content="Needs low CFG",
@@ -65,9 +65,9 @@ class TestWriteNote:
         repo = MagicMock()
         note = make_note(scope="preset", scope_ref="preset-1")
         repo.upsert.return_value = note
-        manager = LLMMemoryManager(repository=repo)
 
-        result = manager.write_note(
+        result = operations.write_note(
+            repo,
             user_id="user-1",
             key="preset_quirk",
             content="Prefers 30 steps",
@@ -82,10 +82,10 @@ class TestWriteNote:
 
     def test_model_scope_requires_scope_ref(self):
         repo = MagicMock()
-        manager = LLMMemoryManager(repository=repo)
 
         with pytest.raises(ValueError, match="scope_ref is required"):
-            manager.write_note(
+            operations.write_note(
+            repo,
                 user_id="user-1",
                 key="test",
                 content="test",
@@ -96,10 +96,10 @@ class TestWriteNote:
 
     def test_preset_scope_requires_scope_ref(self):
         repo = MagicMock()
-        manager = LLMMemoryManager(repository=repo)
 
         with pytest.raises(ValueError, match="scope_ref is required"):
-            manager.write_note(
+            operations.write_note(
+            repo,
                 user_id="user-1",
                 key="test",
                 content="test",
@@ -110,10 +110,10 @@ class TestWriteNote:
 
     def test_invalid_scope_raises_error(self):
         repo = MagicMock()
-        manager = LLMMemoryManager(repository=repo)
 
         with pytest.raises(ValueError, match="Invalid scope"):
-            manager.write_note(
+            operations.write_note(
+            repo,
                 user_id="user-1",
                 key="test",
                 content="test",
@@ -124,10 +124,10 @@ class TestWriteNote:
 
     def test_content_over_limit_raises_teaching_error(self):
         repo = MagicMock()
-        manager = LLMMemoryManager(repository=repo)
 
         with pytest.raises(ValueError, match="500 characters"):
-            manager.write_note(
+            operations.write_note(
+            repo,
                 user_id="user-1",
                 key="test",
                 content="x" * 501,
@@ -139,9 +139,8 @@ class TestWriteNote:
         repo = MagicMock()
         note = make_note(content="x" * 500)
         repo.upsert.return_value = note
-        manager = LLMMemoryManager(repository=repo)
 
-        result = manager.write_note(user_id="user-1", key="test", content="x" * 500)
+        result = operations.write_note(repo, user_id="user-1", key="test", content="x" * 500)
 
         assert result == note
         repo.upsert.assert_called_once()
@@ -150,9 +149,9 @@ class TestWriteNote:
         repo = MagicMock()
         note = make_note()
         repo.upsert.return_value = note
-        manager = LLMMemoryManager(repository=repo)
 
-        manager.write_note(
+        operations.write_note(
+            repo,
             user_id="user-1",
             key="test",
             content="test",
@@ -169,9 +168,8 @@ class TestReadNotes:
         repo = MagicMock()
         notes = [make_note(id="n1"), make_note(id="n2")]
         repo.list_notes.return_value = notes
-        manager = LLMMemoryManager(repository=repo)
 
-        result = manager.read_notes(user_id="user-1")
+        result = operations.read_notes(repo, user_id="user-1")
 
         assert result == notes
         repo.list_notes.assert_called_once_with(
@@ -181,9 +179,8 @@ class TestReadNotes:
     def test_reads_with_scope_filter(self):
         repo = MagicMock()
         repo.list_notes.return_value = []
-        manager = LLMMemoryManager(repository=repo)
 
-        manager.read_notes(user_id="user-1", scope="global")
+        operations.read_notes(repo, user_id="user-1", scope="global")
 
         repo.list_notes.assert_called_once_with(
             user_id="user-1", scope="global", scope_ref=None
@@ -192,9 +189,8 @@ class TestReadNotes:
     def test_reads_with_model_filter(self):
         repo = MagicMock()
         repo.list_notes.return_value = []
-        manager = LLMMemoryManager(repository=repo)
 
-        manager.read_notes(user_id="user-1", scope="model", scope_ref="m-1")
+        operations.read_notes(repo, user_id="user-1", scope="model", scope_ref="m-1")
 
         repo.list_notes.assert_called_once_with(
             user_id="user-1", scope="model", scope_ref="m-1"
@@ -203,9 +199,8 @@ class TestReadNotes:
     def test_reads_with_preset_filter(self):
         repo = MagicMock()
         repo.list_notes.return_value = []
-        manager = LLMMemoryManager(repository=repo)
 
-        manager.read_notes(user_id="user-1", scope="preset", scope_ref="p-1")
+        operations.read_notes(repo, user_id="user-1", scope="preset", scope_ref="p-1")
 
         repo.list_notes.assert_called_once_with(
             user_id="user-1", scope="preset", scope_ref="p-1"
@@ -217,9 +212,8 @@ class TestGetNote:
         repo = MagicMock()
         note = make_note()
         repo.get_by_id.return_value = note
-        manager = LLMMemoryManager(repository=repo)
 
-        result = manager.get_note(user_id="user-1", note_id="note-1")
+        result = operations.get_note(repo, user_id="user-1", note_id="note-1")
 
         assert result == note
         repo.get_by_id.assert_called_once_with("note-1", "user-1")
@@ -227,9 +221,8 @@ class TestGetNote:
     def test_returns_none_when_not_found(self):
         repo = MagicMock()
         repo.get_by_id.return_value = None
-        manager = LLMMemoryManager(repository=repo)
 
-        result = manager.get_note(user_id="user-1", note_id="missing")
+        result = operations.get_note(repo, user_id="user-1", note_id="missing")
 
         assert result is None
 
@@ -239,9 +232,8 @@ class TestUpdateNote:
         repo = MagicMock()
         note = make_note(key="new_key", content="new content")
         repo.update.return_value = note
-        manager = LLMMemoryManager(repository=repo)
 
-        result = manager.update_note(user_id="user-1", note_id="note-1", key="new_key", content="new content")
+        result = operations.update_note(repo, user_id="user-1", note_id="note-1", key="new_key", content="new content")
 
         assert result == note
         repo.update.assert_called_once_with("note-1", "user-1", "new_key", "new content")
@@ -249,18 +241,16 @@ class TestUpdateNote:
     def test_returns_none_when_not_found(self):
         repo = MagicMock()
         repo.update.return_value = None
-        manager = LLMMemoryManager(repository=repo)
 
-        result = manager.update_note(user_id="user-1", note_id="missing", key="k", content="c")
+        result = operations.update_note(repo, user_id="user-1", note_id="missing", key="k", content="c")
 
         assert result is None
 
     def test_content_over_limit_raises_teaching_error(self):
         repo = MagicMock()
-        manager = LLMMemoryManager(repository=repo)
 
         with pytest.raises(ValueError, match="500 characters"):
-            manager.update_note(user_id="user-1", note_id="note-1", key="k", content="x" * 501)
+            operations.update_note(repo, user_id="user-1", note_id="note-1", key="k", content="x" * 501)
 
         repo.update.assert_not_called()
 
@@ -270,9 +260,8 @@ class TestGetNoteByKey:
         repo = MagicMock()
         note = make_note()
         repo.get_by_key.return_value = note
-        manager = LLMMemoryManager(repository=repo)
 
-        result = manager.get_note_by_key(user_id="user-1", key="test_key", scope="global")
+        result = operations.get_note_by_key(repo, user_id="user-1", key="test_key", scope="global")
 
         assert result == note
         repo.get_by_key.assert_called_once_with("user-1", "test_key", "global", None)
@@ -281,9 +270,9 @@ class TestGetNoteByKey:
         repo = MagicMock()
         note = make_note(scope="model", scope_ref="model-1")
         repo.get_by_key.return_value = note
-        manager = LLMMemoryManager(repository=repo)
 
-        result = manager.get_note_by_key(
+        result = operations.get_note_by_key(
+            repo,
             user_id="user-1", key="quirk", scope="model", scope_ref="model-1",
         )
 
@@ -293,36 +282,32 @@ class TestGetNoteByKey:
     def test_returns_none_on_miss(self):
         repo = MagicMock()
         repo.get_by_key.return_value = None
-        manager = LLMMemoryManager(repository=repo)
 
-        result = manager.get_note_by_key(user_id="user-1", key="missing", scope="global")
+        result = operations.get_note_by_key(repo, user_id="user-1", key="missing", scope="global")
 
         assert result is None
 
     def test_invalid_scope_raises_error(self):
         repo = MagicMock()
-        manager = LLMMemoryManager(repository=repo)
 
         with pytest.raises(ValueError, match="Invalid scope"):
-            manager.get_note_by_key(user_id="user-1", key="k", scope="bogus")
+            operations.get_note_by_key(repo, user_id="user-1", key="k", scope="bogus")
 
         repo.get_by_key.assert_not_called()
 
     def test_preset_scope_requires_scope_ref(self):
         repo = MagicMock()
-        manager = LLMMemoryManager(repository=repo)
 
         with pytest.raises(ValueError, match="scope_ref is required"):
-            manager.get_note_by_key(user_id="user-1", key="k", scope="preset")
+            operations.get_note_by_key(repo, user_id="user-1", key="k", scope="preset")
 
         repo.get_by_key.assert_not_called()
 
     def test_model_scope_rejects_empty_string_scope_ref(self):
         repo = MagicMock()
-        manager = LLMMemoryManager(repository=repo)
 
         with pytest.raises(ValueError, match="scope_ref is required"):
-            manager.get_note_by_key(user_id="user-1", key="k", scope="model", scope_ref="")
+            operations.get_note_by_key(repo, user_id="user-1", key="k", scope="model", scope_ref="")
 
         repo.get_by_key.assert_not_called()
 
@@ -331,9 +316,8 @@ class TestDeleteNote:
     def test_deletes_note(self):
         repo = MagicMock()
         repo.delete.return_value = True
-        manager = LLMMemoryManager(repository=repo)
 
-        result = manager.delete_note(user_id="user-1", note_id="note-1")
+        result = operations.delete_note(repo, user_id="user-1", note_id="note-1")
 
         assert result is True
         repo.delete.assert_called_once_with("note-1", "user-1")
@@ -341,8 +325,7 @@ class TestDeleteNote:
     def test_returns_false_when_not_found(self):
         repo = MagicMock()
         repo.delete.return_value = False
-        manager = LLMMemoryManager(repository=repo)
 
-        result = manager.delete_note(user_id="user-1", note_id="missing")
+        result = operations.delete_note(repo, user_id="user-1", note_id="missing")
 
         assert result is False

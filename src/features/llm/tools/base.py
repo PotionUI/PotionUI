@@ -83,7 +83,7 @@ class ToolContext:
     llm_repository: Any = None
     prompt_database_manager: Any = None
     generation_orchestrator: Any = None
-    llm_memory_manager: Any = None
+    llm_memory_repository: Any = None
     prompt_enhancement_manager: Any = None
     media_index_manager: Any = None
     # Needed to resolve the user's storage root when a tool validates a media

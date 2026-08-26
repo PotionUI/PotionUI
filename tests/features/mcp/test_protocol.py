@@ -1,5 +1,6 @@
-"""McpProtocolManager: JSON-RPC dispatch, tool exposure (governance +
-exclusion list), and the approval-gated -> execute_confirmed shortcut.
+"""src.features.mcp.protocol (formerly McpProtocolManager): JSON-RPC
+dispatch, tool exposure (governance + exclusion list), and the
+approval-gated -> execute_confirmed shortcut.
 """
 
 import json
@@ -17,7 +18,8 @@ from src.features.mcp.protocol import (
     INVALID_REQUEST,
     METHOD_NOT_FOUND,
     JsonRpcError,
-    McpProtocolManager,
+    McpToolCollaborators,
+    handle_method,
     parse_jsonrpc_request,
 )
 
@@ -122,12 +124,12 @@ def protocol(mcp_db):
     registry.register(_ApprovalTool())
     registry.register(_StubExcludedTool())
     governance_repo = ToolGovernanceRepository()
-    manager = McpProtocolManager(
+    collaborators = McpToolCollaborators(
         tool_registry=registry,
         tool_governance_repository=governance_repo,
         llm_repository=_no_default_config(),
     )
-    return manager, registry, governance_repo
+    return collaborators, registry, governance_repo
 
 
 class TestParseJsonRpcRequest:
@@ -165,42 +167,42 @@ class TestParseJsonRpcRequest:
 class TestHandleMethod:
     @pytest.mark.asyncio
     async def test_initialize_returns_capabilities_and_server_info(self, protocol):
-        manager, _registry, _gov = protocol
-        result = await manager.handle_method("initialize", {"protocolVersion": "2025-06-18"}, "user-1")
+        collaborators, _registry, _gov = protocol
+        result = await handle_method(collaborators, "initialize", {"protocolVersion": "2025-06-18"}, "user-1")
         assert result["protocolVersion"] == "2025-06-18"
         assert result["capabilities"] == {"tools": {}}
         assert result["serverInfo"]["name"] == "potionui"
 
     @pytest.mark.asyncio
     async def test_initialize_falls_back_to_default_version_for_an_unknown_request(self, protocol):
-        manager, _registry, _gov = protocol
-        result = await manager.handle_method("initialize", {"protocolVersion": "1999-01-01"}, "user-1")
+        collaborators, _registry, _gov = protocol
+        result = await handle_method(collaborators, "initialize", {"protocolVersion": "1999-01-01"}, "user-1")
         assert result["protocolVersion"] == "2025-06-18"
 
     @pytest.mark.asyncio
     async def test_notifications_initialized_returns_none(self, protocol):
-        manager, _registry, _gov = protocol
-        result = await manager.handle_method("notifications/initialized", {}, "user-1")
+        collaborators, _registry, _gov = protocol
+        result = await handle_method(collaborators, "notifications/initialized", {}, "user-1")
         assert result is None
 
     @pytest.mark.asyncio
     async def test_ping_returns_empty_object(self, protocol):
-        manager, _registry, _gov = protocol
-        assert await manager.handle_method("ping", {}, "user-1") == {}
+        collaborators, _registry, _gov = protocol
+        assert await handle_method(collaborators, "ping", {}, "user-1") == {}
 
     @pytest.mark.asyncio
     async def test_unknown_method_is_method_not_found(self, protocol):
-        manager, _registry, _gov = protocol
+        collaborators, _registry, _gov = protocol
         with pytest.raises(JsonRpcError) as exc:
-            await manager.handle_method("nonexistent/method", {}, "user-1")
+            await handle_method(collaborators, "nonexistent/method", {}, "user-1")
         assert exc.value.code == METHOD_NOT_FOUND
 
 
 class TestListTools:
     @pytest.mark.asyncio
     async def test_normal_tools_are_listed_with_mcp_shaped_schema(self, protocol):
-        manager, _registry, _gov = protocol
-        result = await manager.handle_method("tools/list", {}, "user-1")
+        collaborators, _registry, _gov = protocol
+        result = await handle_method(collaborators, "tools/list", {}, "user-1")
         names = {t["name"] for t in result["tools"]}
         assert "echo" in names
         echo = next(t for t in result["tools"] if t["name"] == "echo")
@@ -209,8 +211,8 @@ class TestListTools:
 
     @pytest.mark.asyncio
     async def test_hardcoded_excluded_tool_never_appears(self, protocol):
-        manager, _registry, _gov = protocol
-        result = await manager.handle_method("tools/list", {}, "user-1")
+        collaborators, _registry, _gov = protocol
+        result = await handle_method(collaborators, "tools/list", {}, "user-1")
         names = {t["name"] for t in result["tools"]}
         assert "get_form_state" not in names
 
@@ -229,10 +231,10 @@ class TestListTools:
         governance_repo.upsert_config("cfg-default", "echo", enabled=False)
         llm_repository = Mock()
         llm_repository.get_default_configuration.return_value = SimpleNamespace(id="cfg-default")
-        manager = McpProtocolManager(
+        collaborators = McpToolCollaborators(
             tool_registry=registry, tool_governance_repository=governance_repo, llm_repository=llm_repository,
         )
-        result = await manager.handle_method("tools/list", {}, "user-1")
+        result = await handle_method(collaborators, "tools/list", {}, "user-1")
         assert result["tools"] == []
 
     @pytest.mark.asyncio
@@ -241,11 +243,11 @@ class TestListTools:
         registry.register(_EchoTool())
         governance_repo = ToolGovernanceRepository()
         governance_repo.set_user_disabled("user-1", "echo", True)
-        manager = McpProtocolManager(
+        collaborators = McpToolCollaborators(
             tool_registry=registry, tool_governance_repository=governance_repo, llm_repository=_no_default_config(),
         )
-        mine = await manager.handle_method("tools/list", {}, "user-1")
-        theirs = await manager.handle_method("tools/list", {}, "user-2")
+        mine = await handle_method(collaborators, "tools/list", {}, "user-1")
+        theirs = await handle_method(collaborators, "tools/list", {}, "user-2")
         assert mine["tools"] == []
         assert {t["name"] for t in theirs["tools"]} == {"echo"}
 
@@ -253,45 +255,45 @@ class TestListTools:
 class TestCallTool:
     @pytest.mark.asyncio
     async def test_happy_path_returns_text_content(self, protocol):
-        manager, _registry, _gov = protocol
-        result = await manager.handle_method(
-            "tools/call", {"name": "echo", "arguments": {"text": "hello"}}, "user-1"
+        collaborators, _registry, _gov = protocol
+        result = await handle_method(
+            collaborators, "tools/call", {"name": "echo", "arguments": {"text": "hello"}}, "user-1"
         )
         assert result["isError"] is False
         assert result["content"] == [{"type": "text", "text": "hello"}]
 
     @pytest.mark.asyncio
     async def test_unknown_tool_name_is_invalid_params(self, protocol):
-        manager, _registry, _gov = protocol
+        collaborators, _registry, _gov = protocol
         with pytest.raises(JsonRpcError) as exc:
-            await manager.handle_method("tools/call", {"name": "does_not_exist"}, "user-1")
+            await handle_method(collaborators, "tools/call", {"name": "does_not_exist"}, "user-1")
         assert exc.value.code == INVALID_PARAMS
 
     @pytest.mark.asyncio
     async def test_calling_an_excluded_tool_is_invalid_params(self, protocol):
-        manager, _registry, _gov = protocol
+        collaborators, _registry, _gov = protocol
         with pytest.raises(JsonRpcError) as exc:
-            await manager.handle_method("tools/call", {"name": "get_form_state"}, "user-1")
+            await handle_method(collaborators, "tools/call", {"name": "get_form_state"}, "user-1")
         assert exc.value.code == INVALID_PARAMS
 
     @pytest.mark.asyncio
     async def test_missing_name_param_is_invalid_params(self, protocol):
-        manager, _registry, _gov = protocol
+        collaborators, _registry, _gov = protocol
         with pytest.raises(JsonRpcError) as exc:
-            await manager.handle_method("tools/call", {}, "user-1")
+            await handle_method(collaborators, "tools/call", {}, "user-1")
         assert exc.value.code == INVALID_PARAMS
 
     @pytest.mark.asyncio
     async def test_a_raising_tool_comes_back_as_iserror_not_a_protocol_error(self, protocol):
-        manager, _registry, _gov = protocol
-        result = await manager.handle_method("tools/call", {"name": "boom"}, "user-1")
+        collaborators, _registry, _gov = protocol
+        result = await handle_method(collaborators, "tools/call", {"name": "boom"}, "user-1")
         assert result["isError"] is True
         assert "kaboom" in result["content"][0]["text"]
 
     @pytest.mark.asyncio
     async def test_approval_gated_tool_runs_execute_confirmed_directly(self, protocol):
-        manager, _registry, _gov = protocol
-        result = await manager.handle_method("tools/call", {"name": "approve_me"}, "user-1")
+        collaborators, _registry, _gov = protocol
+        result = await handle_method(collaborators, "tools/call", {"name": "approve_me"}, "user-1")
         assert result["isError"] is False
         assert result["content"] == [{"type": "text", "text": "applied!"}]
 
@@ -308,29 +310,29 @@ class TestRealOrganizationToolsOverMcp:
         register_builtin_tools(registry)
         governance_repo = ToolGovernanceRepository()
         collection_repository = Mock()
-        manager = McpProtocolManager(
+        collaborators = McpToolCollaborators(
             tool_registry=registry,
             tool_governance_repository=governance_repo,
             llm_repository=_no_default_config(),
             collection_repository=collection_repository,
         )
-        return manager, collection_repository
+        return collaborators, collection_repository
 
     @pytest.mark.asyncio
     async def test_all_three_appear_in_tools_list(self, real_protocol):
-        manager, _collection_repository = real_protocol
-        result = await manager.handle_method("tools/list", {}, "user-1")
+        collaborators, _collection_repository = real_protocol
+        result = await handle_method(collaborators, "tools/list", {}, "user-1")
         names = {t["name"] for t in result["tools"]}
         assert {"manage_collections", "organize_gallery", "start_generation"} <= names
 
     @pytest.mark.asyncio
     async def test_manage_collections_list_runs_end_to_end(self, real_protocol):
-        manager, collection_repository = real_protocol
+        collaborators, collection_repository = real_protocol
         collection = SimpleNamespace(to_dict=lambda: {"id": "col-1", "name": "Favorites"})
         collection_repository.list.return_value = [collection]
 
-        result = await manager.handle_method(
-            "tools/call",
+        result = await handle_method(
+            collaborators, "tools/call",
             {"name": "manage_collections", "arguments": {"operation": "list", "scope": "history"}},
             "user-1",
         )

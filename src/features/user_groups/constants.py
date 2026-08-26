@@ -5,7 +5,7 @@ Seeded by `src.platform.database.migrations.095_seed_default_user_groups`
 with these exact ids - stable strings rather than `generate_ulid()` output so
 code can reference "the everyone group" without a lookup, the same way
 `src.features.automation.triggers.hook_bridge.DISPATCHER_PLUGIN_ID` or a
-keybinding default's fixed id (e.g. `'quick_search'`, migration 046) is a
+keybinding default's fixed id (e.g. `'show_help'`, migration 001) is a
 well-known constant rather than a generated one.
 
 Referenced directly by `UserRepository.create_claiming_instance`

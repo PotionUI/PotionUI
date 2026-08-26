@@ -55,7 +55,7 @@ EXPECTED_TABLES = {
 }
 
 EXPECTED_KEYBINDING_IDS = {
-    'show_help', 'open_chat', 'quick_search', 'toggle_sidebar',
+    'show_help', 'open_chat', 'toggle_sidebar',
     'open_quick_actions', 'start_generation', 'new_tab', 'close_tab',
     'toggle_left_panel', 'go_generate', 'go_history', 'go_library',
     'go_models', 'go_phrasebook', 'go_prompts', 'go_inspirations',

@@ -8,7 +8,7 @@ schema those 143 files produced when run in sequence against a fresh
 database - every table, index, and trigger, byte-identical DDL, dumped from a
 real run of the old chain and pinned here - plus reseeds the handful of
 tables that carried default data rather than pure schema on a fresh install:
-`settings` (SYSTEM/USER defaults), `keybinding_defaults` (the 16 built-in
+`settings` (SYSTEM/USER defaults), `keybinding_defaults` (the built-in
 shortcuts), and `user_groups` (the two built-in groups, `all_admins` and
 `all_users`). Every other table starts empty on a fresh install, exactly as
 it did after the old chain - there is nothing else to reseed.
@@ -27,6 +27,11 @@ be set per-connection, never in a migration), and `cache_size`/`mmap_size`
 are exactly as connection-scoped, so setting them once during a migration's
 single connection never had any lasting effect in the old chain either - it
 only warmed the one connection the migration itself was running on.
+
+`keybinding_defaults` seeds 15 rows here, not the 16 the old chain produced -
+`quick_search` was dropped by `003_remove_quick_search_keybinding.py` for
+every database that already ran this baseline, so a fresh install is seeded
+without it from the start rather than seeded-then-deleted.
 
 WHY A SQUASH: 143 sequential files is 143 imports, 143 tiny transactions, and
 143 opportunities for drift between what a file says today and what actually
@@ -410,7 +415,7 @@ TRIGGER_DDL = [
     'CREATE TRIGGER update_users_updated_at \n            AFTER UPDATE ON users \n            FOR EACH ROW \n            BEGIN \n                UPDATE users SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;\n            END',
 ]
 
-KEYBINDING_ROWS = [('show_help', '?', '', 'Show Keyboard Shortcuts', 'general', 'global', 'Display all available keyboard shortcuts', 0), ('open_chat', 'c', '', 'Open AI Chat', 'general', 'global', 'Toggle the AI chat panel', 1), ('quick_search', '/', '', 'Quick Search', 'general', 'global', 'Open quick search dialog', 2), ('toggle_sidebar', 'b', '', 'Toggle Sidebar', 'general', 'global', 'Show or hide the sidebar', 3), ('open_quick_actions', 'a', '', 'Open Quick Actions', 'general', 'global', 'Open the plugin quick-actions palette', 4), ('start_generation', 'g', '', 'Start Generation', 'generation', 'generate', 'Start image generation', 10), ('new_tab', 't', '', 'New Tab', 'generation', 'generate', 'Open a new generation tab', 11), ('close_tab', 'x', '', 'Close Tab', 'generation', 'generate', 'Close current generation tab', 12), ('toggle_left_panel', 'f', '', 'Toggle Form Panel', 'generation', 'generate', 'Fold or unfold the left generation form panel', 13), ('go_generate', '1', '', 'Go to Generate', 'navigation', 'global', 'Navigate to Generate page', 20), ('go_history', '2', '', 'Go to History', 'navigation', 'global', 'Navigate to History page', 21), ('go_library', '3', '', 'Go to Library', 'navigation', 'global', 'Navigate to Library page', 22), ('go_models', '4', '', 'Go to Models', 'navigation', 'global', 'Navigate to Models page', 23), ('go_phrasebook', '5', '', 'Go to Phrasebook', 'navigation', 'global', 'Navigate to Phrasebook page', 24), ('go_prompts', '6', '', 'Go to Prompts', 'navigation', 'global', 'Navigate to Prompts page', 25), ('go_inspirations', '7', '', 'Go to Inspirations', 'navigation', 'global', 'Navigate to Inspirations page', 26)]
+KEYBINDING_ROWS = [('show_help', '?', '', 'Show Keyboard Shortcuts', 'general', 'global', 'Display all available keyboard shortcuts', 0), ('open_chat', 'c', '', 'Open AI Chat', 'general', 'global', 'Toggle the AI chat panel', 1), ('toggle_sidebar', 'b', '', 'Toggle Sidebar', 'general', 'global', 'Show or hide the sidebar', 3), ('open_quick_actions', 'a', '', 'Open Quick Actions', 'general', 'global', 'Open the plugin quick-actions palette', 4), ('start_generation', 'g', '', 'Start Generation', 'generation', 'generate', 'Start image generation', 10), ('new_tab', 't', '', 'New Tab', 'generation', 'generate', 'Open a new generation tab', 11), ('close_tab', 'x', '', 'Close Tab', 'generation', 'generate', 'Close current generation tab', 12), ('toggle_left_panel', 'f', '', 'Toggle Form Panel', 'generation', 'generate', 'Fold or unfold the left generation form panel', 13), ('go_generate', '1', '', 'Go to Generate', 'navigation', 'global', 'Navigate to Generate page', 20), ('go_history', '2', '', 'Go to History', 'navigation', 'global', 'Navigate to History page', 21), ('go_library', '3', '', 'Go to Library', 'navigation', 'global', 'Navigate to Library page', 22), ('go_models', '4', '', 'Go to Models', 'navigation', 'global', 'Navigate to Models page', 23), ('go_phrasebook', '5', '', 'Go to Phrasebook', 'navigation', 'global', 'Navigate to Phrasebook page', 24), ('go_prompts', '6', '', 'Go to Prompts', 'navigation', 'global', 'Navigate to Prompts page', 25), ('go_inspirations', '7', '', 'Go to Inspirations', 'navigation', 'global', 'Navigate to Inspirations page', 26)]
 
 USER_GROUP_ROWS = [('all_admins', 'All Admins', "Every administrator on this instance. Built in - can't be deleted."), ('all_users', 'All Users', "Every account on this instance. Built in - can't be deleted.")]
 

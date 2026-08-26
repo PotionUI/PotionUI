@@ -67,12 +67,12 @@ describe('shortcutLabels', () => {
 	it('omits bindings with no key', async () => {
 		mockGetKeybindings.mockResolvedValue({
 			success: true,
-			data: { keybindings: [apiBinding({ action_id: 'quick_search', key: null })] }
+			data: { keybindings: [apiBinding({ action_id: 'go_prompts', key: null })] }
 		});
 
 		await keybindingsStore.loadBindings();
 
-		expect(get(shortcutLabels)).not.toHaveProperty('quick_search');
+		expect(get(shortcutLabels)).not.toHaveProperty('go_prompts');
 	});
 
 	it('omits disabled bindings', async () => {

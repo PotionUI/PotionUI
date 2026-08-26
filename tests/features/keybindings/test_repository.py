@@ -35,7 +35,6 @@ class TestKeybindingRepository(PersistenceTestBase):
         self.assertIn('show_help', ids)
         self.assertIn('open_chat', ids)
         self.assertIn('start_generation', ids)
-        self.assertIn('quick_search', ids)
         self.assertIn('go_generate', ids)
         self.assertIn('go_history', ids)
         self.assertIn('go_models', ids)

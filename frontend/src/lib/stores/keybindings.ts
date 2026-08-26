@@ -43,7 +43,7 @@ function createKeybindingsStore() {
 				const response = await api.getKeybindings();
 				if (response.success && response.data) {
 					const apiBindings = response.data.keybindings || response.data;
-				const bindings: KeybindingAction[] = apiBindings.map((b: any) => ({
+					const bindings: KeybindingAction[] = apiBindings.map((b: any) => ({
 						actionId: b.action_id,
 						key: b.key,
 						modifiers: b.modifiers || '',

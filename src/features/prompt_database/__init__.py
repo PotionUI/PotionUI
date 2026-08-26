@@ -7,7 +7,7 @@ pair or generation configuration.
 
 `operations` (`operations/`) drives prompt mutations, search, and embedding
 on behalf of `PromptDatabaseController` (`routes.py`) and outside callers
-(the chat/MCP saved-prompts tools, `PromptEnhancementManager`,
+(the chat/MCP saved-prompts tools, `src.features.prompt_enhancement.operations`,
 `src.plugin_api.prompts`): module-level functions taking a
 `PromptDatabaseCollaborators` bundle (`collaborators.py`) as their leading
 arg.

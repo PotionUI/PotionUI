@@ -29,7 +29,7 @@ def _notify_plugin_lifecycle(level: str, title: str, message: str) -> None:
     """
     try:
         from src.platform.plugins.runtime_registries import get_global_notification_manager
-        get_global_notification_manager().notify(
+        get_global_notification_manager()(
             level=level,
             title=title,
             message=message,

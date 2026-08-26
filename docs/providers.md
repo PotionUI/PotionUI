@@ -86,10 +86,10 @@ The methods that matter: `initialize(settings)`, `get_model_by_hash(sha256)`,
 
 ## Where providers are used
 
-- `ModelIndexManager.fetch_provider_info` / `run_provider_fetch`
-  (`src/features/models/manager.py`) — fetch and store model metadata. It raises if the
-  named provider is not registered or not initialized, telling the admin to install and
-  configure the plugin.
+- `operations.fetch_provider_info` / `run_provider_fetch`
+  (`src/features/models/operations.py`, dispatching onto `ProviderInfoFetcher`) — fetch and
+  store model metadata. It raises if the named provider is not registered or not
+  initialized, telling the admin to install and configure the plugin.
 - The core download queue's worker (`src/features/downloads/worker.py`) — authenticated downloads.
 - The automation action `action.fetch_provider_metadata`, which takes a `provider` name in
   its config. It replaced `action.fetch_civitai_metadata`, which hardcoded one marketplace;

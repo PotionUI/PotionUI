@@ -6,7 +6,7 @@ import pytest
 
 from src.platform.http.origin import is_loopback_host
 from src.platform.security.claim_token import ClaimTokenManager, CLAIM_TOKEN_FILENAME
-from src.features.setup.manager import SetupManager
+from src.features.setup import operations
 
 
 # --- loopback detection ----------------------------------------------------
@@ -64,45 +64,50 @@ def test_verify_and_clear(tmp_path):
 
 # --- setup status ----------------------------------------------------------
 
-def _setup_manager(claimed, policy="closed", token_exists=False):
+def _collaborators(claimed, policy="closed", token_exists=False):
     claim = Mock()
     claim.is_claimed.return_value = claimed
     settings = Mock()
     settings.get_setting.return_value = policy
     tokens = Mock()
     tokens.exists.return_value = token_exists
-    return SetupManager(claim, tokens, settings)
+    return claim, tokens, settings
 
 
 def test_status_unclaimed_loopback():
-    status = _setup_manager(claimed=False, token_exists=True).status(is_loopback=True)
+    claim, tokens, settings = _collaborators(claimed=False, token_exists=True)
+    status = operations.status(claim, tokens, settings, is_loopback=True)
     assert status.needs_owner is True
     assert status.registration_open is True          # always open while unclaimed
     assert status.claim_requires_token is False       # loopback is trusted
 
 
 def test_status_unclaimed_remote_with_token():
-    status = _setup_manager(claimed=False, token_exists=True).status(is_loopback=False)
+    claim, tokens, settings = _collaborators(claimed=False, token_exists=True)
+    status = operations.status(claim, tokens, settings, is_loopback=False)
     assert status.needs_owner is True
     assert status.claim_requires_token is True
 
 
 def test_status_claimed_closed():
-    status = _setup_manager(claimed=True, policy="closed").status(is_loopback=True)
+    claim, tokens, settings = _collaborators(claimed=True, policy="closed")
+    status = operations.status(claim, tokens, settings, is_loopback=True)
     assert status.needs_owner is False
     assert status.registration_open is False
     assert status.claim_requires_token is False
 
 
 def test_status_claimed_open():
-    status = _setup_manager(claimed=True, policy="open").status(is_loopback=False)
+    claim, tokens, settings = _collaborators(claimed=True, policy="open")
+    status = operations.status(claim, tokens, settings, is_loopback=False)
     assert status.needs_owner is False
     assert status.registration_open is True
 
 
 def test_status_exposes_only_three_booleans():
     """The public payload must leak nothing about the host."""
-    status = _setup_manager(claimed=False).status(is_loopback=True)
+    claim, tokens, settings = _collaborators(claimed=False)
+    status = operations.status(claim, tokens, settings, is_loopback=True)
     assert set(status.model_dump().keys()) == {
         "needs_owner", "registration_open", "claim_requires_token"
     }

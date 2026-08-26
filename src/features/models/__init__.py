@@ -2,11 +2,11 @@
 Model index module for PotionUI.
 
 This module provides model indexing functionality including:
-- ModelIndexManager: Orchestrates model index operations with business logic
+- ModelIndexCollaborators: bundles the focused role classes that do the work
 - Domain exceptions: ModelIndexException and specific subtypes
 """
 
-from src.features.models.manager import ModelIndexManager
+from src.features.models.collaborators import ModelIndexCollaborators, build_model_index_collaborators
 from src.features.models.exceptions import (
     ModelIndexException,
     ModelNotFoundException,
@@ -21,8 +21,9 @@ from src.features.models.exceptions import (
 )
 
 __all__ = [
-    # Main classes
-    "ModelIndexManager",
+    # Collaborators bundle
+    "ModelIndexCollaborators",
+    "build_model_index_collaborators",
 
     # Exceptions
     "ModelIndexException",

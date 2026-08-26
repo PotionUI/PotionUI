@@ -38,8 +38,8 @@ class TestNotifyCompletion:
             "gen-1", _record(GenerationState.COMPLETED), _generation(), duration=1.0
         )
 
-        manager.notify.assert_called_once()
-        kwargs = manager.notify.call_args.kwargs
+        manager.assert_called_once()
+        kwargs = manager.call_args.kwargs
         assert kwargs["title"] == "Generation completed"
         assert kwargs["type"] == "generation.completed"
 
@@ -52,7 +52,7 @@ class TestNotifyCompletion:
             "gen-1", _record(GenerationState.FAILED, error="boom"), _generation(), duration=1.0
         )
 
-        manager.notify.assert_not_called()
+        manager.assert_not_called()
 
     def test_cancelled_state_does_not_notify(self):
         manager = Mock()
@@ -62,7 +62,7 @@ class TestNotifyCompletion:
             "gen-1", _record(GenerationState.CANCELLED), _generation(), duration=1.0
         )
 
-        manager.notify.assert_not_called()
+        manager.assert_not_called()
 
     def test_no_notification_manager_is_a_noop(self):
         notifier = GenerationNotifier(notification_manager=None)
@@ -79,11 +79,11 @@ class TestNotifyCompletion:
             "gen-1", _record(GenerationState.COMPLETED), _generation(user_id=None), duration=1.0
         )
 
-        manager.notify.assert_not_called()
+        manager.assert_not_called()
 
     def test_notify_exception_is_swallowed(self):
         manager = Mock()
-        manager.notify.side_effect = RuntimeError("ws down")
+        manager.side_effect = RuntimeError("ws down")
         notifier = GenerationNotifier(notification_manager=manager)
 
         # Must not raise: a notification failure can't break generation completion.
@@ -105,8 +105,8 @@ class TestNotifyFailure:
         ):
             notifier.notify_failure("gen-1", "boom", detail="stack trace")
 
-        global_manager.notify.assert_called_once()
-        kwargs = global_manager.notify.call_args.kwargs
+        global_manager.assert_called_once()
+        kwargs = global_manager.call_args.kwargs
         assert kwargs["title"] == "Generation failed"
         assert kwargs["type"] == "generation.failed"
         assert kwargs["metadata"]["detail"] == "stack trace"
@@ -139,4 +139,4 @@ class TestNotifyFailure:
             "gen-1", _record(GenerationState.FAILED, error="boom"), _generation(), duration=1.0
         )
 
-        assert shared_manager.notify.call_count == 1
+        assert shared_manager.call_count == 1

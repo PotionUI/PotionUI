@@ -25,7 +25,7 @@ from src.features.inspirations.collaborators import InspirationCollaborators
 from src.features.inspirations.repository import InspirationRepository
 from src.features.media.file_resolver import FilePathResolver
 from src.features.media.upload_repository import UploadRepository
-from src.features.notifications.manager import NotificationManager
+from src.features.notifications import operations as notification_operations
 from src.features.presets.templates import FieldTemplate, FormTemplate, ModeTemplate, PresetTemplate
 from src.platform.filesystem import FileStore
 from src.platform.filesystem.storage_driver import LocalFileStorageDriver
@@ -118,7 +118,9 @@ class InspirationTestBase(PersistenceTestBase):
         self.file_resolver = FilePathResolver(_StorageDirSettings(self.storage_dir))
         self.storage_driver = LocalFileStorageDriver(str(self.storage_dir))
         self.inspiration_repository = InspirationRepository()
-        self.notification_manager = Mock(spec=NotificationManager)
+        # A bound callable (`functools.partial(operations.notify, collaborators)`),
+        # not a class instance - see src.bootstrap.container.
+        self.notification_manager = Mock(spec=notification_operations.notify)
         self.preset_name_resolver = _FakePresetNameResolver({"preset-1": "My Cool Preset"})
         self.preset_template_loader = _FakePresetTemplateLoader({"preset-1": _preset_template()})
         self.field_type_registry = FieldTypeRegistry()
@@ -414,8 +416,8 @@ class TestComments(InspirationTestBase):
 
         operations.add_comment(self.collaborators, insp.id, self.other_user_id, "nice work")
 
-        self.notification_manager.notify.assert_called_once()
-        kwargs = self.notification_manager.notify.call_args.kwargs
+        self.notification_manager.assert_called_once()
+        kwargs = self.notification_manager.call_args.kwargs
         self.assertEqual(kwargs["user_id"], self.user_id)
         self.assertEqual(kwargs["type"], "inspiration.comment")
 
@@ -425,7 +427,7 @@ class TestComments(InspirationTestBase):
 
         operations.add_comment(self.collaborators, insp.id, self.user_id, "self note")
 
-        self.notification_manager.notify.assert_not_called()
+        self.notification_manager.assert_not_called()
 
     def test_delete_comment_by_author_or_admin_only(self):
         generation_id, file_record, source = self._generated_file()

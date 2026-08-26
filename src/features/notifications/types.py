@@ -4,7 +4,7 @@ Notification type registry.
 Mirrors `src.features.generation.output_types.OutputTypeRegistry`: a single
 declaration point for each kind of notification a producer (core or plugin)
 can raise. Each type has a stable string `key` (e.g. "generation.completed"),
-used both by producers (`NotificationManager.notify(..., type=...)`) and by
+used both by producers (`src.features.notifications.operations.notify(..., type=...)`) and by
 per-user preferences (`{"types": {"<key>": bool}}`) to decide whether a
 notification of that type should be delivered to a given user at all.
 

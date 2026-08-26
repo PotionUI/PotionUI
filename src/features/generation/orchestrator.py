@@ -37,7 +37,6 @@ from functools import partial
 from typing import Dict, Any, List, Optional, Callable, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from src.features.notifications.manager import NotificationManager
     from src.features.presets.repository import DatabasePresetRepository
     from src.features.models.access_policy import ModelAccessPolicy
     from src.features.users.repository import UserRepository
@@ -342,7 +341,7 @@ class GenerationOrchestrator:
         preset_template_loader: PresetTemplateLoader,
         status_tracker: Optional[GenerationStatusTracker] = None,
         plugin_registry: Optional['PluginRegistry'] = None,
-        notification_manager: Optional['NotificationManager'] = None,
+        notification_manager: Optional[Callable[..., Any]] = None,
         database_preset_repository: Optional['DatabasePresetRepository'] = None,
         model_access_policy: Optional['ModelAccessPolicy'] = None,
         user_repository: Optional['UserRepository'] = None,

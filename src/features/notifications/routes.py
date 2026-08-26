@@ -3,7 +3,7 @@ Notification Controller
 
 Handles per-user notification REST endpoints and the `/ws/notifications`
 real-time channel. Thin route handlers delegate to NotificationController;
-business logic lives in NotificationManager.
+business logic lives in `src.features.notifications.operations`.
 """
 import logging
 import uuid
@@ -13,8 +13,8 @@ from fastapi import APIRouter, Query, Depends, WebSocket, WebSocketDisconnect
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user
 from src.features.notifications.dto import CreateNotificationRequest, UpdateNotificationPreferencesRequest
-from src.features.notifications import NotificationManager
-from src.features.notifications.repository import NotificationRepository
+from src.features.notifications import NotificationCollaborators
+from src.features.notifications import operations
 from src.platform.security.user import User
 from src.platform.websocket.notification_connection_manager import notification_connection_manager
 
@@ -32,10 +32,10 @@ class NotificationController(BaseController):
     reason about broadcasts.
     """
 
-    def __init__(self, notification_manager: NotificationManager, notification_repository: NotificationRepository):
+    def __init__(self, collaborators: NotificationCollaborators):
         super().__init__()
-        self.manager = notification_manager
-        self.repository = notification_repository
+        self.collaborators = collaborators
+        self.repository = collaborators.repository
 
     async def list_notifications(
         self,
@@ -61,7 +61,8 @@ class NotificationController(BaseController):
     async def create_notification(self, request: CreateNotificationRequest, user: User) -> APIResponse:
         """Create a notification on behalf of the current user (frontend-originated)."""
         try:
-            notifications = self.manager.notify(
+            notifications = operations.notify(
+                self.collaborators,
                 level=request.level,
                 title=request.title,
                 message=request.message,
@@ -85,7 +86,7 @@ class NotificationController(BaseController):
     async def mark_all_read(self, user: User) -> APIResponse:
         """Mark all of the current user's notifications as read."""
         try:
-            updated = self.manager.mark_all_read(user.id)
+            updated = operations.mark_all_read(self.collaborators, user.id)
             return self.success_response(data={"updated": updated})
         except Exception as e:
             self.logger.error(f"Error marking all notifications read: {e}")
@@ -94,7 +95,7 @@ class NotificationController(BaseController):
     async def mark_read(self, notification_id: str, user: User) -> APIResponse:
         """Mark a single notification as read."""
         try:
-            success = self.manager.mark_read(notification_id, user.id)
+            success = operations.mark_read(self.collaborators, notification_id, user.id)
             if not success:
                 return self.error_api_response(
                     error="notification_not_found", message="Notification not found"
@@ -107,7 +108,7 @@ class NotificationController(BaseController):
     async def delete_notification(self, notification_id: str, user: User) -> APIResponse:
         """Delete a single notification."""
         try:
-            success = self.manager.delete(notification_id, user.id)
+            success = operations.delete(self.collaborators, notification_id, user.id)
             if not success:
                 return self.error_api_response(
                     error="notification_not_found", message="Notification not found"
@@ -120,7 +121,7 @@ class NotificationController(BaseController):
     async def clear_notifications(self, user: User) -> APIResponse:
         """Delete all of the current user's notifications."""
         try:
-            deleted = self.manager.clear(user.id)
+            deleted = operations.clear(self.collaborators, user.id)
             return self.success_response(data={"deleted": deleted})
         except Exception as e:
             self.logger.error(f"Error clearing notifications: {e}")
@@ -129,7 +130,7 @@ class NotificationController(BaseController):
     async def get_notification_types(self, user: User) -> APIResponse:
         """List all registered notification types with the user-effective enabled state, plus the sound toggle."""
         try:
-            preferences = self.manager.get_preferences(user.id)
+            preferences = operations.get_preferences(self.collaborators, user.id)
             return self.success_response(data=preferences)
         except Exception as e:
             self.logger.error(f"Error getting notification types: {e}")
@@ -138,8 +139,8 @@ class NotificationController(BaseController):
     async def update_preferences(self, request: UpdateNotificationPreferencesRequest, user: User) -> APIResponse:
         """Partially update the current user's notification preferences (types and/or sound)."""
         try:
-            preferences = self.manager.update_preferences(
-                user.id, types=request.types, sound=request.sound
+            preferences = operations.update_preferences(
+                self.collaborators, user.id, types=request.types, sound=request.sound
             )
             return self.success_response(data=preferences)
         except ValueError as e:

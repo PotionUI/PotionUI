@@ -22,7 +22,7 @@ Three independent knobs per field:
     entirely (server-side removal, not just a presentation hint).
 
 A field's override is CLEARED by sending an empty object (`{}`) or `null` for
-that field in the PUT payload - see `PresetManager.set_form_overrides`.
+that field in the PUT payload - see `src.features.presets.operations.set_form_overrides`.
 """
 
 from __future__ import annotations

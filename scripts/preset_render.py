@@ -154,8 +154,8 @@ def build_processor() -> PresetProcessor:
 
 
 def build_form_serializer() -> PresetFormSerializer:
-    # `PresetFormSerializer` (used in production by PresetManager to build the
-    # JSON form schema) is the one that correctly resolves external children
+    # `PresetFormSerializer` (used in production by operations.get_form_schema
+    # to build the JSON form schema) is the one that correctly resolves external children
     # files recursively, including nested dict-shaped children coming straight
     # off disk (see PresetFormSerializer._resolve_external_children /
     # _expand_loop_fields, which handle both FieldTemplate and raw dict

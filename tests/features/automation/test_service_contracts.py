@@ -6,7 +6,7 @@ Two classes are named `ModelIndexer`:
 - `src.features.models.directory.ModelIndexer` — a whole-directory scanner (`index_models`), no
   single-file entry point.
 - `src.features.models.indexer.ModelScanner` — has `index_single_model()` with
-  SHA256 dedup. This is the one `ModelIndexManager` uses, and the one
+  SHA256 dedup. This is the one `ModelIndexCollaborators` uses, and the one
   `action.index_model` is written against.
 
 The composition root used to inject the first, so `action.index_model` raised
@@ -33,9 +33,10 @@ from pathlib import Path
 
 from src.features.models.indexer import ModelScanner as FileModelIndexer
 from src.features.models.directory import ModelIndexer as DirectoryModelIndexer
-from src.features.models.manager import ModelIndexManager
+from src.features.models.assignments import ModelAssignmentService
+from src.features.models.provider_info import ProviderInfoFetcher
 from src.features.models.repository import ModelRepository
-from src.features.notifications.manager import NotificationManager
+from src.features.notifications import operations as notification_operations
 from src.platform.runtime.gpu import GpuManager
 from src.platform.runtime.model_lifecycle.manager import ModelLifecycleManager
 from src.features.backends.backend_config import BackendConfigManager, BaseBackendConfig
@@ -52,16 +53,22 @@ from src.features.media_index.manager import MediaIndexManager
 # `src/core/automation/nodes/actions.py`.
 REQUIRED_METHODS = {
     FileModelIndexer: {"index_single_model": "action.index_model"},
-    ModelIndexManager: {
-        "assign_model_to_user": "action.assign_model",
-        "run_provider_fetch": "action.fetch_provider_metadata",
-    },
+    # `model_index_manager` on AutomationServices is a `ModelIndexCollaborators`
+    # bundle, not a class instance - pin against the specific role objects
+    # `action.assign_model`/`action.fetch_provider_metadata` reach through it
+    # (`.assignments`/`.provider_info`) instead.
+    ModelAssignmentService: {"assign_model_to_user": "action.assign_model"},
+    ProviderInfoFetcher: {"run_provider_fetch": "action.fetch_provider_metadata"},
     TagRepository: {
         "get_tag_by_name": "action.add_tag",
         "create_tag": "action.add_tag",
         "add_tag_to_model": "action.add_tag",
     },
-    NotificationManager: {"notify": "action.send_notification"},
+    # `notification_manager` on AutomationServices is a bound callable
+    # (`functools.partial(operations.notify, collaborators)`, see
+    # src.bootstrap.container), not a class instance - pin against the
+    # operations module's `notify` function it's bound to instead.
+    notification_operations: {"notify": "action.send_notification"},
     GpuManager: {"get_free_vram": "action.wait_for_gpu"},
     BackendConfigManager: {"get_backend": "action.backend_action"},
     BaseBackendConfig: {"quick_actions": "action.backend_action"},

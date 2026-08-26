@@ -1,10 +1,11 @@
-"""Tests for PromptEnhancementManager."""
+"""Tests for the prompt_enhancement operations module."""
 
 import pytest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
-from src.features.prompt_enhancement.manager import PromptEnhancementManager
+from src.features.prompt_enhancement import operations
+from src.features.prompt_enhancement.collaborators import PromptEnhancementCollaborators
 
 
 LONG_PROMPT = (
@@ -57,19 +58,23 @@ def make_prompt_db(approved=None, community=None):
     return db
 
 
-def make_manager(llm, prompt_db=None, feedback_repo=None):
-    return PromptEnhancementManager(
+def make_collaborators(
+    llm, prompt_db=None, feedback_repo=None, model_index_manager=None, preset_manager=None,
+):
+    return PromptEnhancementCollaborators(
         llm_service=llm,
         prompt_database=prompt_db,
-        model_index_manager=None,
+        model_index_manager=model_index_manager,
+        llm_memory_repository=None,
         feedback_repository=feedback_repo,
+        preset_manager=preset_manager,
     )
 
 
-async def run_enhance(manager, brief="a fox in a forest", n_candidates=2, **kwargs):
+async def run_enhance(collaborators, brief="a fox in a forest", n_candidates=2, **kwargs):
     events = []
-    async for event in manager.enhance_stream(
-        user_id="u-1", llm_id="llm-1", brief=brief, n_candidates=n_candidates, **kwargs
+    async for event in operations.enhance_stream(
+        collaborators, user_id="u-1", llm_id="llm-1", brief=brief, n_candidates=n_candidates, **kwargs
     ):
         events.append(event)
     return events
@@ -79,9 +84,9 @@ class TestPipelineStages:
     @pytest.mark.asyncio
     async def test_stage_ordering_and_events(self):
         llm = FakeLLMService(['["fox", "forest"]', "1. misty dawn\n2. neon night", LONG_PROMPT, LONG_PROMPT])
-        manager = make_manager(llm)
+        collaborators = make_collaborators(llm)
 
-        events = await run_enhance(manager)
+        events = await run_enhance(collaborators)
 
         stages = [(e["type"], e.get("stage")) for e in events if e["type"] != "result"]
         assert stages == [
@@ -96,9 +101,9 @@ class TestPipelineStages:
     @pytest.mark.asyncio
     async def test_stage_sampling_overrides(self):
         llm = FakeLLMService(['["fox"]', "1. a\n2. b", LONG_PROMPT, LONG_PROMPT])
-        manager = make_manager(llm)
+        collaborators = make_collaborators(llm)
 
-        await run_enhance(manager)
+        await run_enhance(collaborators)
 
         concept_call, ideate_call, write_call = llm.calls[0], llm.calls[1], llm.calls[2]
         assert concept_call["options"]["temperature"] == 0.3
@@ -112,9 +117,9 @@ class TestPipelineStages:
     async def test_malformed_concepts_falls_back_to_comma_split(self):
         llm = FakeLLMService(["not json at all", "1. a\n2. b", LONG_PROMPT, LONG_PROMPT])
         prompt_db = make_prompt_db()
-        manager = make_manager(llm, prompt_db=prompt_db)
+        collaborators = make_collaborators(llm, prompt_db=prompt_db)
 
-        await run_enhance(manager, brief="red fox, pine forest")
+        await run_enhance(collaborators, brief="red fox, pine forest")
 
         community_queries = [c["query"] for c in prompt_db.search_calls if not c.get("source_provider")]
         assert "red fox" in community_queries
@@ -133,9 +138,9 @@ class TestPipelineStages:
             return await original(*args, **kwargs)
 
         llm.generate_with_history = flaky
-        manager = make_manager(llm)
+        collaborators = make_collaborators(llm)
 
-        events = await run_enhance(manager, n_candidates=2)
+        events = await run_enhance(collaborators, n_candidates=2)
 
         result = events[-1]["data"]
         assert len(result["candidates"]) == 2
@@ -148,9 +153,9 @@ class TestGrounding:
         approved = [make_prompt("a-1", "approved exemplar text")]
         community = [make_prompt("c-1", "community exemplar text")]
         llm = FakeLLMService(['["fox"]', "1. a", LONG_PROMPT])
-        manager = make_manager(llm, prompt_db=make_prompt_db(approved, community))
+        collaborators = make_collaborators(llm, prompt_db=make_prompt_db(approved, community))
 
-        events = await run_enhance(manager, n_candidates=1)
+        events = await run_enhance(collaborators, n_candidates=1)
 
         write_prompt = llm.calls[-1]["messages"][0]["content"]
         assert "[user-approved] approved exemplar text" in write_prompt
@@ -163,9 +168,9 @@ class TestGrounding:
         feedback_repo = MagicMock()
         feedback_repo.get_recent_rejection_reasons.return_value = ["too dark", "no anime style"]
         llm = FakeLLMService(['["fox"]', "1. a", LONG_PROMPT])
-        manager = make_manager(llm, feedback_repo=feedback_repo)
+        collaborators = make_collaborators(llm, feedback_repo=feedback_repo)
 
-        await run_enhance(manager, n_candidates=1)
+        await run_enhance(collaborators, n_candidates=1)
 
         write_prompt = llm.calls[-1]["messages"][0]["content"]
         assert "too dark" in write_prompt
@@ -175,9 +180,9 @@ class TestGrounding:
     @pytest.mark.asyncio
     async def test_write_uses_enhancement_guidelines_as_system(self):
         llm = FakeLLMService(['["fox"]', "1. a", LONG_PROMPT])
-        manager = make_manager(llm)
+        collaborators = make_collaborators(llm)
 
-        await run_enhance(manager, n_candidates=1)
+        await run_enhance(collaborators, n_candidates=1)
 
         assert "seed, not a boundary" in llm.calls[-1]["system"]
 
@@ -189,18 +194,20 @@ class TestGroundingIncludesAdminPromptingGuidance:
     @pytest.mark.asyncio
     async def test_prompting_guidance_included_in_write_prompt(self):
         llm = FakeLLMService(['["fox"]', "1. a", LONG_PROMPT])
-        manager = make_manager(llm)
-        manager.model_index_manager = Mock_ModelIndex(
-            {"checkpoint.safetensors": {
-                "id": "m-1",
-                "filename": "checkpoint.safetensors",
-                "description": "A photoreal SDXL checkpoint.",
-                "prompting_guidance": "Always include a lens phrase like '35mm, f/1.8'.",
-            }}
+        collaborators = make_collaborators(
+            llm,
+            model_index_manager=Mock_ModelIndex(
+                {"checkpoint.safetensors": {
+                    "id": "m-1",
+                    "filename": "checkpoint.safetensors",
+                    "description": "A photoreal SDXL checkpoint.",
+                    "prompting_guidance": "Always include a lens phrase like '35mm, f/1.8'.",
+                }}
+            ),
         )
 
         await run_enhance(
-            manager, n_candidates=1,
+            collaborators, n_candidates=1,
             form_state={"form_data": {"checkpoint": "checkpoint.safetensors"}},
         )
 
@@ -213,15 +220,17 @@ class TestGroundingIncludesAdminPromptingGuidance:
     @pytest.mark.asyncio
     async def test_no_prompting_guidance_omits_the_line(self):
         llm = FakeLLMService(['["fox"]', "1. a", LONG_PROMPT])
-        manager = make_manager(llm)
-        manager.model_index_manager = Mock_ModelIndex(
-            {"checkpoint.safetensors": {
-                "id": "m-1", "filename": "checkpoint.safetensors", "description": "A checkpoint.",
-            }}
+        collaborators = make_collaborators(
+            llm,
+            model_index_manager=Mock_ModelIndex(
+                {"checkpoint.safetensors": {
+                    "id": "m-1", "filename": "checkpoint.safetensors", "description": "A checkpoint.",
+                }}
+            ),
         )
 
         await run_enhance(
-            manager, n_candidates=1,
+            collaborators, n_candidates=1,
             form_state={"form_data": {"checkpoint": "checkpoint.safetensors"}},
         )
 
@@ -241,11 +250,9 @@ class TestPresetGuideThreading:
         preset_manager.file_repo.find_preset_by_id.return_value = SimpleNamespace(
             llm={"guide": "This model prefers short, comma-separated tags."},
         )
-        manager = PromptEnhancementManager(
-            llm_service=llm, model_index_manager=None, preset_manager=preset_manager,
-        )
+        collaborators = make_collaborators(llm, preset_manager=preset_manager)
 
-        await run_enhance(manager, n_candidates=1, form_state={"preset": "native/SDXL", "form_data": {}})
+        await run_enhance(collaborators, n_candidates=1, form_state={"preset": "native/SDXL", "form_data": {}})
 
         write_prompt = llm.calls[-1]["messages"][0]["content"]
         assert "This model prefers short, comma-separated tags." in write_prompt
@@ -254,10 +261,10 @@ class TestPresetGuideThreading:
     @pytest.mark.asyncio
     async def test_no_preset_manager_omits_the_guide_and_never_raises(self):
         llm = FakeLLMService(['["fox"]', "1. a", LONG_PROMPT])
-        manager = make_manager(llm)  # no preset_manager wired
+        collaborators = make_collaborators(llm)  # no preset_manager wired
 
         events = await run_enhance(
-            manager, n_candidates=1, form_state={"preset": "native/SDXL", "form_data": {}},
+            collaborators, n_candidates=1, form_state={"preset": "native/SDXL", "form_data": {}},
         )
 
         assert events[-1]["data"]["candidates"][0]["text"] == LONG_PROMPT
@@ -269,11 +276,9 @@ class TestPresetGuideThreading:
         llm = FakeLLMService(['["fox"]', "1. a", LONG_PROMPT])
         preset_manager = MagicMock()
         preset_manager.file_repo.find_preset_by_id.return_value = SimpleNamespace(llm=None)
-        manager = PromptEnhancementManager(
-            llm_service=llm, model_index_manager=None, preset_manager=preset_manager,
-        )
+        collaborators = make_collaborators(llm, preset_manager=preset_manager)
 
-        await run_enhance(manager, n_candidates=1, form_state={"preset": "native/SDXL", "form_data": {}})
+        await run_enhance(collaborators, n_candidates=1, form_state={"preset": "native/SDXL", "form_data": {}})
 
         write_prompt = llm.calls[-1]["messages"][0]["content"]
         assert "House style guide" not in write_prompt
@@ -288,12 +293,10 @@ class TestPresetGuideThreading:
                 "modes": {"refs": {"guide": "Refs guide: six-section brief."}},
             },
         )
-        manager = PromptEnhancementManager(
-            llm_service=llm, model_index_manager=None, preset_manager=preset_manager,
-        )
+        collaborators = make_collaborators(llm, preset_manager=preset_manager)
 
         await run_enhance(
-            manager, n_candidates=1,
+            collaborators, n_candidates=1,
             form_state={"preset": "native/H3", "mode": "refs", "form_data": {}},
         )
 
@@ -311,12 +314,10 @@ class TestPresetGuideThreading:
                 "modes": {"refs": {"guide": "Refs guide: six-section brief."}},
             },
         )
-        manager = PromptEnhancementManager(
-            llm_service=llm, model_index_manager=None, preset_manager=preset_manager,
-        )
+        collaborators = make_collaborators(llm, preset_manager=preset_manager)
 
         await run_enhance(
-            manager, n_candidates=1,
+            collaborators, n_candidates=1,
             form_state={"preset": "native/H3", "mode": "video", "form_data": {}},
         )
 
@@ -349,9 +350,9 @@ class TestAntiParroting:
     async def test_flat_candidate_retries_hotter(self):
         flat = "a fox in a forest"
         llm = FakeLLMService(['["fox"]', "1. a", flat, LONG_PROMPT])
-        manager = make_manager(llm)
+        collaborators = make_collaborators(llm)
 
-        events = await run_enhance(manager, n_candidates=1)
+        events = await run_enhance(collaborators, n_candidates=1)
 
         # concepts + ideate + write + retry = 4 calls
         assert len(llm.calls) == 4
@@ -361,35 +362,35 @@ class TestAntiParroting:
     @pytest.mark.asyncio
     async def test_rich_candidate_not_retried(self):
         llm = FakeLLMService(['["fox"]', "1. a", LONG_PROMPT])
-        manager = make_manager(llm)
+        collaborators = make_collaborators(llm)
 
-        await run_enhance(manager, n_candidates=1)
+        await run_enhance(collaborators, n_candidates=1)
 
         assert len(llm.calls) == 3
 
     def test_is_flat_detects_word_overlap(self):
         brief = "a majestic dragon flying over mountain peaks during sunset"
         parrot = "majestic dragon flying over mountain peaks during sunset " * 8
-        assert PromptEnhancementManager._is_flat(brief, parrot) is True
-        assert PromptEnhancementManager._is_flat("a fox", LONG_PROMPT) is False
+        assert operations._is_flat(brief, parrot) is True
+        assert operations._is_flat("a fox", LONG_PROMPT) is False
 
 
 class TestParsing:
     def test_parse_json_array_lenient(self):
-        parse = PromptEnhancementManager._parse_json_array
+        parse = operations._parse_json_array
         assert parse('["a", "b"]') == ["a", "b"]
         assert parse('Here you go: ["a", "b"] hope it helps') == ["a", "b"]
         assert parse("no array here") == []
         assert parse("") == []
 
     def test_parse_numbered_list(self):
-        parse = PromptEnhancementManager._parse_numbered_list
+        parse = operations._parse_numbered_list
         assert parse("1. first idea\n2. second idea") == ["first idea", "second idea"]
         assert parse("1) first\n2) second") == ["first", "second"]
         assert parse("just one paragraph") == ["just one paragraph"]
 
     def test_strip_thinking(self):
-        strip = PromptEnhancementManager._strip_thinking
+        strip = operations._strip_thinking
         assert strip("<think>reasoning</think>actual output") == "actual output"
         assert strip("no thinking") == "no thinking"
 
@@ -398,9 +399,9 @@ class TestEnhanceWrapper:
     @pytest.mark.asyncio
     async def test_enhance_returns_final_result(self):
         llm = FakeLLMService(['["fox"]', "1. a", LONG_PROMPT])
-        manager = make_manager(llm)
+        collaborators = make_collaborators(llm)
 
-        result = await manager.enhance(user_id="u-1", llm_id="llm-1", brief="a fox", n_candidates=1)
+        result = await operations.enhance(collaborators, user_id="u-1", llm_id="llm-1", brief="a fox", n_candidates=1)
 
         assert result["candidates"][0]["text"] == LONG_PROMPT
         assert result["brief"] == "a fox"

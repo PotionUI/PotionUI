@@ -1,7 +1,7 @@
 """`preset.ensure` - install the recipe's preset (if needed) and assign it to
 the owner running setup, so it's ready to use the moment onboarding finishes.
 
-`PresetManager.install_preset`/`assign_preset_to_users` both require an admin
+`operations.install_preset`/`assign_preset_to_users` both require an admin
 `User`; the owner is exactly that (the instance's claimed owner is always an
 admin), resolved from `run.created_by` - the account that started this setup
 run.
@@ -9,6 +9,8 @@ run.
 
 from __future__ import annotations
 
+from src.features.presets import operations
+from src.features.presets.collaborators import PresetCollaborators
 from src.features.presets.exceptions import (
     InvalidUsersException,
     PermissionDeniedException,
@@ -16,13 +18,12 @@ from src.features.presets.exceptions import (
     PresetNotFoundException,
     PresetNotInstalledException,
 )
-from src.features.presets.manager import PresetManager
 from src.features.setup.executors.base import StepContext, StepResult
 from src.features.users.repository import UserRepository
 
 
 class PresetEnsureExecutor:
-    def __init__(self, preset_manager: PresetManager, user_repository: UserRepository):
+    def __init__(self, preset_manager: PresetCollaborators, user_repository: UserRepository):
         self.preset_manager = preset_manager
         self.user_repository = user_repository
 
@@ -51,14 +52,14 @@ class PresetEnsureExecutor:
             )
 
         try:
-            self.preset_manager.install_preset(preset_id, owner)
+            operations.install_preset(self.preset_manager, preset_id, owner)
         except PresetAlreadyInstalledException:
             pass  # already installed - nothing to do, not an error
         except (PresetNotFoundException, PermissionDeniedException) as exc:
             return StepResult.fail("PRESET_INSTALL_FAILED", f"Installing the preset failed: {exc}")
 
         try:
-            self.preset_manager.assign_preset_to_users(preset_id, [owner.id], owner)
+            operations.assign_preset_to_users(self.preset_manager, preset_id, [owner.id], owner)
         except (PresetNotInstalledException, InvalidUsersException, PermissionDeniedException) as exc:
             return StepResult.fail("PRESET_ASSIGN_FAILED", f"Assigning the preset to your account failed: {exc}")
 

@@ -42,7 +42,11 @@ def get_global_tool_registry():
 
 def get_global_notification_manager():
     """
-    Get the global NotificationManager singleton used by the application.
+    Get the global notify callable used by the application.
+
+    A bound callable (`functools.partial(operations.notify, collaborators)`,
+    see `src.bootstrap.container`), not a class instance - call it directly,
+    duck-typed as `get_global_notification_manager()(...)`.
 
     Raises:
         RuntimeError: If accessed before the container has been built

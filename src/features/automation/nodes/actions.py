@@ -286,7 +286,7 @@ async def _execute_add_tag(ctx: NodeExecutionContext) -> NodeResult:
 
 async def _execute_assign_model(ctx: NodeExecutionContext) -> NodeResult:
     """
-    Assigns a model to a user (`ModelIndexManager.assign_model_to_user` - fires
+    Assigns a model to a user (`ModelAssignmentService.assign_model_to_user` - fires
     model_index.before_assign/after_assign hooks, raises ModelAssignmentException
     on failure/block, which the engine surfaces as a failed run-node like any other).
 
@@ -303,10 +303,10 @@ async def _execute_assign_model(ctx: NodeExecutionContext) -> NodeResult:
 
     model_index_manager = ctx.services.model_index_manager
     if model_index_manager is None:
-        raise RuntimeError("action.assign_model: no ModelIndexManager configured on AutomationServices")
+        raise RuntimeError("action.assign_model: no ModelIndexCollaborators configured on AutomationServices")
 
     try:
-        result = model_index_manager.assign_model_to_user(model_id, user_id)
+        result = model_index_manager.assignments.assign_model_to_user(model_id, user_id)
         assignment = result.get("assignment")
         assigned = True
     except ModelAlreadyAssignedException as exc:
@@ -376,10 +376,10 @@ async def _execute_fetch_provider_metadata(ctx: NodeExecutionContext) -> NodeRes
     model_index_manager = ctx.services.model_index_manager
     if model_index_manager is None:
         raise RuntimeError(
-            "action.fetch_provider_metadata: no ModelIndexManager configured on AutomationServices"
+            "action.fetch_provider_metadata: no ModelIndexCollaborators configured on AutomationServices"
         )
 
-    await model_index_manager.run_provider_fetch(provider, model_ids=[model_id])
+    await model_index_manager.provider_info.run_provider_fetch(provider, model_ids=[model_id])
 
     return NodeResult(output={"model_id": model_id, "provider": provider})
 
@@ -394,7 +394,7 @@ async def _execute_send_notification(ctx: NodeExecutionContext) -> NodeResult:
     if notification_manager is None:
         raise RuntimeError("action.send_notification: no NotificationManager configured on AutomationServices")
 
-    notifications = notification_manager.notify(
+    notifications = notification_manager(
         level=level, title=title, message=message, category="automation",
         source="automation_engine", user_id=user_id,
     )

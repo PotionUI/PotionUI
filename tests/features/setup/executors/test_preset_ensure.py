@@ -1,6 +1,8 @@
-"""`preset.ensure` executor against fake PresetManager/UserRepository surfaces."""
+"""`preset.ensure` executor against fake PresetCollaborators/UserRepository surfaces."""
 
 from types import SimpleNamespace
+
+import pytest
 
 from src.features.presets.exceptions import (
     InvalidUsersException,
@@ -12,6 +14,24 @@ from src.features.setup.executors.preset_ensure import PresetEnsureExecutor
 from src.features.setup.recipe_schema import Recipe, RecipeStep
 from src.features.setup.records import SetupRun, SetupRunStatus
 from src.platform.security.user import AccountType, User
+
+
+@pytest.fixture(autouse=True)
+def _forward_operations_to_manager(monkeypatch):
+    """`PresetEnsureExecutor` calls module-level `src.features.presets.operations`
+    functions with the preset-manager collaborator as their leading arg, rather
+    than calling methods on it directly. This forwards those calls to the fake's
+    own like-named methods, so `FakePresetManager` can stay built exactly like
+    the retired manager double."""
+    from src.features.setup.executors import preset_ensure as preset_ensure_module
+
+    class _OperationsForwarder:
+        def __getattr__(self, name):
+            def _call(collaborators, *args, **kwargs):
+                return getattr(collaborators, name)(*args, **kwargs)
+            return _call
+
+    monkeypatch.setattr(preset_ensure_module, "operations", _OperationsForwarder())
 
 
 class FakeFileRepo:

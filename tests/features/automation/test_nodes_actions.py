@@ -416,7 +416,7 @@ class TestExecuteAssignModel(unittest.IsolatedAsyncioTestCase):
 
     async def test_assigns_model_to_selected_user(self):
         manager = MagicMock()
-        manager.assign_model_to_user.return_value = {"assignment": {"id": "a1"}, "message": "ok"}
+        manager.assignments.assign_model_to_user.return_value = {"assignment": {"id": "a1"}, "message": "ok"}
         services = AutomationServices(model_index_manager=manager)
 
         result = await _execute_assign_model(_ctx(
@@ -424,14 +424,14 @@ class TestExecuteAssignModel(unittest.IsolatedAsyncioTestCase):
             services=services,
         ))
 
-        manager.assign_model_to_user.assert_called_once_with("model-123", "user-456")
+        manager.assignments.assign_model_to_user.assert_called_once_with("model-123", "user-456")
         self.assertEqual(result.output["model_id"], "model-123")
         self.assertEqual(result.output["user_id"], "user-456")
         self.assertEqual(result.output["assignment"], {"id": "a1"})
 
     async def test_model_id_is_jinja_templated_against_upstream(self):
         manager = MagicMock()
-        manager.assign_model_to_user.return_value = {"assignment": {}, "message": "ok"}
+        manager.assignments.assign_model_to_user.return_value = {"assignment": {}, "message": "ok"}
         services = AutomationServices(model_index_manager=manager)
 
         result = await _execute_assign_model(_ctx(
@@ -440,7 +440,7 @@ class TestExecuteAssignModel(unittest.IsolatedAsyncioTestCase):
             services=services,
         ))
 
-        manager.assign_model_to_user.assert_called_once_with("resolved-model-id", "admin-1")
+        manager.assignments.assign_model_to_user.assert_called_once_with("resolved-model-id", "admin-1")
         self.assertEqual(result.output["model_id"], "resolved-model-id")
 
     async def test_raises_when_no_model_index_manager_configured(self):
@@ -451,7 +451,7 @@ class TestExecuteAssignModel(unittest.IsolatedAsyncioTestCase):
         from src.features.models.exceptions import ModelAssignmentException
 
         manager = MagicMock()
-        manager.assign_model_to_user.side_effect = ModelAssignmentException("already assigned")
+        manager.assignments.assign_model_to_user.side_effect = ModelAssignmentException("already assigned")
         services = AutomationServices(model_index_manager=manager)
 
         with self.assertRaises(ModelAssignmentException):
@@ -661,7 +661,7 @@ class TestAssignModelIsIdempotent(unittest.IsolatedAsyncioTestCase):
         existing.to_dict.return_value = {"id": "assign-1"}
 
         manager = MagicMock()
-        manager.assign_model_to_user.side_effect = ModelAlreadyAssignedException(
+        manager.assignments.assign_model_to_user.side_effect = ModelAlreadyAssignedException(
             "Model 'm1' is already assigned to user 'u1'", assignment=existing
         )
 
@@ -678,7 +678,7 @@ class TestAssignModelIsIdempotent(unittest.IsolatedAsyncioTestCase):
         from src.features.automation.nodes.actions import _execute_assign_model
 
         manager = MagicMock()
-        manager.assign_model_to_user.return_value = {"assignment": {"id": "assign-2"}}
+        manager.assignments.assign_model_to_user.return_value = {"assignment": {"id": "assign-2"}}
 
         result = await _execute_assign_model(_ctx(
             config={"model_id": "m1", "user": "u1"},
@@ -694,7 +694,7 @@ class TestAssignModelIsIdempotent(unittest.IsolatedAsyncioTestCase):
         from src.features.automation.nodes.actions import _execute_assign_model
 
         manager = MagicMock()
-        manager.assign_model_to_user.side_effect = ModelAssignmentException("No model with id 'ghost'")
+        manager.assignments.assign_model_to_user.side_effect = ModelAssignmentException("No model with id 'ghost'")
 
         with self.assertRaises(ModelAssignmentException):
             await _execute_assign_model(_ctx(

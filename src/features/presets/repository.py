@@ -68,7 +68,7 @@ class DatabasePresetRepository:
         """Replace the stored configuration values for an installed preset.
 
         Returns None if the preset isn't installed (caller should have already
-        checked - see PresetManager.set_preset_configuration).
+        checked - see operations.set_preset_configuration).
         """
         installed = self.get_installed_preset_by_preset_id(preset_id)
         if not installed:
@@ -99,7 +99,7 @@ class DatabasePresetRepository:
         """Replace the stored form overrides for an installed preset (all modes).
 
         Returns None if the preset isn't installed (caller should have already
-        checked - see PresetManager.set_form_overrides).
+        checked - see operations.set_form_overrides).
         """
         installed = self.get_installed_preset_by_preset_id(preset_id)
         if not installed:

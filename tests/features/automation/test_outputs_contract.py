@@ -31,8 +31,9 @@ from src.features.automation.context import AutomationServices, NodeExecutionCon
 from src.features.automation.nodes import register_builtin_nodes
 from src.platform.plugins.automation_nodes import NodeTypeRegistry
 from src.features.automation.triggers.filesystem import build_event_payload
-from src.features.models.manager import ModelIndexManager
-from src.features.notifications.manager import NotificationManager
+from src.features.models.assignments import ModelAssignmentService
+from src.features.models.provider_info import ProviderInfoFetcher
+from src.features.notifications import operations as notification_operations
 from src.platform.runtime.gpu import GpuManager
 from src.features.tags.repository import TagRepository
 
@@ -87,16 +88,22 @@ def _user_group_repo() -> MagicMock:
     return repo
 
 
-def _model_index_manager() -> MagicMock:
-    manager = MagicMock(spec=ModelIndexManager)
-    manager.assign_model_to_user.return_value = {"assignment": {"id": "a1"}}
-    manager.run_provider_fetch = AsyncMock()
-    return manager
+def _model_index_manager() -> SimpleNamespace:
+    """A `ModelIndexCollaborators`-shaped double: `action.assign_model`/
+    `action.fetch_provider_metadata` reach through `.assignments`/
+    `.provider_info` respectively, not through the bundle directly."""
+    assignments = MagicMock(spec=ModelAssignmentService)
+    assignments.assign_model_to_user.return_value = {"assignment": {"id": "a1"}}
+    provider_info = MagicMock(spec=ProviderInfoFetcher)
+    provider_info.run_provider_fetch = AsyncMock()
+    return SimpleNamespace(assignments=assignments, provider_info=provider_info)
 
 
 def _notification_manager() -> MagicMock:
-    manager = MagicMock(spec=NotificationManager)
-    manager.notify.return_value = ["n1"]
+    # A bound callable (`functools.partial(operations.notify, collaborators)`),
+    # not a class instance - see src.bootstrap.container.
+    manager = MagicMock(spec=notification_operations.notify)
+    manager.return_value = ["n1"]
     return manager
 
 

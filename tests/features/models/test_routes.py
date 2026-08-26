@@ -154,7 +154,7 @@ class TestModelControllerLibraryEndpoints:
 
 
 class TestModelControllerAssignmentEndpoints:
-    """Tests for the model-assignment summary/read endpoints backed by ModelIndexManager."""
+    """Tests for the model-assignment summary/read endpoints backed by ModelIndexCollaborators."""
 
     @pytest.fixture
     def mock_index_manager(self):
@@ -170,7 +170,7 @@ class TestModelControllerAssignmentEndpoints:
 
     @pytest.mark.asyncio
     async def test_get_model_assignments_success(self, controller, mock_index_manager):
-        mock_index_manager.get_model_assignments.return_value = {
+        mock_index_manager.assignments.get_model_assignments.return_value = {
             "model_id": "model-1",
             "assignments": [{"user_id": "user-a", "model_id": "model-1"}]
         }
@@ -179,11 +179,11 @@ class TestModelControllerAssignmentEndpoints:
 
         assert result.success is True
         assert result.data["assignments"][0]["user_id"] == "user-a"
-        mock_index_manager.get_model_assignments.assert_called_once_with("model-1")
+        mock_index_manager.assignments.get_model_assignments.assert_called_once_with("model-1")
 
     @pytest.mark.asyncio
     async def test_get_model_assignments_error(self, controller, mock_index_manager):
-        mock_index_manager.get_model_assignments.side_effect = Exception("boom")
+        mock_index_manager.assignments.get_model_assignments.side_effect = Exception("boom")
 
         result = await controller.get_model_assignments("model-1")
 
@@ -192,7 +192,7 @@ class TestModelControllerAssignmentEndpoints:
 
     @pytest.mark.asyncio
     async def test_get_model_assignment_summary_success(self, controller, mock_index_manager):
-        mock_index_manager.get_model_assignment_summary.return_value = {
+        mock_index_manager.assignments.get_assignment_summary.return_value = {
             "model-1": {"assignment_count": 2, "group_count": 1},
             "model-2": {"assignment_count": 0, "group_count": 0}
         }

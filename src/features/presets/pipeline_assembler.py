@@ -1,10 +1,11 @@
-"""The pipeline-build contract PresetManager depends on.
+"""The pipeline-build contract `operations.get_pipeline` depends on.
 
-PresetManager renders a preset's pipeline graph for the UI, which means it has
-to build the pipeline exactly the way an execution does - through the one
-canonical builder, never a preview-only reimplementation. It needs nothing of
-that builder beyond the call below, so it states that need as a structural type
-and lets the composition root hand it the real implementation.
+`operations.get_pipeline` renders a preset's pipeline graph for the UI, which
+means it has to build the pipeline exactly the way an execution does -
+through the one canonical builder, never a preview-only reimplementation. It
+needs nothing of that builder beyond the call below, so it states that need
+as a structural type and lets the composition root hand it the real
+implementation.
 """
 
 from typing import Any, Dict, List, Protocol

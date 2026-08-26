@@ -97,7 +97,7 @@ class ChatManager:
             generation_orchestrator: Optional generation orchestrator for tool context
             pre_chat_action_manager: Optional pre-chat action manager for executing actions before LLM calls
             llm_memory_repository: Optional LLM memory repository for tool context
-            prompt_enhancement_manager: Optional manager backing the enhance_prompt tool
+            prompt_enhancement_manager: Optional `PromptEnhancementCollaborators` bundle backing the enhance_prompt tool
             media_index_manager: Optional media index manager backing the
                 search_gallery tool
             resource_registry: Optional registry resolving @resource mentions

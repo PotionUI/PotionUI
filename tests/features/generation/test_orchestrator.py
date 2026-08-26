@@ -651,8 +651,8 @@ class TestOutputHandling:
         assert orchestrator.status_tracker.get(generation_id).state.value == 'failed'
 
         # Notification raised with the right shape (both toast + persistent via show_toast)
-        mock_manager.notify.assert_called_once()
-        kwargs = mock_manager.notify.call_args.kwargs
+        mock_manager.assert_called_once()
+        kwargs = mock_manager.call_args.kwargs
         assert kwargs['level'] == 'error'
         assert kwargs['type'] == 'generation.failed'
         assert kwargs['message'] == 'KSampler: CUDA out of memory'
@@ -840,7 +840,7 @@ class TestOutputHandling:
 
         assert orchestrator.status_tracker.get(generation_id).state.value == 'cancelled'
         mock_output_processor.process_output.assert_not_called()
-        mock_manager.notify.assert_not_called()
+        mock_manager.assert_not_called()
 
 
 class TestFinalSaveFailure:
@@ -888,8 +888,8 @@ class TestFinalSaveFailure:
         assert isinstance(forwarded_output, ErrorGenerationOutput)
         assert forwarded_output.error == 'Failed to save image'
 
-        mock_manager.notify.assert_called_once()
-        assert mock_manager.notify.call_args.kwargs['message'] == 'Failed to save image'
+        mock_manager.assert_called_once()
+        assert mock_manager.call_args.kwargs['message'] == 'Failed to save image'
 
     @pytest.mark.asyncio
     async def test_processed_false_without_save_error_still_fails(

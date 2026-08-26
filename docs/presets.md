@@ -295,7 +295,7 @@ get if it were typed instead of allowed.
 
 Values live in the `presets` table's `configuration` JSON column (migration `081`), keyed by the
 installed preset's YAML `preset_id` — see `src/features/presets/configuration.py` for the
-validation/merge helpers and `PresetManager.get_preset_configuration`/`set_preset_configuration`.
+validation/merge helpers and `operations.get_preset_configuration`/`set_preset_configuration`.
 
 ### `@config:<key>` indirection in form fields
 
@@ -567,7 +567,7 @@ identity is `form.yml`'s own `name:` field, falling back to the variant director
 absent — that name is what a request's `form_name` selects and what binds the submitted values
 into the pipeline's `form` context.
 
-`form.yml` accepts optional **display metadata**, read by `PresetManager.get_modes` (`GET
+`form.yml` accepts optional **display metadata**, read by `operations.get_available_modes` (`GET
 /api/presets/{id}/modes`) to describe each variant to the frontend:
 
 ```yaml
@@ -594,7 +594,7 @@ fields:
 
 ### Discovery and the `GET /api/presets/{id}/modes` shape
 
-`PresetManager.get_modes` (`get_available_modes`) always returns a `variants` list per mode, even
+`operations.get_available_modes` always returns a `variants` list per mode, even
 when the mode has exactly one form — this is a fixed contract with the frontend, not an
 optimization to special-case away:
 
@@ -644,7 +644,7 @@ modes" above).
 ### Default resolution
 
 Exactly one variant per mode is the default, resolved the same way everywhere it matters
-(`PresetManager.get_modes`'s `variants[].default`, `get_form_schema`'s form-name fallback, and
+(`operations.get_available_modes`'s `variants[].default`, `get_form_schema`'s form-name fallback, and
 `PresetProcessor`'s `form_name` context variable - see below):
 
 1. The first form (after sorting by `(order, name)`) with `default: true` wins.

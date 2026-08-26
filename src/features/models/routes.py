@@ -1,12 +1,11 @@
 """
 Model controller - thin layer for HTTP handling.
 
-This controller delegates all business logic to ModelIndexManager and handles:
+This controller delegates all business logic to `src.features.models.operations`
+(dispatching onto the `ModelIndexCollaborators` role objects) and handles:
 - HTTP request/response serialization
 - Exception mapping to HTTP status codes
 - Response formatting for the API
-
-Business logic is in src/features/models/manager.py
 """
 
 import asyncio
@@ -37,7 +36,7 @@ from src.features.models.dto import (
     ApplyModelsLocationRequest,
 )
 from src.features.models import (
-    ModelIndexManager,
+    ModelIndexCollaborators,
     ModelNotFoundException,
     ModelAccessDeniedException,
     ModelIndexingException,
@@ -47,6 +46,7 @@ from src.features.models import (
     ModelDownloadException,
     ModelAssignmentException,
 )
+from src.features.models import operations
 from src.features.models.attributes.exceptions import (
     AttributeDefinitionNotFoundException,
     InvalidAttributeDefinitionException,
@@ -56,7 +56,7 @@ from src.features.models.attributes.manager import ModelAttributeDefinitionsMana
 from src.features.models.attributes.repository import AttributeDefinitionRepository
 from src.features.models.attributes.user_repository import UserModelAttributeRepository
 from src.features.models.location import ModelsLocationError
-from src.features.models.manager import ListModelsParams
+from src.features.models.catalog import ListModelsParams
 from src.features.model_library.repository.user_model_meta_repository import UserModelMetaRepository
 from src.platform.security.user import User, AccountType
 
@@ -70,19 +70,20 @@ logger = logging.getLogger(__name__)
 class ModelController(BaseController):
     """Thin controller for model endpoints.
 
-    Delegates all business logic to ModelIndexManager and handles HTTP-specific concerns.
+    Delegates all business logic to `src.features.models.operations` and
+    handles HTTP-specific concerns.
     """
 
     def __init__(
         self,
-        model_index_manager: ModelIndexManager,
+        model_index_manager: ModelIndexCollaborators,
         user_model_meta_repository: UserModelMetaRepository,
         download_manager: "DownloadManager",
         attribute_definition_repository: Optional[AttributeDefinitionRepository] = None,
         model_attributes_manager: Optional[ModelAttributeDefinitionsManager] = None,
     ):
         super().__init__()
-        self.manager = model_index_manager
+        self.collaborators = model_index_manager
         self.user_model_meta_repository = user_model_meta_repository
         self.download_manager = download_manager
         self.attribute_definitions = attribute_definition_repository or AttributeDefinitionRepository()
@@ -136,7 +137,7 @@ class ModelController(BaseController):
                 in_any_collection=in_any_collection
             )
 
-            data = self.manager.list_models(params, user)
+            data = operations.list_models(self.collaborators, params, user)
             return self.success_response(data=data)
         except Exception as e:
             logger.exception(f"Error listing models: {e}")
@@ -158,7 +159,7 @@ class ModelController(BaseController):
                 status_code=403,
             )
         try:
-            return self.success_response(data=self.manager.get_model_availability(model_id))
+            return self.success_response(data=operations.get_model_availability(self.collaborators, model_id))
         except Exception as e:
             logger.exception(f"Error getting availability for model {model_id}: {e}")
             return self.error_api_response(
@@ -169,7 +170,7 @@ class ModelController(BaseController):
     async def get_model_stats(self) -> APIResponse:
         """Get model indexing statistics."""
         try:
-            stats = self.manager.get_model_stats()
+            stats = operations.get_model_stats(self.collaborators)
             return self.success_response(data=stats)
         except Exception as e:
             logger.exception(f"Error getting model stats: {e}")
@@ -186,7 +187,7 @@ class ModelController(BaseController):
     ) -> APIResponse:
         """Get available model types and their counts."""
         try:
-            data = self.manager.get_model_types(user, user_scoped, include_empty)
+            data = operations.get_model_types(self.collaborators, user, user_scoped, include_empty)
             return self.success_response(data=data)
         except Exception as e:
             logger.exception(f"Error getting model types: {e}")
@@ -198,7 +199,7 @@ class ModelController(BaseController):
     async def get_model_by_hash(self, sha256: str) -> APIResponse:
         """Get model by SHA256 hash."""
         try:
-            data = self.manager.get_model_by_hash(sha256)
+            data = operations.get_model_by_hash(self.collaborators, sha256)
             return self.success_response(data=data)
         except ModelNotFoundException as e:
             return self.error_api_response(
@@ -216,7 +217,7 @@ class ModelController(BaseController):
         """Get specific model by ID."""
         try:
             is_admin = bool(user and user.account_type == AccountType.ADMIN)
-            data = self.manager.get_model_by_id(model_id, user=user, admin=is_admin)
+            data = operations.get_model_by_id(self.collaborators, model_id, user=user, admin=is_admin)
             return self.success_response(data=data)
         except ModelNotFoundException as e:
             return self.error_api_response(
@@ -239,7 +240,7 @@ class ModelController(BaseController):
     ) -> APIResponse:
         """Get generations that used a specific model."""
         try:
-            data = self.manager.get_model_generations(model_id, user, limit, offset)
+            data = operations.get_model_generations(self.collaborators, model_id, user, limit, offset)
             return self.success_response(data=data)
         except ModelNotFoundException as e:
             return self.error_api_response(
@@ -263,7 +264,7 @@ class ModelController(BaseController):
     async def count_unindexed_models(self) -> APIResponse:
         """Count model files on disk not yet indexed, by type. No hashing, no writes."""
         try:
-            data = self.manager.count_unindexed()
+            data = operations.count_unindexed(self.collaborators)
             return self.success_response(data=data)
         except Exception as e:
             logger.exception(f"Error counting unindexed models: {e}")
@@ -275,8 +276,8 @@ class ModelController(BaseController):
     async def index_models(self, background_tasks: BackgroundTasks) -> APIResponse:
         """Start model indexing process."""
         try:
-            data = self.manager.start_indexing()
-            background_tasks.add_task(self.manager.run_indexing)
+            data = operations.start_indexing(self.collaborators)
+            background_tasks.add_task(operations.run_indexing, self.collaborators)
             return self.success_response(data=data)
         except ModelIndexingException as e:
             return self.error_api_response(
@@ -293,7 +294,7 @@ class ModelController(BaseController):
     async def delete_model(self, model_id: str) -> APIResponse:
         """Delete model from index (does not delete file)."""
         try:
-            data = self.manager.delete_model(model_id)
+            data = operations.delete_model(self.collaborators, model_id)
             return self.success_response(data=data)
         except ModelNotFoundException as e:
             return self.error_api_response(
@@ -315,7 +316,7 @@ class ModelController(BaseController):
     async def cleanup_deleted_models(self) -> APIResponse:
         """Remove models from index that no longer exist on disk."""
         try:
-            data = self.manager.cleanup_deleted_models()
+            data = operations.cleanup_deleted_models(self.collaborators)
             return self.success_response(data=data)
         except Exception as e:
             logger.exception(f"Error during cleanup: {e}")
@@ -329,7 +330,7 @@ class ModelController(BaseController):
     async def get_models_location(self) -> APIResponse:
         """Current external models location, per-type overrides, and symlink state."""
         try:
-            data = self.manager.get_models_location()
+            data = operations.get_models_location(self.collaborators)
             return self.success_response(data=data)
         except Exception as e:
             logger.exception(f"Error getting models location: {e}")
@@ -345,7 +346,7 @@ class ModelController(BaseController):
     ) -> APIResponse:
         """Point the models directory's symlinks at an external location, then re-index."""
         try:
-            data = self.manager.apply_models_location(request.external_path, request.overrides)
+            data = operations.apply_models_location(self.collaborators, request.external_path, request.overrides)
         except ModelsLocationError as e:
             return self.error_api_response(
                 error="models_location_blocked",
@@ -362,8 +363,8 @@ class ModelController(BaseController):
         # the symlinks now point somewhere new, so the DB needs to catch up with
         # what's reachable through them.
         try:
-            self.manager.start_indexing()
-            background_tasks.add_task(self.manager.run_indexing)
+            operations.start_indexing(self.collaborators)
+            background_tasks.add_task(operations.run_indexing, self.collaborators)
         except ModelIndexingException as e:
             logger.warning(f"Models location applied but re-index was blocked: {e}")
 
@@ -378,7 +379,7 @@ class ModelController(BaseController):
     ) -> APIResponse:
         """Fetch model metadata from marketplace providers."""
         try:
-            data = self.manager.fetch_provider_info(
+            data = operations.fetch_provider_info(self.collaborators, 
                 provider=request.provider,
                 model_ids=request.model_ids,
                 force_refresh=request.force_refresh or False
@@ -386,7 +387,7 @@ class ModelController(BaseController):
 
             # Run provider fetch in background
             def background_wrapper():
-                asyncio.run(self.manager.run_provider_fetch(
+                asyncio.run(operations.run_provider_fetch(self.collaborators, 
                     provider=request.provider,
                     model_ids=request.model_ids,
                     force_refresh=request.force_refresh or False
@@ -413,7 +414,7 @@ class ModelController(BaseController):
     ) -> APIResponse:
         """Update tags for a model."""
         try:
-            data = self.manager.update_model_tags(model_id, request.tag_ids)
+            data = operations.update_model_tags(self.collaborators, model_id, request.tag_ids)
             return self.success_response(data=data)
         except ModelNotFoundException as e:
             return self.error_api_response(
@@ -439,7 +440,7 @@ class ModelController(BaseController):
     ) -> APIResponse:
         """Update description for a model."""
         try:
-            data = self.manager.update_model_description(model_id, request.description)
+            data = operations.update_model_description(self.collaborators, model_id, request.description)
             return self.success_response(data=data)
         except ModelNotFoundException as e:
             return self.error_api_response(
@@ -460,7 +461,7 @@ class ModelController(BaseController):
     ) -> APIResponse:
         """Update the admin-authored prompting guidance for a model."""
         try:
-            data = self.manager.update_model_prompting_guidance(model_id, request.prompting_guidance)
+            data = operations.update_model_prompting_guidance(self.collaborators, model_id, request.prompting_guidance)
             return self.success_response(data=data)
         except ModelNotFoundException as e:
             return self.error_api_response(
@@ -481,7 +482,7 @@ class ModelController(BaseController):
     ) -> APIResponse:
         """Update a model's shared attribute values."""
         try:
-            data = self.manager.update_model_metadata(model_id, request.values)
+            data = operations.update_model_metadata(self.collaborators, model_id, request.values)
             return self.success_response(data=data)
         except ModelNotFoundException as e:
             return self.error_api_response(
@@ -592,7 +593,7 @@ class ModelController(BaseController):
         """Set or clear the admin-set preview media for a model."""
         try:
             preview = request.preview.model_dump() if request.preview else None
-            data = self.manager.update_model_preview(model_id, preview, user_id)
+            data = operations.update_model_preview(self.collaborators, model_id, preview, user_id)
             return self.success_response(data=data)
         except ModelNotFoundException as e:
             return self.error_api_response(
@@ -619,7 +620,7 @@ class ModelController(BaseController):
         "model_not_found" error as a missing one (404-not-403).
         """
         try:
-            previews = self.manager.list_model_previews_for_user(model_id, user)
+            previews = operations.list_model_previews_for_user(self.collaborators, model_id, user)
             return self.success_response(data={"previews": previews})
         except ModelNotFoundException as e:
             return self.error_api_response(error="model_not_found", message=str(e))
@@ -638,7 +639,7 @@ class ModelController(BaseController):
     ) -> APIResponse:
         """Append one preview to a model's preview list."""
         try:
-            data = self.manager.add_model_preview(model_id, request.preview.model_dump(), user_id)
+            data = operations.add_model_preview(self.collaborators, model_id, request.preview.model_dump(), user_id)
             return self.success_response(data=data)
         except ModelNotFoundException as e:
             return self.error_api_response(error="model_not_found", message=str(e))
@@ -654,7 +655,7 @@ class ModelController(BaseController):
     async def delete_model_preview(self, model_id: str, preview_id: str) -> APIResponse:
         """Remove one preview from a model's preview list."""
         try:
-            data = self.manager.delete_model_preview(model_id, preview_id)
+            data = operations.delete_model_preview(self.collaborators, model_id, preview_id)
             return self.success_response(data=data)
         except ModelNotFoundException as e:
             return self.error_api_response(error="model_not_found", message=str(e))
@@ -670,7 +671,7 @@ class ModelController(BaseController):
     ) -> APIResponse:
         """Reorder a model's preview list."""
         try:
-            data = self.manager.reorder_model_previews(model_id, request.ordered_ids)
+            data = operations.reorder_model_previews(self.collaborators, model_id, request.ordered_ids)
             return self.success_response(data=data)
         except ModelNotFoundException as e:
             return self.error_api_response(error="model_not_found", message=str(e))
@@ -740,11 +741,11 @@ class ModelController(BaseController):
     ) -> APIResponse:
         """Generate thumbnails from videos for models that don't have images."""
         try:
-            data = self.manager.start_thumbnail_generation(model_ids)
+            data = operations.start_thumbnail_generation(self.collaborators, model_ids)
 
             # Run thumbnail generation in background
             async def run_task():
-                await self.manager.run_thumbnail_generation(model_ids)
+                await operations.run_thumbnail_generation(self.collaborators, model_ids)
 
             background_tasks.add_task(asyncio.run, run_task())
             return self.success_response(data=data)
@@ -760,7 +761,7 @@ class ModelController(BaseController):
     async def get_user_model_assignments(self, user_id: str) -> APIResponse:
         """Get model assignments for a user (admin only)."""
         try:
-            data = self.manager.get_user_model_assignments(user_id)
+            data = operations.get_user_model_assignments(self.collaborators, user_id)
             return self.success_response(data=data)
         except Exception as e:
             logger.exception(f"Error getting user model assignments: {e}")
@@ -772,7 +773,7 @@ class ModelController(BaseController):
     async def get_model_assignments(self, model_id: str) -> APIResponse:
         """Get the users directly assigned to a model (admin only)."""
         try:
-            data = self.manager.get_model_assignments(model_id)
+            data = operations.get_model_assignments(self.collaborators, model_id)
             return self.success_response(data=data)
         except Exception as e:
             logger.exception(f"Error getting model assignments: {e}")
@@ -784,7 +785,7 @@ class ModelController(BaseController):
     async def get_model_assignment_summary(self) -> APIResponse:
         """Direct-user and group assignment counts for every model (admin only)."""
         try:
-            data = self.manager.get_model_assignment_summary()
+            data = operations.get_model_assignment_summary(self.collaborators)
             return self.success_response(data=data)
         except Exception as e:
             logger.exception(f"Error getting model assignment summary: {e}")
@@ -799,7 +800,7 @@ class ModelController(BaseController):
     ) -> APIResponse:
         """Assign a model to a user (admin only)."""
         try:
-            data = self.manager.assign_model_to_user(request.model_id, request.user_id)
+            data = operations.assign_model_to_user(self.collaborators, request.model_id, request.user_id)
             return self.success_response(data=data)
         except ModelAssignmentException as e:
             return self.error_api_response(
@@ -820,7 +821,7 @@ class ModelController(BaseController):
     ) -> APIResponse:
         """Unassign a model from a user (admin only)."""
         try:
-            data = self.manager.unassign_model_from_user(model_id, user_id)
+            data = operations.unassign_model_from_user(self.collaborators, model_id, user_id)
             return self.success_response(data=data)
         except ModelAssignmentException as e:
             return self.error_api_response(
@@ -843,7 +844,7 @@ class ModelController(BaseController):
     ) -> APIResponse:
         """Download a model from a URL and index it."""
         try:
-            data = self.manager.start_download_and_index(
+            data = operations.start_download_and_index(self.collaborators, 
                 name=request.name,
                 link=request.link,
                 size=request.size,
@@ -853,7 +854,7 @@ class ModelController(BaseController):
 
             # Run download and index in background
             async def run_task():
-                await self.manager.run_download_and_index(
+                await operations.run_download_and_index(self.collaborators, 
                     name=request.name,
                     link=request.link,
                     sha256=request.sha256,

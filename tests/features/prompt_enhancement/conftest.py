@@ -1,9 +1,9 @@
-"""`PromptEnhancementManager` now calls the module-level
+"""`src.features.prompt_enhancement.operations` calls the module-level
 `src.features.prompt_database.operations` functions (`add_prompt`, `search`)
-with its `self.prompt_database` collaborator as their leading arg, rather
-than calling methods on an injected manager. This fixture patches the
+with its `collaborators.prompt_database` collaborator as their leading arg,
+rather than calling methods on an injected manager. This fixture patches the
 `prompt_database_operations` name as imported into
-`src.features.prompt_enhancement.manager` so it forwards straight to that
+`src.features.prompt_enhancement.operations` so it forwards straight to that
 same call shape (`collaborators.add_prompt(**kwargs)` /
 `collaborators.search(**kwargs)`) - every test in this directory can keep
 building its `prompt_db` fixture as a plain mock with `.add_prompt`/`.search`
@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.features.prompt_enhancement import manager as manager_module
+from src.features.prompt_enhancement import operations as operations_module
 
 
 @pytest.fixture(autouse=True)
@@ -25,6 +25,6 @@ def _forward_prompt_database_operations(monkeypatch):
         return await collaborators.search(**kwargs)
 
     monkeypatch.setattr(
-        manager_module, "prompt_database_operations",
+        operations_module, "prompt_database_operations",
         SimpleNamespace(add_prompt=add_prompt, search=search),
     )

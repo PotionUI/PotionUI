@@ -20,7 +20,7 @@ def add_comment(collaborators: InspirationCollaborators, inspiration_id: str, us
     comment = collaborators.repository.create_comment(inspiration_id, user_id, body)
 
     if insp.user_id != user_id:
-        collaborators.notification_manager.notify(
+        collaborators.notification_manager(
             level="info",
             title="New comment on your inspiration",
             message=f'{comment.author_username or "Someone"} commented on "{insp.title}"',

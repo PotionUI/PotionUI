@@ -211,7 +211,7 @@ class AutomationEngine:
 
         if status == "failed" and self.services.notification_manager is not None:
             try:
-                self.services.notification_manager.notify(
+                self.services.notification_manager(
                     level="error", category="automation", source="automation_engine",
                     title=f"Automation '{automation.name}' failed",
                     message=error or "Unknown error", user_id=automation.user_id,

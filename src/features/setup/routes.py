@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
+from src.features.setup import operations
 from src.features.setup.dto import SetupStatus
 from src.features.setup.readiness import ReadinessManager, ReadinessReport
 from src.features.setup.recipe_dto import RecipeSummary
@@ -61,7 +62,9 @@ def _run_view(run_manager: SetupRunManager, recipe_catalog, run) -> SetupRunView
 
 
 def build_router(container: "AppContainer") -> APIRouter:
-    setup_manager = container.setup_manager
+    instance_claim_repository = container.instance_claim_repository
+    claim_token_manager = container.claim_token_manager
+    settings_manager = container.settings_manager
     # Stateless (wraps the process-wide `db` singleton, see run_repository.py),
     # so a fresh instance here for reads costs nothing and follows the
     # route -> repository house rule without threading it through the manager.
@@ -89,7 +92,12 @@ def build_router(container: "AppContainer") -> APIRouter:
     async def get_setup_status(request: Request) -> SetupStatus:
         """Report whether the instance needs an owner and how it may be claimed."""
         client_host = request.client.host if request.client else None
-        return setup_manager.status(is_loopback=is_loopback_host(client_host))
+        return operations.status(
+            instance_claim_repository,
+            claim_token_manager,
+            settings_manager,
+            is_loopback=is_loopback_host(client_host),
+        )
 
     # Built lazily on first readiness request so the (public, minimal) setup
     # status route stays independent of the rest of the container.

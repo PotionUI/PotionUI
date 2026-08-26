@@ -12,7 +12,7 @@ site. A plain, frozen data holder (no behavior beyond field access), matching
 dissolution).
 """
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import Any, Callable, TYPE_CHECKING
 
 from src.features.inspirations.repository import InspirationRepository
 
@@ -21,7 +21,6 @@ if TYPE_CHECKING:
     from src.features.generation.repository import GenerationRepository
     from src.features.media.file_resolver import FilePathResolver
     from src.features.media.upload_repository import UploadRepository
-    from src.features.notifications.manager import NotificationManager
     from src.features.presets.loader import PresetTemplateLoader
     from src.features.presets.name_resolver import PresetNameResolver
     from src.platform.filesystem import FileStore
@@ -41,4 +40,6 @@ class InspirationCollaborators:
     file_resolver: "FilePathResolver"
     storage_driver: "FileStorageDriver"
     upload_repository: "UploadRepository"
-    notification_manager: "NotificationManager"
+    # A bound notify callable (`functools.partial(operations.notify,
+    # collaborators)`, see `src.bootstrap.container`), not a class instance.
+    notification_manager: Callable[..., Any]

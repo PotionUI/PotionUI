@@ -387,7 +387,7 @@ class TestGetModelInfoTool:
             }
         }
         mim = MagicMock()
-        mim.get_model_by_id.return_value = raw
+        mim.catalog.get_model_by_id.return_value = raw
         ctx = make_context(model_index_manager=mim)
 
         # provider is opt-in — request it explicitly via `fields`
@@ -399,7 +399,7 @@ class TestGetModelInfoTool:
         assert data["filename"] == "sdxl.safetensors"
         assert data["type"] == "checkpoint"
         assert data["provider"]["name"] == "Stability AI"
-        mim.get_model_by_id.assert_called_once_with("m-1")
+        mim.catalog.get_model_by_id.assert_called_once_with("m-1")
 
     @pytest.mark.asyncio
     async def test_default_omits_extras_fields_param_opts_in(self):
@@ -417,7 +417,7 @@ class TestGetModelInfoTool:
             }
         }
         mim = MagicMock()
-        mim.get_model_by_id.return_value = raw
+        mim.catalog.get_model_by_id.return_value = raw
         ctx = make_context(model_index_manager=mim)
 
         default_result = await self._tool().execute(ctx, model_id="m-1")
@@ -453,7 +453,7 @@ class TestGetModelInfoTool:
             }
         }
         mim = MagicMock()
-        mim.get_model_by_id.return_value = raw
+        mim.catalog.get_model_by_id.return_value = raw
         ctx = make_context(model_index_manager=mim)
 
         result = await self._tool().execute(ctx, model_id="m-2")
@@ -468,7 +468,7 @@ class TestGetModelInfoTool:
         raw = {"model": {"id": "m-3", "filename": "f.safetensors", "type": "checkpoint",
                          "description": "", "tags": [], "triggers": []}}
         mim = MagicMock()
-        mim.get_model_by_id.return_value = raw
+        mim.catalog.get_model_by_id.return_value = raw
         ctx = make_context(model_index_manager=mim)
 
         result = await self._tool().execute(ctx, model_id="m-3")
@@ -503,7 +503,7 @@ class TestGetModelInfoTool:
             "tags": [],
         }
         mim = MagicMock()
-        mim.get_model_by_id.return_value = raw
+        mim.catalog.get_model_by_id.return_value = raw
         ctx = make_context(model_index_manager=mim)
 
         result = await self._tool().execute(ctx, model_id="m-2")
@@ -517,7 +517,7 @@ class TestGetModelInfoTool:
     async def test_all_lookups_fail_returns_error(self):
         """When get_model_by_id, path lookup, and filename search all fail."""
         mim = MagicMock()
-        mim.get_model_by_id.side_effect = KeyError("not found")
+        mim.catalog.get_model_by_id.side_effect = KeyError("not found")
         repo = MagicMock()
         repo.get_by_file_path.return_value = None
         repo.get_all.return_value = []
@@ -531,7 +531,7 @@ class TestGetModelInfoTool:
     async def test_fallback_to_path_lookup(self):
         """When get_model_by_id fails, should try path-based lookup."""
         mim = MagicMock()
-        mim.get_model_by_id.side_effect = KeyError("not found")
+        mim.catalog.get_model_by_id.side_effect = KeyError("not found")
 
         model_obj = MagicMock()
         model_obj.to_dict.return_value = {
@@ -563,7 +563,7 @@ class TestGetModelInfoTool:
     async def test_fallback_to_filename_search(self):
         """When both ID and path fail, should search by filename."""
         mim = MagicMock()
-        mim.get_model_by_id.side_effect = KeyError("not found")
+        mim.catalog.get_model_by_id.side_effect = KeyError("not found")
 
         model_obj = MagicMock()
         model_obj.to_dict.return_value = {
@@ -620,7 +620,7 @@ class TestGetModelInfoTool:
             }
         }
         mim_by_id = MagicMock()
-        mim_by_id.get_model_by_id.return_value = by_id_raw
+        mim_by_id.catalog.get_model_by_id.return_value = by_id_raw
         ctx_by_id = make_context(model_index_manager=mim_by_id)
         result_by_id = await self._tool().execute(ctx_by_id, model_id="m-1", fields=fields)
         data_by_id = json.loads(result_by_id.data)
@@ -639,7 +639,7 @@ class TestGetModelInfoTool:
         repo = MagicMock()
         repo.get_by_file_path.return_value = model_obj
         mim_by_path = MagicMock()
-        mim_by_path.get_model_by_id.side_effect = KeyError("not found")
+        mim_by_path.catalog.get_model_by_id.side_effect = KeyError("not found")
         mim_by_path.model_repo = repo
         ctx_by_path = make_context(model_index_manager=mim_by_path)
         result_by_path = await self._tool().execute(
@@ -2135,6 +2135,21 @@ class TestUpdatePhrasebookValuesTool:
 # ---------------------------------------------------------------------------
 
 class TestEnhancePromptTool:
+    @pytest.fixture(autouse=True)
+    def _forward_prompt_enhancement_operations(self, monkeypatch):
+        """`enhance_prompt_tool` now calls the module-level
+        `src.features.prompt_enhancement.operations.enhance` with the
+        `prompt_enhancement_manager` collaborator as its leading arg, rather
+        than calling `.enhance` on an injected manager. This fixture forwards
+        that call to the collaborator's own `.enhance` attribute, so this
+        class's fakes can stay built exactly like the retired manager double."""
+        from src.features.prompt_enhancement import operations
+
+        async def enhance(collaborators, **kwargs):
+            return await collaborators.enhance(**kwargs)
+
+        monkeypatch.setattr(operations, "enhance", enhance)
+
     def _tool(self):
         return EnhancePromptTool()
 

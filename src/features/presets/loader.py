@@ -629,7 +629,7 @@ class PresetTemplateLoader:
         NEXT ``_ensure_loaded()`` call rebuilds it - which means there is a
         window, between this call and whatever eventually triggers that next
         access, where ``self.presets`` is observably empty to any concurrent
-        reader. Existing caller: ``PresetManager.reload_preset`` (immediately
+        reader. Existing caller: ``operations.reload_preset`` (immediately
         follows this with an explicit ``load_presets()`` call, so the window
         is short but real). Prefer :meth:`reload` for a caller that wants the
         rescan to happen NOW with no empty-catalogue window - e.g. a plugin

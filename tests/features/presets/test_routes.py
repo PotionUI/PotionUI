@@ -1,4 +1,4 @@
-"""Tests for PresetController - refactored version using PresetManager."""
+"""Tests for PresetController - dispatches onto src.features.presets.operations."""
 
 import pytest
 from unittest.mock import Mock, MagicMock, patch
@@ -7,7 +7,6 @@ from fastapi import HTTPException
 from src.features.presets.routes import PresetController
 from src.platform.http.base_controller import APIResponse
 from src.features.forms.exceptions import FormNotFoundException
-from src.features.presets.manager import PresetManager
 from src.features.presets.exceptions import (
     PresetNotFoundException,
     ModeNotFoundException,
@@ -23,13 +22,32 @@ from src.pipelines.graph import PipelineGraph
 from src.platform.security.user import AccountType
 
 
+@pytest.fixture(autouse=True)
+def _forward_operations_to_collaborators(monkeypatch):
+    """`PresetController` calls module-level `src.features.presets.operations`
+    functions with the `PresetCollaborators` bundle as their leading arg,
+    rather than calling methods on an injected manager. This fixture forwards
+    those calls to the bundle's own like-named attribute, so this file's
+    fakes can stay built exactly like the retired manager double (a plain
+    mock with one method per operation)."""
+    from src.features.presets import routes as routes_module
+
+    class _OperationsForwarder:
+        def __getattr__(self, name):
+            def _call(collaborators, *args, **kwargs):
+                return getattr(collaborators, name)(*args, **kwargs)
+            return _call
+
+    monkeypatch.setattr(routes_module, "operations", _OperationsForwarder())
+
+
 class TestPresetController:
-    """Comprehensive tests for PresetController with PresetManager."""
+    """Comprehensive tests for PresetController with PresetCollaborators."""
 
     @pytest.fixture
     def mock_preset_manager(self):
-        """Mock PresetManager."""
-        return Mock(spec=PresetManager)
+        """Mock PresetCollaborators bundle, duck-typed with one method per operation."""
+        return Mock()
 
     @pytest.fixture
     def mock_current_user(self):

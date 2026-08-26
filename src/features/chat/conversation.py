@@ -1139,8 +1139,11 @@ class ConversationRunner:
                 f"Prompt index {action_index} out of range (message has {len(candidates)} proposals)"
             )
 
+        from src.features.prompt_enhancement import operations as prompt_enhancement_operations
+
         prompt_text = candidates[action_index]
-        result = await self._m.prompt_enhancement_manager.record_feedback(
+        result = await prompt_enhancement_operations.record_feedback(
+            self._m.prompt_enhancement_manager,
             user_id=user_id,
             session_id=session_id,
             message_id=message_id,

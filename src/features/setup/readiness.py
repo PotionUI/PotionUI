@@ -29,10 +29,10 @@ rendered per caller role so a regular user gets the status and an "ask your
 administrator" nudge, never admin-only internals (backend names, device
 reasons, migration state) or admin-shaped repair actions.
 
-The manager owns no probing logic of its own: it composes the managers that
-already know each answer (backend registry health, preset manager, model
-repository/availability, generation repository) plus a trivial DB/migration
-sanity check.
+The manager owns no probing logic of its own: it composes the collaborators
+that already know each answer (backend registry health, the presets
+`PresetCollaborators` bundle, model repository/availability, generation
+repository) plus a trivial DB/migration sanity check.
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ if TYPE_CHECKING:
     from src.features.backends.backend_registry import BackendRegistry
     from src.features.generation.repository import GenerationRepository
     from src.features.models.repository import ModelRepository
-    from src.features.presets.manager import PresetManager
+    from src.features.presets.collaborators import PresetCollaborators
     from src.features.setup.repository import InstanceClaimRepository
     from src.platform.security.user import User
 
@@ -118,12 +118,12 @@ class _Row:
 
 
 class ReadinessManager:
-    """Computes the four-facet readiness aggregate from existing managers."""
+    """Computes the four-facet readiness aggregate from existing collaborators."""
 
     def __init__(
         self,
         backend_registry: "BackendRegistry",
-        preset_manager: "PresetManager",
+        preset_manager: "PresetCollaborators",
         model_repository: "ModelRepository",
         generation_repository: "GenerationRepository",
         migration_manager=None,
@@ -279,7 +279,9 @@ class ReadinessManager:
                 user_message="Per-recipe readiness isn't available yet.",
             )
 
-        presets = self.preset_manager.list_presets(user)
+        from src.features.presets import operations as preset_operations
+
+        presets = preset_operations.list_presets(self.preset_manager, user)
         if not presets:
             return _Row(
                 area=area,

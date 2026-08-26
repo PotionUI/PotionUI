@@ -5,8 +5,8 @@ This module provides a single declaration point for each form field type: its
 canonical type name, the backend `BaseField` subclass that maps/validates it,
 an optional dynamic-options provider, and the frontend component that renders
 it. It replaces the four divergent hardcoded field-type tables that used to
-exist across `FieldFactory`'s ordered `can_handle` scan, `FormManager`'s
-`if/elif` chain, `FieldsDocumenter`'s name-mapping dict, and the frontend's
+exist across `FieldFactory`'s ordered `can_handle` scan, `src.features.forms.
+operations`'s `if/elif` chain, `FieldsDocumenter`'s name-mapping dict, and the frontend's
 own `FormField.svelte` branches (frontend still branches for now - A4 wires
 the frontend registry against `frontend_manifest()`).
 

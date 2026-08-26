@@ -293,7 +293,7 @@ class FilesystemTrigger(TriggerSource):
         logger.error(f"[FS_TRIGGER] Cannot start node {self.node_id} (automation {self.automation_id}): {reason}")
         if self._notification_manager is not None:
             try:
-                self._notification_manager.notify(
+                self._notification_manager(
                     level="error", category="automation", source="automation_engine",
                     title="Automation file watcher could not start",
                     message=f"Node {self.node_id}: {reason}",

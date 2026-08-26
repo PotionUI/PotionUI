@@ -18,7 +18,8 @@ from PIL import Image
 
 from tests.fixtures.persistence_base import PersistenceTestBase
 from src.features.models.repository import ModelRepository
-from src.features.models.manager import ModelIndexManager
+from src.features.models import operations
+from src.features.models.collaborators import build_model_index_collaborators
 from src.features.models.records import Model
 from src.features.models.exceptions import ModelNotFoundException
 from src.features.generation.file_repository import file_repo
@@ -56,7 +57,7 @@ class TestModelPreviewIntegration(PersistenceTestBase):
         # models_root: without it, `__init__` falls through to the real, lazily
         # -constructed module-level scanner singleton to resolve models_dir,
         # which hits the settings DB for real.
-        self.manager = ModelIndexManager(
+        self.collaborators = build_model_index_collaborators(
             self.repo, tag_repo, Mock(), self.settings, Mock(), models_root=self.storage
         )
 
@@ -80,7 +81,7 @@ class TestModelPreviewIntegration(PersistenceTestBase):
         model = self._seed_model()
         source = self._write_upload()
 
-        self.manager.update_model_preview(
+        operations.update_model_preview(self.collaborators, 
             model.id, {"source_path": source, "type": "image", "name": "img.png"}, user_id="admin"
         )
 
@@ -108,7 +109,7 @@ class TestModelPreviewIntegration(PersistenceTestBase):
         model = self._seed_model()
         source = self._write_upload()
 
-        self.manager.update_model_preview(
+        operations.update_model_preview(self.collaborators, 
             model.id, {"source_path": source, "type": "image"}, user_id="admin"
         )
 
@@ -123,12 +124,12 @@ class TestModelPreviewIntegration(PersistenceTestBase):
 
     def test_replace_deletes_previous_files_row(self):
         model = self._seed_model()
-        first = self.manager.update_model_preview(
+        first = operations.update_model_preview(self.collaborators, 
             model.id, {"source_path": self._write_upload("a.png"), "type": "image"}, user_id="admin"
         )
         first_file_id = first["model"]["preview_media"]["file_id"]
 
-        self.manager.update_model_preview(
+        operations.update_model_preview(self.collaborators, 
             model.id, {"source_path": self._write_upload("b.png"), "type": "image"}, user_id="admin"
         )
 
@@ -140,7 +141,7 @@ class TestModelPreviewIntegration(PersistenceTestBase):
         # A non-image byte blob standing in for a video file.
         (self.storage / "uploads" / "clip.mp4").write_bytes(b"\x00\x01\x02fake-mp4")
 
-        self.manager.update_model_preview(
+        operations.update_model_preview(self.collaborators, 
             model.id, {"source_path": "uploads/clip.mp4", "type": "video"}, user_id="admin"
         )
 
@@ -181,7 +182,7 @@ class TestModelPreviewListIntegration(PersistenceTestBase):
         # models_root: without it, `__init__` falls through to the real, lazily
         # -constructed module-level scanner singleton to resolve models_dir,
         # which hits the settings DB for real.
-        self.manager = ModelIndexManager(
+        self.collaborators = build_model_index_collaborators(
             self.repo, tag_repo, Mock(), self.settings, Mock(), models_root=self.storage
         )
 
@@ -203,10 +204,10 @@ class TestModelPreviewListIntegration(PersistenceTestBase):
 
     def test_add_multiple_previews_appends_in_order(self):
         model = self._seed_model()
-        first = self.manager.add_model_preview(
+        first = operations.add_model_preview(self.collaborators, 
             model.id, {"source_path": self._write_upload("a.png"), "type": "image"}, user_id="admin"
         )
-        second = self.manager.add_model_preview(
+        second = operations.add_model_preview(self.collaborators, 
             model.id, {"source_path": self._write_upload("b.png"), "type": "image"}, user_id="admin"
         )
 
@@ -216,7 +217,7 @@ class TestModelPreviewListIntegration(PersistenceTestBase):
     def test_first_add_mirrors_into_legacy_column(self):
         """Requirement: the first/primary preview keeps working via model.preview_media."""
         model = self._seed_model()
-        self.manager.add_model_preview(
+        operations.add_model_preview(self.collaborators, 
             model.id, {"source_path": self._write_upload(), "type": "image"}, user_id="admin"
         )
 
@@ -226,30 +227,30 @@ class TestModelPreviewListIntegration(PersistenceTestBase):
 
     def test_delete_non_primary_leaves_primary_column_untouched(self):
         model = self._seed_model()
-        self.manager.add_model_preview(
+        operations.add_model_preview(self.collaborators, 
             model.id, {"source_path": self._write_upload("a.png"), "type": "image"}, user_id="admin"
         )
-        added_second = self.manager.add_model_preview(
+        added_second = operations.add_model_preview(self.collaborators, 
             model.id, {"source_path": self._write_upload("b.png"), "type": "image"}, user_id="admin"
         )
         primary_before = self.repo.get_by_id(model.id).preview_media["file_id"]
 
-        self.manager.delete_model_preview(model.id, added_second["id"])
+        operations.delete_model_preview(self.collaborators, model.id, added_second["id"])
 
         primary_after = self.repo.get_by_id(model.id).preview_media["file_id"]
         assert primary_after == primary_before
 
     def test_delete_primary_promotes_next_and_deletes_its_file_row(self):
         model = self._seed_model()
-        added_first = self.manager.add_model_preview(
+        added_first = operations.add_model_preview(self.collaborators, 
             model.id, {"source_path": self._write_upload("a.png"), "type": "image"}, user_id="admin"
         )
-        first_file_id = self.manager.list_model_previews(model.id)[0]["file_id"]
-        self.manager.add_model_preview(
+        first_file_id = operations.list_model_previews(self.collaborators, model.id)[0]["file_id"]
+        operations.add_model_preview(self.collaborators, 
             model.id, {"source_path": self._write_upload("b.png"), "type": "image"}, user_id="admin"
         )
 
-        result = self.manager.delete_model_preview(model.id, added_first["id"])
+        result = operations.delete_model_preview(self.collaborators, model.id, added_first["id"])
 
         assert file_repo.get_by_id(first_file_id) is None, "deleted preview's files row was not dropped"
         assert [p["position"] for p in result["previews"]] == [0]
@@ -258,26 +259,26 @@ class TestModelPreviewListIntegration(PersistenceTestBase):
 
     def test_delete_last_preview_clears_legacy_column(self):
         model = self._seed_model()
-        added = self.manager.add_model_preview(
+        added = operations.add_model_preview(self.collaborators, 
             model.id, {"source_path": self._write_upload(), "type": "image"}, user_id="admin"
         )
 
-        self.manager.delete_model_preview(model.id, added["id"])
+        operations.delete_model_preview(self.collaborators, model.id, added["id"])
 
         assert self.repo.get_by_id(model.id).preview_media is None
-        assert self.manager.list_model_previews(model.id) == []
+        assert operations.list_model_previews(self.collaborators, model.id) == []
 
     def test_reorder_promotes_a_different_preview_to_primary(self):
         model = self._seed_model()
-        first = self.manager.add_model_preview(
+        first = operations.add_model_preview(self.collaborators, 
             model.id, {"source_path": self._write_upload("a.png"), "type": "image"}, user_id="admin"
         )
-        second = self.manager.add_model_preview(
+        second = operations.add_model_preview(self.collaborators, 
             model.id, {"source_path": self._write_upload("b.png"), "type": "image"}, user_id="admin"
         )
-        second_file_id = self.manager.list_model_previews(model.id)[1]["file_id"]
+        second_file_id = operations.list_model_previews(self.collaborators, model.id)[1]["file_id"]
 
-        self.manager.reorder_model_previews(model.id, [second["id"], first["id"]])
+        operations.reorder_model_previews(self.collaborators, model.id, [second["id"], first["id"]])
 
         reloaded = self.repo.get_by_id(model.id)
         assert reloaded.preview_media["file_id"] == second_file_id
@@ -286,22 +287,22 @@ class TestModelPreviewListIntegration(PersistenceTestBase):
         from src.features.models.exceptions import ModelIndexingException
 
         model = self._seed_model()
-        self.manager.add_model_preview(
+        operations.add_model_preview(self.collaborators, 
             model.id, {"source_path": self._write_upload(), "type": "image"}, user_id="admin"
         )
 
         with pytest.raises(ModelIndexingException):
-            self.manager.reorder_model_previews(model.id, ["not-a-real-id"])
+            operations.reorder_model_previews(self.collaborators, model.id, ["not-a-real-id"])
 
     def test_list_lazily_seeds_from_legacy_single_preview(self):
         """A model set via the old single-preview endpoint has no list rows yet;
         the list endpoint must still surface it as the sole/primary entry."""
         model = self._seed_model()
-        self.manager.update_model_preview(
+        operations.update_model_preview(self.collaborators, 
             model.id, {"source_path": self._write_upload(), "type": "image"}, user_id="admin"
         )
 
-        previews = self.manager.list_model_previews(model.id)
+        previews = operations.list_model_previews(self.collaborators, model.id)
 
         assert len(previews) == 1
         assert previews[0]["position"] == 0
@@ -310,15 +311,15 @@ class TestModelPreviewListIntegration(PersistenceTestBase):
 
     def test_add_after_legacy_seed_appends_at_position_one(self):
         model = self._seed_model()
-        self.manager.update_model_preview(
+        operations.update_model_preview(self.collaborators, 
             model.id, {"source_path": self._write_upload("legacy.png"), "type": "image"}, user_id="admin"
         )
 
-        self.manager.add_model_preview(
+        operations.add_model_preview(self.collaborators, 
             model.id, {"source_path": self._write_upload("new.png"), "type": "image"}, user_id="admin"
         )
 
-        previews = self.manager.list_model_previews(model.id)
+        previews = operations.list_model_previews(self.collaborators, model.id)
         assert [p["position"] for p in previews] == [0, 1]
         # The legacy single-set preview stays primary; unchanged column contract.
         legacy_file_id = self.repo.get_by_id(model.id).preview_media["file_id"]
@@ -355,7 +356,7 @@ class TestModelPreviewAccessControl(PersistenceTestBase):
         # models_root: without it, `__init__` falls through to the real, lazily
         # -constructed module-level scanner singleton to resolve models_dir,
         # which hits the settings DB for real.
-        self.manager = ModelIndexManager(
+        self.collaborators = build_model_index_collaborators(
             self.repo, tag_repo, Mock(), self.settings, Mock(), models_root=self.storage
         )
 
@@ -371,7 +372,7 @@ class TestModelPreviewAccessControl(PersistenceTestBase):
             file_path="/models/loras/access.safetensors",
             model_type="lora",
         ))
-        self.manager.add_model_preview(
+        operations.add_model_preview(self.collaborators, 
             self.model.id, {"source_path": self._write_upload(), "type": "image"}, user_id="uploader-admin"
         )
 
@@ -394,14 +395,14 @@ class TestModelPreviewAccessControl(PersistenceTestBase):
                     account_type=AccountType.USER, id=user_id)
 
     def test_uploader_admin_sees_the_preview(self):
-        previews = self.manager.list_model_previews_for_user(self.model.id, self._admin())
+        previews = operations.list_model_previews_for_user(self.collaborators, self.model.id, self._admin())
         assert len(previews) == 1
 
     def test_other_user_with_model_access_sees_the_preview(self):
         user = self._regular_user("user-with-access")
         self.repo.assign_model_to_user(self.model.id, user.id)
 
-        previews = self.manager.list_model_previews_for_user(self.model.id, user)
+        previews = operations.list_model_previews_for_user(self.collaborators, self.model.id, user)
 
         assert len(previews) == 1
 
@@ -409,10 +410,10 @@ class TestModelPreviewAccessControl(PersistenceTestBase):
         user = self._regular_user("user-without-access")
 
         with pytest.raises(ModelNotFoundException):
-            self.manager.list_model_previews_for_user(self.model.id, user)
+            operations.list_model_previews_for_user(self.collaborators, self.model.id, user)
 
     def test_missing_model_gets_not_found(self):
         user = self._regular_user("user-without-access")
 
         with pytest.raises(ModelNotFoundException):
-            self.manager.list_model_previews_for_user("does-not-exist", user)
+            operations.list_model_previews_for_user(self.collaborators, "does-not-exist", user)

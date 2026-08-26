@@ -3,6 +3,8 @@ import pytest
 from unittest.mock import Mock
 from datetime import datetime
 
+from src.features.notifications import operations
+from src.features.notifications.collaborators import NotificationCollaborators
 from src.features.notifications.routes import NotificationController
 from src.features.notifications.dto import CreateNotificationRequest, UpdateNotificationPreferencesRequest
 from src.features.notifications.records import Notification, NotificationLevel
@@ -13,16 +15,22 @@ class TestNotificationController:
     """Comprehensive tests for NotificationController."""
 
     @pytest.fixture
-    def mock_manager(self):
-        return Mock()
-
-    @pytest.fixture
     def mock_repository(self):
         return Mock()
 
     @pytest.fixture
-    def controller(self, mock_manager, mock_repository):
-        return NotificationController(mock_manager, mock_repository)
+    def collaborators(self, mock_repository):
+        return NotificationCollaborators(
+            repository=mock_repository,
+            users=Mock(),
+            plugins=Mock(),
+            connections=Mock(),
+            settings=Mock(),
+        )
+
+    @pytest.fixture
+    def controller(self, collaborators):
+        return NotificationController(collaborators)
 
     @pytest.fixture
     def sample_user(self):
@@ -86,16 +94,18 @@ class TestNotificationController:
 
     @pytest.mark.asyncio
     async def test_create_notification_forces_current_user_and_source(
-        self, controller, mock_manager, sample_user, sample_notification
+        self, controller, monkeypatch, sample_user, sample_notification
     ):
-        mock_manager.notify.return_value = [sample_notification]
+        mock_notify = Mock(return_value=[sample_notification])
+        monkeypatch.setattr(operations, "notify", mock_notify)
 
         request = CreateNotificationRequest(level=NotificationLevel.INFO, title="Hi", message="there")
         result = await controller.create_notification(request, sample_user)
 
         assert result.success is True
         assert len(result.data["notifications"]) == 1
-        mock_manager.notify.assert_called_once_with(
+        mock_notify.assert_called_once_with(
+            controller.collaborators,
             level=NotificationLevel.INFO,
             title="Hi",
             message="there",
@@ -110,33 +120,35 @@ class TestNotificationController:
 
     @pytest.mark.asyncio
     async def test_create_notification_passes_through_type(
-        self, controller, mock_manager, sample_user, sample_notification
+        self, controller, monkeypatch, sample_user, sample_notification
     ):
-        mock_manager.notify.return_value = [sample_notification]
+        mock_notify = Mock(return_value=[sample_notification])
+        monkeypatch.setattr(operations, "notify", mock_notify)
 
         request = CreateNotificationRequest(
             level=NotificationLevel.INFO, title="Hi", type="generation.completed"
         )
         await controller.create_notification(request, sample_user)
 
-        _, kwargs = mock_manager.notify.call_args
+        _, kwargs = mock_notify.call_args
         assert kwargs["type"] == "generation.completed"
 
     @pytest.mark.asyncio
     async def test_create_notification_defaults_type_to_empty_string(
-        self, controller, mock_manager, sample_user, sample_notification
+        self, controller, monkeypatch, sample_user, sample_notification
     ):
-        mock_manager.notify.return_value = [sample_notification]
+        mock_notify = Mock(return_value=[sample_notification])
+        monkeypatch.setattr(operations, "notify", mock_notify)
 
         request = CreateNotificationRequest(level=NotificationLevel.INFO, title="Hi")
         await controller.create_notification(request, sample_user)
 
-        _, kwargs = mock_manager.notify.call_args
+        _, kwargs = mock_notify.call_args
         assert kwargs["type"] == ""
 
     @pytest.mark.asyncio
-    async def test_create_notification_invalid_level(self, controller, mock_manager, sample_user):
-        mock_manager.notify.side_effect = ValueError("Invalid level")
+    async def test_create_notification_invalid_level(self, controller, monkeypatch, sample_user):
+        monkeypatch.setattr(operations, "notify", Mock(side_effect=ValueError("Invalid level")))
 
         request = CreateNotificationRequest(level=NotificationLevel.ERROR, title="Bad")
         result = await controller.create_notification(request, sample_user)
@@ -147,18 +159,19 @@ class TestNotificationController:
     # ========== Mark Read / Read All ==========
 
     @pytest.mark.asyncio
-    async def test_mark_read_success(self, controller, mock_manager, sample_user):
-        mock_manager.mark_read.return_value = True
+    async def test_mark_read_success(self, controller, monkeypatch, sample_user):
+        mock_mark_read = Mock(return_value=True)
+        monkeypatch.setattr(operations, "mark_read", mock_mark_read)
 
         result = await controller.mark_read("notif-1", sample_user)
 
         assert result.success is True
         assert result.data["id"] == "notif-1"
-        mock_manager.mark_read.assert_called_once_with("notif-1", "user-123")
+        mock_mark_read.assert_called_once_with(controller.collaborators, "notif-1", "user-123")
 
     @pytest.mark.asyncio
-    async def test_mark_read_not_found(self, controller, mock_manager, sample_user):
-        mock_manager.mark_read.return_value = False
+    async def test_mark_read_not_found(self, controller, monkeypatch, sample_user):
+        monkeypatch.setattr(operations, "mark_read", Mock(return_value=False))
 
         result = await controller.mark_read("missing", sample_user)
 
@@ -166,30 +179,32 @@ class TestNotificationController:
         assert result.error == "notification_not_found"
 
     @pytest.mark.asyncio
-    async def test_mark_all_read_success(self, controller, mock_manager, sample_user):
-        mock_manager.mark_all_read.return_value = 5
+    async def test_mark_all_read_success(self, controller, monkeypatch, sample_user):
+        mock_mark_all_read = Mock(return_value=5)
+        monkeypatch.setattr(operations, "mark_all_read", mock_mark_all_read)
 
         result = await controller.mark_all_read(sample_user)
 
         assert result.success is True
         assert result.data["updated"] == 5
-        mock_manager.mark_all_read.assert_called_once_with("user-123")
+        mock_mark_all_read.assert_called_once_with(controller.collaborators, "user-123")
 
     # ========== Delete / Clear ==========
 
     @pytest.mark.asyncio
-    async def test_delete_notification_success(self, controller, mock_manager, sample_user):
-        mock_manager.delete.return_value = True
+    async def test_delete_notification_success(self, controller, monkeypatch, sample_user):
+        mock_delete = Mock(return_value=True)
+        monkeypatch.setattr(operations, "delete", mock_delete)
 
         result = await controller.delete_notification("notif-1", sample_user)
 
         assert result.success is True
         assert result.data["id"] == "notif-1"
-        mock_manager.delete.assert_called_once_with("notif-1", "user-123")
+        mock_delete.assert_called_once_with(controller.collaborators, "notif-1", "user-123")
 
     @pytest.mark.asyncio
-    async def test_delete_notification_not_found(self, controller, mock_manager, sample_user):
-        mock_manager.delete.return_value = False
+    async def test_delete_notification_not_found(self, controller, monkeypatch, sample_user):
+        monkeypatch.setattr(operations, "delete", Mock(return_value=False))
 
         result = await controller.delete_notification("missing", sample_user)
 
@@ -197,19 +212,20 @@ class TestNotificationController:
         assert result.error == "notification_not_found"
 
     @pytest.mark.asyncio
-    async def test_clear_notifications_success(self, controller, mock_manager, sample_user):
-        mock_manager.clear.return_value = 7
+    async def test_clear_notifications_success(self, controller, monkeypatch, sample_user):
+        mock_clear = Mock(return_value=7)
+        monkeypatch.setattr(operations, "clear", mock_clear)
 
         result = await controller.clear_notifications(sample_user)
 
         assert result.success is True
         assert result.data["deleted"] == 7
-        mock_manager.clear.assert_called_once_with("user-123")
+        mock_clear.assert_called_once_with(controller.collaborators, "user-123")
 
     # ========== Notification Types / Preferences ==========
 
     @pytest.mark.asyncio
-    async def test_get_notification_types_success(self, controller, mock_manager, sample_user):
+    async def test_get_notification_types_success(self, controller, monkeypatch, sample_user):
         preferences = {
             "types": [
                 {
@@ -220,17 +236,18 @@ class TestNotificationController:
             ],
             "sound": False,
         }
-        mock_manager.get_preferences.return_value = preferences
+        mock_get_preferences = Mock(return_value=preferences)
+        monkeypatch.setattr(operations, "get_preferences", mock_get_preferences)
 
         result = await controller.get_notification_types(sample_user)
 
         assert result.success is True
         assert result.data == preferences
-        mock_manager.get_preferences.assert_called_once_with("user-123")
+        mock_get_preferences.assert_called_once_with(controller.collaborators, "user-123")
 
     @pytest.mark.asyncio
-    async def test_get_notification_types_error(self, controller, mock_manager, sample_user):
-        mock_manager.get_preferences.side_effect = Exception("boom")
+    async def test_get_notification_types_error(self, controller, monkeypatch, sample_user):
+        monkeypatch.setattr(operations, "get_preferences", Mock(side_effect=Exception("boom")))
 
         result = await controller.get_notification_types(sample_user)
 
@@ -238,31 +255,36 @@ class TestNotificationController:
         assert result.error == "get_notification_types_failed"
 
     @pytest.mark.asyncio
-    async def test_update_preferences_success(self, controller, mock_manager, sample_user):
+    async def test_update_preferences_success(self, controller, monkeypatch, sample_user):
         updated = {"types": [], "sound": True}
-        mock_manager.update_preferences.return_value = updated
+        mock_update_preferences = Mock(return_value=updated)
+        monkeypatch.setattr(operations, "update_preferences", mock_update_preferences)
 
         request = UpdateNotificationPreferencesRequest(types={"generation.completed": False}, sound=True)
         result = await controller.update_preferences(request, sample_user)
 
         assert result.success is True
         assert result.data == updated
-        mock_manager.update_preferences.assert_called_once_with(
-            "user-123", types={"generation.completed": False}, sound=True
+        mock_update_preferences.assert_called_once_with(
+            controller.collaborators, "user-123", types={"generation.completed": False}, sound=True
         )
 
     @pytest.mark.asyncio
-    async def test_update_preferences_partial_body(self, controller, mock_manager, sample_user):
-        mock_manager.update_preferences.return_value = {"types": [], "sound": False}
+    async def test_update_preferences_partial_body(self, controller, monkeypatch, sample_user):
+        mock_update_preferences = Mock(return_value={"types": [], "sound": False})
+        monkeypatch.setattr(operations, "update_preferences", mock_update_preferences)
 
         request = UpdateNotificationPreferencesRequest(sound=False)
         await controller.update_preferences(request, sample_user)
 
-        mock_manager.update_preferences.assert_called_once_with("user-123", types=None, sound=False)
+        mock_update_preferences.assert_called_once_with(controller.collaborators, "user-123", types=None, sound=False)
 
     @pytest.mark.asyncio
-    async def test_update_preferences_unknown_type_error(self, controller, mock_manager, sample_user):
-        mock_manager.update_preferences.side_effect = ValueError("Unknown notification type: 'bogus'")
+    async def test_update_preferences_unknown_type_error(self, controller, monkeypatch, sample_user):
+        monkeypatch.setattr(
+            operations, "update_preferences",
+            Mock(side_effect=ValueError("Unknown notification type: 'bogus'")),
+        )
 
         request = UpdateNotificationPreferencesRequest(types={"bogus": True})
         result = await controller.update_preferences(request, sample_user)
@@ -270,4 +292,3 @@ class TestNotificationController:
         assert result.success is False
         assert result.error == "update_preferences_failed"
         assert "bogus" in result.message
-

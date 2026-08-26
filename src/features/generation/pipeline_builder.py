@@ -73,7 +73,7 @@ class PipelineBuilder:
 
     This is the ONE build path in the codebase: both generation execution
     (GenerationOrchestrator) and the pipeline graph preview
-    (PresetManager.get_pipeline -> build_graph) call through here.
+    (operations.get_pipeline -> build_graph) call through here.
     """
 
     def __init__(
@@ -126,7 +126,7 @@ class PipelineBuilder:
             form_name: Which form "variant" within the mode this submission came
                 from (see docs/presets.md "Variants"). If not given,
                 PresetProcessor resolves the mode's default variant - the same
-                rule PresetManager.get_form_schema uses.
+                rule operations.get_form_schema uses.
             user_id: The authenticated user, if any. Resolves user-scoped
                 `runtime.settings` entries in the pipeline template context
                 (e.g. `nsfw`). `None` for unauthenticated/system callers

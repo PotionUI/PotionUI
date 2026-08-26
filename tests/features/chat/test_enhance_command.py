@@ -21,6 +21,27 @@ from src.features.llm.tools.executor import ToolExecutor
 from src.features.llm.tools.builtin.enhance_prompt_tool import EnhancePromptTool
 
 
+@pytest.fixture(autouse=True)
+def _forward_prompt_enhancement_operations(monkeypatch):
+    """`enhance_prompt_tool`/`ChatManager.record_prompt_feedback` now call the
+    module-level `src.features.prompt_enhancement.operations` functions with
+    the `prompt_enhancement_manager` collaborator as their leading arg, rather
+    than calling methods on an injected manager. This fixture forwards those
+    calls to the collaborator's own `.enhance`/`.record_feedback` attributes,
+    so this file's fakes can stay built exactly like the retired manager
+    double (a plain mock with `.enhance`/`.record_feedback`)."""
+    from src.features.prompt_enhancement import operations
+
+    async def enhance(collaborators, **kwargs):
+        return await collaborators.enhance(**kwargs)
+
+    async def record_feedback(collaborators, **kwargs):
+        return await collaborators.record_feedback(**kwargs)
+
+    monkeypatch.setattr(operations, "enhance", enhance)
+    monkeypatch.setattr(operations, "record_feedback", record_feedback)
+
+
 def _mode_registry() -> ChatModeRegistry:
     """Real mode registry with the builtin generation mode (no settings)."""
     registry = ChatModeRegistry()

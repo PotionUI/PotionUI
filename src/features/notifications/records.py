@@ -3,7 +3,7 @@ Notification model.
 
 Persistent, per-user notification rows. System-wide broadcasts are fanned
 out to one row per user at creation time (see NotificationRepository.create
-callers in NotificationManager).
+callers in src.features.notifications.operations.notify).
 """
 from enum import Enum
 from typing import Optional, Dict, Any

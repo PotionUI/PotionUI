@@ -89,7 +89,7 @@ class GetModelInfoTool(BaseTool):
         fields = {f for f in raw_fields if isinstance(f, str)} & _EXTRA_FIELDS
 
         try:
-            model_data = context.model_index_manager.get_model_by_id(model_id)
+            model_data = context.model_index_manager.catalog.get_model_by_id(model_id)
             return ToolResult(success=True, data=json.dumps(self._summarize(model_data, fields)))
         except Exception:
             logger.debug(f"get_model_by_id failed for '{model_id}', trying path-based lookup")

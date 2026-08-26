@@ -23,7 +23,7 @@ import functools
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import Any, Callable, TYPE_CHECKING
 
 import src.platform.plugins.runtime_registries as _rr
 
@@ -46,7 +46,7 @@ from src.platform.plugins import PluginRegistry
 from src.platform.plugins.router_manager import PluginRouterManager
 from src.features.generation.hooks import OUTPUT_TYPE_HOOKS
 from src.platform.security import AuthConfig, PasswordHasher, TokenManager, AuthManager, ClaimTokenManager
-from src.features.setup import SetupManager, InstanceClaimRepository
+from src.features.setup import InstanceClaimRepository
 from src.features.setup.run_manager import SetupRunManager
 from src.features.setup.recipe_catalog import RecipeCatalog
 from src.features.phrasebook.preview_generator import PhrasebookPreviewGenerator
@@ -62,8 +62,8 @@ from src.features.models.attributes.repository import AttributeDefinitionReposit
 from src.features.models.attributes.user_repository import UserModelAttributeRepository
 from src.features.models.attributes.manager import ModelAttributeDefinitionsManager
 from src.features.models.attributes.seeding import ensure_builtin_attribute_definitions
-from src.features.models import ModelIndexManager
-from src.features.presets.manager import PresetManager
+from src.features.models import ModelIndexCollaborators, build_model_index_collaborators
+from src.features.presets.collaborators import PresetCollaborators
 from src.features.presets.name_resolver import PresetNameResolver
 from src.features.system_monitor import SystemMonitorManager
 
@@ -101,7 +101,6 @@ if TYPE_CHECKING:
     from src.features.chat.modes import ChatModeRegistry
     from src.platform.resources import ResourceRegistry
     from src.features.notifications.repository import NotificationRepository
-    from src.features.notifications import NotificationManager
     from src.features.llm_memory.repository import LLMMemoryRepository
     from src.platform.websocket.connection_manager import ConnectionManager
     from src.platform.websocket.download_connection_manager import DownloadConnectionManager
@@ -119,7 +118,7 @@ if TYPE_CHECKING:
     from src.features.prompt_database.collaborators import PromptDatabaseCollaborators
     from src.features.prompt_database.repository import PromptRepository
     from src.features.prompt_enhancement.repository import EnhancementFeedbackRepository
-    from src.features.prompt_enhancement import PromptEnhancementManager
+    from src.features.prompt_enhancement import PromptEnhancementCollaborators
     from src.features.media_index.repository import MediaIndexRepository
     from src.features.media_index.manager import MediaIndexManager
     from src.features.media_index.routes import MediaIndexController
@@ -226,7 +225,6 @@ class AppContainer:
     password_hasher: PasswordHasher
     token_manager: TokenManager
     auth_manager: AuthManager
-    setup_manager: SetupManager
     setup_run_manager: SetupRunManager
     recipe_catalog: RecipeCatalog
     user_controller: "UserController"
@@ -238,7 +236,9 @@ class AppContainer:
 
     # Notification
     notification_repository: "NotificationRepository"
-    notification_manager: "NotificationManager"
+    # A bound callable (`functools.partial(operations.notify, collaborators)`),
+    # not a class instance - see its construction below.
+    notification_manager: Callable[..., Any]
     notification_controller: "NotificationController"
 
     # Phrasebook
@@ -283,7 +283,7 @@ class AppContainer:
     # Model index / library
     model_repository: "ModelRepository"
     tag_repository: "TagRepository"
-    model_index_manager: ModelIndexManager
+    model_index_manager: ModelIndexCollaborators
     model_controller: "ModelController"
     model_collection_repository: "ModelCollectionRepository"
     user_model_meta_repository: "UserModelMetaRepository"
@@ -324,7 +324,7 @@ class AppContainer:
     # Presets
     file_preset_repository: "FilePresetRepository"
     database_preset_repository: "DatabasePresetRepository"
-    preset_manager: PresetManager
+    preset_manager: PresetCollaborators
     preset_controller: "PresetController"
 
     # Prompt database / enhancement
@@ -332,7 +332,7 @@ class AppContainer:
     prompt_database: "PromptDatabaseCollaborators"
     prompt_database_controller: "PromptDatabaseController"
     enhancement_feedback_repository: "EnhancementFeedbackRepository"
-    prompt_enhancement_manager: "PromptEnhancementManager"
+    prompt_enhancement_manager: "PromptEnhancementCollaborators"
 
     # Media index (system tags + reusable index queue)
     media_index_repository: "MediaIndexRepository"
@@ -609,11 +609,6 @@ def build_container() -> AppContainer:
         claim_tokens=claim_token_manager,
         settings_manager=settings_manager,
     )
-    setup_manager = SetupManager(
-        instance_claim_repository=instance_claim_repository,
-        claim_token_manager=claim_token_manager,
-        settings_manager=settings_manager,
-    )
     setup_run_manager = SetupRunManager()
     # Recipe catalog (discovers/validates content/recipes/{marketplace,local}/*.yml).
     # The executor registry is wired further down (see "setup executors")
@@ -713,19 +708,25 @@ def build_container() -> AppContainer:
     # imported at module scope.
     from src.features.notifications.repository import NotificationRepository
     from src.platform.websocket.notification_connection_manager import notification_connection_manager
-    from src.features.notifications import NotificationManager
+    from src.features.notifications import NotificationCollaborators
+    from src.features.notifications import operations as notification_operations
     from src.features.notifications.routes import NotificationController
 
     notification_repository = NotificationRepository()
-    notification_manager = NotificationManager(
-        notification_repository=notification_repository,
-        user_repository=user_repository,
-        plugin_registry=plugin_registry,
-        connection_manager=notification_connection_manager,
-        settings_manager=settings_manager
+    notification_collaborators = NotificationCollaborators(
+        repository=notification_repository,
+        users=user_repository,
+        plugins=plugin_registry,
+        connections=notification_connection_manager,
+        settings=settings_manager,
     )
+    # A bound callable, not a class instance: every unrelated feature that
+    # takes a `notification_manager` collaborator (generation, automation,
+    # inspirations, the plugin lifecycle hooks) only ever calls it, duck-typed
+    # as `notification_manager(...)` - see `operations.notify`'s docstring.
+    notification_manager = functools.partial(notification_operations.notify, notification_collaborators)
     _rr._global_notification_manager = notification_manager
-    notification_controller = NotificationController(notification_manager, notification_repository)
+    notification_controller = NotificationController(notification_collaborators)
 
     # Initialize LLM memory components
     from src.features.llm_memory.repository import LLMMemoryRepository
@@ -973,7 +974,7 @@ def build_container() -> AppContainer:
         snapshot = generation_orchestrator.queue.snapshot()
         return bool(snapshot["pending"]) or bool(snapshot["running"])
 
-    model_index_manager = ModelIndexManager(
+    model_index_manager = build_model_index_collaborators(
         model_repository=model_repository,
         tag_repository=tag_repository,
         plugin_registry=plugin_registry,
@@ -1035,7 +1036,7 @@ def build_container() -> AppContainer:
     # a whole-directory scanner with no single-file entry point). `action.index_model`
     # needs `index_single_model()` with its SHA256 dedup, which lives on
     # `src.features.models.indexer.ModelScanner` - the same scanner
-    # `ModelIndexManager` uses. Imported as the lazy proxy singleton because its
+    # `ModelIndexCollaborators` uses. Imported as the lazy proxy singleton because its
     # `__init__` reads the settings DB.
     from src.features.models.indexer import model_scanner as file_model_indexer
 
@@ -1162,17 +1163,17 @@ def build_container() -> AppContainer:
     file_preset_repository = FilePresetRepository(preset_template_loader)
     database_preset_repository = DatabasePresetRepository()
     _user_group_repo_for_presets = _UGR()
-    preset_manager = PresetManager(
+    preset_manager = PresetCollaborators(
         preset_loader=preset_template_loader,
         preset_processor=preset_processor,
         template_processor=template_processor,
-        file_preset_repository=file_preset_repository,
-        database_preset_repository=database_preset_repository,
-        user_repository=user_repository,
-        user_group_repository=_user_group_repo_for_presets,
+        file_repo=file_preset_repository,
+        db_repo=database_preset_repository,
+        user_repo=user_repository,
+        group_repo=_user_group_repo_for_presets,
         pipeline_builder=pipeline_builder,
         pipe_catalog=pipe_catalog,
-        plugin_registry=plugin_registry,
+        plugins=plugin_registry,
         settings_manager=settings_manager
     )
     preset_controller = PresetController(
@@ -1248,13 +1249,13 @@ def build_container() -> AppContainer:
     chat_manager.generation_model_repository = GenerationModelRepository()
 
     # Prompt enhancement pipeline (used by the enhance_prompt tool)
-    from src.features.prompt_enhancement import PromptEnhancementManager
+    from src.features.prompt_enhancement import PromptEnhancementCollaborators
     from src.features.prompt_enhancement.repository import (
         EnhancementFeedbackRepository,
     )
 
     enhancement_feedback_repository = EnhancementFeedbackRepository()
-    prompt_enhancement_manager = PromptEnhancementManager(
+    prompt_enhancement_manager = PromptEnhancementCollaborators(
         llm_service=llm_service,
         prompt_database=prompt_database,
         model_index_manager=model_index_manager,

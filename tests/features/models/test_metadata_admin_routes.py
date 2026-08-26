@@ -48,7 +48,7 @@ def client(manager):
 
 class TestUpdateDescription:
     def test_admin_updates_description(self, client, manager):
-        manager.update_model_description.return_value = {
+        manager.metadata.update_model_description.return_value = {
             "message": "Model description updated successfully",
             "model": {"id": "m1", "description": "New description"},
         }
@@ -59,10 +59,10 @@ class TestUpdateDescription:
         body = resp.json()
         assert body["success"] is True
         assert body["data"]["model"]["description"] == "New description"
-        manager.update_model_description.assert_called_once_with("m1", "New description")
+        manager.metadata.update_model_description.assert_called_once_with("m1", "New description")
 
     def test_model_not_found(self, client, manager):
-        manager.update_model_description.side_effect = ModelNotFoundException("Model 'm1' not found")
+        manager.metadata.update_model_description.side_effect = ModelNotFoundException("Model 'm1' not found")
 
         resp = client.put("/api/models/m1/description", json={"description": "x"})
 
@@ -74,7 +74,7 @@ class TestUpdateDescription:
 
 class TestUpdateTags:
     def test_admin_updates_tags(self, client, manager):
-        manager.update_model_tags.return_value = {
+        manager.metadata.update_model_tags.return_value = {
             "message": "Model tags updated successfully",
             "model": {"id": "m1", "tags": [{"id": "t1", "name": "anime"}]},
         }
@@ -85,10 +85,10 @@ class TestUpdateTags:
         body = resp.json()
         assert body["success"] is True
         assert body["data"]["model"]["tags"][0]["id"] == "t1"
-        manager.update_model_tags.assert_called_once_with("m1", ["t1"])
+        manager.metadata.update_model_tags.assert_called_once_with("m1", ["t1"])
 
     def test_invalid_tag(self, client, manager):
-        manager.update_model_tags.side_effect = InvalidTagException("Invalid tag ID: t9")
+        manager.metadata.update_model_tags.side_effect = InvalidTagException("Invalid tag ID: t9")
 
         resp = client.put("/api/models/m1/tags", json={"tag_ids": ["t9"]})
 

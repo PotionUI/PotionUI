@@ -5,7 +5,7 @@ Admin-set preset configuration: validation and `@config:<key>` resolution.
 knobs (key -> {type, label, description}) - see `ConfigurationEntry` in
 `src/features/presets/schema.py`. The *values* an admin sets for those keys are stored
 per installed preset (`src/features/presets/records.py`'s `configuration` column)
-and merged with the declared schema here and in `PresetManager.get_preset_configuration`.
+and merged with the declared schema here and in `operations.get_preset_configuration`.
 
 See docs/presets.md "Configuration (admin-set)".
 """

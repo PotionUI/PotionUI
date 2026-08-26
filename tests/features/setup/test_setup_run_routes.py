@@ -82,13 +82,15 @@ def _client(current_user: User, *, recipe_catalog=None, executor_registry=None) 
     if executor_registry is not None:
         run_manager.register_executor_registry(executor_registry)
     container = SimpleNamespace(
-        setup_manager=Mock(),
         setup_run_manager=run_manager,
         # readiness deps are resolved lazily and never touched here.
         backend_registry=Mock(),
         preset_manager=Mock(),
         model_repository=Mock(),
         generation_repository=Mock(),
+        instance_claim_repository=Mock(),
+        claim_token_manager=Mock(),
+        settings_manager=Mock(),
     )
     if recipe_catalog is not None:
         container.recipe_catalog = recipe_catalog

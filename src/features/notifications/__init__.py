@@ -1,3 +1,3 @@
-from src.features.notifications.manager import NotificationManager
+from src.features.notifications.collaborators import NotificationCollaborators
 
-__all__ = ["NotificationManager"]
+__all__ = ["NotificationCollaborators"]

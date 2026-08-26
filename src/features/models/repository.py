@@ -921,7 +921,7 @@ class ModelRepository:
         both `users` and `models`, so four different mistakes all surface here as
         one `IntegrityError`: the pair is already assigned, the model id is
         unknown (or blank), or the user id is unknown. SQLite doesn't say which
-        foreign key failed - `ModelIndexManager.assign_model_to_user` re-queries
+        foreign key failed - `ModelAssignmentService.assign_model_to_user` re-queries
         to tell the caller which. The exception is logged rather than swallowed,
         so the real constraint is always recoverable from the logs.
         """

@@ -4,7 +4,7 @@
 
 Mirrors test_metadata_admin_routes.py: an admin drives the REAL router and
 controller against a mock manager for the route-shape assertions, plus a real
-ModelIndexManager/ModelMetadataEditor/ModelAttributeDefinitionsManager wired to
+ModelIndexCollaborators/ModelMetadataEditor/ModelAttributeDefinitionsManager wired to
 a scratch DB for the validation behavior (undeclared key / out-of-range /
 wrong type / per-user-only), so the test exercises the actual coercion and
 rejection logic rather than a mock configured to match the assertion.
@@ -21,7 +21,8 @@ from src.platform.security.user import User, AccountType
 
 from src.features.models.routes import ModelController, build_router
 from src.features.models.exceptions import ModelNotFoundException, InvalidModelMetadataException
-from src.features.models.manager import ModelIndexManager
+from src.features.models import operations
+from src.features.models.collaborators import build_model_index_collaborators
 from src.features.models.repository import ModelRepository
 from src.features.models.records import Model
 from src.features.tags.repository import TagRepository
@@ -187,7 +188,7 @@ class TestDeleteAttributeDefinitionRouteShape:
 
 class TestUpdateModelMetadataRouteShape:
     def test_admin_updates_metadata(self, client, manager):
-        manager.update_model_metadata.return_value = {
+        manager.metadata.update_model_metadata.return_value = {
             "message": "Model metadata updated successfully",
             "model": {"id": "m1", "model_metadata": {"strength": 0.8}},
         }
@@ -198,10 +199,10 @@ class TestUpdateModelMetadataRouteShape:
         body = resp.json()
         assert body["success"] is True
         assert body["data"]["model"]["model_metadata"]["strength"] == 0.8
-        manager.update_model_metadata.assert_called_once_with("m1", {"strength": 0.8})
+        manager.metadata.update_model_metadata.assert_called_once_with("m1", {"strength": 0.8})
 
     def test_model_not_found(self, client, manager):
-        manager.update_model_metadata.side_effect = ModelNotFoundException("Model 'm1' not found")
+        manager.metadata.update_model_metadata.side_effect = ModelNotFoundException("Model 'm1' not found")
 
         resp = client.put("/api/models/m1/metadata", json={"values": {"strength": 0.8}})
 
@@ -211,7 +212,7 @@ class TestUpdateModelMetadataRouteShape:
         assert body["error"] == "model_not_found"
 
     def test_invalid_metadata(self, client, manager):
-        manager.update_model_metadata.side_effect = InvalidModelMetadataException(
+        manager.metadata.update_model_metadata.side_effect = InvalidModelMetadataException(
             "'bogus' is not a declared attribute for model type 'lora'"
         )
 
@@ -280,7 +281,7 @@ class TestUpdateModelMetadataValidation(PersistenceTestBase):
             model_types=["lora"], config={"min": 0, "max": 2}, default_value=1.0,
         ))
 
-        self.manager = ModelIndexManager(
+        self.collaborators = build_model_index_collaborators(
             model_repository=self.model_repo,
             tag_repository=self.tag_repo,
             plugin_registry=Mock(),
@@ -303,7 +304,7 @@ class TestUpdateModelMetadataValidation(PersistenceTestBase):
         self.model = self.model_repo.create(model)
 
     def test_valid_value_persists_and_reads_back(self):
-        result = self.manager.update_model_metadata(self.model.id, {"strength": 0.8})
+        result = operations.update_model_metadata(self.collaborators, self.model.id, {"strength": 0.8})
         assert result["model"]["model_metadata"] == {"strength": 0.8}
 
         reloaded = self.model_repo.get_by_id(self.model.id, include_providers=False)
@@ -311,7 +312,7 @@ class TestUpdateModelMetadataValidation(PersistenceTestBase):
 
     def test_undeclared_key_is_rejected_and_names_it(self):
         with self.assertRaises(InvalidModelMetadataException) as ctx:
-            self.manager.update_model_metadata(self.model.id, {"bogus": 1})
+            operations.update_model_metadata(self.collaborators, self.model.id, {"bogus": 1})
         self.assertIn("bogus", str(ctx.exception))
 
         # rejected, not stored
@@ -320,7 +321,7 @@ class TestUpdateModelMetadataValidation(PersistenceTestBase):
 
     def test_out_of_range_value_is_rejected_not_clamped(self):
         with self.assertRaises(InvalidModelMetadataException) as ctx:
-            self.manager.update_model_metadata(self.model.id, {"strength": 5.0})
+            operations.update_model_metadata(self.collaborators, self.model.id, {"strength": 5.0})
         message = str(ctx.exception)
         self.assertIn("strength", message)
         self.assertIn("2", message)
@@ -330,7 +331,7 @@ class TestUpdateModelMetadataValidation(PersistenceTestBase):
 
     def test_wrong_type_value_is_rejected(self):
         with self.assertRaises(InvalidModelMetadataException):
-            self.manager.update_model_metadata(self.model.id, {"strength": "not-a-number"})
+            operations.update_model_metadata(self.collaborators, self.model.id, {"strength": "not-a-number"})
 
     def test_user_scoped_list_models_threads_user_model_metadata(self):
         """The picker's model source (`list_models`) surfaces the caller's
@@ -339,10 +340,10 @@ class TestUpdateModelMetadataValidation(PersistenceTestBase):
         from src.features.models.catalog import ListModelsParams
 
         self.create_test_user(user_id="a1")
-        user_attrs = self.manager._catalog.user_attributes
+        user_attrs = self.collaborators.catalog.user_attributes
         user_attrs.upsert("a1", self.model.id, "strength", 0.42)
 
-        result = self.manager.list_models(ListModelsParams(all_models=True), _admin())
+        result = operations.list_models(self.collaborators, ListModelsParams(all_models=True), _admin())
 
         entry = next(m for m in result["models"] if m["id"] == self.model.id)
         assert entry["user_model_metadata"] == {"strength": 0.42}

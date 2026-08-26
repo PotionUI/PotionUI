@@ -4,11 +4,12 @@ import pytest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
-from src.features.prompt_enhancement.manager import PromptEnhancementManager
+from src.features.prompt_enhancement import operations
+from src.features.prompt_enhancement.collaborators import PromptEnhancementCollaborators
 
 
-def make_manager(prompt_db=None, feedback_repo=None):
-    return PromptEnhancementManager(
+def make_collaborators(prompt_db=None, feedback_repo=None):
+    return PromptEnhancementCollaborators(
         llm_service=MagicMock(),
         prompt_database=prompt_db,
         feedback_repository=feedback_repo,
@@ -27,9 +28,10 @@ class TestRecordFeedback:
         prompt_db = MagicMock()
         prompt_db.add_prompt = AsyncMock(return_value=SimpleNamespace(id="mp-1"))
         feedback_repo = make_feedback_repo()
-        manager = make_manager(prompt_db, feedback_repo)
+        collaborators = make_collaborators(prompt_db, feedback_repo)
 
-        result = await manager.record_feedback(
+        result = await operations.record_feedback(
+            collaborators,
             user_id="u-1", session_id="s-1", message_id="m-1",
             prompt_text="a rich prompt", verdict="approved", model_id="model-1",
         )
@@ -51,9 +53,10 @@ class TestRecordFeedback:
         prompt_db = MagicMock()
         prompt_db.add_prompt = AsyncMock(return_value=SimpleNamespace(id="mp-1"))
         feedback_repo = make_feedback_repo()
-        manager = make_manager(prompt_db, feedback_repo)
+        collaborators = make_collaborators(prompt_db, feedback_repo)
 
-        await manager.record_feedback(
+        await operations.record_feedback(
+            collaborators,
             user_id="u-1", session_id="s-1", message_id="m-1",
             prompt_text="dataset prompt", verdict="approved", mode="dataset",
         )
@@ -66,9 +69,10 @@ class TestRecordFeedback:
         prompt_db = MagicMock()
         prompt_db.add_prompt = AsyncMock()
         feedback_repo = make_feedback_repo()
-        manager = make_manager(prompt_db, feedback_repo)
+        collaborators = make_collaborators(prompt_db, feedback_repo)
 
-        result = await manager.record_feedback(
+        result = await operations.record_feedback(
+            collaborators,
             user_id="u-1", session_id="s-1", message_id="m-1",
             prompt_text="a bad prompt", verdict="rejected", reason="too dark",
         )
@@ -80,9 +84,10 @@ class TestRecordFeedback:
 
     @pytest.mark.asyncio
     async def test_invalid_verdict_raises(self):
-        manager = make_manager()
+        collaborators = make_collaborators()
         with pytest.raises(ValueError):
-            await manager.record_feedback(
+            await operations.record_feedback(
+                collaborators,
                 user_id="u-1", session_id="s-1", message_id="m-1",
                 prompt_text="x", verdict="meh",
             )
@@ -100,18 +105,18 @@ class TestExemplarModeFiltering:
             SimpleNamespace(id="p-ds", prompt="ds", source_url=None,
                             metadata={"mode": "dataset"}),
         ])
-        manager = make_manager(prompt_db)
+        collaborators = make_collaborators(prompt_db)
 
-        results = await manager._search_prompts(
-            "u-1", ["query"], None, limit_per_query=5, total_cap=10,
+        results = await operations._search_prompts(
+            collaborators, "u-1", ["query"], None, limit_per_query=5, total_cap=10,
             source_provider="chat_approved", mode="generation",
         )
 
         # Legacy rows without a mode tag count as 'generation'
         assert [p.id for p in results] == ["p-gen", "p-legacy"]
 
-        results_ds = await manager._search_prompts(
-            "u-1", ["query"], None, limit_per_query=5, total_cap=10,
+        results_ds = await operations._search_prompts(
+            collaborators, "u-1", ["query"], None, limit_per_query=5, total_cap=10,
             source_provider="chat_approved", mode="dataset",
         )
         assert [p.id for p in results_ds] == ["p-ds"]
@@ -120,14 +125,14 @@ class TestExemplarModeFiltering:
     async def test_search_prompts_overfetches_when_mode_filtering(self):
         prompt_db = MagicMock()
         prompt_db.search = AsyncMock(return_value=[])
-        manager = make_manager(prompt_db)
+        collaborators = make_collaborators(prompt_db)
 
-        await manager._search_prompts(
-            "u-1", ["query"], None, limit_per_query=4, total_cap=10, mode="generation",
+        await operations._search_prompts(
+            collaborators, "u-1", ["query"], None, limit_per_query=4, total_cap=10, mode="generation",
         )
         assert prompt_db.search.call_args.kwargs["limit"] == 8
 
-        await manager._search_prompts(
-            "u-1", ["query"], None, limit_per_query=4, total_cap=10,
+        await operations._search_prompts(
+            collaborators, "u-1", ["query"], None, limit_per_query=4, total_cap=10,
         )
         assert prompt_db.search.call_args.kwargs["limit"] == 4

@@ -91,8 +91,11 @@ class EnhancePromptTool(BaseTool):
         n_candidates = kwargs.get("n_candidates") or 1
         form_state = context.session_metadata.get("form_state")
 
+        from src.features.prompt_enhancement import operations as prompt_enhancement_operations
+
         try:
-            result = await context.prompt_enhancement_manager.enhance(
+            result = await prompt_enhancement_operations.enhance(
+                context.prompt_enhancement_manager,
                 user_id=context.user_id,
                 llm_id=context.llm_id,
                 brief=brief,

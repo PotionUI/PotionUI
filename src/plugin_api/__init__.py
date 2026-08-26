@@ -120,7 +120,8 @@ from src.plugin_api.native import (
 from src.plugin_api.presets import (
     FilePresetRepository,
     GenerationRequest,
-    PresetManager,
+    PresetCollaborators,
+    preset_operations,
     PromptPair,
 )
 
@@ -228,7 +229,8 @@ __all__ = [
     # Presets and generation
     "FilePresetRepository",
     "GenerationRequest",
-    "PresetManager",
+    "PresetCollaborators",
+    "preset_operations",
     "PromptPair",
     # Storage
     "PluginRepository",

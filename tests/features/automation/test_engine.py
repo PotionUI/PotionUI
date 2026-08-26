@@ -366,12 +366,11 @@ class TestAutomationEngineLinearWalk(unittest.IsolatedAsyncioTestCase):
 
         notified = []
 
-        class FakeNotificationManager:
-            def notify(self, **kwargs):
-                notified.append(kwargs)
-                return []
+        def fake_notification_manager(**kwargs):
+            notified.append(kwargs)
+            return []
 
-        services = AutomationServices(notification_manager=FakeNotificationManager())
+        services = AutomationServices(notification_manager=fake_notification_manager)
         engine = AutomationEngine(repository=repo, registry=registry, services=services)
 
         run_id = await engine.run("auto1", "trigger1", {})

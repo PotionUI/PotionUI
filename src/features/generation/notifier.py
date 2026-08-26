@@ -8,13 +8,10 @@ notification wiring.
 """
 
 import logging
-from typing import Optional, TYPE_CHECKING
+from typing import Any, Callable, Optional
 
 from src.features.generation.repository import generation_repo
 from src.features.generation.status_tracker import GenerationState
-
-if TYPE_CHECKING:
-    from src.features.notifications.manager import NotificationManager
 
 logger = logging.getLogger(__name__)
 
@@ -22,12 +19,14 @@ logger = logging.getLogger(__name__)
 class GenerationNotifier:
     """Emits generation completed/failed notifications for the owning user."""
 
-    def __init__(self, notification_manager: Optional['NotificationManager'] = None):
+    def __init__(self, notification_manager: Optional[Callable[..., Any]] = None):
         """Initialize the notifier.
 
         Args:
-            notification_manager: Optional manager used for completion
-                notifications. Failure notifications use the global manager.
+            notification_manager: Optional bound notify callable
+                (`functools.partial(operations.notify, collaborators)`) used
+                for completion notifications. Failure notifications use the
+                global one instead.
         """
         self.notification_manager = notification_manager
 
@@ -40,7 +39,7 @@ class GenerationNotifier:
         """
         Raise a persistent, toast-surfaced notification for a failed generation.
 
-        Reuses NotificationManager (the same pipeline as every other app
+        Reuses the notify operation (the same pipeline as every other app
         notification): `show_toast=True` fans out to both a transient toast and
         a persistent bell-panel entry, with the error body carried in
         `metadata.detail`. Best-effort - a notification failure must never break
@@ -52,7 +51,7 @@ class GenerationNotifier:
             generation = generation_repo.get_by_id(generation_id)
             user_id = generation.user_id if generation else None
 
-            get_global_notification_manager().notify(
+            get_global_notification_manager()(
                 level="error",
                 title="Generation failed",
                 message=error or "Generation failed",
@@ -89,7 +88,7 @@ class GenerationNotifier:
         if record.state != GenerationState.COMPLETED:
             return
         try:
-            self.notification_manager.notify(
+            self.notification_manager(
                 level='success',
                 title='Generation completed',
                 category='generation',

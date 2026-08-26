@@ -7,7 +7,7 @@ This controller is responsible for:
 - Exception-to-HTTP-status mapping
 - Response formatting
 
-All business logic is delegated to PresetManager.
+All business logic is delegated to `src.features.presets.operations`.
 """
 
 from typing import Dict, Any, Optional, TYPE_CHECKING
@@ -17,7 +17,8 @@ from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.features.backends.backend_registry import BackendRegistry
 from src.features.forms.exceptions import FormNotFoundException
-from src.features.presets.manager import PresetManager
+from src.features.presets.collaborators import PresetCollaborators
+from src.features.presets import operations
 from src.features.presets.exceptions import (
     PresetNotFoundException,
     ModeNotFoundException,
@@ -40,20 +41,20 @@ if TYPE_CHECKING:
 
 
 class PresetController(BaseController):
-    """Controller for preset endpoints - delegates to PresetManager."""
+    """Controller for preset endpoints - delegates to `src.features.presets.operations`."""
 
     def __init__(
         self,
-        preset_manager: PresetManager,
+        preset_manager: PresetCollaborators,
         backend_registry: BackendRegistry,
         media_manager: Optional["MediaManager"] = None,
         model_access_policy: Optional["ModelAccessPolicy"] = None,
     ):
         super().__init__()
-        self.manager = preset_manager
+        self.collaborators = preset_manager
         self.backend_registry = backend_registry
         # Only used to reclaim a reloaded preset's rendered thumbnails. Optional so
-        # PresetManager stays free of any media dependency.
+        # the presets feature stays free of any media dependency.
         self.media_manager = media_manager
         # Scopes GET .../models to the requesting user's assigned models.
         # Optional (defaults to unfiltered) only so tests can construct this
@@ -142,7 +143,7 @@ class PresetController(BaseController):
     ) -> APIResponse:
         """Get list of available presets."""
         try:
-            data = self.manager.list_presets(current_user, include_uninstalled)
+            data = operations.list_presets(self.collaborators, current_user, include_uninstalled)
             return self.success_response(data=data)
         except Exception as e:
             raise self.handle_exception(e, "preset_list_failed", "Failed to list presets")
@@ -150,7 +151,7 @@ class PresetController(BaseController):
     async def get_preset(self, preset_id: str) -> APIResponse:
         """Get specific preset information."""
         try:
-            data = self.manager.get_preset(preset_id)
+            data = operations.get_preset(self.collaborators, preset_id)
             return self.success_response(data=data)
         except Exception as e:
             return self._handle_preset_exception(e, "preset_get_failed", "Failed to get preset")
@@ -183,7 +184,7 @@ class PresetController(BaseController):
         from src.features.models.availability import models_for_engine
 
         try:
-            preset = self.manager.preset_loader.load_preset_by_id(preset_id)
+            preset = self.collaborators.preset_loader.load_preset_by_id(preset_id)
             if not preset:
                 return self.error_response(
                     error="preset_not_found",
@@ -248,7 +249,7 @@ class PresetController(BaseController):
     async def get_available_modes(self, preset_id: str) -> APIResponse:
         """Get available modes for a specific preset."""
         try:
-            data = self.manager.get_available_modes(preset_id)
+            data = operations.get_available_modes(self.collaborators, preset_id)
             return self.success_response(data=data)
         except Exception as e:
             return self._handle_preset_exception(e, "modes_get_failed", "Failed to get modes")
@@ -261,7 +262,7 @@ class PresetController(BaseController):
     ) -> APIResponse:
         """Get form schema for a specific preset and mode."""
         try:
-            data = self.manager.get_form_schema(preset_id, mode, form_name)
+            data = operations.get_form_schema(self.collaborators, preset_id, mode, form_name)
             return self.success_response(data=data)
         except Exception as e:
             return self._handle_preset_exception(e, "form_schema_failed", "Failed to get form schema")
@@ -274,7 +275,7 @@ class PresetController(BaseController):
     ) -> APIResponse:
         """Get pipe configuration and connections for a specific preset."""
         try:
-            result = self.manager.get_pipeline(preset_id, mode, form_data)
+            result = operations.get_pipeline(self.collaborators, preset_id, mode, form_data)
             return self.success_response(data=result.to_dict())
         except Exception as e:
             return self._handle_preset_exception(e, "pipes_get_failed", "Failed to get pipes")
@@ -282,7 +283,7 @@ class PresetController(BaseController):
     async def reload_preset(self, preset_id: str) -> APIResponse:
         """Reload a preset from disk and return its current state."""
         try:
-            data = self.manager.reload_preset(preset_id)
+            data = operations.reload_preset(self.collaborators, preset_id)
             # Rendered thumbnails are keyed by source mtime, so a stale one can never
             # be served; this only reclaims renders whose source was renamed or removed.
             if self.media_manager is not None:
@@ -297,7 +298,7 @@ class PresetController(BaseController):
     async def install_preset(self, preset_id: str, current_user: User) -> APIResponse:
         """Install a preset (admin only)."""
         try:
-            data = self.manager.install_preset(preset_id, current_user)
+            data = operations.install_preset(self.collaborators, preset_id, current_user)
             return self.success_response(
                 data=data,
                 message=f"Preset '{preset_id}' installed successfully"
@@ -308,7 +309,7 @@ class PresetController(BaseController):
     async def uninstall_preset(self, preset_id: str, current_user: User) -> APIResponse:
         """Uninstall a preset (admin only) - removes all user assignments."""
         try:
-            message = self.manager.uninstall_preset(preset_id, current_user)
+            message = operations.uninstall_preset(self.collaborators, preset_id, current_user)
             return self.success_response(message=message)
         except Exception as e:
             return self._handle_preset_exception(e, "preset_uninstall_failed", "Failed to uninstall preset")
@@ -321,7 +322,7 @@ class PresetController(BaseController):
     ) -> APIResponse:
         """Assign a preset to multiple users (admin only)."""
         try:
-            data = self.manager.assign_preset_to_users(preset_id, user_ids, current_user)
+            data = operations.assign_preset_to_users(self.collaborators, preset_id, user_ids, current_user)
             return self.success_response(
                 data=data,
                 message=f"Preset '{preset_id}' assigned to {data['assigned_count']} users"
@@ -337,7 +338,7 @@ class PresetController(BaseController):
     ) -> APIResponse:
         """Unassign a preset from a user (admin only)."""
         try:
-            message = self.manager.unassign_preset_from_user(preset_id, user_id, current_user)
+            message = operations.unassign_preset_from_user(self.collaborators, preset_id, user_id, current_user)
             return self.success_response(message=message)
         except Exception as e:
             return self._handle_preset_exception(e, "preset_unassignment_failed", "Failed to unassign preset")
@@ -345,7 +346,7 @@ class PresetController(BaseController):
     async def get_preset_assignments(self, preset_id: str, current_user: User) -> APIResponse:
         """Get assignment summary for a preset (admin only)."""
         try:
-            data = self.manager.get_preset_assignments(preset_id, current_user)
+            data = operations.get_preset_assignments(self.collaborators, preset_id, current_user)
             return self.success_response(data=data)
         except Exception as e:
             return self._handle_preset_exception(e, "preset_assignments_failed", "Failed to get preset assignments")
@@ -353,7 +354,7 @@ class PresetController(BaseController):
     async def get_preset_configuration(self, preset_id: str) -> APIResponse:
         """Get a preset's declared configuration schema merged with its stored values."""
         try:
-            data = self.manager.get_preset_configuration(preset_id)
+            data = operations.get_preset_configuration(self.collaborators, preset_id)
             return self.success_response(data=data)
         except Exception as e:
             return self._handle_preset_exception(
@@ -368,7 +369,7 @@ class PresetController(BaseController):
     ) -> APIResponse:
         """Set admin-set configuration values for a preset (admin only)."""
         try:
-            data = self.manager.set_preset_configuration(preset_id, values, current_user)
+            data = operations.set_preset_configuration(self.collaborators, preset_id, values, current_user)
             return self.success_response(data=data)
         except Exception as e:
             return self._handle_preset_exception(
@@ -383,7 +384,7 @@ class PresetController(BaseController):
     ) -> APIResponse:
         """Get a mode's unmerged field inventory and current admin overrides (admin only)."""
         try:
-            data = self.manager.get_form_overrides_inventory(preset_id, mode, current_user)
+            data = operations.get_form_overrides_inventory(self.collaborators, preset_id, mode, current_user)
             return self.success_response(data=data)
         except Exception as e:
             return self._handle_preset_exception(
@@ -399,7 +400,7 @@ class PresetController(BaseController):
     ) -> APIResponse:
         """Set admin per-field form overrides for one mode of a preset (admin only)."""
         try:
-            data = self.manager.set_form_overrides(preset_id, mode, overrides, current_user)
+            data = operations.set_form_overrides(self.collaborators, preset_id, mode, overrides, current_user)
             return self.success_response(data=data)
         except Exception as e:
             return self._handle_preset_exception(

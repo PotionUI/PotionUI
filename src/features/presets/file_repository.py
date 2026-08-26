@@ -40,7 +40,7 @@ class FilePresetRepository:
             preset_template: The preset template to convert
             include_gallery: Whether to include the full `media.gallery` list.
                 Defaults to False so the list endpoint stays cover-only; the
-                detail endpoint (`PresetManager.get_preset`) passes True.
+                detail endpoint (`operations.get_preset`) passes True.
                 `src` values are emitted raw/relative - the frontend composes URLs.
 
         Returns:

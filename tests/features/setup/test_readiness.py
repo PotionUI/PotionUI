@@ -22,6 +22,21 @@ from src.platform.security.user import AccountType, User
 AVAILABILITY = "src.features.models.availability.models_for_engine"
 
 
+@pytest.fixture(autouse=True)
+def _forward_preset_operations_to_manager(monkeypatch):
+    """`ReadinessManager` calls `src.features.presets.operations.list_presets`
+    with the preset-manager collaborator as its leading arg, rather than
+    calling `.list_presets()` on it directly. This forwards that call to the
+    fake's own method, so `preset_manager` here can stay a plain mock with
+    `.list_presets`, exactly like the retired manager double."""
+    from src.features.presets import operations as preset_operations_module
+
+    def _list_presets(collaborators, *args, **kwargs):
+        return collaborators.list_presets(*args, **kwargs)
+
+    monkeypatch.setattr(preset_operations_module, "list_presets", _list_presets)
+
+
 # --- fakes ------------------------------------------------------------------
 
 def _user(admin=False):

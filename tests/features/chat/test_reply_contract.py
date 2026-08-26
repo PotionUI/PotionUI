@@ -133,3 +133,110 @@ class TestParseReplyContract:
 
     def test_never_raises_on_weird_input(self):
         parse_reply_contract("## improved\n" * 50 + "[[[" * 20)
+
+
+class TestToolActionTagSurvivesSectionParsing:
+    """A `<tool_action>` version tag is the Apply-block deliverable (see
+    src.features.llm.tools.builtin.form_context_tool) -- it must reach
+    `cleaned` no matter where in the reply the model places it. Before this
+    fix, a tag placed after a `## improved`/`## questions` header was silently
+    dropped: the header-truncation only kept ``lines[:first_header_idx]``, and
+    the line-based section parser only ever collected recognized bullets/
+    questions, discarding anything else post-header -- exactly reproducing
+    the reported bug (assistant says "Done." with a bullet summary and no
+    Apply block, even though it wrote the tag)."""
+
+    def test_tag_after_improved_header_is_preserved(self):
+        content = (
+            'Done.\n'
+            '## improved\n'
+            '- warm palette: cool blues swapped for warm oranges\n'
+            '<tool_action type="update_segment" segment_index="0" segment_id="seg-1">'
+            'a lone hiker in warm golden light</tool_action>\n'
+        )
+        cleaned, contract = parse_reply_contract(content)
+
+        assert '<tool_action type="update_segment"' in cleaned
+        assert 'a lone hiker in warm golden light' in cleaned
+        assert contract == {"improved": ["warm palette: cool blues swapped for warm oranges"]}
+
+    def test_tag_after_questions_header_is_preserved(self):
+        content = (
+            'Done.\n'
+            '## questions\n'
+            '1. keep the mood dark?\n'
+            '<tool_action type="update_segment" segment_index="0" segment_id="seg-1">'
+            'a darker variant</tool_action>\n'
+        )
+        cleaned, contract = parse_reply_contract(content)
+
+        assert '<tool_action type="update_segment"' in cleaned
+        assert contract == {"questions": [{"text": "keep the mood dark?", "options": []}]}
+
+    def test_tag_before_header_still_preserved(self):
+        """The already-working placement (tag in the lead line) must not regress."""
+        content = (
+            'Done. <tool_action type="update_segment" segment_index="0" segment_id="seg-1">'
+            'a lone hiker in warm golden light</tool_action>\n'
+            '## improved\n'
+            '- warm palette: cool blues swapped for warm oranges\n'
+        )
+        cleaned, contract = parse_reply_contract(content)
+
+        assert '<tool_action type="update_segment"' in cleaned
+        assert contract == {"improved": ["warm palette: cool blues swapped for warm oranges"]}
+
+    def test_multiline_tag_content_not_misread_as_bullets(self):
+        """Proposed prompt text inside the tag can itself start with `-` --
+        it must not be mistaken for an `## improved` bullet and eaten."""
+        content = (
+            'Done.\n'
+            '## improved\n'
+            '- pruned redundant terms\n'
+            '<tool_action type="update_segment" segment_index="0" segment_id="seg-1">'
+            'a lone hiker\n- in a red parka\n- at dusk</tool_action>\n'
+        )
+        cleaned, contract = parse_reply_contract(content)
+
+        assert '- in a red parka' in cleaned
+        assert '- at dusk' in cleaned
+        assert contract == {"improved": ["pruned redundant terms"]}
+
+    def test_no_tag_present_behaves_as_before(self):
+        content = "Done.\n## improved\n- trimmed redundant adjectives\n"
+        cleaned, contract = parse_reply_contract(content)
+
+        assert cleaned == "Done."
+        assert contract == {"improved": ["trimmed redundant adjectives"]}
+
+    def test_tag_inline_on_a_bullet_line_does_not_leak_into_reply_contract(self):
+        """`_BULLET_RE` captures the whole remainder of the line, so a tag
+        written inline on the bullet (`- warm palette <tool_action ...>`) must
+        not leave the raw placeholder token in the structured `improved` list
+        -- and the tag it stood for must still reach `cleaned`, not vanish."""
+        content = (
+            'Done.\n'
+            '## improved\n'
+            '- warm palette <tool_action type="update_segment" segment_index="0" '
+            'segment_id="seg-1">a lone hiker in warm golden light</tool_action>\n'
+        )
+        cleaned, contract = parse_reply_contract(content)
+
+        assert '\x00' not in cleaned
+        assert '<tool_action type="update_segment"' in cleaned
+        assert 'a lone hiker in warm golden light' in cleaned
+        assert contract == {"improved": ["warm palette"]}
+        assert '\x00' not in contract["improved"][0]
+
+    def test_tag_inline_on_a_question_line_does_not_leak(self):
+        content = (
+            'Done.\n'
+            '## questions\n'
+            '1. keep this variant? <tool_action type="update_segment" segment_index="0" '
+            'segment_id="seg-1">a darker variant</tool_action>\n'
+        )
+        cleaned, contract = parse_reply_contract(content)
+
+        assert '\x00' not in cleaned
+        assert '<tool_action type="update_segment"' in cleaned
+        assert contract == {"questions": [{"text": "keep this variant?", "options": []}]}

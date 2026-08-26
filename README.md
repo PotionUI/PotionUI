@@ -26,10 +26,9 @@ Rather than forcing every model into one generic set of controls, PotionUI is
 built around **presets**: each one is tuned for a specific model and renders a
 curated form with exactly the options that model understands — resolution,
 sampler, camera angle, art style, whatever applies. Presets run on PotionUI's
-own in-process **native** engine (`diffusers` pipelines) or against an external
-**ComfyUI** server via a plugin, and progress streams back over WebSocket as
-it happens: per-step status, live previews, and a gallery that fills in as
-results land.
+own in-process **native** engine (`diffusers` pipelines), and progress streams
+back over WebSocket as it happens: per-step status, live previews, and a
+gallery that fills in as results land.
 
 On the native engine alone, presets currently cover:
 
@@ -85,8 +84,7 @@ For native video presets, Video Director replaces per-mode prompt juggling
 with one composition surface: build a shot out of global, timed, and chained
 sections instead of hand-managing separate prompt fields per segment. It's
 the same segment-card editor used everywhere else in PotionUI, just aimed at
-a timeline. ComfyUI video presets are unaffected — this is a native-engine
-composition tool.
+a timeline.
 
 ## Music Director
 
@@ -141,7 +139,7 @@ instances of an inference engine, e.g. a ComfyUI server), inference pipes
 (the individual steps a generation pipeline is built from), form field types,
 chat modes, and frontend pages can all be added by a plugin —
 `src/plugin_api/` is the one import surface plugin code is allowed to use.
-ComfyUI support itself ships as a plugin rather than living in core. See
+Even alternate inference backends are plugins rather than core code. See
 [docs/plugin-api.md](docs/plugin-api.md) for the authoring reference.
 
 ## Quickstart

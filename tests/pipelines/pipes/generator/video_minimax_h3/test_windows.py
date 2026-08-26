@@ -171,14 +171,17 @@ def test_frames_snap_up_to_the_vae_lattice_and_are_reported():
 
 
 @pytest.mark.parametrize("frames", [1, 60, 100])
-def test_a_window_shorter_than_the_released_range_is_refused(frames):
-    with pytest.raises(DirectorPlanError, match="per window"):
-        build_director_plan(_document([_segment(0, frames=frames)]), default_seed=7)
+def test_a_window_shorter_than_the_released_range_is_accepted(frames):
+    """The 5-15s range is the model's recommendation, not a floor this pipe
+    enforces -- a short window merely runs out-of-distribution for the
+    released checkpoint rather than being refused outright."""
+    plan = build_director_plan(_document([_segment(0, frames=frames)]), default_seed=7)
+    assert plan.windows[0].frames == align_num_frames(frames)
 
 
 def test_a_window_just_under_the_minimum_is_accepted_once_it_snaps_up():
-    """119 frames is 4.96s, below the 5s floor -- but it snaps to 124 (5.17s)
-    before the range is checked, so it runs. The bound is on what executes."""
+    """119 frames is 4.96s, below the model's recommended 5s -- and it snaps
+    to 124 (5.17s) regardless, so it runs either way."""
     plan = build_director_plan(_document([_segment(0, frames=119)]), default_seed=7)
     assert plan.windows[0].frames == 124
 

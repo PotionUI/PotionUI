@@ -1,6 +1,7 @@
 """Video Director document -> MiniMax-H3 sliding-window plan.
 
-MiniMax-H3 generates 5-15 seconds in one packed sequence. A longer Director
+MiniMax-H3 generates up to 15 seconds in one packed sequence (no enforced
+floor below the video VAE's own lattice). A longer Director
 document is run as a SEQUENCE of windows, each a full H3 generation, where a
 continuation window is pinned to its predecessor by re-using that window's
 final latent frames as keyframe conditioning rows. This module owns the pure
@@ -66,7 +67,6 @@ from typing import Any, Dict, List, Optional, Tuple
 from src.pipelines.pipes.generator.video_minimax_h3.geometry import (
     FPS,
     MAX_DURATION_S,
-    MIN_DURATION_S,
     align_num_frames,
     audio_latent_num_frames,
     head_frames_for_latents,
@@ -84,8 +84,8 @@ class DirectorPlanError(ValueError):
 
     Distinct from `VideoDirectorValidationError`: the document is already
     schema-valid: what fails here are the H3-specific limits the normalizer
-    has no way to express (the released 5-15 s per-window duration range,
-    the unsupported audio roles).
+    has no way to express (the released per-window duration ceiling, the
+    unsupported audio roles).
     """
 
 
@@ -158,22 +158,23 @@ class DirectorPlan:
 
 def _window_frames(requested: int, *, context: str) -> int:
     """Snap one segment's frame count onto the VAE's `17n+5` lattice and hold
-    it to the released per-window duration range.
+    it to the released per-window duration ceiling.
 
-    The 5-15 s bound is applied PER WINDOW rather than to the stitched total:
-    each window is a complete H3 generation and the range is the one the model
-    was released for, so a 3-second window is out-of-distribution even though a
-    three-window 9-second result would not be. The stitched total is
-    deliberately unbounded -- that is the whole point of windowing.
+    The 15 s bound is applied PER WINDOW rather than to the stitched total:
+    each window is a complete H3 generation and the ceiling is the packed
+    sequence length the model was released for. The stitched total is
+    deliberately unbounded -- that is the whole point of windowing. There is
+    no enforced floor: a short window is merely out-of-distribution for the
+    released checkpoint, not something this pipe refuses to attempt.
     """
     frames = align_num_frames(requested)
     duration = frames / FPS
-    if not MIN_DURATION_S <= duration <= MAX_DURATION_S:
+    if duration > MAX_DURATION_S:
         raise DirectorPlanError(
-            f"{context}: MiniMax-H3 generates {MIN_DURATION_S:g}-{MAX_DURATION_S:g} seconds per window at "
-            f"{FPS} fps, so a segment's frames (rounded up to the next 17n+5) must be between "
-            f"{int(MIN_DURATION_S * FPS)} and {int(MAX_DURATION_S * FPS)}, got {requested} "
-            f"(rounded up to {frames}, {duration:.2f}s). Split the shot into more segments."
+            f"{context}: MiniMax-H3 generates at most {MAX_DURATION_S:g} seconds per window at "
+            f"{FPS} fps, so a segment's frames (rounded up to the next 17n+5) must be at most "
+            f"{int(MAX_DURATION_S * FPS)}, got {requested} (rounded up to {frames}, {duration:.2f}s). "
+            f"Split the shot into more segments."
         )
     return frames
 

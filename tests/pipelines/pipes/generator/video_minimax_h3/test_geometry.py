@@ -155,10 +155,21 @@ def test_resolve_request_geometry_default_canvas_and_frames():
     assert num_audio_latents == 207
 
 
-def test_resolve_request_geometry_rejects_out_of_duration_range():
-    # 1 frame aligns up to 5 -> 5/24s, far under the 5s floor.
-    with pytest.raises(ValueError):
+def test_resolve_request_geometry_accepts_short_requests_below_the_released_range():
+    # 1 frame aligns up to 5 -> 5/24s, far under the model's recommended 5s
+    # floor -- but that floor is a recommendation, not something this pipe
+    # enforces, so it must run rather than raise.
+    height, width, frames, num_latent_frames, latent_height, latent_width, num_audio_latents = (
         resolve_request_geometry(None, None, 1)
+    )
+    assert frames == 5
+    assert num_latent_frames == video_latent_num_frames(5) == 2
+
+
+def test_resolve_request_geometry_rejects_beyond_the_max_duration():
+    # 361 frames aligns up to 362 -> 15.08s, just over the 15s ceiling.
+    with pytest.raises(ValueError):
+        resolve_request_geometry(None, None, 361)
 
 
 def test_resolve_request_geometry_rejects_height_without_width():

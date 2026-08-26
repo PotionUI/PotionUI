@@ -128,9 +128,8 @@ vars:
         # something a user waits through.
         max_segments: 6
         # 345 frames is 17*20+5 -- on the VAE's lattice, so it snaps to
-        # itself, and 14.375s at 24 fps: the longest single window inside the
-        # 5-15s range MiniMax-H3 was released for (the pipe holds every window
-        # to that range, so a shot is also at least 124 frames / 5.17s). A
+        # itself, and 14.375s at 24 fps: the longest single window the pipe
+        # allows (a 15s ceiling; there is no enforced floor per window). A
         # declared cap overrides the normalizer's Wan-derived 257 default.
         max_frames_per_segment: 345
         continuation:

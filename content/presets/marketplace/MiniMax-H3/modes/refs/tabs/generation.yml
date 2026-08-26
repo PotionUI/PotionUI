@@ -74,14 +74,16 @@ fields:
       # Seconds, like every other duration surface in the app (Director
       # limits, chat tools). The pipeline converts to frames at the model's
       # fixed 24 fps and the generator snaps UP to the next 17n+5 on its
-      # lattice, so any value in the released 5-15s range is valid here.
+      # lattice; the model's release notes suggest staying in a 5-15s range,
+      # but only the 15s ceiling is a real technical limit -- there is no
+      # enforced floor below it.
       - name: "duration"
         type: "slider"
         label: "Clip length (seconds)"
         default: 5
         hidden_when_video_director: true
-        ai_hint: "Seconds of video (and audio) to generate; the model's released range is 5-15s. Cost is close to linear in this, and it is the single biggest knob on how long a run takes. Stay near 5 unless the user asked for a longer clip, and keep in mind that every extra second is more time for a reference's likeness to drift."
-        configuration: {min: 5, max: 14.3, step: 0.1}
+        ai_hint: "Seconds of video (and audio) to generate; the model's release notes suggest 5-15s, but shorter is allowed. Cost is close to linear in this, and it is the single biggest knob on how long a run takes. Stay near 5 unless the user asked for a shorter or longer clip, and keep in mind that every extra second is more time for a reference's likeness to drift."
+        configuration: {min: 0.1, max: 14.3, step: 0.1}
 
   - type: "section"
     label: "Models"

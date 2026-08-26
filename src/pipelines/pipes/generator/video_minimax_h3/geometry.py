@@ -46,7 +46,11 @@ LATENTS_PER_CHUNK = 5
 # latent index and a rotary position agree about where in time a frame sits.
 LATENT_FRAME_PIXEL_SPANS: tuple[int, ...] = (1, 4, 4, 4, 4)
 
-MIN_DURATION_S = 5.0
+# The model's HuggingFace release documents a 5-15s recommended range, but
+# only the upper bound is a technical limit (the packed sequence length the
+# released checkpoint was trained at). The lower end is not enforced here:
+# the real floor is whatever `align_num_frames` accepts, i.e. any positive
+# frame count, snapped up to the VAE's own minimum chunk (`17*0+5 = 5` frames).
 MAX_DURATION_S = 15.0
 
 
@@ -229,12 +233,11 @@ def resolve_request_geometry(
 
     aligned_frames = align_num_frames(num_frames)
     duration = aligned_frames / FPS
-    if not MIN_DURATION_S <= duration <= MAX_DURATION_S:
+    if duration > MAX_DURATION_S:
         raise ValueError(
-            f"MiniMax-H3 generates between {MIN_DURATION_S} and {MAX_DURATION_S} seconds at {FPS} fps, "
-            f"so num_frames (rounded up to the next 17*n+5) must be between "
-            f"{int(MIN_DURATION_S * FPS)} and {int(MAX_DURATION_S * FPS)}, got {num_frames} "
-            f"(rounded up to {aligned_frames})"
+            f"MiniMax-H3 generates at most {MAX_DURATION_S} seconds at {FPS} fps, so num_frames "
+            f"(rounded up to the next 17*n+5) must be at most {int(MAX_DURATION_S * FPS)}, got "
+            f"{num_frames} (rounded up to {aligned_frames})"
         )
 
     num_latent_frames = video_latent_num_frames(aligned_frames)

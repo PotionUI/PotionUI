@@ -5,8 +5,8 @@ The extension mechanism itself: the registry that tracks plugins and their
 state, the loader that discovers them on disk, the hook chain they extend the
 app through, and the manifest schema their declarations are validated against.
 
-PluginManager, which drives this machinery on behalf of the admin UI, is a
-feature and lives in src.features.plugins.
+The operations that drive this machinery on behalf of the admin UI are a
+feature and live in src.features.plugins.operations.
 
 Usage:
     from src.platform.plugins import PluginRegistry

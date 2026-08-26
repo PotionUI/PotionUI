@@ -4,9 +4,9 @@ Dynamic plugin API router mount/unmount.
 Mounts and unmounts a plugin's API router on the live app. FastAPI/Starlette
 routers can be attached to a live `APIRouter`/`FastAPI` app at any point (not
 just at import time) via `include_router` - this manager wraps that so
-`PluginManager.enable_plugin`/`disable_plugin` and the reload path can
-mount/unmount a single plugin's routes at runtime without restarting the
-process.
+`src.features.plugins.operations.enable_plugin`/`disable_plugin` and the
+reload path can mount/unmount a single plugin's routes at runtime without
+restarting the process.
 
 Removal works by diffing `app.router.routes` before/after `include_router`
 and recording exactly the routes that call added, so `unmount` can remove

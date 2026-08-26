@@ -19,6 +19,7 @@ import json
 import logging
 from typing import List
 
+from src.features.plugins import operations as plugin_operations
 from src.platform.security.secrets import SecretKeyError, get_secret_cipher
 
 logger = logging.getLogger(__name__)
@@ -28,7 +29,7 @@ def run_secret_preflight(
     plugin_repository,
     backend_config_manager,
     llm_config_repository=None,
-    plugin_manager=None,
+    plugin_registry=None,
 ) -> List[str]:
     """Encrypt what is still plaintext, then report what will not decrypt.
 
@@ -45,9 +46,9 @@ def run_secret_preflight(
         )
         return []
 
-    if plugin_manager is not None:
+    if plugin_registry is not None:
         try:
-            promoted = plugin_manager.encrypt_declared_secrets()
+            promoted = plugin_operations.encrypt_declared_secrets(plugin_repository, plugin_registry)
             if promoted:
                 logger.info(
                     "Encrypted %d plugin setting(s) their manifest declares secret "

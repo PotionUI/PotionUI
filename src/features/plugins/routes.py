@@ -1,5 +1,5 @@
 import logging
-from typing import List, Optional, TYPE_CHECKING
+from typing import Any, List, Optional, TYPE_CHECKING
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
@@ -12,7 +12,8 @@ from src.features.plugins.dto import (
     PluginSettingsUpdateRequest,
 )
 from src.features.plugins.mappers import hook_to_response, plugin_to_response, setting_to_response
-from src.features.plugins.manager import PluginManager, PluginManifestUnavailableError
+from src.features.plugins import operations
+from src.features.plugins.operations import PluginManifestUnavailableError
 from src.features.plugins.repository import PluginRepository
 from src.platform.plugins.registry import PluginRegistry
 from src.features.providers.registry import reset_provider_registry
@@ -24,14 +25,24 @@ if TYPE_CHECKING:
 class PluginController(BaseController):
     def __init__(
         self,
-        plugin_manager: PluginManager,
         plugin_repository: PluginRepository,
         plugin_registry: PluginRegistry,
+        preset_loader: Optional[Any] = None,
+        pipe_catalog: Optional[Any] = None,
+        recipe_catalog: Optional[Any] = None,
     ):
         super().__init__()
-        self.manager = plugin_manager
         self.repository = plugin_repository
         self.registry = plugin_registry
+        # Wired in build_container() so enable/disable/delete rescan presets,
+        # plugin-shipped pipes, and setup recipes live - see
+        # operations._rescan_presets_and_pipes. Untyped (Any) and duck-typed
+        # to their reload()/rescan_plugin_pipes() methods, purely to keep this
+        # module decoupled from collaborators it has no other reason to know
+        # the full interface of.
+        self.preset_loader = preset_loader
+        self.pipe_catalog = pipe_catalog
+        self.recipe_catalog = recipe_catalog
 
     # ========== Plugin Pages ==========
 
@@ -103,7 +114,7 @@ class PluginController(BaseController):
     async def get_plugin_quick_actions(self) -> APIResponse:
         """Get quick actions from enabled plugins"""
         try:
-            actions = self.manager.get_active_quick_actions()
+            actions = operations.get_active_quick_actions(self.repository, self.registry)
             return self.success_response(data=actions)
         except Exception as e:
             self.logger.error(f"Failed to get plugin quick actions: {str(e)}")
@@ -118,7 +129,7 @@ class PluginController(BaseController):
     async def get_sidebar_widgets(self) -> APIResponse:
         """Get sidebar widgets from enabled plugins"""
         try:
-            widgets = self.manager.get_active_sidebar_widgets()
+            widgets = operations.get_active_sidebar_widgets(self.repository, self.registry)
             return self.success_response(data=widgets)
         except Exception as e:
             self.logger.error(f"Failed to get sidebar widgets: {str(e)}")
@@ -189,7 +200,14 @@ class PluginController(BaseController):
     async def enable_plugin(self, plugin_id: str) -> APIResponse:
         """Enable a plugin"""
         try:
-            plugin = self.manager.enable_plugin(plugin_id)
+            plugin = operations.enable_plugin(
+                self.repository,
+                self.registry,
+                plugin_id,
+                preset_loader=self.preset_loader,
+                pipe_catalog=self.pipe_catalog,
+                recipe_catalog=self.recipe_catalog,
+            )
 
             # Reset provider service to re-discover providers from newly enabled plugin
             reset_provider_registry()
@@ -220,7 +238,14 @@ class PluginController(BaseController):
     async def disable_plugin(self, plugin_id: str) -> APIResponse:
         """Disable a plugin"""
         try:
-            plugin = self.manager.disable_plugin(plugin_id)
+            plugin = operations.disable_plugin(
+                self.repository,
+                self.registry,
+                plugin_id,
+                preset_loader=self.preset_loader,
+                pipe_catalog=self.pipe_catalog,
+                recipe_catalog=self.recipe_catalog,
+            )
 
             # Reset provider service to remove providers from disabled plugin
             reset_provider_registry()
@@ -251,7 +276,14 @@ class PluginController(BaseController):
     async def delete_plugin(self, plugin_id: str) -> APIResponse:
         """Delete a plugin from the database (does not remove files)"""
         try:
-            plugin_name = self.manager.delete_plugin(plugin_id)
+            plugin_name = operations.delete_plugin(
+                self.repository,
+                self.registry,
+                plugin_id,
+                preset_loader=self.preset_loader,
+                pipe_catalog=self.pipe_catalog,
+                recipe_catalog=self.recipe_catalog,
+            )
             return self.success_response(
                 message=f"Plugin '{plugin_name}' deleted successfully. Re-scan to rediscover."
             )
@@ -277,7 +309,7 @@ class PluginController(BaseController):
     async def scan_plugins(self) -> APIResponse:
         """Rescan plugin directories to discover new plugins"""
         try:
-            result = self.manager.scan_plugins()
+            result = operations.scan_plugins(self.repository, self.registry)
             return self.success_response(
                 data={
                     "new_plugins": [p.model_dump() for p in result.new_plugins],
@@ -351,7 +383,9 @@ class PluginController(BaseController):
     ) -> APIResponse:
         """Update plugin settings (batch update)"""
         try:
-            updated_settings = self.manager.update_plugin_settings(
+            updated_settings = operations.update_plugin_settings(
+                self.repository,
+                self.registry,
                 plugin_id,
                 settings_data.settings,
                 user_id,
@@ -390,7 +424,7 @@ class PluginController(BaseController):
     async def get_frontend_extensions(self) -> APIResponse:
         """Get manifest-declared renderers + extension slot contributions from enabled plugins."""
         try:
-            extensions = self.manager.get_frontend_extensions()
+            extensions = operations.get_frontend_extensions(self.repository, self.registry)
             return self.success_response(data=extensions)
         except Exception as e:
             self.logger.error(f"Failed to get frontend extensions: {str(e)}")
@@ -430,7 +464,7 @@ class PluginController(BaseController):
     async def get_hooks_catalog(self) -> APIResponse:
         """Get the full catalog of declared hook points (core + plugin-provided)."""
         try:
-            catalog = self.manager.get_hooks_catalog()
+            catalog = operations.get_hooks_catalog()
             return self.success_response(data=catalog)
         except Exception as e:
             self.logger.error(f"Failed to get hooks catalog: {str(e)}")

@@ -324,7 +324,7 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
         container.plugin_repository,
         container.backend_registry.backend_config_manager,
         container.llm_repository.config_repo,
-        container.plugin_manager,
+        container.plugin_registry,
     )
 
     automation_manager = container.automation_manager
@@ -414,7 +414,7 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
         return {"status": "healthy", "service": "potionui-api"}
 
     # Mount plugin API routers (dynamically - PluginRouterManager tracks which
-    # routes belong to which plugin so PluginManager.enable_plugin/disable_plugin
+    # routes belong to which plugin so operations.enable_plugin/disable_plugin
     # can mount/unmount them again at runtime without restarting the process)
     try:
         plugin_registry = container.plugin_registry

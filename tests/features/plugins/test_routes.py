@@ -1,17 +1,20 @@
 """
 Tests for PluginController.
 
-Mutations delegate to PluginManager; pure reads (list/get/settings/frontend
-hooks) now go straight from the controller to PluginRepository/PluginRegistry
-and the plugins mappers - managers keep only data-changing actions. These
-tests exercise the controller exactly as wired in
-build_container(): manager mocked for mutations, repository/registry mocked
-for reads.
+The controller calls `src.features.plugins.operations` functions directly
+(module-level, no injected manager) for mutations and for the manifest/
+registry-derived reads (quick actions, sidebar widgets, frontend extensions,
+hooks catalog); pure reads (list/get/settings/frontend hooks) go straight to
+PluginRepository/PluginRegistry and the plugins mappers. `mock_operations`
+patches the `operations` module as imported into `routes.py`, so tests assert
+against it exactly like the previous manager mock, without the controller
+holding a stateful collaborator it doesn't need.
 """
 import pytest
 from unittest.mock import Mock, MagicMock
 from datetime import datetime
 
+from src.features.plugins import routes as routes_module
 from src.features.plugins.routes import PluginController
 from src.features.plugins.dto import (
     PluginResponse,
@@ -28,9 +31,11 @@ from pathlib import Path
 
 
 @pytest.fixture
-def mock_plugin_manager():
-    """Mock PluginManager"""
-    return Mock()
+def mock_operations(monkeypatch):
+    """Patch the `operations` module as seen by routes.py."""
+    mock = Mock()
+    monkeypatch.setattr(routes_module, "operations", mock)
+    return mock
 
 
 @pytest.fixture
@@ -51,10 +56,9 @@ def mock_plugin_registry():
 
 
 @pytest.fixture
-def controller(mock_plugin_manager, mock_plugin_repository, mock_plugin_registry):
+def controller(mock_operations, mock_plugin_repository, mock_plugin_registry):
     """Create PluginController instance with mocked dependencies"""
     return PluginController(
-        plugin_manager=mock_plugin_manager,
         plugin_repository=mock_plugin_repository,
         plugin_registry=mock_plugin_registry,
     )
@@ -264,10 +268,12 @@ async def test_get_plugin_not_found(controller, mock_plugin_repository):
 
 
 @pytest.mark.asyncio
-async def test_enable_plugin_success(controller, mock_plugin_manager, sample_plugin_response):
+async def test_enable_plugin_success(
+    controller, mock_operations, mock_plugin_repository, mock_plugin_registry, sample_plugin_response
+):
     """Test enabling a plugin successfully"""
     # Arrange
-    mock_plugin_manager.enable_plugin.return_value = sample_plugin_response
+    mock_operations.enable_plugin.return_value = sample_plugin_response
 
     # Act
     response = await controller.enable_plugin("test-plugin-1")
@@ -275,16 +281,19 @@ async def test_enable_plugin_success(controller, mock_plugin_manager, sample_plu
     # Assert
     assert response.success is True
     assert "enabled successfully" in response.message
-    mock_plugin_manager.enable_plugin.assert_called_once_with("test-plugin-1")
+    mock_operations.enable_plugin.assert_called_once_with(
+        mock_plugin_repository, mock_plugin_registry, "test-plugin-1",
+        preset_loader=None, pipe_catalog=None, recipe_catalog=None,
+    )
 
 
 @pytest.mark.asyncio
-async def test_enable_plugin_not_found(controller, mock_plugin_manager):
+async def test_enable_plugin_not_found(controller, mock_operations):
     """Test enabling a non-existent plugin"""
     from fastapi import HTTPException
 
     # Arrange
-    mock_plugin_manager.enable_plugin.side_effect = ValueError("Plugin 'non-existent' not found")
+    mock_operations.enable_plugin.side_effect = ValueError("Plugin 'non-existent' not found")
 
     # Act & Assert
     with pytest.raises(HTTPException) as exc_info:
@@ -295,12 +304,12 @@ async def test_enable_plugin_not_found(controller, mock_plugin_manager):
 
 
 @pytest.mark.asyncio
-async def test_enable_plugin_registry_failure(controller, mock_plugin_manager):
+async def test_enable_plugin_registry_failure(controller, mock_operations):
     """Test enabling plugin when registry fails"""
     from fastapi import HTTPException
 
     # Arrange
-    mock_plugin_manager.enable_plugin.side_effect = ValueError("Failed to enable plugin in registry: Missing dependencies")
+    mock_operations.enable_plugin.side_effect = ValueError("Failed to enable plugin in registry: Missing dependencies")
 
     # Act & Assert
     with pytest.raises(HTTPException) as exc_info:
@@ -312,12 +321,14 @@ async def test_enable_plugin_registry_failure(controller, mock_plugin_manager):
 
 
 @pytest.mark.asyncio
-async def test_disable_plugin_success(controller, mock_plugin_manager, sample_plugin_response):
+async def test_disable_plugin_success(
+    controller, mock_operations, mock_plugin_repository, mock_plugin_registry, sample_plugin_response
+):
     """Test disabling a plugin successfully"""
     # Arrange
     sample_plugin_response.enabled = False
     sample_plugin_response.state = "disabled"
-    mock_plugin_manager.disable_plugin.return_value = sample_plugin_response
+    mock_operations.disable_plugin.return_value = sample_plugin_response
 
     # Act
     response = await controller.disable_plugin("test-plugin-1")
@@ -325,16 +336,19 @@ async def test_disable_plugin_success(controller, mock_plugin_manager, sample_pl
     # Assert
     assert response.success is True
     assert "disabled successfully" in response.message
-    mock_plugin_manager.disable_plugin.assert_called_once_with("test-plugin-1")
+    mock_operations.disable_plugin.assert_called_once_with(
+        mock_plugin_repository, mock_plugin_registry, "test-plugin-1",
+        preset_loader=None, pipe_catalog=None, recipe_catalog=None,
+    )
 
 
 @pytest.mark.asyncio
-async def test_disable_plugin_not_found(controller, mock_plugin_manager):
+async def test_disable_plugin_not_found(controller, mock_operations):
     """Test disabling a non-existent plugin"""
     from fastapi import HTTPException
 
     # Arrange
-    mock_plugin_manager.disable_plugin.side_effect = ValueError("Plugin 'non-existent' not found")
+    mock_operations.disable_plugin.side_effect = ValueError("Plugin 'non-existent' not found")
 
     # Act & Assert
     with pytest.raises(HTTPException) as exc_info:
@@ -345,10 +359,10 @@ async def test_disable_plugin_not_found(controller, mock_plugin_manager):
 
 
 @pytest.mark.asyncio
-async def test_delete_plugin_success(controller, mock_plugin_manager):
+async def test_delete_plugin_success(controller, mock_operations, mock_plugin_repository, mock_plugin_registry):
     """Test deleting a plugin successfully"""
     # Arrange
-    mock_plugin_manager.delete_plugin.return_value = "Test Plugin"
+    mock_operations.delete_plugin.return_value = "Test Plugin"
 
     # Act
     response = await controller.delete_plugin("test-plugin-1")
@@ -356,16 +370,19 @@ async def test_delete_plugin_success(controller, mock_plugin_manager):
     # Assert
     assert response.success is True
     assert "deleted successfully" in response.message
-    mock_plugin_manager.delete_plugin.assert_called_once_with("test-plugin-1")
+    mock_operations.delete_plugin.assert_called_once_with(
+        mock_plugin_repository, mock_plugin_registry, "test-plugin-1",
+        preset_loader=None, pipe_catalog=None, recipe_catalog=None,
+    )
 
 
 @pytest.mark.asyncio
-async def test_delete_plugin_not_found(controller, mock_plugin_manager):
+async def test_delete_plugin_not_found(controller, mock_operations):
     """Test deleting a non-existent plugin"""
     from fastapi import HTTPException
 
     # Arrange
-    mock_plugin_manager.delete_plugin.side_effect = ValueError("Plugin 'non-existent' not found")
+    mock_operations.delete_plugin.side_effect = ValueError("Plugin 'non-existent' not found")
 
     # Act & Assert
     with pytest.raises(HTTPException) as exc_info:
@@ -376,7 +393,7 @@ async def test_delete_plugin_not_found(controller, mock_plugin_manager):
 
 
 @pytest.mark.asyncio
-async def test_scan_plugins_new_plugin(controller, mock_plugin_manager, sample_plugin_response):
+async def test_scan_plugins_new_plugin(controller, mock_operations, sample_plugin_response):
     """Test scanning for plugins and discovering a new one"""
     # Arrange
     scan_result = PluginScanResult(
@@ -384,7 +401,7 @@ async def test_scan_plugins_new_plugin(controller, mock_plugin_manager, sample_p
         updated_plugins=[],
         total_discovered=1
     )
-    mock_plugin_manager.scan_plugins.return_value = scan_result
+    mock_operations.scan_plugins.return_value = scan_result
 
     # Act
     response = await controller.scan_plugins()
@@ -394,11 +411,11 @@ async def test_scan_plugins_new_plugin(controller, mock_plugin_manager, sample_p
     assert len(response.data['new_plugins']) == 1
     assert len(response.data['updated_plugins']) == 0
     assert response.data['total_discovered'] == 1
-    mock_plugin_manager.scan_plugins.assert_called_once()
+    mock_operations.scan_plugins.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_scan_plugins_updated_version(controller, mock_plugin_manager, sample_plugin_response):
+async def test_scan_plugins_updated_version(controller, mock_operations, sample_plugin_response):
     """Test scanning for plugins and detecting version update"""
     # Arrange
     updated_plugin = sample_plugin_response.model_copy()
@@ -408,7 +425,7 @@ async def test_scan_plugins_updated_version(controller, mock_plugin_manager, sam
         updated_plugins=[updated_plugin],
         total_discovered=1
     )
-    mock_plugin_manager.scan_plugins.return_value = scan_result
+    mock_operations.scan_plugins.return_value = scan_result
 
     # Act
     response = await controller.scan_plugins()
@@ -477,7 +494,7 @@ async def test_get_plugin_settings_plugin_not_found(controller, mock_plugin_repo
 
 
 @pytest.mark.asyncio
-async def test_update_plugin_settings_success(controller, mock_plugin_manager):
+async def test_update_plugin_settings_success(controller, mock_operations, mock_plugin_repository, mock_plugin_registry):
     """Test updating plugin settings successfully"""
     # Arrange
     setting_response = PluginSettingResponse(
@@ -488,7 +505,7 @@ async def test_update_plugin_settings_success(controller, mock_plugin_manager):
         user_id=None,
         is_secret=False
     )
-    mock_plugin_manager.update_plugin_settings.return_value = [setting_response, setting_response]
+    mock_operations.update_plugin_settings.return_value = [setting_response, setting_response]
 
     settings_request = PluginSettingsUpdateRequest(
         settings={
@@ -504,7 +521,9 @@ async def test_update_plugin_settings_success(controller, mock_plugin_manager):
     assert response.success is True
     assert len(response.data) == 2
     assert "Updated 2 settings" in response.message
-    mock_plugin_manager.update_plugin_settings.assert_called_once_with(
+    mock_operations.update_plugin_settings.assert_called_once_with(
+        mock_plugin_repository,
+        mock_plugin_registry,
         "test-plugin-1",
         {"max_iterations": "20", "enable_feature": "true"},
         None,
@@ -514,7 +533,7 @@ async def test_update_plugin_settings_success(controller, mock_plugin_manager):
 
 
 @pytest.mark.asyncio
-async def test_update_plugin_settings_with_complex_types(controller, mock_plugin_manager):
+async def test_update_plugin_settings_with_complex_types(controller, mock_operations):
     """Test updating plugin settings with dict and list values"""
     # Arrange
     setting_response = PluginSettingResponse(
@@ -525,7 +544,7 @@ async def test_update_plugin_settings_with_complex_types(controller, mock_plugin
         user_id=None,
         is_secret=False
     )
-    mock_plugin_manager.update_plugin_settings.return_value = [setting_response, setting_response]
+    mock_operations.update_plugin_settings.return_value = [setting_response, setting_response]
 
     settings_request = PluginSettingsUpdateRequest(
         settings={
@@ -540,16 +559,16 @@ async def test_update_plugin_settings_with_complex_types(controller, mock_plugin
     # Assert
     assert response.success is True
     # Manager receives the complex types and serializes them
-    mock_plugin_manager.update_plugin_settings.assert_called_once()
+    mock_operations.update_plugin_settings.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_update_plugin_settings_plugin_not_found(controller, mock_plugin_manager):
+async def test_update_plugin_settings_plugin_not_found(controller, mock_operations):
     """Test updating settings for non-existent plugin"""
     from fastapi import HTTPException
 
     # Arrange
-    mock_plugin_manager.update_plugin_settings.side_effect = ValueError("Plugin 'non-existent' not found")
+    mock_operations.update_plugin_settings.side_effect = ValueError("Plugin 'non-existent' not found")
 
     settings_request = PluginSettingsUpdateRequest(
         settings={"key": "value"}
@@ -566,9 +585,9 @@ async def test_update_plugin_settings_plugin_not_found(controller, mock_plugin_m
 # ========== Hooks Catalog Tests ==========
 
 @pytest.mark.asyncio
-async def test_get_hooks_catalog_success(controller, mock_plugin_manager):
+async def test_get_hooks_catalog_success(controller, mock_operations):
     """Test that the catalog endpoint returns the manager's list under `data`"""
-    mock_plugin_manager.get_hooks_catalog.return_value = [
+    mock_operations.get_hooks_catalog.return_value = [
         {
             "name": "generation.before_start",
             "type": "backend",
@@ -599,11 +618,11 @@ async def test_get_hooks_catalog_success(controller, mock_plugin_manager):
 
 
 @pytest.mark.asyncio
-async def test_get_hooks_catalog_exception(controller, mock_plugin_manager):
+async def test_get_hooks_catalog_exception(controller, mock_operations):
     """Test that the catalog endpoint handles manager exceptions gracefully"""
     from fastapi import HTTPException
 
-    mock_plugin_manager.get_hooks_catalog.side_effect = Exception("boom")
+    mock_operations.get_hooks_catalog.side_effect = Exception("boom")
 
     with pytest.raises(HTTPException) as exc_info:
         await controller.get_hooks_catalog()
@@ -710,10 +729,10 @@ async def test_get_frontend_hooks_exception(controller, mock_plugin_repository):
 # ========== Frontend Extensions Tests ==========
 
 @pytest.mark.asyncio
-async def test_get_frontend_extensions_success(controller, mock_plugin_manager):
+async def test_get_frontend_extensions_success(controller, mock_operations):
     """Test getting frontend extensions (renderers + contributions) successfully"""
     # Arrange
-    mock_plugin_manager.get_frontend_extensions.return_value = {
+    mock_operations.get_frontend_extensions.return_value = {
         "renderers": [
             {"plugin_id": "test-plugin-1", "kind": "history.artifact", "key": "fake_artifact", "component": "FakeArtifact.svelte"}
         ],
@@ -735,10 +754,10 @@ async def test_get_frontend_extensions_success(controller, mock_plugin_manager):
 
 
 @pytest.mark.asyncio
-async def test_get_frontend_extensions_empty(controller, mock_plugin_manager):
+async def test_get_frontend_extensions_empty(controller, mock_operations):
     """Test getting frontend extensions when no plugin declares any"""
     # Arrange
-    mock_plugin_manager.get_frontend_extensions.return_value = {"renderers": [], "contributions": []}
+    mock_operations.get_frontend_extensions.return_value = {"renderers": [], "contributions": []}
 
     # Act
     response = await controller.get_frontend_extensions()
@@ -749,10 +768,10 @@ async def test_get_frontend_extensions_empty(controller, mock_plugin_manager):
 
 
 @pytest.mark.asyncio
-async def test_get_frontend_extensions_exception(controller, mock_plugin_manager):
+async def test_get_frontend_extensions_exception(controller, mock_operations):
     """Test get frontend extensions handles exceptions"""
     # Arrange
-    mock_plugin_manager.get_frontend_extensions.side_effect = Exception("Database error")
+    mock_operations.get_frontend_extensions.side_effect = Exception("Database error")
 
     # Act & Assert
     with pytest.raises(Exception):
@@ -958,18 +977,18 @@ async def test_get_plugin_asset_nested_legitimate_path_still_serves(
 
 @pytest.mark.asyncio
 async def test_update_settings_manifest_unavailable_is_409_not_404(
-    controller, mock_plugin_manager
+    controller, mock_operations
 ):
     """A missing manifest is not a missing plugin, and not a server bug either.
 
     409 tells the admin UI this is retryable after a reload, and distinguishes
     it from the 404 a genuinely unknown plugin id gets.
     """
-    from src.features.plugins.manager import PluginManifestUnavailableError
+    from src.features.plugins.operations import PluginManifestUnavailableError
     from src.features.plugins.dto import PluginSettingsUpdateRequest
     from fastapi import HTTPException
 
-    mock_plugin_manager.update_plugin_settings.side_effect = (
+    mock_operations.update_plugin_settings.side_effect = (
         PluginManifestUnavailableError("no readable manifest")
     )
 

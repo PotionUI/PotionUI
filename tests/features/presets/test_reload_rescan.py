@@ -4,8 +4,8 @@ Enabling/disabling a plugin used to require a backend restart before its
 presets (or plugin-contributed modes) appeared/disappeared - nothing
 ever told the loader to look again. `reload()` fixes that: same loader
 instance, toggle the underlying registry's enabled set, call `reload()`,
-observe the catalogue change - exactly the sequence `PluginManager.
-enable_plugin`/`disable_plugin` now perform (see test_plugin_manager.py's
+observe the catalogue change - exactly the sequence `operations.
+enable_plugin`/`disable_plugin` now perform (see test_operations.py's
 preset/pipe rescan section for that wiring).
 
 Also covers the atomicity guarantee `reload()` adds over `clear_cache()` +

@@ -42,7 +42,6 @@ from src.features.presets import PresetTemplateLoader, PresetProcessor
 from src.platform.settings.settings import SettingsManager
 from src.features.backends.backend_registry import BackendRegistry
 from src.platform.plugins import PluginRegistry
-from src.features.plugins.manager import PluginManager
 from src.platform.plugins.router_manager import PluginRouterManager
 from src.features.generation.hooks import OUTPUT_TYPE_HOOKS
 from src.platform.security import AuthConfig, PasswordHasher, TokenManager, AuthManager, ClaimTokenManager
@@ -228,7 +227,6 @@ class AppContainer:
 
     # Plugins
     plugin_repository: PluginRepository
-    plugin_manager: PluginManager
     plugin_controller: "PluginController"
     llm_controller: "LLMController"
     tool_governance_repository: "ToolGovernanceRepository"
@@ -724,15 +722,14 @@ def build_container() -> AppContainer:
     # Wire the preset loader + pipe catalog so enabling/disabling a
     # plugin rescans both live (plugin-shipped presets, plugin-contributed
     # modes, and plugin-shipped pipes appear/disappear without a restart).
-    plugin_manager = PluginManager(
+    from src.features.plugins.routes import PluginController
+    plugin_controller = PluginController(
         plugin_repository=plugin_repository,
         plugin_registry=plugin_registry,
         preset_loader=preset_template_loader,
         pipe_catalog=pipe_catalog,
         recipe_catalog=recipe_catalog,
     )
-    from src.features.plugins.routes import PluginController
-    plugin_controller = PluginController(plugin_manager, plugin_repository, plugin_registry)
 
     # Initialize LLM controller
     from src.features.llm.routes import LLMController

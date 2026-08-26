@@ -277,22 +277,21 @@ def test_mask_never_overwrites_a_stored_credential_even_unflagged(db):
 
 
 def test_a_save_with_no_manifest_is_refused_and_leaves_the_credential_intact(db):
-    """End to end on the real path: real manager, real repository, real cipher.
+    """End to end on the real path: real operation, real repository, real cipher.
 
     The registry returns no manifest (uninstalled / mid-reload / discovery
-    race), so the manager cannot compute which keys are credentials. It used to
-    fall through to is_secret=False for everything, which is how a newly typed
-    key landed in the database in plaintext and unflagged. It now refuses the
-    whole batch, so nothing is written under a guess - including the ordinary
-    keys sharing the form, since a half-applied save reads as a successful one.
+    race), so the operation cannot compute which keys are credentials. It used
+    to fall through to is_secret=False for everything, which is how a newly
+    typed key landed in the database in plaintext and unflagged. It now
+    refuses the whole batch, so nothing is written under a guess - including
+    the ordinary keys sharing the form, since a half-applied save reads as a
+    successful one.
 
     The stored credential is untouched either way, which the mask guard in the
     repository still enforces independently for any other caller.
     """
-    from src.features.plugins.manager import (
-        PluginManager,
-        PluginManifestUnavailableError,
-    )
+    from src.features.plugins import operations
+    from src.features.plugins.operations import PluginManifestUnavailableError
 
     plugin_id = _install_plugin(db)
     repo = PluginRepository()
@@ -301,11 +300,10 @@ def test_a_save_with_no_manifest_is_refused_and_leaves_the_credential_intact(db)
 
     registry = Mock()
     registry.get_plugin.return_value = None
-    manager = PluginManager(plugin_repository=repo, plugin_registry=registry)
 
     with pytest.raises(PluginManifestUnavailableError):
-        manager.update_plugin_settings(
-            plugin_id, {"api_key": "***", "base_url": "https://edited.test"}
+        operations.update_plugin_settings(
+            repo, registry, plugin_id, {"api_key": "***", "base_url": "https://edited.test"}
         )
 
     stored = repo.get_plugin_setting(plugin_id, "api_key")
@@ -324,19 +322,16 @@ def test_a_new_credential_with_no_manifest_never_reaches_the_database(db):
     unflagged, so it is served back unmasked and the startup promotion pass,
     which keys off the flag, cannot find it.
     """
-    from src.features.plugins.manager import (
-        PluginManager,
-        PluginManifestUnavailableError,
-    )
+    from src.features.plugins import operations
+    from src.features.plugins.operations import PluginManifestUnavailableError
 
     plugin_id = _install_plugin(db)
     repo = PluginRepository()
     registry = Mock()
     registry.get_plugin.return_value = None
-    manager = PluginManager(plugin_repository=repo, plugin_registry=registry)
 
     with pytest.raises(PluginManifestUnavailableError):
-        manager.update_plugin_settings(plugin_id, {"api_key": PLAINTEXT_KEY})
+        operations.update_plugin_settings(repo, registry, plugin_id, {"api_key": PLAINTEXT_KEY})
 
     with db.get_cursor() as cursor:
         cursor.execute("SELECT setting_value FROM plugin_settings")
@@ -347,7 +342,7 @@ def test_the_mask_flow_still_works_once_the_manifest_is_back(db):
     """The refusal is about the missing manifest, not about the mask: with a
     manifest present, saving a form that round-trips the mask still preserves
     the credential and applies the edited fields."""
-    from src.features.plugins.manager import PluginManager
+    from src.features.plugins import operations
     from src.platform.plugins.manifest import SettingSpec
 
     plugin_id = _install_plugin(db)
@@ -362,10 +357,9 @@ def test_the_mask_flow_still_works_once_the_manifest_is_back(db):
     ]
     registry = Mock()
     registry.get_plugin.return_value = manifest
-    manager = PluginManager(plugin_repository=repo, plugin_registry=registry)
 
-    manager.update_plugin_settings(
-        plugin_id, {"api_key": "***", "base_url": "https://edited.test"}
+    operations.update_plugin_settings(
+        repo, registry, plugin_id, {"api_key": "***", "base_url": "https://edited.test"}
     )
 
     stored = repo.get_plugin_setting(plugin_id, "api_key")
@@ -577,7 +571,6 @@ def test_preflight_reports_undecryptable_values_by_location(db, config_manager):
 def test_preflight_promotes_a_manifest_declared_secret_stored_unflagged(db, config_manager):
     """Every save used to force is_secret=False, so a declared credential could
     be sitting in the clear with no flag for migration 111 to key off."""
-    from src.features.plugins.manager import PluginManager
     from src.platform.plugins.manifest import SettingSpec
 
     plugin_id = _install_plugin(db)
@@ -594,9 +587,8 @@ def test_preflight_promotes_a_manifest_declared_secret_stored_unflagged(db, conf
     registry = Mock()
     registry.get_plugin.return_value = manifest
     repo = PluginRepository()
-    manager = PluginManager(plugin_repository=repo, plugin_registry=registry)
 
-    assert run_secret_preflight(repo, config_manager, plugin_manager=manager) == []
+    assert run_secret_preflight(repo, config_manager, plugin_registry=registry) == []
 
     assert PLAINTEXT_KEY.encode() not in db.raw_bytes()
     stored = repo.get_plugin_setting(plugin_id, "api_key")

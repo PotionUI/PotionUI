@@ -7,7 +7,7 @@ from pathlib import Path
 from datetime import datetime
 
 from src.platform.plugins.loader import PluginManifest, PluginLoader
-from src.features.plugins.manager import PluginManager
+from src.features.plugins.operations import scan as scan_ops
 from src.features.plugins.routes import PluginController
 from src.features.plugins.records import PluginPage, Plugin
 from src.features.plugins.dto import PluginPageResponse
@@ -340,7 +340,7 @@ class TestPluginPageModel:
 # cleanup rather than re-declared (see src/core/plugins/hooks.py).
 
 
-# ========== PluginManager Page Methods Tests ==========
+# ========== operations Page Helper Tests ==========
 
 @pytest.fixture
 def mock_plugin_repo():
@@ -355,23 +355,13 @@ def mock_plugin_registry():
 
 
 @pytest.fixture
-def manager(mock_plugin_repo, mock_plugin_registry):
-    """Create PluginManager instance with mocked dependencies"""
-    return PluginManager(
-        plugin_repository=mock_plugin_repo,
-        plugin_registry=mock_plugin_registry
-    )
-
-
-@pytest.fixture
 def controller(mock_plugin_repo, mock_plugin_registry):
     """Create PluginController instance with mocked dependencies.
 
     get_active_pages/get_sidebar_items are pure DB reads: they live on the
-    controller, calling the repository directly, not on the manager.
+    controller, calling the repository directly, not through operations.
     """
     return PluginController(
-        plugin_manager=Mock(),
         plugin_repository=mock_plugin_repo,
         plugin_registry=mock_plugin_registry,
     )
@@ -497,10 +487,10 @@ class TestPluginControllerPages:
         assert response.data == []
 
 
-class TestPluginManagerRegisterPages:
+class TestOperationsRegisterPages:
     """Test that _register_plugin_hooks also registers pages"""
 
-    def test_register_plugin_hooks_registers_pages(self, manager, mock_plugin_repo):
+    def test_register_plugin_hooks_registers_pages(self, mock_plugin_repo):
         """Test that _register_plugin_hooks creates pages from manifest"""
         manifest = PluginManifest(
             id="test-plugin",
@@ -517,7 +507,7 @@ class TestPluginManagerRegisterPages:
             ]
         )
 
-        manager._register_plugin_hooks(manifest)
+        scan_ops._register_plugin_hooks(mock_plugin_repo, manifest)
 
         mock_plugin_repo.create_plugin_page.assert_called_once()
         call_args = mock_plugin_repo.create_plugin_page.call_args[0][0]
@@ -529,7 +519,7 @@ class TestPluginManagerRegisterPages:
         assert call_args.sidebar_order == 50
         assert call_args.show_in_sidebar is True
 
-    def test_register_plugin_hooks_registers_pages_with_require_role(self, manager, mock_plugin_repo):
+    def test_register_plugin_hooks_registers_pages_with_require_role(self, mock_plugin_repo):
         """Test that _register_plugin_hooks creates pages with require_role from sidebar items"""
         manifest = PluginManifest(
             id="test-plugin",
@@ -546,7 +536,7 @@ class TestPluginManagerRegisterPages:
             ]
         )
 
-        manager._register_plugin_hooks(manifest)
+        scan_ops._register_plugin_hooks(mock_plugin_repo, manifest)
 
         mock_plugin_repo.create_plugin_page.assert_called_once()
         call_args = mock_plugin_repo.create_plugin_page.call_args[0][0]
@@ -555,7 +545,7 @@ class TestPluginManagerRegisterPages:
         assert call_args.require_role == "ADMIN"
         assert call_args.show_in_sidebar is True
 
-    def test_register_plugin_hooks_page_without_sidebar(self, manager, mock_plugin_repo):
+    def test_register_plugin_hooks_page_without_sidebar(self, mock_plugin_repo):
         """Test registering a page that has no matching sidebar entry"""
         manifest = PluginManifest(
             id="test-plugin",
@@ -570,14 +560,14 @@ class TestPluginManagerRegisterPages:
             sidebar_items=[]
         )
 
-        manager._register_plugin_hooks(manifest)
+        scan_ops._register_plugin_hooks(mock_plugin_repo, manifest)
 
         call_args = mock_plugin_repo.create_plugin_page.call_args[0][0]
         assert call_args.icon_svg is None
         assert call_args.sidebar_order == 100
         assert call_args.show_in_sidebar is False
 
-    def test_register_plugin_hooks_skips_incomplete_page(self, manager, mock_plugin_repo):
+    def test_register_plugin_hooks_skips_incomplete_page(self, mock_plugin_repo):
         """Test that incomplete page definitions are skipped"""
         manifest = PluginManifest(
             id="test-plugin",
@@ -591,11 +581,11 @@ class TestPluginManagerRegisterPages:
             ]
         )
 
-        manager._register_plugin_hooks(manifest)
+        scan_ops._register_plugin_hooks(mock_plugin_repo, manifest)
 
         mock_plugin_repo.create_plugin_page.assert_not_called()
 
-    def test_refresh_plugin_hooks_clears_pages(self, manager, mock_plugin_repo):
+    def test_refresh_plugin_hooks_clears_pages(self, mock_plugin_repo):
         """Test that _refresh_plugin_hooks clears existing pages"""
         manifest = PluginManifest(
             id="test-plugin",
@@ -607,7 +597,7 @@ class TestPluginManagerRegisterPages:
             pages=[]
         )
 
-        manager._refresh_plugin_hooks(manifest)
+        scan_ops._refresh_plugin_hooks(mock_plugin_repo, manifest)
 
         mock_plugin_repo.delete_plugin_pages.assert_called_once_with("test-plugin")
         mock_plugin_repo.clear_plugin_hooks.assert_called_once_with("test-plugin")

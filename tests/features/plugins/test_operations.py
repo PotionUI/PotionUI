@@ -1,11 +1,11 @@
 """
-Unit tests for PluginManager.
+Unit tests for src.features.plugins.operations.
 """
 import pytest
 from unittest.mock import Mock, MagicMock
 from datetime import datetime
 
-from src.features.plugins.manager import PluginManager
+from src.features.plugins import operations
 from src.features.plugins.dto import (
     PluginResponse,
     PluginScanResult,
@@ -34,15 +34,6 @@ def mock_plugin_registry():
     # manifest-derived enrichment (category, tags, hook_count, settings_count, ...).
     registry.get_plugin.return_value = None
     return registry
-
-
-@pytest.fixture
-def manager(mock_plugin_repo, mock_plugin_registry):
-    """Create PluginManager instance with mocked dependencies"""
-    return PluginManager(
-        plugin_repository=mock_plugin_repo,
-        plugin_registry=mock_plugin_registry
-    )
 
 
 @pytest.fixture
@@ -110,7 +101,7 @@ def sample_plugin_hook():
 
 # ========== enable_plugin Tests ==========
 
-def test_enable_plugin_success(manager, mock_plugin_repo, mock_plugin_registry, sample_plugin):
+def test_enable_plugin_success(mock_plugin_repo, mock_plugin_registry, sample_plugin):
     """Test enabling a plugin successfully"""
     # Arrange
     mock_plugin_repo.get_plugin_by_id.return_value = sample_plugin
@@ -120,7 +111,7 @@ def test_enable_plugin_success(manager, mock_plugin_repo, mock_plugin_registry, 
     mock_plugin_registry.get_plugin_error.return_value = None
 
     # Act
-    result = manager.enable_plugin("test-plugin-1")
+    result = operations.enable_plugin(mock_plugin_repo, mock_plugin_registry, "test-plugin-1")
 
     # Assert
     assert isinstance(result, PluginResponse)
@@ -128,7 +119,7 @@ def test_enable_plugin_success(manager, mock_plugin_repo, mock_plugin_registry, 
     mock_plugin_registry.enable_plugin.assert_called_once_with("test-plugin-1")
 
 
-def test_enable_plugin_fires_enable_then_boot(manager, mock_plugin_repo, mock_plugin_registry, sample_plugin):
+def test_enable_plugin_fires_enable_then_boot(mock_plugin_repo, mock_plugin_registry, sample_plugin):
     """A runtime enable owes the plugin both lifecycle events, in that order:
     `enable` is the transition, `boot` the per-process init it would otherwise
     only get on the next restart."""
@@ -140,7 +131,7 @@ def test_enable_plugin_fires_enable_then_boot(manager, mock_plugin_repo, mock_pl
     mock_plugin_registry.get_plugin_error.return_value = None
 
     # Act
-    manager.enable_plugin("test-plugin-1")
+    operations.enable_plugin(mock_plugin_repo, mock_plugin_registry, "test-plugin-1")
 
     # Assert
     lifecycle_calls = [
@@ -153,7 +144,7 @@ def test_enable_plugin_fires_enable_then_boot(manager, mock_plugin_repo, mock_pl
     assert lifecycle_calls[1][1] == ("test-plugin-1",)
 
 
-def test_disable_plugin_does_not_fire_boot(manager, mock_plugin_repo, mock_plugin_registry, sample_plugin):
+def test_disable_plugin_does_not_fire_boot(mock_plugin_repo, mock_plugin_registry, sample_plugin):
     """Disabling is unchanged - `disable` only, no boot."""
     # Arrange
     mock_plugin_repo.get_plugin_by_id.return_value = sample_plugin
@@ -163,7 +154,7 @@ def test_disable_plugin_does_not_fire_boot(manager, mock_plugin_repo, mock_plugi
     mock_plugin_registry.get_plugin_error.return_value = None
 
     # Act
-    manager.disable_plugin("test-plugin-1")
+    operations.disable_plugin(mock_plugin_repo, mock_plugin_registry, "test-plugin-1")
 
     # Assert
     mock_plugin_registry.run_boot_hook.assert_not_called()
@@ -171,19 +162,19 @@ def test_disable_plugin_does_not_fire_boot(manager, mock_plugin_repo, mock_plugi
     assert mock_plugin_registry.hook_chain.execute.call_args[0][0] == "plugin.lifecycle.disable"
 
 
-def test_enable_plugin_not_found_raises(manager, mock_plugin_repo):
+def test_enable_plugin_not_found_raises(mock_plugin_repo, mock_plugin_registry):
     """Test that enable_plugin raises ValueError when plugin not found"""
     # Arrange
     mock_plugin_repo.get_plugin_by_id.return_value = None
 
     # Act & Assert
     with pytest.raises(ValueError) as exc_info:
-        manager.enable_plugin("non-existent")
+        operations.enable_plugin(mock_plugin_repo, mock_plugin_registry, "non-existent")
 
     assert "not found" in str(exc_info.value).lower()
 
 
-def test_enable_plugin_rollback_on_registry_failure(manager, mock_plugin_repo, mock_plugin_registry, sample_plugin):
+def test_enable_plugin_rollback_on_registry_failure(mock_plugin_repo, mock_plugin_registry, sample_plugin):
     """Test that enable_plugin rolls back DB change when registry fails"""
     # Arrange
     mock_plugin_repo.get_plugin_by_id.return_value = sample_plugin
@@ -194,13 +185,13 @@ def test_enable_plugin_rollback_on_registry_failure(manager, mock_plugin_repo, m
 
     # Act & Assert
     with pytest.raises(ValueError) as exc_info:
-        manager.enable_plugin("test-plugin-1")
+        operations.enable_plugin(mock_plugin_repo, mock_plugin_registry, "test-plugin-1")
 
     assert "Missing dependencies" in str(exc_info.value)
     mock_plugin_repo.disable_plugin.assert_called_once_with("test-plugin-1")
 
 
-def test_enable_plugin_db_failure_raises(manager, mock_plugin_repo, sample_plugin):
+def test_enable_plugin_db_failure_raises(mock_plugin_repo, mock_plugin_registry, sample_plugin):
     """Test that enable_plugin raises ValueError when DB enable fails"""
     # Arrange
     mock_plugin_repo.get_plugin_by_id.return_value = sample_plugin
@@ -208,13 +199,13 @@ def test_enable_plugin_db_failure_raises(manager, mock_plugin_repo, sample_plugi
 
     # Act & Assert
     with pytest.raises(ValueError) as exc_info:
-        manager.enable_plugin("test-plugin-1")
+        operations.enable_plugin(mock_plugin_repo, mock_plugin_registry, "test-plugin-1")
 
     assert "database" in str(exc_info.value).lower()
 
 
 def test_enable_plugin_declares_provides_hooks_object_form(
-    manager, mock_plugin_repo, mock_plugin_registry, sample_plugin
+    mock_plugin_repo, mock_plugin_registry, sample_plugin
 ):
     """Test that enable_plugin declares provides_hooks (string and object form) into the registry"""
     manifest = PluginManifest(
@@ -247,7 +238,7 @@ def test_enable_plugin_declares_provides_hooks_object_form(
     mock_plugin_registry.get_plugin_state.return_value = PluginState.ENABLED
     mock_plugin_registry.get_plugin_error.return_value = None
 
-    manager.enable_plugin("test-plugin-1")
+    operations.enable_plugin(mock_plugin_repo, mock_plugin_registry, "test-plugin-1")
 
     simple_spec = hooks_registry.get("test_plugin.simple_event")
     assert simple_spec is not None
@@ -264,7 +255,7 @@ def test_enable_plugin_declares_provides_hooks_object_form(
 
 # ========== get_hooks_catalog Tests ==========
 
-def test_get_hooks_catalog_shape(manager):
+def test_get_hooks_catalog_shape():
     """Test that get_hooks_catalog returns the stable, fully-keyed shape"""
     hooks_registry.declare_one(
         "catalog_test.documented_hook",
@@ -277,7 +268,7 @@ def test_get_hooks_catalog_shape(manager):
     )
     hooks_registry.declare_one("catalog_test.bare_hook", "frontend")
 
-    catalog = manager.get_hooks_catalog()
+    catalog = operations.get_hooks_catalog()
     by_name = {entry["name"]: entry for entry in catalog}
 
     documented = by_name["catalog_test.documented_hook"]
@@ -299,7 +290,7 @@ def test_get_hooks_catalog_shape(manager):
 
 # ========== disable_plugin Tests ==========
 
-def test_disable_plugin_success(manager, mock_plugin_repo, mock_plugin_registry, sample_plugin):
+def test_disable_plugin_success(mock_plugin_repo, mock_plugin_registry, sample_plugin):
     """Test disabling a plugin successfully"""
     # Arrange
     mock_plugin_repo.get_plugin_by_id.return_value = sample_plugin
@@ -309,7 +300,7 @@ def test_disable_plugin_success(manager, mock_plugin_repo, mock_plugin_registry,
     mock_plugin_registry.get_plugin_error.return_value = None
 
     # Act
-    result = manager.disable_plugin("test-plugin-1")
+    result = operations.disable_plugin(mock_plugin_repo, mock_plugin_registry, "test-plugin-1")
 
     # Assert
     assert isinstance(result, PluginResponse)
@@ -317,19 +308,19 @@ def test_disable_plugin_success(manager, mock_plugin_repo, mock_plugin_registry,
     mock_plugin_repo.disable_plugin.assert_called_once_with("test-plugin-1")
 
 
-def test_disable_plugin_not_found_raises(manager, mock_plugin_repo):
+def test_disable_plugin_not_found_raises(mock_plugin_repo, mock_plugin_registry):
     """Test that disable_plugin raises ValueError when plugin not found"""
     # Arrange
     mock_plugin_repo.get_plugin_by_id.return_value = None
 
     # Act & Assert
     with pytest.raises(ValueError) as exc_info:
-        manager.disable_plugin("non-existent")
+        operations.disable_plugin(mock_plugin_repo, mock_plugin_registry, "non-existent")
 
     assert "not found" in str(exc_info.value).lower()
 
 
-def test_disable_plugin_registry_failure_raises(manager, mock_plugin_repo, mock_plugin_registry, sample_plugin):
+def test_disable_plugin_registry_failure_raises(mock_plugin_repo, mock_plugin_registry, sample_plugin):
     """Test that disable_plugin raises ValueError when registry disable fails"""
     # Arrange
     mock_plugin_repo.get_plugin_by_id.return_value = sample_plugin
@@ -337,14 +328,14 @@ def test_disable_plugin_registry_failure_raises(manager, mock_plugin_repo, mock_
 
     # Act & Assert
     with pytest.raises(ValueError) as exc_info:
-        manager.disable_plugin("test-plugin-1")
+        operations.disable_plugin(mock_plugin_repo, mock_plugin_registry, "test-plugin-1")
 
     assert "registry" in str(exc_info.value).lower()
 
 
 # ========== delete_plugin Tests ==========
 
-def test_delete_plugin_success(manager, mock_plugin_repo, mock_plugin_registry, sample_plugin):
+def test_delete_plugin_success(mock_plugin_repo, mock_plugin_registry, sample_plugin):
     """Test deleting a plugin successfully"""
     # Arrange
     sample_plugin.enabled = False
@@ -352,14 +343,14 @@ def test_delete_plugin_success(manager, mock_plugin_repo, mock_plugin_registry, 
     mock_plugin_repo.delete_plugin.return_value = True
 
     # Act
-    result = manager.delete_plugin("test-plugin-1")
+    result = operations.delete_plugin(mock_plugin_repo, mock_plugin_registry, "test-plugin-1")
 
     # Assert
     assert result == "Test Plugin"
     mock_plugin_repo.delete_plugin.assert_called_once_with("test-plugin-1")
 
 
-def test_delete_plugin_disables_if_enabled(manager, mock_plugin_repo, mock_plugin_registry, sample_plugin):
+def test_delete_plugin_disables_if_enabled(mock_plugin_repo, mock_plugin_registry, sample_plugin):
     """Test that delete_plugin disables the plugin first if it's enabled"""
     # Arrange
     sample_plugin.enabled = True
@@ -367,7 +358,7 @@ def test_delete_plugin_disables_if_enabled(manager, mock_plugin_repo, mock_plugi
     mock_plugin_repo.delete_plugin.return_value = True
 
     # Act
-    result = manager.delete_plugin("test-plugin-1")
+    result = operations.delete_plugin(mock_plugin_repo, mock_plugin_registry, "test-plugin-1")
 
     # Assert
     assert result == "Test Plugin"
@@ -375,21 +366,21 @@ def test_delete_plugin_disables_if_enabled(manager, mock_plugin_repo, mock_plugi
     mock_plugin_repo.delete_plugin.assert_called_once_with("test-plugin-1")
 
 
-def test_delete_plugin_not_found_raises(manager, mock_plugin_repo):
+def test_delete_plugin_not_found_raises(mock_plugin_repo, mock_plugin_registry):
     """Test that delete_plugin raises ValueError when plugin not found"""
     # Arrange
     mock_plugin_repo.get_plugin_by_id.return_value = None
 
     # Act & Assert
     with pytest.raises(ValueError) as exc_info:
-        manager.delete_plugin("non-existent")
+        operations.delete_plugin(mock_plugin_repo, mock_plugin_registry, "non-existent")
 
     assert "not found" in str(exc_info.value).lower()
 
 
 # ========== scan_plugins Tests ==========
 
-def test_scan_plugins_discovers_new(manager, mock_plugin_repo, mock_plugin_registry, sample_plugin_manifest):
+def test_scan_plugins_discovers_new(mock_plugin_repo, mock_plugin_registry, sample_plugin_manifest):
     """Test that scan_plugins discovers new plugins"""
     # Arrange
     mock_plugin_registry.get_all_plugins.return_value = [sample_plugin_manifest]
@@ -412,7 +403,7 @@ def test_scan_plugins_discovers_new(manager, mock_plugin_repo, mock_plugin_regis
     mock_plugin_registry.get_plugin_error.return_value = None
 
     # Act
-    result = manager.scan_plugins()
+    result = operations.scan_plugins(mock_plugin_repo, mock_plugin_registry)
 
     # Assert
     assert isinstance(result, PluginScanResult)
@@ -423,7 +414,7 @@ def test_scan_plugins_discovers_new(manager, mock_plugin_repo, mock_plugin_regis
     mock_plugin_repo.create_plugin.assert_called_once()
 
 
-def test_scan_plugins_updates_version(manager, mock_plugin_repo, mock_plugin_registry, sample_plugin, sample_plugin_manifest):
+def test_scan_plugins_updates_version(mock_plugin_repo, mock_plugin_registry, sample_plugin, sample_plugin_manifest):
     """Test that scan_plugins detects version updates"""
     # Arrange
     sample_plugin.version = "0.9.0"  # Old version
@@ -449,7 +440,7 @@ def test_scan_plugins_updates_version(manager, mock_plugin_repo, mock_plugin_reg
     mock_plugin_registry.get_plugin_error.return_value = None
 
     # Act
-    result = manager.scan_plugins()
+    result = operations.scan_plugins(mock_plugin_repo, mock_plugin_registry)
 
     # Assert
     assert len(result.new_plugins) == 0
@@ -458,7 +449,7 @@ def test_scan_plugins_updates_version(manager, mock_plugin_repo, mock_plugin_reg
     mock_plugin_repo.update_plugin.assert_called_once()
 
 
-def test_scan_plugins_refreshes_hooks(manager, mock_plugin_repo, mock_plugin_registry, sample_plugin, sample_plugin_manifest):
+def test_scan_plugins_refreshes_hooks(mock_plugin_repo, mock_plugin_registry, sample_plugin, sample_plugin_manifest):
     """Test that scan_plugins always refreshes hooks for existing plugins"""
     # Arrange
     sample_plugin.version = sample_plugin_manifest.version  # Same version
@@ -467,7 +458,7 @@ def test_scan_plugins_refreshes_hooks(manager, mock_plugin_repo, mock_plugin_reg
     mock_plugin_repo.get_all_plugins.return_value = [sample_plugin]
 
     # Act
-    result = manager.scan_plugins()
+    result = operations.scan_plugins(mock_plugin_repo, mock_plugin_registry)
 
     # Assert
     # Even with same version, hooks should be refreshed
@@ -478,11 +469,11 @@ def test_scan_plugins_refreshes_hooks(manager, mock_plugin_repo, mock_plugin_reg
 # ========== Settings Tests ==========
 
 def test_update_settings_serializes_complex_types(
-    manager, mock_plugin_repo, mock_plugin_registry, sample_plugin, sample_plugin_setting
+    mock_plugin_repo, mock_plugin_registry, sample_plugin, sample_plugin_setting
 ):
     """Test that update_plugin_settings serializes dict and list values"""
     # Arrange
-    # A manifest has to be present: without one the manager cannot tell a
+    # A manifest has to be present: without one the operation cannot tell a
     # credential from an ordinary setting and refuses the save outright.
     manifest = Mock()
     manifest.settings = []
@@ -496,7 +487,7 @@ def test_update_settings_serializes_complex_types(
     }
 
     # Act
-    result = manager.update_plugin_settings("test-plugin-1", settings)
+    result = operations.update_plugin_settings(mock_plugin_repo, mock_plugin_registry, "test-plugin-1", settings)
 
     # Assert
     assert len(result) == 2
@@ -508,19 +499,19 @@ def test_update_settings_serializes_complex_types(
         assert isinstance(value, str)
 
 
-def test_update_settings_not_found_raises(manager, mock_plugin_repo):
+def test_update_settings_not_found_raises(mock_plugin_repo, mock_plugin_registry):
     """Test that update_plugin_settings raises ValueError when plugin not found"""
     # Arrange
     mock_plugin_repo.get_plugin_by_id.return_value = None
 
     # Act & Assert
     with pytest.raises(ValueError) as exc_info:
-        manager.update_plugin_settings("non-existent", {"key": "value"})
+        operations.update_plugin_settings(mock_plugin_repo, mock_plugin_registry, "non-existent", {"key": "value"})
 
     assert "not found" in str(exc_info.value).lower()
 
 
-def test_get_frontend_extensions_from_enabled_plugin(manager, mock_plugin_repo, mock_plugin_registry, sample_plugin):
+def test_get_frontend_extensions_from_enabled_plugin(mock_plugin_repo, mock_plugin_registry, sample_plugin):
     """Enabled plugin's manifest renderers/contributions are returned, tagged with plugin_id."""
     # Arrange
     mock_plugin_repo.get_enabled_plugins.return_value = [sample_plugin]
@@ -537,7 +528,7 @@ def test_get_frontend_extensions_from_enabled_plugin(manager, mock_plugin_repo, 
     mock_plugin_registry.get_plugin.return_value = manifest
 
     # Act
-    result = manager.get_frontend_extensions()
+    result = operations.get_frontend_extensions(mock_plugin_repo, mock_plugin_registry)
 
     # Assert
     assert result["renderers"] == [
@@ -550,19 +541,19 @@ def test_get_frontend_extensions_from_enabled_plugin(manager, mock_plugin_repo, 
     assert contribution["order"] == 50
 
 
-def test_get_frontend_extensions_excludes_disabled_plugins(manager, mock_plugin_repo):
+def test_get_frontend_extensions_excludes_disabled_plugins(mock_plugin_repo, mock_plugin_registry):
     """Only plugins returned by get_enabled_plugins() contribute extensions."""
     # Arrange
     mock_plugin_repo.get_enabled_plugins.return_value = []
 
     # Act
-    result = manager.get_frontend_extensions()
+    result = operations.get_frontend_extensions(mock_plugin_repo, mock_plugin_registry)
 
     # Assert
     assert result == {"renderers": [], "contributions": []}
 
 
-def test_get_frontend_extensions_sorts_contributions_by_order(manager, mock_plugin_repo, mock_plugin_registry, sample_plugin):
+def test_get_frontend_extensions_sorts_contributions_by_order(mock_plugin_repo, mock_plugin_registry, sample_plugin):
     """Contributions across plugins are sorted by order ascending."""
     # Arrange
     mock_plugin_repo.get_enabled_plugins.return_value = [sample_plugin]
@@ -581,7 +572,7 @@ def test_get_frontend_extensions_sorts_contributions_by_order(manager, mock_plug
     mock_plugin_registry.get_plugin.return_value = manifest
 
     # Act
-    result = manager.get_frontend_extensions()
+    result = operations.get_frontend_extensions(mock_plugin_repo, mock_plugin_registry)
 
     # Assert
     assert [c["component"] for c in result["contributions"]] == ["A.svelte", "B.svelte"]
@@ -605,19 +596,6 @@ def mock_recipe_catalog():
     return Mock()
 
 
-@pytest.fixture
-def manager_with_rescan(
-    mock_plugin_repo, mock_plugin_registry, mock_preset_loader, mock_pipe_catalog, mock_recipe_catalog
-):
-    return PluginManager(
-        plugin_repository=mock_plugin_repo,
-        plugin_registry=mock_plugin_registry,
-        preset_loader=mock_preset_loader,
-        pipe_catalog=mock_pipe_catalog,
-        recipe_catalog=mock_recipe_catalog,
-    )
-
-
 def _arrange_enable_success(mock_plugin_repo, mock_plugin_registry, sample_plugin):
     mock_plugin_repo.get_plugin_by_id.return_value = sample_plugin
     mock_plugin_repo.enable_plugin.return_value = True
@@ -635,68 +613,84 @@ def _arrange_disable_success(mock_plugin_repo, mock_plugin_registry, sample_plug
 
 
 def test_enable_plugin_rescans_presets_and_pipes(
-    manager_with_rescan, mock_plugin_repo, mock_plugin_registry, mock_preset_loader, mock_pipe_catalog, sample_plugin
+    mock_plugin_repo, mock_plugin_registry, mock_preset_loader, mock_pipe_catalog, mock_recipe_catalog, sample_plugin
 ):
     _arrange_enable_success(mock_plugin_repo, mock_plugin_registry, sample_plugin)
-    manager_with_rescan.enable_plugin("test-plugin-1")
+    operations.enable_plugin(
+        mock_plugin_repo, mock_plugin_registry, "test-plugin-1",
+        preset_loader=mock_preset_loader, pipe_catalog=mock_pipe_catalog, recipe_catalog=mock_recipe_catalog,
+    )
     mock_preset_loader.reload.assert_called_once()
     mock_pipe_catalog.rescan_plugin_pipes.assert_called_once()
 
 
 def test_enable_plugin_rescans_recipes(
-    manager_with_rescan, mock_plugin_repo, mock_plugin_registry, mock_recipe_catalog, sample_plugin
+    mock_plugin_repo, mock_plugin_registry, mock_recipe_catalog, sample_plugin
 ):
     _arrange_enable_success(mock_plugin_repo, mock_plugin_registry, sample_plugin)
-    manager_with_rescan.enable_plugin("test-plugin-1")
+    operations.enable_plugin(
+        mock_plugin_repo, mock_plugin_registry, "test-plugin-1", recipe_catalog=mock_recipe_catalog,
+    )
     mock_recipe_catalog.reload.assert_called_once()
 
 
 def test_disable_plugin_rescans_recipes(
-    manager_with_rescan, mock_plugin_repo, mock_plugin_registry, mock_recipe_catalog, sample_plugin
+    mock_plugin_repo, mock_plugin_registry, mock_recipe_catalog, sample_plugin
 ):
     _arrange_disable_success(mock_plugin_repo, mock_plugin_registry, sample_plugin)
-    manager_with_rescan.disable_plugin("test-plugin-1")
+    operations.disable_plugin(
+        mock_plugin_repo, mock_plugin_registry, "test-plugin-1", recipe_catalog=mock_recipe_catalog,
+    )
     mock_recipe_catalog.reload.assert_called_once()
 
 
 def test_recipe_rescan_failure_does_not_fail_the_enable_call(
-    manager_with_rescan, mock_plugin_repo, mock_plugin_registry, mock_recipe_catalog, mock_pipe_catalog, sample_plugin
+    mock_plugin_repo, mock_plugin_registry, mock_recipe_catalog, mock_pipe_catalog, sample_plugin
 ):
     """Best-effort, same as the preset/pipe rescans: a broken recipe rescan
     must not be reported as an enable failure."""
     _arrange_enable_success(mock_plugin_repo, mock_plugin_registry, sample_plugin)
     mock_recipe_catalog.reload.side_effect = RuntimeError("disk on fire")
 
-    result = manager_with_rescan.enable_plugin("test-plugin-1")
+    result = operations.enable_plugin(
+        mock_plugin_repo, mock_plugin_registry, "test-plugin-1",
+        pipe_catalog=mock_pipe_catalog, recipe_catalog=mock_recipe_catalog,
+    )
 
     assert isinstance(result, PluginResponse)
     mock_pipe_catalog.rescan_plugin_pipes.assert_called_once()  # still ran despite the recipe failure
 
 
 def test_disable_plugin_rescans_presets_and_pipes(
-    manager_with_rescan, mock_plugin_repo, mock_plugin_registry, mock_preset_loader, mock_pipe_catalog, sample_plugin
+    mock_plugin_repo, mock_plugin_registry, mock_preset_loader, mock_pipe_catalog, sample_plugin
 ):
     _arrange_disable_success(mock_plugin_repo, mock_plugin_registry, sample_plugin)
-    manager_with_rescan.disable_plugin("test-plugin-1")
+    operations.disable_plugin(
+        mock_plugin_repo, mock_plugin_registry, "test-plugin-1",
+        preset_loader=mock_preset_loader, pipe_catalog=mock_pipe_catalog,
+    )
     mock_preset_loader.reload.assert_called_once()
     mock_pipe_catalog.rescan_plugin_pipes.assert_called_once()
 
 
 def test_delete_enabled_plugin_rescans_presets_and_pipes(
-    manager_with_rescan, mock_plugin_repo, mock_plugin_registry, mock_preset_loader, mock_pipe_catalog, sample_plugin
+    mock_plugin_repo, mock_plugin_registry, mock_preset_loader, mock_pipe_catalog, sample_plugin
 ):
     sample_plugin.enabled = True
     mock_plugin_repo.get_plugin_by_id.return_value = sample_plugin
     mock_plugin_repo.delete_plugin.return_value = True
 
-    manager_with_rescan.delete_plugin("test-plugin-1")
+    operations.delete_plugin(
+        mock_plugin_repo, mock_plugin_registry, "test-plugin-1",
+        preset_loader=mock_preset_loader, pipe_catalog=mock_pipe_catalog,
+    )
 
     mock_preset_loader.reload.assert_called_once()
     mock_pipe_catalog.rescan_plugin_pipes.assert_called_once()
 
 
 def test_delete_already_disabled_plugin_does_not_rescan(
-    manager_with_rescan, mock_plugin_repo, mock_plugin_registry, mock_preset_loader, mock_pipe_catalog, sample_plugin
+    mock_plugin_repo, mock_plugin_registry, mock_preset_loader, mock_pipe_catalog, sample_plugin
 ):
     """A disabled plugin's presets/pipes are already absent from the
     catalogues - no rescan needed (and none of the enable/disable code paths
@@ -705,14 +699,17 @@ def test_delete_already_disabled_plugin_does_not_rescan(
     mock_plugin_repo.get_plugin_by_id.return_value = sample_plugin
     mock_plugin_repo.delete_plugin.return_value = True
 
-    manager_with_rescan.delete_plugin("test-plugin-1")
+    operations.delete_plugin(
+        mock_plugin_repo, mock_plugin_registry, "test-plugin-1",
+        preset_loader=mock_preset_loader, pipe_catalog=mock_pipe_catalog,
+    )
 
     mock_preset_loader.reload.assert_not_called()
     mock_pipe_catalog.rescan_plugin_pipes.assert_not_called()
 
 
 def test_enable_plugin_failure_does_not_rescan(
-    manager_with_rescan, mock_plugin_repo, mock_plugin_registry, mock_preset_loader, mock_pipe_catalog, sample_plugin
+    mock_plugin_repo, mock_plugin_registry, mock_preset_loader, mock_pipe_catalog, sample_plugin
 ):
     mock_plugin_repo.get_plugin_by_id.return_value = sample_plugin
     mock_plugin_repo.enable_plugin.return_value = True
@@ -721,40 +718,46 @@ def test_enable_plugin_failure_does_not_rescan(
     mock_plugin_repo.disable_plugin.return_value = True
 
     with pytest.raises(ValueError):
-        manager_with_rescan.enable_plugin("test-plugin-1")
+        operations.enable_plugin(
+            mock_plugin_repo, mock_plugin_registry, "test-plugin-1",
+            preset_loader=mock_preset_loader, pipe_catalog=mock_pipe_catalog,
+        )
 
     mock_preset_loader.reload.assert_not_called()
     mock_pipe_catalog.rescan_plugin_pipes.assert_not_called()
 
 
 def test_rescan_failure_does_not_fail_the_enable_call(
-    manager_with_rescan, mock_plugin_repo, mock_plugin_registry, mock_preset_loader, mock_pipe_catalog, sample_plugin
+    mock_plugin_repo, mock_plugin_registry, mock_preset_loader, mock_pipe_catalog, sample_plugin
 ):
     """Best-effort: the registry state change already succeeded, so a broken
     rescan must not be reported as an enable failure."""
     _arrange_enable_success(mock_plugin_repo, mock_plugin_registry, sample_plugin)
     mock_preset_loader.reload.side_effect = RuntimeError("disk on fire")
 
-    result = manager_with_rescan.enable_plugin("test-plugin-1")
+    result = operations.enable_plugin(
+        mock_plugin_repo, mock_plugin_registry, "test-plugin-1",
+        preset_loader=mock_preset_loader, pipe_catalog=mock_pipe_catalog,
+    )
 
     assert isinstance(result, PluginResponse)
     mock_pipe_catalog.rescan_plugin_pipes.assert_called_once()  # still ran despite the preset failure
 
 
 def test_enable_plugin_without_rescan_collaborators_does_not_crash(
-    manager, mock_plugin_repo, mock_plugin_registry, sample_plugin
+    mock_plugin_repo, mock_plugin_registry, sample_plugin
 ):
-    """The default fixture wires neither collaborator (both None) - must be
-    a true no-op, not an AttributeError."""
+    """No preset_loader/pipe_catalog/recipe_catalog passed (all default to
+    None) - must be a true no-op, not an AttributeError."""
     _arrange_enable_success(mock_plugin_repo, mock_plugin_registry, sample_plugin)
-    result = manager.enable_plugin("test-plugin-1")
+    result = operations.enable_plugin(mock_plugin_repo, mock_plugin_registry, "test-plugin-1")
     assert isinstance(result, PluginResponse)
 
 
 # ========== scan_plugins against a real database (invalid manifest) ==========
 #
 # The tests above mock PluginRepository/PluginRegistry, so they can't catch a
-# schema/DB mismatch: `PluginManager.scan_plugins()` persists a discovered
+# schema/DB mismatch: `operations.scan_plugins()` persists a discovered
 # manifest by inserting `manifest.plugin_type` straight into the `plugins`
 # table's `type` column, which is `CHECK (type IN ('frontend-only',
 # 'backend-only', 'full-stack'))`. These tests run the real PluginLoader,
@@ -811,7 +814,6 @@ class TestScanPluginsWithInvalidManifest(PersistenceTestBase):
             local_dir=str(self.local_dir),
         )
         self.repo = PluginRepository()
-        self.manager = PluginManager(plugin_repository=self.repo, plugin_registry=self.registry)
 
     def tearDown(self):
         shutil.rmtree(self.plugins_dir)
@@ -824,7 +826,7 @@ class TestScanPluginsWithInvalidManifest(PersistenceTestBase):
             yaml.dump(manifest_data, f)
 
     def test_scan_persists_valid_plugin_and_reports_invalid_one_as_error(self):
-        result = self.manager.scan_plugins()
+        result = operations.scan_plugins(self.repo, self.registry)
 
         assert result.total_discovered == 2
         new_ids = {p.id for p in result.new_plugins}

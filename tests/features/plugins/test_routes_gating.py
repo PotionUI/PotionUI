@@ -26,24 +26,21 @@ def _user(account_type):
 
 
 def _make_client(user):
-    manager = Mock()
-    # Open-route return values still served by the manager (consult live
-    # registry state, not just the DB - see PluginManager).
-    manager.get_active_quick_actions.return_value = []
-    manager.get_active_sidebar_widgets.return_value = []
-    manager.get_frontend_extensions.return_value = {"renderers": [], "contributions": []}
-
     repository = Mock()
-    # Open-route return values now read straight from the repository.
+    # Open-route return values now read straight from the repository (and, for
+    # quick-actions/sidebar-widgets/frontend-extensions, through the
+    # operations functions - which consult the repository's enabled-plugin
+    # list plus the live registry, not just the DB).
     repository.get_all_active_pages.return_value = []
     repository.get_hooks_by_type.return_value = []
+    repository.get_enabled_plugins.return_value = []
 
     registry = Mock()
     registry.get_plugin.return_value = None
 
     container = SimpleNamespace(
         plugin_controller=PluginController(
-            plugin_manager=manager, plugin_repository=repository, plugin_registry=registry
+            plugin_repository=repository, plugin_registry=registry
         )
     )
 
@@ -54,7 +51,7 @@ def _make_client(user):
         return user
 
     app.dependency_overrides[get_current_active_user] = _fake_active_user
-    return TestClient(app), manager, repository
+    return TestClient(app), repository
 
 
 # Admin-gated management + settings routes.
@@ -82,14 +79,14 @@ OPEN = [
 
 @pytest.mark.parametrize("method,path,body", GATED)
 def test_management_routes_denied_for_regular_user(method, path, body):
-    client, _, _ = _make_client(_user(AccountType.USER))
+    client, _ = _make_client(_user(AccountType.USER))
     response = getattr(client, method)(path, json=body) if body is not None else getattr(client, method)(path)
     assert response.status_code == 403
 
 
 @pytest.mark.parametrize("path", OPEN)
 def test_read_routes_open_to_regular_user(path):
-    client, _, _ = _make_client(_user(AccountType.USER))
+    client, _ = _make_client(_user(AccountType.USER))
     response = client.get(path)
     assert response.status_code == 200
     assert response.json()["success"] is True
@@ -100,7 +97,7 @@ def test_settings_routes_ignore_caller_supplied_user_id():
     principal (global/None here) is the only identity used."""
     from src.features.plugins.records import Plugin
 
-    client, _, repository = _make_client(_user(AccountType.ADMIN))
+    client, repository = _make_client(_user(AccountType.ADMIN))
     repository.get_plugin_by_id.return_value = Plugin(
         id="p1", name="P1", version="1.0.0", type="full-stack",
         enabled=True, manifest_path="/content/plugins/local/p1/manifest.yml",

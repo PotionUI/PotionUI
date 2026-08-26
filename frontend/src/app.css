@@ -211,3 +211,32 @@
 		scroll-behavior: auto !important;
 	}
 }
+
+/* ---------------------------------------------------------------------------
+   Touch-device overrides. Deliberately NOT inside a @layer: unlayered styles
+   win over Tailwind's layered utilities, which these must override.
+   --------------------------------------------------------------------------- */
+
+@media (hover: none) {
+	/* The house idiom for card/viewer chrome is `opacity-0 group-hover:opacity-100`
+	   (download, delete, favorite, carousel arrows, metadata…). A device with no
+	   hover can never reveal it, so the controls are shown persistently instead.
+	   Matched by class attribute so named groups (group-hover/seek:…) are covered. */
+	.opacity-0[class*='group-hover'],
+	.opacity-40[class*='group-hover'] {
+		opacity: 1;
+	}
+}
+
+@media (pointer: coarse) {
+	/* iOS Safari zooms the page when focusing any form control whose font-size
+	   is below 16px — and never zooms back out, leaving the layout scaled and
+	   panned. The 13px design scale (text-sm = 12px) trips this everywhere, so
+	   floor form text at 16px on touch devices regardless of utility classes. */
+	input:not([type='checkbox']):not([type='radio']):not([type='range']),
+	select,
+	textarea,
+	[contenteditable='true'] {
+		font-size: 1rem;
+	}
+}

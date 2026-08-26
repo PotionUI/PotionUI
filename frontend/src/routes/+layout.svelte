@@ -37,7 +37,13 @@
 		printStartupBanner();
 		themeStore.init();
 		initPwaInstall();
+		installDismissed = localStorage.getItem('potionui-install-dismissed') === '1';
 	});
+
+	function dismissInstallPrompt() {
+		installDismissed = true;
+		localStorage.setItem('potionui-install-dismissed', '1');
+	}
 
 	async function initializeAuthenticatedRuntime() {
 		if (authenticatedRuntimeInitialized) return;
@@ -207,7 +213,7 @@
 			<div class="hidden md:block">
 				{#if SidebarComponent}<svelte:component this={SidebarComponent} />{/if}
 			</div>
-		<main class="md:ml-14 min-h-screen overflow-auto pb-16 md:pb-0">
+		<main class="md:ml-14 min-h-dvh overflow-y-auto overflow-x-hidden pb-[calc(4rem_+_env(safe-area-inset-bottom))] md:pb-0">
 			{#if authenticatedRuntimeReady}
 				<slot />
 			{:else}
@@ -218,7 +224,9 @@
 		</main>
 		{#if MobileTabBarComponent}<svelte:component this={MobileTabBarComponent} />{/if}
 		{#if $canInstall && !installDismissed}
-			<div class="fixed bottom-16 left-0 right-0 z-50 px-3 pb-2 md:hidden">
+			<!-- z-30: must sit BELOW the generate page's transport bar (z-40) so it
+				can never cover the Generate button. -->
+			<div class="fixed bottom-[calc(4rem_+_env(safe-area-inset-bottom))] left-0 right-0 z-30 px-3 pb-2 md:hidden">
 				<div class="bg-surface-2 border border-line-strong rounded-xl p-3 flex items-center gap-3 shadow-floating">
 					<div class="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center flex-shrink-0">
 						<svg class="w-5 h-5 text-fg" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -236,7 +244,7 @@
 						Install
 					</button>
 					<button
-						on:click={() => installDismissed = true}
+						on:click={dismissInstallPrompt}
 						class="p-1 text-fg-subtle hover:text-fg-muted flex-shrink-0"
 						aria-label="Dismiss install prompt"
 					>

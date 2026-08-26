@@ -88,18 +88,30 @@
 	let isSwiping = false;
 	const SWIPE_THRESHOLD = 50;
 
+	let swipeEligible = true;
+
+	// A horizontal drag inside these targets is the target's own gesture
+	// (slider drag, text selection, horizontal scroll) — never a panel swipe.
+	function swipeExempt(target: EventTarget | null): boolean {
+		if (!(target instanceof Element)) return false;
+		return !!target.closest(
+			'input, textarea, select, [contenteditable="true"], [data-no-swipe], .overflow-x-auto'
+		);
+	}
+
 	function handleTouchStart(e: TouchEvent) {
 		touchStartX = e.touches[0].clientX;
 		touchStartY = e.touches[0].clientY;
 		touchDeltaX = 0;
 		isSwiping = false;
+		swipeEligible = !swipeExempt(e.target);
 	}
 
 	function handleTouchMove(e: TouchEvent) {
 		const dx = e.touches[0].clientX - touchStartX;
 		const dy = e.touches[0].clientY - touchStartY;
 
-		if (!isSwiping && Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) {
+		if (!isSwiping && swipeEligible && Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) {
 			isSwiping = true;
 		}
 
@@ -1498,8 +1510,10 @@
 
 </script>
 
-<!-- Main Layout Wrapper -->
-<div class="h-screen flex flex-col bg-canvas overflow-hidden">
+<!-- Main Layout Wrapper. Below md the shell's main reserves the fixed bottom
+	tab bar (4rem + safe-area), so this page must size itself to what's left of
+	the *visible* viewport — 100vh would overflow behind the bar. -->
+<div class="h-[calc(100dvh_-_4rem_-_env(safe-area-inset-bottom))] md:h-dvh flex flex-col bg-canvas overflow-hidden">
 
 	<TabBar />
 
@@ -1649,9 +1663,13 @@
 							on:touchmove={handleTouchMove}
 							on:touchend={handleTouchEnd}
 						>
+							<!-- Geometry is container-relative on purpose: 100vw panels drift
+								out of alignment whenever the layout viewport ≠ container width
+								(scrollbar gutter, iOS focus zoom). 25% of the 400%-wide track
+								is exactly one container width. -->
 							<div
 								class="mobile-panels-track flex h-full"
-								style="transform: translateX({isSwiping ? -mobilePanel * 100 + (touchDeltaX / (typeof window !== 'undefined' ? window.innerWidth : 400) * 100) : -mobilePanel * 100}vw);
+								style="transform: translateX(calc({-mobilePanel * 25}% + {isSwiping ? touchDeltaX : 0}px));
 									transition: {isSwiping ? 'none' : 'transform 0.3s ease'};"
 							>
 								<!-- Panel 0: Preset / Session / Mode -->
@@ -1682,7 +1700,7 @@
 								<!-- Panel 1: Form -->
 							<div class="mobile-panel overflow-y-auto">
 								{#if tab.selectedPreset && tab.selectedMode}
-							<div class="p-4">
+							<div class="p-4 pb-32">
 											<GenerationFormPane
 												bind:formRef={dynamicFormRefs[tab.id]}
 												{tab}
@@ -1700,7 +1718,7 @@
 								<!-- Panel 2: Generation (Workbench + Prompts) -->
 								<div class="mobile-panel overflow-y-auto">
 									{#if tab.selectedPreset && tab.selectedMode}
-										<div class="p-4">
+										<div class="p-4 pb-32">
 											{#if isActive}
 												<GenerationWorkbenchPane
 													{tab}
@@ -1869,9 +1887,11 @@
 	</div>
 	{/if}
 
-	<!-- Mobile generation transport -->
-	{#if $isMobile && mobilePanel === 2}
-		<div class="fixed bottom-20 left-3 right-3 z-40 overflow-hidden rounded-xl border border-line-strong bg-surface-1 shadow-floating md:hidden">
+	<!-- Mobile generation transport. Shown on the Form and Generate panels —
+		the two places the user is when they want to fire or cancel a run.
+		Anchored above the fixed bottom tab bar (4rem + safe-area). -->
+	{#if $isMobile && (mobilePanel === 1 || mobilePanel === 2)}
+		<div class="fixed bottom-[calc(4.75rem_+_env(safe-area-inset-bottom))] left-3 right-3 z-40 overflow-hidden rounded-xl border border-line-strong bg-surface-1 shadow-floating md:hidden">
 			<div class="absolute inset-x-0 top-0 h-1 bg-surface-3 overflow-hidden">
 				{#if isGenerating}
 					{#if generation.currentProgress?.progress != null}
@@ -1924,6 +1944,7 @@
 <style>
 	/* Mobile swipeable panels */
 	.mobile-panels-track {
+		width: 400%;
 		will-change: transform;
 	}
 
@@ -1943,9 +1964,9 @@
 	}
 
 	.mobile-panel {
-		min-width: 100vw;
-		max-width: 100vw;
-		width: 100vw;
+		min-width: 25%;
+		max-width: 25%;
+		width: 25%;
 		flex-shrink: 0;
 		height: 100%;
 	}

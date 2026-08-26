@@ -29,9 +29,12 @@
 	];
 </script>
 
+<!-- The safe-area padding must ADD to the 64px content box, not eat into it —
+	with a fixed h-16 the home-indicator inset squeezes the tabs into ~30px on
+	notched phones, so the height carries the inset explicitly. -->
 <nav
-	class="fixed bottom-0 left-0 right-0 h-16 bg-canvas border-t border-line z-50 flex items-stretch md:hidden"
-	style="padding-bottom: env(safe-area-inset-bottom);"
+	class="fixed bottom-0 left-0 right-0 bg-canvas border-t border-line z-50 flex items-stretch md:hidden"
+	style="height: calc(4rem + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom);"
 >
 	{#each tabs as tab}
 		<a

@@ -16,6 +16,20 @@ class TagType(str, Enum):
     UPLOAD = "UPLOAD"
 
 
+# Every type except MODEL is owned by the user who created it. MODEL tags are
+# global (user_id=None) and admin-authored.
+USER_SCOPED_TAG_TYPES = (TagType.GENERATION, TagType.UPLOAD)
+
+
+def effective_user_id_for_type(tag_type: TagType, user_id: str) -> Optional[str]:
+    """The user_id to scope a tag query/write to, given its type.
+
+    MODEL tags are global (user_id=None); GENERATION and UPLOAD tags are
+    user-specific.
+    """
+    return None if tag_type == TagType.MODEL else user_id
+
+
 # ========== Response DTOs ==========
 
 class Tag(BaseModel):

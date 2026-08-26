@@ -9,20 +9,19 @@ if project_root not in sys.path:
 
 from tests.fixtures.persistence_base import PersistenceTestBase
 from src.features.collections.repository import CollectionRepository
-from src.features.collections.manager import CollectionManager
+from src.features.collections import operations
 
 HISTORY = "history"
 LIBRARY = "library"
 PROMPTS = "prompts"
 
 
-class TestCollectionManagerBulkMove(PersistenceTestBase):
+class TestBulkMoveCollections(PersistenceTestBase):
 
     def setUp(self):
         """Set up test data"""
         super().setUp()
         self.repo = CollectionRepository()
-        self.manager = CollectionManager(self.repo)
         self.test_user_id = self.create_test_user()
 
     def test_bulk_move_happy_path(self):
@@ -30,7 +29,7 @@ class TestCollectionManagerBulkMove(PersistenceTestBase):
         b = self.repo.create("B", self.test_user_id, HISTORY)
         target = self.repo.create("Target", self.test_user_id, HISTORY)
 
-        result = self.manager.bulk_move_collections([a.id, b.id], target.id, self.test_user_id, HISTORY)
+        result = operations.bulk_move_collections(self.repo, [a.id, b.id], target.id, self.test_user_id, HISTORY)
 
         self.assertEqual(result["moved"], 2)
         self.assertEqual(result["failed"], 0)
@@ -43,7 +42,7 @@ class TestCollectionManagerBulkMove(PersistenceTestBase):
         a = self.repo.create("A", self.test_user_id, HISTORY, parent_id=parent.id)
         b = self.repo.create("B", self.test_user_id, HISTORY, parent_id=parent.id)
 
-        result = self.manager.bulk_move_collections([a.id, b.id], None, self.test_user_id, HISTORY)
+        result = operations.bulk_move_collections(self.repo, [a.id, b.id], None, self.test_user_id, HISTORY)
 
         self.assertEqual(result["moved"], 2)
         self.assertEqual(result["failed"], 0)
@@ -58,7 +57,7 @@ class TestCollectionManagerBulkMove(PersistenceTestBase):
         # Moving A under its own child (a cycle) alongside an unrelated valid
         # move: the cycle-forming id must fail without it, and its parent
         # must stay put. The unrelated id is unaffected.
-        result = self.manager.bulk_move_collections([a.id, other.id], child.id, self.test_user_id, HISTORY)
+        result = operations.bulk_move_collections(self.repo, [a.id, other.id], child.id, self.test_user_id, HISTORY)
 
         self.assertEqual(result["moved"], 1)
         self.assertEqual(result["failed"], 1)
@@ -74,7 +73,7 @@ class TestCollectionManagerBulkMove(PersistenceTestBase):
         # Target is itself one of the ids being moved: B moving into itself
         # is a cycle and is rejected; A moving into B is an unrelated,
         # perfectly ordinary move and succeeds.
-        result = self.manager.bulk_move_collections([a.id, b.id], b.id, self.test_user_id, HISTORY)
+        result = operations.bulk_move_collections(self.repo, [a.id, b.id], b.id, self.test_user_id, HISTORY)
 
         self.assertEqual(result["moved"], 1)
         self.assertEqual(result["failed"], 1)
@@ -88,7 +87,7 @@ class TestCollectionManagerBulkMove(PersistenceTestBase):
         theirs = self.repo.create("Theirs", "user_2", HISTORY)
         target = self.repo.create("Target", self.test_user_id, HISTORY)
 
-        result = self.manager.bulk_move_collections([mine.id, theirs.id], target.id, self.test_user_id, HISTORY)
+        result = operations.bulk_move_collections(self.repo, [mine.id, theirs.id], target.id, self.test_user_id, HISTORY)
 
         self.assertEqual(result["moved"], 1)
         self.assertEqual(result["failed"], 1)
@@ -102,8 +101,8 @@ class TestCollectionManagerBulkMove(PersistenceTestBase):
         b = self.repo.create("B", self.test_user_id, HISTORY)
         target = self.repo.create("Target", self.test_user_id, HISTORY)
 
-        result = self.manager.bulk_move_collections(
-            [a.id, "missing-id", b.id], target.id, self.test_user_id, HISTORY
+        result = operations.bulk_move_collections(
+            self.repo, [a.id, "missing-id", b.id], target.id, self.test_user_id, HISTORY
         )
 
         self.assertEqual(result["moved"], 2)
@@ -116,48 +115,47 @@ class TestCollectionManagerBulkMove(PersistenceTestBase):
         a = self.repo.create("A", self.test_user_id, HISTORY)
         library_target = self.repo.create("Library Target", self.test_user_id, LIBRARY)
 
-        result = self.manager.bulk_move_collections([a.id], library_target.id, self.test_user_id, HISTORY)
+        result = operations.bulk_move_collections(self.repo, [a.id], library_target.id, self.test_user_id, HISTORY)
 
         self.assertEqual(result["moved"], 0)
         self.assertEqual(result["failed"], 1)
         self.assertIsNone(self.repo.get_by_id(a.id, HISTORY).parent_id)
 
 
-class TestCollectionManagerScope(PersistenceTestBase):
+class TestCollectionScope(PersistenceTestBase):
 
     def setUp(self):
         super().setUp()
         self.repo = CollectionRepository()
-        self.manager = CollectionManager(self.repo)
         self.test_user_id = self.create_test_user()
 
     def test_move_rejects_cross_scope_target(self):
-        history_folder = self.manager.create_collection("History Folder", self.test_user_id, HISTORY)
-        library_folder = self.manager.create_collection("Library Folder", self.test_user_id, LIBRARY)
+        history_folder = operations.create_collection(self.repo, "History Folder", self.test_user_id, HISTORY)
+        library_folder = operations.create_collection(self.repo, "Library Folder", self.test_user_id, LIBRARY)
 
         with self.assertRaises(ValueError):
-            self.manager.move_collection(history_folder.id, library_folder.id, self.test_user_id, HISTORY)
+            operations.move_collection(self.repo, history_folder.id, library_folder.id, self.test_user_id, HISTORY)
 
     def test_create_rejects_cross_scope_parent(self):
-        library_folder = self.manager.create_collection("Library Folder", self.test_user_id, LIBRARY)
+        library_folder = operations.create_collection(self.repo, "Library Folder", self.test_user_id, LIBRARY)
 
         with self.assertRaises(ValueError):
-            self.manager.create_collection(
-                "Child", self.test_user_id, HISTORY, parent_id=library_folder.id
+            operations.create_collection(
+                self.repo, "Child", self.test_user_id, HISTORY, parent_id=library_folder.id
             )
 
     def test_list_collections_is_scope_isolated(self):
-        self.manager.create_collection("History Folder", self.test_user_id, HISTORY)
-        self.manager.create_collection("Library Folder", self.test_user_id, LIBRARY)
+        operations.create_collection(self.repo, "History Folder", self.test_user_id, HISTORY)
+        operations.create_collection(self.repo, "Library Folder", self.test_user_id, LIBRARY)
 
-        history = self.manager.list_collections(self.test_user_id, HISTORY)
-        library = self.manager.list_collections(self.test_user_id, LIBRARY)
+        history = self.repo.list(self.test_user_id, HISTORY)
+        library = self.repo.list(self.test_user_id, LIBRARY)
 
         self.assertEqual([c.name for c in history], ["History Folder"])
         self.assertEqual([c.name for c in library], ["Library Folder"])
 
     def test_create_collection_in_prompts_scope(self):
-        collection = self.manager.create_collection("Saved Prompts", self.test_user_id, PROMPTS)
+        collection = operations.create_collection(self.repo, "Saved Prompts", self.test_user_id, PROMPTS)
         self.assertEqual(collection.scope, PROMPTS)
 
     def test_add_prompt_members_rejects_a_history_scope_collection(self):
@@ -165,19 +163,19 @@ class TestCollectionManagerScope(PersistenceTestBase):
         never reach a History-scope collection - the lookup that resolves
         ownership is the same one that enforces scope, so a real History
         folder's id simply isn't found under a 'prompts' lookup."""
-        history_folder = self.manager.create_collection("History Folder", self.test_user_id, HISTORY)
+        history_folder = operations.create_collection(self.repo, "History Folder", self.test_user_id, HISTORY)
 
         with self.assertRaises(ValueError):
-            self.manager.add_prompt_members(history_folder.id, ["prompt-1"], self.test_user_id, PROMPTS)
+            operations.add_prompt_members(self.repo, history_folder.id, ["prompt-1"], self.test_user_id, PROMPTS)
 
     def test_add_prompt_members_rejects_a_declared_scope_that_does_not_match(self):
         """The converse: a real Prompts-scope collection is also unreachable
         if the caller declares the wrong scope - scope isn't inferred from
         the collection, it's asserted by the caller and checked against it."""
-        prompts_folder = self.manager.create_collection("Prompts Folder", self.test_user_id, PROMPTS)
+        prompts_folder = operations.create_collection(self.repo, "Prompts Folder", self.test_user_id, PROMPTS)
 
         with self.assertRaises(ValueError):
-            self.manager.add_prompt_members(prompts_folder.id, ["prompt-1"], self.test_user_id, LIBRARY)
+            operations.add_prompt_members(self.repo, prompts_folder.id, ["prompt-1"], self.test_user_id, LIBRARY)
 
 
 if __name__ == '__main__':

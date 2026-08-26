@@ -311,17 +311,14 @@ class TestAutoCollectionApplicationOnStartGeneration:
         request = _make_request()
         request.collection_ids = ['collection-1', 'collection-2']
 
-        mock_manager = Mock()
         with patch('src.features.generation.orchestrator.generate_ulid', return_value='gen_auto_collection'), \
              patch('src.features.collections.repository.CollectionRepository'), \
-             patch('src.features.collections.manager.CollectionManager', return_value=mock_manager):
+             patch('src.features.collections.operations.add_members') as mock_add_members:
             result = await orchestrator.start_generation(request, 'user_123')
 
         assert result['generation_id'] == 'gen_auto_collection'
-        mock_manager.add_members.assert_has_calls([
-            call('collection-1', ['gen_auto_collection'], 'user_123', 'history'),
-            call('collection-2', ['gen_auto_collection'], 'user_123', 'history'),
-        ])
+        assert mock_add_members.call_args_list[0].args[1:] == ('collection-1', ['gen_auto_collection'], 'user_123', 'history')
+        assert mock_add_members.call_args_list[1].args[1:] == ('collection-2', ['gen_auto_collection'], 'user_123', 'history')
 
     @pytest.mark.asyncio
     async def test_auto_collection_failure_does_not_abort_generation(
@@ -330,11 +327,9 @@ class TestAutoCollectionApplicationOnStartGeneration:
         request = _make_request()
         request.collection_ids = ['missing-collection']
 
-        mock_manager = Mock()
-        mock_manager.add_members.side_effect = ValueError('Collection not found')
         with patch('src.features.generation.orchestrator.generate_ulid', return_value='gen_collection_fail'), \
              patch('src.features.collections.repository.CollectionRepository'), \
-             patch('src.features.collections.manager.CollectionManager', return_value=mock_manager):
+             patch('src.features.collections.operations.add_members', side_effect=ValueError('Collection not found')):
             result = await orchestrator.start_generation(request, 'user_123')
 
         assert result['generation_id'] == 'gen_collection_fail'

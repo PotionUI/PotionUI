@@ -2,7 +2,7 @@
 Workspace Controller
 
 Handles CRUD operations for user workspaces (saved tab layout configurations).
-Delegates business logic to WorkspaceManager.
+Delegates mutations to `src.features.workspaces.operations`.
 """
 from typing import TYPE_CHECKING
 from fastapi import APIRouter, Depends
@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user
 from src.features.workspaces.dto import SaveWorkspaceRequest, UpdateWorkspaceRequest
-from src.features.workspaces import WorkspaceManager
+from src.features.workspaces import operations
 from src.features.workspaces.mappers import workspace_to_response
 from src.features.workspaces.repository import WorkspaceRepository
 
@@ -21,9 +21,8 @@ if TYPE_CHECKING:
 class WorkspaceController(BaseController):
     """Controller for managing user workspaces."""
 
-    def __init__(self, workspace_manager: WorkspaceManager, workspace_repository: WorkspaceRepository):
+    def __init__(self, workspace_repository: WorkspaceRepository):
         super().__init__()
-        self.manager = workspace_manager
         self.repository = workspace_repository
 
     async def get_workspaces(self, user_id: str) -> APIResponse:
@@ -73,7 +72,7 @@ class WorkspaceController(BaseController):
     async def save_workspace(self, user_id: str, request: SaveWorkspaceRequest) -> APIResponse:
         """Save a new workspace."""
         try:
-            workspace = self.manager.save_workspace(user_id, request)
+            workspace = operations.save_workspace(self.repository, user_id, request)
             return self.success_response(
                 data=workspace.model_dump(),
                 message=f"Workspace '{request.name}' saved successfully"
@@ -94,7 +93,7 @@ class WorkspaceController(BaseController):
     ) -> APIResponse:
         """Update an existing workspace."""
         try:
-            workspace = self.manager.update_workspace(workspace_id, user_id, request)
+            workspace = operations.update_workspace(self.repository, workspace_id, user_id, request)
             return self.success_response(
                 data=workspace.model_dump(),
                 message="Workspace updated successfully"
@@ -121,7 +120,7 @@ class WorkspaceController(BaseController):
     async def delete_workspace(self, workspace_id: str, user_id: str) -> APIResponse:
         """Delete a workspace."""
         try:
-            message = self.manager.delete_workspace(workspace_id, user_id)
+            message = operations.delete_workspace(self.repository, workspace_id, user_id)
             return self.success_response(message=message)
         except ValueError as e:
             error_msg = str(e)

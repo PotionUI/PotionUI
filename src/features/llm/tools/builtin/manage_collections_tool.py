@@ -5,14 +5,16 @@ a 'history' collection only ever holds generations, a 'library' collection
 only ever holds library items, a 'prompts' collection only ever holds saved
 prompts - so every operation here takes an explicit `scope` and
 add_items/remove_items reject an id kind that does not match it. All
-operations act on `context.collection_manager`, scoped to `context.user_id`
-and `scope` exactly like the `/api/collections` HTTP route.
+operations act on `context.collection_repository` via
+`src.features.collections.operations`, scoped to `context.user_id` and
+`scope` exactly like the `/api/collections` HTTP route.
 """
 
 import json
 import logging
 from typing import Any, Dict, Tuple, Union
 
+from src.features.collections import operations
 from src.features.collections.dto import ALLOWED_SCOPES
 from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
 from src.features.llm.tools.errors import unexpected
@@ -21,11 +23,12 @@ logger = logging.getLogger(__name__)
 
 _OPERATIONS = ("list", "create", "rename", "delete", "add_items", "remove_items")
 
-# Which id kind a given scope's membership calls accept, and the manager
-# methods that add/remove that kind.
+# Which id kind a given scope's membership calls accept, and the names of the
+# `operations` functions that add/remove that kind. Resolved by name (not
+# bound at import time) so tests can patch the `operations` module wholesale.
 _SCOPE_ID_KIND = {"history": "generation_ids", "library": "upload_ids", "prompts": "prompt_ids"}
 _ID_KIND_SCOPE = {kind: scope for scope, kind in _SCOPE_ID_KIND.items()}
-_ID_KIND_METHODS = {
+_ID_KIND_OPERATIONS = {
     "generation_ids": ("add_members", "remove_members"),
     "upload_ids": ("add_upload_members", "remove_upload_members"),
     "prompt_ids": ("add_prompt_members", "remove_prompt_members"),
@@ -163,8 +166,8 @@ class ManageCollectionsTool(BaseTool):
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
         """Preview of the proposed action; performs no mutation. `list` has no
         mutation to preview, so it returns the real listing directly."""
-        manager = context.collection_manager
-        if manager is None:
+        repository = context.collection_repository
+        if repository is None:
             return ToolResult(success=False, data="", error="Collections not available")
 
         operation = kwargs.get("operation")
@@ -177,7 +180,7 @@ class ManageCollectionsTool(BaseTool):
 
         try:
             if operation == "list":
-                return self._list(manager, context.user_id, scope)
+                return self._list(repository, context.user_id, scope)
 
             if operation == "create":
                 name = (kwargs.get("name") or "").strip()
@@ -201,7 +204,7 @@ class ManageCollectionsTool(BaseTool):
                     return self._missing("collection_id")
                 if not name:
                     return self._missing("name")
-                existing = manager.get_collection(collection_id, context.user_id, scope)
+                existing = operations.get_collection(repository, collection_id, context.user_id, scope)
                 preview = ToolApprovalPreview(
                     action="Rename collection", items=[f"{existing.name} -> {name}"],
                 )
@@ -215,7 +218,7 @@ class ManageCollectionsTool(BaseTool):
                 collection_id = kwargs.get("collection_id")
                 if not collection_id:
                     return self._missing("collection_id")
-                existing = manager.get_collection(collection_id, context.user_id, scope)
+                existing = operations.get_collection(repository, collection_id, context.user_id, scope)
                 preview = ToolApprovalPreview(
                     action="Delete collection", items=[existing.name],
                     note=f"{existing.item_count or 0} membership(s) will also be removed",
@@ -234,7 +237,7 @@ class ManageCollectionsTool(BaseTool):
             if isinstance(resolved, ToolResult):
                 return resolved
             kind, ids = resolved
-            existing = manager.get_collection(collection_id, context.user_id, scope)
+            existing = operations.get_collection(repository, collection_id, context.user_id, scope)
             verb = "Add" if operation == "add_items" else "Remove"
             label = _ID_KIND_LABEL[kind]
             items = [f"{label}:{i}" for i in ids]
@@ -258,16 +261,16 @@ class ManageCollectionsTool(BaseTool):
             return ToolResult(success=False, data="", error=unexpected("manage_collections", f"preview {operation}", e))
 
     @staticmethod
-    def _list(manager, user_id: str, scope: str) -> ToolResult:
-        collections = manager.list_collections(user_id, scope)
+    def _list(repository, user_id: str, scope: str) -> ToolResult:
+        collections = repository.list(user_id, scope)
         return ToolResult(success=True, data=json.dumps({
             "collections": [c.to_dict() for c in collections],
             "total": len(collections),
         }))
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
-        manager = context.collection_manager
-        if manager is None:
+        repository = context.collection_repository
+        if repository is None:
             return ToolResult(success=False, data="", error="Collections not available")
 
         operation = kwargs.get("operation")
@@ -280,13 +283,13 @@ class ManageCollectionsTool(BaseTool):
 
         try:
             if operation == "list":
-                return self._list(manager, context.user_id, scope)
+                return self._list(repository, context.user_id, scope)
 
             if operation == "create":
                 name = (kwargs.get("name") or "").strip()
                 if not name:
                     return self._missing("name")
-                collection = manager.create_collection(name, context.user_id, scope, kwargs.get("parent_id"))
+                collection = operations.create_collection(repository, name, context.user_id, scope, kwargs.get("parent_id"))
                 return ToolResult(success=True, data=json.dumps({
                     "action": "create_collection", "success": True, "collection": collection.to_dict(),
                 }))
@@ -298,7 +301,7 @@ class ManageCollectionsTool(BaseTool):
                     return self._missing("collection_id")
                 if not name:
                     return self._missing("name")
-                collection = manager.rename_collection(collection_id, name, context.user_id, scope)
+                collection = operations.rename_collection(repository, collection_id, name, context.user_id, scope)
                 return ToolResult(success=True, data=json.dumps({
                     "action": "rename_collection", "success": True, "collection": collection.to_dict(),
                 }))
@@ -307,7 +310,7 @@ class ManageCollectionsTool(BaseTool):
                 collection_id = kwargs.get("collection_id")
                 if not collection_id:
                     return self._missing("collection_id")
-                manager.delete_collection(collection_id, context.user_id, scope)
+                operations.delete_collection(repository, collection_id, context.user_id, scope)
                 return ToolResult(success=True, data=json.dumps({
                     "action": "delete_collection", "success": True, "collection_id": collection_id,
                 }))
@@ -319,9 +322,9 @@ class ManageCollectionsTool(BaseTool):
             if isinstance(resolved, ToolResult):
                 return resolved
             kind, ids = resolved
-            add_method, remove_method = _ID_KIND_METHODS[kind]
-            method = getattr(manager, add_method if operation == "add_items" else remove_method)
-            changed = method(collection_id, ids, context.user_id, scope)
+            add_op_name, remove_op_name = _ID_KIND_OPERATIONS[kind]
+            op = getattr(operations, add_op_name if operation == "add_items" else remove_op_name)
+            changed = op(repository, collection_id, ids, context.user_id, scope)
             return ToolResult(success=True, data=json.dumps({
                 "action": operation, "success": True, "collection_id": collection_id,
                 "scope": scope, "changed": changed,

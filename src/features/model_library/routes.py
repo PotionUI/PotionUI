@@ -2,8 +2,9 @@
 Model Collection Controller
 
 Handles model collection CRUD and membership operations with thin route
-handlers delegating to controller methods. Business logic is in
-ModelLibraryManager. Mirrors CollectionController (generation collections).
+handlers delegating to controller methods. Mutations delegate to
+`src.features.model_library.operations`. Mirrors CollectionController
+(generation collections).
 
 Registered on its own router/prefix (/api/models/collections) so it does not
 collide with the `/api/models/{model_id}` catch-all route in model_controller.
@@ -20,7 +21,8 @@ from src.features.model_library.dto import (
     BulkMoveModelCollectionsRequest,
     ModelCollectionMembersRequest,
 )
-from src.features.model_library import ModelLibraryManager
+from src.features.model_library import operations
+from src.features.model_library.repository.model_collection_repository import ModelCollectionRepository
 from src.platform.security.user import User
 
 if TYPE_CHECKING:
@@ -31,21 +33,21 @@ class ModelCollectionController(BaseController):
     """
     Controller for model collection operations.
 
-    Handles CRUD for model collections plus membership management. Uses
-    ModelLibraryManager for business logic. All operations are scoped to the
-    current user.
+    Handles CRUD for model collections plus membership management, delegating
+    mutations to `src.features.model_library.operations`. All operations are
+    scoped to the current user.
     """
 
-    def __init__(self, model_library_manager: ModelLibraryManager):
+    def __init__(self, model_collection_repository: ModelCollectionRepository):
         super().__init__()
-        self.manager = model_library_manager
+        self.repository = model_collection_repository
 
     # ========== List Methods ==========
 
     async def list_collections(self, user: User) -> APIResponse:
-        """List all model collections owned by the user with model counts."""
+        """List all model collections owned by the user with model counts. Pure DB read."""
         try:
-            collections = self.manager.list_collections(user.id)
+            collections = self.repository.list(user.id)
             return self.success_response(data={
                 "collections": [c.to_dict() for c in collections],
                 "total": len(collections)
@@ -61,7 +63,7 @@ class ModelCollectionController(BaseController):
     async def create_collection(self, request: CreateModelCollectionRequest, user: User) -> APIResponse:
         """Create a new model collection."""
         try:
-            collection = self.manager.create_collection(request.name, user.id, request.parent_id)
+            collection = operations.create_collection(self.repository, request.name, user.id, request.parent_id)
             return self.success_response(data={
                 "message": f"Collection '{collection.name}' created successfully",
                 "collection": collection.to_dict()
@@ -80,7 +82,7 @@ class ModelCollectionController(BaseController):
     ) -> APIResponse:
         """Rename a model collection."""
         try:
-            collection = self.manager.rename_collection(collection_id, request.name, user.id)
+            collection = operations.rename_collection(self.repository, collection_id, request.name, user.id)
             return self.success_response(data={
                 "message": "Collection updated successfully",
                 "collection": collection.to_dict()
@@ -99,7 +101,7 @@ class ModelCollectionController(BaseController):
     ) -> APIResponse:
         """Reparent a model collection in the folder tree (parent_id None = root)."""
         try:
-            collection = self.manager.move_collection(collection_id, request.parent_id, user.id)
+            collection = operations.move_collection(self.repository, collection_id, request.parent_id, user.id)
             return self.success_response(data={
                 "message": "Collection moved successfully",
                 "collection": collection.to_dict()
@@ -117,7 +119,7 @@ class ModelCollectionController(BaseController):
     ) -> APIResponse:
         """Reparent several model collections at once. Per-item failures don't block the rest."""
         try:
-            result = self.manager.bulk_move_collections(request.collection_ids, request.parent_id, user.id)
+            result = operations.bulk_move_collections(self.repository, request.collection_ids, request.parent_id, user.id)
             return self.success_response(data=result)
         except Exception as e:
             self.logger.error(f"Error bulk moving model collections: {e}")
@@ -126,7 +128,7 @@ class ModelCollectionController(BaseController):
     async def delete_collection(self, collection_id: str, user: User) -> APIResponse:
         """Delete a model collection (cascade removes all memberships)."""
         try:
-            self.manager.delete_collection(collection_id, user.id)
+            operations.delete_collection(self.repository, collection_id, user.id)
             return self.success_response(data={
                 "message": "Collection deleted successfully"
             })
@@ -146,7 +148,7 @@ class ModelCollectionController(BaseController):
     ) -> APIResponse:
         """Add models to a collection."""
         try:
-            added = self.manager.add_members(collection_id, request.model_ids, user.id)
+            added = operations.add_members(self.repository, collection_id, request.model_ids, user.id)
             return self.success_response(data={
                 "message": f"Added {added} model(s) to collection",
                 "added": added
@@ -165,7 +167,7 @@ class ModelCollectionController(BaseController):
     ) -> APIResponse:
         """Remove models from a collection."""
         try:
-            removed = self.manager.remove_members(collection_id, request.model_ids, user.id)
+            removed = operations.remove_members(self.repository, collection_id, request.model_ids, user.id)
             return self.success_response(data={
                 "message": f"Removed {removed} model(s) from collection",
                 "removed": removed

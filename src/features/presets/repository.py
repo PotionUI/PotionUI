@@ -118,7 +118,7 @@ class DatabasePresetRepository:
 
         Returns `[{"preset_id": <YAML preset_id>, "key": <configuration key>}, ...]`
         (one entry per referencing key, a preset could reference the same tag under
-        more than one key). Used by tag deletion (TagManager.delete_tag) to refuse
+        more than one key). Used by tag deletion (`src.features.tags.operations.delete_tag`) to refuse
         removing a tag an admin has wired into a preset's `model_tags`
         configuration - see docs/presets.md "Configuration (admin-set)". A simple
         linear scan: the `presets` table holds one row per installed preset, never

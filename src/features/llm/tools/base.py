@@ -90,8 +90,12 @@ class ToolContext:
     # value the model proposed (see `src.features.llm.tools.media_values`).
     settings_manager: Any = None
     llm_id: Optional[str] = None
-    collection_manager: Any = None
-    tag_manager: Any = None
+    collection_repository: Any = None
+    tag_repository: Any = None
+    # Needed by tools that mutate through `operations` module-level functions
+    # requiring hooks to fire (e.g. organize_gallery's tag creation) - the
+    # collaborator the old tag/collection managers held internally.
+    plugin_registry: Any = None
     generation_history_manager: Any = None
 
     def storage_dir(self) -> Optional[str]:

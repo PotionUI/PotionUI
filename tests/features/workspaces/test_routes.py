@@ -1,15 +1,19 @@
 """
 Tests for WorkspaceController.
 
-Uses the same direct-controller-method pattern as other controller tests
-(e.g., test_tag_controller.py): instantiate the controller with a mocked manager
-and call methods directly rather than going through the FastAPI router.
+The controller calls `src.features.workspaces.operations` functions directly
+(module-level, no injected manager) for mutations; pure reads (list/get) go
+straight to WorkspaceRepository. `mock_operations` patches the `operations`
+module as imported into `routes.py`, so tests assert against it exactly like
+the previous manager mock, without the controller holding a stateful
+collaborator it doesn't need.
 """
 
 import pytest
-from unittest.mock import Mock, AsyncMock
+from unittest.mock import Mock
 from datetime import datetime
 
+from src.features.workspaces import routes as routes_module
 from src.features.workspaces.routes import WorkspaceController
 from src.features.workspaces.dto import (
     SaveWorkspaceRequest,
@@ -60,9 +64,11 @@ class TestWorkspaceController:
     """Comprehensive tests for WorkspaceController."""
 
     @pytest.fixture
-    def mock_manager(self):
-        """Mock WorkspaceManager."""
-        return Mock()
+    def mock_operations(self, monkeypatch):
+        """Patch the `operations` module as seen by routes.py."""
+        mock = Mock()
+        monkeypatch.setattr(routes_module, "operations", mock)
+        return mock
 
     @pytest.fixture
     def mock_repository(self):
@@ -70,9 +76,9 @@ class TestWorkspaceController:
         return Mock()
 
     @pytest.fixture
-    def controller(self, mock_manager, mock_repository):
-        """WorkspaceController with mocked manager and repository."""
-        return WorkspaceController(workspace_manager=mock_manager, workspace_repository=mock_repository)
+    def controller(self, mock_operations, mock_repository):
+        """WorkspaceController with a mocked repository (operations patched above)."""
+        return WorkspaceController(workspace_repository=mock_repository)
 
     # ========== get_workspaces (repository-backed pure read) ==========
 
@@ -164,10 +170,10 @@ class TestWorkspaceController:
     # ========== save_workspace ==========
 
     @pytest.mark.asyncio
-    async def test_save_workspace_success(self, controller, mock_manager):
+    async def test_save_workspace_success(self, controller, mock_operations, mock_repository):
         """Returns success with workspace dict and confirmation message."""
         ws = _make_workspace_response('ws-new', name='New WS')
-        mock_manager.save_workspace.return_value = ws
+        mock_operations.save_workspace.return_value = ws
 
         request = SaveWorkspaceRequest(name='New WS', data={'tabs': []})
         result = await controller.save_workspace('user-1', request)
@@ -175,12 +181,12 @@ class TestWorkspaceController:
         assert result.success is True
         assert result.data['id'] == 'ws-new'
         assert 'New WS' in result.message
-        mock_manager.save_workspace.assert_called_once_with('user-1', request)
+        mock_operations.save_workspace.assert_called_once_with(mock_repository, 'user-1', request)
 
     @pytest.mark.asyncio
-    async def test_save_workspace_value_error(self, controller, mock_manager):
+    async def test_save_workspace_value_error(self, controller, mock_operations):
         """Returns save_workspace_failed on ValueError."""
-        mock_manager.save_workspace.side_effect = ValueError("Validation error")
+        mock_operations.save_workspace.side_effect = ValueError("Validation error")
 
         result = await controller.save_workspace(
             'user-1', SaveWorkspaceRequest(name='WS', data={})
@@ -191,9 +197,9 @@ class TestWorkspaceController:
         assert 'Validation error' in result.message
 
     @pytest.mark.asyncio
-    async def test_save_workspace_generic_error(self, controller, mock_manager):
+    async def test_save_workspace_generic_error(self, controller, mock_operations):
         """Returns save_workspace_failed on generic Exception."""
-        mock_manager.save_workspace.side_effect = Exception("DB down")
+        mock_operations.save_workspace.side_effect = Exception("DB down")
 
         result = await controller.save_workspace(
             'user-1', SaveWorkspaceRequest(name='WS', data={})
@@ -205,10 +211,10 @@ class TestWorkspaceController:
     # ========== update_workspace ==========
 
     @pytest.mark.asyncio
-    async def test_update_workspace_success(self, controller, mock_manager):
+    async def test_update_workspace_success(self, controller, mock_operations, mock_repository):
         """Returns success with updated workspace data."""
         ws = _make_workspace_response('ws-1', name='Updated WS')
-        mock_manager.update_workspace.return_value = ws
+        mock_operations.update_workspace.return_value = ws
 
         request = UpdateWorkspaceRequest(name='Updated WS')
         result = await controller.update_workspace('ws-1', 'user-1', request)
@@ -216,12 +222,12 @@ class TestWorkspaceController:
         assert result.success is True
         assert result.data['name'] == 'Updated WS'
         assert 'updated' in result.message.lower()
-        mock_manager.update_workspace.assert_called_once_with('ws-1', 'user-1', request)
+        mock_operations.update_workspace.assert_called_once_with(mock_repository, 'ws-1', 'user-1', request)
 
     @pytest.mark.asyncio
-    async def test_update_workspace_not_found(self, controller, mock_manager):
-        """Returns workspace_not_found when manager raises 'not found'."""
-        mock_manager.update_workspace.side_effect = ValueError("Workspace not found")
+    async def test_update_workspace_not_found(self, controller, mock_operations):
+        """Returns workspace_not_found when operations raises 'not found'."""
+        mock_operations.update_workspace.side_effect = ValueError("Workspace not found")
 
         result = await controller.update_workspace(
             'ws-missing', 'user-1', UpdateWorkspaceRequest()
@@ -231,9 +237,9 @@ class TestWorkspaceController:
         assert result.error == 'workspace_not_found'
 
     @pytest.mark.asyncio
-    async def test_update_workspace_access_denied(self, controller, mock_manager):
-        """Returns workspace_access_denied when manager raises 'access denied'."""
-        mock_manager.update_workspace.side_effect = ValueError("Access denied to this workspace")
+    async def test_update_workspace_access_denied(self, controller, mock_operations):
+        """Returns workspace_access_denied when operations raises 'access denied'."""
+        mock_operations.update_workspace.side_effect = ValueError("Access denied to this workspace")
 
         result = await controller.update_workspace(
             'ws-1', 'attacker', UpdateWorkspaceRequest()
@@ -243,9 +249,9 @@ class TestWorkspaceController:
         assert result.error == 'workspace_access_denied'
 
     @pytest.mark.asyncio
-    async def test_update_workspace_generic_error(self, controller, mock_manager):
+    async def test_update_workspace_generic_error(self, controller, mock_operations):
         """Returns update_workspace_failed for unexpected exceptions."""
-        mock_manager.update_workspace.side_effect = Exception("Unexpected")
+        mock_operations.update_workspace.side_effect = Exception("Unexpected")
 
         result = await controller.update_workspace(
             'ws-1', 'user-1', UpdateWorkspaceRequest()
@@ -257,20 +263,20 @@ class TestWorkspaceController:
     # ========== delete_workspace ==========
 
     @pytest.mark.asyncio
-    async def test_delete_workspace_success(self, controller, mock_manager):
+    async def test_delete_workspace_success(self, controller, mock_operations, mock_repository):
         """Returns success with deletion message."""
-        mock_manager.delete_workspace.return_value = "Workspace 'My WS' deleted successfully"
+        mock_operations.delete_workspace.return_value = "Workspace 'My WS' deleted successfully"
 
         result = await controller.delete_workspace('ws-1', 'user-1')
 
         assert result.success is True
         assert "deleted successfully" in result.message
-        mock_manager.delete_workspace.assert_called_once_with('ws-1', 'user-1')
+        mock_operations.delete_workspace.assert_called_once_with(mock_repository, 'ws-1', 'user-1')
 
     @pytest.mark.asyncio
-    async def test_delete_workspace_not_found(self, controller, mock_manager):
-        """Returns workspace_not_found when manager raises 'not found'."""
-        mock_manager.delete_workspace.side_effect = ValueError("Workspace not found")
+    async def test_delete_workspace_not_found(self, controller, mock_operations):
+        """Returns workspace_not_found when operations raises 'not found'."""
+        mock_operations.delete_workspace.side_effect = ValueError("Workspace not found")
 
         result = await controller.delete_workspace('ws-missing', 'user-1')
 
@@ -278,9 +284,9 @@ class TestWorkspaceController:
         assert result.error == 'workspace_not_found'
 
     @pytest.mark.asyncio
-    async def test_delete_workspace_access_denied(self, controller, mock_manager):
-        """Returns workspace_access_denied when manager raises 'access denied'."""
-        mock_manager.delete_workspace.side_effect = ValueError("Access denied to this workspace")
+    async def test_delete_workspace_access_denied(self, controller, mock_operations):
+        """Returns workspace_access_denied when operations raises 'access denied'."""
+        mock_operations.delete_workspace.side_effect = ValueError("Access denied to this workspace")
 
         result = await controller.delete_workspace('ws-1', 'attacker')
 
@@ -288,9 +294,9 @@ class TestWorkspaceController:
         assert result.error == 'workspace_access_denied'
 
     @pytest.mark.asyncio
-    async def test_delete_workspace_generic_error(self, controller, mock_manager):
+    async def test_delete_workspace_generic_error(self, controller, mock_operations):
         """Returns delete_workspace_failed for unexpected exceptions."""
-        mock_manager.delete_workspace.side_effect = Exception("DB failure")
+        mock_operations.delete_workspace.side_effect = Exception("DB failure")
 
         result = await controller.delete_workspace('ws-1', 'user-1')
 

@@ -103,8 +103,9 @@ class McpProtocolManager:
         prompt_enhancement_manager: Any = None,
         media_index_manager: Any = None,
         settings_manager: Any = None,
-        collection_manager: Any = None,
-        tag_manager: Any = None,
+        collection_repository: Any = None,
+        tag_repository: Any = None,
+        plugin_registry: Any = None,
         generation_history_manager: Any = None,
     ):
         self._registry = tool_registry
@@ -120,8 +121,9 @@ class McpProtocolManager:
         self._prompt_enhancement_manager = prompt_enhancement_manager
         self._media_index_manager = media_index_manager
         self._settings_manager = settings_manager
-        self._collection_manager = collection_manager
-        self._tag_manager = tag_manager
+        self._collection_repository = collection_repository
+        self._tag_repository = tag_repository
+        self._plugin_registry = plugin_registry
         self._generation_history_manager = generation_history_manager
 
     # --- tool exposure ---
@@ -164,8 +166,9 @@ class McpProtocolManager:
             prompt_enhancement_manager=self._prompt_enhancement_manager,
             media_index_manager=self._media_index_manager,
             settings_manager=self._settings_manager,
-            collection_manager=self._collection_manager,
-            tag_manager=self._tag_manager,
+            collection_repository=self._collection_repository,
+            tag_repository=self._tag_repository,
+            plugin_registry=self._plugin_registry,
             generation_history_manager=self._generation_history_manager,
             llm_id=default_config.id if default_config else None,
         )

@@ -307,27 +307,27 @@ class TestRealOrganizationToolsOverMcp:
         registry = ToolRegistry()
         register_builtin_tools(registry)
         governance_repo = ToolGovernanceRepository()
-        collection_manager = Mock()
+        collection_repository = Mock()
         manager = McpProtocolManager(
             tool_registry=registry,
             tool_governance_repository=governance_repo,
             llm_repository=_no_default_config(),
-            collection_manager=collection_manager,
+            collection_repository=collection_repository,
         )
-        return manager, collection_manager
+        return manager, collection_repository
 
     @pytest.mark.asyncio
     async def test_all_three_appear_in_tools_list(self, real_protocol):
-        manager, _collection_manager = real_protocol
+        manager, _collection_repository = real_protocol
         result = await manager.handle_method("tools/list", {}, "user-1")
         names = {t["name"] for t in result["tools"]}
         assert {"manage_collections", "organize_gallery", "start_generation"} <= names
 
     @pytest.mark.asyncio
     async def test_manage_collections_list_runs_end_to_end(self, real_protocol):
-        manager, collection_manager = real_protocol
+        manager, collection_repository = real_protocol
         collection = SimpleNamespace(to_dict=lambda: {"id": "col-1", "name": "Favorites"})
-        collection_manager.list_collections.return_value = [collection]
+        collection_repository.list.return_value = [collection]
 
         result = await manager.handle_method(
             "tools/call",
@@ -338,4 +338,4 @@ class TestRealOrganizationToolsOverMcp:
         assert result["isError"] is False
         payload = json.loads(result["content"][0]["text"])
         assert payload["collections"] == [{"id": "col-1", "name": "Favorites"}]
-        collection_manager.list_collections.assert_called_once_with("user-1", "history")
+        collection_repository.list.assert_called_once_with("user-1", "history")

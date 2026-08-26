@@ -825,16 +825,16 @@ class GenerationOrchestrator:
                 logger.debug(f"Applied {len(request.tag_ids)} auto-tag(s) to generation {generation_id}")
 
             # Add the new generation to any auto-collections selected by the
-            # originating tab. CollectionManager verifies that each target is
-            # owned by this user before creating the membership.
+            # originating tab. operations.add_members verifies that each
+            # target is owned by this user before creating the membership.
             collection_ids = getattr(request, 'collection_ids', None)
             if isinstance(collection_ids, (list, tuple)) and collection_ids:
-                from src.features.collections.manager import CollectionManager
+                from src.features.collections import operations as collection_operations
                 from src.features.collections.repository import CollectionRepository
-                collection_manager = CollectionManager(CollectionRepository())
+                collection_repository = CollectionRepository()
                 for collection_id in collection_ids:
                     try:
-                        collection_manager.add_members(collection_id, [generation_id], user_id, "history")
+                        collection_operations.add_members(collection_repository, collection_id, [generation_id], user_id, "history")
                     except Exception as e:
                         logger.warning(
                             f"Failed to apply auto-collection {collection_id} "

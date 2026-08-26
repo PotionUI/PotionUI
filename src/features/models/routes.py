@@ -57,7 +57,7 @@ from src.features.models.attributes.repository import AttributeDefinitionReposit
 from src.features.models.attributes.user_repository import UserModelAttributeRepository
 from src.features.models.location import ModelsLocationError
 from src.features.models.manager import ListModelsParams
-from src.features.model_library import ModelLibraryManager
+from src.features.model_library.repository.user_model_meta_repository import UserModelMetaRepository
 from src.platform.security.user import User, AccountType
 
 if TYPE_CHECKING:
@@ -76,14 +76,14 @@ class ModelController(BaseController):
     def __init__(
         self,
         model_index_manager: ModelIndexManager,
-        model_library_manager: ModelLibraryManager,
+        user_model_meta_repository: UserModelMetaRepository,
         download_manager: "DownloadManager",
         attribute_definition_repository: Optional[AttributeDefinitionRepository] = None,
         model_attributes_manager: Optional[ModelAttributeDefinitionsManager] = None,
     ):
         super().__init__()
         self.manager = model_index_manager
-        self.library_manager = model_library_manager
+        self.user_model_meta_repository = user_model_meta_repository
         self.download_manager = download_manager
         self.attribute_definitions = attribute_definition_repository or AttributeDefinitionRepository()
         self.attributes_manager = model_attributes_manager or ModelAttributeDefinitionsManager(
@@ -693,7 +693,7 @@ class ModelController(BaseController):
     ) -> APIResponse:
         """Set or clear the favorite flag for a model (scoped to the current user)."""
         try:
-            meta = self.library_manager.set_favorite(user.id, model_id, request.is_favorite)
+            meta = self.user_model_meta_repository.set_favorite(user.id, model_id, request.is_favorite)
             return self.success_response(data={
                 "message": "Model favorite updated successfully",
                 "meta": meta.to_dict()
@@ -715,7 +715,9 @@ class ModelController(BaseController):
     ) -> APIResponse:
         """Set or clear a per-user custom display name for a model."""
         try:
-            meta = self.library_manager.set_custom_name(user.id, model_id, request.name)
+            # Empty/whitespace name normalizes to a cleared custom name.
+            name = request.name.strip() or None if request.name is not None else None
+            meta = self.user_model_meta_repository.set_custom_name(user.id, model_id, name)
             return self.success_response(data={
                 "message": "Model library name updated successfully",
                 "meta": meta.to_dict()

@@ -116,10 +116,7 @@ if TYPE_CHECKING:
     from src.features.tags.repository import TagRepository
     from src.features.model_library.repository.model_collection_repository import ModelCollectionRepository
     from src.features.model_library.repository.user_model_meta_repository import UserModelMetaRepository
-    from src.features.model_library import ModelLibraryManager
-    from src.features.tags import TagManager
     from src.features.collections.repository import CollectionRepository
-    from src.features.collections import CollectionManager
     from src.features.automation.engine import AutomationEngine
     from src.features.automation.manager import AutomationManager
     from src.platform.plugins.automation_templates import AutomationTemplateRegistry
@@ -139,9 +136,7 @@ if TYPE_CHECKING:
     from src.features.stats.generation_stats_manager import GenerationStatsManager
     from src.features.sessions.repository import SessionRepository
     from src.features.sessions.version_repository import SessionVersionRepository
-    from src.features.sessions import SessionManager
     from src.features.workspaces.repository import WorkspaceRepository
-    from src.features.workspaces import WorkspaceManager
     from src.features.user_groups.repository import UserGroupRepository
     from src.features.system_monitor.routes import SystemMonitorController
     from src.features.plugins.routes import PluginController
@@ -311,16 +306,13 @@ class AppContainer:
     model_controller: "ModelController"
     model_collection_repository: "ModelCollectionRepository"
     user_model_meta_repository: "UserModelMetaRepository"
-    model_library_manager: "ModelLibraryManager"
     model_collection_controller: "ModelCollectionController"
 
     # Tags
-    tag_manager: "TagManager"
     tag_controller: "TagController"
 
     # Collections
     collection_repository: "CollectionRepository"
-    collection_manager: "CollectionManager"
     collection_controller: "CollectionController"
 
     # Automation
@@ -380,12 +372,10 @@ class AppContainer:
     # Session history (versions) -- separate repository over session_versions
     # (migration 092); see src/features/sessions/manager.py.
     session_version_repository: "SessionVersionRepository"
-    session_manager: "SessionManager"
     session_controller: "SessionController"
 
     # Workspaces
     workspace_repository: "WorkspaceRepository"
-    workspace_manager: "WorkspaceManager"
     workspace_controller: "WorkspaceController"
 
     # User groups
@@ -1033,45 +1023,36 @@ def build_container() -> AppContainer:
     # Model library components (favorites/custom names + model collections)
     from src.features.model_library.repository.model_collection_repository import ModelCollectionRepository
     from src.features.model_library.repository.user_model_meta_repository import UserModelMetaRepository
-    from src.features.model_library import ModelLibraryManager
     from src.features.model_library.routes import ModelCollectionController
 
     model_collection_repository = ModelCollectionRepository()
     user_model_meta_repository = UserModelMetaRepository()
-    model_library_manager = ModelLibraryManager(
-        model_collection_repository=model_collection_repository,
-        user_model_meta_repository=user_model_meta_repository
-    )
-    model_collection_controller = ModelCollectionController(model_library_manager)
+    model_collection_controller = ModelCollectionController(model_collection_repository)
 
     model_controller = ModelController(
-        model_index_manager, model_library_manager, download_manager,
+        model_index_manager, user_model_meta_repository, download_manager,
         attribute_definition_repository=attribute_definition_repository,
         model_attributes_manager=model_attributes_manager,
     )
 
     # Tag components
-    from src.features.tags import TagManager
     from src.features.tags.routes import TagController
     from src.features.presets.repository import DatabasePresetRepository
     from src.features.presets.file_repository import FilePresetRepository
 
-    tag_manager = TagManager(
+    tag_controller = TagController(
         tag_repository=tag_repository,
         plugin_registry=plugin_registry,
         database_preset_repository=DatabasePresetRepository(),
-        file_preset_repository=FilePresetRepository(preset_template_loader)
+        file_preset_repository=FilePresetRepository(preset_template_loader),
     )
-    tag_controller = TagController(tag_manager)
 
     # Collection components
     from src.features.collections.repository import CollectionRepository
-    from src.features.collections import CollectionManager
     from src.features.collections.routes import CollectionController
 
     collection_repository = CollectionRepository()
-    collection_manager = CollectionManager(collection_repository=collection_repository)
-    collection_controller = CollectionController(collection_manager)
+    collection_controller = CollectionController(collection_repository)
 
     # Automation module components. The connection manager is the module-level
     # singleton from the platform websocket layer (src/platform/websocket),
@@ -1293,8 +1274,8 @@ def build_container() -> AppContainer:
     chat_manager.llm_memory_manager = llm_memory_manager
     chat_manager.media_index_manager = media_index_manager
     chat_manager.tool_governance_repository = tool_governance_repository
-    chat_manager.collection_manager = collection_manager
-    chat_manager.tag_manager = tag_manager
+    chat_manager.collection_repository = collection_repository
+    chat_manager.tag_repository = tag_repository
     chat_manager.generation_history_manager = generation_history_manager
     # Generation repositories for the @generations resource provider
     from src.features.generation.model_repository import GenerationModelRepository
@@ -1349,8 +1330,9 @@ def build_container() -> AppContainer:
         prompt_enhancement_manager=prompt_enhancement_manager,
         media_index_manager=media_index_manager,
         settings_manager=settings_manager,
-        collection_manager=collection_manager,
-        tag_manager=tag_manager,
+        collection_repository=collection_repository,
+        tag_repository=tag_repository,
+        plugin_registry=plugin_registry,
         generation_history_manager=generation_history_manager,
     )
 
@@ -1377,7 +1359,6 @@ def build_container() -> AppContainer:
 
     # Session components
     from src.features.sessions.repository import SessionRepository
-    from src.features.sessions import SessionManager
     from src.features.sessions.routes import SessionController
 
     session_repository = SessionRepository()
@@ -1389,29 +1370,19 @@ def build_container() -> AppContainer:
     from src.features.sessions.version_repository import SessionVersionRepository
 
     session_version_repository = SessionVersionRepository()
-    session_manager = SessionManager(
+    session_controller = SessionController(
         session_repository=session_repository,
         plugin_registry=plugin_registry,
         session_version_repository=session_version_repository,
         file_preset_repository=file_preset_repository,
     )
-    session_controller = SessionController(
-        session_manager,
-        session_repository=session_repository,
-        session_version_repository=session_version_repository,
-    )
 
     # Workspace components
     from src.features.workspaces.repository import WorkspaceRepository
-    from src.features.workspaces import WorkspaceManager
     from src.features.workspaces.routes import WorkspaceController
 
     workspace_repository = WorkspaceRepository()
-    workspace_manager = WorkspaceManager(
-        workspace_repository=workspace_repository,
-        plugin_registry=plugin_registry
-    )
-    workspace_controller = WorkspaceController(workspace_manager, workspace_repository=workspace_repository)
+    workspace_controller = WorkspaceController(workspace_repository=workspace_repository)
 
     # User group components
     from src.features.user_groups.repository import UserGroupRepository

@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
 from src.features.llm.tools.errors import teach, unexpected
+from src.features.tags import operations as tag_operations
 from src.features.tags.dto import CreateTagRequest, TagType
 
 logger = logging.getLogger(__name__)
@@ -22,18 +23,18 @@ _LIST_ERROR_MAX_LEN = 500
 
 _TAGS_UNAVAILABLE = teach(
     "Tag management is not configured for this session",
-    "'tag'/'untag' need the backend's tag manager wired in, which is not something you can fix",
+    "'tag'/'untag' need the backend's tag repository wired in, which is not something you can fix",
     "tell the user tagging isn't available right now instead of retrying",
 )
 
 
-def _resolve_or_create_tag_id(tag_manager: Any, user_id: str, name: str) -> str:
+def _resolve_or_create_tag_id(tag_repository: Any, plugin_registry: Any, user_id: str, name: str) -> str:
     """The id of the user's GENERATION tag named `name`, creating it if it
     doesn't exist yet (mirrors how the Generate UI's tag picker behaves)."""
-    existing = tag_manager.repository.get_tag_by_name(name, type=TagType.GENERATION.value, user_id=user_id)
+    existing = tag_repository.get_tag_by_name(name, type=TagType.GENERATION.value, user_id=user_id)
     if existing:
         return existing.id
-    created = tag_manager.create_tag(CreateTagRequest(name=name, type=TagType.GENERATION), user_id)
+    created = tag_operations.create_tag(tag_repository, plugin_registry, CreateTagRequest(name=name, type=TagType.GENERATION), user_id)
     return created.id
 
 
@@ -240,10 +241,13 @@ class OrganizeGalleryTool(BaseTool):
                 tags: List[str] = kwargs.get("tags") or []
                 if not tags:
                     return self._missing("tags")
-                if context.tag_manager is None:
+                if context.tag_repository is None:
                     return ToolResult(success=False, data="", error=_TAGS_UNAVAILABLE)
                 current = {t["id"] for t in history_manager.get_tags(generation_id, context.user_id)}
-                new_ids = {_resolve_or_create_tag_id(context.tag_manager, context.user_id, name) for name in tags}
+                new_ids = {
+                    _resolve_or_create_tag_id(context.tag_repository, context.plugin_registry, context.user_id, name)
+                    for name in tags
+                }
                 updated = history_manager.update_tags(generation_id, list(current | new_ids), context.user_id)
                 return ToolResult(success=True, data=json.dumps({
                     "action": "tag", "success": True, "generation_id": generation_id,
@@ -254,11 +258,11 @@ class OrganizeGalleryTool(BaseTool):
                 tags: List[str] = kwargs.get("tags") or []
                 if not tags:
                     return self._missing("tags")
-                if context.tag_manager is None:
+                if context.tag_repository is None:
                     return ToolResult(success=False, data="", error=_TAGS_UNAVAILABLE)
                 removed, skipped = [], []
                 for name in tags:
-                    existing = context.tag_manager.repository.get_tag_by_name(
+                    existing = context.tag_repository.get_tag_by_name(
                         name, type=TagType.GENERATION.value, user_id=context.user_id,
                     )
                     if existing and history_manager.remove_tag(generation_id, existing.id, context.user_id):

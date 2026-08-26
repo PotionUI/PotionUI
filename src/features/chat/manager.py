@@ -66,8 +66,8 @@ class ChatManager:
         media_index_manager: Optional[Any] = None,
         resource_registry: Optional[Any] = None,
         settings_manager: Optional[Any] = None,
-        collection_manager: Optional[Any] = None,
-        tag_manager: Optional[Any] = None,
+        collection_repository: Optional[Any] = None,
+        tag_repository: Optional[Any] = None,
         generation_history_manager: Optional[Any] = None,
     ):
         """Initialize ChatManager.
@@ -93,8 +93,8 @@ class ChatManager:
             resource_registry: Optional registry resolving @resource mentions
             settings_manager: Optional settings manager, read for the admin
                 session-debug viewer's ``chat_llm_call_tracing`` flag
-            collection_manager: Optional collection manager for tool context
-            tag_manager: Optional tag manager for tool context
+            collection_repository: Optional collection repository for tool context
+            tag_repository: Optional tag repository for tool context
             generation_history_manager: Optional generation history manager
                 for tool context
         """
@@ -116,8 +116,8 @@ class ChatManager:
         self.media_index_manager = media_index_manager
         self.resource_registry = resource_registry
         self.settings_manager = settings_manager
-        self.collection_manager = collection_manager
-        self.tag_manager = tag_manager
+        self.collection_repository = collection_repository
+        self.tag_repository = tag_repository
         self.generation_history_manager = generation_history_manager
         # Generation repositories for the @generations resource provider;
         # late-assigned in the composition root like model_index_manager/preset_manager.

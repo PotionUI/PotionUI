@@ -1,11 +1,12 @@
 """Tests for OrganizeGalleryTool."""
 
 import json
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, Mock
 
 import pytest
 
 from src.features.llm.tools.base import ToolContext
+from src.features.llm.tools.builtin import organize_gallery_tool as tool_module
 from src.features.llm.tools.builtin.organize_gallery_tool import OrganizeGalleryTool
 
 
@@ -16,14 +17,23 @@ def make_history_manager(current_tags=None, history=None):
     return manager
 
 
-def make_tag_manager():
-    manager = MagicMock()
-    manager.repository = MagicMock()
-    return manager
+def make_tag_repository():
+    return MagicMock()
 
 
-def make_context(history_manager=None, tag_manager=None, user_id="user-1"):
-    return ToolContext(user_id=user_id, generation_history_manager=history_manager, tag_manager=tag_manager)
+def make_context(history_manager=None, tag_repository=None, user_id="user-1"):
+    return ToolContext(
+        user_id=user_id, generation_history_manager=history_manager,
+        tag_repository=tag_repository, plugin_registry=Mock(),
+    )
+
+
+@pytest.fixture
+def mock_tag_operations(monkeypatch):
+    """Patch the `tag_operations` module as seen by organize_gallery_tool.py."""
+    mock = Mock()
+    monkeypatch.setattr(tool_module, "tag_operations", mock)
+    return mock
 
 
 class TestSchema:
@@ -141,55 +151,55 @@ class TestExecutePreviewDoesNotMutate:
 
 class TestExecuteConfirmedTag:
     @pytest.mark.asyncio
-    async def test_tag_merges_with_existing_tags_not_replaces(self):
+    async def test_tag_merges_with_existing_tags_not_replaces(self, mock_tag_operations):
         """update_tags REPLACES the full set - tagging must merge with what's
         already there, not clobber existing tags the model doesn't know about."""
         history_manager = make_history_manager(current_tags=[{"id": "tag-existing", "name": "old"}])
         history_manager.update_tags.return_value = [
             {"id": "tag-existing", "name": "old"}, {"id": "tag-new", "name": "favorite"},
         ]
-        tag_manager = make_tag_manager()
-        tag_manager.repository.get_tag_by_name.return_value = None
+        tag_repository = make_tag_repository()
+        tag_repository.get_tag_by_name.return_value = None
         created = MagicMock()
         created.id = "tag-new"
-        tag_manager.create_tag.return_value = created
+        mock_tag_operations.create_tag.return_value = created
 
         result = await OrganizeGalleryTool().execute_confirmed(
-            make_context(history_manager, tag_manager), operation="tag", generation_id="gen-1", tags=["favorite"],
+            make_context(history_manager, tag_repository), operation="tag", generation_id="gen-1", tags=["favorite"],
         )
         assert result.success is True
         call_ids = set(history_manager.update_tags.call_args[0][1])
         assert call_ids == {"tag-existing", "tag-new"}
 
     @pytest.mark.asyncio
-    async def test_tag_reuses_existing_named_tag_instead_of_creating(self):
+    async def test_tag_reuses_existing_named_tag_instead_of_creating(self, mock_tag_operations):
         history_manager = make_history_manager(current_tags=[])
         history_manager.update_tags.return_value = [{"id": "tag-1", "name": "favorite"}]
-        tag_manager = make_tag_manager()
+        tag_repository = make_tag_repository()
         existing_tag = MagicMock()
         existing_tag.id = "tag-1"
-        tag_manager.repository.get_tag_by_name.return_value = existing_tag
+        tag_repository.get_tag_by_name.return_value = existing_tag
 
         await OrganizeGalleryTool().execute_confirmed(
-            make_context(history_manager, tag_manager), operation="tag", generation_id="gen-1", tags=["favorite"],
+            make_context(history_manager, tag_repository), operation="tag", generation_id="gen-1", tags=["favorite"],
         )
-        tag_manager.create_tag.assert_not_called()
+        mock_tag_operations.create_tag.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_untag_removes_only_resolved_names(self):
         history_manager = make_history_manager()
         history_manager.remove_tag.return_value = True
-        tag_manager = make_tag_manager()
+        tag_repository = make_tag_repository()
         known = MagicMock()
         known.id = "tag-1"
 
         def by_name(name, type=None, user_id=None):
             return known if name == "known" else None
 
-        tag_manager.repository.get_tag_by_name.side_effect = by_name
+        tag_repository.get_tag_by_name.side_effect = by_name
 
         result = await OrganizeGalleryTool().execute_confirmed(
-            make_context(history_manager, tag_manager), operation="untag", generation_id="gen-1",
+            make_context(history_manager, tag_repository), operation="untag", generation_id="gen-1",
             tags=["known", "nonexistent"],
         )
         assert result.success is True
@@ -199,23 +209,23 @@ class TestExecuteConfirmedTag:
         history_manager.remove_tag.assert_called_once_with("gen-1", "tag-1", "user-1")
 
     @pytest.mark.asyncio
-    async def test_tag_without_tag_manager_teaches_instead_of_dead_ending(self):
+    async def test_tag_without_tag_repository_teaches_instead_of_dead_ending(self):
         history_manager = make_history_manager()
         result = await OrganizeGalleryTool().execute_confirmed(
-            make_context(history_manager, tag_manager=None), operation="tag", generation_id="gen-1", tags=["x"],
+            make_context(history_manager, tag_repository=None), operation="tag", generation_id="gen-1", tags=["x"],
         )
         assert result.success is False
-        assert "tag manager" in result.error.lower()
+        assert "tag" in result.error.lower()
         assert "not" in result.error.lower()
 
     @pytest.mark.asyncio
-    async def test_untag_without_tag_manager_teaches_instead_of_dead_ending(self):
+    async def test_untag_without_tag_repository_teaches_instead_of_dead_ending(self):
         history_manager = make_history_manager()
         result = await OrganizeGalleryTool().execute_confirmed(
-            make_context(history_manager, tag_manager=None), operation="untag", generation_id="gen-1", tags=["x"],
+            make_context(history_manager, tag_repository=None), operation="untag", generation_id="gen-1", tags=["x"],
         )
         assert result.success is False
-        assert "tag manager" in result.error.lower()
+        assert "tag" in result.error.lower()
 
 
 class TestExecuteConfirmedUnexpectedError:

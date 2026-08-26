@@ -53,19 +53,19 @@ class TestParseRef:
 
 
 class TestModelControllerLibraryEndpoints:
-    """Tests for the favorite/custom-name endpoints backed by ModelLibraryManager."""
+    """Tests for the favorite/custom-name endpoints backed by UserModelMetaRepository."""
 
     @pytest.fixture
     def mock_index_manager(self):
         return Mock()
 
     @pytest.fixture
-    def mock_library_manager(self):
+    def mock_user_model_meta_repository(self):
         return Mock()
 
     @pytest.fixture
-    def controller(self, mock_index_manager, mock_library_manager):
-        return ModelController(mock_index_manager, mock_library_manager, Mock())
+    def controller(self, mock_index_manager, mock_user_model_meta_repository):
+        return ModelController(mock_index_manager, mock_user_model_meta_repository, Mock())
 
     @pytest.fixture
     def user_a(self):
@@ -82,36 +82,36 @@ class TestModelControllerLibraryEndpoints:
     # ========== Favorite ==========
 
     @pytest.mark.asyncio
-    async def test_set_favorite_success(self, controller, mock_library_manager, user_a):
+    async def test_set_favorite_success(self, controller, mock_user_model_meta_repository, user_a):
         meta = UserModelMeta(user_id="user-a", model_id="model-1", is_favorite=True)
-        mock_library_manager.set_favorite.return_value = meta
+        mock_user_model_meta_repository.set_favorite.return_value = meta
 
         request = ModelFavoriteRequest(is_favorite=True)
         result = await controller.set_model_favorite("model-1", request, user_a)
 
         assert result.success is True
         assert result.data["meta"]["is_favorite"] is True
-        mock_library_manager.set_favorite.assert_called_once_with("user-a", "model-1", True)
+        mock_user_model_meta_repository.set_favorite.assert_called_once_with("user-a", "model-1", True)
 
     @pytest.mark.asyncio
-    async def test_set_favorite_scoped_per_user(self, controller, mock_library_manager, user_a, user_b):
+    async def test_set_favorite_scoped_per_user(self, controller, mock_user_model_meta_repository, user_a, user_b):
         """Two users favoriting the same model must each call with their own user_id."""
-        mock_library_manager.set_favorite.return_value = UserModelMeta(
+        mock_user_model_meta_repository.set_favorite.return_value = UserModelMeta(
             user_id="user-a", model_id="model-1", is_favorite=True
         )
         await controller.set_model_favorite("model-1", ModelFavoriteRequest(is_favorite=True), user_a)
 
-        mock_library_manager.set_favorite.return_value = UserModelMeta(
+        mock_user_model_meta_repository.set_favorite.return_value = UserModelMeta(
             user_id="user-b", model_id="model-1", is_favorite=False
         )
         await controller.set_model_favorite("model-1", ModelFavoriteRequest(is_favorite=False), user_b)
 
-        mock_library_manager.set_favorite.assert_any_call("user-a", "model-1", True)
-        mock_library_manager.set_favorite.assert_any_call("user-b", "model-1", False)
+        mock_user_model_meta_repository.set_favorite.assert_any_call("user-a", "model-1", True)
+        mock_user_model_meta_repository.set_favorite.assert_any_call("user-b", "model-1", False)
 
     @pytest.mark.asyncio
-    async def test_set_favorite_error(self, controller, mock_library_manager, user_a):
-        mock_library_manager.set_favorite.side_effect = ValueError("boom")
+    async def test_set_favorite_error(self, controller, mock_user_model_meta_repository, user_a):
+        mock_user_model_meta_repository.set_favorite.side_effect = ValueError("boom")
 
         result = await controller.set_model_favorite("model-1", ModelFavoriteRequest(is_favorite=True), user_a)
 
@@ -121,21 +121,21 @@ class TestModelControllerLibraryEndpoints:
     # ========== Custom name ==========
 
     @pytest.mark.asyncio
-    async def test_set_library_name_success(self, controller, mock_library_manager, user_a):
+    async def test_set_library_name_success(self, controller, mock_user_model_meta_repository, user_a):
         meta = UserModelMeta(user_id="user-a", model_id="model-1", custom_name="My Checkpoint")
-        mock_library_manager.set_custom_name.return_value = meta
+        mock_user_model_meta_repository.set_custom_name.return_value = meta
 
         request = ModelLibraryNameRequest(name="My Checkpoint")
         result = await controller.set_model_library_name("model-1", request, user_a)
 
         assert result.success is True
         assert result.data["meta"]["custom_name"] == "My Checkpoint"
-        mock_library_manager.set_custom_name.assert_called_once_with("user-a", "model-1", "My Checkpoint")
+        mock_user_model_meta_repository.set_custom_name.assert_called_once_with("user-a", "model-1", "My Checkpoint")
 
     @pytest.mark.asyncio
-    async def test_set_library_name_clear(self, controller, mock_library_manager, user_a):
+    async def test_set_library_name_clear(self, controller, mock_user_model_meta_repository, user_a):
         meta = UserModelMeta(user_id="user-a", model_id="model-1", custom_name=None)
-        mock_library_manager.set_custom_name.return_value = meta
+        mock_user_model_meta_repository.set_custom_name.return_value = meta
 
         request = ModelLibraryNameRequest(name=None)
         result = await controller.set_model_library_name("model-1", request, user_a)
@@ -144,8 +144,8 @@ class TestModelControllerLibraryEndpoints:
         assert result.data["meta"]["custom_name"] is None
 
     @pytest.mark.asyncio
-    async def test_set_library_name_error(self, controller, mock_library_manager, user_a):
-        mock_library_manager.set_custom_name.side_effect = ValueError("boom")
+    async def test_set_library_name_error(self, controller, mock_user_model_meta_repository, user_a):
+        mock_user_model_meta_repository.set_custom_name.side_effect = ValueError("boom")
 
         result = await controller.set_model_library_name("model-1", ModelLibraryNameRequest(name="x"), user_a)
 
@@ -161,12 +161,12 @@ class TestModelControllerAssignmentEndpoints:
         return Mock()
 
     @pytest.fixture
-    def mock_library_manager(self):
+    def mock_user_model_meta_repository(self):
         return Mock()
 
     @pytest.fixture
-    def controller(self, mock_index_manager, mock_library_manager):
-        return ModelController(mock_index_manager, mock_library_manager, Mock())
+    def controller(self, mock_index_manager, mock_user_model_meta_repository):
+        return ModelController(mock_index_manager, mock_user_model_meta_repository, Mock())
 
     @pytest.mark.asyncio
     async def test_get_model_assignments_success(self, controller, mock_index_manager):

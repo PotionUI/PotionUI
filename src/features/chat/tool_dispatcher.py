@@ -116,8 +116,9 @@ class ToolCallDispatcher:
                 prompt_enhancement_manager=self._m.prompt_enhancement_manager,
                 media_index_manager=self._m.media_index_manager,
                 settings_manager=self._m.settings_manager,
-                collection_manager=self._m.collection_manager,
-                tag_manager=self._m.tag_manager,
+                collection_repository=self._m.collection_repository,
+                tag_repository=self._m.tag_repository,
+                plugin_registry=self._m.plugins,
                 generation_history_manager=self._m.generation_history_manager,
                 llm_id=session.llm_config_id,
             )

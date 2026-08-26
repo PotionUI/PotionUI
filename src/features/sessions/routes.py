@@ -2,7 +2,7 @@
 Session Controller
 
 Handles CRUD operations for user sessions (saved preset configurations).
-Delegates business logic to SessionManager.
+Delegates mutations to `src.features.sessions.operations`.
 """
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from fastapi import APIRouter, Depends
@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user
 from src.features.sessions.dto import SaveSessionRequest, UpdateSessionRequest
-from src.features.sessions import SessionManager
+from src.features.sessions import operations
 from src.features.sessions.mappers import (
     session_to_response_dict,
     session_version_summary_to_dict,
@@ -18,6 +18,7 @@ from src.features.sessions.mappers import (
 )
 from src.features.sessions.repository import SessionRepository
 from src.features.sessions.version_repository import SessionVersionRepository
+from src.platform.plugins import PluginRegistry
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
@@ -28,16 +29,18 @@ class SessionController(BaseController):
 
     def __init__(
         self,
-        session_manager: SessionManager,
         session_repository: SessionRepository,
+        plugin_registry: PluginRegistry,
         session_version_repository: Optional[SessionVersionRepository] = None,
+        file_preset_repository: Optional[Any] = None,
     ):
         super().__init__()
-        self.manager = session_manager
         self.repository = session_repository
-        # Optional, matching SessionManager - version history is a no-op
-        # (empty list / "not found") when this isn't wired.
+        self.plugins = plugin_registry
+        # Optional - version history is a no-op (empty list / "not found")
+        # when these aren't wired.
         self.version_repository = session_version_repository
+        self.file_preset_repository = file_preset_repository
 
     async def get_sessions_for_preset(self, user_id: str, preset_id: str) -> APIResponse:
         """Get all sessions for a user and preset."""
@@ -102,7 +105,9 @@ class SessionController(BaseController):
     async def save_session(self, user_id: str, request: SaveSessionRequest) -> APIResponse:
         """Save a new session or update existing one with same name."""
         try:
-            session_data, message = self.manager.save_session(user_id, request)
+            session_data, message = operations.save_session(
+                self.repository, self.plugins, self.version_repository, self.file_preset_repository, user_id, request
+            )
             return self.success_response(data=session_data, message=message)
         except ValueError as e:
             return self.error_api_response(error="save_session_failed", message=str(e))
@@ -120,7 +125,10 @@ class SessionController(BaseController):
     ) -> APIResponse:
         """Update an existing session."""
         try:
-            session_data = self.manager.update_session(user_id, session_id, request)
+            session_data = operations.update_session(
+                self.repository, self.plugins, self.version_repository, self.file_preset_repository,
+                user_id, session_id, request
+            )
             return self.success_response(data=session_data, message="Session updated successfully")
         except ValueError as e:
             error_msg = str(e)
@@ -196,7 +204,7 @@ class SessionController(BaseController):
     async def delete_session(self, user_id: str, session_id: str) -> APIResponse:
         """Delete a session."""
         try:
-            message = self.manager.delete_session(user_id, session_id)
+            message = operations.delete_session(self.repository, self.plugins, user_id, session_id)
             return self.success_response(message=message)
         except ValueError as e:
             error_msg = str(e)

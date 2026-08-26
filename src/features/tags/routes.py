@@ -2,15 +2,20 @@
 Tag Controller
 
 Handles tag CRUD operations with thin route handlers delegating to controller methods.
-Business logic is in TagManager.
+Mutations delegate to `src.features.tags.operations`.
 """
 from typing import TYPE_CHECKING
 from fastapi import APIRouter, Query, Depends, HTTPException
 
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user
-from src.features.tags.dto import CreateTagRequest, UpdateTagRequest, TagType
-from src.features.tags import TagManager, TagInUseByPresetError
+from src.features.presets.file_repository import FilePresetRepository
+from src.features.presets.repository import DatabasePresetRepository
+from src.features.tags import operations
+from src.features.tags.dto import CreateTagRequest, UpdateTagRequest, TagType, USER_SCOPED_TAG_TYPES, effective_user_id_for_type
+from src.features.tags.errors import TagInUseByPresetError
+from src.features.tags.repository import TagRepository
+from src.platform.plugins import PluginRegistry
 from src.platform.security.user import User, AccountType
 
 if TYPE_CHECKING:
@@ -21,20 +26,30 @@ class TagController(BaseController):
     """
     Controller for tag operations.
 
-    Handles CRUD operations for tags (MODEL and GENERATION types).
-    Uses TagManager for business logic.
+    Handles CRUD operations for tags (MODEL and GENERATION types), delegating
+    mutations to `src.features.tags.operations`.
     """
 
-    def __init__(self, tag_manager: TagManager):
+    def __init__(
+        self,
+        tag_repository: TagRepository,
+        plugin_registry: PluginRegistry,
+        database_preset_repository: DatabasePresetRepository,
+        file_preset_repository: FilePresetRepository,
+    ):
         super().__init__()
-        self.manager = tag_manager
+        self.repository = tag_repository
+        self.plugins = plugin_registry
+        self.preset_repository = database_preset_repository
+        self.file_preset_repository = file_preset_repository
 
     # ========== List/Search Methods ==========
 
     async def list_tags(self, tag_type: TagType, user: User) -> APIResponse:
-        """List all tags of specified type with usage counts."""
+        """List all tags of specified type with usage counts. Pure DB read."""
         try:
-            tags = self.manager.get_tags(tag_type, user.id)
+            effective_user_id = effective_user_id_for_type(tag_type, user.id)
+            tags = self.repository.get_tags_with_counts(type=tag_type.value, user_id=effective_user_id)
             return self.success_response(data={
                 "tags": [tag.model_dump() for tag in tags],
                 "total": len(tags)
@@ -52,9 +67,10 @@ class TagController(BaseController):
         limit: int,
         user: User
     ) -> APIResponse:
-        """Search tags by name."""
+        """Search tags by name. Pure DB read."""
         try:
-            tags = self.manager.search_tags(query, tag_type, user.id, limit)
+            effective_user_id = effective_user_id_for_type(tag_type, user.id)
+            tags = self.repository.search_tags(query=query, type=tag_type.value, user_id=effective_user_id, limit=limit)
             return self.success_response(data={
                 "tags": [tag.model_dump() for tag in tags]
             })
@@ -64,13 +80,24 @@ class TagController(BaseController):
             self.logger.error(f"Error searching tags: {e}")
             return self.error_api_response(error="search_tags_failed", message=str(e))
 
+    def _get_owned_tag(self, tag_id: str, user_id: str):
+        """Look up a tag by id and enforce ownership for user-scoped types.
+        Pure DB read (mirrors the ownership check `operations.update_tag`/
+        `delete_tag` also make before mutating)."""
+        tag = self.repository.get_tag_by_id(tag_id)
+        if not tag:
+            raise ValueError("Tag not found")
+        if tag.type in USER_SCOPED_TAG_TYPES and tag.user_id != user_id:
+            raise ValueError("Tag not found or access denied")
+        return tag
+
     # ========== CRUD Methods ==========
 
     async def create_tag(self, request: CreateTagRequest, user: User) -> APIResponse:
         """Create a new tag."""
         try:
-            tag = self.manager.create_tag(
-                request, user.id, is_admin=user.account_type == AccountType.ADMIN
+            tag = operations.create_tag(
+                self.repository, self.plugins, request, user.id, is_admin=user.account_type == AccountType.ADMIN
             )
             return self.success_response(data={
                 "message": f"Tag '{tag.name}' created successfully",
@@ -90,8 +117,8 @@ class TagController(BaseController):
     ) -> APIResponse:
         """Update a tag's name."""
         try:
-            tag = self.manager.update_tag(
-                tag_id, request, user.id, is_admin=user.account_type == AccountType.ADMIN
+            tag = operations.update_tag(
+                self.repository, self.plugins, tag_id, request, user.id, is_admin=user.account_type == AccountType.ADMIN
             )
             return self.success_response(data={
                 "message": "Tag updated successfully",
@@ -107,10 +134,11 @@ class TagController(BaseController):
         """Delete a tag (cascade removes all associations)."""
         try:
             # Get tag name before deletion for the message
-            tag = self.manager.get_tag_by_id(tag_id, user.id)
+            tag = self._get_owned_tag(tag_id, user.id)
             tag_name = tag.name
 
-            self.manager.delete_tag(
+            operations.delete_tag(
+                self.repository, self.plugins, self.preset_repository, self.file_preset_repository,
                 tag_id, user.id, is_admin=user.account_type == AccountType.ADMIN
             )
             return self.success_response(data={

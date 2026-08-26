@@ -7,18 +7,12 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from src.features.tags.manager import TagManager
+from src.features.tags import operations
 from src.features.tags.dto import Tag, TagType, CreateTagRequest, UpdateTagRequest
 
 
-def _manager():
-    mgr = TagManager(
-        tag_repository=Mock(),
-        plugin_registry=Mock(),
-        database_preset_repository=Mock(),
-        file_preset_repository=Mock(),
-    )
-    return mgr
+def _collaborators():
+    return Mock(), Mock()  # tag_repository, plugin_registry
 
 
 def _tag(tag_type, user_id=None):
@@ -28,41 +22,41 @@ def _tag(tag_type, user_id=None):
 # ---- create -------------------------------------------------------------
 
 def test_create_model_tag_denied_for_non_admin():
-    mgr = _manager()
+    tag_repository, plugin_registry = _collaborators()
     with pytest.raises(ValueError, match="access denied"):
-        mgr.create_tag(CreateTagRequest(name="anime", type=TagType.MODEL), "u1", is_admin=False)
-    mgr.repository.create_tag.assert_not_called()
+        operations.create_tag(tag_repository, plugin_registry, CreateTagRequest(name="anime", type=TagType.MODEL), "u1", is_admin=False)
+    tag_repository.create_tag.assert_not_called()
 
 
-@patch("src.features.tags.manager.execute_hook", return_value=({}, False))
+@patch("src.features.tags.operations.crud.execute_hook", return_value=({}, False))
 def test_create_model_tag_allowed_for_admin(mock_execute_hook):
-    mgr = _manager()
-    mgr.repository.create_tag.return_value = _tag(TagType.MODEL)
-    mgr.create_tag(CreateTagRequest(name="anime", type=TagType.MODEL), "u1", is_admin=True)
-    mgr.repository.create_tag.assert_called_once()
+    tag_repository, plugin_registry = _collaborators()
+    tag_repository.create_tag.return_value = _tag(TagType.MODEL)
+    operations.create_tag(tag_repository, plugin_registry, CreateTagRequest(name="anime", type=TagType.MODEL), "u1", is_admin=True)
+    tag_repository.create_tag.assert_called_once()
 
 
-@patch("src.features.tags.manager.execute_hook", return_value=({}, False))
+@patch("src.features.tags.operations.crud.execute_hook", return_value=({}, False))
 def test_create_generation_tag_allowed_for_non_admin(mock_execute_hook):
-    mgr = _manager()
-    mgr.repository.create_tag.return_value = _tag(TagType.GENERATION, user_id="u1")
-    mgr.create_tag(CreateTagRequest(name="fav", type=TagType.GENERATION), "u1", is_admin=False)
-    mgr.repository.create_tag.assert_called_once()
+    tag_repository, plugin_registry = _collaborators()
+    tag_repository.create_tag.return_value = _tag(TagType.GENERATION, user_id="u1")
+    operations.create_tag(tag_repository, plugin_registry, CreateTagRequest(name="fav", type=TagType.GENERATION), "u1", is_admin=False)
+    tag_repository.create_tag.assert_called_once()
 
 
 # ---- update -------------------------------------------------------------
 
 def test_update_model_tag_denied_for_non_admin():
-    mgr = _manager()
-    mgr.repository.get_tag_by_id.return_value = _tag(TagType.MODEL)
+    tag_repository, plugin_registry = _collaborators()
+    tag_repository.get_tag_by_id.return_value = _tag(TagType.MODEL)
     with pytest.raises(ValueError, match="access denied"):
-        mgr.update_tag("t1", UpdateTagRequest(name="new"), "u1", is_admin=False)
+        operations.update_tag(tag_repository, plugin_registry, "t1", UpdateTagRequest(name="new"), "u1", is_admin=False)
 
 
 # ---- delete -------------------------------------------------------------
 
 def test_delete_model_tag_denied_for_non_admin():
-    mgr = _manager()
-    mgr.repository.get_tag_by_id.return_value = _tag(TagType.MODEL)
+    tag_repository, plugin_registry = _collaborators()
+    tag_repository.get_tag_by_id.return_value = _tag(TagType.MODEL)
     with pytest.raises(ValueError, match="access denied"):
-        mgr.delete_tag("t1", "u1", is_admin=False)
+        operations.delete_tag(tag_repository, plugin_registry, Mock(), Mock(), "t1", "u1", is_admin=False)

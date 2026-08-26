@@ -19,7 +19,7 @@ import pytest
 import src.features.sessions.repository as session_repository_module
 import src.features.sessions.version_repository as version_repository_module
 from src.features.sessions.dto import Session as SessionDTO, SaveSessionRequest, UpdateSessionRequest
-from src.features.sessions.manager import SessionManager
+from src.features.sessions import operations
 from src.features.sessions.routes import SessionController
 from src.features.sessions.repository import SessionRepository
 from src.features.sessions.version_repository import (
@@ -188,8 +188,8 @@ class TestSessionVersionRepository:
         assert row[0] == 0
 
 
-class TestSessionManagerVersionHistory:
-    """SessionManager wiring: version-on-save, dedup, owner gating."""
+class TestSessionVersionHistoryOperations:
+    """operations.save_session/update_session wiring: version-on-save, dedup, owner gating."""
 
     @pytest.fixture
     def mock_plugin_registry(self):
@@ -208,86 +208,81 @@ class TestSessionManagerVersionHistory:
         return repo
 
     @pytest.fixture
-    def manager(self, repos, mock_plugin_registry, mock_file_preset_repository):
+    def collaborators(self, repos, mock_plugin_registry, mock_file_preset_repository):
         session_repo, version_repo = repos
-        return SessionManager(
+        return session_repo, mock_plugin_registry, version_repo, mock_file_preset_repository
+
+    @pytest.fixture
+    def controller(self, collaborators):
+        """list_session_versions/get_session_version are pure DB reads and
+        live on SessionController (repository-backed), not in operations."""
+        session_repo, mock_plugin_registry, version_repo, _ = collaborators
+        return SessionController(
             session_repository=session_repo,
             plugin_registry=mock_plugin_registry,
             session_version_repository=version_repo,
-            file_preset_repository=mock_file_preset_repository,
-        ), version_repo
-
-    @pytest.fixture
-    def controller(self, repos, manager):
-        """list_session_versions/get_session_version are pure DB reads and
-        live on SessionController (repository-backed), not on SessionManager."""
-        session_repo, version_repo = repos
-        mgr, _ = manager
-        return SessionController(
-            session_manager=mgr,
-            session_repository=session_repo,
-            session_version_repository=version_repo,
         )
 
-    def test_save_new_session_creates_version_one(self, manager):
-        mgr, version_repo = manager
+    def test_save_new_session_creates_version_one(self, collaborators):
+        session_repo, plugin_registry, version_repo, file_preset_repo = collaborators
         request = SaveSessionRequest(preset_id="preset-1", name="S", data={"prompt": "a"})
 
-        result, _ = mgr.save_session("user-1", request)
+        result, _ = operations.save_session(session_repo, plugin_registry, version_repo, file_preset_repo, "user-1", request)
 
         versions = version_repo.list_for_session(result["id"])
         assert [v.version_number for v in versions] == [1]
         assert versions[0].summary == "SDXL Portrait"
 
-    def test_save_again_with_changed_data_creates_version_two(self, manager):
-        mgr, version_repo = manager
+    def test_save_again_with_changed_data_creates_version_two(self, collaborators):
+        session_repo, plugin_registry, version_repo, file_preset_repo = collaborators
         first = SaveSessionRequest(preset_id="preset-1", name="S", data={"prompt": "a"})
-        result, _ = mgr.save_session("user-1", first)
+        result, _ = operations.save_session(session_repo, plugin_registry, version_repo, file_preset_repo, "user-1", first)
 
         second = SaveSessionRequest(preset_id="preset-1", name="S", data={"prompt": "b"})
-        mgr.save_session("user-1", second)
+        operations.save_session(session_repo, plugin_registry, version_repo, file_preset_repo, "user-1", second)
 
         versions = version_repo.list_for_session(result["id"])
         assert [v.version_number for v in versions] == [2, 1]
 
-    def test_save_again_with_identical_data_does_not_duplicate_version(self, manager):
-        mgr, version_repo = manager
+    def test_save_again_with_identical_data_does_not_duplicate_version(self, collaborators):
+        session_repo, plugin_registry, version_repo, file_preset_repo = collaborators
         request = SaveSessionRequest(preset_id="preset-1", name="S", data={"prompt": "a"})
-        result, _ = mgr.save_session("user-1", request)
+        result, _ = operations.save_session(session_repo, plugin_registry, version_repo, file_preset_repo, "user-1", request)
 
         # Re-save with byte-identical data (a no-op save, e.g. hitting Save
         # twice without changes) must not append a duplicate version.
-        mgr.save_session("user-1", request)
+        operations.save_session(session_repo, plugin_registry, version_repo, file_preset_repo, "user-1", request)
 
         versions = version_repo.list_for_session(result["id"])
         assert [v.version_number for v in versions] == [1]
 
-    def test_restoring_then_saving_becomes_newest_version(self, manager):
+    def test_restoring_then_saving_becomes_newest_version(self, collaborators):
         """Simulates the "go back, then Save" flow: the UI has no
         restore endpoint, it just re-saves the old payload — which must land
         as a new, newest version rather than being deduped against the
         version that's currently in between.
         """
-        mgr, version_repo = manager
+        session_repo, plugin_registry, version_repo, file_preset_repo = collaborators
         v1_request = SaveSessionRequest(preset_id="preset-1", name="S", data={"prompt": "v1"})
-        result, _ = mgr.save_session("user-1", v1_request)
+        result, _ = operations.save_session(session_repo, plugin_registry, version_repo, file_preset_repo, "user-1", v1_request)
 
         v2_request = SaveSessionRequest(preset_id="preset-1", name="S", data={"prompt": "v2"})
-        mgr.save_session("user-1", v2_request)
+        operations.save_session(session_repo, plugin_registry, version_repo, file_preset_repo, "user-1", v2_request)
 
         # User goes back to v1's payload and hits Save again.
-        mgr.save_session("user-1", v1_request)
+        operations.save_session(session_repo, plugin_registry, version_repo, file_preset_repo, "user-1", v1_request)
 
         versions = version_repo.list_for_session(result["id"])
         assert [v.version_number for v in versions] == [3, 2, 1]
         assert version_repo.get(result["id"], 3).data == {"prompt": "v1"}
 
-    def test_update_session_by_id_appends_version(self, manager):
-        mgr, version_repo = manager
+    def test_update_session_by_id_appends_version(self, collaborators):
+        session_repo, plugin_registry, version_repo, file_preset_repo = collaborators
         request = SaveSessionRequest(preset_id="preset-1", name="S", data={"prompt": "a"})
-        result, _ = mgr.save_session("user-1", request)
+        result, _ = operations.save_session(session_repo, plugin_registry, version_repo, file_preset_repo, "user-1", request)
 
-        mgr.update_session(
+        operations.update_session(
+            session_repo, plugin_registry, version_repo, file_preset_repo,
             "user-1",
             result["id"],
             UpdateSessionRequest(name="S", data={"prompt": "renamed-data"}),
@@ -297,10 +292,10 @@ class TestSessionManagerVersionHistory:
         assert [v.version_number for v in versions] == [2, 1]
 
     @pytest.mark.asyncio
-    async def test_list_session_versions_shape_has_no_payload(self, manager, controller):
-        mgr, _ = manager
+    async def test_list_session_versions_shape_has_no_payload(self, collaborators, controller):
+        session_repo, plugin_registry, version_repo, file_preset_repo = collaborators
         request = SaveSessionRequest(preset_id="preset-1", name="S", data={"prompt": "a"})
-        result, _ = mgr.save_session("user-1", request)
+        result, _ = operations.save_session(session_repo, plugin_registry, version_repo, file_preset_repo, "user-1", request)
 
         response = await controller.list_session_versions("user-1", result["id"])
 
@@ -308,10 +303,10 @@ class TestSessionManagerVersionHistory:
         assert set(response.data[0].keys()) == {"version_number", "created_at", "summary"}
 
     @pytest.mark.asyncio
-    async def test_get_session_version_shape_has_payload(self, manager, controller):
-        mgr, _ = manager
+    async def test_get_session_version_shape_has_payload(self, collaborators, controller):
+        session_repo, plugin_registry, version_repo, file_preset_repo = collaborators
         request = SaveSessionRequest(preset_id="preset-1", name="S", data={"prompt": "a"})
-        result, _ = mgr.save_session("user-1", request)
+        result, _ = operations.save_session(session_repo, plugin_registry, version_repo, file_preset_repo, "user-1", request)
 
         response = await controller.get_session_version("user-1", result["id"], 1)
 
@@ -319,12 +314,12 @@ class TestSessionManagerVersionHistory:
         assert set(response.data.keys()) == {"version_number", "created_at", "summary", "data"}
 
     @pytest.mark.asyncio
-    async def test_list_session_versions_owner_gating_is_404_style(self, manager, controller):
+    async def test_list_session_versions_owner_gating_is_404_style(self, collaborators, controller):
         from fastapi import HTTPException
 
-        mgr, _ = manager
+        session_repo, plugin_registry, version_repo, file_preset_repo = collaborators
         request = SaveSessionRequest(preset_id="preset-1", name="S", data={"prompt": "a"})
-        result, _ = mgr.save_session("user-1", request)
+        result, _ = operations.save_session(session_repo, plugin_registry, version_repo, file_preset_repo, "user-1", request)
 
         with pytest.raises(HTTPException) as exc_info:
             await controller.list_session_versions("user-2", result["id"])
@@ -333,12 +328,12 @@ class TestSessionManagerVersionHistory:
         assert exc_info.value.detail["error"] == "session_not_found"
 
     @pytest.mark.asyncio
-    async def test_get_session_version_owner_gating_is_404_style(self, manager, controller):
+    async def test_get_session_version_owner_gating_is_404_style(self, collaborators, controller):
         from fastapi import HTTPException
 
-        mgr, _ = manager
+        session_repo, plugin_registry, version_repo, file_preset_repo = collaborators
         request = SaveSessionRequest(preset_id="preset-1", name="S", data={"prompt": "a"})
-        result, _ = mgr.save_session("user-1", request)
+        result, _ = operations.save_session(session_repo, plugin_registry, version_repo, file_preset_repo, "user-1", request)
 
         with pytest.raises(HTTPException) as exc_info:
             await controller.get_session_version("user-2", result["id"], 1)
@@ -347,12 +342,12 @@ class TestSessionManagerVersionHistory:
         assert exc_info.value.detail["error"] == "session_not_found"
 
     @pytest.mark.asyncio
-    async def test_get_session_version_unknown_number_raises(self, manager, controller):
+    async def test_get_session_version_unknown_number_raises(self, collaborators, controller):
         from fastapi import HTTPException
 
-        mgr, _ = manager
+        session_repo, plugin_registry, version_repo, file_preset_repo = collaborators
         request = SaveSessionRequest(preset_id="preset-1", name="S", data={"prompt": "a"})
-        result, _ = mgr.save_session("user-1", request)
+        result, _ = operations.save_session(session_repo, plugin_registry, version_repo, file_preset_repo, "user-1", request)
 
         with pytest.raises(HTTPException) as exc_info:
             await controller.get_session_version("user-1", result["id"], 999)
@@ -371,10 +366,10 @@ class TestSessionManagerVersionHistory:
         assert exc_info.value.detail["error"] == "session_not_found"
 
 
-class TestSessionManagerWithoutVersionRepository:
-    """Backward compatibility: existing callers building a bare SessionManager
-    (no version_repository/file_preset_repository) must keep working exactly
-    as before — version history is simply a no-op.
+class TestSessionOperationsWithoutVersionRepository:
+    """Backward compatibility: callers passing no version_repository/
+    file_preset_repository must keep working exactly as before — version
+    history is simply a no-op.
     """
 
     @pytest.fixture
@@ -387,10 +382,9 @@ class TestSessionManagerWithoutVersionRepository:
 
     def test_save_without_version_repository_does_not_raise(self, repos, mock_plugin_registry):
         session_repo, _version_repo = repos
-        mgr = SessionManager(session_repository=session_repo, plugin_registry=mock_plugin_registry)
 
         request = SaveSessionRequest(preset_id="preset-1", name="S", data={"prompt": "a"})
-        result, message = mgr.save_session("user-1", request)
+        result, message = operations.save_session(session_repo, mock_plugin_registry, None, None, "user-1", request)
 
         assert result["name"] == "S"
         assert "saved successfully" in message
@@ -398,10 +392,9 @@ class TestSessionManagerWithoutVersionRepository:
     @pytest.mark.asyncio
     async def test_list_session_versions_without_repository_returns_empty(self, repos, mock_plugin_registry):
         session_repo, _version_repo = repos
-        mgr = SessionManager(session_repository=session_repo, plugin_registry=mock_plugin_registry)
-        controller = SessionController(session_manager=mgr, session_repository=session_repo)
+        controller = SessionController(session_repository=session_repo, plugin_registry=mock_plugin_registry)
         request = SaveSessionRequest(preset_id="preset-1", name="S", data={"prompt": "a"})
-        result, _ = mgr.save_session("user-1", request)
+        result, _ = operations.save_session(session_repo, mock_plugin_registry, None, None, "user-1", request)
 
         response = await controller.list_session_versions("user-1", result["id"])
 

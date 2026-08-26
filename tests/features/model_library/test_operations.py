@@ -9,17 +9,15 @@ if project_root not in sys.path:
 
 from tests.fixtures.persistence_base import PersistenceTestBase
 from src.features.model_library.repository.model_collection_repository import ModelCollectionRepository
-from src.features.model_library.repository.user_model_meta_repository import UserModelMetaRepository
-from src.features.model_library.manager import ModelLibraryManager
+from src.features.model_library import operations
 
 
-class TestModelLibraryManagerBulkMove(PersistenceTestBase):
+class TestBulkMoveCollections(PersistenceTestBase):
 
     def setUp(self):
         """Set up test data"""
         super().setUp()
         self.repo = ModelCollectionRepository()
-        self.manager = ModelLibraryManager(self.repo, UserModelMetaRepository())
         self.test_user_id = self.create_test_user()
 
         # PersistenceTestBase only repatches the module-level `db` reference for
@@ -35,7 +33,7 @@ class TestModelLibraryManagerBulkMove(PersistenceTestBase):
         b = self.repo.create("B", self.test_user_id)
         target = self.repo.create("Target", self.test_user_id)
 
-        result = self.manager.bulk_move_collections([a.id, b.id], target.id, self.test_user_id)
+        result = operations.bulk_move_collections(self.repo, [a.id, b.id], target.id, self.test_user_id)
 
         self.assertEqual(result["moved"], 2)
         self.assertEqual(result["failed"], 0)
@@ -48,7 +46,7 @@ class TestModelLibraryManagerBulkMove(PersistenceTestBase):
         a = self.repo.create("A", self.test_user_id, parent_id=parent.id)
         b = self.repo.create("B", self.test_user_id, parent_id=parent.id)
 
-        result = self.manager.bulk_move_collections([a.id, b.id], None, self.test_user_id)
+        result = operations.bulk_move_collections(self.repo, [a.id, b.id], None, self.test_user_id)
 
         self.assertEqual(result["moved"], 2)
         self.assertEqual(result["failed"], 0)
@@ -63,7 +61,7 @@ class TestModelLibraryManagerBulkMove(PersistenceTestBase):
         # Moving A under its own child (a cycle) alongside an unrelated valid
         # move: the cycle-forming id must fail without it, and its parent
         # must stay put. The unrelated id is unaffected.
-        result = self.manager.bulk_move_collections([a.id, other.id], child.id, self.test_user_id)
+        result = operations.bulk_move_collections(self.repo, [a.id, other.id], child.id, self.test_user_id)
 
         self.assertEqual(result["moved"], 1)
         self.assertEqual(result["failed"], 1)
@@ -78,7 +76,7 @@ class TestModelLibraryManagerBulkMove(PersistenceTestBase):
         # Target is itself one of the ids being moved: B moving into itself
         # is a cycle and is rejected; A moving into B is an unrelated,
         # perfectly ordinary move and succeeds.
-        result = self.manager.bulk_move_collections([a.id, b.id], b.id, self.test_user_id)
+        result = operations.bulk_move_collections(self.repo, [a.id, b.id], b.id, self.test_user_id)
 
         self.assertEqual(result["moved"], 1)
         self.assertEqual(result["failed"], 1)
@@ -92,7 +90,7 @@ class TestModelLibraryManagerBulkMove(PersistenceTestBase):
         theirs = self.repo.create("Theirs", "user_2")
         target = self.repo.create("Target", self.test_user_id)
 
-        result = self.manager.bulk_move_collections([mine.id, theirs.id], target.id, self.test_user_id)
+        result = operations.bulk_move_collections(self.repo, [mine.id, theirs.id], target.id, self.test_user_id)
 
         self.assertEqual(result["moved"], 1)
         self.assertEqual(result["failed"], 1)
@@ -105,8 +103,8 @@ class TestModelLibraryManagerBulkMove(PersistenceTestBase):
         b = self.repo.create("B", self.test_user_id)
         target = self.repo.create("Target", self.test_user_id)
 
-        result = self.manager.bulk_move_collections(
-            [a.id, "missing-id", b.id], target.id, self.test_user_id
+        result = operations.bulk_move_collections(
+            self.repo, [a.id, "missing-id", b.id], target.id, self.test_user_id
         )
 
         self.assertEqual(result["moved"], 2)

@@ -1,9 +1,10 @@
-"""Tests for SessionManager business logic."""
+"""Tests for src.features.sessions.operations."""
 import pytest
 from unittest.mock import Mock
 from datetime import datetime
 
-from src.features.sessions.manager import SessionManager
+from src.features.sessions import operations
+from src.features.sessions.operations.save import _merge_mode_data
 from src.features.sessions.routes import SessionController
 from src.features.sessions.dto import (
     Session,
@@ -16,7 +17,7 @@ class TestSessionControllerRead:
     """Tests for the sessions feature's read operations.
 
     get_sessions_for_preset/get_session_by_id are pure DB reads and live on
-    SessionController (repository-backed), not on SessionManager.
+    SessionController (repository-backed), not in operations.
     """
 
     @pytest.fixture
@@ -26,10 +27,10 @@ class TestSessionControllerRead:
 
     @pytest.fixture
     def controller(self, mock_session_repo):
-        """Create controller with a mocked repository (manager unused for reads)."""
+        """Create controller with a mocked repository (operations unused for reads)."""
         return SessionController(
-            session_manager=Mock(),
             session_repository=mock_session_repo,
+            plugin_registry=Mock(),
         )
 
     @pytest.fixture
@@ -100,8 +101,8 @@ class TestSessionControllerRead:
         assert response.error == "session_access_denied"
 
 
-class TestSessionManagerCreate:
-    """Tests for SessionManager create operations."""
+class TestSaveSessionCreate:
+    """Tests for operations.save_session create path."""
 
     @pytest.fixture
     def mock_session_repo(self):
@@ -118,14 +119,6 @@ class TestSessionManagerCreate:
         return registry
 
     @pytest.fixture
-    def manager(self, mock_session_repo, mock_plugin_registry):
-        """Create manager with mocked dependencies."""
-        return SessionManager(
-            session_repository=mock_session_repo,
-            plugin_registry=mock_plugin_registry
-        )
-
-    @pytest.fixture
     def sample_save_request(self):
         """Sample save session request."""
         return SaveSessionRequest(
@@ -135,7 +128,7 @@ class TestSessionManagerCreate:
             mode=None
         )
 
-    def test_save_session_creates_new(self, manager, mock_session_repo, sample_save_request):
+    def test_save_session_creates_new(self, mock_session_repo, mock_plugin_registry, sample_save_request):
         """Test saving a new session."""
         mock_session_repo.get_by_user_preset_and_name.return_value = None
         mock_session_repo.create.return_value = Session(
@@ -148,13 +141,15 @@ class TestSessionManagerCreate:
             updated_at=datetime.now()
         )
 
-        result, message = manager.save_session("user-123", sample_save_request)
+        result, message = operations.save_session(
+            mock_session_repo, mock_plugin_registry, None, None, "user-123", sample_save_request
+        )
 
         assert result["name"] == "New Session"
         assert "saved successfully" in message
         mock_session_repo.create.assert_called_once()
 
-    def test_save_session_updates_existing(self, manager, mock_session_repo, sample_save_request):
+    def test_save_session_updates_existing(self, mock_session_repo, mock_plugin_registry, sample_save_request):
         """Test saving a session that already exists updates it."""
         existing = Session(
             id="existing-id",
@@ -175,14 +170,16 @@ class TestSessionManagerCreate:
             updated_at=datetime.now()
         )
 
-        result, message = manager.save_session("user-123", sample_save_request)
+        result, message = operations.save_session(
+            mock_session_repo, mock_plugin_registry, None, None, "user-123", sample_save_request
+        )
 
         assert result["id"] == "existing-id"
         assert "updated successfully" in message
         mock_session_repo.update.assert_called_once()
         mock_session_repo.create.assert_not_called()
 
-    def test_save_session_blocked_by_hook(self, manager, mock_session_repo, mock_plugin_registry, sample_save_request):
+    def test_save_session_blocked_by_hook(self, mock_session_repo, mock_plugin_registry, sample_save_request):
         """Test session creation blocked by plugin hook."""
         mock_session_repo.get_by_user_preset_and_name.return_value = None
         context = Mock()
@@ -190,13 +187,13 @@ class TestSessionManagerCreate:
         mock_plugin_registry.execute_hook.return_value = (context, [])
 
         with pytest.raises(ValueError, match="Plugin blocked this"):
-            manager.save_session("user-123", sample_save_request)
+            operations.save_session(mock_session_repo, mock_plugin_registry, None, None, "user-123", sample_save_request)
 
         mock_session_repo.create.assert_not_called()
 
 
-class TestSessionManagerUpdate:
-    """Tests for SessionManager update operations."""
+class TestUpdateSession:
+    """Tests for operations.update_session."""
 
     @pytest.fixture
     def mock_session_repo(self):
@@ -211,14 +208,6 @@ class TestSessionManagerUpdate:
         context.data = {}
         registry.execute_hook.return_value = (context, [])
         return registry
-
-    @pytest.fixture
-    def manager(self, mock_session_repo, mock_plugin_registry):
-        """Create manager with mocked dependencies."""
-        return SessionManager(
-            session_repository=mock_session_repo,
-            plugin_registry=mock_plugin_registry
-        )
 
     @pytest.fixture
     def sample_session(self):
@@ -240,7 +229,7 @@ class TestSessionManagerUpdate:
             data={"new_key": "new_value"}
         )
 
-    def test_update_session_success(self, manager, mock_session_repo, sample_session, sample_update_request):
+    def test_update_session_success(self, mock_session_repo, mock_plugin_registry, sample_session, sample_update_request):
         """Test updating a session."""
         mock_session_repo.get_by_id.return_value = sample_session
         mock_session_repo.get_by_user_preset_and_name.return_value = None
@@ -254,28 +243,34 @@ class TestSessionManagerUpdate:
             updated_at=datetime.now()
         )
 
-        result = manager.update_session("user-123", "session-123", sample_update_request)
+        result = operations.update_session(
+            mock_session_repo, mock_plugin_registry, None, None, "user-123", "session-123", sample_update_request
+        )
 
         assert result["name"] == "Updated Session"
         mock_session_repo.update.assert_called_once()
 
-    def test_update_session_not_found(self, manager, mock_session_repo, sample_update_request):
+    def test_update_session_not_found(self, mock_session_repo, mock_plugin_registry, sample_update_request):
         """Test updating a non-existent session."""
         mock_session_repo.get_by_id.return_value = None
 
         with pytest.raises(ValueError, match="Session not found"):
-            manager.update_session("user-123", "nonexistent", sample_update_request)
+            operations.update_session(
+                mock_session_repo, mock_plugin_registry, None, None, "user-123", "nonexistent", sample_update_request
+            )
 
-    def test_update_session_access_denied(self, manager, mock_session_repo, sample_session, sample_update_request):
+    def test_update_session_access_denied(self, mock_session_repo, mock_plugin_registry, sample_session, sample_update_request):
         """Test updating a session owned by another user."""
         mock_session_repo.get_by_id.return_value = sample_session
 
         with pytest.raises(ValueError, match="Access denied"):
-            manager.update_session("other-user", "session-123", sample_update_request)
+            operations.update_session(
+                mock_session_repo, mock_plugin_registry, None, None, "other-user", "session-123", sample_update_request
+            )
 
         mock_session_repo.update.assert_not_called()
 
-    def test_update_session_name_conflict(self, manager, mock_session_repo, sample_session, sample_update_request):
+    def test_update_session_name_conflict(self, mock_session_repo, mock_plugin_registry, sample_session, sample_update_request):
         """Test updating session to a name that already exists."""
         mock_session_repo.get_by_id.return_value = sample_session
         existing_with_name = Session(
@@ -289,13 +284,14 @@ class TestSessionManagerUpdate:
         mock_session_repo.get_by_user_preset_and_name.return_value = existing_with_name
 
         with pytest.raises(ValueError, match="already exists"):
-            manager.update_session("user-123", "session-123", sample_update_request)
+            operations.update_session(
+                mock_session_repo, mock_plugin_registry, None, None, "user-123", "session-123", sample_update_request
+            )
 
         mock_session_repo.update.assert_not_called()
 
     def test_update_session_blocked_by_hook(
         self,
-        manager,
         mock_session_repo,
         mock_plugin_registry,
         sample_session,
@@ -309,13 +305,15 @@ class TestSessionManagerUpdate:
         mock_plugin_registry.execute_hook.return_value = (context, [])
 
         with pytest.raises(ValueError, match="Update blocked"):
-            manager.update_session("user-123", "session-123", sample_update_request)
+            operations.update_session(
+                mock_session_repo, mock_plugin_registry, None, None, "user-123", "session-123", sample_update_request
+            )
 
         mock_session_repo.update.assert_not_called()
 
 
-class TestSessionManagerDelete:
-    """Tests for SessionManager delete operations."""
+class TestDeleteSession:
+    """Tests for operations.delete_session."""
 
     @pytest.fixture
     def mock_session_repo(self):
@@ -330,14 +328,6 @@ class TestSessionManagerDelete:
         context.data = {}
         registry.execute_hook.return_value = (context, [])
         return registry
-
-    @pytest.fixture
-    def manager(self, mock_session_repo, mock_plugin_registry):
-        """Create manager with mocked dependencies."""
-        return SessionManager(
-            session_repository=mock_session_repo,
-            plugin_registry=mock_plugin_registry
-        )
 
     @pytest.fixture
     def sample_session(self):
@@ -351,45 +341,44 @@ class TestSessionManagerDelete:
             created_at=datetime.now()
         )
 
-    def test_delete_session_success(self, manager, mock_session_repo, sample_session):
+    def test_delete_session_success(self, mock_session_repo, mock_plugin_registry, sample_session):
         """Test deleting a session."""
         mock_session_repo.get_by_id.return_value = sample_session
         mock_session_repo.delete.return_value = True
 
-        result = manager.delete_session("user-123", "session-123")
+        result = operations.delete_session(mock_session_repo, mock_plugin_registry, "user-123", "session-123")
 
         assert "deleted successfully" in result
         mock_session_repo.delete.assert_called_once_with("session-123")
 
-    def test_delete_session_not_found(self, manager, mock_session_repo):
+    def test_delete_session_not_found(self, mock_session_repo, mock_plugin_registry):
         """Test deleting a non-existent session."""
         mock_session_repo.get_by_id.return_value = None
 
         with pytest.raises(ValueError, match="Session not found"):
-            manager.delete_session("user-123", "nonexistent")
+            operations.delete_session(mock_session_repo, mock_plugin_registry, "user-123", "nonexistent")
 
         mock_session_repo.delete.assert_not_called()
 
-    def test_delete_session_access_denied(self, manager, mock_session_repo, sample_session):
+    def test_delete_session_access_denied(self, mock_session_repo, mock_plugin_registry, sample_session):
         """Test deleting a session owned by another user."""
         mock_session_repo.get_by_id.return_value = sample_session
 
         with pytest.raises(ValueError, match="Access denied"):
-            manager.delete_session("other-user", "session-123")
+            operations.delete_session(mock_session_repo, mock_plugin_registry, "other-user", "session-123")
 
         mock_session_repo.delete.assert_not_called()
 
-    def test_delete_session_db_failure(self, manager, mock_session_repo, sample_session):
+    def test_delete_session_db_failure(self, mock_session_repo, mock_plugin_registry, sample_session):
         """Test session deletion when database fails."""
         mock_session_repo.get_by_id.return_value = sample_session
         mock_session_repo.delete.return_value = False
 
         with pytest.raises(ValueError, match="Failed to delete"):
-            manager.delete_session("user-123", "session-123")
+            operations.delete_session(mock_session_repo, mock_plugin_registry, "user-123", "session-123")
 
     def test_delete_session_blocked_by_hook(
         self,
-        manager,
         mock_session_repo,
         mock_plugin_registry,
         sample_session
@@ -401,92 +390,70 @@ class TestSessionManagerDelete:
         mock_plugin_registry.execute_hook.return_value = (context, [])
 
         with pytest.raises(ValueError, match="Delete blocked"):
-            manager.delete_session("user-123", "session-123")
+            operations.delete_session(mock_session_repo, mock_plugin_registry, "user-123", "session-123")
 
         mock_session_repo.delete.assert_not_called()
 
 
-class TestSessionManagerMergeData:
-    """Tests for SessionManager _merge_mode_data method."""
+class TestMergeModeData:
+    """Tests for _merge_mode_data."""
 
-    @pytest.fixture
-    def mock_session_repo(self):
-        """Mock session repository."""
-        return Mock()
-
-    @pytest.fixture
-    def mock_plugin_registry(self):
-        """Mock plugin registry."""
-        registry = Mock()
-        context = Mock()
-        context.data = {}
-        registry.execute_hook.return_value = (context, [])
-        return registry
-
-    @pytest.fixture
-    def manager(self, mock_session_repo, mock_plugin_registry):
-        """Create manager with mocked dependencies."""
-        return SessionManager(
-            session_repository=mock_session_repo,
-            plugin_registry=mock_plugin_registry
-        )
-
-    def test_merge_with_explicit_mode(self, manager):
+    def test_merge_with_explicit_mode(self):
         """Test merging data with explicit mode."""
         existing_data = {"txt2img": {"prompt": "old"}}
         new_data = {"prompt": "new", "steps": 20}
 
-        result = manager._merge_mode_data(existing_data, new_data, mode="txt2img")
+        result = _merge_mode_data(existing_data, new_data, mode="txt2img")
 
         assert result["txt2img"] == {"prompt": "new", "steps": 20}
 
-    def test_merge_with_selected_mode(self, manager):
+    def test_merge_with_selected_mode(self):
         """Test merging data when selectedMode is in new_data."""
         existing_data = {"txt2img": {"prompt": "old"}}
         new_data = {"selectedMode": "txt2img", "prompt": "new"}
 
-        result = manager._merge_mode_data(existing_data, new_data, mode=None)
+        result = _merge_mode_data(existing_data, new_data, mode=None)
 
         assert result["txt2img"] == {"selectedMode": "txt2img", "prompt": "new"}
 
-    def test_merge_mode_based_data_structure(self, manager):
+    def test_merge_mode_based_data_structure(self):
         """Test merging when both have mode-based structure."""
         existing_data = {"txt2img": {"prompt": "old"}, "img2img": {"strength": 0.5}}
         new_data = {"txt2img": {"prompt": "new"}}
 
-        result = manager._merge_mode_data(existing_data, new_data, mode=None)
+        result = _merge_mode_data(existing_data, new_data, mode=None)
 
         assert result["txt2img"] == {"prompt": "new"}
         assert result["img2img"] == {"strength": 0.5}
 
-    def test_merge_fallback_complete_replacement(self, manager):
+    def test_merge_fallback_complete_replacement(self):
         """Test fallback to complete replacement when mode can't be detected."""
         existing_data = {"key": "value"}
         new_data = {"new_key": "new_value"}
 
-        result = manager._merge_mode_data(existing_data, new_data, mode=None)
+        result = _merge_mode_data(existing_data, new_data, mode=None)
 
         assert result == {"new_key": "new_value"}
 
-    def test_merge_mode_keyed_disjoint_keys_preserves_other_modes(self, manager):
+    def test_merge_mode_keyed_disjoint_keys_preserves_other_modes(self):
         """Saving in a new mode must not wipe data stored under other modes."""
         existing_data = {"txt2vid": {"prompt": "txt prompt", "formData": {"a": 1}}}
         new_data = {"img2vid": {"prompt": "img prompt", "formData": {"b": 2}}}
 
-        result = manager._merge_mode_data(existing_data, new_data, mode=None)
+        result = _merge_mode_data(existing_data, new_data, mode=None)
 
         assert result["txt2vid"] == {"prompt": "txt prompt", "formData": {"a": 1}}
         assert result["img2vid"] == {"prompt": "img prompt", "formData": {"b": 2}}
 
-    def test_merge_mode_keyed_into_empty_existing(self, manager):
+    def test_merge_mode_keyed_into_empty_existing(self):
         """First save of a mode-keyed session produces the expected shape."""
-        result = manager._merge_mode_data({}, {"txt2vid": {"prompt": "hi"}}, mode=None)
+        result = _merge_mode_data({}, {"txt2vid": {"prompt": "hi"}}, mode=None)
 
         assert result == {"txt2vid": {"prompt": "hi"}}
 
 
-class TestSessionManagerHooks:
-    """Tests for SessionManager hook execution."""
+class TestSessionHooks:
+    """Tests for hook execution in operations.save_session."""
 
     @pytest.fixture
     def mock_session_repo(self):
@@ -502,15 +469,7 @@ class TestSessionManagerHooks:
         """Mock plugin registry."""
         return Mock()
 
-    @pytest.fixture
-    def manager(self, mock_session_repo, mock_plugin_registry):
-        """Create manager with mocked dependencies."""
-        return SessionManager(
-            session_repository=mock_session_repo,
-            plugin_registry=mock_plugin_registry
-        )
-
-    def test_before_create_hook_executed(self, manager, mock_session_repo, mock_plugin_registry):
+    def test_before_create_hook_executed(self, mock_session_repo, mock_plugin_registry):
         """Test that before_create hook is executed."""
         context = Mock()
         context.data = {}
@@ -525,12 +484,12 @@ class TestSessionManagerHooks:
         )
 
         request = SaveSessionRequest(preset_id="preset-456", name="Test", data={})
-        manager.save_session("user-123", request)
+        operations.save_session(mock_session_repo, mock_plugin_registry, None, None, "user-123", request)
 
         # Check that execute_hook was called (before and after)
         assert mock_plugin_registry.execute_hook.call_count == 2
 
-    def test_after_create_hook_executed(self, manager, mock_session_repo, mock_plugin_registry):
+    def test_after_create_hook_executed(self, mock_session_repo, mock_plugin_registry):
         """Test that after_create hook is executed."""
         context = Mock()
         context.data = {}
@@ -545,7 +504,7 @@ class TestSessionManagerHooks:
         )
 
         request = SaveSessionRequest(preset_id="preset-456", name="Test", data={})
-        manager.save_session("user-123", request)
+        operations.save_session(mock_session_repo, mock_plugin_registry, None, None, "user-123", request)
 
         # Verify both hooks were called
         calls = mock_plugin_registry.execute_hook.call_args_list
@@ -553,7 +512,7 @@ class TestSessionManagerHooks:
         assert "session.before_create" in hook_names
         assert "session.after_create" in hook_names
 
-    def test_hook_can_block_create_operation(self, manager, mock_session_repo, mock_plugin_registry):
+    def test_hook_can_block_create_operation(self, mock_session_repo, mock_plugin_registry):
         """Test that hooks can block create operations."""
         context = Mock()
         context.data = {"blocked": True, "block_reason": "Blocked by test"}
@@ -562,11 +521,11 @@ class TestSessionManagerHooks:
         request = SaveSessionRequest(preset_id="preset-456", name="Test", data={})
 
         with pytest.raises(ValueError, match="Blocked by test"):
-            manager.save_session("user-123", request)
+            operations.save_session(mock_session_repo, mock_plugin_registry, None, None, "user-123", request)
 
         mock_session_repo.create.assert_not_called()
 
-    def test_hook_can_modify_data(self, manager, mock_session_repo, mock_plugin_registry):
+    def test_hook_can_modify_data(self, mock_session_repo, mock_plugin_registry):
         """Test that hooks can modify session data."""
         context = Mock()
         context.data = {"data": {"modified": True}}  # Hook modifies data
@@ -581,7 +540,7 @@ class TestSessionManagerHooks:
         )
 
         request = SaveSessionRequest(preset_id="preset-456", name="Test", data={"original": True})
-        result, _ = manager.save_session("user-123", request)
+        result, _ = operations.save_session(mock_session_repo, mock_plugin_registry, None, None, "user-123", request)
 
         # Verify create was called with modified data
         create_call = mock_session_repo.create.call_args

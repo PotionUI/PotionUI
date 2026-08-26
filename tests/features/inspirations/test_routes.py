@@ -1,6 +1,6 @@
 """Inspirations routes driven through a real FastAPI app.
 
-The manager, repositories and database underneath are real (a migrated
+The collaborators, repositories and database underneath are real (a migrated
 scratch DB and a temp storage tree); only the authenticated-user dependency
 is overridden. Asserting through the router is what catches a ValueError that
 never becomes the right status code - a controller called directly cannot.
@@ -11,11 +11,12 @@ import unittest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from src.features.inspirations import operations
 from src.features.inspirations.routes import InspirationController, build_router, build_media_router
 from src.platform.security.current_user import get_current_active_user
 from src.platform.security.user import AccountType, User
 
-from tests.features.inspirations.test_manager import InspirationManagerTestBase
+from tests.features.inspirations.test_operations import InspirationTestBase
 
 
 class _Container:
@@ -23,17 +24,12 @@ class _Container:
         self.inspiration_controller = controller
 
 
-class InspirationRoutesTestBase(InspirationManagerTestBase):
+class InspirationRoutesTestBase(InspirationTestBase):
 
     def setUp(self):
         super().setUp()
 
-        self.controller = InspirationController(
-            inspiration_manager=self.manager,
-            inspiration_repository=self.inspiration_repository,
-            file_store=self.file_store,
-            storage_driver=self.storage_driver,
-        )
+        self.controller = InspirationController(self.collaborators)
 
         app = FastAPI()
         container = _Container(self.controller)
@@ -59,8 +55,8 @@ class InspirationRoutesTestBase(InspirationManagerTestBase):
         generation_id, file_record, source = self._generated_file(
             content=b"generated-pixels", user_id=user_id
         )
-        insp = self.manager.publish(
-            user_id or self.user_id, generation_id, filenames or [source.name], title
+        insp = operations.publish(
+            self.collaborators, user_id or self.user_id, generation_id, filenames or [source.name], title
         )
         return insp, source
 

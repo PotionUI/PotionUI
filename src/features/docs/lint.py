@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Set, Tuple
 
-from src.features.docs.manager import _parse_frontmatter
+from src.features.docs.frontmatter import parse_frontmatter
 from src.features.docs.typed import (
     ALL_NATIVE,
     KNOB_SURFACES,
@@ -85,7 +85,7 @@ def _iter_typed_docs(docs_root: Path) -> List[Tuple[Path, str, Dict[str, Any]]]:
         if not section.is_dir():
             continue
         for md in sorted(set(section.glob("*.md")) | set(section.glob("*/*.md"))):
-            frontmatter, _body = _parse_frontmatter(md.read_text(encoding="utf-8"))
+            frontmatter, _body = parse_frontmatter(md.read_text(encoding="utf-8"))
             doc_type = frontmatter.get("type")
             if doc_type in (TECHNIQUE, MODEL):
                 out.append((md, doc_type, frontmatter))

@@ -1,6 +1,6 @@
 """Storage-key convention for published inspiration media.
 
-Shared by `InspirationManager` (writing/deleting copies) and the media-serving
+Shared by `src.features.inspirations.operations` (writing/deleting copies) and the media-serving
 route (reading them back) so both agree on exactly one layout:
 `inspirations/<inspiration_id>/<filename>`.
 """

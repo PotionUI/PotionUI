@@ -12,11 +12,12 @@ import unittest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from src.features.library import operations
 from src.features.library.routes import LibraryController, build_router
 from src.platform.security.current_user import get_current_active_user
 from src.platform.security.user import AccountType, User
 
-from tests.features.library.test_manager import LibraryManagerTestBase
+from tests.features.library.test_operations import LibraryTestBase
 
 
 class _Container:
@@ -24,12 +25,12 @@ class _Container:
         self.library_controller = controller
 
 
-class LibraryRoutesTestBase(LibraryManagerTestBase):
+class LibraryRoutesTestBase(LibraryTestBase):
 
     def setUp(self):
         super().setUp()
         app = FastAPI()
-        app.include_router(build_router(_Container(LibraryController(self.manager))))
+        app.include_router(build_router(_Container(LibraryController(self.collaborators))))
 
         async def _current_user():
             return User(
@@ -76,7 +77,7 @@ class TestLibraryRoutes(LibraryRoutesTestBase):
         self._upload(filename="one.png")
         cats = self._tag("cats")
         dogs = self._tag("dogs")
-        self.manager.set_tags(both.id, [cats.id, dogs.id], self.user_id)
+        operations.set_tags(self.collaborators, both.id, [cats.id, dogs.id], self.user_id)
 
         response = self.client.get(
             "/api/library/items", params={"tag_ids": f"{cats.id},{dogs.id}"}

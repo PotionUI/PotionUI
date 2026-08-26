@@ -3,7 +3,8 @@ Library Controller
 
 The user's private media library: list with filters, curate, delete, and copy
 a generated file in from history. Thin route handlers delegating to
-`LibraryManager`.
+`src.features.library.operations` against a held `LibraryCollaborators`
+bundle.
 
 Every handler is authenticated and every operation is scoped to the requesting
 user. A library item that belongs to someone else answers exactly like one that
@@ -18,8 +19,9 @@ from fastapi import APIRouter, Depends, Query
 
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user
+from src.features.library.collaborators import LibraryCollaborators
 from src.features.library.dto import CopyFromGenerationRequest, SetLibraryTagsRequest
-from src.features.library.manager import LibraryManager
+from src.features.library import operations
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
@@ -30,9 +32,9 @@ logger = logging.getLogger(__name__)
 class LibraryController(BaseController):
     """Controller for library browsing, curation and history copies."""
 
-    def __init__(self, library_manager: LibraryManager):
+    def __init__(self, library_collaborators: LibraryCollaborators):
         super().__init__()
-        self.manager = library_manager
+        self.collaborators = library_collaborators
 
     async def list_items(
         self,
@@ -47,7 +49,8 @@ class LibraryController(BaseController):
         """List the current user's library, newest first."""
         try:
             parsed_tag_ids = [t.strip() for t in tag_ids.split(',')] if tag_ids else None
-            result = self.manager.list_items(
+            result = operations.list_items(
+                self.collaborators,
                 current_user.id,
                 media_type=media_type,
                 tag_ids=parsed_tag_ids,
@@ -66,7 +69,7 @@ class LibraryController(BaseController):
     async def get_facets(self, current_user) -> APIResponse:
         """Per-media-type counts for the current user's library."""
         try:
-            return self.success_response(data=self.manager.get_facets(current_user.id).model_dump())
+            return self.success_response(data=operations.get_facets(self.collaborators, current_user.id).model_dump())
         except Exception as e:
             self.logger.error(f"Failed to get library facets: {e}")
             return self.error_response(error="facets_failed", message="Failed to get library facets")
@@ -74,7 +77,7 @@ class LibraryController(BaseController):
     async def get_item(self, item_id: str, current_user) -> APIResponse:
         """Get one library item owned by the current user."""
         try:
-            return self.success_response(data=self.manager.get_item(item_id, current_user.id).model_dump())
+            return self.success_response(data=operations.get_item(self.collaborators, item_id, current_user.id).model_dump())
         except ValueError as e:
             return self.error_response(error="not_found", message=str(e), status_code=404)
         except Exception as e:
@@ -84,7 +87,7 @@ class LibraryController(BaseController):
     async def delete_item(self, item_id: str, current_user) -> APIResponse:
         """Delete one library item owned by the current user."""
         try:
-            self.manager.delete_item(item_id, current_user.id)
+            operations.delete_item(self.collaborators, item_id, current_user.id)
             return self.success_response(data={"id": item_id, "deleted": True})
         except ValueError as e:
             return self.error_response(error="not_found", message=str(e), status_code=404)
@@ -95,7 +98,7 @@ class LibraryController(BaseController):
     async def get_tags(self, item_id: str, current_user) -> APIResponse:
         """List a library item's tags."""
         try:
-            return self.success_response(data={"tags": self.manager.get_tags(item_id, current_user.id)})
+            return self.success_response(data={"tags": operations.get_tags(self.collaborators, item_id, current_user.id)})
         except ValueError as e:
             return self.error_response(error="not_found", message=str(e), status_code=404)
         except Exception as e:
@@ -110,7 +113,7 @@ class LibraryController(BaseController):
     ) -> APIResponse:
         """Replace a library item's tags."""
         try:
-            tags = self.manager.set_tags(item_id, request.tag_ids, current_user.id)
+            tags = operations.set_tags(self.collaborators, item_id, request.tag_ids, current_user.id)
             return self.success_response(data={"tags": tags})
         except ValueError as e:
             return self.error_response(error="not_found", message=str(e), status_code=404)
@@ -125,7 +128,7 @@ class LibraryController(BaseController):
     ) -> APIResponse:
         """Copy one of the user's generated files into their library."""
         try:
-            item = self.manager.copy_generation_file(request.file_id, current_user.id)
+            item = operations.copy_generation_file(self.collaborators, request.file_id, current_user.id)
             return self.success_response(data={"item": item.model_dump()})
         except ValueError as e:
             return self.error_response(error="not_found", message=str(e), status_code=404)

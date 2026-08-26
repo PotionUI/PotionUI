@@ -34,7 +34,7 @@ class FieldTypeDefinition:
     container: bool = False
     source: str = "core"
     # Default-deny: a field type's value is only eligible for the Inspirations
-    # allowlist snapshot (src/features/inspirations/manager.py) when this is
+    # allowlist snapshot (src/features/inspirations/operations/publishing.py) when this is
     # explicitly True. Plain values (text/number/select/...) and public
     # identifiers (model/LoRA refs) opt in; anything carrying a file path,
     # upload, or other user-storage reference must stay False.
@@ -126,7 +126,7 @@ class FieldTypeRegistry:
         ]
 
 
-# Module-level singleton shared by FieldFactory, FormManager, and the plugin
-# enable/disable path - mirrors `output_type_registry` in
+# Module-level singleton shared by FieldFactory, src.features.forms.operations,
+# and the plugin enable/disable path - mirrors `output_type_registry` in
 # `src.features.generation.output_types`.
 field_type_registry = FieldTypeRegistry()

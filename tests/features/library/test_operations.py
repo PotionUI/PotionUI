@@ -1,4 +1,4 @@
-"""Tests for LibraryManager.
+"""Tests for src.features.library.operations.
 
 Everything here runs against a real migrated scratch database and a real
 temporary storage tree - real `uploads` rows, real bytes on disk, the real
@@ -8,6 +8,7 @@ of queries) are only claims about that machinery; a mocked repository would
 assert nothing but its own configuration.
 """
 
+import dataclasses
 import unittest
 from datetime import datetime
 from pathlib import Path
@@ -16,7 +17,8 @@ from tests.fixtures.persistence_base import PersistenceTestBase
 from tests.fixtures.query_counter import CountingDb
 from src.features.generation.file_repository import FileRepository
 from src.features.generation.records import File
-from src.features.library.manager import LibraryManager
+from src.features.library import operations
+from src.features.library.collaborators import LibraryCollaborators
 from src.features.library.repository import LibraryRepository
 from src.features.media.file_resolver import FilePathResolver
 from src.features.media.records import Upload
@@ -32,7 +34,7 @@ import src.features.media.upload_repository as upload_repository_module
 import src.features.tags.repository as tag_repository_module
 
 
-class LibraryManagerTestBase(PersistenceTestBase):
+class LibraryTestBase(PersistenceTestBase):
 
     def setUp(self):
         super().setUp()
@@ -54,8 +56,8 @@ class LibraryManagerTestBase(PersistenceTestBase):
         self.file_resolver = FilePathResolver(_StorageDirSettings(self.storage_dir))
         self.storage_driver = LocalFileStorageDriver(str(self.storage_dir))
 
-        self.manager = LibraryManager(
-            library_repository=LibraryRepository(),
+        self.collaborators = LibraryCollaborators(
+            repository=LibraryRepository(),
             upload_repository=self.upload_repo,
             tag_repository=self.tag_repo,
             file_repository=self.file_repo,
@@ -151,14 +153,14 @@ class _StorageDirSettings:
         return self._storage_dir
 
 
-class TestLibraryListing(LibraryManagerTestBase):
+class TestLibraryListing(LibraryTestBase):
 
     def test_list_includes_tags_per_item(self):
         item = self._upload(filename="tagged.png")
         tag = self._tag("cats")
-        self.manager.set_tags(item.id, [tag.id], self.user_id)
+        operations.set_tags(self.collaborators, item.id, [tag.id], self.user_id)
 
-        result = self.manager.list_items(self.user_id)
+        result = operations.list_items(self.collaborators, self.user_id)
 
         self.assertEqual(len(result.items), 1)
         self.assertEqual([t['name'] for t in result.items[0].tags], ["cats"])
@@ -168,25 +170,25 @@ class TestLibraryListing(LibraryManagerTestBase):
         self._upload(filename="mine.png")
         self._upload(filename="theirs.png", user_id=self.other_user_id)
 
-        result = self.manager.list_items(self.user_id)
+        result = operations.list_items(self.collaborators, self.user_id)
 
         self.assertEqual([i.filename for i in result.items], ["mine.png"])
         self.assertEqual(result.total, 1)
 
     def test_list_rejects_unknown_media_type(self):
         with self.assertRaises(ValueError):
-            self.manager.list_items(self.user_id, media_type="mesh")
+            operations.list_items(self.collaborators, self.user_id, media_type="mesh")
 
     def test_list_rejects_a_tag_the_user_does_not_own(self):
         theirs = self._tag("private", user_id=self.other_user_id)
 
         with self.assertRaises(ValueError):
-            self.manager.list_items(self.user_id, tag_ids=[theirs.id])
+            operations.list_items(self.collaborators, self.user_id, tag_ids=[theirs.id])
 
     def test_limit_is_clamped(self):
         self._upload(filename="a.png")
 
-        result = self.manager.list_items(self.user_id, limit=10_000)
+        result = operations.list_items(self.collaborators, self.user_id, limit=10_000)
 
         self.assertEqual(result.limit, 200)
 
@@ -206,7 +208,7 @@ class TestLibraryListing(LibraryManagerTestBase):
             self.tag_repo.set_upload_tags(item.id, [self._tag(f"tag_small_{i}").id])
 
         counting.statements.clear()
-        self.manager.list_items(self.user_id, limit=100)
+        operations.list_items(self.collaborators, self.user_id, limit=100)
         small_page = list(counting.statements)
 
         for i in range(27):
@@ -214,7 +216,7 @@ class TestLibraryListing(LibraryManagerTestBase):
             self.tag_repo.set_upload_tags(item.id, [self._tag(f"tag_big_{i}").id])
 
         counting.statements.clear()
-        result = self.manager.list_items(self.user_id, limit=100)
+        result = operations.list_items(self.collaborators, self.user_id, limit=100)
         big_page = list(counting.statements)
 
         self.assertEqual(len(result.items), 30)
@@ -226,15 +228,15 @@ class TestLibraryListing(LibraryManagerTestBase):
         self.assertEqual(len(big_page), 3, f"expected 3 statements, got: {big_page}")
 
 
-class TestLibraryCuration(LibraryManagerTestBase):
+class TestLibraryCuration(LibraryTestBase):
 
     def test_set_tags_replaces(self):
         item = self._upload()
         first = self._tag("first")
         second = self._tag("second")
 
-        self.manager.set_tags(item.id, [first.id], self.user_id)
-        tags = self.manager.set_tags(item.id, [second.id], self.user_id)
+        operations.set_tags(self.collaborators, item.id, [first.id], self.user_id)
+        tags = operations.set_tags(self.collaborators, item.id, [second.id], self.user_id)
 
         self.assertEqual([t['name'] for t in tags], ["second"])
 
@@ -245,37 +247,40 @@ class TestLibraryCuration(LibraryManagerTestBase):
         generation_tag = self._tag("history", tag_type="GENERATION")
 
         with self.assertRaises(ValueError):
-            self.manager.set_tags(item.id, [generation_tag.id], self.user_id)
+            operations.set_tags(self.collaborators, item.id, [generation_tag.id], self.user_id)
 
     def test_set_tags_on_another_users_item_is_not_found(self):
         theirs = self._upload(filename="theirs.png", user_id=self.other_user_id)
         tag = self._tag("mine")
 
         with self.assertRaises(ValueError):
-            self.manager.set_tags(theirs.id, [tag.id], self.user_id)
+            operations.set_tags(self.collaborators, theirs.id, [tag.id], self.user_id)
 
     def test_get_item_scoped_to_owner(self):
         theirs = self._upload(filename="theirs.png", user_id=self.other_user_id)
 
         with self.assertRaises(ValueError):
-            self.manager.get_item(theirs.id, self.user_id)
+            operations.get_item(self.collaborators, theirs.id, self.user_id)
 
     def test_facets_count_own_items_only(self):
         self._upload(filename="a.png", media_type="image")
         self._upload(filename="b.mp4", media_type="video")
         self._upload(filename="theirs.png", user_id=self.other_user_id)
 
-        self.assertEqual(self.manager.get_facets(self.user_id).media_types, {"image": 1, "video": 1})
+        self.assertEqual(
+            operations.get_facets(self.collaborators, self.user_id).media_types,
+            {"image": 1, "video": 1},
+        )
 
 
-class TestLibraryDelete(LibraryManagerTestBase):
+class TestLibraryDelete(LibraryTestBase):
 
     def test_delete_removes_row_and_file(self):
         item = self._upload(filename="doomed.png")
         on_disk = self.file_resolver.resolve_upload_file("doomed.png", self.user_id)
         self.assertTrue(on_disk.exists())
 
-        self.manager.delete_item(item.id, self.user_id)
+        operations.delete_item(self.collaborators, item.id, self.user_id)
 
         self.assertFalse(on_disk.exists())
         self.assertIsNone(self.upload_repo.get_by_id(item.id, self.user_id))
@@ -283,7 +288,7 @@ class TestLibraryDelete(LibraryManagerTestBase):
     def test_delete_cascades_tags_and_collection_memberships(self):
         item = self._upload(filename="doomed.png")
         tag = self._tag("cats")
-        self.manager.set_tags(item.id, [tag.id], self.user_id)
+        operations.set_tags(self.collaborators, item.id, [tag.id], self.user_id)
         collection_id = generate_ulid()
         with self.db.get_cursor() as cursor:
             cursor.execute(
@@ -295,7 +300,7 @@ class TestLibraryDelete(LibraryManagerTestBase):
                 (collection_id, item.id)
             )
 
-        self.manager.delete_item(item.id, self.user_id)
+        operations.delete_item(self.collaborators, item.id, self.user_id)
 
         with self.db.get_cursor() as cursor:
             cursor.execute("SELECT COUNT(*) c FROM upload_tags WHERE upload_id = ?", (item.id,))
@@ -307,18 +312,18 @@ class TestLibraryDelete(LibraryManagerTestBase):
         theirs = self._upload(filename="theirs.png", user_id=self.other_user_id)
 
         with self.assertRaises(ValueError):
-            self.manager.delete_item(theirs.id, self.user_id)
+            operations.delete_item(self.collaborators, theirs.id, self.user_id)
 
         self.assertIsNotNone(self.upload_repo.get_by_id(theirs.id, self.other_user_id))
         self.assertTrue(self.file_resolver.resolve_upload_file("theirs.png", self.other_user_id).exists())
 
 
-class TestCopyFromGeneration(LibraryManagerTestBase):
+class TestCopyFromGeneration(LibraryTestBase):
 
     def test_copy_creates_an_independent_resource(self):
         _, file_record, source = self._generated_file(content=b"generated-pixels")
 
-        item = self.manager.copy_generation_file(file_record.id, self.user_id)
+        item = operations.copy_generation_file(self.collaborators, file_record.id, self.user_id)
 
         # New row, new name, new bytes on disk under uploads/.
         self.assertNotEqual(item.filename, source.name)
@@ -333,7 +338,7 @@ class TestCopyFromGeneration(LibraryManagerTestBase):
     def test_copy_carries_no_generation_metadata_or_back_reference(self):
         generation_id, file_record, _ = self._generated_file()
 
-        item = self.manager.copy_generation_file(file_record.id, self.user_id)
+        item = operations.copy_generation_file(self.collaborators, file_record.id, self.user_id)
 
         # An uploads row has no column that could hold a generation reference;
         # assert that nothing smuggled one into the text fields either.
@@ -347,8 +352,8 @@ class TestCopyFromGeneration(LibraryManagerTestBase):
         _, file_record, _ = self._generated_file()
         self._upload(filename="direct.png")
 
-        self.manager.copy_generation_file(file_record.id, self.user_id)
-        result = self.manager.list_items(self.user_id)
+        operations.copy_generation_file(self.collaborators, file_record.id, self.user_id)
+        result = operations.list_items(self.collaborators, self.user_id)
 
         self.assertEqual(len(result.items), 2)
         # Same shape, same serving route - the copy is just another library item.
@@ -358,7 +363,7 @@ class TestCopyFromGeneration(LibraryManagerTestBase):
 
     def test_copy_survives_deletion_of_the_generation(self):
         generation_id, file_record, source = self._generated_file(content=b"generated-pixels")
-        item = self.manager.copy_generation_file(file_record.id, self.user_id)
+        item = operations.copy_generation_file(self.collaborators, file_record.id, self.user_id)
 
         # Delete the generation the way GenerationHistoryArchive.delete does:
         # wipe its directory, then delete the row (generation_files cascades).
@@ -384,13 +389,13 @@ class TestCopyFromGeneration(LibraryManagerTestBase):
         _, file_record, _ = self._generated_file(user_id=self.other_user_id)
 
         with self.assertRaises(ValueError):
-            self.manager.copy_generation_file(file_record.id, self.user_id)
+            operations.copy_generation_file(self.collaborators, file_record.id, self.user_id)
 
-        self.assertEqual(self.manager.list_items(self.user_id).total, 0)
+        self.assertEqual(operations.list_items(self.collaborators, self.user_id).total, 0)
 
     def test_copy_of_unknown_file_is_not_found(self):
         with self.assertRaises(ValueError):
-            self.manager.copy_generation_file("does-not-exist", self.user_id)
+            operations.copy_generation_file(self.collaborators, "does-not-exist", self.user_id)
 
     def test_copy_rejects_a_file_type_the_library_does_not_hold(self):
         _, file_record, _ = self._generated_file()
@@ -398,7 +403,7 @@ class TestCopyFromGeneration(LibraryManagerTestBase):
             cursor.execute("UPDATE files SET file_type = 'MESH' WHERE id = ?", (file_record.id,))
 
         with self.assertRaises(ValueError):
-            self.manager.copy_generation_file(file_record.id, self.user_id)
+            operations.copy_generation_file(self.collaborators, file_record.id, self.user_id)
 
     def test_copy_carries_over_the_source_thumbnails(self):
         """The source generation file already paid for its thumbnails - the
@@ -413,7 +418,7 @@ class TestCopyFromGeneration(LibraryManagerTestBase):
                 ("thumbnails/0_small.webp", file_record.id),
             )
 
-        item = self.manager.copy_generation_file(file_record.id, self.user_id)
+        item = operations.copy_generation_file(self.collaborators, file_record.id, self.user_id)
 
         self.assertIsNotNone(item.thumbnail_small)
         self.assertIsNone(item.thumbnail_medium)
@@ -425,7 +430,7 @@ class TestCopyFromGeneration(LibraryManagerTestBase):
     def test_copy_without_source_thumbnails_leaves_them_unset(self):
         _, file_record, _ = self._generated_file()
 
-        item = self.manager.copy_generation_file(file_record.id, self.user_id)
+        item = operations.copy_generation_file(self.collaborators, file_record.id, self.user_id)
 
         self.assertIsNone(item.thumbnail_small)
         self.assertIsNone(item.thumbnail_medium)
@@ -445,12 +450,12 @@ class TestCopyFromGeneration(LibraryManagerTestBase):
         ))
 
         with self.assertRaises(ValueError):
-            self.manager.copy_generation_file(file_record.id, self.user_id)
+            operations.copy_generation_file(self.collaborators, file_record.id, self.user_id)
 
-        self.assertEqual(self.manager.list_items(self.user_id).total, 0)
+        self.assertEqual(operations.list_items(self.collaborators, self.user_id).total, 0)
 
 
-class TestStorageDriverBypassClosed(LibraryManagerTestBase):
+class TestStorageDriverBypassClosed(LibraryTestBase):
     """With a driver that has no local filesystem shortcut (S3-like), the
     library must write and delete through the driver only - never a raw
     `shutil`/`Path` call that would land on (or look at) local disk while a
@@ -464,7 +469,10 @@ class TestStorageDriverBypassClosed(LibraryManagerTestBase):
         # tree this driver never touches.
         self.driver_root = Path(self.temp_dir) / "bucket"
         self.driver_root.mkdir(parents=True, exist_ok=True)
-        self.manager.storage_driver = _NoLocalPathDriver(str(self.driver_root))
+        self.storage_driver = _NoLocalPathDriver(str(self.driver_root))
+        # `LibraryCollaborators` is frozen - swap the one field via `replace`
+        # rather than mutating the bundle in place.
+        self.collaborators = dataclasses.replace(self.collaborators, storage_driver=self.storage_driver)
 
     def _raw_uploads_dir_contents(self):
         uploads_dir = self.storage_dir / "uploads"
@@ -475,11 +483,11 @@ class TestStorageDriverBypassClosed(LibraryManagerTestBase):
     def test_copy_generation_file_publishes_through_the_driver_only(self):
         _, file_record, source = self._generated_file(content=b"generated-pixels")
 
-        item = self.manager.copy_generation_file(file_record.id, self.user_id)
+        item = operations.copy_generation_file(self.collaborators, file_record.id, self.user_id)
 
         key = f"uploads/{item.filename}"
-        self.assertTrue(self.manager.storage_driver.exists(key))
-        self.assertEqual(self.manager.storage_driver.get_bytes(key), b"generated-pixels")
+        self.assertTrue(self.storage_driver.exists(key))
+        self.assertEqual(self.storage_driver.get_bytes(key), b"generated-pixels")
         # The bug this closes wrote here with `shutil.copyfile` regardless of
         # which driver was configured.
         self.assertEqual(self._raw_uploads_dir_contents(), [])
@@ -493,11 +501,11 @@ class TestStorageDriverBypassClosed(LibraryManagerTestBase):
             mime_type="image/png",
             file_size=5,
         ))
-        self.manager.storage_driver.put_bytes("uploads/doomed.png", b"bytes")
+        self.storage_driver.put_bytes("uploads/doomed.png", b"bytes")
 
-        self.manager.delete_item(upload.id, self.user_id)
+        operations.delete_item(self.collaborators, upload.id, self.user_id)
 
-        self.assertFalse(self.manager.storage_driver.exists("uploads/doomed.png"))
+        self.assertFalse(self.storage_driver.exists("uploads/doomed.png"))
         self.assertIsNone(self.upload_repo.get_by_id(upload.id, self.user_id))
 
 

@@ -3,7 +3,7 @@ DTOs for the library API.
 
 A library item is an upload row plus the curation attached to it (tags,
 collections). It carries no generation fields even when it started life as a
-copy of one - see `LibraryManager.copy_generation_file`.
+copy of one - see `src.features.library.operations.copy_generation_file`.
 """
 
 from typing import Any, Dict, List, Optional

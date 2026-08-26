@@ -1,4 +1,4 @@
-"""Tests for InspirationManager.
+"""Tests for src.features.inspirations.operations.
 
 Runs against a real migrated scratch database and a real temporary storage
 tree - real rows, real bytes on disk, the real `FileStore`/`FilePathResolver`/
@@ -20,7 +20,8 @@ from src.features.generation.file_repository import FileRepository
 from src.features.generation.parameter_repository import GenerationParameterRepository
 from src.features.generation.records import File
 from src.features.generation.repository import GenerationRepository
-from src.features.inspirations.manager import InspirationManager
+from src.features.inspirations import operations
+from src.features.inspirations.collaborators import InspirationCollaborators
 from src.features.inspirations.repository import InspirationRepository
 from src.features.media.file_resolver import FilePathResolver
 from src.features.media.upload_repository import UploadRepository
@@ -93,7 +94,7 @@ def _preset_template(preset_id="preset-1", category="image", extra_fields=None):
     )
 
 
-class InspirationManagerTestBase(PersistenceTestBase):
+class InspirationTestBase(PersistenceTestBase):
 
     def setUp(self):
         super().setUp()
@@ -123,8 +124,8 @@ class InspirationManagerTestBase(PersistenceTestBase):
         self.field_type_registry = FieldTypeRegistry()
         register_builtin_fields(self.field_type_registry)
 
-        self.manager = InspirationManager(
-            inspiration_repository=self.inspiration_repository,
+        self.collaborators = InspirationCollaborators(
+            repository=self.inspiration_repository,
             generation_repository=self.generation_repo,
             generation_parameter_repository=self.parameter_repo,
             preset_name_resolver=self.preset_name_resolver,
@@ -150,6 +151,13 @@ class InspirationManagerTestBase(PersistenceTestBase):
             else:
                 child.unlink()
         super().tearDown()
+
+    def _use_preset_template_loader(self, loader: "_FakePresetTemplateLoader") -> None:
+        """`InspirationCollaborators` is frozen - swap the one field via
+        `dataclasses.replace` rather than mutating the bundle in place."""
+        import dataclasses
+        self.preset_template_loader = loader
+        self.collaborators = dataclasses.replace(self.collaborators, preset_template_loader=loader)
 
     # --- fixtures ---
 
@@ -213,13 +221,13 @@ class InspirationManagerTestBase(PersistenceTestBase):
         return generation_id, file_record, on_disk
 
 
-class TestPublish(InspirationManagerTestBase):
+class TestPublish(InspirationTestBase):
 
     def test_publish_copies_files_and_embeds_snapshot(self):
         generation_id, file_record, source = self._generated_file(content=b"generated-pixels")
 
-        insp = self.manager.publish(
-            self.user_id, generation_id, [source.name], "My Shot", "a description"
+        insp = operations.publish(
+            self.collaborators, self.user_id, generation_id, [source.name], "My Shot", "a description"
         )
 
         self.assertEqual(insp.title, "My Shot")
@@ -252,43 +260,42 @@ class TestPublish(InspirationManagerTestBase):
         generation_id, file_record, source = self._generated_file(user_id=self.other_user_id)
 
         with self.assertRaises(ValueError):
-            self.manager.publish(self.user_id, generation_id, [source.name], "Stolen")
+            operations.publish(self.collaborators, self.user_id, generation_id, [source.name], "Stolen")
 
     def test_publish_rejects_a_filename_not_in_the_generation_output(self):
         generation_id, file_record, source = self._generated_file()
 
         with self.assertRaises(ValueError):
-            self.manager.publish(self.user_id, generation_id, ["not-a-real-file.png"], "Title")
+            operations.publish(self.collaborators, self.user_id, generation_id, ["not-a-real-file.png"], "Title")
 
     def test_publish_requires_a_title(self):
         generation_id, file_record, source = self._generated_file()
 
         with self.assertRaises(ValueError):
-            self.manager.publish(self.user_id, generation_id, [source.name], "   ")
+            operations.publish(self.collaborators, self.user_id, generation_id, [source.name], "   ")
 
     def test_publish_requires_at_least_one_filename(self):
         generation_id, file_record, source = self._generated_file()
 
         with self.assertRaises(ValueError):
-            self.manager.publish(self.user_id, generation_id, [], "Title")
+            operations.publish(self.collaborators, self.user_id, generation_id, [], "Title")
 
 
-class TestAllowlistSnapshot(InspirationManagerTestBase):
+class TestAllowlistSnapshot(InspirationTestBase):
     """The form_data allowlist filter: never leak by default."""
 
     def test_non_shareable_field_is_omitted_and_named(self):
         """`image` is a media field type - never shareable - so it must be
         dropped from the snapshot's form_data and recorded by name only."""
-        self.preset_template_loader = _FakePresetTemplateLoader({
+        self._use_preset_template_loader(_FakePresetTemplateLoader({
             "preset-1": _preset_template(extra_fields=[FieldTemplate(type="image", name="init_image")]),
-        })
-        self.manager.preset_template_loader = self.preset_template_loader
+        }))
 
         generation_id, file_record, source = self._generated_file(
             form_data={"prompt": "a cat", "seed": 12345, "init_image": "uploads/user-1/secret.png"},
         )
 
-        insp = self.manager.publish(self.user_id, generation_id, [source.name], "Mine")
+        insp = operations.publish(self.collaborators, self.user_id, generation_id, [source.name], "Mine")
 
         self.assertEqual(insp.params_snapshot["form_data"], {"prompt": "a cat", "seed": 12345})
         self.assertEqual(insp.params_snapshot["omitted_fields"], ["init_image"])
@@ -302,7 +309,7 @@ class TestAllowlistSnapshot(InspirationManagerTestBase):
             form_data={"prompt": "a cat", "seed": 12345, "mystery_field": "anything"},
         )
 
-        insp = self.manager.publish(self.user_id, generation_id, [source.name], "Mine")
+        insp = operations.publish(self.collaborators, self.user_id, generation_id, [source.name], "Mine")
 
         self.assertEqual(insp.params_snapshot["form_data"], {"prompt": "a cat", "seed": 12345})
         self.assertEqual(insp.params_snapshot["omitted_fields"], ["mystery_field"])
@@ -316,47 +323,45 @@ class TestAllowlistSnapshot(InspirationManagerTestBase):
             form_data={"prompt": "a cat", "seed": 12345},
         )
 
-        insp = self.manager.publish(self.user_id, generation_id, [source.name], "Mine")
+        insp = operations.publish(self.collaborators, self.user_id, generation_id, [source.name], "Mine")
 
         self.assertEqual(insp.params_snapshot["form_data"], {})
         self.assertEqual(sorted(insp.params_snapshot["omitted_fields"]), ["prompt", "seed"])
 
     def test_image_input_on_an_image_preset_derives_img2img(self):
-        self.preset_template_loader = _FakePresetTemplateLoader({
+        self._use_preset_template_loader(_FakePresetTemplateLoader({
             "preset-1": _preset_template(
                 category="image", extra_fields=[FieldTemplate(type="image", name="init_image")]
             ),
-        })
-        self.manager.preset_template_loader = self.preset_template_loader
+        }))
 
         generation_id, file_record, source = self._generated_file(
             form_data={"prompt": "a cat", "seed": 12345, "init_image": "uploads/user-1/x.png"},
         )
 
-        insp = self.manager.publish(self.user_id, generation_id, [source.name], "Mine")
+        insp = operations.publish(self.collaborators, self.user_id, generation_id, [source.name], "Mine")
 
         self.assertEqual(insp.technique, "img2img")
 
     def test_upscale_mode_derives_upscale_regardless_of_category(self):
-        self.preset_template_loader = _FakePresetTemplateLoader({
+        self._use_preset_template_loader(_FakePresetTemplateLoader({
             "preset-1": _preset_template(category="image"),
-        })
-        self.manager.preset_template_loader = self.preset_template_loader
+        }))
 
         generation_id, file_record, source = self._generated_file(mode="upscale")
 
-        insp = self.manager.publish(self.user_id, generation_id, [source.name], "Mine")
+        insp = operations.publish(self.collaborators, self.user_id, generation_id, [source.name], "Mine")
 
         self.assertEqual(insp.technique, "upscale")
 
 
-class TestParamsSnapshotSurvivesGenerationDeletion(InspirationManagerTestBase):
+class TestParamsSnapshotSurvivesGenerationDeletion(InspirationTestBase):
 
     def test_snapshot_and_params_outlive_the_source_generation(self):
         """The whole point of publishing a snapshot: deleting the source
         generation must not take the inspiration's params down with it."""
         generation_id, file_record, source = self._generated_file()
-        insp = self.manager.publish(self.user_id, generation_id, [source.name], "Snapshot Test")
+        insp = operations.publish(self.collaborators, self.user_id, generation_id, [source.name], "Snapshot Test")
 
         with self.db.get_cursor() as cursor:
             cursor.execute("DELETE FROM generations WHERE id = ?", (generation_id,))
@@ -370,44 +375,44 @@ class TestParamsSnapshotSurvivesGenerationDeletion(InspirationManagerTestBase):
         self.assertTrue(copied.exists())
 
 
-class TestDelete(InspirationManagerTestBase):
+class TestDelete(InspirationTestBase):
 
     def test_delete_removes_row_and_copied_files(self):
         generation_id, file_record, source = self._generated_file()
-        insp = self.manager.publish(self.user_id, generation_id, [source.name], "Doomed")
+        insp = operations.publish(self.collaborators, self.user_id, generation_id, [source.name], "Doomed")
         copied = self.storage_driver.local_path(f"inspirations/{insp.id}/{source.name}")
         self.assertTrue(copied.exists())
 
-        self.manager.delete(insp.id, self.user_id)
+        operations.delete(self.collaborators, insp.id, self.user_id)
 
         self.assertFalse(copied.exists())
         self.assertIsNone(self.inspiration_repository.get_by_id(insp.id))
 
     def test_delete_by_a_non_owner_is_rejected(self):
         generation_id, file_record, source = self._generated_file()
-        insp = self.manager.publish(self.user_id, generation_id, [source.name], "Mine")
+        insp = operations.publish(self.collaborators, self.user_id, generation_id, [source.name], "Mine")
 
         with self.assertRaises(ValueError):
-            self.manager.delete(insp.id, self.other_user_id)
+            operations.delete(self.collaborators, insp.id, self.other_user_id)
 
         self.assertIsNotNone(self.inspiration_repository.get_by_id(insp.id))
 
     def test_delete_by_an_admin_is_allowed(self):
         generation_id, file_record, source = self._generated_file()
-        insp = self.manager.publish(self.user_id, generation_id, [source.name], "Mine")
+        insp = operations.publish(self.collaborators, self.user_id, generation_id, [source.name], "Mine")
 
-        self.manager.delete(insp.id, self.other_user_id, is_admin=True)
+        operations.delete(self.collaborators, insp.id, self.other_user_id, is_admin=True)
 
         self.assertIsNone(self.inspiration_repository.get_by_id(insp.id))
 
 
-class TestComments(InspirationManagerTestBase):
+class TestComments(InspirationTestBase):
 
     def test_comment_from_another_user_notifies_the_author(self):
         generation_id, file_record, source = self._generated_file()
-        insp = self.manager.publish(self.user_id, generation_id, [source.name], "Mine")
+        insp = operations.publish(self.collaborators, self.user_id, generation_id, [source.name], "Mine")
 
-        self.manager.add_comment(insp.id, self.other_user_id, "nice work")
+        operations.add_comment(self.collaborators, insp.id, self.other_user_id, "nice work")
 
         self.notification_manager.notify.assert_called_once()
         kwargs = self.notification_manager.notify.call_args.kwargs
@@ -416,38 +421,38 @@ class TestComments(InspirationManagerTestBase):
 
     def test_comment_from_the_author_does_not_notify(self):
         generation_id, file_record, source = self._generated_file()
-        insp = self.manager.publish(self.user_id, generation_id, [source.name], "Mine")
+        insp = operations.publish(self.collaborators, self.user_id, generation_id, [source.name], "Mine")
 
-        self.manager.add_comment(insp.id, self.user_id, "self note")
+        operations.add_comment(self.collaborators, insp.id, self.user_id, "self note")
 
         self.notification_manager.notify.assert_not_called()
 
     def test_delete_comment_by_author_or_admin_only(self):
         generation_id, file_record, source = self._generated_file()
-        insp = self.manager.publish(self.user_id, generation_id, [source.name], "Mine")
-        comment = self.manager.add_comment(insp.id, self.other_user_id, "hi")
+        insp = operations.publish(self.collaborators, self.user_id, generation_id, [source.name], "Mine")
+        comment = operations.add_comment(self.collaborators, insp.id, self.other_user_id, "hi")
 
         with self.assertRaises(ValueError):
-            self.manager.delete_comment(comment.id, self.user_id)  # not the comment author, not admin
+            operations.delete_comment(self.collaborators, comment.id, self.user_id)  # not the comment author, not admin
 
-        self.manager.delete_comment(comment.id, self.user_id, is_admin=True)
+        operations.delete_comment(self.collaborators, comment.id, self.user_id, is_admin=True)
         self.assertIsNone(self.inspiration_repository.get_comment(comment.id))
 
     def test_empty_comment_body_is_rejected(self):
         generation_id, file_record, source = self._generated_file()
-        insp = self.manager.publish(self.user_id, generation_id, [source.name], "Mine")
+        insp = operations.publish(self.collaborators, self.user_id, generation_id, [source.name], "Mine")
 
         with self.assertRaises(ValueError):
-            self.manager.add_comment(insp.id, self.other_user_id, "   ")
+            operations.add_comment(self.collaborators, insp.id, self.other_user_id, "   ")
 
 
-class TestSaveToLibrary(InspirationManagerTestBase):
+class TestSaveToLibrary(InspirationTestBase):
 
     def test_save_to_library_copies_file_and_marks_saved(self):
         generation_id, file_record, source = self._generated_file(content=b"generated-pixels")
-        insp = self.manager.publish(self.user_id, generation_id, [source.name], "Mine")
+        insp = operations.publish(self.collaborators, self.user_id, generation_id, [source.name], "Mine")
 
-        save_count = self.manager.save_to_library(insp.id, self.other_user_id)
+        save_count = operations.save_to_library(self.collaborators, insp.id, self.other_user_id)
 
         self.assertEqual(save_count, 1)
         uploads = self.upload_repo.list_for_user(self.other_user_id)
@@ -461,44 +466,44 @@ class TestSaveToLibrary(InspirationManagerTestBase):
 
     def test_unsave_keeps_library_copies(self):
         generation_id, file_record, source = self._generated_file()
-        insp = self.manager.publish(self.user_id, generation_id, [source.name], "Mine")
-        self.manager.save_to_library(insp.id, self.other_user_id)
+        insp = operations.publish(self.collaborators, self.user_id, generation_id, [source.name], "Mine")
+        operations.save_to_library(self.collaborators, insp.id, self.other_user_id)
 
-        save_count = self.manager.unsave(insp.id, self.other_user_id)
+        save_count = operations.unsave(self.collaborators, insp.id, self.other_user_id)
 
         self.assertEqual(save_count, 0)
         self.assertFalse(self.inspiration_repository.get_by_id(insp.id, viewer_id=self.other_user_id).saved_by_me)
 
 
-class TestCollections(InspirationManagerTestBase):
+class TestCollections(InspirationTestBase):
 
     def test_create_add_and_remove_item(self):
         generation_id, file_record, source = self._generated_file()
-        insp = self.manager.publish(self.user_id, generation_id, [source.name], "Mine")
-        collection = self.manager.create_collection(self.user_id, "Favorites")
+        insp = operations.publish(self.collaborators, self.user_id, generation_id, [source.name], "Mine")
+        collection = operations.create_collection(self.collaborators, self.user_id, "Favorites")
 
-        self.manager.add_item(collection.id, self.user_id, insp.id)
-        self.manager.add_item(collection.id, self.user_id, insp.id)  # idempotent
+        operations.add_item(self.collaborators, collection.id, self.user_id, insp.id)
+        operations.add_item(self.collaborators, collection.id, self.user_id, insp.id)  # idempotent
 
         refreshed = self.inspiration_repository.get_collection(collection.id, self.user_id)
         self.assertEqual(refreshed.item_count, 1)
 
-        self.manager.remove_item(collection.id, self.user_id, insp.id)
+        operations.remove_item(self.collaborators, collection.id, self.user_id, insp.id)
         refreshed = self.inspiration_repository.get_collection(collection.id, self.user_id)
         self.assertEqual(refreshed.item_count, 0)
 
     def test_move_collection_rejects_a_cycle(self):
-        parent = self.manager.create_collection(self.user_id, "Parent")
-        child = self.manager.create_collection(self.user_id, "Child", parent.id)
+        parent = operations.create_collection(self.collaborators, self.user_id, "Parent")
+        child = operations.create_collection(self.collaborators, self.user_id, "Child", parent.id)
 
         with self.assertRaises(ValueError):
-            self.manager.update_collection(parent.id, self.user_id, parent_id=child.id, parent_id_set=True)
+            operations.update_collection(self.collaborators, parent.id, self.user_id, parent_id=child.id, parent_id_set=True)
 
     def test_collection_ownership_is_scoped(self):
-        theirs = self.manager.create_collection(self.other_user_id, "Theirs")
+        theirs = operations.create_collection(self.collaborators, self.other_user_id, "Theirs")
 
         with self.assertRaises(ValueError):
-            self.manager.delete_collection(theirs.id, self.user_id)
+            operations.delete_collection(self.collaborators, theirs.id, self.user_id)
 
 
 if __name__ == "__main__":

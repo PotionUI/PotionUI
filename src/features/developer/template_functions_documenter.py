@@ -16,7 +16,7 @@ The deleted render globals (``get_form``, ``value``/``get``,
 ``setting``/``config``) and the whole ``input.*`` context are intentionally
 absent - they are build errors now, not documented syntax.
 
-Consumed by ``DeveloperManager.get_template_functions_documentation`` (served
+Consumed by ``DeveloperController.get_template_functions_documentation`` (served
 at the developer docs endpoint); the ``{functions, total, categories}`` /
 per-entry ``{name, alias, signature, description, parameters, return_type,
 examples, category}`` shape is unchanged so the frontend renderer is unaffected.

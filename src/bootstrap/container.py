@@ -51,9 +51,7 @@ from src.features.setup.run_manager import SetupRunManager
 from src.features.setup.recipe_catalog import RecipeCatalog
 from src.features.phrasebook.preview_generator import PhrasebookPreviewGenerator
 from src.features.chat import ChatManager, ResponseProcessor
-from src.features.developer import DeveloperManager
 from src.features.downloads import DownloadManager, DownloadRepository
-from src.features.forms import FormManager
 from src.platform.plugins.field_types import FieldTypeRegistry, field_type_registry as _shared_field_type_registry
 from src.platform.plugins.prompt_importers import (
     PromptImporterRegistry,
@@ -142,7 +140,6 @@ if TYPE_CHECKING:
     from src.features.chat.turns import ChatTurnRegistry
     from src.features.developer.routes import DeveloperController
     from src.features.docs.routes import DocsController
-    from src.features.docs.manager import DocsManager
     from src.features.forms.routes import FormController
     from src.features.fields.routes import FieldController
     from src.features.phrasebook.routes import PhrasebookController
@@ -155,7 +152,7 @@ if TYPE_CHECKING:
     from src.features.media.routes import MediaController
     from src.features.media.editing.manager import MediaEditManager
     from src.features.media.editing.routes import MediaEditController
-    from src.features.library import LibraryManager, LibraryRepository
+    from src.features.library import LibraryCollaborators, LibraryRepository
     from src.features.library.routes import LibraryController
     from src.features.presets.routes import PresetController
     from src.features.prompt_database.routes import PromptDatabaseController
@@ -257,13 +254,10 @@ class AppContainer:
     chat_controller: "ChatController"
 
     # Developer / docs
-    developer_manager: DeveloperManager
     developer_controller: "DeveloperController"
-    docs_manager: "DocsManager"
     docs_controller: "DocsController"
 
     # Forms / fields
-    form_manager: FormManager
     form_controller: "FormController"
     field_controller: "FieldController"
 
@@ -319,12 +313,12 @@ class AppContainer:
 
     # Library
     library_repository: "LibraryRepository"
-    library_manager: "LibraryManager"
+    library_collaborators: "LibraryCollaborators"
     library_controller: "LibraryController"
 
     # Inspirations
     inspiration_repository: "InspirationRepository"
-    inspiration_manager: "InspirationManager"
+    inspiration_collaborators: "InspirationCollaborators"
     inspiration_controller: "InspirationController"
 
     # Presets
@@ -440,10 +434,10 @@ def build_container() -> AppContainer:
 
     # Field-type registry (src/platform/plugins/field_types.py) - the single
     # source of truth for form field dispatch, shared by FieldFactory,
-    # FormManager, the field_controller endpoint, and the plugin
-    # enable/disable path. This is the process-wide singleton (mirrors
+    # src.features.forms.operations, the field_controller endpoint, and the
+    # plugin enable/disable path. This is the process-wide singleton (mirrors
     # `output_type_registry`) so any ad-hoc `FieldFactory(...)`
-    # construction elsewhere (e.g. DeveloperManager, PresetFormSerializer)
+    # construction elsewhere (e.g. PresetFormSerializer)
     # sees the same, already-populated registry. Populated before plugins
     # are discovered/enabled so core types are registered first (a plugin
     # claiming a core type name fails to enable with a collision error,
@@ -463,9 +457,9 @@ def build_container() -> AppContainer:
     )
     ensure_builtin_attribute_definitions(attribute_definition_repository)
 
-    # Managers FormManager needs, built ahead of the rest of the module
-    # graph so builtin field types (which need FormManager's option
-    # loaders) can be registered before any plugin is enabled.
+    # Built ahead of the rest of the module graph so builtin field types
+    # (which need `template_processor` for the select-options loader) can be
+    # registered before any plugin is enabled.
     model_manager = ModelManager(models_dir.__str__())
     template_processor = TemplateProcessor(settings_manager)
 
@@ -552,14 +546,7 @@ def build_container() -> AppContainer:
         ["content/presets/marketplace", "content/presets/local"], plugin_registry=plugin_registry
     )
 
-    form_manager = FormManager(
-        template_processor=template_processor,
-        model_manager=model_manager,
-        settings_manager=settings_manager,
-        plugin_registry=plugin_registry,
-        field_registry=field_type_registry
-    )
-    register_builtin_fields(field_type_registry, form_manager=form_manager)
+    register_builtin_fields(field_type_registry, template_processor=template_processor)
 
     # Register the 13 builtin automation node types (triggers/conditions/
     # actions) onto the shared node_type_registry. Imported for
@@ -810,26 +797,23 @@ def build_container() -> AppContainer:
     chat_controller = ChatController(chat_manager, chat_turn_registry)
 
     # Developer components
-    developer_manager = DeveloperManager(
-        pipe_catalog=pipe_catalog,
-        preset_loader=preset_template_loader,
-        template_processor=template_processor
-    )
+    from src.features.developer.pipes_documenter import PipesDocumenter
+    from src.features.developer.template_functions_documenter import TemplateFunctionsDocumenter
+    pipes_documenter = PipesDocumenter(pipe_catalog)
+    template_functions_documenter = TemplateFunctionsDocumenter()
     from src.features.developer.routes import DeveloperController
-    developer_controller = DeveloperController(developer_manager)
+    developer_controller = DeveloperController(template_functions_documenter, preset_template_loader)
 
     # Docs components (in-app Documentation feature - aggregates repo
     # markdown, plugin-manifest `docs:` entries, and live-reference APIs
     # into a role-filtered tree)
-    from src.features.docs.manager import DocsManager
     from src.features.docs.routes import DocsController
-    docs_manager = DocsManager(plugin_registry, base_docs_path="docs")
-    docs_controller = DocsController(docs_manager, developer_manager)
+    docs_controller = DocsController(plugin_registry, base_docs_path="docs", pipes_documenter=pipes_documenter)
 
-    # Form components (form_manager was constructed earlier, ahead of
-    # plugin discovery, so builtin field types could be registered first)
+    # Form components (the field-type registry was populated earlier, ahead
+    # of plugin discovery, so builtin field types could be registered first)
     from src.features.forms.routes import FormController
-    form_controller = FormController(form_manager)
+    form_controller = FormController(field_type_registry, plugin_registry)
 
     # Field-type registry controller
     from src.features.fields.routes import FieldController
@@ -1133,12 +1117,12 @@ def build_container() -> AppContainer:
     media_edit_controller = MediaEditController(media_edit_manager)
 
     # Library components (uploads as first-class, curatable resources)
-    from src.features.library import LibraryManager, LibraryRepository
+    from src.features.library import LibraryCollaborators, LibraryRepository
     from src.features.library.routes import LibraryController
 
     library_repository = LibraryRepository()
-    library_manager = LibraryManager(
-        library_repository=library_repository,
+    library_collaborators = LibraryCollaborators(
+        repository=library_repository,
         upload_repository=upload_repository,
         tag_repository=tag_repository,
         file_repository=file_repo,
@@ -1146,16 +1130,16 @@ def build_container() -> AppContainer:
         file_store=file_service,
         storage_driver=storage_driver,
     )
-    library_controller = LibraryController(library_manager)
+    library_controller = LibraryController(library_collaborators)
 
     # Inspirations components (cross-user publishing of generations)
     from src.features.generation.parameter_repository import GenerationParameterRepository
-    from src.features.inspirations import InspirationManager, InspirationRepository
+    from src.features.inspirations import InspirationCollaborators, InspirationRepository
     from src.features.inspirations.routes import InspirationController
 
     inspiration_repository = InspirationRepository()
-    inspiration_manager = InspirationManager(
-        inspiration_repository=inspiration_repository,
+    inspiration_collaborators = InspirationCollaborators(
+        repository=inspiration_repository,
         generation_repository=generation_repository,
         generation_parameter_repository=GenerationParameterRepository(),
         preset_name_resolver=PresetNameResolver(preset_template_loader),
@@ -1167,12 +1151,7 @@ def build_container() -> AppContainer:
         upload_repository=upload_repository,
         notification_manager=notification_manager,
     )
-    inspiration_controller = InspirationController(
-        inspiration_manager=inspiration_manager,
-        inspiration_repository=inspiration_repository,
-        file_store=file_service,
-        storage_driver=storage_driver,
-    )
+    inspiration_controller = InspirationController(inspiration_collaborators)
 
     # Preset manager components
     from src.features.presets.file_repository import FilePresetRepository

@@ -1,7 +1,7 @@
 """Derives an inspiration's `technique` label at publish time.
 
 A pure classifier over three signals already resolved by the caller
-(`InspirationManager.publish`): the generation's `mode` name, its preset's
+(`src.features.inspirations.operations.publish`): the generation's `mode` name, its preset's
 output `category` ("image"/"video"/"audio"/"utility"), and whether an
 image/video field was among the fields submitted with a real value. None of
 these three ever needs a database round-trip here, which is what keeps this

@@ -1,9 +1,17 @@
-"""Tests for DeveloperController."""
+"""Tests for DeveloperController.
+
+`get_template_functions_documentation` reads straight from the held
+`TemplateFunctionsDocumenter` (no logic beyond delegation); `get_presets_lint`/
+`get_docs_lint` delegate to `src.features.developer.operations` -
+`mock_operations` patches the `operations` module as imported into
+`routes.py`, exactly like the previous manager mock (see
+tests/features/user_groups/test_routes.py for the established pattern)."""
 from types import SimpleNamespace
 
 import pytest
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
+from unittest.mock import Mock
 
+from src.features.developer import routes as routes_module
 from src.features.developer.routes import DeveloperController, build_router
 from src.platform.security.user import User, AccountType
 
@@ -18,20 +26,19 @@ class TestDeveloperController:
     """Tests for the DeveloperController class."""
 
     @pytest.fixture
-    def mock_manager(self):
-        """Create a mock DeveloperManager."""
-        manager = Mock()
-        manager.get_template_functions_documentation.return_value = {
+    def mock_template_functions_documenter(self):
+        documenter = Mock()
+        documenter.generate_documentation.return_value = {
             'functions': [{'name': 'path'}],
             'total': 1,
             'categories': ['Path Helpers']
         }
-        return manager
+        return documenter
 
     @pytest.fixture
-    def controller(self, mock_manager):
-        """Create a DeveloperController with mock manager."""
-        return DeveloperController(mock_manager)
+    def controller(self, mock_template_functions_documenter):
+        """Create a DeveloperController with a mock documenter."""
+        return DeveloperController(mock_template_functions_documenter, Mock())
 
     @pytest.fixture
     def admin_user(self):
@@ -47,13 +54,15 @@ class TestDeveloperController:
         user.account_type = AccountType.USER
         return user
 
-    def test_initialization(self, mock_manager):
-        """Test controller initializes with manager."""
-        controller = DeveloperController(mock_manager)
-        assert controller.manager == mock_manager
+    def test_initialization(self, mock_template_functions_documenter):
+        """Test controller initializes with its collaborators."""
+        preset_loader = Mock()
+        controller = DeveloperController(mock_template_functions_documenter, preset_loader)
+        assert controller.template_functions_documenter == mock_template_functions_documenter
+        assert controller.preset_loader == preset_loader
 
     @pytest.mark.asyncio
-    async def test_get_template_functions_documentation_success(self, controller, mock_manager):
+    async def test_get_template_functions_documentation_success(self, controller, mock_template_functions_documenter):
         """Test successful template functions retrieval."""
         response = await controller.get_template_functions_documentation()
 
@@ -61,12 +70,12 @@ class TestDeveloperController:
         assert response.data['functions'] == [{'name': 'path'}]
         assert response.data['total'] == 1
         assert response.data['categories'] == ['Path Helpers']
-        mock_manager.get_template_functions_documentation.assert_called_once()
+        mock_template_functions_documenter.generate_documentation.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_get_template_functions_documentation_value_error(self, controller, mock_manager):
+    async def test_get_template_functions_documentation_value_error(self, controller, mock_template_functions_documenter):
         """Test template functions with ValueError."""
-        mock_manager.get_template_functions_documentation.side_effect = ValueError("Template error")
+        mock_template_functions_documenter.generate_documentation.side_effect = ValueError("Template error")
 
         response = await controller.get_template_functions_documentation()
 
@@ -79,12 +88,12 @@ class TestRouteHandlers:
 
     @pytest.fixture
     def mock_controller(self):
-        """Create a mock-manager-backed controller."""
-        mock_manager = Mock()
-        mock_manager.get_template_functions_documentation.return_value = {
+        """Create a documenter-backed controller."""
+        documenter = Mock()
+        documenter.generate_documentation.return_value = {
             'functions': [], 'total': 0, 'categories': []
         }
-        return DeveloperController(mock_manager)
+        return DeveloperController(documenter, Mock())
 
     @pytest.fixture
     def handlers(self, mock_controller):
@@ -125,34 +134,34 @@ class TestDocsLint:
     """Docs 2.0 lint endpoint (GET /api/developer/docs/lint)."""
 
     @pytest.fixture
-    def mock_manager(self):
-        m = Mock()
-        m.get_docs_lint.return_value = {"issues": [], "total_errors": 0, "total_warnings": 0}
-        return m
+    def mock_operations(self, monkeypatch):
+        """Patch the `operations` module as seen by routes.py."""
+        mock = Mock()
+        mock.get_docs_lint.return_value = {"issues": [], "total_errors": 0, "total_warnings": 0}
+        monkeypatch.setattr(routes_module, "operations", mock)
+        return mock
 
     @pytest.fixture
-    def controller(self, mock_manager):
-        return DeveloperController(mock_manager)
+    def controller(self, mock_operations):
+        return DeveloperController(Mock(), Mock())
 
     @pytest.mark.asyncio
-    async def test_get_docs_lint_success(self, controller, mock_manager):
+    async def test_get_docs_lint_success(self, controller, mock_operations):
         response = await controller.get_docs_lint()
         assert response.success is True
         assert response.data == {"issues": [], "total_errors": 0, "total_warnings": 0}
-        mock_manager.get_docs_lint.assert_called_once()
+        mock_operations.get_docs_lint.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_get_docs_lint_value_error(self, controller, mock_manager):
-        mock_manager.get_docs_lint.side_effect = ValueError("boom")
+    async def test_get_docs_lint_value_error(self, controller, mock_operations):
+        mock_operations.get_docs_lint.side_effect = ValueError("boom")
         response = await controller.get_docs_lint()
         assert response.success is False
         assert response.error == "docs_lint_failed"
 
     @pytest.mark.asyncio
-    async def test_docs_lint_route_admin(self):
-        m = Mock()
-        m.get_docs_lint.return_value = {"issues": [], "total_errors": 0, "total_warnings": 0}
-        handlers = _route_handlers(DeveloperController(m))
+    async def test_docs_lint_route_admin(self, mock_operations):
+        handlers = _route_handlers(DeveloperController(Mock(), Mock()))
         user = Mock(spec=User)
         user.account_type = AccountType.ADMIN
         response = await handlers["get_docs_lint"](current_user=user)
@@ -162,7 +171,7 @@ class TestDocsLint:
     async def test_docs_lint_route_non_admin_403(self):
         from fastapi import HTTPException
 
-        handlers = _route_handlers(DeveloperController(Mock()))
+        handlers = _route_handlers(DeveloperController(Mock(), Mock()))
         user = Mock(spec=User)
         user.account_type = AccountType.USER
         with pytest.raises(HTTPException) as exc:

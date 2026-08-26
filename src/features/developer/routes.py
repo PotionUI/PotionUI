@@ -10,7 +10,8 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user
-from src.features.developer import DeveloperManager
+from src.features.developer import operations
+from src.features.developer.template_functions_documenter import TemplateFunctionsDocumenter
 from src.platform.security.user import User, AccountType
 
 if TYPE_CHECKING:
@@ -22,22 +23,21 @@ class DeveloperController(BaseController):
     Controller for developer documentation endpoints.
 
     Handles the template-functions documentation and preset-lint endpoints.
-    Uses DeveloperManager for documentation generation. Pipes/fields/IO-types
-    documentation now lives behind `/api/docs/live/pipes` (docs_controller.py)
-    and `/api/fields/types` respectively - `DeveloperManager` still implements
-    `get_pipes_documentation()`/`get_fields_documentation()`/`get_io_types()`
-    for that consumer and other internal callers, but this controller no
-    longer exposes them as standalone HTTP routes.
+    Pipes/fields/IO-types documentation now lives behind
+    `/api/docs/live/pipes` (docs_controller.py, reading `PipesDocumenter`
+    directly) and `/api/fields/types` (reading `FieldTypeRegistry` directly) -
+    this controller no longer exposes them as standalone HTTP routes.
     """
 
-    def __init__(self, developer_manager: DeveloperManager):
+    def __init__(self, template_functions_documenter: TemplateFunctionsDocumenter, preset_loader):
         super().__init__()
-        self.manager = developer_manager
+        self.template_functions_documenter = template_functions_documenter
+        self.preset_loader = preset_loader
 
     async def get_template_functions_documentation(self) -> APIResponse:
         """Get documentation for all template functions available in pipeline.yml files."""
         try:
-            data = self.manager.get_template_functions_documentation()
+            data = self.template_functions_documenter.generate_documentation()
             return self.success_response(data=data)
         except ValueError as e:
             return self.error_api_response(
@@ -54,7 +54,7 @@ class DeveloperController(BaseController):
     async def get_presets_lint(self) -> APIResponse:
         """Get preset schema validation errors and a full lint run."""
         try:
-            data = self.manager.get_presets_lint()
+            data = operations.get_presets_lint(self.preset_loader)
             return self.success_response(data=data)
         except ValueError as e:
             return self.error_api_response(
@@ -71,7 +71,7 @@ class DeveloperController(BaseController):
     async def get_docs_lint(self) -> APIResponse:
         """Lint the typed documentation (Docs 2.0)."""
         try:
-            data = self.manager.get_docs_lint()
+            data = operations.get_docs_lint()
             return self.success_response(data=data)
         except ValueError as e:
             return self.error_api_response(

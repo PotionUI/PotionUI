@@ -2,20 +2,30 @@
 Registers every core (non-plugin) field type onto a `FieldTypeRegistry`.
 
 Called once at startup (`src/bootstrap/container.py`) against the shared
-`field_type_registry` singleton, and again (with no `form_manager`) by
+`field_type_registry` singleton, and again (with no `template_processor`) by
 `FieldFactory`/tests that construct a private registry ad hoc.
 
-`form_manager` is optional. When provided, its option-loading methods
-(`_get_select_options`, `_get_model_database_options`, `_get_checkbox_options`)
-are wired in as the `options_provider` for the field types that support
-dynamic options - `FormManager` remains the single owner of that loading
-logic, this just binds it into the registry so `FormManager.get_field_options`
-and the `/api/fields/types` manifest can both dispatch off the same table.
+`template_processor` is optional. When provided, the dynamic option loaders
+in `src.features.forms.operations` (`get_select_options`,
+`get_model_database_options`, `get_checkbox_options`) are wired in as the
+`options_provider` for the field types that support dynamic options -
+`get_select_options` needs `template_processor` to resolve a templated
+`file.path`/`files.in`, bound here via `functools.partial` so the registry's
+`options_provider` table stays a single-arg `(config) -> options` callable.
+This is the registry both `src.features.forms.operations.get_field_options`
+and the `/api/fields/types` manifest dispatch off of, so a field type's
+options load exactly one way regardless of caller.
 """
 
+import functools
 from typing import Optional
 
 from src.platform.plugins.field_types import FieldTypeDefinition, FieldTypeRegistry
+from src.features.forms.operations import (
+    get_select_options,
+    get_model_database_options,
+    get_checkbox_options,
+)
 from src.features.fields.select import Select
 from src.features.fields.slider import Slider
 from src.features.fields.stepper import Stepper
@@ -42,11 +52,14 @@ from src.features.fields.prompt_timeline import PromptTimeline
 from src.features.fields.camera_shot import CameraShot
 
 
-def register_builtin_fields(registry: FieldTypeRegistry, form_manager: Optional[object] = None) -> None:
+def register_builtin_fields(registry: FieldTypeRegistry, template_processor: Optional[object] = None) -> None:
     """Register the ~28 core field types onto `registry`."""
-    select_options = form_manager._get_select_options if form_manager else None
-    model_options = form_manager._get_model_database_options if form_manager else None
-    checkbox_options = form_manager._get_checkbox_options if form_manager else None
+    if template_processor is not None:
+        select_options = functools.partial(get_select_options, template_processor)
+        model_options = get_model_database_options
+        checkbox_options = get_checkbox_options
+    else:
+        select_options = model_options = checkbox_options = None
 
     definitions = [
         # Plain inputs - no dedicated backend schema class, DefaultField (passthrough) applies.

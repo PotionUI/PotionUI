@@ -24,6 +24,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from src.features.forms.binding import bind_form
+from src.features.library import operations
 from src.features.library.routes import LibraryController, build_router as build_library_router
 from src.features.media import ImageProcessor, MediaManager, MediaTypeResolver
 from src.features.media.routes import MediaController, build_router as build_media_router
@@ -33,7 +34,7 @@ from src.platform.security.current_user import get_current_active_user
 from src.platform.security.user import AccountType, User
 from src.platform.util.ids import generate_ulid
 
-from tests.features.library.test_manager import LibraryManagerTestBase
+from tests.features.library.test_operations import LibraryTestBase
 
 
 class _NoopPlugins:
@@ -54,7 +55,7 @@ class _Container:
         self.library_controller = library_controller
 
 
-class LibraryOverHTTPTestBase(LibraryManagerTestBase):
+class LibraryOverHTTPTestBase(LibraryTestBase):
     """The media and library routers over a real database and storage tree."""
 
     def setUp(self):
@@ -75,7 +76,7 @@ class LibraryOverHTTPTestBase(LibraryManagerTestBase):
 
         container = _Container(
             media_controller=MediaController(media_manager),
-            library_controller=LibraryController(self.manager),
+            library_controller=LibraryController(self.collaborators),
         )
 
         app = FastAPI()
@@ -167,7 +168,7 @@ class TestPickingFromLibraryDoesNotDuplicate(LibraryOverHTTPTestBase):
             )
 
         tag_ids = [self.tag_repo.create_tag(n, "UPLOAD", self.user_id).id for n in ("cats", "blue")]
-        self.manager.set_tags(item.id, tag_ids, self.user_id)
+        operations.set_tags(self.collaborators, item.id, tag_ids, self.user_id)
 
         listing = self.client.get(
             "/api/library/items", params={"tag_ids": tag_ids, "collection_id": collection_id}

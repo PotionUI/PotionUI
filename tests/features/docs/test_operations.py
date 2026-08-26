@@ -1,11 +1,11 @@
-"""Tests for DocsManager (src/core/docs/manager.py)."""
+"""Tests for src.features.docs.operations (build_tree / get_content)."""
 
 from types import SimpleNamespace
 
 import pytest
 
-from src.features.docs.manager import (
-    DocsManager,
+from src.features.docs import operations
+from src.features.docs.operations import (
     DocForbiddenError,
     DocIsLiveError,
     DocNotFoundError,
@@ -34,9 +34,9 @@ def write(path, content):
 class TestBuildTreeRepoDocs:
     def test_user_docs_form_user_section(self, tmp_path):
         write(tmp_path / "docs" / "user" / "getting-started.md", "# Getting Started\n\nHello.")
-        manager = DocsManager(FakePluginRegistry([]), base_docs_path=str(tmp_path / "docs"))
+        registry, base_docs_path = FakePluginRegistry([]), str(tmp_path / "docs")
 
-        tree = manager.build_tree(is_admin=False)
+        tree = operations.build_tree(registry, base_docs_path, is_admin=False)
 
         assert [s["id"] for s in tree["sections"]] == ["user"]
         user_section = tree["sections"][0]
@@ -53,9 +53,9 @@ class TestBuildTreeRepoDocs:
 
     def test_developer_section_omitted_for_non_admin(self, tmp_path):
         write(tmp_path / "docs" / "ARCHITECTURE.md", "# Architecture\n")
-        manager = DocsManager(FakePluginRegistry([]), base_docs_path=str(tmp_path / "docs"))
+        registry, base_docs_path = FakePluginRegistry([]), str(tmp_path / "docs")
 
-        tree = manager.build_tree(is_admin=False)
+        tree = operations.build_tree(registry, base_docs_path, is_admin=False)
 
         assert [s["id"] for s in tree["sections"]] == ["user"]
 
@@ -71,9 +71,9 @@ class TestBuildTreeRepoDocs:
         write(tmp_path / "docs" / "ARCHITECTURE.md", "# Architecture\n")
         write(tmp_path / "docs" / "models" / "sdxl.md", "---\ntype: model\ntitle: SDXL\n"
               "family_key: sdxl\nspec: {arch: a, latent: l, vae: v, te: t, guidance: g}\n---\nBody")
-        manager = DocsManager(FakePluginRegistry([]), base_docs_path=str(tmp_path / "docs"))
+        registry, base_docs_path = FakePluginRegistry([]), str(tmp_path / "docs")
 
-        tree = manager.build_tree(is_admin=False)
+        tree = operations.build_tree(registry, base_docs_path, is_admin=False)
 
         assert [s["id"] for s in tree["sections"]] == ["user"]
         hidden = {h["id"]: h for h in tree["hidden_sections"]}
@@ -85,9 +85,9 @@ class TestBuildTreeRepoDocs:
         """Even with zero markdown docs, the live reference entries alone make
         the developer/contributor sections non-empty and thus reported."""
         write(tmp_path / "docs" / "user" / "intro.md", "# Intro\n")
-        manager = DocsManager(FakePluginRegistry([]), base_docs_path=str(tmp_path / "docs"))
+        registry, base_docs_path = FakePluginRegistry([]), str(tmp_path / "docs")
 
-        tree = manager.build_tree(is_admin=False)
+        tree = operations.build_tree(registry, base_docs_path, is_admin=False)
 
         hidden = {h["id"]: h for h in tree["hidden_sections"]}
         assert hidden["developer"]["count"] == 6
@@ -96,17 +96,17 @@ class TestBuildTreeRepoDocs:
     def test_hidden_sections_always_empty_for_admin(self, tmp_path):
         """Nothing is hidden from an admin - hidden_sections is not just unused, it's empty."""
         write(tmp_path / "docs" / "ARCHITECTURE.md", "# Architecture\n")
-        manager = DocsManager(FakePluginRegistry([]), base_docs_path=str(tmp_path / "docs"))
+        registry, base_docs_path = FakePluginRegistry([]), str(tmp_path / "docs")
 
-        tree = manager.build_tree(is_admin=True)
+        tree = operations.build_tree(registry, base_docs_path, is_admin=True)
 
         assert tree["hidden_sections"] == []
 
     def test_developer_section_present_for_admin_with_live_items(self, tmp_path):
         write(tmp_path / "docs" / "ARCHITECTURE.md", "# Architecture\n")
-        manager = DocsManager(FakePluginRegistry([]), base_docs_path=str(tmp_path / "docs"))
+        registry, base_docs_path = FakePluginRegistry([]), str(tmp_path / "docs")
 
-        tree = manager.build_tree(is_admin=True)
+        tree = operations.build_tree(registry, base_docs_path, is_admin=True)
 
         assert [s["id"] for s in tree["sections"]] == ["user", "developer", "contributor"]
         dev_items = tree["sections"][1]["items"]
@@ -125,9 +125,9 @@ class TestBuildTreeRepoDocs:
     def test_user_subdir_not_double_counted_in_developer_section(self, tmp_path):
         write(tmp_path / "docs" / "user" / "intro.md", "# Intro\n")
         write(tmp_path / "docs" / "TOPLEVEL.md", "# Toplevel\n")
-        manager = DocsManager(FakePluginRegistry([]), base_docs_path=str(tmp_path / "docs"))
+        registry, base_docs_path = FakePluginRegistry([]), str(tmp_path / "docs")
 
-        tree = manager.build_tree(is_admin=True)
+        tree = operations.build_tree(registry, base_docs_path, is_admin=True)
 
         dev_ids = {item["id"] for item in tree["sections"][1]["items"]}
         assert "user/intro" not in dev_ids
@@ -137,9 +137,9 @@ class TestBuildTreeRepoDocs:
         write(tmp_path / "docs" / "user" / "b.md", "---\ntitle: Bravo\norder: 5\n---\nBody")
         write(tmp_path / "docs" / "user" / "a.md", "---\ntitle: Alpha\norder: 5\n---\nBody")
         write(tmp_path / "docs" / "user" / "z.md", "---\ntitle: Zulu\norder: 1\n---\nBody")
-        manager = DocsManager(FakePluginRegistry([]), base_docs_path=str(tmp_path / "docs"))
+        registry, base_docs_path = FakePluginRegistry([]), str(tmp_path / "docs")
 
-        tree = manager.build_tree(is_admin=False)
+        tree = operations.build_tree(registry, base_docs_path, is_admin=False)
         titles = [item["title"] for item in tree["sections"][0]["items"]]
 
         assert titles == ["Zulu", "Alpha", "Bravo"]
@@ -149,9 +149,9 @@ class TestBuildTreeRepoDocs:
             tmp_path / "docs" / "user" / "custom.md",
             "---\ntitle: Custom Title\norder: 42\n---\n# Ignored Heading\nBody text.",
         )
-        manager = DocsManager(FakePluginRegistry([]), base_docs_path=str(tmp_path / "docs"))
+        registry, base_docs_path = FakePluginRegistry([]), str(tmp_path / "docs")
 
-        tree = manager.build_tree(is_admin=False)
+        tree = operations.build_tree(registry, base_docs_path, is_admin=False)
         item = tree["sections"][0]["items"][0]
 
         assert item["title"] == "Custom Title"
@@ -169,9 +169,9 @@ class TestBuildTreeRepoDocs:
                 "Body"
             ),
         )
-        manager = DocsManager(FakePluginRegistry([]), base_docs_path=str(tmp_path / "docs"))
+        registry, base_docs_path = FakePluginRegistry([]), str(tmp_path / "docs")
 
-        tree = manager.build_tree(is_admin=True)
+        tree = operations.build_tree(registry, base_docs_path, is_admin=True)
         item = next(i for i in tree["sections"][1]["items"] if i["id"] == "dev/model-inference")
 
         assert item["category"] == "Presets / Models"
@@ -184,9 +184,9 @@ class TestBuildTreeRepoDocs:
             tmp_path / "docs" / "user" / "doc.md",
             f"---\ncategory: {category_yaml}\ncategory_order: 2\n---\n# Doc\n",
         )
-        manager = DocsManager(FakePluginRegistry([]), base_docs_path=str(tmp_path / "docs"))
+        registry, base_docs_path = FakePluginRegistry([]), str(tmp_path / "docs")
 
-        item = manager.build_tree(is_admin=False)["sections"][0]["items"][0]
+        item = operations.build_tree(registry, base_docs_path, is_admin=False)["sections"][0]["items"][0]
 
         assert item["category"] is None
         assert item["category_order"] is None
@@ -196,9 +196,9 @@ class TestBuildTreeRepoDocs:
             tmp_path / "docs" / "user" / "doc.md",
             "---\ncategory: Reference\n---\n# Doc\n",
         )
-        manager = DocsManager(FakePluginRegistry([]), base_docs_path=str(tmp_path / "docs"))
+        registry, base_docs_path = FakePluginRegistry([]), str(tmp_path / "docs")
 
-        item = manager.build_tree(is_admin=False)["sections"][0]["items"][0]
+        item = operations.build_tree(registry, base_docs_path, is_admin=False)["sections"][0]["items"][0]
 
         assert item["category"] == "Reference"
         assert item["category_order"] == 100
@@ -206,9 +206,9 @@ class TestBuildTreeRepoDocs:
     def test_title_falls_back_to_heading_then_filename(self, tmp_path):
         write(tmp_path / "docs" / "user" / "has-heading.md", "# Real Heading\nBody.")
         write(tmp_path / "docs" / "user" / "no_heading_here.md", "Just some text, no heading.")
-        manager = DocsManager(FakePluginRegistry([]), base_docs_path=str(tmp_path / "docs"))
+        registry, base_docs_path = FakePluginRegistry([]), str(tmp_path / "docs")
 
-        tree = manager.build_tree(is_admin=False)
+        tree = operations.build_tree(registry, base_docs_path, is_admin=False)
         by_id = {item["id"]: item["title"] for item in tree["sections"][0]["items"]}
 
         assert by_id["user/has-heading"] == "Real Heading"
@@ -224,9 +224,9 @@ class TestPluginDocs:
             plugin_dir,
             [{"title": "Sample", "path": "docs/README.md", "audience": "user", "order": 10}],
         )
-        manager = DocsManager(FakePluginRegistry([manifest]), base_docs_path=str(tmp_path / "docs"))
+        registry, base_docs_path = FakePluginRegistry([manifest]), str(tmp_path / "docs")
 
-        tree = manager.build_tree(is_admin=False)
+        tree = operations.build_tree(registry, base_docs_path, is_admin=False)
         items = tree["sections"][0]["items"]
 
         assert len(items) == 1
@@ -252,9 +252,9 @@ class TestPluginDocs:
                 }
             ],
         )
-        manager = DocsManager(FakePluginRegistry([manifest]), base_docs_path=str(tmp_path / "docs"))
+        registry, base_docs_path = FakePluginRegistry([manifest]), str(tmp_path / "docs")
 
-        item = manager.build_tree(is_admin=False)["sections"][0]["items"][0]
+        item = operations.build_tree(registry, base_docs_path, is_admin=False)["sections"][0]["items"][0]
 
         assert item["category"] == "Presets / Models"
         assert item["category_order"] == 20
@@ -268,9 +268,9 @@ class TestPluginDocs:
         enabled_manifest = make_manifest(
             "enabled-plugin", enabled_dir, [{"title": "Enabled", "path": "docs/README.md"}]
         )
-        manager = DocsManager(FakePluginRegistry([enabled_manifest]), base_docs_path=str(tmp_path / "docs"))
+        registry, base_docs_path = FakePluginRegistry([enabled_manifest]), str(tmp_path / "docs")
 
-        tree = manager.build_tree(is_admin=False)
+        tree = operations.build_tree(registry, base_docs_path, is_admin=False)
         ids = {item["id"] for item in tree["sections"][0]["items"]}
 
         assert "plugin/enabled-plugin/README" in ids
@@ -282,9 +282,9 @@ class TestPluginDocs:
         manifest = make_manifest(
             "sample", plugin_dir, [{"title": "Internals", "path": "internals.md", "audience": "developer"}]
         )
-        manager = DocsManager(FakePluginRegistry([manifest]), base_docs_path=str(tmp_path / "docs"))
+        registry, base_docs_path = FakePluginRegistry([manifest]), str(tmp_path / "docs")
 
-        tree = manager.build_tree(is_admin=True)
+        tree = operations.build_tree(registry, base_docs_path, is_admin=True)
         dev_ids = {item["id"] for item in tree["sections"][1]["items"]}
         user_ids = {item["id"] for item in tree["sections"][0]["items"]}
 
@@ -299,13 +299,13 @@ class TestPluginDocs:
             plugin_dir,
             [{"title": "Contributing", "path": "contributing.md", "audience": "contributor"}],
         )
-        manager = DocsManager(FakePluginRegistry([manifest]), base_docs_path=str(tmp_path / "docs"))
+        registry, base_docs_path = FakePluginRegistry([manifest]), str(tmp_path / "docs")
 
-        admin_tree = manager.build_tree(is_admin=True)
+        admin_tree = operations.build_tree(registry, base_docs_path, is_admin=True)
         contributor_ids = {item["id"] for item in admin_tree["sections"][2]["items"]}
         assert "plugin/sample/contributing" in contributor_ids
 
-        user_tree = manager.build_tree(is_admin=False)
+        user_tree = operations.build_tree(registry, base_docs_path, is_admin=False)
         assert all(
             "plugin/sample/contributing" not in {item["id"] for item in section["items"]}
             for section in user_tree["sections"]
@@ -319,9 +319,9 @@ class TestPluginDocs:
         manifest = make_manifest(
             "evil", plugin_dir, [{"title": "Escape", "path": "../../secret.txt"}]
         )
-        manager = DocsManager(FakePluginRegistry([manifest]), base_docs_path=str(tmp_path / "docs"))
+        registry, base_docs_path = FakePluginRegistry([manifest]), str(tmp_path / "docs")
 
-        tree = manager.build_tree(is_admin=False)
+        tree = operations.build_tree(registry, base_docs_path, is_admin=False)
 
         assert tree["sections"][0]["items"] == []
 
@@ -331,9 +331,9 @@ class TestPluginDocs:
         manifest = make_manifest(
             "sample", plugin_dir, [{"title": "Missing", "path": "does/not/exist.md"}]
         )
-        manager = DocsManager(FakePluginRegistry([manifest]), base_docs_path=str(tmp_path / "docs"))
+        registry, base_docs_path = FakePluginRegistry([manifest]), str(tmp_path / "docs")
 
-        tree = manager.build_tree(is_admin=False)
+        tree = operations.build_tree(registry, base_docs_path, is_admin=False)
 
         assert tree["sections"][0]["items"] == []
 
@@ -344,9 +344,9 @@ class TestGetContent:
             tmp_path / "docs" / "user" / "doc.md",
             "---\ntitle: Doc\norder: 1\n---\n# Doc\nBody text here.",
         )
-        manager = DocsManager(FakePluginRegistry([]), base_docs_path=str(tmp_path / "docs"))
+        registry, base_docs_path = FakePluginRegistry([]), str(tmp_path / "docs")
 
-        content = manager.get_content("user/doc", is_admin=False)
+        content = operations.get_content(registry, base_docs_path, "user/doc", is_admin=False)
 
         assert content["id"] == "user/doc"
         assert content["title"] == "Doc"
@@ -354,35 +354,35 @@ class TestGetContent:
         assert "Body text here." in content["markdown"]
 
     def test_unknown_id_raises_not_found(self, tmp_path):
-        manager = DocsManager(FakePluginRegistry([]), base_docs_path=str(tmp_path / "docs"))
+        registry, base_docs_path = FakePluginRegistry([]), str(tmp_path / "docs")
 
         with pytest.raises(DocNotFoundError):
-            manager.get_content("user/does-not-exist", is_admin=False)
+            operations.get_content(registry, base_docs_path, "user/does-not-exist", is_admin=False)
 
     def test_developer_doc_forbidden_for_non_admin(self, tmp_path):
         write(tmp_path / "docs" / "ARCHITECTURE.md", "# Architecture\n")
-        manager = DocsManager(FakePluginRegistry([]), base_docs_path=str(tmp_path / "docs"))
+        registry, base_docs_path = FakePluginRegistry([]), str(tmp_path / "docs")
 
         with pytest.raises(DocForbiddenError):
-            manager.get_content("dev/ARCHITECTURE", is_admin=False)
+            operations.get_content(registry, base_docs_path, "dev/ARCHITECTURE", is_admin=False)
 
     def test_developer_doc_allowed_for_admin(self, tmp_path):
         write(tmp_path / "docs" / "ARCHITECTURE.md", "# Architecture\nDetails.")
-        manager = DocsManager(FakePluginRegistry([]), base_docs_path=str(tmp_path / "docs"))
+        registry, base_docs_path = FakePluginRegistry([]), str(tmp_path / "docs")
 
-        content = manager.get_content("dev/ARCHITECTURE", is_admin=True)
+        content = operations.get_content(registry, base_docs_path, "dev/ARCHITECTURE", is_admin=True)
 
         assert content["title"] == "Architecture"
         assert "Details." in content["markdown"]
 
     def test_live_doc_raises_is_live_error(self, tmp_path):
-        manager = DocsManager(FakePluginRegistry([]), base_docs_path=str(tmp_path / "docs"))
+        registry, base_docs_path = FakePluginRegistry([]), str(tmp_path / "docs")
 
         with pytest.raises(DocIsLiveError):
-            manager.get_content("live/hooks", is_admin=True)
+            operations.get_content(registry, base_docs_path, "live/hooks", is_admin=True)
 
     def test_live_doc_forbidden_before_live_check_for_non_admin(self, tmp_path):
-        manager = DocsManager(FakePluginRegistry([]), base_docs_path=str(tmp_path / "docs"))
+        registry, base_docs_path = FakePluginRegistry([]), str(tmp_path / "docs")
 
         with pytest.raises(DocForbiddenError):
-            manager.get_content("live/hooks", is_admin=False)
+            operations.get_content(registry, base_docs_path, "live/hooks", is_admin=False)

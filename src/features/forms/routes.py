@@ -2,7 +2,7 @@
 Form Controller.
 
 Thin controller for form-related API endpoints.
-Delegates all business logic to FormManager.
+Delegates all business logic to `src.features.forms.operations`.
 """
 from typing import Dict, Any, Optional, TYPE_CHECKING
 
@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user
 from src.features.forms.dto import FormFieldOptionsRequest, FormValidationRequest
-from src.features.forms import FormManager
+from src.features.forms import operations
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
@@ -21,9 +21,10 @@ if TYPE_CHECKING:
 class FormController(BaseController):
     """Controller for form operations."""
 
-    def __init__(self, form_manager: FormManager):
+    def __init__(self, field_registry, plugin_registry):
         super().__init__()
-        self.manager = form_manager
+        self.field_registry = field_registry
+        self.plugin_registry = plugin_registry
 
     async def get_field_options(
         self, field_type: str, field_config: Dict[str, Any], current_user: Optional["User"] = None,
@@ -32,12 +33,14 @@ class FormController(BaseController):
 
         `current_user` scopes a `model`/`models` field's options to the
         caller's model access - see
-        `FormManager.get_field_options`. Optional only so this controller can
-        still be constructed/called without a request context (tests); the
-        router always supplies the authenticated user.
+        `src.features.forms.operations.get_field_options`. Optional only so
+        this controller can still be constructed/called without a request
+        context (tests); the router always supplies the authenticated user.
         """
         try:
-            options = self.manager.get_field_options(field_type, field_config, current_user)
+            options = operations.get_field_options(
+                self.field_registry, self.plugin_registry, field_type, field_config, current_user
+            )
             return self.success_response(data=options)
         except ValueError as e:
             return self.error_response(
@@ -54,7 +57,7 @@ class FormController(BaseController):
     async def validate_form_data(self, form_schema: Dict[str, Any], form_data: Dict[str, Any]) -> APIResponse:
         """Validate form data against schema."""
         try:
-            result = self.manager.validate_form_data(form_schema, form_data)
+            result = operations.validate_form_data(self.plugin_registry, form_schema, form_data)
             return self.success_response(message="Form data is valid", data=result)
         except ValueError as e:
             return self.error_response(
@@ -72,7 +75,7 @@ class FormController(BaseController):
     async def get_form_defaults(self, preset_id: str) -> APIResponse:
         """Get default values for a preset form."""
         try:
-            defaults = self.manager.get_form_defaults(preset_id)
+            defaults = operations.get_form_defaults(preset_id)
             return self.success_response(data=defaults)
         except ValueError as e:
             return self.error_response(

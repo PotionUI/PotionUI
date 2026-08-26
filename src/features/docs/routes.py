@@ -1,20 +1,22 @@
 """
 Documentation Controller.
 
-Exposes the in-app Documentation feature built by `src/features/docs/manager.py`
-(`DocsManager`): a role-filtered tree aggregated from repo markdown, plugin
-manifests, and live-reference sources, plus per-doc markdown content. Also
-hosts the two new live-reference endpoints (pipes, output types) the
-developer-only "live" tree entries render from.
+Exposes the in-app Documentation feature built by
+`src/features/docs/operations.py`: a role-filtered tree aggregated from repo
+markdown, plugin manifests, and live-reference sources, plus per-doc markdown
+content. Also hosts the two new live-reference endpoints (pipes, output
+types) the developer-only "live" tree entries render from.
 """
+from pathlib import Path
 from typing import Any, Dict, TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user
-from src.features.docs.manager import DocsManager, DocNotFoundError, DocForbiddenError, DocIsLiveError
-from src.features.developer import DeveloperManager
+from src.features.docs import operations
+from src.features.docs.operations import DocNotFoundError, DocForbiddenError, DocIsLiveError
+from src.features.developer.pipes_documenter import PipesDocumenter
 from src.features.generation.output_types import output_type_registry
 from src.platform.security.user import User, AccountType
 
@@ -25,15 +27,16 @@ if TYPE_CHECKING:
 class DocsController(BaseController):
     """Controller for the in-app Documentation feature."""
 
-    def __init__(self, docs_manager: DocsManager, developer_manager: DeveloperManager):
+    def __init__(self, plugin_registry, base_docs_path: str, pipes_documenter: PipesDocumenter):
         super().__init__()
-        self.docs_manager = docs_manager
-        self.developer_manager = developer_manager
+        self.plugin_registry = plugin_registry
+        self.base_docs_path = Path(base_docs_path)
+        self.pipes_documenter = pipes_documenter
 
     async def get_tree(self, is_admin: bool) -> APIResponse:
         """Get the role-filtered documentation tree."""
         try:
-            data = self.docs_manager.build_tree(is_admin)
+            data = operations.build_tree(self.plugin_registry, self.base_docs_path, is_admin)
             return self.success_response(data=data)
         except Exception as e:
             self.logger.error(f"Failed to build docs tree: {e}")
@@ -45,7 +48,7 @@ class DocsController(BaseController):
     async def get_content(self, doc_id: str, is_admin: bool) -> APIResponse:
         """Get the raw markdown content for a doc id."""
         try:
-            data = self.docs_manager.get_content(doc_id, is_admin)
+            data = operations.get_content(self.plugin_registry, self.base_docs_path, doc_id, is_admin)
             return self.success_response(data=data)
         except DocNotFoundError as e:
             self.error_response(error="doc_not_found", message=str(e), status_code=404)
@@ -63,7 +66,7 @@ class DocsController(BaseController):
     async def get_live_pipes(self) -> APIResponse:
         """Get the live pipe registry reference (name, description, inputs/outputs/config specs)."""
         try:
-            data = self.developer_manager.get_pipes_documentation()
+            data = self.pipes_documenter.generate_documentation()
             return self.success_response(data=data)
         except Exception as e:
             self.logger.error(f"Failed to get live pipes reference: {e}")

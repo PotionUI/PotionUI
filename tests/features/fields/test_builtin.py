@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import Mock
 
 from src.features.fields.builtin import register_builtin_fields
+from src.features.forms.operations import get_checkbox_options, get_model_database_options
 from src.platform.plugins.field_types import FieldTypeRegistry
 
 
@@ -19,23 +20,29 @@ class TestRegisterBuiltinFields(unittest.TestCase):
         self.assertIsNotNone(select_def.schema_cls)
         self.assertIsNone(select_def.options_provider)
 
-    def test_registers_options_providers_when_form_manager_given(self):
+    def test_registers_options_providers_when_template_processor_given(self):
         registry = FieldTypeRegistry()
-        form_manager = Mock()
-        form_manager._get_select_options = Mock(return_value=[{'label': 'x', 'value': 'x'}])
-        form_manager._get_model_database_options = Mock(return_value=[])
-        form_manager._get_checkbox_options = Mock(return_value=[])
+        template_processor = Mock()
+        template_processor.process_template.return_value = "/does/not/exist.yml"
 
-        register_builtin_fields(registry, form_manager=form_manager)
+        register_builtin_fields(registry, template_processor=template_processor)
 
+        # `select`'s loader needs `template_processor` to resolve a templated
+        # `file.path`/`files.in` - bound via `functools.partial` so the
+        # registry keeps a single-arg `(config) -> options` callable.
         select_def = registry.get('select')
-        self.assertIs(select_def.options_provider, form_manager._get_select_options)
+        self.assertEqual(
+            select_def.options_provider({"file": {"path": "x.yml"}}),
+            [],  # a missing options file is logged and skipped, not an error
+        )
+        template_processor.process_template.assert_called_once_with("x.yml", {})
 
+        # `model`/`checkbox_group` need no collaborator - wired to the bare functions.
         model_def = registry.get('model')
-        self.assertIs(model_def.options_provider, form_manager._get_model_database_options)
+        self.assertIs(model_def.options_provider, get_model_database_options)
 
         checkbox_group_def = registry.get('checkbox_group')
-        self.assertIs(checkbox_group_def.options_provider, form_manager._get_checkbox_options)
+        self.assertIs(checkbox_group_def.options_provider, get_checkbox_options)
 
     def test_lora_picker_registered(self):
         registry = FieldTypeRegistry()

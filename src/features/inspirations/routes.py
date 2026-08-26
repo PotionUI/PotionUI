@@ -5,7 +5,8 @@ their generating params, with comments, saves, per-user collections, and a
 save-to-library reuse path.
 
 House rule followed here: GET handlers read straight from
-`InspirationRepository`; only mutations go through `InspirationManager`.
+`collaborators.repository`; only mutations go through
+`src.features.inspirations.operations`.
 """
 
 import logging
@@ -19,6 +20,7 @@ from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user
 from src.platform.security.user import AccountType
 
+from src.features.inspirations.collaborators import InspirationCollaborators
 from src.features.inspirations.dto import (
     PublishInspirationRequest,
     CommentCreateRequest,
@@ -29,14 +31,11 @@ from src.features.inspirations.dto import (
     comment_to_dto,
     collection_to_dto,
 )
-from src.features.inspirations.manager import InspirationManager
-from src.features.inspirations.repository import InspirationRepository
+from src.features.inspirations import operations
 from src.features.inspirations.storage import inspiration_media_key
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
-    from src.platform.filesystem.file_store import FileStore
-    from src.platform.filesystem.storage_driver import FileStorageDriver
 
 logger = logging.getLogger(__name__)
 
@@ -44,18 +43,9 @@ logger = logging.getLogger(__name__)
 class InspirationController(BaseController):
     """Controller for the Inspirations module."""
 
-    def __init__(
-        self,
-        inspiration_manager: InspirationManager,
-        inspiration_repository: InspirationRepository,
-        file_store: "FileStore",
-        storage_driver: "FileStorageDriver",
-    ):
+    def __init__(self, collaborators: InspirationCollaborators):
         super().__init__()
-        self.manager = inspiration_manager
-        self.repository = inspiration_repository
-        self.file_store = file_store
-        self.storage_driver = storage_driver
+        self.collaborators = collaborators
 
     @staticmethod
     def _not_found_status(message: str) -> int:
@@ -76,7 +66,7 @@ class InspirationController(BaseController):
         try:
             limit = max(1, min(limit, 100))
             offset = max(0, offset)
-            items, total = self.repository.list_feed(
+            items, total = self.collaborators.repository.list_feed(
                 viewer_id=current_user.id,
                 query=query,
                 limit=limit,
@@ -95,7 +85,7 @@ class InspirationController(BaseController):
 
     async def get_inspiration(self, inspiration_id: str, current_user) -> APIResponse:
         try:
-            insp = self.repository.get_by_id(inspiration_id, viewer_id=current_user.id)
+            insp = self.collaborators.repository.get_by_id(inspiration_id, viewer_id=current_user.id)
             if not insp:
                 raise ValueError("Inspiration not found")
             return self.success_response(data={"inspiration": inspiration_to_dto(insp)})
@@ -107,7 +97,7 @@ class InspirationController(BaseController):
 
     async def get_params(self, inspiration_id: str, current_user) -> APIResponse:
         try:
-            insp = self.repository.get_by_id(inspiration_id)
+            insp = self.collaborators.repository.get_by_id(inspiration_id)
             if not insp:
                 raise ValueError("Inspiration not found")
             return self.success_response(data={
@@ -127,7 +117,8 @@ class InspirationController(BaseController):
 
     async def publish(self, request: PublishInspirationRequest, current_user) -> APIResponse:
         try:
-            insp = self.manager.publish(
+            insp = operations.publish(
+                self.collaborators,
                 current_user.id,
                 request.generation_id,
                 request.filenames,
@@ -145,8 +136,9 @@ class InspirationController(BaseController):
 
     async def delete_inspiration(self, inspiration_id: str, current_user) -> APIResponse:
         try:
-            self.manager.delete(
-                inspiration_id, current_user.id, is_admin=(current_user.account_type == AccountType.ADMIN)
+            operations.delete(
+                self.collaborators, inspiration_id, current_user.id,
+                is_admin=(current_user.account_type == AccountType.ADMIN)
             )
             return self.success_response(data={"id": inspiration_id, "deleted": True})
         except ValueError as e:
@@ -159,7 +151,7 @@ class InspirationController(BaseController):
 
     async def save_to_library(self, inspiration_id: str, current_user) -> APIResponse:
         try:
-            save_count = self.manager.save_to_library(inspiration_id, current_user.id)
+            save_count = operations.save_to_library(self.collaborators, inspiration_id, current_user.id)
             return self.success_response(data={"saved": True, "save_count": save_count})
         except ValueError as e:
             return self.error_response(
@@ -171,7 +163,7 @@ class InspirationController(BaseController):
 
     async def unsave(self, inspiration_id: str, current_user) -> APIResponse:
         try:
-            save_count = self.manager.unsave(inspiration_id, current_user.id)
+            save_count = operations.unsave(self.collaborators, inspiration_id, current_user.id)
             return self.success_response(data={"saved": False, "save_count": save_count})
         except Exception as e:
             self.logger.error(f"Failed to unsave inspiration: {e}")
@@ -181,10 +173,10 @@ class InspirationController(BaseController):
 
     async def list_comments(self, inspiration_id: str, current_user) -> APIResponse:
         try:
-            insp = self.repository.get_by_id(inspiration_id)
+            insp = self.collaborators.repository.get_by_id(inspiration_id)
             if not insp:
                 raise ValueError("Inspiration not found")
-            comments = self.repository.list_comments(inspiration_id)
+            comments = self.collaborators.repository.list_comments(inspiration_id)
             return self.success_response(data={"items": [comment_to_dto(c) for c in comments]})
         except ValueError as e:
             return self.error_response(error="not_found", message=str(e), status_code=404)
@@ -194,7 +186,7 @@ class InspirationController(BaseController):
 
     async def add_comment(self, inspiration_id: str, request: CommentCreateRequest, current_user) -> APIResponse:
         try:
-            comment = self.manager.add_comment(inspiration_id, current_user.id, request.body)
+            comment = operations.add_comment(self.collaborators, inspiration_id, current_user.id, request.body)
             return self.success_response(data={"comment": comment_to_dto(comment)})
         except ValueError as e:
             return self.error_response(
@@ -206,8 +198,9 @@ class InspirationController(BaseController):
 
     async def delete_comment(self, comment_id: str, current_user) -> APIResponse:
         try:
-            self.manager.delete_comment(
-                comment_id, current_user.id, is_admin=(current_user.account_type == AccountType.ADMIN)
+            operations.delete_comment(
+                self.collaborators, comment_id, current_user.id,
+                is_admin=(current_user.account_type == AccountType.ADMIN)
             )
             return self.success_response(data={"id": comment_id, "deleted": True})
         except ValueError as e:
@@ -220,7 +213,7 @@ class InspirationController(BaseController):
 
     async def list_collections(self, current_user) -> APIResponse:
         try:
-            collections = self.repository.list_collections(current_user.id)
+            collections = self.collaborators.repository.list_collections(current_user.id)
             return self.success_response(data={"items": [collection_to_dto(c) for c in collections]})
         except Exception as e:
             self.logger.error(f"Failed to list inspiration collections: {e}")
@@ -228,7 +221,7 @@ class InspirationController(BaseController):
 
     async def create_collection(self, request: CreateInspirationCollectionRequest, current_user) -> APIResponse:
         try:
-            collection = self.manager.create_collection(current_user.id, request.name, request.parent_id)
+            collection = operations.create_collection(self.collaborators, current_user.id, request.name, request.parent_id)
             return self.success_response(data={"collection": collection_to_dto(collection)})
         except ValueError as e:
             return self.error_response(
@@ -243,7 +236,8 @@ class InspirationController(BaseController):
     ) -> APIResponse:
         try:
             parent_id_set = "parent_id" in request.model_fields_set
-            collection = self.manager.update_collection(
+            collection = operations.update_collection(
+                self.collaborators,
                 collection_id,
                 current_user.id,
                 name=request.name,
@@ -261,7 +255,7 @@ class InspirationController(BaseController):
 
     async def delete_collection(self, collection_id: str, current_user) -> APIResponse:
         try:
-            self.manager.delete_collection(collection_id, current_user.id)
+            operations.delete_collection(self.collaborators, collection_id, current_user.id)
             return self.success_response(data={"id": collection_id, "deleted": True})
         except ValueError as e:
             return self.error_response(error="not_found", message=str(e), status_code=404)
@@ -273,7 +267,7 @@ class InspirationController(BaseController):
         self, collection_id: str, request: InspirationCollectionItemRequest, current_user
     ) -> APIResponse:
         try:
-            self.manager.add_item(collection_id, current_user.id, request.inspiration_id)
+            operations.add_item(self.collaborators, collection_id, current_user.id, request.inspiration_id)
             return self.success_response(data={"added": True})
         except ValueError as e:
             return self.error_response(error="not_found", message=str(e), status_code=404)
@@ -283,7 +277,7 @@ class InspirationController(BaseController):
 
     async def remove_collection_item(self, collection_id: str, inspiration_id: str, current_user) -> APIResponse:
         try:
-            self.manager.remove_item(collection_id, current_user.id, inspiration_id)
+            operations.remove_item(self.collaborators, collection_id, current_user.id, inspiration_id)
             return self.success_response(data={"removed": True})
         except ValueError as e:
             return self.error_response(error="not_found", message=str(e), status_code=404)
@@ -300,19 +294,19 @@ class InspirationController(BaseController):
         authentication, a `ValueError` -> `error_api_response` on any miss.
         """
         try:
-            insp = self.repository.get_by_id(inspiration_id)
+            insp = self.collaborators.repository.get_by_id(inspiration_id)
             if not insp or not any(entry.get("filename") == filename for entry in insp.media):
                 raise ValueError("File not found")
 
             key = inspiration_media_key(inspiration_id, filename)
-            if not self.storage_driver.exists(key):
+            if not self.collaborators.storage_driver.exists(key):
                 raise ValueError("File not found")
 
             media_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-            local_path = self.storage_driver.local_path(key)
+            local_path = self.collaborators.storage_driver.local_path(key)
             if local_path is not None:
                 return FileResponse(path=str(local_path), media_type=media_type, filename=filename)
-            return Response(content=self.storage_driver.get_bytes(key), media_type=media_type)
+            return Response(content=self.collaborators.storage_driver.get_bytes(key), media_type=media_type)
         except ValueError as e:
             return self.error_api_response(error="not_found", message=str(e))
         except Exception as e:

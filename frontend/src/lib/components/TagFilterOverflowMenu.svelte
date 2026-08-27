@@ -11,6 +11,13 @@
 	export let onToggle: (tagId: string) => void;
 	export let title = 'More tags';
 
+	// A tag without a color (the API doesn't guarantee one) would otherwise
+	// splice an alpha suffix onto `undefined`, or leave `background-color: `
+	// empty — both invalid CSS the browser drops silently, leaving a fully
+	// transparent dot that still reserves its box: a "weird empty space" to
+	// the left of the tag name with no visible cause.
+	const FALLBACK_TAG_COLOR = 'rgb(var(--fg-subtle))';
+
 	let isOpen = false;
 	let searchValue = '';
 	let container: HTMLDivElement;
@@ -73,6 +80,12 @@
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === 'Escape' && isOpen) close();
 	}
+
+	function tagChipStyle(color: string | undefined, selected: boolean): string {
+		if (!selected) return 'color: rgb(var(--fg-subtle));';
+		if (!color) return 'background-color: rgb(var(--surface-3)); color: rgb(var(--fg)); box-shadow: 0 0 0 1px rgb(var(--line-hover));';
+		return `background-color: ${color}20; color: ${color}; box-shadow: 0 0 0 1px ${color}40;`;
+	}
 </script>
 
 {#if tags.length > 0}
@@ -115,12 +128,10 @@
 							<button
 								type="button"
 								class="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-all"
-								style="{selectedIds.includes(tag.id)
-									? `background-color: ${tag.color}20; color: ${tag.color}; box-shadow: 0 0 0 1px ${tag.color}40;`
-									: 'color: rgb(var(--fg-subtle));'}"
+								style={tagChipStyle(tag.color, selectedIds.includes(tag.id))}
 								on:click={() => onToggle(tag.id)}
 								on:mouseenter={(e) => {
-									if (!selectedIds.includes(tag.id)) e.currentTarget.style.color = tag.color;
+									if (!selectedIds.includes(tag.id)) e.currentTarget.style.color = tag.color || FALLBACK_TAG_COLOR;
 								}}
 								on:mouseleave={(e) => {
 									if (!selectedIds.includes(tag.id))
@@ -129,7 +140,7 @@
 								role="option"
 								aria-selected={selectedIds.includes(tag.id)}
 							>
-								<span class="w-2 h-2 rounded-full flex-shrink-0" style="background-color: {tag.color}"></span>
+								<span class="w-2 h-2 rounded-full flex-shrink-0" style="background-color: {tag.color || FALLBACK_TAG_COLOR}"></span>
 								{tag.name}
 							</button>
 						{/each}

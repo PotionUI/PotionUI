@@ -7,6 +7,14 @@ order: 72
 
 PotionUI runs on a single CUDA-capable NVIDIA GPU. What you can actually generate — and how well — depends on that GPU's VRAM and, just as much, on the host's system RAM. This page gives honest numbers instead of "a GPU with enough VRAM."
 
+## GPU generation and driver
+
+PotionUI requires **Turing or newer GPUs** (sm_75 and above). CUDA 13 dropped support for Maxwell, Pascal, and Volta architectures, so **GTX 10-series and older cards cannot run PotionUI at all** — RTX 20xx / GTX 16xx and newer are supported.
+
+The **NVIDIA driver must be version 580 or newer** on your host machine. Older r550 or r570 drivers fail immediately with "CUDA driver version is insufficient for CUDA runtime version." Within the CUDA 13.x series, the 580+ driver remains compatible across minor versions, so a 580.65+ driver will continue to work as CUDA 13 updates ship.
+
+For Docker deployments, the host needs only the NVIDIA driver and `nvidia-container-toolkit` — the torch PyPI wheel carries the CUDA 13 userspace runtime, so a separate host CUDA toolkit install is not required.
+
 ## The floor
 
 **8 GB VRAM + 16 GB system RAM** is the supported minimum. On that floor, **SDXL** is the model family PotionUI guarantees works — it runs on `diffusers` pipelines with its own VRAM-tier memory policy (aggressive sequential offload + max attention slicing below 8 GB, model offload 8–12 GB, no offload 12–16 GB, fully GPU-resident at 16 GB+ — `src/platform/runtime/model_lifecycle/memory_policy.py`). Every other native-engine family (Flux, Krea-2, Qwen-Image, Wan, LTX, Z-Image, Anima, MiniMax-H3) needs more, some considerably more — see the per-family table below.
@@ -19,7 +27,7 @@ The native engine (`src/platform/runtime/native/`) is explicitly designed for sm
 
 PotionUI reserves system RAM the same way it reserves VRAM, and this bites on small boxes:
 
-- **The model RAM cache keeps a floor of `max(8 GB, 10% of total RAM)` free at all times** (`_MIN_FREE_RAM_GB` / `_MIN_FREE_RAM_FRACTION`, `src/platform/runtime/model_lifecycle/manager.py:53-54`, enforced in `_make_room_for_ram`). On a 16 GB RAM machine that floor is 8 GB — half the box — so the cache that normally keeps a checkpoint warm between generations gets evicted aggressively; effectively, don't count on cross-generation caching with 16 GB of system RAM.
+- **The model RAM cache keeps a floor of `max(8 GB, 10% of total RAM)` free at all times** (`_MIN_FREE_RAM_GB` / `_MIN_FREE_RAM_FRACTION`, `src/platform/runtime/model_lifecycle/lifecycle.py:53-54`, enforced in `_make_room_for_ram`). On a 16 GB RAM machine that floor is 8 GB — half the box — so the cache that normally keeps a checkpoint warm between generations gets evicted aggressively; effectively, don't count on cross-generation caching with 16 GB of system RAM.
 - **Low-VRAM streaming (partial residency) needs `streamed_gb + 2 GB` of free host RAM up front**, and refuses to start rather than risk an OS OOM-kill if it isn't there (`HostMemoryExhaustedError`, `_guard_host_ram_for_streaming` / `_STREAM_HOST_RESERVE_GB = 2.0`, `src/platform/runtime/native/engine.py:271,353-375`). A big model streaming several GB of overflow on a 16 GB RAM host can hit this guard even when VRAM itself would have been fine.
 
 Practical takeaway: **16 GB system RAM is the bare minimum that keeps the app from refusing to load, not a comfortable amount.** 32 GB+ is what lets the RAM cache actually do its job (reuse a loaded checkpoint across generations instead of re-reading it from disk every time) and gives streaming headroom for the larger native families.

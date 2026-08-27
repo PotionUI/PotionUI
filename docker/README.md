@@ -64,7 +64,11 @@ What it does, honestly — no dev shortcuts a real user wouldn't also get:
   load-bearing for `import torch` — it exists so `nvidia-container-toolkit`
   mounts a driver/CUDA userspace that matches what a bare-metal install of
   the same CUDA version would look like, which is the point of a
-  *simulation* harness.
+  *simulation* harness. **Host prerequisites:** NVIDIA driver version 580 or
+  newer, `nvidia-container-toolkit` installed and configured as Docker's GPU
+  runtime, Turing-or-newer GPU (sm_75+; GTX 10-series and older are not
+  supported). The host needs the driver and toolkit only — no host CUDA
+  toolkit install required.
 - **Deps installed the documented way**: `pip install -r requirements.txt -c
   constraints.txt` into a `./venv` at image-build time (the same command
   `./potionui start` runs on a bare-metal checkout), plus `npm ci` in

@@ -228,6 +228,9 @@ export interface PresetFormOverrideField {
 	/** Present only when the inventory can enumerate choices (e.g. `select` fields). */
 	options?: PresetFormOverrideOption[];
 	override: PresetFormOverridePatch | null;
+	/** Label of the preset-form tab this field belongs to, or `null` when the
+	 *  field sits outside any tab. */
+	tab: string | null;
 }
 
 export interface PresetFormOverridesResponse {
@@ -235,6 +238,8 @@ export interface PresetFormOverridesResponse {
 	mode: string;
 	modes: string[];
 	fields: PresetFormOverrideField[];
+	/** Tab labels in declaration order; empty for a flat form with no tabs. */
+	tabs: string[];
 }
 
 export interface TagUsageRef {

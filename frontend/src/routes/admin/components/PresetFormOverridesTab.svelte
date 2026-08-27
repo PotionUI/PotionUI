@@ -19,7 +19,9 @@
 		toComponentValue,
 		fromComponentValue,
 		rawEditorHint,
-		type PendingOverride
+		groupFieldsByTab,
+		type PendingOverride,
+		type OverrideFieldGroup
 	} from '$lib/utils/presetFormOverrides';
 	import type { FieldConfig } from '$lib/form/reactions';
 	import type { PresetFormOverrideField, PresetModeInfo } from '$lib/types/api';
@@ -44,10 +46,14 @@
 	let modesError = '';
 
 	let fields: PresetFormOverrideField[] = [];
+	let tabs: string[] = [];
 	let pending: Record<string, PendingOverride> = {};
 	let overridesLoading = false;
 	let overridesError = '';
 	let saving = false;
+	// Which tab group's rows the table shows. Dirty tracking, `pending` and Save
+	// stay global across all tabs - this only controls what's visible.
+	let selectedGroup = '';
 	// Richer per-field config (model_type, slider min/max, select options, ...)
 	// for the fields that have it - see buildFieldConfigIndex's doc comment for
 	// the two cases where a field has no entry here and falls back to a plain
@@ -98,14 +104,18 @@
 				throw new Error(responseError(overridesResponse, 'Could not load form overrides'));
 			}
 			fields = overridesResponse.data.fields || [];
+			tabs = overridesResponse.data.tabs || [];
 			pending = Object.fromEntries(fields.map((field) => [field.name, pendingOverrideFrom(field)]));
 			fieldConfigIndex = resolvedFieldConfigIndex;
+			selectedGroup = groupFieldsByTab(fields, tabs)[0]?.label ?? '';
 		} catch (error) {
 			logger.error('Failed to load preset form overrides:', error);
 			overridesError = error instanceof Error ? error.message : 'Could not load form overrides';
 			fields = [];
+			tabs = [];
 			pending = {};
 			fieldConfigIndex = {};
+			selectedGroup = '';
 		} finally {
 			overridesLoading = false;
 		}
@@ -180,6 +190,18 @@
 
 	$: dirtyFields = fields.filter((field) => pending[field.name] && !isOverrideUnchanged(field, pending[field.name]));
 	$: dirtyCount = dirtyFields.length;
+	$: dirtyNames = new Set(dirtyFields.map((field) => field.name));
+
+	$: groups = groupFieldsByTab(fields, tabs);
+	$: visibleFields = groups.length > 0 ? groups.find((group) => group.label === selectedGroup)?.fields ?? [] : fields;
+
+	function handleTabChange(label: string) {
+		selectedGroup = label;
+	}
+
+	function dirtyCountFor(group: OverrideFieldGroup): number {
+		return group.fields.filter((field) => dirtyNames.has(field.name)).length;
+	}
 
 	async function handleSave() {
 		const payload = buildOverridesPayload(fields, pending);
@@ -191,7 +213,12 @@
 				throw new Error(responseError(response, 'Could not save form overrides'));
 			}
 			fields = response.data.fields || fields;
+			tabs = response.data.tabs || tabs;
 			pending = Object.fromEntries(fields.map((field) => [field.name, pendingOverrideFrom(field)]));
+			const savedGroups = groupFieldsByTab(fields, tabs);
+			if (!savedGroups.some((group) => group.label === selectedGroup)) {
+				selectedGroup = savedGroups[0]?.label ?? '';
+			}
 			toasts.success('Form overrides saved');
 		} catch (error) {
 			logger.error('Failed to save preset form overrides:', error);
@@ -255,6 +282,23 @@
 			apply to the <span class="font-mono text-fg">{mode}</span> mode.
 		</p>
 
+		{#if groups.length > 0}
+			<nav class="inline-flex flex-wrap items-center gap-1" aria-label="Form tabs">
+				{#each groups as group (group.label)}
+					{@const groupDirty = dirtyCountFor(group)}
+					<button
+						type="button"
+						class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors {selectedGroup === group.label ? 'bg-signal/10 text-signal' : 'text-fg-muted hover:bg-surface-2 hover:text-fg'}"
+						on:click={() => handleTabChange(group.label)}
+						aria-current={selectedGroup === group.label ? 'page' : undefined}
+					>
+						{group.label}
+						{#if groupDirty > 0}<span class="font-mono text-2xs opacity-70">{groupDirty}</span>{/if}
+					</button>
+				{/each}
+			</nav>
+		{/if}
+
 		<div class="bg-surface-1 rounded-lg border border-line overflow-hidden">
 			<div class="overflow-x-auto">
 				<table class="min-w-full divide-y divide-line">
@@ -270,7 +314,7 @@
 						</tr>
 					</thead>
 					<tbody class="bg-surface-1 divide-y divide-line">
-						{#each fields as field (field.name)}
+						{#each visibleFields as field (field.name)}
 							{@const row = pending[field.name]}
 							{#if row}
 								{@const active = !isOverrideEmpty(row)}

@@ -230,6 +230,35 @@ export function canUseRichEditor(fieldType: string, fieldConfig: FieldConfig | u
 	return !!fieldConfig && RICH_EDITOR_TYPES.has(fieldType) && hasFieldComponent(fieldType);
 }
 
+// ── Tab grouping ──
+
+/** One tab's worth of override rows, in field declaration order. */
+export interface OverrideFieldGroup {
+	label: string;
+	fields: PresetFormOverrideField[];
+}
+
+/** Groups override fields by their preset-form tab, in `tabs`' declaration
+ *  order. Fields with `tab: null` (or a tab label not present in `tabs`) land
+ *  in a trailing "General" group - but only when the form actually has tabs;
+ *  a flat form (`tabs` empty) yields no groups at all, so the caller renders
+ *  today's single table instead of a nav with one meaningless tab. */
+export function groupFieldsByTab(fields: PresetFormOverrideField[], tabs: string[]): OverrideFieldGroup[] {
+	if (tabs.length === 0) return [];
+
+	const groups = tabs.map((label) => ({ label, fields: [] as PresetFormOverrideField[] }));
+	const byLabel = new Map(groups.map((group) => [group.label, group]));
+	const general: PresetFormOverrideField[] = [];
+
+	for (const field of fields) {
+		const group = field.tab ? byLabel.get(field.tab) : undefined;
+		(group ?? { fields: general }).fields.push(field);
+	}
+
+	if (general.length > 0) groups.push({ label: 'General', fields: general });
+	return groups;
+}
+
 /** Wire value (what the override stores/sends) -> the shape the field's own
  *  component expects as its `value` prop. */
 export function toComponentValue(fieldType: string, rawValue: unknown): unknown {

@@ -12,6 +12,7 @@ import {
 	toComponentValue,
 	fromComponentValue,
 	rawEditorHint,
+	groupFieldsByTab,
 	type PendingOverride
 } from './presetFormOverrides';
 
@@ -27,6 +28,7 @@ function field(overrides: Partial<PresetFormOverrideField> = {}): PresetFormOver
 		type: 'number',
 		preset_default: 20,
 		override: null,
+		tab: null,
 		...overrides
 	};
 }
@@ -378,6 +380,42 @@ describe('hydrating a persisted override into the rich editor', () => {
 		expect(canUseRichEditor('model', realDiffusionModelSchemaEntryWithOverride)).toBe(false);
 		registeredTypes.add('model'); // what PresetFormOverridesTab.svelte's own registerBuiltinFieldComponents() call guarantees before first render
 		expect(canUseRichEditor('model', realDiffusionModelSchemaEntryWithOverride)).toBe(true);
+	});
+});
+
+describe('groupFieldsByTab', () => {
+	it('returns no groups for a flat form (no tabs)', () => {
+		const fields = [field({ name: 'a', tab: null }), field({ name: 'b', tab: null })];
+		expect(groupFieldsByTab(fields, [])).toEqual([]);
+	});
+
+	it('groups fields under their tab, preserving tabs declaration order', () => {
+		const fields = [
+			field({ name: 'sampler', tab: 'Sampling' }),
+			field({ name: 'checkpoint', tab: 'Model' }),
+			field({ name: 'steps', tab: 'Sampling' })
+		];
+		const groups = groupFieldsByTab(fields, ['Model', 'Sampling']);
+		expect(groups.map((g) => g.label)).toEqual(['Model', 'Sampling']);
+		expect(groups[0].fields.map((f) => f.name)).toEqual(['checkpoint']);
+		expect(groups[1].fields.map((f) => f.name)).toEqual(['sampler', 'steps']);
+	});
+
+	it('appends a trailing General group only when a tabbed form has untabbed fields', () => {
+		const withUntabbed = [field({ name: 'sampler', tab: 'Sampling' }), field({ name: 'seed', tab: null })];
+		const groupsWithGeneral = groupFieldsByTab(withUntabbed, ['Sampling']);
+		expect(groupsWithGeneral.map((g) => g.label)).toEqual(['Sampling', 'General']);
+		expect(groupsWithGeneral[1].fields.map((f) => f.name)).toEqual(['seed']);
+
+		const allTabbed = [field({ name: 'sampler', tab: 'Sampling' })];
+		expect(groupFieldsByTab(allTabbed, ['Sampling']).map((g) => g.label)).toEqual(['Sampling']);
+	});
+
+	it('routes a field whose tab label has no matching entry in tabs into General', () => {
+		const fields = [field({ name: 'sampler', tab: 'Sampling' }), field({ name: 'orphan', tab: 'Nonexistent' })];
+		const groups = groupFieldsByTab(fields, ['Sampling']);
+		expect(groups.map((g) => g.label)).toEqual(['Sampling', 'General']);
+		expect(groups[1].fields.map((f) => f.name)).toEqual(['orphan']);
 	});
 });
 

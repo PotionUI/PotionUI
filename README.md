@@ -1,7 +1,7 @@
 # PotionUI
 
 A self-hosted studio for generating images, video, and audio with diffusion
-models. Pick a preset, describe what you want, watch it come together in
+models. Pick a model, describe what you want, watch it come together in
 real time.
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/A3B325D031)
@@ -20,13 +20,13 @@ https://github.com/user-attachments/assets/950415f7-da97-403e-811b-4c9c41d8106f
 
 ## What you're looking at
 
-- **Presets, not generic knobs** — each preset targets one model and renders a
-  curated form with only the options that model understands: resolution,
-  sampler, camera angle, art style, whatever applies.
-- **Live everything** — per-step status, streaming previews, and a gallery
-  that fills in as results land, all over WebSocket.
-- **One workspace** — every model family below runs side by side in the same
-  app, on PotionUI's in-process **native** engine (`diffusers` pipelines).
+- **Pick a model, get the right controls** — no wall of generic sliders and
+  no hand-wiring: each model comes with a form showing only what it actually
+  understands (resolution, camera angle, art style, whatever applies).
+- **Watch it happen live** — step-by-step progress, streaming previews, and a
+  gallery that fills in as results land.
+- **One app for all of it** — images, video, and audio side by side, no
+  per-model setup.
 
 | Model family       | What it does                      | Docs                                                           |
 | ------------------ | --------------------------------- | -------------------------------------------------------------- |
@@ -53,8 +53,8 @@ and a step progress bar mid-run.
 
 - Every tab is its own sandbox — preset, mode, prompts, and results — so you
   can run several ideas side by side without losing any of them.
-- Switching presets swaps the form to match the model; the same tab handles
-  txt2img, img2img, inpainting, or a video/audio mode.
+- Switch models and the form swaps to match; the same tab handles txt2img,
+  img2img, inpainting, or a video/audio mode.
 
 ## History, tags, and collections
 

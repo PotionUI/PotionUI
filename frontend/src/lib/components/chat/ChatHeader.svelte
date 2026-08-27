@@ -4,6 +4,7 @@
 	import ChatModeSelector from '$lib/components/chat/ChatModeSelector.svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import { formatTokenCount } from '$lib/utils/chat';
+	import portal from '$lib/actions/portal';
 
 	// Provider+Model (LLM config) selection
 	export let llmConfigs: any[] = [];
@@ -59,7 +60,9 @@
 				</svg>
 			</button>
 			{#if showModelDropdown}
-				<div class="fixed inset-0 z-30" role="button" tabindex="-1" aria-label="Close model selector" on:click={() => (showModelDropdown = false)} on:keydown={(e) => { if (e.key === 'Escape') showModelDropdown = false; }}></div>
+				<!-- Portaled: a fixed full-page click-catcher, mispositioned when this
+			     mounts under a transformed ancestor (e.g. the mobile carousel). -->
+			<div use:portal class="fixed inset-0 z-30" role="button" tabindex="-1" aria-label="Close model selector" on:click={() => (showModelDropdown = false)} on:keydown={(e) => { if (e.key === 'Escape') showModelDropdown = false; }}></div>
 				<div class="absolute z-40 top-full left-0 mt-1 w-64 bg-surface-1 border border-line rounded-lg shadow-floating max-h-60 overflow-y-auto">
 					{#each llmConfigOptions as option}
 						<button

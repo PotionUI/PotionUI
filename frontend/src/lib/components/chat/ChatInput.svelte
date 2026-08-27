@@ -7,6 +7,7 @@
 	import type { UserToolPreference } from '$lib/types/llm';
 	import type { LoraSelectionRow } from '$lib/stores/loraPickerSelections';
 	import { filterVisibleToolsByPreferences } from '$lib/chat/toolPreferences';
+	import portal from '$lib/actions/portal';
 
 	export let value: string = '';
 	export let resources: Record<string, ResourceChipData> = {};
@@ -182,7 +183,9 @@
 						</svg>
 					</button>
 					{#if showToolsDropdown}
-						<div class="fixed inset-0 z-30" role="button" tabindex="-1" aria-label="Close tools selector" on:click={() => (showToolsDropdown = false)} on:keydown={(e) => { if (e.key === 'Escape') showToolsDropdown = false; }}></div>
+						<!-- Portaled: a fixed full-page click-catcher, mispositioned when this
+					     mounts under a transformed ancestor (e.g. the mobile carousel). -->
+					<div use:portal class="fixed inset-0 z-30" role="button" tabindex="-1" aria-label="Close tools selector" on:click={() => (showToolsDropdown = false)} on:keydown={(e) => { if (e.key === 'Escape') showToolsDropdown = false; }}></div>
 						<div class="absolute z-40 bottom-full left-0 mb-1 w-80 bg-surface-1 border border-line rounded-lg shadow-floating max-h-[min(24rem,calc(100vh-8rem))] overflow-y-auto">
 							<div class="px-3 py-2.5 border-b border-line">
 								<div class="text-xs font-semibold text-fg-muted mb-2">Tools</div>
@@ -308,7 +311,9 @@
 						{/if}
 					</button>
 					{#if showPinDropdown}
-						<div class="fixed inset-0 z-30" role="button" tabindex="-1" aria-label="Close pin selector" on:click={() => (showPinDropdown = false)} on:keydown={(e) => { if (e.key === 'Escape') showPinDropdown = false; }}></div>
+						<!-- Portaled: a fixed full-page click-catcher, mispositioned when this
+					     mounts under a transformed ancestor (e.g. the mobile carousel). -->
+					<div use:portal class="fixed inset-0 z-30" role="button" tabindex="-1" aria-label="Close pin selector" on:click={() => (showPinDropdown = false)} on:keydown={(e) => { if (e.key === 'Escape') showPinDropdown = false; }}></div>
 						<div class="absolute z-40 bottom-full left-0 mb-1 w-52 bg-surface-1 border border-line rounded-lg shadow-floating max-h-60 overflow-y-auto">
 							<button
 								type="button"

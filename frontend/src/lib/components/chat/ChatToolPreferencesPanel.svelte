@@ -5,6 +5,7 @@
 	import Spinner from '$lib/components/ui/Spinner.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import type { UserToolPreference } from '$lib/types/llm';
+	import portal from '$lib/actions/portal';
 
 	// Persistent, per-user tool opt-out (see /api/llm/toolset/preferences) —
 	// distinct from the session-scoped enable/disable toggles in the Tools
@@ -71,8 +72,12 @@
 	}
 </script>
 
-<!-- Backdrop -->
+<!-- Backdrop + panel are portaled to <body>: this mounts from inside chat,
+     which can itself be nested in a transformed ancestor (e.g. the mobile
+     generate carousel's panel track), which would otherwise become the
+     containing block for these fixed elements. -->
 <div
+	use:portal
 	class="fixed inset-0 z-40"
 	role="button"
 	tabindex="-1"
@@ -83,6 +88,7 @@
 
 <!-- Slide-out panel -->
 <div
+	use:portal
 	class="fixed top-2 right-2 bottom-2 z-50 w-[92vw] max-w-[400px] flex flex-col bg-surface-1 border border-line rounded-xl shadow-overlay overflow-hidden"
 	role="dialog"
 	aria-label="My tools"

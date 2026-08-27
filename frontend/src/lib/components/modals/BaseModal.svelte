@@ -2,6 +2,7 @@
 	import { createEventDispatcher, onDestroy } from 'svelte';
 	import { fade, scale } from 'svelte/transition';
 	import focusTrap from '$lib/actions/focusTrap';
+	import portal from '$lib/actions/portal';
 	import { IconButton } from '$lib/components/ui';
 
 	// Size presets
@@ -93,8 +94,13 @@
 <svelte:window on:keydown|capture={handleKeydown} />
 
 {#if isOpen}
-	<!-- Backdrop -->
+	<!-- Backdrop. Portaled to <body> — callers mount BaseModal from all over
+	     the tree, including inside the mobile generate carousel's transformed
+	     panel track, which would otherwise become the containing block for
+	     this `position: fixed` and size/position the modal against the track
+	     instead of the viewport. -->
 	<div
+		use:portal
 		class="fixed inset-0 z-[9999] flex md:items-center md:justify-center bg-black/60 backdrop-blur-sm"
 		role="button"
 		tabindex="-1"

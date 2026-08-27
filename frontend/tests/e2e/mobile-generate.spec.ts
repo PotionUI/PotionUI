@@ -122,3 +122,36 @@ test('carousel recovers from a stray scrollLeft on the swipe container', async (
 	const box = await panels.nth(2).boundingBox();
 	expect(Math.abs(box!.x - containerBox!.x), 'active panel realigned after stray scroll').toBeLessThanOrEqual(1);
 });
+
+test('overlay opened from inside a carousel panel covers the full viewport', async ({ page }) => {
+	// Regression: .mobile-panels-track carries a translateX transform, which
+	// becomes the containing block for any `position: fixed` descendant.
+	// BaseModal (and other raw `fixed inset-0` overlays) mount inside that
+	// track, so pre-fix their backdrop resolved against the 400%-wide
+	// transformed track instead of the viewport — small, offset, "desktop
+	// mode" looking. The preset picker is a BaseModal consumer reachable from
+	// Panel 0 with no generation required.
+	await loginAsOwner(page);
+	await page.goto('/generate');
+
+	const panelStrip = page.getByRole('region', { name: 'Swipeable panels' });
+	await expect(panelStrip).toBeVisible({ timeout: 15000 });
+
+	await page.getByRole('button', { name: 'Preset', exact: true }).click();
+	await page.waitForTimeout(400); // slide transition
+
+	await page.locator('button[aria-haspopup="dialog"]').first().click();
+
+	const backdrop = page.locator('div[role="button"][aria-label="Close modal"]');
+	await expect(backdrop).toBeVisible();
+	const backdropBox = await backdrop.boundingBox();
+	expect(backdropBox, 'modal backdrop has a box').toBeTruthy();
+	// Tolerance of 20px absorbs the app's `scrollbar-gutter: stable` (see the
+	// first test's comment above) — a real, pre-existing few-px discrepancy
+	// between the viewport and a fixed element's containing block that's
+	// unrelated to this regression. The containing-block bug this guards
+	// against is nowhere close to that: pre-fix, the backdrop was sized to
+	// the 400%-wide panel track (~1100px too wide), not off by a few px.
+	expect(Math.abs(backdropBox!.x), 'backdrop left edge at viewport origin').toBeLessThanOrEqual(20);
+	expect(Math.abs(backdropBox!.width - 375), 'backdrop spans the full viewport width').toBeLessThanOrEqual(20);
+});

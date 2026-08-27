@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import portal from '$lib/actions/portal';
 
 	// Props
 	export let isOpen: boolean = false;
@@ -36,7 +37,12 @@
 </script>
 
 {#if isOpen}
+	<!-- Portaled to <body> - callers (MediaLoaderField) can mount from inside
+	     a transformed ancestor (e.g. the mobile generate carousel's panel
+	     track), which would otherwise become the containing block for this
+	     fixed backdrop. -->
 	<div
+		use:portal
 		class="fixed inset-0 z-[100] flex items-center justify-center bg-black/90"
 		on:click={onClose}
 		on:keydown={(e) => { if (e.key === 'Escape') onClose(); }}

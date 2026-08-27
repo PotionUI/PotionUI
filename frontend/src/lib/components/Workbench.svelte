@@ -7,6 +7,7 @@
 	import type { AudioTrack } from '$lib/types/audio';
 	import TagSelector from '$lib/components/TagSelector.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
+	import portal from '$lib/actions/portal';
 	import GenerationHistoryModal from '$lib/components/modals/GenerationHistoryModal.svelte';
 	import PluginSlot from '$lib/components/plugins/PluginSlot.svelte';
 	import { pluginStore } from '$lib/stores/plugins';
@@ -1353,7 +1354,11 @@
 
 <!-- Image/Video Preview Modal -->
 {#if showImageModal && hasDisplayMedia}
+	<!-- Portaled to <body>: Workbench mounts inside the mobile generate
+	     carousel's transformed panel track, which would otherwise become the
+	     containing block for this `position: fixed` fullscreen preview. -->
 	<div
+		use:portal
 		class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm"
 		on:click={() => showImageModal = false}
 		on:keydown={(e) => e.key === 'Escape' && (showImageModal = false)}

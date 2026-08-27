@@ -7,6 +7,7 @@
 	import Input from '$lib/components/ui/Input.svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import type { MemoryNote, MemoryScope } from '$lib/types/chat';
+	import portal from '$lib/actions/portal';
 
 	// The panel resolves the preset name + active model itself from the chat's
 	// current tab context (see UnifiedAIChat). It needs the raw preset ULID and
@@ -292,8 +293,12 @@
 	}
 </script>
 
-<!-- Backdrop -->
+<!-- Backdrop + panel are portaled to <body>: this mounts from inside chat,
+     which can itself be nested in a transformed ancestor (e.g. the mobile
+     generate carousel's panel track), which would otherwise become the
+     containing block for these fixed elements. -->
 <div
+	use:portal
 	class="fixed inset-0 z-40"
 	role="button"
 	tabindex="-1"
@@ -304,6 +309,7 @@
 
 <!-- Slide-out panel -->
 <div
+	use:portal
 	class="fixed top-2 right-2 bottom-2 z-50 w-[92vw] max-w-[400px] flex flex-col bg-surface-1 border border-line rounded-xl shadow-overlay overflow-hidden"
 	role="dialog"
 	aria-label="Memory"

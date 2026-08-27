@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { ChatMode } from '$lib/types/chat';
+	import portal from '$lib/actions/portal';
 
 	export let modes: ChatMode[] = [];
 	export let selected: string;
@@ -47,7 +48,9 @@
 		{/if}
 	</button>
 	{#if open && !locked}
-		<div class="fixed inset-0 z-30" role="button" tabindex="-1" aria-label="Close mode selector" on:click={() => (open = false)} on:keydown={(e) => { if (e.key === 'Escape') open = false; }}></div>
+		<!-- Portaled: a fixed full-page click-catcher, mispositioned when this
+		     mounts under a transformed ancestor (e.g. the mobile carousel). -->
+		<div use:portal class="fixed inset-0 z-30" role="button" tabindex="-1" aria-label="Close mode selector" on:click={() => (open = false)} on:keydown={(e) => { if (e.key === 'Escape') open = false; }}></div>
 		<div class="absolute z-40 top-full left-0 mt-1 w-64 bg-surface-1 border border-line rounded-lg shadow-floating max-h-72 overflow-y-auto">
 			{#each modes as mode}
 				<button

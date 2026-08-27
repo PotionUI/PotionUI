@@ -20,6 +20,7 @@
 	import { createEventDispatcher, onMount, onDestroy } from 'svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { Badge, Kbd } from '$lib/components/ui';
+	import portal from '$lib/actions/portal';
 
 	export let isOpen: boolean = false;
 	export let title: string = 'Select an option';
@@ -222,9 +223,14 @@
 	}
 </script>
 
-<!-- FuzzyFindModal uses its own backdrop to support the side-preview layout -->
+<!-- FuzzyFindModal uses its own backdrop to support the side-preview layout.
+     Portaled to <body> - callers (InlineChip) can mount from inside a
+     transformed ancestor (e.g. the mobile generate carousel's panel track),
+     which would otherwise become the containing block for this fixed
+     backdrop. -->
 {#if isOpen}
 	<div
+		use:portal
 		class="fixed inset-0 z-[9999] flex md:items-center md:justify-center bg-black/60 backdrop-blur-sm md:p-4"
 		role="dialog"
 		aria-modal="true"

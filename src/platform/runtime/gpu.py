@@ -19,7 +19,7 @@ class _CappedMemInfo:
         self.used = used
 
 
-class GpuManager:
+class GpuMonitor:
     """
     GPU Manager - Enhanced GPU and VRAM monitoring
 
@@ -82,7 +82,7 @@ class GpuManager:
         this class (``get_total_vram``, ``get_free_vram``,
         ``get_available_vram``, ...) reads through this one method, so
         capping here is sufficient to cap every admission decision that goes
-        through ``GpuManager``.
+        through ``GpuMonitor``.
 
         Without a GPU (``self.available`` is False) this returns all zeros
         rather than touching NVML.
@@ -155,7 +155,7 @@ class GpuManager:
 
         Called by NativeBackend before each pipeline run, from its `gpu_max_vram`
         config. This is state, but it is the *owner's* state: only one backend runs
-        a pipeline at a time (one GenerationManager, one cancellation flag).
+        a pipeline at a time (one GenerationEngine, one cancellation flag).
         """
         self._vram_cap_gb = float(cap_gb) if cap_gb is not None else None
 

@@ -13,7 +13,7 @@ worker-decided ``device``/``dtype``/``vram_limit_gb`` this module
 ``NativeBackend.prepare_pipes``'s injection order (backend/worker injection
 sits between the pipe's own defaults and the preset's explicit config).
 
-**What is deliberately not reconstructed.** ``GenerationManager`` (the local
+**What is deliberately not reconstructed.** ``GenerationEngine`` (the local
 executor) also injects SERVICE-typed pipe inputs (GPU/SYSTEM/MEMORY/LLM/
 MODELS/ASSETS/SETTINGS) and runs plugin before/after-execute hooks. A worker
 process has no PotionUI database, no settings table, and no model-lifecycle
@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from src.features.generation.generation import deep_update, validate_pipe_configuration
+from src.features.generation.engine import deep_update, validate_pipe_configuration
 from src.features.remote_execution.worker.device_injection import inject_worker_device
 from src.pipelines.catalog import PipeCatalog
 from src.pipelines.contracts import IOType, PipeInput
@@ -101,7 +101,7 @@ class WorkerPipelineExecutor:
         dtype: str,
         vram_limit_gb: Optional[float],
         artifacts_dir: Path,
-        gpu_manager: Any = None,
+        gpu_monitor: Any = None,
         system_monitor: Any = None,
         resolve_asset: Optional[Callable[[str], Path]] = None,
     ):
@@ -110,7 +110,7 @@ class WorkerPipelineExecutor:
         self._dtype = dtype
         self._vram_limit_gb = vram_limit_gb
         self._artifacts_dir = artifacts_dir
-        self._gpu_manager = gpu_manager
+        self._gpu_monitor = gpu_monitor
         self._system_monitor = system_monitor
         self._resolve_asset = resolve_asset
 
@@ -228,7 +228,7 @@ class WorkerPipelineExecutor:
                 continue
             service_name = spec.name.upper()
             if service_name == "GPU":
-                pipe_input[spec.name] = self._gpu_manager
+                pipe_input[spec.name] = self._gpu_monitor
             elif service_name == "SYSTEM":
                 pipe_input[spec.name] = self._system_monitor
             else:

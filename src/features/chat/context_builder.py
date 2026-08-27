@@ -6,7 +6,7 @@ with the allowed tool set, and the system context blocks injected right before
 the last user message (@resource snapshots, the mode's context contributor and
 recalled persistent memory). Also serves @resource autocomplete suggestions.
 
-Split out of the ChatManager coordinator; it reads its collaborators (resource
+Split out of the ChatRuntime coordinator; it reads its collaborators (resource
 registry, memory manager, model/preset managers, chat-mode registry, tool
 executor) through the manager so the composition root's late binding keeps
 working.

@@ -7,16 +7,16 @@ from pathlib import Path
 from unittest.mock import Mock, MagicMock
 
 from src.features.media.file_resolver import FilePathResolver
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 
 
 class TestFilePathResolver:
     """Tests for FilePathResolver."""
 
     @pytest.fixture
-    def mock_settings_manager(self):
+    def mock_settings(self):
         """Create mock settings manager."""
-        settings = Mock(spec=SettingsManager)
+        settings = Mock(spec=Settings)
         settings.get_file_storage_directory.return_value = "/tmp/storage"
         return settings
 
@@ -29,9 +29,9 @@ class TestFilePathResolver:
         return loader
 
     @pytest.fixture
-    def resolver(self, mock_settings_manager, mock_preset_loader):
+    def resolver(self, mock_settings, mock_preset_loader):
         """Create FilePathResolver instance."""
-        return FilePathResolver(mock_settings_manager, mock_preset_loader)
+        return FilePathResolver(mock_settings, mock_preset_loader)
 
     @pytest.fixture
     def temp_dir(self):
@@ -57,9 +57,9 @@ class TestFilePathResolver:
         assert resolver.validate_path_security(outside_path, temp_dir) is False
 
     # Test resolve_temp_file method
-    def test_resolve_temp_file_valid(self, resolver, mock_settings_manager, temp_dir):
+    def test_resolve_temp_file_valid(self, resolver, mock_settings, temp_dir):
         """Test resolve_temp_file returns correct path."""
-        mock_settings_manager.get_file_storage_directory.return_value = str(temp_dir)
+        mock_settings.get_file_storage_directory.return_value = str(temp_dir)
 
         # Create tmp directory
         tmp_dir = temp_dir / "tmp"
@@ -68,9 +68,9 @@ class TestFilePathResolver:
         result = resolver.resolve_temp_file("test.png")
         assert result.name == "test.png"
 
-    def test_resolve_temp_file_traversal_raises(self, resolver, mock_settings_manager, temp_dir):
+    def test_resolve_temp_file_traversal_raises(self, resolver, mock_settings, temp_dir):
         """Test resolve_temp_file raises ValueError for path traversal."""
-        mock_settings_manager.get_file_storage_directory.return_value = str(temp_dir)
+        mock_settings.get_file_storage_directory.return_value = str(temp_dir)
 
         # Create tmp directory
         tmp_dir = temp_dir / "tmp"
@@ -80,9 +80,9 @@ class TestFilePathResolver:
             resolver.resolve_temp_file("../../../etc/passwd")
 
     # Test resolve_upload_file method
-    def test_resolve_upload_file_valid(self, resolver, mock_settings_manager, temp_dir):
+    def test_resolve_upload_file_valid(self, resolver, mock_settings, temp_dir):
         """Test resolve_upload_file returns correct path."""
-        mock_settings_manager.get_file_storage_directory.return_value = str(temp_dir)
+        mock_settings.get_file_storage_directory.return_value = str(temp_dir)
 
         # Create uploads directory
         uploads_dir = temp_dir / "uploads"
@@ -91,9 +91,9 @@ class TestFilePathResolver:
         result = resolver.resolve_upload_file("test.png")
         assert result.name == "test.png"
 
-    def test_resolve_upload_file_traversal_raises(self, resolver, mock_settings_manager, temp_dir):
+    def test_resolve_upload_file_traversal_raises(self, resolver, mock_settings, temp_dir):
         """Test resolve_upload_file raises ValueError for path traversal."""
-        mock_settings_manager.get_file_storage_directory.return_value = str(temp_dir)
+        mock_settings.get_file_storage_directory.return_value = str(temp_dir)
 
         # Create uploads directory
         uploads_dir = temp_dir / "uploads"
@@ -103,9 +103,9 @@ class TestFilePathResolver:
             resolver.resolve_upload_file("../../../etc/passwd")
 
     # Test resolve_preset_file method
-    def test_resolve_preset_file_no_loader(self, mock_settings_manager):
+    def test_resolve_preset_file_no_loader(self, mock_settings):
         """Test resolve_preset_file raises when no preset loader."""
-        resolver = FilePathResolver(mock_settings_manager, preset_loader=None)
+        resolver = FilePathResolver(mock_settings, preset_loader=None)
 
         with pytest.raises(ValueError, match="Preset loader not configured"):
             resolver.resolve_preset_file("test_preset", "file.png")
@@ -276,18 +276,18 @@ class TestFilePathResolver:
         assert result == Path("thumbnails/small_animated.webp")
 
     # Test get_uploads_directory method
-    def test_get_uploads_directory(self, resolver, mock_settings_manager, temp_dir):
+    def test_get_uploads_directory(self, resolver, mock_settings, temp_dir):
         """Test get_uploads_directory creates and returns correct path."""
-        mock_settings_manager.get_file_storage_directory.return_value = str(temp_dir)
+        mock_settings.get_file_storage_directory.return_value = str(temp_dir)
 
         result = resolver.get_uploads_directory()
         assert result == temp_dir / "uploads"
         assert result.exists()
 
     # Test get_storage_directory method
-    def test_get_storage_directory(self, resolver, mock_settings_manager):
+    def test_get_storage_directory(self, resolver, mock_settings):
         """Test get_storage_directory returns correct path."""
-        mock_settings_manager.get_file_storage_directory.return_value = "/tmp/storage"
+        mock_settings.get_file_storage_directory.return_value = "/tmp/storage"
 
         result = resolver.get_storage_directory()
         assert result == "/tmp/storage"

@@ -54,7 +54,7 @@ def _bundle(family="ltx"):
     )
 
 
-class _FakeResidencyManager:
+class _FakeResidencyRegistry:
     """Records every `offload_all` call; never actually offloads anything --
     mirrors the test double in `test_dit_placement.py` /
     `test_latent_upscaler_ltx.py`."""
@@ -342,8 +342,8 @@ def test_free_room_for_tube_refine_noop_on_non_cuda_device():
     dit = _Recording(device="cuda")  # parked resident
     bundle = _bundle()
     bundle.dit = dit
-    manager = _FakeResidencyManager()
-    with patch(f"{_MOD}.get_residency_manager", return_value=manager), \
+    manager = _FakeResidencyRegistry()
+    with patch(f"{_MOD}.get_residency_registry", return_value=manager), \
          patch(f"{_MOD}.clear_gpu_memory") as mock_clear:
         _free_room_for_tube_refine(bundle, "cpu")
     assert dit.offloaded == 0
@@ -355,8 +355,8 @@ def test_free_room_for_tube_refine_offloads_resident_dit_and_evicts_foreign_resi
     dit = _Recording(device="cuda")  # dit_restore.py's warm-start
     bundle = _bundle()
     bundle.dit = dit
-    manager = _FakeResidencyManager()
-    with patch(f"{_MOD}.get_residency_manager", return_value=manager), \
+    manager = _FakeResidencyRegistry()
+    with patch(f"{_MOD}.get_residency_registry", return_value=manager), \
          patch(f"{_MOD}.clear_gpu_memory") as mock_clear:
         _free_room_for_tube_refine(bundle, "cuda")
     assert dit.offloaded == 1
@@ -368,8 +368,8 @@ def test_free_room_for_tube_refine_skips_dit_offload_when_not_resident():
     dit = _Recording()  # device defaults to "cpu" -- nothing to evict
     bundle = _bundle()
     bundle.dit = dit
-    manager = _FakeResidencyManager()
-    with patch(f"{_MOD}.get_residency_manager", return_value=manager), \
+    manager = _FakeResidencyRegistry()
+    with patch(f"{_MOD}.get_residency_registry", return_value=manager), \
          patch(f"{_MOD}.clear_gpu_memory") as mock_clear:
         _free_room_for_tube_refine(bundle, "cuda")
     assert dit.offloaded == 0
@@ -493,8 +493,8 @@ def test_process_calls_free_room_for_tube_refine_before_the_track_loop(monkeypat
     bundle = _bundle()
     bundle.dit = dit
 
-    manager = _FakeResidencyManager()
-    with patch(f"{_MOD}.get_residency_manager", return_value=manager), \
+    manager = _FakeResidencyRegistry()
+    with patch(f"{_MOD}.get_residency_registry", return_value=manager), \
          patch(f"{_MOD}.clear_gpu_memory"):
         _pipe(device="cuda").process(
             PipeInput(input={"model": bundle, "video": ["/src/clip.mp4"],

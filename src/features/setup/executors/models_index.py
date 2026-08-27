@@ -12,8 +12,8 @@ specific backend what it can load).
 A large models folder makes `index_models()` (it hashes every new file's full
 contents - see `ModelScanner.index_single_model`) take much longer than a
 request can wait on - this step is only safe to run because
-`SetupRunManager.drive_async` drives it off the request thread (see
-`run_manager.py`). This executor wires the scanner's
+`SetupRunner.drive_async` drives it off the request thread (see
+`runner.py`). This executor wires the scanner's
 `set_progress_callback` seam to `StepContext.report_progress` so the
 in-flight attempt row shows "N of M" files while the scan runs, throttled to
 roughly once a second (matching `artifacts_fetch.py`'s cadence) so a huge

@@ -1,9 +1,9 @@
 """Dispatches a setup-run step to its executor by `kind` and records the
 outcome as one `setup_step_attempts` row.
 
-This is the concrete object `SetupRunManager.register_executor_registry()`
-expects: anything exposing `.execute(run_manager, run) -> SetupRun` (see
-`run_manager.execute_current_step`, which calls
+This is the concrete object `SetupRunner.register_executor_registry()`
+expects: anything exposing `.execute(runner, run) -> SetupRun` (see
+`runner.execute_current_step`, which calls
 `self._executor_registry.execute(self, run)`).
 
 One call to `execute()` drives the run forward by exactly one step: it runs
@@ -22,12 +22,12 @@ from typing import Dict, Optional
 from src.features.setup.executors.base import StepContext, StepExecutor, StepResult
 from src.features.setup.recipe_catalog import RecipeCatalog
 from src.features.setup.records import SetupRun, SetupRunStatus, SetupStepStatus
-from src.features.setup.run_manager import SetupRunError, SetupRunManager
+from src.features.setup.runner import SetupRunError, SetupRunner
 
 logger = logging.getLogger(__name__)
 
 #: Statuses `execute()` is willing to act on. AWAITING_CONSENT/PAUSED runs
-#: need an explicit resume/`grant_consent` first (see `SetupRunManager.
+#: need an explicit resume/`grant_consent` first (see `SetupRunner.
 #: grant_consent`, which advances past a parked step without calling this
 #: method again); a terminal run is already rejected by `record_step_attempt`
 #: itself, but rejecting it here too gives a clearer message than "illegal
@@ -46,7 +46,7 @@ class SetupExecutorRegistry:
         """Register (or override) the executor for one step kind."""
         self._executors[kind] = executor
 
-    def execute(self, run_manager: SetupRunManager, run: SetupRun) -> SetupRun:
+    def execute(self, runner: SetupRunner, run: SetupRun) -> SetupRun:
         if run.status not in _EXECUTABLE_STATUSES:
             raise SetupRunError(
                 f"Cannot execute a step while the run is '{run.status.value}' "
@@ -55,7 +55,7 @@ class SetupExecutorRegistry:
 
         recipe = self.catalog.get_recipe(run.recipe_id, run.recipe_version)
         if recipe is None:
-            return run_manager.transition(
+            return runner.transition(
                 run.id,
                 SetupRunStatus.FAILED,
                 error_code="RECIPE_NOT_FOUND",
@@ -70,12 +70,12 @@ class SetupExecutorRegistry:
             # status a step could plausibly complete to, including
             # COMPLETED below for a steps-less recipe) - PENDING cannot
             # transition directly to COMPLETED.
-            run = run_manager.transition(run.id, SetupRunStatus.RUNNING)
+            run = runner.transition(run.id, SetupRunStatus.RUNNING)
 
         step = recipe.get_step(run.current_step) if run.current_step else None
         if step is None:
             if not recipe.steps:
-                return run_manager.transition(run.id, SetupRunStatus.COMPLETED)
+                return runner.transition(run.id, SetupRunStatus.COMPLETED)
             step = recipe.steps[0]
 
         if run.current_step != step.key:
@@ -84,7 +84,7 @@ class SetupExecutorRegistry:
             # to RUNNING above" and "already RUNNING but current_step was
             # never recorded" (e.g. the run was only ever `resume`d, which
             # moves status without touching current_step).
-            run = run_manager.repo.update_run(run.id, current_step=step.key)
+            run = runner.repo.update_run(run.id, current_step=step.key)
 
         # Progress-report seam: a long-running executor calls
         # `context.report_progress(...)` from its poll loop. The first call
@@ -98,7 +98,7 @@ class SetupExecutorRegistry:
             progress_current=None, progress_total=None, progress_unit=None
         ) -> None:
             try:
-                attempt = run_manager.record_step_attempt(
+                attempt = runner.record_step_attempt(
                     run.id,
                     step.key,
                     SetupStepStatus.RUNNING,
@@ -136,8 +136,8 @@ class SetupExecutorRegistry:
         if result.awaiting_consent:
             # Parked, not finished: no terminal `finished_at` on this attempt -
             # `grant_consent` records the actual outcome (a fresh attempt) once
-            # the owner approves, per `SetupRunManager.grant_consent`.
-            run_manager.record_step_attempt(
+            # the owner approves, per `SetupRunner.grant_consent`.
+            runner.record_step_attempt(
                 run.id,
                 step.key,
                 SetupStepStatus.AWAITING_CONSENT,
@@ -145,11 +145,11 @@ class SetupExecutorRegistry:
                 safe_output=result.to_safe_output(),
                 finished=False,
             )
-            return run_manager.transition(
+            return runner.transition(
                 run.id, SetupRunStatus.AWAITING_CONSENT, current_step=step.key
             )
 
-        run_manager.record_step_attempt(
+        runner.record_step_attempt(
             run.id,
             step.key,
             SetupStepStatus.SUCCEEDED if result.success else SetupStepStatus.FAILED,
@@ -161,7 +161,7 @@ class SetupExecutorRegistry:
         )
 
         if not result.success:
-            return run_manager.transition(
+            return runner.transition(
                 run.id,
                 SetupRunStatus.FAILED,
                 current_step=step.key,
@@ -169,16 +169,16 @@ class SetupExecutorRegistry:
                 safe_error_detail=result.safe_error_detail,
             )
 
-        return self.advance_past(run_manager, run, step)
+        return self.advance_past(runner, run, step)
 
-    def advance_past(self, run_manager: SetupRunManager, run: SetupRun, step) -> SetupRun:
+    def advance_past(self, runner: SetupRunner, run: SetupRun, step) -> SetupRun:
         """Move `run` on to whatever follows `step` in its recipe (or complete
         it, if `step` was last). Shared by `execute()`'s on-success path and
-        `SetupRunManager.grant_consent` (which records its own attempt for the
+        `SetupRunner.grant_consent` (which records its own attempt for the
         just-approved step, then needs this same "what's next" logic without
         re-invoking an executor)."""
         recipe = self.catalog.get_recipe(run.recipe_id, run.recipe_version)
         next_step = recipe.next_step_after(step.key) if recipe else None
         if next_step is None:
-            return run_manager.transition(run.id, SetupRunStatus.COMPLETED, current_step=step.key)
-        return run_manager.repo.update_run(run.id, current_step=next_step.key)
+            return runner.transition(run.id, SetupRunStatus.COMPLETED, current_step=step.key)
+        return runner.repo.update_run(run.id, current_step=next_step.key)

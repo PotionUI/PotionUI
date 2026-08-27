@@ -44,14 +44,14 @@ class MockHandler:
     # Class-level hook so tests can control what handle() returns/raises
     handle_impl = None
 
-    def __init__(self, generation_id, user_id=None, settings_manager=None, storage_driver=None):
+    def __init__(self, generation_id, user_id=None, settings=None, storage_driver=None):
         self.generation_id = generation_id
         self.user_id = user_id
-        self.settings_manager = settings_manager
+        self.settings = settings
         self.storage_driver = storage_driver
 
     def handle(self, output):
-        return type(self).handle_impl(output, self.generation_id, self.user_id, self.settings_manager)
+        return type(self).handle_impl(output, self.generation_id, self.user_id, self.settings)
 
 
 @pytest.fixture
@@ -77,10 +77,10 @@ def mock_generation_repo():
 
 
 @pytest.fixture
-def output_processor(mock_type_registry, mock_settings_manager):
+def output_processor(mock_type_registry, mock_settings):
     """OutputProcessor instance with an isolated type registry."""
     return OutputProcessor(
-        settings_manager=mock_settings_manager,
+        settings=mock_settings,
         type_registry=mock_type_registry
     )
 
@@ -92,27 +92,27 @@ class TestOutputProcessorStorageDriverPropagation:
 
     @pytest.mark.asyncio
     async def test_injected_storage_driver_reaches_the_handler(
-        self, mock_type_registry, mock_settings_manager, mock_generation_repo
+        self, mock_type_registry, mock_settings, mock_generation_repo
     ):
         mock_driver = Mock()
         processor = OutputProcessor(
-            settings_manager=mock_settings_manager,
+            settings=mock_settings,
             storage_driver=mock_driver,
             type_registry=mock_type_registry,
         )
 
         MockHandler.handle_impl = staticmethod(
-            lambda out, gen_id, user_id, settings_manager: {'handler': 'MockHandler', 'processed': True}
+            lambda out, gen_id, user_id, settings: {'handler': 'MockHandler', 'processed': True}
         )
 
-        # handle_impl only sees settings_manager, not storage_driver directly -
+        # handle_impl only sees settings, not storage_driver directly -
         # assert on the constructed handler instance instead by wrapping __init__.
         seen_drivers = []
         original_init = MockHandler.__init__
 
-        def spying_init(self, generation_id, user_id=None, settings_manager=None, storage_driver=None):
+        def spying_init(self, generation_id, user_id=None, settings=None, storage_driver=None):
             seen_drivers.append(storage_driver)
-            original_init(self, generation_id, user_id, settings_manager, storage_driver)
+            original_init(self, generation_id, user_id, settings, storage_driver)
 
         with patch.object(MockHandler, '__init__', spying_init):
             await processor.process_output("gen_1", MockGenerationOutput())
@@ -123,27 +123,27 @@ class TestOutputProcessorStorageDriverPropagation:
 class TestOutputProcessorInitialization:
     """Test cases for OutputProcessor initialization."""
 
-    def test_init_with_custom_type_registry(self, mock_type_registry, mock_settings_manager):
+    def test_init_with_custom_type_registry(self, mock_type_registry, mock_settings):
         """Test initialization with a custom output type registry."""
         processor = OutputProcessor(
-            settings_manager=mock_settings_manager,
+            settings=mock_settings,
             type_registry=mock_type_registry
         )
         assert processor.type_registry == mock_type_registry
-        assert processor.settings_manager == mock_settings_manager
+        assert processor.settings == mock_settings
 
-    def test_init_with_default_type_registry(self, mock_settings_manager):
+    def test_init_with_default_type_registry(self, mock_settings):
         """Test initialization falls back to the shared output_type_registry."""
         from src.features.generation import output_types as output_types_module
 
-        processor = OutputProcessor(settings_manager=mock_settings_manager)
+        processor = OutputProcessor(settings=mock_settings)
         assert processor.type_registry is output_types_module.output_type_registry
 
-    def test_init_logs_registered_type_count(self, mock_type_registry, mock_settings_manager):
+    def test_init_logs_registered_type_count(self, mock_type_registry, mock_settings):
         """Test that initialization logs the number of registered output types."""
         with patch('src.features.generation.output_processor.logger') as mock_logger:
             processor = OutputProcessor(
-                settings_manager=mock_settings_manager,
+                settings=mock_settings,
                 type_registry=mock_type_registry
             )
 
@@ -166,7 +166,7 @@ class TestOutputProcessorProcessing:
         generation_id = "test_gen_123"
 
         MockHandler.handle_impl = staticmethod(
-            lambda out, gen_id, user_id, settings_manager: {
+            lambda out, gen_id, user_id, settings: {
                 'handler': 'MockHandler',
                 'processed': True,
                 'generation_id': gen_id,
@@ -193,7 +193,7 @@ class TestOutputProcessorProcessing:
 
         captured = {}
 
-        def handle_impl(out, gen_id, uid, settings_manager):
+        def handle_impl(out, gen_id, uid, settings):
             captured['user_id'] = uid
             return {'handler': 'MockHandler', 'processed': True, 'generation_id': gen_id}
 
@@ -214,7 +214,7 @@ class TestOutputProcessorProcessing:
         generation_id = "test_gen_456"
 
         MockHandler.handle_impl = staticmethod(
-            lambda out, gen_id, uid, settings_manager: {
+            lambda out, gen_id, uid, settings: {
                 'handler': 'MockHandler',
                 'processed': False,
                 'error': 'Processing failed'
@@ -253,7 +253,7 @@ class TestOutputProcessorProcessing:
         output = MockGenerationOutput(data="test_data")
         generation_id = "test_gen_789"
 
-        def raise_error(out, gen_id, uid, settings_manager):
+        def raise_error(out, gen_id, uid, settings):
             raise Exception("Handler registry error")
 
         MockHandler.handle_impl = staticmethod(raise_error)
@@ -275,7 +275,7 @@ class TestOutputProcessorProcessing:
         generation_id = "test_gen_log"
 
         MockHandler.handle_impl = staticmethod(
-            lambda out, gen_id, uid, settings_manager: {
+            lambda out, gen_id, uid, settings: {
                 'handler': 'TestHandler',
                 'processed': True,
                 'generation_id': gen_id
@@ -303,7 +303,7 @@ class TestOutputProcessorProcessing:
         generation_id = "test_gen_fail"
 
         MockHandler.handle_impl = staticmethod(
-            lambda out, gen_id, uid, settings_manager: {
+            lambda out, gen_id, uid, settings: {
                 'handler': 'TestHandler',
                 'processed': False,
                 'error': 'Test error message'
@@ -339,7 +339,7 @@ class TestOutputProcessorProgressTracking:
         generation_id = "test_gen_progress"
 
         MockHandler.handle_impl = staticmethod(
-            lambda out, gen_id, uid, settings_manager: {
+            lambda out, gen_id, uid, settings: {
                 'handler': 'MockHandler', 'processed': True, 'generation_id': gen_id
             }
         )
@@ -367,7 +367,7 @@ class TestOutputProcessorProgressTracking:
         generation_id = "test_gen_progress_obj"
 
         MockHandler.handle_impl = staticmethod(
-            lambda out, gen_id, uid, settings_manager: {
+            lambda out, gen_id, uid, settings: {
                 'handler': 'MockHandler', 'processed': True, 'generation_id': gen_id
             }
         )
@@ -389,7 +389,7 @@ class TestOutputProcessorProgressTracking:
         generation_id = "test_gen_no_progress"
 
         MockHandler.handle_impl = staticmethod(
-            lambda out, gen_id, uid, settings_manager: {
+            lambda out, gen_id, uid, settings: {
                 'handler': 'MockHandler', 'processed': True, 'generation_id': gen_id
             }
         )
@@ -423,7 +423,7 @@ class TestOutputProcessorProgressTracking:
         generation_id = "test_gen_offload"
 
         MockHandler.handle_impl = staticmethod(
-            lambda out, gen_id, uid, settings_manager: {
+            lambda out, gen_id, uid, settings: {
                 'handler': 'MockHandler', 'processed': True, 'generation_id': gen_id
             }
         )
@@ -452,7 +452,7 @@ class TestOutputProcessorProgressTracking:
         generation_id = "test_gen_step_only"
 
         MockHandler.handle_impl = staticmethod(
-            lambda out, gen_id, uid, settings_manager: {
+            lambda out, gen_id, uid, settings: {
                 'handler': 'MockHandler', 'processed': True, 'generation_id': gen_id
             }
         )
@@ -480,7 +480,7 @@ class TestOutputProcessorProgressTracking:
         mock_generation_repo.update_progress = Mock(side_effect=Exception("Database error"))
 
         MockHandler.handle_impl = staticmethod(
-            lambda out, gen_id, uid, settings_manager: {
+            lambda out, gen_id, uid, settings: {
                 'handler': 'MockHandler', 'processed': True, 'generation_id': gen_id
             }
         )
@@ -560,7 +560,7 @@ class TestOutputProcessorIntegration:
 
         call_results = []
 
-        def track_calls(out, gen_id, uid, settings_manager):
+        def track_calls(out, gen_id, uid, settings):
             result = {
                 'handler': f'Handler_{out.output_type}',
                 'processed': True,
@@ -600,7 +600,7 @@ class TestOutputProcessorIntegration:
         ]
         generation_id = "mixed_workflow_gen"
 
-        def mixed_results(out, gen_id, uid, settings_manager):
+        def mixed_results(out, gen_id, uid, settings):
             if out.data == "failure_output":
                 return {'handler': 'TestHandler', 'processed': False, 'error': 'Simulated failure'}
             return {'handler': 'TestHandler', 'processed': True, 'generation_id': gen_id}
@@ -638,7 +638,7 @@ class TestOutputProcessorIntegration:
         ]
 
         MockHandler.handle_impl = staticmethod(
-            lambda out, gen_id, uid, settings_manager: {
+            lambda out, gen_id, uid, settings: {
                 'handler': 'MockHandler', 'processed': True, 'generation_id': gen_id
             }
         )
@@ -669,7 +669,7 @@ class TestOutputProcessorHandlerOffload:
         caller_thread_id = threading.get_ident()
         handler_thread_id = {}
 
-        def handle_impl(out, gen_id, uid, settings_manager):
+        def handle_impl(out, gen_id, uid, settings):
             handler_thread_id['id'] = threading.get_ident()
             return {'handler': 'MockHandler', 'processed': True}
 
@@ -692,7 +692,7 @@ class TestOutputProcessorHandlerOffload:
         for which call, as long as the caller awaits each in turn."""
         durations = [0.03, 0.0, 0.02, 0.0, 0.01]
 
-        def handle_impl(out, gen_id, uid, settings_manager):
+        def handle_impl(out, gen_id, uid, settings):
             time.sleep(out.data)
             return {'handler': 'MockHandler', 'processed': True, 'output_id': out.output_type}
 
@@ -719,7 +719,7 @@ class TestOutputProcessorHandlerOffload:
         run more than once per processed output."""
         write_calls = []
 
-        def handle_impl(out, gen_id, uid, settings_manager):
+        def handle_impl(out, gen_id, uid, settings):
             write_calls.append(gen_id)
             return {'handler': 'MockHandler', 'processed': True}
 
@@ -738,7 +738,7 @@ class TestOutputProcessorHandlerOffload:
         """An exception raised inside the thread-offloaded handler must
         propagate back through the awaited call and be caught the same way
         a synchronous handler exception was."""
-        def handle_impl(out, gen_id, uid, settings_manager):
+        def handle_impl(out, gen_id, uid, settings):
             raise RuntimeError("boom from worker thread")
 
         MockHandler.handle_impl = staticmethod(handle_impl)

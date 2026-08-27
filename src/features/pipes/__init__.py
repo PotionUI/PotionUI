@@ -1,3 +1,3 @@
-from .manager import PipeInstallManager
+from .runner import PipeInstallRunner
 
-__all__ = ['PipeInstallManager']
+__all__ = ['PipeInstallRunner']

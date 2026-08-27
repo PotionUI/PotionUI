@@ -18,7 +18,7 @@ SYSTEM_MONITOR_HOOKS = hooks_registry.declare(
             "payload": {
                 "stats": {
                     "type": "dict",
-                    "description": "{'timestamp': float, 'gpu': {...}, 'ram': {...}, 'cpu': {...}} - gpu/ram/cpu are each {'available': bool, ...usage fields} built by SystemMonitorManager._format_gpu_stats/_format_ram_stats/_format_cpu_stats from src/platform/observability/system_probe.py's snapshot",
+                    "description": "{'timestamp': float, 'gpu': {...}, 'ram': {...}, 'cpu': {...}} - gpu/ram/cpu are each {'available': bool, ...usage fields} built by SystemMonitorCoordinator._format_gpu_stats/_format_ram_stats/_format_cpu_stats from src/platform/observability/system_probe.py's snapshot",
                 },
             },
             "mutable": ["stats"],

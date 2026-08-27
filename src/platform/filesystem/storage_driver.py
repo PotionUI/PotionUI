@@ -51,7 +51,7 @@ def validate_key(key: str) -> str:
 
 def uploads_key(filename: str) -> str:
     """The storage key for a file in the uploads namespace - the same
-    `uploads/{filename}` convention `MediaManager.upload_media` writes to.
+    `uploads/{filename}` convention `MediaStore.upload_media` writes to.
 
     Raises `StorageKeyError`, like `validate_key`; callers translate that into
     whatever error vocabulary they already return.

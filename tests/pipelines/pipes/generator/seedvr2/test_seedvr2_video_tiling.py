@@ -261,7 +261,7 @@ def test_decode_clip_evicts_foreign_residents_once_at_floor_then_retries(monkeyp
             calls["offload_all"] += 1
             return []
 
-    monkeypatch.setattr(m, "get_residency_manager", lambda: _FakeManager())
+    monkeypatch.setattr(m, "get_residency_registry", lambda: _FakeManager())
 
     # Only ONE eviction retry is attempted at the floor tile (mirrors
     # NativeGenerator's single-retry _free_for_decode_retry semantics, not an
@@ -307,7 +307,7 @@ def test_decode_clip_raises_after_eviction_retry_also_ooms(monkeypatch):
         def offload_all(self, device, exclude=()):
             return []
 
-    monkeypatch.setattr(m, "get_residency_manager", lambda: _FakeManager())
+    monkeypatch.setattr(m, "get_residency_registry", lambda: _FakeManager())
     vae = _FakeVAEModule(always_oom=True)
     gen = _make_generator(vae)
     latent = torch.zeros((1, 16, 1, 64, 64))

@@ -31,8 +31,8 @@ def make_registry(backends, default_config=None):
     touches plugins/db/generation manager); wire only what selection needs."""
     registry = BackendRegistry.__new__(BackendRegistry)
     registry._backends_cache = {b.backend_id: b for b in backends}
-    registry.backend_config_manager = Mock()
-    registry.backend_config_manager.get_default_backend = Mock(return_value=default_config)
+    registry.backend_config_store = Mock()
+    registry.backend_config_store.get_default_backend = Mock(return_value=default_config)
     return registry
 
 

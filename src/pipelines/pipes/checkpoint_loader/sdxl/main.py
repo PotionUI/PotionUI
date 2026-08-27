@@ -14,7 +14,7 @@ from src.pipelines.pipes.checkpoint_loader.sdxl.sdxl_model import SDXLModel
 
 class _SdxlResidencyHandle:
     """Evictable handle registering a GPU-resident SDXL pipe with the native
-    engine's ``GpuResidencyManager``.
+    engine's ``GpuResidencyRegistry``.
 
     Closes the cross-engine OOM blind spot: a native generation that runs after an
     SDXL one (or vice-versa) can now evict SDXL's still-resident diffusers pipe to
@@ -43,8 +43,8 @@ class _SdxlResidencyHandle:
                 logger.debug("[CHECKPOINT LOADER SDXL] residency offload to cpu failed", exc_info=True)
         self.offloaded = True
         try:
-            from src.platform.runtime.native.memory.residency import get_residency_manager
-            get_residency_manager().note_offloaded(self)
+            from src.platform.runtime.native.memory.residency import get_residency_registry
+            get_residency_registry().note_offloaded(self)
         except Exception:  # pragma: no cover - native engine may be absent
             logger.debug("[CHECKPOINT LOADER SDXL] note_offloaded failed", exc_info=True)
 
@@ -161,13 +161,13 @@ class CheckpointLoaderSDXLPipe(BaseModelLoaderPipe):
         return f"{model_path}|{sorted(desired_loras.items(), key=lambda kv: str(kv[0]))}"
 
     def _resolve_vram_limit_gb(self, pipe_input: PipeInput) -> float:
-        gpu_manager = pipe_input.input.get("GPU", None)
-        memory_manager = pipe_input.input.get("MEMORY", None)
+        gpu_monitor = pipe_input.input.get("GPU", None)
+        memory_advisor = pipe_input.input.get("MEMORY", None)
 
         vram_limit_gb = self.config.get("vram_limit_gb", None)
-        if gpu_manager and vram_limit_gb is None:
+        if gpu_monitor and vram_limit_gb is None:
             # No cap configured on the backend - bound only by available hardware
-            vram_limit_gb = gpu_manager.get_vram_budget()
+            vram_limit_gb = gpu_monitor.get_vram_budget()
             logger.info(f"[CHECKPOINT LOADER SDXL] Using dynamic VRAM budget: {vram_limit_gb:.2f}GB")
         elif vram_limit_gb is not None:
             logger.info(f"[CHECKPOINT LOADER SDXL] Using configured VRAM limit: {vram_limit_gb}GB")
@@ -177,8 +177,8 @@ class CheckpointLoaderSDXLPipe(BaseModelLoaderPipe):
             logger.info(f"[CHECKPOINT LOADER SDXL] No VRAM limit specified, using default: {vram_limit_gb}GB")
 
         # Log memory recommendation if available
-        if memory_manager:
-            memory_manager.log_memory_recommendation(
+        if memory_advisor:
+            memory_advisor.log_memory_recommendation(
                 image_size=(1024, 1024),  # Default SDXL resolution for estimation
                 model_type="sdxl",
                 context="checkpoint_loader"
@@ -221,7 +221,7 @@ class CheckpointLoaderSDXLPipe(BaseModelLoaderPipe):
         self._register_with_residency(model)
 
     def _register_with_residency(self, model: SDXLModel) -> None:
-        """Register the GPU-resident SDXL pipe with the native GpuResidencyManager.
+        """Register the GPU-resident SDXL pipe with the native GpuResidencyRegistry.
 
         Runs on every acquire (hit or miss). On a hit where a prior native
         generation evicted our pipe to CPU (``handle.offloaded``), re-home it to the
@@ -236,7 +236,7 @@ class CheckpointLoaderSDXLPipe(BaseModelLoaderPipe):
         if pipe is None:
             return
         try:
-            from src.platform.runtime.native.memory.residency import get_residency_manager
+            from src.platform.runtime.native.memory.residency import get_residency_registry
         except Exception:  # pragma: no cover - native engine unavailable
             return
         handle = getattr(model, "_residency_handle", None)
@@ -256,7 +256,7 @@ class CheckpointLoaderSDXLPipe(BaseModelLoaderPipe):
             handle = _SdxlResidencyHandle(model, device, _estimate_pipe_gb(pipe))
             model._residency_handle = handle
         handle.offloaded = False
-        get_residency_manager().note_resident(handle, device, handle.size_gb)
+        get_residency_registry().note_resident(handle, device, handle.size_gb)
 
     def build_output(self, model: SDXLModel, pipe_input: PipeInput, fingerprint: str) -> Dict[str, Any]:
         model_base = BaseModel(self.config.get("model")['base'])

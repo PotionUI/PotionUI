@@ -35,7 +35,7 @@ from src.plugin_api.hooks import (
     HookContext,
     HookResult,
     HookSpec,
-    ModelLifecycleManager,
+    ModelLifecycle,
     PluginRegistry,
     get_container,
     get_global_plugin_registry,
@@ -129,7 +129,7 @@ from src.plugin_api.presets import (
 from src.plugin_api.storage import (
     PluginRepository,
     SettingRepository,
-    SettingsManager,
+    Settings,
     db,
     generate_ulid,
 )
@@ -162,7 +162,7 @@ __all__ = [
     "HookContext",
     "HookResult",
     "HookSpec",
-    "ModelLifecycleManager",
+    "ModelLifecycle",
     "PluginRegistry",
     "get_container",
     "get_global_plugin_registry",
@@ -235,7 +235,7 @@ __all__ = [
     # Storage
     "PluginRepository",
     "SettingRepository",
-    "SettingsManager",
+    "Settings",
     "db",
     "generate_ulid",
     # Automation nodes

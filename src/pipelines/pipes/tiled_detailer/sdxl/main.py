@@ -307,14 +307,14 @@ class TiledDetailerSDXL(BasePipe):
         # Add 10% overhead for safety
         return total_vram * 1.1
 
-    def _get_optimal_tile_grid(self, image_size: Tuple[int, int], gpu_manager=None, memory_manager=None) -> Tuple[int, int, int, int]:
+    def _get_optimal_tile_grid(self, image_size: Tuple[int, int], gpu_monitor=None, memory_advisor=None) -> Tuple[int, int, int, int]:
         """
         Calculate optimal tile grid that fits VRAM constraints and avoids tiny tiles.
 
         Args:
             image_size: (width, height) tuple
-            gpu_manager: Optional GPU manager service for dynamic VRAM budget
-            memory_manager: Optional Memory manager service for intelligent tiling
+            gpu_monitor: Optional GPU manager service for dynamic VRAM budget
+            memory_advisor: Optional Memory manager service for intelligent tiling
 
         Returns:
             Tuple[int, int, int, int]: (tiles_x, tiles_y, tile_width, tile_height)
@@ -325,9 +325,9 @@ class TiledDetailerSDXL(BasePipe):
 
         # Determine VRAM budget
         vram_limit = self.config.get("vram_limit_gb", None)
-        if gpu_manager and vram_limit is None:
+        if gpu_monitor and vram_limit is None:
             # No cap configured on the backend - bound only by available hardware
-            vram_limit = gpu_manager.get_vram_budget()
+            vram_limit = gpu_monitor.get_vram_budget()
             logger.debug(f"[TILED_DETAILER SDXL] Using dynamic VRAM budget: {vram_limit:.2f}GB")
         elif vram_limit is not None:
             logger.debug(f"[TILED_DETAILER SDXL] Using configured VRAM limit: {vram_limit}GB")
@@ -337,9 +337,9 @@ class TiledDetailerSDXL(BasePipe):
             logger.debug(f"[TILED_DETAILER SDXL] No VRAM limit specified, using default: {vram_limit}GB")
 
         # Use memory manager for intelligent tiling if available
-        if memory_manager:
+        if memory_advisor:
             logger.debug(f"[TILED_DETAILER SDXL] Using MEMORY service for tile calculation")
-            tiles_x, tiles_y, tile_width, tile_height = memory_manager.calculate_optimal_tile_count(
+            tiles_x, tiles_y, tile_width, tile_height = memory_advisor.calculate_optimal_tile_count(
                 image_size=image_size,
                 vram_budget=vram_limit,
                 model_type="sdxl",
@@ -471,8 +471,8 @@ class TiledDetailerSDXL(BasePipe):
 
     def process(self, pipe_input: PipeInput, generation_outputs: callable) -> PipeOutput:
         # Get memory management services if available
-        gpu_manager = pipe_input.input.get("GPU", None)
-        memory_manager = pipe_input.input.get("MEMORY", None)
+        gpu_monitor = pipe_input.input.get("GPU", None)
+        memory_advisor = pipe_input.input.get("MEMORY", None)
 
         # Get configuration values
         overlap = int(self.config["overlap"])
@@ -497,8 +497,8 @@ class TiledDetailerSDXL(BasePipe):
             # Calculate optimal VRAM-aware tile grid with services
             tiles_x, tiles_y, tile_width, tile_height = self._get_optimal_tile_grid(
                 image.size,
-                gpu_manager=gpu_manager,
-                memory_manager=memory_manager
+                gpu_monitor=gpu_monitor,
+                memory_advisor=memory_advisor
             )
 
             tiles = self._split_image_into_tiles(image, tiles_x, tiles_y, tile_width, tile_height, overlap)
@@ -598,8 +598,8 @@ class TiledDetailerSDXL(BasePipe):
 
         # One aggressive cleanup per pipe run; per-tile img2img cleanups are
         # light (no sync/multi-GC) by design.
-        from src.platform.runtime.model_lifecycle.manager import get_model_lifecycle_manager
-        models = get_model_lifecycle_manager()
+        from src.platform.runtime.model_lifecycle.lifecycle import get_model_lifecycle
+        models = get_model_lifecycle()
         if models is not None:
             models.cleanup(aggressive=True)
         elif hasattr(model, "clear_cuda_cache"):

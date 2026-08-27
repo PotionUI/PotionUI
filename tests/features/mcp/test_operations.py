@@ -10,15 +10,15 @@ from src.features.mcp.operations import hash_token, MCP_ENABLED_KEY, MCP_USER_EN
 from src.features.mcp.repository import McpTokenRepository
 from src.features.users.repository import UserRepository
 from src.platform.settings.repository import SettingRepository
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 
 
 @pytest.fixture
 def manager(mcp_db):
     token_repository = McpTokenRepository()
-    settings_manager = SettingsManager(SettingRepository())
+    settings = Settings(SettingRepository())
     user_repository = UserRepository()
-    return token_repository, settings_manager, user_repository
+    return token_repository, settings, user_repository
 
 
 @pytest.fixture
@@ -85,38 +85,38 @@ class TestRevoke:
 
 class TestGlobalToggle:
     def test_defaults_to_disabled(self, manager):
-        _tokens, settings_manager, _users = manager
-        assert operations.is_globally_enabled(settings_manager) is False
+        _tokens, settings, _users = manager
+        assert operations.is_globally_enabled(settings) is False
 
     def test_reading_the_system_setting_directly_reflects_the_toggle(self, manager, mcp_db):
-        _tokens, settings_manager, _users = manager
-        settings_manager.set_setting(MCP_ENABLED_KEY, True)
-        assert operations.is_globally_enabled(settings_manager) is True
+        _tokens, settings, _users = manager
+        settings.set_setting(MCP_ENABLED_KEY, True)
+        assert operations.is_globally_enabled(settings) is True
 
 
 class TestPerUserToggle:
     def test_defaults_to_enabled(self, manager):
-        _tokens, settings_manager, _users = manager
-        assert operations.is_user_enabled(settings_manager, "user-1") is True
+        _tokens, settings, _users = manager
+        assert operations.is_user_enabled(settings, "user-1") is True
 
     def test_set_user_enabled_false_then_true_round_trips(self, manager, real_user):
-        _tokens, settings_manager, user_repository = manager
-        operations.set_user_enabled(settings_manager, user_repository, real_user.id, False)
-        assert operations.is_user_enabled(settings_manager, real_user.id) is False
-        operations.set_user_enabled(settings_manager, user_repository, real_user.id, True)
-        assert operations.is_user_enabled(settings_manager, real_user.id) is True
+        _tokens, settings, user_repository = manager
+        operations.set_user_enabled(settings, user_repository, real_user.id, False)
+        assert operations.is_user_enabled(settings, real_user.id) is False
+        operations.set_user_enabled(settings, user_repository, real_user.id, True)
+        assert operations.is_user_enabled(settings, real_user.id) is True
 
     def test_toggle_is_isolated_per_user(self, manager, real_user):
-        _tokens, settings_manager, users = manager
+        _tokens, settings, users = manager
         other = users.create(username="bob", email="bob@example.com", password_hash="x")
-        operations.set_user_enabled(settings_manager, users, real_user.id, False)
-        assert operations.is_user_enabled(settings_manager, real_user.id) is False
-        assert operations.is_user_enabled(settings_manager, other.id) is True
+        operations.set_user_enabled(settings, users, real_user.id, False)
+        assert operations.is_user_enabled(settings, real_user.id) is False
+        assert operations.is_user_enabled(settings, other.id) is True
 
     def test_unknown_user_raises(self, manager):
-        _tokens, settings_manager, user_repository = manager
+        _tokens, settings, user_repository = manager
         with pytest.raises(ValueError):
-            operations.set_user_enabled(settings_manager, user_repository, "ghost-user", False)
+            operations.set_user_enabled(settings, user_repository, "ghost-user", False)
 
 
 class TestRecordUse:

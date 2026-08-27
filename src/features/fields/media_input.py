@@ -240,7 +240,7 @@ def _check_media_constraints(field_name: str, items: List[Any], config: Dict[str
     and FAILS OPEN when the specific value it needs is unknown: a bare path
     string carries no metadata at all, and even a passthrough dict's
     `metadata` sub-dict can have any of its fields as `None` (best-effort
-    probing - see `MediaManager._probe_upload_metadata`). Rejecting a
+    probing - see `MediaStore._probe_upload_metadata`). Rejecting a
     submission the platform simply couldn't measure would be a false
     positive, not a safety check; an unmeasurable value is treated the same
     as an unconfigured limit; either way `total_*` duration is only checked

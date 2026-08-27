@@ -1,6 +1,6 @@
 """Leak-hunt regression (LTX upscale-mode
-incident): drives the REAL ``GenerationManager.generate()`` -> REAL
-``ModelLifecycleManager.acquire()`` -> a bundle using the REAL ``WeakModelRef``
+incident): drives the REAL ``GenerationEngine.generate()`` -> REAL
+``ModelLifecycle.acquire()`` -> a bundle using the REAL ``WeakModelRef``
 pattern every native family's bundle uses, then asserts the loaded model is
 actually garbage-collectable once the generation ends and once a fingerprint
 bust (e.g. a LoRA change between two modes' independent forms) reloads it.
@@ -10,7 +10,7 @@ own finding: the CORE cache + weak-bundle + generate() mechanism, exercised
 through the real production code path, holds NO leak in isolation. If a real
 incident still shows stuck RAM, the holder is somewhere the full pipe/hook/
 closure machinery introduces that this minimal-but-faithful harness doesn't
-exercise -- see ``ModelLifecycleManager._log_referrer_diagnostic``, which logs
+exercise -- see ``ModelLifecycle._log_referrer_diagnostic``, which logs
 "referrer diagnostic: held by [...]" at INFO level any time an eviction can't
 unload because of a live reference. That log line is the fastest path to a
 definitive answer on a real box; this file only pins the already-fixed cases
@@ -24,11 +24,11 @@ from unittest.mock import Mock
 
 import torch
 
-from src.features.generation.generation import GenerationManager
+from src.features.generation.engine import GenerationEngine
 from src.pipelines.contracts import (
     BasePipe, IOType, PipeInput, PipeInputSpec, PipeOutput, PipeOutputSpec,
 )
-from src.platform.runtime.model_lifecycle.manager import ModelLifecycleManager
+from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
 from src.pipelines.pipes._shared.generation.weak_model_ref import WeakModelRef
 
 from dataclasses import dataclass, field
@@ -162,18 +162,18 @@ _PIPE_CLASSES = {"fake_model_loader": _FakeModelLoaderPipe, "fake_generator": _F
 
 
 def _build_manager():
-    models = ModelLifecycleManager()
+    models = ModelLifecycle()
     pipe_catalog = Mock()
     pipe_catalog.get_pipe.side_effect = lambda name: _PIPE_CLASSES[name]
-    manager = GenerationManager(
-        gpu=Mock(), model_manager=Mock(), pipe_catalog=pipe_catalog,
-        settings_manager=Mock(), system_monitor=Mock(), memory_manager=Mock(),
+    manager = GenerationEngine(
+        gpu=Mock(), model_directories=Mock(), pipe_catalog=pipe_catalog,
+        settings=Mock(), system_monitor=Mock(), memory_advisor=Mock(),
         llm_service=Mock(), models=models,
     )
     return manager, models
 
 
-def _run(manager: GenerationManager, generation_id: str, fingerprint_suffix: str = "none"):
+def _run(manager: GenerationEngine, generation_id: str, fingerprint_suffix: str = "none"):
     pipes = [
         {"name": "fake_model_loader", "id": "loader", "enabled": True, "input": [],
          "config": {"fingerprint_suffix": fingerprint_suffix}},

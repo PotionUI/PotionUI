@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 import pytest
 import torch
 
-from src.features.generation.generation import GenerationManager
+from src.features.generation.engine import GenerationEngine
 from src.pipelines.contracts import IOType, PipeInput, PipeOutputSpec
 from src.pipelines.outputs import ErrorGenerationOutput
 from src.platform.runtime.native.errors import HostMemoryExhaustedError
@@ -59,11 +59,11 @@ def mock_dependencies():
     gpu.get_total_vram.return_value = 24576  # MB
     return {
         'gpu': gpu,
-        'model_manager': Mock(),
+        'model_directories': Mock(),
         'pipe_catalog': Mock(),
-        'settings_manager': Mock(),
+        'settings': Mock(),
         'system_monitor': Mock(),
-        'memory_manager': Mock(),
+        'memory_advisor': Mock(),
         'llm_service': Mock(),
     }
 
@@ -73,7 +73,7 @@ def _run(manager, pipe_class, pipe_name):
     manager.pipe_catalog.get_pipe.return_value = pipe_class
 
     outputs = []
-    with patch('src.features.generation.generation.logger'):
+    with patch('src.features.generation.engine.logger'):
         with pytest.raises(Exception):
             manager.generate(pipes, lambda o: outputs.append(o), "gen_error_test")
     errors = [o for o in outputs if isinstance(o, ErrorGenerationOutput)]
@@ -82,7 +82,7 @@ def _run(manager, pipe_class, pipe_name):
 
 
 def test_cuda_oom_produces_an_actionable_error_with_vram_numbers(mock_dependencies):
-    manager = GenerationManager(**mock_dependencies)
+    manager = GenerationEngine(**mock_dependencies)
 
     error = _run(manager, CudaOomPipe, "cuda_oom_pipe")
 
@@ -94,7 +94,7 @@ def test_cuda_oom_produces_an_actionable_error_with_vram_numbers(mock_dependenci
 
 
 def test_host_ram_oom_produces_an_actionable_error(mock_dependencies):
-    manager = GenerationManager(**mock_dependencies)
+    manager = GenerationEngine(**mock_dependencies)
 
     error = _run(manager, HostRamOomPipe, "host_ram_oom_pipe")
 
@@ -113,7 +113,7 @@ def test_an_unrelated_exception_gets_the_neutral_fallback_headline(mock_dependen
         def process(self, pipe_input, generation_outputs, is_cancelled=None):
             raise ValueError("preset form is missing a required field")
 
-    manager = GenerationManager(**mock_dependencies)
+    manager = GenerationEngine(**mock_dependencies)
 
     error = _run(manager, PlainFailure, "plain_failure_pipe")
 

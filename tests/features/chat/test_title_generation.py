@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import Mock, AsyncMock
 from typing import AsyncGenerator, List
 
-from src.features.chat.manager import ChatManager
+from src.features.chat.runtime import ChatRuntime
 from src.features.chat.modes import ChatModeRegistry, build_generation_mode
 from src.features.chat.title_generator import ChatTitleGenerator
 
@@ -155,7 +155,7 @@ class TestStreamTitleEvent:
         self.mock_plugins.execute_hook.return_value = (no_block_ctx, [])
         self.mock_processor.process.side_effect = lambda content, mode=None: (content, {"raw": content})
 
-        self.manager = ChatManager(
+        self.manager = ChatRuntime(
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,

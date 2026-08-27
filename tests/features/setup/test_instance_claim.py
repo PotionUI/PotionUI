@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 
 from src.platform.database.database import db as global_db
-from src.platform.database.migration_runner import MigrationManager
+from src.platform.database.migration_runner import MigrationRunner
 from src.platform.security.user import AccountType
 from src.features.users.repository import UserRepository
 from src.features.setup.repository import InstanceClaimRepository
@@ -29,7 +29,7 @@ def file_db(tmp_path):
     original_path = global_db.db_path
     global_db.db_path = tmp_path / "instance_claim.db"
     try:
-        MigrationManager().run_migrations()
+        MigrationRunner().run_migrations()
         yield global_db
     finally:
         global_db.db_path = original_path
@@ -146,7 +146,7 @@ def test_subsequent_registration_joins_all_users_only(file_db):
 
 
 def test_check_connection_succeeds_against_a_reachable_db(file_db):
-    """`check_connection` is `ReadinessManager`'s service-facet probe; it must
+    """`check_connection` is `ReadinessAggregator`'s service-facet probe; it must
     not raise against a real, migrated database."""
     InstanceClaimRepository().check_connection()
 

@@ -40,7 +40,7 @@ from src.platform.runtime.native.engine import NativeGenerator
 from src.platform.runtime.native.memory.residency import (
     effective_free_vram_gb,
     free_vram_gb,
-    get_residency_manager,
+    get_residency_registry,
 )
 from src.pipelines.contracts import BasePipe
 from src.pipelines.contracts import (
@@ -464,7 +464,7 @@ class SeedVR2NativeGenerator(NativeGenerator):
             return outputs
         finally:
             # Free the per-clip GPU residency; weights survive on CPU (cached by
-            # ModelLifecycleManager) and reload on the next generation.
+            # ModelLifecycle) and reload on the next generation.
             if not self._resident("dit"):
                 self.dit.offload()
             self.vae.offload()
@@ -586,7 +586,7 @@ class SeedVR2NativeGenerator(NativeGenerator):
                             "[GENERATOR SEEDVR2] tiled decode OOM at floor tile — evicting foreign "
                             "GPU residents and retrying",
                         )
-                        get_residency_manager().offload_all(device, exclude=[self.dit, self.vae])
+                        get_residency_registry().offload_all(device, exclude=[self.dit, self.vae])
                         if torch.cuda.is_available():
                             torch.cuda.empty_cache()
                         continue

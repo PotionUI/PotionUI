@@ -15,13 +15,13 @@ from src.platform.http.base_controller import APIResponse
 from src.platform.filesystem import FileStore
 from src.features.generation.orchestrator import GenerationOrchestrator
 from src.features.generation.dto import GenerationRequest, GenerationStatus
-from src.platform.websocket import ConnectionManager
+from src.platform.websocket import ConnectionHub
 from src.features.generation.websocket_handler import WebSocketHandler
 from src.pipelines.outputs import (
     GenerationOutput, ImageGenerationOutput, GalleryGenerationOutput,
     ProgressGenerationOutput
 )
-from src.features.generation import GenerationHistoryManager
+from src.features.generation import GenerationHistoryFacade
 from src.features.generation.run_report_recorder import RunReportRecorder
 from PIL import Image
 from src.features.generation.handlers.image_handler import ImageGenerationOutputHandler
@@ -45,8 +45,8 @@ class TestGenerationController:
 
     @pytest.fixture
     def mock_generation_history_manager(self):
-        """Mock GenerationHistoryManager"""
-        mock = Mock(spec=GenerationHistoryManager)
+        """Mock GenerationHistoryFacade"""
+        mock = Mock(spec=GenerationHistoryFacade)
         return mock
 
     @pytest.fixture
@@ -121,9 +121,9 @@ class TestGenerationController:
 
         # Assert
         assert controller.generation_orchestrator == mock_generation_orchestrator
-        assert controller.history_manager == mock_generation_history_manager
+        assert controller.history_facade == mock_generation_history_manager
         assert controller.file_service == mock_file_service
-        assert isinstance(controller.connection_manager, ConnectionManager)
+        assert isinstance(controller.connection_hub, ConnectionHub)
         assert isinstance(controller.websocket_handler, WebSocketHandler)
 
     @pytest.mark.asyncio
@@ -323,7 +323,7 @@ class TestGenerationController:
         # Arrange
         controller.generation_orchestrator.cancel_generation.return_value = True
         controller.generation_orchestrator.get_generation_status.return_value = sample_generation_status
-        controller.connection_manager.broadcast_to_generation = AsyncMock()
+        controller.connection_hub.broadcast_to_generation = AsyncMock()
 
         # Act
         result = await controller.cancel_generation("test-generation-123", mock_current_user)
@@ -334,8 +334,8 @@ class TestGenerationController:
         assert "cancelled successfully" in result.message
 
         # Verify broadcast was called
-        controller.connection_manager.broadcast_to_generation.assert_called_once()
-        call_args = controller.connection_manager.broadcast_to_generation.call_args
+        controller.connection_hub.broadcast_to_generation.assert_called_once()
+        call_args = controller.connection_hub.broadcast_to_generation.call_args
         assert call_args[0][0] == "test-generation-123"
         assert call_args[0][1]['type'] == 'generation_cancelled'
 
@@ -434,8 +434,8 @@ class TestGenerationController:
     @pytest.mark.asyncio
     async def test_get_generation_history_success(self, controller, mock_current_user):
         """Test successful history retrieval"""
-        # Arrange - now delegate to history_manager
-        controller.history_manager.get_history.return_value = {
+        # Arrange - now delegate to history_facade
+        controller.history_facade.get_history.return_value = {
             'generations': [{"id": "gen-1"}, {"id": "gen-2"}],
             'total': 2,
             'limit': 50,
@@ -456,7 +456,7 @@ class TestGenerationController:
     @pytest.mark.asyncio
     async def test_get_generation_history_threads_semantic_query(self, controller, mock_current_user):
         """The semantic_query param reaches the history manager unchanged."""
-        controller.history_manager.get_history.return_value = {
+        controller.history_facade.get_history.return_value = {
             'generations': [], 'total': 0, 'limit': 50, 'offset': 0, 'filters': {}
         }
 
@@ -465,14 +465,14 @@ class TestGenerationController:
         )
 
         assert result.success is True
-        kwargs = controller.history_manager.get_history.call_args.kwargs
+        kwargs = controller.history_facade.get_history.call_args.kwargs
         assert kwargs["semantic_query"] == "red fox in snow"
 
     @pytest.mark.asyncio
     async def test_get_generation_history_with_date_filters(self, controller, mock_current_user):
         """Test history retrieval with date filters"""
-        # Arrange - delegate to history_manager
-        controller.history_manager.get_history.return_value = {
+        # Arrange - delegate to history_facade
+        controller.history_facade.get_history.return_value = {
             'generations': [{"id": "gen-1"}],
             'total': 1,
             'limit': 50,
@@ -508,8 +508,8 @@ class TestGenerationController:
         assert result.data['filters']['completed_from'] == "2024-01-01 10:00:00"
         assert result.data['filters']['completed_to'] == "2024-01-31 23:59:59"
 
-        # Verify history_manager was called with correct parameters
-        controller.history_manager.get_history.assert_called_once_with(
+        # Verify history_facade was called with correct parameters
+        controller.history_facade.get_history.assert_called_once_with(
             user_id=mock_current_user.id,
             limit=50,
             offset=0,
@@ -538,9 +538,9 @@ class TestGenerationController:
     @pytest.mark.asyncio
     async def test_get_generation_history_invalid_date_format(self, controller, mock_current_user):
         """Test history retrieval with invalid date format"""
-        # Arrange - history_manager raises exception for invalid date
+        # Arrange - history_facade raises exception for invalid date
         from src.features.generation.exceptions import InvalidDateFilterException
-        controller.history_manager.get_history.side_effect = InvalidDateFilterException(
+        controller.history_facade.get_history.side_effect = InvalidDateFilterException(
             "Invalid date format for created_from. Use YYYY-MM-DD or YYYY-MM-DD HH:MM:SS"
         )
 
@@ -558,9 +558,9 @@ class TestGenerationController:
     @pytest.mark.asyncio
     async def test_get_generation_history_invalid_date_range(self, controller, mock_current_user):
         """Test history retrieval with invalid date range"""
-        # Arrange - history_manager raises exception for invalid date range
+        # Arrange - history_facade raises exception for invalid date range
         from src.features.generation.exceptions import InvalidDateFilterException
-        controller.history_manager.get_history.side_effect = InvalidDateFilterException(
+        controller.history_facade.get_history.side_effect = InvalidDateFilterException(
             "created_from date must be before created_to date"
         )
 
@@ -579,8 +579,8 @@ class TestGenerationController:
     @pytest.mark.asyncio
     async def test_get_generation_by_id_success(self, controller, mock_current_user):
         """Test successful generation retrieval by ID"""
-        # Arrange - delegate to history_manager
-        controller.history_manager.get_by_id.return_value = {
+        # Arrange - delegate to history_facade
+        controller.history_facade.get_by_id.return_value = {
             "id": "test-gen-123",
             "status": "completed",
             "parameters": {},
@@ -598,9 +598,9 @@ class TestGenerationController:
     @pytest.mark.asyncio
     async def test_get_generation_by_id_not_found(self, controller, mock_current_user):
         """Test generation retrieval for non-existent ID"""
-        # Arrange - history_manager raises exception
+        # Arrange - history_facade raises exception
         from src.features.generation.exceptions import GenerationNotFoundException
-        controller.history_manager.get_by_id.side_effect = GenerationNotFoundException("Generation 'nonexistent' not found")
+        controller.history_facade.get_by_id.side_effect = GenerationNotFoundException("Generation 'nonexistent' not found")
 
         # Act & Assert - controller raises HTTPException via error_response
         with pytest.raises(HTTPException) as exc_info:
@@ -612,8 +612,8 @@ class TestGenerationController:
 
     @pytest.mark.asyncio
     async def test_get_history_facets_delegates_to_history_query(self, controller, mock_current_user):
-        """`get_history_facets` calls `history_query`, not `history_manager` -
-        `get_facets` was removed from `GenerationHistoryManager` in favor of
+        """`get_history_facets` calls `history_query`, not `history_facade` -
+        `get_facets` was removed from `GenerationHistoryFacade` in favor of
         the routes controller calling `GenerationHistoryQuery` directly."""
         controller.history_query.get_facets.return_value = {"modes": ["txt2img"]}
 
@@ -625,7 +625,7 @@ class TestGenerationController:
 
     @pytest.mark.asyncio
     async def test_get_generation_params_delegates_to_history_query(self, controller, mock_current_user):
-        """`get_generation_params` calls `history_query`, not `history_manager`."""
+        """`get_generation_params` calls `history_query`, not `history_facade`."""
         controller.history_query.get_params.return_value = {"seed": 42}
 
         result = await controller.get_generation_params("test-gen-123", 0, mock_current_user)
@@ -638,7 +638,7 @@ class TestGenerationController:
 
     @pytest.mark.asyncio
     async def test_count_generations_by_tags_delegates_to_history_query(self, controller, mock_current_user):
-        """`count_generations_by_tags` calls `history_query`, not `history_manager`."""
+        """`count_generations_by_tags` calls `history_query`, not `history_facade`."""
         controller.history_query.count_generations_by_tags.return_value = 3
 
         result = await controller.count_generations_by_tags(["tag-1"], mock_current_user)
@@ -653,8 +653,8 @@ class TestGenerationController:
     @pytest.mark.asyncio
     async def test_delete_generation_history_success(self, controller, mock_current_user):
         """Test successful generation deletion"""
-        # Arrange - delegate to history_manager
-        controller.history_manager.delete.return_value = {
+        # Arrange - delegate to history_facade
+        controller.history_facade.delete.return_value = {
             'files_deleted_fs': 4,
             'files_deleted_db': 2,
             'files_failed_fs': 0
@@ -673,9 +673,9 @@ class TestGenerationController:
     @pytest.mark.asyncio
     async def test_delete_generation_history_not_found(self, controller, mock_current_user):
         """Test deletion of non-existent generation"""
-        # Arrange - history_manager raises exception
+        # Arrange - history_facade raises exception
         from src.features.generation.exceptions import GenerationNotFoundException
-        controller.history_manager.delete.side_effect = GenerationNotFoundException("Generation 'nonexistent' not found")
+        controller.history_facade.delete.side_effect = GenerationNotFoundException("Generation 'nonexistent' not found")
 
         # Act & Assert - controller raises HTTPException via error_response
         with pytest.raises(HTTPException) as exc_info:
@@ -688,8 +688,8 @@ class TestGenerationController:
     @pytest.mark.asyncio
     async def test_delete_generation_history_with_file_errors(self, controller, mock_current_user):
         """Test generation deletion with some file deletion failures"""
-        # Arrange - delegate to history_manager
-        controller.history_manager.delete.return_value = {
+        # Arrange - delegate to history_facade
+        controller.history_facade.delete.return_value = {
             'files_deleted_fs': 2,
             'files_deleted_db': 3,
             'files_failed_fs': 1
@@ -711,14 +711,14 @@ class TestGenerationController:
         """Test handling generation completion output"""
         # Arrange
         controller.generation_orchestrator.get_generation_status.return_value = sample_generation_status
-        controller.connection_manager.broadcast_to_generation = AsyncMock()
+        controller.connection_hub.broadcast_to_generation = AsyncMock()
 
         # Act - passing None signals completion
         await controller._handle_generation_output("test-gen-123", None)
 
         # Assert
-        controller.connection_manager.broadcast_to_generation.assert_called_once()
-        call_args = controller.connection_manager.broadcast_to_generation.call_args
+        controller.connection_hub.broadcast_to_generation.assert_called_once()
+        call_args = controller.connection_hub.broadcast_to_generation.call_args
         assert call_args[0][0] == "test-gen-123"
         assert call_args[0][1]['type'] == 'generation_complete'
 
@@ -748,7 +748,7 @@ class TestGenerationController:
         """Test handling output when generation status not found"""
         # Arrange
         controller.generation_orchestrator.get_generation_status.return_value = None
-        controller.connection_manager.broadcast_to_generation = AsyncMock()
+        controller.connection_hub.broadcast_to_generation = AsyncMock()
 
         output = ProgressGenerationOutput(pipe_id=2, state="Processing...", title="Running")
 
@@ -756,14 +756,14 @@ class TestGenerationController:
         await controller._handle_generation_output("nonexistent", output)
 
         # Assert - should return early, no broadcast
-        controller.connection_manager.broadcast_to_generation.assert_not_called()
+        controller.connection_hub.broadcast_to_generation.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_broadcast_generation_output_no_subscribers(self, controller, sample_generation_status):
         """Test broadcasting with no subscribers"""
         # Arrange
-        controller.connection_manager.generation_connections = {}
-        controller.connection_manager.broadcast_to_generation = AsyncMock()
+        controller.connection_hub.generation_connections = {}
+        controller.connection_hub.broadcast_to_generation = AsyncMock()
 
         output = ProgressGenerationOutput(pipe_id=2, state="Processing...", title="Running")
 
@@ -771,7 +771,7 @@ class TestGenerationController:
         await controller._broadcast_generation_output("test-gen-123", output, sample_generation_status)
 
         # Assert - should not broadcast
-        controller.connection_manager.broadcast_to_generation.assert_not_called()
+        controller.connection_hub.broadcast_to_generation.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_broadcast_generation_output_records_run_report_without_subscribers(
@@ -780,8 +780,8 @@ class TestGenerationController:
         """A generation nobody is watching over WebSocket must still get a run
         report - recording must not be gated on has_subscribers the way the
         WebSocket broadcast itself is."""
-        controller.connection_manager.generation_connections = {}
-        controller.connection_manager.broadcast_to_generation = AsyncMock()
+        controller.connection_hub.generation_connections = {}
+        controller.connection_hub.broadcast_to_generation = AsyncMock()
 
         output = ProgressGenerationOutput(pipe_id=2, state="Processing...", title="Running")
 
@@ -798,7 +798,7 @@ class TestGenerationController:
         it is the only terminal signal every generation reaches, regardless
         of whether it completed, failed, or was cancelled."""
         controller.generation_orchestrator.get_generation_status.return_value = sample_generation_status
-        controller.connection_manager.broadcast_to_generation = AsyncMock()
+        controller.connection_hub.broadcast_to_generation = AsyncMock()
 
         await controller._handle_generation_output("test-gen-123", None)
 
@@ -809,8 +809,8 @@ class TestGenerationController:
     async def test_broadcast_generation_output_with_subscribers(self, controller, sample_generation_status):
         """Test successful broadcasting with subscribers"""
         # Arrange
-        controller.connection_manager.generation_connections = {"test-gen-123": ["client1"]}
-        controller.connection_manager.broadcast_to_generation = AsyncMock()
+        controller.connection_hub.generation_connections = {"test-gen-123": ["client1"]}
+        controller.connection_hub.broadcast_to_generation = AsyncMock()
         
         output = ProgressGenerationOutput(
             pipe_id=2,
@@ -833,8 +833,8 @@ class TestGenerationController:
             await controller._broadcast_generation_output("test-gen-123", output, sample_generation_status)
 
             # Assert
-            controller.connection_manager.broadcast_to_generation.assert_called_once()
-            call_args = controller.connection_manager.broadcast_to_generation.call_args
+            controller.connection_hub.broadcast_to_generation.assert_called_once()
+            call_args = controller.connection_hub.broadcast_to_generation.call_args
             assert call_args[0][0] == "test-gen-123"
             message = call_args[0][1]
             assert message['type'] == 'generation_status'
@@ -844,8 +844,8 @@ class TestGenerationController:
     async def test_broadcast_generation_output_serialization_error(self, controller, sample_generation_status):
         """Test broadcasting with serialization error"""
         # Arrange
-        controller.connection_manager.generation_connections = {"test-gen-123": ["client1"]}
-        controller.connection_manager.broadcast_to_generation = AsyncMock()
+        controller.connection_hub.generation_connections = {"test-gen-123": ["client1"]}
+        controller.connection_hub.broadcast_to_generation = AsyncMock()
         
         output = ProgressGenerationOutput(pipe_id=2, state="Processing...", title="Running")
 
@@ -859,8 +859,8 @@ class TestGenerationController:
             await controller._broadcast_generation_output("test-gen-123", output, sample_generation_status)
 
             # Assert - error message should be broadcast
-            controller.connection_manager.broadcast_to_generation.assert_called_once()
-            call_args = controller.connection_manager.broadcast_to_generation.call_args
+            controller.connection_hub.broadcast_to_generation.assert_called_once()
+            call_args = controller.connection_hub.broadcast_to_generation.call_args
             assert call_args[0][0] == "test-gen-123"
             message = call_args[0][1]
             assert message['type'] == 'generation_error'

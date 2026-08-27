@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Optional
 
 from src.platform.security.secrets import get_secret_cipher
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 from src.platform.filesystem.storage_driver import FileStorageDriver, LocalFileStorageDriver
 from src.platform.filesystem.s3_driver import S3FileStorageDriver
 
@@ -35,14 +35,14 @@ class S3StorageConfig:
     path_style: bool
 
 
-class StorageSettingsManager:
+class StorageSettings:
     """Reads the `storage_backend`/`s3_*` settings and builds the driver they
     describe. New writes go through whatever `build_driver()` returns at the
     time; switching backends never touches files already written under the
     previous one."""
 
-    def __init__(self, settings_manager: SettingsManager):
-        self.settings = settings_manager
+    def __init__(self, settings: Settings):
+        self.settings = settings
 
     def get_backend(self) -> str:
         backend = self.settings.get_setting("storage_backend", BACKEND_LOCAL)

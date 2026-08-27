@@ -72,7 +72,7 @@ class TestImageHandlerIntegration:
         mock_file_service_class.return_value = mock_file_service
         mock_file_service.get_full_path.return_value = "/storage/path/to/image.png"
 
-        # Create handler with settings_manager mock
+        # Create handler with settings mock
         mock_settings = Mock()
         mock_settings.get_file_storage_directory.return_value = "/storage"
         handler = ImageGenerationOutputHandler('gen_123', 'user_456', mock_settings, Mock())
@@ -132,7 +132,7 @@ class TestGalleryHandlerIntegration:
         mock_file_service_class.return_value = mock_file_service
         mock_file_service.get_full_path.side_effect = lambda p: f"/storage/{p}"
 
-        # Create handler with settings_manager mock
+        # Create handler with settings mock
         mock_settings = Mock()
         mock_settings.get_file_storage_directory.return_value = "/storage"
         handler = GalleryGenerationOutputHandler('gen_123', 'user_456', mock_settings, Mock())
@@ -298,7 +298,7 @@ class TestUserIdPropagation:
         mock_file_service.get_full_path.return_value = "/storage/path/to/image.png"
 
         user_id = 'user_789'
-        # Create handler with settings_manager mock
+        # Create handler with settings mock
         mock_settings = Mock()
         mock_settings.get_file_storage_directory.return_value = "/storage"
         handler = ImageGenerationOutputHandler('gen_123', user_id, mock_settings, Mock())
@@ -351,7 +351,7 @@ class TestCrossHandlerIntegration:
         mock_file_service_class.return_value = mock_file_service
         mock_file_service.get_full_path.side_effect = lambda p: f"/storage/{p}"
 
-        # Create handler with settings_manager mock
+        # Create handler with settings mock
         mock_settings = Mock()
         mock_settings.get_file_storage_directory.return_value = "/storage"
         handler = GalleryGenerationOutputHandler('gen_123', 'user_456', mock_settings, Mock())

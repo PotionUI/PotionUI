@@ -3,7 +3,7 @@
 Each executor implements `StepExecutor.execute(context) -> StepResult`. The
 registry (`registry.py`) dispatches by `RecipeStep.kind` and turns the result
 into exactly one `setup_step_attempts` row via
-`SetupRunManager.record_step_attempt`. Executors receive their collaborators
+`SetupRunner.record_step_attempt`. Executors receive their collaborators
 through the constructor (composition root wiring, see
 `src/bootstrap/container.py`'s `build_default_executor_registry` call) -
 never a service locator.
@@ -64,7 +64,7 @@ class StepResult:
 
     `safe_output`/`safe_error_detail` pass through the same redaction gate as
     everything else in `setup_step_attempts` (see `run_dto.redact_safe_dict`)
-    once handed to `SetupRunManager.record_step_attempt` - executors don't
+    once handed to `SetupRunner.record_step_attempt` - executors don't
     need to redact themselves, but should still never put a secret in either
     field on principle. Failure messages must read as a plain sentence a
     non-technical owner can understand; `suggested_repair` is the one place a
@@ -75,8 +75,8 @@ class StepResult:
     otherwise succeed but needs an explicit go-ahead first (e.g. `artifacts.plan`
     finding artifacts to download) reports this instead of `ok`, carrying a
     `consent_request` describing exactly what would happen. The registry parks
-    the run in `awaiting_consent` rather than advancing; `SetupRunManager.
-    grant_consent` is what lets it proceed (see `run_manager.py`).
+    the run in `awaiting_consent` rather than advancing; `SetupRunner.
+    grant_consent` is what lets it proceed (see `runner.py`).
     """
 
     success: bool

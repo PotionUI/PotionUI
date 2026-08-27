@@ -190,7 +190,7 @@ class ModelCatalog:
 
         Uses the scanner's resolved `models_dir` (settings-backed, not the
         process CWD) joined with `TYPE_DIR_MAP`'s subdir - the same mapping
-        `DownloadManager.queue_model_download` resolves a `model_type` through.
+        `DownloadQueue.queue_model_download` resolves a `model_type` through.
         """
         subdir = TYPE_DIR_MAP.get(model_type, model_type)
         return str(self.scanner.models_dir / subdir)

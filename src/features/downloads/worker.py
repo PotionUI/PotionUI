@@ -28,7 +28,7 @@ from src.features.downloads.exceptions import DownloadAuthenticationException
 from src.features.downloads.models import Download, DownloadStatus, DownloadType, DownloadSettings
 from src.features.downloads.repository import DownloadRepository
 from src.features.downloads.utils import extract_filename_from_url
-from src.platform.websocket.download_connection_manager import DownloadConnectionManager
+from src.platform.websocket.download_connection_hub import DownloadConnectionHub
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +64,7 @@ class DownloadWorker:
         self,
         settings: DownloadSettings,
         repo: DownloadRepository,
-        connection_manager: DownloadConnectionManager,
+        connection_hub: DownloadConnectionHub,
         provider_registry_factory: Optional[Callable] = None,
     ):
         """Initialize download worker.
@@ -72,13 +72,13 @@ class DownloadWorker:
         Args:
             settings: Download service settings
             repo: Download repository for data access
-            connection_manager: WebSocket broadcast surface for progress/status
+            connection_hub: WebSocket broadcast surface for progress/status
             provider_registry_factory: Returns the ProviderRegistry; injectable
                 for tests, defaults to the module-level registry (resolved lazily)
         """
         self.settings = settings
         self.repo = repo
-        self.conn = connection_manager
+        self.conn = connection_hub
         self._provider_registry_factory = provider_registry_factory or _default_provider_registry
 
         # Worker management

@@ -1,5 +1,5 @@
 """
-`trigger.gpu_threshold` - polls `GpuManager.get_free_vram()` and fires once
+`trigger.gpu_threshold` - polls `GpuMonitor.get_free_vram()` and fires once
 when free VRAM crosses a threshold, with hysteresis so it doesn't refire on
 every poll while sitting right at the boundary.
 
@@ -86,9 +86,9 @@ class ResourceTrigger(TriggerSource):
     """
 
     def __init__(self, automation_id: str, node_id: str, config: Dict[str, Any], enqueue,
-                 gpu_manager: Any, generation_status_tracker: Optional[Any] = None):
+                 gpu_monitor: Any, generation_status_tracker: Optional[Any] = None):
         super().__init__(automation_id, node_id, config, enqueue)
-        self._gpu_manager = gpu_manager
+        self._gpu_monitor = gpu_monitor
         self._generation_status_tracker = generation_status_tracker
         self._task: Optional[asyncio.Task] = None
         self._stopped = asyncio.Event()
@@ -128,8 +128,8 @@ class ResourceTrigger(TriggerSource):
         try:
             while not self._stopped.is_set():
                 try:
-                    free_mb = self._gpu_manager.get_free_vram()
-                    total_mb = self._gpu_manager.get_total_vram()
+                    free_mb = self._gpu_monitor.get_free_vram()
+                    total_mb = self._gpu_monitor.get_total_vram()
                     free_pct = (free_mb / total_mb) * 100.0 if total_mb else 0.0
 
                     condition_met = direction_met(free_pct, threshold_pct, direction)

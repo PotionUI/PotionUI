@@ -3,7 +3,7 @@
 Answers the single public question a fresh client asks before it can route:
 does this instance still need an owner, is registration open, and (for a remote
 client) is a setup token required to claim it? All heavier gating - actually
-enforcing the policy and the token - lives in `AuthManager.register`; this
+enforcing the policy and the token - lives in `Auth.register`; this
 module only reports state.
 """
 
@@ -13,13 +13,13 @@ from src.features.setup.dto import SetupStatus
 from src.features.setup.repository import InstanceClaimRepository
 
 if TYPE_CHECKING:
-    from src.platform.security.claim_token import ClaimTokenManager
-    from src.platform.settings.settings import SettingsManager
+    from src.platform.security.claim_token import ClaimTokenStore
+    from src.platform.settings.settings import Settings
 
 
 def registration_open(
     instance_claim: InstanceClaimRepository,
-    settings: "SettingsManager",
+    settings: "Settings",
 ) -> bool:
     """Whether register() will currently accept a new account.
 
@@ -35,8 +35,8 @@ def registration_open(
 
 def status(
     instance_claim: InstanceClaimRepository,
-    claim_tokens: "ClaimTokenManager",
-    settings: "SettingsManager",
+    claim_tokens: "ClaimTokenStore",
+    settings: "Settings",
     is_loopback: bool,
 ) -> SetupStatus:
     """Public status for a request from `is_loopback` origin.

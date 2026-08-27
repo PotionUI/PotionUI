@@ -7,7 +7,7 @@ import pytest
 from unittest.mock import Mock, AsyncMock, patch
 
 from src.features.chat.dto import MessageResponse
-from src.features.chat.manager import ChatManager
+from src.features.chat.runtime import ChatRuntime
 from src.features.chat.modes import ChatModeRegistry, build_generation_mode
 from src.features.chat.reflection import MIN_UNREFLECTED_USER_MESSAGES
 
@@ -47,7 +47,7 @@ class TestReflectionFiresOnSend:
         self.mock_plugins.execute_hook.return_value = (no_block_ctx, [])
         self.mock_processor.process.side_effect = lambda content, mode=None: (content, {"raw": content})
 
-        self.manager = ChatManager(
+        self.manager = ChatRuntime(
             chat_repository=self.mock_repo,
             llm_service=self.mock_llm,
             response_processor=self.mock_processor,

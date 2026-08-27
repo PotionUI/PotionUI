@@ -3,7 +3,7 @@ Automation Controller
 
 REST endpoints for the automation module: CRUD on automations, manual runs,
 graph validation, the node-type palette catalog, and run history. Business
-logic lives in `AutomationManager`; this is a thin route layer.
+logic lives in `AutomationRuntime`; this is a thin route layer.
 """
 import logging
 import uuid
@@ -21,16 +21,16 @@ from src.features.automation.dto import (
     UpdateAutomationRequest,
     ValidateGraphRequest,
 )
-from src.features.automation.manager import (
+from src.features.automation.runtime import (
     AutomationImportError,
-    AutomationManager,
+    AutomationRuntime,
     AutomationTemplateNotFoundError,
     AutomationTemplateUnavailableError,
     GraphValidationError,
 )
 from src.platform.plugins.automation_nodes import NodeTypeRegistry, node_type_registry, resolved_config_schema
 from src.platform.security.user import AccountType, User
-from src.platform.websocket.automation_connection_manager import automation_connection_manager
+from src.platform.websocket.automation_connection_hub import automation_connection_hub
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
@@ -117,9 +117,9 @@ def _serialize_node_type(spec) -> dict:
 class AutomationController(BaseController):
     """Controller for automation CRUD, execution, and run-history operations."""
 
-    def __init__(self, automation_manager: AutomationManager, registry: NodeTypeRegistry = node_type_registry):
+    def __init__(self, automation_runtime: AutomationRuntime, registry: NodeTypeRegistry = node_type_registry):
         super().__init__()
-        self.manager = automation_manager
+        self.manager = automation_runtime
         self.registry = registry
 
     # -- authorization -------------------------------------------------------
@@ -538,7 +538,7 @@ def build_ws_router(container: "AppContainer") -> APIRouter:
             return
 
         client_id = str(uuid.uuid4())
-        await automation_connection_manager.connect(websocket, client_id)
+        await automation_connection_hub.connect(websocket, client_id)
 
         try:
             await websocket.send_json({"type": "connection_established", "client_id": client_id})
@@ -552,6 +552,6 @@ def build_ws_router(container: "AppContainer") -> APIRouter:
         except Exception as e:
             logging.error(f"Automation WebSocket handler error for client {client_id}: {e}")
         finally:
-            automation_connection_manager.disconnect(client_id)
+            automation_connection_hub.disconnect(client_id)
 
     return ws_router

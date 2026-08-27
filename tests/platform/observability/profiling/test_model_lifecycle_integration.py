@@ -1,11 +1,11 @@
 from unittest.mock import Mock
 
-import src.platform.runtime.model_lifecycle.manager as manager_module
-from src.platform.runtime.model_lifecycle.manager import ModelLifecycleManager
+import src.platform.runtime.model_lifecycle.lifecycle as manager_module
+from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
 
 
 def test_acquire_emits_hit_and_miss_marks(monkeypatch):
-    """Smoke test: ModelLifecycleManager.acquire() reports through
+    """Smoke test: ModelLifecycle.acquire() reports through
     get_profiler().mark(...) on both the miss (first load) and hit
     (cached reuse) paths, without needing profiling actually enabled --
     the manager always calls mark(); it's mark() itself that no-ops when
@@ -14,7 +14,7 @@ def test_acquire_emits_hit_and_miss_marks(monkeypatch):
     fake_profiler = Mock()
     monkeypatch.setattr(manager_module, "get_profiler", lambda: fake_profiler)
 
-    mlm = ModelLifecycleManager()
+    mlm = ModelLifecycle()
     mlm.acquire("checkpoint_loader/sdxl", "fingerprint-a", loader=lambda: object())
     mlm.acquire("checkpoint_loader/sdxl", "fingerprint-a", loader=lambda: object())
 
@@ -27,7 +27,7 @@ def test_evict_emits_evict_mark(monkeypatch):
     fake_profiler = Mock()
     monkeypatch.setattr(manager_module, "get_profiler", lambda: fake_profiler)
 
-    mlm = ModelLifecycleManager()
+    mlm = ModelLifecycle()
     mlm.acquire("key", "fp", loader=lambda: object())
     mlm.invalidate("key")
 

@@ -2,7 +2,7 @@
 
 Mirrors test_mesh_serving.py: these drive the real objects end to end - a
 real `.wav` written through AudioGenerationOutputHandler/FileStore, then read
-back through a real MediaManager over a real FilePathResolver. Only the
+back through a real MediaStore over a real FilePathResolver. Only the
 settings manager and the plugin registry are stubbed, because neither has
 anything to say about paths.
 
@@ -21,12 +21,12 @@ from src.features.generation.handlers.audio_handler import AudioGenerationOutput
 from src.features.generation.repository import GenerationRepository
 from src.features.media.file_resolver import FilePathResolver
 from src.features.media.image_processor import ImageProcessor
-from src.features.media.manager import MediaManager
+from src.features.media.store import MediaStore
 from src.features.media.media_types import MediaTypeResolver
 from src.features.media.upload_repository import UploadRepository
 from src.pipelines.outputs import AudioGenerationOutput
 from src.platform.filesystem.file_store import FileStore
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 from src.platform.util.ids import generate_ulid
 
 WAV_MEDIA_TYPE = 'audio/wav'
@@ -54,22 +54,22 @@ def repos_on_test_db(mock_db):
 
 
 @pytest.fixture
-def settings_manager(test_storage):
-    settings = Mock(spec=SettingsManager)
+def settings(test_storage):
+    settings = Mock(spec=Settings)
     settings.get_file_storage_directory.return_value = str(test_storage)
     return settings
 
 
 @pytest.fixture
-def media_manager(settings_manager, test_storage):
-    """A MediaManager wired with real path resolution and real repositories."""
-    return MediaManager(
-        file_resolver=FilePathResolver(settings_manager),
+def media_store(settings, test_storage):
+    """A MediaStore wired with real path resolution and real repositories."""
+    return MediaStore(
+        file_resolver=FilePathResolver(settings),
         image_processor=ImageProcessor(),
         media_type_resolver=MediaTypeResolver(),
         file_repository=FileRepository(),
         generation_repository=GenerationRepository(),
-        settings_manager=settings_manager,
+        settings=settings,
         file_service=FileStore(str(test_storage)),
         plugin_registry=_NoopPluginRegistry(),
         upload_repository=UploadRepository(),
@@ -77,7 +77,7 @@ def media_manager(settings_manager, test_storage):
 
 
 @pytest.fixture
-def saved_audio(repos_on_test_db, settings_manager, minimal_wav_file):
+def saved_audio(repos_on_test_db, settings, minimal_wav_file):
     """A real .wav written through the real save path, with its generation row.
 
     Returns (generation_id, filename, bytes).
@@ -99,7 +99,7 @@ def saved_audio(repos_on_test_db, settings_manager, minimal_wav_file):
             (gen_id, 'workbench/audio/test', '1.0.0', '{}', user_id, 'completed', 1.0),
         )
 
-    handler = AudioGenerationOutputHandler(gen_id, user_id, settings_manager)
+    handler = AudioGenerationOutputHandler(gen_id, user_id, settings)
     metadata = handler.handle(AudioGenerationOutput(audio_path=minimal_wav_file, temporary=False))
     assert metadata['processed'] is True
 
@@ -109,44 +109,44 @@ def saved_audio(repos_on_test_db, settings_manager, minimal_wav_file):
 class TestAudioServing:
     """A stored audio track comes back through the generation media route."""
 
-    def test_final_audio_is_served_with_the_wav_media_type(self, media_manager, saved_audio):
+    def test_final_audio_is_served_with_the_wav_media_type(self, media_store, saved_audio):
         gen_id, filename, expected_bytes = saved_audio
 
-        result = media_manager.get_generation_media(gen_id, filename)
+        result = media_store.get_generation_media(gen_id, filename)
 
         assert result.media_type == WAV_MEDIA_TYPE
         assert Path(result.file_path).read_bytes() == expected_bytes
         assert result.headers['Content-Length'] == str(len(expected_bytes))
 
     def test_temporary_audio_is_served_from_the_tmp_route(
-        self, repos_on_test_db, media_manager, settings_manager, minimal_wav_file
+        self, repos_on_test_db, media_store, settings, minimal_wav_file
     ):
         """The bug this fixes: temporary audio used to never be saved at all,
         so the serializer's `/api/media/tmp/{filename}` preview URL pointed
         at nothing. The handler now always saves, so this must resolve."""
-        handler = AudioGenerationOutputHandler(generate_ulid(), None, settings_manager)
+        handler = AudioGenerationOutputHandler(generate_ulid(), None, settings)
         metadata = handler.handle(AudioGenerationOutput(audio_path=minimal_wav_file, temporary=True))
         filename = Path(metadata['saved_path']).name
 
-        result = media_manager.get_temp_media(filename)
+        result = media_store.get_temp_media(filename)
 
         assert result.media_type == WAV_MEDIA_TYPE
         assert Path(result.file_path).read_bytes() == minimal_wav_file.read_bytes()
 
-    def test_thumbnail_request_is_not_available(self, media_manager, saved_audio):
+    def test_thumbnail_request_is_not_available(self, media_store, saved_audio):
         """No renderer runs at save time, so audio has no thumbnail to serve."""
         gen_id, filename, _bytes = saved_audio
 
         with pytest.raises(ValueError) as excinfo:
-            media_manager.get_generation_media(gen_id, filename, size='small')
+            media_store.get_generation_media(gen_id, filename, size='small')
 
         assert 'thumbnail' in str(excinfo.value).lower()
 
-    def test_unknown_audio_filename_is_not_found(self, media_manager, saved_audio):
+    def test_unknown_audio_filename_is_not_found(self, media_store, saved_audio):
         gen_id, _filename, _bytes = saved_audio
 
         with pytest.raises(ValueError):
-            media_manager.get_generation_media(gen_id, 'nope.wav')
+            media_store.get_generation_media(gen_id, 'nope.wav')
 
 
 class TestAudioPathContainment:
@@ -178,37 +178,37 @@ class TestAudioPathContainment:
         "./../../secret.wav",
         "subdir/../../../secret.wav",
     ])
-    def test_traversal_out_of_tmp_is_refused(self, media_manager, planted_secret, attempt):
+    def test_traversal_out_of_tmp_is_refused(self, media_store, planted_secret, attempt):
         with pytest.raises(ValueError) as excinfo:
-            media_manager.get_temp_media(attempt)
+            media_store.get_temp_media(attempt)
 
         # Refused for escaping, not for being absent - the file is right there.
         assert planted_secret.exists()
         assert "traversal" in str(excinfo.value).lower()
 
-    def test_absolute_path_outside_storage_is_refused(self, media_manager, planted_secret):
+    def test_absolute_path_outside_storage_is_refused(self, media_store, planted_secret):
         with pytest.raises(ValueError):
-            media_manager.get_temp_media(str(planted_secret))
+            media_store.get_temp_media(str(planted_secret))
 
         assert planted_secret.exists()
 
-    def test_traversal_never_returns_the_planted_bytes(self, media_manager, planted_secret):
+    def test_traversal_never_returns_the_planted_bytes(self, media_store, planted_secret):
         """The escape is refused, not merely relabelled."""
         served = None
         try:
-            served = media_manager.get_temp_media("../../secret.wav")
+            served = media_store.get_temp_media("../../secret.wav")
         except ValueError:
             pass
 
         assert served is None, "traversal was served"
 
     def test_a_legitimate_tmp_audio_still_resolves(
-        self, repos_on_test_db, media_manager, settings_manager, minimal_wav_file
+        self, repos_on_test_db, media_store, settings, minimal_wav_file
     ):
         """The containment check rejects escapes, not everything."""
-        handler = AudioGenerationOutputHandler(generate_ulid(), None, settings_manager)
+        handler = AudioGenerationOutputHandler(generate_ulid(), None, settings)
         metadata = handler.handle(AudioGenerationOutput(audio_path=minimal_wav_file, temporary=True))
 
-        result = media_manager.get_temp_media(Path(metadata['saved_path']).name)
+        result = media_store.get_temp_media(Path(metadata['saved_path']).name)
 
         assert Path(result.file_path).exists()

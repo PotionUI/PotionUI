@@ -13,12 +13,12 @@ from src.platform.security.current_user import (
     get_current_user,
     get_current_active_user,
     authenticate_websocket_token,
-    set_auth_manager,
+    set_auth,
 )
 from src.platform.http.base_controller import APIResponse
 from src.features.auth.dto import ChangePasswordRequest, UserCreate, Token, UserResponse
 from src.platform.security.token import TokenData
-from src.platform.security import AuthManager, AuthConfig, PasswordHasher, TokenManager
+from src.platform.security import Auth, AuthConfig, PasswordHasher, TokenCodec
 from src.platform.security.user import User, AccountType
 
 
@@ -27,10 +27,10 @@ class TestAuthController:
 
     @pytest.fixture
     def mock_auth_manager(self):
-        """Create a mock AuthManager."""
-        manager = Mock(spec=AuthManager)
+        """Create a mock Auth."""
+        manager = Mock(spec=Auth)
         manager.passwords = Mock(spec=PasswordHasher)
-        manager.tokens = Mock(spec=TokenManager)
+        manager.tokens = Mock(spec=TokenCodec)
         manager.config = Mock(spec=AuthConfig)
 
         # Configure default config values
@@ -44,8 +44,8 @@ class TestAuthController:
     def auth_controller(self, mock_auth_manager):
         """Create an AuthController with mock manager."""
         controller = AuthController(mock_auth_manager)
-        # Also set auth_manager for dependencies
-        set_auth_manager(mock_auth_manager)
+        # Also set auth for dependencies
+        set_auth(mock_auth_manager)
         return controller
 
     @pytest.fixture
@@ -103,7 +103,7 @@ class TestAuthController:
     # Controller initialization tests
 
     def test_controller_initialization(self, auth_controller, mock_auth_manager):
-        """Test controller initializes with AuthManager."""
+        """Test controller initializes with Auth."""
         assert auth_controller.auth == mock_auth_manager
         assert hasattr(auth_controller, 'logger')
 

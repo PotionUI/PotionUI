@@ -24,7 +24,7 @@ from src.features.generation.dto import (
     FavoriteRequest,
     ExportRequest,
 )
-from src.platform.websocket import ConnectionManager
+from src.platform.websocket import ConnectionHub
 from src.features.generation.websocket_handler import WebSocketHandler
 from src.features.forms.exceptions import FormNotFoundException
 from src.features.forms.binding import FormBindingError
@@ -33,7 +33,7 @@ from src.features.generation.output_serializer import GenerationOutputSerializer
 from src.features.generation.run_report_recorder import RunReportRecorder
 from src.pipelines.outputs import GenerationOutput
 from src.features.generation import (
-    GenerationHistoryManager,
+    GenerationHistoryFacade,
     GenerationNotFoundException,
     GenerationDeleteFailedException,
     UploadFailedException,
@@ -54,25 +54,25 @@ class GenerationController(BaseController):
     def __init__(
         self,
         generation_orchestrator: GenerationOrchestrator,
-        generation_history_manager: GenerationHistoryManager,
+        generation_history_facade: GenerationHistoryFacade,
         file_service: FileStore,
         run_report_recorder: RunReportRecorder
     ):
         super().__init__()  # Initialize BaseController
         self.generation_orchestrator = generation_orchestrator
-        self.history_manager = generation_history_manager
-        self.history_query = generation_history_manager.query
+        self.history_facade = generation_history_facade
+        self.history_query = generation_history_facade.query
         self.file_service = file_service
         self.run_report_recorder = run_report_recorder
-        self.connection_manager = ConnectionManager()
-        self.websocket_handler = WebSocketHandler(self.connection_manager)
+        self.connection_hub = ConnectionHub()
+        self.websocket_handler = WebSocketHandler(self.connection_hub)
         # Queued generations have no outputs to broadcast yet, so position
         # changes reach the client through this side channel instead.
         self.generation_orchestrator.set_queue_listener(self._broadcast_queue_update)
 
     async def _broadcast_queue_update(self, generation_id: str, message: dict) -> None:
         """Push a `queue_update` to the clients subscribed to this generation."""
-        await self.connection_manager.broadcast_to_generation(generation_id, message)
+        await self.connection_hub.broadcast_to_generation(generation_id, message)
 
     async def start_generation(self, request: GenerationRequest, current_user) -> APIResponse:
         """Start a new generation using the generation orchestrator"""
@@ -152,7 +152,7 @@ class GenerationController(BaseController):
                 )
             except Exception:
                 logging.exception(f"Failed to flush run report for {generation_id}")
-            await self.connection_manager.broadcast_to_generation(
+            await self.connection_hub.broadcast_to_generation(
                 generation_id,
                 {'type': 'generation_complete', 'data': status_dict}
             )
@@ -170,8 +170,8 @@ class GenerationController(BaseController):
         gated on having subscribers.
         """
         has_subscribers = (
-            generation_id in self.connection_manager.generation_connections and
-            len(self.connection_manager.generation_connections[generation_id]) > 0
+            generation_id in self.connection_hub.generation_connections and
+            len(self.connection_hub.generation_connections[generation_id]) > 0
         )
 
         try:
@@ -193,13 +193,13 @@ class GenerationController(BaseController):
                 return
 
             # Broadcast the message
-            await self.connection_manager.broadcast_to_generation(generation_id, message)
+            await self.connection_hub.broadcast_to_generation(generation_id, message)
 
         except Exception as e:
             logging.error(f"Failed to broadcast generation output: {str(e)}")
 
             # Send error message
-            await self.connection_manager.broadcast_to_generation(
+            await self.connection_hub.broadcast_to_generation(
                 generation_id,
                 {
                     'type': 'generation_error',
@@ -328,7 +328,7 @@ class GenerationController(BaseController):
             for generation_id in cancelled:
                 status = await self.generation_orchestrator.get_generation_status(generation_id)
                 if status:
-                    await self.connection_manager.broadcast_to_generation(
+                    await self.connection_hub.broadcast_to_generation(
                         generation_id,
                         {'type': 'generation_cancelled', 'data': status.model_dump()}
                     )
@@ -385,7 +385,7 @@ class GenerationController(BaseController):
             # Broadcast cancellation to WebSocket clients
             status = await self.generation_orchestrator.get_generation_status(generation_id)
             if status:
-                await self.connection_manager.broadcast_to_generation(
+                await self.connection_hub.broadcast_to_generation(
                     generation_id,
                     {'type': 'generation_cancelled', 'data': status.model_dump()}
                 )
@@ -447,7 +447,7 @@ class GenerationController(BaseController):
             if tag_ids:
                 parsed_tag_ids = [tid.strip() for tid in tag_ids.split(',') if tid.strip()]
 
-            result = self.history_manager.get_history(
+            result = self.history_facade.get_history(
                 user_id=current_user.id,
                 limit=limit,
                 offset=offset,
@@ -496,7 +496,7 @@ class GenerationController(BaseController):
     ) -> APIResponse:
         """Get specific generation by ID from database"""
         try:
-            result = self.history_manager.get_by_id(
+            result = self.history_facade.get_by_id(
                 generation_id=generation_id,
                 user_id=current_user.id,
                 include_files=include_files
@@ -552,7 +552,7 @@ class GenerationController(BaseController):
     ) -> APIResponse:
         """Set the star rating (0-5) for a generation."""
         try:
-            value = self.history_manager.set_rating(generation_id, rating, current_user.id)
+            value = self.history_facade.set_rating(generation_id, rating, current_user.id)
             return self.success_response(data={"id": generation_id, "rating": value})
         except GenerationNotFoundException:
             return self.error_response(
@@ -574,7 +574,7 @@ class GenerationController(BaseController):
     ) -> APIResponse:
         """Set the favorite flag for a generation."""
         try:
-            value = self.history_manager.set_favorite(generation_id, is_favorite, current_user.id)
+            value = self.history_facade.set_favorite(generation_id, is_favorite, current_user.id)
             return self.success_response(data={"id": generation_id, "is_favorite": value})
         except GenerationNotFoundException:
             return self.error_response(
@@ -602,7 +602,7 @@ class GenerationController(BaseController):
     ) -> APIResponse:
         """Delete generation from history and its files"""
         try:
-            result = self.history_manager.delete(
+            result = self.history_facade.delete(
                 generation_id=generation_id,
                 user_id=current_user.id
             )
@@ -647,7 +647,7 @@ class GenerationController(BaseController):
             )
 
         try:
-            result = self.history_manager.bulk_delete(
+            result = self.history_facade.bulk_delete(
                 generation_ids=generation_ids,
                 user_id=current_user.id
             )
@@ -704,7 +704,7 @@ class GenerationController(BaseController):
             )
 
         try:
-            zip_bytes, filename = self.history_manager.export_zip(
+            zip_bytes, filename = self.history_facade.export_zip(
                 generation_ids=generation_ids,
                 user_id=current_user.id,
                 strip_metadata=strip_metadata
@@ -741,7 +741,7 @@ class GenerationController(BaseController):
         StreamingResponse) instead of an APIResponse JSON envelope.
         """
         try:
-            zip_bytes, filename = self.history_manager.export_bundle(
+            zip_bytes, filename = self.history_facade.export_bundle(
                 generation_id=generation_id,
                 user_id=current_user.id
             )
@@ -774,7 +774,7 @@ class GenerationController(BaseController):
         into a reuse payload. Never creates a generation record."""
         try:
             content = await file.read()
-            result = self.history_manager.import_bundle(content)
+            result = self.history_facade.import_bundle(content)
 
             return self.success_response(
                 message="Bundle parsed successfully",
@@ -844,7 +844,7 @@ class GenerationController(BaseController):
             )
 
         try:
-            result = self.history_manager.bulk_delete_by_tags(
+            result = self.history_facade.bulk_delete_by_tags(
                 tag_ids=tag_ids,
                 user_id=current_user.id
             )
@@ -888,7 +888,7 @@ class GenerationController(BaseController):
     ) -> APIResponse:
         """Upload files as completed generations"""
         try:
-            result = await self.history_manager.upload_generations(
+            result = await self.history_facade.upload_generations(
                 files=files,
                 tag_ids=tag_ids,
                 user_id=current_user.id
@@ -926,7 +926,7 @@ class GenerationController(BaseController):
     ) -> APIResponse:
         """Get all tags for a generation"""
         try:
-            tags = self.history_manager.get_tags(
+            tags = self.history_facade.get_tags(
                 generation_id=generation_id,
                 user_id=current_user.id
             )
@@ -953,7 +953,7 @@ class GenerationController(BaseController):
     ) -> APIResponse:
         """Replace all tags for a generation"""
         try:
-            tags = self.history_manager.update_tags(
+            tags = self.history_facade.update_tags(
                 generation_id=generation_id,
                 tag_ids=tag_ids,
                 user_id=current_user.id
@@ -990,7 +990,7 @@ class GenerationController(BaseController):
     ) -> APIResponse:
         """Remove a single tag from a generation"""
         try:
-            success = self.history_manager.remove_tag(
+            success = self.history_facade.remove_tag(
                 generation_id=generation_id,
                 tag_id=tag_id,
                 user_id=current_user.id
@@ -1042,7 +1042,7 @@ class GenerationController(BaseController):
         None (every user).
         """
         try:
-            result = self.history_manager.get_history(
+            result = self.history_facade.get_history(
                 user_id=user_id,
                 limit=limit,
                 offset=offset,
@@ -1116,10 +1116,10 @@ def _get_generation_controller(container: "AppContainer") -> GenerationControlle
 
     `build_router` and `build_ws_router` must share one controller instance:
     the HTTP side broadcasts generation output through
-    `controller.connection_manager`, and the WebSocket side subscribes
-    clients to that same `ConnectionManager`. Constructing a fresh
+    `controller.connection_hub`, and the WebSocket side subscribes
+    clients to that same `ConnectionHub`. Constructing a fresh
     `GenerationController` per factory call would give each router its own
-    `ConnectionManager` and silently break that broadcast path. The instance
+    `ConnectionHub` and silently break that broadcast path. The instance
     is cached on the container itself, so it's shared regardless of call
     order.
     """
@@ -1127,7 +1127,7 @@ def _get_generation_controller(container: "AppContainer") -> GenerationControlle
     if controller is None:
         controller = GenerationController(
             container.generation_orchestrator,
-            container.generation_history_manager,
+            container.generation_history_facade,
             container.file_service,
             container.run_report_recorder,
         )

@@ -38,7 +38,7 @@ class _FakeVae:
         self.module = SimpleNamespace(encode=encode, tiled_encode=tiled_encode)
 
 
-class _FakeResidencyManager:
+class _FakeResidencyRegistry:
     def __init__(self):
         self.offload_all_calls = []
 
@@ -66,8 +66,8 @@ def test_encode_succeeds_on_first_try_when_plausibly_fits():
     vae = _FakeVae(encode=encode)
     pixels = torch.rand(1, 3, 9, 64, 96)
 
-    manager = _FakeResidencyManager()
-    with patch(f"{_MOD}.get_residency_manager", return_value=manager), \
+    manager = _FakeResidencyRegistry()
+    with patch(f"{_MOD}.get_residency_registry", return_value=manager), \
          patch(f"{_MOD}.clear_gpu_memory") as mock_clear, \
          patch(f"{_MOD}.free_vram_gb", return_value=20.0):
         latent = encode_with_oom_retry(vae, pixels, "cuda", profiler_mark="caller.encode")
@@ -90,8 +90,8 @@ def test_encode_retries_once_after_oom_then_succeeds():
     vae = _FakeVae(encode=flaky_encode)
     pixels = torch.rand(1, 3, 9, 64, 96)
 
-    manager = _FakeResidencyManager()
-    with patch(f"{_MOD}.get_residency_manager", return_value=manager), \
+    manager = _FakeResidencyRegistry()
+    with patch(f"{_MOD}.get_residency_registry", return_value=manager), \
          patch(f"{_MOD}.clear_gpu_memory") as mock_clear, \
          patch(f"{_MOD}.free_vram_gb", return_value=1.0):
         latent = encode_with_oom_retry(vae, pixels, "cuda", profiler_mark="caller.encode")
@@ -115,8 +115,8 @@ def test_encode_falls_back_to_tiled_after_oom_retry_fails():
     vae = _FakeVae(encode=always_oom, tiled_encode=tiled_encode)
     pixels = torch.rand(1, 3, 9, 64, 96)
 
-    manager = _FakeResidencyManager()
-    with patch(f"{_MOD}.get_residency_manager", return_value=manager), \
+    manager = _FakeResidencyRegistry()
+    with patch(f"{_MOD}.get_residency_registry", return_value=manager), \
          patch(f"{_MOD}.clear_gpu_memory"), \
          patch(f"{_MOD}.free_vram_gb", return_value=1.0):
         latent = encode_with_oom_retry(vae, pixels, "cuda", profiler_mark="caller.encode")
@@ -146,8 +146,8 @@ def test_encode_skips_whole_clip_when_estimate_exceeds_budget():
     vae = _FakeVae(encode=whole_encode, tiled_encode=tiled_encode)
     pixels = torch.rand(1, 3, 9, 64, 96)  # T*H*W=55296 -> ~0.03GB estimate
 
-    manager = _FakeResidencyManager()
-    with patch(f"{_MOD}.get_residency_manager", return_value=manager), \
+    manager = _FakeResidencyRegistry()
+    with patch(f"{_MOD}.get_residency_registry", return_value=manager), \
          patch(f"{_MOD}.clear_gpu_memory") as mock_clear, \
          patch(f"{_MOD}.free_vram_gb", return_value=0.01):
         latent = encode_with_oom_retry(vae, pixels, "cuda", profiler_mark="detailer.tube_encode")
@@ -169,8 +169,8 @@ def test_encode_raises_clear_error_when_tiled_also_ooms():
     vae = _FakeVae(encode=always_oom, tiled_encode=tiled_always_oom)
     pixels = torch.rand(1, 3, 9, 64, 96)
 
-    manager = _FakeResidencyManager()
-    with patch(f"{_MOD}.get_residency_manager", return_value=manager), \
+    manager = _FakeResidencyRegistry()
+    with patch(f"{_MOD}.get_residency_registry", return_value=manager), \
          patch(f"{_MOD}.clear_gpu_memory"), \
          patch(f"{_MOD}.free_vram_gb", return_value=1.0):
         with pytest.raises(torch.cuda.OutOfMemoryError, match="even with tiled encoding"):
@@ -207,8 +207,8 @@ def test_encode_uses_provided_tiling_config():
     )
     pixels = torch.rand(1, 3, 9, 64, 96)
 
-    manager = _FakeResidencyManager()
-    with patch(f"{_MOD}.get_residency_manager", return_value=manager), \
+    manager = _FakeResidencyRegistry()
+    with patch(f"{_MOD}.get_residency_registry", return_value=manager), \
          patch(f"{_MOD}.clear_gpu_memory"), \
          patch(f"{_MOD}.free_vram_gb", return_value=1.0):
         encode_with_oom_retry(vae, pixels, "cuda", tiling_config=custom, profiler_mark="caller.encode")

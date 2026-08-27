@@ -1,6 +1,6 @@
 """Media index: system tags produced by a local auto-tagger, plus the
 reusable pending-queue future index passes (e.g. CLIP embeddings) share."""
 
-from src.features.media_index.manager import MediaIndexManager
+from src.features.media_index.indexer import MediaIndexer
 
-__all__ = ["MediaIndexManager"]
+__all__ = ["MediaIndexer"]

@@ -36,14 +36,14 @@ def mock_backend_registry(mock_backend):
 
 @pytest.fixture
 def mock_connection_manager():
-    from src.platform.websocket.connection_manager import ConnectionManager
-    return Mock(spec=ConnectionManager)
+    from src.platform.websocket.connection_hub import ConnectionHub
+    return Mock(spec=ConnectionHub)
 
 
 @pytest.fixture
-def mock_settings_manager():
-    from src.platform.settings.settings import SettingsManager
-    return Mock(spec=SettingsManager)
+def mock_settings():
+    from src.platform.settings.settings import Settings
+    return Mock(spec=Settings)
 
 
 @pytest.fixture
@@ -75,15 +75,15 @@ def mock_generation_repo():
 @pytest.fixture
 def orchestrator(
     mock_pipeline_builder, mock_backend_registry, mock_connection_manager,
-    mock_settings_manager, mock_output_processor, mock_preset_template_loader,
+    mock_settings, mock_output_processor, mock_preset_template_loader,
     mock_generation_stats_repository,
 ):
     from src.features.generation.orchestrator import GenerationOrchestrator
     return GenerationOrchestrator(
         pipeline_builder=mock_pipeline_builder,
         backend_registry=mock_backend_registry,
-        connection_manager=mock_connection_manager,
-        settings_manager=mock_settings_manager,
+        connection_hub=mock_connection_manager,
+        settings=mock_settings,
         output_processor=mock_output_processor,
         preset_template_loader=mock_preset_template_loader,
         generation_stats_repository=mock_generation_stats_repository,
@@ -103,8 +103,8 @@ class TestRecordCompletionWiring:
     async def test_completed_generation_writes_stats_row(
         self, orchestrator, mock_generation_stats_repository, mock_generation_repo, mock_backend
     ):
-        mock_backend.generation_manager = Mock()
-        mock_backend.generation_manager.pop_resource_stats = Mock(return_value={
+        mock_backend.generation_engine = Mock()
+        mock_backend.generation_engine.pop_resource_stats = Mock(return_value={
             'cold_start': True, 'model_load_ms': 4000.0, 'peak_vram_mb': 8192.0,
             'peak_ram_mb': 16384.0, 'cpu_percent': 55.0,
         })
@@ -144,11 +144,11 @@ class TestRecordCompletionWiring:
     async def test_missing_backend_generation_manager_still_records_with_nulls(
         self, orchestrator, mock_generation_stats_repository, mock_generation_repo, mock_backend
     ):
-        """A backend with no `generation_manager.pop_resource_stats` (e.g. a
+        """A backend with no `generation_engine.pop_resource_stats` (e.g. a
         plugin backend that predates the generation-stats feature) must not crash the write -- the
         resource fields are simply None."""
-        del mock_backend.generation_manager  # Mock() would otherwise auto-vivify one
-        mock_backend.generation_manager = None
+        del mock_backend.generation_engine  # Mock() would otherwise auto-vivify one
+        mock_backend.generation_engine = None
         record = _completed_record()
         orchestrator.status_tracker.get = Mock(return_value=record)
         orchestrator.status_tracker.transition = Mock(return_value=record)
@@ -175,15 +175,15 @@ class TestRecordCompletionWiring:
     @pytest.mark.asyncio
     async def test_no_generation_stats_repository_is_a_no_op(
         self, mock_pipeline_builder, mock_backend_registry, mock_connection_manager,
-        mock_settings_manager, mock_output_processor, mock_preset_template_loader,
+        mock_settings, mock_output_processor, mock_preset_template_loader,
         mock_generation_repo,
     ):
         from src.features.generation.orchestrator import GenerationOrchestrator
         orchestrator = GenerationOrchestrator(
             pipeline_builder=mock_pipeline_builder,
             backend_registry=mock_backend_registry,
-            connection_manager=mock_connection_manager,
-            settings_manager=mock_settings_manager,
+            connection_hub=mock_connection_manager,
+            settings=mock_settings,
             output_processor=mock_output_processor,
             preset_template_loader=mock_preset_template_loader,
         )  # no generation_stats_repository passed -- defaults to None

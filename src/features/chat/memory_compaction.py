@@ -46,7 +46,7 @@ _COMPACTION_PROMPT = (
 class MemoryCompactor:
     """Consolidates dense (scope, scope_ref) note groups for one user at a time.
 
-    Takes the owning ``ChatManager`` the same way ``ChatReflectionGenerator``
+    Takes the owning ``ChatRuntime`` the same way ``ChatReflectionGenerator``
     does, for the same late-binding reason (see that class's docstring).
     """
 

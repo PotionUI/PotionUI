@@ -50,7 +50,7 @@ enum, `ModelTemplate` and the `MODEL_TEMPLATE` IO type. A preset declares the pi
 runs, not the files it needs. Models are downloaded on demand through the core download
 queue (`src/features/downloads/`), which resolves credentials through the provider registry.
 
-`ModelManager` (`src/features/models/directory.py`) now owns only the models-directory layout. It does not
+`ModelDirectories` (`src/features/models/directory.py`) now owns only the models-directory layout. It does not
 download.
 
 ## Writing a provider

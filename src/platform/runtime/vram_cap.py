@@ -6,7 +6,7 @@ large real card still needs onboarding/generation exercised the way a 16GB or
 8GB card experiences it. Rather than teach every
 VRAM-budgeting call site about a separate "simulated card" concept, this
 module is the single seam every raw VRAM read is expected to pass through:
-set the env var once, every ``GpuManager``/native-engine placement decision
+set the env var once, every ``GpuMonitor``/native-engine placement decision
 downstream sees a smaller card.
 
 Deliberately narrow:

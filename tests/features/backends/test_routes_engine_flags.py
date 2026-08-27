@@ -10,12 +10,12 @@ from unittest.mock import Mock, AsyncMock, patch
 from fastapi import HTTPException
 
 from src.features.backends.routes import BackendController
-from src.features.backends.backend_config import BackendConfigManager, NATIVE_ENGINE, NativeBackendConfig
+from src.features.backends.backend_config import BackendConfigStore, NATIVE_ENGINE, NativeBackendConfig
 from src.features.backends.backend_registry import BackendRegistry
 from src.platform.runtime.native.memory import partial
 from src.platform.runtime.native.optimizations import compile as torch_compile_mod
 from src.platform.runtime.native.optimizations.probe import SystemProbe
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 from src.platform.security.user import AccountType, User
 
 
@@ -28,21 +28,21 @@ def clean_flag_state(monkeypatch):
 
 
 @pytest.fixture
-def mock_settings_manager():
-    return Mock(spec=SettingsManager)
+def mock_settings():
+    return Mock(spec=Settings)
 
 
 @pytest.fixture
-def controller(mock_settings_manager):
-    bcm = Mock(spec=BackendConfigManager)
+def controller(mock_settings):
+    bcm = Mock(spec=BackendConfigStore)
     bcm.get_default_backend_ids.return_value = {}
     bcm.get_backend.return_value = NativeBackendConfig(
         id="native-1", name="Local GPU", engine=NATIVE_ENGINE, enabled=True, priority=1
     )
     registry = Mock(spec=BackendRegistry)
     registry.refresh_backends = AsyncMock()
-    registry.backend_config_manager = bcm
-    return BackendController(mock_settings_manager, registry)
+    registry.backend_config_store = bcm
+    return BackendController(mock_settings, registry)
 
 
 @pytest.fixture
@@ -95,62 +95,62 @@ async def test_set_engine_flags_requires_admin(controller, regular_user):
 
 @pytest.mark.asyncio
 async def test_set_engine_flags_rejects_non_native_backend(controller, admin_user):
-    controller.backend_config_manager.get_backend.return_value = None
+    controller.backend_config_store.get_backend.return_value = None
     with pytest.raises(HTTPException) as exc_info:
         await controller.set_engine_flags("nope", torch_compile="on", user=admin_user)
     assert exc_info.value.status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_set_engine_flags_rejects_invalid_value(controller, admin_user, mock_settings_manager):
+async def test_set_engine_flags_rejects_invalid_value(controller, admin_user, mock_settings):
     with pytest.raises(HTTPException) as exc_info:
         await controller.set_engine_flags("native-1", torch_compile="maybe", user=admin_user)
     assert exc_info.value.status_code == 400
-    mock_settings_manager.set_setting.assert_not_called()
+    mock_settings.set_setting.assert_not_called()
     assert torch_compile_mod.torch_compile_enabled() is False
 
 
 @pytest.mark.asyncio
 async def test_set_torch_compile_persists_and_applies_immediately(
-    controller, admin_user, mock_settings_manager
+    controller, admin_user, mock_settings
 ):
     assert torch_compile_mod.torch_compile_enabled() is False
 
     response = await controller.set_engine_flags("native-1", torch_compile="on", user=admin_user)
 
-    mock_settings_manager.set_setting.assert_called_once_with("native_torch_compile", "on")
+    mock_settings.set_setting.assert_called_once_with("native_torch_compile", "on")
     assert torch_compile_mod.torch_compile_enabled() is True
     assert response.data["engine_flags"]["torch_compile"] is True
     assert response.data["engine_flags"]["stream_prefetch"] is False
 
 
 @pytest.mark.asyncio
-async def test_set_stream_prefetch_off_beats_env(controller, admin_user, mock_settings_manager, monkeypatch):
+async def test_set_stream_prefetch_off_beats_env(controller, admin_user, mock_settings, monkeypatch):
     monkeypatch.setenv(partial.NATIVE_STREAM_PREFETCH_ENV, "on")
     assert partial.stream_prefetch_enabled() is True
 
     response = await controller.set_engine_flags("native-1", stream_prefetch="off", user=admin_user)
 
-    mock_settings_manager.set_setting.assert_called_once_with("native_stream_prefetch", "off")
+    mock_settings.set_setting.assert_called_once_with("native_stream_prefetch", "off")
     assert partial.stream_prefetch_enabled() is False
     assert response.data["engine_flags"]["stream_prefetch"] is False
 
 
 @pytest.mark.asyncio
-async def test_set_both_flags_in_one_call(controller, admin_user, mock_settings_manager):
+async def test_set_both_flags_in_one_call(controller, admin_user, mock_settings):
     response = await controller.set_engine_flags(
         "native-1", torch_compile="on", stream_prefetch="on", user=admin_user
     )
 
-    assert mock_settings_manager.set_setting.call_count == 2
+    assert mock_settings.set_setting.call_count == 2
     assert response.data["engine_flags"] == {"torch_compile": True, "stream_prefetch": True}
 
 
 @pytest.mark.asyncio
-async def test_omitted_flag_is_left_unchanged(controller, admin_user, mock_settings_manager):
+async def test_omitted_flag_is_left_unchanged(controller, admin_user, mock_settings):
     torch_compile_mod.set_torch_compile_override("on")
 
     response = await controller.set_engine_flags("native-1", stream_prefetch="on", user=admin_user)
 
-    mock_settings_manager.set_setting.assert_called_once_with("native_stream_prefetch", "on")
+    mock_settings.set_setting.assert_called_once_with("native_stream_prefetch", "on")
     assert response.data["engine_flags"] == {"torch_compile": True, "stream_prefetch": True}

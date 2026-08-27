@@ -26,7 +26,7 @@ from src.features.user_groups.repository import UserGroupRepository
 from src.features.users.repository import UserRepository
 from src.pipelines.catalog import PipeCatalog
 from src.platform.plugins import PluginRegistry
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 from src.platform.templating import TemplateProcessor
 
 if TYPE_CHECKING:
@@ -51,7 +51,7 @@ class PresetCollaborators:
     # Resolves the user's storage root, so `get_pipeline`'s `bind_form`
     # preview call can run the same media containment check a real
     # generation does (spec follow-up #1).
-    settings_manager: SettingsManager
+    settings: Settings
     # Derived, built once here rather than per-call.
     form_serializer: PresetFormSerializer = field(init=False)
 

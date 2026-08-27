@@ -6,7 +6,7 @@ presets there is no prompt_encoder and no seed_generator pipe -- the form seed i
 passed straight into generator/seedvr2's own `seed` config. This asserts the
 rendered pipe list is media_loader -> model_loader/seedvr2 -> generator/seedvr2 ->
 gallery, wired with the right inputs/config values, and that it validates via
-GenerationManager.validate_pipeline.
+GenerationEngine.validate_pipeline.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from src.features.generation.generation import GenerationManager
+from src.features.generation.engine import GenerationEngine
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
 from src.platform.templating.processor import TemplateProcessor
@@ -48,9 +48,9 @@ def seedvr2_template():
 
 def _process(seedvr2_template, form_over=None):
     processor = PresetProcessor(
-        template_processor=TemplateProcessor(settings_manager=Mock()),
-        model_manager=Mock(),
-        settings_manager=Mock(),
+        template_processor=TemplateProcessor(settings=Mock()),
+        model_directories=Mock(),
+        settings=Mock(),
         preset_template_loader=Mock(),
     )
     form_data = {
@@ -75,9 +75,9 @@ def _process_minimal(seedvr2_template, form_over=None):
     # "form field present" path), which would shadow the resolution_target/
     # restoration_intent ternary DEFAULTS this suite is pinning.
     processor = PresetProcessor(
-        template_processor=TemplateProcessor(settings_manager=Mock()),
-        model_manager=Mock(),
-        settings_manager=Mock(),
+        template_processor=TemplateProcessor(settings=Mock()),
+        model_directories=Mock(),
+        settings=Mock(),
         preset_template_loader=Mock(),
     )
     form_data = {
@@ -99,9 +99,9 @@ def _pipe(pipes, name=None, pipe_id=None):
 
 
 def _validate(pipes):
-    manager = GenerationManager(
-        gpu=Mock(), model_manager=Mock(), pipe_catalog=Mock(get_pipe=Mock(side_effect=PIPE_CLASSES.get)),
-        settings_manager=Mock(), system_monitor=Mock(), memory_manager=Mock(),
+    manager = GenerationEngine(
+        gpu=Mock(), model_directories=Mock(), pipe_catalog=Mock(get_pipe=Mock(side_effect=PIPE_CLASSES.get)),
+        settings=Mock(), system_monitor=Mock(), memory_advisor=Mock(),
         llm_service=Mock(), models=Mock(),
     )
     manager.validate_pipeline(pipes)

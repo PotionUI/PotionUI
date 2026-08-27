@@ -1,5 +1,5 @@
 """Native LLM provider — chat/enhance/tagging running in-process via
-``transformers``, attached to the app's ``ModelLifecycleManager``.
+``transformers``, attached to the app's ``ModelLifecycle``.
 
 Unlike ``OllamaClient``/``OpenAIClient`` (stateless HTTP transports), this
 client holds a live, memory-heavy ``torch.nn.Module`` — so every call goes
@@ -20,7 +20,7 @@ cache key ``native/llm/{checkpoint_path}``:
 
 Explicit ``model.to("cuda")``/``model.to("cpu")`` calls move the checkpoint
 across the lease boundary. This is deliberately simpler than the native
-engine's ``GpuResidencyManager`` (layer-level streaming, quantization-aware
+engine's ``GpuResidencyRegistry`` (layer-level streaming, quantization-aware
 placement) — that system is built for the custom native DiT/TE module
 classes, not a generic ``transformers.PreTrainedModel``; teaching it this
 shape is out of scope for this card.
@@ -69,10 +69,10 @@ from src.features.llm.native_te_adoption import (
     resolve_adopted_te_path,
 )
 from src.features.llm.repository import LLMConfig
-from src.platform.runtime.model_lifecycle.manager import (
-    ModelLifecycleManager,
+from src.platform.runtime.model_lifecycle.lifecycle import (
+    ModelLifecycle,
     file_size_gb,
-    get_model_lifecycle_manager,
+    get_model_lifecycle,
 )
 
 logger = logging.getLogger(__name__)
@@ -99,7 +99,7 @@ class _LoadedCheckpoint:
     # and CANNOT round-trip through .to("cpu") — the lease keeps it GPU-resident
     # and evict-only instead of moving it across the lease boundary.
     quantized: bool = False
-    # The GpuResidencyManager handle registered while this checkpoint
+    # The GpuResidencyRegistry handle registered while this checkpoint
     # is CUDA-resident (see NativeLLMClient._note_resident/_note_offloaded) —
     # None whenever it isn't currently registered (CPU-resident, quantized, or
     # CUDA unavailable). Kept ON the checkpoint (not in a side dict) so the
@@ -110,7 +110,7 @@ class _LoadedCheckpoint:
 
 class _NativeLLMResidencyHandle:
     """Evictable handle registering a GPU-resident native LLM checkpoint with
-    the native engine's ``GpuResidencyManager``.
+    the native engine's ``GpuResidencyRegistry``.
 
     Only registered for an unquantized checkpoint actually moved onto CUDA for
     a turn (see ``NativeLLMClient._note_resident`` / ``manage_device`` in
@@ -118,7 +118,7 @@ class _NativeLLMResidencyHandle:
     and evict-only; moving it with ``.to("cpu")`` would corrupt it, so it is
     never registered here.
 
-    ``offload()`` is what ``GpuResidencyManager`` calls when a DiT load needs
+    ``offload()`` is what ``GpuResidencyRegistry`` calls when a DiT load needs
     the room — it moves the checkpoint back to CPU and de-registers. Re-use
     across turns: the SAME handle instance is stored on the checkpoint
     (``_LoadedCheckpoint.residency_handle``) and re-registered on every
@@ -127,7 +127,7 @@ class _NativeLLMResidencyHandle:
     and re-registers).
     """
 
-    def __init__(self, checkpoint: "_LoadedCheckpoint", key: str, models: "ModelLifecycleManager") -> None:
+    def __init__(self, checkpoint: "_LoadedCheckpoint", key: str, models: "ModelLifecycle") -> None:
         self.checkpoint = checkpoint
         self.key = key
         self.models = models
@@ -144,8 +144,8 @@ class _NativeLLMResidencyHandle:
             self.models.invalidate(self.key)
         self.offloaded = True
         try:
-            from src.platform.runtime.native.memory.residency import get_residency_manager
-            get_residency_manager().note_offloaded(self)
+            from src.platform.runtime.native.memory.residency import get_residency_registry
+            get_residency_registry().note_offloaded(self)
         except Exception:
             logger.debug("[NativeLLM] note_offloaded failed for key='%s'", self.key, exc_info=True)
 
@@ -153,19 +153,19 @@ class _NativeLLMResidencyHandle:
 class NativeLLMClient:
     """LLMClient implementation backed by an in-process transformers model."""
 
-    def __init__(self, model_lifecycle_manager: Optional[ModelLifecycleManager] = None):
-        self._model_lifecycle_manager = model_lifecycle_manager
+    def __init__(self, model_lifecycle: Optional[ModelLifecycle] = None):
+        self._model_lifecycle = model_lifecycle
 
-    # -- ModelLifecycleManager plumbing --------------------------------
+    # -- ModelLifecycle plumbing --------------------------------
 
-    def _models(self) -> ModelLifecycleManager:
-        manager = self._model_lifecycle_manager or get_model_lifecycle_manager()
-        if manager is None:
+    def _models(self) -> ModelLifecycle:
+        lifecycle = self._model_lifecycle or get_model_lifecycle()
+        if lifecycle is None:
             raise ValueError(
-                "Native LLM provider: no ModelLifecycleManager available yet "
+                "Native LLM provider: no ModelLifecycle available yet "
                 "(the app container hasn't finished composing)"
             )
-        return manager
+        return lifecycle
 
     @staticmethod
     def _family(model_type: Optional[str]) -> tuple[bool, str]:
@@ -310,7 +310,7 @@ class NativeLLMClient:
         return model
 
     def _build(self, path: str, load_kwargs: Dict[str, Any]) -> _LoadedCheckpoint:
-        """The ModelLifecycleManager ``loader`` — runs at most once per
+        """The ModelLifecycle ``loader`` — runs at most once per
         (path, load_kwargs) fingerprint until evicted. An unquantized checkpoint
         builds on CPU and the caller places it on the compute device for the
         duration of one leased turn; a quantized one is placed on the GPU here
@@ -355,7 +355,7 @@ class NativeLLMClient:
 
     @staticmethod
     def _estimated_size_gb(path: str, quant_mode: str) -> Optional[float]:
-        """Resident-footprint estimate fed to ModelLifecycleManager admission
+        """Resident-footprint estimate fed to ModelLifecycle admission
         control: the bf16 shard sum scaled by the quant mode's packing factor
         (this size drives host-RAM eviction, never a VRAM placement decision —
         see the manager's ``acquire`` docstring)."""
@@ -413,7 +413,7 @@ class NativeLLMClient:
             estimated_vram_gb=self._estimated_size_gb(path, quant_mode),
         )
 
-    # -- GpuResidencyManager registration for CUDA-resident chat
+    # -- GpuResidencyRegistry registration for CUDA-resident chat
     # models — belt-and-suspenders so a DiT load's own VRAM admission
     # (src.pipelines.pipes._shared.generation.dit_placement's ensure_free/
     # offload_all) can reclaim a straggling chat checkpoint even if this
@@ -423,7 +423,7 @@ class NativeLLMClient:
 
     def _note_resident(self, checkpoint: _LoadedCheckpoint, key: str, device: str) -> None:
         try:
-            from src.platform.runtime.native.memory.residency import get_residency_manager
+            from src.platform.runtime.native.memory.residency import get_residency_registry
         except Exception:
             return
         size_gb = self._models().entry_size_gb(key) or 0.0
@@ -433,7 +433,7 @@ class NativeLLMClient:
             checkpoint.residency_handle = handle
         handle.offloaded = False
         try:
-            get_residency_manager().note_resident(handle, device, size_gb)
+            get_residency_registry().note_resident(handle, device, size_gb)
         except Exception:
             logger.debug("[NativeLLM] note_resident failed for key='%s'", key, exc_info=True)
 
@@ -443,14 +443,14 @@ class NativeLLMClient:
         if handle is None:
             return
         try:
-            from src.platform.runtime.native.memory.residency import get_residency_manager
-            get_residency_manager().note_offloaded(handle)
+            from src.platform.runtime.native.memory.residency import get_residency_registry
+            get_residency_registry().note_offloaded(handle)
         except Exception:
             logger.debug("[NativeLLM] note_offloaded failed", exc_info=True)
 
     @asynccontextmanager
     async def _leased(self, path: str, config: LLMConfig, is_te: bool = False):
-        """Acquire the checkpoint (a REAL ModelLifecycleManager entry - same
+        """Acquire the checkpoint (a REAL ModelLifecycle entry - same
         cache/eviction/admission-control path every other model goes
         through, not a private object held outside it), lease it (unevictable)
         for one turn, place it on the compute device, and guarantee it's

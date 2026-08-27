@@ -92,8 +92,8 @@ class SearchGalleryTool(BaseTool):
         return [str(q).strip() for q in raw if q and str(q).strip()]
 
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
-        manager = context.media_index_manager
-        if manager is None:
+        indexer = context.media_indexer
+        if indexer is None:
             return ToolResult(success=False, data="", error="Gallery search not available")
 
         queries = self._normalize_queries(kwargs)
@@ -118,10 +118,10 @@ class SearchGalleryTool(BaseTool):
 
             for query in queries:
                 hits = await asyncio.to_thread(
-                    manager.search_gallery, context.user_id, query
+                    indexer.search_gallery, context.user_id, query
                 )
                 hits = hits[:limit]
-                summaries = manager.describe_files([hit["file_id"] for hit in hits])
+                summaries = indexer.describe_files([hit["file_id"] for hit in hits])
 
                 matches = []
                 for hit in hits:

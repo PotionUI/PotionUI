@@ -14,7 +14,7 @@ import io
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
 from src.features.media.routes import MediaController
-from src.features.media import MediaManager
+from src.features.media import MediaStore
 from src.features.media.dto import MediaResult
 from src.features.media import UnsupportedSizeError
 
@@ -25,7 +25,7 @@ class TestMediaController:
     @pytest.fixture
     def mock_media_manager(self):
         """Mock media manager"""
-        manager = Mock(spec=MediaManager)
+        manager = Mock(spec=MediaStore)
         return manager
 
     @pytest.fixture

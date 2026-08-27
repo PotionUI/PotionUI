@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from src.platform.runtime.model_lifecycle.manager import file_size_gb
+from src.platform.runtime.model_lifecycle.lifecycle import file_size_gb
 from src.platform.runtime.native.engine import NativeEngineLoader, NativeModel
 from src.pipelines.pipes._shared.generation.loader_helpers import (
     active_loras as _active_loras,
@@ -40,7 +40,7 @@ def acquire_wan_dit(
     filtering is idempotent, so either is safe to pass. Each expert's LoRA set
     is in ITS OWN fingerprint (busts only that DiT, not TE/VAE/the other
     expert) and applied only on a cache miss. ``models`` is the
-    ``ModelLifecycleManager``-shaped service (``.acquire(key, fingerprint,
+    ``ModelLifecycle``-shaped service (``.acquire(key, fingerprint,
     loader)``); pass ``None`` to always load fresh (no caching).
     """
     active = _active_loras(loras)

@@ -167,7 +167,7 @@ class TestModelLoaderMayaPipe:
         mock_cached_model = Mock()
 
         # Fake MODELS service: fingerprint match -> return cached value
-        # without invoking the loader (mirrors ModelLifecycleManager.acquire).
+        # without invoking the loader (mirrors ModelLifecycle.acquire).
         fake_models = Mock()
         fake_models.acquire = Mock(return_value=mock_cached_model)
 
@@ -193,7 +193,7 @@ class TestModelLoaderMayaPipe:
         mock_maya_model_class.return_value = mock_new_model
 
         # Fake MODELS service: miss -> calls the loader and returns its result
-        # (mirrors ModelLifecycleManager.acquire on a fingerprint change).
+        # (mirrors ModelLifecycle.acquire on a fingerprint change).
         fake_models = Mock()
         fake_models.acquire = Mock(side_effect=lambda key, fingerprint, loader: loader())
 

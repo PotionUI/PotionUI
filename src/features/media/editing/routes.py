@@ -2,7 +2,7 @@
 Media Editing Controller.
 
 Edits a library resource and returns the resource the edit produced. Thin
-handlers over `MediaEditManager`.
+handlers over `MediaEditor`.
 
 These live in the media feature rather than the library one because the
 `uploads` table, its repository, the path resolver and every image/video/audio
@@ -30,7 +30,7 @@ from src.features.media.editing.dto import (
     SplitMediaRequest,
     SplitMediaResult,
 )
-from src.features.media.editing.manager import MediaEditManager
+from src.features.media.editing.editor import MediaEditor
 from src.features.media.editing.operations import InvalidEditError, MediaEditFailedError
 
 if TYPE_CHECKING:
@@ -42,9 +42,9 @@ logger = logging.getLogger(__name__)
 class MediaEditController(BaseController):
     """Controller for editing a user's library resources."""
 
-    def __init__(self, media_edit_manager: MediaEditManager):
+    def __init__(self, media_editor: MediaEditor):
         super().__init__()
-        self.manager = media_edit_manager
+        self.manager = media_editor
 
     async def edit_item(
         self,

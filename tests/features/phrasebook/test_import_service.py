@@ -100,8 +100,8 @@ class TestPhrasebookImportService:
             # to be patched too, not just migration_runner's own.
             with patch('src.platform.database.database.db', test_database), \
                  patch('src.platform.database.migration_runner.db', test_database):
-                from src.platform.database.migration_runner import MigrationManager
-                MigrationManager().run_migrations()
+                from src.platform.database.migration_runner import MigrationRunner
+                MigrationRunner().run_migrations()
         finally:
             sys.stdout = old_stdout
 

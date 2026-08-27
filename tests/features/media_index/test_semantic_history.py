@@ -5,8 +5,8 @@ from tests.features.media_index.test_history_system_tags import HistoryTestBase
 from src.features.generation.history_query import GenerationHistoryQuery
 
 
-class FakeSearchManager:
-    """Stands in for ``MediaIndexManager``; caps hits by ``limit`` like the
+class FakeIndexer:
+    """Stands in for ``MediaIndexer``; caps hits by ``limit`` like the
     real Chroma-backed ``search_gallery`` does, so tests can exercise the
     widening loop the same way the real vector store would force it."""
 
@@ -45,13 +45,13 @@ class FakeSearchManager:
 
 class SemanticHistoryTestBase(HistoryTestBase):
     def _semantic_query(self, hits=None, error=None, collection_size=None):
-        self.search_manager = FakeSearchManager(
+        self.search_manager = FakeIndexer(
             hits=hits, error=error, collection_size=collection_size
         )
         return GenerationHistoryQuery(
             self.generation_repo,
             media_index_repository=self.repo,
-            media_index_manager=self.search_manager,
+            media_indexer=self.search_manager,
         )
 
     def _generation_with_file(self, gen_id, file_id, status=None):

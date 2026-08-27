@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import List, Dict, Any
 from .database import db
 
-class MigrationManager:
+class MigrationRunner:
     def __init__(self):
         # Resolved against this module, not the working directory, so the
         # runner finds its migrations no matter where the process was started.
@@ -80,4 +80,4 @@ class MigrationManager:
             )
 
 # Global migration manager instance
-migration_manager = MigrationManager()
+migration_runner = MigrationRunner()

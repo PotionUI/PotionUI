@@ -17,17 +17,17 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from src.features.setup import operations
 from src.features.setup.dto import SetupStatus
-from src.features.setup.readiness import ReadinessManager, ReadinessReport
+from src.features.setup.readiness import ReadinessAggregator, ReadinessReport
 from src.features.setup.recipe_dto import RecipeSummary
 from src.features.setup.run_dto import (
     CreateSetupRunRequest,
     SetupRunActionRequest,
     SetupRunView,
 )
-from src.features.setup.run_manager import (
+from src.features.setup.runner import (
     IllegalSetupTransition,
     SetupRunError,
-    SetupRunManager,
+    SetupRunner,
     SetupRunNotFound,
     VALID_ACTIONS,
 )
@@ -49,7 +49,7 @@ def _require_admin_or_404(user: User) -> None:
         raise HTTPException(status_code=404, detail="Not found")
 
 
-def _run_view(run_manager: SetupRunManager, recipe_catalog, run) -> SetupRunView:
+def _run_view(runner: SetupRunner, recipe_catalog, run) -> SetupRunView:
     """Build the wire view for `run`, enriched with its recipe's ordered step
     manifest when the recipe can still be resolved (see
     `SetupRunView.from_record`'s `recipe_steps` param)."""
@@ -58,22 +58,22 @@ def _run_view(run_manager: SetupRunManager, recipe_catalog, run) -> SetupRunView
         recipe = recipe_catalog.get_recipe(run.recipe_id, run.recipe_version)
         if recipe is not None:
             recipe_steps = [(s.key, s.kind, s.title) for s in recipe.steps]
-    return SetupRunView.from_record(run, run_manager.list_attempts(run.id), recipe_steps=recipe_steps)
+    return SetupRunView.from_record(run, runner.list_attempts(run.id), recipe_steps=recipe_steps)
 
 
 def build_router(container: "AppContainer") -> APIRouter:
     instance_claim_repository = container.instance_claim_repository
-    claim_token_manager = container.claim_token_manager
-    settings_manager = container.settings_manager
+    claim_token_store = container.claim_token_store
+    settings = container.settings
     # Stateless (wraps the process-wide `db` singleton, see run_repository.py),
     # so a fresh instance here for reads costs nothing and follows the
     # route -> repository house rule without threading it through the manager.
     run_repository = SetupRunRepository()
 
-    def _run_manager() -> SetupRunManager:
+    def _runner() -> SetupRunner:
         # Resolved per request (not at build time) so the public /status route
         # and its minimal test container stay independent of the run manager.
-        return container.setup_run_manager
+        return container.setup_runner
 
     def _recipe_catalog():
         # Optional: a minimal test container built without a recipe catalog
@@ -94,8 +94,8 @@ def build_router(container: "AppContainer") -> APIRouter:
         client_host = request.client.host if request.client else None
         return operations.status(
             instance_claim_repository,
-            claim_token_manager,
-            settings_manager,
+            claim_token_store,
+            settings,
             is_loopback=is_loopback_host(client_host),
         )
 
@@ -103,9 +103,9 @@ def build_router(container: "AppContainer") -> APIRouter:
     # status route stays independent of the rest of the container.
     _readiness: dict = {}
 
-    def _readiness_manager() -> ReadinessManager:
+    def _readiness_aggregator() -> ReadinessAggregator:
         if "mgr" not in _readiness:
-            _readiness["mgr"] = ReadinessManager(
+            _readiness["mgr"] = ReadinessAggregator(
                 backend_registry=container.backend_registry,
                 preset_manager=container.preset_manager,
                 model_repository=container.model_repository,
@@ -122,7 +122,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         """Report whether the instance can actually generate, filtered to the
         caller's role. `recipe_id` is the Phase-3 recipe seam (not yet
         implemented; returns a clear not-implemented-yet content row)."""
-        return await _readiness_manager().evaluate(current_user, recipe_id=recipe_id)
+        return await _readiness_aggregator().evaluate(current_user, recipe_id=recipe_id)
 
     # --- durable setup runs (admin-only) ----------------------------------
     # The Phase-3 wizard executes against these. All are gated to admins with
@@ -140,14 +140,14 @@ def build_router(container: "AppContainer") -> APIRouter:
         current_user: User = Depends(get_current_active_user),
     ) -> SetupRunView:
         _require_admin_or_404(current_user)
-        run_manager = _run_manager()
-        run = run_manager.create_run(
+        runner = _runner()
+        run = runner.create_run(
             body.recipe_id,
             recipe_version=body.recipe_version,
             safe_input=body.safe_input,
             created_by=current_user.id,
         )
-        # Drive it forward in the background (see `SetupRunManager.
+        # Drive it forward in the background (see `SetupRunner.
         # drive_async`): a brand-new run is PENDING and nothing else will
         # ever call `execute_current_step` on its behalf. This kicks off
         # every step the recipe already has an executor for, stopping the
@@ -157,9 +157,9 @@ def build_router(container: "AppContainer") -> APIRouter:
         # The response below reflects whatever the run's status is *right
         # now* (typically still pending) - the frontend's existing ~2.5s
         # poll of `GET /runs/{id}` is what shows progress as it happens.
-        run_manager.drive_async(run.id)
-        run = run_manager.get_run_or_raise(run.id)
-        return _run_view(run_manager, _recipe_catalog(), run)
+        runner.drive_async(run.id)
+        run = runner.get_run_or_raise(run.id)
+        return _run_view(runner, _recipe_catalog(), run)
 
     @setup_router.get(
         "/runs/active",
@@ -175,11 +175,11 @@ def build_router(container: "AppContainer") -> APIRouter:
         the house 404-not-403 idiom. Registered ahead of `GET /runs/{run_id}`
         so "active" is never swallowed as a literal run id."""
         _require_admin_or_404(current_user)
-        run_manager = _run_manager()
+        runner = _runner()
         run = run_repository.get_active_run()
         if run is None:
             raise HTTPException(status_code=404, detail="Not found")
-        return _run_view(run_manager, _recipe_catalog(), run)
+        return _run_view(runner, _recipe_catalog(), run)
 
     @setup_router.get(
         "/runs/{run_id}",
@@ -191,11 +191,11 @@ def build_router(container: "AppContainer") -> APIRouter:
         current_user: User = Depends(get_current_active_user),
     ) -> SetupRunView:
         _require_admin_or_404(current_user)
-        run_manager = _run_manager()
-        run = run_manager.get_run(run_id)
+        runner = _runner()
+        run = runner.get_run(run_id)
         if run is None:
             raise HTTPException(status_code=404, detail="Not found")
-        return _run_view(run_manager, _recipe_catalog(), run)
+        return _run_view(runner, _recipe_catalog(), run)
 
     @setup_router.post(
         "/runs/{run_id}/actions/{action}",
@@ -209,7 +209,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         current_user: User = Depends(get_current_active_user),
     ) -> SetupRunView:
         _require_admin_or_404(current_user)
-        run_manager = _run_manager()
+        runner = _runner()
         if action not in VALID_ACTIONS:
             raise HTTPException(status_code=400, detail="Unknown action")
         try:
@@ -219,20 +219,20 @@ def build_router(container: "AppContainer") -> APIRouter:
                     raise HTTPException(
                         status_code=400, detail="'step_key' is required to grant consent"
                     )
-                run = run_manager.grant_consent(run_id, step_key, granted_by=current_user.id)
+                run = runner.grant_consent(run_id, step_key, granted_by=current_user.id)
                 # Keep going in the background: the step just approved is
                 # done, so the run may already have more not-yet-gated steps
                 # to run through (e.g. `artifacts.fetch` right after
                 # `artifacts.plan`'s consent) - possibly a long one (a real
                 # download), so this must not block the response either (see
                 # `create_setup_run`'s comment).
-                run_manager.drive_async(run_id)
-                run = run_manager.get_run_or_raise(run_id)
+                runner.drive_async(run_id)
+                run = runner.get_run_or_raise(run_id)
             else:
-                run = run_manager.apply_action(run_id, action)
+                run = runner.apply_action(run_id, action)
                 if action in ("resume", "retry_step"):
-                    run_manager.drive_async(run_id)
-                    run = run_manager.get_run_or_raise(run_id)
+                    runner.drive_async(run_id)
+                    run = runner.get_run_or_raise(run_id)
         except SetupRunNotFound:
             raise HTTPException(status_code=404, detail="Not found")
         except IllegalSetupTransition as e:
@@ -240,7 +240,7 @@ def build_router(container: "AppContainer") -> APIRouter:
             raise HTTPException(status_code=409, detail=str(e))
         except SetupRunError as e:
             raise HTTPException(status_code=400, detail=str(e))
-        return _run_view(run_manager, _recipe_catalog(), run)
+        return _run_view(runner, _recipe_catalog(), run)
 
     @setup_router.get(
         "/recipes",
@@ -253,14 +253,14 @@ def build_router(container: "AppContainer") -> APIRouter:
         catalog = _recipe_catalog()
         recipes = catalog.list_recipes() if catalog is not None else []
         preset_loader = getattr(container, "preset_template_loader", None)
-        manager = _run_manager()
+        runner = _runner()
         summaries: List[RecipeSummary] = []
         for recipe in recipes:
             preset_name = None
             if preset_loader is not None and recipe.presets:
                 template = preset_loader.load_preset_by_id(recipe.presets[0].preset_id)
                 preset_name = template.name if template is not None else None
-            completed_run = manager.get_latest_completed_run(recipe.id)
+            completed_run = runner.get_latest_completed_run(recipe.id)
             summaries.append(
                 RecipeSummary.from_recipe(
                     recipe,

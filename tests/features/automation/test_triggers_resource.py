@@ -109,7 +109,7 @@ class TestEvaluateHold(unittest.TestCase):
         self.assertEqual(held_since, 1.0)
 
 
-class FakeGpuManager:
+class FakeGpuMonitor:
     def __init__(self, free_mb: int, total_mb: int = 10000):
         self.free_mb = free_mb
         self.total_mb = total_mb
@@ -132,7 +132,7 @@ class FakeGenerationStatusTracker:
 class TestResourceTriggerLoop(unittest.IsolatedAsyncioTestCase):
 
     async def test_fires_once_on_crossing_and_stops_cleanly(self):
-        gpu = FakeGpuManager(free_mb=1500, total_mb=10000)  # 15% free, below 20% threshold
+        gpu = FakeGpuMonitor(free_mb=1500, total_mb=10000)  # 15% free, below 20% threshold
         fired_events = []
 
         def enqueue(automation_id, node_id, payload):
@@ -141,7 +141,7 @@ class TestResourceTriggerLoop(unittest.IsolatedAsyncioTestCase):
         trigger = ResourceTrigger(
             automation_id="auto1", node_id="node1",
             config={"threshold_pct": 20, "direction": "below", "poll_interval_s": 0.05, "margin_pct": 5},
-            enqueue=enqueue, gpu_manager=gpu,
+            enqueue=enqueue, gpu_monitor=gpu,
         )
 
         await trigger.start()
@@ -160,13 +160,13 @@ class TestResourceTriggerLoop(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(fired_events), fire_count_after_first_stop_window)
 
     async def test_stop_cancels_the_poll_loop(self):
-        gpu = FakeGpuManager(free_mb=9000, total_mb=10000)
+        gpu = FakeGpuMonitor(free_mb=9000, total_mb=10000)
         fired_events = []
 
         trigger = ResourceTrigger(
             automation_id="auto1", node_id="node1",
             config={"threshold_pct": 20, "direction": "below", "poll_interval_s": 0.05},
-            enqueue=lambda *a: fired_events.append(a), gpu_manager=gpu,
+            enqueue=lambda *a: fired_events.append(a), gpu_monitor=gpu,
         )
 
         await trigger.start()
@@ -178,14 +178,14 @@ class TestResourceTriggerLoop(unittest.IsolatedAsyncioTestCase):
 class TestResourceTriggerHoldS(unittest.IsolatedAsyncioTestCase):
 
     async def test_does_not_fire_until_condition_persists_for_hold_s(self):
-        gpu = FakeGpuManager(free_mb=1500, total_mb=10000)  # 15% free, below 20% threshold
+        gpu = FakeGpuMonitor(free_mb=1500, total_mb=10000)  # 15% free, below 20% threshold
         fired_events = []
 
         trigger = ResourceTrigger(
             automation_id="auto1", node_id="node1",
             config={"threshold_pct": 20, "direction": "below", "poll_interval_s": 0.05,
                     "hold_s": 0.05, "margin_pct": 5},
-            enqueue=lambda *a: fired_events.append(a), gpu_manager=gpu,
+            enqueue=lambda *a: fired_events.append(a), gpu_monitor=gpu,
         )
 
         await trigger.start()
@@ -198,13 +198,13 @@ class TestResourceTriggerHoldS(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(fired_events), 1)
 
     async def test_zero_hold_s_keeps_the_original_immediate_fire_behavior(self):
-        gpu = FakeGpuManager(free_mb=1500, total_mb=10000)
+        gpu = FakeGpuMonitor(free_mb=1500, total_mb=10000)
         fired_events = []
 
         trigger = ResourceTrigger(
             automation_id="auto1", node_id="node1",
             config={"threshold_pct": 20, "direction": "below", "poll_interval_s": 0.05, "hold_s": 0},
-            enqueue=lambda *a: fired_events.append(a), gpu_manager=gpu,
+            enqueue=lambda *a: fired_events.append(a), gpu_monitor=gpu,
         )
 
         await trigger.start()
@@ -217,7 +217,7 @@ class TestResourceTriggerHoldS(unittest.IsolatedAsyncioTestCase):
 class TestResourceTriggerRequireGenerationIdle(unittest.IsolatedAsyncioTestCase):
 
     async def test_condition_does_not_fire_while_a_generation_is_active(self):
-        gpu = FakeGpuManager(free_mb=1500, total_mb=10000)
+        gpu = FakeGpuMonitor(free_mb=1500, total_mb=10000)
         tracker = FakeGenerationStatusTracker(active=True)
         fired_events = []
 
@@ -225,7 +225,7 @@ class TestResourceTriggerRequireGenerationIdle(unittest.IsolatedAsyncioTestCase)
             automation_id="auto1", node_id="node1",
             config={"threshold_pct": 20, "direction": "below", "poll_interval_s": 0.05,
                     "require_generation_idle": True},
-            enqueue=lambda *a: fired_events.append(a), gpu_manager=gpu,
+            enqueue=lambda *a: fired_events.append(a), gpu_monitor=gpu,
             generation_status_tracker=tracker,
         )
 
@@ -240,7 +240,7 @@ class TestResourceTriggerRequireGenerationIdle(unittest.IsolatedAsyncioTestCase)
         self.assertEqual(len(fired_events), 1)
 
     async def test_fires_normally_when_no_generation_is_active(self):
-        gpu = FakeGpuManager(free_mb=1500, total_mb=10000)
+        gpu = FakeGpuMonitor(free_mb=1500, total_mb=10000)
         tracker = FakeGenerationStatusTracker(active=False)
         fired_events = []
 
@@ -248,7 +248,7 @@ class TestResourceTriggerRequireGenerationIdle(unittest.IsolatedAsyncioTestCase)
             automation_id="auto1", node_id="node1",
             config={"threshold_pct": 20, "direction": "below", "poll_interval_s": 0.05,
                     "require_generation_idle": True},
-            enqueue=lambda *a: fired_events.append(a), gpu_manager=gpu,
+            enqueue=lambda *a: fired_events.append(a), gpu_monitor=gpu,
             generation_status_tracker=tracker,
         )
 
@@ -259,14 +259,14 @@ class TestResourceTriggerRequireGenerationIdle(unittest.IsolatedAsyncioTestCase)
         self.assertEqual(len(fired_events), 1)
 
     async def test_absent_status_tracker_does_not_crash_and_fires_normally(self):
-        gpu = FakeGpuManager(free_mb=1500, total_mb=10000)
+        gpu = FakeGpuMonitor(free_mb=1500, total_mb=10000)
         fired_events = []
 
         trigger = ResourceTrigger(
             automation_id="auto1", node_id="node1",
             config={"threshold_pct": 20, "direction": "below", "poll_interval_s": 0.05,
                     "require_generation_idle": True},
-            enqueue=lambda *a: fired_events.append(a), gpu_manager=gpu,
+            enqueue=lambda *a: fired_events.append(a), gpu_monitor=gpu,
             generation_status_tracker=None,
         )
 
@@ -281,13 +281,13 @@ class TestResourceTriggerLevelDirections(unittest.IsolatedAsyncioTestCase):
     """`is_below`/`is_above` describe a state, so they fire while it holds."""
 
     async def test_is_above_keeps_firing_while_there_is_room(self):
-        gpu = FakeGpuManager(free_mb=1780, total_mb=10000)  # 17.8% free
+        gpu = FakeGpuMonitor(free_mb=1780, total_mb=10000)  # 17.8% free
         fired_events = []
 
         trigger = ResourceTrigger(
             automation_id="auto1", node_id="node1",
             config={"threshold_pct": 10, "direction": "is_above", "poll_interval_s": 0.05},
-            enqueue=lambda *a: fired_events.append(a), gpu_manager=gpu,
+            enqueue=lambda *a: fired_events.append(a), gpu_monitor=gpu,
         )
 
         # The poll loop floors its sleep at 0.5s, so the window has to span
@@ -301,13 +301,13 @@ class TestResourceTriggerLevelDirections(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(len(fired_events), 1)
 
     async def test_is_above_stops_firing_once_the_room_is_gone(self):
-        gpu = FakeGpuManager(free_mb=1780, total_mb=10000)
+        gpu = FakeGpuMonitor(free_mb=1780, total_mb=10000)
         fired_events = []
 
         trigger = ResourceTrigger(
             automation_id="auto1", node_id="node1",
             config={"threshold_pct": 10, "direction": "is_above", "poll_interval_s": 0.05},
-            enqueue=lambda *a: fired_events.append(a), gpu_manager=gpu,
+            enqueue=lambda *a: fired_events.append(a), gpu_monitor=gpu,
         )
 
         await trigger.start()
@@ -323,14 +323,14 @@ class TestResourceTriggerLevelDirections(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(fired_events), count_when_full)
 
     async def test_is_below_respects_require_generation_idle(self):
-        gpu = FakeGpuManager(free_mb=500, total_mb=10000)  # 5% free, below 20%
+        gpu = FakeGpuMonitor(free_mb=500, total_mb=10000)  # 5% free, below 20%
         fired_events = []
 
         trigger = ResourceTrigger(
             automation_id="auto1", node_id="node1",
             config={"threshold_pct": 20, "direction": "is_below", "poll_interval_s": 0.05,
                     "require_generation_idle": True},
-            enqueue=lambda *a: fired_events.append(a), gpu_manager=gpu,
+            enqueue=lambda *a: fired_events.append(a), gpu_monitor=gpu,
             generation_status_tracker=FakeGenerationStatusTracker(active=True),
         )
 
@@ -341,14 +341,14 @@ class TestResourceTriggerLevelDirections(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(fired_events, [])
 
     async def test_is_above_honours_hold_s(self):
-        gpu = FakeGpuManager(free_mb=1780, total_mb=10000)
+        gpu = FakeGpuMonitor(free_mb=1780, total_mb=10000)
         fired_events = []
 
         trigger = ResourceTrigger(
             automation_id="auto1", node_id="node1",
             config={"threshold_pct": 10, "direction": "is_above", "poll_interval_s": 0.05,
                     "hold_s": 10.0},
-            enqueue=lambda *a: fired_events.append(a), gpu_manager=gpu,
+            enqueue=lambda *a: fired_events.append(a), gpu_monitor=gpu,
         )
 
         await trigger.start()

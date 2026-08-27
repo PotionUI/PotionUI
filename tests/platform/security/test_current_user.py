@@ -12,10 +12,10 @@ from src.platform.security.user import User, AccountType
 @pytest.fixture
 def mock_auth_manager():
     manager = Mock()
-    previous = current_user._auth_manager
-    current_user.set_auth_manager(manager)
+    previous = current_user._auth
+    current_user.set_auth(manager)
     yield manager
-    current_user._auth_manager = previous
+    current_user._auth = previous
 
 
 @pytest.fixture

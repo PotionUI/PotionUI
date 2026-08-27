@@ -20,15 +20,15 @@ class AutomationServices:
     model_indexer: Optional[Any] = None
     tag_repository: Optional[Any] = None
     notification_manager: Optional[Any] = None
-    gpu_manager: Optional[Any] = None
+    gpu_monitor: Optional[Any] = None
     # Backs the trigger.filesystem "app directory" picker (models root + its
     # subdirectories, storage dir, outputs dir) and effective-directory
     # resolution - see src/features/automation/triggers/filesystem.py.
-    settings_manager: Optional[Any] = None
+    settings: Optional[Any] = None
     # Backs action.backend_action: config manager resolves the backend and its
     # quick actions; lifecycle manager backs the native "Clear VRAM" operation.
-    backend_config_manager: Optional[Any] = None
-    model_lifecycle_manager: Optional[Any] = None
+    backend_config_store: Optional[Any] = None
+    model_lifecycle: Optional[Any] = None
     # Backs action.index_models: only active backends can be asked what they can
     # load, so the registry resolves selected ids to LIVE backend instances.
     backend_registry: Optional[Any] = None
@@ -39,7 +39,7 @@ class AutomationServices:
     user_group_repository: Optional[Any] = None
     # Backs action.index_media_queue: drains the media-index queue (system
     # tags + gallery search embeddings).
-    media_index_manager: Optional[Any] = None
+    media_indexer: Optional[Any] = None
     # Backs trigger.gpu_threshold's `require_generation_idle` option - read
     # only, never a dependency the trigger requires (it must run fine without it).
     generation_status_tracker: Optional[Any] = None

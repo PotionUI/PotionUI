@@ -41,7 +41,7 @@ def mock_llm_service():
 
 
 @pytest.fixture
-def mock_settings_manager():
+def mock_settings():
     """Create a mock settings manager."""
     mock = Mock()
     mock.get_file_storage_directory = Mock(return_value="/test/storage")
@@ -256,7 +256,7 @@ class TestConfigurationOperations:
 
 class TestGenerationOperations:
     @pytest.mark.asyncio
-    async def test_generate_response_success(self, mock_repo, mock_llm_service, mock_settings_manager, mock_plugins, sample_llm_config):
+    async def test_generate_response_success(self, mock_repo, mock_llm_service, mock_settings, mock_plugins, sample_llm_config):
         """Test successful response generation."""
         request = LLMGenerateRequest(prompt="Hello, world!")
         mock_repo.get_default_configuration.return_value = sample_llm_config
@@ -270,25 +270,25 @@ class TestGenerationOperations:
         mock_llm_service.generate_response.return_value = service_response
 
         result = await operations.generate_response(
-            mock_repo, mock_llm_service, mock_settings_manager, mock_plugins, request, "user-123"
+            mock_repo, mock_llm_service, mock_settings, mock_plugins, request, "user-123"
         )
 
         assert result.content == "Hello! How can I help you?"
         assert result.model == "llama2"
 
     @pytest.mark.asyncio
-    async def test_generate_response_no_config(self, mock_repo, mock_llm_service, mock_settings_manager, mock_plugins):
+    async def test_generate_response_no_config(self, mock_repo, mock_llm_service, mock_settings, mock_plugins):
         """Test generation with no configuration."""
         request = LLMGenerateRequest(prompt="Hello")
         mock_repo.get_default_configuration.return_value = None
 
         with pytest.raises(ConfigurationNotFoundException):
             await operations.generate_response(
-                mock_repo, mock_llm_service, mock_settings_manager, mock_plugins, request, "user-123"
+                mock_repo, mock_llm_service, mock_settings, mock_plugins, request, "user-123"
             )
 
     @pytest.mark.asyncio
-    async def test_generate_response_vision_not_supported(self, mock_repo, mock_llm_service, mock_settings_manager, mock_plugins, sample_llm_config):
+    async def test_generate_response_vision_not_supported(self, mock_repo, mock_llm_service, mock_settings, mock_plugins, sample_llm_config):
         """Test generation with image when vision not supported."""
         sample_llm_config.supports_vision = False
         request = LLMGenerateRequest(prompt="Describe this", image_data="base64data")
@@ -296,11 +296,11 @@ class TestGenerationOperations:
 
         with pytest.raises(VisionNotSupportedException):
             await operations.generate_response(
-                mock_repo, mock_llm_service, mock_settings_manager, mock_plugins, request, "user-123"
+                mock_repo, mock_llm_service, mock_settings, mock_plugins, request, "user-123"
             )
 
     @pytest.mark.asyncio
-    async def test_generate_response_removes_thinking_tags(self, mock_repo, mock_llm_service, mock_settings_manager, mock_plugins, sample_llm_config):
+    async def test_generate_response_removes_thinking_tags(self, mock_repo, mock_llm_service, mock_settings, mock_plugins, sample_llm_config):
         """Test that thinking tags are removed from response."""
         request = LLMGenerateRequest(prompt="Explain something")
         mock_repo.get_default_configuration.return_value = sample_llm_config
@@ -314,7 +314,7 @@ class TestGenerationOperations:
         mock_llm_service.generate_response.return_value = service_response
 
         result = await operations.generate_response(
-            mock_repo, mock_llm_service, mock_settings_manager, mock_plugins, request, "user-123"
+            mock_repo, mock_llm_service, mock_settings, mock_plugins, request, "user-123"
         )
 
         assert "<think>" not in result.content
@@ -322,7 +322,7 @@ class TestGenerationOperations:
         assert "Actual response" in result.content
 
     @pytest.mark.asyncio
-    async def test_generate_response_blocked_by_hook(self, mock_repo, mock_llm_service, mock_settings_manager, mock_plugins, sample_llm_config):
+    async def test_generate_response_blocked_by_hook(self, mock_repo, mock_llm_service, mock_settings, mock_plugins, sample_llm_config):
         """Test that hooks can block generation."""
         request = LLMGenerateRequest(prompt="Blocked prompt")
         mock_repo.get_default_configuration.return_value = sample_llm_config
@@ -335,7 +335,7 @@ class TestGenerationOperations:
 
         with pytest.raises(GenerationFailedException) as exc_info:
             await operations.generate_response(
-                mock_repo, mock_llm_service, mock_settings_manager, mock_plugins, request, "user-123"
+                mock_repo, mock_llm_service, mock_settings, mock_plugins, request, "user-123"
             )
         assert "Content not allowed" in str(exc_info.value)
 

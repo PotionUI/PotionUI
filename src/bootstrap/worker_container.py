@@ -17,7 +17,7 @@ from src.features.remote_execution.worker.coordinator import WorkerCoordinator
 from src.features.remote_execution.worker.journal import WorkerJournal
 from src.pipelines.catalog import PipeCatalog
 from src.platform.observability.system_probe import SystemMonitor
-from src.platform.runtime.gpu import GpuManager
+from src.platform.runtime.gpu import GpuMonitor
 
 
 @dataclass
@@ -26,14 +26,14 @@ class WorkerContainer:
     pipe_catalog: PipeCatalog
     journal: WorkerJournal
     coordinator: WorkerCoordinator
-    gpu_manager: GpuManager
+    gpu_monitor: GpuMonitor
     system_monitor: SystemMonitor
 
 
 def build_worker_container(config: WorkerConfig) -> WorkerContainer:
     pipe_catalog = PipeCatalog("src/pipelines/pipes", "pipes/custom")
     journal = WorkerJournal(config.work_dir)
-    gpu_manager = GpuManager()
+    gpu_monitor = GpuMonitor()
     system_monitor = SystemMonitor()
 
     coordinator = WorkerCoordinator(
@@ -45,7 +45,7 @@ def build_worker_container(config: WorkerConfig) -> WorkerContainer:
         dtype=config.dtype or "fp16",
         vram_limit_gb=config.vram_limit_gb,
         build_id=config.build_id,
-        gpu_manager=gpu_manager,
+        gpu_monitor=gpu_monitor,
         system_monitor=system_monitor,
     )
 
@@ -54,7 +54,7 @@ def build_worker_container(config: WorkerConfig) -> WorkerContainer:
         pipe_catalog=pipe_catalog,
         journal=journal,
         coordinator=coordinator,
-        gpu_manager=gpu_manager,
+        gpu_monitor=gpu_monitor,
         system_monitor=system_monitor,
     )
 

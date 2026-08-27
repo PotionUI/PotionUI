@@ -121,11 +121,11 @@ def test_main_missing_file_returns_error(tmp_path, capsys):
 def test_log_highlights_prints_warning_error_lora_and_model_lifecycle_lines(synthetic_profile):
     log_path = synthetic_profile.parent / "generation.log"
     log_path.write_text(
-        "2026-07-12 10:00:00,000 INFO    src.features.generation.generation: normal noise, skip me\n"
+        "2026-07-12 10:00:00,000 INFO    src.features.generation.engine: normal noise, skip me\n"
         "2026-07-12 10:00:00,100 WARNING src.platform.runtime.native.engine: falling back to manual_cast\n"
         "2026-07-12 10:00:00,200 ERROR   src.pipelines.pipes.generator.sdxl: OOM during sample\n"
         "2026-07-12 10:00:00,300 INFO    src.platform.runtime.native.lora.loader: applied 1 lora at weight 0.8\n"
-        "2026-07-12 10:00:00,400 INFO    src.platform.runtime.model_lifecycle.manager: [MODEL_LIFECYCLE] Cache hit for key='dit'\n"
+        "2026-07-12 10:00:00,400 INFO    src.platform.runtime.model_lifecycle.lifecycle: [MODEL_LIFECYCLE] Cache hit for key='dit'\n"
     )
 
     out = _report.render_log_highlights(synthetic_profile)

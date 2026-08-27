@@ -1,7 +1,7 @@
 """Permanent regression fixture for the RAM ratchet on LoRA swap.
 
 Drives the REAL production path a maintainer's LoRA swap goes through:
-``ModelLifecycleManager.acquire()`` -> fingerprint-bust eviction
+``ModelLifecycle.acquire()`` -> fingerprint-bust eviction
 (``_evict_entry`` + ``cleanup(aggressive=True)``) -> a fresh ``NativeModel`` ->
 ``lora.apply.apply_loras()`` (the actual delta-computation/patch-in-place math
 in ``_compute_delta``/``_apply_inplace``) -> ``cleanup(aggressive=True)`` again
@@ -40,9 +40,9 @@ import pytest
 import torch
 import torch.nn as nn
 
-import src.platform.runtime.model_lifecycle.manager as manager_module
+import src.platform.runtime.model_lifecycle.lifecycle as manager_module
 import src.platform.runtime.native.lora.apply as lora_apply
-from src.platform.runtime.model_lifecycle.manager import ModelLifecycleManager
+from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
 from src.platform.runtime.native.engine import NativeModel
 from src.platform.runtime.native.lora.key_mapping import LoraDelta
 
@@ -51,7 +51,7 @@ _DIT_KEY = "native/dit/fake_krea2.safetensors"
 
 @pytest.fixture(autouse=True)
 def _reset_default_manager_singleton():
-    """``ModelLifecycleManager.__init__`` sets a module-level
+    """``ModelLifecycle.__init__`` sets a module-level
     ``_default_manager`` singleton the first time one is constructed in the
     process and never again - so a manager (and its cached ``NativeModel``)
     built by an earlier test in this session stays reachable, which would
@@ -107,7 +107,7 @@ def _stub_map_lora_keys(lora_sd, module):
     return mapped, []
 
 
-def _acquire_dit(manager: ModelLifecycleManager, lora_sd, strength: float = 0.8) -> NativeModel:
+def _acquire_dit(manager: ModelLifecycle, lora_sd, strength: float = 0.8) -> NativeModel:
     """Mirrors the flux-style loader scheme (see module docstring): a stable
     key, LoRA stack folded only into the fingerprint, LoRAs applied inside the
     loader closure. Krea-2 itself no longer works this way as of a later change."""
@@ -143,7 +143,7 @@ def test_lora_swap_key_stays_stable_and_single_entry(monkeypatch):
     each swap should leave the cache with exactly one entry (the key-proliferation
     hypothesis - refuted; pin it so it can't come back)."""
     monkeypatch.setattr(lora_apply, "map_lora_keys", _stub_map_lora_keys)
-    manager = ModelLifecycleManager(gpu_manager=None, settings_manager=None)
+    manager = ModelLifecycle(gpu_monitor=None, settings=None)
     lora_a = _build_fake_lora(seed=1)
     lora_b = _build_fake_lora(seed=2)
 
@@ -162,7 +162,7 @@ def test_lora_swap_never_leaves_a_second_live_native_model(monkeypatch):
     hypothesis / the then-dead "Clear VRAM & Cache" button), this would show up as more than
     one live ``NativeModel`` at once. Refuted for this flow; pin it."""
     monkeypatch.setattr(lora_apply, "map_lora_keys", _stub_map_lora_keys)
-    manager = ModelLifecycleManager(gpu_manager=None, settings_manager=None)
+    manager = ModelLifecycle(gpu_monitor=None, settings=None)
     lora_a = _build_fake_lora(seed=1)
     lora_b = _build_fake_lora(seed=2)
 
@@ -178,13 +178,13 @@ def test_lora_swap_rss_returns_to_baseline_after_invalidate(monkeypatch):
     ``_compute_delta``'s transient per-Linear buffers, not a live reference -
     the tensor-byte census is identical before/after). That residue is only
     reclaimed once the model itself is ALSO evicted, e.g. by
-    ``ModelLifecycleManager.invalidate()`` (the real "Clear VRAM & Cache (RAM)"
+    ``ModelLifecycle.invalidate()`` (the real "Clear VRAM & Cache (RAM)"
     action). Assert the qualitative invariant rather than a fixed MB
     threshold (allocator behavior is environment-sensitive) - the case that
     actually matters: invalidate() must recover memory below where it stood
     before the LoRA-bearing load, since it now holds nothing at all."""
     monkeypatch.setattr(lora_apply, "map_lora_keys", _stub_map_lora_keys)
-    manager = ModelLifecycleManager(gpu_manager=None, settings_manager=None)
+    manager = ModelLifecycle(gpu_monitor=None, settings=None)
     lora_a = _build_fake_lora(seed=1)
 
     _acquire_dit(manager, None)
@@ -233,7 +233,7 @@ def test_orphaned_dit_is_eventually_freed_and_trimmed_after_stale_holder_release
     trims it again, however long the stale holder happens to survive.
 
     This test is deliberately CPU-only-safe (no real CUDA transfer) - it
-    talks to ``GpuResidencyManager``'s bookkeeping directly (``note_resident``/
+    talks to ``GpuResidencyRegistry``'s bookkeeping directly (``note_resident``/
     ``mark_orphaned`` are pure dict+weakref logic, no device operation).
     FAILS before this fix (mark_orphaned/finalizer didn't exist - eviction
     dropped the reference with no way to ever detect or trim the eventual
@@ -241,18 +241,18 @@ def test_orphaned_dit_is_eventually_freed_and_trimmed_after_stale_holder_release
     guarantees a host-allocator trim fires the moment the stale holder's
     reference is dropped, regardless of timing)."""
     from src.platform.runtime.native.memory import residency as residency_module
-    from src.platform.runtime.native.memory.residency import get_residency_manager
+    from src.platform.runtime.native.memory.residency import get_residency_registry
 
     monkeypatch.setattr(lora_apply, "map_lora_keys", _stub_map_lora_keys)
     # Isolate from any other test's tracked entries in the process-global
     # residency manager (same singleton-leak concern as _default_manager).
-    monkeypatch.setattr(residency_module, "_manager", residency_module.GpuResidencyManager())
-    residency = get_residency_manager()
+    monkeypatch.setattr(residency_module, "_manager", residency_module.GpuResidencyRegistry())
+    residency = get_residency_registry()
 
     trim_calls = []
     monkeypatch.setattr(manager_module, "trim_host_allocator", lambda: trim_calls.append(1))
 
-    manager = ModelLifecycleManager(gpu_manager=None, settings_manager=None)
+    manager = ModelLifecycle(gpu_monitor=None, settings=None)
 
     # gen1: acquire the DiT (no LoRA) and leave it GPU-resident on "success" -
     # note_resident is pure bookkeeping (dict + weakref), safe without a real
@@ -328,7 +328,7 @@ def test_bundle_retention_across_generations_does_not_keep_dit_alive(monkeypatch
     from src.pipelines.pipes.model_loader.krea2.bundle import Krea2ModelBundle
 
     monkeypatch.setattr(lora_apply, "map_lora_keys", _stub_map_lora_keys)
-    manager = ModelLifecycleManager(gpu_manager=None, settings_manager=None)
+    manager = ModelLifecycle(gpu_monitor=None, settings=None)
 
     dit_model = _acquire_dit(manager, None)
     te_model = NativeModel(kind="text_encoder", module=nn.Linear(8, 8), estimated_vram_gb=0.001, device="cpu")
@@ -380,7 +380,7 @@ def test_tensor_level_diagnostic_fires_when_a_raw_parameter_survives_clean_unloa
     a NativeModel-keyed one) would look like.
     """
     monkeypatch.setattr(lora_apply, "map_lora_keys", _stub_map_lora_keys)
-    manager = ModelLifecycleManager(gpu_manager=None, settings_manager=None)
+    manager = ModelLifecycle(gpu_monitor=None, settings=None)
 
     model_a = _acquire_dit(manager, None)
     # THE STALE HOLDER, at the TENSOR level: something outside the cache (and
@@ -409,7 +409,7 @@ def test_tensor_level_diagnostic_is_silent_on_a_genuinely_clean_unload(monkeypat
     """No false positives: when nothing holds a raw parameter tensor outside
     the module tree, the new tensor-level warning must not fire."""
     monkeypatch.setattr(lora_apply, "map_lora_keys", _stub_map_lora_keys)
-    manager = ModelLifecycleManager(gpu_manager=None, settings_manager=None)
+    manager = ModelLifecycle(gpu_monitor=None, settings=None)
 
     _acquire_dit(manager, None)
     lora_a = _build_fake_lora(seed=1)

@@ -12,7 +12,7 @@ from src.features.backends.dto import (
     EngineFlagsRequest,
 )
 from src.features.backends.backend_registry import BackendRegistry
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 from src.platform.plugins.runtime_registries import get_global_plugin_registry
 from src.features.backends.hooks import BACKEND_HOOKS
 from src.platform.security.user import AccountType, User
@@ -69,16 +69,16 @@ def _cuda_allocated_gb() -> float:
 class BackendController(BaseController):
     def __init__(
         self,
-        settings_manager: SettingsManager,
+        settings: Settings,
         backend_registry: BackendRegistry,
-        model_lifecycle_manager=None,
+        model_lifecycle=None,
     ):
         super().__init__()
-        self.settings_manager = settings_manager
+        self.settings = settings
         self.backend_registry = backend_registry
-        self.model_lifecycle_manager = model_lifecycle_manager
-        # Use the backend_config_manager from the registry to get plugin-registered types
-        self.backend_config_manager = backend_registry.backend_config_manager
+        self.model_lifecycle = model_lifecycle
+        # Use the backend_config_store from the registry to get plugin-registered types
+        self.backend_config_store = backend_registry.backend_config_store
 
     def _require_admin(self, user: Optional[User]) -> None:
         if not user:
@@ -106,7 +106,7 @@ class BackendController(BaseController):
         today) drives its own process/host and has nothing here to discover or
         install.
         """
-        backend_config = self.backend_config_manager.get_backend(backend_id)
+        backend_config = self.backend_config_store.get_backend(backend_id)
         if not backend_config:
             return self.error_response(
                 error="backend_not_found",
@@ -124,7 +124,7 @@ class BackendController(BaseController):
     def _serialize(self, backend, default_ids: Dict[str, str] = None) -> Dict[str, Any]:
         """Serialize a backend config, adding the persisted per-engine default flag."""
         if default_ids is None:
-            default_ids = self.backend_config_manager.get_default_backend_ids()
+            default_ids = self.backend_config_store.get_default_backend_ids()
         data = _redacted_backend_dump(backend)
         data["is_default"] = default_ids.get(backend.engine) == backend.id
         data["quick_actions"] = backend.quick_actions()
@@ -133,8 +133,8 @@ class BackendController(BaseController):
     async def list_backends(self) -> APIResponse:
         """List all configured backends"""
         try:
-            backends = self.backend_config_manager.get_backends()
-            default_ids = self.backend_config_manager.get_default_backend_ids()
+            backends = self.backend_config_store.get_backends()
+            default_ids = self.backend_config_store.get_default_backend_ids()
             backend_data = [self._serialize(b, default_ids) for b in backends]
             return self.success_response(data=backend_data)
         except HTTPException:
@@ -149,8 +149,8 @@ class BackendController(BaseController):
     async def get_enabled_backends(self) -> APIResponse:
         """Get all enabled backends sorted by priority"""
         try:
-            backends = self.backend_config_manager.get_enabled_backends()
-            default_ids = self.backend_config_manager.get_default_backend_ids()
+            backends = self.backend_config_store.get_enabled_backends()
+            default_ids = self.backend_config_store.get_default_backend_ids()
             backend_data = [self._serialize(b, default_ids) for b in backends]
             return self.success_response(data=backend_data)
         except HTTPException:
@@ -165,7 +165,7 @@ class BackendController(BaseController):
     async def get_default_backend(self, engine: str) -> APIResponse:
         """Get the default backend for an engine"""
         try:
-            backend = self.backend_config_manager.get_default_backend(engine)
+            backend = self.backend_config_store.get_default_backend(engine)
             if not backend:
                 return self.error_response(
                     error="no_backend_for_engine",
@@ -204,7 +204,7 @@ class BackendController(BaseController):
     async def set_default_backend(self, backend_id: str) -> APIResponse:
         """Make a backend the default for its engine"""
         try:
-            self.backend_config_manager.set_default_backend(backend_id)
+            self.backend_config_store.set_default_backend(backend_id)
             await self.backend_registry.refresh_backends()
             return self.success_response(message=f"Backend '{backend_id}' is now the default for its engine")
         except ValueError as e:
@@ -225,7 +225,7 @@ class BackendController(BaseController):
     async def get_backend(self, backend_id: str) -> APIResponse:
         """Get a specific backend by ID"""
         try:
-            backend = self.backend_config_manager.get_backend(backend_id)
+            backend = self.backend_config_store.get_backend(backend_id)
             if not backend:
                 return self.error_response(
                     error="backend_not_found",
@@ -259,10 +259,10 @@ class BackendController(BaseController):
                 backend_data = context.get("backend_data", backend_data)
 
             # Validate and parse backend configuration
-            backend_config = self.backend_config_manager.validate_backend_config(backend_data)
+            backend_config = self.backend_config_store.validate_backend_config(backend_data)
 
             # Add the backend
-            self.backend_config_manager.add_backend(backend_config)
+            self.backend_config_store.add_backend(backend_config)
 
             # Refresh the backend registry
             await self.backend_registry.refresh_backends()
@@ -310,7 +310,7 @@ class BackendController(BaseController):
             # existing config so validation sees a complete object. `id` and
             # `engine` are immutable - the engine decides which config class
             # validates this backend.
-            existing = self.backend_config_manager.get_backend(backend_id)
+            existing = self.backend_config_store.get_backend(backend_id)
             if not existing:
                 return self.error_response(
                     error="backend_not_found",
@@ -331,10 +331,10 @@ class BackendController(BaseController):
                 if _is_blank_secret(backend_data.get(name)):
                     merged[name] = existing_dump.get(name)
 
-            backend_config = self.backend_config_manager.validate_backend_config(merged)
+            backend_config = self.backend_config_store.validate_backend_config(merged)
 
             # Update the backend
-            self.backend_config_manager.update_backend(backend_id, backend_config)
+            self.backend_config_store.update_backend(backend_id, backend_config)
 
             # Refresh the backend registry
             await self.backend_registry.refresh_backends()
@@ -377,7 +377,7 @@ class BackendController(BaseController):
                     initial_data={"backend_id": backend_id}
                 )
 
-            self.backend_config_manager.remove_backend(backend_id)
+            self.backend_config_store.remove_backend(backend_id)
 
             # Refresh the backend registry
             await self.backend_registry.refresh_backends()
@@ -419,7 +419,7 @@ class BackendController(BaseController):
         try:
             backend = self.backend_registry.get_backend(backend_id)
             if not backend:
-                if not self.backend_config_manager.get_backend(backend_id):
+                if not self.backend_config_store.get_backend(backend_id):
                     return self.error_response(
                         error="backend_not_found",
                         message=f"Backend '{backend_id}' not found",
@@ -467,7 +467,7 @@ class BackendController(BaseController):
         from src.features.models.availability_repository import model_availability_repo
 
         try:
-            if not self.backend_config_manager.get_backend(backend_id):
+            if not self.backend_config_store.get_backend(backend_id):
                 return self.error_response(
                     error="backend_not_found",
                     message=f"Backend '{backend_id}' not found",
@@ -499,7 +499,7 @@ class BackendController(BaseController):
             backend_instance = self.backend_registry.get_backend(backend_id)
             if not backend_instance:
                 # Backend might not be instantiated yet, check config exists
-                backend_config = self.backend_config_manager.get_backend(backend_id)
+                backend_config = self.backend_config_store.get_backend(backend_id)
                 if not backend_config:
                     return self.error_response(
                         error="backend_not_found",
@@ -544,7 +544,7 @@ class BackendController(BaseController):
     async def get_backend_health(self, backend_id: str) -> APIResponse:
         """Get health status for a specific backend"""
         try:
-            backend_config = self.backend_config_manager.get_backend(backend_id)
+            backend_config = self.backend_config_store.get_backend(backend_id)
             if not backend_config:
                 return self.error_response(
                     error="backend_not_found",
@@ -589,7 +589,7 @@ class BackendController(BaseController):
     async def get_backend_system_info(self, backend_id: str) -> APIResponse:
         """Get system information for a specific backend"""
         try:
-            backend_config = self.backend_config_manager.get_backend(backend_id)
+            backend_config = self.backend_config_store.get_backend(backend_id)
             if not backend_config:
                 return self.error_response(
                     error="backend_not_found",
@@ -620,7 +620,7 @@ class BackendController(BaseController):
     async def list_backend_health(self) -> APIResponse:
         """Get health status for all backends"""
         try:
-            backend_configs = self.backend_config_manager.get_backends()
+            backend_configs = self.backend_config_store.get_backends()
             health_list = []
 
             for backend_config in backend_configs:
@@ -673,7 +673,7 @@ class BackendController(BaseController):
         AND a fallback sweep of the model-lifecycle cache for anything
         GPU-resident that never registered with the ledger.
 
-        Deliberately does NOT touch the ModelLifecycleManager RAM cache: the
+        Deliberately does NOT touch the ModelLifecycle RAM cache: the
         offloaded weights stay resident in host RAM, so the next generation
         re-uploads to the GPU instead of reloading from disk. For the heavier
         operation that also drops the RAM cache, see `clear_backend_cache`.
@@ -685,12 +685,12 @@ class BackendController(BaseController):
             before_gb = _cuda_allocated_gb()
 
             from src.platform.runtime.native.memory.residency import clear_vram
-            result = clear_vram(backend_config.device, self.model_lifecycle_manager)
+            result = clear_vram(backend_config.device, self.model_lifecycle)
 
-            if self.model_lifecycle_manager is not None:
+            if self.model_lifecycle is not None:
                 # gc + cuda.empty_cache() only - no host allocator trim, and no
                 # cache eviction, so the RAM cache stays warm.
-                self.model_lifecycle_manager.cleanup(aggressive=False)
+                self.model_lifecycle.cleanup(aggressive=False)
 
             after_gb = _cuda_allocated_gb()
             freed_gb = max(0.0, before_gb - after_gb)
@@ -722,7 +722,7 @@ class BackendController(BaseController):
         """Drop every cached model/artifact from the native engine's RAM cache.
 
         This is the native engine's "Clear VRAM & Cache (RAM)" quick action:
-        the heavier sibling of `clear_backend_vram`. `ModelLifecycleManager.invalidate()`
+        the heavier sibling of `clear_backend_vram`. `ModelLifecycle.invalidate()`
         evicts every cache entry (freeing both VRAM and the RAM it occupied)
         and runs `cleanup(aggressive=True)`, which trims the host allocator so
         the freed RAM is actually returned to the OS. Next generation reloads
@@ -732,7 +732,7 @@ class BackendController(BaseController):
         try:
             self._require_local_backend(backend_id)
 
-            if self.model_lifecycle_manager is None:
+            if self.model_lifecycle is None:
                 return self.error_response(
                     error="model_lifecycle_unavailable",
                     message="Model lifecycle manager is not available",
@@ -740,10 +740,10 @@ class BackendController(BaseController):
                 )
 
             before_gb = _cuda_allocated_gb()
-            stats_before = self.model_lifecycle_manager.stats()
+            stats_before = self.model_lifecycle.stats()
             cleared_keys = stats_before.get("keys", [])
 
-            self.model_lifecycle_manager.invalidate()  # evicts every cached model/artifact, trims RAM
+            self.model_lifecycle.invalidate()  # evicts every cached model/artifact, trims RAM
 
             after_gb = _cuda_allocated_gb()
             freed_gb = max(0.0, before_gb - after_gb)
@@ -930,7 +930,7 @@ class BackendController(BaseController):
                 )
 
             stored_value = "" if requested == "auto" else requested
-            self.settings_manager.set_setting(_ATTENTION_BACKEND_SETTING_KEY, stored_value)
+            self.settings.set_setting(_ATTENTION_BACKEND_SETTING_KEY, stored_value)
             attention.set_backend_override(stored_value)
 
             return self.success_response(data={
@@ -982,7 +982,7 @@ class BackendController(BaseController):
                         message=f"{flag} must be 'on' or 'off', got '{value}'",
                         status_code=400,
                     )
-                self.settings_manager.set_setting(_ENGINE_FLAG_SETTING_KEYS[flag], normalized)
+                self.settings.set_setting(_ENGINE_FLAG_SETTING_KEYS[flag], normalized)
                 setters[flag](normalized)
 
             return self.success_response(data={"engine_flags": self._engine_flags()})
@@ -1040,9 +1040,9 @@ class BackendController(BaseController):
 
 def build_router(container: "AppContainer") -> APIRouter:
     controller = BackendController(
-        container.settings_manager,
+        container.settings,
         container.backend_registry,
-        container.model_lifecycle_manager,
+        container.model_lifecycle,
     )
     router = APIRouter(prefix="/api/backends", tags=["Backends"])
 

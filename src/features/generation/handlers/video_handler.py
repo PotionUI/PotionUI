@@ -34,7 +34,7 @@ from src.features.generation.repository import generation_repo
 from src.features.generation import media_probe
 from src.features.generation.temp_source_tracker import temp_source_tracker
 from src.platform.filesystem.storage_driver import FileStorageDriver, local_copy, local_target
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 
 logger = logging.getLogger(__name__)
 

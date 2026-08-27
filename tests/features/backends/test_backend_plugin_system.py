@@ -8,7 +8,7 @@ from src.platform.plugins.hooks import HookContext, HookChain, hooks_registry
 from src.features.backends.hooks import BACKEND_HOOKS
 from src.features.backends.backend_config import (
     NATIVE_ENGINE,
-    BackendConfigManager,
+    BackendConfigStore,
     NativeBackendConfig,
     BaseBackendConfig
 )
@@ -52,11 +52,11 @@ class TestBackendRegisterHook(unittest.TestCase):
         self.assertTrue(results[0].success)
 
 
-class TestBackendConfigManagerPluginSupport(unittest.TestCase):
-    """Test BackendConfigManager with plugin-registered types"""
+class TestBackendConfigStorePluginSupport(unittest.TestCase):
+    """Test BackendConfigStore with plugin-registered types"""
 
     def test_config_manager_accepts_registered_types(self):
-        """Test that BackendConfigManager accepts registered config types"""
+        """Test that BackendConfigStore accepts registered config types"""
         # Create a mock config class
         class MockBackendConfig(BaseBackendConfig):
             engine: str = "mock_backend"
@@ -67,7 +67,7 @@ class TestBackendConfigManagerPluginSupport(unittest.TestCase):
             'mock_backend': MockBackendConfig,
         }
 
-        manager = BackendConfigManager(
+        manager = BackendConfigStore(
             backend_repository=MagicMock(),
             registered_config_types=registered_types
         )
@@ -81,7 +81,7 @@ class TestBackendConfigManagerPluginSupport(unittest.TestCase):
             'custom_type': MagicMock,
         }
 
-        manager = BackendConfigManager(
+        manager = BackendConfigStore(
             backend_repository=MagicMock(),
             registered_config_types=registered_types
         )
@@ -103,7 +103,7 @@ class TestBackendConfigManagerPluginSupport(unittest.TestCase):
             'custom': CustomBackendConfig,
         }
 
-        manager = BackendConfigManager(
+        manager = BackendConfigStore(
             backend_repository=MagicMock(),
             registered_config_types=registered_types
         )

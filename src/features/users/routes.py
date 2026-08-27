@@ -18,7 +18,7 @@ from src.features.users.repository import UserRepository
 from src.platform.plugins import PluginRegistry
 from src.platform.security import PasswordHasher
 from src.platform.security.user import User, AccountType
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
@@ -37,13 +37,13 @@ class UserController(BaseController):
         user_repository: UserRepository,
         password_hasher: PasswordHasher,
         plugin_registry: PluginRegistry,
-        settings_manager: SettingsManager,
+        settings: Settings,
     ):
         super().__init__()
         self.repo = user_repository
         self.passwords = password_hasher
         self.plugins = plugin_registry
-        self.settings = settings_manager
+        self.settings = settings
 
     async def get_all_users(self, current_user: User) -> APIResponse:
         """Get all users (admin only)."""

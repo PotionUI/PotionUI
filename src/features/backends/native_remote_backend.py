@@ -256,10 +256,10 @@ class RemoteNativeBackend(BaseBackend):
         self, generation_id: str, preset_id: Optional[str], pipes: List[Dict[str, Any]],
         emit: Callable[[Optional[GenerationOutput]], None],
     ) -> None:
-        from src.platform.settings.settings import SettingsManager
+        from src.platform.settings.settings import Settings
         from src.platform.settings.repository import SettingRepository
 
-        storage_dir = Path(SettingsManager(SettingRepository()).get_file_storage_directory())
+        storage_dir = Path(Settings(SettingRepository()).get_file_storage_directory())
 
         processed = build_processed_pipeline(pipes, self._pipe_catalog)
         _rewritten, _manifest, sources = collect_input_assets(processed.pipes, storage_dir)

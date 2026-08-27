@@ -24,7 +24,7 @@ from src.features.downloads.exceptions import (
 
 @pytest.fixture
 def mock_download_manager():
-    """Mock DownloadManager"""
+    """Mock DownloadQueue"""
     manager = Mock()
     manager.list_downloads = Mock(return_value={
         'downloads': [],
@@ -102,7 +102,7 @@ def client(mock_download_manager, mock_download_repository, mock_admin_user):
     from src.features.downloads.routes import build_router
 
     container = Mock()
-    container.download_manager = mock_download_manager
+    container.download_queue = mock_download_manager
     container.download_repository = mock_download_repository
 
     app = FastAPI()

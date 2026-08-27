@@ -21,7 +21,7 @@ def make_manager(hits_by_query=None, summaries=None):
 
 
 def make_context(manager):
-    return ToolContext(user_id="user-1", media_index_manager=manager)
+    return ToolContext(user_id="user-1", media_indexer=manager)
 
 
 def hit(file_id, generation_id, similarity):

@@ -46,12 +46,12 @@ class RemoteExecutionReconciler:
         *,
         repository: Optional[RemoteExecutionRepository] = None,
         policy: Optional[RemoteExecutionPolicy] = None,
-        backend_config_manager=None,
+        backend_config_store=None,
         event_pull_timeout_seconds: float = 5.0,
     ):
         self._repository = repository or RemoteExecutionRepository()
         self._policy = policy or RemoteExecutionPolicy()
-        self._backend_config_manager = backend_config_manager
+        self._backend_config_store = backend_config_store
         self._event_pull_timeout = event_pull_timeout_seconds
 
     async def reconcile(self) -> dict:
@@ -77,7 +77,7 @@ class RemoteExecutionReconciler:
         }
 
     async def _resume_live_rows(self) -> tuple[int, int]:
-        if self._backend_config_manager is None:
+        if self._backend_config_store is None:
             return 0, 0
 
         resumed = 0
@@ -86,7 +86,7 @@ class RemoteExecutionReconciler:
             for row in self._repository.list_by_state(state):
                 if not row.backend_id:
                     continue
-                config = self._backend_config_manager.get_backend(row.backend_id)
+                config = self._backend_config_store.get_backend(row.backend_id)
                 if config is None or config.driver != NATIVE_REMOTE_DRIVER:
                     continue
 

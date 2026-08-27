@@ -77,7 +77,7 @@ class TestPayloadDecoration(HistoryTestBase):
         query = GenerationHistoryQuery(
             self.generation_repo,
             media_index_repository=self.repo,
-            settings_manager=settings,
+            settings=settings,
         )
 
         result = query.get_history(self.user_id, include_tags=False)

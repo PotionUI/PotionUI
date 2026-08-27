@@ -15,7 +15,7 @@ from src.features.setup.readiness import (
     DEGRADED,
     NOT_READY,
     READY,
-    ReadinessManager,
+    ReadinessAggregator,
 )
 from src.platform.security.user import AccountType, User
 
@@ -24,7 +24,7 @@ AVAILABILITY = "src.features.models.availability.models_for_engine"
 
 @pytest.fixture(autouse=True)
 def _forward_preset_operations_to_manager(monkeypatch):
-    """`ReadinessManager` calls `src.features.presets.operations.list_presets`
+    """`ReadinessAggregator` calls `src.features.presets.operations.list_presets`
     with the preset-manager collaborator as its leading arg, rather than
     calling `.list_presets()` on it directly. This forwards that call to the
     fake's own method, so `preset_manager` here can stay a plain mock with
@@ -91,14 +91,14 @@ def _manager(
     model_repository.get_available_model_ids_for_user.return_value = ["m1"]
     generation_repository = MagicMock()
     generation_repository.count_by_status.return_value = completed
-    migration_manager = MagicMock()
-    migration_manager.has_pending_migrations.return_value = pending
-    return ReadinessManager(
+    migration_runner = MagicMock()
+    migration_runner.has_pending_migrations.return_value = pending
+    return ReadinessAggregator(
         backend_registry=backend_registry,
         preset_manager=preset_manager,
         model_repository=model_repository,
         generation_repository=generation_repository,
-        migration_manager=migration_manager,
+        migration_runner=migration_runner,
         instance_claim_repository=instance_claim_repository or _OkClaimRepository(),
     )
 

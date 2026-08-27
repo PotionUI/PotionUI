@@ -23,7 +23,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from src.features.pipes.manager import PipeInstallManager
+from src.features.pipes.runner import PipeInstallRunner
 from src.features.pipes.routes import build_router
 from src.pipelines.catalog import PipeCatalog
 from src.pipelines.contracts import (
@@ -119,10 +119,10 @@ class Harness:
 
         self.installer = PipeInstaller(self.catalog)
         self.connections = RecordingAdminConnections()
-        self.manager = PipeInstallManager(self.catalog, self.installer, self.connections)
+        self.manager = PipeInstallRunner(self.catalog, self.installer, self.connections)
 
         app = FastAPI()
-        app.include_router(build_router(SimpleNamespace(pipe_install_manager=self.manager)))
+        app.include_router(build_router(SimpleNamespace(pipe_install_runner=self.manager)))
 
         async def _user():
             return User(

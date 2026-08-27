@@ -1,6 +1,6 @@
 """Tests for plugin-provided model attribute definitions (mirrors
 test_field_type_registration.py for `model_metadata_fields:`, but against the
-DB-backed `ModelAttributeDefinitionsManager` - Attributes v2 supersedes the
+DB-backed `ModelAttributeDefinitionsEditor` - Attributes v2 supersedes the
 migration-133 in-memory registry)."""
 
 import shutil
@@ -10,7 +10,7 @@ from pathlib import Path
 
 import yaml
 
-from src.features.models.attributes.manager import ModelAttributeDefinitionsManager
+from src.features.models.attributes.editor import ModelAttributeDefinitionsEditor
 from src.features.models.attributes.records import ModelAttributeDefinition
 from src.features.models.attributes.repository import AttributeDefinitionRepository
 from src.features.models.attributes.user_repository import UserModelAttributeRepository
@@ -31,7 +31,7 @@ class TestPluginModelAttributeDefinitionRegistration(PersistenceTestBase):
         user_repo_module.db = self.db
 
         self.definitions = AttributeDefinitionRepository()
-        self.model_attributes_manager = ModelAttributeDefinitionsManager(
+        self.model_attributes_manager = ModelAttributeDefinitionsEditor(
             self.definitions, UserModelAttributeRepository()
         )
 

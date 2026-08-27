@@ -55,7 +55,7 @@ def get_global_notification_manager():
     """
     global _global_notification_manager
     if _global_notification_manager is None:
-        raise RuntimeError("NotificationManager not initialized yet")
+        raise RuntimeError("notify callable not initialized yet")
     return _global_notification_manager
 
 

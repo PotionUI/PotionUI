@@ -26,7 +26,7 @@ except ImportError:
 import importlib
 
 from src.platform.database.database import Database, db as REAL_DB
-from src.platform.database.migration_runner import MigrationManager
+from src.platform.database.migration_runner import MigrationRunner
 
 
 class PersistenceTestBase(unittest.TestCase):
@@ -123,10 +123,10 @@ class PersistenceTestBase(unittest.TestCase):
     def _run_test_migrations(self):
         """Run all migrations for test database"""
         try:
-            # Patch the migration_manager module's db reference to use our test database
+            # Patch the migration_runner module's db reference to use our test database
             with patch('src.platform.database.migration_runner.db', self.db):
                 # Create migration manager and run migrations
-                migration_manager = MigrationManager()
+                migration_runner = MigrationRunner()
 
                 # Clear any existing migration records for clean slate
                 with self.db.get_cursor() as cursor:
@@ -137,7 +137,7 @@ class PersistenceTestBase(unittest.TestCase):
                 old_stdout = sys.stdout
                 sys.stdout = io.StringIO()
                 try:
-                    migration_manager.run_migrations()
+                    migration_runner.run_migrations()
                 except Exception as e:
                     sys.stdout = old_stdout
                     print(f"Error running migrations: {e}")

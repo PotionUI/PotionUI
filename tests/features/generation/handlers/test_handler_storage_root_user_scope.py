@@ -25,7 +25,7 @@ from src.features.generation.handlers.mesh_handler import MeshGenerationOutputHa
 from src.features.generation.handlers.video_handler import VideoGenerationOutputHandler
 from src.features.generation.repository import generation_repo
 from src.pipelines.outputs import ImageGenerationOutput, VideoGenerationOutput, AudioGenerationOutput
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 from src.platform.util.ids import generate_ulid
 
 
@@ -75,7 +75,7 @@ def split_settings(split_roots, generation_id):
     global_root, user_root = split_roots
     _, user_id = generation_id
 
-    settings = Mock(spec=SettingsManager)
+    settings = Mock(spec=Settings)
     settings.get_file_storage_directory.side_effect = (
         lambda uid=None: str(user_root) if uid == user_id else str(global_root)
     )

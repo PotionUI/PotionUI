@@ -41,7 +41,7 @@ class PreChatActionResult:
     error: Optional[str] = None
 
 
-class PreChatActionManager:
+class PreChatActionRegistry:
     """Manages pre-chat actions registered by plugins."""
 
     def __init__(self, plugin_registry: PluginRegistry, llm_repository: Any):
@@ -53,7 +53,7 @@ class PreChatActionManager:
         """Fire the CHAT_PRE_ACTIONS_REGISTER hook so plugins can register actions."""
         self._plugin_registry.execute_hook(
             CHAT_PRE_ACTIONS_HOOKS.register,
-            initial_data={"manager": self},
+            initial_data={"registry": self},
         )
         logger.info(f"Discovered {len(self._actions)} pre-chat actions")
 

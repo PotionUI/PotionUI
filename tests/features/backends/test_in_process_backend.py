@@ -1,7 +1,7 @@
 """Tests for src.features.backends.in_process_backend.InProcessBackend.
 
 InProcessBackend is the base class for backends that execute pipelines inside
-this process via GenerationManager on a background thread (native + comfyui
+this process via GenerationEngine on a background thread (native + comfyui
 engines both use it). See docs/backends.md.
 """
 
@@ -26,7 +26,7 @@ class ConcreteInProcessBackend(InProcessBackend):
 
 class PrepareTrackingBackend(ConcreteInProcessBackend):
     """Subclass that overrides prepare_pipes to inject a marker, so tests can
-    assert prepare_pipes ran before generation_manager.generate() was called."""
+    assert prepare_pipes ran before generation_engine.generate() was called."""
 
     def prepare_pipes(self, pipes):
         return [{**p, "prepared": True} for p in pipes]
@@ -44,7 +44,7 @@ def make_backend_config(engine="native"):
 
 
 @pytest.fixture
-def generation_manager():
+def generation_engine():
     manager = Mock()
     manager.generate = Mock()
     manager.cancel = Mock()
@@ -58,13 +58,13 @@ def emit():
 
 class TestPreparePipes:
     """prepare_pipes is called before execution, and its output is what
-    reaches generation_manager.generate."""
+    reaches generation_engine.generate."""
 
     @pytest.mark.asyncio
     async def test_prepare_pipes_output_reaches_generation_manager(
-        self, generation_manager, emit
+        self, generation_engine, emit
     ):
-        backend = PrepareTrackingBackend(make_backend_config(), generation_manager)
+        backend = PrepareTrackingBackend(make_backend_config(), generation_engine)
         pipes = [{"name": "generator", "config": {}}]
 
         await backend.start_generation({"generation_id": "gen1", "pipes": pipes}, emit)
@@ -72,13 +72,13 @@ class TestPreparePipes:
         # Let the background task (_run -> asyncio.to_thread) complete.
         await asyncio.sleep(0.05)
 
-        generation_manager.generate.assert_called_once()
-        called_pipes = generation_manager.generate.call_args[0][0]
+        generation_engine.generate.assert_called_once()
+        called_pipes = generation_engine.generate.call_args[0][0]
         assert called_pipes == [{"name": "generator", "config": {}, "prepared": True}]
 
     @pytest.mark.asyncio
-    async def test_default_prepare_pipes_is_identity(self, generation_manager, emit):
-        backend = ConcreteInProcessBackend(make_backend_config(), generation_manager)
+    async def test_default_prepare_pipes_is_identity(self, generation_engine, emit):
+        backend = ConcreteInProcessBackend(make_backend_config(), generation_engine)
         pipes = [{"name": "generator", "config": {"steps": 20}}]
 
         result = backend.prepare_pipes(pipes)
@@ -88,7 +88,7 @@ class TestPreparePipes:
 
     @pytest.mark.asyncio
     async def test_prepare_pipes_called_before_run_is_scheduled(
-        self, generation_manager, emit
+        self, generation_engine, emit
     ):
         """prepare_pipes runs synchronously inside start_generation, before the
         background _run task is even created."""
@@ -102,9 +102,9 @@ class TestPreparePipes:
         def track_generate(*args, **kwargs):
             call_order.append("generate")
 
-        generation_manager.generate.side_effect = track_generate
+        generation_engine.generate.side_effect = track_generate
 
-        backend = OrderTrackingBackend(make_backend_config(), generation_manager)
+        backend = OrderTrackingBackend(make_backend_config(), generation_engine)
         await backend.start_generation(
             {"generation_id": "gen1", "pipes": [{"name": "x", "config": {}}]}, emit
         )
@@ -117,8 +117,8 @@ class TestEmitOnCompletion:
     """emit(None) is always called in the finally block, even on failure."""
 
     @pytest.mark.asyncio
-    async def test_emit_none_called_on_success(self, generation_manager, emit):
-        backend = ConcreteInProcessBackend(make_backend_config(), generation_manager)
+    async def test_emit_none_called_on_success(self, generation_engine, emit):
+        backend = ConcreteInProcessBackend(make_backend_config(), generation_engine)
 
         await backend.start_generation(
             {"generation_id": "gen1", "pipes": [{"name": "x", "config": {}}]}, emit
@@ -128,9 +128,9 @@ class TestEmitOnCompletion:
         emit.assert_called_once_with(None)
 
     @pytest.mark.asyncio
-    async def test_emit_none_called_when_generate_raises(self, generation_manager, emit):
-        generation_manager.generate.side_effect = RuntimeError("boom")
-        backend = ConcreteInProcessBackend(make_backend_config(), generation_manager)
+    async def test_emit_none_called_when_generate_raises(self, generation_engine, emit):
+        generation_engine.generate.side_effect = RuntimeError("boom")
+        backend = ConcreteInProcessBackend(make_backend_config(), generation_engine)
 
         await backend.start_generation(
             {"generation_id": "gen1", "pipes": [{"name": "x", "config": {}}]}, emit
@@ -141,9 +141,9 @@ class TestEmitOnCompletion:
 
     @pytest.mark.asyncio
     async def test_generation_id_removed_from_active_after_completion(
-        self, generation_manager, emit
+        self, generation_engine, emit
     ):
-        backend = ConcreteInProcessBackend(make_backend_config(), generation_manager)
+        backend = ConcreteInProcessBackend(make_backend_config(), generation_engine)
 
         await backend.start_generation(
             {"generation_id": "gen1", "pipes": [{"name": "x", "config": {}}]}, emit
@@ -156,10 +156,10 @@ class TestEmitOnCompletion:
 
     @pytest.mark.asyncio
     async def test_generation_id_removed_from_active_when_generate_raises(
-        self, generation_manager, emit
+        self, generation_engine, emit
     ):
-        generation_manager.generate.side_effect = RuntimeError("boom")
-        backend = ConcreteInProcessBackend(make_backend_config(), generation_manager)
+        generation_engine.generate.side_effect = RuntimeError("boom")
+        backend = ConcreteInProcessBackend(make_backend_config(), generation_engine)
 
         await backend.start_generation(
             {"generation_id": "gen1", "pipes": [{"name": "x", "config": {}}]}, emit
@@ -171,21 +171,21 @@ class TestEmitOnCompletion:
 
 class TestCancelGeneration:
     @pytest.mark.asyncio
-    async def test_cancel_unknown_generation_returns_false(self, generation_manager):
-        backend = ConcreteInProcessBackend(make_backend_config(), generation_manager)
+    async def test_cancel_unknown_generation_returns_false(self, generation_engine):
+        backend = ConcreteInProcessBackend(make_backend_config(), generation_engine)
 
         result = await backend.cancel_generation("does-not-exist")
 
         assert result is False
-        generation_manager.cancel.assert_not_called()
+        generation_engine.cancel.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_cancel_active_generation_returns_true(self, generation_manager, emit):
-        backend = ConcreteInProcessBackend(make_backend_config(), generation_manager)
+    async def test_cancel_active_generation_returns_true(self, generation_engine, emit):
+        backend = ConcreteInProcessBackend(make_backend_config(), generation_engine)
 
         # Make generate() block briefly so the generation stays "active" while we cancel.
         import time
-        generation_manager.generate.side_effect = lambda *a, **k: time.sleep(0.2)
+        generation_engine.generate.side_effect = lambda *a, **k: time.sleep(0.2)
 
         await backend.start_generation(
             {"generation_id": "gen1", "pipes": [{"name": "x", "config": {}}]}, emit
@@ -195,17 +195,17 @@ class TestCancelGeneration:
         result = await backend.cancel_generation("gen1")
 
         assert result is True
-        generation_manager.cancel.assert_called_once()
+        generation_engine.cancel.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_cancel_generation_returns_false_on_manager_error(
-        self, generation_manager, emit
+        self, generation_engine, emit
     ):
-        generation_manager.cancel.side_effect = RuntimeError("cancel failed")
-        backend = ConcreteInProcessBackend(make_backend_config(), generation_manager)
+        generation_engine.cancel.side_effect = RuntimeError("cancel failed")
+        backend = ConcreteInProcessBackend(make_backend_config(), generation_engine)
 
         import time
-        generation_manager.generate.side_effect = lambda *a, **k: time.sleep(0.2)
+        generation_engine.generate.side_effect = lambda *a, **k: time.sleep(0.2)
 
         await backend.start_generation(
             {"generation_id": "gen1", "pipes": [{"name": "x", "config": {}}]}, emit
@@ -218,17 +218,17 @@ class TestCancelGeneration:
 
 class TestStartGenerationValidation:
     @pytest.mark.asyncio
-    async def test_missing_pipes_raises_value_error(self, generation_manager, emit):
-        backend = ConcreteInProcessBackend(make_backend_config(), generation_manager)
+    async def test_missing_pipes_raises_value_error(self, generation_engine, emit):
+        backend = ConcreteInProcessBackend(make_backend_config(), generation_engine)
 
         with pytest.raises(ValueError, match="No pipeline configuration"):
             await backend.start_generation({"generation_id": "gen1"}, emit)
 
     @pytest.mark.asyncio
     async def test_no_generation_manager_raises_runtime_error(self, emit):
-        backend = ConcreteInProcessBackend(make_backend_config(), generation_manager=None)
+        backend = ConcreteInProcessBackend(make_backend_config(), generation_engine=None)
 
-        with pytest.raises(RuntimeError, match="GenerationManager not set"):
+        with pytest.raises(RuntimeError, match="GenerationEngine not set"):
             await backend.start_generation(
                 {"generation_id": "gen1", "pipes": [{"name": "x", "config": {}}]}, emit
             )

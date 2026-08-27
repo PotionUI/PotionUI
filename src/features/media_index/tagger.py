@@ -6,7 +6,7 @@ Loads a SmilingWolf ``wd-*-tagger-v3`` timm checkpoint lazily on first use
 ``models/taggers/<slug>/`` with an auto-download gate.
 
 The checkpoint weights themselves are never held on this instance. They go
-through ``ModelLifecycleManager.acquire()`` on every ``tag_image`` call under
+through ``ModelLifecycle.acquire()`` on every ``tag_image`` call under
 a per-call lease (mirrors ``NativeLLMClient._leased`` in
 ``src/features/llm/clients/native.py``), so the tagger participates in the
 same cache/eviction/RAM-admission machinery as every diffusion model: lazy
@@ -33,15 +33,15 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from src.platform.filesystem.model_weights import dir_size
-from src.platform.runtime.model_lifecycle.manager import (
-    ModelLifecycleManager,
-    get_model_lifecycle_manager,
+from src.platform.runtime.model_lifecycle.lifecycle import (
+    ModelLifecycle,
+    get_model_lifecycle,
 )
 
 if TYPE_CHECKING:
     from PIL import Image
-    from src.features.downloads import DownloadManager
-    from src.platform.settings.settings import SettingsManager
+    from src.features.downloads import DownloadQueue
+    from src.platform.settings.settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -86,17 +86,17 @@ class WDTaggerProvider:
         auto_download: bool = True,
         tag_threshold: float = 0.35,
         character_threshold: float = 0.75,
-        download_manager: Optional["DownloadManager"] = None,
-        model_lifecycle_manager: Optional[ModelLifecycleManager] = None,
+        download_queue: Optional["DownloadQueue"] = None,
+        model_lifecycle: Optional[ModelLifecycle] = None,
     ):
         self.model_name = model_name
         self.models_dir = models_dir
         self.device = device
         self.auto_download = auto_download
-        self.downloads = download_manager
+        self.downloads = download_queue
         self.tag_threshold = tag_threshold
         self.character_threshold = character_threshold
-        self._model_lifecycle_manager = model_lifecycle_manager
+        self._model_lifecycle = model_lifecycle
         self._model_config: Optional[Dict[str, Any]] = None
         self._tag_names: List[str] = []
         self._tag_categories: List[int] = []
@@ -157,7 +157,7 @@ class WDTaggerProvider:
     def _ensure_loaded(self) -> None:
         """Downloads weights (if needed) and reads tag metadata - NOT the
         model itself, which ``_load_model`` builds on demand under
-        ``ModelLifecycleManager`` (see ``tag_image``)."""
+        ``ModelLifecycle`` (see ``tag_image``)."""
         if self._tag_names:
             return
         with self._load_lock:
@@ -198,7 +198,7 @@ class WDTaggerProvider:
             self._tag_categories = categories
 
     def _load_model(self) -> Any:
-        """The ``ModelLifecycleManager`` loader: builds the timm checkpoint
+        """The ``ModelLifecycle`` loader: builds the timm checkpoint
         and places it on ``self.device``. ``_ensure_loaded`` must have run
         first (``tag_image`` guarantees this) so ``_model_config`` and the
         weights on disk are ready."""
@@ -228,25 +228,25 @@ class WDTaggerProvider:
         size = dir_size(self._local_path())
         return size / _BYTES_PER_GB if size else None
 
-    def _models(self) -> ModelLifecycleManager:
-        manager = self._model_lifecycle_manager or get_model_lifecycle_manager()
-        if manager is None:
+    def _models(self) -> ModelLifecycle:
+        lifecycle = self._model_lifecycle or get_model_lifecycle()
+        if lifecycle is None:
             raise RuntimeError(
-                f"Tagger '{self.model_name}': no ModelLifecycleManager available yet "
+                f"Tagger '{self.model_name}': no ModelLifecycle available yet "
                 f"(the app container hasn't finished composing)"
             )
-        return manager
+        return lifecycle
 
     def is_loaded(self) -> bool:
         """Whether the checkpoint is currently resident in
-        ModelLifecycleManager - distinct from ``is_available()`` (on-disk
+        ModelLifecycle - distinct from ``is_available()`` (on-disk
         weights presence). A tagger can be on disk but evicted (not loaded)
         or on disk and loaded; a status caller needing both must check both,
         never infer one from the other."""
-        manager = self._model_lifecycle_manager or get_model_lifecycle_manager()
-        if manager is None:
+        lifecycle = self._model_lifecycle or get_model_lifecycle()
+        if lifecycle is None:
             return False
-        return manager.is_cached(self._cache_key())
+        return lifecycle.is_cached(self._cache_key())
 
     def _preprocess(self, image: "Image.Image"):
         import numpy as np
@@ -331,26 +331,26 @@ class WDTaggerProvider:
 
 
 def build_tagger_provider(
-    settings_manager: "SettingsManager",
-    download_manager: Optional["DownloadManager"] = None,
-    model_lifecycle_manager: Optional[ModelLifecycleManager] = None,
+    settings: "Settings",
+    download_queue: Optional["DownloadQueue"] = None,
+    model_lifecycle: Optional[ModelLifecycle] = None,
 ) -> WDTaggerProvider:
     """Construct the configured tagger from settings (see migration 098)."""
     return WDTaggerProvider(
-        model_name=settings_manager.get_setting(
+        model_name=settings.get_setting(
             "media_tagger_model", WDTaggerProvider.DEFAULT_MODEL
         ),
-        models_dir=settings_manager.get_models_dir(),
-        device=settings_manager.get_setting("media_tagger_device", "cpu"),
+        models_dir=settings.get_models_dir(),
+        device=settings.get_setting("media_tagger_device", "cpu"),
         auto_download=bool(
-            settings_manager.get_setting("media_tagger_auto_download", False)
+            settings.get_setting("media_tagger_auto_download", False)
         ),
         tag_threshold=float(
-            settings_manager.get_setting("media_tagger_tag_threshold", 0.35)
+            settings.get_setting("media_tagger_tag_threshold", 0.35)
         ),
         character_threshold=float(
-            settings_manager.get_setting("media_tagger_character_threshold", 0.75)
+            settings.get_setting("media_tagger_character_threshold", 0.75)
         ),
-        download_manager=download_manager,
-        model_lifecycle_manager=model_lifecycle_manager,
+        download_queue=download_queue,
+        model_lifecycle=model_lifecycle,
     )

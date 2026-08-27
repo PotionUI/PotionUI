@@ -13,7 +13,7 @@ from typing import Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     # Injected, never constructed here. Importing it for real would reach
     # persistence, which maps rows onto the `User` in this package - a loop.
-    from src.platform.settings.settings import SettingsManager
+    from src.platform.settings.settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -46,12 +46,12 @@ class AuthConfig:
 
     Configuration priority:
     1. Environment variables (POTIONUI_AUTH_*)
-    2. Database settings via SettingsManager
+    2. Database settings via Settings
     3. Default values
     """
 
-    def __init__(self, settings_manager: "SettingsManager"):
-        self._settings = settings_manager
+    def __init__(self, settings: "Settings"):
+        self._settings = settings
         self._cached_secret_key: Optional[str] = None
 
     @property

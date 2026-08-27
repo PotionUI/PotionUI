@@ -22,7 +22,7 @@ from src.features.generation.handlers.mesh_handler import (
 )
 from src.features.generation.output_types import OutputTypeSpec, SerializeContext, output_type_registry
 from src.features.generation.media_utils import create_base64_image
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ class GalleryGenerationOutputHandler(BaseGenerationOutputHandler):
             # Handle images
             if output.images:
                 # Create an image handler for processing individual images
-                image_handler = ImageGenerationOutputHandler(self.generation_id, self.user_id, self.settings_manager, self.storage_driver)
+                image_handler = ImageGenerationOutputHandler(self.generation_id, self.user_id, self.settings, self.storage_driver)
 
                 for idx, image_output in enumerate(output.images):
                     # Use the same counter across all images in the gallery
@@ -80,7 +80,7 @@ class GalleryGenerationOutputHandler(BaseGenerationOutputHandler):
             # Handle videos
             if output.videos:
                 # Create a video handler for processing individual videos
-                video_handler = VideoGenerationOutputHandler(self.generation_id, self.user_id, self.settings_manager, self.storage_driver)
+                video_handler = VideoGenerationOutputHandler(self.generation_id, self.user_id, self.settings, self.storage_driver)
 
                 for idx, video_output in enumerate(output.videos):
                     # Use the same counter for videos
@@ -97,7 +97,7 @@ class GalleryGenerationOutputHandler(BaseGenerationOutputHandler):
             # Handle audio files
             if output.audios:
                 # Create an audio handler for processing individual audio files
-                audio_handler = AudioGenerationOutputHandler(self.generation_id, self.user_id, self.settings_manager, self.storage_driver)
+                audio_handler = AudioGenerationOutputHandler(self.generation_id, self.user_id, self.settings, self.storage_driver)
 
                 for idx, audio_output in enumerate(output.audios):
                     # Use the same counter for audio files
@@ -113,7 +113,7 @@ class GalleryGenerationOutputHandler(BaseGenerationOutputHandler):
 
             # Handle meshes
             if output.meshes:
-                mesh_handler = MeshGenerationOutputHandler(self.generation_id, self.user_id, self.settings_manager, self.storage_driver)
+                mesh_handler = MeshGenerationOutputHandler(self.generation_id, self.user_id, self.settings, self.storage_driver)
 
                 for idx, mesh_output in enumerate(output.meshes):
                     # Use the same counter for meshes

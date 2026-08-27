@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 
-class ModelManager:
+class ModelDirectories:
     """
     Owns the models directory layout: where each model type lives on disk.
 
@@ -66,9 +66,9 @@ class ModelIndexer:
 
     TYPE_MAPPING = {**DIRECTORY_TO_MODEL_TYPE, 'stable-diffusion': 'checkpoint'}
 
-    def __init__(self, model_manager: ModelManager, cache_file: str = "model_cache.json", follow_symlinks: bool = True):
-        self.model_manager = model_manager
-        self.cache_file = Path(model_manager.base_path) / cache_file
+    def __init__(self, model_directories: ModelDirectories, cache_file: str = "model_cache.json", follow_symlinks: bool = True):
+        self.model_directories = model_directories
+        self.cache_file = Path(model_directories.base_path) / cache_file
         self.model_extensions: Set[str] = {'.safetensors', '.pt', '.ckpt', '.bin'}
         self.index: Dict[str, ModelIndex] = {}
         self.name_to_hash: Dict[str, str] = {}
@@ -163,7 +163,7 @@ class ModelIndexer:
             except Exception as e:
                 logger.error(f"Error accessing directory {directory}: {e}")
 
-        process_directory(self.model_manager.base_path)
+        process_directory(self.model_directories.base_path)
         return model_files
 
     def _should_update_file(self, file_path: Path) -> bool:
@@ -201,7 +201,7 @@ class ModelIndexer:
         """
         try:
             # Convert both paths to absolute and resolve any symlinks
-            abs_base_path = self.model_manager.base_path.resolve()
+            abs_base_path = self.model_directories.base_path.resolve()
             abs_file_path = file_path.resolve()
 
             # Try to get the relative path from base to file

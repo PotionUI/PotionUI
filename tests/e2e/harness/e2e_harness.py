@@ -357,7 +357,7 @@ def create_second_user(
 ) -> SecondUser:
     """Create an additional account via the admin-only `POST /api/users/`
     endpoint (registration itself is closed by default once an instance is
-    claimed - see `AuthManager.register`), then log in as that account so the
+    claimed - see `Auth.register`), then log in as that account so the
     returned client is independently authenticated."""
     stage = "create-second-user"
     suffix = uuid.uuid4().hex[:8]

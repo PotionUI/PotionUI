@@ -52,7 +52,7 @@ from src.features.models.attributes.exceptions import (
     InvalidAttributeDefinitionException,
     SystemAttributeDefinitionException,
 )
-from src.features.models.attributes.manager import ModelAttributeDefinitionsManager
+from src.features.models.attributes.editor import ModelAttributeDefinitionsEditor
 from src.features.models.attributes.repository import AttributeDefinitionRepository
 from src.features.models.attributes.user_repository import UserModelAttributeRepository
 from src.features.models.location import ModelsLocationError
@@ -62,7 +62,7 @@ from src.platform.security.user import User, AccountType
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
-    from src.features.downloads import DownloadManager
+    from src.features.downloads import DownloadQueue
 
 logger = logging.getLogger(__name__)
 
@@ -78,16 +78,16 @@ class ModelController(BaseController):
         self,
         model_index_manager: ModelIndexCollaborators,
         user_model_meta_repository: UserModelMetaRepository,
-        download_manager: "DownloadManager",
+        download_queue: "DownloadQueue",
         attribute_definition_repository: Optional[AttributeDefinitionRepository] = None,
-        model_attributes_manager: Optional[ModelAttributeDefinitionsManager] = None,
+        model_attributes_manager: Optional[ModelAttributeDefinitionsEditor] = None,
     ):
         super().__init__()
         self.collaborators = model_index_manager
         self.user_model_meta_repository = user_model_meta_repository
-        self.download_manager = download_manager
+        self.download_queue = download_queue
         self.attribute_definitions = attribute_definition_repository or AttributeDefinitionRepository()
-        self.attributes_manager = model_attributes_manager or ModelAttributeDefinitionsManager(
+        self.attributes_manager = model_attributes_manager or ModelAttributeDefinitionsEditor(
             self.attribute_definitions, UserModelAttributeRepository()
         )
 
@@ -961,10 +961,10 @@ class ModelController(BaseController):
                     error="missing_source", message="Either 'provider' + 'ref' or 'link' is required"
                 )
 
-            # `DownloadManager.queue_model_download` resolves `model_type` against
+            # `DownloadQueue.queue_model_download` resolves `model_type` against
             # the configured model depot itself (TYPE_DIR_MAP, contained inside the
             # depot) - no need to duplicate that resolution here.
-            download = await self.download_manager.queue_model_download(
+            download = await self.download_queue.queue_model_download(
                 url=url,
                 model_type=request.model_type,
                 checksum_sha256=request.sha256,
@@ -995,7 +995,7 @@ class ModelController(BaseController):
     async def get_recommendation_download(self, download_id: str) -> APIResponse:
         """Poll a recommendation download's status/progress by ID."""
         try:
-            download = self.download_manager.get_download(download_id)
+            download = self.download_queue.get_download(download_id)
             status = self._STATUS_MAP.get(download.status.value, download.status.value)
             return self.success_response(data={
                 "status": status,

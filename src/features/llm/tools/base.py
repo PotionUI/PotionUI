@@ -90,10 +90,10 @@ class ToolContext:
     generation_orchestrator: Any = None
     llm_memory_repository: Any = None
     prompt_enhancement_manager: Any = None
-    media_index_manager: Any = None
+    media_indexer: Any = None
     # Needed to resolve the user's storage root when a tool validates a media
     # value the model proposed (see `src.features.llm.tools.media_values`).
-    settings_manager: Any = None
+    settings: Any = None
     llm_id: Optional[str] = None
     collection_repository: Any = None
     tag_repository: Any = None
@@ -101,14 +101,14 @@ class ToolContext:
     # requiring hooks to fire (e.g. organize_gallery's tag creation) - the
     # collaborator the old tag/collection managers held internally.
     plugin_registry: Any = None
-    generation_history_manager: Any = None
+    generation_history_facade: Any = None
 
     def storage_dir(self) -> Optional[str]:
         """The requesting user's file storage root, or None if unavailable."""
-        if self.settings_manager is None:
+        if self.settings is None:
             return None
         try:
-            return self.settings_manager.get_file_storage_directory(self.user_id)
+            return self.settings.get_file_storage_directory(self.user_id)
         except Exception:
             logger.warning("could not resolve the storage root for tool validation", exc_info=True)
             return None

@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 from src.features.generation.websocket_handler import WebSocketHandler
-from src.platform.websocket.connection_manager import ConnectionManager
+from src.platform.websocket.connection_hub import ConnectionHub
 from src.platform.security.user import AccountType
 
 
@@ -39,7 +39,7 @@ class TestWebSocketHandler:
     
     @pytest.fixture
     def mock_connection_manager(self):
-        return MagicMock(spec=ConnectionManager)
+        return MagicMock(spec=ConnectionHub)
     
     @pytest.fixture
     def handler(self, mock_connection_manager):
@@ -100,7 +100,7 @@ class TestWebSocketHandler:
     @pytest.mark.asyncio
     async def test_handle_websocket_connection_failure(self, handler, mock_websocket, generation_statuses):
         client_id = "test_client"
-        handler.connection_manager.connect.return_value = False
+        handler.connection_hub.connect.return_value = False
         
         await handler.handle_websocket(mock_websocket, client_id, generation_statuses)
         
@@ -110,7 +110,7 @@ class TestWebSocketHandler:
     @pytest.mark.asyncio
     async def test_handle_websocket_connection_success(self, handler, mock_websocket, generation_statuses):
         client_id = "test_client"
-        handler.connection_manager.connect.return_value = True
+        handler.connection_hub.connect.return_value = True
         
         # Mock receive_text to immediately disconnect to end the loop
         mock_websocket.receive_text.side_effect = WebSocketDisconnect()
@@ -136,26 +136,26 @@ class TestWebSocketHandler:
         assert sent_data["client_id"] == client_id
         
         # Should disconnect at the end
-        handler.connection_manager.disconnect.assert_called_with(client_id)
+        handler.connection_hub.disconnect.assert_called_with(client_id)
     
     @pytest.mark.asyncio
     async def test_handle_websocket_connection_established_error(self, handler, mock_websocket, generation_statuses):
         client_id = "test_client"
-        handler.connection_manager.connect.return_value = True
+        handler.connection_hub.connect.return_value = True
         mock_websocket.send_text.side_effect = Exception("Send failed")
         
         await handler.handle_websocket(mock_websocket, client_id, generation_statuses)
         
         # Should disconnect due to send error
-        handler.connection_manager.disconnect.assert_called_with(client_id)
+        handler.connection_hub.disconnect.assert_called_with(client_id)
     
     @pytest.mark.asyncio
     async def test_subscribe_generation_success(self, handler, mock_websocket, generation_statuses, owner_user):
         client_id = "test_client"
         generation_id = "gen_1"
 
-        handler.connection_manager.connect.return_value = True
-        handler.connection_manager.subscribe_to_generation.return_value = True
+        handler.connection_hub.connect.return_value = True
+        handler.connection_hub.subscribe_to_generation.return_value = True
 
         # Mock the message sequence
         messages = [
@@ -178,7 +178,7 @@ class TestWebSocketHandler:
             await handler.handle_websocket(mock_websocket, client_id, generation_statuses, owner_user)
 
         # Should call subscribe_to_generation
-        handler.connection_manager.subscribe_to_generation.assert_called_with(client_id, generation_id)
+        handler.connection_hub.subscribe_to_generation.assert_called_with(client_id, generation_id)
         
         # Should send subscription confirmation and status update
         calls = mock_websocket.send_text.call_args_list
@@ -203,8 +203,8 @@ class TestWebSocketHandler:
         client_id = "test_client"
         generation_id = "gen_1"  # owned by user_1, not other_user
 
-        handler.connection_manager.connect.return_value = True
-        handler.connection_manager.subscribe_to_generation = AsyncMock(return_value=True)
+        handler.connection_hub.connect.return_value = True
+        handler.connection_hub.subscribe_to_generation = AsyncMock(return_value=True)
 
         messages = [
             json.dumps({"type": "subscribe_generation", "generation_id": generation_id})
@@ -224,7 +224,7 @@ class TestWebSocketHandler:
             await handler.handle_websocket(mock_websocket, client_id, generation_statuses, other_user)
 
         # Must NOT have subscribed the non-owner
-        handler.connection_manager.subscribe_to_generation.assert_not_called()
+        handler.connection_hub.subscribe_to_generation.assert_not_called()
 
         # Must have sent a "not found" subscription_error (no existence leak)
         calls = mock_websocket.send_text.call_args_list
@@ -240,8 +240,8 @@ class TestWebSocketHandler:
         client_id = "test_client"
         generation_id = "gen_1"
 
-        handler.connection_manager.connect.return_value = True
-        handler.connection_manager.subscribe_to_generation = AsyncMock(return_value=True)
+        handler.connection_hub.connect.return_value = True
+        handler.connection_hub.subscribe_to_generation = AsyncMock(return_value=True)
 
         messages = [
             json.dumps({"type": "subscribe_generation", "generation_id": generation_id})
@@ -260,7 +260,7 @@ class TestWebSocketHandler:
 
             await handler.handle_websocket(mock_websocket, client_id, generation_statuses, owner_user)
 
-        handler.connection_manager.subscribe_to_generation.assert_called_with(client_id, generation_id)
+        handler.connection_hub.subscribe_to_generation.assert_called_with(client_id, generation_id)
         calls = mock_websocket.send_text.call_args_list
         subscribed_call = next(call for call in calls if "subscribed" in call[0][0])
         assert json.loads(subscribed_call[0][0])["type"] == "subscribed"
@@ -270,7 +270,7 @@ class TestWebSocketHandler:
         client_id = "test_client"
         generation_id = "nonexistent_gen"
         
-        handler.connection_manager.connect.return_value = True
+        handler.connection_hub.connect.return_value = True
         
         messages = [
             json.dumps({"type": "subscribe_generation", "generation_id": generation_id})
@@ -303,7 +303,7 @@ class TestWebSocketHandler:
     async def test_ping_pong(self, handler, mock_websocket, generation_statuses):
         client_id = "test_client"
         
-        handler.connection_manager.connect.return_value = True
+        handler.connection_hub.connect.return_value = True
         
         messages = [
             json.dumps({"type": "ping"})
@@ -337,7 +337,7 @@ class TestWebSocketHandler:
     async def test_invalid_json_message(self, handler, mock_websocket, generation_statuses):
         client_id = "test_client"
         
-        handler.connection_manager.connect.return_value = True
+        handler.connection_hub.connect.return_value = True
         
         # Send invalid JSON, then disconnect
         mock_websocket.receive_text.side_effect = ["invalid json", WebSocketDisconnect()]
@@ -356,13 +356,13 @@ class TestWebSocketHandler:
             await handler.handle_websocket(mock_websocket, client_id, generation_statuses)
         
         # Should continue despite JSON error and disconnect at the end
-        handler.connection_manager.disconnect.assert_called_with(client_id)
+        handler.connection_hub.disconnect.assert_called_with(client_id)
     
     @pytest.mark.asyncio
     async def test_receive_exception(self, handler, mock_websocket, generation_statuses):
         client_id = "test_client"
         
-        handler.connection_manager.connect.return_value = True
+        handler.connection_hub.connect.return_value = True
         mock_websocket.receive_text.side_effect = Exception("Receive failed")
         
         # Mock the heartbeat task
@@ -379,13 +379,13 @@ class TestWebSocketHandler:
             await handler.handle_websocket(mock_websocket, client_id, generation_statuses)
         
         # Should disconnect due to receive error
-        handler.connection_manager.disconnect.assert_called_with(client_id)
+        handler.connection_hub.disconnect.assert_called_with(client_id)
     
     @pytest.mark.asyncio
     async def test_heartbeat_task_cleanup(self, handler, mock_websocket, generation_statuses):
         client_id = "test_client"
         
-        handler.connection_manager.connect.return_value = True
+        handler.connection_hub.connect.return_value = True
         mock_websocket.receive_text.side_effect = WebSocketDisconnect()
         
         # Mock the heartbeat task

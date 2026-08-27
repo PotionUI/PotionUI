@@ -117,7 +117,7 @@ class _Row:
         )
 
 
-class ReadinessManager:
+class ReadinessAggregator:
     """Computes the four-facet readiness aggregate from existing collaborators."""
 
     def __init__(
@@ -126,7 +126,7 @@ class ReadinessManager:
         preset_manager: "PresetCollaborators",
         model_repository: "ModelRepository",
         generation_repository: "GenerationRepository",
-        migration_manager=None,
+        migration_runner=None,
         instance_claim_repository: "Optional[InstanceClaimRepository]" = None,
     ):
         self.backend_registry = backend_registry
@@ -135,13 +135,13 @@ class ReadinessManager:
         self.generation_repository = generation_repository
         # Migration sanity is a process-global concern; injectable so tests need
         # no real database.
-        if migration_manager is None:
-            from src.platform.database.migration_runner import MigrationManager
-            migration_manager = MigrationManager()
+        if migration_runner is None:
+            from src.platform.database.migration_runner import MigrationRunner
+            migration_runner = MigrationRunner()
         if instance_claim_repository is None:
             from src.features.setup.repository import InstanceClaimRepository
             instance_claim_repository = InstanceClaimRepository()
-        self.migration_manager = migration_manager
+        self.migration_runner = migration_runner
         self.instance_claim_repository = instance_claim_repository
 
     async def evaluate(self, user: "User", recipe_id: Optional[str] = None) -> ReadinessReport:
@@ -184,7 +184,7 @@ class ReadinessManager:
                 user_message="The service is having trouble right now. Try again shortly.",
                 admin_action="Check the database file/permissions under ./storage and the server logs.",
             )
-        if self.migration_manager.has_pending_migrations():
+        if self.migration_runner.has_pending_migrations():
             return _Row(
                 area=area,
                 status=DEGRADED,

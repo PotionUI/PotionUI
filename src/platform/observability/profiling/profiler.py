@@ -12,8 +12,8 @@ Enable/disable
 --------------
 Profiling is OFF by default and must be cheap when off: :func:`profiling_enabled`
 checks (in order) the ``POTIONUI_PROFILE`` env var, then the ``profiling.enabled``
-settings-table key (via whatever ``SettingsManager`` was registered with
-:func:`configure_settings_manager`, mirroring the ``get_global_*`` accessors in
+settings-table key (via whatever ``Settings`` was registered with
+:func:`configure_settings`, mirroring the ``get_global_*`` accessors in
 ``src.platform.plugins.runtime_registries``). The decision is cached per-process after the first call
 so :func:`mark` never hits the DB; call :func:`reset_enabled_cache` (tests only)
 to force a re-read.
@@ -64,15 +64,15 @@ _BYTES_PER_GB = 1024 ** 3
 
 # -- enable/disable -----------------------------------------------------------
 
-_settings_manager: Any = None
+_settings: Any = None
 _enabled_cache: Optional[bool] = None
 
 
-def configure_settings_manager(settings_manager: Any) -> None:
-    """Register the ``SettingsManager`` used by the ``profiling.enabled``
+def configure_settings(settings: Any) -> None:
+    """Register the ``Settings`` used by the ``profiling.enabled``
     fallback. Call once during app wiring (see ``build_container``)."""
-    global _settings_manager
-    _settings_manager = settings_manager
+    global _settings
+    _settings = settings
 
 
 def reset_enabled_cache() -> None:
@@ -92,9 +92,9 @@ def profiling_enabled() -> bool:
         _enabled_cache = env.strip().lower() in ("1", "true", "yes", "on")
         return _enabled_cache
 
-    if _settings_manager is not None:
+    if _settings is not None:
         try:
-            _enabled_cache = bool(_settings_manager.get_setting("profiling.enabled", False))
+            _enabled_cache = bool(_settings.get_setting("profiling.enabled", False))
         except Exception:
             logger.debug("profiling: could not read 'profiling.enabled' setting", exc_info=True)
             _enabled_cache = False
@@ -788,7 +788,7 @@ _profiler: Optional[GenerationProfiler] = None
 
 
 def get_profiler() -> GenerationProfiler:
-    """Process-wide singleton (mirrors ``get_residency_manager()``)."""
+    """Process-wide singleton (mirrors ``get_residency_registry()``)."""
     global _profiler
     if _profiler is None:
         _profiler = GenerationProfiler()

@@ -15,7 +15,7 @@ missing artifact resolves (by `provider_hint.source`) to a provider that
 takes a credential and doesn't have one configured yet - see
 `_provider_credentials.credential_prompt_for_provider` - so the consent gate
 can offer to collect it inline rather than the owner discovering the gap only
-after a download fails. `SetupRunManager.grant_consent` is what lets it
+after a download fails. `SetupRunner.grant_consent` is what lets it
 proceed; the approved artifact list travels forward as `consent_request`
 inside that attempt's `safe_output`, which `artifacts.fetch` reads back out.
 """

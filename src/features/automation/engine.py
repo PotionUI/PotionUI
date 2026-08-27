@@ -12,7 +12,7 @@ schedule loop) or from a worker thread (e.g. the generation orchestrator
 firing `generation.after_complete` from inside a sync hook chain, or
 watchdog's own observer thread). `enqueue_trigger` is therefore a *sync*
 method safe to call from any thread - mirrors
-`NotificationConnectionManager.schedule_send`.
+`NotificationConnectionHub.schedule_send`.
 """
 
 import asyncio
@@ -232,7 +232,7 @@ class AutomationEngine:
         """DFS from the trigger node, following edges filtered by branch for conditions.
 
         A node reached through more than one converging edge (a valid,
-        non-cyclic DAG shape - `AutomationManager._has_cycle`'s topo-sort
+        non-cyclic DAG shape - `AutomationRuntime._has_cycle`'s topo-sort
         allows reconvergence and only rejects true cycles) executes exactly
         once per run, not once per incoming edge (a diamond-shaped graph -
         e.g. two branches both feeding a single

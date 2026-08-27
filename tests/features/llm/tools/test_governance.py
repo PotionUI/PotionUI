@@ -13,7 +13,7 @@ from tests.conftest import TestDatabase
 
 from src.features.llm.tools.governance import (
     ToolAdminDisabledException,
-    ToolGovernanceManager,
+    ToolGovernanceEditor,
     ToolGovernanceRepository,
     ToolLockedException,
     ToolNotFoundException,
@@ -155,14 +155,14 @@ def governance_db():
     with patch("src.platform.database.database.db", test_database), \
          patch("src.platform.database.migration_runner.db", test_database), \
          patch("src.features.llm.tools.governance_repository.db", test_database):
-        from src.platform.database.migration_runner import MigrationManager
+        from src.platform.database.migration_runner import MigrationRunner
         import io
         import sys
 
         old_stdout = sys.stdout
         sys.stdout = io.StringIO()
         try:
-            MigrationManager().run_migrations()
+            MigrationRunner().run_migrations()
         finally:
             sys.stdout = old_stdout
 
@@ -253,15 +253,15 @@ class TestToolGovernanceRepository:
 
 
 # ---------------------------------------------------------------------------
-# ToolGovernanceManager — mutation-time validation
+# ToolGovernanceEditor — mutation-time validation
 # ---------------------------------------------------------------------------
 
-class TestToolGovernanceManager:
+class TestToolGovernanceEditor:
     def _manager(self, registered_names=("search_gallery",)):
         repo = Mock(spec=ToolGovernanceRepository)
         registry = Mock()
         registry.get.side_effect = lambda name: object() if name in registered_names else None
-        return ToolGovernanceManager(repository=repo, tool_registry=registry), repo
+        return ToolGovernanceEditor(repository=repo, tool_registry=registry), repo
 
     def test_set_admin_config_rejects_an_unregistered_ungoverned_tool(self):
         manager, repo = self._manager(registered_names=())

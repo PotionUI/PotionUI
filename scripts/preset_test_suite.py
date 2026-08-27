@@ -39,12 +39,12 @@ def _build_resolver(allow_download: bool):
     This is the one live-DB read the ephemeral design permits: read-only, purely to
     LOCATE model files."""
     from src.features.preset_suite.resolver import ModelResolver
-    from src.platform.settings.settings import SettingsManager
+    from src.platform.settings.settings import Settings
     from src.features.models.repository import ModelRepository
     from src.platform.settings.repository import SettingRepository
 
-    settings_manager = SettingsManager(SettingRepository())
-    models_dir = settings_manager.get_models_dir()
+    settings = Settings(SettingRepository())
+    models_dir = settings.get_models_dir()
     repo = ModelRepository()
 
     sha_index: dict = {}
@@ -62,18 +62,18 @@ def _build_resolver(allow_download: bool):
     # the admin UI uses) rather than hitting HuggingFace directly, so the fetch
     # shows up in the admin download history and honors the configured depot -
     # only constructed when a case might actually need to download something.
-    download_manager = None
+    download_queue = None
     if allow_download:
-        from src.features.downloads.manager import DownloadManager
+        from src.features.downloads.queue import DownloadQueue
         from src.features.downloads.repository import DownloadRepository
         from src.platform.plugins import PluginRegistry
-        from src.platform.websocket.download_connection_manager import DownloadConnectionManager
+        from src.platform.websocket.download_connection_hub import DownloadConnectionHub
 
-        download_manager = DownloadManager(
+        download_queue = DownloadQueue(
             download_repository=DownloadRepository(),
             plugin_registry=PluginRegistry(),
-            settings_manager=settings_manager,
-            connection_manager=DownloadConnectionManager(),
+            settings=settings,
+            connection_hub=DownloadConnectionHub(),
         )
 
     return ModelResolver(
@@ -82,7 +82,7 @@ def _build_resolver(allow_download: bool):
         sha_index=sha_index,
         cache_path=Path("storage") / "model_hash_cache.json",
         allow_download=allow_download,
-        download_manager=download_manager,
+        download_queue=download_queue,
     )
 
 

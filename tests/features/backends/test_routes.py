@@ -11,13 +11,13 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src')
 from src.features.backends.routes import BackendController
 from src.platform.http.base_controller import APIResponse
 from src.features.backends.backend_config import (
-    BackendConfigManager, BackendHealth, BackendStatus, NATIVE_ENGINE,
+    BackendConfigStore, BackendHealth, BackendStatus, NATIVE_ENGINE,
     BaseBackendConfig, NativeBackendConfig
 )
 from src.features.backends.backend_registry import BackendRegistry
 from src.platform.runtime.native.optimizations.catalog import OptimizationStatus, Requirement
 from src.platform.runtime.native.optimizations.probe import SystemProbe
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 from src.platform.security.user import AccountType, User
 
 
@@ -43,15 +43,15 @@ class TestBackendController:
     """Comprehensive tests for BackendController"""
 
     @pytest.fixture
-    def mock_settings_manager(self):
-        """Mock SettingsManager"""
-        mock = Mock(spec=SettingsManager)
+    def mock_settings(self):
+        """Mock Settings"""
+        mock = Mock(spec=Settings)
         return mock
 
     @pytest.fixture
-    def mock_backend_config_manager(self):
-        """Mock BackendConfigManager"""
-        mock = Mock(spec=BackendConfigManager)
+    def mock_backend_config_store(self):
+        """Mock BackendConfigStore"""
+        mock = Mock(spec=BackendConfigStore)
         # get_default_backend_ids() is consulted by every serialization path
         # (_serialize + list_backends); default to "nothing is default" so
         # tests that don't care about is_default get a real dict, not a Mock.
@@ -59,11 +59,11 @@ class TestBackendController:
         return mock
 
     @pytest.fixture
-    def mock_backend_registry(self, mock_backend_config_manager):
+    def mock_backend_registry(self, mock_backend_config_store):
         """Mock BackendRegistry"""
         mock = Mock(spec=BackendRegistry)
         mock.refresh_backends = AsyncMock()
-        mock.backend_config_manager = mock_backend_config_manager
+        mock.backend_config_store = mock_backend_config_store
         return mock
 
     @pytest.fixture
@@ -99,9 +99,9 @@ class TestBackendController:
         )
 
     @pytest.fixture
-    def controller(self, mock_settings_manager, mock_backend_registry):
+    def controller(self, mock_settings, mock_backend_registry):
         """BackendController instance with mocked dependencies"""
-        controller = BackendController(mock_settings_manager, mock_backend_registry)
+        controller = BackendController(mock_settings, mock_backend_registry)
         return controller
 
     @pytest.mark.asyncio
@@ -109,7 +109,7 @@ class TestBackendController:
         """Test successful listing of backends"""
         # Arrange
         backends = [sample_local_backend, sample_plugin_backend]
-        controller.backend_config_manager.get_backends.return_value = backends
+        controller.backend_config_store.get_backends.return_value = backends
 
         # Act
         response = await controller.list_backends()
@@ -119,7 +119,7 @@ class TestBackendController:
         assert len(response.data) == 2
         assert response.data[0]["id"] == "local-1"
         assert response.data[1]["id"] == "comfyui-1"
-        controller.backend_config_manager.get_backends.assert_called_once()
+        controller.backend_config_store.get_backends.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_list_backends_marks_is_default_per_engine(
@@ -129,8 +129,8 @@ class TestBackendController:
         engine's default in get_default_backend_ids(), never cross-engine."""
         # Arrange
         backends = [sample_local_backend, sample_plugin_backend]
-        controller.backend_config_manager.get_backends.return_value = backends
-        controller.backend_config_manager.get_default_backend_ids.return_value = {
+        controller.backend_config_store.get_backends.return_value = backends
+        controller.backend_config_store.get_default_backend_ids.return_value = {
             "native": "local-1"
         }
 
@@ -147,7 +147,7 @@ class TestBackendController:
     async def test_list_backends_exception(self, controller):
         """Test list_backends with exception"""
         # Arrange
-        controller.backend_config_manager.get_backends.side_effect = Exception("Database error")
+        controller.backend_config_store.get_backends.side_effect = Exception("Database error")
 
         # Act & Assert
         with pytest.raises(HTTPException) as exc_info:
@@ -161,7 +161,7 @@ class TestBackendController:
         """Test successful retrieval of enabled backends"""
         # Arrange
         enabled_backends = [sample_local_backend]
-        controller.backend_config_manager.get_enabled_backends.return_value = enabled_backends
+        controller.backend_config_store.get_enabled_backends.return_value = enabled_backends
 
         # Act
         response = await controller.get_enabled_backends()
@@ -170,14 +170,14 @@ class TestBackendController:
         assert response.success is True
         assert len(response.data) == 1
         assert response.data[0]["enabled"] is True
-        controller.backend_config_manager.get_enabled_backends.assert_called_once()
+        controller.backend_config_store.get_enabled_backends.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_get_enabled_backends_marks_is_default(self, controller, sample_local_backend):
         """Test that is_default is enriched onto enabled backends too"""
         # Arrange
-        controller.backend_config_manager.get_enabled_backends.return_value = [sample_local_backend]
-        controller.backend_config_manager.get_default_backend_ids.return_value = {"native": "local-1"}
+        controller.backend_config_store.get_enabled_backends.return_value = [sample_local_backend]
+        controller.backend_config_store.get_default_backend_ids.return_value = {"native": "local-1"}
 
         # Act
         response = await controller.get_enabled_backends()
@@ -189,8 +189,8 @@ class TestBackendController:
     async def test_get_default_backend_success(self, controller, sample_local_backend):
         """Test successful retrieval of default backend for an engine"""
         # Arrange
-        controller.backend_config_manager.get_default_backend.return_value = sample_local_backend
-        controller.backend_config_manager.get_default_backend_ids.return_value = {"native": "local-1"}
+        controller.backend_config_store.get_default_backend.return_value = sample_local_backend
+        controller.backend_config_store.get_default_backend_ids.return_value = {"native": "local-1"}
 
         # Act
         response = await controller.get_default_backend("native")
@@ -199,7 +199,7 @@ class TestBackendController:
         assert response.success is True
         assert response.data["id"] == "local-1"
         assert response.data["is_default"] is True
-        controller.backend_config_manager.get_default_backend.assert_called_once_with("native")
+        controller.backend_config_store.get_default_backend.assert_called_once_with("native")
 
     @pytest.mark.asyncio
     async def test_get_default_backend_no_backend_for_engine(self, controller):
@@ -211,7 +211,7 @@ class TestBackendController:
         original 'no_backend_for_engine' text.
         """
         # Arrange
-        controller.backend_config_manager.get_default_backend.return_value = None
+        controller.backend_config_store.get_default_backend.return_value = None
 
         # Act & Assert
         with pytest.raises(HTTPException) as exc_info:
@@ -224,7 +224,7 @@ class TestBackendController:
         """Test successful retrieval of specific backend"""
         # Arrange
         backend_id = "local-1"
-        controller.backend_config_manager.get_backend.return_value = sample_local_backend
+        controller.backend_config_store.get_backend.return_value = sample_local_backend
 
         # Act
         response = await controller.get_backend(backend_id)
@@ -232,7 +232,7 @@ class TestBackendController:
         # Assert
         assert response.success is True
         assert response.data["id"] == backend_id
-        controller.backend_config_manager.get_backend.assert_called_once_with(backend_id)
+        controller.backend_config_store.get_backend.assert_called_once_with(backend_id)
 
     @pytest.mark.asyncio
     async def test_get_backend_is_default_true_for_engine_default(
@@ -240,8 +240,8 @@ class TestBackendController:
     ):
         """is_default is True when this backend's id is its engine's default."""
         # Arrange
-        controller.backend_config_manager.get_backend.return_value = sample_local_backend
-        controller.backend_config_manager.get_default_backend_ids.return_value = {"native": "local-1"}
+        controller.backend_config_store.get_backend.return_value = sample_local_backend
+        controller.backend_config_store.get_default_backend_ids.return_value = {"native": "local-1"}
 
         # Act
         response = await controller.get_backend("local-1")
@@ -256,8 +256,8 @@ class TestBackendController:
         """A same-engine backend that isn't the recorded default must read False,
         even when some OTHER backend of that engine is the default."""
         # Arrange: comfyui-1 is not the default; a different comfyui backend is.
-        controller.backend_config_manager.get_backend.return_value = sample_plugin_backend
-        controller.backend_config_manager.get_default_backend_ids.return_value = {
+        controller.backend_config_store.get_backend.return_value = sample_plugin_backend
+        controller.backend_config_store.get_default_backend_ids.return_value = {
             "comfyui": "comfyui-2"
         }
 
@@ -272,7 +272,7 @@ class TestBackendController:
         """Test get_backend when backend not found"""
         # Arrange
         backend_id = "non-existent"
-        controller.backend_config_manager.get_backend.return_value = None
+        controller.backend_config_store.get_backend.return_value = None
 
         # Act & Assert
         with pytest.raises(HTTPException) as exc_info:
@@ -286,7 +286,7 @@ class TestBackendController:
     async def test_get_backend_stats_success(self, controller, sample_local_backend):
         """Test successful retrieval of per-backend model stats"""
         # Arrange
-        controller.backend_config_manager.get_backend.return_value = sample_local_backend
+        controller.backend_config_store.get_backend.return_value = sample_local_backend
         with patch(
             "src.features.models.availability_repository.model_availability_repo.stats_for_backend"
         ) as mock_stats:
@@ -312,7 +312,7 @@ class TestBackendController:
         """A backend that's never been indexed has no availability rows yet -
         that's a legitimate zero, not a failure."""
         # Arrange
-        controller.backend_config_manager.get_backend.return_value = sample_local_backend
+        controller.backend_config_store.get_backend.return_value = sample_local_backend
         with patch(
             "src.features.models.availability_repository.model_availability_repo.stats_for_backend"
         ) as mock_stats:
@@ -331,7 +331,7 @@ class TestBackendController:
     async def test_get_backend_stats_not_found(self, controller):
         """Test get_backend_stats when backend not found"""
         # Arrange
-        controller.backend_config_manager.get_backend.return_value = None
+        controller.backend_config_store.get_backend.return_value = None
 
         # Act & Assert
         with pytest.raises(HTTPException) as exc_info:
@@ -349,8 +349,8 @@ class TestBackendController:
             "engine": "native",
             "enabled": True
         }
-        controller.backend_config_manager.validate_backend_config.return_value = sample_local_backend
-        controller.backend_config_manager.add_backend.return_value = None
+        controller.backend_config_store.validate_backend_config.return_value = sample_local_backend
+        controller.backend_config_store.add_backend.return_value = None
 
         # Act
         response = await controller.create_backend(backend_data)
@@ -359,8 +359,8 @@ class TestBackendController:
         assert response.success is True
         assert response.data["id"] == "local-1"
         assert "created successfully" in response.message
-        controller.backend_config_manager.validate_backend_config.assert_called_once_with(backend_data)
-        controller.backend_config_manager.add_backend.assert_called_once_with(sample_local_backend)
+        controller.backend_config_store.validate_backend_config.assert_called_once_with(backend_data)
+        controller.backend_config_store.add_backend.assert_called_once_with(sample_local_backend)
         controller.backend_registry.refresh_backends.assert_called_once()
 
     @pytest.mark.asyncio
@@ -368,7 +368,7 @@ class TestBackendController:
         """Test create_backend with validation error"""
         # Arrange
         backend_data = {"invalid": "data"}
-        controller.backend_config_manager.validate_backend_config.side_effect = ValueError("Invalid configuration")
+        controller.backend_config_store.validate_backend_config.side_effect = ValueError("Invalid configuration")
 
         # Act & Assert
         with pytest.raises(HTTPException) as exc_info:
@@ -383,9 +383,9 @@ class TestBackendController:
         # Arrange
         backend_id = "local-1"
         backend_data = {"name": "Updated Local GPU"}
-        controller.backend_config_manager.get_backend.return_value = sample_local_backend
-        controller.backend_config_manager.validate_backend_config.return_value = sample_local_backend
-        controller.backend_config_manager.update_backend.return_value = None
+        controller.backend_config_store.get_backend.return_value = sample_local_backend
+        controller.backend_config_store.validate_backend_config.return_value = sample_local_backend
+        controller.backend_config_store.update_backend.return_value = None
 
         # Act
         response = await controller.update_backend(backend_id, backend_data)
@@ -395,18 +395,18 @@ class TestBackendController:
         assert "updated successfully" in response.message
         # The controller validates the MERGED config, not the raw partial body:
         # id and engine are forced back on, and untouched fields survive.
-        merged = controller.backend_config_manager.validate_backend_config.call_args[0][0]
+        merged = controller.backend_config_store.validate_backend_config.call_args[0][0]
         assert merged["name"] == "Updated Local GPU"
         assert merged["id"] == backend_id
         assert merged["engine"] == sample_local_backend.engine
         assert merged["priority"] == sample_local_backend.priority
-        controller.backend_config_manager.update_backend.assert_called_once_with(backend_id, sample_local_backend)
+        controller.backend_config_store.update_backend.assert_called_once_with(backend_id, sample_local_backend)
         controller.backend_registry.refresh_backends.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_update_backend_not_found(self, controller):
         """Updating an unknown backend raises a 404, not a rewrapped 400."""
-        controller.backend_config_manager.get_backend.return_value = None
+        controller.backend_config_store.get_backend.return_value = None
 
         with pytest.raises(HTTPException) as exc_info:
             await controller.update_backend("nope", {"name": "x"})
@@ -417,12 +417,12 @@ class TestBackendController:
     @pytest.mark.asyncio
     async def test_update_backend_cannot_change_engine(self, controller, sample_local_backend):
         """`engine` is immutable: a body trying to change it is overridden."""
-        controller.backend_config_manager.get_backend.return_value = sample_local_backend
-        controller.backend_config_manager.validate_backend_config.return_value = sample_local_backend
+        controller.backend_config_store.get_backend.return_value = sample_local_backend
+        controller.backend_config_store.validate_backend_config.return_value = sample_local_backend
 
         await controller.update_backend("local-1", {"engine": "comfyui"})
 
-        merged = controller.backend_config_manager.validate_backend_config.call_args[0][0]
+        merged = controller.backend_config_store.validate_backend_config.call_args[0][0]
         assert merged["engine"] == sample_local_backend.engine
 
     @pytest.mark.asyncio
@@ -430,7 +430,7 @@ class TestBackendController:
         """Test successful backend deletion"""
         # Arrange
         backend_id = "local-1"
-        controller.backend_config_manager.remove_backend.return_value = None
+        controller.backend_config_store.remove_backend.return_value = None
 
         # Act
         response = await controller.delete_backend(backend_id)
@@ -438,7 +438,7 @@ class TestBackendController:
         # Assert
         assert response.success is True
         assert "deleted successfully" in response.message
-        controller.backend_config_manager.remove_backend.assert_called_once_with(backend_id)
+        controller.backend_config_store.remove_backend.assert_called_once_with(backend_id)
         controller.backend_registry.refresh_backends.assert_called_once()
 
     @pytest.mark.asyncio
@@ -446,7 +446,7 @@ class TestBackendController:
         """Test delete_backend with error"""
         # Arrange
         backend_id = "local-1"
-        controller.backend_config_manager.remove_backend.side_effect = ValueError("Backend not found")
+        controller.backend_config_store.remove_backend.side_effect = ValueError("Backend not found")
 
         # Act & Assert
         with pytest.raises(HTTPException) as exc_info:
@@ -478,7 +478,7 @@ class TestBackendController:
         # Arrange
         backend_id = "non-existent"
         controller.backend_registry.get_backend.return_value = None
-        controller.backend_config_manager.get_backend.return_value = None
+        controller.backend_config_store.get_backend.return_value = None
 
         # Act & Assert
         with pytest.raises(HTTPException) as exc_info:
@@ -493,7 +493,7 @@ class TestBackendController:
         """Test successful backend health check"""
         # Arrange
         backend_id = "local-1"
-        controller.backend_config_manager.get_backend.return_value = sample_local_backend
+        controller.backend_config_store.get_backend.return_value = sample_local_backend
         mock_backend = Mock()
         mock_backend.health_check = AsyncMock(return_value={"status": "available"})
         controller.backend_registry.get_backend.return_value = mock_backend
@@ -512,7 +512,7 @@ class TestBackendController:
         # Arrange
         backend_id = "test-backend"
         system_info = {"cpu": "Intel i9", "memory": "32GB"}
-        controller.backend_config_manager.get_backend.return_value = sample_local_backend
+        controller.backend_config_store.get_backend.return_value = sample_local_backend
         mock_backend = Mock()
         mock_backend.get_system_info = AsyncMock(return_value=system_info)
         controller.backend_registry.get_backend.return_value = mock_backend
@@ -530,7 +530,7 @@ class TestBackendController:
         """Test successful listing of backend health statuses"""
         # Arrange
         backends = [sample_local_backend]
-        controller.backend_config_manager.get_backends.return_value = backends
+        controller.backend_config_store.get_backends.return_value = backends
 
         mock_backend = Mock()
         mock_backend.health_check = AsyncMock(return_value={"status": "available"})
@@ -552,7 +552,7 @@ class TestBackendController:
         """Test list_backend_health when backend not loaded in registry"""
         # Arrange
         backends = [sample_local_backend]
-        controller.backend_config_manager.get_backends.return_value = backends
+        controller.backend_config_store.get_backends.return_value = backends
         controller.backend_registry.get_backend.return_value = None
 
         # Act
@@ -603,21 +603,21 @@ class TestBackendController:
     async def test_set_default_backend_success(self, controller):
         """Test making a backend the default for its engine"""
         # Arrange
-        controller.backend_config_manager.set_default_backend.return_value = None
+        controller.backend_config_store.set_default_backend.return_value = None
 
         # Act
         response = await controller.set_default_backend("comfyui-1")
 
         # Assert
         assert response.success is True
-        controller.backend_config_manager.set_default_backend.assert_called_once_with("comfyui-1")
+        controller.backend_config_store.set_default_backend.assert_called_once_with("comfyui-1")
         controller.backend_registry.refresh_backends.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_set_default_backend_not_found(self, controller):
         """Test set_default_backend when the backend doesn't exist"""
         # Arrange
-        controller.backend_config_manager.set_default_backend.side_effect = ValueError(
+        controller.backend_config_store.set_default_backend.side_effect = ValueError(
             "Backend with ID 'missing' not found"
         )
 
@@ -632,7 +632,7 @@ class TestBackendController:
     async def test_error_handling_with_logging(self, controller):
         """Test that errors are properly logged"""
         # Arrange
-        controller.backend_config_manager.get_backends.side_effect = Exception("Test error")
+        controller.backend_config_store.get_backends.side_effect = Exception("Test error")
 
         # Act & Assert
         with pytest.raises(HTTPException):
@@ -649,18 +649,18 @@ class TestBackendSecretRedaction:
 
     @pytest.fixture
     def controller(self):
-        settings_manager = Mock(spec=SettingsManager)
-        backend_config_manager = Mock(spec=BackendConfigManager)
-        backend_config_manager.get_default_backend_ids.return_value = {}
+        settings = Mock(spec=Settings)
+        backend_config_store = Mock(spec=BackendConfigStore)
+        backend_config_store.get_default_backend_ids.return_value = {}
         backend_registry = Mock(spec=BackendRegistry)
         backend_registry.refresh_backends = AsyncMock()
-        backend_registry.backend_config_manager = backend_config_manager
-        return BackendController(settings_manager, backend_registry)
+        backend_registry.backend_config_store = backend_config_store
+        return BackendController(settings, backend_registry)
 
     @pytest.mark.asyncio
     async def test_list_redacts_secret_and_exposes_boolean(self, controller):
         backend = SecretBackendConfig(id="c1", name="ComfyUI", api_key="super-secret-key")
-        controller.backend_config_manager.get_backends.return_value = [backend]
+        controller.backend_config_store.get_backends.return_value = [backend]
 
         response = await controller.list_backends()
         data = response.data[0]
@@ -672,7 +672,7 @@ class TestBackendSecretRedaction:
     @pytest.mark.asyncio
     async def test_get_redacts_absent_secret_as_false(self, controller):
         backend = SecretBackendConfig(id="c1", name="ComfyUI", api_key=None)
-        controller.backend_config_manager.get_backend.return_value = backend
+        controller.backend_config_store.get_backend.return_value = backend
 
         response = await controller.get_backend("c1")
 
@@ -682,7 +682,7 @@ class TestBackendSecretRedaction:
     @pytest.mark.asyncio
     async def test_create_response_does_not_echo_secret(self, controller):
         backend = SecretBackendConfig(id="c1", name="ComfyUI", api_key="new-key")
-        controller.backend_config_manager.validate_backend_config.return_value = backend
+        controller.backend_config_store.validate_backend_config.return_value = backend
 
         response = await controller.create_backend(
             {"name": "ComfyUI", "engine": "comfyui", "api_key": "new-key"}
@@ -697,13 +697,13 @@ class TestBackendSecretRedaction:
         """The classic redaction-roundtrip bug: editing other fields must keep the
         stored credential when the client sends no api_key."""
         existing = SecretBackendConfig(id="c1", name="ComfyUI", api_key="stored-key")
-        controller.backend_config_manager.get_backend.return_value = existing
-        controller.backend_config_manager.validate_backend_config.return_value = existing
+        controller.backend_config_store.get_backend.return_value = existing
+        controller.backend_config_store.validate_backend_config.return_value = existing
 
         # Client changes the name only - api_key not in the payload.
         await controller.update_backend("c1", {"name": "Renamed"})
 
-        merged = controller.backend_config_manager.validate_backend_config.call_args[0][0]
+        merged = controller.backend_config_store.validate_backend_config.call_args[0][0]
         assert merged["api_key"] == "stored-key"
         assert merged["name"] == "Renamed"
 
@@ -711,23 +711,23 @@ class TestBackendSecretRedaction:
     async def test_update_blank_secret_preserves_stored_value(self, controller):
         """An explicitly blank/masked secret is treated as 'unchanged', not 'clear'."""
         existing = SecretBackendConfig(id="c1", name="ComfyUI", api_key="stored-key")
-        controller.backend_config_manager.get_backend.return_value = existing
-        controller.backend_config_manager.validate_backend_config.return_value = existing
+        controller.backend_config_store.get_backend.return_value = existing
+        controller.backend_config_store.validate_backend_config.return_value = existing
 
         await controller.update_backend("c1", {"api_key": "   "})
 
-        merged = controller.backend_config_manager.validate_backend_config.call_args[0][0]
+        merged = controller.backend_config_store.validate_backend_config.call_args[0][0]
         assert merged["api_key"] == "stored-key"
 
     @pytest.mark.asyncio
     async def test_update_with_new_secret_value_replaces_it(self, controller):
         existing = SecretBackendConfig(id="c1", name="ComfyUI", api_key="stored-key")
-        controller.backend_config_manager.get_backend.return_value = existing
-        controller.backend_config_manager.validate_backend_config.return_value = existing
+        controller.backend_config_store.get_backend.return_value = existing
+        controller.backend_config_store.validate_backend_config.return_value = existing
 
         await controller.update_backend("c1", {"api_key": "rotated-key"})
 
-        merged = controller.backend_config_manager.validate_backend_config.call_args[0][0]
+        merged = controller.backend_config_store.validate_backend_config.call_args[0][0]
         assert merged["api_key"] == "rotated-key"
 
 
@@ -781,25 +781,25 @@ class TestBackendOptimizations:
     per the plan - never touching real hardware, pip, or torch."""
 
     @pytest.fixture
-    def mock_settings_manager(self):
-        return Mock(spec=SettingsManager)
+    def mock_settings(self):
+        return Mock(spec=Settings)
 
     @pytest.fixture
-    def mock_backend_config_manager(self):
-        mock = Mock(spec=BackendConfigManager)
+    def mock_backend_config_store(self):
+        mock = Mock(spec=BackendConfigStore)
         mock.get_default_backend_ids.return_value = {}
         return mock
 
     @pytest.fixture
-    def mock_backend_registry(self, mock_backend_config_manager):
+    def mock_backend_registry(self, mock_backend_config_store):
         mock = Mock(spec=BackendRegistry)
         mock.refresh_backends = AsyncMock()
-        mock.backend_config_manager = mock_backend_config_manager
+        mock.backend_config_store = mock_backend_config_store
         return mock
 
     @pytest.fixture
-    def controller(self, mock_settings_manager, mock_backend_registry):
-        return BackendController(mock_settings_manager, mock_backend_registry)
+    def controller(self, mock_settings, mock_backend_registry):
+        return BackendController(mock_settings, mock_backend_registry)
 
     @pytest.fixture
     def native_backend(self):
@@ -852,7 +852,7 @@ class TestBackendOptimizations:
 
     @pytest.mark.asyncio
     async def test_get_optimizations_404_unknown_backend(self, controller, admin_user):
-        controller.backend_config_manager.get_backend.return_value = None
+        controller.backend_config_store.get_backend.return_value = None
         with pytest.raises(HTTPException) as exc_info:
             await controller.get_backend_optimizations("nope", user=admin_user)
         assert exc_info.value.status_code == 404
@@ -860,7 +860,7 @@ class TestBackendOptimizations:
 
     @pytest.mark.asyncio
     async def test_get_optimizations_400_non_native(self, controller, admin_user, comfyui_backend):
-        controller.backend_config_manager.get_backend.return_value = comfyui_backend
+        controller.backend_config_store.get_backend.return_value = comfyui_backend
         with pytest.raises(HTTPException) as exc_info:
             await controller.get_backend_optimizations("comfyui-1", user=admin_user)
         assert exc_info.value.status_code == 400
@@ -868,7 +868,7 @@ class TestBackendOptimizations:
 
     @pytest.mark.asyncio
     async def test_get_optimizations_success_shape(self, controller, admin_user, native_backend, fake_probe):
-        controller.backend_config_manager.get_backend.return_value = native_backend
+        controller.backend_config_store.get_backend.return_value = native_backend
         fake_opt = Mock()
         fake_opt.status.return_value = self._fake_status()
 
@@ -889,7 +889,7 @@ class TestBackendOptimizations:
 
     @pytest.mark.asyncio
     async def test_install_optimization_404_unknown_opt(self, controller, admin_user, native_backend, fake_probe):
-        controller.backend_config_manager.get_backend.return_value = native_backend
+        controller.backend_config_store.get_backend.return_value = native_backend
         with patch("src.platform.runtime.native.optimizations.probe_system", return_value=fake_probe), \
              patch("src.platform.runtime.native.optimizations.get_optimization", return_value=None):
             with pytest.raises(HTTPException) as exc_info:
@@ -901,7 +901,7 @@ class TestBackendOptimizations:
     async def test_install_optimization_requirements_not_met_short_circuits(
         self, controller, admin_user, native_backend, fake_probe
     ):
-        controller.backend_config_manager.get_backend.return_value = native_backend
+        controller.backend_config_store.get_backend.return_value = native_backend
         fake_opt = Mock()
         fake_opt.requirements.return_value = [
             Requirement(id="nvcc", label="CUDA toolkit (nvcc)", met=False, detail="install nvcc"),
@@ -919,7 +919,7 @@ class TestBackendOptimizations:
 
     @pytest.mark.asyncio
     async def test_install_optimization_409_when_busy(self, controller, admin_user, native_backend, fake_probe):
-        controller.backend_config_manager.get_backend.return_value = native_backend
+        controller.backend_config_store.get_backend.return_value = native_backend
         fake_opt = Mock()
         fake_opt.requirements.return_value = []
 
@@ -935,7 +935,7 @@ class TestBackendOptimizations:
 
     @pytest.mark.asyncio
     async def test_install_optimization_success(self, controller, admin_user, native_backend, fake_probe):
-        controller.backend_config_manager.get_backend.return_value = native_backend
+        controller.backend_config_store.get_backend.return_value = native_backend
         fake_opt = Mock()
         fake_opt.requirements.return_value = []
         fake_job = Mock(status="running")
@@ -956,7 +956,7 @@ class TestBackendOptimizations:
 
     @pytest.mark.asyncio
     async def test_get_current_job_no_job_active_false(self, controller, admin_user, native_backend):
-        controller.backend_config_manager.get_backend.return_value = native_backend
+        controller.backend_config_store.get_backend.return_value = native_backend
         with patch("src.platform.runtime.native.optimizations.installer") as mock_installer:
             mock_installer.current_job = None
             response = await controller.get_current_optimization_job("native-1", offset=0, user=admin_user)
@@ -966,7 +966,7 @@ class TestBackendOptimizations:
 
     @pytest.mark.asyncio
     async def test_get_current_job_returns_lines_after_offset(self, controller, admin_user, native_backend):
-        controller.backend_config_manager.get_backend.return_value = native_backend
+        controller.backend_config_store.get_backend.return_value = native_backend
         fake_job = Mock(opt_id="sageattention2", status="running", result=None, error=None)
         fake_job.log = [(1.0, "line1"), (2.0, "line2"), (3.0, "line3")]
 
@@ -984,7 +984,7 @@ class TestBackendOptimizations:
 
     @pytest.mark.asyncio
     async def test_cancel_current_job(self, controller, admin_user, native_backend):
-        controller.backend_config_manager.get_backend.return_value = native_backend
+        controller.backend_config_store.get_backend.return_value = native_backend
         with patch("src.platform.runtime.native.optimizations.installer") as mock_installer:
             mock_installer.cancel = AsyncMock(return_value=True)
             response = await controller.cancel_current_optimization_job("native-1", user=admin_user)
@@ -998,7 +998,7 @@ class TestBackendOptimizations:
 
     @pytest.mark.asyncio
     async def test_set_attention_backend_rejects_invalid_name(self, controller, admin_user, native_backend):
-        controller.backend_config_manager.get_backend.return_value = native_backend
+        controller.backend_config_store.get_backend.return_value = native_backend
         with pytest.raises(HTTPException) as exc_info:
             await controller.set_attention_backend("native-1", "not-a-real-backend", user=admin_user)
         assert exc_info.value.status_code == 400
@@ -1008,7 +1008,7 @@ class TestBackendOptimizations:
     async def test_set_attention_backend_success_persists_and_sets_override(
         self, controller, admin_user, native_backend
     ):
-        controller.backend_config_manager.get_backend.return_value = native_backend
+        controller.backend_config_store.get_backend.return_value = native_backend
 
         with patch("src.platform.runtime.native.attention") as mock_attention:
             mock_attention.known_backends.return_value = frozenset({"sage2", "sage", "flash", "sdpa"})
@@ -1017,13 +1017,13 @@ class TestBackendOptimizations:
 
             response = await controller.set_attention_backend("native-1", "flash", user=admin_user)
 
-        controller.settings_manager.set_setting.assert_called_once_with("native_attention_backend", "flash")
+        controller.settings.set_setting.assert_called_once_with("native_attention_backend", "flash")
         mock_attention.set_backend_override.assert_called_once_with("flash")
         assert response.data == {"pinned_backend": "flash", "active_backend": "flash"}
 
     @pytest.mark.asyncio
     async def test_set_attention_backend_auto_persists_empty_string(self, controller, admin_user, native_backend):
-        controller.backend_config_manager.get_backend.return_value = native_backend
+        controller.backend_config_store.get_backend.return_value = native_backend
 
         with patch("src.platform.runtime.native.attention") as mock_attention:
             mock_attention.known_backends.return_value = frozenset({"sage2", "sage", "flash", "sdpa"})
@@ -1032,7 +1032,7 @@ class TestBackendOptimizations:
 
             await controller.set_attention_backend("native-1", "auto", user=admin_user)
 
-        controller.settings_manager.set_setting.assert_called_once_with("native_attention_backend", "")
+        controller.settings.set_setting.assert_called_once_with("native_attention_backend", "")
         mock_attention.set_backend_override.assert_called_once_with("")
 
     @pytest.mark.asyncio
@@ -1043,7 +1043,7 @@ class TestBackendOptimizations:
         # IS in attention.known_backends() -- the endpoint must validate against
         # the latter (the regression this test guards: it used to validate
         # against BACKEND_PRIORITY alone and reject every pin-only name).
-        controller.backend_config_manager.get_backend.return_value = native_backend
+        controller.backend_config_store.get_backend.return_value = native_backend
 
         with patch("src.platform.runtime.native.attention") as mock_attention:
             mock_attention.known_backends.return_value = frozenset({"sage2", "sage", "flash", "sdpa", "sparge"})
@@ -1052,7 +1052,7 @@ class TestBackendOptimizations:
 
             response = await controller.set_attention_backend("native-1", "sparge", user=admin_user)
 
-        controller.settings_manager.set_setting.assert_called_once_with("native_attention_backend", "sparge")
+        controller.settings.set_setting.assert_called_once_with("native_attention_backend", "sparge")
         mock_attention.set_backend_override.assert_called_once_with("sparge")
         assert response.data == {"pinned_backend": "sparge", "active_backend": "sparge"}
 
@@ -1065,16 +1065,16 @@ class TestBackendOptimizations:
         # whether the sparge package is actually installed on this machine; pin
         # validity is about NAME recognition, not runtime availability (an
         # unavailable pin still falls back to sdpa with a warning at dispatch time).
-        controller.backend_config_manager.get_backend.return_value = native_backend
+        controller.backend_config_store.get_backend.return_value = native_backend
         response = await controller.set_attention_backend("native-1", "sparge", user=admin_user)
         assert response.success is True
-        controller.settings_manager.set_setting.assert_called_once_with("native_attention_backend", "sparge")
+        controller.settings.set_setting.assert_called_once_with("native_attention_backend", "sparge")
 
     @pytest.mark.asyncio
     async def test_set_attention_backend_still_rejects_unknown_name_with_real_dispatcher(
         self, controller, admin_user, native_backend
     ):
-        controller.backend_config_manager.get_backend.return_value = native_backend
+        controller.backend_config_store.get_backend.return_value = native_backend
         with pytest.raises(HTTPException) as exc_info:
             await controller.set_attention_backend("native-1", "definitely-not-a-backend", user=admin_user)
         assert exc_info.value.status_code == 400
@@ -1098,7 +1098,7 @@ class TestBackendOptimizations:
 
     @pytest.mark.asyncio
     async def test_benchmark_404_unknown_backend(self, controller, admin_user):
-        controller.backend_config_manager.get_backend.return_value = None
+        controller.backend_config_store.get_backend.return_value = None
         with pytest.raises(HTTPException) as exc_info:
             await controller.benchmark_backend_optimizations("nope", user=admin_user)
         assert exc_info.value.status_code == 404
@@ -1106,7 +1106,7 @@ class TestBackendOptimizations:
 
     @pytest.mark.asyncio
     async def test_benchmark_400_non_native(self, controller, admin_user, comfyui_backend):
-        controller.backend_config_manager.get_backend.return_value = comfyui_backend
+        controller.backend_config_store.get_backend.return_value = comfyui_backend
         with pytest.raises(HTTPException) as exc_info:
             await controller.benchmark_backend_optimizations("comfyui-1", user=admin_user)
         assert exc_info.value.status_code == 400
@@ -1114,7 +1114,7 @@ class TestBackendOptimizations:
 
     @pytest.mark.asyncio
     async def test_benchmark_409_when_already_running(self, controller, admin_user, native_backend):
-        controller.backend_config_manager.get_backend.return_value = native_backend
+        controller.backend_config_store.get_backend.return_value = native_backend
         with patch(
             "src.platform.runtime.native.optimizations.run_benchmark",
             new=AsyncMock(side_effect=RuntimeError("benchmark already running")),
@@ -1126,7 +1126,7 @@ class TestBackendOptimizations:
 
     @pytest.mark.asyncio
     async def test_benchmark_400_when_cuda_unavailable(self, controller, admin_user, native_backend):
-        controller.backend_config_manager.get_backend.return_value = native_backend
+        controller.backend_config_store.get_backend.return_value = native_backend
         with patch(
             "src.platform.runtime.native.optimizations.run_benchmark",
             new=AsyncMock(side_effect=RuntimeError("Attention benchmark requires a CUDA device")),
@@ -1138,7 +1138,7 @@ class TestBackendOptimizations:
 
     @pytest.mark.asyncio
     async def test_benchmark_success_shape(self, controller, admin_user, native_backend):
-        controller.backend_config_manager.get_backend.return_value = native_backend
+        controller.backend_config_store.get_backend.return_value = native_backend
         fake_result = {
             "dtype": "bfloat16",
             "shape": [1, 48, 8192, 128],
@@ -1192,15 +1192,15 @@ class TestBackendQuickActions:
 
     @pytest.mark.asyncio
     async def test_get_backend_response_includes_quick_actions(self):
-        settings_manager = Mock(spec=SettingsManager)
-        backend_config_manager = Mock(spec=BackendConfigManager)
-        backend_config_manager.get_default_backend_ids.return_value = {}
+        settings = Mock(spec=Settings)
+        backend_config_store = Mock(spec=BackendConfigStore)
+        backend_config_store.get_default_backend_ids.return_value = {}
         backend_registry = Mock(spec=BackendRegistry)
-        backend_registry.backend_config_manager = backend_config_manager
+        backend_registry.backend_config_store = backend_config_store
 
-        controller = BackendController(settings_manager, backend_registry)
+        controller = BackendController(settings, backend_registry)
         native_backend = NativeBackendConfig(id="native-1", name="Local GPU", engine=NATIVE_ENGINE, enabled=True, priority=1)
-        backend_config_manager.get_backend.return_value = native_backend
+        backend_config_store.get_backend.return_value = native_backend
 
         response = await controller.get_backend("native-1")
 
@@ -1211,25 +1211,25 @@ class TestBackendQuickActions:
 class TestClearBackendVram:
     """POST /api/backends/{backend_id}/actions/clear-vram - VRAM-only teardown.
 
-    Offloads GPU-resident weights to host RAM via GpuResidencyManager; the
-    ModelLifecycleManager RAM cache is never evicted, only gc'd/emptied.
+    Offloads GPU-resident weights to host RAM via GpuResidencyRegistry; the
+    ModelLifecycle RAM cache is never evicted, only gc'd/emptied.
     """
 
     @pytest.fixture
-    def mock_settings_manager(self):
-        return Mock(spec=SettingsManager)
+    def mock_settings(self):
+        return Mock(spec=Settings)
 
     @pytest.fixture
-    def mock_backend_config_manager(self):
-        mock = Mock(spec=BackendConfigManager)
+    def mock_backend_config_store(self):
+        mock = Mock(spec=BackendConfigStore)
         mock.get_default_backend_ids.return_value = {}
         return mock
 
     @pytest.fixture
-    def mock_backend_registry(self, mock_backend_config_manager):
+    def mock_backend_registry(self, mock_backend_config_store):
         mock = Mock(spec=BackendRegistry)
         mock.refresh_backends = AsyncMock()
-        mock.backend_config_manager = mock_backend_config_manager
+        mock.backend_config_store = mock_backend_config_store
         return mock
 
     @pytest.fixture
@@ -1243,8 +1243,8 @@ class TestClearBackendVram:
         return mock
 
     @pytest.fixture
-    def controller(self, mock_settings_manager, mock_backend_registry, mock_model_lifecycle_manager):
-        return BackendController(mock_settings_manager, mock_backend_registry, mock_model_lifecycle_manager)
+    def controller(self, mock_settings, mock_backend_registry, mock_model_lifecycle_manager):
+        return BackendController(mock_settings, mock_backend_registry, mock_model_lifecycle_manager)
 
     @pytest.fixture
     def native_backend(self):
@@ -1272,7 +1272,7 @@ class TestClearBackendVram:
         mock = Mock()
         mock.offload_all.return_value = OffloadResult(["dit", "vae"], freed_gb=8.0)
         with patch(
-            "src.platform.runtime.native.memory.residency.get_residency_manager",
+            "src.platform.runtime.native.memory.residency.get_residency_registry",
             return_value=mock,
         ):
             yield mock
@@ -1291,14 +1291,14 @@ class TestClearBackendVram:
 
     @pytest.mark.asyncio
     async def test_404_unknown_backend(self, controller, admin_user):
-        controller.backend_config_manager.get_backend.return_value = None
+        controller.backend_config_store.get_backend.return_value = None
         with pytest.raises(HTTPException) as exc_info:
             await controller.clear_backend_vram("nope", user=admin_user)
         assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
     async def test_400_non_native(self, controller, admin_user, comfyui_backend):
-        controller.backend_config_manager.get_backend.return_value = comfyui_backend
+        controller.backend_config_store.get_backend.return_value = comfyui_backend
         with pytest.raises(HTTPException) as exc_info:
             await controller.clear_backend_vram("comfyui-1", user=admin_user)
         assert exc_info.value.status_code == 400
@@ -1308,7 +1308,7 @@ class TestClearBackendVram:
     async def test_success_offloads_gpu_residents_without_evicting_cache(
         self, controller, admin_user, native_backend, mock_model_lifecycle_manager, mock_residency_manager
     ):
-        controller.backend_config_manager.get_backend.return_value = native_backend
+        controller.backend_config_store.get_backend.return_value = native_backend
 
         response = await controller.clear_backend_vram("native-1", user=admin_user)
 
@@ -1321,12 +1321,12 @@ class TestClearBackendVram:
 
     @pytest.mark.asyncio
     async def test_succeeds_without_a_model_lifecycle_manager(
-        self, admin_user, native_backend, mock_settings_manager, mock_backend_registry, mock_residency_manager
+        self, admin_user, native_backend, mock_settings, mock_backend_registry, mock_residency_manager
     ):
         # cleanup() is a nice-to-have, not required - offloading GPU residents
         # is the whole point of this action and doesn't depend on it.
-        controller = BackendController(mock_settings_manager, mock_backend_registry, model_lifecycle_manager=None)
-        controller.backend_config_manager.get_backend.return_value = native_backend
+        controller = BackendController(mock_settings, mock_backend_registry, model_lifecycle=None)
+        controller.backend_config_store.get_backend.return_value = native_backend
 
         response = await controller.clear_backend_vram("native-1", user=admin_user)
 
@@ -1338,20 +1338,20 @@ class TestClearBackendCache:
     """POST /api/backends/{backend_id}/actions/clear-cache - VRAM & RAM cache teardown."""
 
     @pytest.fixture
-    def mock_settings_manager(self):
-        return Mock(spec=SettingsManager)
+    def mock_settings(self):
+        return Mock(spec=Settings)
 
     @pytest.fixture
-    def mock_backend_config_manager(self):
-        mock = Mock(spec=BackendConfigManager)
+    def mock_backend_config_store(self):
+        mock = Mock(spec=BackendConfigStore)
         mock.get_default_backend_ids.return_value = {}
         return mock
 
     @pytest.fixture
-    def mock_backend_registry(self, mock_backend_config_manager):
+    def mock_backend_registry(self, mock_backend_config_store):
         mock = Mock(spec=BackendRegistry)
         mock.refresh_backends = AsyncMock()
-        mock.backend_config_manager = mock_backend_config_manager
+        mock.backend_config_store = mock_backend_config_store
         return mock
 
     @pytest.fixture
@@ -1362,8 +1362,8 @@ class TestClearBackendCache:
         return mock
 
     @pytest.fixture
-    def controller(self, mock_settings_manager, mock_backend_registry, mock_model_lifecycle_manager):
-        return BackendController(mock_settings_manager, mock_backend_registry, mock_model_lifecycle_manager)
+    def controller(self, mock_settings, mock_backend_registry, mock_model_lifecycle_manager):
+        return BackendController(mock_settings, mock_backend_registry, mock_model_lifecycle_manager)
 
     @pytest.fixture
     def native_backend(self):
@@ -1399,14 +1399,14 @@ class TestClearBackendCache:
 
     @pytest.mark.asyncio
     async def test_404_unknown_backend(self, controller, admin_user):
-        controller.backend_config_manager.get_backend.return_value = None
+        controller.backend_config_store.get_backend.return_value = None
         with pytest.raises(HTTPException) as exc_info:
             await controller.clear_backend_cache("nope", user=admin_user)
         assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
     async def test_400_non_native(self, controller, admin_user, comfyui_backend):
-        controller.backend_config_manager.get_backend.return_value = comfyui_backend
+        controller.backend_config_store.get_backend.return_value = comfyui_backend
         with pytest.raises(HTTPException) as exc_info:
             await controller.clear_backend_cache("comfyui-1", user=admin_user)
         assert exc_info.value.status_code == 400
@@ -1416,7 +1416,7 @@ class TestClearBackendCache:
     async def test_success_invalidates_model_lifecycle_manager(
         self, controller, admin_user, native_backend, mock_model_lifecycle_manager
     ):
-        controller.backend_config_manager.get_backend.return_value = native_backend
+        controller.backend_config_store.get_backend.return_value = native_backend
 
         response = await controller.clear_backend_cache("native-1", user=admin_user)
 
@@ -1425,9 +1425,9 @@ class TestClearBackendCache:
         mock_model_lifecycle_manager.invalidate.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_missing_model_lifecycle_manager_errors_cleanly(self, admin_user, native_backend, mock_settings_manager, mock_backend_registry):
-        controller = BackendController(mock_settings_manager, mock_backend_registry, model_lifecycle_manager=None)
-        controller.backend_config_manager.get_backend.return_value = native_backend
+    async def test_missing_model_lifecycle_manager_errors_cleanly(self, admin_user, native_backend, mock_settings, mock_backend_registry):
+        controller = BackendController(mock_settings, mock_backend_registry, model_lifecycle=None)
+        controller.backend_config_store.get_backend.return_value = native_backend
 
         with pytest.raises(HTTPException) as exc_info:
             await controller.clear_backend_cache("native-1", user=admin_user)

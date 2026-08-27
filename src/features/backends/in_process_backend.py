@@ -27,14 +27,14 @@ class InProcessBackend(BaseBackend):
     `prepare_pipes` signature breaks third-party backends.
     """
 
-    def __init__(self, backend_config, generation_manager: PipelineExecutor = None):
+    def __init__(self, backend_config, generation_engine: PipelineExecutor = None):
         super().__init__(backend_config)
-        self.generation_manager = generation_manager
+        self.generation_engine = generation_engine
         self._active: Set[str] = set()
 
-    def set_generation_manager(self, generation_manager: PipelineExecutor) -> None:
+    def set_generation_engine(self, generation_engine: PipelineExecutor) -> None:
         """Injected by BackendRegistry when the backend is instantiated."""
-        self.generation_manager = generation_manager
+        self.generation_engine = generation_engine
 
     def prepare_pipes(self, pipes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
@@ -56,8 +56,8 @@ class InProcessBackend(BaseBackend):
         if not pipes:
             raise ValueError("No pipeline configuration provided")
 
-        if not self.generation_manager:
-            raise RuntimeError(f"GenerationManager not set on {self.__class__.__name__}")
+        if not self.generation_engine:
+            raise RuntimeError(f"GenerationEngine not set on {self.__class__.__name__}")
 
         pipes = self.prepare_pipes(pipes)
 
@@ -84,7 +84,7 @@ class InProcessBackend(BaseBackend):
         """Run generation in a background thread and forward completion/failure."""
         try:
             await asyncio.to_thread(
-                self.generation_manager.generate, pipes, emit, generation_id, cache_owner
+                self.generation_engine.generate, pipes, emit, generation_id, cache_owner
             )
             logger.info(f"[{self.engine.upper()}_BACKEND] Generation {generation_id} completed")
         except Exception as e:
@@ -104,7 +104,7 @@ class InProcessBackend(BaseBackend):
             # Each backend owns its executor, and cancel() verifies the id
             # against the run in flight, so this can never abort a generation
             # belonging to another backend, tab or user.
-            if not self.generation_manager.cancel(generation_id):
+            if not self.generation_engine.cancel(generation_id):
                 logger.info(
                     f"[{self.engine.upper()}_BACKEND] Generation {generation_id} was not running; "
                     f"nothing to cancel"

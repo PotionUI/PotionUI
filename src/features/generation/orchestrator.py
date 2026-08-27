@@ -41,8 +41,8 @@ if TYPE_CHECKING:
     from src.features.models.access_policy import ModelAccessPolicy
     from src.features.users.repository import UserRepository
     from src.features.stats.generation_stats_repository import GenerationStatsRepository
-    from src.features.media_index.manager import MediaIndexManager
-    from src.platform.runtime.gpu import GpuManager
+    from src.features.media_index.indexer import MediaIndexer
+    from src.platform.runtime.gpu import GpuMonitor
 
 from src.platform.util.ids import generate_ulid
 from src.features.generation.pipeline_builder import PipelineBuilder
@@ -65,8 +65,8 @@ from src.features.generation.repository import generation_repo
 from src.features.generation.records import Generation
 from src.features.generation.exceptions import InvalidGenerationSourceException
 from src.features.generation.temp_source_tracker import temp_source_tracker
-from src.platform.websocket.connection_manager import ConnectionManager
-from src.platform.settings.settings import SettingsManager
+from src.platform.websocket.connection_hub import ConnectionHub
+from src.platform.settings.settings import Settings
 from src.platform.plugins.hooks import HookContext, await_hook_blocking_waits
 from src.features.generation.hooks import GENERATION_HOOKS
 from src.features.presets import PresetTemplateLoader
@@ -335,8 +335,8 @@ class GenerationOrchestrator:
         self,
         pipeline_builder: PipelineBuilder,
         backend_registry: BackendRegistry,
-        connection_manager: ConnectionManager,
-        settings_manager: SettingsManager,
+        connection_hub: ConnectionHub,
+        settings: Settings,
         output_processor: 'OutputProcessor',
         preset_template_loader: PresetTemplateLoader,
         status_tracker: Optional[GenerationStatusTracker] = None,
@@ -346,8 +346,8 @@ class GenerationOrchestrator:
         model_access_policy: Optional['ModelAccessPolicy'] = None,
         user_repository: Optional['UserRepository'] = None,
         generation_stats_repository: Optional['GenerationStatsRepository'] = None,
-        media_index_manager: Optional['MediaIndexManager'] = None,
-        gpu_manager: Optional['GpuManager'] = None,
+        media_indexer: Optional['MediaIndexer'] = None,
+        gpu_monitor: Optional['GpuMonitor'] = None,
     ):
         """
         Initialize the generation orchestrator.
@@ -355,8 +355,8 @@ class GenerationOrchestrator:
         Args:
             pipeline_builder: Builds pipeline configurations from form data
             backend_registry: Registry for selecting and accessing backends
-            connection_manager: WebSocket connection manager for real-time updates
-            settings_manager: Application settings manager
+            connection_hub: WebSocket connection manager for real-time updates
+            settings: Application settings manager
             output_processor: Processes generation outputs through handlers
             preset_template_loader: Loader for preset templates
             status_tracker: Single owner of generation state/progress
@@ -380,7 +380,7 @@ class GenerationOrchestrator:
             generation_stats_repository: Writes the durable per-generation
                 resource/timing row at completion. `None` (e.g. tests
                 that don't need it) skips the write entirely.
-            media_index_manager: Queues a completed generation's final files
+            media_indexer: Queues a completed generation's final files
                 for system tagging (best-effort; never breaks completion
                 handling). `None` skips the enqueue entirely.
         """
@@ -393,16 +393,16 @@ class GenerationOrchestrator:
         # `src.features.stats.operations.record_completion`).
         from src.features.presets.file_repository import FilePresetRepository
         self._file_preset_repository_for_stats = FilePresetRepository(preset_template_loader)
-        self.media_index_manager = media_index_manager
-        self.connection_manager = connection_manager
-        self.settings_manager = settings_manager
+        self.media_indexer = media_indexer
+        self.connection_hub = connection_hub
+        self.settings = settings
         self.output_processor = output_processor
         self.plugin_registry = plugin_registry
         self.notification_manager = notification_manager
         self.database_preset_repository = database_preset_repository
         self.model_access_policy = model_access_policy
         self.user_repository = user_repository
-        self.gpu_manager = gpu_manager
+        self.gpu_monitor = gpu_monitor
 
         self.status_tracker = status_tracker or GenerationStatusTracker()
 
@@ -431,15 +431,15 @@ class GenerationOrchestrator:
     def _read_vram_gb(self) -> tuple:
         """(free_gb, total_gb) from the host GPU monitor, or (None, None).
 
-        Reads NVML through `GpuManager` (the same source the resource trigger
-        polls) - it does not initialize CUDA. None when no GpuManager was wired
+        Reads NVML through `GpuMonitor` (the same source the resource trigger
+        polls) - it does not initialize CUDA. None when no GpuMonitor was wired
         (e.g. tests) or the read fails, so the payload stays well-formed.
         """
-        if self.gpu_manager is None:
+        if self.gpu_monitor is None:
             return None, None
         try:
-            free_gb = round(self.gpu_manager.get_free_vram() / 1024, 2)
-            total_gb = round(self.gpu_manager.get_total_vram() / 1024, 2)
+            free_gb = round(self.gpu_monitor.get_free_vram() / 1024, 2)
+            total_gb = round(self.gpu_monitor.get_total_vram() / 1024, 2)
             return free_gb, total_gb
         except Exception:
             logger.debug("before_start: VRAM read failed", exc_info=True)
@@ -576,7 +576,7 @@ class GenerationOrchestrator:
             # resolve inside the user's storage root. Raises FormBindingError
             # (a ValueError) / FormNotFoundException, mapped by the controller.
             mode = getattr(request, 'mode', 'txt2img')
-            storage_dir = self.settings_manager.get_file_storage_directory(user_id)
+            storage_dir = self.settings.get_file_storage_directory(user_id)
             field_overrides = None
             if self.database_preset_repository is not None:
                 field_overrides = self.database_preset_repository.get_preset_form_overrides(
@@ -614,7 +614,7 @@ class GenerationOrchestrator:
                 # `preset_mode_overrides` -- `mode` here is that preset mode,
                 # already resolved above. See apply_preset_mode_overlay().
                 capabilities = apply_preset_mode_overlay(capabilities, mode)
-                storage_dir = self.settings_manager.get_file_storage_directory(user_id)
+                storage_dir = self.settings.get_file_storage_directory(user_id)
                 raw_doc = request.form_data['video_director']
 
                 # The frontend's plain "seed" field (shared with every other
@@ -642,7 +642,7 @@ class GenerationOrchestrator:
             if isinstance(request.form_data, dict) and isinstance(request.form_data.get('music_director'), dict):
                 music_capabilities = (preset_template.vars or {}).get('music_director') or {}
                 music_capabilities = apply_music_director_mode_overlay(music_capabilities, mode)
-                storage_dir = self.settings_manager.get_file_storage_directory(user_id)
+                storage_dir = self.settings.get_file_storage_directory(user_id)
                 raw_music_doc = request.form_data['music_director']
 
                 # Same discipline as the Video Director form-seed override
@@ -1208,7 +1208,7 @@ class GenerationOrchestrator:
                 backend = self.backend_registry.get_backend(record.backend_id) if record.backend_id else None
                 if backend is not None:
                     engine = getattr(backend, "engine", None)
-                    gen_manager = getattr(backend, "generation_manager", None)
+                    gen_manager = getattr(backend, "generation_engine", None)
                     pop = getattr(gen_manager, "pop_resource_stats", None)
                     if callable(pop):
                         resource_stats = pop(generation_id)
@@ -1233,9 +1233,9 @@ class GenerationOrchestrator:
 
         # Queue the run's final files for system tagging (best-effort, like the
         # stats write above: indexing must never break generation completion).
-        if self.media_index_manager is not None:
+        if self.media_indexer is not None:
             try:
-                self.media_index_manager.on_generation_complete(
+                self.media_indexer.on_generation_complete(
                     generation_id, record.state.value
                 )
             except Exception:

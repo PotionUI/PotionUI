@@ -49,7 +49,7 @@ def detect_native_hardware_defaults() -> NativeHardwareDefaults:
     a maintainer is actively generating on.
 
     Cached for the process lifetime: `NativeBackendConfig` is reconstructed on
-    every `BackendConfigManager.get_backends()` call while the auto-provisioned
+    every `BackendConfigStore.get_backends()` call while the auto-provisioned
     backend's persisted config stays `{}` (nothing ever writes to it unless an
     admin edits the backend), so without caching this would re-probe on every
     request. Hardware doesn't change mid-process; call `.cache_clear()` to

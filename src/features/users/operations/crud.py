@@ -16,7 +16,7 @@ from src.platform.plugins import PluginRegistry
 from src.platform.plugins.hooks import execute_hook
 from src.platform.security import PasswordHasher
 from src.platform.security.user import AccountType, User
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -165,7 +165,7 @@ def update(
 def delete(
     repository: UserRepository,
     plugins: PluginRegistry,
-    settings_manager: SettingsManager,
+    settings: Settings,
     user_id: str,
     requesting_user_id: str,
 ) -> bool:
@@ -197,7 +197,7 @@ def delete(
         raise ValueError("Failed to delete user")
 
     if user.avatar_filename:
-        delete_avatar_file(settings_manager, user.avatar_filename)
+        delete_avatar_file(settings, user.avatar_filename)
 
     # Execute after_delete hook
     execute_hook(plugins, USER_HOOKS.after_delete, {"user_id": user_id, "username": user.username})

@@ -26,7 +26,7 @@ from src.features.models.catalog import ModelCatalog
 from src.features.models.indexer import model_scanner
 from src.features.models.indexing_coordinator import ModelIndexingCoordinator
 from src.features.models.jobs import ModelJobs
-from src.features.models.location import ModelsLocationManager
+from src.features.models.location import ModelsRelocator
 from src.features.models.metadata_editor import ModelMetadataEditor
 from src.features.models.provider_info import ProviderInfoFetcher
 from src.features.models.repository import ModelRepository
@@ -34,10 +34,10 @@ from src.features.tags.repository import TagRepository
 from src.platform.filesystem.storage_driver import FileStorageDriver
 from src.platform.plugins import PluginRegistry
 from src.platform.settings.repository import SettingRepository
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 
 if TYPE_CHECKING:
-    from src.features.downloads import DownloadManager
+    from src.features.downloads import DownloadQueue
 
 
 @dataclass(frozen=True)
@@ -55,15 +55,15 @@ class ModelIndexCollaborators:
     provider_info: ProviderInfoFetcher
     assignments: ModelAssignmentService
     jobs: ModelJobs
-    location: ModelsLocationManager
+    location: ModelsRelocator
 
 
 def build_model_index_collaborators(
     model_repository: ModelRepository,
     tag_repository: TagRepository,
     plugin_registry: PluginRegistry,
-    settings_manager: "SettingsManager",
-    download_manager: "DownloadManager",
+    settings: "Settings",
+    download_queue: "DownloadQueue",
     models_root: Optional[Path] = None,
     generation_active: Optional[Callable[[], bool]] = None,
     storage_driver: Optional[FileStorageDriver] = None,
@@ -81,14 +81,14 @@ def build_model_index_collaborators(
         catalog=ModelCatalog(model_repository, access, model_scanner, user_attribute_repository),
         indexing=ModelIndexingCoordinator(model_repository, plugin_registry, model_scanner),
         metadata=ModelMetadataEditor(
-            model_repository, tag_repository, plugin_registry, settings_manager,
+            model_repository, tag_repository, plugin_registry, settings,
             storage_driver=storage_driver,
             attribute_definition_repository=attribute_definition_repository,
         ),
         provider_info=ProviderInfoFetcher(model_repository, plugin_registry),
         assignments=ModelAssignmentService(model_repository, plugin_registry, access),
-        jobs=ModelJobs(model_repository, plugin_registry, model_scanner, download_manager),
-        location=ModelsLocationManager(
+        jobs=ModelJobs(model_repository, plugin_registry, model_scanner, download_queue),
+        location=ModelsRelocator(
             models_root or Path(model_scanner.models_dir),
             SettingRepository(),
             generation_active,

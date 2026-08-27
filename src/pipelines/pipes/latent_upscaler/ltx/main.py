@@ -96,8 +96,8 @@ from src.pipelines.contracts import (
 from src.pipelines.outputs import Icon, ProgressGenerationOutput
 from src.platform.observability.profiling import get_profiler
 from src.platform.runtime.device import clear_gpu_memory
-from src.platform.runtime.model_lifecycle.manager import empty_pinned_host_cache
-from src.platform.runtime.native.memory.residency import get_residency_manager
+from src.platform.runtime.model_lifecycle.lifecycle import empty_pinned_host_cache
+from src.platform.runtime.native.memory.residency import get_residency_registry
 from src.platform.runtime.native.resolution import snap_resolution
 from src.platform.runtime.native.vae.ltx_tiling import LtxTilingConfig
 from src.pipelines.pipes._shared.vae.ltx_latent_upsample import upsample_ltx_latent
@@ -193,7 +193,7 @@ def _free_room_for_upscale(bundle: Any, device: str, models: Any = None) -> None
     Unconditional except for the DiT's own move: ``bundle.dit`` is only
     offloaded when it's actually GPU-resident right now (``dit_restore.py``
     may have left it on CPU already, e.g. a partial-residency generation), but
-    ``GpuResidencyManager.offload_all``/``clear_gpu_memory``/the TE unload
+    ``GpuResidencyRegistry.offload_all``/``clear_gpu_memory``/the TE unload
     always run -- mirrors ``dit_placement.py``'s ``_ensure_room_for`` idiom,
     reused rather than reinvented. ``bundle.vae`` and both upsampler slots are
     excluded from the GPU eviction sweep since they're what THIS pipe is about
@@ -238,7 +238,7 @@ def _free_room_for_upscale(bundle: Any, device: str, models: Any = None) -> None
             getattr(bundle, "temporal_upsampler", None),
         ) if m is not None
     )
-    get_residency_manager().offload_all(device, exclude=own_models)
+    get_residency_registry().offload_all(device, exclude=own_models)
     clear_gpu_memory()
     alloc1 = torch.cuda.memory_allocated(device) / (1 << 30) if torch.cuda.is_available() else 0.0
     logger.debug(

@@ -73,7 +73,7 @@ def build_a1111_parameters(parameters: Dict[str, Any], models: List[Dict[str, An
     parse out of a PNG's `parameters` chunk.
 
     `parameters` is the per-image parameter dict for one generated file (as
-    returned by `GenerationHistoryManager.get_params`) - every key is
+    returned by `GenerationHistoryFacade.get_params`) - every key is
     optional, since presets only emit what they actually ran with.
     `models` is the list of model dicts linked to the generation (as
     returned by the same call), each carrying at least `model_type` and,

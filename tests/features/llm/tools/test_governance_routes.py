@@ -13,7 +13,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from src.features.llm.tools import governance_routes as gov_mod
-from src.features.llm.tools.governance import ToolGovernanceManager, ToolGovernanceRepository
+from src.features.llm.tools.governance import ToolGovernanceEditor, ToolGovernanceRepository
 from src.platform.http.base_controller import APIResponse
 from src.platform.security.current_user import get_current_active_user
 from src.platform.security.user import AccountType, User
@@ -81,7 +81,7 @@ class TestAdminToolsetConfigGating:
         registry = Mock()
         registry.get_all.return_value = []
         llm_repository = _llm_repository(config_exists)
-        manager = ToolGovernanceManager(repository=repo, tool_registry=registry)
+        manager = ToolGovernanceEditor(repository=repo, tool_registry=registry)
         controller = gov_mod.ToolGovernanceController(
             repository=repo, manager=manager, tool_registry=registry, llm_repository=llm_repository
         )
@@ -111,7 +111,7 @@ class TestAdminToolsetConfigGating:
 
 class TestUserPreferenceStatusCodes:
     """Exercises the real controller (not a stub) against a real
-    ToolGovernanceManager, so the exception -> status-code mapping is proven
+    ToolGovernanceEditor, so the exception -> status-code mapping is proven
     end to end rather than by construction."""
 
     def _client(self, config=None):
@@ -119,7 +119,7 @@ class TestUserPreferenceStatusCodes:
         repo.get_config.return_value = config
         registry = Mock()
         registry.get.return_value = object()  # tool is registered
-        manager = ToolGovernanceManager(repository=repo, tool_registry=registry)
+        manager = ToolGovernanceEditor(repository=repo, tool_registry=registry)
         controller = gov_mod.ToolGovernanceController(
             repository=repo, manager=manager, tool_registry=registry, llm_repository=_llm_repository()
         )
@@ -156,7 +156,7 @@ class TestUserPreferenceStatusCodes:
         repo.get_config.return_value = None  # no governance row for it either
         registry = Mock()
         registry.get.return_value = None  # not registered
-        manager = ToolGovernanceManager(repository=repo, tool_registry=registry)
+        manager = ToolGovernanceEditor(repository=repo, tool_registry=registry)
         controller = gov_mod.ToolGovernanceController(
             repository=repo, manager=manager, tool_registry=registry, llm_repository=_llm_repository()
         )
@@ -189,7 +189,7 @@ class TestUserPreferencesGetConfigScoping:
         tool.user_description = ""
         registry = Mock()
         registry.get_all.return_value = [tool]
-        manager = ToolGovernanceManager(repository=repo, tool_registry=registry)
+        manager = ToolGovernanceEditor(repository=repo, tool_registry=registry)
         controller = gov_mod.ToolGovernanceController(
             repository=repo, manager=manager, tool_registry=registry, llm_repository=_llm_repository()
         )

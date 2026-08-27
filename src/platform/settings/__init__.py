@@ -1,5 +1,5 @@
 """Application settings: typed, persisted, and overridable per user."""
 
-from .settings import SettingsManager
+from .settings import Settings
 
-__all__ = ["SettingsManager"]
+__all__ = ["Settings"]

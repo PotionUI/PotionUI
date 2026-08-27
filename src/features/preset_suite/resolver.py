@@ -73,21 +73,21 @@ class ModelResolver:
     Dependencies are injected so the whole thing is unit-testable without a real
     models DB or a network: ``model_repository`` (anything with
     ``get_by_sha256(sha)`` returning an object with ``.file_path``, or ``None``),
-    ``downloader`` (``(repo, file, dest_dir) -> path``), ``download_manager``
-    (a ``src.features.downloads.DownloadManager``, or anything exposing the same
+    ``downloader`` (``(repo, file, dest_dir) -> path``), ``download_queue``
+    (a ``src.features.downloads.DownloadQueue``, or anything exposing the same
     ``queue_model_download`` / ``get_download`` surface), and ``hasher``
     (``path -> hex sha256``).
 
     ``downloader`` always wins when given (mainly for tests - see
     ``tests/features/preset_suite/test_resolver.py``). Otherwise, when
-    ``download_manager`` is given, a missing model is fetched through it
+    ``download_queue`` is given, a missing model is fetched through it
     (queue-then-poll, like ``src/features/setup/executors/artifacts_fetch.py``)
     so the fetch shows up in the admin download history and honors the
     configured depot the same way every other model fetch does. Only when
     neither is given does resolution fall back to a direct
     ``huggingface_hub.hf_hub_download`` call - a bypass, but a caller-opt-in one:
     nothing in this codebase constructs a `ModelResolver` without a
-    ``download_manager`` for a real (non-dry-run) suite run; see
+    ``download_queue`` for a real (non-dry-run) suite run; see
     ``scripts/preset_test_suite.py``.
     """
 
@@ -100,7 +100,7 @@ class ModelResolver:
         cache_path: str | os.PathLike | None = None,
         allow_download: bool = False,
         downloader: Optional[Callable[[str, str, Path], str]] = None,
-        download_manager: Any = None,
+        download_queue: Any = None,
         hasher: Callable[[Path], str] = _sha256_file,
     ) -> None:
         self.models_dir = Path(models_dir)
@@ -113,7 +113,7 @@ class ModelResolver:
         self.sha_index = {str(k).strip().lower(): v for k, v in (sha_index or {}).items()}
         self.allow_download = allow_download
         self._downloader = downloader
-        self.download_manager = download_manager
+        self.download_queue = download_queue
         self._hasher = hasher
         self.cache_path = Path(cache_path) if cache_path else Path("storage") / "model_hash_cache.json"
         self._cache: dict[str, dict] = self._load_cache()
@@ -240,8 +240,8 @@ class ModelResolver:
             dest_dir.mkdir(parents=True, exist_ok=True)
             if self._downloader is not None:
                 downloader = self._downloader
-            elif self.download_manager is not None:
-                downloader = self._download_via_manager
+            elif self.download_queue is not None:
+                downloader = self._download_via_queue
             else:
                 downloader = _hf_download
             path = downloader(hf["repo"], hf["file"], dest_dir)
@@ -260,7 +260,7 @@ class ModelResolver:
             )
         return ResolveResult(str(path), source="download")
 
-    def _download_via_manager(self, repo: str, file: str, dest_dir: Path) -> str:
+    def _download_via_queue(self, repo: str, file: str, dest_dir: Path) -> str:
         """Queue-then-poll a single HF file through the core download queue.
 
         Same shape as ``ArtifactsFetchExecutor`` (`src/features/setup/executors/
@@ -268,14 +268,14 @@ class ModelResolver:
         not, so the queueing call is bridged with `run_sync` and completion is
         polled off the plain-sync `get_download`. `destination_dir` is passed as
         the already-resolved, depot-contained `dest_dir` computed by `_download`
-        above; `DownloadManager.queue_model_download` re-validates it stays
+        above; `DownloadQueue.queue_model_download` re-validates it stays
         inside the configured depot regardless.
         """
         from src.features.setup.executors._async_bridge import run_sync
 
         url = f"{_HF_BASE_URL}/{repo}/resolve/main/{file}"
         download = run_sync(
-            self.download_manager.queue_model_download(
+            self.download_queue.queue_model_download(
                 url=url,
                 destination_dir=str(dest_dir),
                 filename=file,
@@ -284,7 +284,7 @@ class ModelResolver:
 
         deadline = time.monotonic() + _DOWNLOAD_TIMEOUT_SECONDS
         while time.monotonic() < deadline:
-            current = self.download_manager.get_download(download.id)
+            current = self.download_queue.get_download(download.id)
             status = getattr(current.status, "value", current.status)
             if status == "completed":
                 return current.destination_path
@@ -296,9 +296,9 @@ class ModelResolver:
 
 def _hf_download(repo: str, file: str, dest_dir: Path) -> str:
     """Fallback HF downloader used only when a `ModelResolver` is given neither
-    a `download_manager` nor an explicit `downloader` - bypasses the download
+    a `download_queue` nor an explicit `downloader` - bypasses the download
     queue's history/depot-containment, so callers should prefer wiring a
-    `download_manager` (see `scripts/preset_test_suite.py`). Imported lazily so
+    `download_queue` (see `scripts/preset_test_suite.py`). Imported lazily so
     ``huggingface_hub`` is only a dependency when this path actually runs."""
     from huggingface_hub import hf_hub_download
 

@@ -3,7 +3,7 @@ the Video Director document routes to exactly one generator per mode, the
 `document` config reaches generator/chain_video_wan22 as a real dict (not a
 stringified copy), media_loader gating follows the document's media roles,
 and the single templated-provider gallery resolves to the right generator.
-Also proves the rendered pipeline validates via GenerationManager.validate_pipeline
+Also proves the rendered pipeline validates via GenerationEngine.validate_pipeline
 with the disabled generators/media_loaders present (the design this pipeline
 relies on -- see the pipeline.yml header comment).
 """
@@ -15,7 +15,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from src.features.generation.generation import GenerationManager, deep_update, validate_pipe_configuration
+from src.features.generation.engine import GenerationEngine, deep_update, validate_pipe_configuration
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
 from src.platform.templating.processor import TemplateProcessor
@@ -142,9 +142,9 @@ def wan_template():
 
 def _process(wan_template, doc, form_over=None):
     processor = PresetProcessor(
-        template_processor=TemplateProcessor(settings_manager=Mock()),
-        model_manager=Mock(),
-        settings_manager=Mock(),
+        template_processor=TemplateProcessor(settings=Mock()),
+        model_directories=Mock(),
+        settings=Mock(),
         preset_template_loader=Mock(),
     )
     # The DOC_* fixtures are hand-built to match normalize_video_director's
@@ -182,9 +182,9 @@ def _enabled_generators(pipes):
 
 
 def _validate(pipes):
-    manager = GenerationManager(
-        gpu=Mock(), model_manager=Mock(), pipe_catalog=Mock(get_pipe=Mock(side_effect=PIPE_CLASSES.get)),
-        settings_manager=Mock(), system_monitor=Mock(), memory_manager=Mock(),
+    manager = GenerationEngine(
+        gpu=Mock(), model_directories=Mock(), pipe_catalog=Mock(get_pipe=Mock(side_effect=PIPE_CLASSES.get)),
+        settings=Mock(), system_monitor=Mock(), memory_advisor=Mock(),
         llm_service=Mock(), models=Mock(),
     )
     manager.validate_pipeline(pipes)
@@ -196,7 +196,7 @@ def _validate_configs(pipes):
     -- without the same value being added to that pipe's declared
     `configuration()` choices): render the real preset, then run every
     ENABLED pipe's rendered config through the exact
-    `validate_pipe_configuration` per-field check GenerationManager.generate
+    `validate_pipe_configuration` per-field check GenerationEngine.generate
     runs at actual submission time (src/features/generation/generation.py),
     merged onto the pipe's own `get_default_config()` the same way that call
     site does. `validate_pipeline` (see `_validate` above) only checks input/
@@ -542,9 +542,9 @@ def ltx_template():
 
 def _process_ltx(ltx_template, doc, form_over=None):
     processor = PresetProcessor(
-        template_processor=TemplateProcessor(settings_manager=Mock()),
-        model_manager=Mock(),
-        settings_manager=Mock(),
+        template_processor=TemplateProcessor(settings=Mock()),
+        model_directories=Mock(),
+        settings=Mock(),
         preset_template_loader=Mock(),
     )
     # These DOC_*_LTX fixtures match normalize_video_director's OUTPUT shape

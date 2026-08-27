@@ -41,7 +41,7 @@ from typing import Any, Dict, Optional
 import torch
 
 from src.platform.observability.profiling import get_profiler
-from src.platform.runtime.native.memory.residency import free_vram_gb, get_residency_manager
+from src.platform.runtime.native.memory.residency import free_vram_gb, get_residency_registry
 from src.platform.runtime.device import clear_gpu_memory
 from src.platform.runtime.native.vae.ltx_tiling import LtxTilingConfig
 
@@ -124,7 +124,7 @@ def encode_with_oom_retry(
                 "evicting every foreign GPU-resident component and retrying once",
                 log_prefix, free_before, estimated_gb,
             )
-            get_residency_manager().offload_all(device, exclude=(vae,))
+            get_residency_registry().offload_all(device, exclude=(vae,))
             clear_gpu_memory()
             try:
                 latent = _do_encode()
@@ -141,7 +141,7 @@ def encode_with_oom_retry(
             "skipping the whole-clip attempt and going straight to tiled encode",
             log_prefix, estimated_gb, budget_gb, free_before,
         )
-        get_residency_manager().offload_all(device, exclude=(vae,))
+        get_residency_registry().offload_all(device, exclude=(vae,))
         clear_gpu_memory()
 
     try:

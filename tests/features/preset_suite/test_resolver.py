@@ -192,8 +192,8 @@ def test_no_sha_is_skip(tmp_path):
 #
 # A missing model used to be fetched with a direct `huggingface_hub.
 # hf_hub_download` call, bypassing the download queue (`src.features.downloads.
-# DownloadManager`) entirely - no depot configuration, no admin history, no
-# progress. When a `download_manager` is injected it must be used instead of
+# DownloadQueue`) entirely - no depot configuration, no admin history, no
+# progress. When a `download_queue` is injected it must be used instead of
 # that direct call; `downloader=` (mainly for the tests above) still wins when
 # both are given.
 
@@ -217,7 +217,7 @@ def test_download_manager_used_when_no_explicit_downloader(tmp_path):
     dm = SimpleNamespace(queue_model_download=_queue, get_download=_get_download)
 
     r = ModelResolver(tmp_path / "models", cache_path=tmp_path / "c.json",
-                       allow_download=True, download_manager=dm)
+                       allow_download=True, download_queue=dm)
     res = r.resolve(_ref(sha, hf={"repo": "org/m", "file": "w.safetensors"}), model_type="loras")
 
     assert res.resolved and res.source == "download"
@@ -244,11 +244,11 @@ def test_explicit_downloader_wins_over_download_manager(tmp_path):
 
     sha = hashlib.sha256(b"x").hexdigest()
     r = ModelResolver(tmp_path / "models", cache_path=tmp_path / "c.json",
-                       allow_download=True, downloader=_fake_dl, download_manager=dm)
+                       allow_download=True, downloader=_fake_dl, download_queue=dm)
     res = r.resolve(_ref(sha, hf={"repo": "o/m", "file": "w"}))
 
     assert res.resolved and res.source == "download"
-    assert manager_calls["n"] == 0, "the explicit `downloader` must win, not the injected download_manager"
+    assert manager_calls["n"] == 0, "the explicit `downloader` must win, not the injected download_queue"
 
 
 def test_download_manager_failed_status_is_skip(tmp_path):
@@ -260,7 +260,7 @@ def test_download_manager_failed_status_is_skip(tmp_path):
         get_download=lambda did: SimpleNamespace(status="failed", destination_path=None, error_message="disk full"),
     )
     r = ModelResolver(tmp_path / "models", cache_path=tmp_path / "c.json",
-                       allow_download=True, download_manager=dm)
+                       allow_download=True, download_queue=dm)
     res = r.resolve(_ref("a" * 64, hf={"repo": "o/m", "file": "w"}))
 
     assert not res.resolved
@@ -269,7 +269,7 @@ def test_download_manager_failed_status_is_skip(tmp_path):
 
 
 def test_neither_downloader_nor_manager_falls_back_to_direct_hf_download(tmp_path, monkeypatch):
-    """No `downloader` and no `download_manager` given: the legacy direct
+    """No `downloader` and no `download_queue` given: the legacy direct
     `huggingface_hub.hf_hub_download` fallback is still exercised (used by
     tests above via `downloader=`, and here directly to prove the fallback
     itself still works when nothing is injected)."""

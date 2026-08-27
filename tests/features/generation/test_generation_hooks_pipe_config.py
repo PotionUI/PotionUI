@@ -8,7 +8,7 @@ Tests for the `pipe.before_execute` hook contract used by the OpenRouter plugin:
 
 from typing import Any, Dict
 
-from src.features.generation.generation import GenerationManager
+from src.features.generation.engine import GenerationEngine
 from src.platform.plugins.hooks import HookContext
 from src.platform.plugins.registry import PluginRegistry
 from src.features.generation.hooks import PIPE_HOOKS
@@ -50,11 +50,11 @@ class _ObservingPipe:
 def _mock_deps():
     return {
         "gpu": Mock(),
-        "model_manager": Mock(),
+        "model_directories": Mock(),
         "pipe_catalog": Mock(),
-        "settings_manager": Mock(),
+        "settings": Mock(),
         "system_monitor": Mock(),
-        "memory_manager": Mock(),
+        "memory_advisor": Mock(),
         "llm_service": Mock(),
     }
 
@@ -67,7 +67,7 @@ def test_before_execute_hook_receives_generation_id():
     """pipe.before_execute context should include generation_id for plugin correlation."""
     deps = _mock_deps()
     registry = _plugin_registry()
-    manager = GenerationManager(**deps, plugin_registry=registry)
+    manager = GenerationEngine(**deps, plugin_registry=registry)
 
     seen = {}
 
@@ -95,7 +95,7 @@ def test_before_execute_hook_pipe_config_mutation_propagates():
     """Hook mutating pipe_config in-place must land in the executed pipe's self.config."""
     deps = _mock_deps()
     registry = _plugin_registry()
-    manager = GenerationManager(**deps, plugin_registry=registry)
+    manager = GenerationEngine(**deps, plugin_registry=registry)
 
     def handler(ctx: HookContext) -> HookContext:
         # In-place mutation, like the real openrouter hook does.
@@ -121,7 +121,7 @@ def test_before_execute_hook_pipe_config_replacement_propagates():
     """Hook replacing pipe_config with a new dict must also reach the pipe."""
     deps = _mock_deps()
     registry = _plugin_registry()
-    manager = GenerationManager(**deps, plugin_registry=registry)
+    manager = GenerationEngine(**deps, plugin_registry=registry)
 
     def handler(ctx: HookContext) -> HookContext:
         ctx.data["pipe_config"] = {"secret": "sk-replaced", "other": "replaced-value"}

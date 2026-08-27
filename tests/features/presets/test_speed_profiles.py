@@ -48,9 +48,9 @@ def _generation_data(**form_overrides):
 
 def _processor():
     return PresetProcessor(
-        template_processor=TemplateProcessor(settings_manager=Mock()),
-        model_manager=Mock(),
-        settings_manager=Mock(),
+        template_processor=TemplateProcessor(settings=Mock()),
+        model_directories=Mock(),
+        settings=Mock(),
         preset_template_loader=Mock(),
     )
 

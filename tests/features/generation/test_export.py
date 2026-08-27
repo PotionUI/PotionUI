@@ -1,4 +1,4 @@
-"""Tests for GenerationHistoryManager.export_zip (bulk export as zip)."""
+"""Tests for GenerationHistoryFacade.export_zip (bulk export as zip)."""
 
 import io
 import zipfile
@@ -8,7 +8,7 @@ import pytest
 from unittest.mock import Mock
 from PIL import Image
 
-from src.features.generation.history_manager import GenerationHistoryManager
+from src.features.generation.history_facade import GenerationHistoryFacade
 from src.features.generation.exceptions import GenerationNotFoundException
 from src.platform.filesystem.file_store import FileStore
 
@@ -31,7 +31,7 @@ class TestExportZip:
         """A manager wired with a real FileStore over `storage_root` - export
         reads bytes back through `self.file_service.local_copy_of`, so the
         double needs to actually resolve keys to files, not just record calls."""
-        return GenerationHistoryManager(
+        return GenerationHistoryFacade(
             generation_repo=self.mock_repo,
             file_service=FileStore(str(storage_root)),
             plugin_registry=self.mock_plugins,

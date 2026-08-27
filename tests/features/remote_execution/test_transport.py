@@ -140,7 +140,7 @@ def container(tmp_path: Path) -> WorkerContainer:
     )
     return WorkerContainer(
         config=config, pipe_catalog=CATALOG, journal=journal, coordinator=coordinator,
-        gpu_manager=None, system_monitor=None,
+        gpu_monitor=None, system_monitor=None,
     )
 
 

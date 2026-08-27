@@ -6,7 +6,7 @@ a given seed); the base class owns the seed-planning loop, cancellation
 support, and default Gallery/seed-param result emission.
 
 Declaring `is_cancelled` in `process`'s signature is what makes migrated
-generators cancellable for free: GenerationManager introspects the pipe's
+generators cancellable for free: GenerationEngine introspects the pipe's
 `process` signature and only passes `is_cancelled` through when the pipe
 declares it (see src/features/generation/generation.py).
 """

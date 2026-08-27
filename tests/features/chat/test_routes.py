@@ -1,6 +1,6 @@
 """Tests for ChatController (refactored version).
 
-These tests verify that the thin controller properly delegates to ChatManager
+These tests verify that the thin controller properly delegates to ChatRuntime
 and correctly maps exceptions to HTTP responses.
 """
 
@@ -33,13 +33,13 @@ class TestChatController:
 
     @pytest.fixture
     def mock_chat_manager(self):
-        """Mock ChatManager"""
+        """Mock ChatRuntime"""
         return Mock()
 
     @pytest.fixture
     def controller(self, mock_chat_manager):
-        """Create controller with mocked ChatManager"""
-        return ChatController(chat_manager=mock_chat_manager, turn_registry=ChatTurnRegistry())
+        """Create controller with mocked ChatRuntime"""
+        return ChatController(chat_runtime=mock_chat_manager, turn_registry=ChatTurnRegistry())
 
     @pytest.fixture
     def sample_user(self):
@@ -825,7 +825,7 @@ class TestChatModesEndpoints:
         manager.chat_mode_registry = mode_registry
         manager.tool_executor = Mock()
         manager.tool_executor.tool_registry = tool_registry
-        return ChatController(chat_manager=manager, turn_registry=ChatTurnRegistry())
+        return ChatController(chat_runtime=manager, turn_registry=ChatTurnRegistry())
 
     def test_get_modes(self, real_manager_controller):
         result = real_manager_controller.get_modes()
@@ -882,7 +882,7 @@ class TestSuggestResources:
                 has_children=True, icon="box",
             ),
         ])
-        return ChatController(chat_manager=manager, turn_registry=ChatTurnRegistry()), manager
+        return ChatController(chat_runtime=manager, turn_registry=ChatTurnRegistry()), manager
 
     @pytest.mark.asyncio
     async def test_suggest_resources_success(self, controller):
@@ -936,11 +936,11 @@ class TestMemoryEndpoints:
 
     @pytest.fixture
     def controller(self, monkeypatch):
-        chat_manager = Mock()
-        chat_manager.llm_memory_repository = Mock()
+        chat_runtime = Mock()
+        chat_runtime.llm_memory_repository = Mock()
         mock_ops = Mock()
         monkeypatch.setattr("src.features.chat.routes.memory_operations", mock_ops)
-        return ChatController(chat_manager=chat_manager, turn_registry=ChatTurnRegistry()), mock_ops, chat_manager.llm_memory_repository
+        return ChatController(chat_runtime=chat_runtime, turn_registry=ChatTurnRegistry()), mock_ops, chat_runtime.llm_memory_repository
 
     @pytest.fixture
     def user(self):
@@ -959,25 +959,25 @@ class TestMemoryEndpoints:
         return note
 
     def test_list_memory_notes(self, controller, user):
-        ctrl, memory_manager, memory_repo = controller
-        memory_manager.read_notes.return_value = [self._note()]
+        ctrl, memory_advisor, memory_repo = controller
+        memory_advisor.read_notes.return_value = [self._note()]
 
         result = ctrl.list_memory_notes(user, scope="global", scope_ref=None)
 
         assert result.success is True
         assert result.data["notes"] == [self._note().to_dict.return_value]
-        memory_manager.read_notes.assert_called_once_with(memory_repo, "user-1", scope="global", scope_ref=None)
+        memory_advisor.read_notes.assert_called_once_with(memory_repo, "user-1", scope="global", scope_ref=None)
 
     def test_list_memory_notes_includes_injection_caps(self, controller, user):
-        ctrl, memory_manager, memory_repo = controller
-        memory_manager.read_notes.return_value = []
+        ctrl, memory_advisor, memory_repo = controller
+        memory_advisor.read_notes.return_value = []
 
         result = ctrl.list_memory_notes(user)
 
         assert result.data["injection"] == {"cap_per_group": 20, "max_content_len": 500}
 
     def test_list_memory_notes_no_manager(self, user):
-        ctrl = ChatController(chat_manager=Mock(llm_memory_repository=None), turn_registry=ChatTurnRegistry())
+        ctrl = ChatController(chat_runtime=Mock(llm_memory_repository=None), turn_registry=ChatTurnRegistry())
 
         result = ctrl.list_memory_notes(user)
 
@@ -987,15 +987,15 @@ class TestMemoryEndpoints:
     def test_write_memory_note(self, controller, user):
         from src.features.chat.dto import MemoryWriteRequest
 
-        ctrl, memory_manager, memory_repo = controller
-        memory_manager.write_note.return_value = self._note()
+        ctrl, memory_advisor, memory_repo = controller
+        memory_advisor.write_note.return_value = self._note()
         request = MemoryWriteRequest(key="pref", content="likes cinematic lighting", scope="global")
 
         result = ctrl.write_memory_note(request, user)
 
         assert result.success is True
         assert result.data["key"] == "pref"
-        memory_manager.write_note.assert_called_once_with(
+        memory_advisor.write_note.assert_called_once_with(
             memory_repo,
             user_id="user-1", key="pref", content="likes cinematic lighting",
             scope="global", scope_ref=None,
@@ -1004,8 +1004,8 @@ class TestMemoryEndpoints:
     def test_write_memory_note_invalid_scope(self, controller, user):
         from src.features.chat.dto import MemoryWriteRequest
 
-        ctrl, memory_manager, memory_repo = controller
-        memory_manager.write_note.side_effect = ValueError("Invalid scope 'bogus'")
+        ctrl, memory_advisor, memory_repo = controller
+        memory_advisor.write_note.side_effect = ValueError("Invalid scope 'bogus'")
         request = MemoryWriteRequest(key="pref", content="c", scope="bogus")
 
         result = ctrl.write_memory_note(request, user)
@@ -1016,14 +1016,14 @@ class TestMemoryEndpoints:
     def test_update_memory_note(self, controller, user):
         from src.features.chat.dto import MemoryUpdateRequest
 
-        ctrl, memory_manager, memory_repo = controller
-        memory_manager.update_note.return_value = self._note(key="new_key")
+        ctrl, memory_advisor, memory_repo = controller
+        memory_advisor.update_note.return_value = self._note(key="new_key")
         request = MemoryUpdateRequest(key="new_key", content="updated content")
 
         result = ctrl.update_memory_note("note-1", request, user)
 
         assert result.success is True
-        memory_manager.update_note.assert_called_once_with(
+        memory_advisor.update_note.assert_called_once_with(
             memory_repo,
             user_id="user-1", note_id="note-1", key="new_key", content="updated content",
         )
@@ -1031,8 +1031,8 @@ class TestMemoryEndpoints:
     def test_update_memory_note_content_too_long(self, controller, user):
         from src.features.chat.dto import MemoryUpdateRequest
 
-        ctrl, memory_manager, memory_repo = controller
-        memory_manager.update_note.side_effect = ValueError(
+        ctrl, memory_advisor, memory_repo = controller
+        memory_advisor.update_note.side_effect = ValueError(
             "Memory content is limited to 500 characters - distill the note"
         )
         request = MemoryUpdateRequest(key="pref", content="x" * 501)
@@ -1045,8 +1045,8 @@ class TestMemoryEndpoints:
     def test_update_memory_note_not_found(self, controller, user):
         from src.features.chat.dto import MemoryUpdateRequest
 
-        ctrl, memory_manager, memory_repo = controller
-        memory_manager.update_note.return_value = None
+        ctrl, memory_advisor, memory_repo = controller
+        memory_advisor.update_note.return_value = None
         request = MemoryUpdateRequest(key="k", content="c")
 
         result = ctrl.update_memory_note("missing", request, user)
@@ -1055,17 +1055,17 @@ class TestMemoryEndpoints:
         assert result.error == "note_not_found"
 
     def test_delete_memory_note(self, controller, user):
-        ctrl, memory_manager, memory_repo = controller
-        memory_manager.delete_note.return_value = True
+        ctrl, memory_advisor, memory_repo = controller
+        memory_advisor.delete_note.return_value = True
 
         result = ctrl.delete_memory_note("note-1", user)
 
         assert result.success is True
-        memory_manager.delete_note.assert_called_once_with(memory_repo, user_id="user-1", note_id="note-1")
+        memory_advisor.delete_note.assert_called_once_with(memory_repo, user_id="user-1", note_id="note-1")
 
     def test_delete_memory_note_not_found(self, controller, user):
-        ctrl, memory_manager, memory_repo = controller
-        memory_manager.delete_note.return_value = False
+        ctrl, memory_advisor, memory_repo = controller
+        memory_advisor.delete_note.return_value = False
 
         result = ctrl.delete_memory_note("missing", user)
 

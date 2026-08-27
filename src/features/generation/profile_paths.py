@@ -1,7 +1,7 @@
 """On-disk layout for per-generation resource profiles.
 
 Single source of truth for *where* a generation's profiler artifacts live, so
-the writer (``GenerationManager``, which calls ``profiler.start``), the read
+the writer (``GenerationEngine``, which calls ``profiler.start``), the read
 endpoint (``GenerationController.get_generation_profile``) and the
 ``has_profile`` availability flag (``GenerationHistoryQuery``) all agree.
 

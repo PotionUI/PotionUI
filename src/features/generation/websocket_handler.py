@@ -3,12 +3,12 @@ import asyncio
 import json
 from fastapi import WebSocket, WebSocketDisconnect
 
-from src.platform.websocket.connection_manager import ConnectionManager
+from src.platform.websocket.connection_hub import ConnectionHub
 from src.features.generation.policy import GenerationPolicy
 
 class WebSocketHandler:
-    def __init__(self, connection_manager: ConnectionManager):
-        self.connection_manager = connection_manager
+    def __init__(self, connection_hub: ConnectionHub):
+        self.connection_hub = connection_hub
 
     async def _send_heartbeat(self, websocket: WebSocket):
         """Send periodic heartbeat messages to keep the connection alive"""
@@ -37,7 +37,7 @@ class WebSocketHandler:
         logging.info(f"Starting WebSocket handler for client {client_id}")
         
         # Attempt to connect the WebSocket
-        connection_success = await self.connection_manager.connect(websocket, client_id)
+        connection_success = await self.connection_hub.connect(websocket, client_id)
 
         if not connection_success:
             logging.error(f"Failed to connect WebSocket for client {client_id}")
@@ -54,7 +54,7 @@ class WebSocketHandler:
             logging.info(f"Sent connection_established message to client {client_id}")
         except Exception as e:
             logging.error(f"Failed to send connection_established message to client {client_id}: {str(e)}")
-            self.connection_manager.disconnect(client_id)
+            self.connection_hub.disconnect(client_id)
             return
 
         # Start heartbeat task
@@ -105,7 +105,7 @@ class WebSocketHandler:
                                 continue
 
                             # Attempt to subscribe
-                            subscription_success = await self.connection_manager.subscribe_to_generation(client_id, generation_id)
+                            subscription_success = await self.connection_hub.subscribe_to_generation(client_id, generation_id)
                             if subscription_success:
                                 # Send subscription confirmation
                                 await websocket.send_text(json.dumps({
@@ -152,11 +152,11 @@ class WebSocketHandler:
                         break
 
         except WebSocketDisconnect:
-            self.connection_manager.disconnect(client_id)
+            self.connection_hub.disconnect(client_id)
         except Exception as e:
             import traceback
             traceback.print_exc()
-            self.connection_manager.disconnect(client_id)
+            self.connection_hub.disconnect(client_id)
         finally:
             # Cancel heartbeat task
             heartbeat_task.cancel()
@@ -166,4 +166,4 @@ class WebSocketHandler:
                 pass
 
             # Ensure client is disconnected
-            self.connection_manager.disconnect(client_id)
+            self.connection_hub.disconnect(client_id)

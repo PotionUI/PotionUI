@@ -64,8 +64,8 @@ class TestKrea2InlineEnhancePersistence(PersistenceTestBase):
             module.db = self.db
 
         self.storage_dir = tempfile.mkdtemp()
-        self.settings_manager = Mock()
-        self.settings_manager.get_file_storage_directory.return_value = self.storage_dir
+        self.settings = Mock()
+        self.settings.get_file_storage_directory.return_value = self.storage_dir
 
         self.user_id = self.create_test_user()
         self.generation_id = "gen_krea2_enhance"
@@ -100,7 +100,7 @@ class TestKrea2InlineEnhancePersistence(PersistenceTestBase):
         for output in emitted:
             if isinstance(output, GalleryGenerationOutput):
                 GalleryGenerationOutputHandler(
-                    self.generation_id, self.user_id, self.settings_manager
+                    self.generation_id, self.user_id, self.settings
                 ).handle(output)
 
     def _run_param_emitter(self, passes=1):
@@ -124,7 +124,7 @@ class TestKrea2InlineEnhancePersistence(PersistenceTestBase):
         for output in emitted:
             if isinstance(output, ParamGenerationOutput):
                 ParamGenerationOutputHandler(
-                    self.generation_id, self.user_id, self.settings_manager
+                    self.generation_id, self.user_id, self.settings
                 ).handle(output)
 
     def _persisted_files(self):

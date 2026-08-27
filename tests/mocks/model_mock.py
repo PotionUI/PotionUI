@@ -61,31 +61,31 @@ def mock_model_loader():
 
 
 @pytest.fixture
-def mock_model_manager():
+def mock_model_directories():
     """
-    Mock the ModelManager to avoid actual model operations.
+    Mock the ModelDirectories to avoid actual model operations.
 
-    This fixture creates a mock ModelManager that:
+    This fixture creates a mock ModelDirectories that:
     - Returns fake model directories
     - Skips filesystem creation
 
-    ModelManager no longer downloads models; downloads go through the core download
+    ModelDirectories no longer downloads models; downloads go through the core download
     queue, which authenticates via the provider registry.
 
     Usage:
-        def test_preset_loading(mock_model_manager):
-            # ModelManager operations are mocked
-            manager = ModelManager("/fake/path")
+        def test_preset_loading(mock_model_directories):
+            # ModelDirectories operations are mocked
+            directories = ModelDirectories("/fake/path")
             # All operations succeed without actual file I/O
     """
-    mock_manager = Mock()
+    mock_directories = Mock()
 
-    mock_manager.get_model_dir = Mock(side_effect=lambda model_type: Path(f"/fake/models/{model_type}"))
-    mock_manager.create_model_dirs = Mock()
-    mock_manager.base_path = Path("/fake/models")
+    mock_directories.get_model_dir = Mock(side_effect=lambda model_type: Path(f"/fake/models/{model_type}"))
+    mock_directories.create_model_dirs = Mock()
+    mock_directories.base_path = Path("/fake/models")
 
-    with patch('src.features.models.directory.ModelManager', return_value=mock_manager):
-        yield mock_manager
+    with patch('src.features.models.directory.ModelDirectories', return_value=mock_directories):
+        yield mock_directories
 
 
 @pytest.fixture
@@ -101,7 +101,7 @@ def mock_model_indexer():
     Usage:
         def test_model_discovery(mock_model_indexer):
             # ModelIndexer operations are mocked
-            indexer = ModelIndexer(model_manager)
+            indexer = ModelIndexer(model_directories)
             indexer.index_models()  # Does nothing
     """
     from src.features.models.directory import ModelIndex

@@ -88,13 +88,13 @@ def _gpu_info() -> tuple[bool, Optional[tuple[int, int]], Optional[str], Optiona
     try:
         from pynvml import nvmlDeviceGetName
 
-        from src.platform.runtime.gpu import GpuManager
+        from src.platform.runtime.gpu import GpuMonitor
 
-        gpu_manager = GpuManager()
-        raw_name = nvmlDeviceGetName(gpu_manager.handle)
+        gpu_monitor = GpuMonitor()
+        raw_name = nvmlDeviceGetName(gpu_monitor.handle)
         gpu_name = raw_name.decode("utf-8") if isinstance(raw_name, bytes) else str(raw_name)
-        gpu_vram_gb = gpu_manager.get_total_vram() / 1024
-    except Exception:  # noqa: BLE001 — GpuManager needs NVML; absence isn't fatal
+        gpu_vram_gb = gpu_monitor.get_total_vram() / 1024
+    except Exception:  # noqa: BLE001 — GpuMonitor needs NVML; absence isn't fatal
         pass
 
     if gpu_name is None:

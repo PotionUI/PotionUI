@@ -13,7 +13,7 @@ from src.features.automation.dto import (
     UpdateAutomationRequest,
     ValidateGraphRequest,
 )
-from src.features.automation.manager import (
+from src.features.automation.runtime import (
     AutomationImportError,
     AutomationTemplateNotFoundError,
     AutomationTemplateUnavailableError,

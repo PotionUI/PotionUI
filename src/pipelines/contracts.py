@@ -70,7 +70,7 @@ class IOType(Enum):
     FORM = "FORM"
     DICT = "DICT"
 
-    # Built-in Services (injected by GenerationManager)
+    # Built-in Services (injected by GenerationEngine)
     SERVICE = "SERVICE"  # System services (GPU, SYSTEM, MEMORY, LLM, MODELS, ASSETS) - uppercase names
 
     # Model Types

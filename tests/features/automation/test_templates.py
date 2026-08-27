@@ -5,8 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.features.automation.manager import (
-    AutomationManager,
+from src.features.automation.runtime import (
+    AutomationRuntime,
     AutomationTemplateUnavailableError,
 )
 from src.features.automation.nodes import register_builtin_nodes
@@ -17,7 +17,7 @@ from src.platform.plugins.automation_templates import (
 )
 from src.platform.plugins.automation_nodes import NodeTypeRegistry
 
-from tests.features.automation.test_manager import FakeEngine, FakeRepository
+from tests.features.automation.test_runtime import FakeEngine, FakeRepository
 
 
 def _document(*, node_type: str = "trigger.manual", declared=None) -> dict:
@@ -150,14 +150,14 @@ class TestAutomationTemplateRegistry(unittest.TestCase):
         self.assertIsNotNone(registry.get("core:index-new-model-files"))
 
 
-class TestAutomationTemplateManager(unittest.IsolatedAsyncioTestCase):
+class TestAutomationTemplates(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.node_registry = NodeTypeRegistry()
         register_builtin_nodes(self.node_registry)
         self.template_registry = AutomationTemplateRegistry()
         register_builtin_templates(self.template_registry)
         self.repository = FakeRepository()
-        self.manager = AutomationManager(
+        self.manager = AutomationRuntime(
             repository=self.repository,
             engine=FakeEngine(),
             registry=self.node_registry,
@@ -198,7 +198,7 @@ class TestAutomationTemplateManager(unittest.IsolatedAsyncioTestCase):
         )
 
     def test_catalog_names_missing_node_types(self):
-        manager = AutomationManager(
+        manager = AutomationRuntime(
             repository=FakeRepository(),
             engine=FakeEngine(),
             registry=NodeTypeRegistry(),
@@ -236,7 +236,7 @@ class TestAutomationTemplateManager(unittest.IsolatedAsyncioTestCase):
         self.assertNotEqual(renamed.id, original.id)
 
     async def test_unavailable_template_cannot_be_instantiated(self):
-        manager = AutomationManager(
+        manager = AutomationRuntime(
             repository=FakeRepository(),
             engine=FakeEngine(),
             registry=NodeTypeRegistry(),

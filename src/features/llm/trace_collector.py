@@ -5,7 +5,7 @@ only place the fully assembled request array exists, so they call into
 ``record()`` right after building the payload and getting the response. They
 stay dumb: ``record()`` is a no-op unless a chat turn has ``activate()``d a
 trace context here (mirrors the ``_cache_owner`` ContextVar pattern in
-``src.platform.runtime.model_lifecycle.manager``).
+``src.platform.runtime.model_lifecycle.lifecycle``).
 
 ``src.features.chat.conversation.ConversationRunner`` activates the context
 per turn (session_id/user_id/purpose); ``ChatTitleGenerator`` activates its

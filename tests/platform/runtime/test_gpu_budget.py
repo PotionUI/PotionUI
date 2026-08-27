@@ -2,12 +2,12 @@
 
 import unittest
 
-from src.platform.runtime.gpu import GpuManager
+from src.platform.runtime.gpu import GpuMonitor
 
 
-def _gpu(available_gb: float) -> GpuManager:
+def _gpu(available_gb: float) -> GpuMonitor:
     # Bypass __init__: nvml is not available in tests and is irrelevant here.
-    g = GpuManager.__new__(GpuManager)
+    g = GpuMonitor.__new__(GpuMonitor)
     g._vram_cap_gb = None
     g.get_available_vram = lambda: available_gb
     return g

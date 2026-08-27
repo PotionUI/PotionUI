@@ -2,10 +2,10 @@
 
 The status route stays public; the run routes are admin-only with the
 404-not-403 idiom (a non-admin cannot even confirm a run exists). A real
-`SetupRunManager` backed by a temp file exercises the wiring end to end.
+`SetupRunner` backed by a temp file exercises the wiring end to end.
 
 `POST /runs` and the actions now drive the run forward on a
-background thread (`SetupRunManager.drive_async`) instead of inline, so a
+background thread (`SetupRunner.drive_async`) instead of inline, so a
 response no longer necessarily reflects steps that ran as a side effect of
 the same request - tests that need to observe a driven-forward state poll
 `GET /runs/{id}` with `_poll_until`, exactly like the real frontend does.
@@ -20,11 +20,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from src.platform.database.database import db as global_db
-from src.platform.database.migration_runner import MigrationManager
+from src.platform.database.migration_runner import MigrationRunner
 from src.platform.security.current_user import get_current_active_user
 from src.platform.security.user import AccountType, User
 from src.features.setup.routes import build_router
-from src.features.setup.run_manager import SetupRunManager
+from src.features.setup.runner import SetupRunner
 from src.features.setup.executors.base import StepResult
 from src.features.setup.executors.registry import SetupExecutorRegistry
 from src.features.setup.recipe_schema import Recipe, RecipeStep
@@ -35,7 +35,7 @@ def file_db(tmp_path):
     original_path = global_db.db_path
     global_db.db_path = tmp_path / "setup_run_routes.db"
     try:
-        MigrationManager().run_migrations()
+        MigrationRunner().run_migrations()
         yield global_db
     finally:
         global_db.db_path = original_path
@@ -78,19 +78,19 @@ def _consent_recipe(recipe_id="consent-recipe"):
 
 
 def _client(current_user: User, *, recipe_catalog=None, executor_registry=None) -> TestClient:
-    run_manager = SetupRunManager()
+    runner = SetupRunner()
     if executor_registry is not None:
-        run_manager.register_executor_registry(executor_registry)
+        runner.register_executor_registry(executor_registry)
     container = SimpleNamespace(
-        setup_run_manager=run_manager,
+        setup_runner=runner,
         # readiness deps are resolved lazily and never touched here.
         backend_registry=Mock(),
         preset_manager=Mock(),
         model_repository=Mock(),
         generation_repository=Mock(),
         instance_claim_repository=Mock(),
-        claim_token_manager=Mock(),
-        settings_manager=Mock(),
+        claim_token_store=Mock(),
+        settings=Mock(),
     )
     if recipe_catalog is not None:
         container.recipe_catalog = recipe_catalog
@@ -124,7 +124,7 @@ def test_non_admin_gets_404_on_create(file_db):
 
 def test_non_admin_gets_404_on_get(file_db):
     # Seed a real run as admin so we prove the 404 hides an existing run.
-    run = SetupRunManager().create_run("r")
+    run = SetupRunner().create_run("r")
     client = _client(_user(AccountType.USER))
     resp = client.get(f"/api/setup/runs/{run.id}")
     assert resp.status_code == 404

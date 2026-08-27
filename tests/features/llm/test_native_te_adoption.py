@@ -195,14 +195,14 @@ def test_gemma3_chat_tokenizer_ready_false_until_both_files_present(tmp_path):
 def test_ensure_gemma3_chat_tokenizer_fetches_via_download_manager(tmp_path):
     """No network: the download manager itself is a stand-in recording the
     call, exactly the seam ``ensure_gemma3_chat_tokenizer`` is supposed to
-    drive (``DownloadManager.ensure_local_hf_repo`` — src/features/downloads)."""
+    drive (``DownloadQueue.ensure_local_hf_repo`` — src/features/downloads)."""
     calls = []
 
-    class _FakeDownloadManager:
+    class _FakeDownloadQueue:
         def ensure_local_hf_repo(self, repo_id, target_dir, allow_patterns=None, **kwargs):
             calls.append((repo_id, target_dir, allow_patterns))
 
-    target = ensure_gemma3_chat_tokenizer(_FakeDownloadManager(), tmp_path)
+    target = ensure_gemma3_chat_tokenizer(_FakeDownloadQueue(), tmp_path)
 
     assert target == gemma3_chat_tokenizer_dir(tmp_path)
     assert target.is_dir()  # created even though the fake download wrote nothing

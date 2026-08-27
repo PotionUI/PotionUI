@@ -465,7 +465,7 @@ class ModuleStreamer:
         device; failure is contained because a missed release only reverts
         this chunk to the old end-of-teardown behaviour.
         """
-        from src.platform.runtime.model_lifecycle.manager import empty_pinned_host_cache
+        from src.platform.runtime.model_lifecycle.lifecycle import empty_pinned_host_cache
 
         try:
             empty_pinned_host_cache()

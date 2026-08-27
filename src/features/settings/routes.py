@@ -7,9 +7,9 @@ from pathlib import Path
 
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
-from src.platform.settings.settings import SettingsManager
-from src.features.models.directory import ModelManager
-from src.platform.runtime.gpu import GpuManager
+from src.platform.settings.settings import Settings
+from src.features.models.directory import ModelDirectories
+from src.platform.runtime.gpu import GpuMonitor
 from src.features.backends.backend_registry import BackendRegistry
 from src.features.settings.dto import (
     SettingsSchema,
@@ -43,17 +43,17 @@ def _is_stored_secret_mask(key: str, value: Any) -> bool:
 class SettingsController(BaseController):
     def __init__(
         self,
-        settings_manager: SettingsManager,
+        settings: Settings,
         setting_repository: SettingRepository,
-        model_manager: ModelManager,
-        gpu_manager: GpuManager,
+        model_directories: ModelDirectories,
+        gpu_monitor: GpuMonitor,
         backend_registry: BackendRegistry
     ):
         super().__init__()
-        self.settings_manager = settings_manager
+        self.settings = settings
         self.setting_repository = setting_repository
-        self.model_manager = model_manager
-        self.gpu_manager = gpu_manager
+        self.model_directories = model_directories
+        self.gpu_monitor = gpu_monitor
         self.backend_registry = backend_registry
 
     async def get_settings(self, user: Optional[User] = None) -> APIResponse:
@@ -76,9 +76,9 @@ class SettingsController(BaseController):
 
                 # Get the appropriate value
                 if setting.type == SettingType.SYSTEM:
-                    value = self.settings_manager.get_setting(setting.key)
+                    value = self.settings.get_setting(setting.key)
                 else:  # USER type
-                    value = self.settings_manager.get_setting(setting.key, user_id=user.id)
+                    value = self.settings.get_setting(setting.key, user_id=user.id)
                     if value is None:
                         value = setting.get_typed_value()  # Use default
 
@@ -213,7 +213,7 @@ class SettingsController(BaseController):
                         message="Admin privileges required to view system settings",
                         status_code=403
                     )
-                value = self.settings_manager.get_setting(key)
+                value = self.settings.get_setting(key)
             else:  # USER type
                 # User settings require the user context
                 if not user:
@@ -221,7 +221,7 @@ class SettingsController(BaseController):
                         error="authentication_required",
                         message="Authentication required to access user settings"
                     )
-                value = self.settings_manager.get_setting(key, user_id=user.id)
+                value = self.settings.get_setting(key, user_id=user.id)
 
             if value is None:
                 # For user settings, None might mean no value set yet
@@ -272,7 +272,7 @@ class SettingsController(BaseController):
                     return self.success_response(message=f"Setting '{key}' unchanged")
 
                 # Update system setting
-                success = self.settings_manager.set_setting(key, update_data.value)
+                success = self.settings.set_setting(key, update_data.value)
 
                 # Update description if provided
                 if update_data.description is not None:
@@ -292,7 +292,7 @@ class SettingsController(BaseController):
                     return self.success_response(message=f"Setting '{key}' unchanged")
 
                 # Update user setting for the authenticated user
-                success = self.settings_manager.set_setting(key, update_data.value, user_id=user.id)
+                success = self.settings.set_setting(key, update_data.value, user_id=user.id)
 
             if not success:
                 return self.error_response(
@@ -339,7 +339,7 @@ class SettingsController(BaseController):
     async def delete_user_setting(self, key: str, user: User) -> APIResponse:
         """Delete a user setting override, reverting to system default"""
         try:
-            success = self.settings_manager.delete_user_setting(key, user.id)
+            success = self.settings.delete_user_setting(key, user.id)
 
             if not success:
                 return self.error_response(
@@ -362,11 +362,11 @@ class SettingsController(BaseController):
         try:
             # GPU information
             gpu_info = {
-                'total_vram': self.gpu_manager.get_total_vram(),
-                'used_vram': self.gpu_manager.get_used_vram(),
-                'available_vram': self.gpu_manager.get_available_vram(),
-                'gpu_name': getattr(self.gpu_manager, 'gpu_name', 'Unknown'),
-                'driver_version': getattr(self.gpu_manager, 'driver_version', 'Unknown')
+                'total_vram': self.gpu_monitor.get_total_vram(),
+                'used_vram': self.gpu_monitor.get_used_vram(),
+                'available_vram': self.gpu_monitor.get_available_vram(),
+                'gpu_name': getattr(self.gpu_monitor, 'gpu_name', 'Unknown'),
+                'driver_version': getattr(self.gpu_monitor, 'driver_version', 'Unknown')
             }
 
             # Memory information (simplified)
@@ -383,7 +383,7 @@ class SettingsController(BaseController):
             }
 
             # Disk information
-            models_dir = Path(self.settings_manager.get_models_dir())
+            models_dir = Path(self.settings.get_models_dir())
             if models_dir.exists():
                 disk_usage = psutil.disk_usage(str(models_dir))
                 disk_info = {
@@ -396,7 +396,7 @@ class SettingsController(BaseController):
                 disk_info = {'error': 'Models directory not found'}
 
             # Model counts
-            models_count = len(self.model_manager.get_all_models())
+            models_count = len(self.model_directories.get_all_models())
 
             # Preset counts (simplified)
             presets_count = 0
@@ -424,9 +424,9 @@ class SettingsController(BaseController):
         """List available models"""
         try:
             if model_type:
-                models = self.model_manager.get_models_by_type(model_type)
+                models = self.model_directories.get_models_by_type(model_type)
             else:
-                models = self.model_manager.get_all_models()
+                models = self.model_directories.get_all_models()
 
             model_list = []
             for model in models:
@@ -464,7 +464,7 @@ class SettingsController(BaseController):
     async def get_model_types(self) -> APIResponse:
         """Get available model types"""
         try:
-            model_types = self.model_manager.get_model_types()
+            model_types = self.model_directories.get_model_types()
             return self.success_response(data=model_types)
 
         except Exception as e:
@@ -477,7 +477,7 @@ class SettingsController(BaseController):
         """Rescan models directory"""
         try:
             # This would trigger a model rescan
-            models_found = self.model_manager.scan_models_directory()
+            models_found = self.model_directories.scan_models_directory()
 
             return self.success_response(data={
                 'models_found': models_found,
@@ -512,10 +512,10 @@ class SettingsController(BaseController):
 
 def _build_settings_controller(container: "AppContainer") -> SettingsController:
     return SettingsController(
-        container.settings_manager,
+        container.settings,
         container.setting_repository,
-        container.model_manager,
-        container.gpu_manager,
+        container.model_directories,
+        container.gpu_monitor,
         container.backend_registry,
     )
 

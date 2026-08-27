@@ -11,7 +11,7 @@ from src.features.media_index.tagger import (
     WDTaggerProvider,
     build_tagger_provider,
 )
-from src.platform.runtime.model_lifecycle.manager import ModelLifecycleManager
+from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
 
 
 def _provider(**overrides):
@@ -126,9 +126,9 @@ class TestPredictionMapping:
 
         provider = self._loaded_provider()
         provider._input_size = 2
-        provider._model_lifecycle_manager = ModelLifecycleManager(gpu_manager=None, settings_manager=None)
+        provider._model_lifecycle = ModelLifecycle(gpu_monitor=None, settings=None)
         logits = torch.tensor([[0.0, -20.0, -20.0, -20.0, 20.0, -20.0, -20.0]])
-        # `_load_model` is the ModelLifecycleManager loader tag_image() acquires
+        # `_load_model` is the ModelLifecycle loader tag_image() acquires
         # through - stubbing it (not `_model` directly) proves the weights are
         # no longer held privately on the provider.
         provider._load_model = MagicMock(return_value=MagicMock(return_value=logits))
@@ -143,7 +143,7 @@ class TestPredictionMapping:
 
 
 class TestModelLifecycleIntegration:
-    """The checkpoint is lazy-loaded through ModelLifecycleManager, never
+    """The checkpoint is lazy-loaded through ModelLifecycle, never
     held privately - lazy load, evictable, idempotent eviction."""
 
     def _provider(self):
@@ -151,7 +151,7 @@ class TestModelLifecycleIntegration:
         provider._tag_names = ["general"]
         provider._tag_categories = [9]
         provider._input_size = 2
-        provider._model_lifecycle_manager = ModelLifecycleManager(gpu_manager=None, settings_manager=None)
+        provider._model_lifecycle = ModelLifecycle(gpu_monitor=None, settings=None)
         return provider
 
     @staticmethod
@@ -162,7 +162,7 @@ class TestModelLifecycleIntegration:
             """A plain (non-Mock) stand-in for the cached model: a MagicMock's
             own bookkeeping references push `sys.getrefcount` sky-high and its
             auto-attributes defeat `getattr(value, 'estimated_vram_gb', None)`,
-            which would fail eviction's `%.2f` formatting on ModelLifecycleManager's
+            which would fail eviction's `%.2f` formatting on ModelLifecycle's
             own log line - unrelated to the eviction contract under test here."""
 
             def __call__(self, batch):
@@ -180,7 +180,7 @@ class TestModelLifecycleIntegration:
     def test_not_loaded_until_first_use(self):
         provider = self._provider()
         self._stub_load_model(provider)
-        models = provider._model_lifecycle_manager
+        models = provider._model_lifecycle
 
         assert provider._cache_key() not in models._entries
         provider._load_model.assert_not_called()
@@ -188,7 +188,7 @@ class TestModelLifecycleIntegration:
     def test_first_tag_loads_and_caches_the_model(self):
         provider = self._provider()
         loader = self._stub_load_model(provider)
-        models = provider._model_lifecycle_manager
+        models = provider._model_lifecycle
 
         self._tag_a_pixel(provider)
 
@@ -202,7 +202,7 @@ class TestModelLifecycleIntegration:
     def test_cached_model_is_evictable(self):
         provider = self._provider()
         self._stub_load_model(provider)
-        models = provider._model_lifecycle_manager
+        models = provider._model_lifecycle
         self._tag_a_pixel(provider)
         key = provider._cache_key()
         assert key in models._entries
@@ -213,7 +213,7 @@ class TestModelLifecycleIntegration:
 
     def test_eviction_is_idempotent_when_the_key_is_already_gone(self):
         provider = self._provider()
-        models = provider._model_lifecycle_manager
+        models = provider._model_lifecycle
         key = provider._cache_key()
         assert key not in models._entries
 
@@ -230,7 +230,7 @@ class TestModelLifecycleIntegration:
     def test_evicted_model_reloads_on_next_use(self):
         provider = self._provider()
         loader = self._stub_load_model(provider)
-        models = provider._model_lifecycle_manager
+        models = provider._model_lifecycle
         self._tag_a_pixel(provider)
         assert loader.call_count == 1
 
@@ -240,17 +240,17 @@ class TestModelLifecycleIntegration:
         assert loader.call_count == 2
 
     def test_missing_lifecycle_manager_raises_clean_error(self):
-        import src.platform.runtime.model_lifecycle.manager as manager_module
+        import src.platform.runtime.model_lifecycle.lifecycle as manager_module
 
         provider = self._provider()
-        provider._model_lifecycle_manager = None
-        saved = manager_module._default_manager
-        manager_module._default_manager = None
+        provider._model_lifecycle = None
+        saved = manager_module._default_lifecycle
+        manager_module._default_lifecycle = None
         try:
-            with pytest.raises(RuntimeError, match="ModelLifecycleManager"):
+            with pytest.raises(RuntimeError, match="ModelLifecycle"):
                 provider._models()
         finally:
-            manager_module._default_manager = saved
+            manager_module._default_lifecycle = saved
 
     def test_is_loaded_reflects_residency_not_disk_presence(self):
         """`is_loaded()` must never be conflated with `is_available()` - a
@@ -268,20 +268,20 @@ class TestModelLifecycleIntegration:
         assert provider.is_available() is False
         assert provider.is_loaded() is True
 
-        provider._model_lifecycle_manager.invalidate(provider._cache_key())
+        provider._model_lifecycle.invalidate(provider._cache_key())
         assert provider.is_loaded() is False
 
     def test_is_loaded_false_without_a_lifecycle_manager(self):
         provider = self._provider()
-        provider._model_lifecycle_manager = None
-        import src.platform.runtime.model_lifecycle.manager as manager_module
+        provider._model_lifecycle = None
+        import src.platform.runtime.model_lifecycle.lifecycle as manager_module
 
-        saved = manager_module._default_manager
-        manager_module._default_manager = None
+        saved = manager_module._default_lifecycle
+        manager_module._default_lifecycle = None
         try:
             assert provider.is_loaded() is False
         finally:
-            manager_module._default_manager = saved
+            manager_module._default_lifecycle = saved
 
 
 class TestResolveStatus:

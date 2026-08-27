@@ -3,7 +3,7 @@ automation node's "backend_action" share ONE implementation
 (`residency.clear_vram`) instead of two independently-maintained copies.
 
 Before this fix, `BackendController.clear_backend_vram` called
-`GpuResidencyManager.offload_all(device)` directly, with no lease exclusion
+`GpuResidencyRegistry.offload_all(device)` directly, with no lease exclusion
 and no fallback sweep of the model-lifecycle cache — so a component that
 ended up GPU-resident without registering with the residency ledger (a
 placement path that forgot to) was invisible to the admin action even though
@@ -21,15 +21,15 @@ import pytest
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
 from src.features.backends.routes import BackendController
-from src.features.backends.backend_config import BackendConfigManager, NATIVE_ENGINE, NativeBackendConfig
+from src.features.backends.backend_config import BackendConfigStore, NATIVE_ENGINE, NativeBackendConfig
 from src.features.backends.backend_registry import BackendRegistry
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 from src.platform.security.user import AccountType, User
-from src.platform.runtime.native.memory.residency import GpuResidencyManager, clear_vram
+from src.platform.runtime.native.memory.residency import GpuResidencyRegistry, clear_vram
 
 
 class FakeCachedModel:
-    """Mimics a NativeModel wrapper as seen through ModelLifecycleManager.cached_values()."""
+    """Mimics a NativeModel wrapper as seen through ModelLifecycle.cached_values()."""
 
     def __init__(self, device, estimated_vram_gb):
         self.device = device
@@ -53,19 +53,19 @@ def native_backend():
     return NativeBackendConfig(id="native-1", name="Local GPU", engine=NATIVE_ENGINE, enabled=True, priority=1)
 
 
-def _controller(lifecycle_manager):
-    settings_manager = Mock(spec=SettingsManager)
-    backend_config_manager = Mock(spec=BackendConfigManager)
-    backend_config_manager.get_default_backend_ids.return_value = {}
+def _controller(lifecycle):
+    settings = Mock(spec=Settings)
+    backend_config_store = Mock(spec=BackendConfigStore)
+    backend_config_store.get_default_backend_ids.return_value = {}
     backend_registry = Mock(spec=BackendRegistry)
     backend_registry.refresh_backends = AsyncMock()
-    backend_registry.backend_config_manager = backend_config_manager
-    return BackendController(settings_manager, backend_registry, lifecycle_manager)
+    backend_registry.backend_config_store = backend_config_store
+    return BackendController(settings, backend_registry, lifecycle)
 
 
 class TestClearBackendVramSweepsLifecycleCache:
     """The admin route now shares residency.clear_vram with the automation
-    node, so it must sweep ModelLifecycleManager.cached_values() for a
+    node, so it must sweep ModelLifecycle.cached_values() for a
     component the residency ledger never saw."""
 
     @pytest.mark.asyncio
@@ -78,14 +78,14 @@ class TestClearBackendVramSweepsLifecycleCache:
         lifecycle.cleanup = Mock()
 
         controller = _controller(lifecycle)
-        controller.backend_config_manager.get_backend.return_value = native_backend
+        controller.backend_config_store.get_backend.return_value = native_backend
 
-        residency_manager = MagicMock()
-        residency_manager.offload_all.return_value = GpuResidencyManager().offload_all("cuda")  # empty OffloadResult
+        residency_registry = MagicMock()
+        residency_registry.offload_all.return_value = GpuResidencyRegistry().offload_all("cuda")  # empty OffloadResult
 
         with patch(
-            "src.platform.runtime.native.memory.residency.get_residency_manager",
-            return_value=residency_manager,
+            "src.platform.runtime.native.memory.residency.get_residency_registry",
+            return_value=residency_registry,
         ):
             response = await controller.clear_backend_vram("native-1", user=admin_user)
 
@@ -108,18 +108,18 @@ class TestClearBackendVramSweepsLifecycleCache:
         lifecycle.cleanup = Mock()
 
         controller = _controller(lifecycle)
-        controller.backend_config_manager.get_backend.return_value = native_backend
+        controller.backend_config_store.get_backend.return_value = native_backend
 
-        residency_manager = MagicMock()
-        residency_manager.offload_all.return_value = GpuResidencyManager().offload_all("cuda")
+        residency_registry = MagicMock()
+        residency_registry.offload_all.return_value = GpuResidencyRegistry().offload_all("cuda")
 
         with patch(
-            "src.platform.runtime.native.memory.residency.get_residency_manager",
-            return_value=residency_manager,
+            "src.platform.runtime.native.memory.residency.get_residency_registry",
+            return_value=residency_registry,
         ):
             response = await controller.clear_backend_vram("native-1", user=admin_user)
 
-        residency_manager.offload_all.assert_called_once_with(native_backend.device, exclude=[leased_gpu])
+        residency_registry.offload_all.assert_called_once_with(native_backend.device, exclude=[leased_gpu])
         assert leased_gpu.offload_calls == 0
         assert response.data["offloaded_count"] == 0
         assert response.data["swept_count"] == 0
@@ -127,7 +127,7 @@ class TestClearBackendVramSweepsLifecycleCache:
 
 class TestClearVramSharedFunction:
     """Direct coverage of residency.clear_vram against the REAL
-    GpuResidencyManager (no mocking of the manager itself) — the CPU-only
+    GpuResidencyRegistry (no mocking of the manager itself) — the CPU-only
     repro this test replaces lived at
     scratchpad/clear_vram_repro.py during investigation."""
 
@@ -142,7 +142,7 @@ class TestClearVramSharedFunction:
                 self.offload_calls += 1
                 self.device = "cpu"
 
-        manager = GpuResidencyManager()
+        manager = GpuResidencyRegistry()
         registered = StubModel("cuda:0", 24.0)
         manager.note_resident(registered, "cuda:0", registered.estimated_vram_gb)
         unregistered_straggler = StubModel("cuda:0", 3.0)
@@ -152,7 +152,7 @@ class TestClearVramSharedFunction:
         lifecycle.cached_values.return_value = [registered, unregistered_straggler]
 
         with patch(
-            "src.platform.runtime.native.memory.residency.get_residency_manager",
+            "src.platform.runtime.native.memory.residency.get_residency_registry",
             return_value=manager,
         ):
             result = clear_vram("cuda:0", lifecycle)
@@ -173,12 +173,12 @@ class TestClearVramSharedFunction:
             def offload(self):
                 self.device = "cpu"
 
-        manager = GpuResidencyManager()
+        manager = GpuResidencyRegistry()
         registered = StubModel("cuda:0", 10.0)
         manager.note_resident(registered, "cuda:0", registered.estimated_vram_gb)
 
         with patch(
-            "src.platform.runtime.native.memory.residency.get_residency_manager",
+            "src.platform.runtime.native.memory.residency.get_residency_registry",
             return_value=manager,
         ):
             result = clear_vram("cuda:0", None)
@@ -198,7 +198,7 @@ class TestClearVramSharedFunction:
                 self.offload_calls += 1
                 self.device = "cpu"
 
-        manager = GpuResidencyManager()
+        manager = GpuResidencyRegistry()
         model = StubModel("cuda:0", 12.0)
         manager.note_resident(model, "cuda:0", model.estimated_vram_gb)
 
@@ -209,7 +209,7 @@ class TestClearVramSharedFunction:
         lifecycle.cached_values.return_value = [model]
 
         with patch(
-            "src.platform.runtime.native.memory.residency.get_residency_manager",
+            "src.platform.runtime.native.memory.residency.get_residency_registry",
             return_value=manager,
         ):
             result = clear_vram("cuda:0", lifecycle)

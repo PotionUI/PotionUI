@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from src.features.downloads.exceptions import DownloadOperationException, DownloadQueueException
-from src.features.downloads.manager import DownloadManager
+from src.features.downloads.queue import DownloadQueue
 from src.features.downloads.models import Download, DownloadStatus, DownloadType
 
 
@@ -66,15 +66,15 @@ def depot(tmp_path):
 
 
 def _build_manager(repo, models_dir):
-    settings_manager = Mock()
-    settings_manager.get_setting.side_effect = lambda key, default=None: {
+    settings = Mock()
+    settings.get_setting.side_effect = lambda key, default=None: {
         "models_dir": str(models_dir),
     }.get(key, default)
-    mgr = DownloadManager(
+    mgr = DownloadQueue(
         download_repository=repo,
         plugin_registry=_plugin_registry(),
-        settings_manager=settings_manager,
-        connection_manager=AsyncMock(),
+        settings=settings,
+        connection_hub=AsyncMock(),
     )
     worker = AsyncMock()
     worker.get_queue_position.return_value = 0
@@ -122,7 +122,7 @@ _FILES = [
 class TestQueueHfRepoDownload:
     async def test_creates_parent_and_children(self, manager, repo, depot):
         destination_dir = str(depot / "org--tiny")
-        with patch.object(DownloadManager, "_enumerate_hf_repo", return_value=list(_FILES)):
+        with patch.object(DownloadQueue, "_enumerate_hf_repo", return_value=list(_FILES)):
             parent = await manager.queue_hf_repo_download(
                 "org/tiny", destination_dir=destination_dir
             )
@@ -144,18 +144,18 @@ class TestQueueHfRepoDownload:
         assert parent.id not in enqueued
 
     async def test_default_destination_derives_from_repo_id(self, manager, repo):
-        with patch.object(DownloadManager, "_enumerate_hf_repo", return_value=list(_FILES)):
+        with patch.object(DownloadQueue, "_enumerate_hf_repo", return_value=list(_FILES)):
             parent = await manager.queue_hf_repo_download("org/tiny")
 
         assert parent.destination_path.endswith("org--tiny")
 
     async def test_empty_repo_raises(self, manager):
-        with patch.object(DownloadManager, "_enumerate_hf_repo", return_value=[]):
+        with patch.object(DownloadQueue, "_enumerate_hf_repo", return_value=[]):
             with pytest.raises(DownloadQueueException):
                 await manager.queue_hf_repo_download("org/empty")
 
     async def test_enumeration_failure_raises_queue_exception(self, manager):
-        with patch.object(DownloadManager, "_enumerate_hf_repo", side_effect=RuntimeError("offline")):
+        with patch.object(DownloadQueue, "_enumerate_hf_repo", side_effect=RuntimeError("offline")):
             with pytest.raises(DownloadQueueException):
                 await manager.queue_hf_repo_download("org/tiny")
 
@@ -163,7 +163,7 @@ class TestQueueHfRepoDownload:
         context = Mock()
         context.data = {"blocked": True, "block_reason": "nope"}
         manager.plugins.execute_hook.return_value = (context, [])
-        with patch.object(DownloadManager, "_enumerate_hf_repo", return_value=list(_FILES)):
+        with patch.object(DownloadQueue, "_enumerate_hf_repo", return_value=list(_FILES)):
             with pytest.raises(DownloadQueueException):
                 await manager.queue_hf_repo_download("org/tiny")
         assert repo.rows == {}
@@ -187,7 +187,7 @@ class TestQueueHfRepoDownloadDestinationContainment:
 
     async def test_relative_traversal_is_rejected_before_enumeration(self, manager, repo):
         enumerate_mock = self._forbidden_enumerate()
-        with patch.object(DownloadManager, "_enumerate_hf_repo", enumerate_mock):
+        with patch.object(DownloadQueue, "_enumerate_hf_repo", enumerate_mock):
             with pytest.raises(DownloadQueueException, match="escapes the configured directory"):
                 await manager.queue_hf_repo_download(
                     "org/tiny", destination_dir="../../outside"
@@ -197,7 +197,7 @@ class TestQueueHfRepoDownloadDestinationContainment:
 
     async def test_absolute_outside_depot_is_rejected_before_enumeration(self, manager, repo):
         enumerate_mock = self._forbidden_enumerate()
-        with patch.object(DownloadManager, "_enumerate_hf_repo", enumerate_mock):
+        with patch.object(DownloadQueue, "_enumerate_hf_repo", enumerate_mock):
             with pytest.raises(DownloadQueueException, match="escapes the configured directory"):
                 await manager.queue_hf_repo_download(
                     "org/tiny", destination_dir="/tmp/outside"
@@ -213,14 +213,14 @@ class TestQueueHfRepoDownloadDestinationContainment:
         context.data = {"destination_dir": "../../outside"}
         manager.plugins.execute_hook.return_value = (context, [])
         enumerate_mock = self._forbidden_enumerate()
-        with patch.object(DownloadManager, "_enumerate_hf_repo", enumerate_mock):
+        with patch.object(DownloadQueue, "_enumerate_hf_repo", enumerate_mock):
             with pytest.raises(DownloadQueueException, match="escapes the configured directory"):
                 await manager.queue_hf_repo_download("org/tiny")
         enumerate_mock.assert_not_called()
         assert repo.rows == {}
 
     async def test_valid_nested_destination_still_works(self, manager, repo, depot):
-        with patch.object(DownloadManager, "_enumerate_hf_repo", return_value=list(_FILES)):
+        with patch.object(DownloadQueue, "_enumerate_hf_repo", return_value=list(_FILES)):
             parent = await manager.queue_hf_repo_download(
                 "org/tiny", destination_dir="nested/sub"
             )
@@ -263,7 +263,7 @@ class TestDepotRootedDestinationIsRootedOnce:
         """The reported failure, at its own seam: a pipe calling
         `ASSETS.ensure_asset_repo` and then opening a file under the path it
         got back."""
-        with patch.object(DownloadManager, "_enumerate_hf_repo", return_value=list(_FILES)):
+        with patch.object(DownloadQueue, "_enumerate_hf_repo", return_value=list(_FILES)):
             returned = cwd_manager.ensure_asset_repo(
                 "org/tiny",
                 subdir="audio/org-tiny",
@@ -277,7 +277,7 @@ class TestDepotRootedDestinationIsRootedOnce:
     def test_ensure_local_hf_repo_uses_a_relative_depot_path_as_given(
         self, cwd_manager, repo
     ):
-        with patch.object(DownloadManager, "_enumerate_hf_repo", return_value=list(_FILES)):
+        with patch.object(DownloadQueue, "_enumerate_hf_repo", return_value=list(_FILES)):
             result = cwd_manager.ensure_local_hf_repo(
                 "org/tiny", "depot/text_encoders/org-tiny", poll_interval=0.01
             )
@@ -292,7 +292,7 @@ class TestDepotRootedDestinationIsRootedOnce:
         it is returned unchanged so the caller can hand it to
         `from_pretrained`."""
         target = tmp_path / "depot" / "text_encoders" / "org-tiny"
-        with patch.object(DownloadManager, "_enumerate_hf_repo", return_value=list(_FILES)):
+        with patch.object(DownloadQueue, "_enumerate_hf_repo", return_value=list(_FILES)):
             result = cwd_manager.ensure_local_hf_repo(
                 "org/tiny", str(target), poll_interval=0.01
             )
@@ -304,7 +304,7 @@ class TestDepotRootedDestinationIsRootedOnce:
         """The default was built by joining the depot root and then went
         through the join again - the same doubling, on the path an HTTP request
         that names no destination takes."""
-        with patch.object(DownloadManager, "_enumerate_hf_repo", return_value=list(_FILES)):
+        with patch.object(DownloadQueue, "_enumerate_hf_repo", return_value=list(_FILES)):
             parent = await cwd_manager.queue_hf_repo_download("org/tiny")
 
         assert Path(parent.destination_path) == Path("depot/org--tiny")
@@ -315,7 +315,7 @@ class TestDepotRootedDestinationIsRootedOnce:
     ):
         """The untrusted path is unchanged: a subdir from the request body is
         depot-relative, so it must still be joined."""
-        with patch.object(DownloadManager, "_enumerate_hf_repo", return_value=list(_FILES)):
+        with patch.object(DownloadQueue, "_enumerate_hf_repo", return_value=list(_FILES)):
             parent = await cwd_manager.queue_hf_repo_download(
                 "org/tiny", destination_dir="nested/sub"
             )
@@ -337,7 +337,7 @@ class TestTrustedDestinationIsStillContained:
         self, cwd_manager, repo
     ):
         enumerate_mock = self._forbidden_enumerate()
-        with patch.object(DownloadManager, "_enumerate_hf_repo", enumerate_mock):
+        with patch.object(DownloadQueue, "_enumerate_hf_repo", enumerate_mock):
             with pytest.raises(DownloadQueueException, match="escapes the configured directory"):
                 await cwd_manager.queue_hf_repo_download(
                     "org/tiny", trusted_destination_dir="/tmp/outside"
@@ -349,7 +349,7 @@ class TestTrustedDestinationIsStillContained:
         self, cwd_manager, repo
     ):
         enumerate_mock = self._forbidden_enumerate()
-        with patch.object(DownloadManager, "_enumerate_hf_repo", enumerate_mock):
+        with patch.object(DownloadQueue, "_enumerate_hf_repo", enumerate_mock):
             with pytest.raises(DownloadQueueException, match="escapes the configured directory"):
                 await cwd_manager.queue_hf_repo_download(
                     "org/tiny", trusted_destination_dir="depot/../../outside"
@@ -365,7 +365,7 @@ class TestTrustedDestinationIsStillContained:
         (tmp_path / "depot" / "hop").symlink_to(outside, target_is_directory=True)
 
         enumerate_mock = self._forbidden_enumerate()
-        with patch.object(DownloadManager, "_enumerate_hf_repo", enumerate_mock):
+        with patch.object(DownloadQueue, "_enumerate_hf_repo", enumerate_mock):
             with pytest.raises(DownloadQueueException, match="escapes the configured directory"):
                 await cwd_manager.queue_hf_repo_download(
                     "org/tiny", trusted_destination_dir="depot/hop/weights"
@@ -377,7 +377,7 @@ class TestTrustedDestinationIsStillContained:
         """End to end through the sync wrapper, which is what actually marks a
         destination trusted."""
         enumerate_mock = self._forbidden_enumerate()
-        with patch.object(DownloadManager, "_enumerate_hf_repo", enumerate_mock):
+        with patch.object(DownloadQueue, "_enumerate_hf_repo", enumerate_mock):
             with pytest.raises(DownloadQueueException, match="escapes the configured directory"):
                 cwd_manager.ensure_local_hf_repo("org/tiny", "/tmp/outside", poll_interval=0.01)
         enumerate_mock.assert_not_called()
@@ -388,7 +388,7 @@ class TestTrustedDestinationIsStillContained:
     ):
         for escape in ("../../outside", "/tmp/outside"):
             enumerate_mock = self._forbidden_enumerate()
-            with patch.object(DownloadManager, "_enumerate_hf_repo", enumerate_mock):
+            with patch.object(DownloadQueue, "_enumerate_hf_repo", enumerate_mock):
                 with pytest.raises(
                     DownloadQueueException, match="escapes the configured directory"
                 ):
@@ -408,7 +408,7 @@ class TestTrustedDestinationIsStillContained:
         context.data = {"destination_dir": "hooked/sub"}
         cwd_manager.plugins.execute_hook.return_value = (context, [])
 
-        with patch.object(DownloadManager, "_enumerate_hf_repo", return_value=list(_FILES)):
+        with patch.object(DownloadQueue, "_enumerate_hf_repo", return_value=list(_FILES)):
             parent = await cwd_manager.queue_hf_repo_download(
                 "org/tiny", trusted_destination_dir="depot/text_encoders/org-tiny"
             )
@@ -421,7 +421,7 @@ class TestTrustedDestinationIsStillContained:
         cwd_manager.plugins.execute_hook.return_value = (context, [])
 
         enumerate_mock = self._forbidden_enumerate()
-        with patch.object(DownloadManager, "_enumerate_hf_repo", enumerate_mock):
+        with patch.object(DownloadQueue, "_enumerate_hf_repo", enumerate_mock):
             with pytest.raises(DownloadQueueException, match="escapes the configured directory"):
                 await cwd_manager.queue_hf_repo_download(
                     "org/tiny", trusted_destination_dir="depot/text_encoders/org-tiny"

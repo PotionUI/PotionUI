@@ -115,7 +115,7 @@ def build_user_toolset_listing(
     return listing
 
 
-class ToolGovernanceManager:
+class ToolGovernanceEditor:
     """Mutations for tool governance. Reads for the admin/user listing routes
     go straight from the routes to the repository + tool registry (see house
     convention: managers keep mutations only)."""

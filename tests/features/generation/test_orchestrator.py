@@ -88,18 +88,18 @@ def mock_backend_registry():
 
 @pytest.fixture
 def mock_connection_manager():
-    """Mock ConnectionManager."""
-    from src.platform.websocket.connection_manager import ConnectionManager
-    manager = Mock(spec=ConnectionManager)
+    """Mock ConnectionHub."""
+    from src.platform.websocket.connection_hub import ConnectionHub
+    manager = Mock(spec=ConnectionHub)
     manager.broadcast_to_generation = AsyncMock()
     return manager
 
 
 @pytest.fixture
-def mock_settings_manager():
-    """Mock SettingsManager."""
-    from src.platform.settings.settings import SettingsManager
-    manager = Mock(spec=SettingsManager)
+def mock_settings():
+    """Mock Settings."""
+    from src.platform.settings.settings import Settings
+    manager = Mock(spec=Settings)
     manager.get_setting = Mock(return_value='/outputs')
     return manager
 
@@ -144,7 +144,7 @@ def orchestrator(
     mock_pipeline_builder,
     mock_backend_registry,
     mock_connection_manager,
-    mock_settings_manager,
+    mock_settings,
     mock_output_processor,
     mock_preset_template_loader
 ):
@@ -153,8 +153,8 @@ def orchestrator(
     return GenerationOrchestrator(
         pipeline_builder=mock_pipeline_builder,
         backend_registry=mock_backend_registry,
-        connection_manager=mock_connection_manager,
-        settings_manager=mock_settings_manager,
+        connection_hub=mock_connection_manager,
+        settings=mock_settings,
         output_processor=mock_output_processor,
         preset_template_loader=mock_preset_template_loader
     )
@@ -185,7 +185,7 @@ class TestGenerationOrchestratorInitialization:
         mock_pipeline_builder,
         mock_backend_registry,
         mock_connection_manager,
-        mock_settings_manager,
+        mock_settings,
         mock_output_processor,
         mock_preset_template_loader
     ):
@@ -196,16 +196,16 @@ class TestGenerationOrchestratorInitialization:
         orchestrator = GenerationOrchestrator(
             pipeline_builder=mock_pipeline_builder,
             backend_registry=mock_backend_registry,
-            connection_manager=mock_connection_manager,
-            settings_manager=mock_settings_manager,
+            connection_hub=mock_connection_manager,
+            settings=mock_settings,
             output_processor=mock_output_processor,
             preset_template_loader=mock_preset_template_loader
         )
 
         assert orchestrator.pipeline_builder == mock_pipeline_builder
         assert orchestrator.backend_registry == mock_backend_registry
-        assert orchestrator.connection_manager == mock_connection_manager
-        assert orchestrator.settings_manager == mock_settings_manager
+        assert orchestrator.connection_hub == mock_connection_manager
+        assert orchestrator.settings == mock_settings
         assert orchestrator.output_processor == mock_output_processor
         assert orchestrator.preset_template_loader == mock_preset_template_loader
         assert isinstance(orchestrator.status_tracker, GenerationStatusTracker)
@@ -219,7 +219,7 @@ class TestGenerationOrchestratorInitialization:
         mock_pipeline_builder,
         mock_backend_registry,
         mock_connection_manager,
-        mock_settings_manager,
+        mock_settings,
         mock_output_processor,
         mock_preset_template_loader
     ):
@@ -231,8 +231,8 @@ class TestGenerationOrchestratorInitialization:
         orchestrator = GenerationOrchestrator(
             pipeline_builder=mock_pipeline_builder,
             backend_registry=mock_backend_registry,
-            connection_manager=mock_connection_manager,
-            settings_manager=mock_settings_manager,
+            connection_hub=mock_connection_manager,
+            settings=mock_settings,
             output_processor=mock_output_processor,
             preset_template_loader=mock_preset_template_loader,
             status_tracker=tracker

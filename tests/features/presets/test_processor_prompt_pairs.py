@@ -39,9 +39,9 @@ def sdxl_template():
 @pytest.fixture(scope='module')
 def processed_pipes(sdxl_template):
     processor = PresetProcessor(
-        template_processor=TemplateProcessor(settings_manager=Mock()),
-        model_manager=Mock(),
-        settings_manager=Mock(),
+        template_processor=TemplateProcessor(settings=Mock()),
+        model_directories=Mock(),
+        settings=Mock(),
         preset_template_loader=Mock(),
     )
     # PresetProcessor now assumes form_data is already bound (typed defaults

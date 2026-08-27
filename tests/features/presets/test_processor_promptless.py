@@ -37,9 +37,9 @@ def _preset(pipe_configuration, vars_=None):
 
 def _processor():
     return PresetProcessor(
-        template_processor=TemplateProcessor(settings_manager=Mock()),
-        model_manager=Mock(),
-        settings_manager=Mock(),
+        template_processor=TemplateProcessor(settings=Mock()),
+        model_directories=Mock(),
+        settings=Mock(),
         preset_template_loader=Mock(),
     )
 

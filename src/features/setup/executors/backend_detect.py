@@ -13,7 +13,7 @@ reported as a plain "enable the backend plugin" failure, not "server
 unreachable" (those are different problems with different fixes).
 
 Reuses the same create/update path the backend admin API uses
-(`BackendConfigManager.validate_backend_config` +
+(`BackendConfigStore.validate_backend_config` +
 `add_backend`/`update_backend` + `BackendRegistry.refresh_backends` - see
 `src.features.backends.routes.BackendController.create_backend`), so a
 detected backend behaves identically to one an admin created by hand.
@@ -49,7 +49,7 @@ class BackendDetectExecutor:
             )
 
         host, port = self._target(context, config_cls)
-        existing = self.backend_registry.backend_config_manager.get_backends_for_engine(engine)
+        existing = self.backend_registry.backend_config_store.get_backends_for_engine(engine)
         base = existing[0] if existing else None
 
         # A new backend needs a real id up front (unlike the admin "create
@@ -88,11 +88,11 @@ class BackendDetectExecutor:
             )
 
         data: Dict[str, Any] = probe_config.model_dump()
-        validated = self.backend_registry.backend_config_manager.validate_backend_config(data)
+        validated = self.backend_registry.backend_config_store.validate_backend_config(data)
         if base is None:
-            self.backend_registry.backend_config_manager.add_backend(validated)
+            self.backend_registry.backend_config_store.add_backend(validated)
         else:
-            self.backend_registry.backend_config_manager.update_backend(base.id, validated)
+            self.backend_registry.backend_config_store.update_backend(base.id, validated)
         run_sync(self.backend_registry.refresh_backends())
 
         return StepResult.ok(

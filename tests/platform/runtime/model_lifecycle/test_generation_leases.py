@@ -13,8 +13,8 @@ from unittest.mock import Mock
 
 import pytest
 
-import src.platform.runtime.model_lifecycle.manager as manager_module
-from src.platform.runtime.model_lifecycle.manager import ModelLifecycleManager
+import src.platform.runtime.model_lifecycle.lifecycle as manager_module
+from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
 from src.platform.runtime.system_memory import SystemMemory
 
 
@@ -51,15 +51,15 @@ def _no_real_cuda_calls(monkeypatch):
 
 
 @pytest.fixture
-def fake_gpu_manager():
+def fake_gpu_monitor():
     gpu = Mock()
     gpu.get_vram_budget.return_value = 10.0
     return gpu
 
 
 @pytest.fixture
-def manager(fake_gpu_manager):
-    return ModelLifecycleManager(gpu_manager=fake_gpu_manager, settings_manager=None)
+def manager(fake_gpu_monitor):
+    return ModelLifecycle(gpu_monitor=fake_gpu_monitor, settings=None)
 
 
 class TestLeaseProtectsFromRAMPressureEviction:
@@ -278,7 +278,7 @@ class TestLeasedGBReporting:
 
 
 class TestGenerationLeaseContextManager:
-    """generation_lease() context manager (the public API for GenerationManager)."""
+    """generation_lease() context manager (the public API for GenerationEngine)."""
 
     def test_context_manager_acquires_and_releases_lease(self, manager):
         log = []

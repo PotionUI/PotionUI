@@ -1,7 +1,7 @@
 """Credentials are unreadable in a database dump.
 
 Every test here goes through the real write path - PluginRepository.set_plugin_setting
-and BackendConfigManager.add_backend/update_backend - against a real on-disk SQLite file, and
+and BackendConfigStore.add_backend/update_backend - against a real on-disk SQLite file, and
 then greps the bytes of that file. A fixture that constructed its own ciphertext
 would prove nothing about the code that actually stores credentials.
 """
@@ -20,7 +20,7 @@ import pytest
 from pydantic import Field
 
 from src.bootstrap.secrets_preflight import run_secret_preflight
-from src.features.backends.backend_config import BackendConfigManager, BaseBackendConfig
+from src.features.backends.backend_config import BackendConfigStore, BaseBackendConfig
 from src.features.backends.records import Backend
 from src.features.plugins.repository import PluginRepository
 from src.features.backends.repository import BackendRepository
@@ -468,8 +468,8 @@ class FakeEngineConfig(BaseBackendConfig):
 
 @pytest.fixture
 def config_manager(db):
-    """The real BackendConfigManager, with a fake engine registered."""
-    return BackendConfigManager(
+    """The real BackendConfigStore, with a fake engine registered."""
+    return BackendConfigStore(
         backend_repository=BackendRepository(),
         registered_config_types={"fake-engine": FakeEngineConfig},
     )

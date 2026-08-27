@@ -169,7 +169,7 @@ def container(tmp_path: Path) -> WorkerContainer:
     )
     return WorkerContainer(
         config=config, pipe_catalog=CATALOG, journal=journal, coordinator=coordinator,
-        gpu_manager=None, system_monitor=None,
+        gpu_monitor=None, system_monitor=None,
     )
 
 
@@ -555,7 +555,7 @@ def test_asset_upload_after_a_restart_is_unknown_execution(container):
     )
     new_container = WorkerContainer(
         config=container.config, pipe_catalog=CATALOG, journal=new_journal,
-        coordinator=new_coordinator, gpu_manager=None, system_monitor=None,
+        coordinator=new_coordinator, gpu_monitor=None, system_monitor=None,
     )
     new_client = TestClient(create_worker_app(container=new_container))
 
@@ -635,7 +635,7 @@ def test_a_new_app_instance_over_the_same_work_dir_is_idempotent(container):
     )
     new_container = WorkerContainer(
         config=container.config, pipe_catalog=CATALOG, journal=new_journal,
-        coordinator=new_coordinator, gpu_manager=None, system_monitor=None,
+        coordinator=new_coordinator, gpu_monitor=None, system_monitor=None,
     )
     new_app = create_worker_app(container=new_container)
     new_client = TestClient(new_app)

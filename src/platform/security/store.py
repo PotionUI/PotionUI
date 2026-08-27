@@ -1,6 +1,6 @@
 """The user store as authentication sees it.
 
-`AuthManager` is handed a user store; it never constructs one. The concrete
+`Auth` is handed a user store; it never constructs one. The concrete
 repository is a feature (`src.features.users.repository`), and platform code
 may not reach into a feature, so the dependency is expressed structurally:
 anything with these methods can back authentication.

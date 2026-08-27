@@ -57,7 +57,7 @@ def build_default_executor_registry(
     pipeline_builder,
     model_repository: Optional[Any] = None,
     generation_orchestrator: Optional[Any] = None,
-    download_manager: Optional[Any] = None,
+    download_queue: Optional[Any] = None,
     provider_registry_factory: Optional[Any] = None,
     file_repository: Optional[Any] = None,
     run_repository: Optional[Any] = None,
@@ -91,7 +91,7 @@ def build_default_executor_registry(
             model_repository, provider_registry_factory=provider_registry_factory
         ),
         "artifacts.fetch": ArtifactsFetchExecutor(
-            download_manager, model_repository, provider_registry_factory=provider_registry_factory
+            download_queue, model_repository, provider_registry_factory=provider_registry_factory
         ),
         "workspace.activate": WorkspaceActivateExecutor(run_repository),
     }

@@ -10,7 +10,7 @@ from src.platform.security.current_user import get_current_admin_user
 from src.platform.security.user import User
 
 from src.features.media_index.dto import BackfillRequest, ProcessPendingRequest
-from src.features.media_index.manager import MediaIndexManager
+from src.features.media_index.indexer import MediaIndexer
 from src.features.media_index.tagger import WDTaggerProvider
 from src.features.media_index.vision_embedder import SiglipVisionEmbedder
 
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 
 class MediaIndexController(BaseController):
-    def __init__(self, manager: MediaIndexManager):
+    def __init__(self, manager: MediaIndexer):
         super().__init__()
         self.manager = manager
 
@@ -61,8 +61,8 @@ class MediaIndexController(BaseController):
 
 def build_router(container: "AppContainer") -> APIRouter:
     controller = container.media_index_controller
-    settings_manager = container.settings_manager
-    download_manager = container.download_manager
+    settings = container.settings
+    download_queue = container.download_queue
     router = APIRouter(prefix="/api/media-index", tags=["Media Index"])
 
     @router.get("/models-status", response_model=APIResponse, summary="Tagger + Vision-embedder Model Status")
@@ -80,24 +80,24 @@ def build_router(container: "AppContainer") -> APIRouter:
         fetch job for it. Admin only.
 
         `present` is disk-only and never implies `loaded` - both models load
-        through `ModelLifecycleManager` and can be evicted (or simply never
+        through `ModelLifecycle` and can be evicted (or simply never
         yet loaded) while their weights remain on disk. The in-flight job is
         included so a reloading or reconnecting admin client can reconstruct
         "a fetch is already running" from this call alone - it never has to
         keep its own record of which download id maps to which asset.
         """
-        models_dir = settings_manager.get_models_dir()
-        tagger_name = tagger_model or settings_manager.get_setting(
+        models_dir = settings.get_models_dir()
+        tagger_name = tagger_model or settings.get_setting(
             "media_tagger_model", WDTaggerProvider.DEFAULT_MODEL
         )
-        vision_name = vision_model or settings_manager.get_setting(
+        vision_name = vision_model or settings.get_setting(
             "media_vision_model", SiglipVisionEmbedder.DEFAULT_MODEL
         )
         tagger_provider = controller.manager.tagger_provider
         vision_embedder = controller.manager.vision_embedder
 
         tagger_status = WDTaggerProvider.resolve_status(tagger_name, models_dir)
-        active_tagger = download_manager.find_active_download_for_repo(tagger_name)
+        active_tagger = download_queue.find_active_download_for_repo(tagger_name)
         tagger_status["active_download"] = active_tagger.to_dict() if active_tagger else None
         # Only the active provider instance can report residency, and only
         # for the model it was actually constructed with - an admin querying
@@ -108,7 +108,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         )
 
         vision_status = SiglipVisionEmbedder.resolve_status(vision_name, models_dir)
-        active_vision = download_manager.find_active_download_for_repo(vision_name)
+        active_vision = download_queue.find_active_download_for_repo(vision_name)
         vision_status["active_download"] = active_vision.to_dict() if active_vision else None
         vision_status["loaded"] = (
             vision_embedder.model_name == vision_name and vision_embedder.is_loaded()

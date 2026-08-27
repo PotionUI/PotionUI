@@ -1,7 +1,7 @@
 """
 Handler/spec for ErrorGenerationOutput.
 
-Emitted by GenerationManager right before it re-raises an unhandled pipe
+Emitted by GenerationEngine right before it re-raises an unhandled pipe
 exception. There is no persistence step (the failure itself is recorded by
 GenerationStatusTracker.transition via the orchestrator) - this spec exists
 purely to give the output a WebSocket message_type so the frontend learns

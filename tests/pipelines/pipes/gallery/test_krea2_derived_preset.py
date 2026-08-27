@@ -17,7 +17,7 @@ from unittest.mock import Mock
 
 import yaml
 
-from src.features.generation.generation import validate_pipe_configuration
+from src.features.generation.engine import validate_pipe_configuration
 from src.pipelines.pipes.gallery.main import GalleryPipe
 from src.platform.templating import TemplateProcessor
 
@@ -66,7 +66,7 @@ def _rendered_nodes(form_data, names, render_config_for=()):
     preset/speed_profiles context this test doesn't build, so it's skipped
     unless actually asserted on."""
     context = _context(form_data)
-    tp = TemplateProcessor(settings_manager=Mock())
+    tp = TemplateProcessor(settings=Mock())
     nodes = {}
     for node in _pipeline():
         if node["name"] not in names:

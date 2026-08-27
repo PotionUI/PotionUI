@@ -9,7 +9,7 @@ nothing else needs it. Every one of those bundles is a plain ``@dataclass``,
 though, and a dataclass field IS a strong reference - the documented intent
 didn't match the implementation.
 
-Production's referrer diagnostic (``ModelLifecycleManager.
+Production's referrer diagnostic (``ModelLifecycle.
 _evict_entry``'s ``gc.get_referrers`` dump) named a live ``Krea2ModelBundle``
 instance as what kept an evicted, orphaned Krea-2 DiT VRAM/RAM-resident
 forever after a LoRA swap (+25GB stuck host RAM). Who ends up holding the

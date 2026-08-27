@@ -2,7 +2,7 @@
 
 Owns session CRUD plus the accept/reject state transitions and the two
 "fetch-or-raise" lookups the rest of the chat feature depends on. Extracted
-from the ChatManager coordinator so session bookkeeping is separable from
+from the ChatRuntime coordinator so session bookkeeping is separable from
 message/LLM orchestration.
 """
 

@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 
-from src.features.chat.manager import ChatManager
+from src.features.chat.runtime import ChatRuntime
 from src.features.chat.modes import ChatModeRegistry, build_generation_mode
 from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolResult
 from src.features.llm.tools.executor import ToolExecutor, _ToolCallGuard
@@ -151,7 +151,7 @@ def _make_manager(tool, llm=None):
     llm = llm if llm is not None else _PresentingLLM()
     executor = ToolExecutor(tool_registry=registry, llm_service=llm)
 
-    manager = ChatManager(
+    manager = ChatRuntime(
         chat_repository=repo,
         llm_service=llm,
         response_processor=processor,

@@ -29,7 +29,7 @@ def _isolate_profiling_state(monkeypatch):
     """Every test gets a clean enabled/settings-manager cache, regardless of
     env vars set in the outer shell or a prior test's profiler state."""
     monkeypatch.delenv("POTIONUI_PROFILE", raising=False)
-    profiling_module.profiler._settings_manager = None
+    profiling_module.profiler._settings = None
     profiling_module.reset_enabled_cache()
     yield
     profiling_module.reset_enabled_cache()

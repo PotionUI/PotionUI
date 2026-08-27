@@ -331,16 +331,16 @@ class TestExecuteIndexModels(unittest.IsolatedAsyncioTestCase):
 
     async def test_disabled_backend_note_uses_its_display_name(self):
         """Config row still exists (disabled), so the note can carry the real name."""
-        from src.features.backends.backend_config import BackendConfigManager
+        from src.features.backends.backend_config import BackendConfigStore
 
         disabled_config = MagicMock()
         disabled_config.name = "Paused Server"
-        config_manager = MagicMock(spec=BackendConfigManager)
+        config_manager = MagicMock(spec=BackendConfigStore)
         config_manager.get_backend.return_value = disabled_config
 
         native = _fake_backend("native", "Native")
         services = _index_models_services({"native": native})
-        services.backend_config_manager = config_manager
+        services.backend_config_store = config_manager
 
         result = await _execute_index_models(
             _ctx(config={"backends": ["paused1", "native"]}, services=services)
@@ -501,7 +501,7 @@ class TestExecuteIndexMediaQueue(unittest.IsolatedAsyncioTestCase):
 
         result = await _execute_index_media_queue(_ctx(
             config={"pass_types": ["tags", "clip_embed"], "batch_size": 8, "max_items": 32},
-            services=AutomationServices(media_index_manager=manager),
+            services=AutomationServices(media_indexer=manager),
         ))
 
         self.assertEqual(result.output["processed_count"], 5)
@@ -521,7 +521,7 @@ class TestExecuteIndexMediaQueue(unittest.IsolatedAsyncioTestCase):
 
         result = await _execute_index_media_queue(_ctx(
             config={"pass_types": ["tags"], "batch_size": 2, "max_items": 0},
-            services=AutomationServices(media_index_manager=manager),
+            services=AutomationServices(media_indexer=manager),
         ))
 
         self.assertEqual(result.output["processed_count"], 5)
@@ -538,7 +538,7 @@ class TestExecuteIndexMediaQueue(unittest.IsolatedAsyncioTestCase):
 
         result = await _execute_index_media_queue(_ctx(
             config={"pass_types": ["tags"], "batch_size": 8, "max_items": 10},
-            services=AutomationServices(media_index_manager=manager),
+            services=AutomationServices(media_indexer=manager),
         ))
 
         self.assertEqual(result.output["processed_count"], 16)
@@ -557,7 +557,7 @@ class TestExecuteIndexMediaQueue(unittest.IsolatedAsyncioTestCase):
 
         result = await _execute_index_media_queue(_ctx(
             config={"pass_types": ["tags", "clip_embed"], "batch_size": 8, "max_items": 0},
-            services=AutomationServices(media_index_manager=manager),
+            services=AutomationServices(media_indexer=manager),
         ))
 
         self.assertEqual(result.output["processed_count"], 11)
@@ -575,7 +575,7 @@ class TestExecuteIndexMediaQueue(unittest.IsolatedAsyncioTestCase):
             queue_counts={"tags": {"pending": 0}, "clip_embed": {"pending": 0}, "prompt_embed": {"pending": 0}},
         )
 
-        result = await _execute_index_media_queue(_ctx(config={}, services=AutomationServices(media_index_manager=manager)))
+        result = await _execute_index_media_queue(_ctx(config={}, services=AutomationServices(media_indexer=manager)))
 
         self.assertEqual({call[0] for call in manager.calls}, {"tags", "clip_embed", "prompt_embed"})
         self.assertEqual(result.output["processed_count"], 3)
@@ -597,7 +597,7 @@ class TestExecuteIndexMediaQueue(unittest.IsolatedAsyncioTestCase):
         with patch.object(actions_module, "monotonic", side_effect=[0, 0, 0, 100]):
             result = await _execute_index_media_queue(_ctx(
                 config={"pass_types": ["tags"], "batch_size": 8, "max_items": 0, "max_runtime_s": 10},
-                services=AutomationServices(media_index_manager=manager),
+                services=AutomationServices(media_indexer=manager),
             ))
 
         self.assertTrue(result.output["timed_out"])
@@ -620,7 +620,7 @@ class TestExecuteIndexMediaQueue(unittest.IsolatedAsyncioTestCase):
         with patch.object(actions_module, "monotonic", side_effect=RuntimeError("must not be called")):
             result = await _execute_index_media_queue(_ctx(
                 config={"pass_types": ["tags"], "batch_size": 8, "max_items": 0, "max_runtime_s": 0},
-                services=AutomationServices(media_index_manager=manager),
+                services=AutomationServices(media_indexer=manager),
             ))
 
         self.assertFalse(result.output["timed_out"])
@@ -637,7 +637,7 @@ class TestExecuteIndexMediaQueue(unittest.IsolatedAsyncioTestCase):
 
         result = await _execute_index_media_queue(_ctx(
             config={"pass_types": ["tags"], "batch_size": 8, "max_items": 10, "max_runtime_s": 300},
-            services=AutomationServices(media_index_manager=manager),
+            services=AutomationServices(media_indexer=manager),
         ))
 
         self.assertEqual(result.output["processed_count"], 16)
@@ -718,8 +718,8 @@ def _backend_services(quick_actions=None, lifecycle=None) -> AutomationServices:
     config_manager = MagicMock()
     config_manager.get_backend.return_value = backend
     return AutomationServices(
-        backend_config_manager=config_manager,
-        model_lifecycle_manager=lifecycle if lifecycle is not None else MagicMock(),
+        backend_config_store=config_manager,
+        model_lifecycle=lifecycle if lifecycle is not None else MagicMock(),
     )
 
 
@@ -734,18 +734,18 @@ class TestExecuteBackendAction(unittest.IsolatedAsyncioTestCase):
         lifecycle.leased_values.return_value = []
         lifecycle.cached_values.return_value = []
         services = _backend_services(lifecycle=lifecycle)
-        residency_manager = MagicMock()
-        residency_manager.offload_all.return_value = OffloadResult(["dit", "vae"], freed_gb=13.4)
+        residency_registry = MagicMock()
+        residency_registry.offload_all.return_value = OffloadResult(["dit", "vae"], freed_gb=13.4)
 
         with patch(
-            "src.platform.runtime.native.memory.residency.get_residency_manager",
-            return_value=residency_manager,
+            "src.platform.runtime.native.memory.residency.get_residency_registry",
+            return_value=residency_registry,
         ):
             result = await _execute_backend_action(_ctx(
                 config={"backend": "native", "action": "clear-vram"}, services=services,
             ))
 
-        residency_manager.offload_all.assert_called_once_with("cuda", exclude=[])
+        residency_registry.offload_all.assert_called_once_with("cuda", exclude=[])
         lifecycle.cleanup.assert_called_once_with(aggressive=False)
         lifecycle.invalidate.assert_not_called()
         self.assertEqual(result.output["backend_id"], "native")
@@ -766,12 +766,12 @@ class TestExecuteBackendAction(unittest.IsolatedAsyncioTestCase):
         lifecycle.leased_values.return_value = []
         lifecycle.cached_values.return_value = []
         services = _backend_services(lifecycle=lifecycle)
-        residency_manager = MagicMock()
-        residency_manager.offload_all.return_value = OffloadResult()
+        residency_registry = MagicMock()
+        residency_registry.offload_all.return_value = OffloadResult()
 
         with patch(
-            "src.platform.runtime.native.memory.residency.get_residency_manager",
-            return_value=residency_manager,
+            "src.platform.runtime.native.memory.residency.get_residency_registry",
+            return_value=residency_registry,
         ):
             result = await _execute_backend_action(_ctx(
                 config={"backend": "native", "action": "clear-vram"}, services=services,
@@ -783,7 +783,7 @@ class TestExecuteBackendAction(unittest.IsolatedAsyncioTestCase):
 
     async def test_clear_vram_sweeps_unregistered_gpu_resident_cache_entries(self):
         """Registration-gap-proof fallback: a cached model that ended up
-        GPU-resident WITHOUT registering with GpuResidencyManager (a future
+        GPU-resident WITHOUT registering with GpuResidencyRegistry (a future
         placement path that forgot to) is still offloaded, via
         `cached_values()` rather than the residency ledger."""
         from unittest.mock import patch
@@ -807,12 +807,12 @@ class TestExecuteBackendAction(unittest.IsolatedAsyncioTestCase):
         lifecycle.leased_values.return_value = []
         lifecycle.cached_values.return_value = [unregistered_gpu, cpu_resident]
         services = _backend_services(lifecycle=lifecycle)
-        residency_manager = MagicMock()
-        residency_manager.offload_all.return_value = OffloadResult()
+        residency_registry = MagicMock()
+        residency_registry.offload_all.return_value = OffloadResult()
 
         with patch(
-            "src.platform.runtime.native.memory.residency.get_residency_manager",
-            return_value=residency_manager,
+            "src.platform.runtime.native.memory.residency.get_residency_registry",
+            return_value=residency_registry,
         ):
             result = await _execute_backend_action(_ctx(
                 config={"backend": "native", "action": "clear-vram"}, services=services,
@@ -847,18 +847,18 @@ class TestExecuteBackendAction(unittest.IsolatedAsyncioTestCase):
         lifecycle.leased_values.return_value = [leased_gpu]
         lifecycle.cached_values.return_value = [leased_gpu]
         services = _backend_services(lifecycle=lifecycle)
-        residency_manager = MagicMock()
-        residency_manager.offload_all.return_value = OffloadResult()
+        residency_registry = MagicMock()
+        residency_registry.offload_all.return_value = OffloadResult()
 
         with patch(
-            "src.platform.runtime.native.memory.residency.get_residency_manager",
-            return_value=residency_manager,
+            "src.platform.runtime.native.memory.residency.get_residency_registry",
+            return_value=residency_registry,
         ):
             result = await _execute_backend_action(_ctx(
                 config={"backend": "native", "action": "clear-vram"}, services=services,
             ))
 
-        residency_manager.offload_all.assert_called_once_with("cuda", exclude=[leased_gpu])
+        residency_registry.offload_all.assert_called_once_with("cuda", exclude=[leased_gpu])
         self.assertFalse(leased_gpu.offloaded)
         self.assertEqual(result.output["offloaded_count"], 0)
 
@@ -887,12 +887,12 @@ class TestExecuteBackendAction(unittest.IsolatedAsyncioTestCase):
         lifecycle.leased_values.return_value = []
         lifecycle.cached_values.return_value = [already_offloaded]
         services = _backend_services(lifecycle=lifecycle)
-        residency_manager = MagicMock()
-        residency_manager.offload_all.return_value = OffloadResult([already_offloaded], freed_gb=12.0)
+        residency_registry = MagicMock()
+        residency_registry.offload_all.return_value = OffloadResult([already_offloaded], freed_gb=12.0)
 
         with patch(
-            "src.platform.runtime.native.memory.residency.get_residency_manager",
-            return_value=residency_manager,
+            "src.platform.runtime.native.memory.residency.get_residency_registry",
+            return_value=residency_registry,
         ):
             result = await _execute_backend_action(_ctx(
                 config={"backend": "native", "action": "clear-vram"}, services=services,
@@ -926,7 +926,7 @@ class TestExecuteBackendAction(unittest.IsolatedAsyncioTestCase):
         backend.quick_actions.return_value = [{"id": "clear-cache", "label": "Clear VRAM & Cache (RAM)"}]
         config_manager = MagicMock()
         config_manager.get_backend.return_value = backend
-        services = AutomationServices(backend_config_manager=config_manager)
+        services = AutomationServices(backend_config_store=config_manager)
 
         with self.assertRaises(RuntimeError):
             await _execute_backend_action(_ctx(
@@ -956,7 +956,7 @@ class TestExecuteBackendAction(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(RuntimeError):
             await _execute_backend_action(_ctx(
                 config={"backend": "native", "action": "clear-vram"},
-                services=AutomationServices(model_lifecycle_manager=MagicMock()),
+                services=AutomationServices(model_lifecycle=MagicMock()),
             ))
 
     async def test_raises_when_backend_not_found(self):
@@ -965,7 +965,7 @@ class TestExecuteBackendAction(unittest.IsolatedAsyncioTestCase):
         config_manager = MagicMock()
         config_manager.get_backend.return_value = None
         services = AutomationServices(
-            backend_config_manager=config_manager, model_lifecycle_manager=MagicMock(),
+            backend_config_store=config_manager, model_lifecycle=MagicMock(),
         )
 
         with self.assertRaises(RuntimeError):
@@ -991,7 +991,7 @@ class TestExecuteBackendAction(unittest.IsolatedAsyncioTestCase):
         backend.quick_actions.return_value = [{"id": "clear-vram", "label": "Clear VRAM"}]
         config_manager = MagicMock()
         config_manager.get_backend.return_value = backend
-        services = AutomationServices(backend_config_manager=config_manager)
+        services = AutomationServices(backend_config_store=config_manager)
 
         with self.assertRaises(RuntimeError):
             await _execute_backend_action(_ctx(
@@ -1101,10 +1101,10 @@ class TestExecuteScanFiles(unittest.IsolatedAsyncioTestCase):
         model_repo = MagicMock()
         model_repo.get_by_file_path = MagicMock(side_effect=get_by_file_path)
 
-        settings_manager = MagicMock()
-        settings_manager.get_models_dir.return_value = base
+        settings = MagicMock()
+        settings.get_models_dir.return_value = base
 
-        services = AutomationServices(model_repository=model_repo, settings_manager=settings_manager)
+        services = AutomationServices(model_repository=model_repo, settings=settings)
         result = await _execute_scan_files(_ctx(
             config={"directory": base, "recursive": True, "extensions": "safetensors", "resolve_models": True},
             services=services,

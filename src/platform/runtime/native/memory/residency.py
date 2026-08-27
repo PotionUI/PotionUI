@@ -142,7 +142,7 @@ class _Entry:
     device: str
     size_gb: float
     last_used: float
-    # Set by mark_orphaned() when ModelLifecycleManager evicted this model's
+    # Set by mark_orphaned() when ModelLifecycle evicted this model's
     # cache entry but could not unload it immediately (something else held a
     # reference at that moment - see manager.py's _evict_entry A3 safety).
     # A later reclaim (ensure_free/offload_all) re-checks the refcount for an
@@ -153,7 +153,7 @@ class _Entry:
 
 
 class OffloadResult(list):
-    """``list[Any]`` of components :meth:`GpuResidencyManager.offload_all`
+    """``list[Any]`` of components :meth:`GpuResidencyRegistry.offload_all`
     actually offloaded, plus the stats a caller reporting on the run (e.g. the
     Clear VRAM admin action) needs. Subclasses ``list`` so every existing
     truthiness/``len()``/membership/equality check on the return value keeps
@@ -166,11 +166,11 @@ class OffloadResult(list):
         self.failed = list(failed)
 
 
-class GpuResidencyManager:
+class GpuResidencyRegistry:
     """Tracks GPU-resident native components and evicts LRU to free VRAM.
 
     Holds each component via ``weakref.ref`` — this registry must never be an
-    ownership root. When ``ModelLifecycleManager`` drops a cache entry without
+    ownership root. When ``ModelLifecycle`` drops a cache entry without
     an explicit unload (the refcount>2 fast path), the model's last strong
     reference dies with it; a strong-ref entry here would keep the whole
     GPU-resident component (a multi-GB DiT) alive forever, invisible to every
@@ -210,7 +210,7 @@ class GpuResidencyManager:
     def mark_orphaned(self, model: Any) -> None:
         """Flag a GPU-resident component whose owning cache entry was just
         evicted (fingerprint bust / preset switch) while still referenced
-        elsewhere, so ``ModelLifecycleManager`` could not unload it (see
+        elsewhere, so ``ModelLifecycle`` could not unload it (see
         ``_evict_entry``'s A3 safety - refcount>2 at eviction time). No-op if
         ``model`` isn't currently tracked (not GPU-resident, or already pruned).
 
@@ -242,7 +242,7 @@ class GpuResidencyManager:
 
         def _on_finally_released() -> None:
             try:
-                from src.platform.runtime.model_lifecycle.manager import trim_host_allocator
+                from src.platform.runtime.model_lifecycle.lifecycle import trim_host_allocator
 
                 trim_host_allocator()
                 logger.info(
@@ -260,7 +260,7 @@ class GpuResidencyManager:
         ``offload()`` to host RAM as before (a live holder may still need the
         weights - never unload out from under an active user).
 
-        The refcount check mirrors ``ModelLifecycleManager._evict_entry``'s
+        The refcount check mirrors ``ModelLifecycle._evict_entry``'s
         established convention (a cache-only value shows refcount==2 there:
         the local var + ``sys.getrefcount``'s own transient arg) with one more
         added for the local ``model`` parameter this method itself holds -
@@ -273,7 +273,7 @@ class GpuResidencyManager:
             if refcount <= 3:
                 try:
                     model.unload()
-                    from src.platform.runtime.model_lifecycle.manager import trim_host_allocator
+                    from src.platform.runtime.model_lifecycle.lifecycle import trim_host_allocator
 
                     trim_host_allocator()
                     logger.info(
@@ -343,7 +343,7 @@ class GpuResidencyManager:
             # would make _reclaim's orphaned-refcount check meaningless). Popping
             # the entry and dereferencing the weakref fresh, right before the
             # reclaim call, keeps the refcount check clean: only the reference
-            # this loop body itself holds, matching ModelLifecycleManager.
+            # this loop body itself holds, matching ModelLifecycle.
             # _evict_entry's identical, verified convention.
             keys = sorted(
                 (key for key, e in self._entries.items()
@@ -440,15 +440,15 @@ class GpuResidencyManager:
             self._entries.clear()
 
 
-# Process-wide singleton (mirrors ModelLifecycleManager's module-level default).
-_manager: GpuResidencyManager | None = None
+# Process-wide singleton (mirrors ModelLifecycle's module-level default).
+_registry: GpuResidencyRegistry | None = None
 
 
-def get_residency_manager() -> GpuResidencyManager:
-    global _manager
-    if _manager is None:
-        _manager = GpuResidencyManager()
-    return _manager
+def get_residency_registry() -> GpuResidencyRegistry:
+    global _registry
+    if _registry is None:
+        _registry = GpuResidencyRegistry()
+    return _registry
 
 
 class ClearVramResult:
@@ -485,7 +485,7 @@ class ClearVramResult:
         return len(self.failed)
 
 
-def clear_vram(device: str | torch.device, lifecycle_manager: Any = None) -> ClearVramResult:
+def clear_vram(device: str | torch.device, lifecycle: Any = None) -> ClearVramResult:
     """Offload every GPU-resident component on ``device`` — the shared "Clear
     VRAM" implementation behind both the admin quick action
     (``BackendController.clear_backend_vram``) and the "backend_action"
@@ -493,31 +493,31 @@ def clear_vram(device: str | torch.device, lifecycle_manager: Any = None) -> Cle
 
     Two layers:
 
-      1. ``GpuResidencyManager.offload_all(device, exclude=leased)`` — every
+      1. ``GpuResidencyRegistry.offload_all(device, exclude=leased)`` — every
          component the ledger was told about, except one leased by an
-         in-flight generation (``lifecycle_manager.leased_values()``).
-      2. A registration-gap-proof fallback: ``lifecycle_manager.cached_values()``
+         in-flight generation (``lifecycle.leased_values()``).
+      2. A registration-gap-proof fallback: ``lifecycle.cached_values()``
          is swept for anything GPU-resident that the ledger never saw (a
          placement path that forgot to register), skipping anything leased
          or already offloaded by step 1 (which reads back as CPU-resident by
          the time this runs, so it is never double-counted or double-freed).
 
-    ``lifecycle_manager`` is duck-typed (``leased_values()``, ``cached_values()``,
+    ``lifecycle`` is duck-typed (``leased_values()``, ``cached_values()``,
     and each cached value optionally exposing ``.device``/``.offload()``/
     ``.estimated_vram_gb``) so this module stays decoupled from
-    ``ModelLifecycleManager``'s concrete type. ``None`` skips both the lease
+    ``ModelLifecycle``'s concrete type. ``None`` skips both the lease
     exclusion and the sweep — offload_all still runs unconditionally.
     """
-    manager = get_residency_manager()
-    leased_values = list(lifecycle_manager.leased_values()) if lifecycle_manager is not None else []
+    manager = get_residency_registry()
+    leased_values = list(lifecycle.leased_values()) if lifecycle is not None else []
     result = manager.offload_all(device, exclude=leased_values)
 
     leased_ids = {id(v) for v in leased_values}
     swept: list = []
     swept_gb = 0.0
     swept_failed: list = []
-    if lifecycle_manager is not None:
-        for value in lifecycle_manager.cached_values():
+    if lifecycle is not None:
+        for value in lifecycle.cached_values():
             if id(value) in leased_ids:
                 continue
             model_device = getattr(value, "device", None)
@@ -822,7 +822,7 @@ def _run_text_encode_uncached(
         )
         return encode_fn()
 
-    manager = get_residency_manager()
+    manager = get_residency_registry()
     size_gb = module_size_gb(encoder)
     reserve = minimum_inference_memory_gb() if reserve_gb is None else reserve_gb
     weights_gb: dict[str, float] = {}

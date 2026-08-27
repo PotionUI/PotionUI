@@ -15,9 +15,9 @@ from src.platform.templating import TemplateProcessor, TemplateEvaluationError
 
 
 @pytest.fixture
-def processor(mock_settings_manager):
+def processor(mock_settings):
     """TemplateProcessor instance for testing."""
-    return TemplateProcessor(mock_settings_manager)
+    return TemplateProcessor(mock_settings)
 
 
 class TestExactExpressionTyping:

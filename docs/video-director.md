@@ -399,7 +399,7 @@ Each `ic_lora` reference is routed by its own media type — an image reference 
 Every `media.media` object and `ic_lora.reference` is a `{path, relative_path, ...}`
 reference, resolved the same way: if `path` is given, absolute, and exists, it's kept
 as-is; otherwise the given `path`/`relative_path` is joined onto `storage_dir` (the
-per-user file storage root — `SettingsManager.get_file_storage_directory(user_id)`,
+per-user file storage root — `Settings.get_file_storage_directory(user_id)`,
 `src/platform/settings/settings.py`) and resolved. The resolved path must land **inside**
 `storage_dir` — anything that resolves outside it (`../../etc/passwd`-style traversal) is
 rejected — and must exist on disk. The canonical output rewrites `media["path"]` to the

@@ -3,7 +3,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from src.features.llm.clients import LLMClient, LLMResponse, NativeLLMClient, OllamaClient, OpenAIClient
 from src.features.llm.repository import LLMConfig, LLMRepository
-from src.platform.runtime.model_lifecycle.manager import ModelLifecycleManager
+from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
 
 
 class LLMGateway:
@@ -16,11 +16,11 @@ class LLMGateway:
     method is invoked; the provider-specific wire format lives in the clients.
     """
 
-    def __init__(self, llm_repository: LLMRepository, model_lifecycle_manager: Optional[ModelLifecycleManager] = None):
+    def __init__(self, llm_repository: LLMRepository, model_lifecycle: Optional[ModelLifecycle] = None):
         self.repository = llm_repository
         self._ollama = OllamaClient()
         self._openai = OpenAIClient()
-        self._native = NativeLLMClient(model_lifecycle_manager)
+        self._native = NativeLLMClient(model_lifecycle)
 
     def _client_for(self, config: LLMConfig) -> LLMClient:
         if config.type == "ollama":

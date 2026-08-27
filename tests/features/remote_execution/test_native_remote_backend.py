@@ -42,9 +42,9 @@ from src.features.remote_execution.worker.journal import WorkerJournal
 from src.pipelines.contracts import IOType, PipeConfigSpec, PipeOutput, PipeOutputSpec
 from src.pipelines.outputs import ErrorGenerationOutput, ImageGenerationOutput
 from src.platform.database.database import Database
-from src.platform.database.migration_runner import MigrationManager
+from src.platform.database.migration_runner import MigrationRunner
 from src.platform.settings.repository import SettingRepository
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 
 S = RemoteExecutionState
 TOKEN = "secret-worker-token"
@@ -233,7 +233,7 @@ class NativeRemoteBackendTestCase(unittest.TestCase):
         old_stdout = sys.stdout
         sys.stdout = io.StringIO()
         try:
-            MigrationManager().run_migrations()
+            MigrationRunner().run_migrations()
         finally:
             sys.stdout = old_stdout
 
@@ -241,7 +241,7 @@ class NativeRemoteBackendTestCase(unittest.TestCase):
 
         self.storage_dir = Path(self.temp_dir) / "storage"
         self.storage_dir.mkdir()
-        SettingsManager(SettingRepository()).set_setting(
+        Settings(SettingRepository()).set_setting(
             "file_storage_directory", str(self.storage_dir),
         )
 
@@ -273,7 +273,7 @@ class NativeRemoteBackendTestCase(unittest.TestCase):
         )
         container = WorkerContainer(
             config=config, pipe_catalog=catalog, journal=journal, coordinator=coordinator,
-            gpu_manager=None, system_monitor=None,
+            gpu_monitor=None, system_monitor=None,
         )
         return container, create_worker_app(container=container)
 

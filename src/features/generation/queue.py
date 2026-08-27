@@ -7,7 +7,7 @@ one user with two tabs - could therefore drive the same backend concurrently.
 
 The queue is the thing that enforces the invariant the rest of the code already
 assumed: a backend executes exactly one generation at a time. Backends still run
-in parallel with each other, since each owns its own `GenerationManager`.
+in parallel with each other, since each owns its own `GenerationEngine`.
 
 Ordering is global FIFO, but dispatch skips items whose backend is busy. A
 native job waiting on the GPU therefore does not block a ComfyUI job queued

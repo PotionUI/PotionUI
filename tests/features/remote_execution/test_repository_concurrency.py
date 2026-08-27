@@ -22,7 +22,7 @@ from unittest.mock import patch
 from src.features.remote_execution.records import RemoteExecution, RemoteExecutionState
 from src.features.remote_execution.repository import RemoteExecutionRepository
 from src.platform.database.database import Database
-from src.platform.database.migration_runner import MigrationManager
+from src.platform.database.migration_runner import MigrationRunner
 
 S = RemoteExecutionState
 
@@ -46,7 +46,7 @@ class ClaimForDispatchConcurrencyTest(unittest.TestCase):
         for p in self._patchers:
             p.start()
 
-        manager = MigrationManager()
+        manager = MigrationRunner()
         old_stdout = sys.stdout
         sys.stdout = io.StringIO()
         try:

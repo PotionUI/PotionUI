@@ -22,7 +22,7 @@ _CUDA_OOM_MARKERS = ("CUDA out of memory", "HIP out of memory")
 # Matched by substring, not exception type, because a pipe can catch the
 # original torch.cuda.OutOfMemoryError deep in a call stack and re-raise it
 # wrapped in a plain RuntimeError - the type is gone by the time it reaches
-# GenerationManager, but torch's own wording survives in str(exc).
+# GenerationEngine, but torch's own wording survives in str(exc).
 _VRAM_SUGGESTIONS = (
     "Lower the resolution one tier",
     "Reduce the frame count (video presets only)",
@@ -141,7 +141,7 @@ def classify_generation_error(exc: BaseException) -> Optional[ErrorClassificatio
 
 def _is_cuda_oom(exc: BaseException) -> bool:
     # Deferred import: `torch` (and, below, `src.platform.runtime.native`)
-    # sit on GenerationManager's import chain, which bootstrap.app must stay
+    # sit on GenerationEngine's import chain, which bootstrap.app must stay
     # free of at process boot (tests/architecture/test_boot_imports.py) -
     # both only load once a generation actually fails, not at import time.
     import torch

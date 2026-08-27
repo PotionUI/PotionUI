@@ -15,7 +15,7 @@ over time: registering a new condition/action without adding a fixture here
 fails, so a node type cannot be added without declaring its outputs.
 
 Triggers have no `execute()` (the concrete `TriggerSource` classes are built by
-`AutomationManager`), so they're covered differently: `trigger.filesystem` is
+`AutomationRuntime`), so they're covered differently: `trigger.filesystem` is
 checked against its pure `build_event_payload`, and the rest are checked for the
 declare-or-mark-dynamic invariant.
 """
@@ -34,7 +34,7 @@ from src.features.automation.triggers.filesystem import build_event_payload
 from src.features.models.assignments import ModelAssignmentService
 from src.features.models.provider_info import ProviderInfoFetcher
 from src.features.notifications import operations as notification_operations
-from src.platform.runtime.gpu import GpuManager
+from src.platform.runtime.gpu import GpuMonitor
 from src.features.tags.repository import TagRepository
 
 
@@ -107,32 +107,32 @@ def _notification_manager() -> MagicMock:
     return manager
 
 
-def _gpu_manager() -> MagicMock:
-    manager = MagicMock(spec=GpuManager)
+def _gpu_monitor() -> MagicMock:
+    manager = MagicMock(spec=GpuMonitor)
     # Above any threshold, so `_execute_wait_for_gpu`'s poll loop exits immediately.
     manager.get_free_vram.return_value = 999_999
     return manager
 
 
-def _backend_config_manager() -> MagicMock:
-    from src.features.backends.backend_config import BackendConfigManager, NativeBackendConfig
+def _backend_config_store() -> MagicMock:
+    from src.features.backends.backend_config import BackendConfigStore, NativeBackendConfig
     backend = MagicMock(spec=NativeBackendConfig)
     backend.quick_actions.return_value = [{"id": "clear-vram", "label": "Clear VRAM"}]
-    manager = MagicMock(spec=BackendConfigManager)
+    manager = MagicMock(spec=BackendConfigStore)
     manager.get_backend.return_value = backend
     return manager
 
 
-def _model_lifecycle_manager() -> MagicMock:
-    from src.platform.runtime.model_lifecycle.manager import ModelLifecycleManager
-    manager = MagicMock(spec=ModelLifecycleManager)
+def _model_lifecycle() -> MagicMock:
+    from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
+    manager = MagicMock(spec=ModelLifecycle)
     manager.leased_values.return_value = []
     return manager
 
 
 def _media_index_manager() -> MagicMock:
-    from src.features.media_index.manager import MediaIndexManager
-    manager = MagicMock(spec=MediaIndexManager)
+    from src.features.media_index.indexer import MediaIndexer
+    manager = MagicMock(spec=MediaIndexer)
     manager.process_pending.return_value = {"processed": 2, "failed": 0}
     manager.repository = MagicMock()
     manager.repository.queue_counts.return_value = {"tags": {"pending": 1}}
@@ -178,14 +178,14 @@ EXECUTABLE_CASES = {
     "action.send_notification": ({"title": "t", "message": "m", "level": "info"}, {},
                                  lambda: AutomationServices(notification_manager=_notification_manager())),
     "action.wait_for_gpu": ({"threshold_mb": 1, "poll_interval_s": 0.5}, {},
-                            lambda: AutomationServices(gpu_manager=_gpu_manager())),
+                            lambda: AutomationServices(gpu_monitor=_gpu_monitor())),
     "action.backend_action": ({"backend": "native", "action": "clear-vram"}, {},
                               lambda: AutomationServices(
-                                  backend_config_manager=_backend_config_manager(),
-                                  model_lifecycle_manager=_model_lifecycle_manager())),
+                                  backend_config_store=_backend_config_store(),
+                                  model_lifecycle=_model_lifecycle())),
     "action.index_models": ({"backends": ["native"]}, {}, _index_models_services),
     "action.index_media_queue": ({"pass_types": ["tags", "clip_embed"], "batch_size": 8, "max_items": 32}, {},
-                                 lambda: AutomationServices(media_index_manager=_media_index_manager())),
+                                 lambda: AutomationServices(media_indexer=_media_index_manager())),
 }
 
 SPECIAL_CASES = {"action.index_model", "action.scan_files", "action.add_to_collection"}

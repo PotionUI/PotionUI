@@ -11,7 +11,7 @@ from unittest.mock import Mock, MagicMock
 from src.features.users import operations
 from src.platform.security import PasswordHasher
 from src.platform.plugins import PluginRegistry
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 from src.features.users.hooks import USER_HOOKS
 from src.features.users.repository import UserRepository
 from src.platform.security.user import User, AccountType
@@ -45,10 +45,10 @@ def mock_plugin_registry():
 
 
 @pytest.fixture
-def mock_settings_manager(tmp_path):
-    """Mock SettingsManager for testing, backed by a real scratch directory
+def mock_settings(tmp_path):
+    """Mock Settings for testing, backed by a real scratch directory
     so avatar-related tests can write files."""
-    settings = Mock(spec=SettingsManager)
+    settings = Mock(spec=Settings)
     settings.get_file_storage_directory.return_value = str(tmp_path)
     return settings
 
@@ -390,59 +390,59 @@ class TestUpdate:
 class TestDelete:
     """Tests for operations.delete."""
 
-    def test_delete_success(self, mock_user_repository, mock_plugin_registry, mock_settings_manager, sample_user):
+    def test_delete_success(self, mock_user_repository, mock_plugin_registry, mock_settings, sample_user):
         """Should delete user successfully."""
         mock_user_repository.get_by_id.return_value = sample_user
         mock_user_repository.delete.return_value = True
 
-        result = operations.delete(mock_user_repository, mock_plugin_registry, mock_settings_manager, "user-123", requesting_user_id="other-user")
+        result = operations.delete(mock_user_repository, mock_plugin_registry, mock_settings, "user-123", requesting_user_id="other-user")
 
         assert result is True
         mock_user_repository.delete.assert_called_once_with("user-123")
 
-    def test_delete_fails_when_user_not_found(self, mock_user_repository, mock_plugin_registry, mock_settings_manager):
+    def test_delete_fails_when_user_not_found(self, mock_user_repository, mock_plugin_registry, mock_settings):
         """Should raise ValueError when user not found."""
         mock_user_repository.get_by_id.return_value = None
 
         with pytest.raises(ValueError, match="User not found"):
-            operations.delete(mock_user_repository, mock_plugin_registry, mock_settings_manager, "nonexistent", requesting_user_id="other-user")
+            operations.delete(mock_user_repository, mock_plugin_registry, mock_settings, "nonexistent", requesting_user_id="other-user")
 
-    def test_delete_fails_when_deleting_self(self, mock_user_repository, mock_plugin_registry, mock_settings_manager):
+    def test_delete_fails_when_deleting_self(self, mock_user_repository, mock_plugin_registry, mock_settings):
         """Should raise ValueError when trying to delete own account."""
         with pytest.raises(ValueError, match="Cannot delete your own account"):
-            operations.delete(mock_user_repository, mock_plugin_registry, mock_settings_manager, "user-123", requesting_user_id="user-123")
+            operations.delete(mock_user_repository, mock_plugin_registry, mock_settings, "user-123", requesting_user_id="user-123")
 
-    def test_delete_fails_when_repository_fails(self, mock_user_repository, mock_plugin_registry, mock_settings_manager, sample_user):
+    def test_delete_fails_when_repository_fails(self, mock_user_repository, mock_plugin_registry, mock_settings, sample_user):
         """Should raise ValueError when repository delete fails."""
         mock_user_repository.get_by_id.return_value = sample_user
         mock_user_repository.delete.return_value = False
 
         with pytest.raises(ValueError, match="Failed to delete user"):
-            operations.delete(mock_user_repository, mock_plugin_registry, mock_settings_manager, "user-123", requesting_user_id="other-user")
+            operations.delete(mock_user_repository, mock_plugin_registry, mock_settings, "user-123", requesting_user_id="other-user")
 
-    def test_delete_executes_before_delete_hook(self, mock_user_repository, mock_plugin_registry, mock_settings_manager, sample_user):
+    def test_delete_executes_before_delete_hook(self, mock_user_repository, mock_plugin_registry, mock_settings, sample_user):
         """Should execute before_delete hook."""
         mock_user_repository.get_by_id.return_value = sample_user
         mock_user_repository.delete.return_value = True
 
-        operations.delete(mock_user_repository, mock_plugin_registry, mock_settings_manager, "user-123", requesting_user_id="other-user")
+        operations.delete(mock_user_repository, mock_plugin_registry, mock_settings, "user-123", requesting_user_id="other-user")
 
         calls = [call for call in mock_plugin_registry.execute_hook.call_args_list
                  if call[0][0] == USER_HOOKS.before_delete]
         assert len(calls) == 1
 
-    def test_delete_executes_after_delete_hook(self, mock_user_repository, mock_plugin_registry, mock_settings_manager, sample_user):
+    def test_delete_executes_after_delete_hook(self, mock_user_repository, mock_plugin_registry, mock_settings, sample_user):
         """Should execute after_delete hook."""
         mock_user_repository.get_by_id.return_value = sample_user
         mock_user_repository.delete.return_value = True
 
-        operations.delete(mock_user_repository, mock_plugin_registry, mock_settings_manager, "user-123", requesting_user_id="other-user")
+        operations.delete(mock_user_repository, mock_plugin_registry, mock_settings, "user-123", requesting_user_id="other-user")
 
         calls = [call for call in mock_plugin_registry.execute_hook.call_args_list
                  if call[0][0] == USER_HOOKS.after_delete]
         assert len(calls) == 1
 
-    def test_delete_blocked_by_hook(self, mock_user_repository, mock_plugin_registry, mock_settings_manager, sample_user):
+    def test_delete_blocked_by_hook(self, mock_user_repository, mock_plugin_registry, mock_settings, sample_user):
         """Should raise ValueError when before_delete hook blocks operation."""
         mock_user_repository.get_by_id.return_value = sample_user
 
@@ -451,7 +451,7 @@ class TestDelete:
         mock_plugin_registry.execute_hook.return_value = (mock_context, [])
 
         with pytest.raises(ValueError, match="Cannot delete this user"):
-            operations.delete(mock_user_repository, mock_plugin_registry, mock_settings_manager, "user-123", requesting_user_id="other-user")
+            operations.delete(mock_user_repository, mock_plugin_registry, mock_settings, "user-123", requesting_user_id="other-user")
 
 
 class TestExecuteHookHelper:
@@ -482,7 +482,7 @@ class TestExecuteHookHelper:
 class TestAvatar:
     """Tests for operations.avatar: upload/delete/resolve."""
 
-    def test_upload_avatar_success(self, mock_user_repository, mock_settings_manager, sample_user, tmp_path):
+    def test_upload_avatar_success(self, mock_user_repository, mock_settings, sample_user, tmp_path):
         mock_user_repository.get_by_id.return_value = sample_user
         updated_user = User(
             id=sample_user.id, username=sample_user.username, email=sample_user.email,
@@ -492,7 +492,7 @@ class TestAvatar:
         mock_user_repository.update.return_value = updated_user
 
         result = operations.upload_avatar(
-            mock_user_repository, mock_settings_manager,
+            mock_user_repository, mock_settings,
             user_id=sample_user.id,
             file_data=b"fake-image-bytes",
             filename="photo.PNG",
@@ -509,12 +509,12 @@ class TestAvatar:
         assert saved_path.exists()
         assert saved_path.read_bytes() == b"fake-image-bytes"
 
-    def test_upload_avatar_rejects_non_image_content_type(self, mock_user_repository, mock_settings_manager, sample_user):
+    def test_upload_avatar_rejects_non_image_content_type(self, mock_user_repository, mock_settings, sample_user):
         mock_user_repository.get_by_id.return_value = sample_user
 
         with pytest.raises(ValueError, match="image"):
             operations.upload_avatar(
-                mock_user_repository, mock_settings_manager,
+                mock_user_repository, mock_settings,
                 user_id=sample_user.id,
                 file_data=b"not-an-image",
                 filename="evil.exe",
@@ -523,12 +523,12 @@ class TestAvatar:
 
         mock_user_repository.update.assert_not_called()
 
-    def test_upload_avatar_rejects_disallowed_extension(self, mock_user_repository, mock_settings_manager, sample_user):
+    def test_upload_avatar_rejects_disallowed_extension(self, mock_user_repository, mock_settings, sample_user):
         mock_user_repository.get_by_id.return_value = sample_user
 
         with pytest.raises(ValueError, match="extension"):
             operations.upload_avatar(
-                mock_user_repository, mock_settings_manager,
+                mock_user_repository, mock_settings,
                 user_id=sample_user.id,
                 file_data=b"fake-svg-bytes",
                 filename="avatar.svg",
@@ -537,13 +537,13 @@ class TestAvatar:
 
         mock_user_repository.update.assert_not_called()
 
-    def test_upload_avatar_rejects_oversize(self, mock_user_repository, mock_settings_manager, sample_user):
+    def test_upload_avatar_rejects_oversize(self, mock_user_repository, mock_settings, sample_user):
         mock_user_repository.get_by_id.return_value = sample_user
         oversized = b"x" * (5 * 1024 * 1024 + 1)
 
         with pytest.raises(ValueError, match="5MB"):
             operations.upload_avatar(
-                mock_user_repository, mock_settings_manager,
+                mock_user_repository, mock_settings,
                 user_id=sample_user.id,
                 file_data=oversized,
                 filename="big.png",
@@ -552,7 +552,7 @@ class TestAvatar:
 
         mock_user_repository.update.assert_not_called()
 
-    def test_upload_avatar_deletes_previous_file(self, mock_user_repository, mock_settings_manager, sample_user, tmp_path):
+    def test_upload_avatar_deletes_previous_file(self, mock_user_repository, mock_settings, sample_user, tmp_path):
         avatars_dir = tmp_path / "avatars"
         avatars_dir.mkdir()
         old_file = avatars_dir / "old-avatar.png"
@@ -567,7 +567,7 @@ class TestAvatar:
         mock_user_repository.update.return_value = existing_user
 
         operations.upload_avatar(
-            mock_user_repository, mock_settings_manager,
+            mock_user_repository, mock_settings,
             user_id=sample_user.id,
             file_data=b"new-bytes",
             filename="new.png",
@@ -576,19 +576,19 @@ class TestAvatar:
 
         assert not old_file.exists()
 
-    def test_upload_avatar_user_not_found(self, mock_user_repository, mock_settings_manager):
+    def test_upload_avatar_user_not_found(self, mock_user_repository, mock_settings):
         mock_user_repository.get_by_id.return_value = None
 
         with pytest.raises(ValueError, match="User not found"):
             operations.upload_avatar(
-                mock_user_repository, mock_settings_manager,
+                mock_user_repository, mock_settings,
                 user_id="missing-user",
                 file_data=b"bytes",
                 filename="a.png",
                 content_type="image/png",
             )
 
-    def test_delete_avatar_clears_column_and_removes_file(self, mock_user_repository, mock_settings_manager, sample_user, tmp_path):
+    def test_delete_avatar_clears_column_and_removes_file(self, mock_user_repository, mock_settings, sample_user, tmp_path):
         avatars_dir = tmp_path / "avatars"
         avatars_dir.mkdir()
         avatar_file = avatars_dir / "avatar123.png"
@@ -607,29 +607,29 @@ class TestAvatar:
         )
         mock_user_repository.update.return_value = cleared_user
 
-        result = operations.delete_avatar(mock_user_repository, mock_settings_manager, sample_user.id)
+        result = operations.delete_avatar(mock_user_repository, mock_settings, sample_user.id)
 
         assert result.avatar_filename is None
         mock_user_repository.update.assert_called_once_with(sample_user.id, avatar_filename=None)
         assert not avatar_file.exists()
 
-    def test_resolve_avatar_path_missing_raises(self, mock_settings_manager):
+    def test_resolve_avatar_path_missing_raises(self, mock_settings):
         with pytest.raises(ValueError):
-            operations.resolve_avatar_path(mock_settings_manager, "does-not-exist.png")
+            operations.resolve_avatar_path(mock_settings, "does-not-exist.png")
 
-    def test_resolve_avatar_path_traversal_raises(self, mock_settings_manager, tmp_path):
+    def test_resolve_avatar_path_traversal_raises(self, mock_settings, tmp_path):
         outside_file = tmp_path.parent / "secret.txt"
         outside_file.write_text("secret")
 
         with pytest.raises(ValueError):
-            operations.resolve_avatar_path(mock_settings_manager, "../secret.txt")
+            operations.resolve_avatar_path(mock_settings, "../secret.txt")
 
-    def test_resolve_avatar_path_success(self, mock_settings_manager, tmp_path):
+    def test_resolve_avatar_path_success(self, mock_settings, tmp_path):
         avatars_dir = tmp_path / "avatars"
         avatars_dir.mkdir(parents=True, exist_ok=True)
         avatar_file = avatars_dir / "avatar1.png"
         avatar_file.write_bytes(b"img")
 
-        resolved = operations.resolve_avatar_path(mock_settings_manager, "avatar1.png")
+        resolved = operations.resolve_avatar_path(mock_settings, "avatar1.png")
 
         assert resolved == avatar_file.resolve()

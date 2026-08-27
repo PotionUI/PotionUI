@@ -1,6 +1,6 @@
 """Chat session access and validation policy.
 
-Near-pure ownership/state checks pulled out of the ChatManager coordinator so
+Near-pure ownership/state checks pulled out of the ChatRuntime coordinator so
 the session store, conversation runner and tool dispatcher can share one place
 that decides who may touch a session.
 """

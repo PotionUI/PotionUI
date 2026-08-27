@@ -4,9 +4,9 @@ from datetime import datetime
 
 from src.features.settings.routes import SettingsController
 from src.features.settings.dto import SettingUpdateRequest
-from src.platform.settings.settings import SettingsManager
-from src.features.models.directory import ModelManager
-from src.platform.runtime.gpu import GpuManager
+from src.platform.settings.settings import Settings
+from src.features.models.directory import ModelDirectories
+from src.platform.runtime.gpu import GpuMonitor
 from src.features.backends.backend_registry import BackendRegistry
 from src.platform.settings.repository import SettingRepository
 from src.platform.security.user import User, AccountType
@@ -18,9 +18,9 @@ class TestSettingsController:
     """Test cases for SettingsController - Core functionality only"""
 
     @pytest.fixture
-    def mock_settings_manager(self):
-        """Mock SettingsManager"""
-        return Mock(spec=SettingsManager)
+    def mock_settings(self):
+        """Mock Settings"""
+        return Mock(spec=Settings)
 
     @pytest.fixture
     def mock_setting_repository(self):
@@ -28,31 +28,31 @@ class TestSettingsController:
         return Mock(spec=SettingRepository)
 
     @pytest.fixture
-    def mock_model_manager(self):
-        """Mock ModelManager"""
-        return Mock(spec=ModelManager)
+    def mock_model_directories(self):
+        """Mock ModelDirectories"""
+        return Mock(spec=ModelDirectories)
 
     @pytest.fixture
-    def mock_gpu_manager(self):
-        """Mock GpuManager"""
-        return Mock(spec=GpuManager)
+    def mock_gpu_monitor(self):
+        """Mock GpuMonitor"""
+        return Mock(spec=GpuMonitor)
 
     @pytest.fixture
     def mock_backend_registry(self):
         """Mock BackendRegistry"""
         mock = MagicMock(spec=BackendRegistry)
-        mock.backend_config_manager = MagicMock()
+        mock.backend_config_store = MagicMock()
         mock.get_supported_engines.return_value = ['native', 'comfyui']
         return mock
 
     @pytest.fixture
-    def controller(self, mock_settings_manager, mock_setting_repository, mock_model_manager, mock_gpu_manager, mock_backend_registry):
+    def controller(self, mock_settings, mock_setting_repository, mock_model_directories, mock_gpu_monitor, mock_backend_registry):
         """Create SettingsController instance with mocked dependencies"""
         return SettingsController(
-            settings_manager=mock_settings_manager,
+            settings=mock_settings,
             setting_repository=mock_setting_repository,
-            model_manager=mock_model_manager,
-            gpu_manager=mock_gpu_manager,
+            model_directories=mock_model_directories,
+            gpu_monitor=mock_gpu_monitor,
             backend_registry=mock_backend_registry
         )
 
@@ -67,7 +67,7 @@ class TestSettingsController:
         assert 'Authentication required' in exc_info.value.detail['message']
 
     @pytest.mark.asyncio
-    async def test_get_settings_regular_user(self, controller, mock_settings_manager, mock_setting_repository):
+    async def test_get_settings_regular_user(self, controller, mock_settings, mock_setting_repository):
         """Test getting settings for regular user (only USER type settings)"""
         # Create mock user
         user = User(
@@ -89,7 +89,7 @@ class TestSettingsController:
         system_setting.type = SettingType.SYSTEM
         
         mock_setting_repository.get_all_settings.return_value = [user_setting, system_setting]
-        mock_settings_manager.get_setting.return_value = False
+        mock_settings.get_setting.return_value = False
         
         response = await controller.get_settings(user)
         
@@ -99,7 +99,7 @@ class TestSettingsController:
 
     @pytest.mark.asyncio
     async def test_get_settings_never_leaks_system_settings_to_regular_user(
-        self, controller, mock_settings_manager, mock_setting_repository
+        self, controller, mock_settings, mock_setting_repository
     ):
         """Regression guard: a non-admin GET /settings must exclude EVERY SYSTEM
         setting - credentials, paths, and the registration_policy from the
@@ -132,7 +132,7 @@ class TestSettingsController:
         mock_setting_repository.get_all_settings.return_value = (
             [_sys(k) for k in system_keys] + [_usr(k) for k in user_keys]
         )
-        mock_settings_manager.get_setting.return_value = "secret-or-path"
+        mock_settings.get_setting.return_value = "secret-or-path"
 
         response = await controller.get_settings(user)
 
@@ -182,7 +182,7 @@ class TestSettingsController:
         assert "nsfw_filter" in keys
 
     @pytest.mark.asyncio
-    async def test_get_settings_admin_user(self, controller, mock_settings_manager, mock_setting_repository):
+    async def test_get_settings_admin_user(self, controller, mock_settings, mock_setting_repository):
         """Test getting settings for admin user (all settings)"""
         # Create mock admin user
         admin = User(
@@ -204,7 +204,7 @@ class TestSettingsController:
         system_setting.type = SettingType.SYSTEM
         
         mock_setting_repository.get_all_settings.return_value = [user_setting, system_setting]
-        mock_settings_manager.get_setting.side_effect = lambda key, user_id=None: {
+        mock_settings.get_setting.side_effect = lambda key, user_id=None: {
             "nsfw_filter": True,
             "outputs_directory": "/outputs"
         }.get(key)
@@ -253,7 +253,7 @@ class TestSettingsController:
         assert 'Admin privileges required' in exc_info.value.detail['message']
 
     @pytest.mark.asyncio
-    async def test_update_setting_system_with_admin(self, controller, mock_setting_repository, mock_settings_manager):
+    async def test_update_setting_system_with_admin(self, controller, mock_setting_repository, mock_settings):
         """Test admin can update SYSTEM settings"""
         # Create mock admin user
         admin = User(
@@ -271,14 +271,14 @@ class TestSettingsController:
         system_setting.type = SettingType.SYSTEM
         
         mock_setting_repository.get_setting_by_key.return_value = system_setting
-        mock_settings_manager.set_setting.return_value = True
+        mock_settings.set_setting.return_value = True
         
         update_data = SettingUpdateRequest(value="/new/outputs", description="New output directory")
         response = await controller.update_setting_by_key("outputs_directory", update_data, admin)
         
         assert response.success is True
         assert "updated successfully" in response.message
-        mock_settings_manager.set_setting.assert_called_once_with("outputs_directory", "/new/outputs")
+        mock_settings.set_setting.assert_called_once_with("outputs_directory", "/new/outputs")
         mock_setting_repository.update_setting.assert_called_once_with("setting123", description="New output directory")
 
     @pytest.mark.asyncio
@@ -468,10 +468,10 @@ class TestSettingsSecretMasking:
     @pytest.fixture
     def controller(self):
         return SettingsController(
-            settings_manager=Mock(spec=SettingsManager),
+            settings=Mock(spec=Settings),
             setting_repository=Mock(spec=SettingRepository),
-            model_manager=Mock(spec=ModelManager),
-            gpu_manager=Mock(spec=GpuManager),
+            model_directories=Mock(spec=ModelDirectories),
+            gpu_monitor=Mock(spec=GpuMonitor),
             backend_registry=MagicMock(spec=BackendRegistry),
         )
 
@@ -501,7 +501,7 @@ class TestSettingsSecretMasking:
             self._setting("auth_secret_key"),
             self._setting("models_dir"),
         ]
-        controller.settings_manager.get_setting.side_effect = (
+        controller.settings.get_setting.side_effect = (
             lambda key, *a, **kw: "jwt-signing-key-do-not-leak"
             if key == "auth_secret_key" else "/data/models"
         )
@@ -520,7 +520,7 @@ class TestSettingsSecretMasking:
             self._setting("civitai_api_key"),
             self._setting("hf_api_key"),
         ]
-        controller.settings_manager.get_setting.return_value = "sk-live-do-not-leak"
+        controller.settings.get_setting.return_value = "sk-live-do-not-leak"
 
         response = await controller.get_settings(self._admin())
 
@@ -535,7 +535,7 @@ class TestSettingsSecretMasking:
         controller.setting_repository.get_all_settings.return_value = [
             self._setting("auth_secret_key"),
         ]
-        controller.settings_manager.get_setting.return_value = ""
+        controller.settings.get_setting.return_value = ""
 
         response = await controller.get_settings(self._admin())
 
@@ -560,7 +560,7 @@ class TestSettingsSecretMasking:
         controller.setting_repository.get_setting_by_key.return_value = self._setting(
             "auth_secret_key"
         )
-        controller.settings_manager.get_setting.return_value = "jwt-key-do-not-leak"
+        controller.settings.get_setting.return_value = "jwt-key-do-not-leak"
 
         response = await controller.get_setting_by_key("auth_secret_key", self._admin())
 
@@ -614,20 +614,20 @@ class TestSettingsSecretMasking:
         )
 
         assert response.success is True
-        controller.settings_manager.set_setting.assert_not_called()
+        controller.settings.set_setting.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_single_key_update_writes_a_real_value(self, controller):
         controller.setting_repository.get_setting_by_key.return_value = self._setting(
             "auth_secret_key"
         )
-        controller.settings_manager.set_setting.return_value = True
+        controller.settings.set_setting.return_value = True
 
         await controller.update_setting_by_key(
             "auth_secret_key", SettingUpdateRequest(value="a-new-key"), self._admin()
         )
 
-        controller.settings_manager.set_setting.assert_called_once_with(
+        controller.settings.set_setting.assert_called_once_with(
             "auth_secret_key", "a-new-key"
         )
 

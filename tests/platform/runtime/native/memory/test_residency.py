@@ -14,7 +14,7 @@ import torch
 from src.platform.runtime.native.memory import residency
 from src.platform.runtime.native.memory.residency import (
     _BYTES_PER_GB,
-    GpuResidencyManager,
+    GpuResidencyRegistry,
     device_index,
     effective_free_vram_gb,
     minimum_inference_memory_gb,
@@ -95,7 +95,7 @@ def test_module_size_sums_composite_t5_clip():
 
 
 def test_note_resident_and_resident_gb():
-    mgr = GpuResidencyManager()
+    mgr = GpuResidencyRegistry()
     a, b = _FakeModel(), _FakeModel()
     mgr.note_resident(a, "cuda:0", 10.0)
     mgr.note_resident(b, "cuda:0", 4.0)
@@ -104,7 +104,7 @@ def test_note_resident_and_resident_gb():
 
 
 def test_note_resident_cpu_deregisters():
-    mgr = GpuResidencyManager()
+    mgr = GpuResidencyRegistry()
     a = _FakeModel()
     mgr.note_resident(a, "cuda:0", 10.0)
     # A subsequent move to CPU must clear the entry (note_resident with cpu).
@@ -113,7 +113,7 @@ def test_note_resident_cpu_deregisters():
 
 
 def test_resident_gb_is_per_device():
-    mgr = GpuResidencyManager()
+    mgr = GpuResidencyRegistry()
     # The registry only weak-refs models (Fix 2) -- keep them alive here with a
     # local strong ref, exactly as a real caller's NativeModel/bundle would.
     a, b = _FakeModel(), _FakeModel()
@@ -128,7 +128,7 @@ def test_resident_gb_is_per_device():
 
 
 def test_ensure_free_noop_when_already_enough():
-    mgr = GpuResidencyManager()
+    mgr = GpuResidencyRegistry()
     a = _FakeModel()
     mgr.note_resident(a, "cuda:0", 10.0)
     offloaded = mgr.ensure_free("cuda:0", need_gb=5.0, current_free_gb=6.0)
@@ -137,7 +137,7 @@ def test_ensure_free_noop_when_already_enough():
 
 
 def test_ensure_free_offloads_lru_first():
-    mgr = GpuResidencyManager()
+    mgr = GpuResidencyRegistry()
     old, new = _FakeModel(), _FakeModel()
     mgr.note_resident(old, "cuda:0", 10.0)   # registered first -> older
     mgr.note_resident(new, "cuda:0", 10.0)
@@ -151,7 +151,7 @@ def test_ensure_free_offloads_lru_first():
 
 
 def test_ensure_free_respects_exclude():
-    mgr = GpuResidencyManager()
+    mgr = GpuResidencyRegistry()
     keep, evictable = _FakeModel(), _FakeModel()
     mgr.note_resident(keep, "cuda:0", 20.0)
     mgr.note_resident(evictable, "cuda:0", 5.0)
@@ -161,7 +161,7 @@ def test_ensure_free_respects_exclude():
 
 
 def test_ensure_free_only_targets_requested_device():
-    mgr = GpuResidencyManager()
+    mgr = GpuResidencyRegistry()
     other = _FakeModel()
     mgr.note_resident(other, "cuda:1", 20.0)
     # Nothing evictable on cuda:0 -> returns empty even though the request can't
@@ -172,7 +172,7 @@ def test_ensure_free_only_targets_requested_device():
 
 
 def test_ensure_free_stops_once_satisfied():
-    mgr = GpuResidencyManager()
+    mgr = GpuResidencyRegistry()
     a, b, c = _FakeModel(), _FakeModel(), _FakeModel()
     for m in (a, b, c):
         mgr.note_resident(m, "cuda:0", 5.0)
@@ -186,7 +186,7 @@ def test_ensure_free_stops_once_satisfied():
 
 
 def test_offload_all_evicts_every_foreign_on_device():
-    mgr = GpuResidencyManager()
+    mgr = GpuResidencyRegistry()
     a, b = _FakeModel(), _FakeModel()
     mgr.note_resident(a, "cuda:0", 10.0)
     mgr.note_resident(b, "cuda:0", 4.0)
@@ -197,7 +197,7 @@ def test_offload_all_evicts_every_foreign_on_device():
 
 
 def test_offload_all_respects_exclude():
-    mgr = GpuResidencyManager()
+    mgr = GpuResidencyRegistry()
     own, foreign = _FakeModel(), _FakeModel()
     mgr.note_resident(own, "cuda:0", 24.0)
     mgr.note_resident(foreign, "cuda:0", 10.0)
@@ -208,7 +208,7 @@ def test_offload_all_respects_exclude():
 
 
 def test_offload_all_only_targets_requested_device():
-    mgr = GpuResidencyManager()
+    mgr = GpuResidencyRegistry()
     here, elsewhere = _FakeModel(), _FakeModel()
     mgr.note_resident(here, "cuda:0", 10.0)
     mgr.note_resident(elsewhere, "cuda:1", 10.0)
@@ -221,7 +221,7 @@ def test_offload_all_only_targets_requested_device():
 
 
 def test_offload_all_reports_count_and_freed_gb():
-    mgr = GpuResidencyManager()
+    mgr = GpuResidencyRegistry()
     a, b = _FakeModel(), _FakeModel()
     mgr.note_resident(a, "cuda:0", 10.0)
     mgr.note_resident(b, "cuda:0", 4.0)
@@ -232,7 +232,7 @@ def test_offload_all_reports_count_and_freed_gb():
 
 
 def test_offload_all_reports_zero_when_nothing_resident(caplog):
-    mgr = GpuResidencyManager()
+    mgr = GpuResidencyRegistry()
     with caplog.at_level("INFO"):
         result = mgr.offload_all("cuda:0")
     assert result == []
@@ -241,7 +241,7 @@ def test_offload_all_reports_zero_when_nothing_resident(caplog):
 
 
 def test_offload_all_logs_when_something_was_freed(caplog):
-    mgr = GpuResidencyManager()
+    mgr = GpuResidencyRegistry()
     a = _FakeModel()
     mgr.note_resident(a, "cuda:0", 10.0)
     with caplog.at_level("INFO"):
@@ -257,7 +257,7 @@ class _FailingModel:
 
 
 def test_offload_all_surfaces_reclaim_failures_at_warning_not_debug(caplog):
-    mgr = GpuResidencyManager()
+    mgr = GpuResidencyRegistry()
     bad = _FailingModel()
     mgr.note_resident(bad, "cuda:0", 5.0)
     with caplog.at_level("WARNING"):
@@ -275,7 +275,7 @@ def test_registry_does_not_keep_model_alive():
     import gc
     import weakref as _weakref
 
-    mgr = GpuResidencyManager()
+    mgr = GpuResidencyRegistry()
     model = _FakeModel()
     ref = _weakref.ref(model)
     mgr.note_resident(model, "cuda:0", 10.0)
@@ -291,7 +291,7 @@ def test_registry_does_not_keep_model_alive():
 def test_offload_all_skips_and_prunes_dead_refs():
     import gc
 
-    mgr = GpuResidencyManager()
+    mgr = GpuResidencyRegistry()
     alive = _FakeModel()
     dying = _FakeModel()
     mgr.note_resident(alive, "cuda:0", 10.0)
@@ -308,7 +308,7 @@ def test_offload_all_skips_and_prunes_dead_refs():
 def test_ensure_free_skips_and_prunes_dead_refs():
     import gc
 
-    mgr = GpuResidencyManager()
+    mgr = GpuResidencyRegistry()
     dying = _FakeModel()
     mgr.note_resident(dying, "cuda:0", 10.0)
     del dying
@@ -404,7 +404,7 @@ def test_encode_coresides_without_eviction_when_it_fits(monkeypatch):
     # TE (5GB) + reserve (1GB) fits in 30GB free -> run beside the resident DiT,
     # NO eviction (avoids the offload/reload ping-pong).
     _cuda_world(monkeypatch, free_gb=30.0)
-    mgr = residency.get_residency_manager()
+    mgr = residency.get_residency_registry()
     mgr.clear()
     dit = _FakeModel()
     mgr.note_resident(dit, "cuda:0", 24.0)
@@ -422,7 +422,7 @@ def test_encode_coresides_without_eviction_when_it_fits(monkeypatch):
 def test_encode_evicts_resident_when_it_does_not_fit(monkeypatch):
     # TE (5GB) + reserve (1GB) does NOT fit in 2GB free -> evict the DiT, then encode.
     _cuda_world(monkeypatch, free_gb=2.0)
-    mgr = residency.get_residency_manager()
+    mgr = residency.get_residency_registry()
     mgr.clear()
     dit = _FakeModel()
     mgr.note_resident(dit, "cuda:0", 24.0)
@@ -438,7 +438,7 @@ def test_encode_coresident_oom_then_evicts_and_retries(monkeypatch):
     # free=7 is in [size+reserve=6, size*1.5+reserve=8.5): co-residency is tried
     # first (7>=6), it OOMs, so we evict the DiT (7<8.5) and retry on the GPU.
     _cuda_world(monkeypatch, free_gb=7.0)
-    mgr = residency.get_residency_manager()
+    mgr = residency.get_residency_registry()
     mgr.clear()
     dit = _FakeModel()
     mgr.note_resident(dit, "cuda:0", 24.0)
@@ -466,7 +466,7 @@ def test_encode_coresident_oom_then_evicts_and_retries(monkeypatch):
 
 def test_encode_falls_back_to_cpu_when_gpu_keeps_oom(monkeypatch):
     _cuda_world(monkeypatch, free_gb=30.0)
-    mgr = residency.get_residency_manager()
+    mgr = residency.get_residency_registry()
     mgr.clear()
 
     class _AlwaysOOMEncoder:
@@ -522,7 +522,7 @@ def test_wrapper_to_not_cascading_to_inner_module_is_still_moved(monkeypatch):
     real inner nn.Module. run_text_encode's discovery-walk safety net must call
     .to() on the inner module directly, so the encode genuinely runs off the CPU."""
     _cuda_world(monkeypatch, free_gb=30.0, te_gb=0.001)
-    mgr = residency.get_residency_manager()
+    mgr = residency.get_residency_registry()
     mgr.clear()
 
     class _BrokenWrapper:
@@ -557,7 +557,7 @@ def test_composite_encoder_moves_every_inner_module(monkeypatch):
     every real inner module moved, not just whichever the wrapper's own .to()
     happens to touch."""
     _cuda_world(monkeypatch, free_gb=30.0, te_gb=0.001)
-    mgr = residency.get_residency_manager()
+    mgr = residency.get_residency_registry()
     mgr.clear()
 
     class _Part:
@@ -594,7 +594,7 @@ def test_composite_encoder_moves_every_inner_module(monkeypatch):
 
 def test_finally_restores_to_cpu_even_when_encode_fn_raises(monkeypatch):
     _cuda_world(monkeypatch, free_gb=30.0, te_gb=0.001)
-    mgr = residency.get_residency_manager()
+    mgr = residency.get_residency_registry()
     mgr.clear()
 
     inner = _TrackedModule()
@@ -677,7 +677,7 @@ def test_cache_hit_never_moves_encoder_to_gpu(monkeypatch):
     # the second call touches no device at all.
     cache = _fresh_embed_cache()
     _cuda_world(monkeypatch, free_gb=30.0, te_gb=1.0)
-    mgr = residency.get_residency_manager()
+    mgr = residency.get_residency_registry()
     mgr.clear()
 
     enc = _RecordingEncoder()
@@ -704,7 +704,7 @@ def test_run_text_encode_registers_with_coordinator_during_the_gpu_window(monkey
     concurrent eviction decision, and leaves no residual entry once the encode
     is done."""
     _cuda_world(monkeypatch, free_gb=30.0, te_gb=7.0)
-    mgr = residency.get_residency_manager()
+    mgr = residency.get_residency_registry()
     mgr.clear()
 
     seen_resident_gb = []
@@ -732,7 +732,7 @@ def test_run_text_encode_mark_reports_real_tensor_census_not_the_intent(monkeypa
     the mark reports ground truth instead of trusting the call that was made.
     """
     _cuda_world(monkeypatch, free_gb=30.0, te_gb=0.001)
-    mgr = residency.get_residency_manager()
+    mgr = residency.get_residency_registry()
     mgr.clear()
 
     marks = []
@@ -804,7 +804,7 @@ def test_run_text_encode_mark_carries_the_free_and_needed_gb_that_drove_the_path
     the profile alone."""
     monkeypatch.delenv("NATIVE_MIN_INFERENCE_MEMORY_GB", raising=False)
     _cuda_world(monkeypatch, free_gb=30.0, te_gb=5.0)  # co-resident: 30 >= 5+1
-    mgr = residency.get_residency_manager()
+    mgr = residency.get_residency_registry()
     mgr.clear()
 
     marks = []
@@ -834,7 +834,7 @@ def test_run_text_encode_mark_free_and_needed_gb_on_the_after_evict_path(monkeyp
     `free_gb` (read at the gate) was below `needed_gb`."""
     monkeypatch.delenv("NATIVE_MIN_INFERENCE_MEMORY_GB", raising=False)
     _cuda_world(monkeypatch, free_gb=2.0, te_gb=5.0)  # 2 < 5+1 -> evict, then retry
-    mgr = residency.get_residency_manager()
+    mgr = residency.get_residency_registry()
     mgr.clear()
     dit = _FakeModel()
     mgr.note_resident(dit, "cuda:0", 24.0)
@@ -872,7 +872,7 @@ def test_run_text_encode_mark_census_catches_a_partial_move(monkeypatch):
     off the CPU). The byte census must surface that split instead of hiding it
     behind one lucky tensor."""
     _cuda_world(monkeypatch, free_gb=30.0, te_gb=0.001)
-    mgr = residency.get_residency_manager()
+    mgr = residency.get_residency_registry()
     mgr.clear()
 
     marks = []
@@ -937,7 +937,7 @@ def test_batch_all_miss_shares_one_gpu_window(monkeypatch):
     per request — while still calling every encode_fn, in order."""
     cache = _fresh_embed_cache()
     _cuda_world(monkeypatch, free_gb=30.0, te_gb=5.0)
-    mgr = residency.get_residency_manager()
+    mgr = residency.get_residency_registry()
     mgr.clear()
 
     enc = _RecordingEncoder()
@@ -1020,7 +1020,7 @@ def test_batch_mixed_hit_miss_only_encodes_the_misses(monkeypatch):
         lambda: fake_cache,
     )
     _cuda_world(monkeypatch, free_gb=30.0, te_gb=5.0)
-    mgr = residency.get_residency_manager()
+    mgr = residency.get_residency_registry()
     mgr.clear()
 
     enc = _RecordingEncoder()
@@ -1099,7 +1099,7 @@ def test_batch_miss_window_mark_carries_count(monkeypatch):
     single-item path already carries (path/weights_gb/free_gb/needed_gb) and
     ADDS ``count`` — the number of requests encoded inside that one window."""
     _cuda_world(monkeypatch, free_gb=30.0, te_gb=5.0)
-    mgr = residency.get_residency_manager()
+    mgr = residency.get_residency_registry()
     mgr.clear()
 
     marks = []
@@ -1159,7 +1159,7 @@ def test_single_item_te_encode_mark_has_no_count_field(monkeypatch):
     must NOT gain a ``count`` field just because the batch path exists — every
     field set the pre-existing tests above assert on stays exactly as it was."""
     _cuda_world(monkeypatch, free_gb=30.0, te_gb=5.0)
-    mgr = residency.get_residency_manager()
+    mgr = residency.get_residency_registry()
     mgr.clear()
 
     marks = []

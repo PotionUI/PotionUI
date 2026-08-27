@@ -370,7 +370,7 @@ def _drain_calls(monkeypatch, streamer, chunk_bytes: int) -> list:
     ``chunk_bytes``, returning the recorded calls. ``_pinned`` is forced True:
     on a CPU-only box ``apply`` can never actually pin, but the drain must
     behave exactly as it will on the GPU box where it matters."""
-    import src.platform.runtime.model_lifecycle.manager as mlm
+    import src.platform.runtime.model_lifecycle.lifecycle as mlm
     import src.platform.runtime.native.memory.partial as partial_mod
 
     calls: list = []
@@ -404,7 +404,7 @@ def test_teardown_drains_the_pinned_pool_in_chunks(monkeypatch):
 def test_teardown_without_a_pinned_pool_never_drains(monkeypatch):
     """No page-locked pool (pin unavailable, or below the warm-pool floor) ->
     the old single-sweep behaviour, zero release calls mid-teardown."""
-    import src.platform.runtime.model_lifecycle.manager as mlm
+    import src.platform.runtime.model_lifecycle.lifecycle as mlm
 
     m = _Tiny(n_linear=4)
     plan = plan_residency_split(m, resident_budget_gb=0.0)

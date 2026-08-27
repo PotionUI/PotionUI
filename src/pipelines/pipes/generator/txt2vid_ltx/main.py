@@ -320,7 +320,7 @@ def release_idle_te(bundle: Any, models: Any, log_prefix: str) -> float:
     safe because the native queue is serial per backend; the accepted cost is
     a later pipe/generation that needs this TE again cache-missing and paying
     a fresh reload from disk -- strictly better than an OOM/earlyoom kill
-    this avoids. See ``ModelLifecycleManager.evict_dead_weight``'s docstring
+    this avoids. See ``ModelLifecycle.evict_dead_weight``'s docstring
     for the full argument.
 
     Returns the estimated GB actually freed (0.0 if nothing was unloaded).

@@ -31,14 +31,14 @@ def mock_backend_registry():
 
 @pytest.fixture
 def mock_connection_manager():
-    from src.platform.websocket.connection_manager import ConnectionManager
-    return Mock(spec=ConnectionManager)
+    from src.platform.websocket.connection_hub import ConnectionHub
+    return Mock(spec=ConnectionHub)
 
 
 @pytest.fixture
-def mock_settings_manager():
-    from src.platform.settings.settings import SettingsManager
-    return Mock(spec=SettingsManager)
+def mock_settings():
+    from src.platform.settings.settings import Settings
+    return Mock(spec=Settings)
 
 
 @pytest.fixture
@@ -62,14 +62,14 @@ def mock_generation_repo():
 @pytest.fixture
 def orchestrator(
     mock_pipeline_builder, mock_backend_registry, mock_connection_manager,
-    mock_settings_manager, mock_output_processor, mock_preset_template_loader,
+    mock_settings, mock_output_processor, mock_preset_template_loader,
 ):
     from src.features.generation.orchestrator import GenerationOrchestrator
     return GenerationOrchestrator(
         pipeline_builder=mock_pipeline_builder,
         backend_registry=mock_backend_registry,
-        connection_manager=mock_connection_manager,
-        settings_manager=mock_settings_manager,
+        connection_hub=mock_connection_manager,
+        settings=mock_settings,
         output_processor=mock_output_processor,
         preset_template_loader=mock_preset_template_loader,
     )

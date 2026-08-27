@@ -3,7 +3,7 @@ Catalog metadata for the 5 built-in trigger node types.
 
 These specs have no `execute`/`start`/`stop` - the concrete `TriggerSource`
 subclasses in `src.features.automation.triggers` are instantiated directly by
-`AutomationManager`'s trigger factory (each needs different runtime deps:
+`AutomationRuntime`'s trigger factory (each needs different runtime deps:
 the hook bridge, the filesystem watch manager, the GPU manager). Registering
 them here just makes them visible to the node-type catalog / canvas palette
 and reserves their `config_schema` as the single source of truth for both

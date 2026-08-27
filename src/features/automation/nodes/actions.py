@@ -34,8 +34,8 @@ def _user_options() -> List[Dict[str, str]]:
     return [{"value": user.id, "label": user.username} for user in user_repo.get_all()]
 
 
-def _backend_config_manager():
-    """The configured BackendConfigManager, resolved lazily.
+def _backend_config_store():
+    """The configured BackendConfigStore, resolved lazily.
 
     Used only by the option-provider callables below (resolved per
     `/api/automations/node-types` request, like `_user_options`). The live
@@ -45,10 +45,10 @@ def _backend_config_manager():
     """
     try:
         from src.platform.plugins.runtime_registries import get_container
-        return get_container().backend_registry.backend_config_manager
+        return get_container().backend_registry.backend_config_store
     except Exception:
-        from src.features.backends.backend_config import BackendConfigManager
-        return BackendConfigManager()
+        from src.features.backends.backend_config import BackendConfigStore
+        return BackendConfigStore()
 
 
 def _group_options() -> List[Dict[str, str]]:
@@ -66,7 +66,7 @@ def _backend_options() -> List[Dict[str, str]]:
     """Options for action.backend_action's backend picker: value=id, label=name+engine."""
     return [
         {"value": backend.id, "label": f"{backend.name} ({backend.engine})"}
-        for backend in _backend_config_manager().get_backends()
+        for backend in _backend_config_store().get_backends()
     ]
 
 
@@ -75,7 +75,7 @@ def _backend_action_options() -> List[Dict[str, str]]:
     self-declared quick actions (id -> label). Core hardcodes no action ids
     here - each backend describes its own via `quick_actions()`."""
     seen: Dict[str, str] = {}
-    for backend in _backend_config_manager().get_backends():
+    for backend in _backend_config_store().get_backends():
         for action in backend.quick_actions():
             seen.setdefault(action["id"], action.get("label", action["id"]))
     return [{"value": action_id, "label": label} for action_id, label in seen.items()]
@@ -175,8 +175,8 @@ def _skipped_backend_note(ctx: NodeExecutionContext, backend_id: str) -> str:
     or disabled (config row, but no live instance in the registry). Either way
     the run should say so and move on, not fail every other backend.
     """
-    config_manager = ctx.services.backend_config_manager
-    config = config_manager.get_backend(backend_id) if config_manager is not None else None
+    config_store = ctx.services.backend_config_store
+    config = config_store.get_backend(backend_id) if config_store is not None else None
     if config is not None:
         return f"{config.name}: backend is disabled, skipped"
     return f"{backend_id}: backend no longer exists, skipped"
@@ -392,7 +392,7 @@ async def _execute_send_notification(ctx: NodeExecutionContext) -> NodeResult:
 
     notification_manager = ctx.services.notification_manager
     if notification_manager is None:
-        raise RuntimeError("action.send_notification: no NotificationManager configured on AutomationServices")
+        raise RuntimeError("action.send_notification: no notify callable configured on AutomationServices")
 
     notifications = notification_manager(
         level=level, title=title, message=message, category="automation",
@@ -404,7 +404,7 @@ async def _execute_send_notification(ctx: NodeExecutionContext) -> NodeResult:
 
 async def _execute_wait_for_gpu(ctx: NodeExecutionContext) -> NodeResult:
     """
-    The wait-node: polls `GpuManager.get_free_vram()` until `threshold_mb` is
+    The wait-node: polls `GpuMonitor.get_free_vram()` until `threshold_mb` is
     free. No special engine "kind" is needed - it's an ordinary action that
     loops and calls `set_status("waiting")` so the run-node row (and the UI)
     reflects it while it polls. The engine's own `asyncio.wait_for` timeout
@@ -415,15 +415,15 @@ async def _execute_wait_for_gpu(ctx: NodeExecutionContext) -> NodeResult:
     threshold_mb = float(ctx.config.get("threshold_mb", 2000))
     poll_interval_s = float(ctx.config.get("poll_interval_s", 5))
 
-    gpu_manager = ctx.services.gpu_manager
-    if gpu_manager is None:
-        raise RuntimeError("action.wait_for_gpu: no GpuManager configured on AutomationServices")
+    gpu_monitor = ctx.services.gpu_monitor
+    if gpu_monitor is None:
+        raise RuntimeError("action.wait_for_gpu: no GpuMonitor configured on AutomationServices")
 
     ctx.set_status("waiting")
-    while gpu_manager.get_free_vram() < threshold_mb:
+    while gpu_monitor.get_free_vram() < threshold_mb:
         await asyncio.sleep(max(0.5, poll_interval_s))
 
-    return NodeResult(output={"free_vram_mb": gpu_manager.get_free_vram(), "threshold_mb": threshold_mb})
+    return NodeResult(output={"free_vram_mb": gpu_monitor.get_free_vram(), "threshold_mb": threshold_mb})
 
 
 _MEDIA_INDEX_PASS_TYPES = ("tags", "clip_embed", "prompt_embed")
@@ -442,9 +442,9 @@ async def _execute_index_media_queue(ctx: NodeExecutionContext) -> NodeResult:
     it via the same `claim_batch` query; nothing is left half-processed or
     dropped.
     """
-    manager = ctx.services.media_index_manager
+    manager = ctx.services.media_indexer
     if manager is None:
-        raise RuntimeError("action.index_media_queue: no MediaIndexManager configured on AutomationServices")
+        raise RuntimeError("action.index_media_queue: no MediaIndexer configured on AutomationServices")
 
     pass_types = ctx.config.get("pass_types") or list(_MEDIA_INDEX_PASS_TYPES)
     batch_size = int(ctx.config.get("batch_size", 8))
@@ -522,8 +522,8 @@ async def _execute_scan_files(ctx: NodeExecutionContext) -> NodeResult:
 
     model_repo = ctx.services.model_repository if resolve_models else None
     models_root = (
-        ctx.services.settings_manager.get_models_dir()
-        if resolve_models and ctx.services.settings_manager is not None
+        ctx.services.settings.get_models_dir()
+        if resolve_models and ctx.services.settings is not None
         else None
     )
 
@@ -649,11 +649,11 @@ async def _execute_backend_action(ctx: NodeExecutionContext) -> NodeResult:
     backend_id = ctx.config.get("backend", "")
     action_id = ctx.config.get("action", "")
 
-    config_manager = ctx.services.backend_config_manager
-    if config_manager is None:
-        raise RuntimeError("action.backend_action: no BackendConfigManager configured on AutomationServices")
+    config_store = ctx.services.backend_config_store
+    if config_store is None:
+        raise RuntimeError("action.backend_action: no BackendConfigStore configured on AutomationServices")
 
-    backend = config_manager.get_backend(backend_id)
+    backend = config_store.get_backend(backend_id)
     if backend is None:
         raise RuntimeError(f"action.backend_action: backend '{backend_id}' not found")
 
@@ -670,14 +670,14 @@ async def _execute_backend_action(ctx: NodeExecutionContext) -> NodeResult:
     if action_id == _CLEAR_VRAM:
         from src.platform.runtime.native.memory.residency import clear_vram
 
-        lifecycle_manager = ctx.services.model_lifecycle_manager
-        if lifecycle_manager is None:
+        lifecycle = ctx.services.model_lifecycle
+        if lifecycle is None:
             raise RuntimeError(
-                "action.backend_action: no ModelLifecycleManager configured for the clear-vram action"
+                "action.backend_action: no ModelLifecycle configured for the clear-vram action"
             )
         device = getattr(backend, "device", "cuda")
-        result = clear_vram(device, lifecycle_manager)
-        lifecycle_manager.cleanup(aggressive=False)  # gc + cuda.empty_cache(), no eviction/trim
+        result = clear_vram(device, lifecycle)
+        lifecycle.cleanup(aggressive=False)  # gc + cuda.empty_cache(), no eviction/trim
         logger.info(
             f"action.backend_action: cleared VRAM for backend '{backend_id}' - "
             f"offloaded {result.offloaded_count} component(s), ~{result.freed_gb:.2f}GB"
@@ -692,12 +692,12 @@ async def _execute_backend_action(ctx: NodeExecutionContext) -> NodeResult:
         })
 
     if action_id == _CLEAR_CACHE:
-        lifecycle_manager = ctx.services.model_lifecycle_manager
-        if lifecycle_manager is None:
+        lifecycle = ctx.services.model_lifecycle
+        if lifecycle is None:
             raise RuntimeError(
-                "action.backend_action: no ModelLifecycleManager configured for the clear-cache action"
+                "action.backend_action: no ModelLifecycle configured for the clear-cache action"
             )
-        lifecycle_manager.invalidate()  # evicts every cached model/artifact, trims RAM
+        lifecycle.invalidate()  # evicts every cached model/artifact, trims RAM
         logger.info(f"action.backend_action: cleared VRAM & RAM cache for backend '{backend_id}'")
         return NodeResult(output={
             "backend_id": backend_id, "action_id": action_id, "label": label,

@@ -13,7 +13,7 @@ from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.http.origin import is_loopback_host
 from src.features.auth.dto import ChangePasswordRequest, UserCreate, Token, UserResponse, UserMeResponse
 from src.platform.security.current_user import get_current_user
-from src.platform.security import AuthManager
+from src.platform.security import Auth
 from src.platform.security.user import User
 
 if TYPE_CHECKING:
@@ -55,12 +55,12 @@ class AuthController(BaseController):
     Controller for authentication operations.
 
     Handles user registration, login, and current user information retrieval.
-    Uses AuthManager for all authentication logic.
+    Uses Auth for all authentication logic.
     """
 
-    def __init__(self, auth_manager: AuthManager):
+    def __init__(self, auth: Auth):
         super().__init__()
-        self.auth = auth_manager
+        self.auth = auth
         self.login_limiter = LoginAttemptLimiter()
         # Same brute-force guard as login, keyed per user id instead of
         # per (ip, username): a change-password attempt is already authenticated.
@@ -201,7 +201,7 @@ class AuthController(BaseController):
 
 
 def build_router(container: "AppContainer") -> APIRouter:
-    controller = AuthController(container.auth_manager)
+    controller = AuthController(container.auth)
     router = APIRouter(prefix="/api/auth", tags=["authentication"])
 
     @router.post("/register", response_model=APIResponse, summary="Register a new user account")

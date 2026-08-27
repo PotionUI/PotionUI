@@ -27,7 +27,7 @@ from src.pipelines.outputs import (
     VideoGenerationOutput,
 )
 from src.platform.filesystem.storage_driver import LocalFileStorageDriver
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 from src.platform.util.ids import generate_ulid
 
 
@@ -86,18 +86,18 @@ def bucket_driver(tmp_path):
 
 
 @pytest.fixture
-def settings_manager(local_root):
-    settings = Mock(spec=SettingsManager)
+def settings(local_root):
+    settings = Mock(spec=Settings)
     settings.get_file_storage_directory.return_value = str(local_root)
     return settings
 
 
 class TestImageHandlerDriverBypassClosed:
     def test_final_image_and_thumbnails_land_only_in_the_driver(
-        self, generation_id, settings_manager, bucket_driver, local_root
+        self, generation_id, settings, bucket_driver, local_root
     ):
         gen_id, user_id = generation_id
-        handler = ImageGenerationOutputHandler(gen_id, user_id, settings_manager, bucket_driver)
+        handler = ImageGenerationOutputHandler(gen_id, user_id, settings, bucket_driver)
 
         image = Image.new('RGB', (64, 64), color='red')
         output = ImageGenerationOutput(image=image, temporary=False)
@@ -119,10 +119,10 @@ class TestImageHandlerDriverBypassClosed:
 
 class TestVideoHandlerDriverBypassClosed:
     def test_final_video_lands_only_in_the_driver(
-        self, generation_id, settings_manager, bucket_driver, local_root, tmp_path
+        self, generation_id, settings, bucket_driver, local_root, tmp_path
     ):
         gen_id, user_id = generation_id
-        handler = VideoGenerationOutputHandler(gen_id, user_id, settings_manager, bucket_driver)
+        handler = VideoGenerationOutputHandler(gen_id, user_id, settings, bucket_driver)
 
         source = tmp_path / "source.mp4"
         video_bytes = b"fake video bytes" * 100
@@ -141,10 +141,10 @@ class TestVideoHandlerDriverBypassClosed:
 
 class TestAudioHandlerDriverBypassClosed:
     def test_final_audio_lands_only_in_the_driver(
-        self, generation_id, settings_manager, bucket_driver, local_root, minimal_wav_file, minimal_wav_bytes
+        self, generation_id, settings, bucket_driver, local_root, minimal_wav_file, minimal_wav_bytes
     ):
         gen_id, user_id = generation_id
-        handler = AudioGenerationOutputHandler(gen_id, user_id, settings_manager, bucket_driver)
+        handler = AudioGenerationOutputHandler(gen_id, user_id, settings, bucket_driver)
 
         output = AudioGenerationOutput(audio_path=str(minimal_wav_file), temporary=False)
         metadata = handler.handle(output)
@@ -164,10 +164,10 @@ class TestAudioHandlerDriverBypassClosed:
 
 class TestMeshHandlerDriverBypassClosed:
     def test_final_mesh_lands_only_in_the_driver(
-        self, generation_id, settings_manager, bucket_driver, local_root, minimal_glb_file, minimal_glb_bytes
+        self, generation_id, settings, bucket_driver, local_root, minimal_glb_file, minimal_glb_bytes
     ):
         gen_id, user_id = generation_id
-        handler = MeshGenerationOutputHandler(gen_id, user_id, settings_manager, bucket_driver)
+        handler = MeshGenerationOutputHandler(gen_id, user_id, settings, bucket_driver)
 
         output = MeshGenerationOutput(mesh_path=str(minimal_glb_file), temporary=False)
         metadata = handler.handle(output)

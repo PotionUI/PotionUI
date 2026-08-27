@@ -12,7 +12,7 @@ own tool description tells them the save "saves immediately, no approval
 needed" — there's nothing left they're obligated to say.
 
 These tests exercise the real ToolRegistry + ToolExecutor (not a mocked tool
-executor) through ChatManager.send_message_stream, driven by a fake LLM
+executor) through ChatRuntime.send_message_stream, driven by a fake LLM
 service that scripts exactly what a flaky local model does: a tool call, then
 a genuinely empty completion, then a real answer on retry.
 """
@@ -23,7 +23,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from src.features.chat.manager import ChatManager
+from src.features.chat.runtime import ChatRuntime
 from src.features.chat.modes import ChatModeRegistry, build_generation_mode
 from src.features.llm.tools.builtin.memory_tool import WriteMemoryTool
 from src.features.llm.tools.executor import ToolExecutor
@@ -117,7 +117,7 @@ def make_memory_chat_manager(scripts):
     llm_service = ScriptedLLMService(scripts)
     executor = ToolExecutor(tool_registry=registry, llm_service=llm_service)
 
-    manager = ChatManager(
+    manager = ChatRuntime(
         chat_repository=repo,
         llm_service=llm_service,
         response_processor=processor,

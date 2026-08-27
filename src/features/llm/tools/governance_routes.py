@@ -3,7 +3,7 @@ one LLM configuration (every registered tool + that config's {enabled,
 locked}) and a user preferences screen (the global set of tools a user may
 see, with their own opt-out toggle - always scoped to the caller's active LLM
 config for `locked`/visibility). Reads go straight to the repository + tool
-registry; writes go through ToolGovernanceManager. See
+registry; writes go through ToolGovernanceEditor. See
 src/features/llm/tools/governance.py for the model.
 """
 
@@ -17,7 +17,7 @@ from src.platform.security.current_user import get_current_active_user, get_curr
 from src.platform.security.user import User
 from src.features.llm.dto import ToolGovernanceUpdateRequest, UserToolPreferenceRequest
 from src.features.llm.tools.governance import (
-    ToolGovernanceManager,
+    ToolGovernanceEditor,
     ToolGovernanceRepository,
     ToolAdminDisabledException,
     ToolLockedException,
@@ -37,7 +37,7 @@ class ToolGovernanceController(BaseController):
     def __init__(
         self,
         repository: ToolGovernanceRepository,
-        manager: ToolGovernanceManager,
+        manager: ToolGovernanceEditor,
         tool_registry,
         llm_repository: "LLMRepository",
     ):

@@ -379,10 +379,10 @@ def test_build_placement_edit_mode_can_flip_resident_to_streaming(monkeypatch):
 
     monkeypatch.setattr(engine_mod, "free_vram_gb", lambda device: 25.0)
     monkeypatch.setattr(
-        engine_mod.get_residency_manager(), "ensure_free", lambda *a, **k: False, raising=False,
+        engine_mod.get_residency_registry(), "ensure_free", lambda *a, **k: False, raising=False,
     )
     monkeypatch.setattr(
-        engine_mod.get_residency_manager(), "offload_all", lambda *a, **k: False, raising=False,
+        engine_mod.get_residency_registry(), "offload_all", lambda *a, **k: False, raising=False,
     )
 
     # DiT sized so it fits the txt2img budget but not the edit-mode one, once
@@ -410,7 +410,7 @@ def test_dit_weights_budget_shrinks_with_ref_latents(monkeypatch):
 
     monkeypatch.setattr(engine_mod, "free_vram_gb", lambda device: 50.0)
     monkeypatch.setattr(
-        engine_mod.get_residency_manager(), "ensure_free", lambda *a, **k: False, raising=False,
+        engine_mod.get_residency_registry(), "ensure_free", lambda *a, **k: False, raising=False,
     )
 
     gen = _bare_generator(vram_gb=50.0, dit_gb=20.0)
@@ -750,16 +750,16 @@ def test_move_to_trims_host_allocator_after_streamer_teardown_regardless_of_dest
     restore (``dit_restore.py``'s warm-start) measured a real RSS INCREASE
     during exactly this transition because it was never trimmed.
     """
-    import src.platform.runtime.model_lifecycle.manager as lifecycle_manager
+    import src.platform.runtime.model_lifecycle.lifecycle as lifecycle
 
     calls = []
-    original = lifecycle_manager.trim_host_allocator
+    original = lifecycle.trim_host_allocator
     monkeypatch_target = "trim_host_allocator"
 
     def _fake_trim():
         calls.append(1)
 
-    setattr(lifecycle_manager, monkeypatch_target, _fake_trim)
+    setattr(lifecycle, monkeypatch_target, _fake_trim)
     try:
         class _FakeModule:
             def to(self, device):
@@ -785,7 +785,7 @@ def test_move_to_trims_host_allocator_after_streamer_teardown_regardless_of_dest
         assert fake_streamer.torn_down
         assert calls, "trim_host_allocator must fire when tearing down an active streamer, even moving to cuda"
     finally:
-        setattr(lifecycle_manager, monkeypatch_target, original)
+        setattr(lifecycle, monkeypatch_target, original)
 
 
 def test_move_to_skips_trim_when_no_streamer_was_active():
@@ -795,11 +795,11 @@ def test_move_to_skips_trim_when_no_streamer_was_active():
     size gate here so the (separate) big-component to-cuda trim -- see
     ``test_move_to_cuda_trims_host_allocator_for_big_components`` -- doesn't
     also fire and confound this test's own assertion."""
-    import src.platform.runtime.model_lifecycle.manager as lifecycle_manager
+    import src.platform.runtime.model_lifecycle.lifecycle as lifecycle
 
     calls = []
-    original = lifecycle_manager.trim_host_allocator
-    setattr(lifecycle_manager, "trim_host_allocator", lambda: calls.append(1))
+    original = lifecycle.trim_host_allocator
+    setattr(lifecycle, "trim_host_allocator", lambda: calls.append(1))
     try:
         class _FakeModule:
             def to(self, device):
@@ -809,7 +809,7 @@ def test_move_to_skips_trim_when_no_streamer_was_active():
         model.move_to("cuda:0")
         assert not calls
     finally:
-        setattr(lifecycle_manager, "trim_host_allocator", original)
+        setattr(lifecycle, "trim_host_allocator", original)
 
 
 def test_move_to_cuda_trims_host_allocator_for_big_components():
@@ -819,11 +819,11 @@ def test_move_to_cuda_trims_host_allocator_for_big_components():
     RSS by only 0.87GB where ~23GB of CPU weights were released). Mirrors the
     offload branch's existing >2GB gate, and mirrors ``stream_to``'s own
     to-cuda trim for the partial-residency path."""
-    import src.platform.runtime.model_lifecycle.manager as lifecycle_manager
+    import src.platform.runtime.model_lifecycle.lifecycle as lifecycle
 
     calls = []
-    original = lifecycle_manager.trim_host_allocator
-    setattr(lifecycle_manager, "trim_host_allocator", lambda: calls.append(1))
+    original = lifecycle.trim_host_allocator
+    setattr(lifecycle, "trim_host_allocator", lambda: calls.append(1))
     try:
         class _FakeModule:
             def to(self, device):
@@ -833,7 +833,7 @@ def test_move_to_cuda_trims_host_allocator_for_big_components():
         model.move_to("cuda:0")
         assert calls == [1]
     finally:
-        setattr(lifecycle_manager, "trim_host_allocator", original)
+        setattr(lifecycle, "trim_host_allocator", original)
 
 
 def test_offload_trims_host_allocator_after_streamer_teardown():
@@ -843,11 +843,11 @@ def test_offload_trims_host_allocator_after_streamer_teardown():
     caught RSS climbing 69.8GB -> 74.1GB in the ~6s between the
     `native.offload` mark and the `streamer.teardown` mark it emits,
     immediately preceding an earlyoom kill -- exactly this untrimmed path."""
-    import src.platform.runtime.model_lifecycle.manager as lifecycle_manager
+    import src.platform.runtime.model_lifecycle.lifecycle as lifecycle
 
     calls = []
-    original = lifecycle_manager.trim_host_allocator
-    setattr(lifecycle_manager, "trim_host_allocator", lambda: calls.append(1))
+    original = lifecycle.trim_host_allocator
+    setattr(lifecycle, "trim_host_allocator", lambda: calls.append(1))
     try:
         class _FakeModule:
             def to(self, device):
@@ -870,17 +870,17 @@ def test_offload_trims_host_allocator_after_streamer_teardown():
         assert model.device == "cpu"
         assert calls, "trim_host_allocator must fire when offload() tears down an active streamer"
     finally:
-        setattr(lifecycle_manager, "trim_host_allocator", original)
+        setattr(lifecycle, "trim_host_allocator", original)
 
 
 def test_offload_skips_trim_below_the_size_gate():
     """Same gate as move_to()/stream_to(): a component below the 2GB
     threshold isn't worth the trim cost."""
-    import src.platform.runtime.model_lifecycle.manager as lifecycle_manager
+    import src.platform.runtime.model_lifecycle.lifecycle as lifecycle
 
     calls = []
-    original = lifecycle_manager.trim_host_allocator
-    setattr(lifecycle_manager, "trim_host_allocator", lambda: calls.append(1))
+    original = lifecycle.trim_host_allocator
+    setattr(lifecycle, "trim_host_allocator", lambda: calls.append(1))
     try:
         class _FakeModule:
             def to(self, device):
@@ -901,18 +901,18 @@ def test_offload_skips_trim_below_the_size_gate():
 
         assert not calls
     finally:
-        setattr(lifecycle_manager, "trim_host_allocator", original)
+        setattr(lifecycle, "trim_host_allocator", original)
 
 
 def test_unload_trims_host_allocator_after_streamer_teardown():
     """Same gap as offload()'s fix 3/3, for the lifecycle-eviction path:
     unload() tears down an active streamer inline and never routed through
     move_to() either."""
-    import src.platform.runtime.model_lifecycle.manager as lifecycle_manager
+    import src.platform.runtime.model_lifecycle.lifecycle as lifecycle
 
     calls = []
-    original = lifecycle_manager.trim_host_allocator
-    setattr(lifecycle_manager, "trim_host_allocator", lambda: calls.append(1))
+    original = lifecycle.trim_host_allocator
+    setattr(lifecycle, "trim_host_allocator", lambda: calls.append(1))
     try:
         class _FakeModule:
             def to(self, device):
@@ -934,15 +934,15 @@ def test_unload_trims_host_allocator_after_streamer_teardown():
         assert model.module is None
         assert calls, "trim_host_allocator must fire when unload() tears down an active streamer"
     finally:
-        setattr(lifecycle_manager, "trim_host_allocator", original)
+        setattr(lifecycle, "trim_host_allocator", original)
 
 
 def test_unload_skips_trim_when_no_streamer_was_active():
-    import src.platform.runtime.model_lifecycle.manager as lifecycle_manager
+    import src.platform.runtime.model_lifecycle.lifecycle as lifecycle
 
     calls = []
-    original = lifecycle_manager.trim_host_allocator
-    setattr(lifecycle_manager, "trim_host_allocator", lambda: calls.append(1))
+    original = lifecycle.trim_host_allocator
+    setattr(lifecycle, "trim_host_allocator", lambda: calls.append(1))
     try:
         class _FakeModule:
             def to(self, device):
@@ -954,7 +954,7 @@ def test_unload_skips_trim_when_no_streamer_was_active():
         assert model.module is None
         assert not calls
     finally:
-        setattr(lifecycle_manager, "trim_host_allocator", original)
+        setattr(lifecycle, "trim_host_allocator", original)
 
 
 class _FakeStreamerForStreamTo:
@@ -975,11 +975,11 @@ def test_stream_to_empties_pinned_cache_before_apply_and_trims_after(monkeypatch
     any stale cached pinned pool BEFORE the new pin burst (`apply()`), and (2)
     trim glibc's heap AFTER it -- mirroring `move_to()`'s post-teardown trim
     for the same "freed CPU allocations never returned to the OS" reason."""
-    import src.platform.runtime.model_lifecycle.manager as lifecycle_manager
+    import src.platform.runtime.model_lifecycle.lifecycle as lifecycle
 
     calls: list[str] = []
-    monkeypatch.setattr(lifecycle_manager, "empty_pinned_host_cache", lambda: calls.append("empty"))
-    monkeypatch.setattr(lifecycle_manager, "trim_host_allocator", lambda: calls.append("trim"))
+    monkeypatch.setattr(lifecycle, "empty_pinned_host_cache", lambda: calls.append("empty"))
+    monkeypatch.setattr(lifecycle, "trim_host_allocator", lambda: calls.append("trim"))
 
     model = NativeModel("diffusion_model", torch.nn.Linear(2, 2), estimated_vram_gb=5.0)
     model._streamer = _FakeStreamerForStreamTo(calls)
@@ -994,11 +994,11 @@ def test_stream_to_empties_pinned_cache_before_apply_and_trims_after(monkeypatch
 def test_stream_to_skips_trim_for_small_component(monkeypatch):
     """The post-apply trim is gated on component size (>2GB), same threshold
     as `move_to()`'s trim -- a small component isn't worth the tens-of-ms cost."""
-    import src.platform.runtime.model_lifecycle.manager as lifecycle_manager
+    import src.platform.runtime.model_lifecycle.lifecycle as lifecycle
 
     calls: list[str] = []
-    monkeypatch.setattr(lifecycle_manager, "empty_pinned_host_cache", lambda: calls.append("empty"))
-    monkeypatch.setattr(lifecycle_manager, "trim_host_allocator", lambda: calls.append("trim"))
+    monkeypatch.setattr(lifecycle, "empty_pinned_host_cache", lambda: calls.append("empty"))
+    monkeypatch.setattr(lifecycle, "trim_host_allocator", lambda: calls.append("trim"))
 
     model = NativeModel("vae", torch.nn.Linear(2, 2), estimated_vram_gb=0.5)
     model._streamer = _FakeStreamerForStreamTo(calls)
@@ -1014,12 +1014,12 @@ def test_stream_to_emits_host_reclaim_marks_for_both_empty_and_trim(monkeypatch)
     post-apply trim are BOTH now bracketed, each producing its own
     `host.reclaim` row distinguishable by `op` -- so the pinned-pool release
     is attributable to a specific call, not inferred from `apply` in between."""
-    import src.platform.runtime.model_lifecycle.manager as lifecycle_manager
+    import src.platform.runtime.model_lifecycle.lifecycle as lifecycle
     import src.platform.runtime.native.engine as engine_module
 
     calls: list[str] = []
-    monkeypatch.setattr(lifecycle_manager, "empty_pinned_host_cache", lambda: calls.append("empty"))
-    monkeypatch.setattr(lifecycle_manager, "trim_host_allocator", lambda: calls.append("trim"))
+    monkeypatch.setattr(lifecycle, "empty_pinned_host_cache", lambda: calls.append("empty"))
+    monkeypatch.setattr(lifecycle, "trim_host_allocator", lambda: calls.append("trim"))
     monkeypatch.setattr(engine_module, "profiling_enabled", lambda: True)
     rec = _RecordingProfilerForTrim()
     monkeypatch.setattr(engine_module, "get_profiler", lambda: rec)
@@ -1048,10 +1048,10 @@ def test_stream_to_on_non_cuda_device_never_touches_pinned_cache_or_trim(monkeyp
     """`stream_to` on a non-CUDA device degrades to a plain `move_to` -- must
     not call either the pinned-cache release or the glibc trim from the
     partial-residency path (move_to has its own, independently-gated trim)."""
-    import src.platform.runtime.model_lifecycle.manager as lifecycle_manager
+    import src.platform.runtime.model_lifecycle.lifecycle as lifecycle
 
     calls: list[str] = []
-    monkeypatch.setattr(lifecycle_manager, "empty_pinned_host_cache", lambda: calls.append("empty"))
+    monkeypatch.setattr(lifecycle, "empty_pinned_host_cache", lambda: calls.append("empty"))
 
     class _FakeModule:
         def to(self, device):
@@ -1065,11 +1065,11 @@ def test_stream_to_on_non_cuda_device_never_touches_pinned_cache_or_trim(monkeyp
 
 def _reclaim_calls(monkeypatch):
     """Route both host-reclaim primitives into one ordered call list."""
-    import src.platform.runtime.model_lifecycle.manager as lifecycle_manager
+    import src.platform.runtime.model_lifecycle.lifecycle as lifecycle
 
     calls: list[str] = []
-    monkeypatch.setattr(lifecycle_manager, "trim_host_allocator", lambda: calls.append("trim"))
-    monkeypatch.setattr(lifecycle_manager, "empty_pinned_host_cache", lambda: calls.append("empty"))
+    monkeypatch.setattr(lifecycle, "trim_host_allocator", lambda: calls.append("trim"))
+    monkeypatch.setattr(lifecycle, "empty_pinned_host_cache", lambda: calls.append("empty"))
     return calls
 
 

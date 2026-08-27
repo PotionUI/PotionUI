@@ -26,7 +26,7 @@ class OtherOutput(GenerationOutput):
 
 
 class DummyHandler:
-    def __init__(self, generation_id, user_id=None, settings_manager=None):
+    def __init__(self, generation_id, user_id=None, settings=None):
         self.generation_id = generation_id
 
     def handle(self, output):

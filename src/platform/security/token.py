@@ -17,7 +17,7 @@ class TokenData(BaseModel):
     user_id: Optional[str] = None
 
 
-class TokenManager:
+class TokenCodec:
     """
     Handles JWT token creation and validation.
     """

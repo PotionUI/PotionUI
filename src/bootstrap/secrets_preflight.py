@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 def run_secret_preflight(
     plugin_repository,
-    backend_config_manager,
+    backend_config_store,
     llm_config_repository=None,
     plugin_registry=None,
 ) -> List[str]:
@@ -58,7 +58,7 @@ def run_secret_preflight(
             logger.error("Could not encrypt manifest-declared plugin secrets: %s", exc)
 
     try:
-        rewritten = backend_config_manager.encrypt_stored_credentials()
+        rewritten = backend_config_store.encrypt_stored_credentials()
         if rewritten:
             logger.info("Encrypted credentials for %d backend(s) at rest.", rewritten)
     except Exception as exc:
@@ -70,7 +70,7 @@ def run_secret_preflight(
         if not cipher.can_decrypt(row['setting_value']):
             undecryptable.append(f"plugin_settings:{row['plugin_id']}/{row['setting_key']}")
 
-    for row in backend_config_manager.backend_repository.iter_encrypted_configs():
+    for row in backend_config_store.backend_repository.iter_encrypted_configs():
         try:
             config = json.loads(row['config']) if row['config'] else {}
         except (TypeError, ValueError):

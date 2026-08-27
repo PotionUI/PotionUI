@@ -16,7 +16,7 @@ from typing import Dict, Any, Optional
 
 from src.pipelines.outputs import GenerationOutput
 from src.platform.filesystem.storage_driver import FileStorageDriver
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ class BaseGenerationOutputHandler(ABC):
         self,
         generation_id: str,
         user_id: Optional[str] = None,
-        settings_manager: Optional[SettingsManager] = None,
+        settings: Optional[Settings] = None,
         storage_driver: Optional[FileStorageDriver] = None,
     ):
         """
@@ -39,10 +39,10 @@ class BaseGenerationOutputHandler(ABC):
         Args:
             generation_id: Current generation ID for organizing outputs
             user_id: User ID for file ownership (optional)
-            settings_manager: Settings manager for accessing configuration (optional)
+            settings: Settings manager for accessing configuration (optional)
             storage_driver: Where saved generation output bytes actually live
                 - local disk by default, optionally S3 (see
-                `StorageSettingsManager`). Falls back to a local driver rooted
+                `StorageSettings`). Falls back to a local driver rooted
                 at the configured storage directory when not injected (tests,
                 callers that construct a handler directly).
         """
@@ -54,7 +54,7 @@ class BaseGenerationOutputHandler(ABC):
         # root while the readers look in the user's: the file exists, its
         # recorded relative path reads as plausible, and nothing can find it.
         self.user_id = user_id
-        self.settings_manager = settings_manager
+        self.settings = settings
         self.image_counter = 0
         self._counter_seeded = False
         # `None` unless the caller (OutputProcessor) injects the container's
@@ -78,9 +78,9 @@ class BaseGenerationOutputHandler(ABC):
         from src.platform.filesystem.storage_driver import LocalFileStorageDriver
 
         base_storage_dir = "storage"
-        if self.settings_manager:
+        if self.settings:
             try:
-                configured = self.settings_manager.get_file_storage_directory(self.user_id)
+                configured = self.settings.get_file_storage_directory(self.user_id)
                 if configured:
                     base_storage_dir = configured
             except Exception:
@@ -97,11 +97,11 @@ class BaseGenerationOutputHandler(ABC):
         `tmp`/`models` writes - actual `generations` bytes go through
         `self.storage_driver` regardless of this value."""
         base_storage_dir = "storage"
-        if not self.settings_manager:
+        if not self.settings:
             return base_storage_dir
 
         try:
-            configured_dir = self.settings_manager.get_file_storage_directory(self.user_id)
+            configured_dir = self.settings.get_file_storage_directory(self.user_id)
             if configured_dir:
                 return configured_dir
             logger.debug("File storage directory setting not configured, using default 'storage'")

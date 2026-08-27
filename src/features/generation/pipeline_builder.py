@@ -211,7 +211,7 @@ class PipelineBuilder:
     def _drop_stale_cache_keys(pipes: List[Dict[str, Any]], preset_id: str) -> None:
         """
         Pipe-level `cache:` keys are inert: caching goes entirely through
-        ModelLifecycleManager.acquire() (key/fingerprint/loader, with
+        ModelLifecycle.acquire() (key/fingerprint/loader, with
         eviction), not through per-pipe config. Custom presets that still
         declare `cache:` in their pipeline.yml must keep working rather than
         crash or silently misbehave, so this drops the key here with a
@@ -225,7 +225,7 @@ class PipelineBuilder:
                     logger.warning(
                         f"Preset '{preset_id}' pipe '{pipe_config.get('name')}' declares stale "
                         f"'cache: {cache_keys}' — the cache: mechanism was removed in favor of "
-                        f"ModelLifecycleManager; this key is now ignored. Remove it from the preset's "
+                        f"ModelLifecycle; this key is now ignored. Remove it from the preset's "
                         f"pipeline.yml."
                     )
                     _warned_stale_cache_key.add(warn_key)

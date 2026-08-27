@@ -16,7 +16,7 @@ from src.features.notifications.dto import CreateNotificationRequest, UpdateNoti
 from src.features.notifications import NotificationCollaborators
 from src.features.notifications import operations
 from src.platform.security.user import User
-from src.platform.websocket.notification_connection_manager import notification_connection_manager
+from src.platform.websocket.notification_connection_hub import notification_connection_hub
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
@@ -254,7 +254,7 @@ def build_ws_router(container: "AppContainer") -> APIRouter:
             return
 
         client_id = str(uuid.uuid4())
-        await notification_connection_manager.connect(websocket, user.id, client_id)
+        await notification_connection_hub.connect(websocket, user.id, client_id)
 
         try:
             unread_count = controller.repository.unread_count(user.id)
@@ -273,6 +273,6 @@ def build_ws_router(container: "AppContainer") -> APIRouter:
         except Exception as e:
             logging.error(f"Notification WebSocket handler error for client {client_id}: {e}")
         finally:
-            notification_connection_manager.disconnect(user.id, client_id)
+            notification_connection_hub.disconnect(user.id, client_id)
 
     return ws_router

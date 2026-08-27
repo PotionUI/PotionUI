@@ -2,14 +2,14 @@
 Media module for PotionUI.
 
 This module provides media functionality including:
-- MediaManager: Orchestrates media operations with business logic
+- MediaStore: Orchestrates media operations with business logic
 - MediaTypeResolver: Resolves file extensions to MIME types
 - FilePathResolver: Securely resolves file paths
 - ImageProcessor: Handles image resizing and thumbnails
 """
 
-from src.features.media.manager import (
-    MediaManager,
+from src.features.media.store import (
+    MediaStore,
     PRESET_THUMBNAIL_WIDTHS,
     UnsupportedSizeError,
 )
@@ -19,7 +19,7 @@ from src.features.media.image_processor import ImageProcessor
 from src.features.media.upload_repository import UploadRepository
 
 __all__ = [
-    "MediaManager",
+    "MediaStore",
     "MediaTypeResolver",
     "FilePathResolver",
     "ImageProcessor",

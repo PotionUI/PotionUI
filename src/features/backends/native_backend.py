@@ -35,10 +35,10 @@ class NativeBackend(InProcessBackend):
         machine keeps weights. A ComfyUI server has its own models directory that
         PotionUI never reads.
         """
-        from src.platform.settings.settings import SettingsManager
+        from src.platform.settings.settings import Settings
         from src.platform.settings.repository import SettingRepository
 
-        models_dir = SettingsManager(SettingRepository()).get_models_dir()
+        models_dir = Settings(SettingRepository()).get_models_dir()
         return deduplicate(scan_native_models(models_dir))
 
     def prepare_pipes(self, pipes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -61,11 +61,11 @@ class NativeBackend(InProcessBackend):
             for key, value in injected.items():
                 pipe['config'].setdefault(key, value)
 
-        # Services that consult the GPU manager directly (MemoryManager,
-        # ModelLifecycleManager) must see the same cap as the pipes do.
-        gpu_manager = getattr(self.generation_manager, 'gpu_manager', None)
-        if gpu_manager is not None:
-            gpu_manager.set_vram_cap_gb(self.config.gpu_max_vram)
+        # Services that consult the GPU manager directly (MemoryAdvisor,
+        # ModelLifecycle) must see the same cap as the pipes do.
+        gpu_monitor = getattr(self.generation_engine, 'gpu_monitor', None)
+        if gpu_monitor is not None:
+            gpu_monitor.set_vram_cap_gb(self.config.gpu_max_vram)
 
         logger.debug(
             f"[NATIVE_BACKEND] Injected device={injected['device']} "

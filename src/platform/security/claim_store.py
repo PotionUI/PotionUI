@@ -1,6 +1,6 @@
 """The instance-claim store as authentication sees it.
 
-`AuthManager` must know whether this instance already has an owner before it
+`Auth` must know whether this instance already has an owner before it
 decides how to treat a registration, but the concrete persistence is a feature
 (`src.features.setup.repository`) and platform code may not reach into a
 feature. As with `UserStore`, the dependency is expressed structurally: anything

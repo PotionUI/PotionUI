@@ -10,7 +10,7 @@ This component coordinates the handling of all generation outputs:
 - Handles errors gracefully
 
 Example:
-    processor = OutputProcessor(settings_manager=settings_manager)
+    processor = OutputProcessor(settings=settings)
     metadata = await processor.process_output(
         generation_id='gen123',
         output=ImageGenerationOutput(...),
@@ -25,7 +25,7 @@ from typing import Dict, Any, Optional
 
 from src.features.generation.output_types import OutputTypeRegistry, output_type_registry
 from src.platform.filesystem.storage_driver import FileStorageDriver
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 from src.pipelines.outputs import GenerationOutput
 from src.features.generation.repository import generation_repo
 
@@ -43,12 +43,12 @@ class OutputProcessor:
 
     Attributes:
         type_registry: Registry mapping output types to their OutputTypeSpec
-        settings_manager: Configuration manager for handler settings
+        settings: Configuration manager for handler settings
     """
 
     def __init__(
         self,
-        settings_manager: SettingsManager,
+        settings: Settings,
         storage_driver: Optional[FileStorageDriver] = None,
         type_registry: Optional[OutputTypeRegistry] = None
     ):
@@ -56,14 +56,14 @@ class OutputProcessor:
         Initialize the output processor.
 
         Args:
-            settings_manager: Settings manager for accessing configuration
+            settings: Settings manager for accessing configuration
             storage_driver: Where saved generation output bytes actually live
                 - handed to every handler it constructs. Local disk by
                 default when not injected - see `BaseGenerationOutputHandler`.
             type_registry: Optional custom output type registry. If not provided,
                           uses the shared output_type_registry singleton.
         """
-        self.settings_manager = settings_manager
+        self.settings = settings
         self.storage_driver = storage_driver
         self.type_registry = type_registry or output_type_registry
         logger.debug(
@@ -99,7 +99,7 @@ class OutputProcessor:
             - 'error': Error message if processing failed (optional)
 
         Example:
-            >>> processor = OutputProcessor(settings_manager)
+            >>> processor = OutputProcessor(settings)
             >>> output = ImageGenerationOutput(image_data=..., temporary=False)
             >>> metadata = await processor.process_output('gen123', output, 'user123')
             >>> print(metadata)
@@ -176,7 +176,7 @@ class OutputProcessor:
                 'processed': True,
             }
 
-        handler = spec.handler_cls(generation_id, user_id, self.settings_manager, self.storage_driver)
+        handler = spec.handler_cls(generation_id, user_id, self.settings, self.storage_driver)
         # handler.handle() is synchronous file/DB I/O (image encode, disk
         # writes, thumbnail generation) - run it off the event loop so one
         # slow output doesn't stall every other generation's WebSocket

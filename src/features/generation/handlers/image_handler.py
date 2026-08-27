@@ -34,7 +34,7 @@ from src.features.generation.records import File
 from src.features.generation.repository import generation_repo
 from src.platform.filesystem.storage_driver import FileStorageDriver
 from src.platform.util.ids import generate_ulid
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 
 logger = logging.getLogger(__name__)
 

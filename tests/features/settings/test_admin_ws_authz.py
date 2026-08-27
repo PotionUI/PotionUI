@@ -58,7 +58,7 @@ async def test_admin_passes_gate(monkeypatch):
     # entering the receive loop; a False return proves the gate was passed.
     async def _reject_connect(websocket, client_id):
         return False
-    monkeypatch.setattr(admin_ws.admin_connection_manager, "connect", _reject_connect)
+    monkeypatch.setattr(admin_ws.admin_connection_hub, "connect", _reject_connect)
     ws = _FakeWebSocket()
     await admin_ws.admin_websocket_endpoint(ws, client_id=None, token="t")
     assert ws.closed_code != 4001

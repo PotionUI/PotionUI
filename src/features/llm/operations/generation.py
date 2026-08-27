@@ -18,7 +18,7 @@ from src.features.llm.repository import LLMRepository
 from src.features.llm.response_processor import LLMResponseProcessor
 from src.platform.plugins import PluginRegistry
 from src.platform.plugins.hooks import execute_hook
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 async def generate_response(
     repo: LLMRepository,
     llm_service: LLMGateway,
-    settings_manager: SettingsManager,
+    settings: Settings,
     plugins: PluginRegistry,
     request: LLMGenerateRequest,
     user_id: str,
@@ -89,7 +89,7 @@ async def generate_response(
     response_processor = LLMResponseProcessor()
     image_base64 = None
     if request.image_data:
-        storage_dir = settings_manager.get_file_storage_directory(user_id)
+        storage_dir = settings.get_file_storage_directory(user_id)
         image_base64 = await response_processor.load_and_prepare_image(
             request.image_data, storage_dir, max_size_mb=5
         )

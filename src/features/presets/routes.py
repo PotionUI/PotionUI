@@ -47,7 +47,7 @@ class PresetController(BaseController):
         self,
         preset_manager: PresetCollaborators,
         backend_registry: BackendRegistry,
-        media_manager: Optional["MediaManager"] = None,
+        media_store: Optional["MediaStore"] = None,
         model_access_policy: Optional["ModelAccessPolicy"] = None,
     ):
         super().__init__()
@@ -55,7 +55,7 @@ class PresetController(BaseController):
         self.backend_registry = backend_registry
         # Only used to reclaim a reloaded preset's rendered thumbnails. Optional so
         # the presets feature stays free of any media dependency.
-        self.media_manager = media_manager
+        self.media_store = media_store
         # Scopes GET .../models to the requesting user's assigned models.
         # Optional (defaults to unfiltered) only so tests can construct this
         # controller without the full container; the composition root always
@@ -286,8 +286,8 @@ class PresetController(BaseController):
             data = operations.reload_preset(self.collaborators, preset_id)
             # Rendered thumbnails are keyed by source mtime, so a stale one can never
             # be served; this only reclaims renders whose source was renamed or removed.
-            if self.media_manager is not None:
-                self.media_manager.purge_preset_thumbnail_cache(preset_id)
+            if self.media_store is not None:
+                self.media_store.purge_preset_thumbnail_cache(preset_id)
             return self.success_response(
                 data=data,
                 message=f"Preset '{preset_id}' reloaded successfully"

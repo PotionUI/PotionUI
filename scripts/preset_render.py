@@ -85,8 +85,8 @@ _TEXT_FIELD_PLACEHOLDER = "GOLDEN placeholder text"
 # addresses), so nothing here uses unittest.mock.
 # ---------------------------------------------------------------------------
 
-class StubSettingsManager:
-    """Minimal stand-in for SettingsManager.get_setting(key, default, user_id).
+class StubSettings:
+    """Minimal stand-in for Settings.get_setting(key, default, user_id).
 
     Returns fixed, byte-stable values for the handful of keys pipeline.yml
     templates are known to read via `setting(...)`/`config(...)`, and a stable
@@ -114,15 +114,15 @@ class StubSettingsManager:
         return "preset"
 
 
-class StubModelManager:
-    """PresetProcessor.process() never calls model_manager directly - it's only
+class StubModelDirectories:
+    """PresetProcessor.process() never calls model_directories directly - it's only
     threaded through for pipes that run for real. Kept as an inert stub (not a
     Mock) purely so nothing could ever leak a Mock repr into a rendered value."""
     pass
 
 
 class StubPresetTemplateLoader:
-    """Same rationale as StubModelManager - preset_template_loader is unused by
+    """Same rationale as StubModelDirectories - preset_template_loader is unused by
     PresetProcessor.process() itself."""
     presets: List[Any] = []
 
@@ -136,11 +136,11 @@ FIXED_SEED = 42
 
 
 def build_processor() -> PresetProcessor:
-    template_processor = TemplateProcessor(settings_manager=StubSettingsManager())
+    template_processor = TemplateProcessor(settings=StubSettings())
     processor = PresetProcessor(
         template_processor=template_processor,
-        model_manager=StubModelManager(),
-        settings_manager=StubSettingsManager(),
+        model_directories=StubModelDirectories(),
+        settings=StubSettings(),
         preset_template_loader=StubPresetTemplateLoader(),
     )
     # Admin-set preset configuration values live in the database (see
@@ -164,7 +164,7 @@ def build_form_serializer() -> PresetFormSerializer:
     # children, so reusing it here would crash on any tab file whose
     # container fields (e.g. a "row") have literal dict children - which is
     # the common case (see modes/txt2img/tabs/generation.yml).
-    template_processor = TemplateProcessor(settings_manager=StubSettingsManager())
+    template_processor = TemplateProcessor(settings=StubSettings())
     return PresetFormSerializer(preset_loader=StubPresetTemplateLoader(), template_processor=template_processor)
 
 

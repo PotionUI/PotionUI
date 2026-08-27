@@ -1,7 +1,7 @@
 """
 Unit tests for pre-chat actions system.
 
-Tests the PreChatActionManager and its registration, discovery,
+Tests the PreChatActionRegistry and its registration, discovery,
 filtering, and execution logic.
 """
 
@@ -11,7 +11,7 @@ from typing import Dict, Any
 
 from src.features.chat.pre_chat_actions import (
     PreChatAction,
-    PreChatActionManager,
+    PreChatActionRegistry,
     PreChatActionResult,
 )
 from src.features.chat.exceptions import PreChatActionError
@@ -32,8 +32,8 @@ def mock_llm_repository():
 
 @pytest.fixture
 def manager(mock_plugin_registry, mock_llm_repository):
-    """Create a PreChatActionManager instance."""
-    return PreChatActionManager(mock_plugin_registry, mock_llm_repository)
+    """Create a PreChatActionRegistry instance."""
+    return PreChatActionRegistry(mock_plugin_registry, mock_llm_repository)
 
 
 @pytest.fixture
@@ -616,8 +616,8 @@ class TestDiscoverActions:
 
         # Check initial_data contains manager
         initial_data = call_args[1]["initial_data"]
-        assert "manager" in initial_data
-        assert initial_data["manager"] is manager
+        assert "registry" in initial_data
+        assert initial_data["registry"] is manager
 
     def test_discover_actions_allows_registration(self, manager, mock_plugin_registry):
         """Discover actions can trigger action registration via hook."""
@@ -626,7 +626,7 @@ class TestDiscoverActions:
 
         # Simulate plugin hook registering an action
         def fake_hook_execute(hook_name, initial_data):
-            mgr = initial_data["manager"]
+            mgr = initial_data["registry"]
             action = PreChatAction(
                 id="discovered_action",
                 name="Discovered Action",

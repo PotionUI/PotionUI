@@ -16,7 +16,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from src.platform.database.database import Database
-from src.platform.database.migration_runner import MigrationManager
+from src.platform.database.migration_runner import MigrationRunner
 from src.features.backends.records import Backend
 from src.features.backends.repository import BackendRepository
 
@@ -53,11 +53,11 @@ class TestBackendRepository(unittest.TestCase):
         Database._instance = None
 
     def _run_migrations(self):
-        migration_manager = MigrationManager()
+        migration_runner = MigrationRunner()
         old_stdout = sys.stdout
         sys.stdout = io.StringIO()
         try:
-            migration_manager.run_migrations()
+            migration_runner.run_migrations()
         finally:
             sys.stdout = old_stdout
 

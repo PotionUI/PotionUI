@@ -892,7 +892,7 @@ class _FakeResidency:
 def _patch_placement(monkeypatch, free_gb):
     res = _FakeResidency()
     monkeypatch.setattr(_wan_mod, "free_vram_gb", lambda device: free_gb)
-    monkeypatch.setattr(_wan_mod, "get_residency_manager", lambda: res)
+    monkeypatch.setattr(_wan_mod, "get_residency_registry", lambda: res)
     return res
 
 

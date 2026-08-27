@@ -9,7 +9,7 @@ This package provides pytest fixtures and mock objects for:
 """
 
 from tests.mocks.gpu_mock import mock_gpu
-from tests.mocks.model_mock import mock_model_loader, mock_model_manager
+from tests.mocks.model_mock import mock_model_loader, mock_model_directories
 from tests.mocks.pipe_mock import (
     mock_generator_pipe,
     mock_upscaler_pipe,
@@ -28,7 +28,7 @@ __all__ = [
 
     # Model mocks
     'mock_model_loader',
-    'mock_model_manager',
+    'mock_model_directories',
 
     # Pipe mocks
     'mock_generator_pipe',

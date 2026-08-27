@@ -22,7 +22,7 @@ import numpy as np
 import torch
 
 from src.platform.runtime.native.errors import DecodeNumericsError
-from src.platform.runtime.native.memory.residency import free_vram_gb, get_residency_manager
+from src.platform.runtime.native.memory.residency import free_vram_gb, get_residency_registry
 from src.platform.runtime.native.optimizations.compile import maybe_compile_dit
 from src.platform.runtime.native.memory.tiering import sampling_headroom_gb
 from src.platform.runtime.native.resolution import snap_frame_count, snap_resolution
@@ -145,7 +145,7 @@ class _ExpertRouter:
         free = free_vram_gb(self.device)
         if free is None:
             return need
-        get_residency_manager().ensure_free(self.device, need, free, exclude=self._own_experts())
+        get_residency_registry().ensure_free(self.device, need, free, exclude=self._own_experts())
         free = free_vram_gb(self.device) or 0.0
         shape = self.latents_shape
         frames = shape[2] if len(shape) == 5 else 1
@@ -187,7 +187,7 @@ class _ExpertRouter:
             logger.warning("[GENERATOR WAN] partial-residency expert placement OOM'd "
                            "(budget %.1fGB); evicting foreign residents and streaming fully", budget)
             dit.offload()
-            get_residency_manager().offload_all(self.device, exclude=self._own_experts())
+            get_residency_registry().offload_all(self.device, exclude=self._own_experts())
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             dit.stream_to(self.device, 0.0)

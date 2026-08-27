@@ -1,4 +1,4 @@
-"""`trigger.manual` - no background loop; fired directly via `AutomationManager.run_now()`."""
+"""`trigger.manual` - no background loop; fired directly via `AutomationRuntime.run_now()`."""
 
 from typing import Any, Dict
 

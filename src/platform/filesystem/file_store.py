@@ -46,7 +46,7 @@ class FileStore:
                             defaults to "storage" if env var is not set.
             storage_driver: Where `storage_type='generations'` bytes actually
                 live - local disk by default, optionally S3 (see
-                `StorageSettingsManager`). `tmp`/`models` always write straight
+                `StorageSettings`). `tmp`/`models` always write straight
                 to `base_storage_dir`, unaffected by this - only generation
                 output (final files + thumbnails) goes through it. Defaults to
                 a `LocalFileStorageDriver` rooted at `base_storage_dir`, which

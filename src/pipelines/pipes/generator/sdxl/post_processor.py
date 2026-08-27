@@ -72,8 +72,8 @@ class SDXLPostProcessor:
         except RuntimeError as e:
             if "out of memory" in str(e).lower():
                 logger.warning("[VAE] OOM during decode, retrying with tiled decoding")
-                from src.platform.runtime.model_lifecycle.manager import get_model_lifecycle_manager
-                models = get_model_lifecycle_manager()
+                from src.platform.runtime.model_lifecycle.lifecycle import get_model_lifecycle
+                models = get_model_lifecycle()
                 if models is not None:
                     models.cleanup(aggressive=True)
                 else:

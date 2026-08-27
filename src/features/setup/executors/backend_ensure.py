@@ -1,8 +1,8 @@
 """`backend.ensure` - confirm a backend exists for the recipe's engine.
 
 The native engine auto-provisions its own backend row the first time anything
-asks `BackendConfigManager` for the configured backends (see
-`BackendConfigManager._load_backends`, which inserts a "native" row if none
+asks `BackendConfigStore` for the configured backends (see
+`BackendConfigStore._load_backends`, which inserts a "native" row if none
 exists yet) - and `BackendRegistry` already does that once at process start.
 So for `engine: native` this step is mostly a confirmation.
 

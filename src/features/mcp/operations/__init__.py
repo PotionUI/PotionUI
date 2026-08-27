@@ -4,7 +4,7 @@ MCP token minting/revocation and the global/per-user MCP toggles.
 Post-Manager reference shape (see `src.features.plugins.operations`): no
 class holds these collaborators together. Each operation is a module-level
 function that takes exactly the collaborators it needs (`McpTokenRepository`,
-`SettingsManager`, `UserRepository`) as leading arguments, followed by the
+`Settings`, `UserRepository`) as leading arguments, followed by the
 operation's own parameters. `McpController` (`routes.py`) holds the
 collaborators and passes them in; nothing here is stored across calls.
 
@@ -28,7 +28,7 @@ from typing import Optional, Tuple
 from src.features.mcp.records import McpToken
 from src.features.mcp.repository import McpTokenRepository
 from src.features.users.repository import UserRepository
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 from src.platform.util.ids import generate_ulid
 
 TOKEN_PREFIX = "pui_mcp_"
@@ -60,21 +60,21 @@ def revoke_token(token_repository: McpTokenRepository, user_id: str, token_id: s
     return token_repository.revoke(token_id, user_id)
 
 
-def is_globally_enabled(settings_manager: SettingsManager) -> bool:
-    return bool(settings_manager.get_setting(MCP_ENABLED_KEY, False))
+def is_globally_enabled(settings: Settings) -> bool:
+    return bool(settings.get_setting(MCP_ENABLED_KEY, False))
 
 
-def is_user_enabled(settings_manager: SettingsManager, user_id: str) -> bool:
-    return bool(settings_manager.get_setting(MCP_USER_ENABLED_KEY, True, user_id=user_id))
+def is_user_enabled(settings: Settings, user_id: str) -> bool:
+    return bool(settings.get_setting(MCP_USER_ENABLED_KEY, True, user_id=user_id))
 
 
 def set_user_enabled(
-    settings_manager: SettingsManager, user_repository: UserRepository, user_id: str, enabled: bool
+    settings: Settings, user_repository: UserRepository, user_id: str, enabled: bool
 ) -> bool:
     """Admin-set per-user MCP toggle. Raises ValueError for an unknown user."""
     if not user_repository.get_by_id(user_id):
         raise ValueError("User not found")
-    return settings_manager.set_setting(MCP_USER_ENABLED_KEY, enabled, user_id=user_id)
+    return settings.set_setting(MCP_USER_ENABLED_KEY, enabled, user_id=user_id)
 
 
 def resolve_active_token(token_repository: McpTokenRepository, plaintext: str) -> Optional[McpToken]:

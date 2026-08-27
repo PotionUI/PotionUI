@@ -52,9 +52,9 @@ def _generation_data(**form_overrides):
 
 def _processor():
     return PresetProcessor(
-        template_processor=TemplateProcessor(settings_manager=Mock()),
-        model_manager=Mock(),
-        settings_manager=Mock(),
+        template_processor=TemplateProcessor(settings=Mock()),
+        model_directories=Mock(),
+        settings=Mock(),
         preset_template_loader=Mock(),
     )
 
@@ -115,14 +115,14 @@ class TestContextShape:
         assert cfg["positives"] == ["a cat", "a dog"]
         assert cfg["negatives"] == ["blurry", "ugly"]
 
-    def test_runtime_settings_resolved_once_via_settings_manager(self):
-        settings_manager = Mock()
-        settings_manager.get_file_storage_directory.return_value = "/data/storage"
-        settings_manager.is_nsfw_enabled.return_value = True
+    def test_runtime_settings_resolved_once_via_settings(self):
+        settings = Mock()
+        settings.get_file_storage_directory.return_value = "/data/storage"
+        settings.is_nsfw_enabled.return_value = True
         processor = PresetProcessor(
-            template_processor=TemplateProcessor(settings_manager=Mock()),
-            model_manager=Mock(),
-            settings_manager=settings_manager,
+            template_processor=TemplateProcessor(settings=Mock()),
+            model_directories=Mock(),
+            settings=settings,
             preset_template_loader=Mock(),
         )
         template = _preset(
@@ -134,8 +134,8 @@ class TestContextShape:
         pipes = processor.process(template, _generation_data(), user_id="user-1")
         assert pipes[0]["config"]["dir"] == "/data/storage"
         assert pipes[0]["config"]["nsfw"] is True
-        settings_manager.get_file_storage_directory.assert_called_once_with("user-1")
-        settings_manager.is_nsfw_enabled.assert_called_once_with("user-1")
+        settings.get_file_storage_directory.assert_called_once_with("user-1")
+        settings.is_nsfw_enabled.assert_called_once_with("user-1")
 
 
 class TestObjectAndDictDirectivesAreGone:

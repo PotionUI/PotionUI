@@ -37,7 +37,7 @@ class TestGpuInfo:
         assert vram is None
 
     def test_cuda_available_reports_capability(self, monkeypatch):
-        # gpu_name comes from GpuManager/NVML when available (real hardware on
+        # gpu_name comes from GpuMonitor/NVML when available (real hardware on
         # this box), falling back to torch.cuda.get_device_name() otherwise -
         # so this only pins down capability + presence of a non-empty name.
         _patch_common(monkeypatch, cuda=True, capability=(9, 0))
@@ -54,8 +54,8 @@ class TestGpuInfo:
         def _raise(*a, **k):
             raise RuntimeError("no NVML")
 
-        monkeypatch.setattr(probe_mod, "GpuManager", None, raising=False)
-        # Force the GpuManager import inside _gpu_info to fail.
+        monkeypatch.setattr(probe_mod, "GpuMonitor", None, raising=False)
+        # Force the GpuMonitor import inside _gpu_info to fail.
         import builtins
 
         real_import = builtins.__import__

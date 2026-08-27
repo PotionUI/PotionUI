@@ -30,7 +30,7 @@ from src.features.remote_execution.worker.coordinator import WorkerCoordinator
 from src.features.remote_execution.worker.journal import WorkerJournal
 from src.pipelines.contracts import PipeOutput
 from src.platform.database.database import Database
-from src.platform.database.migration_runner import MigrationManager
+from src.platform.database.migration_runner import MigrationRunner
 from src.platform.worker_protocol import ContentDigest, ExecutionLimitsV1, ExecutionPackageV1, ModelBundleManifestV1, ProcessedPipelineV1, ProcessedPipeV1
 
 S = RemoteExecutionState
@@ -107,7 +107,7 @@ class FakeLocalConfig:
     driver = NATIVE_LOCAL_DRIVER
 
 
-class FakeBackendConfigManager:
+class FakeBackendConfigStore:
     def __init__(self, backends: dict):
         self._backends = backends
 
@@ -137,7 +137,7 @@ class RemoteExecutionReconcilerTestCase(unittest.TestCase):
         old_stdout = sys.stdout
         sys.stdout = io.StringIO()
         try:
-            MigrationManager().run_migrations()
+            MigrationRunner().run_migrations()
         finally:
             sys.stdout = old_stdout
 
@@ -173,7 +173,7 @@ class TestPureSweeps(RemoteExecutionReconcilerTestCase):
         created = self._new("k1")
         self.repo.claim_for_dispatch("dead-dispatcher", 60, now=1_000)
 
-        reconciler = RemoteExecutionReconciler(repository=self.repo, backend_config_manager=None)
+        reconciler = RemoteExecutionReconciler(repository=self.repo, backend_config_store=None)
         with patch("src.features.remote_execution.repository.now_ms", return_value=61_000):
             result = self._run(reconciler.reconcile())
 
@@ -183,7 +183,7 @@ class TestPureSweeps(RemoteExecutionReconcilerTestCase):
     def test_an_overdue_row_expires(self):
         self._new("k1", expires_at_ms=1)
 
-        reconciler = RemoteExecutionReconciler(repository=self.repo, backend_config_manager=None)
+        reconciler = RemoteExecutionReconciler(repository=self.repo, backend_config_store=None)
         with patch("src.features.remote_execution.repository.now_ms", return_value=10**15):
             result = self._run(reconciler.reconcile())
 
@@ -191,7 +191,7 @@ class TestPureSweeps(RemoteExecutionReconcilerTestCase):
 
     def test_no_backend_config_manager_skips_the_live_resume_cleanly(self):
         self._new("k1")
-        reconciler = RemoteExecutionReconciler(repository=self.repo, backend_config_manager=None)
+        reconciler = RemoteExecutionReconciler(repository=self.repo, backend_config_store=None)
 
         result = self._run(reconciler.reconcile())
 
@@ -214,7 +214,7 @@ class TestLiveEventResume(RemoteExecutionReconcilerTestCase):
         )
         container = WorkerContainer(
             config=config, pipe_catalog=CATALOG, journal=journal, coordinator=coordinator,
-            gpu_manager=None, system_monitor=None,
+            gpu_monitor=None, system_monitor=None,
         )
         return container, create_worker_app(container=container)
 
@@ -258,9 +258,9 @@ class TestLiveEventResume(RemoteExecutionReconcilerTestCase):
         self.repo.apply_state(row.id, S.STAGING)
         self.assertEqual(row.event_cursor, 0)
 
-        backends = FakeBackendConfigManager({"backend-1": FakeRemoteConfig("http://fake-worker")})
+        backends = FakeBackendConfigStore({"backend-1": FakeRemoteConfig("http://fake-worker")})
         reconciler = RemoteExecutionReconciler(
-            repository=self.repo, backend_config_manager=backends, event_pull_timeout_seconds=5.0,
+            repository=self.repo, backend_config_store=backends, event_pull_timeout_seconds=5.0,
         )
 
         with patch("src.features.remote_execution.reconciler.WorkerTransport") as fake_transport_cls:
@@ -303,9 +303,9 @@ class TestLiveEventResume(RemoteExecutionReconcilerTestCase):
         self.repo.apply_job_event(row.id, journaled[0])
         self.assertEqual(self.repo.get_by_id(row.id).event_cursor, journaled[0].cursor)
 
-        backends = FakeBackendConfigManager({"backend-1": FakeRemoteConfig("http://fake-worker")})
+        backends = FakeBackendConfigStore({"backend-1": FakeRemoteConfig("http://fake-worker")})
         reconciler = RemoteExecutionReconciler(
-            repository=self.repo, backend_config_manager=backends, event_pull_timeout_seconds=5.0,
+            repository=self.repo, backend_config_store=backends, event_pull_timeout_seconds=5.0,
         )
         with patch("src.features.remote_execution.reconciler.WorkerTransport") as fake_transport_cls:
             from src.features.remote_execution.transport import WorkerTransport as RealTransport
@@ -330,8 +330,8 @@ class TestLiveEventResume(RemoteExecutionReconcilerTestCase):
                 "UPDATE remote_executions SET backend_id = ? WHERE id = ?", ("native", row.id),
             )
 
-        backends = FakeBackendConfigManager({"native": FakeLocalConfig()})
-        reconciler = RemoteExecutionReconciler(repository=self.repo, backend_config_manager=backends)
+        backends = FakeBackendConfigStore({"native": FakeLocalConfig()})
+        reconciler = RemoteExecutionReconciler(repository=self.repo, backend_config_store=backends)
 
         result = self._run(reconciler.reconcile())
 
@@ -347,11 +347,11 @@ class TestLiveEventResume(RemoteExecutionReconcilerTestCase):
                 "UPDATE remote_executions SET backend_id = ? WHERE id = ?", ("backend-1", row.id),
             )
 
-        backends = FakeBackendConfigManager({
+        backends = FakeBackendConfigStore({
             "backend-1": FakeRemoteConfig("http://127.0.0.1:1"),  # nothing listens here
         })
         reconciler = RemoteExecutionReconciler(
-            repository=self.repo, backend_config_manager=backends, event_pull_timeout_seconds=1.0,
+            repository=self.repo, backend_config_store=backends, event_pull_timeout_seconds=1.0,
         )
 
         result = self._run(reconciler.reconcile())  # must not raise

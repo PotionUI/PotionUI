@@ -11,7 +11,7 @@ import time
 from typing import Any, Callable, Dict, List, Optional
 
 from src.features.llm.trace_repository import ChatCallTraceRepository
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -26,17 +26,17 @@ class ChatCallTraceRecorder:
     def __init__(
         self,
         repository: ChatCallTraceRepository,
-        settings_manager: SettingsManager,
+        settings: Settings,
         *,
         clock: Callable[[], float] = time.monotonic,
     ):
         self._repository = repository
-        self._settings_manager = settings_manager
+        self._settings = settings
         self._clock = clock
         self._last_prune_at: Optional[float] = None
 
     def _enabled(self) -> bool:
-        return bool(self._settings_manager.get_setting("chat_llm_call_tracing", True))
+        return bool(self._settings.get_setting("chat_llm_call_tracing", True))
 
     def _maybe_prune(self) -> None:
         now = self._clock()

@@ -107,7 +107,7 @@ DEFAULT_RECIPE = "sdxl-starter"
 SDXL_STARTER_CHECKPOINT = "cyberrealisticPony_v125.safetensors"
 
 # Generous: this bounds both the mutating action call itself (fast - it no
-# longer waits on `drive()`, see `SetupRunManager.drive_async`) AND
+# longer waits on `drive()`, see `SetupRunner.drive_async`) AND
 # the poll loop `_drive_with_progress` runs afterward to catch up with
 # whatever the background drive does (a real generation, a small download
 # can legitimately take a while).
@@ -191,7 +191,7 @@ def prepare_ephemeral_recipes(
       genuinely need no GPU (`pipeline.render` is a dry-run through
       `PipelineBuilder` - see its own docstring); only `generation.smoke`
       does. There is no API seam to pause a run mid-drive (`drive()` runs
-      every already-approved step in one call - see run_manager.py), so the
+      every already-approved step in one call - see runner.py), so the
       only clean way to "stop right before the smoke step" is to hand it a
       recipe that ends one step earlier.
     - `--fresh-download`: declares one extra, tiny artifact (a `lora`, so it
@@ -395,7 +395,7 @@ def _drive_with_progress(journey: Journey, stage: str, action: Callable[[], requ
     comment).
 
     `drive()` runs on a background thread server-side (see
-    `SetupRunManager.drive_async`), so the mutating call's own HTTP response
+    `SetupRunner.drive_async`), so the mutating call's own HTTP response
     returns almost immediately and reflects whatever the run's status was at
     that instant - typically still pending/running, NOT the driven-forward
     state. So the harness catches up the same way the real frontend does: after the

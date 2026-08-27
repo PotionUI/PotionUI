@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from src.features.chat.manager import ChatManager
+from src.features.chat.runtime import ChatRuntime
 from src.features.chat.modes import ChatModeRegistry, build_generation_mode
 from src.features.chat.dto import MessageResponse, ToolApprovalRequest
 from src.features.chat.routes import ChatController
@@ -185,7 +185,7 @@ class TestTurnRegistryMechanics:
 
 
 # ---------------------------------------------------------------------------
-# Persistence survives disconnect (real ChatManager, mocked repo/LLM)
+# Persistence survives disconnect (real ChatRuntime, mocked repo/LLM)
 # ---------------------------------------------------------------------------
 
 class TestPersistenceSurvivesDisconnect:
@@ -224,7 +224,7 @@ class TestPersistenceSurvivesDisconnect:
         ctx.data = {}
         plugins.execute_hook.return_value = (ctx, [])
 
-        manager = ChatManager(
+        manager = ChatRuntime(
             chat_repository=repo,
             llm_service=llm,
             response_processor=processor,
@@ -279,7 +279,7 @@ class TestApprovalAcrossConnections:
         })
 
         registry = ChatTurnRegistry()
-        controller = ChatController(chat_manager=manager, turn_registry=registry)
+        controller = ChatController(chat_runtime=manager, turn_registry=registry)
 
         # No turn was ever started for this session.
         assert registry.active("s1") is None

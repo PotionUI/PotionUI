@@ -113,12 +113,12 @@ class McpToolCollaborators:
     generation_orchestrator: Any = None
     llm_memory_repository: Any = None
     prompt_enhancement_manager: Any = None
-    media_index_manager: Any = None
-    settings_manager: Any = None
+    media_indexer: Any = None
+    settings: Any = None
     collection_repository: Any = None
     tag_repository: Any = None
     plugin_registry: Any = None
-    generation_history_manager: Any = None
+    generation_history_facade: Any = None
 
 
 # --- tool exposure ---
@@ -167,12 +167,12 @@ def _build_tool_context(collaborators: McpToolCollaborators, user_id: str) -> To
         generation_orchestrator=collaborators.generation_orchestrator,
         llm_memory_repository=collaborators.llm_memory_repository,
         prompt_enhancement_manager=collaborators.prompt_enhancement_manager,
-        media_index_manager=collaborators.media_index_manager,
-        settings_manager=collaborators.settings_manager,
+        media_indexer=collaborators.media_indexer,
+        settings=collaborators.settings,
         collection_repository=collaborators.collection_repository,
         tag_repository=collaborators.tag_repository,
         plugin_registry=collaborators.plugin_registry,
-        generation_history_manager=collaborators.generation_history_manager,
+        generation_history_facade=collaborators.generation_history_facade,
         llm_id=default_config.id if default_config else None,
     )
 

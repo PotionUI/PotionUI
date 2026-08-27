@@ -266,9 +266,9 @@ def test_project_on_trims_host_allocator_after_cuda_round_trip(monkeypatch):
     monkeypatch.setattr(adapter, "_move_projection_chain", lambda device: None)
     monkeypatch.setattr(adapter, "_project", lambda raw: torch.zeros(1, 4, 16))
 
-    import src.platform.runtime.model_lifecycle.manager as lifecycle_manager
+    import src.platform.runtime.model_lifecycle.lifecycle as lifecycle
     calls = []
-    monkeypatch.setattr(lifecycle_manager, "trim_host_allocator", lambda: calls.append(1))
+    monkeypatch.setattr(lifecycle, "trim_host_allocator", lambda: calls.append(1))
 
     raw = {"context": SimpleNamespace(device="cuda:0")}
     adapter._project_on(raw, "cuda:0")
@@ -283,9 +283,9 @@ def test_project_on_skips_trim_for_a_cpu_only_projection(monkeypatch):
     monkeypatch.setattr(adapter, "_move_projection_chain", lambda device: None)
     monkeypatch.setattr(adapter, "_project", lambda raw: torch.zeros(1, 4, 16))
 
-    import src.platform.runtime.model_lifecycle.manager as lifecycle_manager
+    import src.platform.runtime.model_lifecycle.lifecycle as lifecycle
     calls = []
-    monkeypatch.setattr(lifecycle_manager, "trim_host_allocator", lambda: calls.append(1))
+    monkeypatch.setattr(lifecycle, "trim_host_allocator", lambda: calls.append(1))
 
     raw = {"context": SimpleNamespace(device="cpu")}
     adapter._project_on(raw, "cpu")
@@ -315,7 +315,7 @@ def test_ladder_projects_on_cpu_when_raw_encode_itself_landed_on_cpu(monkeypatch
 # WEAK views, not strong references that bypass the MODELS cache -----------
 #
 # Reproduces the actual production incident end to end through the REAL
-# caching path (ModelLifecycleManager.acquire/evict_dead_weight +
+# caching path (ModelLifecycle.acquire/evict_dead_weight +
 # PromptEncoderPipe.process, exactly like model_loader/ltx + prompt_encoder
 # wire it), using tiny real nn.Module fakes (weakly referenceable, unlike
 # tests/pipelines/pipes/latent_upscaler/ltx's own `_te()` stand-ins) so a
@@ -332,7 +332,7 @@ import torch.nn as nn
 
 from src.pipelines.contracts import PipeInput
 from src.pipelines.pipes.prompt_encoder.main import PromptEncoderPipe
-from src.platform.runtime.model_lifecycle.manager import ModelLifecycleManager
+from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
 from src.platform.runtime.native.engine import NativeModel
 
 
@@ -370,7 +370,7 @@ def test_te_eviction_actually_frees_the_module_after_prompt_encoder_caches_condi
     dit_module = _RealFakeDit()
     te_native = NativeModel(kind="text_encoder", module=te_module)
 
-    models = ModelLifecycleManager()
+    models = ModelLifecycle()
     models.acquire(key="native/te/fake", fingerprint="fp", loader=lambda: te_native)
 
     # Mirrors model_loader/ltx/main.py's construction exactly: the raw

@@ -18,7 +18,7 @@ from src.features.phrasebook.repository import (
 )
 from src.features.sessions.repository import session_repo
 from src.platform.filesystem.storage_driver import FileStorageDriver
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -35,12 +35,12 @@ class PhrasebookPreviewGenerator:
         self,
         category_repository: PhrasebookCategoryRepository,
         value_repository: PhrasebookValueRepository,
-        settings_manager: SettingsManager,
+        settings: Settings,
         storage_driver: Optional[FileStorageDriver] = None,
     ):
         self.categories = category_repository
         self.values = value_repository
-        self.settings_manager = settings_manager
+        self.settings = settings
         # `None` unless the container injects its shared driver - resolved
         # lazily on first use, matching `BaseGenerationOutputHandler`.
         self.storage_driver = storage_driver
@@ -51,7 +51,7 @@ class PhrasebookPreviewGenerator:
 
         from src.platform.filesystem.storage_driver import LocalFileStorageDriver
 
-        base_storage_dir = self.settings_manager.get_setting("file_storage_directory", "storage")
+        base_storage_dir = self.settings.get_setting("file_storage_directory", "storage")
         self.storage_driver = LocalFileStorageDriver(base_storage_dir)
         return self.storage_driver
 
@@ -99,7 +99,7 @@ class PhrasebookPreviewGenerator:
         Returns:
             Absolute path to the preview storage directory
         """
-        base_path = self.settings_manager.get_setting("file_storage_directory", "storage")
+        base_path = self.settings.get_setting("file_storage_directory", "storage")
         return os.path.join(base_path, "phrasebook", category_id)
 
     def build_generation_request(

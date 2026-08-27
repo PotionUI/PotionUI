@@ -13,10 +13,10 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from src.platform.database.database import Database
-from src.platform.database.migration_runner import MigrationManager
+from src.platform.database.migration_runner import MigrationRunner
 
 
-class TestMigrationManager(unittest.TestCase):
+class TestMigrationRunner(unittest.TestCase):
     
     def setUp(self):
         """Set up test migration manager with isolated database"""
@@ -32,11 +32,11 @@ class TestMigrationManager(unittest.TestCase):
         self.migrations_dir = Path(self.temp_migrations_dir)
         
         # Create test migration manager with isolated database
-        self.migration_manager = MigrationManager()
-        self.migration_manager.migrations_dir = self.migrations_dir
+        self.migration_runner = MigrationRunner()
+        self.migration_runner.migrations_dir = self.migrations_dir
         
         # Override the migration manager's database methods to use test database
-        self._patch_migration_manager_db()
+        self._patch_migration_runner_db()
     
     def tearDown(self):
         """Clean up temporary files"""
@@ -72,11 +72,11 @@ class TestMigrationManager(unittest.TestCase):
         
         return db
     
-    def _patch_migration_manager_db(self):
+    def _patch_migration_runner_db(self):
         """Patch the migration manager to use the test database"""
         # Store original methods
-        self.original_get_applied_migrations = self.migration_manager.get_applied_migrations
-        self.original_mark_migration_applied = self.migration_manager._mark_migration_applied
+        self.original_get_applied_migrations = self.migration_runner.get_applied_migrations
+        self.original_mark_migration_applied = self.migration_runner._mark_migration_applied
         
         # Override methods to use test database
         def get_applied_migrations():
@@ -98,8 +98,8 @@ class TestMigrationManager(unittest.TestCase):
                 cursor.execute("INSERT INTO applied_migrations (migration_name) VALUES (?)", (migration_name,))
         
         # Apply patches
-        self.migration_manager.get_applied_migrations = get_applied_migrations
-        self.migration_manager._mark_migration_applied = mark_migration_applied
+        self.migration_runner.get_applied_migrations = get_applied_migrations
+        self.migration_runner._mark_migration_applied = mark_migration_applied
     
     def _create_test_migration(self, name: str, up_function: str = None):
         """Create a test migration file"""
@@ -121,7 +121,7 @@ def up():
     
     def test_get_applied_migrations_empty(self):
         """Test getting applied migrations when none exist"""
-        applied = self.migration_manager.get_applied_migrations()
+        applied = self.migration_runner.get_applied_migrations()
         self.assertEqual(applied, [])
         
         # Verify migrations table was created
@@ -133,14 +133,14 @@ def up():
     def test_get_applied_migrations_with_data(self):
         """Test getting applied migrations when some exist"""
         # Call method first to create table
-        self.migration_manager.get_applied_migrations()
+        self.migration_runner.get_applied_migrations()
         
         # Add some test migration records
         with self.db.get_cursor() as cursor:
             cursor.execute("INSERT INTO applied_migrations (migration_name) VALUES (?)", ("001_first_migration",))
             cursor.execute("INSERT INTO applied_migrations (migration_name) VALUES (?)", ("002_second_migration",))
         
-        applied = self.migration_manager.get_applied_migrations()
+        applied = self.migration_runner.get_applied_migrations()
         self.assertEqual(applied, ["001_first_migration", "002_second_migration"])
     
     def test_get_available_migrations(self):
@@ -153,13 +153,13 @@ def up():
         # Create __init__.py (should be ignored)
         (self.migrations_dir / "__init__.py").write_text("")
         
-        available = self.migration_manager.get_available_migrations()
+        available = self.migration_runner.get_available_migrations()
         expected = ["001_first_migration", "002_second_migration", "003_third_migration"]
         self.assertEqual(available, expected)
     
     def test_get_available_migrations_empty(self):
         """Test getting available migrations when none exist"""
-        available = self.migration_manager.get_available_migrations()
+        available = self.migration_runner.get_available_migrations()
         self.assertEqual(available, [])
     
     def test_run_migrations_no_pending(self):
@@ -179,7 +179,7 @@ def up():
         
         # Capture print output
         with patch('builtins.print') as mock_print:
-            self.migration_manager.run_migrations()
+            self.migration_runner.run_migrations()
             # run_migrations returns silently when nothing is pending (it no
             # longer prints "No pending migrations"), so no migration ran.
             for call in mock_print.call_args_list:
@@ -216,10 +216,10 @@ def up():
         
         # Run migrations
         with patch('builtins.print') as mock_print:
-            self.migration_manager.run_migrations()
+            self.migration_runner.run_migrations()
         
         # Verify second migration was applied
-        applied = self.migration_manager.get_applied_migrations()
+        applied = self.migration_runner.get_applied_migrations()
         self.assertIn("002_second_migration", applied)
         
         # Verify table was created
@@ -234,7 +234,7 @@ def up():
         self._create_test_migration("001_bad_migration", "# No up function here")
         
         with self.assertRaises(AttributeError) as context:
-            self.migration_manager._run_migration("001_bad_migration")
+            self.migration_runner._run_migration("001_bad_migration")
         
         self.assertIn("must have an 'up' function", str(context.exception))
     
@@ -249,20 +249,20 @@ def up():
         migration_file.write_text(migration_content)
         
         with self.assertRaises(SyntaxError):
-            self.migration_manager._run_migration("001_bad_syntax")
+            self.migration_runner._run_migration("001_bad_syntax")
     
     def test_mark_migration_applied(self):
         """Test marking migration as applied"""
         migration_name = "001_test_migration"
         
         # Create table first
-        self.migration_manager.get_applied_migrations()
+        self.migration_runner.get_applied_migrations()
         
         # Mark migration as applied
-        self.migration_manager._mark_migration_applied(migration_name)
+        self.migration_runner._mark_migration_applied(migration_name)
         
         # Verify it was marked as applied
-        applied = self.migration_manager.get_applied_migrations()
+        applied = self.migration_runner.get_applied_migrations()
         self.assertIn(migration_name, applied)
     
     def test_mark_migration_applied_duplicate(self):
@@ -270,13 +270,13 @@ def up():
         migration_name = "001_test_migration"
         
         # Create table first
-        self.migration_manager.get_applied_migrations()
+        self.migration_runner.get_applied_migrations()
         
         # Mark migration as applied twice
-        self.migration_manager._mark_migration_applied(migration_name)
+        self.migration_runner._mark_migration_applied(migration_name)
         
         with self.assertRaises(Exception):  # Should raise unique constraint error
-            self.migration_manager._mark_migration_applied(migration_name)
+            self.migration_runner._mark_migration_applied(migration_name)
     
     def test_integration_full_migration_cycle(self):
         """Test complete migration cycle"""
@@ -307,13 +307,13 @@ def up():
 """)
         
         # Initially no migrations applied
-        self.assertEqual(len(self.migration_manager.get_applied_migrations()), 0)
+        self.assertEqual(len(self.migration_runner.get_applied_migrations()), 0)
         
         # Run migrations
-        self.migration_manager.run_migrations()
+        self.migration_runner.run_migrations()
         
         # Verify both migrations were applied
-        applied = self.migration_manager.get_applied_migrations()
+        applied = self.migration_runner.get_applied_migrations()
         self.assertEqual(len(applied), 2)
         self.assertIn("001_create_users", applied)
         self.assertIn("002_add_timestamps", applied)
@@ -333,7 +333,7 @@ def up():
         
         # Run migrations again - should be no-op
         with patch('builtins.print') as mock_print:
-            self.migration_manager.run_migrations()
+            self.migration_runner.run_migrations()
             # run_migrations returns silently when nothing is pending (it no
             # longer prints "No pending migrations"), so no migration ran.
             for call in mock_print.call_args_list:

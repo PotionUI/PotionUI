@@ -183,7 +183,7 @@ class NativeBackendConfig(BaseBackendConfig):
     driver: str = Field(default=NATIVE_LOCAL_DRIVER)
 
     engine_label: ClassVar[Optional[str]] = "Native"
-    # One GPU, one GenerationManager - exactly one native.local backend,
+    # One GPU, one GenerationEngine - exactly one native.local backend,
     # auto-provisioned. A future native.remote driver is a separate config
     # class with its own (non-singleton) declaration.
     engine_singleton: ClassVar[bool] = True
@@ -393,7 +393,7 @@ def _encrypt_secret_fields(config: Dict[str, Any], secret_fields: frozenset) -> 
             config[name] = cipher.encrypt(value)
 
 
-class BackendConfigManager:
+class BackendConfigStore:
     """Manager for backend configurations"""
 
     def __init__(self, backend_repository=None, registered_config_types=None):

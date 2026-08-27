@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import pytest
 
 from src.platform.http.origin import is_loopback_host
-from src.platform.security.claim_token import ClaimTokenManager, CLAIM_TOKEN_FILENAME
+from src.platform.security.claim_token import ClaimTokenStore, CLAIM_TOKEN_FILENAME
 from src.features.setup import operations
 
 
@@ -26,7 +26,7 @@ def test_non_loopback_hosts(host):
 def _token_manager(tmp_path):
     settings = Mock()
     settings.get_file_storage_directory.return_value = str(tmp_path)
-    return ClaimTokenManager(settings), settings
+    return ClaimTokenStore(settings), settings
 
 
 def test_ensure_token_persists_0600(tmp_path):

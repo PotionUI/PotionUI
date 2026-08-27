@@ -48,7 +48,7 @@ def _build_vae():
     return SimpleNamespace(module=module, compute_dtype=torch.float32)
 
 
-class _FakeResidencyManager:
+class _FakeResidencyRegistry:
     def __init__(self):
         self.offload_all_calls = []
 
@@ -86,8 +86,8 @@ class _OomOnFirstCalls:
 
 
 def _run(vae, latent, *, free_vram, manager=None, generator=None):
-    manager = manager or _FakeResidencyManager()
-    with patch(f"{_MOD}.get_residency_manager", return_value=manager), \
+    manager = manager or _FakeResidencyRegistry()
+    with patch(f"{_MOD}.get_residency_registry", return_value=manager), \
          patch(f"{_MOD}.clear_gpu_memory") as mock_clear, \
          patch(f"{_MOD}.free_vram_gb", return_value=free_vram):
         pixels = decode_with_oom_retry(vae, latent, "cuda", generator=generator,
@@ -286,7 +286,7 @@ class TestLadder:
         assert supports_diffusion_tiled_decode(vae.module) is False
 
         with patch(f"{_MOD}.free_vram_gb") as mock_vram, \
-             patch(f"{_MOD}.get_residency_manager") as mock_manager:
+             patch(f"{_MOD}.get_residency_registry") as mock_manager:
             pixels = decode_with_oom_retry(vae, torch.randn(1, 8, 2, 4, 4), "cuda",
                                            profiler_mark="caller.decode")
 
@@ -309,9 +309,9 @@ class TestConvPathOomRetry:
     def test_succeeds_on_first_try_without_touching_the_residency_manager(self):
         calls = []
         vae = self._conv_vae(lambda z: calls.append(z) or torch.zeros(1, 3, 9, 16, 16))
-        manager = _FakeResidencyManager()
+        manager = _FakeResidencyRegistry()
 
-        with patch(f"{_MOD}.get_residency_manager", return_value=manager), \
+        with patch(f"{_MOD}.get_residency_registry", return_value=manager), \
              patch(f"{_MOD}.clear_gpu_memory") as mock_clear:
             pixels = decode_with_oom_retry(vae, torch.randn(1, 8, 2, 4, 4), "cuda",
                                            profiler_mark="caller.decode")
@@ -331,9 +331,9 @@ class TestConvPathOomRetry:
             return torch.zeros(1, 3, 9, 16, 16)
 
         vae = self._conv_vae(flaky_decode)
-        manager = _FakeResidencyManager()
+        manager = _FakeResidencyRegistry()
 
-        with patch(f"{_MOD}.get_residency_manager", return_value=manager), \
+        with patch(f"{_MOD}.get_residency_registry", return_value=manager), \
              patch(f"{_MOD}.clear_gpu_memory") as mock_clear:
             pixels = decode_with_oom_retry(vae, torch.randn(1, 8, 2, 4, 4), "cuda",
                                            profiler_mark="caller.decode")
@@ -345,9 +345,9 @@ class TestConvPathOomRetry:
 
     def test_still_oom_after_eviction_raises_a_clear_error(self):
         vae = self._conv_vae(lambda z: (_ for _ in ()).throw(torch.cuda.OutOfMemoryError("boom")))
-        manager = _FakeResidencyManager()
+        manager = _FakeResidencyRegistry()
 
-        with patch(f"{_MOD}.get_residency_manager", return_value=manager), \
+        with patch(f"{_MOD}.get_residency_registry", return_value=manager), \
              patch(f"{_MOD}.clear_gpu_memory"):
             with pytest.raises(torch.cuda.OutOfMemoryError, match="even after evicting"):
                 decode_with_oom_retry(vae, torch.randn(1, 8, 2, 4, 4), "cuda",

@@ -10,7 +10,7 @@ is the same ladder on both sides of the dispatch decision.
 from types import SimpleNamespace
 
 from src.features.backends.native_backend import NativeBackend
-from src.features.generation.generation import deep_update, validate_pipe_configuration
+from src.features.generation.engine import deep_update, validate_pipe_configuration
 from src.features.remote_execution.worker.device_injection import inject_worker_device
 
 WORKER_DEVICE = "cuda:0"
@@ -43,7 +43,7 @@ def _native_backend():
         id="native-test", name="native-test", engine="native",
         device=WORKER_DEVICE, dtype=WORKER_DTYPE, gpu_max_vram=WORKER_VRAM_GB,
     )
-    return NativeBackend(config, generation_manager=None)
+    return NativeBackend(config, generation_engine=None)
 
 
 def _local_effective_config(pipe_class, preset_config: dict) -> dict:

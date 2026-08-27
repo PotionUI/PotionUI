@@ -45,7 +45,7 @@ NATIVE_LLM_SUBDIR = "llm"
 NATIVE_LLM_QUANT_MODES = ("none", "int8", "nf4")
 
 # Resident-footprint multipliers vs. the bf16 shard sum, for the size estimate
-# fed to ModelLifecycleManager admission control: nf4 packs weights to 4 bits
+# fed to ModelLifecycle admission control: nf4 packs weights to 4 bits
 # (~0.25x) plus the double-quant absmax overhead; int8 halves them.
 NATIVE_LLM_QUANT_SIZE_FACTORS = {"int8": 0.5, "nf4": 0.28}
 
@@ -80,10 +80,10 @@ def native_llm_dir(models_dir: Optional[Path] = None) -> Path:
 
 
 # HF-layout checkpoints are directories, not files: `file_size_gb()`
-# (src.platform.runtime.model_lifecycle.manager) stats a single path and
+# (src.platform.runtime.model_lifecycle.lifecycle) stats a single path and
 # would return the DIRECTORY INODE's size (a few bytes) for one of these, not
 # the checkpoint's actual footprint - silently feeding a near-zero VRAM
-# estimate into ModelLifecycleManager's admission control. Shard weight files
+# estimate into ModelLifecycle's admission control. Shard weight files
 # sit flat in the directory (standard HF layout, no nested shard dirs).
 _SHARD_EXTENSIONS = (".safetensors", ".bin", ".pt", ".pth", ".gguf")
 
@@ -91,7 +91,7 @@ _SHARD_EXTENSIONS = (".safetensors", ".bin", ".pt", ".pth", ".gguf")
 def checkpoint_size_gb(path: str) -> Optional[float]:
     """Sum of shard weight file sizes under an HF-layout checkpoint
     directory, in GB - the size estimate `NativeLLMClient` passes to
-    `ModelLifecycleManager.acquire(estimated_vram_gb=...)`. None if the
+    `ModelLifecycle.acquire(estimated_vram_gb=...)`. None if the
     directory can't be read or holds no recognized shard files."""
     try:
         total = sum(

@@ -10,7 +10,7 @@ alpha over the whole frame, since nothing here is a hard cut). `matte_strength`
 is the levels/smoothstep (`_shared.imaging.alpha.apply_matte_strength`) that
 commits those pixels one way or the other.
 
-Loading goes through the `MODELS` built-in service (`ModelLifecycleManager`)
+Loading goes through the `MODELS` built-in service (`ModelLifecycle`)
 when the pipeline wires it in, exactly like every other native loader pipe -
 `acquire()` caches the loaded checkpoint by (key, fingerprint) and the caller
 only ever moves the ALREADY-loaded model on/off the compute device. Without a

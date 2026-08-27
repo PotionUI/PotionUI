@@ -16,13 +16,13 @@ from tests.fixtures.persistence_base import PersistenceTestBase
 from src.platform.settings.repository import SettingRepository
 from src.features.models.location import (
     ModelsLocationError,
-    ModelsLocationManager,
+    ModelsRelocator,
     EXTERNAL_PATH_SETTING_KEY,
     OVERRIDES_SETTING_KEY,
 )
 
 
-class TestModelsLocationManager(PersistenceTestBase):
+class TestModelsRelocator(PersistenceTestBase):
     def setUp(self):
         super().setUp()
         import src.platform.settings.repository as repo_module
@@ -35,7 +35,7 @@ class TestModelsLocationManager(PersistenceTestBase):
         self.tmp = Path(self.fs_tmp)
         self.models_root = self.tmp / "models"
         self.external = self.tmp / "external"
-        self.manager = ModelsLocationManager(self.models_root, SettingRepository())
+        self.manager = ModelsRelocator(self.models_root, SettingRepository())
 
     def tearDown(self):
         shutil.rmtree(self.fs_tmp, ignore_errors=True)
@@ -123,7 +123,7 @@ class TestModelsLocationManager(PersistenceTestBase):
             self.manager.apply("   ")
 
     def test_apply_refuses_when_a_generation_is_active(self):
-        manager = ModelsLocationManager(
+        manager = ModelsRelocator(
             self.models_root, SettingRepository(), generation_active=lambda: True
         )
 
@@ -132,7 +132,7 @@ class TestModelsLocationManager(PersistenceTestBase):
         self.assertIn("running", ctx.exception.reason.lower())
 
     def test_apply_does_not_touch_disk_when_a_generation_is_active(self):
-        manager = ModelsLocationManager(
+        manager = ModelsRelocator(
             self.models_root, SettingRepository(), generation_active=lambda: True
         )
 
@@ -188,14 +188,14 @@ class TestModelsLocationManager(PersistenceTestBase):
         self.assertTrue((self.models_root / "checkpoints").is_symlink())
 
 
-class TestModelsLocationManagerNoDb:
+class TestModelsRelocatorNoDb:
     """Pure filesystem behavior that doesn't need the settings round-trip."""
 
     def test_windows_detection_helper(self, tmp_path, monkeypatch):
-        manager = ModelsLocationManager(tmp_path / "models", SettingRepository())
+        manager = ModelsRelocator(tmp_path / "models", SettingRepository())
         monkeypatch.setattr(os, "name", "nt")
         assert manager._is_windows() is True
 
     def test_generation_active_defaults_to_false(self, tmp_path):
-        manager = ModelsLocationManager(tmp_path / "models", SettingRepository())
+        manager = ModelsRelocator(tmp_path / "models", SettingRepository())
         assert manager._generation_active() is False

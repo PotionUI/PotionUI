@@ -14,7 +14,7 @@ from src.features.automation.triggers.filesystem import (
 )
 
 
-class FakeSettingsManager:
+class FakeSettings:
     def __init__(self, models_dir, storage_dir, generations_dir):
         self._models_dir = models_dir
         self._storage_dir = storage_dir
@@ -41,7 +41,7 @@ class TestListAppDirectories(unittest.TestCase):
             with open(os.path.join(models_dir, "readme.txt"), "w") as f:
                 f.write("x")
 
-            settings = FakeSettingsManager(
+            settings = FakeSettings(
                 models_dir=models_dir,
                 storage_dir=os.path.join(tmp, "storage"),
                 generations_dir=os.path.join(tmp, "storage", "generations"),
@@ -59,7 +59,7 @@ class TestListAppDirectories(unittest.TestCase):
             self.assertNotIn(os.path.join(models_dir, "readme.txt"), values)
 
     def test_missing_models_dir_does_not_raise(self):
-        settings = FakeSettingsManager(
+        settings = FakeSettings(
             models_dir="/does/not/exist/anywhere",
             storage_dir="storage",
             generations_dir="storage/generations",
@@ -133,7 +133,7 @@ class TestFilesystemTriggerRecursiveFiltering(unittest.TestCase):
         return FilesystemTrigger(
             automation_id="auto1", node_id="node1",
             config={"directory": watch_dir, "recursive": recursive},
-            enqueue=lambda *a: None, watch_manager=None,
+            enqueue=lambda *a: None, watch_registry=None,
         )
 
     def test_recursive_true_fires_for_subdirectory_files(self):
@@ -173,7 +173,7 @@ class TestFilesystemTriggerRecursiveFiltering(unittest.TestCase):
             os.makedirs(os.path.join(tmp, "krea2"))
             trigger = FilesystemTrigger(
                 automation_id="auto1", node_id="node1",
-                config={"directory": tmp}, enqueue=lambda *a: None, watch_manager=None,
+                config={"directory": tmp}, enqueue=lambda *a: None, watch_registry=None,
             )
             fired = []
             trigger.fire = lambda payload: fired.append(payload)

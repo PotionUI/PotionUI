@@ -39,7 +39,7 @@ def _notify_plugin_lifecycle(level: str, title: str, message: str) -> None:
             type='system.plugins',
         )
     except RuntimeError:
-        logger.debug("NotificationManager not initialized yet; skipping plugin lifecycle notification")
+        logger.debug("notify callable not initialized yet; skipping plugin lifecycle notification")
     except Exception as e:
         logger.error(f"Failed to send plugin lifecycle notification: {e}")
 

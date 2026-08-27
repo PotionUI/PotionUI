@@ -30,7 +30,7 @@ from __future__ import annotations
 import copy
 from typing import Any, Dict, List
 
-from src.features.generation.generation import deep_update
+from src.features.generation.engine import deep_update
 from src.pipelines.catalog import PipeCatalog
 from src.platform.observability.logger import logger
 

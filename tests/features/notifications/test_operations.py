@@ -12,8 +12,8 @@ from src.features.users.repository import UserRepository
 from src.platform.security.user import User, AccountType
 from src.platform.plugins import PluginRegistry
 from src.platform.plugins.hooks import HookContext
-from src.platform.websocket.notification_connection_manager import NotificationConnectionManager
-from src.platform.settings.settings import SettingsManager
+from src.platform.websocket.notification_connection_hub import NotificationConnectionHub
+from src.platform.settings.settings import Settings
 
 
 class TestNotificationOperations:
@@ -41,25 +41,25 @@ class TestNotificationOperations:
 
     @pytest.fixture
     def mock_connection_manager(self):
-        return Mock(spec=NotificationConnectionManager)
+        return Mock(spec=NotificationConnectionHub)
 
     @pytest.fixture
-    def mock_settings_manager(self):
-        settings = Mock(spec=SettingsManager)
+    def mock_settings(self):
+        settings = Mock(spec=Settings)
         settings.get_setting.return_value = {}
         return settings
 
     @pytest.fixture
     def collaborators(
         self, mock_repository, mock_user_repository, mock_plugin_registry,
-        mock_connection_manager, mock_settings_manager
+        mock_connection_manager, mock_settings
     ):
         return NotificationCollaborators(
             repository=mock_repository,
             users=mock_user_repository,
             plugins=mock_plugin_registry,
             connections=mock_connection_manager,
-            settings=mock_settings_manager,
+            settings=mock_settings,
         )
 
     def _make_notification(self, user_id="user-1", **overrides):
@@ -291,10 +291,10 @@ class TestNotificationOperations:
     # ========== Type filtering ==========
 
     def test_disabled_type_skips_target_entirely(
-        self, collaborators, mock_repository, mock_connection_manager, mock_plugin_registry, mock_settings_manager
+        self, collaborators, mock_repository, mock_connection_manager, mock_plugin_registry, mock_settings
     ):
         """A user who disabled a type gets no row, no WS push, and no after_create hook."""
-        mock_settings_manager.get_setting.return_value = {"types": {"generation.completed": False}}
+        mock_settings.get_setting.return_value = {"types": {"generation.completed": False}}
 
         result = operations.notify(
             collaborators,
@@ -307,8 +307,8 @@ class TestNotificationOperations:
         # Only the before_create hook should have fired - never after_create.
         assert mock_plugin_registry.execute_hook.call_count == 1
 
-    def test_enabled_type_delivers_normally(self, collaborators, mock_repository, mock_settings_manager):
-        mock_settings_manager.get_setting.return_value = {"types": {"generation.completed": True}}
+    def test_enabled_type_delivers_normally(self, collaborators, mock_repository, mock_settings):
+        mock_settings.get_setting.return_value = {"types": {"generation.completed": True}}
         mock_repository.create.return_value = self._make_notification(type="generation.completed")
 
         result = operations.notify(
@@ -319,9 +319,9 @@ class TestNotificationOperations:
         assert len(result) == 1
         mock_repository.create.assert_called_once()
 
-    def test_unregistered_type_is_delivered(self, collaborators, mock_repository, mock_settings_manager):
+    def test_unregistered_type_is_delivered(self, collaborators, mock_repository, mock_settings):
         """A type key with no matching spec is always delivered (no way to know its default)."""
-        mock_settings_manager.get_setting.return_value = {}
+        mock_settings.get_setting.return_value = {}
         mock_repository.create.return_value = self._make_notification(type="totally.unknown")
 
         result = operations.notify(
@@ -330,8 +330,8 @@ class TestNotificationOperations:
 
         assert len(result) == 1
 
-    def test_empty_type_is_always_delivered(self, collaborators, mock_repository, mock_settings_manager):
-        mock_settings_manager.get_setting.return_value = {"types": {}}
+    def test_empty_type_is_always_delivered(self, collaborators, mock_repository, mock_settings):
+        mock_settings.get_setting.return_value = {"types": {}}
         mock_repository.create.return_value = self._make_notification()
 
         result = operations.notify(
@@ -340,9 +340,9 @@ class TestNotificationOperations:
 
         assert len(result) == 1
 
-    def test_default_enabled_false_spec_respected_without_override(self, collaborators, mock_repository, mock_settings_manager):
+    def test_default_enabled_false_spec_respected_without_override(self, collaborators, mock_repository, mock_settings):
         """No explicit user preference -> falls back to the spec's default_enabled."""
-        mock_settings_manager.get_setting.return_value = {}
+        mock_settings.get_setting.return_value = {}
         disabled_by_default = NotificationTypeSpec(key="quiet.thing", label="Quiet", default_enabled=False)
 
         with patch("src.features.notifications.operations.notification_type_registry.get", return_value=disabled_by_default):
@@ -354,7 +354,7 @@ class TestNotificationOperations:
         mock_repository.create.assert_not_called()
 
     def test_broadcast_filters_per_user_independently(
-        self, collaborators, mock_repository, mock_user_repository, mock_settings_manager, mock_connection_manager
+        self, collaborators, mock_repository, mock_user_repository, mock_settings, mock_connection_manager
     ):
         mock_user_repository.get_all.return_value = [self._make_user("user-1"), self._make_user("user-2")]
         mock_repository.create.return_value = self._make_notification(type="generation.completed")
@@ -364,7 +364,7 @@ class TestNotificationOperations:
                 return {"types": {"generation.completed": False}}
             return {"types": {"generation.completed": True}}
 
-        mock_settings_manager.get_setting.side_effect = _get_setting
+        mock_settings.get_setting.side_effect = _get_setting
 
         result = operations.notify(
             collaborators,
@@ -376,9 +376,9 @@ class TestNotificationOperations:
         _, kwargs = mock_repository.create.call_args
         assert kwargs["user_id"] == "user-2"
 
-    def test_transient_broadcast_bypasses_type_filter(self, collaborators, mock_connection_manager, mock_settings_manager):
+    def test_transient_broadcast_bypasses_type_filter(self, collaborators, mock_connection_manager, mock_settings):
         """A transient notification with user_id=None (broadcast) is delivered unfiltered."""
-        mock_settings_manager.get_setting.return_value = {"types": {"generation.completed": False}}
+        mock_settings.get_setting.return_value = {"types": {"generation.completed": False}}
 
         result = operations.notify(
             collaborators,
@@ -391,8 +391,8 @@ class TestNotificationOperations:
         assert call_args[0][0] is None
         assert call_args[0][1]["type"] == "toast"
 
-    def test_transient_with_user_id_respects_type_filter(self, collaborators, mock_connection_manager, mock_settings_manager):
-        mock_settings_manager.get_setting.return_value = {"types": {"generation.completed": False}}
+    def test_transient_with_user_id_respects_type_filter(self, collaborators, mock_connection_manager, mock_settings):
+        mock_settings.get_setting.return_value = {"types": {"generation.completed": False}}
 
         result = operations.notify(
             collaborators,
@@ -407,18 +407,18 @@ class TestNotificationOperations:
     def test_is_type_enabled_empty_type_true(self, collaborators):
         assert operations.is_type_enabled(collaborators, "user-1", "") is True
 
-    def test_is_type_enabled_unregistered_type_true(self, collaborators, mock_settings_manager):
-        mock_settings_manager.get_setting.return_value = {}
+    def test_is_type_enabled_unregistered_type_true(self, collaborators, mock_settings):
+        mock_settings.get_setting.return_value = {}
         assert operations.is_type_enabled(collaborators, "user-1", "no.such.type") is True
 
-    def test_is_type_enabled_explicit_override_wins_over_default(self, collaborators, mock_settings_manager):
-        mock_settings_manager.get_setting.return_value = {"types": {"generation.completed": False}}
+    def test_is_type_enabled_explicit_override_wins_over_default(self, collaborators, mock_settings):
+        mock_settings.get_setting.return_value = {"types": {"generation.completed": False}}
         assert operations.is_type_enabled(collaborators, "user-1", "generation.completed") is False
 
     # ========== get_preferences / update_preferences ==========
 
-    def test_get_preferences_returns_all_types_with_defaults(self, collaborators, mock_settings_manager):
-        mock_settings_manager.get_setting.return_value = {}
+    def test_get_preferences_returns_all_types_with_defaults(self, collaborators, mock_settings):
+        mock_settings.get_setting.return_value = {}
 
         prefs = operations.get_preferences(collaborators, "user-1")
 
@@ -431,8 +431,8 @@ class TestNotificationOperations:
         for t in prefs["types"]:
             assert t["enabled"] == t["default_enabled"]
 
-    def test_get_preferences_reflects_stored_overrides_and_sound(self, collaborators, mock_settings_manager):
-        mock_settings_manager.get_setting.return_value = {
+    def test_get_preferences_reflects_stored_overrides_and_sound(self, collaborators, mock_settings):
+        mock_settings.get_setting.return_value = {
             "types": {"generation.completed": False}, "sound": True
         }
 
@@ -442,8 +442,8 @@ class TestNotificationOperations:
         by_key = {t["key"]: t for t in prefs["types"]}
         assert by_key["generation.completed"]["enabled"] is False
 
-    def test_update_preferences_merges_types_and_sound(self, collaborators, mock_settings_manager):
-        mock_settings_manager.get_setting.return_value = {
+    def test_update_preferences_merges_types_and_sound(self, collaborators, mock_settings):
+        mock_settings.get_setting.return_value = {
             "types": {"generation.completed": False}, "sound": False
         }
 
@@ -451,8 +451,8 @@ class TestNotificationOperations:
             "user-1", types={"generation.failed": False}, sound=True
         )
 
-        mock_settings_manager.set_setting.assert_called_once()
-        args, kwargs = mock_settings_manager.set_setting.call_args
+        mock_settings.set_setting.assert_called_once()
+        args, kwargs = mock_settings.set_setting.call_args
         assert args[0] == "notification_preferences"
         stored = args[1]
         assert stored["types"] == {"generation.completed": False, "generation.failed": False}
@@ -462,54 +462,54 @@ class TestNotificationOperations:
         # Result is the fresh get_preferences() shape.
         assert "types" in result and "sound" in result
 
-    def test_update_preferences_partial_leaves_other_field_untouched(self, collaborators, mock_settings_manager):
-        mock_settings_manager.get_setting.return_value = {"types": {}, "sound": True}
+    def test_update_preferences_partial_leaves_other_field_untouched(self, collaborators, mock_settings):
+        mock_settings.get_setting.return_value = {"types": {}, "sound": True}
 
         operations.update_preferences(collaborators, "user-1", types={"generation.completed": False})
 
-        args, _ = mock_settings_manager.set_setting.call_args
+        args, _ = mock_settings.set_setting.call_args
         assert args[1]["sound"] is True
 
-    def test_update_preferences_unknown_type_raises(self, collaborators, mock_settings_manager):
-        mock_settings_manager.get_setting.return_value = {}
+    def test_update_preferences_unknown_type_raises(self, collaborators, mock_settings):
+        mock_settings.get_setting.return_value = {}
 
         with pytest.raises(ValueError):
             operations.update_preferences(collaborators, "user-1", types={"no.such.type": True})
 
-        mock_settings_manager.set_setting.assert_not_called()
+        mock_settings.set_setting.assert_not_called()
 
     # ========== admin_only types ==========
 
-    def test_is_type_enabled_admin_only_false_for_non_admin(self, collaborators, mock_user_repository, mock_settings_manager):
+    def test_is_type_enabled_admin_only_false_for_non_admin(self, collaborators, mock_user_repository, mock_settings):
         mock_user_repository.get_by_id.return_value = self._make_user("user-1")
-        mock_settings_manager.get_setting.return_value = {}
+        mock_settings.get_setting.return_value = {}
 
         assert operations.is_type_enabled(collaborators, "user-1", "system.plugins") is False
 
-    def test_is_type_enabled_admin_only_true_for_admin(self, collaborators, mock_user_repository, mock_settings_manager):
+    def test_is_type_enabled_admin_only_true_for_admin(self, collaborators, mock_user_repository, mock_settings):
         mock_user_repository.get_by_id.return_value = self._make_admin("admin-1")
-        mock_settings_manager.get_setting.return_value = {}
+        mock_settings.get_setting.return_value = {}
 
         assert operations.is_type_enabled(collaborators, "admin-1", "system.plugins") is True
 
-    def test_get_preferences_omits_admin_only_type_for_non_admin(self, collaborators, mock_user_repository, mock_settings_manager):
+    def test_get_preferences_omits_admin_only_type_for_non_admin(self, collaborators, mock_user_repository, mock_settings):
         mock_user_repository.get_by_id.return_value = self._make_user("user-1")
-        mock_settings_manager.get_setting.return_value = {}
+        mock_settings.get_setting.return_value = {}
 
         prefs = operations.get_preferences(collaborators, "user-1")
 
         assert "system.plugins" not in {t["key"] for t in prefs["types"]}
 
-    def test_get_preferences_includes_admin_only_type_for_admin(self, collaborators, mock_user_repository, mock_settings_manager):
+    def test_get_preferences_includes_admin_only_type_for_admin(self, collaborators, mock_user_repository, mock_settings):
         mock_user_repository.get_by_id.return_value = self._make_admin("admin-1")
-        mock_settings_manager.get_setting.return_value = {}
+        mock_settings.get_setting.return_value = {}
 
         prefs = operations.get_preferences(collaborators, "admin-1")
 
         assert "system.plugins" in {t["key"] for t in prefs["types"]}
 
     def test_broadcast_admin_only_type_skips_non_admin_targets(
-        self, collaborators, mock_repository, mock_user_repository, mock_connection_manager, mock_settings_manager
+        self, collaborators, mock_repository, mock_user_repository, mock_connection_manager, mock_settings
     ):
         """A persisted broadcast of an admin_only type creates rows/WS pushes only for admins."""
         admin = self._make_admin("admin-1")
@@ -520,7 +520,7 @@ class TestNotificationOperations:
             return {"admin-1": admin, "user-1": user}[user_id]
 
         mock_user_repository.get_by_id.side_effect = _get_by_id
-        mock_settings_manager.get_setting.return_value = {}
+        mock_settings.get_setting.return_value = {}
         mock_repository.create.return_value = self._make_notification(user_id="admin-1", type="system.plugins")
 
         result = operations.notify(
@@ -536,7 +536,7 @@ class TestNotificationOperations:
         assert mock_connection_manager.schedule_send.call_args[0][0] == "admin-1"
 
     def test_transient_broadcast_admin_only_type_fans_out_to_admins_only(
-        self, collaborators, mock_user_repository, mock_connection_manager, mock_settings_manager
+        self, collaborators, mock_user_repository, mock_connection_manager, mock_settings
     ):
         """A transient broadcast of an admin_only type never hits the user_id=None all-connections path."""
         admin = self._make_admin("admin-1")
@@ -547,7 +547,7 @@ class TestNotificationOperations:
             return {"admin-1": admin, "user-1": user}[user_id]
 
         mock_user_repository.get_by_id.side_effect = _get_by_id
-        mock_settings_manager.get_setting.return_value = {}
+        mock_settings.get_setting.return_value = {}
 
         result = operations.notify(
             collaborators,

@@ -14,7 +14,7 @@ from src.features.phrasebook.repository import (
     PhrasebookCategoryRepository,
     PhrasebookValueRepository,
 )
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 
 
 class TestPhrasebookPreviewGenerator:
@@ -31,9 +31,9 @@ class TestPhrasebookPreviewGenerator:
         return Mock(spec=PhrasebookValueRepository)
 
     @pytest.fixture
-    def mock_settings_manager(self):
-        """Create a mock SettingsManager."""
-        manager = Mock(spec=SettingsManager)
+    def mock_settings(self):
+        """Create a mock Settings."""
+        manager = Mock(spec=Settings)
         manager.get_setting.return_value = "/tmp/test_storage"
         return manager
 
@@ -42,13 +42,13 @@ class TestPhrasebookPreviewGenerator:
         self,
         mock_category_repository,
         mock_value_repository,
-        mock_settings_manager
+        mock_settings
     ):
         """Create an PhrasebookPreviewGenerator with mocks."""
         return PhrasebookPreviewGenerator(
             category_repository=mock_category_repository,
             value_repository=mock_value_repository,
-            settings_manager=mock_settings_manager
+            settings=mock_settings
         )
 
     @pytest.fixture
@@ -180,18 +180,18 @@ class TestPhrasebookPreviewGenerator:
 
     # ========== Storage Path Tests ==========
 
-    def test_get_preview_storage_path(self, generator, mock_settings_manager):
+    def test_get_preview_storage_path(self, generator, mock_settings):
         """Test getting preview storage path."""
         result = generator.get_preview_storage_path("cat-123")
 
         assert result == "/tmp/test_storage/phrasebook/cat-123"
-        mock_settings_manager.get_setting.assert_called_once_with(
+        mock_settings.get_setting.assert_called_once_with(
             "file_storage_directory", "storage"
         )
 
-    def test_get_preview_storage_path_uses_default(self, generator, mock_settings_manager):
+    def test_get_preview_storage_path_uses_default(self, generator, mock_settings):
         """Test that storage path uses default when setting not found."""
-        mock_settings_manager.get_setting.return_value = "storage"
+        mock_settings.get_setting.return_value = "storage"
 
         result = generator.get_preview_storage_path("cat-456")
 
@@ -389,9 +389,9 @@ class TestPhrasebookPreviewGeneratorAsync:
         return Mock(spec=PhrasebookValueRepository)
 
     @pytest.fixture
-    def mock_settings_manager(self):
-        """Create a mock SettingsManager."""
-        manager = Mock(spec=SettingsManager)
+    def mock_settings(self):
+        """Create a mock Settings."""
+        manager = Mock(spec=Settings)
         manager.get_setting.return_value = "/tmp/test_storage"
         return manager
 
@@ -400,13 +400,13 @@ class TestPhrasebookPreviewGeneratorAsync:
         self,
         mock_category_repository,
         mock_value_repository,
-        mock_settings_manager
+        mock_settings
     ):
         """Create an PhrasebookPreviewGenerator with mocks."""
         return PhrasebookPreviewGenerator(
             category_repository=mock_category_repository,
             value_repository=mock_value_repository,
-            settings_manager=mock_settings_manager
+            settings=mock_settings
         )
 
     @pytest.fixture

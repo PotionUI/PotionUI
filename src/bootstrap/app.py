@@ -25,10 +25,10 @@ from src.bootstrap.middleware import register_middleware
 from src.bootstrap.routers import register_routers
 from src.bootstrap.static_frontend import mount_frontend
 
-from src.platform.security.current_user import set_auth_manager
+from src.platform.security.current_user import set_auth
 from src.platform.version import POTIONUI_VERSION
-from src.platform.websocket.notification_connection_manager import notification_connection_manager
-from src.platform.websocket.automation_connection_manager import automation_connection_manager
+from src.platform.websocket.notification_connection_hub import notification_connection_hub
+from src.platform.websocket.automation_connection_hub import automation_connection_hub
 
 
 # Define Swagger tags for endpoint grouping
@@ -199,19 +199,19 @@ _API_DESCRIPTION = """
 
 def run_migrations_sync():
     """Run database migrations synchronously before container construction (DI needs DB access)."""
-    from src.platform.database import migration_manager
+    from src.platform.database import migration_runner
 
     logging.info("Checking database migrations...")
-    if migration_manager.has_pending_migrations():
+    if migration_runner.has_pending_migrations():
         logging.info("Pending migrations found, applying...")
-        migration_manager.run_migrations()
+        migration_runner.run_migrations()
         logging.info("Database initialization completed")
     else:
         logging.info("Database already up to date")
 
 
 # Environment variable -> `settings` table key. Both settings are read fresh
-# from the database by every call site that needs them (SettingsManager,
+# from the database by every call site that needs them (Settings,
 # ModelScanner, ArtifactsFetchExecutor, ...) rather than cached off the
 # container, so the only way to redirect them consistently for a whole
 # process is to overwrite the row itself before anything reads it - a plain
@@ -226,8 +226,8 @@ _ENV_SETTING_OVERRIDES = {
 
 def apply_startup_env_overrides() -> None:
     """Redirect DB-backed settings from the environment, before the container
-    (and everything it constructs from `settings_manager.get_setting(...)` at
-    build time, e.g. `ModelManager`) is built.
+    (and everything it constructs from `settings.get_setting(...)` at
+    build time, e.g. `ModelDirectories`) is built.
 
     `models_dir` and `file_storage_directory` are ordinary admin-editable
     settings seeded by migration with a fixed default (`"models"` /
@@ -263,8 +263,8 @@ def apply_startup_env_overrides() -> None:
 
 def _seed_runtime_from_container(container: AppContainer) -> None:
     """Bind process-wide dependencies that live outside the router factories."""
-    # Auth dependency (get_current_active_user) resolves through this AuthManager.
-    set_auth_manager(container.auth_manager)
+    # Auth dependency (get_current_active_user) resolves through this Auth.
+    set_auth(container.auth)
 
     # Seed the in-memory attention-backend pin from its persisted setting.
     # get_attention_backend() never reads the DB (it's a per-forward hot path);
@@ -274,7 +274,7 @@ def _seed_runtime_from_container(container: AppContainer) -> None:
         from src.platform.runtime.native import attention as native_attention
 
         native_attention.set_backend_override(
-            container.settings_manager.get_setting("native_attention_backend")
+            container.settings.get_setting("native_attention_backend")
         )
     except Exception as e:
         logging.warning(f"Could not seed native attention backend pin: {e}")
@@ -287,10 +287,10 @@ def _seed_runtime_from_container(container: AppContainer) -> None:
         from src.platform.runtime.native.optimizations import compile as native_compile
 
         native_compile.set_torch_compile_override(
-            container.settings_manager.get_setting("native_torch_compile")
+            container.settings.get_setting("native_torch_compile")
         )
         native_partial.set_stream_prefetch_override(
-            container.settings_manager.get_setting("native_stream_prefetch")
+            container.settings.get_setting("native_stream_prefetch")
         )
     except Exception as e:
         logging.warning(f"Could not seed native engine flags: {e}")
@@ -298,12 +298,12 @@ def _seed_runtime_from_container(container: AppContainer) -> None:
     # Setup claim token lifecycle. While the instance has no owner, ensure a
     # one-time token exists on disk (0600) so a remote operator can claim it via
     # the bootstrap CLI; once claimed, make sure no stale token lingers. Never
-    # logs the token value itself (only its path, inside ClaimTokenManager).
+    # logs the token value itself (only its path, inside ClaimTokenStore).
     try:
         if container.instance_claim_repository.is_claimed():
-            container.claim_token_manager.clear()
+            container.claim_token_store.clear()
         else:
-            container.claim_token_manager.ensure_token()
+            container.claim_token_store.ensure_token()
     except Exception as e:
         logging.warning(f"Could not initialize the setup claim token: {e}")
 
@@ -322,12 +322,12 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
 
     run_secret_preflight(
         container.plugin_repository,
-        container.backend_registry.backend_config_manager,
+        container.backend_registry.backend_config_store,
         container.llm_repository.config_repo,
         container.plugin_registry,
     )
 
-    automation_manager = container.automation_manager
+    automation_runtime = container.automation_runtime
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -338,22 +338,22 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
         logging.info(f"DEBUG mode: {'ENABLED' if DEBUG_MODE else 'DISABLED'} (set DEBUG=true to enable verbose logging)")
         # Note: Migrations are run synchronously before app creation (see run_migrations_sync())
 
-        # Capture the running loop so NotificationConnectionManager.schedule_send()
+        # Capture the running loop so NotificationConnectionHub.schedule_send()
         # can bridge sync->async sends from worker threads (e.g. generation
         # completion) via run_coroutine_threadsafe.
-        notification_connection_manager.set_loop(asyncio.get_running_loop())
+        notification_connection_hub.set_loop(asyncio.get_running_loop())
 
         # Same for the automation module: bind the loop to both the WS broadcast
         # bridge and the engine (enqueue_trigger is sync-callable from any
         # thread - watchdog's observer thread, a schedule loop, etc.), then start
         # every enabled automation's triggers.
-        automation_connection_manager.set_loop(asyncio.get_running_loop())
-        automation_manager.engine.set_loop(asyncio.get_running_loop())
-        await automation_manager.start_all_enabled()
+        automation_connection_hub.set_loop(asyncio.get_running_loop())
+        automation_runtime.engine.set_loop(asyncio.get_running_loop())
+        await automation_runtime.start_all_enabled()
 
         # Start the download worker (on its own persistent loop) so downloads
         # interrupted by a restart resume without waiting for a queue call.
-        await container.download_manager.start()
+        await container.download_queue.start()
 
         # Generation state lives only in-process, so a pending/running row
         # surviving a restart means the process died mid-generation, not that
@@ -372,7 +372,7 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
             from src.features.remote_execution.reconciler import RemoteExecutionReconciler
 
             reconciler = RemoteExecutionReconciler(
-                backend_config_manager=container.backend_registry.backend_config_manager,
+                backend_config_store=container.backend_registry.backend_config_store,
             )
             await reconciler.reconcile()
         except Exception as exc:
@@ -382,8 +382,8 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
 
         # Shutdown
         logging.info("Shutting down PotionUI API server...")
-        await container.download_manager.stop()
-        await automation_manager.stop_all()
+        await container.download_queue.stop()
+        await automation_runtime.stop_all()
 
     # Create FastAPI app
     app = FastAPI(
@@ -413,14 +413,14 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
         """Check if the API service is running and healthy."""
         return {"status": "healthy", "service": "potionui-api"}
 
-    # Mount plugin API routers (dynamically - PluginRouterManager tracks which
+    # Mount plugin API routers (dynamically - PluginRouterMounter tracks which
     # routes belong to which plugin so operations.enable_plugin/disable_plugin
     # can mount/unmount them again at runtime without restarting the process)
     try:
         plugin_registry = container.plugin_registry
-        plugin_router_manager = container.plugin_router_manager
-        plugin_router_manager.attach(app)
-        plugin_router_manager.mount_all_enabled(
+        plugin_router_mounter = container.plugin_router_mounter
+        plugin_router_mounter.attach(app)
+        plugin_router_mounter.mount_all_enabled(
             plugin_registry.get_enabled_plugins(), loader=plugin_registry.loader
         )
     except Exception as e:

@@ -102,7 +102,7 @@ example `"default": "cuda"` below is illustrative, not a guaranteed constant acr
 ### Why GPU settings live on the native backend
 
 These three used to be global `SYSTEM` settings. They never were global: only `content/presets/marketplace/**`
-pipelines and `GpuManager`'s budget ever read them, and no ComfyUI preset could — a ComfyUI server
+pipelines and `GpuMonitor`'s budget ever read them, and no ComfyUI preset could — a ComfyUI server
 picks its own device and manages its own VRAM. They configure *one engine*, so they belong to that
 engine's backend. (`file_storage_directory` genuinely is global — both engines write files to this
 host — and stays a setting. `attention_mechanism` was dead and was deleted.)
@@ -112,9 +112,9 @@ host — and stays a setting. `attention_mechanism` was dead and was deleted.)
 same question: how should this engine instance be driven? Injection uses `setdefault`, so a preset
 that pins `device` on a particular pipe still wins.
 
-`GpuManager` remains a host-level service and holds no budget of its own. The backend that owns the
+`GpuMonitor` remains a host-level service and holds no budget of its own. The backend that owns the
 GPU calls `set_vram_cap_gb()` before each run, so services that consult the GPU manager directly
-(`MemoryManager`, `ModelLifecycleManager`) see the same cap the pipes do. Budget precedence is:
+(`MemoryAdvisor`, `ModelLifecycle`) see the same cap the pipes do. Budget precedence is:
 an explicit `vram_limit_gb` argument, then the owner's cap, then available hardware — always bounded
 by what is actually free.
 
@@ -315,7 +315,7 @@ listing, subscription) is owned by `GenerationStatusTracker` on the orchestrator
 backend.
 
 `InProcessBackend` factors out what every backend so far actually does: it owns the `_active` set of
-in-flight generation ids, the `_run` coroutine that drives `GenerationManager` on a worker thread and
+in-flight generation ids, the `_run` coroutine that drives `GenerationEngine` on a worker thread and
 emits completion, and `cancel_generation`. Before executing it calls `self.prepare_pipes(pipes)`, the
 one hook subclasses override. **`InProcessBackend` is plugin-facing API** — its constructor and
 `prepare_pipes` signature are a contract that plugin engines depend on.
@@ -341,13 +341,13 @@ one hook subclasses override. **`InProcessBackend` is plugin-facing API** — it
 
 ### The `native` engine has exactly one backend
 
-There is one GPU and one `GenerationManager` in this process, and `GenerationManager` supports one
+There is one GPU and one `GenerationEngine` in this process, and `GenerationEngine` supports one
 in-flight generation at a time (`cancel()` flips a single `_cancelled` flag). A second `native`
 backend would be a second name for the same hardware, competing for the same lock — pure confusion
 with no capability gained.
 
 So the `native` backend is a singleton: auto-provisioned on first boot, not deletable, and with no
-connection config to edit. `BackendConfigManager` rejects a second one, and the admin UI must not
+connection config to edit. `BackendConfigStore` rejects a second one, and the admin UI must not
 offer to create it. If you want a second GPU box, that is a different machine running its own
 PotionUI or ComfyUI — reach it as a `comfyui` backend, not as a second `native` one.
 
@@ -409,7 +409,7 @@ class ComfyUIBackendConfig(BaseBackendConfig):
 
 Your backend class should subclass `InProcessBackend` and override `prepare_pipes` (plus
 `health_check` / `get_system_info`, which have no sensible default for a remote service). If it
-needs the `GenerationManager`, expose a `set_generation_manager(manager)` method — the registry
+needs the `GenerationEngine`, expose a `set_generation_engine(manager)` method — the registry
 calls it after construction when present.
 
 A plugin that provides an engine will normally also provide the pipes that speak it (manifest

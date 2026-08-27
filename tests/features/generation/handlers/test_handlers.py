@@ -39,7 +39,7 @@ class TestImageGenerationOutputHandler:
     def setup_method(self):
         self.generation_id = "test_gen_123"
         self.user_id = "user_456"
-        # Create handler with mock settings_manager
+        # Create handler with mock settings
         self.mock_settings = Mock()
         self.mock_settings.get_file_storage_directory.return_value = "/storage"
         self.mock_storage_driver = Mock()
@@ -294,11 +294,11 @@ class TestVideoGenerationOutputHandler:
     def setup_method(self):
         self.generation_id = "test_gen_123"
         self.user_id = "user_456"
-        self.settings_manager = Mock()
-        self.settings_manager.get_file_storage_directory.return_value = "/test/storage"
+        self.settings = Mock()
+        self.settings.get_file_storage_directory.return_value = "/test/storage"
         self.mock_storage_driver = Mock()
         self.handler = VideoGenerationOutputHandler(
-            self.generation_id, self.user_id, self.settings_manager, self.mock_storage_driver
+            self.generation_id, self.user_id, self.settings, self.mock_storage_driver
         )
 
         # Create a temporary video file for testing
@@ -492,7 +492,7 @@ class TestVideoGenerationOutputHandler:
         from src.platform.filesystem.file_store import FileStore
 
         with tempfile.TemporaryDirectory() as storage_dir:
-            self.settings_manager.get_file_storage_directory.return_value = storage_dir
+            self.settings.get_file_storage_directory.return_value = storage_dir
             with patch('src.platform.filesystem.file_store.FileStore', return_value=FileStore(storage_dir)):
                 output = VideoGenerationOutput(video_path="/nonexistent/path/video.mp4", temporary=True)
                 self.handler.handle(output)
@@ -503,7 +503,7 @@ class TestVideoGenerationOutputHandler:
         """The video source is copied disk-to-disk, not read
         fully into a `bytes` object before being handed to FileStore."""
         with tempfile.TemporaryDirectory() as storage_dir:
-            self.settings_manager.get_file_storage_directory.return_value = storage_dir
+            self.settings.get_file_storage_directory.return_value = storage_dir
             # Exercise a real local driver rooted at storage_dir instead of
             # the shared setup_method Mock, so the streamed copy actually
             # lands on disk for the assertions below to find.

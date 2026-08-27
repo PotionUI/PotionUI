@@ -220,8 +220,8 @@ class TestFieldOverridesThreadedFromRepository:
         preset_template = Mock()
         preset_template.engine = "native"
         instance.preset_template_loader.load_preset_by_id = Mock(return_value=preset_template)
-        instance.settings_manager = Mock()
-        instance.settings_manager.get_file_storage_directory = Mock(return_value="/storage")
+        instance.settings = Mock()
+        instance.settings.get_file_storage_directory = Mock(return_value="/storage")
         instance.backend_registry = Mock()
         backend = Mock(backend_id="b1", name="Backend", engine="native")
         backend.start_generation = AsyncMock()

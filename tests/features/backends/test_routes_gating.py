@@ -28,12 +28,12 @@ def _make_client(user):
     bcm.get_backends.return_value = []
     bcm.get_default_backend_ids.return_value = {}
     registry = Mock()
-    registry.backend_config_manager = bcm
+    registry.backend_config_store = bcm
     registry.refresh_backends = AsyncMock()
     container = SimpleNamespace(
-        settings_manager=Mock(),
+        settings=Mock(),
         backend_registry=registry,
-        model_lifecycle_manager=Mock(),
+        model_lifecycle=Mock(),
     )
     app = FastAPI()
     app.include_router(build_router(container))

@@ -150,8 +150,8 @@ class GeneratorSDXLPipe(BasePipe):
 
     @staticmethod
     def _aggressive_cleanup(model):
-        from src.platform.runtime.model_lifecycle.manager import get_model_lifecycle_manager
-        models = get_model_lifecycle_manager()
+        from src.platform.runtime.model_lifecycle.lifecycle import get_model_lifecycle
+        models = get_model_lifecycle()
         if models is not None:
             models.cleanup(aggressive=True)
         elif hasattr(model, "clear_cuda_cache"):

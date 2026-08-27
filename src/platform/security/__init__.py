@@ -10,20 +10,20 @@ This module provides authentication functionality including:
 """
 from src.platform.security.config import AuthConfig
 from src.platform.security.claim_store import InstanceClaimStore
-from src.platform.security.claim_token import ClaimTokenManager
+from src.platform.security.claim_token import ClaimTokenStore
 from src.platform.security.password import PasswordHasher
-from src.platform.security.token import TokenData, TokenManager
+from src.platform.security.token import TokenData, TokenCodec
 from src.platform.security.user import AccountType, User
-from src.platform.security.manager import AuthManager
+from src.platform.security.auth import Auth
 
 __all__ = [
     "AccountType",
     "AuthConfig",
-    "AuthManager",
-    "ClaimTokenManager",
+    "Auth",
+    "ClaimTokenStore",
     "InstanceClaimStore",
     "PasswordHasher",
     "TokenData",
-    "TokenManager",
+    "TokenCodec",
     "User",
 ]

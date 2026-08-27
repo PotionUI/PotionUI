@@ -16,13 +16,13 @@ class ModelImageService:
         else:
             # Try to get from settings, but handle case where dependency injection isn't available
             try:
-                from src.platform.settings.settings import SettingsManager
+                from src.platform.settings.settings import Settings
                 from src.platform.settings.repository import SettingRepository
 
-                # Create dependencies for SettingsManager
+                # Create dependencies for Settings
                 setting_repo = SettingRepository()
-                settings_manager = SettingsManager(setting_repo)
-                models_media_dir = settings_manager.get_models_media_directory()
+                settings = Settings(setting_repo)
+                models_media_dir = settings.get_models_media_directory()
                 if models_media_dir:
                     self.storage_dir = Path(models_media_dir)
                 else:

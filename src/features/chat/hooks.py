@@ -23,5 +23,5 @@ CHAT_PRE_ACTIONS_HOOKS = hooks_registry.declare(
 CHAT_RESPONSE_HOOKS = hooks_registry.declare(
     "chat.response", "backend",
     "transform",  # Transform content, extract actions (in ResponseProcessor)
-    "before_generate", "after_save",  # LLM generation lifecycle (in ChatManager)
+    "before_generate", "after_save",  # LLM generation lifecycle (in ChatRuntime)
 )

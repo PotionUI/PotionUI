@@ -9,7 +9,7 @@ from src.features.media_index.vision_embedder import (
     SiglipVisionEmbedder,
     build_vision_embedder,
 )
-from src.platform.runtime.model_lifecycle.manager import ModelLifecycleManager
+from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
 
 
 def make_settings(**overrides):
@@ -25,13 +25,13 @@ def make_settings(**overrides):
 
 def make_loaded_embedder(dim=4):
     """An embedder with a mocked processor (bypassing `_ensure_processor`)
-    and a mocked model wired in as the `ModelLifecycleManager` loader's
+    and a mocked model wired in as the `ModelLifecycle` loader's
     return value (bypassing `_load_model`) - the model is never held
     privately on the instance, so stubbing `_load_model` is how a test
     supplies one."""
     embedder = SiglipVisionEmbedder(
         model_name="fake/siglip",
-        model_lifecycle_manager=ModelLifecycleManager(gpu_manager=None, settings_manager=None),
+        model_lifecycle=ModelLifecycle(gpu_monitor=None, settings=None),
     )
     processor = MagicMock()
     processor.return_value = {"input_ids": torch.ones(1, 64, dtype=torch.long)}
@@ -181,7 +181,7 @@ def test_embed_images_empty_input_never_touches_model():
 
 
 # ---------------------------------------------------------------------------
-# ModelLifecycleManager integration: lazy load, evictable, idempotent
+# ModelLifecycle integration: lazy load, evictable, idempotent
 # eviction - the model is never held privately on the instance.
 # ---------------------------------------------------------------------------
 
@@ -190,7 +190,7 @@ class _FakeSiglipModel:
     bookkeeping references push `sys.getrefcount` far above the "sole owner"
     threshold, and its auto-attributes defeat
     `getattr(value, 'estimated_vram_gb', None)` - returning a Mock instead of
-    None - which crashes ModelLifecycleManager's `%.2f` eviction log line.
+    None - which crashes ModelLifecycle's `%.2f` eviction log line.
     Unrelated to the eviction contract under test here."""
 
     dtype = torch.float32
@@ -202,7 +202,7 @@ class _FakeSiglipModel:
 def _embedder_for_lifecycle_tests():
     embedder = SiglipVisionEmbedder(
         model_name="fake/siglip",
-        model_lifecycle_manager=ModelLifecycleManager(gpu_manager=None, settings_manager=None),
+        model_lifecycle=ModelLifecycle(gpu_monitor=None, settings=None),
     )
     processor = MagicMock()
     processor.return_value = {"pixel_values": torch.zeros(1, 3, 224, 224)}
@@ -213,7 +213,7 @@ def _embedder_for_lifecycle_tests():
 
 def test_not_loaded_until_first_embed():
     embedder = _embedder_for_lifecycle_tests()
-    models = embedder._model_lifecycle_manager
+    models = embedder._model_lifecycle
 
     assert embedder._cache_key() not in models._entries
     embedder._load_model.assert_not_called()
@@ -223,7 +223,7 @@ def test_first_embed_loads_and_caches_the_model():
     from PIL import Image
 
     embedder = _embedder_for_lifecycle_tests()
-    models = embedder._model_lifecycle_manager
+    models = embedder._model_lifecycle
 
     embedder.embed_images([Image.new("RGB", (8, 8))])
 
@@ -238,7 +238,7 @@ def test_cached_model_is_evictable():
     from PIL import Image
 
     embedder = _embedder_for_lifecycle_tests()
-    models = embedder._model_lifecycle_manager
+    models = embedder._model_lifecycle
     embedder.embed_images([Image.new("RGB", (8, 8))])
     key = embedder._cache_key()
     assert key in models._entries
@@ -252,7 +252,7 @@ def test_eviction_is_idempotent_when_the_key_is_already_gone():
     from PIL import Image
 
     embedder = _embedder_for_lifecycle_tests()
-    models = embedder._model_lifecycle_manager
+    models = embedder._model_lifecycle
     key = embedder._cache_key()
 
     models.invalidate(key)  # never loaded - must not raise
@@ -269,7 +269,7 @@ def test_evicted_model_reloads_on_next_use():
     from PIL import Image
 
     embedder = _embedder_for_lifecycle_tests()
-    models = embedder._model_lifecycle_manager
+    models = embedder._model_lifecycle
     embedder.embed_images([Image.new("RGB", (8, 8))])
     assert embedder._load_model.call_count == 1
 
@@ -280,16 +280,16 @@ def test_evicted_model_reloads_on_next_use():
 
 
 def test_missing_lifecycle_manager_raises_clean_error():
-    import src.platform.runtime.model_lifecycle.manager as manager_module
+    import src.platform.runtime.model_lifecycle.lifecycle as manager_module
 
     embedder = SiglipVisionEmbedder(model_name="fake/siglip")
-    saved = manager_module._default_manager
-    manager_module._default_manager = None
+    saved = manager_module._default_lifecycle
+    manager_module._default_lifecycle = None
     try:
-        with pytest.raises(RuntimeError, match="ModelLifecycleManager"):
+        with pytest.raises(RuntimeError, match="ModelLifecycle"):
             embedder._models()
     finally:
-        manager_module._default_manager = saved
+        manager_module._default_lifecycle = saved
 
 
 def test_is_loaded_reflects_residency_not_disk_presence():
@@ -311,20 +311,20 @@ def test_is_loaded_reflects_residency_not_disk_presence():
     assert embedder.is_available() is False
     assert embedder.is_loaded() is True
 
-    embedder._model_lifecycle_manager.invalidate(embedder._cache_key())
+    embedder._model_lifecycle.invalidate(embedder._cache_key())
     assert embedder.is_loaded() is False
 
 
 def test_is_loaded_false_without_a_lifecycle_manager():
-    import src.platform.runtime.model_lifecycle.manager as manager_module
+    import src.platform.runtime.model_lifecycle.lifecycle as manager_module
 
     embedder = SiglipVisionEmbedder(model_name="fake/siglip")
-    saved = manager_module._default_manager
-    manager_module._default_manager = None
+    saved = manager_module._default_lifecycle
+    manager_module._default_lifecycle = None
     try:
         assert embedder.is_loaded() is False
     finally:
-        manager_module._default_manager = saved
+        manager_module._default_lifecycle = saved
 
 
 # ---------------------------------------------------------------------------

@@ -372,8 +372,8 @@ class ADetailerSDXLPipe(BasePipe):
 
         # One aggressive cleanup per pipe run; per-region img2img cleanups are
         # light (no sync/multi-GC) by design.
-        from src.platform.runtime.model_lifecycle.manager import get_model_lifecycle_manager
-        models = get_model_lifecycle_manager()
+        from src.platform.runtime.model_lifecycle.lifecycle import get_model_lifecycle
+        models = get_model_lifecycle()
         if models is not None:
             models.cleanup(aggressive=True)
         elif hasattr(model, "clear_cuda_cache"):

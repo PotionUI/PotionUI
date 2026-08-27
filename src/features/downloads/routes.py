@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 
 def build_router(container: "AppContainer") -> APIRouter:
-    download_manager = container.download_manager
+    download_queue = container.download_queue
     download_repository = container.download_repository
 
     router = APIRouter(prefix="/api/downloads", tags=["Downloads"])
@@ -56,7 +56,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     ):
         """List all downloads with optional filtering. Admin only."""
         try:
-            data = download_manager.list_downloads(
+            data = download_queue.list_downloads(
                 status=status,
                 download_type=type,
                 limit=limit,
@@ -72,7 +72,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     @router.get("/settings", summary="Get Download Settings")
     async def get_settings(current_user: User = Depends(get_current_admin_user)):
         """Get current download service settings. Admin only."""
-        settings = download_manager.get_settings()
+        settings = download_queue.get_settings()
         return {"success": True, "data": settings.to_dict()}
 
     @router.put("/settings", summary="Update Download Settings")
@@ -81,7 +81,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         current_user: User = Depends(get_current_admin_user),
     ):
         """Update download service settings. Admin only."""
-        current = download_manager.get_settings()
+        current = download_queue.get_settings()
 
         if request.max_concurrent_downloads is not None:
             current.max_concurrent_downloads = request.max_concurrent_downloads
@@ -98,7 +98,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         if request.default_media_directory is not None:
             current.default_media_directory = request.default_media_directory
 
-        download_manager.update_settings(current)
+        download_queue.update_settings(current)
         return {"success": True, "data": current.to_dict(), "message": "Settings updated"}
 
     @router.post("/model", summary="Queue Model Download")
@@ -108,7 +108,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     ):
         """Queue a model file for download. Admin only."""
         try:
-            download = await download_manager.queue_model_download(
+            download = await download_queue.queue_model_download(
                 url=request.url,
                 destination_dir=request.destination_dir,
                 model_type=request.model_type,
@@ -129,7 +129,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     ):
         """Queue a media file for download. Admin only."""
         try:
-            download = await download_manager.queue_media_download(
+            download = await download_queue.queue_media_download(
                 url=request.url,
                 destination_dir=request.destination_dir,
                 filename=request.filename,
@@ -146,7 +146,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     ):
         """Queue a whole Hugging Face repo as one grouped download. Admin only."""
         try:
-            download = await download_manager.queue_hf_repo_download(
+            download = await download_queue.queue_hf_repo_download(
                 repo_id=request.repo_id,
                 destination_dir=request.destination_dir,
                 revision=request.revision,
@@ -163,7 +163,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         current_user: User = Depends(get_current_admin_user),
     ):
         """Queue multiple files for download. Admin only."""
-        data = await download_manager.queue_batch_downloads(
+        data = await download_queue.queue_batch_downloads(
             urls=request.urls,
             destination_dir=request.destination_dir,
             download_type=request.download_type,
@@ -179,7 +179,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     async def clear_completed(current_user: User = Depends(get_current_admin_user)):
         """Clear all completed downloads from history. Admin only."""
         try:
-            count = download_manager.clear_completed()
+            count = download_queue.clear_completed()
             return {"success": True, "message": f"Cleared {count} completed downloads"}
         except DownloadOperationException as e:
             raise HTTPException(status_code=400, detail=str(e))
@@ -188,7 +188,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     async def clear_cancelled(current_user: User = Depends(get_current_admin_user)):
         """Clear all cancelled downloads from history. Admin only."""
         try:
-            count = download_manager.clear_cancelled()
+            count = download_queue.clear_cancelled()
             return {"success": True, "message": f"Cleared {count} cancelled downloads"}
         except DownloadOperationException as e:
             raise HTTPException(status_code=400, detail=str(e))
@@ -200,7 +200,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     ):
         """Get a specific download by ID (with its per-file children for grouped jobs). Admin only."""
         try:
-            download = download_manager.get_download(download_id)
+            download = download_queue.get_download(download_id)
             data = download.to_dict()
             if download.type == DownloadType.HF_REPO:
                 data["children"] = [c.to_dict() for c in download_repository.get_children(download_id)]
@@ -215,7 +215,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     ):
         """Pause an active download. Admin only."""
         try:
-            download = await download_manager.pause_download(download_id)
+            download = await download_queue.pause_download(download_id)
             return {"success": True, "data": download.to_dict(), "message": "Download paused"}
         except DownloadNotFoundException as e:
             raise HTTPException(status_code=404, detail=str(e))
@@ -229,7 +229,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     ):
         """Resume a paused download. Admin only."""
         try:
-            download = await download_manager.resume_download(download_id)
+            download = await download_queue.resume_download(download_id)
             return {"success": True, "data": download.to_dict(), "message": "Download resumed"}
         except DownloadNotFoundException as e:
             raise HTTPException(status_code=404, detail=str(e))
@@ -243,7 +243,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     ):
         """Cancel an active or pending download. Admin only."""
         try:
-            download = await download_manager.cancel_download(download_id)
+            download = await download_queue.cancel_download(download_id)
             return {"success": True, "data": download.to_dict(), "message": "Download cancelled"}
         except DownloadNotFoundException as e:
             raise HTTPException(status_code=404, detail=str(e))
@@ -257,7 +257,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     ):
         """Retry a failed download. Admin only."""
         try:
-            download = await download_manager.retry_download(download_id)
+            download = await download_queue.retry_download(download_id)
             return {"success": True, "data": download.to_dict(), "message": "Download queued for retry"}
         except DownloadNotFoundException as e:
             raise HTTPException(status_code=404, detail=str(e))
@@ -271,7 +271,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     ):
         """Delete a download record. Admin only."""
         try:
-            await download_manager.delete_download(download_id)
+            await download_queue.delete_download(download_id)
             return {"success": True, "message": "Download deleted"}
         except DownloadNotFoundException as e:
             raise HTTPException(status_code=404, detail=str(e))
@@ -282,7 +282,7 @@ def build_router(container: "AppContainer") -> APIRouter:
 
 
 def build_ws_router(container: "AppContainer") -> APIRouter:
-    connection_manager = container.download_connection_manager
+    connection_hub = container.download_connection_hub
 
     ws_router = APIRouter(tags=["WebSocket"])
 
@@ -314,7 +314,7 @@ def build_ws_router(container: "AppContainer") -> APIRouter:
         if not client_id:
             client_id = str(uuid4())
 
-        connected = await connection_manager.connect(websocket, client_id)
+        connected = await connection_hub.connect(websocket, client_id)
         if not connected:
             return
 
@@ -326,18 +326,18 @@ def build_ws_router(container: "AppContainer") -> APIRouter:
             })
         except Exception as e:
             logger.error("Failed to send connection_established to %s: %s", client_id, e)
-            connection_manager.disconnect(client_id)
+            connection_hub.disconnect(client_id)
             return
 
         # Start heartbeat task
-        heartbeat_task = asyncio.create_task(_send_heartbeat(connection_manager, websocket, client_id))
+        heartbeat_task = asyncio.create_task(_send_heartbeat(connection_hub, websocket, client_id))
 
         try:
             while True:
                 data = await websocket.receive_text()
                 try:
                     message = json.loads(data)
-                    await _handle_ws_message(connection_manager, client_id, message)
+                    await _handle_ws_message(connection_hub, client_id, message)
                 except json.JSONDecodeError:
                     logger.warning("Invalid JSON from downloads client %s: %s", client_id, data)
                     await websocket.send_json({"type": "error", "message": "Invalid JSON format"})
@@ -352,23 +352,23 @@ def build_ws_router(container: "AppContainer") -> APIRouter:
                 await heartbeat_task
             except asyncio.CancelledError:
                 pass
-            connection_manager.disconnect(client_id)
+            connection_hub.disconnect(client_id)
 
     return ws_router
 
 
-async def _send_heartbeat(connection_manager, websocket: WebSocket, client_id: str) -> None:
+async def _send_heartbeat(connection_hub, websocket: WebSocket, client_id: str) -> None:
     """Send periodic heartbeat messages to keep the connection alive.
 
     Args:
-        connection_manager: The download connection manager
+        connection_hub: The download connection manager
         websocket: The client WebSocket connection
         client_id: The client's unique identifier
     """
     try:
         while True:
             await asyncio.sleep(30)
-            if connection_manager.is_client_connected(client_id):
+            if connection_hub.is_client_connected(client_id):
                 try:
                     await websocket.send_json({
                         "type": "heartbeat",
@@ -383,11 +383,11 @@ async def _send_heartbeat(connection_manager, websocket: WebSocket, client_id: s
         pass
 
 
-async def _handle_ws_message(connection_manager, client_id: str, message: dict) -> None:
+async def _handle_ws_message(connection_hub, client_id: str, message: dict) -> None:
     """Route an incoming WebSocket message to the appropriate handler.
 
     Args:
-        connection_manager: The download connection manager
+        connection_hub: The download connection manager
         client_id: The sending client's identifier
         message: Parsed message dict
     """
@@ -396,8 +396,8 @@ async def _handle_ws_message(connection_manager, client_id: str, message: dict) 
     if message_type == "subscribe_download":
         download_id = message.get("download_id")
         if download_id:
-            success = await connection_manager.subscribe_to_download(client_id, download_id)
-            await connection_manager.send_to_client(client_id, {
+            success = await connection_hub.subscribe_to_download(client_id, download_id)
+            await connection_hub.send_to_client(client_id, {
                 "type": "subscribed" if success else "subscription_error",
                 "download_id": download_id,
                 "message": "Subscribed to download" if success else "Failed to subscribe",
@@ -406,22 +406,22 @@ async def _handle_ws_message(connection_manager, client_id: str, message: dict) 
     elif message_type == "unsubscribe_download":
         download_id = message.get("download_id")
         if download_id:
-            await connection_manager.unsubscribe_from_download(client_id, download_id)
-            await connection_manager.send_to_client(client_id, {
+            await connection_hub.unsubscribe_from_download(client_id, download_id)
+            await connection_hub.send_to_client(client_id, {
                 "type": "unsubscribed",
                 "download_id": download_id,
             })
 
     elif message_type == "subscribe_all_downloads":
-        success = connection_manager.subscribe_to_all_downloads(client_id)
-        await connection_manager.send_to_client(client_id, {
+        success = connection_hub.subscribe_to_all_downloads(client_id)
+        await connection_hub.send_to_client(client_id, {
             "type": "subscribed_all",
             "success": success,
             "message": "Subscribed to all download updates" if success else "Failed to subscribe",
         })
 
     elif message_type == "ping":
-        await connection_manager.send_to_client(client_id, {
+        await connection_hub.send_to_client(client_id, {
             "type": "pong",
             "timestamp": datetime.now().isoformat(),
         })

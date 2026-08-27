@@ -26,7 +26,7 @@ from jinja2 import BaseLoader, StrictUndefined, Undefined
 from jinja2.sandbox import ImmutableSandboxedEnvironment
 
 from src.platform.observability.logger import logger
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 from src.platform.templating.errors import TemplateEvaluationError
 from src.platform.templating.hooks import TEMPLATE_HOOKS
 from src.platform.templating.path_resolver import PathResolver
@@ -71,7 +71,7 @@ class TemplateProcessor:
 
     def __init__(
         self,
-        settings_manager: SettingsManager,
+        settings: Settings,
         path_resolver: Optional[PathResolver] = None,
         icon_mapper: Optional[IconMapper] = None,
     ):
@@ -79,11 +79,11 @@ class TemplateProcessor:
         Initialize TemplateProcessor.
 
         Args:
-            settings_manager: Settings manager for configuration access.
+            settings: Settings manager for configuration access.
             path_resolver: Optional custom path resolver (defaults to PathResolver()).
             icon_mapper: Optional custom icon mapper (defaults to IconMapper()).
         """
-        self.settings_manager = settings_manager
+        self.settings = settings
         self.path_resolver = path_resolver or PathResolver()
         self.icon_mapper = icon_mapper or IconMapper()
 

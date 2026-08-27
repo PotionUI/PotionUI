@@ -22,7 +22,7 @@ from src.features.remote_execution.records import (
 )
 from src.features.remote_execution.repository import RemoteExecutionRepository
 from src.platform.database.database import Database
-from src.platform.database.migration_runner import MigrationManager
+from src.platform.database.migration_runner import MigrationRunner
 from src.platform.worker_protocol import JobErrorV1, JobEventKind, JobEventV1
 
 S = RemoteExecutionState
@@ -61,7 +61,7 @@ class RemoteExecutionRepositoryTestCase(unittest.TestCase):
         Database._instance = None
 
     def _run_migrations(self):
-        manager = MigrationManager()
+        manager = MigrationRunner()
         old_stdout = sys.stdout
         sys.stdout = io.StringIO()
         try:

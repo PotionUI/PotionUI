@@ -31,7 +31,7 @@ class FakeBackendInstance:
         return self._health
 
 
-class FakeBackendConfigManager:
+class FakeBackendConfigStore:
     def __init__(self, existing=None):
         self.existing = existing  # list of FakeConfig for the engine
         self.added = []
@@ -54,7 +54,7 @@ class FakeBackendRegistry:
     def __init__(self, engine="comfyui", registered=True, health=None, existing=None):
         self._registered = registered
         self._health = health or {"status": "available"}
-        self.backend_config_manager = FakeBackendConfigManager(existing=existing)
+        self.backend_config_store = FakeBackendConfigStore(existing=existing)
         self.refreshed = False
         self.engine = engine
 
@@ -110,7 +110,7 @@ def test_reachable_server_creates_a_new_backend():
 
     assert result.success is True
     assert result.safe_output["created"] is True
-    assert len(registry.backend_config_manager.added) == 1
+    assert len(registry.backend_config_store.added) == 1
     assert registry.refreshed is True
 
 
@@ -123,8 +123,8 @@ def test_reachable_server_updates_an_existing_backend():
 
     assert result.success is True
     assert result.safe_output["created"] is False
-    assert len(registry.backend_config_manager.updated) == 1
-    assert registry.backend_config_manager.updated[0][0] == "be-1"
+    assert len(registry.backend_config_store.updated) == 1
+    assert registry.backend_config_store.updated[0][0] == "be-1"
 
 
 def test_explicit_base_url_overrides_default():

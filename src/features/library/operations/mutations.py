@@ -74,7 +74,7 @@ def copy_generation_file(collaborators: LibraryCollaborators, file_id: str, user
     if not source.exists():
         raise ValueError("File not found")
 
-    # Same uuid-name convention as `MediaManager.upload_media`, so nothing
+    # Same uuid-name convention as `MediaStore.upload_media`, so nothing
     # downstream can tell a copied item from an uploaded one by its name.
     filename = f"{uuid.uuid4()}{source.suffix}"
     key = upload_key(filename)

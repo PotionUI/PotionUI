@@ -8,7 +8,7 @@ itself is not privileged (`/api/docs/live/pipes` serves it to any authenticated
 user), so there is nothing here to hide behind a 404.
 
 Progress does not come back on the POST: it arrives on /ws/admin as
-`pipe_install_status` (see `PipeInstallManager`).
+`pipe_install_status` (see `PipeInstallRunner`).
 
 Both paths take `pipe_name` as `:path`, not a plain segment: a variant's
 registry key contains a slash (`generator/trellis2`), which a plain segment
@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 
 def build_router(container: "AppContainer") -> APIRouter:
-    manager = container.pipe_install_manager
+    manager = container.pipe_install_runner
 
     router = APIRouter(prefix="/api/pipes", tags=["Pipes"])
 

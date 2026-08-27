@@ -69,11 +69,11 @@ def _user(user_id: str = "u-owner") -> User:
     )
 
 
-class _FakeGenerationHistoryManager:
-    """Fake standing in for `GenerationHistoryManager`: one generation, owned
+class _FakeGenerationHistoryFacade:
+    """Fake standing in for `GenerationHistoryFacade`: one generation, owned
     by `owner_id`, raising like the real one on any ownership mismatch. Also
     exposes `.query`, mirroring the real manager's `query` property
-    (`src/features/generation/history_manager.py`) - `export_png` calls
+    (`src/features/generation/history_facade.py`) - `export_png` calls
     `get_params` through that seam, not as a direct forwarder."""
 
     def __init__(self, owner_id, files, parameters, models, quantity=None, parameters_by_index=None):
@@ -115,7 +115,7 @@ class _FakeGenerationHistoryManager:
         }
 
 
-class _FakeMediaManager:
+class _FakeMediaStore:
     def __init__(self, file_path):
         self.file_path = file_path
 
@@ -126,9 +126,9 @@ class _FakeMediaManager:
 
 
 class _FakeContainer:
-    def __init__(self, history_manager, media_manager):
-        self.generation_history_manager = history_manager
-        self.media_manager = media_manager
+    def __init__(self, history_facade, media_store):
+        self.generation_history_facade = history_facade
+        self.media_store = media_store
 
 
 @pytest.fixture
@@ -160,13 +160,13 @@ def client():
 
 class TestExportPngEndpoint:
     def test_success_returns_png_with_embedded_parameters(self, client, png_path, install_container):
-        history = _FakeGenerationHistoryManager(
+        history = _FakeGenerationHistoryFacade(
             owner_id="u-owner",
             files=[{"file_path": f"gen-1/{os.path.basename(png_path)}", "file_type": "IMAGE"}],
             parameters={"positive_prompt": "a fox", "steps": 20},
             models=[],
         )
-        install_container(_FakeContainer(history, _FakeMediaManager(png_path)))
+        install_container(_FakeContainer(history, _FakeMediaStore(png_path)))
 
         resp = client.get("/api/plugins/civitai-provider/export-png?generation_id=gen-1&index=0")
 
@@ -181,7 +181,7 @@ class TestExportPngEndpoint:
         self, client, png_path, install_container
     ):
         base = os.path.basename(png_path)
-        history = _FakeGenerationHistoryManager(
+        history = _FakeGenerationHistoryFacade(
             owner_id="u-owner",
             files=[
                 {"file_path": f"gen-1/{base}", "file_type": "IMAGE"},
@@ -195,7 +195,7 @@ class TestExportPngEndpoint:
                 1: {},
             },
         )
-        install_container(_FakeContainer(history, _FakeMediaManager(png_path)))
+        install_container(_FakeContainer(history, _FakeMediaStore(png_path)))
 
         resp = client.get("/api/plugins/civitai-provider/export-png?generation_id=gen-1&index=1")
 
@@ -215,7 +215,7 @@ class TestExportPngEndpoint:
         image's params."""
         base = os.path.basename(png_path)
         quantity = 2
-        history = _FakeGenerationHistoryManager(
+        history = _FakeGenerationHistoryFacade(
             owner_id="u-owner",
             files=[{"file_path": f"gen-1/{base}", "file_type": "IMAGE"} for _ in range(2 * quantity)],
             parameters={},
@@ -228,7 +228,7 @@ class TestExportPngEndpoint:
                 3: {},
             },
         )
-        install_container(_FakeContainer(history, _FakeMediaManager(png_path)))
+        install_container(_FakeContainer(history, _FakeMediaStore(png_path)))
 
         # index 3 (second file of the derived/enhanced batch) -> source index
         # 3 - quantity(2) = 1 ("a wolf"), not index 0's "a fox".
@@ -239,62 +239,62 @@ class TestExportPngEndpoint:
             assert img.text["parameters"] == "a wolf\nSteps: 20, Size: 4x4"
 
     def test_other_users_generation_is_404_not_403(self, client, png_path, install_container):
-        history = _FakeGenerationHistoryManager(
+        history = _FakeGenerationHistoryFacade(
             owner_id="someone-else",
             files=[{"file_path": f"gen-1/{os.path.basename(png_path)}", "file_type": "IMAGE"}],
             parameters={"positive_prompt": "a fox"},
             models=[],
         )
-        install_container(_FakeContainer(history, _FakeMediaManager(png_path)))
+        install_container(_FakeContainer(history, _FakeMediaStore(png_path)))
 
         resp = client.get("/api/plugins/civitai-provider/export-png?generation_id=gen-1&index=0")
 
         assert resp.status_code == 404
 
     def test_missing_generation_is_404(self, client, png_path, install_container):
-        history = _FakeGenerationHistoryManager(
+        history = _FakeGenerationHistoryFacade(
             owner_id="u-owner", files=[], parameters={}, models=[]
         )
-        install_container(_FakeContainer(history, _FakeMediaManager(png_path)))
+        install_container(_FakeContainer(history, _FakeMediaStore(png_path)))
 
         resp = client.get("/api/plugins/civitai-provider/export-png?generation_id=missing&index=0")
 
         assert resp.status_code == 404
 
     def test_index_out_of_range_is_404(self, client, png_path, install_container):
-        history = _FakeGenerationHistoryManager(
+        history = _FakeGenerationHistoryFacade(
             owner_id="u-owner",
             files=[{"file_path": f"gen-1/{os.path.basename(png_path)}", "file_type": "IMAGE"}],
             parameters={"positive_prompt": "a fox"},
             models=[],
         )
-        install_container(_FakeContainer(history, _FakeMediaManager(png_path)))
+        install_container(_FakeContainer(history, _FakeMediaStore(png_path)))
 
         resp = client.get("/api/plugins/civitai-provider/export-png?generation_id=gen-1&index=5")
 
         assert resp.status_code == 404
 
     def test_video_file_is_rejected(self, client, png_path, install_container):
-        history = _FakeGenerationHistoryManager(
+        history = _FakeGenerationHistoryFacade(
             owner_id="u-owner",
             files=[{"file_path": "gen-1/clip.mp4", "file_type": "VIDEO"}],
             parameters={"positive_prompt": "a fox"},
             models=[],
         )
-        install_container(_FakeContainer(history, _FakeMediaManager(png_path)))
+        install_container(_FakeContainer(history, _FakeMediaStore(png_path)))
 
         resp = client.get("/api/plugins/civitai-provider/export-png?generation_id=gen-1&index=0")
 
         assert resp.status_code == 400
 
     def test_unauthenticated_rejected(self, png_path, install_container):
-        history = _FakeGenerationHistoryManager(
+        history = _FakeGenerationHistoryFacade(
             owner_id="u-owner",
             files=[{"file_path": f"gen-1/{os.path.basename(png_path)}", "file_type": "IMAGE"}],
             parameters={"positive_prompt": "a fox"},
             models=[],
         )
-        install_container(_FakeContainer(history, _FakeMediaManager(png_path)))
+        install_container(_FakeContainer(history, _FakeMediaStore(png_path)))
 
         router = _load_plugin_router()
         app = FastAPI()
@@ -305,13 +305,13 @@ class TestExportPngEndpoint:
 
     def test_missing_file_on_disk_is_404(self, client, tmp_path, install_container):
         missing_path = str(tmp_path / "gone.png")
-        history = _FakeGenerationHistoryManager(
+        history = _FakeGenerationHistoryFacade(
             owner_id="u-owner",
             files=[{"file_path": "gen-1/gone.png", "file_type": "IMAGE"}],
             parameters={"positive_prompt": "a fox"},
             models=[],
         )
-        install_container(_FakeContainer(history, _FakeMediaManager(missing_path)))
+        install_container(_FakeContainer(history, _FakeMediaStore(missing_path)))
 
         resp = client.get("/api/plugins/civitai-provider/export-png?generation_id=gen-1&index=0")
 

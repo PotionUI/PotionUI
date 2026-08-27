@@ -19,7 +19,7 @@ from src.features.models.repository import ModelRepository
 from src.features.tags.repository import TagRepository
 from src.platform.filesystem.storage_driver import FileStorageDriver
 from src.platform.plugins import PluginRegistry
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -32,14 +32,14 @@ class ModelMetadataEditor:
         model_repository: ModelRepository,
         tag_repository: TagRepository,
         plugin_registry: PluginRegistry,
-        settings_manager: SettingsManager,
+        settings: Settings,
         storage_driver: Optional[FileStorageDriver] = None,
         attribute_definition_repository: Optional[AttributeDefinitionRepository] = None,
     ):
         self.model_repo = model_repository
         self.tag_repo = tag_repository
         self.plugins = plugin_registry
-        self.settings = settings_manager
+        self.settings = settings
         self.attribute_definitions = attribute_definition_repository or AttributeDefinitionRepository()
         # Optional so tests that build this editor directly (without a
         # container) keep working: `_build_image_thumbnails` falls back to a

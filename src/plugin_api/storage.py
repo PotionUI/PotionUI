@@ -6,20 +6,20 @@ and `generate_ulid()` mints sortable primary keys for them.
 
 `PluginRepository` reads the settings an admin filled in against your manifest's
 `settings:` section, including your credentials; `SettingRepository` and
-`SettingsManager` read application-wide settings. Do not read another plugin's
+`Settings` read application-wide settings. Do not read another plugin's
 settings.
 """
 
 from src.features.plugins.repository import PluginRepository
 from src.platform.settings.repository import SettingRepository
 from src.platform.database.database import db
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 from src.platform.util.ids import generate_ulid
 
 __all__ = [
     "PluginRepository",
     "SettingRepository",
-    "SettingsManager",
+    "Settings",
     "db",
     "generate_ulid",
 ]

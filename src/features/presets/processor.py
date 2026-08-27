@@ -23,8 +23,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from src.platform.observability.logger import logger
-from src.features.models.directory import ModelManager
-from src.platform.settings.settings import SettingsManager
+from src.features.models.directory import ModelDirectories
+from src.platform.settings.settings import Settings
 from src.platform.templating import TemplateProcessor
 from src.platform.templating.errors import TemplateEvaluationError
 from src.features.presets.templates import PresetTemplate, FieldTemplate, default_form_name
@@ -53,13 +53,13 @@ class PresetProcessor:
     def __init__(
             self,
             template_processor: TemplateProcessor,
-            model_manager: ModelManager,
-            settings_manager: SettingsManager,
+            model_directories: ModelDirectories,
+            settings: Settings,
             preset_template_loader: PresetTemplateLoader,
     ):
         self.template_processor = template_processor
-        self.model_manager = model_manager
-        self.settings_manager = settings_manager
+        self.model_directories = model_directories
+        self.settings = settings
         self.preset_template_loader = preset_template_loader
 
     def _convert_dict_to_field_template(self, item: dict, context: Dict[str, Any]) -> FieldTemplate:
@@ -343,8 +343,8 @@ class PresetProcessor:
         setting.
         """
         return {
-            'file_storage_directory': self.settings_manager.get_file_storage_directory(user_id),
-            'nsfw': self.settings_manager.is_nsfw_enabled(user_id),
+            'file_storage_directory': self.settings.get_file_storage_directory(user_id),
+            'nsfw': self.settings.is_nsfw_enabled(user_id),
         }
 
     def _resolve_enabled(

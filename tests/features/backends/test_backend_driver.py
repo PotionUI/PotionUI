@@ -2,7 +2,7 @@
 
 `engine` stays the preset-facing protocol (`native`, `comfyui`, ...) and every
 selection/default/priority rule (`BackendRegistry.select_backend_for_generation`,
-`BackendConfigManager.get_default_backend`) stays keyed on it. `driver` is the
+`BackendConfigStore.get_default_backend`) stays keyed on it. `driver` is the
 narrower, registry-internal discriminator that decides which registered
 implementation class actually executes a row: an engine that only ever
 registers once (the common case, e.g. `comfyui`) has exactly one driver -
@@ -24,11 +24,11 @@ from unittest.mock import Mock, patch
 from fastapi import HTTPException
 
 from src.platform.database.database import Database
-from src.platform.database.migration_runner import MigrationManager
+from src.platform.database.migration_runner import MigrationRunner
 from src.features.backends.records import Backend
 from src.features.backends.repository import BackendRepository
 from src.features.backends.backend_config import (
-    BackendConfigManager,
+    BackendConfigStore,
     BaseBackendConfig,
     NativeBackendConfig,
     NATIVE_ENGINE,
@@ -72,7 +72,7 @@ class TestRegistryInstantiatesByDriver(unittest.TestCase):
     def _registry(self, registered_backend_types):
         registry = BackendRegistry.__new__(BackendRegistry)
         registry._registered_backend_types = registered_backend_types
-        registry.generation_manager_factory = lambda: Mock()
+        registry.generation_engine_factory = lambda: Mock()
         return registry
 
     def test_native_engine_resolves_via_its_native_local_driver(self):
@@ -114,7 +114,7 @@ class TestSingletonScopedToDriverNotEngine(unittest.TestCase):
     def _manager(self, registered_config_types):
         repo = Mock()
         repo.get_all.return_value = []
-        return BackendConfigManager(
+        return BackendConfigStore(
             backend_repository=repo,
             registered_config_types=registered_config_types,
         )
@@ -151,9 +151,9 @@ class TestSingletonScopedToDriverNotEngine(unittest.TestCase):
 
 class TestSecondNativeRowCoexistsAtTheRepositoryLayer(unittest.TestCase):
     """No implementation is registered for native.remote yet, so it can't be
-    created through BackendConfigManager.add_backend (nothing to validate
+    created through BackendConfigStore.add_backend (nothing to validate
     against) - but the ROW can exist at the repository layer, exactly like a
-    row for a disabled plugin's engine does today. BackendConfigManager skips
+    row for a disabled plugin's engine does today. BackendConfigStore skips
     it gracefully (mirrors the disabled-plugin path) without disturbing the
     auto-provisioned native.local singleton.
     """
@@ -179,7 +179,7 @@ class TestSecondNativeRowCoexistsAtTheRepositoryLayer(unittest.TestCase):
         old_stdout = sys.stdout
         sys.stdout = io.StringIO()
         try:
-            MigrationManager().run_migrations()
+            MigrationRunner().run_migrations()
         finally:
             sys.stdout = old_stdout
 
@@ -220,7 +220,7 @@ class TestSecondNativeRowCoexistsAtTheRepositoryLayer(unittest.TestCase):
             driver="native.remote", enabled=True, is_default=False, config={},
         ))
 
-        manager = BackendConfigManager(
+        manager = BackendConfigStore(
             backend_repository=self.repo,
             registered_config_types={NATIVE_LOCAL_DRIVER: NativeBackendConfig},
         )
@@ -243,7 +243,7 @@ class TestRequireLocalBackendCapabilityGating(unittest.TestCase):
         bcm = Mock()
         bcm.get_backend = Mock(return_value=backend_config)
         registry = Mock()
-        registry.backend_config_manager = bcm
+        registry.backend_config_store = bcm
         return BackendController(Mock(), registry, Mock())
 
     def test_native_local_backend_passes(self):

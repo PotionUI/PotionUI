@@ -1,6 +1,6 @@
 """Tags, rates and lists the user's generation history. Tag names are
 resolved against the user's own GENERATION-type tags (created on first use);
-rating/listing act on `context.generation_history_manager`, the same
+rating/listing act on `context.generation_history_facade`, the same
 collaborator the `/api/generations/history*` routes use.
 """
 
@@ -114,8 +114,8 @@ class OrganizeGalleryTool(BaseTool):
         return "..." + error_message[-_LIST_ERROR_MAX_LEN:]
 
     @staticmethod
-    def _list_recent(history_manager, user_id: str, limit: int, kwargs: Dict[str, Any]) -> ToolResult:
-        history = history_manager.get_history(
+    def _list_recent(history_facade, user_id: str, limit: int, kwargs: Dict[str, Any]) -> ToolResult:
+        history = history_facade.get_history(
             user_id=user_id, limit=limit, offset=0, sort_by="created_at", sort_dir="desc",
             search=kwargs.get("text") or None,
             preset_id=kwargs.get("preset_id") or None,
@@ -142,8 +142,8 @@ class OrganizeGalleryTool(BaseTool):
         return ToolResult(success=True, data=json.dumps({"generations": generations, "total": history.get("total", len(generations))}))
 
     @staticmethod
-    def _get(history_manager, generation_id: str, user_id: str) -> ToolResult:
-        gen = history_manager.get_by_id(generation_id, user_id)
+    def _get(history_facade, generation_id: str, user_id: str) -> ToolResult:
+        gen = history_facade.get_by_id(generation_id, user_id)
         form_data = gen.get("form_data") or {}
         detail = {
             "id": gen.get("id"),
@@ -164,8 +164,8 @@ class OrganizeGalleryTool(BaseTool):
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
         """Preview of the proposed action; performs no mutation. `list_recent`
         has no mutation to preview, so it returns the real listing directly."""
-        history_manager = context.generation_history_manager
-        if history_manager is None:
+        history_facade = context.generation_history_facade
+        if history_facade is None:
             return ToolResult(success=False, data="", error="Generation history not available")
 
         operation = kwargs.get("operation")
@@ -175,16 +175,16 @@ class OrganizeGalleryTool(BaseTool):
         try:
             if operation == "list_recent":
                 limit = max(1, int(kwargs.get("limit") or 20))
-                return self._list_recent(history_manager, context.user_id, limit, kwargs)
+                return self._list_recent(history_facade, context.user_id, limit, kwargs)
 
             generation_id = kwargs.get("generation_id")
             if not generation_id:
                 return self._missing("generation_id")
 
             if operation == "get":
-                return self._get(history_manager, generation_id, context.user_id)
+                return self._get(history_facade, generation_id, context.user_id)
 
-            current_tags = history_manager.get_tags(generation_id, context.user_id)
+            current_tags = history_facade.get_tags(generation_id, context.user_id)
 
             if operation in ("tag", "untag"):
                 tags: List[str] = kwargs.get("tags") or []
@@ -217,8 +217,8 @@ class OrganizeGalleryTool(BaseTool):
             return ToolResult(success=False, data="", error=f"Generation '{kwargs.get('generation_id')}' not found or access denied")
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
-        history_manager = context.generation_history_manager
-        if history_manager is None:
+        history_facade = context.generation_history_facade
+        if history_facade is None:
             return ToolResult(success=False, data="", error="Generation history not available")
 
         operation = kwargs.get("operation")
@@ -228,14 +228,14 @@ class OrganizeGalleryTool(BaseTool):
         try:
             if operation == "list_recent":
                 limit = max(1, int(kwargs.get("limit") or 20))
-                return self._list_recent(history_manager, context.user_id, limit, kwargs)
+                return self._list_recent(history_facade, context.user_id, limit, kwargs)
 
             generation_id = kwargs.get("generation_id")
             if not generation_id:
                 return self._missing("generation_id")
 
             if operation == "get":
-                return self._get(history_manager, generation_id, context.user_id)
+                return self._get(history_facade, generation_id, context.user_id)
 
             if operation == "tag":
                 tags: List[str] = kwargs.get("tags") or []
@@ -243,12 +243,12 @@ class OrganizeGalleryTool(BaseTool):
                     return self._missing("tags")
                 if context.tag_repository is None:
                     return ToolResult(success=False, data="", error=_TAGS_UNAVAILABLE)
-                current = {t["id"] for t in history_manager.get_tags(generation_id, context.user_id)}
+                current = {t["id"] for t in history_facade.get_tags(generation_id, context.user_id)}
                 new_ids = {
                     _resolve_or_create_tag_id(context.tag_repository, context.plugin_registry, context.user_id, name)
                     for name in tags
                 }
-                updated = history_manager.update_tags(generation_id, list(current | new_ids), context.user_id)
+                updated = history_facade.update_tags(generation_id, list(current | new_ids), context.user_id)
                 return ToolResult(success=True, data=json.dumps({
                     "action": "tag", "success": True, "generation_id": generation_id,
                     "tags": [t.get("name") for t in updated],
@@ -265,7 +265,7 @@ class OrganizeGalleryTool(BaseTool):
                     existing = context.tag_repository.get_tag_by_name(
                         name, type=TagType.GENERATION.value, user_id=context.user_id,
                     )
-                    if existing and history_manager.remove_tag(generation_id, existing.id, context.user_id):
+                    if existing and history_facade.remove_tag(generation_id, existing.id, context.user_id):
                         removed.append(name)
                     else:
                         skipped.append(name)
@@ -280,7 +280,7 @@ class OrganizeGalleryTool(BaseTool):
             rating = kwargs["rating"]
             if not isinstance(rating, int) or isinstance(rating, bool) or rating < 0 or rating > 5:
                 return ToolResult(success=False, data="", error="'rating' must be an integer between 0 and 5")
-            value = history_manager.set_rating(generation_id, rating, context.user_id)
+            value = history_facade.set_rating(generation_id, rating, context.user_id)
             return ToolResult(success=True, data=json.dumps({
                 "action": "rate", "success": True, "generation_id": generation_id, "rating": value,
             }))

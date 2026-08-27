@@ -1,6 +1,6 @@
 """Static bearer-token auth for the worker's own routes.
 
-No AuthManager, no user model, no PotionUI database: a worker's only
+No Auth, no user model, no PotionUI database: a worker's only
 authentication is possession of the shared secret its operator set in
 ``POTIONUI_WORKER_TOKEN``. Every route depends on the dependency this builds.
 """

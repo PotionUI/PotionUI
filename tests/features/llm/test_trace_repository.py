@@ -27,7 +27,7 @@ from src.features.chat.repository import ChatSessionRepository
 from src.features.llm.trace_repository import ChatCallTraceRepository
 from src.features.llm.trace_recorder import ChatCallTraceRecorder, PRUNE_THROTTLE_SECONDS
 from src.platform.settings.repository import SettingRepository
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 
 try:
     from src.platform.util.ids import generate_ulid
@@ -174,7 +174,7 @@ class TestChatCallTraceRecorderSettingGate(PersistenceTestBase):
         ))
 
         self.repository = ChatCallTraceRepository()
-        self.settings_manager = SettingsManager(SettingRepository())
+        self.settings = Settings(SettingRepository())
 
     def _record(self, recorder: ChatCallTraceRecorder):
         recorder.record(
@@ -198,12 +198,12 @@ class TestChatCallTraceRecorderSettingGate(PersistenceTestBase):
     def test_records_when_setting_defaults_missing_to_enabled(self):
         # No 'chat_llm_call_tracing' row seeded in this bare test DB — the
         # recorder's default (True) must still let it through.
-        recorder = ChatCallTraceRecorder(self.repository, self.settings_manager)
+        recorder = ChatCallTraceRecorder(self.repository, self.settings)
         self._record(recorder)
         assert len(self.repository.list_for_session(self.session.id)) == 1
 
     def test_does_not_record_when_setting_disabled(self):
-        recorder = ChatCallTraceRecorder(self.repository, self.settings_manager)
+        recorder = ChatCallTraceRecorder(self.repository, self.settings)
         # Migration 084 seeds chat_llm_call_tracing='true'; flip it off (insert
         # a row if some earlier-migrations tree never seeded one).
         with self.db.get_cursor() as cursor:
@@ -221,11 +221,11 @@ class TestChatCallTraceRecorderPruneThrottle(unittest.TestCase):
 
     def setUp(self):
         self.repository = Mock()
-        self.settings_manager = Mock()
-        self.settings_manager.get_setting.return_value = True
+        self.settings = Mock()
+        self.settings.get_setting.return_value = True
         self.now = 1000.0
         self.recorder = ChatCallTraceRecorder(
-            self.repository, self.settings_manager, clock=lambda: self.now,
+            self.repository, self.settings, clock=lambda: self.now,
         )
 
     def _record(self):
@@ -255,7 +255,7 @@ class TestChatCallTraceRecorderPruneThrottle(unittest.TestCase):
         assert self.repository.prune_older_than.call_count == 2
 
     def test_does_not_prune_when_tracing_disabled(self):
-        self.settings_manager.get_setting.return_value = False
+        self.settings.get_setting.return_value = False
         self._record()
         self.repository.create.assert_not_called()
         self.repository.prune_older_than.assert_not_called()

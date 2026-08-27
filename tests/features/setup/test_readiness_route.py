@@ -37,14 +37,14 @@ def _client(current_user=None) -> TestClient:
     instance_claim_repository.check_connection.return_value = None
 
     container = SimpleNamespace(
-        setup_run_manager=Mock(),
+        setup_runner=Mock(),
         backend_registry=backend_registry,
         preset_manager=preset_manager,
         model_repository=model_repository,
         generation_repository=generation_repository,
         instance_claim_repository=instance_claim_repository,
-        claim_token_manager=Mock(),
-        settings_manager=Mock(),
+        claim_token_store=Mock(),
+        settings=Mock(),
     )
     app = FastAPI()
     app.include_router(build_router(container))

@@ -6,7 +6,7 @@ are asserted without touching real checkpoints.
 
 The fake MODELS service below implements REAL hit/miss cache
 semantics (key+fingerprint -> cached value, matching
-``ModelLifecycleManager.acquire``) rather than just recording calls, because
+``ModelLifecycle.acquire``) rather than just recording calls, because
 the fix under test only shows up across two acquires of the SAME key: a
 LoRA-set change must be a cache HIT (same fingerprint, same object, no
 ``loader()`` re-run) that ``_sync_loras`` reconciles in place, not a
@@ -38,7 +38,7 @@ class _FakeModule:
 
 class _FakeModels:
     """Real hit/miss cache semantics (key + fingerprint -> cached value),
-    matching ``ModelLifecycleManager.acquire``'s contract: a fingerprint match
+    matching ``ModelLifecycle.acquire``'s contract: a fingerprint match
     returns the SAME cached object without re-running ``loader()``; a
     mismatch (new key, or a busted fingerprint) runs ``loader()`` and caches
     the result. ``self.calls`` still records every acquire() invocation
@@ -157,7 +157,7 @@ def test_lora_change_does_not_bust_dit_fingerprint():
     """The DiT ``MODELS`` fingerprint is path+dtype only now,
     so a LoRA-set change is a cache HIT (see test_lora_change_on_warm_dit_*
     below for the in-place patch that follows a hit), never a fresh
-    fingerprint that forces ``ModelLifecycleManager`` to re-run ``loader()``
+    fingerprint that forces ``ModelLifecycle`` to re-run ``loader()``
     and re-read the ~24.5GB checkpoint from disk."""
     no_lora = _fps([])
     with_lora = _fps([{"model": "/m/style.safetensors", "strength": 0.8}])

@@ -94,7 +94,7 @@ def _expand_form_fields(fields: List[FieldTemplate], preset_template: PresetTemp
     """
     from src.features.presets.form_serializer import PresetFormSerializer
 
-    template_processor = TemplateProcessor(settings_manager=None)
+    template_processor = TemplateProcessor(settings=None)
     form_serializer = PresetFormSerializer(preset_loader=None, template_processor=template_processor)
     context = {"paths": {"preset": preset_template.path}}
     return form_serializer._resolve_external_children(fields, context)
@@ -200,7 +200,7 @@ def bind_form(
         raw_form_data: The wire `form_data` dict (may be `None`/empty).
         user_id: The authenticated user, for logging only - media containment
             is enforced via `storage_dir`, which the caller resolves (e.g.
-            `SettingsManager.get_file_storage_directory(user_id)`, exactly as
+            `Settings.get_file_storage_directory(user_id)`, exactly as
             `normalize_video_director`'s caller does in the orchestrator).
         storage_dir: The user's file storage root. When `None`, media
             containment cannot be checked and is skipped (logged) - callers

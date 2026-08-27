@@ -87,7 +87,7 @@ class TestUserController:
             user_repository=mock_user_repository,
             password_hasher=Mock(),
             plugin_registry=Mock(),
-            settings_manager=Mock(),
+            settings=Mock(),
         )
 
     # Test GET all users

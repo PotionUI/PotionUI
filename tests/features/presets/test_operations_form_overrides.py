@@ -46,7 +46,7 @@ def collaborators(mock_file_repo, mock_db_repo):
             pipeline_builder=Mock(),
             pipe_catalog=Mock(),
             plugins=Mock(),
-            settings_manager=Mock(),
+            settings=Mock(),
         )
 
 

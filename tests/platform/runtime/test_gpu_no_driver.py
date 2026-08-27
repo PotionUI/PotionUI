@@ -1,4 +1,4 @@
-"""GpuManager() must never raise when no NVIDIA driver/GPU is present (a CPU-only
+"""GpuMonitor() must never raise when no NVIDIA driver/GPU is present (a CPU-only
 host is a supported configuration). Regression test for a real bug:
 `__init__` used to call `nvmlInit()`/`nvmlDeviceGetHandleByIndex(0)` with no
 guard, so `build_container()` (src/bootstrap/container.py) crashed on boot on
@@ -18,11 +18,11 @@ def _broken_nvml_init():
 class TestConstructionWithoutADriver:
     def test_init_does_not_raise(self, monkeypatch):
         monkeypatch.setattr(gpu_module, "nvmlInit", _broken_nvml_init)
-        gpu_module.GpuManager()  # must not raise
+        gpu_module.GpuMonitor()  # must not raise
 
     def test_available_is_false(self, monkeypatch):
         monkeypatch.setattr(gpu_module, "nvmlInit", _broken_nvml_init)
-        g = gpu_module.GpuManager()
+        g = gpu_module.GpuMonitor()
         assert g.available is False
         assert g.handle is None
 
@@ -34,7 +34,7 @@ class TestConstructionWithoutADriver:
         # pin it here to reproduce the true CPU-only case rather than a
         # partial (no-NVML, yes-CUDA) state that can't occur on real hardware.
         monkeypatch.setattr("torch.cuda.is_available", lambda: False)
-        g = gpu_module.GpuManager()
+        g = gpu_module.GpuMonitor()
         assert g.get_total_vram() == 0
         assert g.get_free_vram() == 0
         assert g.get_used_vram() == 0
@@ -43,22 +43,22 @@ class TestConstructionWithoutADriver:
 
     def test_temperature_is_zero_instead_of_raising(self, monkeypatch):
         monkeypatch.setattr(gpu_module, "nvmlInit", _broken_nvml_init)
-        g = gpu_module.GpuManager()
+        g = gpu_module.GpuMonitor()
         assert g.get_temperature() == 0
 
     def test_can_fit_in_vram_reports_false_rather_than_raising(self, monkeypatch):
         monkeypatch.setattr(gpu_module, "nvmlInit", _broken_nvml_init)
-        g = gpu_module.GpuManager()
+        g = gpu_module.GpuMonitor()
         assert g.can_fit_in_vram(1.0) is False
 
     def test_log_vram_status_does_not_raise(self, monkeypatch):
         monkeypatch.setattr(gpu_module, "nvmlInit", _broken_nvml_init)
-        g = gpu_module.GpuManager()
+        g = gpu_module.GpuMonitor()
         g.log_vram_status("test")  # must not raise
 
     def test_del_does_not_raise(self, monkeypatch):
         monkeypatch.setattr(gpu_module, "nvmlInit", _broken_nvml_init)
-        g = gpu_module.GpuManager()
+        g = gpu_module.GpuMonitor()
         g.__del__()  # must not raise, and must not call nvmlShutdown
 
 
@@ -73,6 +73,6 @@ class TestConstructionWithAWorkingDriver:
             raise RuntimeError("No devices found")
 
         monkeypatch.setattr(gpu_module, "nvmlDeviceGetHandleByIndex", _broken_handle)
-        g = gpu_module.GpuManager()
+        g = gpu_module.GpuMonitor()
         assert g.available is False
         assert g.get_total_vram() == 0

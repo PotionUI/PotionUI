@@ -35,7 +35,7 @@ from src.pipelines.outputs import (
     ModelGenerationOutput,
     ModelsGenerationOutput,
 )
-from src.platform.runtime.model_lifecycle.manager import file_size_gb
+from src.platform.runtime.model_lifecycle.lifecycle import file_size_gb
 from src.platform.runtime.native.engine import NativeEngineLoader, NativeModel
 from src.pipelines.contracts import (
     IOType,

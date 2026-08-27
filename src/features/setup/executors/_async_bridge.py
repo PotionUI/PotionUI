@@ -1,8 +1,8 @@
 """Bridges an async coroutine into a synchronous `StepExecutor.execute()` call.
 
 `StepExecutor.execute` is synchronous (see `base.py`) so the whole run-forward
-chain (`SetupExecutorRegistry.execute` -> `SetupRunManager.execute_current_step`
--> `SetupRunManager.drive`) stays a plain method call, including from route
+chain (`SetupExecutorRegistry.execute` -> `SetupRunner.execute_current_step`
+-> `SetupRunner.drive`) stays a plain method call, including from route
 handlers that are themselves already inside a running event loop. A couple of
 executors (`artifacts.fetch`, `generation.smoke`) need to await real async
 collaborators (the download queue, the generation orchestrator) -

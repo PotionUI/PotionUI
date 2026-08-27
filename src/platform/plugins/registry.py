@@ -13,7 +13,7 @@ import logging
 from src.platform.plugins.loader import PluginLoader, PluginManifest
 from src.platform.plugins.hooks import HookChain, HookContext, hooks_registry
 from src.platform.plugins.lifecycle_hooks import PLUGIN_LIFECYCLE_HOOKS
-from src.platform.plugins.router_manager import PluginRouterManager
+from src.platform.plugins.router_mounter import PluginRouterMounter
 from src.platform.plugins.field_types import FieldTypeDefinition, FieldTypeRegistry, DuplicateFieldTypeError
 from src.platform.plugins.prompt_importers import PromptImporterRegistry
 from src.platform.plugins.automation_templates import (
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     # Type-only: `src.features.models.attributes` is a features-layer module,
     # so platform may not import it at runtime (see tests/architecture). The
     # manager is duck-typed here (`.upsert_from_plugin` / `.remove_source`).
-    from src.features.models.attributes.manager import ModelAttributeDefinitionsManager
+    from src.features.models.attributes.editor import ModelAttributeDefinitionsEditor
 
 logger = logging.getLogger(__name__)
 
@@ -61,8 +61,8 @@ class PluginRegistry:
         marketplace_dir: str = "content/plugins/marketplace",
         local_dir: str = "content/plugins/local",
         field_registry: Optional[FieldTypeRegistry] = None,
-        model_attributes_manager: Optional["ModelAttributeDefinitionsManager"] = None,
-        router_manager: Optional[PluginRouterManager] = None,
+        model_attributes_manager: Optional["ModelAttributeDefinitionsEditor"] = None,
+        router_mounter: Optional[PluginRouterMounter] = None,
         tool_registry=None,
         chat_mode_registry=None,
         resource_registry=None,
@@ -84,7 +84,7 @@ class PluginRegistry:
         # the app runs fine (just without dynamic API routes) if this isn't
         # attached to a live FastAPI app yet (e.g. during discovery-only use
         # or in unit tests that don't need HTTP routes).
-        self.router_manager = router_manager
+        self.router_mounter = router_mounter
         # LLM chat extension registries (ToolRegistry, ChatModeRegistry,
         # ResourceRegistry). Optional like field_registry - plugins declaring
         # `tools:`/`chat_modes:`/`resources:` manifest sections register into
@@ -289,8 +289,8 @@ class PluginRegistry:
                         return False
 
                 # Mount the plugin's API router(s), if it declares any
-                if self.router_manager is not None:
-                    if not self.router_manager.mount(manifest, loader=self.loader):
+                if self.router_mounter is not None:
+                    if not self.router_mounter.mount(manifest, loader=self.loader):
                         error_msg = "Failed to mount plugin API router"
                         logger.error(f"Cannot enable plugin {plugin_id}: {error_msg}")
                         self._rollback_partial_enable(plugin_id)
@@ -763,8 +763,8 @@ class PluginRegistry:
                 self._rollback_partial_enable(plugin_id)
 
                 # Unmount the plugin's API router(s), if any were mounted
-                if self.router_manager is not None:
-                    self.router_manager.unmount(plugin_id)
+                if self.router_mounter is not None:
+                    self.router_mounter.unmount(plugin_id)
 
                 # Evict this plugin's cached modules only - other enabled
                 # plugins keep their already-imported modules untouched.

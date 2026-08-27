@@ -1,5 +1,5 @@
 """
-Tests for plugin hook integration in GenerationManager.
+Tests for plugin hook integration in GenerationEngine.
 
 This module tests the integration of the plugin system with the pipe execution flow,
 ensuring hooks are executed properly before and after pipe processing.
@@ -9,7 +9,7 @@ import pytest
 from unittest.mock import Mock, MagicMock, patch, call
 from typing import Dict, Any
 
-from src.features.generation.generation import GenerationManager
+from src.features.generation.engine import GenerationEngine
 from src.platform.plugins.registry import PluginRegistry
 from src.platform.plugins.hooks import HookContext
 from src.features.generation.hooks import PIPE_HOOKS
@@ -50,14 +50,14 @@ class TestGenerationHooks:
 
     @pytest.fixture
     def mock_dependencies(self):
-        """Create mock dependencies for GenerationManager"""
+        """Create mock dependencies for GenerationEngine"""
         return {
             'gpu': Mock(),
-            'model_manager': Mock(),
+            'model_directories': Mock(),
             'pipe_catalog': Mock(),
-            'settings_manager': Mock(),
+            'settings': Mock(),
             'system_monitor': Mock(),
-            'memory_manager': Mock(),
+            'memory_advisor': Mock(),
             'llm_service': Mock()
         }
 
@@ -67,19 +67,19 @@ class TestGenerationHooks:
         return PluginRegistry(marketplace_dir="test_plugins_mp", local_dir="test_plugins_local")
 
     def test_generation_manager_without_plugin_registry(self, mock_dependencies):
-        """Test that GenerationManager works without PluginRegistry (backward compatibility)"""
-        manager = GenerationManager(**mock_dependencies)
+        """Test that GenerationEngine works without PluginRegistry (backward compatibility)"""
+        manager = GenerationEngine(**mock_dependencies)
         assert manager.plugin_registry is None
         assert not manager._cancelled
 
     def test_generation_manager_with_plugin_registry(self, mock_dependencies, plugin_registry):
-        """Test that GenerationManager accepts PluginRegistry"""
-        manager = GenerationManager(**mock_dependencies, plugin_registry=plugin_registry)
+        """Test that GenerationEngine accepts PluginRegistry"""
+        manager = GenerationEngine(**mock_dependencies, plugin_registry=plugin_registry)
         assert manager.plugin_registry == plugin_registry
 
     def test_before_execute_hook_called(self, mock_dependencies, plugin_registry):
         """Test that pipe.before_execute hook is called before pipe execution"""
-        manager = GenerationManager(**mock_dependencies, plugin_registry=plugin_registry)
+        manager = GenerationEngine(**mock_dependencies, plugin_registry=plugin_registry)
 
         # Create a handler that modifies the input
         def before_hook_handler(context: HookContext) -> HookContext:
@@ -116,7 +116,7 @@ class TestGenerationHooks:
 
     def test_after_execute_hook_called(self, mock_dependencies, plugin_registry):
         """Test that pipe.after_execute hook is called after pipe execution"""
-        manager = GenerationManager(**mock_dependencies, plugin_registry=plugin_registry)
+        manager = GenerationEngine(**mock_dependencies, plugin_registry=plugin_registry)
 
         # Track hook execution
         hook_called = {'value': False, 'pipe_name': None, 'duration': None}
@@ -159,7 +159,7 @@ class TestGenerationHooks:
 
     def test_hook_modifies_inputs(self, mock_dependencies, plugin_registry):
         """Test that hooks can modify pipe inputs"""
-        manager = GenerationManager(**mock_dependencies, plugin_registry=plugin_registry)
+        manager = GenerationEngine(**mock_dependencies, plugin_registry=plugin_registry)
 
         # Handler that adds a new input
         def before_hook_handler(context: HookContext) -> HookContext:
@@ -197,7 +197,7 @@ class TestGenerationHooks:
 
     def test_hook_modifies_outputs(self, mock_dependencies, plugin_registry):
         """Test that hooks can modify pipe outputs"""
-        manager = GenerationManager(**mock_dependencies, plugin_registry=plugin_registry)
+        manager = GenerationEngine(**mock_dependencies, plugin_registry=plugin_registry)
 
         # Handler that modifies the output
         def after_hook_handler(context: HookContext) -> HookContext:
@@ -231,7 +231,7 @@ class TestGenerationHooks:
 
     def test_hook_error_handling(self, mock_dependencies, plugin_registry):
         """Test that hook errors are handled gracefully"""
-        manager = GenerationManager(**mock_dependencies, plugin_registry=plugin_registry)
+        manager = GenerationEngine(**mock_dependencies, plugin_registry=plugin_registry)
 
         # Handler that raises an exception
         def failing_hook_handler(context: HookContext) -> HookContext:
@@ -264,7 +264,7 @@ class TestGenerationHooks:
 
     def test_multiple_hooks_execution_order(self, mock_dependencies, plugin_registry):
         """Test that multiple hooks execute in registration order"""
-        manager = GenerationManager(**mock_dependencies, plugin_registry=plugin_registry)
+        manager = GenerationEngine(**mock_dependencies, plugin_registry=plugin_registry)
 
         execution_order = []
 
@@ -312,7 +312,7 @@ class TestGenerationHooks:
 
     def test_no_hooks_when_registry_none(self, mock_dependencies):
         """Test that no hook execution occurs when plugin_registry is None"""
-        manager = GenerationManager(**mock_dependencies)
+        manager = GenerationEngine(**mock_dependencies)
 
         mock_dependencies['pipe_catalog'].get_pipe.return_value = MockPipe
 
@@ -335,7 +335,7 @@ class TestGenerationHooks:
 
     def test_hook_context_data_structure(self, mock_dependencies, plugin_registry):
         """Test that hook context contains expected data structure"""
-        manager = GenerationManager(**mock_dependencies, plugin_registry=plugin_registry)
+        manager = GenerationEngine(**mock_dependencies, plugin_registry=plugin_registry)
 
         captured_contexts = {'before': None, 'after': None}
 
@@ -391,7 +391,7 @@ class TestGenerationHooks:
 
     def test_hook_with_multiple_pipes(self, mock_dependencies, plugin_registry):
         """Test that hooks execute for each pipe in the pipeline"""
-        manager = GenerationManager(**mock_dependencies, plugin_registry=plugin_registry)
+        manager = GenerationEngine(**mock_dependencies, plugin_registry=plugin_registry)
 
         hook_executions = []
 
@@ -452,7 +452,7 @@ class TestGenerationHooks:
 
     def test_hook_cancellation_doesnt_affect_generation(self, mock_dependencies, plugin_registry):
         """Test that generation can be cancelled even with hooks present"""
-        manager = GenerationManager(**mock_dependencies, plugin_registry=plugin_registry)
+        manager = GenerationEngine(**mock_dependencies, plugin_registry=plugin_registry)
 
         # Track whether the hook was called
         hook_called = {'value': False}

@@ -34,9 +34,9 @@ class AssetFetchError(RuntimeError):
 class AssetFetcher(Protocol):
     """Makes a remote model asset available on local disk, synchronously.
 
-    Implemented by `src.features.downloads.DownloadManager`, which a pipe
+    Implemented by `src.features.downloads.DownloadQueue`, which a pipe
     receives as the injected `ASSETS` built-in service (see
-    `GenerationManager._inject_built_in_services`). Both methods are:
+    `GenerationEngine._inject_built_in_services`). Both methods are:
 
     - **synchronous and blocking** - they return only once the asset is on
       disk. Callers are pipes: ordinary synchronous code, often running under

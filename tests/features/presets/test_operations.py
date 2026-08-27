@@ -101,7 +101,7 @@ class TestPresetOperationsQuery:
                 pipeline_builder=mock_pipeline_builder,
                 pipe_catalog=mock_pipe_catalog,
                 plugins=mock_plugin_registry,
-                settings_manager=Mock(),
+                settings=Mock(),
             )
 
     @pytest.fixture
@@ -533,7 +533,7 @@ class TestPresetOperationsInstallation:
                 pipeline_builder=Mock(),
                 pipe_catalog=Mock(),
                 plugins=mock_plugin_registry,
-                settings_manager=Mock(),
+                settings=Mock(),
             )
 
     @pytest.fixture
@@ -647,7 +647,7 @@ class TestPresetOperationsAssignment:
                 pipeline_builder=Mock(),
                 pipe_catalog=Mock(),
                 plugins=mock_plugin_registry,
-                settings_manager=Mock(),
+                settings=Mock(),
             )
 
     @pytest.fixture

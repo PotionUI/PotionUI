@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.features.generation.generation import validate_pipe_configuration
+from src.features.generation.engine import validate_pipe_configuration
 from src.pipelines.pipes.generator.txt2vid_ltx.main import (
     GeneratorLtxTxt2VidPipe,
     validate_ltx_schedule_config,

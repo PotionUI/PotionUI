@@ -25,13 +25,13 @@ from src.features.generation.output_types import output_type_registry
 from src.features.generation.repository import generation_repo
 from src.features.generation.temp_source_tracker import temp_source_tracker
 from src.pipelines.outputs import AudioGenerationOutput, ProgressGenerationOutput
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 from src.platform.util.ids import generate_ulid
 
 
 @pytest.fixture
-def settings_manager(test_storage):
-    settings = Mock(spec=SettingsManager)
+def settings(test_storage):
+    settings = Mock(spec=Settings)
     settings.get_file_storage_directory.return_value = str(test_storage)
     return settings
 
@@ -73,15 +73,15 @@ def generation_id(repos_on_test_db):
 
 
 class TestAudioCanHandle:
-    def test_can_handle_audio_output(self, generation_id, settings_manager, minimal_wav_file):
+    def test_can_handle_audio_output(self, generation_id, settings, minimal_wav_file):
         gen_id, user_id = generation_id
-        handler = AudioGenerationOutputHandler(gen_id, user_id, settings_manager)
+        handler = AudioGenerationOutputHandler(gen_id, user_id, settings)
 
         assert handler.can_handle(AudioGenerationOutput(audio_path=minimal_wav_file)) is True
 
-    def test_can_handle_non_audio_output(self, generation_id, settings_manager):
+    def test_can_handle_non_audio_output(self, generation_id, settings):
         gen_id, user_id = generation_id
-        handler = AudioGenerationOutputHandler(gen_id, user_id, settings_manager)
+        handler = AudioGenerationOutputHandler(gen_id, user_id, settings)
 
         assert handler.can_handle(ProgressGenerationOutput(state="test")) is False
 
@@ -90,10 +90,10 @@ class TestAudioSavePath:
     """The handler writes a real audio file into storage and records it."""
 
     def test_final_audio_is_written_and_recorded(
-        self, generation_id, settings_manager, test_storage, minimal_wav_file, minimal_wav_bytes
+        self, generation_id, settings, test_storage, minimal_wav_file, minimal_wav_bytes
     ):
         gen_id, user_id = generation_id
-        handler = AudioGenerationOutputHandler(gen_id, user_id, settings_manager)
+        handler = AudioGenerationOutputHandler(gen_id, user_id, settings)
 
         output = AudioGenerationOutput(audio_path=minimal_wav_file, temporary=False, track_type="vocal")
         metadata = handler.handle(output)
@@ -116,11 +116,11 @@ class TestAudioSavePath:
         assert record.file_size == len(minimal_wav_bytes)
 
     def test_duration_is_probed_and_persisted_when_not_set_by_the_pipe(
-        self, generation_id, settings_manager, minimal_wav_file, wav_duration_seconds
+        self, generation_id, settings, minimal_wav_file, wav_duration_seconds
     ):
         """The field that matters most for a long Stable Audio 3 track."""
         gen_id, user_id = generation_id
-        handler = AudioGenerationOutputHandler(gen_id, user_id, settings_manager)
+        handler = AudioGenerationOutputHandler(gen_id, user_id, settings)
 
         output = AudioGenerationOutput(audio_path=minimal_wav_file, temporary=False)
         handler.handle(output)
@@ -129,10 +129,10 @@ class TestAudioSavePath:
         assert record.duration_seconds == pytest.approx(wav_duration_seconds)
 
     def test_duration_set_by_the_pipe_is_not_overwritten(
-        self, generation_id, settings_manager, minimal_wav_file
+        self, generation_id, settings, minimal_wav_file
     ):
         gen_id, user_id = generation_id
-        handler = AudioGenerationOutputHandler(gen_id, user_id, settings_manager)
+        handler = AudioGenerationOutputHandler(gen_id, user_id, settings)
 
         output = AudioGenerationOutput(audio_path=minimal_wav_file, temporary=False, duration=123.0)
         handler.handle(output)
@@ -141,14 +141,14 @@ class TestAudioSavePath:
         assert record.duration_seconds == 123.0
 
     def test_temporary_audio_goes_to_tmp_without_a_record(
-        self, generation_id, settings_manager, test_storage, minimal_wav_file, minimal_wav_bytes
+        self, generation_id, settings, test_storage, minimal_wav_file, minimal_wav_bytes
     ):
         """Fixes the dead preview link: the serializer's temporary branch
         always emits a /api/media/tmp/{filename} URL, so a temporary track
         must actually be copied into tmp/ - not skipped the way the original
         handler skipped every temporary save."""
         gen_id, user_id = generation_id
-        handler = AudioGenerationOutputHandler(gen_id, user_id, settings_manager)
+        handler = AudioGenerationOutputHandler(gen_id, user_id, settings)
 
         output = AudioGenerationOutput(audio_path=minimal_wav_file, temporary=True)
         metadata = handler.handle(output)
@@ -161,10 +161,10 @@ class TestAudioSavePath:
         assert generation_repo.get_files(gen_id) == []
 
     def test_two_final_audio_tracks_do_not_overwrite_each_other(
-        self, generation_id, settings_manager, test_storage, minimal_wav_file
+        self, generation_id, settings, test_storage, minimal_wav_file
     ):
         gen_id, user_id = generation_id
-        handler = AudioGenerationOutputHandler(gen_id, user_id, settings_manager)
+        handler = AudioGenerationOutputHandler(gen_id, user_id, settings)
 
         first = handler.handle(AudioGenerationOutput(audio_path=minimal_wav_file, temporary=False))
         second = handler.handle(AudioGenerationOutput(audio_path=minimal_wav_file, temporary=False))
@@ -174,10 +174,10 @@ class TestAudioSavePath:
         assert (test_storage / second['saved_path']).exists()
 
     def test_is_derived_flows_onto_the_record(
-        self, generation_id, settings_manager, minimal_wav_file
+        self, generation_id, settings, minimal_wav_file
     ):
         gen_id, user_id = generation_id
-        handler = AudioGenerationOutputHandler(gen_id, user_id, settings_manager)
+        handler = AudioGenerationOutputHandler(gen_id, user_id, settings)
 
         output = AudioGenerationOutput(audio_path=minimal_wav_file, temporary=False)
         output.derived = True
@@ -194,7 +194,7 @@ class TestAudioSavePath:
         ('m4a', 'audio/mp4'),
     ])
     def test_saved_extension_serves_with_the_right_mime_type(
-        self, generation_id, settings_manager, test_storage, tmp_path, extension, expected_mime
+        self, generation_id, settings, test_storage, tmp_path, extension, expected_mime
     ):
         """MIME is derived at serve time from the suffix (`MediaTypeResolver.
         get_media_type`), not from a `files.mime_type` column - `File(...)`
@@ -205,7 +205,7 @@ class TestAudioSavePath:
         from src.features.media.media_types import MediaTypeResolver
 
         gen_id, user_id = generation_id
-        handler = AudioGenerationOutputHandler(gen_id, user_id, settings_manager)
+        handler = AudioGenerationOutputHandler(gen_id, user_id, settings)
 
         source = tmp_path / f"source.{extension}"
         source.write_bytes(b"not really encoded audio, any bytes will do")
@@ -218,14 +218,14 @@ class TestAudioSavePath:
         assert MediaTypeResolver().get_media_type(saved.suffix) == expected_mime
 
     def test_save_streams_disk_to_disk_rather_than_buffering_in_memory(
-        self, generation_id, settings_manager, minimal_wav_file
+        self, generation_id, settings, minimal_wav_file
     ):
         """At up to 380s of 44.1kHz stereo (~67MB), reading the file into a
         `bytes` object to hand to `save_file` would double-buffer the payload.
         Pins that the handler goes through the streamed `save_file_from_path`
         and never calls `save_file` at all."""
         gen_id, user_id = generation_id
-        handler = AudioGenerationOutputHandler(gen_id, user_id, settings_manager)
+        handler = AudioGenerationOutputHandler(gen_id, user_id, settings)
 
         with patch('src.platform.filesystem.file_store.FileStore.save_file_from_path') as mock_streamed, \
              patch('src.platform.filesystem.file_store.FileStore.save_file') as mock_buffered:
@@ -244,9 +244,9 @@ class TestAudioSavePath:
             assert mock_streamed.call_args.kwargs['source_path'] == str(minimal_wav_file)
             mock_buffered.assert_not_called()
 
-    def test_no_audio_path_is_a_noop(self, generation_id, settings_manager):
+    def test_no_audio_path_is_a_noop(self, generation_id, settings):
         gen_id, user_id = generation_id
-        handler = AudioGenerationOutputHandler(gen_id, user_id, settings_manager)
+        handler = AudioGenerationOutputHandler(gen_id, user_id, settings)
 
         output = AudioGenerationOutput(audio_path=None, temporary=False)
         metadata = handler.handle(output)
@@ -256,10 +256,10 @@ class TestAudioSavePath:
         assert generation_repo.get_files(gen_id) == []
 
     def test_missing_source_file_is_a_reported_failure(
-        self, generation_id, settings_manager
+        self, generation_id, settings
     ):
         gen_id, user_id = generation_id
-        handler = AudioGenerationOutputHandler(gen_id, user_id, settings_manager)
+        handler = AudioGenerationOutputHandler(gen_id, user_id, settings)
 
         output = AudioGenerationOutput(audio_path=Path("/nonexistent/audio.wav"), temporary=False)
         metadata = handler.handle(output)
@@ -273,10 +273,10 @@ class TestAudioTempSourceTracking:
     """The pipe's own temp file must be registered for cleanup, not orphaned."""
 
     def test_saved_source_is_registered_with_the_tracker(
-        self, generation_id, settings_manager
+        self, generation_id, settings
     ):
         gen_id, user_id = generation_id
-        handler = AudioGenerationOutputHandler(gen_id, user_id, settings_manager)
+        handler = AudioGenerationOutputHandler(gen_id, user_id, settings)
 
         import tempfile
         with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f:
@@ -310,14 +310,14 @@ class TestAudioOutputTypeRegistration:
 class TestAudioThroughOutputProcessor:
     @pytest.mark.asyncio
     async def test_processor_routes_audio_to_its_handler(
-        self, generation_id, settings_manager, test_storage, minimal_wav_file, minimal_wav_bytes
+        self, generation_id, settings, test_storage, minimal_wav_file, minimal_wav_bytes
     ):
         from src.features.generation.output_processor import OutputProcessor
 
         gen_id, user_id = generation_id
         output = AudioGenerationOutput(audio_path=minimal_wav_file, temporary=False)
 
-        metadata = await OutputProcessor(settings_manager).process_output(gen_id, output, user_id)
+        metadata = await OutputProcessor(settings).process_output(gen_id, output, user_id)
 
         assert metadata['handler'] == 'AudioGenerationOutputHandler'
         assert metadata['processed'] is True
@@ -331,10 +331,10 @@ class TestAudioSerializedEnvelope:
     """The exact payload shape the frontend receives - and the fixed preview link."""
 
     def test_final_audio_envelope_points_at_the_generation_route(
-        self, generation_id, settings_manager, minimal_wav_file
+        self, generation_id, settings, minimal_wav_file
     ):
         gen_id, user_id = generation_id
-        handler = AudioGenerationOutputHandler(gen_id, user_id, settings_manager)
+        handler = AudioGenerationOutputHandler(gen_id, user_id, settings)
 
         output = AudioGenerationOutput(audio_path=minimal_wav_file, temporary=False, seed=4242)
         metadata = handler.handle(output)
@@ -349,13 +349,13 @@ class TestAudioSerializedEnvelope:
         json.dumps(message)  # Must survive the WebSocket hop.
 
     def test_temporary_audio_envelope_points_at_a_real_tmp_file(
-        self, generation_id, settings_manager, test_storage, minimal_wav_file, minimal_wav_bytes
+        self, generation_id, settings, test_storage, minimal_wav_file, minimal_wav_bytes
     ):
         """Regression guard for the dead-link bug: the URL the serializer
         emits for a temporary track must resolve to a file that actually
         exists in tmp/, not merely to some plausible-looking path."""
         gen_id, user_id = generation_id
-        handler = AudioGenerationOutputHandler(gen_id, user_id, settings_manager)
+        handler = AudioGenerationOutputHandler(gen_id, user_id, settings)
 
         output = AudioGenerationOutput(audio_path=minimal_wav_file, temporary=True)
         handler.handle(output)

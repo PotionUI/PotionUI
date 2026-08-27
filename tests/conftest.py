@@ -150,8 +150,8 @@ def test_db():
     with patch('src.platform.database.database.db', test_database), \
          patch('src.platform.database.migration_runner.db', test_database):
         # Run all migrations to create the schema
-        from src.platform.database.migration_runner import MigrationManager
-        migration_manager = MigrationManager()
+        from src.platform.database.migration_runner import MigrationRunner
+        migration_runner = MigrationRunner()
 
         # Run migrations silently (suppress print statements)
         import io
@@ -159,7 +159,7 @@ def test_db():
         old_stdout = sys.stdout
         sys.stdout = io.StringIO()
         try:
-            migration_manager.run_migrations()
+            migration_runner.run_migrations()
         except Exception as e:
             # Restore stdout and re-raise
             sys.stdout = old_stdout
@@ -210,14 +210,14 @@ def mock_db():
     # anything has imported it (collection alone is enough), patching
     # `database.db` never reaches it: SettingRepository keeps talking to
     # whatever `db` was at that first import, live database included, for the
-    # rest of the process. Patched here too so `SettingsManager`/
+    # rest of the process. Patched here too so `Settings`/
     # `SettingRepository` under `mock_db` are actually isolated.
     with patch('src.platform.database.database.db', test_database), \
          patch('src.platform.database.migration_runner.db', test_database), \
          patch('src.platform.settings.repository.db', test_database):
         # Create a new migration manager instance with patched db
-        from src.platform.database.migration_runner import MigrationManager
-        migration_manager = MigrationManager()
+        from src.platform.database.migration_runner import MigrationRunner
+        migration_runner = MigrationRunner()
 
         # Run migrations silently
         import io
@@ -225,7 +225,7 @@ def mock_db():
         old_stdout = sys.stdout
         sys.stdout = io.StringIO()
         try:
-            migration_manager.run_migrations()
+            migration_runner.run_migrations()
         except Exception as e:
             sys.stdout = old_stdout
             print(f"Migration error: {e}")
@@ -302,7 +302,7 @@ def file_service(test_storage):
 
 
 @pytest.fixture
-def mock_settings_manager():
+def mock_settings():
     """
     Mock settings manager fixture for dependency injection.
 

@@ -6,7 +6,7 @@ per-user value overlays. Supersedes the migration-133 code registry
 from src.features.models.attributes.records import ModelAttributeDefinition
 from src.features.models.attributes.repository import AttributeDefinitionRepository
 from src.features.models.attributes.user_repository import UserModelAttributeRepository
-from src.features.models.attributes.manager import ModelAttributeDefinitionsManager
+from src.features.models.attributes.editor import ModelAttributeDefinitionsEditor
 from src.features.models.attributes.exceptions import (
     AttributeDefinitionNotFoundException,
     InvalidAttributeDefinitionException,
@@ -19,7 +19,7 @@ __all__ = [
     "ModelAttributeDefinition",
     "AttributeDefinitionRepository",
     "UserModelAttributeRepository",
-    "ModelAttributeDefinitionsManager",
+    "ModelAttributeDefinitionsEditor",
     "AttributeDefinitionNotFoundException",
     "InvalidAttributeDefinitionException",
     "SystemAttributeDefinitionException",

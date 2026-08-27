@@ -71,7 +71,7 @@ class WorkerCoordinator:
         dtype: str,
         vram_limit_gb: Optional[float],
         build_id: Optional[str] = None,
-        gpu_manager: Any = None,
+        gpu_monitor: Any = None,
         system_monitor: Any = None,
     ):
         self._worker_id = worker_id
@@ -82,7 +82,7 @@ class WorkerCoordinator:
         self._dtype = dtype
         self._vram_limit_gb = vram_limit_gb
         self._build_id = build_id
-        self._gpu_manager = gpu_manager
+        self._gpu_monitor = gpu_monitor
         self._system_monitor = system_monitor
 
         self._lock = threading.Lock()
@@ -203,7 +203,7 @@ class WorkerCoordinator:
                 dtype=self._dtype,
                 vram_limit_gb=self._vram_limit_gb,
                 artifacts_dir=self._artifacts_dir,
-                gpu_manager=self._gpu_manager,
+                gpu_monitor=self._gpu_monitor,
                 system_monitor=self._system_monitor,
                 resolve_asset=(stager.resolve if stager is not None else None),
             )

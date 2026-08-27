@@ -4,7 +4,7 @@
 
 Mirrors test_metadata_admin_routes.py: an admin drives the REAL router and
 controller against a mock manager for the route-shape assertions, plus a real
-ModelIndexCollaborators/ModelMetadataEditor/ModelAttributeDefinitionsManager wired to
+ModelIndexCollaborators/ModelMetadataEditor/ModelAttributeDefinitionsEditor wired to
 a scratch DB for the validation behavior (undeclared key / out-of-range /
 wrong type / per-user-only), so the test exercises the actual coercion and
 rejection logic rather than a mock configured to match the assertion.
@@ -31,7 +31,7 @@ from src.features.models.attributes.exceptions import (
     InvalidAttributeDefinitionException,
     SystemAttributeDefinitionException,
 )
-from src.features.models.attributes.manager import ModelAttributeDefinitionsManager
+from src.features.models.attributes.editor import ModelAttributeDefinitionsEditor
 from src.features.models.attributes.records import ModelAttributeDefinition
 from src.features.models.attributes.repository import AttributeDefinitionRepository
 from src.features.models.attributes.user_repository import UserModelAttributeRepository
@@ -285,8 +285,8 @@ class TestUpdateModelMetadataValidation(PersistenceTestBase):
             model_repository=self.model_repo,
             tag_repository=self.tag_repo,
             plugin_registry=Mock(),
-            settings_manager=Mock(),
-            download_manager=Mock(),
+            settings=Mock(),
+            download_queue=Mock(),
             attribute_definition_repository=self.attribute_definitions,
             user_attribute_repository=UserModelAttributeRepository(),
             # Without it, `__init__` falls through to the real, lazily-constructed

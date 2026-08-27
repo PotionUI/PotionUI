@@ -23,7 +23,7 @@ resolution rules in isolation.
 
 import pytest
 
-from scripts.preset_render import StubSettingsManager, build_processor
+from scripts.preset_render import StubSettings, build_processor
 from src.features.presets.loader import PresetTemplateLoader
 from src.features.setup.executors._fixture_form import (
     RequiredModelMissing,
@@ -76,7 +76,7 @@ def loader():
 
 @pytest.fixture(scope="module")
 def template_processor():
-    return TemplateProcessor(settings_manager=StubSettingsManager())
+    return TemplateProcessor(settings=StubSettings())
 
 
 @pytest.fixture(scope="module")

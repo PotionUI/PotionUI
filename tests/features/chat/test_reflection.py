@@ -41,7 +41,7 @@ def _session(llm_config_id="llm-1", metadata=None) -> Mock:
 
 
 def _manager(monkeypatch, config_memory_reflection=True):
-    """A minimal stand-in for ChatManager: llm_service, chat_repository,
+    """A minimal stand-in for ChatRuntime: llm_service, chat_repository,
     llm_memory_repository. `memory_operations` (as imported into
     `reflection.py`) is patched to a fresh Mock, exposed as
     `manager.memory_ops`, so tests can assert on write_note/read_notes calls

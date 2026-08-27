@@ -3,8 +3,8 @@ from typing import Dict, Any, Optional
 from src.platform.settings.repository import SettingRepository
 
 
-class SettingsManager:
-    """Simple database-backed settings manager without caching"""
+class Settings:
+    """Simple database-backed settings access without caching."""
 
     def __init__(self, setting_repository: SettingRepository):
         self.setting_repository = setting_repository
@@ -67,7 +67,7 @@ class SettingsManager:
         ``'preset'`` (default) evicts a previous preset's cached models when you
         switch presets, so host RAM holds only the active preset; ``'global'``
         keeps every preset's models until RAM pressure forces LRU eviction (the
-        pre-preset-scoping behaviour). Read by ModelLifecycleManager."""
+        pre-preset-scoping behaviour). Read by ModelLifecycle."""
         scope = self.get_setting('model_cache_scope', 'preset', user_id)
         return scope if scope in ('preset', 'global') else 'preset'
 

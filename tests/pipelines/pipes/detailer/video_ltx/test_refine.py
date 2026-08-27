@@ -25,12 +25,12 @@ from src.pipelines.pipes.detailer.video_ltx.refine import (
 
 _MOD = "src.pipelines.pipes.detailer.video_ltx.refine"
 # refine_tube_pixels's encode now routes through the shared
-# ladder in this module -- its own get_residency_manager/clear_gpu_memory/
+# ladder in this module -- its own get_residency_registry/clear_gpu_memory/
 # free_vram_gb calls live HERE, not in `_MOD`, so tests that exercise the
 # "estimate exceeds budget" / OOM-retry rungs must patch this namespace.
 _SHARED_MOD = "src.pipelines.pipes._shared.vae.ltx_tiled_encode"
 # Same story for the decode side: refine_tube_pixels's decode routes through
-# the shared decode ladder's own get_residency_manager/clear_gpu_memory.
+# the shared decode ladder's own get_residency_registry/clear_gpu_memory.
 _SHARED_DECODE_MOD = "src.pipelines.pipes._shared.vae.ltx_tiled_decode"
 
 
@@ -214,7 +214,7 @@ def test_refine_tube_pixels_uses_tiled_encode_when_estimate_exceeds_budget(monke
 
     pixels = torch.zeros(1, 3, 10, 32, 32)  # -> padded to 17 frames for encode
     with patch(f"{_SHARED_MOD}.free_vram_gb", return_value=0.0), \
-         patch(f"{_SHARED_MOD}.get_residency_manager") as mock_grm, \
+         patch(f"{_SHARED_MOD}.get_residency_registry") as mock_grm, \
          patch(f"{_SHARED_MOD}.clear_gpu_memory") as mock_clear:
         out = refine_tube_pixels(bundle, cond_model, pixels, strength="balanced",
                                  device="cpu", fps=24.0, seed=7)
@@ -244,7 +244,7 @@ def test_refine_tube_pixels_retries_whole_clip_once_after_oom_then_succeeds(monk
 
     pixels = torch.zeros(1, 3, 10, 32, 32)
     with patch(f"{_SHARED_MOD}.free_vram_gb", return_value=20.0), \
-         patch(f"{_SHARED_MOD}.get_residency_manager") as mock_grm, \
+         patch(f"{_SHARED_MOD}.get_residency_registry") as mock_grm, \
          patch(f"{_SHARED_MOD}.clear_gpu_memory"):
         out = refine_tube_pixels(bundle, cond_model, pixels, strength="balanced",
                                  device="cpu", fps=24.0, seed=7)
@@ -364,7 +364,7 @@ def test_refine_tube_pixels_decode_oom_retries_via_shared_ladder_end_to_end(monk
     monkeypatch.setattr(f"{_MOD}.place_dit_for_sequence", lambda *a, **k: _fake_placement())
 
     pixels = torch.zeros(1, 3, 10, 32, 32)
-    with patch(f"{_SHARED_DECODE_MOD}.get_residency_manager") as mock_grm, \
+    with patch(f"{_SHARED_DECODE_MOD}.get_residency_registry") as mock_grm, \
          patch(f"{_SHARED_DECODE_MOD}.clear_gpu_memory") as mock_clear:
         out = refine_tube_pixels(bundle, cond_model, pixels, strength="balanced",
                                  device="cpu", fps=24.0, seed=7)

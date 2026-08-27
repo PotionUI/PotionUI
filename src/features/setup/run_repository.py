@@ -233,7 +233,7 @@ class SetupRunRepository:
     ) -> Optional[SetupStepAttempt]:
         """Update an existing attempt row in place, rather than appending a
         new one - used for interim progress ticks and for the terminal write
-        that follows them (see ``SetupRunManager.record_step_attempt``'s
+        that follows them (see ``SetupRunner.record_step_attempt``'s
         ``attempt_id`` param and ``executors/registry.py``'s progress-report
         seam). Only the fields explicitly passed are touched; ``finished``
         stamps ``finished_at`` the same way ``insert_attempt`` does. This is

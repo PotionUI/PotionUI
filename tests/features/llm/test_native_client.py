@@ -22,7 +22,7 @@ import torch
 
 from src.features.llm.clients.native import NativeLLMClient
 from src.features.llm.repository import LLMConfig
-from src.platform.runtime.model_lifecycle.manager import ModelLifecycleManager
+from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
 
 
 @pytest.fixture(autouse=True)
@@ -104,7 +104,7 @@ def native_checkpoint(tiny_qwen3_checkpoint_dir, monkeypatch):
 
 @pytest.fixture
 def models_manager():
-    return ModelLifecycleManager(gpu_manager=None, settings_manager=None)
+    return ModelLifecycle(gpu_monitor=None, settings=None)
 
 
 @pytest.fixture
@@ -280,7 +280,7 @@ async def test_turn_is_leased_during_generate_and_released_after(client, models_
     key = f"native/llm/{path}"
     leased_during_call = []
 
-    original_acquire = ModelLifecycleManager.acquire
+    original_acquire = ModelLifecycle.acquire
 
     def _spy_acquire(self, *args, **kwargs):
         value = original_acquire(self, *args, **kwargs)
@@ -288,7 +288,7 @@ async def test_turn_is_leased_during_generate_and_released_after(client, models_
         leased_during_call.append(bool(entry and entry.leased_by))
         return value
 
-    monkeypatch.setattr(ModelLifecycleManager, "acquire", _spy_acquire)
+    monkeypatch.setattr(ModelLifecycle, "acquire", _spy_acquire)
 
     config = _config(name)
     await client.generate_with_history([{"role": "user", "content": "hi"}], config, config.system_message)
@@ -342,13 +342,13 @@ async def test_oom_during_generate_is_reported_cleanly(client, native_checkpoint
 
 
 def test_missing_lifecycle_manager_raises_clean_error():
-    client = NativeLLMClient(model_lifecycle_manager=None)
-    import src.platform.runtime.model_lifecycle.manager as manager_module
+    client = NativeLLMClient(model_lifecycle=None)
+    import src.platform.runtime.model_lifecycle.lifecycle as manager_module
 
     saved = manager_module._default_manager
     manager_module._default_manager = None
     try:
-        with pytest.raises(ValueError, match="ModelLifecycleManager"):
+        with pytest.raises(ValueError, match="ModelLifecycle"):
             client._models()
     finally:
         manager_module._default_manager = saved
@@ -893,17 +893,17 @@ async def test_leased_cpu_restore_failure_evicts_the_cache_entry(client, models_
     assert any("evicting the cache entry" in r.message for r in caplog.records)
 
 
-# --- GpuResidencyManager registration ------------------------------
+# --- GpuResidencyRegistry registration ------------------------------
 
 def _fake_residency_module(monkeypatch):
-    """Patches `get_residency_manager` at the module the client imports it
+    """Patches `get_residency_registry` at the module the client imports it
     from with an in-memory fake exposing the two calls native.py makes:
     `note_resident`/`note_offloaded`."""
     import types
 
     calls = {"resident": [], "offloaded": []}
 
-    class _FakeResidencyManager:
+    class _FakeResidencyRegistry:
         def note_resident(self, handle, device, size_gb):
             calls["resident"].append((handle, device, size_gb))
 
@@ -911,7 +911,7 @@ def _fake_residency_module(monkeypatch):
             calls["offloaded"].append(handle)
 
     fake_module = types.ModuleType("src.platform.runtime.native.memory.residency")
-    fake_module.get_residency_manager = lambda: _FakeResidencyManager()
+    fake_module.get_residency_registry = lambda: _FakeResidencyRegistry()
     monkeypatch.setitem(
         __import__("sys").modules, "src.platform.runtime.native.memory.residency", fake_module,
     )

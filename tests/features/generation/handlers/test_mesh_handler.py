@@ -21,7 +21,7 @@ from src.features.generation.output_serializer import GenerationOutputSerializer
 from src.features.generation.output_types import output_type_registry
 from src.features.generation.repository import generation_repo
 from src.pipelines.outputs import GalleryGenerationOutput, MeshGenerationOutput
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 from src.platform.util.ids import generate_ulid
 from tests.fixtures.mesh_fixtures import (
     TRIANGLE_FACE_COUNT,
@@ -31,8 +31,8 @@ from tests.fixtures.mesh_fixtures import (
 
 
 @pytest.fixture
-def settings_manager(test_storage):
-    settings = Mock(spec=SettingsManager)
+def settings(test_storage):
+    settings = Mock(spec=Settings)
     settings.get_file_storage_directory.return_value = str(test_storage)
     return settings
 
@@ -78,10 +78,10 @@ class TestMeshSavePath:
     """The handler writes a real .glb into storage and records it."""
 
     def test_final_mesh_is_written_and_recorded(
-        self, generation_id, settings_manager, test_storage, minimal_glb_file, minimal_glb_bytes
+        self, generation_id, settings, test_storage, minimal_glb_file, minimal_glb_bytes
     ):
         gen_id, user_id = generation_id
-        handler = MeshGenerationOutputHandler(gen_id, user_id, settings_manager)
+        handler = MeshGenerationOutputHandler(gen_id, user_id, settings)
 
         output = MeshGenerationOutput(mesh_path=minimal_glb_file, temporary=False)
         metadata = handler.handle(output)
@@ -108,10 +108,10 @@ class TestMeshSavePath:
         assert record.thumbnail_large is None
 
     def test_geometry_counts_come_from_the_file(
-        self, generation_id, settings_manager, minimal_glb_file
+        self, generation_id, settings, minimal_glb_file
     ):
         gen_id, user_id = generation_id
-        handler = MeshGenerationOutputHandler(gen_id, user_id, settings_manager)
+        handler = MeshGenerationOutputHandler(gen_id, user_id, settings)
 
         output = MeshGenerationOutput(mesh_path=minimal_glb_file, temporary=False)
         handler.handle(output)
@@ -120,10 +120,10 @@ class TestMeshSavePath:
         assert output.face_count == TRIANGLE_FACE_COUNT
 
     def test_counts_set_by_the_pipe_are_not_overwritten(
-        self, generation_id, settings_manager, minimal_glb_file
+        self, generation_id, settings, minimal_glb_file
     ):
         gen_id, user_id = generation_id
-        handler = MeshGenerationOutputHandler(gen_id, user_id, settings_manager)
+        handler = MeshGenerationOutputHandler(gen_id, user_id, settings)
 
         output = MeshGenerationOutput(
             mesh_path=minimal_glb_file, temporary=False, vertex_count=99, face_count=33
@@ -134,10 +134,10 @@ class TestMeshSavePath:
         assert output.face_count == 33
 
     def test_temporary_mesh_goes_to_tmp_without_a_record(
-        self, generation_id, settings_manager, test_storage, minimal_glb_file, minimal_glb_bytes
+        self, generation_id, settings, test_storage, minimal_glb_file, minimal_glb_bytes
     ):
         gen_id, user_id = generation_id
-        handler = MeshGenerationOutputHandler(gen_id, user_id, settings_manager)
+        handler = MeshGenerationOutputHandler(gen_id, user_id, settings)
 
         output = MeshGenerationOutput(mesh_path=minimal_glb_file, temporary=True)
         metadata = handler.handle(output)
@@ -150,10 +150,10 @@ class TestMeshSavePath:
         assert generation_repo.get_files(gen_id) == []
 
     def test_two_final_meshes_do_not_overwrite_each_other(
-        self, generation_id, settings_manager, test_storage, minimal_glb_file
+        self, generation_id, settings, test_storage, minimal_glb_file
     ):
         gen_id, user_id = generation_id
-        handler = MeshGenerationOutputHandler(gen_id, user_id, settings_manager)
+        handler = MeshGenerationOutputHandler(gen_id, user_id, settings)
 
         first = handler.handle(MeshGenerationOutput(mesh_path=minimal_glb_file, temporary=False))
         second = handler.handle(MeshGenerationOutput(mesh_path=minimal_glb_file, temporary=False))
@@ -177,13 +177,13 @@ class TestMeshValidation:
         (b'glTF' + b'\x02\x00\x00\x00' + b'\x0c\x00\x00\x00', "no chunks"),
     ])
     def test_invalid_mesh_is_rejected(
-        self, generation_id, settings_manager, test_storage, tmp_path, payload, reason
+        self, generation_id, settings, test_storage, tmp_path, payload, reason
     ):
         gen_id, user_id = generation_id
         bad_path = tmp_path / f"bad_{abs(hash(reason))}.glb"
         bad_path.write_bytes(payload)
 
-        handler = MeshGenerationOutputHandler(gen_id, user_id, settings_manager)
+        handler = MeshGenerationOutputHandler(gen_id, user_id, settings)
         metadata = handler.handle(MeshGenerationOutput(mesh_path=bad_path, temporary=False))
 
         assert metadata['processed'] is False, f"invalid mesh accepted ({reason})"
@@ -194,7 +194,7 @@ class TestMeshValidation:
         assert not list((test_storage / 'generations').rglob('*.glb'))
 
     def test_unregistered_extension_is_rejected(
-        self, generation_id, settings_manager, test_storage, tmp_path
+        self, generation_id, settings, test_storage, tmp_path
     ):
         """An extension no mesh format is registered for never reaches storage.
 
@@ -208,7 +208,7 @@ class TestMeshValidation:
         bad_path = tmp_path / "model.ply"
         bad_path.write_bytes(build_minimal_glb())
 
-        handler = MeshGenerationOutputHandler(gen_id, user_id, settings_manager)
+        handler = MeshGenerationOutputHandler(gen_id, user_id, settings)
         metadata = handler.handle(MeshGenerationOutput(mesh_path=bad_path, temporary=False))
 
         assert metadata['processed'] is False
@@ -218,7 +218,7 @@ class TestMeshValidation:
         assert not list((test_storage / 'generations').rglob('*.ply'))
 
     def test_json_chunk_that_is_not_json_is_rejected(
-        self, generation_id, settings_manager, tmp_path
+        self, generation_id, settings, tmp_path
     ):
         import struct
 
@@ -231,7 +231,7 @@ class TestMeshValidation:
         bad_path = tmp_path / "bad_json.glb"
         bad_path.write_bytes(payload)
 
-        handler = MeshGenerationOutputHandler(gen_id, user_id, settings_manager)
+        handler = MeshGenerationOutputHandler(gen_id, user_id, settings)
         metadata = handler.handle(MeshGenerationOutput(mesh_path=bad_path, temporary=False))
 
         assert metadata['processed'] is False
@@ -259,13 +259,13 @@ class TestMeshFormatReflectsRealFilename:
             del mesh_format_registry._by_extension['.ply']
 
     def test_saved_ply_reports_ply_not_glb(
-        self, fake_ply_format, generation_id, settings_manager, test_storage, tmp_path
+        self, fake_ply_format, generation_id, settings, test_storage, tmp_path
     ):
         gen_id, user_id = generation_id
         ply_path = tmp_path / "source.ply"
         ply_path.write_bytes(b"pretend ply bytes")
 
-        handler = MeshGenerationOutputHandler(gen_id, user_id, settings_manager)
+        handler = MeshGenerationOutputHandler(gen_id, user_id, settings)
         output = MeshGenerationOutput(mesh_path=ply_path, temporary=False)
         metadata = handler.handle(output)
 
@@ -276,11 +276,11 @@ class TestMeshFormatReflectsRealFilename:
         assert message['mesh_format'] == 'ply'
 
     def test_glb_still_reports_glb(
-        self, fake_ply_format, generation_id, settings_manager, minimal_glb_file
+        self, fake_ply_format, generation_id, settings, minimal_glb_file
     ):
         """Registering a second format must not disturb the first one's label."""
         gen_id, user_id = generation_id
-        handler = MeshGenerationOutputHandler(gen_id, user_id, settings_manager)
+        handler = MeshGenerationOutputHandler(gen_id, user_id, settings)
         output = MeshGenerationOutput(mesh_path=minimal_glb_file, temporary=False)
         handler.handle(output)
 
@@ -288,7 +288,7 @@ class TestMeshFormatReflectsRealFilename:
         assert message['mesh_format'] == 'glb'
 
     def test_gallery_mesh_format_reflects_real_filename(
-        self, fake_ply_format, generation_id, settings_manager, test_storage, tmp_path
+        self, fake_ply_format, generation_id, settings, test_storage, tmp_path
     ):
         from src.features.generation.handlers.gallery_handler import (
             GalleryGenerationOutputHandler,
@@ -304,7 +304,7 @@ class TestMeshFormatReflectsRealFilename:
             images=[],
             meshes=[MeshGenerationOutput(mesh_path=ply_path, temporary=False)],
         )
-        GalleryGenerationOutputHandler(gen_id, user_id, settings_manager).handle(gallery)
+        GalleryGenerationOutputHandler(gen_id, user_id, settings).handle(gallery)
 
         payload = serialize_gallery_output(gallery, SerializeContext(generation_id=gen_id))
         assert payload['meshes'][0]['mesh_format'] == 'ply'
@@ -328,14 +328,14 @@ class TestMeshThroughOutputProcessor:
 
     @pytest.mark.asyncio
     async def test_processor_routes_a_mesh_to_its_handler(
-        self, generation_id, settings_manager, test_storage, minimal_glb_file, minimal_glb_bytes
+        self, generation_id, settings, test_storage, minimal_glb_file, minimal_glb_bytes
     ):
         from src.features.generation.output_processor import OutputProcessor
 
         gen_id, user_id = generation_id
         output = MeshGenerationOutput(mesh_path=minimal_glb_file, temporary=False)
 
-        metadata = await OutputProcessor(settings_manager).process_output(gen_id, output, user_id)
+        metadata = await OutputProcessor(settings).process_output(gen_id, output, user_id)
 
         assert metadata['handler'] == 'MeshGenerationOutputHandler'
         assert metadata['processed'] is True
@@ -349,10 +349,10 @@ class TestMeshSerializedEnvelope:
     """The exact payload shape the frontend receives."""
 
     def test_final_mesh_envelope(
-        self, generation_id, settings_manager, minimal_glb_file
+        self, generation_id, settings, minimal_glb_file
     ):
         gen_id, user_id = generation_id
-        handler = MeshGenerationOutputHandler(gen_id, user_id, settings_manager)
+        handler = MeshGenerationOutputHandler(gen_id, user_id, settings)
 
         output = MeshGenerationOutput(mesh_path=minimal_glb_file, temporary=False, seed=4242)
         output.pipe_id = 3
@@ -382,10 +382,10 @@ class TestMeshSerializedEnvelope:
         json.dumps(message)
 
     def test_temporary_mesh_envelope_points_at_the_tmp_route(
-        self, generation_id, settings_manager, minimal_glb_file
+        self, generation_id, settings, minimal_glb_file
     ):
         gen_id, user_id = generation_id
-        handler = MeshGenerationOutputHandler(gen_id, user_id, settings_manager)
+        handler = MeshGenerationOutputHandler(gen_id, user_id, settings)
 
         output = MeshGenerationOutput(mesh_path=minimal_glb_file, temporary=True)
         metadata = handler.handle(output)
@@ -410,7 +410,7 @@ class TestMeshInGallery:
     """A mesh reaches the gallery through GalleryGenerationOutput."""
 
     def test_gallery_saves_meshes_and_serializes_urls(
-        self, generation_id, settings_manager, test_storage, minimal_glb_file
+        self, generation_id, settings, test_storage, minimal_glb_file
     ):
         from src.features.generation.handlers.gallery_handler import (
             GalleryGenerationOutputHandler,
@@ -427,7 +427,7 @@ class TestMeshInGallery:
             ],
         )
 
-        metadata = GalleryGenerationOutputHandler(gen_id, user_id, settings_manager).handle(gallery)
+        metadata = GalleryGenerationOutputHandler(gen_id, user_id, settings).handle(gallery)
 
         assert metadata['processed'] is True
         assert metadata['mesh_count'] == 2
@@ -452,7 +452,7 @@ class TestMeshInGallery:
 
     @pytest.mark.asyncio
     async def test_plugin_shaped_terminal_pipe_persists_a_mesh(
-        self, generation_id, settings_manager, test_storage, minimal_glb_file, minimal_glb_bytes
+        self, generation_id, settings, test_storage, minimal_glb_file, minimal_glb_bytes
     ):
         """The whole path a plugin's terminal pipe actually takes.
 
@@ -482,7 +482,7 @@ class TestMeshInGallery:
             meshes=[PluginMesh(mesh_path=minimal_glb_file, temporary=False, seed=99)],
         ))
 
-        processor = OutputProcessor(settings_manager)
+        processor = OutputProcessor(settings)
         for output in emitted:
             metadata = await processor.process_output(gen_id, output, user_id)
 

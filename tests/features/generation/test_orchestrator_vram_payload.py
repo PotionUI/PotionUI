@@ -18,15 +18,15 @@ from src.features.generation.orchestrator import (
 GIB = 1024 ** 3
 
 
-def _orchestrator(gpu_manager=None):
+def _orchestrator(gpu_monitor=None):
     return GenerationOrchestrator(
         pipeline_builder=MagicMock(),
         backend_registry=MagicMock(),
-        connection_manager=MagicMock(),
-        settings_manager=MagicMock(),
+        connection_hub=MagicMock(),
+        settings=MagicMock(),
         output_processor=MagicMock(),
         preset_template_loader=MagicMock(),
-        gpu_manager=gpu_manager,
+        gpu_monitor=gpu_monitor,
     )
 
 
@@ -125,8 +125,8 @@ def test_frame_count_defaults_to_one():
 
 # -- VRAM read ------------------------------------------------------------------
 
-def test_read_vram_none_without_gpu_manager():
-    assert _orchestrator(gpu_manager=None)._read_vram_gb() == (None, None)
+def test_read_vram_none_without_gpu_monitor():
+    assert _orchestrator(gpu_monitor=None)._read_vram_gb() == (None, None)
 
 
 def test_read_vram_converts_mb_to_gb():
@@ -134,7 +134,7 @@ def test_read_vram_converts_mb_to_gb():
     gpu.get_free_vram.return_value = 8192   # MB
     gpu.get_total_vram.return_value = 24576  # MB
 
-    free_gb, total_gb = _orchestrator(gpu_manager=gpu)._read_vram_gb()
+    free_gb, total_gb = _orchestrator(gpu_monitor=gpu)._read_vram_gb()
 
     assert (free_gb, total_gb) == (8.0, 24.0)
 
@@ -143,4 +143,4 @@ def test_read_vram_soft_fails_on_error():
     gpu = MagicMock()
     gpu.get_free_vram.side_effect = RuntimeError("nvml down")
 
-    assert _orchestrator(gpu_manager=gpu)._read_vram_gb() == (None, None)
+    assert _orchestrator(gpu_monitor=gpu)._read_vram_gb() == (None, None)

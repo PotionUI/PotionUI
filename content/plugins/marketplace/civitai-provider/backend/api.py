@@ -26,7 +26,7 @@ async def export_png(
     missing on disk - collapses to a 404 rather than leaking which case it was.
     """
     container = get_container()
-    history = container.generation_history_manager
+    history = container.generation_history_facade
 
     try:
         generation = history.get_by_id(generation_id, current_user.id, include_files=True)
@@ -77,7 +77,7 @@ async def export_png(
         raise
 
     try:
-        media_result = container.media_manager.get_generation_media(
+        media_result = container.media_store.get_generation_media(
             generation_id, filename, user_id=current_user.id
         )
         with open(media_result.file_path, "rb") as f:

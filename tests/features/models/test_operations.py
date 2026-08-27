@@ -92,8 +92,8 @@ def collaborators(mock_model_repository, mock_tag_repository, mock_plugin_regist
         model_repository=mock_model_repository,
         tag_repository=mock_tag_repository,
         plugin_registry=mock_plugin_registry,
-        settings_manager=Mock(),
-        download_manager=Mock(),
+        settings=Mock(),
+        download_queue=Mock(),
         user_attribute_repository=mock_user_attribute_repository,
         # Without this, `models_root or Path(model_scanner.models_dir)`
         # falls through to the real, lazily-constructed module-level scanner

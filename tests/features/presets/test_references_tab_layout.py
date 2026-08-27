@@ -115,7 +115,7 @@ def serializer(loader):
     # The template processor is what expands `@loop` field templates; without
     # it any preset carrying a loop (SDXL's ControlNet accordions) raises
     # rather than serializing.
-    return PresetFormSerializer(loader, TemplateProcessor(settings_manager=Mock()))
+    return PresetFormSerializer(loader, TemplateProcessor(settings=Mock()))
 
 
 def _preset(loader, suffix):

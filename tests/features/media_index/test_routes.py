@@ -30,7 +30,7 @@ def manager():
 
 
 @pytest.fixture
-def settings_manager(tmp_path):
+def settings(tmp_path):
     settings = MagicMock()
     values = {
         "media_tagger_model": "SmilingWolf/wd-vit-tagger-v3",
@@ -42,18 +42,18 @@ def settings_manager(tmp_path):
 
 
 @pytest.fixture
-def download_manager():
+def download_queue():
     dm = MagicMock()
     dm.find_active_download_for_repo.return_value = None
     return dm
 
 
 @pytest.fixture
-def client(manager, settings_manager, download_manager):
+def client(manager, settings, download_queue):
     container = MagicMock()
     container.media_index_controller = MediaIndexController(manager)
-    container.settings_manager = settings_manager
-    container.download_manager = download_manager
+    container.settings = settings
+    container.download_queue = download_queue
     app = FastAPI()
     app.include_router(build_router(container))
 
@@ -79,7 +79,7 @@ def test_models_status_reports_absent_weights_for_saved_models(client, tmp_path)
     assert data["vision"]["active_download"] is None
 
 
-def test_models_status_reports_active_download_for_running_tagger_fetch(client, download_manager):
+def test_models_status_reports_active_download_for_running_tagger_fetch(client, download_queue):
     """A reloading client must see an in-flight tagger fetch through this
     endpoint alone - no page-local downloadId->kind map involved."""
     active = Download(
@@ -92,7 +92,7 @@ def test_models_status_reports_active_download_for_running_tagger_fetch(client, 
         progress=0.5,
         repo_id="SmilingWolf/wd-vit-tagger-v3",
     )
-    download_manager.find_active_download_for_repo.side_effect = (
+    download_queue.find_active_download_for_repo.side_effect = (
         lambda repo_id: active if repo_id == "SmilingWolf/wd-vit-tagger-v3" else None
     )
 
@@ -105,7 +105,7 @@ def test_models_status_reports_active_download_for_running_tagger_fetch(client, 
     assert data["vision"]["active_download"] is None
 
 
-def test_models_status_reports_active_download_for_queued_vision_fetch(client, download_manager):
+def test_models_status_reports_active_download_for_queued_vision_fetch(client, download_queue):
     active = Download(
         id="dl-vision-1",
         type=DownloadType.HF_REPO,
@@ -115,7 +115,7 @@ def test_models_status_reports_active_download_for_queued_vision_fetch(client, d
         status=DownloadStatus.PENDING,
         repo_id="google/siglip-base-patch16-224",
     )
-    download_manager.find_active_download_for_repo.side_effect = (
+    download_queue.find_active_download_for_repo.side_effect = (
         lambda repo_id: active if repo_id == "google/siglip-base-patch16-224" else None
     )
 
@@ -130,7 +130,7 @@ def test_models_status_reports_active_download_for_queued_vision_fetch(client, d
 
 def test_models_status_reports_loaded_when_active_providers_match(client, manager):
     """`loaded` is residency (in memory), never inferred from `present`
-    (on-disk) - both models load through ModelLifecycleManager and can be
+    (on-disk) - both models load through ModelLifecycle and can be
     evicted while still on disk."""
     manager.tagger_provider = SimpleNamespace(
         model_name="SmilingWolf/wd-vit-tagger-v3", is_loaded=lambda: True

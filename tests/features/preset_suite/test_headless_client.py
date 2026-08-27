@@ -182,7 +182,7 @@ def test_prepare_ephemeral_db_ignores_the_process_default_singleton(tmp_path, mo
     # only to `explicit_db` and never fall through to the default.
     #
     # `explicit_db` gets only the two tables `seed_ephemeral` touches, built
-    # by hand rather than via MigrationManager: migration files each do their
+    # by hand rather than via MigrationRunner: migration files each do their
     # own `from ...database import db` (freshly re-executed per migration,
     # since they're importlib-loaded fresh every run), so driving them against
     # a *third* db here would need patching that module too, muddying a test

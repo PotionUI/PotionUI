@@ -5,7 +5,7 @@ import stat
 from unittest.mock import Mock, patch
 
 from src.platform.security.config import AuthConfig, SECRET_KEY_FILENAME
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 
 
 class TestAuthConfig:
@@ -13,8 +13,8 @@ class TestAuthConfig:
 
     @pytest.fixture
     def mock_settings(self):
-        """Create a mock SettingsManager."""
-        return Mock(spec=SettingsManager)
+        """Create a mock Settings."""
+        return Mock(spec=Settings)
 
     @pytest.fixture
     def auth_config(self, mock_settings):
@@ -145,7 +145,7 @@ class TestPersistedSecretKey:
     @pytest.fixture
     def settings(self, tmp_path):
         """Settings mock with no env/DB secret and a writable storage dir."""
-        m = Mock(spec=SettingsManager)
+        m = Mock(spec=Settings)
         m.get_setting.return_value = None
         m.get_file_storage_directory.return_value = str(tmp_path)
         return m
@@ -227,7 +227,7 @@ class TestPersistedSecretKey:
 
     def test_no_storage_dir_falls_back_to_memory(self, tmp_path, caplog):
         """No resolvable storage dir -> in-memory key with a warning."""
-        m = Mock(spec=SettingsManager)
+        m = Mock(spec=Settings)
         m.get_setting.return_value = None
         m.get_file_storage_directory.return_value = ""
         with patch.dict(os.environ, {}, clear=True):
@@ -239,7 +239,7 @@ class TestPersistedSecretKey:
 
     def test_settings_read_failure_falls_back_to_memory(self, tmp_path):
         """If resolving the storage dir raises, degrade to an in-memory key."""
-        m = Mock(spec=SettingsManager)
+        m = Mock(spec=Settings)
         m.get_setting.return_value = None
         m.get_file_storage_directory.side_effect = RuntimeError("db not ready")
         with patch.dict(os.environ, {}, clear=True):

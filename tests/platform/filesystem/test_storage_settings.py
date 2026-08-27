@@ -1,4 +1,4 @@
-"""StorageSettingsManager: reads storage_backend/s3_* settings, encrypts the
+"""StorageSettings: reads storage_backend/s3_* settings, encrypts the
 S3 secret key at rest, and builds the driver the settings describe."""
 
 from __future__ import annotations
@@ -12,10 +12,10 @@ import pytest
 import tests.conftest as ct
 from src.platform.filesystem.s3_driver import S3FileStorageDriver
 from src.platform.filesystem.storage_driver import LocalFileStorageDriver
-from src.platform.filesystem.storage_settings import StorageSettingsManager
+from src.platform.filesystem.storage_settings import StorageSettings
 from src.platform.security.secrets import get_secret_cipher
 from src.platform.settings.repository import SettingRepository
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 
 _MIGRATIONS = Path("src/platform/database/migrations")
 
@@ -33,8 +33,8 @@ def storage_settings():
     with patch("src.platform.database.database.db", test_database), \
          patch("src.platform.settings.repository.db", test_database):
         _load("001_baseline", f"m001_{id(test_database)}").up()
-        settings_manager = SettingsManager(SettingRepository())
-        yield StorageSettingsManager(settings_manager)
+        settings = Settings(SettingRepository())
+        yield StorageSettings(settings)
     test_database.close()
 
 

@@ -57,7 +57,7 @@ def mock_llm_service():
 
 
 @pytest.fixture
-def mock_settings_manager():
+def mock_settings():
     return Mock()
 
 
@@ -76,12 +76,12 @@ def mock_user():
 
 
 @pytest.fixture
-def controller(mock_operations, mock_repo, mock_llm_service, mock_settings_manager, mock_plugins):
+def controller(mock_operations, mock_repo, mock_llm_service, mock_settings, mock_plugins):
     """Create an LLMController instance with mocked collaborators."""
     return LLMController(
         llm_repository=mock_repo,
         llm_service=mock_llm_service,
-        settings_manager=mock_settings_manager,
+        settings=mock_settings,
         plugin_registry=mock_plugins,
     )
 
@@ -94,13 +94,13 @@ def mock_download_manager():
 
 
 @pytest.fixture
-def controller_with_downloads(mock_operations, mock_repo, mock_llm_service, mock_settings_manager, mock_plugins, mock_download_manager):
+def controller_with_downloads(mock_operations, mock_repo, mock_llm_service, mock_settings, mock_plugins, mock_download_manager):
     return LLMController(
         llm_repository=mock_repo,
         llm_service=mock_llm_service,
-        settings_manager=mock_settings_manager,
+        settings=mock_settings,
         plugin_registry=mock_plugins,
-        download_manager=mock_download_manager,
+        download_queue=mock_download_manager,
     )
 
 
@@ -473,12 +473,12 @@ class TestLLMController:
 
     @pytest.mark.asyncio
     async def test_fetch_gemma3_chat_tokenizer_without_download_manager_errors_cleanly(self, controller):
-        """A controller built without a download_manager (the default, e.g. a
+        """A controller built without a download_queue (the default, e.g. a
         composition path that never wired one) fails clean rather than
-        crashing on `self.download_manager.ensure_local_hf_repo`."""
+        crashing on `self.download_queue.ensure_local_hf_repo`."""
         result = await controller.fetch_gemma3_chat_tokenizer()
         assert result.success is False
-        assert result.error == "download_manager_unavailable"
+        assert result.error == "download_queue_unavailable"
 
     @pytest.mark.asyncio
     async def test_fetch_gemma3_chat_tokenizer_success(self, controller_with_downloads, mock_download_manager, tmp_path):

@@ -1,6 +1,6 @@
 """Admin generation endpoints (`/api/admin/generations`).
 
-Controller-level tests exercise the real GenerationHistoryManager +
+Controller-level tests exercise the real GenerationHistoryFacade +
 GenerationRepository + RunReportRecorder/Repository against a scratch
 database (global visibility, the user_id filter, has_run_report, the
 run-report detail payload). Route-level tests only check the admin gate,
@@ -28,7 +28,7 @@ from src.platform.http.base_controller import APIResponse
 from src.platform.util.ids import generate_ulid
 from src.features.generation.records import Generation
 from src.features.generation.repository import GenerationRepository
-from src.features.generation.history_manager import GenerationHistoryManager
+from src.features.generation.history_facade import GenerationHistoryFacade
 from src.features.generation.run_report_repository import GenerationRunReportRepository
 from src.features.generation.run_report_recorder import RunReportRecorder
 from src.features.generation.routes import GenerationController, build_admin_router
@@ -61,7 +61,7 @@ class TestAdminGenerationsController(PersistenceTestBase):
         run_report_repository_module.db = self.db
 
         self.generation_repo = GenerationRepository()
-        self.history_manager = GenerationHistoryManager(
+        self.history_facade = GenerationHistoryFacade(
             generation_repo=self.generation_repo,
             file_service=Mock(),
             plugin_registry=Mock(),
@@ -70,7 +70,7 @@ class TestAdminGenerationsController(PersistenceTestBase):
         self.run_report_recorder = RunReportRecorder(self.run_report_repository)
         self.controller = GenerationController(
             Mock(),
-            self.history_manager,
+            self.history_facade,
             Mock(),
             self.run_report_recorder,
         )

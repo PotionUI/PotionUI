@@ -75,8 +75,8 @@ def orchestrator(backends):
     return GenerationOrchestrator(
         pipeline_builder=builder,
         backend_registry=registry,
-        connection_manager=Mock(),
-        settings_manager=Mock(),
+        connection_hub=Mock(),
+        settings=Mock(),
         output_processor=processor,
         preset_template_loader=loader,
     )

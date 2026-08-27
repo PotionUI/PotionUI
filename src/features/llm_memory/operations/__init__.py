@@ -6,7 +6,7 @@ Post-Manager reference shape (see `src.features.plugins.operations`): no
 class holds these collaborators together. Each operation is a module-level
 function that takes exactly the collaborator it needs (`LLMMemoryRepository`)
 as a leading argument, followed by the operation's own parameters. Callers
-(`ChatManager`, `McpProtocolManager`, `src.features.prompt_enhancement.operations`,
+(`ChatRuntime`, `McpProtocolManager`, `src.features.prompt_enhancement.operations`,
 `ToolContext`) hold the repository and pass it in; nothing here is stored
 across calls.
 

@@ -579,7 +579,7 @@ def load_text_encoder(
     and a vision-enabled load of the SAME checkpoint path build DIFFERENT
     modules (``self.visual``/``self.model.visual`` present or absent) — a
     caller that keys a model-lifecycle cache by fingerprint (e.g.
-    ``ModelLifecycleManager.acquire(key=..., fingerprint=...)``) MUST fold this
+    ``ModelLifecycle.acquire(key=..., fingerprint=...)``) MUST fold this
     flag into that fingerprint string, or a stale text-only module can be handed
     back for a vision request (or vice versa) because the cache key didn't
     change. This loader has no such cache itself, so there is nothing here to

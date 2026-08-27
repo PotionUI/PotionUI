@@ -22,7 +22,7 @@ from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY
 from src.platform.plugins import PluginRegistry
 
 if TYPE_CHECKING:
-    from src.features.downloads import DownloadManager
+    from src.features.downloads import DownloadQueue
 
 logger = logging.getLogger(__name__)
 
@@ -89,12 +89,12 @@ class ModelJobs:
         model_repository: ModelRepository,
         plugin_registry: PluginRegistry,
         scanner: ModelScanner,
-        download_manager: "DownloadManager",
+        download_queue: "DownloadQueue",
     ):
         self.model_repo = model_repository
         self.plugins = plugin_registry
         self.scanner = scanner
-        self.downloads = download_manager
+        self.downloads = download_queue
 
     def start_thumbnail_generation(
         self,

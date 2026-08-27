@@ -90,7 +90,7 @@ def test_sample_move_evicts_foreign_resident(monkeypatch):
     # Krea-2 (24.5GB) resident, only 4GB free; Anima's DiT (4GB)+reserve needs ~5GB
     # -> the foreign DiT is evicted before our DiT moves.
     _fake_cuda(monkeypatch, free_gb=4.0)
-    mgr = residency.get_residency_manager()
+    mgr = residency.get_residency_registry()
     mgr.clear()
     foreign = _ForeignModel()
     mgr.note_resident(foreign, "cuda:0", 24.5)
@@ -108,7 +108,7 @@ def test_sample_move_oom_retries_after_evicting_all_foreign(monkeypatch):
     # Plenty reported free (so the size test wouldn't evict), but the move OOMs
     # once -> we must evict ALL foreign and retry, then succeed.
     _fake_cuda(monkeypatch, free_gb=30.0)
-    mgr = residency.get_residency_manager()
+    mgr = residency.get_residency_registry()
     mgr.clear()
     foreign = _ForeignModel()
     mgr.note_resident(foreign, "cuda:0", 24.5)
@@ -126,7 +126,7 @@ def test_owned_models_are_never_evicted(monkeypatch):
     # The generation's own DiT/VAE, if somehow registered as resident, must be in
     # the exclude set and survive an eviction request.
     _fake_cuda(monkeypatch, free_gb=0.0)
-    mgr = residency.get_residency_manager()
+    mgr = residency.get_residency_registry()
     mgr.clear()
     gen, dit, vae = _make_generator(dit_gb=4.0)
     # Register our OWN dit+vae as resident, plus a foreign model.
@@ -146,7 +146,7 @@ def test_owned_models_are_never_evicted(monkeypatch):
 def test_ensure_room_missing_estimate_evicts_all_foreign(monkeypatch):
     # need_gb <= 0 (no estimate) -> fall back to evicting ALL foreign residents.
     _fake_cuda(monkeypatch, free_gb=1.0)
-    mgr = residency.get_residency_manager()
+    mgr = residency.get_residency_registry()
     mgr.clear()
     f1, f2 = _ForeignModel(), _ForeignModel()
     mgr.note_resident(f1, "cuda:0", 24.5)
@@ -163,7 +163,7 @@ def test_decode_evicts_foreign_before_spike(monkeypatch):
     # A causal-3D decode at 1024²-ish latents has a large fp32 spike; the foreign
     # resident must be evicted before it (this is the exact real-world OOM).
     _fake_cuda(monkeypatch, free_gb=6.0)
-    mgr = residency.get_residency_manager()
+    mgr = residency.get_residency_registry()
     mgr.clear()
     foreign = _ForeignModel()
     mgr.note_resident(foreign, "cuda:0", 24.5)
@@ -182,7 +182,7 @@ def test_decode_evicts_foreign_before_spike(monkeypatch):
 
 def test_no_eviction_on_cpu(monkeypatch):
     # On a CPU device the whole mechanism is inert.
-    mgr = residency.get_residency_manager()
+    mgr = residency.get_residency_registry()
     mgr.clear()
     foreign = _ForeignModel()
     mgr.note_resident(foreign, "cuda:0", 24.5)

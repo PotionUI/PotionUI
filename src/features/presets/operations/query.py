@@ -318,7 +318,7 @@ def get_pipeline(
 
     bound_values = form_data or {}
     if user_id is not None:
-        storage_dir = collaborators.settings_manager.get_file_storage_directory(user_id)
+        storage_dir = collaborators.settings.get_file_storage_directory(user_id)
         field_overrides = collaborators.db_repo.get_preset_form_overrides(preset_id).get(mode, {})
         bound = bind_form(
             found_preset, mode, form_name, form_data, user_id,

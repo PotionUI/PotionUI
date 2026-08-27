@@ -96,7 +96,7 @@ async def _execute_switch(ctx: NodeExecutionContext) -> NodeResult:
     whichever configured `cases` label matches (str-cast, trimmed), or the
     implicit "default" port if none match. The "cases" key here MUST match
     this node type's own `dynamic_ports_config_key` below - both the engine's
-    edge-routing (via this branch value) and `AutomationManager.validate_graph`
+    edge-routing (via this branch value) and `AutomationRuntime.validate_graph`
     (via `resolve_dynamic_ports`) key off the identical comma-separated parse.
     """
     field = ctx.config.get("field", "")

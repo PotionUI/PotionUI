@@ -38,12 +38,12 @@ class TestModelMocks:
         assert mock_model_loader.device == 'cpu'
         assert mock_model_loader.dtype == 'float32'
 
-    def test_mock_model_manager(self, mock_model_manager):
-        """ModelManager owns the models directory layout, not downloads."""
+    def test_mock_model_manager(self, mock_model_directories):
+        """ModelDirectories owns the models directory layout, not downloads."""
         from pathlib import Path
 
-        assert mock_model_manager.get_model_dir("checkpoint") == Path("/fake/models/checkpoint")
-        assert mock_model_manager.base_path == Path("/fake/models")
+        assert mock_model_directories.get_model_dir("checkpoint") == Path("/fake/models/checkpoint")
+        assert mock_model_directories.base_path == Path("/fake/models")
 
 
 class TestPipeMocks:

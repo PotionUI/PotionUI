@@ -38,12 +38,12 @@ from src.features.llm.mappers import config_to_response, assignment_config_to_re
 from src.features.llm.repository import LLMRepository
 from src.features.llm.gateway import LLMGateway
 from src.platform.plugins import PluginRegistry
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 from src.platform.security.user import User, AccountType
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
-    from src.features.downloads import DownloadManager
+    from src.features.downloads import DownloadQueue
     from src.features.llm.tools.governance import ToolGovernanceRepository
 
 logger = logging.getLogger(__name__)
@@ -56,20 +56,20 @@ class LLMController(BaseController):
         self,
         llm_repository: LLMRepository,
         llm_service: LLMGateway,
-        settings_manager: SettingsManager,
+        settings: Settings,
         plugin_registry: PluginRegistry,
         tool_governance_repository: Optional["ToolGovernanceRepository"] = None,
-        download_manager: Optional["DownloadManager"] = None,
+        download_queue: Optional["DownloadQueue"] = None,
     ):
         super().__init__()
         self.repository = llm_repository
         self.llm_service = llm_service
-        self.settings_manager = settings_manager
+        self.settings = settings
         self.plugins = plugin_registry
         self.tool_governance_repository = tool_governance_repository
         # Optional: only needed for the gemma3 chat-tokenizer on-demand fetch —
         # every other endpoint works without it.
-        self.download_manager = download_manager
+        self.download_queue = download_queue
 
     # =========================================================================
     # Configuration Endpoints
@@ -120,9 +120,9 @@ class LLMController(BaseController):
         runs off the event loop; landed next to the TE depot — see
         ``native_te_adoption.ensure_gemma3_chat_tokenizer``. A subsequent
         ``GET /native/checkpoints`` reflects the lifted gate."""
-        if self.download_manager is None:
+        if self.download_queue is None:
             return self.error_api_response(
-                error="download_manager_unavailable",
+                error="download_queue_unavailable",
                 message="Native LLM provider: no download manager available yet "
                         "(the app container hasn't finished composing)",
             )
@@ -131,7 +131,7 @@ class LLMController(BaseController):
 
             from src.features.llm.native_te_adoption import ensure_gemma3_chat_tokenizer
 
-            path = await asyncio.to_thread(ensure_gemma3_chat_tokenizer, self.download_manager)
+            path = await asyncio.to_thread(ensure_gemma3_chat_tokenizer, self.download_queue)
             return self.success_response(
                 data={"path": str(path)},
                 message="gemma3 chat tokenizer assets fetched",
@@ -311,7 +311,7 @@ class LLMController(BaseController):
         """Generate a response using an LLM."""
         try:
             response = await operations.generate_response(
-                self.repository, self.llm_service, self.settings_manager, self.plugins, request, user.id
+                self.repository, self.llm_service, self.settings, self.plugins, request, user.id
             )
             return self.success_response(data=response)
         except ConfigurationNotFoundException as e:

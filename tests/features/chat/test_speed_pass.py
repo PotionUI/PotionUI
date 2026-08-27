@@ -259,7 +259,7 @@ class TestApplyHistoryBudget:
 
     def _runner(self, get_setting_return=None, get_setting_side_effect=None):
         manager = Mock()
-        manager.settings_manager.get_setting = Mock(
+        manager.settings.get_setting = Mock(
             return_value=get_setting_return, side_effect=get_setting_side_effect
         )
         return ConversationRunner(manager)
@@ -272,7 +272,7 @@ class TestApplyHistoryBudget:
         assert len(history) == 50
 
     def test_default_budget_used_when_setting_missing(self):
-        # SettingsManager.get_setting returns the caller-supplied default
+        # Settings.get_setting returns the caller-supplied default
         # when the key is unset - here, _DEFAULT_HISTORY_TOKEN_BUDGET itself.
         runner = self._runner(get_setting_return=_DEFAULT_HISTORY_TOKEN_BUDGET)
         # 8000 token default * 4 chars/token = 32000 chars; 50 * 100 = 5000 chars fits easily.

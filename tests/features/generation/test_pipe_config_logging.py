@@ -13,7 +13,7 @@ from typing import Any, Dict
 
 import pytest
 
-from src.features.generation.generation import GenerationManager
+from src.features.generation.engine import GenerationEngine
 from src.platform.plugins.registry import PluginRegistry
 from src.pipelines.contracts import IOType, PipeInput, PipeOutput, PipeOutputSpec
 from unittest.mock import Mock
@@ -52,11 +52,11 @@ class _RemotePipe:
 def _mock_deps():
     return {
         "gpu": Mock(),
-        "model_manager": Mock(),
+        "model_directories": Mock(),
         "pipe_catalog": Mock(),
-        "settings_manager": Mock(),
+        "settings": Mock(),
         "system_monitor": Mock(),
-        "memory_manager": Mock(),
+        "memory_advisor": Mock(),
         "llm_service": Mock(),
     }
 
@@ -66,7 +66,7 @@ def _run(caplog, config: Dict[str, Any]):
     registry = PluginRegistry(
         marketplace_dir="test_plugins_mp", local_dir="test_plugins_local"
     )
-    manager = GenerationManager(**deps, plugin_registry=registry)
+    manager = GenerationEngine(**deps, plugin_registry=registry)
     deps["pipe_catalog"].get_pipe.return_value = _RemotePipe
 
     # The generation logger is "is"; the config line is DEBUG.
@@ -112,7 +112,7 @@ def test_the_pipe_still_receives_the_real_credential(caplog):
     registry = PluginRegistry(
         marketplace_dir="test_plugins_mp", local_dir="test_plugins_local"
     )
-    manager = GenerationManager(**deps, plugin_registry=registry)
+    manager = GenerationEngine(**deps, plugin_registry=registry)
 
     seen = {}
 

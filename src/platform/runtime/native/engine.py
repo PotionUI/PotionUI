@@ -44,7 +44,7 @@ from .memory.device_plan import DevicePlan, make_device_plan
 from .memory.residency import (
     free_vram_gb,
     total_vram_gb,
-    get_residency_manager,
+    get_residency_registry,
     minimum_inference_memory_gb,
 )
 from .memory.partial import ModuleStreamer, plan_residency_split
@@ -212,7 +212,7 @@ def _estimate_text_encoder_gb(encoder: Any) -> float | None:
 
     Handles both a single encoder (``.module`` -- Gemma3/Qwen3/T5XXL/CLIP-L,
     all named this way per ``text_encoders/base.py``'s duck-type contract, the
-    same one ``model_lifecycle.manager._measure_value_ram_gb`` relies on) and
+    same one ``model_lifecycle.lifecycle._measure_value_ram_gb`` relies on) and
     the Flux1 composite (``FluxTextEncoder`` -- ``.t5``/``.clip_l``, each with
     its own ``.module``). Returns ``None`` (never 0.0) when no module/no
     parameters are found, so a genuinely-unmeasurable encoder still reads as
@@ -256,7 +256,7 @@ def _latent_frames(shape) -> int:
 class NativeModel:
     """An evictable wrapper around one loaded component.
 
-    Carries the shape ``ModelLifecycleManager._best_effort_unload`` expects
+    Carries the shape ``ModelLifecycle._best_effort_unload`` expects
     (a callable ``.unload()``) plus ``.spec`` / ``.module`` / ``.estimated_vram_gb``
     and the ``move_to`` / ``offload`` pair the generator uses to sequence phases.
     """
@@ -315,7 +315,7 @@ class NativeModel:
         streamed tail keeps its warm pinned pool for a cheap re-pin next phase."""
         if (self.estimated_vram_gb or 0.0) <= 2.0:
             return
-        from src.platform.runtime.model_lifecycle.manager import (
+        from src.platform.runtime.model_lifecycle.lifecycle import (
             empty_pinned_host_cache,
             trim_host_allocator,
         )
@@ -417,7 +417,7 @@ class NativeModel:
         # free room by offloading this component when it is no longer the active
         # one. note_resident on a non-cuda device de-registers, so this pair keeps
         # the registry honest for both directions.
-        manager = get_residency_manager()
+        manager = get_residency_registry()
         if str(device).startswith("cuda"):
             manager.note_resident(self, device, self.estimated_vram_gb or 0.0)
             # A multi-GB device move frees thousands of layer-sized CPU chunks
@@ -433,7 +433,7 @@ class NativeModel:
             # components (same >2GB gate as the offload branch) -- costs tens
             # of ms on a large heap, paid once per placement, not per step.
             if (self.estimated_vram_gb or 0.0) > 2.0:
-                from src.platform.runtime.model_lifecycle.manager import trim_host_allocator
+                from src.platform.runtime.model_lifecycle.lifecycle import trim_host_allocator
 
                 trim_host_allocator()
         else:
@@ -445,7 +445,7 @@ class NativeModel:
             # for big components — it costs tens of ms on a large heap. (The
             # streamer-teardown case above trims separately if it applied.)
             if (self.estimated_vram_gb or 0.0) > 2.0:
-                from src.platform.runtime.model_lifecycle.manager import trim_host_allocator
+                from src.platform.runtime.model_lifecycle.lifecycle import trim_host_allocator
 
                 trim_host_allocator()
 
@@ -473,7 +473,7 @@ class NativeModel:
         if not str(device).startswith("cuda"):
             self.move_to(device)
             return
-        from src.platform.runtime.model_lifecycle.manager import (
+        from src.platform.runtime.model_lifecycle.lifecycle import (
             empty_pinned_host_cache,
             trim_host_allocator,
         )
@@ -494,7 +494,7 @@ class NativeModel:
             self._streamer = ModuleStreamer(self.module)
         self._streamer.apply(device, plan, non_blocking=non_blocking)
         self.device = str(device)
-        get_residency_manager().note_resident(self, device, plan.resident_gb)
+        get_residency_registry().note_resident(self, device, plan.resident_gb)
         # Mirror `move_to()`'s post-teardown trim: `apply()` above frees the
         # module's prior plain CPU allocations (moving fixed/resident leaves to
         # GPU, re-pinning streamed leaves), but nothing here asks glibc to return
@@ -509,7 +509,7 @@ class NativeModel:
             pinned_gb = self._streamer.pinned_gb
             self._streamer.teardown()
             get_profiler().mark("streamer.teardown", kind=self.kind)
-            get_residency_manager().note_offloaded(self)
+            get_residency_registry().note_offloaded(self)
             self.device = "cpu"
             # This early-return branch bypasses move_to() entirely, so its
             # post-teardown reclaim never ran for a component offloaded straight
@@ -527,7 +527,7 @@ class NativeModel:
             from .optimizations.compile import restore_compiled
 
             restore_compiled(self)
-        get_residency_manager().note_offloaded(self)
+        get_residency_registry().note_offloaded(self)
         teardown_from_streamer = False
         pinned_gb = 0.0
         if self._streamer is not None and self._streamer.active:
@@ -1087,7 +1087,7 @@ class NativeGenerator:
         free = free_vram_gb(device)
         if free is None:
             return
-        manager = get_residency_manager()
+        manager = get_residency_registry()
         own = self._own_models()
         if need_gb and need_gb > 0.0:
             offloaded = manager.ensure_free(device, need_gb, free, exclude=own)
@@ -1112,7 +1112,7 @@ class NativeGenerator:
             self.dit.move_to(device)
         except torch.cuda.OutOfMemoryError:
             logger.warning("DiT move to %s OOM'd; evicting all foreign residents and retrying", device)
-            get_residency_manager().offload_all(device, exclude=self._own_models())
+            get_residency_registry().offload_all(device, exclude=self._own_models())
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             try:
@@ -1177,7 +1177,7 @@ class NativeGenerator:
             logger.warning("partial-residency DiT placement OOM'd (budget %.1fGB); "
                            "evicting all foreign residents and streaming fully", budget)
             self.dit.offload()
-            get_residency_manager().offload_all(device, exclude=self._own_models())
+            get_residency_registry().offload_all(device, exclude=self._own_models())
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             self.dit.stream_to(device, 0.0)
@@ -1756,7 +1756,7 @@ class NativeGenerator:
         and OOM-retry tiled-decode paths (mirrors ComfyUI's free-before-VAE)."""
         self.dit.offload()
         self._maybe_offload_te()
-        get_residency_manager().offload_all(device, exclude=self._own_models())
+        get_residency_registry().offload_all(device, exclude=self._own_models())
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
@@ -2010,7 +2010,7 @@ class NativeGenerator:
         FAILED generation doesn't leave the DiT (~26GB for Krea-2 at high res)
         resident — the reported symptom was the app holding ~30GB after a decode
         OOM. Weights survive on CPU (the ``NativeModel``s are cached by
-        ``ModelLifecycleManager`` and moved back on the next generation); only
+        ``ModelLifecycle`` and moved back on the next generation); only
         VRAM is freed. Best-effort and never raises — a cleanup that raised would
         mask the original generation failure.
         """

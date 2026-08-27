@@ -18,7 +18,7 @@ Two properties of SigLIP are load-bearing here:
 pays their import cost at process boot (mirrors ``LocalEmbeddingProvider``).
 
 The model weights (``AutoModel``) are never held on this instance - they go
-through ``ModelLifecycleManager.acquire()`` on every embed call under a
+through ``ModelLifecycle.acquire()`` on every embed call under a
 per-call lease (mirrors ``NativeLLMClient._leased`` in
 ``src/features/llm/clients/native.py``), so the embedder participates in the
 same cache/eviction/RAM-admission machinery as every diffusion model. The
@@ -35,15 +35,15 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 from src.platform.filesystem.model_weights import dir_size, weights_status
-from src.platform.runtime.model_lifecycle.manager import (
-    ModelLifecycleManager,
-    get_model_lifecycle_manager,
+from src.platform.runtime.model_lifecycle.lifecycle import (
+    ModelLifecycle,
+    get_model_lifecycle,
 )
 
 if TYPE_CHECKING:
-    from src.features.downloads import DownloadManager
+    from src.features.downloads import DownloadQueue
     from PIL import Image
-    from src.platform.settings.settings import SettingsManager
+    from src.platform.settings.settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -68,15 +68,15 @@ class SiglipVisionEmbedder:
         models_dir: str = "models",
         device: str = "cpu",
         auto_download: bool = True,
-        download_manager: Optional["DownloadManager"] = None,
-        model_lifecycle_manager: Optional[ModelLifecycleManager] = None,
+        download_queue: Optional["DownloadQueue"] = None,
+        model_lifecycle: Optional[ModelLifecycle] = None,
     ):
         self.model_name = model_name
         self.models_dir = models_dir
         self.device = device
         self.auto_download = auto_download
-        self.downloads = download_manager
-        self._model_lifecycle_manager = model_lifecycle_manager
+        self.downloads = download_queue
+        self._model_lifecycle = model_lifecycle
         self._source_path: Optional[str] = None
         self._processor = None
         self._load_lock = threading.Lock()
@@ -113,7 +113,7 @@ class SiglipVisionEmbedder:
     def _ensure_processor(self) -> None:
         """Downloads weights (if needed) and loads the (lightweight)
         processor - NOT the model itself, which ``_load_model`` builds on
-        demand under ``ModelLifecycleManager`` (see ``embed_images``/
+        demand under ``ModelLifecycle`` (see ``embed_images``/
         ``embed_texts``)."""
         if self._processor is not None:
             return
@@ -144,7 +144,7 @@ class SiglipVisionEmbedder:
             self._source_path = source
 
     def _load_model(self) -> Any:
-        """The ``ModelLifecycleManager`` loader: builds the ``AutoModel``
+        """The ``ModelLifecycle`` loader: builds the ``AutoModel``
         checkpoint and places it on ``self.device``. ``_ensure_processor``
         must have run first (every embed call guarantees this) so
         ``_source_path`` is resolved."""
@@ -167,25 +167,25 @@ class SiglipVisionEmbedder:
         size = dir_size(self._local_path())
         return size / _BYTES_PER_GB if size else None
 
-    def _models(self) -> ModelLifecycleManager:
-        manager = self._model_lifecycle_manager or get_model_lifecycle_manager()
-        if manager is None:
+    def _models(self) -> ModelLifecycle:
+        lifecycle = self._model_lifecycle or get_model_lifecycle()
+        if lifecycle is None:
             raise RuntimeError(
-                f"Vision embedder '{self.model_name}': no ModelLifecycleManager available "
+                f"Vision embedder '{self.model_name}': no ModelLifecycle available "
                 f"yet (the app container hasn't finished composing)"
             )
-        return manager
+        return lifecycle
 
     def is_loaded(self) -> bool:
-        """Whether the model is currently resident in ModelLifecycleManager -
+        """Whether the model is currently resident in ModelLifecycle -
         distinct from ``is_available()`` (on-disk weights presence). The
         embedder can be on disk but evicted (not loaded) or on disk and
         loaded; a status caller needing both must check both, never infer
         one from the other."""
-        manager = self._model_lifecycle_manager or get_model_lifecycle_manager()
-        if manager is None:
+        lifecycle = self._model_lifecycle or get_model_lifecycle()
+        if lifecycle is None:
             return False
-        return manager.is_cached(self._cache_key())
+        return lifecycle.is_cached(self._cache_key())
 
     @staticmethod
     def prepare_query(text: str) -> str:
@@ -230,7 +230,7 @@ class SiglipVisionEmbedder:
 
     @contextmanager
     def _leased_model(self):
-        """Acquire the model through ModelLifecycleManager for the duration
+        """Acquire the model through ModelLifecycle for the duration
         of one forward pass: unevictable while leased, evictable under RAM
         pressure the instant it's released. Mirrors ``WDTaggerProvider.
         tag_image`` and ``NativeLLMClient._leased``."""
@@ -294,20 +294,20 @@ class SiglipVisionEmbedder:
 
 
 def build_vision_embedder(
-    settings_manager: "SettingsManager",
-    download_manager: Optional["DownloadManager"] = None,
-    model_lifecycle_manager: Optional[ModelLifecycleManager] = None,
+    settings: "Settings",
+    download_queue: Optional["DownloadQueue"] = None,
+    model_lifecycle: Optional[ModelLifecycle] = None,
 ) -> SiglipVisionEmbedder:
     """Construct the configured gallery vision embedder (see migration 099)."""
     return SiglipVisionEmbedder(
-        model_name=settings_manager.get_setting(
+        model_name=settings.get_setting(
             "media_vision_model", SiglipVisionEmbedder.DEFAULT_MODEL
         ),
-        models_dir=settings_manager.get_models_dir(),
-        device=settings_manager.get_setting("media_vision_device", "cpu"),
+        models_dir=settings.get_models_dir(),
+        device=settings.get_setting("media_vision_device", "cpu"),
         auto_download=bool(
-            settings_manager.get_setting("media_vision_auto_download", False)
+            settings.get_setting("media_vision_auto_download", False)
         ),
-        download_manager=download_manager,
-        model_lifecycle_manager=model_lifecycle_manager,
+        download_queue=download_queue,
+        model_lifecycle=model_lifecycle,
     )

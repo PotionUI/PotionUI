@@ -7,7 +7,7 @@ OOM-degrade ladder (mirrors ``NativeGenerator._move_dit_to_gpu``/
 ``_stream_dit_to_gpu``), the foreign-eviction exclude-list plumbing (including
 the one-shot-generator footgun), and the CPU/no-CUDA passthrough.
 
-No real GPU or CUDA needed: ``get_residency_manager``/``free_vram_gb``/
+No real GPU or CUDA needed: ``get_residency_registry``/``free_vram_gb``/
 ``minimum_inference_memory_gb`` are patched at the module boundary (the same
 style as ``test_dit_restore.py``), and OOM is simulated by raising the real
 ``torch.cuda.OutOfMemoryError`` class directly (constructing/raising it needs
@@ -104,7 +104,7 @@ def test_place_dit_for_sequence_threads_inner_dim_into_the_reserve(monkeypatch):
     monkeypatch.setattr(f"{_MOD}.free_vram_gb", lambda device: 15.0)
     monkeypatch.setattr(f"{_MOD}.minimum_inference_memory_gb", lambda: 0.0)
     manager = SimpleNamespace(ensure_free=lambda *a, **k: False, offload_all=lambda *a, **k: False)
-    monkeypatch.setattr(f"{_MOD}.get_residency_manager", lambda: manager)
+    monkeypatch.setattr(f"{_MOD}.get_residency_registry", lambda: manager)
 
     calls = []
     dit = SimpleNamespace(
@@ -185,7 +185,7 @@ def test_dit_module_with_a_populated_lora_deltas_is_active():
 
 # -- test doubles --------------------------------------------------------------
 
-class _FakeResidencyManager:
+class _FakeResidencyRegistry:
     """Records every eviction call; nothing is ever actually offloaded (the
     tests each set up ``free_vram_gb`` to already reflect the desired state)."""
 
@@ -234,11 +234,11 @@ def _dit_with_lora(estimated_vram_gb=23.3, *, active: bool):
 
 
 def _patched(free_gb, *, min_reserve=1.0, manager=None):
-    manager = manager or _FakeResidencyManager()
+    manager = manager or _FakeResidencyRegistry()
     return (
         patch(f"{_MOD}.free_vram_gb", return_value=free_gb),
         patch(f"{_MOD}.minimum_inference_memory_gb", return_value=min_reserve),
-        patch(f"{_MOD}.get_residency_manager", return_value=manager),
+        patch(f"{_MOD}.get_residency_registry", return_value=manager),
     ), manager
 
 
@@ -699,10 +699,10 @@ def test_warm_resident_dit_that_no_longer_fits_offloads_then_places_fresh():
     # measurement) both see the FULL 40.0GB the stale copy's release
     # genuinely freed.
     free_reads = iter([2.0, 40.0, 40.0])
-    manager = _FakeResidencyManager()
+    manager = _FakeResidencyRegistry()
     with patch(f"{_MOD}.free_vram_gb", side_effect=lambda device: next(free_reads)), \
          patch(f"{_MOD}.minimum_inference_memory_gb", return_value=1.0), \
-         patch(f"{_MOD}.get_residency_manager", return_value=manager):
+         patch(f"{_MOD}.get_residency_registry", return_value=manager):
         decision = place_dit_for_sequence(dit, "cuda", video_tokens=0, reserve_gb=10.0)
     assert calls["offload"] == 1, "expected the stale resident copy to be offloaded before re-measuring"
     assert decision.mode == "resident"
@@ -719,10 +719,10 @@ def test_warm_resident_dit_that_no_longer_fits_can_still_degrade_to_partial():
     # nowhere near 23.3 -> genuinely must degrade to partial, not force a
     # resident placement it cannot back.
     free_reads = iter([2.0, 5.0, 5.0])
-    manager = _FakeResidencyManager()
+    manager = _FakeResidencyRegistry()
     with patch(f"{_MOD}.free_vram_gb", side_effect=lambda device: next(free_reads)), \
          patch(f"{_MOD}.minimum_inference_memory_gb", return_value=1.0), \
-         patch(f"{_MOD}.get_residency_manager", return_value=manager):
+         patch(f"{_MOD}.get_residency_registry", return_value=manager):
         decision = place_dit_for_sequence(dit, "cuda", video_tokens=0, reserve_gb=10.0)
     assert calls["offload"] == 1
     assert decision.mode == "partial"

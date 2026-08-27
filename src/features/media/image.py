@@ -3,27 +3,27 @@ from datetime import datetime
 
 from PIL import Image
 
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 from src.platform.templating import TemplateProcessor
 from src.features.presets.templates import PresetTemplate
 
 
-class ImageManager:
+class ImageWriter:
 
     def __init__(
             self,
             template_processor: TemplateProcessor,
-            settings_manager: SettingsManager,
+            settings: Settings,
     ):
         self.template_processor = template_processor
-        self.settings_manager = settings_manager
+        self.settings = settings
 
     def get_image_path_for_save(
             self,
             image: Image.Image,
             preset: PresetTemplate,
     ) -> str:
-        image_name_tpl = self.settings_manager.get_setting("image_name_tpl")
+        image_name_tpl = self.settings.get_setting("image_name_tpl")
         image_ctx = {
             "preset": {
                 "name": preset.name,
@@ -34,7 +34,7 @@ class ImageManager:
                 "ext": "png",
             }
         }
-        gallery_path_tpl = self.settings_manager.get_setting("gallery_path_tpl")
+        gallery_path_tpl = self.settings.get_setting("gallery_path_tpl")
         gallery_ctx = {
             "preset": {
                 "name": preset.name,

@@ -53,7 +53,7 @@ from src.pipelines.contracts import (
 from src.pipelines.outputs import CompareImagesGenerationOutput, Icon, ProgressGenerationOutput
 from src.platform.observability.profiling import get_profiler
 from src.platform.runtime.device import clear_gpu_memory
-from src.platform.runtime.native.memory.residency import get_residency_manager
+from src.platform.runtime.native.memory.residency import get_residency_registry
 from src.pipelines.pipes._shared.media.video_encode import encode_frames_to_mp4
 from src.pipelines.pipes._shared.media.video_read import read_video_frames
 # color_fix lives in the seedvr2 pipe (Apache-2.0); importing the submodule
@@ -71,7 +71,7 @@ def _free_room_for_tube_refine(bundle: Any, device: str) -> None:
     """Evict a resident DiT and every other foreign GPU-resident component
     BEFORE the per-track tube-refine loop's own GPU work (see the module
     docstring). Mirrors ``latent_upscaler/ltx``'s ``_free_room_for_upscale``
-    idiom (offload the DiT if resident, then ``GpuResidencyManager.offload_all``
+    idiom (offload the DiT if resident, then ``GpuResidencyRegistry.offload_all``
     + ``clear_gpu_memory``); skips that function's TE-host-RAM follow-up since
     this pipe needs the DiT again for its own denoise a moment later.
 
@@ -93,7 +93,7 @@ def _free_room_for_tube_refine(bundle: Any, device: str) -> None:
     if dit_was_resident:
         dit.offload()
     own_models = tuple(m for m in (getattr(bundle, "vae", None), dit) if m is not None)
-    get_residency_manager().offload_all(device, exclude=own_models)
+    get_residency_registry().offload_all(device, exclude=own_models)
     clear_gpu_memory()
     alloc1 = torch.cuda.memory_allocated(device) / (1 << 30) if torch.cuda.is_available() else 0.0
     logger.debug(

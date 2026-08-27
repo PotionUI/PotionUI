@@ -1,5 +1,5 @@
-from .connection_manager import ConnectionManager
+from .connection_hub import ConnectionHub
 
 __all__ = [
-    "ConnectionManager",
+    "ConnectionHub",
 ]

@@ -13,7 +13,7 @@ from uuid import uuid4
 
 from src.platform.security.current_user import authenticate_websocket_token
 from src.platform.security.user import AccountType
-from src.platform.websocket.admin_connection_manager import admin_connection_manager
+from src.platform.websocket.admin_connection_hub import admin_connection_hub
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
@@ -50,7 +50,7 @@ async def admin_websocket_endpoint(
         client_id = str(uuid4())
 
     # Accept connection
-    connected = await admin_connection_manager.connect(websocket, client_id)
+    connected = await admin_connection_hub.connect(websocket, client_id)
     if not connected:
         return
 
@@ -62,7 +62,7 @@ async def admin_websocket_endpoint(
         })
     except Exception as e:
         logger.error(f"Failed to send connection established message: {e}")
-        admin_connection_manager.disconnect(client_id)
+        admin_connection_hub.disconnect(client_id)
         return
 
     # Start heartbeat task
@@ -96,7 +96,7 @@ async def admin_websocket_endpoint(
             pass
 
         # Clean up connection
-        admin_connection_manager.disconnect(client_id)
+        admin_connection_hub.disconnect(client_id)
 
 
 async def send_heartbeat(websocket: WebSocket, client_id: str):
@@ -104,7 +104,7 @@ async def send_heartbeat(websocket: WebSocket, client_id: str):
     try:
         while True:
             await asyncio.sleep(30)  # Send heartbeat every 30 seconds
-            if admin_connection_manager.is_client_connected(client_id):
+            if admin_connection_hub.is_client_connected(client_id):
                 try:
                     await websocket.send_json({
                         'type': 'heartbeat',
@@ -125,7 +125,7 @@ async def handle_message(client_id: str, message: dict):
 
     if message_type == 'ping':
         # Respond to ping with pong
-        await admin_connection_manager.send_to_client(client_id, {
+        await admin_connection_hub.send_to_client(client_id, {
             'type': 'pong',
             'timestamp': datetime.now().isoformat()
         })

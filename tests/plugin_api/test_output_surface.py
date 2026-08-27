@@ -11,7 +11,7 @@ import pytest
 from src.pipelines import outputs as pipeline_outputs
 
 # Emittable by a pipe through the `generation_outputs` callable. Excludes
-# ErrorGenerationOutput, which GenerationManager raises on a pipe's behalf.
+# ErrorGenerationOutput, which GenerationEngine raises on a pipe's behalf.
 EMITTABLE = [
     "AudioGenerationOutput",
     "ComfyUIWorkflowGenerationOutput",

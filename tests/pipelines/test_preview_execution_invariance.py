@@ -90,7 +90,7 @@ def preset_collaborators(shared_pipeline_builder):
             pipeline_builder=shared_pipeline_builder,
             pipe_catalog=Mock(),
             plugins=Mock(),
-            settings_manager=Mock(),
+            settings=Mock(),
         )
 
 

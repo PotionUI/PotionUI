@@ -42,7 +42,7 @@ Squashing loses nothing a fresh install needs and removes a lot a fresh
 install doesn't.
 
 THE GUARD - this is the part that makes the squash safe for that one existing
-database. `migration_runner.MigrationManager.run_migrations()` computes
+database. `migration_runner.MigrationRunner.run_migrations()` computes
 `pending = available - applied` and runs `pending` in filename-sorted order;
 "001_baseline" always sorts before every other migration stem, so this file's
 `up()` is always the first thing that runs when there is anything to run at
@@ -77,7 +77,7 @@ def _has_pre_squash_history(cursor) -> bool:
     pre-squash chain (i.e. any stem other than this file's own).
 
     Creates the table first if it is missing, mirroring
-    `MigrationManager.get_applied_migrations()` - the runner always creates it
+    `MigrationRunner.get_applied_migrations()` - the runner always creates it
     before running any pending migration, so this is a no-op there, but it
     lets this migration's `up()` also be called directly against a bare
     connection the way tests load individual migration files.

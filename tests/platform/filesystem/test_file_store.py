@@ -446,7 +446,7 @@ class TestFileServiceIntegration:
         assert all(path is not None for path in saved_paths)
         assert all(self.file_service.generation_exists(key) for key in saved_keys)
 
-        # Delete all files (caller supplies the keys, as media_manager does from its `files` rows)
+        # Delete all files (caller supplies the keys, as media_store does from its `files` rows)
         deleted, failed = self.file_service.delete_generation_outputs(saved_keys)
         assert deleted == 3
         assert failed == 0

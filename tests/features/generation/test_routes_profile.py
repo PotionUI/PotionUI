@@ -20,7 +20,7 @@ from fastapi.testclient import TestClient
 from src.features.generation import profile_paths
 from src.features.generation.routes import GenerationController, build_router
 from src.features.generation.orchestrator import GenerationOrchestrator
-from src.features.generation import GenerationHistoryManager
+from src.features.generation import GenerationHistoryFacade
 from src.features.generation.run_report_recorder import RunReportRecorder
 from src.platform.filesystem import FileStore
 from src.platform.security.current_user import (
@@ -73,7 +73,7 @@ class TestGetGenerationProfileController:
     def controller(self, file_service):
         return GenerationController(
             Mock(spec=GenerationOrchestrator),
-            Mock(spec=GenerationHistoryManager),
+            Mock(spec=GenerationHistoryFacade),
             file_service,
             Mock(spec=RunReportRecorder),
         )
@@ -158,7 +158,7 @@ class TestGetGenerationProfileRouteGating:
         file_service.base_storage_dir = tmp_path
         controller = GenerationController(
             Mock(spec=GenerationOrchestrator),
-            Mock(spec=GenerationHistoryManager),
+            Mock(spec=GenerationHistoryFacade),
             file_service,
             Mock(spec=RunReportRecorder),
         )

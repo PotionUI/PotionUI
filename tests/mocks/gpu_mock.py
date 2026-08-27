@@ -14,7 +14,7 @@ def mock_gpu():
     """
     Mock GPU operations - forces tests to run on CPU.
 
-    This fixture patches the GpuManager to always return CPU device
+    This fixture patches the GpuMonitor to always return CPU device
     and report GPU as unavailable. This allows running tests on machines
     without NVIDIA GPUs.
 
@@ -23,7 +23,7 @@ def mock_gpu():
             # Test will run on CPU instead of GPU
             pass
     """
-    with patch('src.platform.runtime.gpu.GpuManager') as mock_manager_class:
+    with patch('src.platform.runtime.gpu.GpuMonitor') as mock_manager_class:
         # Create mock instance
         mock_instance = MagicMock()
         mock_instance.get_free_vram.return_value = 0
@@ -31,7 +31,7 @@ def mock_gpu():
         mock_instance.get_total_vram.return_value = 0
         mock_instance.get_temperature.return_value = 0
 
-        # Return the mock instance when GpuManager is instantiated
+        # Return the mock instance when GpuMonitor is instantiated
         mock_manager_class.return_value = mock_instance
 
         yield mock_instance

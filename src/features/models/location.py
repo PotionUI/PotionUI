@@ -32,7 +32,7 @@ class ModelsLocationError(Exception):
         self.reason = reason
 
 
-class ModelsLocationManager:
+class ModelsRelocator:
     """Owns the external models location and the `<models_root>/<type>` symlinks pointing at it.
 
     `generation_active` is injected as a zero-arg callable rather than a queue

@@ -19,7 +19,7 @@ Components:
 Usage:
     from src.platform.templating import TemplateProcessor
 
-    processor = TemplateProcessor(settings_manager)
+    processor = TemplateProcessor(settings)
     result = processor.process_template("{{ 1 + 1 }}", {})       # -> 2 (int)
     result = processor.process_template("Hello {{ name }}", {"name": "World"})  # -> "Hello World"
 """

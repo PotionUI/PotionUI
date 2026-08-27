@@ -11,7 +11,7 @@ Two constructs need care when editing:
   the manager itself (a dependency cycle that cannot be resolved at
   construction time).
 - `BackendRegistry` receives a factory closure rather than an instance: a
-  `GenerationManager` is created per backend, not once per process.
+  `GenerationEngine` is created per backend, not once per process.
 
 Routers and the controllers bound to them are assembled in `src.bootstrap.app`.
 """
@@ -27,31 +27,31 @@ from typing import Any, Callable, TYPE_CHECKING
 
 import src.platform.plugins.runtime_registries as _rr
 
-from src.features.generation.generation import GenerationManager
-from src.features.generation.history_manager import GenerationHistoryManager
-from src.features.media.image import ImageManager
+from src.features.generation.engine import GenerationEngine
+from src.features.generation.history_facade import GenerationHistoryFacade
+from src.features.media.image import ImageWriter
 from src.platform.templating import TemplateProcessor
-from src.platform.runtime.gpu import GpuManager
+from src.platform.runtime.gpu import GpuMonitor
 from src.platform.observability.system_probe import SystemMonitor
-from src.platform.runtime.memory import MemoryManager
-from src.platform.runtime.model_lifecycle.manager import ModelLifecycleManager
-from src.features.models.directory import ModelManager, ModelIndexer
+from src.platform.runtime.memory_advisor import MemoryAdvisor
+from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
+from src.features.models.directory import ModelDirectories, ModelIndexer
 from src.pipelines.catalog import PipeCatalog
 from src.pipelines.installer import PipeInstaller
-from src.features.pipes import PipeInstallManager
+from src.features.pipes import PipeInstallRunner
 from src.features.presets import PresetTemplateLoader, PresetProcessor
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 from src.features.backends.backend_registry import BackendRegistry
 from src.platform.plugins import PluginRegistry
-from src.platform.plugins.router_manager import PluginRouterManager
+from src.platform.plugins.router_mounter import PluginRouterMounter
 from src.features.generation.hooks import OUTPUT_TYPE_HOOKS
-from src.platform.security import AuthConfig, PasswordHasher, TokenManager, AuthManager, ClaimTokenManager
+from src.platform.security import AuthConfig, PasswordHasher, TokenCodec, Auth, ClaimTokenStore
 from src.features.setup import InstanceClaimRepository
-from src.features.setup.run_manager import SetupRunManager
+from src.features.setup.runner import SetupRunner
 from src.features.setup.recipe_catalog import RecipeCatalog
 from src.features.phrasebook.preview_generator import PhrasebookPreviewGenerator
-from src.features.chat import ChatManager, ResponseProcessor
-from src.features.downloads import DownloadManager, DownloadRepository
+from src.features.chat import ChatRuntime, ResponseProcessor
+from src.features.downloads import DownloadQueue, DownloadRepository
 from src.platform.plugins.field_types import FieldTypeRegistry, field_type_registry as _shared_field_type_registry
 from src.platform.plugins.prompt_importers import (
     PromptImporterRegistry,
@@ -60,12 +60,12 @@ from src.platform.plugins.prompt_importers import (
 from src.features.fields.builtin import register_builtin_fields
 from src.features.models.attributes.repository import AttributeDefinitionRepository
 from src.features.models.attributes.user_repository import UserModelAttributeRepository
-from src.features.models.attributes.manager import ModelAttributeDefinitionsManager
+from src.features.models.attributes.editor import ModelAttributeDefinitionsEditor
 from src.features.models.attributes.seeding import ensure_builtin_attribute_definitions
 from src.features.models import ModelIndexCollaborators, build_model_index_collaborators
 from src.features.presets.collaborators import PresetCollaborators
 from src.features.presets.name_resolver import PresetNameResolver
-from src.features.system_monitor import SystemMonitorManager
+from src.features.system_monitor import SystemMonitorCoordinator
 
 from src.features.fields.field_factory import FieldFactory
 from src.platform.filesystem import FileStore
@@ -102,17 +102,17 @@ if TYPE_CHECKING:
     from src.platform.resources import ResourceRegistry
     from src.features.notifications.repository import NotificationRepository
     from src.features.llm_memory.repository import LLMMemoryRepository
-    from src.platform.websocket.connection_manager import ConnectionManager
-    from src.platform.websocket.download_connection_manager import DownloadConnectionManager
+    from src.platform.websocket.connection_hub import ConnectionHub
+    from src.platform.websocket.download_connection_hub import DownloadConnectionHub
     from src.features.models.repository import ModelRepository
     from src.features.tags.repository import TagRepository
     from src.features.model_library.repository.model_collection_repository import ModelCollectionRepository
     from src.features.model_library.repository.user_model_meta_repository import UserModelMetaRepository
     from src.features.collections.repository import CollectionRepository
     from src.features.automation.engine import AutomationEngine
-    from src.features.automation.manager import AutomationManager
+    from src.features.automation.runtime import AutomationRuntime
     from src.platform.plugins.automation_templates import AutomationTemplateRegistry
-    from src.features.media import MediaManager, MediaTypeResolver, FilePathResolver, ImageProcessor
+    from src.features.media import MediaStore, MediaTypeResolver, FilePathResolver, ImageProcessor
     from src.features.presets.file_repository import FilePresetRepository
     from src.features.presets.repository import DatabasePresetRepository
     from src.features.prompt_database.collaborators import PromptDatabaseCollaborators
@@ -120,7 +120,7 @@ if TYPE_CHECKING:
     from src.features.prompt_enhancement.repository import EnhancementFeedbackRepository
     from src.features.prompt_enhancement import PromptEnhancementCollaborators
     from src.features.media_index.repository import MediaIndexRepository
-    from src.features.media_index.manager import MediaIndexManager
+    from src.features.media_index.indexer import MediaIndexer
     from src.features.media_index.routes import MediaIndexController
     from src.features.stats.repository import StatsRepository
     from src.features.stats.generation_stats_repository import GenerationStatsRepository
@@ -131,7 +131,7 @@ if TYPE_CHECKING:
     from src.features.system_monitor.routes import SystemMonitorController
     from src.features.plugins.routes import PluginController
     from src.features.llm.routes import LLMController
-    from src.features.llm.tools.governance import ToolGovernanceManager, ToolGovernanceRepository
+    from src.features.llm.tools.governance import ToolGovernanceEditor, ToolGovernanceRepository
     from src.features.llm.tools.governance_routes import ToolGovernanceController
     from src.features.users.routes import UserController
     from src.features.notifications.routes import NotificationController
@@ -149,7 +149,7 @@ if TYPE_CHECKING:
     from src.features.collections.routes import CollectionController
     from src.features.automation.routes import AutomationController
     from src.features.media.routes import MediaController
-    from src.features.media.editing.manager import MediaEditManager
+    from src.features.media.editing.editor import MediaEditor
     from src.features.media.editing.routes import MediaEditController
     from src.features.library import LibraryCollaborators, LibraryRepository
     from src.features.library.routes import LibraryController
@@ -172,13 +172,13 @@ class AppContainer:
 
     # Core registries / settings
     setting_repository: SettingRepository
-    settings_manager: SettingsManager
+    settings: Settings
     plugin_registry: PluginRegistry
-    plugin_router_manager: PluginRouterManager
+    plugin_router_mounter: PluginRouterMounter
     field_type_registry: FieldTypeRegistry
     attribute_definition_repository: "AttributeDefinitionRepository"
     user_model_attribute_repository: "UserModelAttributeRepository"
-    model_attributes_manager: "ModelAttributeDefinitionsManager"
+    model_attributes_manager: "ModelAttributeDefinitionsEditor"
     prompt_importer_registry: PromptImporterRegistry
     tool_registry: "ToolRegistry"
     tool_executor: "ToolExecutor"
@@ -186,19 +186,19 @@ class AppContainer:
     resource_registry: "ResourceRegistry"
 
     # Core managers
-    gpu_manager: GpuManager
+    gpu_monitor: GpuMonitor
     system_monitor: SystemMonitor
-    system_monitor_manager: SystemMonitorManager
-    memory_manager: MemoryManager
-    model_lifecycle_manager: ModelLifecycleManager
-    model_manager: ModelManager
+    system_monitor_coordinator: SystemMonitorCoordinator
+    memory_advisor: MemoryAdvisor
+    model_lifecycle: ModelLifecycle
+    model_directories: ModelDirectories
     pipe_catalog: PipeCatalog
-    pipe_install_manager: PipeInstallManager
+    pipe_install_runner: PipeInstallRunner
     model_indexer: ModelIndexer
     preset_template_loader: PresetTemplateLoader
     preset_processor: PresetProcessor
     template_processor: TemplateProcessor
-    image_manager: ImageManager
+    image_writer: ImageWriter
     backend_registry: BackendRegistry
     field_factory: FieldFactory
 
@@ -212,7 +212,7 @@ class AppContainer:
     plugin_controller: "PluginController"
     llm_controller: "LLMController"
     tool_governance_repository: "ToolGovernanceRepository"
-    tool_governance_manager: "ToolGovernanceManager"
+    tool_governance_editor: "ToolGovernanceEditor"
     tool_governance_controller: "ToolGovernanceController"
     mcp_token_repository: "McpTokenRepository"
     mcp_tool_collaborators: "McpToolCollaborators"
@@ -220,19 +220,19 @@ class AppContainer:
     # Auth
     user_repository: UserRepository
     instance_claim_repository: InstanceClaimRepository
-    claim_token_manager: ClaimTokenManager
+    claim_token_store: ClaimTokenStore
     auth_config: AuthConfig
     password_hasher: PasswordHasher
-    token_manager: TokenManager
-    auth_manager: AuthManager
-    setup_run_manager: SetupRunManager
+    token_codec: TokenCodec
+    auth: Auth
+    setup_runner: SetupRunner
     recipe_catalog: RecipeCatalog
     user_controller: "UserController"
 
     # Downloads
     download_repository: DownloadRepository
-    download_connection_manager: "DownloadConnectionManager"
-    download_manager: DownloadManager
+    download_connection_hub: "DownloadConnectionHub"
+    download_queue: DownloadQueue
 
     # Notification
     notification_repository: "NotificationRepository"
@@ -249,7 +249,7 @@ class AppContainer:
     # Chat
     chat_repository: ChatRepository
     response_processor: ResponseProcessor
-    chat_manager: ChatManager
+    chat_runtime: ChatRuntime
     chat_turn_registry: "ChatTurnRegistry"
     chat_controller: "ChatController"
 
@@ -265,12 +265,12 @@ class AppContainer:
     generation_status_tracker: GenerationStatusTracker
     pipeline_builder: PipelineBuilder
     output_processor: OutputProcessor
-    connection_manager: "ConnectionManager"
+    connection_hub: "ConnectionHub"
     generation_orchestrator: GenerationOrchestrator
     file_service: FileStore
     phrasebook_controller: "PhrasebookController"
     generation_repository: GenerationRepository
-    generation_history_manager: GenerationHistoryManager
+    generation_history_facade: GenerationHistoryFacade
     run_report_repository: GenerationRunReportRepository
     run_report_recorder: RunReportRecorder
 
@@ -298,7 +298,7 @@ class AppContainer:
 
     # Automation
     automation_engine: "AutomationEngine"
-    automation_manager: "AutomationManager"
+    automation_runtime: "AutomationRuntime"
     automation_controller: "AutomationController"
     automation_template_registry: "AutomationTemplateRegistry"
 
@@ -306,9 +306,9 @@ class AppContainer:
     media_type_resolver: "MediaTypeResolver"
     file_resolver: "FilePathResolver"
     image_processor: "ImageProcessor"
-    media_manager: "MediaManager"
+    media_store: "MediaStore"
     media_controller: "MediaController"
-    media_edit_manager: "MediaEditManager"
+    media_editor: "MediaEditor"
     media_edit_controller: "MediaEditController"
 
     # Library
@@ -336,7 +336,7 @@ class AppContainer:
 
     # Media index (system tags + reusable index queue)
     media_index_repository: "MediaIndexRepository"
-    media_index_manager: "MediaIndexManager"
+    media_indexer: "MediaIndexer"
     media_index_controller: "MediaIndexController"
 
     # Stats
@@ -402,24 +402,24 @@ def _sync_enabled_plugins(registry: PluginRegistry, plugin_repo: PluginRepositor
 def build_container() -> AppContainer:
     # Initialize settings repository and manager first
     setting_repository = SettingRepository()
-    settings_manager = SettingsManager(setting_repository)
-    models_dir = Path(settings_manager.get_setting("models_dir", "models"))
+    settings = Settings(setting_repository)
+    models_dir = Path(settings.get_setting("models_dir", "models"))
 
     # Where saved bytes actually live - local disk by default, optionally S3
-    # (see StorageSettingsManager). Built this early because it is a single
+    # (see StorageSettings). Built this early because it is a single
     # process-wide singleton every writer/reader of uploads and generation
-    # output shares (FileStore, OutputProcessor, MediaManager, the generation
+    # output shares (FileStore, OutputProcessor, MediaStore, the generation
     # history archive, the phrasebook preview generator, ...) - none of them
     # build their own.
-    from src.platform.filesystem.storage_settings import StorageSettingsManager
+    from src.platform.filesystem.storage_settings import StorageSettings
 
-    storage_settings_manager = StorageSettingsManager(settings_manager)
-    storage_driver = storage_settings_manager.build_driver(
-        settings_manager.get_file_storage_directory()
+    storage_settings = StorageSettings(settings)
+    storage_driver = storage_settings.build_driver(
+        settings.get_file_storage_directory()
     )
 
-    from src.platform.observability.profiling import configure_settings_manager as _configure_profiling_settings
-    _configure_profiling_settings(settings_manager)
+    from src.platform.observability.profiling import configure_settings as _configure_profiling_settings
+    _configure_profiling_settings(settings)
 
     # Wire the chat LLM call-trace collector (admin session-debug viewer) —
     # provider clients call trace_collector.record() unconditionally; it is a
@@ -429,7 +429,7 @@ def build_container() -> AppContainer:
     from src.features.llm.trace_recorder import ChatCallTraceRecorder
     from src.features.llm.trace_repository import chat_call_trace_repository
     _chat_trace_collector.set_recorder(
-        ChatCallTraceRecorder(chat_call_trace_repository, settings_manager)
+        ChatCallTraceRecorder(chat_call_trace_repository, settings)
     )
 
     # Field-type registry (src/platform/plugins/field_types.py) - the single
@@ -452,7 +452,7 @@ def build_container() -> AppContainer:
     # inserts a builtin that's missing - it never overwrites an admin's edits.
     attribute_definition_repository = AttributeDefinitionRepository()
     user_model_attribute_repository = UserModelAttributeRepository()
-    model_attributes_manager = ModelAttributeDefinitionsManager(
+    model_attributes_manager = ModelAttributeDefinitionsEditor(
         attribute_definition_repository, user_model_attribute_repository
     )
     ensure_builtin_attribute_definitions(attribute_definition_repository)
@@ -460,11 +460,11 @@ def build_container() -> AppContainer:
     # Built ahead of the rest of the module graph so builtin field types
     # (which need `template_processor` for the select-options loader) can be
     # registered before any plugin is enabled.
-    model_manager = ModelManager(models_dir.__str__())
-    template_processor = TemplateProcessor(settings_manager)
+    model_directories = ModelDirectories(models_dir.__str__())
+    template_processor = TemplateProcessor(settings)
 
     # Initialize plugin system first (so it can be used by other managers).
-    # PluginRouterManager mounts/unmounts `api.module` routers on plugin
+    # PluginRouterMounter mounts/unmounts `api.module` routers on plugin
     # enable/disable at runtime - it's dependency-free until `attach(app)`
     # is called in create_app() once the FastAPI app exists.
     # LLM chat extension registries, created BEFORE the plugin registry so
@@ -523,13 +523,13 @@ def build_container() -> AppContainer:
     # importers, so this starts empty.
     prompt_importer_registry = _shared_prompt_importer_registry
 
-    plugin_router_manager = PluginRouterManager()
+    plugin_router_mounter = PluginRouterMounter()
     plugin_registry = PluginRegistry(
         marketplace_dir="content/plugins/marketplace",
         local_dir="content/plugins/local",
         field_registry=field_type_registry,
         model_attributes_manager=model_attributes_manager,
-        router_manager=plugin_router_manager,
+        router_mounter=plugin_router_mounter,
         tool_registry=tool_registry,
         chat_mode_registry=chat_mode_registry,
         resource_registry=resource_registry,
@@ -564,30 +564,30 @@ def build_container() -> AppContainer:
     # all route through this one manager for unified history. The connection
     # manager is the module-level singleton from the platform websocket layer,
     # injected as an instance (mirrors the notification wiring below).
-    from src.platform.websocket.download_connection_manager import download_connection_manager
+    from src.platform.websocket.download_connection_hub import download_connection_hub
 
     download_repository = DownloadRepository()
-    download_manager = DownloadManager(
+    download_queue = DownloadQueue(
         download_repository=download_repository,
         plugin_registry=plugin_registry,
-        settings_manager=settings_manager,
-        connection_manager=download_connection_manager,
+        settings=settings,
+        connection_hub=download_connection_hub,
     )
 
     # Initialize core managers
-    gpu_manager = GpuManager()
+    gpu_monitor = GpuMonitor()
     system_monitor = SystemMonitor()
-    memory_manager = MemoryManager(gpu_manager=gpu_manager, settings_manager=settings_manager)
-    model_lifecycle_manager = ModelLifecycleManager(gpu_manager=gpu_manager, settings_manager=settings_manager)
+    memory_advisor = MemoryAdvisor(gpu_monitor=gpu_monitor, settings=settings)
+    model_lifecycle = ModelLifecycle(gpu_monitor=gpu_monitor, settings=settings)
     pipe_catalog = PipeCatalog("src/pipelines/pipes", "pipes/custom", plugin_registry=plugin_registry)
-    pipe_install_manager = PipeInstallManager(pipe_catalog, PipeInstaller(pipe_catalog))
-    model_indexer = ModelIndexer(model_manager)
-    preset_processor = PresetProcessor(template_processor, model_manager, settings_manager, preset_template_loader)
-    image_manager = ImageManager(template_processor, settings_manager)
+    pipe_install_runner = PipeInstallRunner(pipe_catalog, PipeInstaller(pipe_catalog))
+    model_indexer = ModelIndexer(model_directories)
+    preset_processor = PresetProcessor(template_processor, model_directories, settings, preset_template_loader)
+    image_writer = ImageWriter(template_processor, settings)
 
     # Initialize LLM components
     llm_repository = LLMRepository()
-    llm_service = LLMGateway(llm_repository=llm_repository, model_lifecycle_manager=model_lifecycle_manager)
+    llm_service = LLMGateway(llm_repository=llm_repository, model_lifecycle=model_lifecycle)
     from src.features.llm.tools.governance import ToolGovernanceRepository
 
     tool_governance_repository = ToolGovernanceRepository()
@@ -595,21 +595,21 @@ def build_container() -> AppContainer:
     # Initialize auth components
     user_repository = UserRepository()
     instance_claim_repository = InstanceClaimRepository()
-    claim_token_manager = ClaimTokenManager(settings_manager)
-    auth_config = AuthConfig(settings_manager)
+    claim_token_store = ClaimTokenStore(settings)
+    auth_config = AuthConfig(settings)
     password_hasher = PasswordHasher()
-    token_manager = TokenManager(auth_config)
-    auth_manager = AuthManager(
+    token_codec = TokenCodec(auth_config)
+    auth = Auth(
         user_repository=user_repository,
         password_hasher=password_hasher,
-        token_manager=token_manager,
+        token_codec=token_codec,
         auth_config=auth_config,
         plugin_registry=plugin_registry,
         instance_claim=instance_claim_repository,
-        claim_tokens=claim_token_manager,
-        settings_manager=settings_manager,
+        claim_tokens=claim_token_store,
+        settings=settings,
     )
-    setup_run_manager = SetupRunManager()
+    setup_runner = SetupRunner()
     # Recipe catalog (discovers/validates content/recipes/{marketplace,local}/*.yml).
     # The executor registry is wired further down (see "setup executors")
     # because it needs preset_manager/backend_registry, built later in this
@@ -633,41 +633,41 @@ def build_container() -> AppContainer:
     phrasebook_preview_generator = PhrasebookPreviewGenerator(
         category_repository=phrasebook_category_repo,
         value_repository=phrasebook_value_repo,
-        settings_manager=settings_manager,
+        settings=settings,
         storage_driver=storage_driver,
     )
 
-    def make_generation_manager() -> GenerationManager:
+    def make_generation_engine() -> GenerationEngine:
         """One manager per backend, over shared collaborators. See BackendRegistry."""
-        return GenerationManager(
-            gpu=gpu_manager,
-            model_manager=model_manager,
+        return GenerationEngine(
+            gpu=gpu_monitor,
+            model_directories=model_directories,
             pipe_catalog=pipe_catalog,
-            settings_manager=settings_manager,
+            settings=settings,
             system_monitor=system_monitor,
-            memory_manager=memory_manager,
+            memory_advisor=memory_advisor,
             llm_service=llm_service,
-            models=model_lifecycle_manager,
-            assets=download_manager,
+            models=model_lifecycle,
+            assets=download_queue,
         )
 
     backend_registry = BackendRegistry(
-        generation_manager_factory=make_generation_manager,
+        generation_engine_factory=make_generation_engine,
         plugin_registry=plugin_registry,
         pipe_catalog=pipe_catalog,
     )
     field_factory = FieldFactory(preset_template_loader, template_processor, field_registry=field_type_registry)
 
     # Initialize system monitor manager
-    system_monitor_manager = SystemMonitorManager(
+    system_monitor_coordinator = SystemMonitorCoordinator(
         system_monitor=system_monitor,
-        gpu_manager=gpu_manager,
+        gpu_monitor=gpu_monitor,
         plugin_registry=plugin_registry
     )
 
     # Initialize system monitor controller
     from src.features.system_monitor.routes import SystemMonitorController
-    system_monitor_controller = SystemMonitorController(system_monitor_manager)
+    system_monitor_controller = SystemMonitorController(system_monitor_coordinator)
 
     # Initialize plugin components
     # Wire the preset loader + pipe catalog so enabling/disabling a
@@ -687,10 +687,10 @@ def build_container() -> AppContainer:
     llm_controller = LLMController(
         llm_repository=llm_repository,
         llm_service=llm_service,
-        settings_manager=settings_manager,
+        settings=settings,
         plugin_registry=plugin_registry,
         tool_governance_repository=tool_governance_repository,
-        download_manager=download_manager,
+        download_queue=download_queue,
     )
 
     # Initialize user components
@@ -699,7 +699,7 @@ def build_container() -> AppContainer:
         user_repository=user_repository,
         password_hasher=password_hasher,
         plugin_registry=plugin_registry,
-        settings_manager=settings_manager,
+        settings=settings,
     )
 
     # Initialize notification components. The connection manager is the
@@ -707,7 +707,7 @@ def build_container() -> AppContainer:
     # (src/platform/websocket), injected here as an instance rather than
     # imported at module scope.
     from src.features.notifications.repository import NotificationRepository
-    from src.platform.websocket.notification_connection_manager import notification_connection_manager
+    from src.platform.websocket.notification_connection_hub import notification_connection_hub
     from src.features.notifications import NotificationCollaborators
     from src.features.notifications import operations as notification_operations
     from src.features.notifications.routes import NotificationController
@@ -717,8 +717,8 @@ def build_container() -> AppContainer:
         repository=notification_repository,
         users=user_repository,
         plugins=plugin_registry,
-        connections=notification_connection_manager,
-        settings=settings_manager,
+        connections=notification_connection_hub,
+        settings=settings,
     )
     # A bound callable, not a class instance: every unrelated feature that
     # takes a `notification_manager` collaborator (generation, automation,
@@ -742,15 +742,15 @@ def build_container() -> AppContainer:
 
     # Global tool governance (admin enable/lock + per-user opt-out), layered
     # on top of the mode/session tool filtering above.
-    from src.features.llm.tools.governance import ToolGovernanceManager
+    from src.features.llm.tools.governance import ToolGovernanceEditor
     from src.features.llm.tools.governance_routes import ToolGovernanceController
 
-    tool_governance_manager = ToolGovernanceManager(
+    tool_governance_editor = ToolGovernanceEditor(
         repository=tool_governance_repository, tool_registry=tool_registry
     )
     tool_governance_controller = ToolGovernanceController(
         repository=tool_governance_repository,
-        manager=tool_governance_manager,
+        manager=tool_governance_editor,
         tool_registry=tool_registry,
         llm_repository=llm_repository,
     )
@@ -758,7 +758,7 @@ def build_container() -> AppContainer:
     # Initialize chat components (with tool executor and manager references)
     chat_repository = ChatRepository()
     response_processor = ResponseProcessor(plugin_registry=plugin_registry)
-    chat_manager = ChatManager(
+    chat_runtime = ChatRuntime(
         chat_repository=chat_repository,
         llm_service=llm_service,
         response_processor=response_processor,
@@ -774,16 +774,16 @@ def build_container() -> AppContainer:
         phrasebook_value_repository=phrasebook_value_repo,
         phrasebook_search=phrasebook_search,
         resource_registry=resource_registry,
-        settings_manager=settings_manager,
+        settings=settings,
     )
 
     # Initialize pre-chat actions
-    from src.features.chat.pre_chat_actions import PreChatActionManager
-    pre_chat_action_manager = PreChatActionManager(
+    from src.features.chat.pre_chat_actions import PreChatActionRegistry
+    pre_chat_action_registry = PreChatActionRegistry(
         plugin_registry=plugin_registry,
         llm_repository=llm_repository,
     )
-    chat_manager.pre_chat_action_manager = pre_chat_action_manager
+    chat_runtime.pre_chat_action_registry = pre_chat_action_registry
 
     # Chat controller. Turns are owned by a per-process registry so a client
     # disconnect (page reload) can't kill an in-flight response.
@@ -791,11 +791,11 @@ def build_container() -> AppContainer:
     from src.features.chat.turns import ChatTurnRegistry
     _turn_timeout = 1800
     try:
-        _turn_timeout = int(settings_manager.get_setting("chat_turn_timeout_seconds", 1800))
+        _turn_timeout = int(settings.get_setting("chat_turn_timeout_seconds", 1800))
     except (TypeError, ValueError):
         pass
     chat_turn_registry = ChatTurnRegistry(turn_timeout_seconds=_turn_timeout)
-    chat_controller = ChatController(chat_manager, chat_turn_registry)
+    chat_controller = ChatController(chat_runtime, chat_turn_registry)
 
     # Developer components
     from src.features.developer.pipes_documenter import PipesDocumenter
@@ -821,10 +821,10 @@ def build_container() -> AppContainer:
     field_controller = FieldController(field_type_registry)
 
     # Application layer services
-    from src.platform.websocket.connection_manager import ConnectionManager
+    from src.platform.websocket.connection_hub import ConnectionHub
 
     pipeline_builder = PipelineBuilder(preset_template_loader, preset_processor)
-    output_processor = OutputProcessor(settings_manager, storage_driver=storage_driver)
+    output_processor = OutputProcessor(settings, storage_driver=storage_driver)
 
     # Let plugins register additional GenerationOutput types (handler,
     # WS serializer, message type) on the shared output_type_registry.
@@ -851,7 +851,7 @@ def build_container() -> AppContainer:
         import logging
         logging.getLogger(__name__).error(f"Error executing notification_type.register hook: {e}")
 
-    connection_manager = ConnectionManager()
+    connection_hub = ConnectionHub()
     generation_status_tracker = GenerationStatusTracker()
 
     # Stateless DB-wrapper repositories/policy the orchestrator needs for admin
@@ -879,7 +879,7 @@ def build_container() -> AppContainer:
     # Media index: built ahead of the orchestrator (like the stats manager)
     # so completed generations can queue their files for system tagging.
     from src.features.media_index.repository import MediaIndexRepository
-    from src.features.media_index.manager import MediaIndexManager
+    from src.features.media_index.indexer import MediaIndexer
     from src.features.media_index.tagger import build_tagger_provider
     from src.features.media_index.vision_embedder import build_vision_embedder
     from src.features.media_index.gallery_vector_store import GalleryVectorStore
@@ -892,21 +892,21 @@ def build_container() -> AppContainer:
 
     media_index_repository = MediaIndexRepository()
     vision_embedder = build_vision_embedder(
-        settings_manager, download_manager=download_manager, model_lifecycle_manager=model_lifecycle_manager,
+        settings, download_queue=download_queue, model_lifecycle=model_lifecycle,
     )
     gallery_vector_store = GalleryVectorStore(
-        persist_dir=str(Path(settings_manager.get_setting("file_storage_directory", "storage")) / "chromadb"),
+        persist_dir=str(Path(settings.get_setting("file_storage_directory", "storage")) / "chromadb"),
         embedder_slug=vision_embedder.embedder_slug,
     )
-    text_embedding_provider = build_embedding_provider(settings_manager, download_manager=download_manager)
+    text_embedding_provider = build_embedding_provider(settings, download_queue=download_queue)
     gallery_prompt_vector_store = GalleryPromptVectorStore(
-        persist_dir=str(Path(settings_manager.get_setting("file_storage_directory", "storage")) / "chromadb"),
+        persist_dir=str(Path(settings.get_setting("file_storage_directory", "storage")) / "chromadb"),
         embedder_slug=text_embedding_provider.embedder_slug,
     )
-    media_index_manager = MediaIndexManager(
+    media_indexer = MediaIndexer(
         repository=media_index_repository,
         tagger_provider=build_tagger_provider(
-            settings_manager, download_manager=download_manager, model_lifecycle_manager=model_lifecycle_manager,
+            settings, download_queue=download_queue, model_lifecycle=model_lifecycle,
         ),
         file_service=file_service,
         vision_embedder=vision_embedder,
@@ -914,31 +914,31 @@ def build_container() -> AppContainer:
         text_embedding_provider=text_embedding_provider,
         gallery_prompt_vector_store=gallery_prompt_vector_store,
     )
-    media_index_controller = MediaIndexController(media_index_manager)
+    media_index_controller = MediaIndexController(media_indexer)
 
     generation_orchestrator = GenerationOrchestrator(
-        pipeline_builder, backend_registry, connection_manager, settings_manager, output_processor,
+        pipeline_builder, backend_registry, connection_hub, settings, output_processor,
         preset_template_loader, status_tracker=generation_status_tracker,
         notification_manager=notification_manager,
         database_preset_repository=_preset_repo_for_orchestrator,
         model_access_policy=model_access_policy,
         user_repository=user_repository,
         generation_stats_repository=generation_stats_repository,
-        media_index_manager=media_index_manager,
-        gpu_manager=gpu_manager,
+        media_indexer=media_indexer,
+        gpu_monitor=gpu_monitor,
     )
 
     # Initialize generation history manager
     generation_repository = GenerationRepository()
     run_report_repository = GenerationRunReportRepository()
     run_report_recorder = RunReportRecorder(run_report_repository)
-    generation_history_manager = GenerationHistoryManager(
+    generation_history_facade = GenerationHistoryFacade(
         generation_repo=generation_repository,
         file_service=file_service,
         plugin_registry=plugin_registry,
         media_index_repository=media_index_repository,
-        settings_manager=settings_manager,
-        media_index_manager=media_index_manager,
+        settings=settings,
+        media_indexer=media_indexer,
         preset_name_resolver=PresetNameResolver(preset_template_loader)
     )
 
@@ -978,8 +978,8 @@ def build_container() -> AppContainer:
         model_repository=model_repository,
         tag_repository=tag_repository,
         plugin_registry=plugin_registry,
-        settings_manager=settings_manager,
-        download_manager=download_manager,
+        settings=settings,
+        download_queue=download_queue,
         models_root=models_dir,
         generation_active=_generation_active,
         storage_driver=storage_driver,
@@ -997,7 +997,7 @@ def build_container() -> AppContainer:
     model_collection_controller = ModelCollectionController(model_collection_repository)
 
     model_controller = ModelController(
-        model_index_manager, user_model_meta_repository, download_manager,
+        model_index_manager, user_model_meta_repository, download_queue,
         attribute_definition_repository=attribute_definition_repository,
         model_attributes_manager=model_attributes_manager,
     )
@@ -1028,8 +1028,8 @@ def build_container() -> AppContainer:
     from src.features.automation.repository import automation_repo
     from src.features.automation.context import AutomationServices
     from src.features.automation.engine import AutomationEngine
-    from src.features.automation.manager import AutomationManager
-    from src.platform.websocket.automation_connection_manager import automation_connection_manager
+    from src.features.automation.runtime import AutomationRuntime
+    from src.platform.websocket.automation_connection_hub import automation_connection_hub
     from src.features.automation.routes import AutomationController
 
     # NOT the `model_indexer` local above (that's `src.features.models.directory.ModelIndexer`,
@@ -1057,14 +1057,14 @@ def build_container() -> AppContainer:
         model_repository=model_repository,
         tag_repository=tag_repository,
         notification_manager=notification_manager,
-        gpu_manager=gpu_manager,
-        settings_manager=settings_manager,
-        backend_config_manager=backend_registry.backend_config_manager,
-        model_lifecycle_manager=model_lifecycle_manager,
+        gpu_monitor=gpu_monitor,
+        settings=settings,
+        backend_config_store=backend_registry.backend_config_store,
+        model_lifecycle=model_lifecycle,
         backend_registry=backend_registry,
         backend_model_indexer=backend_model_indexer,
         user_group_repository=_user_group_repo_for_automation,
-        media_index_manager=media_index_manager,
+        media_indexer=media_indexer,
         generation_status_tracker=generation_status_tracker,
         model_collection_repository=model_collection_repository,
     )
@@ -1073,49 +1073,49 @@ def build_container() -> AppContainer:
         services=automation_services,
         plugin_registry=plugin_registry,
         registry=automation_node_type_registry,
-        emit_ws=automation_connection_manager.broadcast,
+        emit_ws=automation_connection_hub.broadcast,
     )
-    automation_manager = AutomationManager(
+    automation_runtime = AutomationRuntime(
         automation_repo,
         automation_engine,
         plugin_registry=plugin_registry,
         registry=automation_node_type_registry,
         template_registry=automation_template_registry,
     )
-    automation_controller = AutomationController(automation_manager, registry=automation_node_type_registry)
+    automation_controller = AutomationController(automation_runtime, registry=automation_node_type_registry)
 
     # Media components
     from src.features.generation.file_repository import file_repo, FileRepository
-    from src.features.media import MediaManager, MediaTypeResolver, FilePathResolver, ImageProcessor, UploadRepository
+    from src.features.media import MediaStore, MediaTypeResolver, FilePathResolver, ImageProcessor, UploadRepository
     from src.features.media.routes import MediaController
 
     media_type_resolver = MediaTypeResolver()
-    file_resolver = FilePathResolver(settings_manager, preset_template_loader)
+    file_resolver = FilePathResolver(settings, preset_template_loader)
     image_processor = ImageProcessor()
     upload_repository = UploadRepository()
-    media_manager = MediaManager(
+    media_store = MediaStore(
         file_resolver=file_resolver,
         image_processor=image_processor,
         media_type_resolver=media_type_resolver,
         file_repository=file_repo,
         generation_repository=generation_repository,
-        settings_manager=settings_manager,
+        settings=settings,
         file_service=file_service,
         plugin_registry=plugin_registry,
         upload_repository=upload_repository,
         storage_driver=storage_driver,
     )
-    media_controller = MediaController(media_manager)
+    media_controller = MediaController(media_store)
 
-    from src.features.media.editing.manager import MediaEditManager
+    from src.features.media.editing.editor import MediaEditor
     from src.features.media.editing.routes import MediaEditController
 
-    media_edit_manager = MediaEditManager(
+    media_editor = MediaEditor(
         upload_repository=upload_repository,
         media_type_resolver=media_type_resolver,
         storage_driver=storage_driver,
     )
-    media_edit_controller = MediaEditController(media_edit_manager)
+    media_edit_controller = MediaEditController(media_editor)
 
     # Library components (uploads as first-class, curatable resources)
     from src.features.library import LibraryCollaborators, LibraryRepository
@@ -1174,10 +1174,10 @@ def build_container() -> AppContainer:
         pipeline_builder=pipeline_builder,
         pipe_catalog=pipe_catalog,
         plugins=plugin_registry,
-        settings_manager=settings_manager
+        settings=settings
     )
     preset_controller = PresetController(
-        preset_manager, backend_registry, media_manager,
+        preset_manager, backend_registry, media_store,
         model_access_policy=model_access_policy,
     )
 
@@ -1187,7 +1187,7 @@ def build_container() -> AppContainer:
     # it needs preset_manager/backend_registry/pipeline_builder, constructed above.
     from src.features.setup.executors import build_default_executor_registry
 
-    setup_run_manager.register_executor_registry(
+    setup_runner.register_executor_registry(
         build_default_executor_registry(
             recipe_catalog=recipe_catalog,
             plugin_registry=plugin_registry,
@@ -1200,7 +1200,7 @@ def build_container() -> AppContainer:
             model_repository=model_repository,
             generation_orchestrator=generation_orchestrator,
             backend_model_indexer=backend_model_indexer,
-            download_manager=download_manager,
+            download_queue=download_queue,
         )
     )
 
@@ -1216,7 +1216,7 @@ def build_container() -> AppContainer:
     # name rather than constructing a second instance.
     embedding_provider = text_embedding_provider
     prompt_vector_store = PromptVectorStore(
-        persist_dir=str(Path(settings_manager.get_setting("file_storage_directory", "storage")) / "chromadb"),
+        persist_dir=str(Path(settings.get_setting("file_storage_directory", "storage")) / "chromadb"),
         embedder_slug=embedding_provider.embedder_slug,
     )
     prompt_database = PromptDatabaseCollaborators(
@@ -1227,26 +1227,26 @@ def build_container() -> AppContainer:
     )
     prompt_database_controller = PromptDatabaseController(prompt_database)
 
-    # Wire up deferred service references for ChatManager's tool context
-    chat_manager.segment_category_repository = segment_category_repo
-    chat_manager.saved_segment_repository = saved_segment_repo
-    chat_manager.segment_template_repository = segment_template_repo
-    chat_manager.model_index_manager = model_index_manager
-    chat_manager.preset_manager = preset_manager
-    chat_manager.prompt_database = prompt_database
-    chat_manager.generation_orchestrator = generation_orchestrator
-    chat_manager.llm_memory_repository = llm_memory_repository
-    chat_manager.media_index_manager = media_index_manager
-    chat_manager.tool_governance_repository = tool_governance_repository
-    chat_manager.collection_repository = collection_repository
-    chat_manager.tag_repository = tag_repository
-    chat_manager.generation_history_manager = generation_history_manager
+    # Wire up deferred service references for ChatRuntime's tool context
+    chat_runtime.segment_category_repository = segment_category_repo
+    chat_runtime.saved_segment_repository = saved_segment_repo
+    chat_runtime.segment_template_repository = segment_template_repo
+    chat_runtime.model_index_manager = model_index_manager
+    chat_runtime.preset_manager = preset_manager
+    chat_runtime.prompt_database = prompt_database
+    chat_runtime.generation_orchestrator = generation_orchestrator
+    chat_runtime.llm_memory_repository = llm_memory_repository
+    chat_runtime.media_indexer = media_indexer
+    chat_runtime.tool_governance_repository = tool_governance_repository
+    chat_runtime.collection_repository = collection_repository
+    chat_runtime.tag_repository = tag_repository
+    chat_runtime.generation_history_facade = generation_history_facade
     # Generation repositories for the @generations resource provider
     from src.features.generation.model_repository import GenerationModelRepository
     from src.features.generation.parameter_repository import GenerationParameterRepository
-    chat_manager.generation_repository = generation_repository
-    chat_manager.generation_parameter_repository = GenerationParameterRepository()
-    chat_manager.generation_model_repository = GenerationModelRepository()
+    chat_runtime.generation_repository = generation_repository
+    chat_runtime.generation_parameter_repository = GenerationParameterRepository()
+    chat_runtime.generation_model_repository = GenerationModelRepository()
 
     # Prompt enhancement pipeline (used by the enhance_prompt tool)
     from src.features.prompt_enhancement import PromptEnhancementCollaborators
@@ -1263,13 +1263,13 @@ def build_container() -> AppContainer:
         feedback_repository=enhancement_feedback_repository,
         preset_manager=preset_manager,
     )
-    chat_manager.prompt_enhancement_manager = prompt_enhancement_manager
+    chat_runtime.prompt_enhancement_manager = prompt_enhancement_manager
 
     # MCP (Model Context Protocol): per-user tokens exposing the same tool
     # surface a `generation`-mode chat session sees. Built here, after every
     # collaborator the tool context needs (segment/model/preset/prompt
     # database/generation/memory/media managers) is available — the same
-    # ordering constraint chat_manager's late-bound assignments above solve.
+    # ordering constraint chat_runtime's late-bound assignments above solve.
     from src.features.mcp.protocol import McpToolCollaborators
     from src.features.mcp.repository import McpTokenRepository
 
@@ -1289,15 +1289,15 @@ def build_container() -> AppContainer:
         generation_orchestrator=generation_orchestrator,
         llm_memory_repository=llm_memory_repository,
         prompt_enhancement_manager=prompt_enhancement_manager,
-        media_index_manager=media_index_manager,
-        settings_manager=settings_manager,
+        media_indexer=media_indexer,
+        settings=settings,
         collection_repository=collection_repository,
         tag_repository=tag_repository,
         plugin_registry=plugin_registry,
-        generation_history_manager=generation_history_manager,
+        generation_history_facade=generation_history_facade,
     )
 
-    pre_chat_action_manager.discover_actions()
+    pre_chat_action_registry.discover_actions()
 
     # Stats components (depends on file_preset_repository for preset display names)
     from src.features.stats.repository import StatsRepository

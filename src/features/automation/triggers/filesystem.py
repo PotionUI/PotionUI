@@ -6,7 +6,7 @@ The directory is picked from the app's configured locations (models root and
 its subdirectories, storage dir, outputs dir - see `list_app_directories`)
 or, when the user picks "Custom path...", an arbitrary absolute path is
 allowed (explicit user requirement - there is no allow-list here beyond
-"the path must exist and be a directory", checked both at `AutomationManager.
+"the path must exist and be a directory", checked both at `AutomationRuntime.
 validate_graph` time and defensively again at `start()`, since a directory
 can disappear between save and trigger start / server restart).
 
@@ -42,24 +42,24 @@ _WATCHDOG_EVENT_MAP = {
 }
 
 
-def _default_settings_manager():
-    """Lazily construct a `SettingsManager` when none is injected (mirrors the
+def _default_settings():
+    """Lazily construct a `Settings` when none is injected (mirrors the
     lazy-construction pattern already used by `CivitaiService.fetch_and_store_civitai_info`)."""
-    from src.platform.settings.settings import SettingsManager
+    from src.platform.settings.settings import Settings
     from src.platform.settings.repository import SettingRepository
-    return SettingsManager(SettingRepository())
+    return Settings(SettingRepository())
 
 
-def list_app_directories(settings_manager: Optional[Any] = None) -> List[Dict[str, str]]:
+def list_app_directories(settings: Optional[Any] = None) -> List[Dict[str, str]]:
     """
     Options for the `trigger.filesystem` "directory" picker: the models root,
     each of its existing subdirectories (checkpoints, loras, vae, ...),
     the storage dir, the outputs dir, and a final "Custom path..." choice.
     """
-    settings_manager = settings_manager or _default_settings_manager()
+    settings = settings or _default_settings()
     options: List[Dict[str, str]] = []
 
-    models_dir = settings_manager.get_models_dir()
+    models_dir = settings.get_models_dir()
     options.append({"value": models_dir, "label": "Models", "description": models_dir})
 
     try:
@@ -72,10 +72,10 @@ def list_app_directories(settings_manager: Optional[Any] = None) -> List[Dict[st
     except OSError:
         pass  # models dir doesn't exist yet (fresh install) - just skip subdirectory enumeration
 
-    storage_dir = settings_manager.get_file_storage_directory()
+    storage_dir = settings.get_file_storage_directory()
     options.append({"value": storage_dir, "label": "Storage", "description": storage_dir})
 
-    outputs_dir = settings_manager.get_generations_directory()
+    outputs_dir = settings.get_generations_directory()
     options.append({"value": outputs_dir, "label": "Outputs", "description": outputs_dir})
 
     options.append({"value": CUSTOM_PATH_VALUE, "label": "Custom path…"})
@@ -175,7 +175,7 @@ class _DirEventHandler(FileSystemEventHandler):
             self._debounced_dispatch("deleted", event.src_path, DEFAULT_DEBOUNCE_MS)
 
 
-class FilesystemWatchManager:
+class FilesystemWatchRegistry:
     """Owns the single shared `watchdog` `Observer` and ref-counts per-directory watches."""
 
     def __init__(self):
@@ -255,9 +255,9 @@ class FilesystemTrigger(TriggerSource):
     """`trigger.filesystem` node."""
 
     def __init__(self, automation_id: str, node_id: str, config: Dict[str, Any], enqueue,
-                 watch_manager: FilesystemWatchManager, notification_manager: Optional[Any] = None):
+                 watch_registry: FilesystemWatchRegistry, notification_manager: Optional[Any] = None):
         super().__init__(automation_id, node_id, config, enqueue)
-        self._watch_manager = watch_manager
+        self._watch_registry = watch_registry
         self._notification_manager = notification_manager
         self._watch_dir = resolve_effective_directory(config)
         self._event_filter = config.get("event", "any")
@@ -287,7 +287,7 @@ class FilesystemTrigger(TriggerSource):
         if not os.path.isdir(self._watch_dir):
             self._fail_to_start(f"directory '{self._watch_dir}' does not exist or is not a directory")
             return
-        self._watch_manager.watch(self._watch_dir, self._on_event)
+        self._watch_registry.watch(self._watch_dir, self._on_event)
 
     def _fail_to_start(self, reason: str) -> None:
         logger.error(f"[FS_TRIGGER] Cannot start node {self.node_id} (automation {self.automation_id}): {reason}")
@@ -303,4 +303,4 @@ class FilesystemTrigger(TriggerSource):
 
     async def stop(self) -> None:
         if self._watch_dir:
-            self._watch_manager.unwatch(self._watch_dir, self._on_event)
+            self._watch_registry.unwatch(self._watch_dir, self._on_event)

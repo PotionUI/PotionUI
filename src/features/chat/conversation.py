@@ -7,7 +7,7 @@ generation. Both the buffered (`send_message`) and streaming
 (`send_message_stream`) paths live here, plus the learning-loop feedback
 recorder and the title/pre-chat helpers they share.
 
-Extracted from the ChatManager coordinator; it drives the other chat
+Extracted from the ChatRuntime coordinator; it drives the other chat
 collaborators (context builder) and reads its dependencies through the
 manager so the composition root's late binding keeps working.
 """
@@ -239,12 +239,12 @@ class ConversationRunner:
                 generation_orchestrator=self._m.generation_orchestrator,
                 llm_memory_repository=self._m.llm_memory_repository,
                 prompt_enhancement_manager=self._m.prompt_enhancement_manager,
-                media_index_manager=self._m.media_index_manager,
-                settings_manager=self._m.settings_manager,
+                media_indexer=self._m.media_indexer,
+                settings=self._m.settings,
                 collection_repository=self._m.collection_repository,
                 tag_repository=self._m.tag_repository,
                 plugin_registry=self._m.plugins,
-                generation_history_manager=self._m.generation_history_manager,
+                generation_history_facade=self._m.generation_history_facade,
                 llm_id=session.llm_config_id,
             )
 
@@ -611,12 +611,12 @@ class ConversationRunner:
                     generation_orchestrator=self._m.generation_orchestrator,
                     llm_memory_repository=self._m.llm_memory_repository,
                     prompt_enhancement_manager=self._m.prompt_enhancement_manager,
-                    media_index_manager=self._m.media_index_manager,
-                    settings_manager=self._m.settings_manager,
+                    media_indexer=self._m.media_indexer,
+                    settings=self._m.settings,
                     collection_repository=self._m.collection_repository,
                     tag_repository=self._m.tag_repository,
                     plugin_registry=self._m.plugins,
-                    generation_history_manager=self._m.generation_history_manager,
+                    generation_history_facade=self._m.generation_history_facade,
                     llm_id=session.llm_config_id,
                 )
 
@@ -633,7 +633,7 @@ class ConversationRunner:
                         iteration_nudge=TOOL_LOOP_CONTINUATION_NUDGE if mode.structured_reply else None,
                     ):
                         if event["type"] in ("tool_start", "tool_end"):
-                            logger.debug(f"[ChatManager] Yielding SSE event: {event['type']} - {event['data'].get('tool_name', '')}")
+                            logger.debug(f"[ChatRuntime] Yielding SSE event: {event['type']} - {event['data'].get('tool_name', '')}")
                             yield {"event": event["type"], "data": event["data"]}
                         elif event["type"] == "status":
                             yield {"event": "status", "data": event["data"]}
@@ -859,7 +859,7 @@ class ConversationRunner:
     def _history_token_budget(self) -> int:
         """Read the `chat_history_token_budget` setting; 0 or unset/unparsable = unlimited."""
         try:
-            value = self._m.settings_manager.get_setting(
+            value = self._m.settings.get_setting(
                 'chat_history_token_budget', _DEFAULT_HISTORY_TOKEN_BUDGET
             )
             if value is not None:
@@ -1009,10 +1009,10 @@ class ConversationRunner:
         Returns the executed action results (empty when unconfigured or none enabled),
         so callers can record what ran in the behavior-trace manifest.
         """
-        if not self._m.pre_chat_action_manager:
+        if not self._m.pre_chat_action_registry:
             return []
         try:
-            return await self._m.pre_chat_action_manager.execute_actions(llm_config_id)
+            return await self._m.pre_chat_action_registry.execute_actions(llm_config_id)
         except PreChatActionError as e:
             raise MessageCreationFailedException(str(e))
 
@@ -1022,10 +1022,10 @@ class ConversationRunner:
         Used to decide whether to emit a `running_pre_chat` status event before
         actually executing them. Never raises.
         """
-        if not self._m.pre_chat_action_manager:
+        if not self._m.pre_chat_action_registry:
             return []
         try:
-            return self._m.pre_chat_action_manager.get_enabled_actions(llm_config_id)
+            return self._m.pre_chat_action_registry.get_enabled_actions(llm_config_id)
         except Exception:
             logger.debug("Could not pre-check enabled pre-chat actions", exc_info=True)
             return []

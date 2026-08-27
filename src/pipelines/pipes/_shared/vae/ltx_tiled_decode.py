@@ -30,7 +30,7 @@ The ladder (:func:`decode_with_oom_retry`) mirrors the encode side's shape:
 4. Only if the TILED decode still OOMs does this raise, naming the grid.
 
 ``use_tiling`` is restored in a ``finally``: the VAE module is cached across
-generations by ``ModelLifecycleManager``, so a leaked ``True`` would silently
+generations by ``ModelLifecycle``, so a leaked ``True`` would silently
 blend seams into every later decode that did not need tiling.
 """
 
@@ -45,7 +45,7 @@ import torch
 
 from src.platform.observability.profiling import get_profiler
 from src.platform.runtime.device import clear_gpu_memory
-from src.platform.runtime.native.memory.residency import free_vram_gb, get_residency_manager
+from src.platform.runtime.native.memory.residency import free_vram_gb, get_residency_registry
 
 logger = logging.getLogger(__name__)
 
@@ -291,7 +291,7 @@ def decode_with_oom_retry(
                 "%s: conv VAE decode OOM'd; evicting every foreign GPU-resident "
                 "component and retrying once", log_prefix,
             )
-            get_residency_manager().offload_all(device, exclude=(vae,))
+            get_residency_registry().offload_all(device, exclude=(vae,))
             clear_gpu_memory()
             try:
                 with torch.no_grad():
@@ -337,7 +337,7 @@ def decode_with_oom_retry(
                 "GPU-resident component and retrying once",
                 log_prefix, grid, free_before, estimated_gb,
             )
-            get_residency_manager().offload_all(device, exclude=(vae,))
+            get_residency_registry().offload_all(device, exclude=(vae,))
             clear_gpu_memory()
             try:
                 pixels = _do_decode()
@@ -356,7 +356,7 @@ def decode_with_oom_retry(
             "(free_vram=%.2fGB) at latent grid %s -- going straight to TILED decode",
             log_prefix, estimated_gb, budget_gb, free_before, grid,
         )
-        get_residency_manager().offload_all(device, exclude=(vae,))
+        get_residency_registry().offload_all(device, exclude=(vae,))
         clear_gpu_memory()
 
     tile_sizes = auto_decode_tile_sizes(module, latent, budget_gb)

@@ -4,7 +4,7 @@
 Mirrors test_seedvr2_pipeline.py for the video mode: the rendered pipe list is
 media_loader (video) -> model_loader/seedvr2 -> generator/seedvr2 -> gallery,
 the generator gets the VIDEO input plus the temporal-batching config, and the
-whole thing validates via GenerationManager.validate_pipeline.
+whole thing validates via GenerationEngine.validate_pipeline.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from src.features.generation.generation import GenerationManager
+from src.features.generation.engine import GenerationEngine
 from src.features.presets import PresetTemplateLoader
 from src.features.presets.processor import PresetProcessor
 from src.platform.templating.processor import TemplateProcessor
@@ -46,9 +46,9 @@ def seedvr2_template():
 
 def _process(seedvr2_template, form_over=None):
     processor = PresetProcessor(
-        template_processor=TemplateProcessor(settings_manager=Mock()),
-        model_manager=Mock(),
-        settings_manager=Mock(),
+        template_processor=TemplateProcessor(settings=Mock()),
+        model_directories=Mock(),
+        settings=Mock(),
         preset_template_loader=Mock(),
     )
     form_data = {
@@ -78,9 +78,9 @@ def _process_minimal(seedvr2_template, form_over=None):
     # "form field present" path), which would shadow the resolution_target/
     # restoration_intent ternary DEFAULTS this suite is pinning.
     processor = PresetProcessor(
-        template_processor=TemplateProcessor(settings_manager=Mock()),
-        model_manager=Mock(),
-        settings_manager=Mock(),
+        template_processor=TemplateProcessor(settings=Mock()),
+        model_directories=Mock(),
+        settings=Mock(),
         preset_template_loader=Mock(),
     )
     form_data = {
@@ -132,9 +132,9 @@ def test_batch_size_defaults_to_zero_auto_when_form_omits_it(seedvr2_template):
     # an omitted Batch Size renders 0 = "auto-size to free VRAM"
     # (the generator's shrink-on-OOM ladder is the safety net for the estimate).
     processor = PresetProcessor(
-        template_processor=TemplateProcessor(settings_manager=Mock()),
-        model_manager=Mock(),
-        settings_manager=Mock(),
+        template_processor=TemplateProcessor(settings=Mock()),
+        model_directories=Mock(),
+        settings=Mock(),
         preset_template_loader=Mock(),
     )
     form_data = {
@@ -159,10 +159,10 @@ def test_gallery_reads_generator_video(seedvr2_template):
 
 def test_video_pipeline_validates(seedvr2_template):
     pipes = _process(seedvr2_template)
-    manager = GenerationManager(
-        gpu=Mock(), model_manager=Mock(),
+    manager = GenerationEngine(
+        gpu=Mock(), model_directories=Mock(),
         pipe_catalog=Mock(get_pipe=Mock(side_effect=PIPE_CLASSES.get)),
-        settings_manager=Mock(), system_monitor=Mock(), memory_manager=Mock(),
+        settings=Mock(), system_monitor=Mock(), memory_advisor=Mock(),
         llm_service=Mock(), models=Mock(),
     )
     manager.validate_pipeline(pipes)

@@ -18,7 +18,7 @@ import pytest
 
 from src.features.settings.routes import SettingsController
 from src.features.settings.dto import SettingUpdateRequest
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 from src.platform.settings.records import SettingType
 from src.platform.security.user import AccountType, User
 from src.platform.settings.repository import SettingRepository
@@ -66,7 +66,7 @@ def test_migration_seeds_default_preset(seeded_db):
 # --- manager get / set / invalid-clamp ------------------------------------
 
 def test_manager_get_set_and_invalid_clamp(seeded_db):
-    mgr = SettingsManager(SettingRepository())
+    mgr = Settings(SettingRepository())
     assert mgr.get_model_cache_scope() == "preset"          # seeded default
     assert mgr.set_setting("model_cache_scope", "global")
     assert mgr.get_model_cache_scope() == "global"          # flip persists
@@ -80,7 +80,7 @@ def test_manager_get_set_and_invalid_clamp(seeded_db):
 
 def _controller():
     repo = SettingRepository()
-    return SettingsController(SettingsManager(repo), repo, Mock(), Mock(), Mock())
+    return SettingsController(Settings(repo), repo, Mock(), Mock(), Mock())
 
 
 def _admin():
@@ -93,7 +93,7 @@ async def test_controller_put_succeeds_for_admin(seeded_db):
     resp = await _controller().update_setting_by_key(
         "model_cache_scope", SettingUpdateRequest(value="global"), _admin())
     assert resp.success is True                              # was error='setting_not_found'
-    assert SettingsManager(SettingRepository()).get_model_cache_scope() == "global"
+    assert Settings(SettingRepository()).get_model_cache_scope() == "global"
 
 
 @pytest.mark.asyncio
@@ -106,4 +106,4 @@ async def test_controller_put_requires_admin(seeded_db):
     with pytest.raises(HTTPException):
         await _controller().update_setting_by_key(
             "model_cache_scope", SettingUpdateRequest(value="global"), non_admin)
-    assert SettingsManager(SettingRepository()).get_model_cache_scope() == "preset"
+    assert Settings(SettingRepository()).get_model_cache_scope() == "preset"

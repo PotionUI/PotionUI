@@ -1,5 +1,5 @@
 """
-Tests for `AutomationManager.export_automation` / `import_automation`.
+Tests for `AutomationRuntime.export_automation` / `import_automation`.
 
 The scenario that drives the design: Alice exports a workflow that watches
 `/home/alice/models/loras`. Bob imports it. That directory does not exist on
@@ -15,24 +15,24 @@ import tempfile
 import unittest
 from typing import Dict, List, Optional
 
-from src.features.automation.manager import (
+from src.features.automation.runtime import (
     EXPORT_SCHEMA,
     EXPORT_SCHEMA_VERSION,
     AutomationImportError,
-    AutomationManager,
+    AutomationRuntime,
     GraphValidationError,
 )
 from src.features.automation.nodes import register_builtin_nodes
 from src.platform.plugins.automation_nodes import NodeTypeRegistry
 from src.features.automation.records import Automation
 
-from tests.features.automation.test_manager import FakeEngine, FakeRepository
+from tests.features.automation.test_runtime import FakeEngine, FakeRepository
 
 
-def _manager(repository=None) -> AutomationManager:
+def _manager(repository=None) -> AutomationRuntime:
     registry = NodeTypeRegistry()
     register_builtin_nodes(registry)
-    return AutomationManager(
+    return AutomationRuntime(
         repository=repository or FakeRepository(),
         engine=FakeEngine(),
         registry=registry,

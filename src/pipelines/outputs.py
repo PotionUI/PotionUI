@@ -266,7 +266,7 @@ class ParamGenerationOutput(GenerationOutput):
 @dataclass
 class ErrorGenerationOutput(GenerationOutput):
     """
-    Emitted by GenerationManager when a pipe raises an unhandled exception,
+    Emitted by GenerationEngine when a pipe raises an unhandled exception,
     immediately before re-raising. Lets the WebSocket layer inform the
     frontend of the failure (message_type "generation_error") while the
     exception itself propagates so the backend/status tracker can transition
@@ -284,7 +284,7 @@ class GenerationExecutionError(Exception):
     """
     Raised by a pipe/backend to signal a real generation failure while
     attaching an optional richer `detail` body (e.g. ComfyUI node errors +
-    traceback). GenerationManager reads `.detail` when building the
+    traceback). GenerationEngine reads `.detail` when building the
     ErrorGenerationOutput so backend-specific detail is preserved instead of
     being overwritten by the Python-side traceback.
     """

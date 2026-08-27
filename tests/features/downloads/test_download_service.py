@@ -1,8 +1,8 @@
 """
-Supplementary tests for DownloadManager covering lifecycle, settings, and edge cases.
+Supplementary tests for DownloadQueue covering lifecycle, settings, and edge cases.
 
 These tests were originally for the DownloadService class which has been replaced
-by the DownloadManager in the downloader plugin.
+by the DownloadQueue in the downloader plugin.
 """
 
 import pytest
@@ -11,13 +11,13 @@ from datetime import datetime
 import asyncio
 
 from src.features.downloads.models import Download, DownloadType, DownloadStatus, DownloadSettings
-from src.features.downloads.manager import DownloadManager
+from src.features.downloads.queue import DownloadQueue
 
 
-def _build_manager(**kwargs):
-    kwargs.setdefault('settings_manager', Mock(get_setting=Mock(return_value=None)))
-    kwargs.setdefault('connection_manager', AsyncMock())
-    return DownloadManager(**kwargs)
+def _build_queue(**kwargs):
+    kwargs.setdefault('settings', Mock(get_setting=Mock(return_value=None)))
+    kwargs.setdefault('connection_hub', AsyncMock())
+    return DownloadQueue(**kwargs)
 
 
 @pytest.fixture
@@ -81,13 +81,13 @@ def sample_settings():
 
 # ========== Initialization Tests ==========
 
-class TestDownloadManagerInitialization:
-    """Tests for DownloadManager initialization"""
+class TestDownloadQueueInitialization:
+    """Tests for DownloadQueue initialization"""
 
-    def test_manager_can_be_imported(self):
-        """Test that DownloadManager can be imported"""
-        from src.features.downloads.manager import DownloadManager
-        assert DownloadManager is not None
+    def test_queue_can_be_imported(self):
+        """Test that DownloadQueue can be imported"""
+        from src.features.downloads.queue import DownloadQueue
+        assert DownloadQueue is not None
 
 
 # ========== Queue Download Tests ==========
@@ -98,12 +98,12 @@ class TestQueueDownload:
     @pytest.mark.asyncio
     async def test_queue_model_download_creates_download(self, mock_download_repo, mock_plugin_registry, sample_download, sample_settings):
         """Test that queue_model_download creates a download record"""
-        from src.features.downloads.manager import DownloadManager
+        from src.features.downloads.queue import DownloadQueue
 
         mock_download_repo.create.return_value = sample_download
 
         if True:
-            manager = _build_manager(
+            manager = _build_queue(
                 download_repository=mock_download_repo,
                 plugin_registry=mock_plugin_registry,
             )
@@ -127,12 +127,12 @@ class TestQueueDownload:
     @pytest.mark.asyncio
     async def test_queue_model_download_with_tags(self, mock_download_repo, mock_plugin_registry, sample_download, sample_settings):
         """Test queueing a model download with tags"""
-        from src.features.downloads.manager import DownloadManager
+        from src.features.downloads.queue import DownloadQueue
 
         mock_download_repo.create.return_value = sample_download
 
         if True:
-            manager = _build_manager(
+            manager = _build_queue(
                 download_repository=mock_download_repo,
                 plugin_registry=mock_plugin_registry,
             )
@@ -156,13 +156,13 @@ class TestQueueDownload:
     @pytest.mark.asyncio
     async def test_queue_media_download(self, mock_download_repo, mock_plugin_registry, sample_download, sample_settings):
         """Test queueing a media download"""
-        from src.features.downloads.manager import DownloadManager
+        from src.features.downloads.queue import DownloadQueue
 
         sample_download.type = DownloadType.MEDIA
         mock_download_repo.create.return_value = sample_download
 
         if True:
-            manager = _build_manager(
+            manager = _build_queue(
                 download_repository=mock_download_repo,
                 plugin_registry=mock_plugin_registry,
             )
@@ -190,13 +190,13 @@ class TestDownloadControl:
     @pytest.mark.asyncio
     async def test_pause_download(self, mock_download_repo, mock_plugin_registry, sample_download, sample_settings):
         """Test pausing a download"""
-        from src.features.downloads.manager import DownloadManager
+        from src.features.downloads.queue import DownloadQueue
 
         sample_download.status = DownloadStatus.DOWNLOADING
         mock_download_repo.get_by_id.return_value = sample_download
 
         if True:
-            manager = _build_manager(
+            manager = _build_queue(
                 download_repository=mock_download_repo,
                 plugin_registry=mock_plugin_registry,
             )
@@ -212,13 +212,13 @@ class TestDownloadControl:
     @pytest.mark.asyncio
     async def test_resume_download(self, mock_download_repo, mock_plugin_registry, sample_download, sample_settings):
         """Test resuming a paused download"""
-        from src.features.downloads.manager import DownloadManager
+        from src.features.downloads.queue import DownloadQueue
 
         sample_download.status = DownloadStatus.PAUSED
         mock_download_repo.get_by_id.return_value = sample_download
 
         if True:
-            manager = _build_manager(
+            manager = _build_queue(
                 download_repository=mock_download_repo,
                 plugin_registry=mock_plugin_registry,
             )
@@ -234,13 +234,13 @@ class TestDownloadControl:
     @pytest.mark.asyncio
     async def test_cancel_download(self, mock_download_repo, mock_plugin_registry, sample_download, sample_settings):
         """Test cancelling a download"""
-        from src.features.downloads.manager import DownloadManager
+        from src.features.downloads.queue import DownloadQueue
 
         sample_download.status = DownloadStatus.DOWNLOADING
         mock_download_repo.get_by_id.return_value = sample_download
 
         if True:
-            manager = _build_manager(
+            manager = _build_queue(
                 download_repository=mock_download_repo,
                 plugin_registry=mock_plugin_registry,
             )
@@ -256,13 +256,13 @@ class TestDownloadControl:
     @pytest.mark.asyncio
     async def test_pause_nonexistent_download_raises(self, mock_download_repo, mock_plugin_registry, sample_settings):
         """Test pausing a nonexistent download raises exception"""
-        from src.features.downloads.manager import DownloadManager
+        from src.features.downloads.queue import DownloadQueue
         from src.features.downloads.exceptions import DownloadNotFoundException
 
         mock_download_repo.get_by_id.return_value = None
 
         if True:
-            manager = _build_manager(
+            manager = _build_queue(
                 download_repository=mock_download_repo,
                 plugin_registry=mock_plugin_registry,
             )
@@ -279,13 +279,13 @@ class TestRetryDownload:
     @pytest.mark.asyncio
     async def test_retry_failed_download(self, mock_download_repo, mock_plugin_registry, sample_download, sample_settings):
         """Test retrying a failed download"""
-        from src.features.downloads.manager import DownloadManager
+        from src.features.downloads.queue import DownloadQueue
 
         sample_download.status = DownloadStatus.FAILED
         mock_download_repo.get_by_id.return_value = sample_download
 
         if True:
-            manager = _build_manager(
+            manager = _build_queue(
                 download_repository=mock_download_repo,
                 plugin_registry=mock_plugin_registry,
             )
@@ -307,12 +307,12 @@ class TestFilenameOverride:
     @pytest.mark.asyncio
     async def test_queue_with_custom_filename(self, mock_download_repo, mock_plugin_registry, sample_download, sample_settings):
         """Test that filename override takes precedence"""
-        from src.features.downloads.manager import DownloadManager
+        from src.features.downloads.queue import DownloadQueue
 
         mock_download_repo.create.return_value = sample_download
 
         if True:
-            manager = _build_manager(
+            manager = _build_queue(
                 download_repository=mock_download_repo,
                 plugin_registry=mock_plugin_registry,
             )
@@ -340,12 +340,12 @@ class TestFilenameOverride:
 class TestDownloadSettings:
     """Tests for download settings"""
 
-    def test_manager_respects_max_concurrent(self, mock_download_repo, mock_plugin_registry):
+    def test_queue_respects_max_concurrent(self, mock_download_repo, mock_plugin_registry):
         """Test that manager initializes with default settings"""
-        from src.features.downloads.manager import DownloadManager
+        from src.features.downloads.queue import DownloadQueue
 
         if True:
-            manager = _build_manager(
+            manager = _build_queue(
                 download_repository=mock_download_repo,
                 plugin_registry=mock_plugin_registry,
             )
@@ -362,12 +362,12 @@ class TestChecksumVerification:
     @pytest.mark.asyncio
     async def test_checksum_stored_with_download(self, mock_download_repo, mock_plugin_registry, sample_download, sample_settings):
         """Test that checksum is stored with the download"""
-        from src.features.downloads.manager import DownloadManager
+        from src.features.downloads.queue import DownloadQueue
 
         mock_download_repo.create.return_value = sample_download
 
         if True:
-            manager = _build_manager(
+            manager = _build_queue(
                 download_repository=mock_download_repo,
                 plugin_registry=mock_plugin_registry,
             )
@@ -390,23 +390,23 @@ class TestChecksumVerification:
         assert created_download.checksum_sha256 == "abc123def456"
 
 
-# ========== Manager Lifecycle Tests ==========
+# ========== Queue Lifecycle Tests ==========
 
-class TestManagerLifecycle:
-    """Tests for manager start/stop lifecycle"""
+class TestQueueLifecycle:
+    """Tests for queue start/stop lifecycle."""
 
     @pytest.mark.asyncio
-    async def test_manager_start_creates_worker(self, mock_download_repo, mock_plugin_registry, sample_settings):
-        """Test that starting the manager creates a worker"""
-        from src.features.downloads.manager import DownloadManager
+    async def test_queue_start_creates_worker(self, mock_download_repo, mock_plugin_registry, sample_settings):
+        """Test that starting the queue creates a worker."""
+        from src.features.downloads.queue import DownloadQueue
 
         if True:
-            manager = _build_manager(
+            manager = _build_queue(
                 download_repository=mock_download_repo,
                 plugin_registry=mock_plugin_registry,
             )
 
-        with patch('src.features.downloads.manager.DownloadWorker') as MockWorker:
+        with patch('src.features.downloads.queue.DownloadWorker') as MockWorker:
             mock_worker_instance = AsyncMock()
             MockWorker.return_value = mock_worker_instance
 
@@ -420,17 +420,17 @@ class TestManagerLifecycle:
             await manager.stop()
 
     @pytest.mark.asyncio
-    async def test_manager_stop_stops_worker(self, mock_download_repo, mock_plugin_registry, sample_settings):
+    async def test_queue_stop_stops_worker(self, mock_download_repo, mock_plugin_registry, sample_settings):
         """Test that stopping the manager stops the worker"""
-        from src.features.downloads.manager import DownloadManager
+        from src.features.downloads.queue import DownloadQueue
 
         if True:
-            manager = _build_manager(
+            manager = _build_queue(
                 download_repository=mock_download_repo,
                 plugin_registry=mock_plugin_registry,
             )
 
-        with patch('src.features.downloads.manager.DownloadWorker') as MockWorker:
+        with patch('src.features.downloads.queue.DownloadWorker') as MockWorker:
             mock_worker_instance = AsyncMock()
             MockWorker.return_value = mock_worker_instance
 

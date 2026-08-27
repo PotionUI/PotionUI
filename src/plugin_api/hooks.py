@@ -19,14 +19,14 @@ from src.platform.plugins.runtime_registries import (
     get_global_plugin_registry,
     get_global_tool_registry,
 )
-from src.platform.runtime.model_lifecycle.manager import ModelLifecycleManager
+from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
 
 __all__ = [
     "GenerationNotFoundException",
     "HookContext",
     "HookResult",
     "HookSpec",
-    "ModelLifecycleManager",
+    "ModelLifecycle",
     "PluginRegistry",
     "get_container",
     "get_global_plugin_registry",

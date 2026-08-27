@@ -1,7 +1,7 @@
 """
 Chat controller - thin layer for HTTP handling.
 
-This controller delegates all business logic to ChatManager and handles:
+This controller delegates all business logic to ChatRuntime and handles:
 - HTTP request/response serialization
 - Exception mapping to HTTP status codes
 - Response formatting for the API
@@ -28,7 +28,7 @@ from src.features.chat.dto import (
     UpdateSessionRequest,
 )
 from src.features.chat import (
-    ChatManager,
+    ChatRuntime,
     SessionNotFoundException,
     AccessDeniedException,
     SessionClosedException,
@@ -51,12 +51,12 @@ logger = logging.getLogger(__name__)
 class ChatController(BaseController):
     """Thin controller for chat endpoints.
 
-    Delegates all business logic to ChatManager and handles HTTP-specific concerns.
+    Delegates all business logic to ChatRuntime and handles HTTP-specific concerns.
     """
 
-    def __init__(self, chat_manager: ChatManager, turn_registry: ChatTurnRegistry):
+    def __init__(self, chat_runtime: ChatRuntime, turn_registry: ChatTurnRegistry):
         super().__init__()
-        self.chat_manager = chat_manager
+        self.chat_runtime = chat_runtime
         self.turn_registry = turn_registry
 
     # --- Endpoints ---
@@ -64,7 +64,7 @@ class ChatController(BaseController):
     def create_session(self, request: CreateSessionRequest, user: User) -> APIResponse:
         """Create a new chat session."""
         try:
-            session = self.chat_manager.create_session(
+            session = self.chat_runtime.create_session(
                 user_id=user.id,
                 original_text=request.original_text,
                 llm_config_id=request.llm_config_id,
@@ -104,7 +104,7 @@ class ChatController(BaseController):
     ) -> APIResponse:
         """List sessions for the history view (filterable, paginated)."""
         try:
-            sessions, total = self.chat_manager.list_sessions(
+            sessions, total = self.chat_runtime.list_sessions(
                 user_id=user.id,
                 mode=mode,
                 search=search,
@@ -129,7 +129,7 @@ class ChatController(BaseController):
     def get_modes(self) -> APIResponse:
         """List all registered chat modes."""
         modes = []
-        for mode in self.chat_manager.chat_mode_registry.get_all():
+        for mode in self.chat_runtime.chat_mode_registry.get_all():
             modes.append({
                 "id": mode.id,
                 "name": mode.name,
@@ -144,14 +144,14 @@ class ChatController(BaseController):
 
     def _tools_for_mode(self, mode):
         """Resolve the tools visible in a mode (empty when no executor)."""
-        if not self.chat_manager.tool_executor:
+        if not self.chat_runtime.tool_executor:
             return []
-        return self.chat_manager.tool_executor.tool_registry.get_for_mode(mode)
+        return self.chat_runtime.tool_executor.tool_registry.get_for_mode(mode)
 
     def get_session(self, session_id: str, user: User) -> APIResponse:
         """Get a session with all messages."""
         try:
-            session = self.chat_manager.get_session(session_id, user.id)
+            session = self.chat_runtime.get_session(session_id, user.id)
             # Surface an in-flight turn so the client can reattach to its live
             # stream on reload instead of dead-ending on a lost response.
             active = self.turn_registry.active(session_id)
@@ -186,7 +186,7 @@ class ChatController(BaseController):
     ) -> APIResponse:
         """Send a message and get AI response."""
         try:
-            result = await self.chat_manager.send_message(
+            result = await self.chat_runtime.send_message(
                 session_id=session_id,
                 user_id=user.id,
                 content=request.content,
@@ -249,7 +249,7 @@ class ChatController(BaseController):
         def factory():
             async def gen():
                 try:
-                    async for event in self.chat_manager.send_message_stream(
+                    async for event in self.chat_runtime.send_message_stream(
                         session_id=session_id,
                         user_id=user.id,
                         content=request.content,
@@ -327,7 +327,7 @@ class ChatController(BaseController):
         routes: ``get_session`` raises if the user can't access the session.
         """
         try:
-            self.chat_manager.get_session(session_id, user.id)
+            self.chat_runtime.get_session(session_id, user.id)
         except SessionNotFoundException:
             async def not_found():
                 yield {"event": "error", "data": {"error": "session_not_found", "message": "Session not found"}}
@@ -348,7 +348,7 @@ class ChatController(BaseController):
     async def cancel_turn(self, session_id: str, user: User) -> APIResponse:
         """Explicitly stop the session's in-flight turn (the stop button)."""
         try:
-            self.chat_manager.get_session(session_id, user.id)
+            self.chat_runtime.get_session(session_id, user.id)
         except SessionNotFoundException:
             return self.error_api_response(error="session_not_found", message="Session not found")
         except AccessDeniedException as e:
@@ -363,7 +363,7 @@ class ChatController(BaseController):
     def accept_session(self, session_id: str, user: User) -> APIResponse:
         """Accept the session's suggestion and close it."""
         try:
-            self.chat_manager.accept_session(session_id, user.id)
+            self.chat_runtime.accept_session(session_id, user.id)
             return self.success_response(
                 message="Session accepted and closed"
             )
@@ -387,7 +387,7 @@ class ChatController(BaseController):
     def reject_session(self, session_id: str, user: User) -> APIResponse:
         """Reject the session's suggestion and close it."""
         try:
-            self.chat_manager.reject_session(session_id, user.id)
+            self.chat_runtime.reject_session(session_id, user.id)
             return self.success_response(
                 message="Session rejected and closed"
             )
@@ -416,7 +416,7 @@ class ChatController(BaseController):
     ) -> APIResponse:
         """Update session properties (e.g., name)."""
         try:
-            session = self.chat_manager.update_session(
+            session = self.chat_runtime.update_session(
                 session_id=session_id,
                 user_id=user.id,
                 name=request.name,
@@ -457,7 +457,7 @@ class ChatController(BaseController):
     ) -> APIResponse:
         """Suggest @resource completions for the chat input dropdown."""
         try:
-            suggestions = await self.chat_manager.suggest_resources(
+            suggestions = await self.chat_runtime.suggest_resources(
                 query=query,
                 mode_id=mode,
                 user_id=user.id,
@@ -486,13 +486,13 @@ class ChatController(BaseController):
 
     def list_tools(self, mode: Optional[str] = None) -> APIResponse:
         """List available LLM tools, optionally filtered to a chat mode."""
-        if not self.chat_manager.tool_executor:
+        if not self.chat_runtime.tool_executor:
             return self.success_response(data={"tools": []})
 
-        registry = self.chat_manager.tool_executor.tool_registry
+        registry = self.chat_runtime.tool_executor.tool_registry
         if mode:
             try:
-                mode_obj = self.chat_manager.chat_mode_registry.require(mode)
+                mode_obj = self.chat_runtime.chat_mode_registry.require(mode)
             except UnknownChatModeException as e:
                 return self.error_api_response(error="unknown_mode", message=str(e))
             tool_list = registry.get_for_mode(mode_obj)
@@ -517,10 +517,10 @@ class ChatController(BaseController):
 
     def list_pre_chat_actions(self) -> APIResponse:
         """List all registered pre-chat actions."""
-        if not self.chat_manager.pre_chat_action_manager:
+        if not self.chat_runtime.pre_chat_action_registry:
             return self.success_response(data={"actions": []})
 
-        actions = self.chat_manager.pre_chat_action_manager.get_all_actions()
+        actions = self.chat_runtime.pre_chat_action_registry.get_all_actions()
         return self.success_response(data={
             "actions": [
                 {
@@ -544,7 +544,7 @@ class ChatController(BaseController):
     ) -> APIResponse:
         """Approve or reject a pending tool execution."""
         try:
-            result = await self.chat_manager.approve_tool_execution(
+            result = await self.chat_runtime.approve_tool_execution(
                 session_id=session_id,
                 user_id=user.id,
                 message_id=request.message_id,
@@ -583,7 +583,7 @@ class ChatController(BaseController):
     ) -> APIResponse:
         """Record an approve/reject verdict on an enhancement-proposed prompt."""
         try:
-            result = await self.chat_manager.record_prompt_feedback(
+            result = await self.chat_runtime.record_prompt_feedback(
                 session_id=session_id,
                 user_id=user.id,
                 message_id=message_id,
@@ -621,9 +621,9 @@ class ChatController(BaseController):
         scope_ref: Optional[str] = None,
     ) -> APIResponse:
         """List the user's persistent LLM memory notes, optionally filtered."""
-        if not self.chat_manager.llm_memory_repository:
+        if not self.chat_runtime.llm_memory_repository:
             return self.error_api_response(error="memory_unavailable", message="Memory manager not available")
-        notes = memory_operations.read_notes(self.chat_manager.llm_memory_repository, user.id, scope=scope, scope_ref=scope_ref)
+        notes = memory_operations.read_notes(self.chat_runtime.llm_memory_repository, user.id, scope=scope, scope_ref=scope_ref)
         return self.success_response(data={
             "notes": [note.to_dict() for note in notes],
             "injection": {
@@ -634,11 +634,11 @@ class ChatController(BaseController):
 
     def write_memory_note(self, request: MemoryWriteRequest, user: User) -> APIResponse:
         """Create or update a persistent LLM memory note."""
-        if not self.chat_manager.llm_memory_repository:
+        if not self.chat_runtime.llm_memory_repository:
             return self.error_api_response(error="memory_unavailable", message="Memory manager not available")
         try:
             note = memory_operations.write_note(
-                self.chat_manager.llm_memory_repository,
+                self.chat_runtime.llm_memory_repository,
                 user_id=user.id,
                 key=request.key,
                 content=request.content,
@@ -654,11 +654,11 @@ class ChatController(BaseController):
 
     def update_memory_note(self, note_id: str, request: MemoryUpdateRequest, user: User) -> APIResponse:
         """Update an existing persistent LLM memory note's key/content."""
-        if not self.chat_manager.llm_memory_repository:
+        if not self.chat_runtime.llm_memory_repository:
             return self.error_api_response(error="memory_unavailable", message="Memory manager not available")
         try:
             note = memory_operations.update_note(
-                self.chat_manager.llm_memory_repository,
+                self.chat_runtime.llm_memory_repository,
                 user_id=user.id, note_id=note_id, key=request.key, content=request.content,
             )
         except ValueError as e:
@@ -672,9 +672,9 @@ class ChatController(BaseController):
 
     def delete_memory_note(self, note_id: str, user: User) -> APIResponse:
         """Delete a persistent LLM memory note."""
-        if not self.chat_manager.llm_memory_repository:
+        if not self.chat_runtime.llm_memory_repository:
             return self.error_api_response(error="memory_unavailable", message="Memory manager not available")
-        deleted = memory_operations.delete_note(self.chat_manager.llm_memory_repository, user_id=user.id, note_id=note_id)
+        deleted = memory_operations.delete_note(self.chat_runtime.llm_memory_repository, user_id=user.id, note_id=note_id)
         if not deleted:
             return self.error_api_response(error="note_not_found", message=f"Memory note '{note_id}' not found")
         return self.success_response(message="Memory note deleted successfully")
@@ -682,7 +682,7 @@ class ChatController(BaseController):
     def delete_session(self, session_id: str, user: User) -> APIResponse:
         """Delete a session and all its messages."""
         try:
-            self.chat_manager.delete_session(session_id, user.id)
+            self.chat_runtime.delete_session(session_id, user.id)
             return self.success_response(
                 message="Session deleted successfully"
             )
@@ -713,7 +713,7 @@ class ChatController(BaseController):
     ) -> APIResponse:
         """List chat sessions across all users, for the admin debug viewer."""
         try:
-            result = self.chat_manager.list_admin_sessions(search=search, limit=limit, offset=offset)
+            result = self.chat_runtime.list_admin_sessions(search=search, limit=limit, offset=offset)
             return self.success_response(data={**result, "limit": limit, "offset": offset})
         except Exception as e:
             logger.exception(f"Error listing admin sessions: {e}")
@@ -725,7 +725,7 @@ class ChatController(BaseController):
     def get_admin_session_detail(self, session_id: str) -> APIResponse:
         """A session's messages plus every LLM call trace, for the admin debug viewer."""
         try:
-            result = self.chat_manager.get_admin_session_detail(session_id)
+            result = self.chat_runtime.get_admin_session_detail(session_id)
             return self.success_response(data=result)
         except SessionNotFoundException:
             return self.error_api_response(
@@ -742,7 +742,7 @@ class ChatController(BaseController):
     def clear_traces(self, session_id: Optional[str] = None) -> APIResponse:
         """Delete LLM call traces for one session, or every session when omitted."""
         try:
-            deleted = self.chat_manager.clear_traces(session_id)
+            deleted = self.chat_runtime.clear_traces(session_id)
             return self.success_response(data={"deleted": deleted})
         except Exception as e:
             logger.exception(f"Error clearing call traces: {e}")

@@ -1,6 +1,6 @@
 """Pins the interaction the team lead flagged: a chat turn
 (NativeLLMClient) and a native diffusion generation share ONE
-ModelLifecycleManager, and each has its own end-of-turn/end-of-generation
+ModelLifecycle, and each has its own end-of-turn/end-of-generation
 sweep (`end_lease` -> `_sweep_unused_owned`, gated on
 `model_cache_scope=preset`, the default). Both directions must hold:
 
@@ -32,7 +32,7 @@ import torch
 
 from src.features.llm.clients.native import NativeLLMClient
 from src.features.llm.repository import LLMConfig
-from src.platform.runtime.model_lifecycle.manager import ModelLifecycleManager
+from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
 
 
 @pytest.fixture(autouse=True)
@@ -51,7 +51,7 @@ class _Settings:
 
 class _FakeDiffusionModel:
     """Stand-in for a diffusion checkpoint entry — same eviction contract
-    ModelLifecycleManager's own test suite uses (a `.module` + `.unload()`)."""
+    ModelLifecycle's own test suite uses (a `.module` + `.unload()`)."""
 
     def __init__(self, name):
         self.name = name
@@ -62,7 +62,7 @@ class _FakeDiffusionModel:
 
 
 def _run_generation(models_manager, owner, gen_id, acquisitions):
-    """Mirrors GenerationManager's real call order
+    """Mirrors GenerationEngine's real call order
     (src/features/generation/generation.py): begin_lease -> begin_generation
     -> acquire(s) -> end_lease. `acquisitions`: list of (key, loader)."""
     models_manager.begin_lease(gen_id)
@@ -74,7 +74,7 @@ def _run_generation(models_manager, owner, gen_id, acquisitions):
 
 @pytest.fixture
 def models_manager():
-    return ModelLifecycleManager(gpu_manager=None, settings_manager=_Settings())
+    return ModelLifecycle(gpu_monitor=None, settings=_Settings())
 
 
 @pytest.fixture

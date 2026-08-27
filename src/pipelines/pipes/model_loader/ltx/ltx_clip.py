@@ -418,7 +418,7 @@ class LTXClipTextEncoder(ClipTextEncoder):
         finally:
             self._move_projection_chain("cpu")
             if device.startswith("cuda"):
-                from src.platform.runtime.model_lifecycle.manager import trim_host_allocator
+                from src.platform.runtime.model_lifecycle.lifecycle import trim_host_allocator
 
                 trim_host_allocator()
 

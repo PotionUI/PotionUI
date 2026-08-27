@@ -20,8 +20,8 @@ from src.features.generation.repository import GenerationRepository
 
 if TYPE_CHECKING:
     from src.platform.filesystem import FileStore
-    from src.platform.settings.settings import SettingsManager
-    from src.features.media_index.manager import MediaIndexManager
+    from src.platform.settings.settings import Settings
+    from src.features.media_index.indexer import MediaIndexer
     from src.features.media_index.repository import MediaIndexRepository
     from src.features.presets.name_resolver import PresetNameResolver
 
@@ -41,8 +41,8 @@ class GenerationHistoryQuery:
         generation_repo: GenerationRepository,
         file_service: Optional["FileStore"] = None,
         media_index_repository: Optional["MediaIndexRepository"] = None,
-        settings_manager: Optional["SettingsManager"] = None,
-        media_index_manager: Optional["MediaIndexManager"] = None,
+        settings: Optional["Settings"] = None,
+        media_indexer: Optional["MediaIndexer"] = None,
         preset_name_resolver: Optional["PresetNameResolver"] = None,
     ):
         """Initialize GenerationHistoryQuery.
@@ -57,10 +57,10 @@ class GenerationHistoryQuery:
             media_index_repository: Source of auto-tagger system tags and rating
                 scores attached to each file in history payloads. Optional so
                 read paths that never surface them work without it.
-            settings_manager: Resolves the NSFW blur threshold so each file's
+            settings: Resolves the NSFW blur threshold so each file's
                 ``nsfw`` flag is decided server-side (the threshold is a SYSTEM
                 setting regular users cannot read). Optional; defaults apply.
-            media_index_manager: Backs semantic (visual) history search via
+            media_indexer: Backs semantic (visual) history search via
                 its gallery vector store. Optional; ``semantic_query`` returns
                 no results when absent.
             preset_name_resolver: Resolves preset ids to their YAML display
@@ -69,8 +69,8 @@ class GenerationHistoryQuery:
         self.generation_repo = generation_repo
         self.file_service = file_service
         self.media_index_repository = media_index_repository
-        self.settings_manager = settings_manager
-        self.media_index_manager = media_index_manager
+        self.settings = settings
+        self.media_indexer = media_indexer
         self.preset_name_resolver = preset_name_resolver
 
     def _preset_name_map(self) -> Dict[str, str]:
@@ -322,10 +322,10 @@ class GenerationHistoryQuery:
         self, user_id: str, semantic_query: str, limit: int
     ) -> List[str]:
         """Visually rank the user's gallery; unique generation ids, best-first."""
-        if self.media_index_manager is None:
+        if self.media_indexer is None:
             return []
         try:
-            hits = self.media_index_manager.search_gallery(user_id, semantic_query, limit=limit)
+            hits = self.media_indexer.search_gallery(user_id, semantic_query, limit=limit)
         except Exception:
             logger.exception("semantic gallery search failed")
             return []
@@ -382,7 +382,7 @@ class GenerationHistoryQuery:
           are there" on the frontend) whenever a filter has more matches
           than one page's worth.
         """
-        from src.features.media_index.manager import SEMANTIC_TOP_K
+        from src.features.media_index.indexer import SEMANTIC_TOP_K
 
         user_id = filter_kwargs.get('user_id')
         needed = (offset + limit) if limit else None
@@ -397,10 +397,10 @@ class GenerationHistoryQuery:
         # only reliable ceiling for the widening loop.
         collection_size: Optional[int] = None
         while ranked_ids and (needed is None or len(ranked_matched) < needed):
-            if self.media_index_manager is None:
+            if self.media_indexer is None:
                 break
             if collection_size is None:
-                collection_size = self.media_index_manager.gallery_collection_size(user_id)
+                collection_size = self.media_indexer.gallery_collection_size(user_id)
             if query_limit >= collection_size:
                 break
             query_limit = min(query_limit * 2, collection_size)
@@ -408,8 +408,8 @@ class GenerationHistoryQuery:
             ranked_matched = self._filter_ranked_generations(ranked_ids, filter_kwargs)
 
         total_count = 0
-        if self.media_index_manager is not None:
-            all_ids = self.media_index_manager.all_gallery_generation_ids(user_id)
+        if self.media_indexer is not None:
+            all_ids = self.media_indexer.all_gallery_generation_ids(user_id)
             if all_ids:
                 total_count = len(self._filter_ranked_generations(all_ids, filter_kwargs))
 
@@ -476,10 +476,10 @@ class GenerationHistoryQuery:
             return
 
         threshold = 0.6
-        if self.settings_manager is not None:
+        if self.settings is not None:
             try:
                 threshold = float(
-                    self.settings_manager.get_setting("media_nsfw_blur_threshold", 0.6)
+                    self.settings.get_setting("media_nsfw_blur_threshold", 0.6)
                 )
             except (TypeError, ValueError):
                 pass

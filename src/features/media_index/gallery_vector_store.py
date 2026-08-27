@@ -180,7 +180,7 @@ class GalleryVectorStore:
         (``self._embedder_slug``) has been rebuilt. Used to find what a
         completed rebuild is safe to drop; never call ``delete_collection``
         on the result until the rebuild has actually finished (see
-        ``MediaIndexManager._settle_gallery_rebuilds``).
+        ``MediaIndexer._settle_gallery_rebuilds``).
         """
         prefix = f"gallery_{user_id}__"
         current = self._collection_name(user_id)

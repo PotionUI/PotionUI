@@ -12,7 +12,7 @@ from typing import Optional, Any
 
 
 from src.features.media.media_types import MediaTypeResolver
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -37,16 +37,16 @@ class FilePathResolver:
 
     def __init__(
         self,
-        settings_manager: SettingsManager,
+        settings: Settings,
         preset_loader: Optional[Any] = None
     ):
         """Initialize FilePathResolver.
 
         Args:
-            settings_manager: Settings manager for directory configuration
+            settings: Settings manager for directory configuration
             preset_loader: Optional preset loader for preset file resolution
         """
-        self.settings = settings_manager
+        self.settings = settings
         self.preset_loader = preset_loader
 
     def resolve_temp_file(self, filename: str, user_id: Optional[str] = None) -> Path:

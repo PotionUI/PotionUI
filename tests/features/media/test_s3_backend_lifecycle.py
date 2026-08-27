@@ -1,6 +1,6 @@
 """End-to-end upload lifecycle with the S3 storage backend active.
 
-Exercises the real entry points a request would hit - `MediaManager.upload_media`
+Exercises the real entry points a request would hit - `MediaStore.upload_media`
 then `MediaController.serve_uploaded_media` (the actual route handler, not a
 manager method called directly) - against an in-process fake S3 built on
 `httpx.MockTransport`. Never a real network call.
@@ -13,7 +13,7 @@ import pytest
 
 from src.features.media.file_resolver import FilePathResolver
 from src.features.media.image_processor import ImageProcessor
-from src.features.media.manager import MediaManager
+from src.features.media.store import MediaStore
 from src.features.media.media_types import MediaTypeResolver
 from src.features.media.routes import MediaController
 from src.features.media.upload_repository import UploadRepository
@@ -23,7 +23,7 @@ from src.features.generation.repository import GenerationRepository
 from src.platform.filesystem.file_store import FileStore
 from src.platform.filesystem.s3_driver import S3FileStorageDriver
 from src.platform.plugins import PluginRegistry
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 
 
 class _FakeS3Backend:
@@ -65,7 +65,7 @@ def s3_driver():
 
 @pytest.fixture
 def manager(s3_driver, tmp_path):
-    settings = Mock(spec=SettingsManager)
+    settings = Mock(spec=Settings)
     settings.get_file_storage_directory.return_value = str(tmp_path)
 
     media_types = Mock(spec=MediaTypeResolver)
@@ -80,13 +80,13 @@ def manager(s3_driver, tmp_path):
     hook_context.data = {}
     plugin_registry.execute_hook.return_value = (hook_context, [])
 
-    return MediaManager(
+    return MediaStore(
         file_resolver=Mock(spec=FilePathResolver),
         image_processor=Mock(spec=ImageProcessor),
         media_type_resolver=media_types,
         file_repository=Mock(spec=FileRepository),
         generation_repository=Mock(spec=GenerationRepository),
-        settings_manager=settings,
+        settings=settings,
         file_service=Mock(spec=FileStore),
         plugin_registry=plugin_registry,
         upload_repository=Mock(spec=UploadRepository),

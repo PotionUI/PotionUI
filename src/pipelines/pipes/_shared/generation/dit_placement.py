@@ -30,7 +30,7 @@ deliberately re-implemented here (not imported) since those are private
 methods on ``NativeGenerator`` shared by every native family -- refactoring
 them was out of scope for an LTX-only fix. Every actual mechanism this
 delegates to (``NativeModel.move_to``/``stream_to``, ``memory/partial.py``'s
-greedy leaf split, ``GpuResidencyManager``, ``free_vram_gb``,
+greedy leaf split, ``GpuResidencyRegistry``, ``free_vram_gb``,
 ``minimum_inference_memory_gb``) is reused unchanged.
 
 Short clips (a few seconds) always see the exact previous behaviour: the full
@@ -85,7 +85,7 @@ import torch
 from src.platform.observability.profiling import get_profiler
 from src.platform.runtime.native.memory.residency import (
     free_vram_gb,
-    get_residency_manager,
+    get_residency_registry,
     minimum_inference_memory_gb,
 )
 from src.platform.runtime.native.optimizations.compile import maybe_compile_dit
@@ -456,7 +456,7 @@ def _ensure_room_for(device: str, need_gb: float, own_models: Iterable[Any]) -> 
     free = free_vram_gb(device)
     if free is None:
         return
-    manager = get_residency_manager()
+    manager = get_residency_registry()
     if need_gb and need_gb > 0.0:
         offloaded = manager.ensure_free(device, need_gb, free, exclude=own_models)
     else:
@@ -474,7 +474,7 @@ def _move_resident(dit: Any, device: str, own_models: Iterable[Any]) -> str:
         return "resident"
     except torch.cuda.OutOfMemoryError:
         logger.warning("[LTX PLACEMENT] DiT move to %s OOM'd; evicting foreign residents and retrying", device)
-        get_residency_manager().offload_all(device, exclude=own_models)
+        get_residency_registry().offload_all(device, exclude=own_models)
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         try:
@@ -506,7 +506,7 @@ def _move_partial(dit: Any, device: str, weight_budget_gb: float, own_models: It
             "evicting foreign residents and streaming fully", weight_budget_gb,
         )
         dit.offload()
-        get_residency_manager().offload_all(device, exclude=own_models)
+        get_residency_registry().offload_all(device, exclude=own_models)
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         dit.stream_to(device, 0.0)

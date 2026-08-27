@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock
 import pytest
 from PIL import Image
 
-from src.features.generation.history_manager import GenerationHistoryManager
+from src.features.generation.history_facade import GenerationHistoryFacade
 
 
 def _png_bytes() -> bytes:
@@ -48,7 +48,7 @@ class TestExtensionlessUploadTyping:
     def _make_manager(self, tmp_path):
         mock_file_service = Mock()
         mock_file_service.get_full_path.side_effect = lambda rel: str(tmp_path / rel)
-        return GenerationHistoryManager(
+        return GenerationHistoryFacade(
             generation_repo=self.mock_repo,
             file_service=mock_file_service,
             plugin_registry=self.mock_plugins,

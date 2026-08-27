@@ -14,13 +14,13 @@ def make_context(
     user_id: str = "user-1",
     generation_orchestrator: Any = None,
     preset_manager: Any = None,
-    settings_manager: Any = None,
+    settings: Any = None,
 ) -> ToolContext:
     return ToolContext(
         user_id=user_id,
         generation_orchestrator=generation_orchestrator,
         preset_manager=preset_manager,
-        settings_manager=settings_manager,
+        settings=settings,
     )
 
 
@@ -135,11 +135,11 @@ class TestMediaOverrideValidation:
         preset_manager.get_form_schema.return_value = {
             "form_schema": {"properties": {"init_image": {"type": "image"}}},
         }
-        settings_manager = MagicMock()
-        settings_manager.get_file_storage_directory.return_value = str(tmp_path)
+        settings = MagicMock()
+        settings.get_file_storage_directory.return_value = str(tmp_path)
         orchestrator = make_orchestrator()
         ctx = make_context(
-            generation_orchestrator=orchestrator, preset_manager=preset_manager, settings_manager=settings_manager,
+            generation_orchestrator=orchestrator, preset_manager=preset_manager, settings=settings,
         )
         result = await StartGenerationTool().execute_confirmed(
             ctx, preset_id="sdxl/img2img", form_overrides={"init_image": "/etc/passwd"},

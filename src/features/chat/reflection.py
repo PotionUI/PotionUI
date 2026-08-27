@@ -43,9 +43,9 @@ _JSON_ARRAY_RE = re.compile(r"\[.*\]", re.DOTALL)
 class ChatReflectionGenerator:
     """Extracts and persists durable memory notes from a session's transcript.
 
-    Takes the owning ``ChatManager`` rather than its collaborators directly:
+    Takes the owning ``ChatRuntime`` rather than its collaborators directly:
     ``llm_memory_repository`` is late-bound onto the manager by the composition
-    root *after* construction (see ``ChatManager``'s docstring), so reading it
+    root *after* construction (see ``ChatRuntime``'s docstring), so reading it
     back through ``self._m`` at call time - instead of capturing it in
     ``__init__`` - is what makes that late binding actually take effect here.
     """

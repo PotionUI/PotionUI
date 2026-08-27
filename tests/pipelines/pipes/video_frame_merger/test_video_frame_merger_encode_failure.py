@@ -5,7 +5,7 @@ Every failure inside the encode used to be caught and turned into `None`, which
 success. The generation completed, the status went to COMPLETED, and the user
 got an empty gallery with nothing in the logs pointing at the encoder. These
 tests pin the three ways the encode can fail, plus the end-to-end consequence:
-GenerationManager must emit a generation error, not a completion.
+GenerationEngine must emit a generation error, not a completion.
 """
 
 from typing import Any, Dict
@@ -17,7 +17,7 @@ from PIL import Image
 
 pytest.importorskip("cv2", reason="cv2 required by video frame merging", exc_type=ImportError)
 
-from src.features.generation.generation import GenerationManager
+from src.features.generation.engine import GenerationEngine
 from src.pipelines.contracts import IOType, PipeInput, PipeOutput, PipeOutputSpec
 from src.pipelines.outputs import (
     ErrorGenerationOutput,
@@ -154,9 +154,9 @@ def test_no_video_output_is_emitted_when_the_encode_fails():
 def test_a_failed_encode_fails_the_whole_generation():
     """The behaviour the defect was reported as: the generation used to complete
     with no video instead of erroring."""
-    manager = GenerationManager(
-        gpu=Mock(), model_manager=Mock(), pipe_catalog=Mock(), settings_manager=Mock(),
-        system_monitor=Mock(), memory_manager=Mock(), llm_service=Mock(),
+    manager = GenerationEngine(
+        gpu=Mock(), model_directories=Mock(), pipe_catalog=Mock(), settings=Mock(),
+        system_monitor=Mock(), memory_advisor=Mock(), llm_service=Mock(),
     )
     manager.pipe_catalog.get_pipe.side_effect = lambda name: {
         "frames": FramesPipe,

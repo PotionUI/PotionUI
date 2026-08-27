@@ -38,7 +38,7 @@ def worker(mock_settings, mock_repository):
     return DownloadWorker(
         settings=mock_settings,
         repo=mock_repository,
-        connection_manager=AsyncMock(),
+        connection_hub=AsyncMock(),
         provider_registry_factory=lambda: None,
     )
 

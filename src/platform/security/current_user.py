@@ -13,43 +13,43 @@ from typing import Optional, Tuple
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 
-from src.platform.security import AuthManager
+from src.platform.security import Auth
 from src.platform.security.user import User, AccountType
 
 # OAuth2 scheme - tokenUrl should match the login endpoint
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
-# Global reference to auth manager (set during app startup)
-_auth_manager: Optional[AuthManager] = None
+# Global reference to the Auth coordinator (set during app startup)
+_auth: Optional[Auth] = None
 
 
-def set_auth_manager(manager: AuthManager) -> None:
+def set_auth(auth: Auth) -> None:
     """
-    Set the global auth manager instance.
+    Set the global auth instance.
 
     This should be called during application startup to provide
-    the auth manager for dependency injection.
+    the Auth for dependency injection.
 
     Args:
-        manager: AuthManager instance from DI container
+        auth: Auth instance from DI container
     """
-    global _auth_manager
-    _auth_manager = manager
+    global _auth
+    _auth = auth
 
 
-def get_auth_manager() -> AuthManager:
+def get_auth() -> Auth:
     """
-    Get the global auth manager instance.
+    Get the global auth instance.
 
     Returns:
-        AuthManager instance
+        Auth instance
 
     Raises:
-        RuntimeError: If auth manager not initialized
+        RuntimeError: If auth not initialized
     """
-    if _auth_manager is None:
-        raise RuntimeError("AuthManager not initialized. Call set_auth_manager() during app startup.")
-    return _auth_manager
+    if _auth is None:
+        raise RuntimeError("Auth not initialized. Call set_auth() during app startup.")
+    return _auth
 
 
 async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
@@ -74,11 +74,11 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
         headers={"WWW-Authenticate": "Bearer"},
     )
 
-    auth_manager = get_auth_manager()
+    auth = get_auth()
     # get_user_from_token does a blocking DB read; every authenticated request
     # goes through this dependency, so running it inline would put a sync
     # sqlite round-trip on the single event loop ahead of the handler.
-    user = await asyncio.to_thread(auth_manager.get_user_from_token, token)
+    user = await asyncio.to_thread(auth.get_user_from_token, token)
 
     if user is None:
         raise credentials_exception
@@ -146,8 +146,8 @@ def authenticate_websocket_token(token: Optional[str] = None) -> Tuple[Optional[
     """
     import logging
     try:
-        auth_manager = get_auth_manager()
-        return auth_manager.authenticate_websocket(token)
+        auth = get_auth()
+        return auth.authenticate_websocket(token)
     except RuntimeError as e:
         logging.error(f"WebSocket auth initialization error: {e}")
         return (None, "Authentication service not available")

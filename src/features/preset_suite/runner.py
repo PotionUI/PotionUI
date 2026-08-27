@@ -311,7 +311,7 @@ class HeadlessGenerationClient:
         # Migrations before the container, exactly as create_app()'s
         # run_migrations_sync() does — replicated here rather than imported,
         # because importing api.py executes its module-level app boot.
-        from src.platform.database import migration_manager
+        from src.platform.database import migration_runner
 
         # EPHEMERAL DB — re-point the shared Database singleton at a throwaway sqlite
         # file inside run_dir BEFORE migrations/injector, so the ENTIRE run
@@ -332,8 +332,8 @@ class HeadlessGenerationClient:
             _db_singleton.db_path = suite_db
             logger.info("preset-suite: using ephemeral DB at %s", suite_db)
 
-        if migration_manager.has_pending_migrations():
-            migration_manager.run_migrations()
+        if migration_runner.has_pending_migrations():
+            migration_runner.run_migrations()
 
         # With a fresh ephemeral schema, seed the one user row the generation FK
         # needs and redirect file storage into the run dir (see _prepare_ephemeral_db).

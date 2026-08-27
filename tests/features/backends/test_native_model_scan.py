@@ -50,12 +50,12 @@ def hash_cache_db():
          patch.object(hash_cache_repository_module, "db", test_database), \
          patch.object(model_repository_module, "db", test_database), \
          patch.object(tag_repository_module, "db", test_database):
-        from src.platform.database.migration_runner import MigrationManager
+        from src.platform.database.migration_runner import MigrationRunner
 
         old_stdout = sys.stdout
         sys.stdout = io.StringIO()
         try:
-            MigrationManager().run_migrations()
+            MigrationRunner().run_migrations()
         finally:
             sys.stdout = old_stdout
 

@@ -43,7 +43,7 @@ Preset + mode + prompts + form values
 
 `GenerationOrchestrator` owns routing, persistence, queueing, and output handling.
 `PipelineBuilder` is the one form-to-pipeline path used by both real execution and graph preview.
-`GenerationManager` validates and executes the resulting pipes.
+`GenerationEngine` validates and executes the resulting pipes.
 
 ## 1. Backend and model routing
 
@@ -98,13 +98,13 @@ pipeline is then handed to the chosen backend:
 - `ComfyUIBackend.prepare_pipes()` injects the selected server's connection configuration.
 - A plugin backend can provide its own preparation step.
 
-`GenerationManager` overlays the processed configuration onto each pipe class's defaults, validates
+`GenerationEngine` overlays the processed configuration onto each pipe class's defaults, validates
 the declared values, resolves inputs from earlier pipe outputs, and injects requested services:
 `GPU`, `SYSTEM`, `MEMORY`, `LLM`, `MODELS`, and `ASSETS`. Enabled pipes run sequentially, with
 `pipe.before_execute` and `pipe.after_execute` hooks around each call.
 
 The old pipeline-level `cache:` key is deliberately inert and is removed by `PipelineBuilder`.
-Model reuse is owned by `ModelLifecycleManager` instead.
+Model reuse is owned by `ModelLifecycle` instead.
 
 ## 3. What actually performs inference
 
@@ -244,7 +244,7 @@ Final precedence, from lowest to highest, is:
 | 4 | `pipe.before_execute` hook | May modify pipe configuration and inputs immediately before execution. |
 
 Chronologically, preset rendering occurs before backend preparation; the table describes the
-resulting **value precedence**. `GenerationManager` then merges the processed configuration over
+resulting **value precedence**. `GenerationEngine` then merges the processed configuration over
 the class defaults and validates it.
 
 Common controls are owned as follows:
@@ -330,7 +330,7 @@ When a generation behaves unexpectedly, inspect the layers in this order:
    `src/features/backends/backend_registry.py`, `src/features/models/`
 3. **Rendered pipeline:** `src/features/generation/pipeline_builder.py`
 4. **Pipe validation/execution:** `src/features/generation/generation.py`
-5. **Lifecycle cache:** `src/platform/runtime/model_lifecycle/manager.py`
+5. **Lifecycle cache:** `src/platform/runtime/model_lifecycle/lifecycle.py`
 6. **Native-v2 loading/placement:** `src/platform/runtime/native/engine.py`, `src/platform/runtime/native/memory/`
 7. **Native-v2 sampling:** `src/platform/runtime/native/sampling/`
 8. **Legacy SDXL memory policy:** `src/pipelines/pipes/checkpoint_loader/sdxl/`

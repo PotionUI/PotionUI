@@ -4,7 +4,7 @@ Database records for the media feature.
 `Upload` is the ownership/metadata row for a file sent through the
 MediaLoader form field's upload flow (migration 087). It is
 deliberately separate from `src.features.generation.records.File`: an upload
-has no generation to belong to and is written by `MediaManager.upload_media`
+has no generation to belong to and is written by `MediaStore.upload_media`
 rather than the pipe/output path.
 """
 

@@ -26,7 +26,7 @@ from PIL import Image
 from src.features.forms.binding import bind_form
 from src.features.library import operations
 from src.features.library.routes import LibraryController, build_router as build_library_router
-from src.features.media import ImageProcessor, MediaManager, MediaTypeResolver
+from src.features.media import ImageProcessor, MediaStore, MediaTypeResolver
 from src.features.media.routes import MediaController, build_router as build_media_router
 from src.features.presets.templates import FieldTemplate, FormTemplate, ModeTemplate, PresetTemplate
 from src.platform.plugins.registry import PluginRegistry
@@ -40,7 +40,7 @@ from tests.features.library.test_operations import LibraryTestBase
 class _NoopPlugins:
     """The hook chain's shape with nothing registered on it.
 
-    `MediaManager` runs `before_upload`/`after_upload` through the registry and
+    `MediaStore` runs `before_upload`/`after_upload` through the registry and
     reads `.data` off what comes back, so the upload path needs a registry that
     answers in that shape - not a `None` that turns every upload into a 400.
     """
@@ -61,13 +61,13 @@ class LibraryOverHTTPTestBase(LibraryTestBase):
     def setUp(self):
         super().setUp()
 
-        media_manager = MediaManager(
+        media_store = MediaStore(
             file_resolver=self.file_resolver,
             image_processor=ImageProcessor(),
             media_type_resolver=MediaTypeResolver(),
             file_repository=self.file_repo,
             generation_repository=None,
-            settings_manager=None,
+            settings=None,
             file_service=self.file_store,
             plugin_registry=_NoopPlugins(),
             upload_repository=self.upload_repo,
@@ -75,7 +75,7 @@ class LibraryOverHTTPTestBase(LibraryTestBase):
         )
 
         container = _Container(
-            media_controller=MediaController(media_manager),
+            media_controller=MediaController(media_store),
             library_controller=LibraryController(self.collaborators),
         )
 
@@ -294,14 +294,14 @@ class TestSubmittingAPickedValueDoesNotDuplicate(LibraryOverHTTPTestBase):
         backend_registry = Mock()
         backend_registry.select_backend_for_generation = Mock(return_value=backend)
 
-        connection_manager = Mock()
-        connection_manager.broadcast_to_generation = AsyncMock()
+        connection_hub = Mock()
+        connection_hub.broadcast_to_generation = AsyncMock()
 
-        settings_manager = Mock()
-        settings_manager.get_file_storage_directory = Mock(
+        settings = Mock()
+        settings.get_file_storage_directory = Mock(
             return_value=str(self.file_resolver.get_storage_directory(self.user_id))
         )
-        settings_manager.get_setting = Mock(return_value="/outputs")
+        settings.get_setting = Mock(return_value="/outputs")
 
         output_processor = Mock()
         output_processor.process_output = AsyncMock(return_value={"processed": True})
@@ -324,8 +324,8 @@ class TestSubmittingAPickedValueDoesNotDuplicate(LibraryOverHTTPTestBase):
         orchestrator = GenerationOrchestrator(
             pipeline_builder=pipeline_builder,
             backend_registry=backend_registry,
-            connection_manager=connection_manager,
-            settings_manager=settings_manager,
+            connection_hub=connection_hub,
+            settings=settings,
             output_processor=output_processor,
             preset_template_loader=preset_template_loader,
             plugin_registry=PluginRegistry(),

@@ -13,7 +13,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from src.features.generation.generation import GenerationManager
+from src.features.generation.engine import GenerationEngine
 from src.pipelines.contracts import IOType, PipeInput, PipeOutputSpec
 from src.pipelines.outputs import ErrorGenerationOutput, GenerationExecutionError
 
@@ -58,11 +58,11 @@ class PlainlyFailingPipe(FailingPipe):
 def mock_dependencies():
     return {
         'gpu': Mock(),
-        'model_manager': Mock(),
+        'model_directories': Mock(),
         'pipe_catalog': Mock(),
-        'settings_manager': Mock(),
+        'settings': Mock(),
         'system_monitor': Mock(),
-        'memory_manager': Mock(),
+        'memory_advisor': Mock(),
         'llm_service': Mock(),
     }
 
@@ -75,7 +75,7 @@ def _run(manager, pipe_class):
     manager.pipe_catalog.get_pipe.return_value = pipe_class
 
     outputs = []
-    with patch('src.features.generation.generation.logger') as log:
+    with patch('src.features.generation.engine.logger') as log:
         with pytest.raises(Exception):
             manager.generate(PIPES, lambda o: outputs.append(o), "gen_error_test")
         logged = [str(call.args[0]) for call in log.error.call_args_list]
@@ -85,7 +85,7 @@ def _run(manager, pipe_class):
 def test_the_attached_detail_is_logged(mock_dependencies):
     """The defect: operators saw the one-line summary and the local traceback,
     and never the backend's own error text."""
-    manager = GenerationManager(**mock_dependencies)
+    manager = GenerationEngine(**mock_dependencies)
 
     logged, _ = _run(manager, FailingPipe)
 
@@ -93,7 +93,7 @@ def test_the_attached_detail_is_logged(mock_dependencies):
 
 
 def test_the_summary_is_still_logged(mock_dependencies):
-    manager = GenerationManager(**mock_dependencies)
+    manager = GenerationEngine(**mock_dependencies)
 
     logged, _ = _run(manager, FailingPipe)
 
@@ -102,7 +102,7 @@ def test_the_summary_is_still_logged(mock_dependencies):
 
 def test_the_detail_still_reaches_the_frontend(mock_dependencies):
     """Logging it must not come at the cost of the notification body."""
-    manager = GenerationManager(**mock_dependencies)
+    manager = GenerationEngine(**mock_dependencies)
 
     _, outputs = _run(manager, FailingPipe)
 
@@ -114,12 +114,12 @@ def test_the_detail_still_reaches_the_frontend(mock_dependencies):
 
 def test_an_exception_without_a_detail_logs_no_empty_detail_line(mock_dependencies):
     """A plain exception has nothing extra to say; the traceback still carries it."""
-    manager = GenerationManager(**mock_dependencies)
+    manager = GenerationEngine(**mock_dependencies)
     pipes = [{'name': 'plainly_failing_pipe', 'enabled': True, 'input': [], 'cache': [], 'config': {}}]
     manager.pipe_catalog.get_pipe.return_value = PlainlyFailingPipe
 
     outputs = []
-    with patch('src.features.generation.generation.logger') as log:
+    with patch('src.features.generation.engine.logger') as log:
         with pytest.raises(RuntimeError):
             manager.generate(pipes, lambda o: outputs.append(o), "gen_error_test")
         logged = [str(call.args[0]) for call in log.error.call_args_list]

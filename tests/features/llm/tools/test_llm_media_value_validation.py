@@ -92,7 +92,7 @@ def make_context(storage_root, form_state=None):
         user_id="user-1",
         session_metadata={"form_state": form_state} if form_state else {},
         preset_manager=make_preset_manager(),
-        settings_manager=make_settings(storage_root),
+        settings=make_settings(storage_root),
     )
 
 
@@ -299,7 +299,7 @@ class TestGuardFiresOnANestedPreset:
             user_id="user-1",
             session_metadata={"form_state": form_state({"steps": 30, "source_image": REAL_PATH})},
             preset_manager=make_nested_preset_manager(),
-            settings_manager=make_settings(storage),
+            settings=make_settings(storage),
         )
 
         result = await tool.execute(
@@ -316,7 +316,7 @@ class TestGuardFiresOnANestedPreset:
             user_id="user-1",
             session_metadata={"form_state": form_state({"steps": 30, "source_image": None})},
             preset_manager=make_nested_preset_manager(),
-            settings_manager=make_settings(storage),
+            settings=make_settings(storage),
         )
 
         result = await tool.execute(
@@ -342,7 +342,7 @@ class TestSearchGalleryReturnsAReusablePath:
         }
 
         result = await SearchGalleryTool().execute(
-            ToolContext(user_id="user-1", media_index_manager=manager), queries=["fox"]
+            ToolContext(user_id="user-1", media_indexer=manager), queries=["fox"]
         )
 
         match = json.loads(result.data)["results"][0]["matches"][0]
@@ -364,7 +364,7 @@ class TestSearchGalleryReturnsAReusablePath:
         }
 
         search = await SearchGalleryTool().execute(
-            ToolContext(user_id="user-1", media_index_manager=manager), queries=["fox"]
+            ToolContext(user_id="user-1", media_indexer=manager), queries=["fox"]
         )
         found = json.loads(search.data)["results"][0]["matches"][0]["path"]
 

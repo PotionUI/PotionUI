@@ -13,8 +13,8 @@ import httpx
 from src.platform.filesystem.model_weights import weights_status
 
 if TYPE_CHECKING:
-    from src.features.downloads import DownloadManager
-    from src.platform.settings.settings import SettingsManager
+    from src.features.downloads import DownloadQueue
+    from src.platform.settings.settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -101,13 +101,13 @@ class LocalEmbeddingProvider(EmbeddingProvider):
         models_dir: str = "models",
         device: str = "cpu",
         auto_download: bool = True,
-        download_manager: Optional["DownloadManager"] = None,
+        download_queue: Optional["DownloadQueue"] = None,
     ):
         self.model_name = model_name
         self.models_dir = models_dir
         self.device = device
         self.auto_download = auto_download
-        self.downloads = download_manager
+        self.downloads = download_queue
         self._tokenizer = None
         self._model = None
         self._load_lock = threading.Lock()
@@ -144,7 +144,7 @@ class LocalEmbeddingProvider(EmbeddingProvider):
         """Whether the model is currently held in memory - distinct from
         `is_available()` (on-disk weights presence). Unlike the tagger/vision
         providers, this instance holds its own model directly rather than
-        through `ModelLifecycleManager` (no eviction), so "loaded" here is
+        through `ModelLifecycle` (no eviction), so "loaded" here is
         just "has this instance loaded it since process start"."""
         return self._model is not None
 
@@ -206,8 +206,8 @@ class LocalEmbeddingProvider(EmbeddingProvider):
 
 
 def build_embedding_provider(
-    settings_manager: "SettingsManager",
-    download_manager: Optional["DownloadManager"] = None,
+    settings: "Settings",
+    download_queue: Optional["DownloadQueue"] = None,
 ) -> EmbeddingProvider:
     """Construct the configured embedding provider from settings.
 
@@ -215,17 +215,17 @@ def build_embedding_provider(
     in-process transformers encoder) and ``'ollama'`` (opt-in, an external
     Ollama server).
     """
-    if settings_manager.get_setting("prompt_embedding_provider", "local") == "ollama":
+    if settings.get_setting("prompt_embedding_provider", "local") == "ollama":
         return OllamaEmbeddingProvider(
-            base_url=settings_manager.get_setting(
+            base_url=settings.get_setting(
                 "prompt_embedding_ollama_base_url", "http://localhost:11434"
             ),
-            model=settings_manager.get_setting("prompt_embedding_ollama_model", "nomic-embed-text"),
+            model=settings.get_setting("prompt_embedding_ollama_model", "nomic-embed-text"),
         )
     return LocalEmbeddingProvider(
-        model_name=settings_manager.get_setting("prompt_embedding_model", LocalEmbeddingProvider.DEFAULT_MODEL),
-        models_dir=settings_manager.get_models_dir(),
-        device=settings_manager.get_setting("prompt_embedding_device", "cpu"),
-        auto_download=bool(settings_manager.get_setting("prompt_embedding_auto_download", False)),
-        download_manager=download_manager,
+        model_name=settings.get_setting("prompt_embedding_model", LocalEmbeddingProvider.DEFAULT_MODEL),
+        models_dir=settings.get_models_dir(),
+        device=settings.get_setting("prompt_embedding_device", "cpu"),
+        auto_download=bool(settings.get_setting("prompt_embedding_auto_download", False)),
+        download_queue=download_queue,
     )

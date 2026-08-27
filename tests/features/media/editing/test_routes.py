@@ -17,7 +17,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from src.features.media.editing.manager import MediaEditManager
+from src.features.media.editing.editor import MediaEditor
 from src.features.media.editing.operations import InvalidEditError
 from src.features.media.editing.routes import MediaEditController, build_router
 from src.features.media.file_resolver import FilePathResolver
@@ -72,7 +72,7 @@ class MediaEditRoutesTestBase(PersistenceTestBase):
         self.file_resolver = FilePathResolver(_StorageDirSettings(self.storage_dir))
         self.uploads_dir = self.file_resolver.get_uploads_directory(None)
 
-        self.manager = MediaEditManager(
+        self.manager = MediaEditor(
             upload_repository=self.upload_repo,
             media_type_resolver=MediaTypeResolver(),
             storage_driver=LocalFileStorageDriver(str(self.storage_dir)),
@@ -768,7 +768,7 @@ async def test_the_manager_refuses_an_unknown_mode_before_touching_anything():
     through the client. Module-level and `async def`: an `async def` method on a
     TestCase is never awaited and reports passed without running.
     """
-    manager = MediaEditManager(
+    manager = MediaEditor(
         upload_repository=None, media_type_resolver=None, storage_driver=None
     )
 

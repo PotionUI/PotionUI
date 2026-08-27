@@ -23,7 +23,7 @@ from src.features.users.repository import UserRepository
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.platform.security.user import AccountType, User
 from src.platform.settings.repository import SettingRepository
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 
 
 def _user(account_type: AccountType, uid: str = "user-1") -> User:
@@ -33,22 +33,22 @@ def _user(account_type: AccountType, uid: str = "user-1") -> User:
 @pytest.fixture
 def stack(mcp_db, monkeypatch):
     token_repository = McpTokenRepository()
-    settings_manager = SettingsManager(SettingRepository())
+    settings = Settings(SettingRepository())
     user_repository = UserRepository()
     mock_handle_method = AsyncMock(return_value={"ok": True})
     monkeypatch.setattr(mcp_routes, "handle_method", mock_handle_method)
     container = SimpleNamespace(
         mcp_token_repository=token_repository,
-        settings_manager=settings_manager,
+        settings=settings,
         mcp_tool_collaborators=Mock(),
         user_repository=user_repository,
     )
-    return container, token_repository, settings_manager, user_repository, mock_handle_method
+    return container, token_repository, settings, user_repository, mock_handle_method
 
 
 @pytest.fixture
 def make_client(stack):
-    container, token_repository, settings_manager, user_repository, mock_handle_method = stack
+    container, token_repository, settings, user_repository, mock_handle_method = stack
 
     def _make(user: User) -> TestClient:
         app = FastAPI()
@@ -57,7 +57,7 @@ def make_client(stack):
         app.dependency_overrides[get_current_admin_user] = lambda: user
         return TestClient(app, raise_server_exceptions=False)
 
-    return _make, container, token_repository, settings_manager, user_repository, mock_handle_method
+    return _make, container, token_repository, settings, user_repository, mock_handle_method
 
 
 class TestTokenCrud:
@@ -114,11 +114,11 @@ class TestTokenCrud:
         """Token CRUD is never gated on either toggle - a user whose MCP
         access is off must still be able to see and manage their tokens. Only
         POST /api/mcp itself is gated (see TestMcpEndpointAuth)."""
-        _container, _tokens, settings_manager, user_repository, _handle_method = stack
+        _container, _tokens, settings, user_repository, _handle_method = stack
         real_user = user_repository.create(username="dana", email="dana@example.com", password_hash="x")
-        operations.set_user_enabled(settings_manager, user_repository, real_user.id, False)
+        operations.set_user_enabled(settings, user_repository, real_user.id, False)
         # mcp_enabled defaults to False too (migration 129) - both flags off.
-        assert operations.is_globally_enabled(settings_manager) is False
+        assert operations.is_globally_enabled(settings) is False
 
         make, *_ = make_client
         client = make(_user(AccountType.USER, uid=real_user.id))
@@ -147,10 +147,10 @@ class TestStatus:
         assert data == {"enabled": False, "global_enabled": False, "user_enabled": True}
 
     def test_global_on_user_off(self, make_client, stack):
-        _container, _tokens, settings_manager, user_repository, _handle_method = stack
-        settings_manager.set_setting("mcp_enabled", True)
+        _container, _tokens, settings, user_repository, _handle_method = stack
+        settings.set_setting("mcp_enabled", True)
         real_user = user_repository.create(username="carol", email="carol@example.com", password_hash="x")
-        operations.set_user_enabled(settings_manager, user_repository, real_user.id, False)
+        operations.set_user_enabled(settings, user_repository, real_user.id, False)
 
         make, *_ = make_client
         client = make(_user(AccountType.USER, uid=real_user.id))
@@ -158,9 +158,9 @@ class TestStatus:
         assert data == {"enabled": False, "global_enabled": True, "user_enabled": False}
 
     def test_global_off_user_off(self, make_client, stack):
-        _container, _tokens, settings_manager, user_repository, _handle_method = stack
+        _container, _tokens, settings, user_repository, _handle_method = stack
         real_user = user_repository.create(username="eve", email="eve@example.com", password_hash="x")
-        operations.set_user_enabled(settings_manager, user_repository, real_user.id, False)
+        operations.set_user_enabled(settings, user_repository, real_user.id, False)
 
         make, *_ = make_client
         client = make(_user(AccountType.USER, uid=real_user.id))
@@ -168,8 +168,8 @@ class TestStatus:
         assert data == {"enabled": False, "global_enabled": False, "user_enabled": False}
 
     def test_both_enabled(self, make_client, stack):
-        _container, _tokens, settings_manager, user_repository, _handle_method = stack
-        settings_manager.set_setting("mcp_enabled", True)
+        _container, _tokens, settings, user_repository, _handle_method = stack
+        settings.set_setting("mcp_enabled", True)
         real_user = user_repository.create(username="frank", email="frank@example.com", password_hash="x")
 
         make, *_ = make_client
@@ -263,10 +263,10 @@ class TestMcpEndpointAuth:
         assert resp.status_code == 403
 
     def test_user_disabled_is_403_even_when_globally_enabled(self, stack):
-        _container, _tokens, settings_manager, user_repository, _handle_method = stack
-        settings_manager.set_setting("mcp_enabled", True)
+        _container, _tokens, settings, user_repository, _handle_method = stack
+        settings.set_setting("mcp_enabled", True)
         real_user, _token, plaintext = self._minted(stack)
-        operations.set_user_enabled(settings_manager, user_repository, real_user.id, False)
+        operations.set_user_enabled(settings, user_repository, real_user.id, False)
 
         client = self._client(stack)
         resp = client.post(
@@ -276,8 +276,8 @@ class TestMcpEndpointAuth:
         assert resp.status_code == 403
 
     def test_globally_and_per_user_enabled_reaches_the_protocol_manager(self, stack):
-        _container, _tokens, settings_manager, _users, mock_handle_method = stack
-        settings_manager.set_setting("mcp_enabled", True)
+        _container, _tokens, settings, _users, mock_handle_method = stack
+        settings.set_setting("mcp_enabled", True)
         _real_user, _token, plaintext = self._minted(stack)
 
         client = self._client(stack)
@@ -290,9 +290,9 @@ class TestMcpEndpointAuth:
         mock_handle_method.assert_called_once()
 
     def test_notification_gets_202_with_no_body(self, stack):
-        _container, _tokens, settings_manager, _users, mock_handle_method = stack
+        _container, _tokens, settings, _users, mock_handle_method = stack
         mock_handle_method.return_value = None
-        settings_manager.set_setting("mcp_enabled", True)
+        settings.set_setting("mcp_enabled", True)
         _real_user, _token, plaintext = self._minted(stack)
 
         client = self._client(stack)

@@ -2,7 +2,7 @@
 
 By the time this step ever runs, consent has structurally already happened:
 the run cannot leave `awaiting_consent` (where `artifacts.plan` parks it) and
-reach this later step without `SetupRunManager.grant_consent` having been
+reach this later step without `SetupRunner.grant_consent` having been
 called (see the state machine in `records.py`), so this executor doesn't need
 to re-derive "what was approved" - it just re-checks presence (a previous
 attempt may have downloaded some of this already) and fetches the rest.
@@ -56,11 +56,11 @@ _AUTH_FAILURE_SIGNALS = ("HTTP 401", "HTTP 403", "returned HTML instead of a fil
 class ArtifactsFetchExecutor:
     def __init__(
         self,
-        download_manager,
+        download_queue,
         model_repository: ModelRepository,
         provider_registry_factory=None,
     ):
-        self.download_manager = download_manager
+        self.download_queue = download_queue
         self.model_repository = model_repository
         # Lazy/optional: resolving the provider registry needs async
         # discovery/init this constructor shouldn't force (see
@@ -90,7 +90,7 @@ class ArtifactsFetchExecutor:
         if not to_fetch:
             return StepResult.ok({"fetched": [], "message": "Nothing left to download."})
 
-        service = self.download_manager
+        service = self.download_queue
         if service is None:
             return StepResult.fail(
                 "NO_DOWNLOAD_MANAGER",
@@ -233,7 +233,7 @@ class ArtifactsFetchExecutor:
         top of the stall check - a download that keeps moving, however
         slowly, keeps running; only genuinely stuck progress fails the step.
         `get_download` is a plain sync repository read (see
-        `DownloadManager.get_download`), so no async bridging is needed for
+        `DownloadQueue.get_download`), so no async bridging is needed for
         the poll loop itself, only for the initial `queue_model_download`
         call.
 

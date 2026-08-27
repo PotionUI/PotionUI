@@ -22,7 +22,7 @@ from src.pipelines.pipes.latent_upscaler.ltx.main import (
 
 _MOD = "src.pipelines.pipes.latent_upscaler.ltx.main"
 # The estimate-then-choose-then-retry encode ladder itself
-# (get_residency_manager/clear_gpu_memory/free_vram_gb, as used INSIDE the
+# (get_residency_registry/clear_gpu_memory/free_vram_gb, as used INSIDE the
 # ladder) now lives in the shared module `_encode_with_oom_retry` delegates
 # to -- patch its namespace, not `_MOD`'s, for encode-ladder tests below.
 # `_free_room_for_upscale`'s own (separate) calls to these same helpers still
@@ -64,7 +64,7 @@ class _RecordingComponent:
         self.device = "cpu"
 
 
-class _FakeResidencyManager:
+class _FakeResidencyRegistry:
     """Records every `offload_all` call; never actually offloads anything --
     mirrors the test double in `test_dit_placement.py`."""
 
@@ -338,7 +338,7 @@ def test_encode_video_snaps_arbitrary_resolution_to_32px_grid():
 
 # -- VRAM-OOM fix: evict the parked DiT before this pipe's own
 # GPU work, and retry the VAE encode once after an OOM. No real GPU/CUDA
-# needed -- `get_residency_manager`/`clear_gpu_memory`/`free_vram_gb` are
+# needed -- `get_residency_registry`/`clear_gpu_memory`/`free_vram_gb` are
 # patched at the module boundary (same style as `test_dit_placement.py`), and
 # OOM is simulated by raising the real `torch.cuda.OutOfMemoryError` class
 # directly (constructing/raising it needs no actual device).
@@ -346,8 +346,8 @@ def test_encode_video_snaps_arbitrary_resolution_to_32px_grid():
 def test_free_room_for_upscale_noop_on_non_cuda_device():
     dit = _RecordingComponent(SimpleNamespace(), device="cuda")  # parked resident
     bundle = _bundle(dit=dit)
-    manager = _FakeResidencyManager()
-    with patch(f"{_MOD}.get_residency_manager", return_value=manager), \
+    manager = _FakeResidencyRegistry()
+    with patch(f"{_MOD}.get_residency_registry", return_value=manager), \
          patch(f"{_MOD}.clear_gpu_memory") as mock_clear:
         _free_room_for_upscale(bundle, "cpu")
     assert dit.offloaded == 0
@@ -358,8 +358,8 @@ def test_free_room_for_upscale_noop_on_non_cuda_device():
 def test_free_room_for_upscale_offloads_resident_dit_and_evicts_foreign_residents():
     dit = _RecordingComponent(SimpleNamespace(), device="cuda")  # dit_restore.py's warm-start
     bundle = _bundle(dit=dit)
-    manager = _FakeResidencyManager()
-    with patch(f"{_MOD}.get_residency_manager", return_value=manager), \
+    manager = _FakeResidencyRegistry()
+    with patch(f"{_MOD}.get_residency_registry", return_value=manager), \
          patch(f"{_MOD}.clear_gpu_memory") as mock_clear:
         _free_room_for_upscale(bundle, "cuda")
     assert dit.offloaded == 1
@@ -370,8 +370,8 @@ def test_free_room_for_upscale_offloads_resident_dit_and_evicts_foreign_resident
 def test_free_room_for_upscale_skips_dit_offload_when_not_resident():
     dit = _RecordingComponent(SimpleNamespace())  # device defaults to "cpu" -- nothing to evict
     bundle = _bundle(dit=dit)
-    manager = _FakeResidencyManager()
-    with patch(f"{_MOD}.get_residency_manager", return_value=manager), \
+    manager = _FakeResidencyRegistry()
+    with patch(f"{_MOD}.get_residency_registry", return_value=manager), \
          patch(f"{_MOD}.clear_gpu_memory") as mock_clear:
         _free_room_for_upscale(bundle, "cuda")
     assert dit.offloaded == 0
@@ -383,8 +383,8 @@ def test_free_room_for_upscale_skips_dit_offload_when_not_resident():
 
 def test_free_room_for_upscale_handles_bundle_with_no_dit_attribute():
     bundle = _bundle()  # dit=None (the pipe's own bundle never carries a dit)
-    manager = _FakeResidencyManager()
-    with patch(f"{_MOD}.get_residency_manager", return_value=manager), \
+    manager = _FakeResidencyRegistry()
+    with patch(f"{_MOD}.get_residency_registry", return_value=manager), \
          patch(f"{_MOD}.clear_gpu_memory") as mock_clear:
         _free_room_for_upscale(bundle, "cuda")
     assert manager.offload_all_calls == [("cuda", (bundle.vae, bundle.upsampler))]
@@ -421,7 +421,7 @@ def test_process_offloads_resident_dit_before_video_encode_runs():
     bundle = SimpleNamespace(vae=vae, upsampler=upsampler, dit=dit)
 
     frames = torch.rand(9, 64, 96, 3)  # already-valid granularity
-    manager = _FakeResidencyManager()
+    manager = _FakeResidencyRegistry()
 
     # `_encode_video`/`_upsample` (unlike everything else this test mocks) do
     # a real tensor `.to(device)` -- irrelevant to what's under test here
@@ -438,7 +438,7 @@ def test_process_offloads_resident_dit_before_video_encode_runs():
         return orig_upsample(bundle, upsampler, latent, "cpu")
 
     with patch(f"{_MOD}._load_video_frames", return_value=frames), \
-         patch(f"{_MOD}.get_residency_manager", return_value=manager), \
+         patch(f"{_MOD}.get_residency_registry", return_value=manager), \
          patch(f"{_MOD}.clear_gpu_memory"), \
          patch(f"{_SHARED_MOD}.free_vram_gb", return_value=10.0), \
          patch.object(LatentUpscalerLtxPipe, "_encode_video", cpu_encode_video), \
@@ -468,8 +468,8 @@ def test_encode_with_oom_retry_succeeds_after_one_eviction():
     bundle = SimpleNamespace(vae=vae, upsampler=_RecordingComponent(_UpsamplerModule()))
     pixels = torch.rand(1, 3, 9, 64, 96)
 
-    manager = _FakeResidencyManager()
-    with patch(f"{_SHARED_MOD}.get_residency_manager", return_value=manager), \
+    manager = _FakeResidencyRegistry()
+    with patch(f"{_SHARED_MOD}.get_residency_registry", return_value=manager), \
          patch(f"{_SHARED_MOD}.clear_gpu_memory") as mock_clear, \
          patch(f"{_SHARED_MOD}.free_vram_gb", return_value=1.0):
         latent = LatentUpscalerLtxPipe._encode_with_oom_retry(bundle, pixels, "cuda")
@@ -496,8 +496,8 @@ def test_encode_with_oom_retry_raises_clear_error_if_still_oom_after_retry():
     bundle = SimpleNamespace(vae=vae, upsampler=_RecordingComponent(_UpsamplerModule()))
     pixels = torch.rand(1, 3, 9, 64, 96)
 
-    manager = _FakeResidencyManager()
-    with patch(f"{_SHARED_MOD}.get_residency_manager", return_value=manager), \
+    manager = _FakeResidencyRegistry()
+    with patch(f"{_SHARED_MOD}.get_residency_registry", return_value=manager), \
          patch(f"{_SHARED_MOD}.clear_gpu_memory"), \
          patch(f"{_SHARED_MOD}.free_vram_gb", return_value=1.0):
         with pytest.raises(torch.cuda.OutOfMemoryError, match="even with tiled encoding"):
@@ -529,8 +529,8 @@ def test_encode_with_oom_retry_falls_back_to_tiled_when_whole_clip_still_oom():
     bundle = SimpleNamespace(vae=vae, upsampler=_RecordingComponent(_UpsamplerModule()))
     pixels = torch.rand(1, 3, 9, 64, 96)
 
-    manager = _FakeResidencyManager()
-    with patch(f"{_SHARED_MOD}.get_residency_manager", return_value=manager), \
+    manager = _FakeResidencyRegistry()
+    with patch(f"{_SHARED_MOD}.get_residency_registry", return_value=manager), \
          patch(f"{_SHARED_MOD}.clear_gpu_memory"), \
          patch(f"{_SHARED_MOD}.free_vram_gb", return_value=1.0):
         latent = LatentUpscalerLtxPipe._encode_with_oom_retry(bundle, pixels, "cuda")
@@ -563,9 +563,9 @@ def test_encode_with_oom_retry_skips_whole_clip_when_estimate_exceeds_budget():
     bundle = SimpleNamespace(vae=vae, upsampler=_RecordingComponent(_UpsamplerModule()))
     pixels = torch.rand(1, 3, 9, 64, 96)  # T*H*W=55296 -> ~0.03GB estimate
 
-    manager = _FakeResidencyManager()
+    manager = _FakeResidencyRegistry()
     # free_vram=0.01GB -> budget=0.0075GB, well under the ~0.03GB estimate.
-    with patch(f"{_SHARED_MOD}.get_residency_manager", return_value=manager), \
+    with patch(f"{_SHARED_MOD}.get_residency_registry", return_value=manager), \
          patch(f"{_SHARED_MOD}.clear_gpu_memory") as mock_clear, \
          patch(f"{_SHARED_MOD}.free_vram_gb", return_value=0.01):
         latent = LatentUpscalerLtxPipe._encode_with_oom_retry(bundle, pixels, "cuda")
@@ -597,8 +597,8 @@ def test_encode_with_oom_retry_uses_provided_tiling_config():
     bundle = SimpleNamespace(vae=vae, upsampler=_RecordingComponent(_UpsamplerModule()))
     pixels = torch.rand(1, 3, 9, 64, 96)
 
-    manager = _FakeResidencyManager()
-    with patch(f"{_SHARED_MOD}.get_residency_manager", return_value=manager), \
+    manager = _FakeResidencyRegistry()
+    with patch(f"{_SHARED_MOD}.get_residency_registry", return_value=manager), \
          patch(f"{_SHARED_MOD}.clear_gpu_memory"), \
          patch(f"{_SHARED_MOD}.free_vram_gb", return_value=1.0):
         LatentUpscalerLtxPipe._encode_with_oom_retry(bundle, pixels, "cuda", tiling_config=custom)
@@ -608,7 +608,7 @@ def test_encode_with_oom_retry_uses_provided_tiling_config():
 
 # -- Host-RAM fix: unload the idle TE + release the stale
 # pinned-host pool as part of the same free-room pass. No real GPU/CUDA
-# needed -- `get_residency_manager`/`clear_gpu_memory`/`get_profiler` are
+# needed -- `get_residency_registry`/`clear_gpu_memory`/`get_profiler` are
 # patched at the module boundary, same style as the tests above.
 
 class _FakeModels:
@@ -706,9 +706,9 @@ def test_free_room_for_upscale_unloads_te_and_empties_pinned_cache_on_cuda():
     bundle.te = te
     bundle.te_cache_key = "native/te/foo.safetensors"
     models = _FakeModels(unloads=True)
-    residency = _FakeResidencyManager()
+    residency = _FakeResidencyRegistry()
 
-    with patch(f"{_MOD}.get_residency_manager", return_value=residency), \
+    with patch(f"{_MOD}.get_residency_registry", return_value=residency), \
          patch(f"{_MOD}.clear_gpu_memory"), \
          patch(f"{_MOD}.empty_pinned_host_cache") as mock_empty:
         _free_room_for_upscale(bundle, "cuda", models)
@@ -740,10 +740,10 @@ def test_free_room_for_upscale_reports_te_and_pinned_fields_on_profiler_mark():
     bundle.te = te
     bundle.te_cache_key = "native/te/foo.safetensors"
     models = _FakeModels(unloads=True)
-    residency = _FakeResidencyManager()
+    residency = _FakeResidencyRegistry()
     fake_profiler = Mock()
 
-    with patch(f"{_MOD}.get_residency_manager", return_value=residency), \
+    with patch(f"{_MOD}.get_residency_registry", return_value=residency), \
          patch(f"{_MOD}.clear_gpu_memory"), \
          patch(f"{_MOD}.get_profiler", return_value=fake_profiler):
         _free_room_for_upscale(bundle, "cuda", models)
@@ -758,10 +758,10 @@ def test_free_room_for_upscale_reports_te_and_pinned_fields_on_profiler_mark():
 
 def test_free_room_for_upscale_te_unloaded_gb_zero_when_no_models_service():
     bundle = _bundle()  # no te_cache_key, no MODELS
-    residency = _FakeResidencyManager()
+    residency = _FakeResidencyRegistry()
     fake_profiler = Mock()
 
-    with patch(f"{_MOD}.get_residency_manager", return_value=residency), \
+    with patch(f"{_MOD}.get_residency_registry", return_value=residency), \
          patch(f"{_MOD}.clear_gpu_memory"), \
          patch(f"{_MOD}.get_profiler", return_value=fake_profiler):
         _free_room_for_upscale(bundle, "cuda")  # models defaults to None
@@ -783,10 +783,10 @@ def test_free_room_for_upscale_fires_a_mid_run_census_right_after_te_eviction():
     bundle.te = te
     bundle.te_cache_key = "native/te/foo.safetensors"
     models = _FakeModels(unloads=True)
-    residency = _FakeResidencyManager()
+    residency = _FakeResidencyRegistry()
     fake_profiler = Mock()
 
-    with patch(f"{_MOD}.get_residency_manager", return_value=residency), \
+    with patch(f"{_MOD}.get_residency_registry", return_value=residency), \
          patch(f"{_MOD}.clear_gpu_memory"), \
          patch(f"{_MOD}.get_profiler", return_value=fake_profiler):
         _free_room_for_upscale(bundle, "cuda", models)
@@ -817,8 +817,8 @@ def test_encode_with_oom_retry_no_eviction_needed_on_first_success():
     bundle = SimpleNamespace(vae=vae, upsampler=_RecordingComponent(_UpsamplerModule()))
     pixels = torch.rand(1, 3, 9, 64, 96)
 
-    manager = _FakeResidencyManager()
-    with patch(f"{_SHARED_MOD}.get_residency_manager", return_value=manager), \
+    manager = _FakeResidencyRegistry()
+    with patch(f"{_SHARED_MOD}.get_residency_registry", return_value=manager), \
          patch(f"{_SHARED_MOD}.clear_gpu_memory") as mock_clear, \
          patch(f"{_SHARED_MOD}.free_vram_gb", return_value=20.0):
         latent = LatentUpscalerLtxPipe._encode_with_oom_retry(bundle, pixels, "cuda")

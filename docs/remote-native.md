@@ -24,7 +24,7 @@ POTIONUI_WORKER_TOKEN=<shared-secret> python worker.py
 the `app` object `src.bootstrap.worker_app.create_worker_app()` builds. The
 composition root is `src/bootstrap/worker_container.py`
 (`build_worker_container()`), which constructs the worker's process
-singletons - a `PipeCatalog`, `GpuManager`, `SystemMonitor`, a `WorkerJournal`,
+singletons - a `PipeCatalog`, `GpuMonitor`, `SystemMonitor`, a `WorkerJournal`,
 and the `WorkerCoordinator` that ties them together - the same one-function,
 dependency-ordered pattern `src/bootstrap/container.py` uses for the main app,
 scaled down to what a worker actually needs.
@@ -66,11 +66,11 @@ its shipped config (`deep_update`), then `validate_pipe_configuration` fills
 any spec default still missing. Both functions are imported directly from
 `src.features.generation.generation` rather than reimplemented.
 
-What the worker does **not** reconstruct: `GenerationManager`'s SERVICE-input
+What the worker does **not** reconstruct: `GenerationEngine`'s SERVICE-input
 injection (GPU/SYSTEM/MEMORY/LLM/MODELS/ASSETS/SETTINGS) and its plugin
 before/after-execute hooks. A worker has no PotionUI database, settings table,
 or model-lifecycle cache to back MEMORY/MODELS/LLM/ASSETS/SETTINGS with, so
-only `GPU` (a bare `GpuManager()`) and `SYSTEM` (a bare `SystemMonitor()`) -
+only `GPU` (a bare `GpuMonitor()`) and `SYSTEM` (a bare `SystemMonitor()`) -
 the two that need no such state - are wired; a pipe requesting anything else
 gets `None` injected, with a warning logged. This is a real gap for a pipe
 that needs a real model-lifecycle cache to run for real, tracked here rather

@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from src.platform.settings.settings import SettingsManager
+    from src.platform.settings.settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -42,11 +42,11 @@ CLAIM_TOKEN_FILENAME = "setup_claim_token"
 _TOKEN_FILE_MODE = stat.S_IRUSR | stat.S_IWUSR
 
 
-class ClaimTokenManager:
+class ClaimTokenStore:
     """Generate, verify, and retire the one-time instance-claim token."""
 
-    def __init__(self, settings_manager: "SettingsManager"):
-        self._settings = settings_manager
+    def __init__(self, settings: "Settings"):
+        self._settings = settings
 
     def _token_path(self) -> Optional[Path]:
         """On-disk location of the token file, or None if storage is undetermined."""

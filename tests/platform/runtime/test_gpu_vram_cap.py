@@ -1,7 +1,7 @@
-"""POTIONUI_VRAM_CAP_GB applied at the source: GpuManager._get_memory_info()
-(src.platform.runtime.gpu) — the read every GpuManager getter (get_total_vram,
-get_free_vram, get_available_vram, ...) and, via `gpu_manager.get_vram_budget()`,
-ModelLifecycleManager's admission decisions, all flow through.
+"""POTIONUI_VRAM_CAP_GB applied at the source: GpuMonitor._get_memory_info()
+(src.platform.runtime.gpu) — the read every GpuMonitor getter (get_total_vram,
+get_free_vram, get_available_vram, ...) and, via `gpu_monitor.get_vram_budget()`,
+ModelLifecycle's admission decisions, all flow through.
 """
 from collections import namedtuple
 from threading import Lock
@@ -23,10 +23,10 @@ def _reset_cache(monkeypatch):
     vram_cap.reset_for_tests()
 
 
-def _gpu_with_real_vram(monkeypatch, total_gb: float, free_gb: float) -> gpu_module.GpuManager:
-    """A GpuManager whose NVML calls are faked out, bypassing __init__/nvmlInit
+def _gpu_with_real_vram(monkeypatch, total_gb: float, free_gb: float) -> gpu_module.GpuMonitor:
+    """A GpuMonitor whose NVML calls are faked out, bypassing __init__/nvmlInit
     entirely (mirrors test_gpu_budget.py's bypass pattern)."""
-    g = gpu_module.GpuManager.__new__(gpu_module.GpuManager)
+    g = gpu_module.GpuMonitor.__new__(gpu_module.GpuMonitor)
     g.handle = "fake-handle"
     g.available = True
     g.lock = Lock()

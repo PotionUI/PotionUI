@@ -48,7 +48,7 @@ from scripts.preset_render import (
     relativize_media_placeholders,
 )
 from src.features.forms.binding import bind_form
-from src.features.generation.generation import deep_update, validate_pipe_configuration
+from src.features.generation.engine import deep_update, validate_pipe_configuration
 from src.features.presets.templates import default_form_name
 from src.pipelines.catalog import PipeCatalog
 

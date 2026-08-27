@@ -38,7 +38,7 @@ if __name__ == "__main__":
     api_logger.setLevel(_log_level)
 
     # Note: Using reload=False to prevent multiple processes from being created
-    # This ensures that there is only one instance of the ConnectionManager class
+    # This ensures that there is only one instance of the ConnectionHub class
     # If you need to reload the server during development, restart it manually
     #
     # Pass the `app` object directly (not the "api:app" import string): running

@@ -59,8 +59,8 @@ class PromptDatabaseController(BaseController):
 
 def build_router(container: "AppContainer") -> APIRouter:
     controller = container.prompt_database_controller
-    settings_manager = container.settings_manager
-    download_manager = container.download_manager
+    settings = container.settings
+    download_queue = container.download_queue
     prompt_importer_registry = container.prompt_importer_registry
     router = APIRouter(prefix="/api/prompts", tags=["Prompts"])
 
@@ -86,11 +86,11 @@ def build_router(container: "AppContainer") -> APIRouter:
         already running" from this call alone - it never has to keep its own
         record of which download id maps to which asset.
         """
-        name = model_name or settings_manager.get_setting(
+        name = model_name or settings.get_setting(
             "prompt_embedding_model", LocalEmbeddingProvider.DEFAULT_MODEL
         )
-        data = LocalEmbeddingProvider.resolve_status(name, settings_manager.get_models_dir())
-        active = download_manager.find_active_download_for_repo(name)
+        data = LocalEmbeddingProvider.resolve_status(name, settings.get_models_dir())
+        active = download_queue.find_active_download_for_repo(name)
         data["active_download"] = active.to_dict() if active else None
         # Only the active provider instance can report residency, and only
         # for the model it was actually constructed with - an admin querying

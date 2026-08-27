@@ -12,7 +12,7 @@ import aiofiles
 
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user
-from src.features.media import MediaManager, UnsupportedSizeError
+from src.features.media import MediaStore, UnsupportedSizeError
 from src.features.media.validators import UPLOAD_PURPOSE_USER
 
 if TYPE_CHECKING:
@@ -24,9 +24,9 @@ logger = logging.getLogger(__name__)
 class MediaController(BaseController):
     """Controller for handling all media storage and serving"""
 
-    def __init__(self, media_manager: MediaManager):
+    def __init__(self, media_store: MediaStore):
         super().__init__()
-        self.manager = media_manager
+        self.manager = media_store
 
     async def _stream_file(self, file_path: str, chunk_size: int = 8192):
         """Stream file content asynchronously"""

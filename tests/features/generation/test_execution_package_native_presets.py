@@ -34,7 +34,7 @@ from scripts.preset_render import (
     relativize_media_placeholders,
 )
 from src.features.forms.binding import bind_form
-from src.features.generation.generation import deep_update
+from src.features.generation.engine import deep_update
 from src.features.generation.package_assembly import assemble_execution_package
 from src.features.generation.pipeline_builder import BuiltPipeline
 from src.features.presets.templates import default_form_name

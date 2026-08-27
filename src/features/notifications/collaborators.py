@@ -17,8 +17,8 @@ from dataclasses import dataclass
 from src.features.notifications.repository import NotificationRepository
 from src.features.users.repository import UserRepository
 from src.platform.plugins import PluginRegistry
-from src.platform.settings.settings import SettingsManager
-from src.platform.websocket.notification_connection_manager import NotificationConnectionManager
+from src.platform.settings.settings import Settings
+from src.platform.websocket.notification_connection_hub import NotificationConnectionHub
 
 
 @dataclass(frozen=True)
@@ -26,5 +26,5 @@ class NotificationCollaborators:
     repository: NotificationRepository
     users: UserRepository
     plugins: PluginRegistry
-    connections: NotificationConnectionManager
-    settings: SettingsManager
+    connections: NotificationConnectionHub
+    settings: Settings

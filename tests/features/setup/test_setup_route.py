@@ -18,8 +18,8 @@ def _client(*, claimed: bool, policy: str = "closed", token_exists: bool = False
     claim_tokens.exists.return_value = token_exists
     container = SimpleNamespace(
         instance_claim_repository=instance_claim,
-        claim_token_manager=claim_tokens,
-        settings_manager=settings,
+        claim_token_store=claim_tokens,
+        settings=settings,
     )
     app = FastAPI()
     app.include_router(build_router(container))

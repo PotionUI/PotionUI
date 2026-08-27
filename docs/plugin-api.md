@@ -37,14 +37,14 @@ import from those — the names are identical, so it is purely a matter of taste
 | Group | Module | Exports |
 |---|---|---|
 | **Identity** — who is calling | `.identity` | `User`, `AccountType`, `get_current_active_user` |
-| **Hooks and runtime** — reacting to the app, reaching its managers | `.hooks` | `HookContext`, `HookResult`, `HookSpec`, `hooks_registry`, `PluginRegistry`, `get_container`, `get_global_plugin_registry`, `get_global_tool_registry`, `ModelLifecycleManager` |
+| **Hooks and runtime** — reacting to the app, reaching its managers | `.hooks` | `HookContext`, `HookResult`, `HookSpec`, `hooks_registry`, `PluginRegistry`, `get_container`, `get_global_plugin_registry`, `get_global_tool_registry`, `ModelLifecycle` |
 | **Providers** — talking to a model marketplace | `.providers` | `MarketplaceProviderBase`, `ProviderCapability`, `ProviderMetadata`, `ProviderModelInfo`, `ProviderSearchResult`, `ProviderPromptItem`, `ProviderError`, `ProviderConnectionError`, `ProviderRateLimitError`, `ProviderNotFoundError`, `get_provider_registry`, `ModelInfo` |
 | **Chat** — extending the assistant | `.chat` | `BaseTool`, `ToolContext`, `ToolResult`, `ToolSource`, `PreChatAction` |
 | **Backends** — contributing an engine | `.backends` | `InProcessBackend`, `BaseBackendConfig`, `BackendStatus`, `BackendHealth`, `BackendModel`, `ModelListingNotSupported`, `deduplicate` |
 | **Pipes** — contributing a pipeline step | `.pipes` | `BasePipe`, `PipeInput`, `PipeOutput`, `PipeInputSpec`, `PipeOutputSpec`, `PipeConfigSpec`, `IOType`, `GenerationOutput`, `ImageGenerationOutput`, `VideoGenerationOutput`, `MeshGenerationOutput`, `GalleryGenerationOutput`, `ProgressGenerationOutput`, `ComfyUIWorkflowGenerationOutput`, `GenerationExecutionError`, `Icon`, `Progress`, `logger`, `OutputTypeSpec`, `SerializeContext`, `output_type_registry`, `DuplicateOutputTypeError` |
 | **Native engine** — driving generation through the in-process engine directly | `.native` | `Conditioning`, `GeneratorContext`, `GeneratorKrea2Pipe`, `NativeGeneratorHandle`, `ProgressEmitter`, `native_step_hooks` |
 | **Presets** — finding a preset, starting a generation | `.presets` | `PresetCollaborators`, `preset_operations`, `FilePresetRepository`, `GenerationRequest`, `PromptPair` |
-| **Storage** — keeping data | `.storage` | `db`, `generate_ulid`, `SettingsManager`, `SettingRepository`, `PluginRepository` |
+| **Storage** — keeping data | `.storage` | `db`, `generate_ulid`, `Settings`, `SettingRepository`, `PluginRepository` |
 | **Media** | `.media` | `convert_image_to_base64`, `BackgroundMattingModel` |
 
 Each module's docstring explains what its exports are for; this table is the index.

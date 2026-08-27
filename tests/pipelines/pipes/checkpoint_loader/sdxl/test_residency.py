@@ -1,4 +1,4 @@
-"""SDXL <-> native GpuResidencyManager registration (cross-engine OOM guard).
+"""SDXL <-> native GpuResidencyRegistry registration (cross-engine OOM guard).
 
 A fully-resident SDXL pipe registers an evictable handle with the native engine's
 residency manager, so a later native generation can free its VRAM instead of
@@ -12,7 +12,7 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from src.platform.runtime.native.memory.residency import get_residency_manager  # noqa: E402
+from src.platform.runtime.native.memory.residency import get_residency_registry  # noqa: E402
 from src.pipelines.pipes.checkpoint_loader.sdxl import main as sdxl_main  # noqa: E402
 
 
@@ -33,11 +33,11 @@ class _FakeModel:
 
 @pytest.fixture(autouse=True)
 def _clean_manager(monkeypatch):
-    get_residency_manager().clear()
+    get_residency_registry().clear()
     # Pretend we have a CUDA device so the registration path runs on CPU CI.
     monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
     yield
-    get_residency_manager().clear()
+    get_residency_registry().clear()
 
 
 def _pipe(config=None):
@@ -54,7 +54,7 @@ def test_registers_fully_resident_pipe(monkeypatch):
     handle = model._residency_handle
     assert handle is not None and not handle.offloaded
     # It is now tracked as resident on the cuda device.
-    assert get_residency_manager()._entries.get(id(handle)) is not None
+    assert get_residency_registry()._entries.get(id(handle)) is not None
 
 
 def test_native_offload_all_evicts_pipe_to_cpu(monkeypatch):
@@ -64,11 +64,11 @@ def test_native_offload_all_evicts_pipe_to_cpu(monkeypatch):
     handle = model._residency_handle
 
     # A native generation frees foreign residents (nothing of its own excluded).
-    evicted = get_residency_manager().offload_all("cuda", exclude=())
+    evicted = get_residency_registry().offload_all("cuda", exclude=())
     assert handle in evicted
     assert model.pipe.moves[-1] == "cpu"        # pipe moved off the GPU
     assert handle.offloaded is True
-    assert get_residency_manager()._entries.get(id(handle)) is None
+    assert get_residency_registry()._entries.get(id(handle)) is None
 
 
 def test_owned_exclude_never_evicted(monkeypatch):
@@ -77,10 +77,10 @@ def test_owned_exclude_never_evicted(monkeypatch):
     _pipe()._register_with_residency(model)
     handle = model._residency_handle
 
-    evicted = get_residency_manager().offload_all("cuda", exclude=[handle])
+    evicted = get_residency_registry().offload_all("cuda", exclude=[handle])
     assert handle not in evicted
     assert handle.offloaded is False
-    assert get_residency_manager()._entries.get(id(handle)) is not None
+    assert get_residency_registry()._entries.get(id(handle)) is not None
 
 
 def test_reacquire_rehomes_and_reregisters_after_eviction(monkeypatch):
@@ -90,7 +90,7 @@ def test_reacquire_rehomes_and_reregisters_after_eviction(monkeypatch):
     pipe._register_with_residency(model)
     handle = model._residency_handle
 
-    get_residency_manager().offload_all("cuda", exclude=())
+    get_residency_registry().offload_all("cuda", exclude=())
     assert handle.offloaded is True
 
     # Next SDXL acquire: even though the (mocked) residency check would now be
@@ -99,7 +99,7 @@ def test_reacquire_rehomes_and_reregisters_after_eviction(monkeypatch):
     pipe._register_with_residency(model)
     assert model.pipe.moves[-1] == "cuda"
     assert handle.offloaded is False
-    assert get_residency_manager()._entries.get(id(handle)) is not None
+    assert get_residency_registry()._entries.get(id(handle)) is not None
 
 
 def test_diffusers_offloaded_pipe_not_registered(monkeypatch):
@@ -107,7 +107,7 @@ def test_diffusers_offloaded_pipe_not_registered(monkeypatch):
     model = _FakeModel()
     _pipe()._register_with_residency(model)
     assert model._residency_handle is None
-    assert get_residency_manager().resident_gb("cuda") == 0.0
+    assert get_residency_registry().resident_gb("cuda") == 0.0
 
 
 def test_noop_without_cuda(monkeypatch):

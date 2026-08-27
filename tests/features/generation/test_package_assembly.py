@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
-from src.features.generation.generation import deep_update
+from src.features.generation.engine import deep_update
 from src.features.generation.package_assembly import assemble_execution_package
 from src.features.generation.pipeline_builder import BuiltPipeline
 from src.features.remote_execution.policy import RemoteExecutionPolicy

@@ -10,9 +10,9 @@ from src.features.backends.native_backend import NativeBackend
 
 def _backend(**config_overrides) -> NativeBackend:
     cfg = NativeBackendConfig(id="local", name="Local Generation", **config_overrides)
-    generation_manager = Mock()
-    generation_manager.gpu_manager = Mock()
-    return NativeBackend(backend_config=cfg, generation_manager=generation_manager)
+    generation_engine = Mock()
+    generation_engine.gpu_monitor = Mock()
+    return NativeBackend(backend_config=cfg, generation_engine=generation_engine)
 
 
 class TestNativeBackendPreparePipes(unittest.TestCase):
@@ -48,16 +48,16 @@ class TestNativeBackendPreparePipes(unittest.TestCase):
         self.assertEqual(pipes[0]["config"]["dtype"], "float16")
 
     def test_sets_the_gpu_managers_cap(self):
-        """MemoryManager/ModelLifecycleManager read the budget off GpuManager directly."""
+        """MemoryAdvisor/ModelLifecycle read the budget off GpuMonitor directly."""
         backend = _backend(gpu_max_vram=24)
 
         backend.prepare_pipes([{"name": "generator", "config": {}}])
 
-        backend.generation_manager.gpu_manager.set_vram_cap_gb.assert_called_once_with(24)
+        backend.generation_engine.gpu_monitor.set_vram_cap_gb.assert_called_once_with(24)
 
-    def test_survives_a_generation_manager_without_a_gpu_manager(self):
+    def test_survives_a_generation_engine_without_a_gpu_monitor(self):
         backend = _backend(device="cuda")
-        backend.generation_manager = Mock(spec=[])  # no gpu_manager attribute
+        backend.generation_engine = Mock(spec=[])  # no gpu_monitor attribute
 
         pipes = backend.prepare_pipes([{"name": "generator", "config": {}}])
 
@@ -66,9 +66,9 @@ class TestNativeBackendPreparePipes(unittest.TestCase):
 
 class TestNativeBackendListModels(unittest.IsolatedAsyncioTestCase):
     """
-    `models_dir` is read lazily through a freshly-constructed SettingsManager, because
+    `models_dir` is read lazily through a freshly-constructed Settings, because
     BackendRegistry builds backends with `backend_class(backend_config=config)` and
-    cannot inject one. Guards against reintroducing a module-level `settings_manager`
+    cannot inject one. Guards against reintroducing a module-level `settings`
     import, which `src.platform.settings.settings` does not export.
     """
 
@@ -77,7 +77,7 @@ class TestNativeBackendListModels(unittest.IsolatedAsyncioTestCase):
         settings = Mock()
         settings.get_models_dir.return_value = "/srv/weights"
 
-        with patch("src.platform.settings.settings.SettingsManager", return_value=settings), \
+        with patch("src.platform.settings.settings.Settings", return_value=settings), \
              patch("src.platform.settings.repository.SettingRepository"), \
              patch(
                  "src.features.backends.native_backend.scan_native_models",
@@ -93,7 +93,7 @@ class TestNativeBackendListModels(unittest.IsolatedAsyncioTestCase):
         settings = Mock()
         settings.get_models_dir.return_value = "models"
 
-        with patch("src.platform.settings.settings.SettingsManager", return_value=settings), \
+        with patch("src.platform.settings.settings.Settings", return_value=settings), \
              patch("src.platform.settings.repository.SettingRepository"), \
              patch(
                  "src.features.backends.native_backend.scan_native_models",

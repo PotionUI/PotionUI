@@ -12,7 +12,7 @@ the concrete option loaders `register_builtin_fields`
 (`src.features.fields.builtin`) wires onto the `FieldTypeRegistry` as each
 field type's `options_provider` - `get_field_options` above dispatches
 through that same table, so a field type's options load exactly one way
-regardless of caller. `model_manager`/`settings_manager` were accepted by the
+regardless of caller. `model_directories`/`settings` were accepted by the
 old `FormManager` but never read anywhere in this domain - dropped rather
 than forwarded, per the `WorkspaceManager` precedent (batch 1).
 

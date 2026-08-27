@@ -2,7 +2,7 @@
 System Monitor Controller
 
 Handles system monitoring endpoints for GPU, RAM, and CPU statistics.
-Delegates business logic to SystemMonitorManager in the core layer.
+Delegates business logic to SystemMonitorCoordinator in the core layer.
 """
 import uuid
 from typing import TYPE_CHECKING
@@ -10,7 +10,7 @@ from fastapi import APIRouter, WebSocket, Depends, Query
 
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user, authenticate_websocket_token
-from src.features.system_monitor import SystemMonitorManager
+from src.features.system_monitor import SystemMonitorCoordinator
 from src.platform.security.user import User
 
 if TYPE_CHECKING:
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 class SystemMonitorController(BaseController):
     """Controller for system monitoring operations."""
 
-    def __init__(self, manager: SystemMonitorManager):
+    def __init__(self, manager: SystemMonitorCoordinator):
         super().__init__()
         self.manager = manager
 

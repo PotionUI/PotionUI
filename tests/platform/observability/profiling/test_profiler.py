@@ -21,7 +21,7 @@ def _isolate_profiling_state(monkeypatch):
     """Every test gets a clean enabled/settings-manager cache and pinned-bytes
     counter, regardless of env vars set in the outer shell."""
     monkeypatch.delenv("POTIONUI_PROFILE", raising=False)
-    profiler_module._settings_manager = None
+    profiler_module._settings = None
     reset_enabled_cache()
     profiler_module._pinned_bytes_cum = 0
     yield
@@ -200,7 +200,7 @@ def test_profiling_enabled_settings_fallback(monkeypatch):
             assert key == "profiling.enabled"
             return True
 
-    profiler_module.configure_settings_manager(FakeSettings())
+    profiler_module.configure_settings(FakeSettings())
     reset_enabled_cache()
     assert profiler_module.profiling_enabled() is True
 
@@ -512,7 +512,7 @@ def test_census_group_dedups_views_of_one_storage(tmp_path, monkeypatch):
 def test_census_group_separates_pinned_from_unpinned(tmp_path, monkeypatch):
     """A pinned and a non-pinned CPU tensor must land in DIFFERENT groups even
     if dtype/owner otherwise match -- pinned vs. glibc-heap memory are
-    released through different allocators (see model_lifecycle.manager's
+    released through different allocators (see model_lifecycle.lifecycle's
     trim_host_allocator/empty_pinned_host_cache), so collapsing them would
     hide exactly the distinction a pinned-memory leak hunt needs."""
     _enable(monkeypatch)

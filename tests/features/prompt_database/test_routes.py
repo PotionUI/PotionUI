@@ -88,8 +88,8 @@ def built_router(collaborators, generation_repo_mock, prompt_importer_registry):
     return build_router(
         SimpleNamespace(
             prompt_database_controller=PromptDatabaseController(collaborators),
-            settings_manager=MagicMock(),
-            download_manager=MagicMock(),
+            settings=MagicMock(),
+            download_queue=MagicMock(),
             preset_template_loader=SimpleNamespace(_ensure_loaded=lambda: None, presets=[]),
             prompt_importer_registry=prompt_importer_registry,
         )
@@ -279,14 +279,14 @@ def admin_client(collaborators, tmp_path):
         "prompt_embedding_model": "BAAI/bge-small-en-v1.5",
     }.get(key, default)
     settings.get_models_dir.return_value = str(tmp_path)
-    download_manager = MagicMock()
-    download_manager.find_active_download_for_repo.return_value = None
+    download_queue = MagicMock()
+    download_queue.find_active_download_for_repo.return_value = None
 
     router = build_router(
         SimpleNamespace(
             prompt_database_controller=PromptDatabaseController(collaborators),
-            settings_manager=settings,
-            download_manager=download_manager,
+            settings=settings,
+            download_queue=download_queue,
             prompt_importer_registry=PromptImporterRegistry(),
         )
     )
@@ -297,7 +297,7 @@ def admin_client(collaborators, tmp_path):
     )
     app.include_router(router)
     with TestClient(app) as test_client:
-        yield test_client, tmp_path, download_manager
+        yield test_client, tmp_path, download_queue
 
 
 def test_embedding_status_reports_absent_weights_for_saved_model(admin_client):
@@ -321,7 +321,7 @@ def test_embedding_status_honors_unsaved_model_override(admin_client):
 def test_embedding_status_reports_active_download_while_queued(admin_client):
     """A reloading client must see an in-flight fetch through this endpoint
     alone - no page-local downloadId->kind map involved."""
-    client, tmp_path, download_manager = admin_client
+    client, tmp_path, download_queue = admin_client
     active = Download(
         id="dl-1",
         type=DownloadType.HF_REPO,
@@ -334,7 +334,7 @@ def test_embedding_status_reports_active_download_while_queued(admin_client):
         downloaded_bytes=420,
         repo_id="BAAI/bge-small-en-v1.5",
     )
-    download_manager.find_active_download_for_repo.return_value = active
+    download_queue.find_active_download_for_repo.return_value = active
 
     resp = client.get("/api/prompts/embedding-status")
 
@@ -343,7 +343,7 @@ def test_embedding_status_reports_active_download_while_queued(admin_client):
     assert data["active_download"]["id"] == "dl-1"
     assert data["active_download"]["status"] == "downloading"
     assert data["active_download"]["progress"] == 0.42
-    download_manager.find_active_download_for_repo.assert_called_once_with("BAAI/bge-small-en-v1.5")
+    download_queue.find_active_download_for_repo.assert_called_once_with("BAAI/bge-small-en-v1.5")
 
 
 def test_embedding_status_reports_loaded_when_active_provider_matches(admin_client, collaborators):

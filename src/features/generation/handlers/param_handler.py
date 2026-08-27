@@ -13,7 +13,7 @@ from typing import Dict, Any, Optional
 from src.pipelines.outputs import GenerationOutput, ParamGenerationOutput
 from src.features.generation.handlers.base_handler import BaseGenerationOutputHandler
 from src.features.generation.output_types import OutputTypeSpec, output_type_registry
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 
 logger = logging.getLogger(__name__)
 

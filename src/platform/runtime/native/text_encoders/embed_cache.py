@@ -185,7 +185,7 @@ _SINGLETON_LOCK = threading.Lock()
 def get_prompt_embed_cache() -> PromptEmbedCache:
     """The process-global :class:`PromptEmbedCache` singleton.
 
-    Mirrors ``memory.residency.get_residency_manager`` — one instance per process,
+    Mirrors ``memory.residency.get_residency_registry`` — one instance per process,
     lazily created.
     """
     global _PROMPT_EMBED_CACHE

@@ -1343,7 +1343,7 @@ whose `detail` carries the per-field contract instead of one opaque string:
 pipe.
 
 > Note: a `cache:` key is still accepted on a pipe by the schema/processor but is a no-op — model reuse
-> now goes through `ModelLifecycleManager` (the `MODELS` built-in service), not per-pipeline cache keys.
+> now goes through `ModelLifecycle` (the `MODELS` built-in service), not per-pipeline cache keys.
 > No shipped preset uses `cache:`; don't add it to new presets.
 
 ## Testing presets

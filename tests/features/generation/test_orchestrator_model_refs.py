@@ -89,8 +89,8 @@ class TestSelectionRejectsEmptyCandidateSet:
         a, b = Mock(backend_id="comfy_a"), Mock(backend_id="comfy_b")
         registry = object.__new__(BackendRegistry)
         registry.get_backends_for_engine = Mock(return_value=[a, b])
-        registry.backend_config_manager = Mock()
-        registry.backend_config_manager.get_default_backend.return_value = None
+        registry.backend_config_store = Mock()
+        registry.backend_config_store.get_default_backend.return_value = None
 
         selected = registry.select_backend_for_generation(
             "comfyui", allowed_backend_ids=["comfy_b"]
@@ -104,7 +104,7 @@ class TestSelectionRejectsEmptyCandidateSet:
         a = Mock(backend_id="comfy_a")
         registry = object.__new__(BackendRegistry)
         registry.get_backends_for_engine = Mock(return_value=[a])
-        registry.backend_config_manager = Mock()
-        registry.backend_config_manager.get_default_backend.return_value = None
+        registry.backend_config_store = Mock()
+        registry.backend_config_store.get_default_backend.return_value = None
 
         assert registry.select_backend_for_generation("comfyui", allowed_backend_ids=None) is a

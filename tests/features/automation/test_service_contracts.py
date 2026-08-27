@@ -37,9 +37,9 @@ from src.features.models.assignments import ModelAssignmentService
 from src.features.models.provider_info import ProviderInfoFetcher
 from src.features.models.repository import ModelRepository
 from src.features.notifications import operations as notification_operations
-from src.platform.runtime.gpu import GpuManager
-from src.platform.runtime.model_lifecycle.manager import ModelLifecycleManager
-from src.features.backends.backend_config import BackendConfigManager, BaseBackendConfig
+from src.platform.runtime.gpu import GpuMonitor
+from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
+from src.features.backends.backend_config import BackendConfigStore, BaseBackendConfig
 from src.features.backends.backend_registry import BackendRegistry
 from src.features.backends.base_backend import BaseBackend
 from src.features.models.availability_repository import ModelAvailabilityRepository
@@ -47,7 +47,7 @@ from src.features.models.backend_indexer import BackendModelIndexer
 from src.features.model_library.repository.model_collection_repository import ModelCollectionRepository
 from src.features.tags.repository import TagRepository
 from src.features.user_groups.repository import UserGroupRepository
-from src.features.media_index.manager import MediaIndexManager
+from src.features.media_index.indexer import MediaIndexer
 
 # Method -> the node type whose `execute()` calls it. Keep in step with
 # `src/core/automation/nodes/actions.py`.
@@ -69,10 +69,10 @@ REQUIRED_METHODS = {
     # src.bootstrap.container), not a class instance - pin against the
     # operations module's `notify` function it's bound to instead.
     notification_operations: {"notify": "action.send_notification"},
-    GpuManager: {"get_free_vram": "action.wait_for_gpu"},
-    BackendConfigManager: {"get_backend": "action.backend_action"},
+    GpuMonitor: {"get_free_vram": "action.wait_for_gpu"},
+    BackendConfigStore: {"get_backend": "action.backend_action"},
     BaseBackendConfig: {"quick_actions": "action.backend_action"},
-    ModelLifecycleManager: {"invalidate": "action.backend_action"},
+    ModelLifecycle: {"invalidate": "action.backend_action"},
     BackendRegistry: {
         "get_backend": "action.index_models",
         "get_all_backends": "action.index_models",
@@ -86,7 +86,7 @@ REQUIRED_METHODS = {
         "get_group_by_id": "action.assign_user_to_group",
         "add_user_to_group": "action.assign_user_to_group",
     },
-    MediaIndexManager: {"process_pending": "action.index_media_queue"},
+    MediaIndexer: {"process_pending": "action.index_media_queue"},
     ModelRepository: {"get_by_file_path": "action.scan_files"},
     ModelCollectionRepository: {"get_by_id": "action.add_to_collection", "add_members": "action.add_to_collection"},
 }
@@ -166,10 +166,10 @@ class TestAutomationWiring(unittest.TestCase):
 
     def test_the_services_the_actions_need_are_all_wired(self):
         for name in ("model_index_manager", "model_indexer", "tag_repository",
-                     "notification_manager", "gpu_manager", "settings_manager",
-                     "backend_config_manager", "model_lifecycle_manager",
+                     "notification_manager", "gpu_monitor", "settings",
+                     "backend_config_store", "model_lifecycle",
                      "backend_registry", "backend_model_indexer",
-                     "user_group_repository", "media_index_manager",
+                     "user_group_repository", "media_indexer",
                      "generation_status_tracker", "model_repository",
                      "model_collection_repository"):
             with self.subTest(service=name):

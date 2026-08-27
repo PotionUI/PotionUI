@@ -4,10 +4,10 @@ The sentinel is *written* atomically alongside the first user by
 `UserRepository.create_claiming_instance` (the two live in one transaction, so
 claiming is race-safe). This repository only reads it: whether the instance has
 an owner and, informationally, who that owner is. It satisfies the
-`InstanceClaimStore` protocol that `AuthManager` depends on.
+`InstanceClaimStore` protocol that `Auth` depends on.
 
 It also carries `check_connection`, a trivial DB reachability probe unrelated
-to the sentinel - reused by `ReadinessManager`'s service facet, which needs a
+to the sentinel - reused by `ReadinessAggregator`'s service facet, which needs a
 setup-feature collaborator that already holds a `db` handle.
 """
 

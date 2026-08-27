@@ -73,9 +73,9 @@ def _pipe(pipes, pid):
 
 def _process(ltx_template, mode, form_over=None, prompts=None):
     processor = PresetProcessor(
-        template_processor=TemplateProcessor(settings_manager=Mock()),
-        model_manager=Mock(),
-        settings_manager=Mock(),
+        template_processor=TemplateProcessor(settings=Mock()),
+        model_directories=Mock(),
+        settings=Mock(),
         preset_template_loader=Mock(),
     )
     form_data = {

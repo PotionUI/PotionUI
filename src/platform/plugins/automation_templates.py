@@ -9,7 +9,7 @@ catalog, at import time) and by `PluginRegistry` (`plugin:<id>:<template_id>`,
 on enable, removed again via `unregister_source` on disable).
 
 Also home to `validate_automation_envelope`, the one structural-shape check
-for a portable automation document shared with `AutomationManager.
+for a portable automation document shared with `AutomationRuntime.
 import_automation` (`src/features/automation/manager.py`), so the two paths
 - registering a template file and importing an exported automation - can't
 drift on what counts as a well-formed envelope.

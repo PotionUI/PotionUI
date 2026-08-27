@@ -163,7 +163,7 @@ def test_all_generation_ids_defaults_to_empty_on_error():
 # ---------------------------------------------------------------------------
 # Stale-collection pruning: drop a superseded embedder's collection only
 # once its rebuild is known to have completed - see
-# MediaIndexManager._settle_gallery_rebuilds for the "when" half of this.
+# MediaIndexer._settle_gallery_rebuilds for the "when" half of this.
 # ---------------------------------------------------------------------------
 
 def test_delete_collection_defaults_to_the_active_collection():

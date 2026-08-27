@@ -42,7 +42,7 @@ def loader():
 
 @pytest.fixture(scope="module")
 def serializer(loader):
-    return PresetFormSerializer(loader, TemplateProcessor(settings_manager=Mock()))
+    return PresetFormSerializer(loader, TemplateProcessor(settings=Mock()))
 
 
 @pytest.fixture(scope="module")

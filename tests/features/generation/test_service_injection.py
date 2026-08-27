@@ -1,7 +1,7 @@
 """Tests for built-in SERVICE input injection into pipes.
 
 A pipe declares `PipeInputSpec("<NAME>", IOType.SERVICE, ...)` and
-`GenerationManager` puts the collaborator in the pipe's input dict under that
+`GenerationEngine` puts the collaborator in the pipe's input dict under that
 key. Unknown names are only logged, and pipeline validation skips SERVICE
 inputs entirely, so nothing else in the system catches a service that fails to
 bind - which is why the binding is asserted here.
@@ -11,7 +11,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from src.features.generation.generation import GenerationManager
+from src.features.generation.engine import GenerationEngine
 from src.pipelines.contracts import IOType, PipeInputSpec
 
 
@@ -34,7 +34,7 @@ def collaborators():
     return {
         "gpu": Mock(name="gpu"),
         "system_monitor": Mock(name="system"),
-        "memory_manager": Mock(name="memory"),
+        "memory_advisor": Mock(name="memory"),
         "llm_service": Mock(name="llm"),
         "models": Mock(name="models"),
         "assets": Mock(name="assets"),
@@ -43,13 +43,13 @@ def collaborators():
 
 @pytest.fixture
 def manager(collaborators):
-    return GenerationManager(
+    return GenerationEngine(
         gpu=collaborators["gpu"],
-        model_manager=Mock(),
+        model_directories=Mock(),
         pipe_catalog=Mock(),
-        settings_manager=Mock(),
+        settings=Mock(),
         system_monitor=collaborators["system_monitor"],
-        memory_manager=collaborators["memory_manager"],
+        memory_advisor=collaborators["memory_advisor"],
         llm_service=collaborators["llm_service"],
         models=collaborators["models"],
         assets=collaborators["assets"],
@@ -67,10 +67,10 @@ class TestAssetsService:
     def test_assets_is_none_when_not_wired(self):
         """Absent rather than exploding: every consumer guards on None, and a
         pipe that never fetches must not need the service at all."""
-        manager = GenerationManager(
-            gpu=Mock(), model_manager=Mock(), pipe_catalog=Mock(),
-            settings_manager=Mock(), system_monitor=Mock(),
-            memory_manager=Mock(), llm_service=Mock(),
+        manager = GenerationEngine(
+            gpu=Mock(), model_directories=Mock(), pipe_catalog=Mock(),
+            settings=Mock(), system_monitor=Mock(),
+            memory_advisor=Mock(), llm_service=Mock(),
         )
 
         result = manager._inject_built_in_services(_pipe_class("ASSETS"), {})

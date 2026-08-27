@@ -125,9 +125,9 @@ def _reacted_value(field, profile):
 
 def _process(template, mode, form_over=None):
     processor = PresetProcessor(
-        template_processor=TemplateProcessor(settings_manager=Mock()),
-        model_manager=Mock(),
-        settings_manager=Mock(),
+        template_processor=TemplateProcessor(settings=Mock()),
+        model_directories=Mock(),
+        settings=Mock(),
         preset_template_loader=Mock(),
     )
     form_data = dict(_BASE_FORM)

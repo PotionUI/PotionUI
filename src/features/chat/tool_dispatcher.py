@@ -117,12 +117,12 @@ class ToolCallDispatcher:
                 generation_orchestrator=self._m.generation_orchestrator,
                 llm_memory_repository=self._m.llm_memory_repository,
                 prompt_enhancement_manager=self._m.prompt_enhancement_manager,
-                media_index_manager=self._m.media_index_manager,
-                settings_manager=self._m.settings_manager,
+                media_indexer=self._m.media_indexer,
+                settings=self._m.settings,
                 collection_repository=self._m.collection_repository,
                 tag_repository=self._m.tag_repository,
                 plugin_registry=self._m.plugins,
-                generation_history_manager=self._m.generation_history_manager,
+                generation_history_facade=self._m.generation_history_facade,
                 llm_id=session.llm_config_id,
             )
 

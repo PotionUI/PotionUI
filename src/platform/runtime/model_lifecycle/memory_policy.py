@@ -58,7 +58,7 @@ class MemoryPolicy:
         return True
 
     def get_memory_strategy(self) -> MemoryStrategyName:
-        """Coarse strategy name, used by MemoryManager for tiling/batch-size math."""
+        """Coarse strategy name, used by MemoryAdvisor for tiling/batch-size math."""
         if self.vram_gb >= 24.0:
             return "full_vram"
         elif self.vram_gb >= 12.0:

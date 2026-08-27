@@ -1,6 +1,6 @@
 """`SetupExecutorRegistry` - drives one run forward by exactly one step per
-`execute()` call, against a real `SetupRunManager`/DB (mirrors
-`test_setup_run_manager.py`'s `file_db` pattern) and a small hand-built
+`execute()` call, against a real `SetupRunner`/DB (mirrors
+`test_setup_runner.py`'s `file_db` pattern) and a small hand-built
 recipe + fake executors, so this is isolated from real plugins/presets/models.
 """
 
@@ -10,9 +10,9 @@ from src.features.setup.executors.base import StepContext, StepResult
 from src.features.setup.executors.registry import SetupExecutorRegistry
 from src.features.setup.recipe_schema import Recipe, RecipeStep
 from src.features.setup.records import SetupRunStatus, SetupStepStatus
-from src.features.setup.run_manager import SetupRunError, SetupRunManager
+from src.features.setup.runner import SetupRunError, SetupRunner
 from src.platform.database.database import db as global_db
-from src.platform.database.migration_runner import MigrationManager
+from src.platform.database.migration_runner import MigrationRunner
 
 
 @pytest.fixture
@@ -20,7 +20,7 @@ def file_db(tmp_path):
     original_path = global_db.db_path
     global_db.db_path = tmp_path / "setup_executor_registry.db"
     try:
-        MigrationManager().run_migrations()
+        MigrationRunner().run_migrations()
         yield global_db
     finally:
         global_db.db_path = original_path
@@ -124,7 +124,7 @@ def test_advances_through_multiple_steps_to_completion(file_db):
     step_two = AlwaysSucceedsExecutor()
     registry = SetupExecutorRegistry(FakeCatalog(recipe), {"kind.one": step_one, "kind.two": step_two})
 
-    manager = SetupRunManager()
+    manager = SetupRunner()
     manager.register_executor_registry(registry)
     run = manager.create_run("fake-recipe", created_by="owner-1")
     assert run.status == SetupRunStatus.PENDING
@@ -152,7 +152,7 @@ def test_failing_step_moves_run_to_failed_with_error_detail(file_db):
     registry = SetupExecutorRegistry(
         FakeCatalog(recipe), {"kind.one": AlwaysFailsExecutor(), "kind.two": AlwaysSucceedsExecutor()}
     )
-    manager = SetupRunManager()
+    manager = SetupRunner()
     manager.register_executor_registry(registry)
     run = manager.create_run("fake-recipe")
 
@@ -177,7 +177,7 @@ def test_progress_reports_land_on_a_single_attempt_row_then_terminate(file_db):
     recipe = _two_step_recipe()
     step_one = ReportsProgressExecutor(succeed=True)
     registry = SetupExecutorRegistry(FakeCatalog(recipe), {"kind.one": step_one, "kind.two": AlwaysSucceedsExecutor()})
-    manager = SetupRunManager()
+    manager = SetupRunner()
     manager.register_executor_registry(registry)
     run = manager.create_run("fake-recipe")
 
@@ -201,7 +201,7 @@ def test_progress_reports_survive_a_failed_step(file_db):
     recipe = _two_step_recipe()
     step_one = ReportsProgressExecutor(succeed=False)
     registry = SetupExecutorRegistry(FakeCatalog(recipe), {"kind.one": step_one, "kind.two": AlwaysSucceedsExecutor()})
-    manager = SetupRunManager()
+    manager = SetupRunner()
     manager.register_executor_registry(registry)
     run = manager.create_run("fake-recipe")
 
@@ -222,7 +222,7 @@ def test_executor_that_never_reports_progress_is_unaffected(file_db):
     default no-op callback, and a single plain-inserted terminal row."""
     recipe = _two_step_recipe()
     registry = SetupExecutorRegistry(FakeCatalog(recipe), {"kind.one": AlwaysSucceedsExecutor(), "kind.two": AlwaysSucceedsExecutor()})
-    manager = SetupRunManager()
+    manager = SetupRunner()
     manager.register_executor_registry(registry)
     run = manager.create_run("fake-recipe")
 
@@ -236,7 +236,7 @@ def test_executor_that_never_reports_progress_is_unaffected(file_db):
 def test_unregistered_step_kind_fails_with_not_implemented(file_db):
     recipe = _two_step_recipe()
     registry = SetupExecutorRegistry(FakeCatalog(recipe), {"kind.one": AlwaysSucceedsExecutor()})
-    manager = SetupRunManager()
+    manager = SetupRunner()
     manager.register_executor_registry(registry)
     run = manager.create_run("fake-recipe")
 
@@ -250,7 +250,7 @@ def test_unregistered_step_kind_fails_with_not_implemented(file_db):
 def test_executor_exception_is_contained_not_propagated(file_db):
     recipe = _two_step_recipe()
     registry = SetupExecutorRegistry(FakeCatalog(recipe), {"kind.one": RaisesExecutor()})
-    manager = SetupRunManager()
+    manager = SetupRunner()
     manager.register_executor_registry(registry)
     run = manager.create_run("fake-recipe")
 
@@ -263,7 +263,7 @@ def test_executor_exception_is_contained_not_propagated(file_db):
 
 def test_recipe_not_found_fails_the_run(file_db):
     registry = SetupExecutorRegistry(FakeCatalog(None), {})
-    manager = SetupRunManager()
+    manager = SetupRunner()
     manager.register_executor_registry(registry)
     run = manager.create_run("missing-recipe")
 
@@ -276,7 +276,7 @@ def test_recipe_not_found_fails_the_run(file_db):
 def test_cannot_execute_a_paused_run(file_db):
     recipe = _two_step_recipe()
     registry = SetupExecutorRegistry(FakeCatalog(recipe), {"kind.one": AlwaysSucceedsExecutor()})
-    manager = SetupRunManager()
+    manager = SetupRunner()
     manager.register_executor_registry(registry)
     run = manager.create_run("fake-recipe")
     manager.apply_action(run.id, "pause")
@@ -289,7 +289,7 @@ def test_retry_step_reruns_the_same_failed_step(file_db):
     recipe = _two_step_recipe()
     step_one = FailsOnceThenSucceedsExecutor()
     registry = SetupExecutorRegistry(FakeCatalog(recipe), {"kind.one": step_one, "kind.two": AlwaysSucceedsExecutor()})
-    manager = SetupRunManager()
+    manager = SetupRunner()
     manager.register_executor_registry(registry)
     run = manager.create_run("fake-recipe")
 
@@ -313,7 +313,7 @@ def test_resume_before_any_execute_still_starts_at_first_step(file_db):
     recipe = _two_step_recipe()
     step_one = AlwaysSucceedsExecutor()
     registry = SetupExecutorRegistry(FakeCatalog(recipe), {"kind.one": step_one, "kind.two": AlwaysSucceedsExecutor()})
-    manager = SetupRunManager()
+    manager = SetupRunner()
     manager.register_executor_registry(registry)
     run = manager.create_run("fake-recipe")
     run = manager.apply_action(run.id, "resume")
@@ -330,7 +330,7 @@ def test_awaiting_consent_parks_the_run_without_advancing(file_db):
     recipe = _two_step_recipe()
     step_one = AwaitsConsentThenSucceedsExecutor()
     registry = SetupExecutorRegistry(FakeCatalog(recipe), {"kind.one": step_one, "kind.two": AlwaysSucceedsExecutor()})
-    manager = SetupRunManager()
+    manager = SetupRunner()
     manager.register_executor_registry(registry)
     run = manager.create_run("fake-recipe")
 
@@ -344,7 +344,7 @@ def test_awaiting_consent_parks_the_run_without_advancing(file_db):
     assert attempt.safe_output["consent_request"]["total_bytes"] == 1
 
     # Calling execute() again while parked is rejected (see _EXECUTABLE_STATUSES) -
-    # only grant_consent (SetupRunManager) is allowed to move it on.
+    # only grant_consent (SetupRunner) is allowed to move it on.
     with pytest.raises(SetupRunError):
         manager.execute_current_step(run.id)
 
@@ -354,7 +354,7 @@ def test_grant_consent_completes_the_step_and_advances(file_db):
     step_one = AwaitsConsentThenSucceedsExecutor()
     step_two = AlwaysSucceedsExecutor()
     registry = SetupExecutorRegistry(FakeCatalog(recipe), {"kind.one": step_one, "kind.two": step_two})
-    manager = SetupRunManager()
+    manager = SetupRunner()
     manager.register_executor_registry(registry)
     run = manager.create_run("fake-recipe")
     run = manager.execute_current_step(run.id)
@@ -378,7 +378,7 @@ def test_grant_consent_completes_the_step_and_advances(file_db):
 def test_grant_consent_on_non_consent_step_is_rejected(file_db):
     recipe = _two_step_recipe()
     registry = SetupExecutorRegistry(FakeCatalog(recipe), {"kind.one": AlwaysSucceedsExecutor(), "kind.two": AlwaysSucceedsExecutor()})
-    manager = SetupRunManager()
+    manager = SetupRunner()
     manager.register_executor_registry(registry)
     run = manager.create_run("fake-recipe")  # PENDING, nothing awaiting consent
 
@@ -390,7 +390,7 @@ def test_grant_consent_with_wrong_step_key_is_rejected(file_db):
     recipe = _two_step_recipe()
     step_one = AwaitsConsentThenSucceedsExecutor()
     registry = SetupExecutorRegistry(FakeCatalog(recipe), {"kind.one": step_one, "kind.two": AlwaysSucceedsExecutor()})
-    manager = SetupRunManager()
+    manager = SetupRunner()
     manager.register_executor_registry(registry)
     run = manager.create_run("fake-recipe")
     run = manager.execute_current_step(run.id)
@@ -403,7 +403,7 @@ def test_grant_consent_with_wrong_step_key_is_rejected(file_db):
 def test_recipe_with_no_steps_completes_immediately(file_db):
     recipe = Recipe(id="empty", schema_version=1, version=1, name="Empty", engine="native", steps=[])
     registry = SetupExecutorRegistry(FakeCatalog(recipe), {})
-    manager = SetupRunManager()
+    manager = SetupRunner()
     manager.register_executor_registry(registry)
     run = manager.create_run("empty")
 

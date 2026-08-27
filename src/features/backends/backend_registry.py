@@ -6,7 +6,7 @@ from .native_backend import NativeBackend
 from .native_remote_backend import RemoteNativeBackend
 from .pipeline_executor import PipelineExecutor
 from .backend_config import (
-    BackendConfigManager,
+    BackendConfigStore,
     NativeBackendConfig,
     NativeRemoteBackendConfig,
     BackendHealth,
@@ -34,16 +34,16 @@ class BackendRegistry:
 
     def __init__(
         self,
-        generation_manager_factory: Callable[[], PipelineExecutor],
+        generation_engine_factory: Callable[[], PipelineExecutor],
         plugin_registry=None,  # Optional for backward compatibility
         pipe_catalog=None,
     ):
         # A factory, not an instance: each backend executes on its own
         # PipelineExecutor so that backends run in parallel without sharing a
         # cancellation flag. The executors still share their injected
-        # collaborators (GpuManager, ModelLifecycleManager, ...), which are
+        # collaborators (GpuMonitor, ModelLifecycle, ...), which are
         # built to be shared; only the cancellation flag is per-run state.
-        self.generation_manager_factory = generation_manager_factory
+        self.generation_engine_factory = generation_engine_factory
         self.plugin_registry = plugin_registry
         # The process's one PipeCatalog instance, handed to any backend that
         # asks for it via bind_remote_context (see _create_backend_instance) -
@@ -61,7 +61,7 @@ class BackendRegistry:
         self._register_builtin_backends()
         self._load_plugin_backends()
 
-        self.backend_config_manager = BackendConfigManager(
+        self.backend_config_store = BackendConfigStore(
             registered_config_types=self._registered_config_types
         )
 
@@ -181,7 +181,7 @@ class BackendRegistry:
         """
         self._registered_backend_types[driver] = backend_class
         self._registered_config_types[driver] = config_class
-        self.backend_config_manager._registered_config_types[driver] = config_class
+        self.backend_config_store._registered_config_types[driver] = config_class
 
         logger.info(f"[BACKEND_REGISTRY] Dynamically registered driver: {driver}")
 
@@ -201,7 +201,7 @@ class BackendRegistry:
     def _initialize_backends(self):
         """Initialize all configured backends"""
         try:
-            for config in self.backend_config_manager.get_backends():
+            for config in self.backend_config_store.get_backends():
                 if not config.enabled:
                     continue
                 try:
@@ -234,13 +234,13 @@ class BackendRegistry:
         # In-process backends execute through a PipelineExecutor and need a
         # handle to one. One executor per backend - see __init__.
         if isinstance(backend, InProcessBackend):
-            backend.set_generation_manager(self.generation_manager_factory())
+            backend.set_generation_engine(self.generation_engine_factory())
 
         # Duck-typed rather than an isinstance check against one concrete
         # class: any driver (built-in or, one day, plugin-provided) that
         # needs the process's PipeCatalog/PluginRegistry declares so by
         # exposing this method, the same way InProcessBackend declares its
-        # need via set_generation_manager above.
+        # need via set_generation_engine above.
         if hasattr(backend, "bind_remote_context"):
             backend.bind_remote_context(pipe_catalog=self.pipe_catalog, plugin_registry=self.plugin_registry)
 
@@ -323,7 +323,7 @@ class BackendRegistry:
                 f"Requested backend '{backend_id}' is not an enabled backend for engine '{engine}'"
             )
 
-        default_config = self.backend_config_manager.get_default_backend(engine)
+        default_config = self.backend_config_store.get_default_backend(engine)
         if default_config:
             default_backend = self._backends_cache.get(default_config.id)
             if default_backend in candidates:
@@ -345,7 +345,7 @@ class BackendRegistry:
         try:
             self._backends_cache.clear()
             self._backend_health_cache.clear()
-            self.backend_config_manager._backends_cache = None
+            self.backend_config_store._backends_cache = None
             self._initialize_backends()
             self._backends_initialized = True
 
@@ -361,7 +361,7 @@ class BackendRegistry:
     async def add_backend(self, backend_config: BaseBackendConfig):
         """Add a new backend to the registry"""
         self._ensure_backends_initialized()
-        self.backend_config_manager.add_backend(backend_config)
+        self.backend_config_store.add_backend(backend_config)
 
         if backend_config.enabled:
             self._backends_cache[backend_config.id] = self._create_backend_instance(backend_config)
@@ -370,7 +370,7 @@ class BackendRegistry:
     async def update_backend(self, backend_id: str, backend_config: BaseBackendConfig):
         """Update an existing backend in the registry"""
         self._ensure_backends_initialized()
-        self.backend_config_manager.update_backend(backend_id, backend_config)
+        self.backend_config_store.update_backend(backend_id, backend_config)
 
         self._backends_cache.pop(backend_id, None)
 
@@ -381,7 +381,7 @@ class BackendRegistry:
     async def remove_backend(self, backend_id: str):
         """Remove a backend from the registry"""
         self._ensure_backends_initialized()
-        self.backend_config_manager.remove_backend(backend_id)
+        self.backend_config_store.remove_backend(backend_id)
         self._backends_cache.pop(backend_id, None)
         self._backend_health_cache.pop(backend_id, None)
 

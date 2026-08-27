@@ -2,8 +2,8 @@ import asyncio
 import pytest
 from unittest.mock import Mock, patch
 
-from src.features.generation.generation import (
-    GenerationManager, deep_update, validate_pipe_configuration
+from src.features.generation.engine import (
+    GenerationEngine, deep_update, validate_pipe_configuration
 )
 from src.pipelines.outputs import (
     ErrorGenerationOutput,
@@ -317,7 +317,7 @@ class TestValidatePipeConfiguration:
             "backend_config": {"host": "192.168.1.1", "port": 8188}  # Injected by backend
         }
 
-        with patch('src.features.generation.generation.logger') as mock_logger:
+        with patch('src.features.generation.engine.logger') as mock_logger:
             result = validate_pipe_configuration(MockPipe, config)
             # Unknown parameters should be preserved, not stripped
             assert "unknown_param" in result
@@ -335,7 +335,7 @@ class TestValidatePipeConfiguration:
 
         config = {"any_param": "value"}
 
-        with patch('src.features.generation.generation.logger') as mock_logger:
+        with patch('src.features.generation.engine.logger') as mock_logger:
             result = validate_pipe_configuration(SimplePipe, config)
             # Should return original config and log warning
             assert result == config
@@ -383,32 +383,32 @@ class TestValidatePipeConfiguration:
                 raise RuntimeError("bug in the hook, not the config")
 
         config = {"param1": "test_value", "param2": 50, "param3": "option1"}
-        with patch('src.features.generation.generation.logger') as mock_logger:
+        with patch('src.features.generation.engine.logger') as mock_logger:
             result = validate_pipe_configuration(BuggyHookPipe, config)
             assert result["param2"] == 50
             mock_logger.warning.assert_called_once()
 
 
-class TestGenerationManager:
+class TestGenerationEngine:
     @pytest.fixture(autouse=True)
-    def setup_manager(self, mock_settings_manager):
-        """Set up GenerationManager with mocked dependencies"""
+    def setup_manager(self, mock_settings):
+        """Set up GenerationEngine with mocked dependencies"""
         self.mock_gpu = Mock()
-        self.mock_model_manager = Mock()
+        self.mock_model_directories = Mock()
         self.mock_pipe_catalog = Mock()
-        self.mock_settings_manager = mock_settings_manager
+        self.mock_settings = mock_settings
         self.mock_system_monitor = Mock()
         self.mock_memory_manager = Mock()
         self.mock_llm_service = Mock()
         self.mock_models = Mock()
 
-        self.manager = GenerationManager(
+        self.manager = GenerationEngine(
             gpu=self.mock_gpu,
-            model_manager=self.mock_model_manager,
+            model_directories=self.mock_model_directories,
             pipe_catalog=self.mock_pipe_catalog,
-            settings_manager=self.mock_settings_manager,
+            settings=self.mock_settings,
             system_monitor=self.mock_system_monitor,
-            memory_manager=self.mock_memory_manager,
+            memory_advisor=self.mock_memory_manager,
             llm_service=self.mock_llm_service,
             models=self.mock_models,
         )
@@ -666,7 +666,7 @@ class TestGenerationManager:
 
         with patch.object(self.manager, 'validate_pipeline'), \
              patch.object(self.manager, 'hijack_pipe_generation_output') as mock_hijack, \
-             patch('src.features.generation.generation.validate_pipe_configuration') as mock_validate:
+             patch('src.features.generation.engine.validate_pipe_configuration') as mock_validate:
 
             mock_validate.return_value = {"param1": "custom_value"}
 
@@ -722,7 +722,7 @@ class TestGenerationManager:
         mock_pipe_instance.process = process_with_cancel
 
         with patch.object(self.manager, 'validate_pipeline'), \
-             patch('src.features.generation.generation.validate_pipe_configuration') as mock_validate:
+             patch('src.features.generation.engine.validate_pipe_configuration') as mock_validate:
 
             mock_validate.return_value = {}
 
@@ -777,7 +777,7 @@ class TestGenerationManager:
         mock_callback = Mock()
 
         with patch.object(self.manager, 'validate_pipeline'), \
-             patch('src.features.generation.generation.validate_pipe_configuration') as mock_validate:
+             patch('src.features.generation.engine.validate_pipe_configuration') as mock_validate:
 
             mock_validate.return_value = {}
 
@@ -838,7 +838,7 @@ class TestGenerationManager:
 
         with patch.object(self.manager, 'validate_pipeline'), \
              patch.object(self.manager, 'hijack_pipe_generation_output'), \
-             patch('src.features.generation.generation.validate_pipe_configuration') as mock_validate:
+             patch('src.features.generation.engine.validate_pipe_configuration') as mock_validate:
 
             mock_validate.return_value = {}
 
@@ -871,8 +871,8 @@ class TestGenerationManager:
         mock_callback = Mock()
 
         with patch.object(self.manager, 'validate_pipeline'), \
-             patch('src.features.generation.generation.validate_pipe_configuration') as mock_validate, \
-             patch('src.features.generation.generation.logger') as mock_logger:
+             patch('src.features.generation.engine.validate_pipe_configuration') as mock_validate, \
+             patch('src.features.generation.engine.logger') as mock_logger:
 
             mock_validate.return_value = {}
 
@@ -914,7 +914,7 @@ class TestGenerationManager:
         monkeypatch.setenv("POTIONUI_PROFILE", "1")
         reset_enabled_cache()
 
-        self.mock_settings_manager.get_file_storage_directory.return_value = str(tmp_path)
+        self.mock_settings.get_file_storage_directory.return_value = str(tmp_path)
         fresh_profiler = GenerationProfiler()
 
         mock_pipe_instance = Mock()
@@ -939,8 +939,8 @@ class TestGenerationManager:
 
         try:
             with patch.object(self.manager, 'validate_pipeline'), \
-                 patch('src.features.generation.generation.validate_pipe_configuration', return_value={}), \
-                 patch('src.features.generation.generation.get_profiler', return_value=fresh_profiler):
+                 patch('src.features.generation.engine.validate_pipe_configuration', return_value={}), \
+                 patch('src.features.generation.engine.get_profiler', return_value=fresh_profiler):
                 with pytest.raises(RuntimeError, match="Pipe error"):
                     self.manager.generate(pipes, Mock(), generation_id)
 
@@ -961,8 +961,8 @@ class TestGenerationManager:
             reset_enabled_cache()
 
     def test_generate_injects_models_service(self):
-        # The old pipe-level `cache:` mechanism (GenerationManager.cache) has
-        # been replaced by the MODELS service (ModelLifecycleManager),
+        # The old pipe-level `cache:` mechanism (GenerationEngine.cache) has
+        # been replaced by the MODELS service (ModelLifecycle),
         # injected like GPU/SYSTEM/MEMORY/LLM for pipes declaring a MODELS
         # SERVICE input.
         captured_inputs = []
@@ -1000,7 +1000,7 @@ class TestGenerationManager:
 
         with patch.object(self.manager, 'validate_pipeline'), \
              patch.object(self.manager, 'hijack_pipe_generation_output'), \
-             patch('src.features.generation.generation.validate_pipe_configuration') as mock_validate:
+             patch('src.features.generation.engine.validate_pipe_configuration') as mock_validate:
 
             mock_validate.return_value = {}
 
@@ -1049,7 +1049,7 @@ class TestGenerationManager:
 
         with patch.object(self.manager, 'validate_pipeline'), \
              patch.object(self.manager, 'hijack_pipe_generation_output'), \
-             patch('src.features.generation.generation.validate_pipe_configuration') as mock_validate:
+             patch('src.features.generation.engine.validate_pipe_configuration') as mock_validate:
 
             mock_validate.return_value = {}
 
@@ -1061,24 +1061,24 @@ class TestGenerationManager:
 
 
 class TestResourceStatsCapture:
-    """`GenerationManager.pop_resource_stats()`: the
+    """`GenerationEngine.pop_resource_stats()`: the
     always-on, profiling-independent cold/warm signal, sourced from the REAL
-    `ModelLifecycleManager`'s generation lease (not a bare Mock -- a Mock's
+    `ModelLifecycle`'s generation lease (not a bare Mock -- a Mock's
     `.get()`/comparison auto-vivification would mask a real wiring bug here).
     """
 
     @pytest.fixture(autouse=True)
-    def setup_manager(self, mock_settings_manager, tmp_path):
-        from src.platform.runtime.model_lifecycle.manager import ModelLifecycleManager
+    def setup_manager(self, mock_settings, tmp_path):
+        from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
 
-        mock_settings_manager.get_file_storage_directory.return_value = str(tmp_path)
+        mock_settings.get_file_storage_directory.return_value = str(tmp_path)
         fake_gpu = Mock()
         fake_gpu.get_vram_budget.return_value = 10.0
-        self.models = ModelLifecycleManager(gpu_manager=fake_gpu, settings_manager=None)
-        self.manager = GenerationManager(
-            gpu=Mock(), model_manager=Mock(), pipe_catalog=Mock(),
-            settings_manager=mock_settings_manager, system_monitor=Mock(),
-            memory_manager=Mock(), llm_service=Mock(), models=self.models,
+        self.models = ModelLifecycle(gpu_monitor=fake_gpu, settings=None)
+        self.manager = GenerationEngine(
+            gpu=Mock(), model_directories=Mock(), pipe_catalog=Mock(),
+            settings=mock_settings, system_monitor=Mock(),
+            memory_advisor=Mock(), llm_service=Mock(), models=self.models,
         )
 
     def _run_with_pipe(self, generation_id, during_process):
@@ -1100,7 +1100,7 @@ class TestResourceStatsCapture:
         pipes = [{"name": "test_pipe", "enabled": True, "input": [], "cache": [], "config": {}}]
         with patch.object(self.manager, 'validate_pipeline'), \
              patch.object(self.manager, 'hijack_pipe_generation_output'), \
-             patch('src.features.generation.generation.validate_pipe_configuration', return_value={}):
+             patch('src.features.generation.engine.validate_pipe_configuration', return_value={}):
             self.manager.generate(pipes, Mock(), generation_id)
 
     def test_cold_start_recorded_on_cache_miss(self):

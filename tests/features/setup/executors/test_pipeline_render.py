@@ -3,14 +3,14 @@
 Deliberately NOT mocked: the whole point of this step is proving the real
 `PipelineBuilder` (the same one that drives an actual generation) renders a
 preset/mode's Jinja2 templates to a valid pipe list. It reuses the same
-deterministic stubs (`StubSettingsManager`, `build_processor`) the
+deterministic stubs (`StubSettings`, `build_processor`) the
 `scripts/preset_render.py` developer harness uses - pure template rendering,
 no GPU/model/DB/network access, runs in well under a second.
 """
 
 import pytest
 
-from scripts.preset_render import StubSettingsManager, build_processor
+from scripts.preset_render import StubSettings, build_processor
 from src.features.generation.pipeline_builder import PipelineBuilder
 from src.features.presets.loader import PresetTemplateLoader
 from src.features.setup.executors.base import StepContext
@@ -28,7 +28,7 @@ def executor():
     loader.load_presets()
     processor = build_processor()
     pipeline_builder = PipelineBuilder(loader, processor)
-    template_processor = TemplateProcessor(settings_manager=StubSettingsManager())
+    template_processor = TemplateProcessor(settings=StubSettings())
     return PipelineRenderExecutor(loader, template_processor, pipeline_builder)
 
 

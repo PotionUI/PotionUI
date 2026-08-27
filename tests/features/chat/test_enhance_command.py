@@ -13,7 +13,7 @@ import pytest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, Mock
 
-from src.features.chat.manager import ChatManager
+from src.features.chat.runtime import ChatRuntime
 from src.features.chat.modes import ChatModeRegistry, build_generation_mode
 from src.features.chat.exceptions import MessageCreationFailedException
 from src.features.llm.tools.registry import ToolRegistry
@@ -23,7 +23,7 @@ from src.features.llm.tools.builtin.enhance_prompt_tool import EnhancePromptTool
 
 @pytest.fixture(autouse=True)
 def _forward_prompt_enhancement_operations(monkeypatch):
-    """`enhance_prompt_tool`/`ChatManager.record_prompt_feedback` now call the
+    """`enhance_prompt_tool`/`ChatRuntime.record_prompt_feedback` now call the
     module-level `src.features.prompt_enhancement.operations` functions with
     the `prompt_enhancement_manager` collaborator as their leading arg, rather
     than calling methods on an injected manager. This fixture forwards those
@@ -131,14 +131,14 @@ class FakeLLMService:
 
 
 def make_chat_manager(enhancement_manager=None):
-    """ChatManager without a tool executor — for record_prompt_feedback tests."""
+    """ChatRuntime without a tool executor — for record_prompt_feedback tests."""
     repo = Mock()
     processor = Mock()
     processor.process.side_effect = lambda content, mode=None: (content, None)
     plugins = Mock()
     plugins.execute_hook.return_value = (Mock(data={}), [])
 
-    manager = ChatManager(
+    manager = ChatRuntime(
         chat_repository=repo,
         llm_service=Mock(),
         response_processor=processor,
@@ -150,7 +150,7 @@ def make_chat_manager(enhancement_manager=None):
 
 
 def make_tool_chat_manager(enhancement_manager=None, turns=None):
-    """ChatManager wired with a real registry + executor and a fake LLM.
+    """ChatRuntime wired with a real registry + executor and a fake LLM.
 
     Exercises the real tool routing: the fake LLM's turns decide whether
     enhance_prompt gets called (model-chosen) or the turn is a plain reply.
@@ -166,7 +166,7 @@ def make_tool_chat_manager(enhancement_manager=None, turns=None):
     llm_service = FakeLLMService(turns)
     executor = ToolExecutor(tool_registry=registry, llm_service=llm_service)
 
-    manager = ChatManager(
+    manager = ChatRuntime(
         chat_repository=repo,
         llm_service=llm_service,
         response_processor=processor,

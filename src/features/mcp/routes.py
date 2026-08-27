@@ -27,7 +27,7 @@ from src.features.mcp.repository import McpTokenRepository
 from src.platform.http.base_controller import APIResponse, BaseController
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.platform.security.user import User
-from src.platform.settings.settings import SettingsManager
+from src.platform.settings.settings import Settings
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
@@ -39,12 +39,12 @@ class McpController(BaseController):
     def __init__(
         self,
         token_repository: McpTokenRepository,
-        settings_manager: SettingsManager,
+        settings: Settings,
         user_repository,
     ):
         super().__init__()
         self._tokens = token_repository
-        self._settings = settings_manager
+        self._settings = settings
         self._users = user_repository
 
     async def list_tokens(self, user: User) -> APIResponse:
@@ -97,11 +97,11 @@ def _jsonrpc_error(request_id, code: int, message: str) -> JSONResponse:
 
 def build_router(container: "AppContainer") -> APIRouter:
     token_repository = container.mcp_token_repository
-    settings_manager = container.settings_manager
+    settings = container.settings
     user_repository = container.user_repository
     collaborators: McpToolCollaborators = container.mcp_tool_collaborators
     controller = McpController(
-        token_repository=token_repository, settings_manager=settings_manager, user_repository=user_repository,
+        token_repository=token_repository, settings=settings, user_repository=user_repository,
     )
 
     router = APIRouter(prefix="/api/mcp", tags=["MCP"])
@@ -157,9 +157,9 @@ def build_router(container: "AppContainer") -> APIRouter:
                 status_code=401, detail="Invalid or revoked token",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        if not operations.is_globally_enabled(settings_manager):
+        if not operations.is_globally_enabled(settings):
             raise HTTPException(status_code=403, detail="MCP is disabled on this instance")
-        if not operations.is_user_enabled(settings_manager, token.user_id):
+        if not operations.is_user_enabled(settings, token.user_id):
             raise HTTPException(status_code=403, detail="MCP is disabled for this user")
         user = user_repository.get_by_id(token.user_id)
         if user is None:

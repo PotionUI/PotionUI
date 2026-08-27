@@ -111,7 +111,7 @@ _QWEN3_CHAT_TEMPLATE = (
 # multi-MB vocab, unlike the tiny bundled qwen3/t5/clip tokenizer assets above.
 # It is instead fetched ONCE on demand, the same way the image tagger / prompt
 # embedding models lazily fetch their own weights: via
-# ``DownloadManager.ensure_local_hf_repo`` (src/features/downloads/manager.py),
+# ``DownloadQueue.ensure_local_hf_repo`` (src/features/downloads/manager.py),
 # the core download queue's HF-repo fetch, so the request shows up in the admin
 # download history like any other model fetch. Landed next to the TE depot
 # (``text_encoders/_chat_tokenizer/gemma3/``), not in-repo — see ``ensure_gemma3_chat_tokenizer``.
@@ -224,14 +224,14 @@ def gemma3_chat_tokenizer_ready(models_dir: Optional[Path] = None) -> bool:
 
 
 def ensure_gemma3_chat_tokenizer(
-    download_manager: Any, models_dir: Optional[Path] = None, timeout: Optional[float] = None,
+    download_queue: Any, models_dir: Optional[Path] = None, timeout: Optional[float] = None,
 ) -> Path:
     """Fetch ``tokenizer.json`` + ``tokenizer_config.json`` (required) plus
     ``chat_template.jinja`` (fetched if the repo has it — see the module-level
     comment on ``_GEMMA3_CHAT_TOKENIZER_OPTIONAL_FILES``) for gemma3 adoption,
     via the SAME on-demand HF-repo fetch the image tagger / prompt-embedding
     models already use to lazily fetch their own weights
-    (``DownloadManager.ensure_local_hf_repo``, src/features/downloads/manager.py)
+    (``DownloadQueue.ensure_local_hf_repo``, src/features/downloads/manager.py)
     — the request lands in the admin download history like any other model
     fetch. Blocking; call off the event loop, matching
     ``ensure_local_hf_repo``'s own contract. ``timeout`` bounds only that
@@ -240,7 +240,7 @@ def ensure_gemma3_chat_tokenizer(
     even queued."""
     target = gemma3_chat_tokenizer_dir(models_dir)
     target.mkdir(parents=True, exist_ok=True)
-    download_manager.ensure_local_hf_repo(
+    download_queue.ensure_local_hf_repo(
         GEMMA3_CHAT_TOKENIZER_REPO, str(target),
         allow_patterns=list(_GEMMA3_CHAT_TOKENIZER_FILES) + list(_GEMMA3_CHAT_TOKENIZER_OPTIONAL_FILES),
         timeout=timeout,

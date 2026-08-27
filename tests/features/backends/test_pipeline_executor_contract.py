@@ -1,4 +1,4 @@
-"""An in-process backend drives a real GenerationManager through the
+"""An in-process backend drives a real GenerationEngine through the
 PipelineExecutor contract.
 
 Every other backend test doubles the executor, so nothing else would notice if
@@ -15,7 +15,7 @@ import pytest
 
 from src.features.backends.backend_config import NativeBackendConfig
 from src.features.backends.native_backend import NativeBackend
-from src.features.generation.generation import GenerationManager
+from src.features.generation.engine import GenerationEngine
 from src.pipelines.contracts import (
     BasePipe,
     IOType,
@@ -60,21 +60,21 @@ class EchoPipe(BasePipe):
         return PipeOutput(output={"text": "echoed"})
 
 
-def make_executor() -> GenerationManager:
+def make_executor() -> GenerationEngine:
     """What the composition root's factory closure produces, over doubles."""
     pipe_catalog = Mock()
     pipe_catalog.get_pipe.return_value = EchoPipe
 
-    settings_manager = Mock()
-    settings_manager.get_file_storage_directory.return_value = "storage"
+    settings = Mock()
+    settings.get_file_storage_directory.return_value = "storage"
 
-    return GenerationManager(
+    return GenerationEngine(
         gpu=Mock(),
-        model_manager=Mock(),
+        model_directories=Mock(),
         pipe_catalog=pipe_catalog,
-        settings_manager=settings_manager,
+        settings=settings,
         system_monitor=Mock(),
-        memory_manager=Mock(),
+        memory_advisor=Mock(),
         llm_service=Mock(),
         models=Mock(),
     )
@@ -86,7 +86,7 @@ def make_backend() -> NativeBackend:
             id="native-1", name="Native", enabled=True, priority=1
         )
     )
-    backend.set_generation_manager(make_executor())
+    backend.set_generation_engine(make_executor())
     return backend
 
 
@@ -127,17 +127,17 @@ async def test_cancel_reaches_the_concrete_manager():
 
     # In flight: the executor is asked, and it owns this id.
     backend._active.add("gen-executor-contract")
-    backend.generation_manager._running_generation_id = "gen-executor-contract"
+    backend.generation_engine._running_generation_id = "gen-executor-contract"
 
     assert await backend.cancel_generation("gen-executor-contract") is True
-    assert backend.generation_manager._cancelled is True
+    assert backend.generation_engine._cancelled is True
 
 
-def test_native_backend_caps_vram_through_the_executors_gpu_manager():
+def test_native_backend_caps_vram_through_the_executors_gpu_monitor():
     """prepare_pipes reaches past the execution contract for the GPU manager."""
     backend = make_backend()
     backend.config.gpu_max_vram = 24
 
     backend.prepare_pipes([{"name": "echo", "config": {}}])
 
-    backend.generation_manager.gpu_manager.set_vram_cap_gb.assert_called_once_with(24)
+    backend.generation_engine.gpu_monitor.set_vram_cap_gb.assert_called_once_with(24)

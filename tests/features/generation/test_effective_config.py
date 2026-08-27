@@ -11,7 +11,7 @@ import copy
 import pytest
 
 from src.features.generation.effective_config import merge_pipe_defaults
-from src.features.generation.generation import deep_update
+from src.features.generation.engine import deep_update
 
 
 class FakeCatalog:

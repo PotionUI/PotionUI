@@ -5,8 +5,8 @@ value; a generator pipe consumes it and calls whichever capability mixin the
 model implements. `BaseModel` names the families those models belong to, which
 is how a pipe states what it can drive.
 
-This is the wiring between pipes, not the models directory on disk - that is
-`ModelManager`, a service the generation feature injects into pipes as `MODELS`.
+This is the wiring between pipes, not the on-disk model/artifact cache - that is
+`ModelLifecycle`, the service the generation feature injects into pipes as `MODELS`.
 """
 
 from abc import ABC, abstractmethod

@@ -4,7 +4,7 @@
 	import { toasts } from '$lib/stores/toast';
 	import { logger } from '$lib/utils/logger';
 	import Icon from '$lib/components/Icon.svelte';
-	import { Button, Badge, Spinner, EmptyState, Switch } from '$lib/components/ui';
+	import { Alert, Button, Badge, Spinner, EmptyState, Switch } from '$lib/components/ui';
 	import FormField from '$lib/components/form-fields/FormField.svelte';
 	import { registerBuiltinFieldComponents } from '$lib/fields/builtin';
 	import {
@@ -236,6 +236,13 @@
 </script>
 
 <div class="space-y-4">
+	{#if mode}
+		<Alert variant="info" density="compact" icon>
+			Set a different default, lock a field so users can't change it, or hide it from the form entirely. Changes only
+			apply to the <span class="font-mono">{mode}</span> mode.
+		</Alert>
+	{/if}
+
 	<div class="flex flex-wrap items-center gap-3">
 		<div class="flex items-center gap-2">
 			<label for="form-overrides-mode" class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">Mode</label>
@@ -277,11 +284,6 @@
 	{:else if fields.length === 0}
 		<EmptyState title="No fields on this form" description="This mode's form doesn't declare any fields to override." icon="sliders" compact />
 	{:else}
-		<p class="text-sm text-fg-muted">
-			Set a different default, lock a field so users can't change it, or hide it from the form entirely. Changes only
-			apply to the <span class="font-mono text-fg">{mode}</span> mode.
-		</p>
-
 		{#if groups.length > 0}
 			<nav class="inline-flex flex-wrap items-center gap-1" aria-label="Form tabs">
 				{#each groups as group (group.label)}

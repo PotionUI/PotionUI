@@ -9,7 +9,7 @@ architecture itself, see `CLAUDE.md`.
 You need Python 3.12+ and Node.js 18+.
 
 ```bash
-git clone https://github.com/jtyszkiew/imagine.git potionui
+git clone https://github.com/PotionUI/PotionUI.git potionui
 cd potionui
 ./potionui start      # create the venv, install deps, launch backend + frontend
 ```

@@ -172,7 +172,7 @@ You need:
   [Hardware Requirements](docs/user/hardware-requirements.md).
 
 ```bash
-git clone https://github.com/jtyszkiew/imagine.git potionui && cd potionui
+git clone https://github.com/PotionUI/PotionUI.git potionui && cd potionui
 ./potionui doctor    # check prerequisites, with a repair command for anything missing
 ./potionui start     # create the venv, install deps, launch backend + frontend, print the URL
 ```

@@ -1,5 +1,7 @@
 <script lang="ts" generics="T extends { id: string; name: string; color: string }">
 	import { onMount } from 'svelte';
+	import portal from '$lib/actions/portal';
+	import { computeAnchoredMenuPosition } from '$lib/utils/menuPosition';
 
 	// The "+N" trigger and searchable popover for the tags that don't fit in a
 	// `QuickTagFilterBar` row. Extracted from the history tags bar so the
@@ -13,6 +15,7 @@
 	let searchValue = '';
 	let container: HTMLDivElement;
 	let trigger: HTMLButtonElement;
+	let popoverEl: HTMLDivElement;
 	let searchInput: HTMLInputElement;
 	let popoverPos = { top: 0, left: 0 };
 
@@ -30,13 +33,21 @@
 	);
 	$: selectedCount = tags.filter((tag) => selectedIds.includes(tag.id)).length;
 
+	// Both tags bars render this inside their page's `sticky` header, which
+	// caps any z-index inside it below the generation grid's per-card overlays
+	// (GenerationCard.svelte, z-40) — `portal` renders the popover at body
+	// level to escape that ancestor stacking context instead.
+	function updatePopoverPosition() {
+		if (!trigger) return;
+		const width = popoverEl?.getBoundingClientRect().width ?? 256;
+		popoverPos = computeAnchoredMenuPosition(trigger, { width });
+	}
+
 	function toggleDropdown() {
-		if (!isOpen && trigger) {
-			const rect = trigger.getBoundingClientRect();
-			popoverPos = { top: rect.bottom + 4, left: rect.left };
-		}
 		isOpen = !isOpen;
 		if (isOpen) {
+			updatePopoverPosition();
+			requestAnimationFrame(updatePopoverPosition);
 			setTimeout(() => searchInput?.focus(), 50);
 		} else {
 			searchValue = '';
@@ -51,7 +62,12 @@
 	}
 
 	function handleClickOutside(event: MouseEvent) {
-		if (isOpen && container && !container.contains(event.target as Node)) close();
+		const target = event.target as Node;
+		// The popover lives at body level (portalled) once open — only the
+		// trigger is still inside `container`.
+		if (isOpen && container && !container.contains(target) && !(popoverEl && popoverEl.contains(target))) {
+			close();
+		}
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
@@ -76,7 +92,9 @@
 		</button>
 		{#if isOpen}
 			<div
-				class="fixed z-50 w-64 max-h-80 bg-surface-1 border border-line-strong rounded-lg shadow-overlay flex flex-col"
+				use:portal
+				bind:this={popoverEl}
+				class="fixed z-[9999] w-64 max-h-80 bg-surface-1 border border-line-strong rounded-lg shadow-overlay flex flex-col"
 				style="top: {popoverPos.top}px; left: {popoverPos.left}px;"
 				role="dialog"
 			>

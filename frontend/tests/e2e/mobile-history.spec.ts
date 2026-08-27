@@ -66,3 +66,59 @@ test('history header fits and stays usable at phone width', async ({ page }) => 
 	const tabBox = await tabBar.boundingBox();
 	expect(tabBox!.y + tabBox!.height, 'tab bar bottom edge on-screen').toBeLessThanOrEqual(812 + 1);
 });
+
+// Desktop width: the "More actions" overflow menu lives in the sticky header
+// (HistoryToolbar.svelte), which is its own stacking context — a z-index
+// inside it cannot out-rank a z-40 element that lives outside that context
+// entirely (e.g. GenerationCard.svelte's per-card overlays), no matter how
+// high it's set. The only assertion that actually proves paint order is
+// `elementFromPoint`; a visibility/boundingBox check would pass even with the
+// menu fully hidden underneath something opaque.
+test.describe('history more-actions menu stacking', () => {
+	test.use({ viewport: { width: 1280, height: 900 }, hasTouch: false });
+
+	test('More actions menu paints above a z-40 sibling', async ({ page }) => {
+		await loginAsOwner(page);
+		await page.goto('/history');
+
+		const moreButton = page.getByRole('button', { name: 'More actions' });
+		await expect(moreButton).toBeVisible();
+
+		// Open once to find where the first menu item lands, then close so the
+		// probe can be sized against real coordinates instead of a guess.
+		await moreButton.click();
+		const firstItem = page.getByRole('menuitem', { name: 'Upload generations' });
+		const itemBox = (await firstItem.boundingBox())!;
+		expect(itemBox, 'menu item has a box').toBeTruthy();
+		await page.keyboard.press('Escape');
+		await expect(firstItem).toBeHidden();
+
+		// The history grid may or may not have real generations in this
+		// throwaway instance, so the z-40 competitor is simulated directly —
+		// this reproduces the exact paint contest GenerationCard's z-40
+		// overlays create without depending on seeded data.
+		await page.evaluate((box) => {
+			const probe = document.createElement('div');
+			probe.id = 'z40-stacking-probe';
+			probe.style.cssText = `position: fixed; z-index: 40; top: ${box.y}px; left: ${box.x}px; width: ${box.width}px; height: ${box.height}px; background: red;`;
+			document.body.appendChild(probe);
+		}, itemBox);
+
+		await moreButton.click();
+		await expect(firstItem).toBeVisible();
+
+		const center = { x: itemBox!.x + itemBox!.width / 2, y: itemBox!.y + itemBox!.height / 2 };
+		const hit = await page.evaluate(({ x, y }) => {
+			const el = document.elementFromPoint(x, y);
+			return {
+				isProbe: el?.id === 'z40-stacking-probe',
+				resolvesToMenuItem: !!el?.closest('[role="menuitem"]')
+			};
+		}, center);
+
+		expect(hit.isProbe, 'the z-40 probe must not occlude the menu item').toBe(false);
+		expect(hit.resolvesToMenuItem, 'the point must resolve to the menu item itself').toBe(true);
+
+		await screenshot(page, JOURNEY, 'more-menu-above-z40-probe');
+	});
+});

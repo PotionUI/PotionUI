@@ -13,6 +13,7 @@
 	import { api } from '$lib/services/api/index';
 	import HistorySearchableFilter from './HistorySearchableFilter.svelte';
 	import type { HistorySearchMode, SortBy, SortDir } from '$lib/types/history';
+	import { computeAnchoredMenuPosition } from '$lib/utils/menuPosition';
 
 	// Self-contained: reads/writes historyStore directly. Modal-opening
 	// callbacks stay as props since modal state lives on the page.
@@ -28,6 +29,9 @@
 	let filtersButtonEl: HTMLButtonElement;
 	let filtersPanelEl: HTMLDivElement;
 	let filtersPanelPosition = { top: 0, left: 0 };
+	let moreMenuButtonEl: HTMLDivElement;
+	let moreMenuPanelEl: HTMLDivElement;
+	let moreMenuPosition = { top: 0, left: 0 };
 
 	// The toolbar's sticky header (+page.svelte) establishes its own stacking
 	// context (position:sticky + z-index), which caps any z-index inside it —
@@ -35,19 +39,12 @@
 	// outside that context entirely and paints above it regardless of the
 	// panel's own z-index. `portal` (see $lib/actions/portal.ts) renders the
 	// panel at body level to escape that ancestor stacking context instead of
-	// fighting it with a bigger number.
+	// fighting it with a bigger number. Both dropdowns below use it.
 
 	function updateFiltersPanelPosition() {
 		if (!filtersButtonEl) return;
-		const rect = filtersButtonEl.getBoundingClientRect();
 		const panelWidth = filtersPanelEl?.getBoundingClientRect().width ?? 352;
-		const padding = 8;
-		let left = rect.left;
-		if (left + panelWidth > window.innerWidth - padding) {
-			left = window.innerWidth - panelWidth - padding;
-		}
-		if (left < padding) left = padding;
-		filtersPanelPosition = { top: rect.bottom + 4, left };
+		filtersPanelPosition = computeAnchoredMenuPosition(filtersButtonEl, { width: panelWidth });
 	}
 
 	function toggleFiltersPanel() {
@@ -62,6 +59,24 @@
 
 	function closeFiltersPanel() {
 		isFiltersOpen = false;
+	}
+
+	function updateMoreMenuPosition() {
+		if (!moreMenuButtonEl) return;
+		const panelWidth = moreMenuPanelEl?.getBoundingClientRect().width ?? 180;
+		moreMenuPosition = computeAnchoredMenuPosition(moreMenuButtonEl, { width: panelWidth, align: 'right' });
+	}
+
+	function toggleMoreMenu() {
+		isMoreMenuOpen = !isMoreMenuOpen;
+		if (isMoreMenuOpen) {
+			updateMoreMenuPosition();
+			requestAnimationFrame(updateMoreMenuPosition);
+		}
+	}
+
+	function closeMoreMenu() {
+		isMoreMenuOpen = false;
 	}
 
 	// Sort options map to a sort_by + sort_dir pair, encoded as "field:dir".
@@ -246,11 +261,16 @@
 
 	function handleWindowClick(event: MouseEvent) {
 		const target = event.target as HTMLElement;
-		if (!target.closest('.history-more-menu')) {
-			isMoreMenuOpen = false;
+		// Both panels live at body level (portalled) — only their trigger stays
+		// inside `.history-more-menu`/`.history-filters-menu`, so dismissal also
+		// has to check containment against the portalled node directly.
+		if (
+			isMoreMenuOpen &&
+			!target.closest('.history-more-menu') &&
+			!(moreMenuPanelEl && moreMenuPanelEl.contains(target))
+		) {
+			closeMoreMenu();
 		}
-		// The panel itself lives at body level (portalled), outside
-		// `.history-filters-menu` — only the trigger button is still inside it.
 		if (
 			isFiltersOpen &&
 			!target.closest('.history-filters-menu') &&
@@ -258,6 +278,12 @@
 		) {
 			closeFiltersPanel();
 		}
+	}
+
+	function handleWindowKeydown(event: KeyboardEvent) {
+		if (event.key !== 'Escape') return;
+		if (isMoreMenuOpen) closeMoreMenu();
+		if (isFiltersOpen) closeFiltersPanel();
 	}
 
 	$: hasActiveFilters =
@@ -285,7 +311,7 @@
 		(currentState.filters.systemTag ? 1 : 0);
 </script>
 
-<svelte:window on:click={handleWindowClick} />
+<svelte:window on:click={handleWindowClick} on:keydown={handleWindowKeydown} />
 
 <input
 	type="file"
@@ -603,21 +629,27 @@
 				<IconButton icon="refresh" label="Refresh" onclick={() => historyStore.loadGenerations()} />
 
 				<!-- Overflow menu: rarer actions -->
-				<div class="relative history-more-menu">
+				<div class="relative history-more-menu" bind:this={moreMenuButtonEl}>
 					<IconButton
 						icon="more"
 						label="More actions"
 						active={isMoreMenuOpen}
-						onclick={() => (isMoreMenuOpen = !isMoreMenuOpen)}
+						onclick={toggleMoreMenu}
 					/>
 					{#if isMoreMenuOpen}
 						<div
-							class="absolute right-0 top-full mt-1 min-w-[180px] bg-surface-2 rounded-xl border border-line-strong shadow-floating z-50 py-1"
+							use:portal
+							bind:this={moreMenuPanelEl}
+							class="fixed z-[9999] min-w-[180px] bg-surface-2 rounded-xl border border-line-strong shadow-floating py-1"
+							style="top: {moreMenuPosition.top}px; left: {moreMenuPosition.left}px;"
+							role="menu"
+							aria-label="More actions"
 						>
 							<button
 								class="w-full px-3 py-2 text-left text-xs hover:bg-surface-3/50 transition-colors flex items-center gap-2 text-fg-muted hover:text-fg"
+								role="menuitem"
 								on:click={() => {
-									isMoreMenuOpen = false;
+									closeMoreMenu();
 									onOpenUpload();
 								}}
 							>
@@ -626,9 +658,10 @@
 							</button>
 							<button
 								class="w-full px-3 py-2 text-left text-xs hover:bg-surface-3/50 transition-colors flex items-center gap-2 text-fg-muted hover:text-fg disabled:opacity-40 disabled:cursor-not-allowed"
+								role="menuitem"
 								disabled={importing}
 								on:click={() => {
-									isMoreMenuOpen = false;
+									closeMoreMenu();
 									triggerImportBundle();
 								}}
 							>
@@ -637,8 +670,9 @@
 							</button>
 							<button
 								class="w-full px-3 py-2 text-left text-xs hover:bg-surface-3/50 transition-colors flex items-center gap-2 text-fg-muted hover:text-fg"
+								role="menuitem"
 								on:click={() => {
-									isMoreMenuOpen = false;
+									closeMoreMenu();
 									onOpenAddTag();
 								}}
 							>
@@ -648,8 +682,9 @@
 							<div class="my-1 h-px bg-line"></div>
 							<button
 								class="w-full px-3 py-2 text-left text-xs hover:bg-danger/10 transition-colors flex items-center gap-2 text-danger"
+								role="menuitem"
 								on:click={() => {
-									isMoreMenuOpen = false;
+									closeMoreMenu();
 									onOpenDeleteByTags();
 								}}
 							>

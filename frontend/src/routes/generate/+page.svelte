@@ -723,6 +723,11 @@
 	const modesInFlight = new Map<string, Promise<void>>();
 	// Toast once per (tab, preset) on load failure — see presetVarsErrorShown.
 	const modesErrorShown = new Set<string>();
+	// Retry once per (tab, preset) on load failure — see loadModesForTab. A
+	// single dropped request (common on a flaky mobile connection right after
+	// picking a preset) must not strand the tab on the "select a mode"
+	// placeholder forever with no mode ever auto-selected.
+	const modesRetriedFor = new Set<string>();
 
 	// Only the visible tab needs its mode manifest. Inactive tabs retain their
 	// persisted selection and fetch metadata when the user switches to them.

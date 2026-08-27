@@ -3,11 +3,22 @@
 	import { historyStore } from '$lib/stores/history';
 	import { api } from '$lib/services/api/index';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
-	import Tooltip from '$lib/components/Tooltip.svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import { Button, Alert } from '$lib/components/ui';
+	import { Button, Alert, Kbd } from '$lib/components/ui';
+	import {
+		createConfirmSettlementGate,
+		getConfirmKeyboardAction,
+		settleIfEligible
+	} from '$lib/components/modals/confirmKeyboard';
 
 	export let onClose: () => void;
+
+	// Tags fetched without a color (e.g. never had one assigned) would
+	// otherwise render `style="background-color: "` on the dot below — an
+	// empty declaration the browser drops entirely, leaving a fully
+	// transparent 8px dot that still reserves its box: a "weird empty space"
+	// to the left of the tag name with no visible cause.
+	const FALLBACK_TAG_COLOR = 'rgb(var(--fg-subtle))';
 
 	$: currentState = $historyStore;
 	$: availableTags = currentState.availableTags;
@@ -16,6 +27,10 @@
 	let deleteByTagsCount = 0;
 	let countingByTags = false;
 	let deletingByTags = false;
+
+	const settlementGate = createConfirmSettlementGate();
+	$: canConfirm =
+		selectedDeleteTagIds.length > 0 && deleteByTagsCount > 0 && !deletingByTags && !countingByTags;
 
 	async function updateDeleteByTagsCount() {
 		if (selectedDeleteTagIds.length === 0) {
@@ -47,6 +62,7 @@
 			}
 		} catch (e) {
 			logger.error('Failed to delete by tags:', e);
+			settlementGate.reset();
 		} finally {
 			deletingByTags = false;
 		}
@@ -60,7 +76,34 @@
 		}
 		updateDeleteByTagsCount();
 	}
+
+	// A tag without a color renders the pill in neutral tones instead of
+	// splicing an alpha suffix onto `undefined` (invalid CSS the browser
+	// would silently drop).
+	function tagPillStyle(color: string | undefined, selected: boolean): string {
+		if (!selected) return 'color: rgb(var(--fg-subtle)); border-color: rgb(var(--line-strong));';
+		if (!color) return 'background-color: rgb(var(--surface-3)); color: rgb(var(--fg)); border-color: rgb(var(--line-hover));';
+		return `background-color: ${color}20; color: ${color}; border-color: ${color}60;`;
+	}
+
+	function handleCancel() {
+		settlementGate.settle(onClose);
+	}
+
+	function handleConfirm() {
+		settleIfEligible(settlementGate, canConfirm, handleDeleteByTags);
+	}
+
+	function handleKeydown(e: KeyboardEvent) {
+		if (deletingByTags) return;
+		const { action, suppress } = getConfirmKeyboardAction(e);
+		if (action === 'cancel') handleCancel();
+		else if (action === 'confirm') handleConfirm();
+		if (suppress) e.preventDefault();
+	}
 </script>
+
+<svelte:window on:keydown|capture={handleKeydown} />
 
 <BaseModal
 	isOpen={true}
@@ -68,7 +111,8 @@
 	sizeClass="md:max-w-lg md:w-full"
 	closeable={!deletingByTags}
 	dialogRole="alertdialog"
-	on:close={onClose}
+	handleEscapeKey={false}
+	on:close={handleCancel}
 >
 	<svelte:fragment slot="headerIcon">
 		<Icon name="warning" className="w-5 h-5 text-danger" />
@@ -87,15 +131,13 @@
 					{#each availableTags as tag}
 						<button
 							class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all"
-							style="{selectedDeleteTagIds.includes(tag.id)
-								? `background-color: ${tag.color}20; color: ${tag.color}; border-color: ${tag.color}60;`
-								: 'color: rgb(var(--fg-subtle)); border-color: rgb(var(--line-strong));'}"
+							style={tagPillStyle(tag.color, selectedDeleteTagIds.includes(tag.id))}
 							on:click={() => toggleDeleteTag(tag.id)}
 							disabled={deletingByTags}
 						>
 							<span
 								class="w-2 h-2 rounded-full flex-shrink-0"
-								style="background-color: {tag.color}"
+								style="background-color: {tag.color || FALLBACK_TAG_COLOR}"
 							></span>
 							{tag.name}
 							{#if selectedDeleteTagIds.includes(tag.id)}
@@ -140,19 +182,17 @@
 	</div>
 	<svelte:fragment slot="footer">
 		<div class="flex items-center justify-end gap-3 px-6 py-4">
-			<Tooltip text="Cancel" kbd="Esc" position="top">
-				<Button variant="secondary" disabled={deletingByTags} onclick={onClose}>Cancel</Button>
-			</Tooltip>
-			<Button
-				variant="danger"
-				disabled={selectedDeleteTagIds.length === 0 ||
-					deleteByTagsCount === 0 ||
-					deletingByTags ||
-					countingByTags}
-				loading={deletingByTags}
-				onclick={handleDeleteByTags}
-			>
-				Confirm
+			<Button variant="secondary" disabled={deletingByTags} onclick={handleCancel}>
+				<span class="inline-flex items-center gap-2">
+					Cancel
+					<Kbd keys="Esc" />
+				</span>
+			</Button>
+			<Button variant="danger" disabled={!canConfirm} loading={deletingByTags} onclick={handleConfirm}>
+				<span class="inline-flex items-center gap-2">
+					Confirm
+					<Kbd keys="Enter" />
+				</span>
 			</Button>
 		</div>
 	</svelte:fragment>

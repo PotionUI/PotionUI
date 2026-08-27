@@ -270,13 +270,23 @@
 
 	async function copyMcpToken() {
 		if (!mcpRevealedToken) return;
-		mcpCopied = await copyText(mcpRevealedToken.token);
-		if (mcpCopied) setTimeout(() => (mcpCopied = false), 2000);
+		const ok = await copyText(mcpRevealedToken.token);
+		if (ok) {
+			mcpCopied = true;
+			setTimeout(() => (mcpCopied = false), 1500);
+		} else {
+			toasts.error('Could not copy');
+		}
 	}
 
 	async function copyMcpConfig() {
-		mcpConfigCopied = await copyText(mcpConfigSnippet);
-		if (mcpConfigCopied) setTimeout(() => (mcpConfigCopied = false), 2000);
+		const ok = await copyText(mcpConfigSnippet);
+		if (ok) {
+			mcpConfigCopied = true;
+			setTimeout(() => (mcpConfigCopied = false), 1500);
+		} else {
+			toasts.error('Could not copy');
+		}
 	}
 
 	onMount(() => {
@@ -605,7 +615,12 @@
 									>
 										{mcpRevealedToken.token}
 									</code>
-									<Button size="xs" variant="secondary" onclick={copyMcpToken}>
+									<Button
+										size="xs"
+										variant="secondary"
+										icon={mcpCopied ? 'check' : 'copy'}
+										onclick={copyMcpToken}
+									>
 										{mcpCopied ? 'Copied' : 'Copy'}
 									</Button>
 								</div>
@@ -684,7 +699,13 @@
 							<p class="text-fg text-sm font-medium mb-1">Client configuration</p>
 							<pre
 								class="rounded border border-line bg-surface-2 p-3 font-mono text-2xs text-fg-muted whitespace-pre-wrap break-all">{mcpConfigSnippet}</pre>
-							<Button size="xs" variant="ghost" class="mt-1.5" onclick={copyMcpConfig}>
+							<Button
+								size="xs"
+								variant="ghost"
+								class="mt-1.5"
+								icon={mcpConfigCopied ? 'check' : 'copy'}
+								onclick={copyMcpConfig}
+							>
 								{mcpConfigCopied ? 'Copied' : 'Copy config'}
 							</Button>
 						</div>

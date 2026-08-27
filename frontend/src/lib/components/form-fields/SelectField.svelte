@@ -3,6 +3,7 @@
 	import FieldShell from './FieldShell.svelte';
 	import Icon from '../Icon.svelte';
 	import { copyText } from '$lib/utils/clipboard';
+	import { toasts } from '$lib/stores/toast';
 	import { formatSelectOptions } from './selectOptions';
 
 	export let name: string | null;
@@ -36,6 +37,18 @@
 	$: example = selectedOption?.example;
 
 	$: formattedOptions = formatSelectOptions(options, allowEmpty);
+
+	let copied = false;
+	async function copyExample() {
+		if (!example) return;
+		const ok = await copyText(example);
+		if (ok) {
+			copied = true;
+			setTimeout(() => (copied = false), 1500);
+		} else {
+			toasts.error('Could not copy');
+		}
+	}
 </script>
 
 <FieldShell
@@ -61,11 +74,11 @@
 			<span class="min-w-0 truncate font-mono text-xs text-fg-muted">{example}</span>
 			<button
 				type="button"
-				on:click={() => copyText(example)}
+				on:click={copyExample}
 				class="shrink-0 text-fg-subtle hover:text-fg-muted transition-colors"
 				title="Copy to clipboard"
 			>
-				<Icon name="copy" className="w-3.5 h-3.5" />
+				<Icon name={copied ? 'check' : 'copy'} className="w-3.5 h-3.5" />
 			</button>
 		</div>
 	{/if}

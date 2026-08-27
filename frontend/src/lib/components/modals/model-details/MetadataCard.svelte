@@ -17,7 +17,8 @@
 
 <script lang="ts">
 	import Icon from '$lib/components/Icon.svelte';
-	import { copyToClipboard } from './formatters';
+	import { copyText } from '$lib/utils/clipboard';
+	import { toasts } from '$lib/stores/toast';
 
 	let {
 		icon,
@@ -30,6 +31,21 @@
 		title: string;
 		rows: MetadataRow[];
 	} = $props();
+
+	/** Label of the row most recently copied, to flash its icon. */
+	let copiedLabel = $state<string | null>(null);
+	let copiedTimer: ReturnType<typeof setTimeout> | undefined;
+
+	async function copyRow(row: MetadataRow) {
+		const ok = await copyText(row.copyValue ?? '');
+		if (ok) {
+			copiedLabel = row.label;
+			clearTimeout(copiedTimer);
+			copiedTimer = setTimeout(() => (copiedLabel = null), 1500);
+		} else {
+			toasts.error('Could not copy');
+		}
+	}
 </script>
 
 <div class="bg-surface-2 rounded-lg p-3">
@@ -51,10 +67,10 @@
 						</code>
 						<button
 							class="text-fg-subtle hover:text-fg-muted flex-shrink-0"
-							onclick={() => copyToClipboard(row.copyValue ?? '')}
+							onclick={() => copyRow(row)}
 							aria-label={row.copyLabel ?? `Copy ${row.label}`}
 						>
-							<Icon name="copy" className="w-3 h-3" />
+							<Icon name={copiedLabel === row.label ? 'check' : 'copy'} className="w-3 h-3" />
 						</button>
 					</div>
 				{:else}

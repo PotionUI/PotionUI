@@ -2,8 +2,7 @@
 	import { createEventDispatcher } from 'svelte';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import { Badge } from '$lib/components/ui';
-	import { copyText } from '$lib/utils/clipboard';
+	import { Badge, CopyButton } from '$lib/components/ui';
 
 	export let isOpen: boolean = false;
 	export let params: Record<string, any> = {};
@@ -16,8 +15,8 @@
 
 	$: entries = Object.entries(params ?? {});
 
-	function copyToClipboard(value: unknown) {
-		void copyText(typeof value === 'object' ? JSON.stringify(value) : String(value));
+	function copyValueFor(value: unknown): string {
+		return typeof value === 'object' ? JSON.stringify(value) : String(value);
 	}
 </script>
 
@@ -73,14 +72,11 @@
 							<span class="text-xs font-medium text-fg-muted capitalize truncate">
 								{key.replace(/_/g, ' ')}
 							</span>
-							<button
-								on:click={() => copyToClipboard(value)}
-								class="opacity-0 group-hover:opacity-100 p-1 hover:bg-surface-3 rounded transition-all"
-								title="Copy to clipboard"
-								aria-label={`Copy ${key}`}
-							>
-								<Icon name="copy" className="w-3.5 h-3.5 text-fg-subtle" />
-							</button>
+							<CopyButton
+								text={() => copyValueFor(value)}
+								ariaLabel={`Copy ${key}`}
+								class="opacity-0 group-hover:opacity-100"
+							/>
 						</div>
 						<div
 							class="font-mono text-sm font-semibold text-fg tabular-nums max-h-28 overflow-auto break-words"

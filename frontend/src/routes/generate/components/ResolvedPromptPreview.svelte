@@ -1,6 +1,8 @@
 <script lang="ts">
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
+	import { copyText } from '$lib/utils/clipboard';
+	import { toasts } from '$lib/stores/toast';
 
 	export let prompt = '';
 	export let negativePrompt = '';
@@ -14,9 +16,13 @@
 
 	async function copyActive() {
 		if (!activeText) return;
-		await navigator.clipboard.writeText(activeText);
-		copied = true;
-		setTimeout(() => (copied = false), 1600);
+		const ok = await copyText(activeText);
+		if (ok) {
+			copied = true;
+			setTimeout(() => (copied = false), 1500);
+		} else {
+			toasts.error('Could not copy');
+		}
 	}
 </script>
 

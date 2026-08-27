@@ -22,8 +22,7 @@
 	import { nsfwFilterStore, visibleMediaFiles } from '$lib/stores/nsfwFilter';
 	import { nsfwRevealStore, revealKey } from '$lib/stores/nsfwReveal';
 	import { pickActiveGeneration, needsDetailFetch } from '$lib/utils/generationDetail';
-	import { copyText } from '$lib/utils/clipboard';
-	import { Badge, Spinner } from '$lib/components/ui';
+	import { Badge, Spinner, CopyButton } from '$lib/components/ui';
 	import PublishToInspirationsModal from './PublishToInspirationsModal.svelte';
 	import { filesWithPreview, mediaFileThumbnailUrl } from '$lib/utils/modelPreview';
 
@@ -333,10 +332,6 @@
 				format: resolveAudioFormat(file)
 			}
 		];
-	}
-
-	function copyToClipboard(text: string) {
-		void copyText(text);
 	}
 
 	function formatBytes(bytes?: number) {
@@ -740,13 +735,7 @@
 								<span class="font-mono text-2xs uppercase tracking-wider text-fg-disabled">ID</span>
 								<div class="flex items-center gap-1">
 									<code class="font-mono text-xs text-fg">{shortGenerationId}...</code>
-									<button
-										class="p-1 hover:bg-surface-3 rounded transition-colors"
-										on:click={() => copyToClipboard(activeGenerationId)}
-										aria-label="Copy ID"
-									>
-										<Icon name="copy" className="w-3 h-3 text-fg-muted" />
-									</button>
+									<CopyButton text={activeGenerationId} ariaLabel="Copy ID" size="xs" />
 								</div>
 							</div>
 							{#if activeGeneration.preset_id}
@@ -754,13 +743,12 @@
 									<span class="font-mono text-2xs uppercase tracking-wider text-fg-disabled">Preset</span>
 									<div class="flex items-center gap-1">
 										<span class="font-mono text-xs text-fg truncate max-w-[220px]">{activeGeneration.preset_id}</span>
-										<button
-											class="p-1 hover:bg-surface-3 rounded transition-colors flex-shrink-0"
-											on:click={() => copyToClipboard(activeGeneration.preset_id ?? '')}
-											aria-label="Copy preset"
-										>
-											<Icon name="copy" className="w-3 h-3 text-fg-muted" />
-										</button>
+										<CopyButton
+											text={activeGeneration.preset_id ?? ''}
+											ariaLabel="Copy preset"
+											size="xs"
+											class="flex-shrink-0"
+										/>
 									</div>
 								</div>
 							{/if}
@@ -816,13 +804,12 @@
 											<span class="font-mono text-2xs uppercase tracking-wider text-fg-subtle">
 												{seg.channel === 'negative' ? 'Negative' : 'Positive'}
 											</span>
-											<button
-												class="ml-auto p-1 hover:bg-surface-1 rounded transition-colors"
-												on:click={() => copyToClipboard(seg.text || '')}
-												aria-label="Copy segment"
-											>
-												<Icon name="copy" className="w-3 h-3 text-fg-muted" />
-											</button>
+											<CopyButton
+												text={seg.text || ''}
+												ariaLabel="Copy segment"
+												size="xs"
+												class="ml-auto"
+											/>
 										</div>
 
 										{#if seg.name || seg.color}
@@ -914,13 +901,12 @@
 											{#if seg.sub_type}
 												<Badge variant="signal" size="sm">{seg.sub_type}</Badge>
 											{/if}
-											<button
-												class="ml-auto p-1 hover:bg-surface-1 rounded transition-colors"
-												on:click={() => copyToClipboard(seg.prompt || '')}
-												aria-label="Copy shot description"
-											>
-												<Icon name="copy" className="w-3 h-3 text-fg-muted" />
-											</button>
+											<CopyButton
+												text={seg.prompt || ''}
+												ariaLabel="Copy shot description"
+												size="xs"
+												class="ml-auto"
+											/>
 										</div>
 
 										{#if seg.prompt}
@@ -1013,13 +999,12 @@
 											<span class="font-mono text-2xs uppercase tracking-wider text-fg-disabled">
 												{key.replace(/_/g, ' ')}
 											</span>
-											<button
-												class="p-0.5 hover:bg-surface-1 rounded transition-colors opacity-0 group-hover:opacity-100"
-												on:click={() => copyToClipboard(String(value))}
-												aria-label="Copy {key}"
-											>
-												<Icon name="copy" className="w-3 h-3 text-fg-muted" />
-											</button>
+											<CopyButton
+												text={String(value)}
+												ariaLabel="Copy {key}"
+												size="xs"
+												class="opacity-0 group-hover:opacity-100"
+											/>
 										</div>
 										<div class="font-mono tabular-nums text-xs font-semibold text-fg truncate">
 											{typeof value === 'object' ? JSON.stringify(value) : String(value)}

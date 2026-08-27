@@ -5,6 +5,8 @@
 	import { automationNodeTypes } from '$lib/stores/automationNodeTypes';
 	import { getSourceHandles } from '$lib/automations/nodeHandles';
 	import { outputRef } from '$lib/automations/nodeData';
+	import { copyText } from '$lib/utils/clipboard';
+	import { toasts } from '$lib/stores/toast';
 	import NodeConfigForm from './NodeConfigForm.svelte';
 
 	/** The reference most recently copied, to flash "copied" on that row. */
@@ -12,14 +14,13 @@
 	let copiedTimer: ReturnType<typeof setTimeout> | undefined;
 
 	async function copyReference(reference: string) {
-		try {
-			await navigator.clipboard.writeText(reference);
+		const ok = await copyText(reference);
+		if (ok) {
 			copied = reference;
 			clearTimeout(copiedTimer);
-			copiedTimer = setTimeout(() => (copied = null), 1200);
-		} catch {
-			// Clipboard is unavailable (insecure origin / denied) — the reference
-			// is still displayed on the row, so the user can select it manually.
+			copiedTimer = setTimeout(() => (copied = null), 1500);
+		} else {
+			toasts.error('Could not copy');
 		}
 	}
 

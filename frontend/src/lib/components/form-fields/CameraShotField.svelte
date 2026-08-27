@@ -66,7 +66,7 @@
 		justInserted = false;
 	}
 
-	function insertPhrase() {
+	async function insertPhrase() {
 		if (!phrase) return;
 		const result = insertTriggerIntoActivePrompt(phrase);
 		if (result === 'inserted') {
@@ -75,15 +75,25 @@
 		} else if (result === 'duplicate') {
 			toasts.info('Already in prompt');
 		} else {
-			void copyText(phrase);
-			toasts.info('Copied to clipboard');
+			const ok = await copyText(phrase);
+			if (ok) {
+				toasts.info('Copied to clipboard');
+			} else {
+				toasts.error('Could not copy');
+			}
 		}
 	}
 
+	let phraseCopied = false;
 	async function copyPhrase() {
 		if (!phrase) return;
 		const ok = await copyText(phrase);
-		toasts.info(ok ? 'Copied to clipboard' : 'Could not copy');
+		if (ok) {
+			phraseCopied = true;
+			setTimeout(() => (phraseCopied = false), 1500);
+		} else {
+			toasts.error('Could not copy');
+		}
 	}
 </script>
 
@@ -168,7 +178,9 @@
 				</button>
 			</div>
 			<div class="flex gap-2 justify-end mt-3">
-				<Button size="xs" variant="secondary" icon="copy" onclick={copyPhrase}>Copy</Button>
+				<Button size="xs" variant="secondary" icon={phraseCopied ? 'check' : 'copy'} onclick={copyPhrase}>
+					{phraseCopied ? 'Copied' : 'Copy'}
+				</Button>
 				<Button size="xs" variant="primary" icon={justInserted ? 'check' : 'plus'} onclick={insertPhrase}>
 					Insert at cursor
 				</Button>

@@ -2,6 +2,8 @@
 	import { api } from '$lib/services/api/index';
 	import { Badge } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
+	import { copyText } from '$lib/utils/clipboard';
+	import { toasts } from '$lib/stores/toast';
 	import LiveReferenceDataShell from './LiveReferenceDataShell.svelte';
 
 	interface FunctionParam {
@@ -35,14 +37,17 @@
 	let copiedCode = '';
 	let copyTimeout: ReturnType<typeof setTimeout> | null = null;
 
-	function copyToClipboard(text: string) {
-		navigator.clipboard.writeText(text).then(() => {
+	async function copyToClipboard(text: string) {
+		const ok = await copyText(text);
+		if (ok) {
 			copiedCode = text;
 			if (copyTimeout) clearTimeout(copyTimeout);
 			copyTimeout = setTimeout(() => {
 				copiedCode = '';
-			}, 2000);
-		});
+			}, 1500);
+		} else {
+			toasts.error('Could not copy');
+		}
 	}
 
 	function matches(func: TemplateFunction, query: string): boolean {

@@ -2,6 +2,8 @@
 	import { iconPaths, getAllIconNames } from '$lib/utils/IconLibrary';
 	import { Input } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
+	import { copyText } from '$lib/utils/clipboard';
+	import { toasts } from '$lib/stores/toast';
 
 	interface IconEntry {
 		name: string;
@@ -24,14 +26,17 @@
 		icon.name.toLowerCase().includes(filterText.toLowerCase())
 	);
 
-	function copyToClipboard(text: string, iconName: string) {
-		navigator.clipboard.writeText(text).then(() => {
+	async function copyToClipboard(text: string, iconName: string) {
+		const ok = await copyText(text);
+		if (ok) {
 			copiedIcon = iconName;
 			if (copyTimeout) clearTimeout(copyTimeout);
 			copyTimeout = setTimeout(() => {
 				copiedIcon = '';
-			}, 2000);
-		});
+			}, 1500);
+		} else {
+			toasts.error('Could not copy');
+		}
 	}
 
 	function copyIconSVG(icon: IconEntry) {

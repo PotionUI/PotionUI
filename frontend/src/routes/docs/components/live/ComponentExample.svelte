@@ -1,6 +1,8 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import { Button } from '$lib/components/ui';
+	import { copyText } from '$lib/utils/clipboard';
+	import { toasts } from '$lib/stores/toast';
 
 	let {
 		title,
@@ -14,16 +16,16 @@
 	let copyTimer: ReturnType<typeof setTimeout> | undefined;
 
 	async function copyCode() {
-		try {
-			if (!navigator.clipboard) throw new Error('Clipboard unavailable');
-			await navigator.clipboard.writeText(code);
+		const ok = await copyText(code);
+		if (ok) {
 			copyError = false;
 			copied = true;
 			if (copyTimer) clearTimeout(copyTimer);
-			copyTimer = setTimeout(() => (copied = false), 1600);
-		} catch {
+			copyTimer = setTimeout(() => (copied = false), 1500);
+		} else {
 			copied = false;
 			copyError = true;
+			toasts.error('Could not copy');
 		}
 	}
 </script>

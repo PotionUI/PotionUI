@@ -13,20 +13,22 @@
 <script lang="ts">
 	import Icon from '$lib/components/Icon.svelte';
 	import { mergeTriggerWords } from '$lib/utils/triggerWords';
+	import { copyText } from '$lib/utils/clipboard';
+	import { toasts } from '$lib/stores/toast';
 
 	let {
 		value = [],
 		editable = true,
 		onChange,
-		onChipClick,
+		copyable = false,
 		placeholder = 'Type a word or paste a comma/newline list...',
 		emptyText = 'None set'
 	}: {
 		value?: string[];
 		editable?: boolean;
 		onChange?: (values: string[]) => void;
-		/** Only consulted when `editable` is false - e.g. click-to-copy. */
-		onChipClick?: (chip: string) => void;
+		/** Only consulted when `editable` is false - renders each chip as a click-to-copy button. */
+		copyable?: boolean;
 		placeholder?: string;
 		emptyText?: string;
 	} = $props();
@@ -62,6 +64,21 @@
 	function removeChip(index: number) {
 		onChange?.(value.filter((_, i) => i !== index));
 	}
+
+	/** Chip most recently copied, to flash "Copied" on it. */
+	let copiedChip = $state<string | null>(null);
+	let copiedTimer: ReturnType<typeof setTimeout> | undefined;
+
+	async function handleChipClick(chip: string) {
+		const ok = await copyText(chip);
+		if (ok) {
+			copiedChip = chip;
+			clearTimeout(copiedTimer);
+			copiedTimer = setTimeout(() => (copiedChip = null), 1500);
+		} else {
+			toasts.error('Could not copy');
+		}
+	}
 </script>
 
 {#if editable}
@@ -96,14 +113,15 @@
 {:else if value.length > 0}
 	<div class="flex flex-wrap gap-1.5">
 		{#each value as chip}
-			{#if onChipClick}
+			{#if copyable}
 				<button
 					type="button"
-					class="px-2 py-0.5 bg-surface-3 text-fg text-xs rounded border border-line-strong hover:border-line-hover transition-colors"
-					title="Click to copy"
-					onclick={() => onChipClick?.(chip)}
+					class="inline-flex items-center gap-1 px-2 py-0.5 bg-surface-3 text-fg text-xs rounded border border-line-strong hover:border-line-hover transition-colors"
+					title={copiedChip === chip ? 'Copied' : 'Click to copy'}
+					onclick={() => handleChipClick(chip)}
 				>
-					{chip}
+					{#if copiedChip === chip}<Icon name="check" className="w-3 h-3" />{/if}
+					{copiedChip === chip ? 'Copied' : chip}
 				</button>
 			{:else}
 				<span class="px-2 py-0.5 bg-surface-3 text-fg text-xs rounded border border-line-strong">{chip}</span>

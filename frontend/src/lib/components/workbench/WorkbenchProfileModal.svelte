@@ -99,7 +99,7 @@
 			<div class="text-sm text-danger py-10 text-center">{errorMessage}</div>
 		{:else}
 			<div class="flex items-center justify-end gap-2">
-				<Button variant="secondary" size="sm" icon="copy" onclick={copyReport}>
+				<Button variant="secondary" size="sm" icon={copied ? 'check' : 'copy'} onclick={copyReport}>
 					{copied ? 'Copied' : 'Copy report'}
 				</Button>
 				<Button variant="secondary" size="sm" icon="download" onclick={downloadRaw}>

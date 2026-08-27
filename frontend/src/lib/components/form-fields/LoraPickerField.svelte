@@ -496,9 +496,18 @@
 		}
 	}
 
+	let copiedTrigger: string | null = null;
+	let copiedTriggerTimer: ReturnType<typeof setTimeout> | undefined;
+
 	async function handleTriggerClick(trigger: string) {
 		const ok = await copyText(trigger);
-		toasts.info(ok ? 'Copied to clipboard' : 'Could not copy');
+		if (ok) {
+			copiedTrigger = trigger;
+			clearTimeout(copiedTriggerTimer);
+			copiedTriggerTimer = setTimeout(() => (copiedTrigger = null), 1500);
+		} else {
+			toasts.error('Could not copy');
+		}
 	}
 
 
@@ -854,7 +863,7 @@
 											title={isActive ? 'Already in prompt' : `Copy "${trigger}"`}
 											on:click={() => handleTriggerClick(trigger)}
 										>
-											{trigger}
+											{copiedTrigger === trigger ? 'Copied' : trigger}
 										</button>
 									{/each}
 								</div>

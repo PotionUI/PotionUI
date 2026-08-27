@@ -35,7 +35,6 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import { Spinner } from '$lib/components/ui';
 	import TagsChipInput from '$lib/components/form-fields/TagsChipInput.svelte';
-	import { copyToClipboard } from './formatters';
 	import {
 		coerceAttributeInput,
 		definitionsForModelType,
@@ -331,7 +330,7 @@
 								value={Array.isArray(value) ? (value as string[]) : []}
 								editable={false}
 								emptyText="None set"
-								onChipClick={copyToClipboard}
+								copyable
 							/>
 						</div>
 					{:else}

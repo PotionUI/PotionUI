@@ -1,8 +1,7 @@
 # PotionUI
 
 A self-hosted studio for generating images, video, and audio with diffusion
-models. One app, many model families, no per-model config to hand-wire —
-you pick a preset, describe what you want, and watch it come together in
+models. Pick a preset, describe what you want, watch it come together in
 real time.
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/A3B325D031)
@@ -11,10 +10,9 @@ real time.
 [![Status: Alpha](https://img.shields.io/badge/Status-Alpha-orange.svg)](#)
 
 > [!WARNING]
-> PotionUI is in **alpha** and under heavy development. Expect rough edges,
-> breaking changes between releases, and APIs/presets that may shift without
-> notice. Back up anything you care about, and please report what breaks —
-> issues and Discord reports genuinely steer what gets fixed next.
+> PotionUI is in **alpha**: expect rough edges and breaking changes between
+> releases. Back up anything you care about, and report what breaks — issues
+> and Discord reports steer what gets fixed next.
 
 
 https://github.com/user-attachments/assets/950415f7-da97-403e-811b-4c9c41d8106f
@@ -22,15 +20,13 @@ https://github.com/user-attachments/assets/950415f7-da97-403e-811b-4c9c41d8106f
 
 ## What you're looking at
 
-Rather than forcing every model into one generic set of controls, PotionUI is
-built around **presets**: each one is tuned for a specific model and renders a
-curated form with exactly the options that model understands — resolution,
-sampler, camera angle, art style, whatever applies. Presets run on PotionUI's
-own in-process **native** engine (`diffusers` pipelines), and progress streams
-back over WebSocket as it happens: per-step status, live previews, and a
-gallery that fills in as results land.
-
-On the native engine alone, presets currently cover:
+- **Presets, not generic knobs** — each preset targets one model and renders a
+  curated form with only the options that model understands: resolution,
+  sampler, camera angle, art style, whatever applies.
+- **Live everything** — per-step status, streaming previews, and a gallery
+  that fills in as results land, all over WebSocket.
+- **One workspace** — every model family below runs side by side in the same
+  app, on PotionUI's in-process **native** engine (`diffusers` pipelines).
 
 | Model family       | What it does                      | Docs                                                           |
 | ------------------ | --------------------------------- | -------------------------------------------------------------- |
@@ -46,8 +42,6 @@ On the native engine alone, presets currently cover:
 | MiniMax-Music3     | Audio (song)                      | [docs/models/minimax_music3.md](docs/models/minimax_music3.md) |
 | SeedVR2            | Image & video upscale / restore   | [docs/models/seedvr2.md](docs/models/seedvr2.md)               |
 
-All in the same workspace.
-
 ## The generate workspace
 
 <!--
@@ -57,20 +51,20 @@ frames, sampler), generation in progress with the live streaming preview
 and a step progress bar mid-run.
 -->
 
-Every tab in the generate workspace is its own sandbox — its own preset,
-mode, prompts, and results — so you can run a few ideas side by side without
-losing any of them. Switching presets swaps the form to match the model; the
-same tab handles txt2img, img2img, inpainting, or a video/audio mode,
-whichever the preset declares.
+- Every tab is its own sandbox — preset, mode, prompts, and results — so you
+  can run several ideas side by side without losing any of them.
+- Switching presets swaps the form to match the model; the same tab handles
+  txt2img, img2img, inpainting, or a video/audio mode.
 
 ## History, tags, and collections
 
 https://github.com/user-attachments/assets/f46cde26-0288-4e05-ac90-c3be31f0d2dd
 
-Everything you generate is saved automatically, with the exact parameters
-that produced it. Tag generations to group and re-find them, bulk-delete by
-tag when you're clearing out throwaway experiments, sort work into
-collections, and pull two results up side by side to compare.
+- Everything you generate is saved automatically, with the exact parameters
+  that produced it.
+- Tag generations to group and re-find them; bulk-delete by tag to clear out
+  throwaway experiments.
+- Sort work into collections, and compare two results side by side.
 
 ## Video Director
 
@@ -80,11 +74,10 @@ Video Director editor open on a Wan or LTX-2 preset, shot/section rail
 populated with 2-3 sections (e.g. global + two timed/chain sections).
 -->
 
-For native video presets, Video Director replaces per-mode prompt juggling
-with one composition surface: build a shot out of global, timed, and chained
-sections instead of hand-managing separate prompt fields per segment. It's
-the same segment-card editor used everywhere else in PotionUI, just aimed at
-a timeline.
+- Build a shot out of **global, timed, and chained sections** instead of
+  hand-managing separate prompt fields per segment.
+- Same segment-card editor as everywhere else in PotionUI, aimed at a
+  timeline.
 
 ## Music Director
 
@@ -94,9 +87,8 @@ Music Director editor open on the MiniMax-Music3 preset, a few sections
 with lyrics/tags filled in.
 -->
 
-MiniMax-Music3 gets the same treatment: sections compile straight to tagged
-lyrics, so you write verses and choruses instead of hand-authoring bracketed
-section tags — the compiler does that part.
+- Write verses and choruses as sections; the compiler turns them into
+  MiniMax-Music3's tagged lyrics for you.
 
 ## Prompt tooling
 
@@ -107,12 +99,12 @@ prompt editor mid-type with a Phrasebook autocomplete suggestion popup open
 — whichever looks livelier.
 -->
 
-Prompts are built from reusable segment cards, not raw text blobs: save a
-segment once and drop it into any prompt, group related segments into
-templates, and let Phrasebook autocomplete known terms — art styles, camera
-angles, lighting — as you type, with per-chip shuffle for quick variation.
-Dynamic-prompt syntax (`{a|b}`, weighted choices, `${vars}`) and optional
-LLM-assisted prompt enhancement layer on top of the same editor.
+- **Segments** — save a prompt fragment once, drop it into any prompt; group
+  related segments into templates.
+- **Phrasebook** — autocomplete for known terms (art styles, camera angles,
+  lighting) with per-chip shuffle for quick variation.
+- **Dynamic prompts** — `{a|b}`, weighted choices, `${vars}`.
+- **LLM enhancement** — optional, layered on the same editor.
 
 ## AI assistant
 
@@ -122,61 +114,68 @@ LLM chat panel open beside the generate form, showing a pending tool-approval
 prompt (e.g. a proposed phrasebook edit awaiting your confirmation).
 -->
 
-When an administrator configures a language model, an assistant becomes
-available alongside generation: it can brainstorm and rewrite prompts, and —
-with your approval on every action that changes something — add or remove
-phrasebook values, adjust form state, and more. The same tool surface is also
-reachable from outside the app: PotionUI can mint per-user tokens for the
-[Model Context Protocol](https://modelcontextprotocol.io), so an external MCP
-client (Claude Desktop, an agent, your own tooling) can drive generation
-against your instance directly.
+- Configure a language model and get an assistant beside generation: it
+  brainstorms and rewrites prompts, edits phrasebook values, adjusts form
+  state — **with your approval on every action that changes something**.
+- The same tools are reachable from outside the app: PotionUI mints per-user
+  [Model Context Protocol](https://modelcontextprotocol.io) tokens, so an MCP
+  client (Claude Desktop, an agent, your own tooling) can drive your instance
+  directly.
 
 ## Plugins
 
-Nearly every subsystem is an extension point: providers (credentialed
-connections to model marketplaces like CivitAI), backends (configured
-instances of an inference engine, e.g. a ComfyUI server), inference pipes
-(the individual steps a generation pipeline is built from), form field types,
-chat modes, and frontend pages can all be added by a plugin —
-`src/plugin_api/` is the one import surface plugin code is allowed to use.
-Even alternate inference backends are plugins rather than core code. See
-[docs/plugin-api.md](docs/plugin-api.md) for the authoring reference.
+Nearly every subsystem is an extension point — even alternate inference
+backends are plugins, not core code:
+
+- **Providers** — credentialed connections to model marketplaces (e.g. CivitAI)
+- **Backends** — configured instances of an inference engine (e.g. a ComfyUI server)
+- **Pipes** — the individual steps a generation pipeline is built from
+- **Field types, chat modes, frontend pages** — all pluggable
+
+Plugin code imports only from `src/plugin_api/`. Authoring reference:
+[docs/plugin-api.md](docs/plugin-api.md).
 
 ## Quickstart
 
-You need Python 3.12+ and Node.js 18+; GPU generation additionally needs a
-CUDA-capable NVIDIA GPU with a matching PyTorch install. The supported floor
-is **8 GB VRAM + 16 GB system RAM**, which runs the SDXL family; the larger
-native model families (Flux, Krea-2, Qwen-Image, Wan, LTX, Z-Image, Anima,
-MiniMax-H3) need more, some considerably more — see
-[Hardware Requirements](docs/user/hardware-requirements.md) for the per-family
-breakdown.
+You need:
+
+- **Python 3.12+** and **Node.js 18+**
+- For GPU generation: a CUDA-capable NVIDIA GPU with a matching PyTorch install
+- Floor: **8 GB VRAM + 16 GB RAM** (runs the SDXL family). Larger families
+  need more, some considerably more — see
+  [Hardware Requirements](docs/user/hardware-requirements.md).
 
 ```bash
 git clone https://github.com/jtyszkiew/imagine.git potionui && cd potionui
 ./potionui doctor    # check prerequisites, with a repair command for anything missing
-./potionui start      # create the venv, install deps, launch backend + frontend, print the URL
+./potionui start     # create the venv, install deps, launch backend + frontend, print the URL
 ```
 
-`./potionui start` is idempotent (safe to re-run against an already-running
-instance) and supervises both processes so `./potionui stop` or Ctrl-C cleans
-them up together. `./potionui status` reports whether an instance is up. If
-something's wrong, `./potionui doctor` names the problem and the fix.
-
-On a host with no NVIDIA GPU — a VPS pointed at a remote generation backend,
-for instance — `./potionui start --no-gpu` skips installing the multi-GB CUDA
-stack; it's for hosting the app against a remote backend, not for running
-generation on CPU.
+- `./potionui start` is idempotent and supervises both processes; `./potionui stop`
+  or Ctrl-C cleans them up together.
+- `./potionui status` reports whether an instance is up; `./potionui doctor`
+  names any problem and its fix.
+- No NVIDIA GPU on the host (e.g. a VPS pointed at a remote generation
+  backend)? `./potionui start --no-gpu` skips the multi-GB CUDA stack.
 
 ### Supported platforms
 
-| Platform                   | Status                                                                                                                                                                                                                                                                                                                     |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Linux x86_64 + NVIDIA CUDA | Tested and supported for 0.0.1                                                                                                                                                                                                                                                                                             |
-| Windows / WSL2             | Untested — community reports welcome                                                                                                                                                                                                                                                                                       |
-| macOS                      | Untested — community reports welcome                                                                                                                                                                                                                                                                                       |
-| AMD GPU (ROCm)             | Untested — community reports welcome                                                                                                                                                                                                                                                                                       |
-| Docker                     | `docker run --gpus all -p 8005:8005 ghcr.io/potionui/potionui:latest` (requires an NVIDIA GPU + [nvidia-container-toolkit](https://github.com/NVIDIA/nvidia-container-toolkit)) — volumes and details in [`docker/README.md`](docker/README.md); `./potionui start-docker` runs the contributor-facing dev harness instead |
+| Platform                   | Status                               |
+| -------------------------- | ------------------------------------ |
+| Linux x86_64 + NVIDIA CUDA | Tested and supported for 0.0.1       |
+| Windows / WSL2             | Untested — community reports welcome |
+| macOS                      | Untested — community reports welcome |
+| AMD GPU (ROCm)             | Untested — community reports welcome |
+| Docker                     | Supported — see below                |
+
+```bash
+docker run --gpus all -p 8005:8005 ghcr.io/potionui/potionui:latest
+```
+
+Requires an NVIDIA GPU +
+[nvidia-container-toolkit](https://github.com/NVIDIA/nvidia-container-toolkit);
+volumes and details in [`docker/README.md`](docker/README.md).
+(`./potionui start-docker` runs the contributor-facing dev harness instead.)
 
 ### Running backend and frontend separately
 
@@ -209,25 +208,22 @@ already installed — `./potionui start` does not):
 Start with the in-app documentation browser, or read the Markdown directly:
 
 - **[Getting started](docs/user/getting-started.md)** — first login to first
-  image, and the rest of the `docs/user/` guide (generating, models, presets and
-  forms, history, prompts, admin).
+  image, plus the rest of the `docs/user/` guide.
 - **Reference** in `docs/`: [presets](docs/presets.md),
   [prompts](docs/prompts.md), [backends](docs/backends.md),
   [providers](docs/providers.md), [native engine](docs/native-engine.md),
   [models](docs/models.md), [video director](docs/video-director.md),
-  [music director](docs/music-director.md), and the per-model and
-  per-technique docs under `docs/models/` and `docs/techniques/`.
+  [music director](docs/music-director.md), and per-model / per-technique
+  docs under `docs/models/` and `docs/techniques/`.
 
 ## Contributing
 
-See **[CONTRIBUTING.md](CONTRIBUTING.md)** for dev setup, the test and lint
-commands, and PR expectations. `CLAUDE.md` is the deeper architecture
-reference — the package layering contracts, the plugin system, and the
-per-subsystem docs — and its layering rules are enforced by
-`tests/architecture/test_layering.py`, so new code that crosses a package
-boundary the wrong way will fail CI.
-
-Found a security issue? See [SECURITY.md](SECURITY.md).
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** — dev setup, test and lint commands,
+  PR expectations.
+- `CLAUDE.md` — the deeper architecture reference; its package-layering rules
+  are enforced by `tests/architecture/test_layering.py`, so boundary-crossing
+  code fails CI.
+- Security issue? See [SECURITY.md](SECURITY.md).
 
 ## Support
 
@@ -238,20 +234,13 @@ open.
 
 ## License
 
-PotionUI is licensed under the **GNU General Public License v3.0** — see
-[LICENSE](LICENSE).
-
-PotionUI bundles third-party code under `vendor/`, each component keeping its
-own upstream license and per-file provenance. That code is imported by core
-rather than kept at arm's length; the GPL-3.0 components among it are what set
-the project-wide license. See **[vendor/NOTICE.md](vendor/NOTICE.md)** for the
-full attribution table.
-
-PotionUI is distributed **without any model weights** — models are downloaded
-or installed only at your explicit request, and every model carries its own
-license, separate from PotionUI's. See
-**[Models & licensing](docs/user/models.md#model-licensing)** for the full
-picture and where responsibility sits.
+- PotionUI is **GPL-3.0** — see [LICENSE](LICENSE).
+- Third-party code is bundled under `vendor/`, each component keeping its own
+  upstream license; the GPL-3.0 components among it set the project-wide
+  license. Full attribution: [vendor/NOTICE.md](vendor/NOTICE.md).
+- **No model weights are distributed** — models download only at your explicit
+  request, each under its own license, separate from PotionUI's. See
+  [Models & licensing](docs/user/models.md#model-licensing).
 
 ---
 

@@ -55,6 +55,8 @@ and a step progress bar mid-run.
   can run several ideas side by side without losing any of them.
 - Switch models and the form swaps to match; the same tab handles txt2img,
   img2img, inpainting, or a video/audio mode.
+- Like a setup? Save it as a **session** — preset, mode, prompts, and form
+  values — and pull it back up any time.
 
 ## History, tags, and collections
 
@@ -121,6 +123,30 @@ prompt (e.g. a proposed phrasebook edit awaiting your confirmation).
   [Model Context Protocol](https://modelcontextprotocol.io) tokens, so an MCP
   client (Claude Desktop, an agent, your own tooling) can drive your instance
   directly.
+
+## Multi-user, with an admin panel
+
+<!--
+SCREENSHOT SLOT — ADMIN
+Admin area open on the Presets tab: preset list with installed status,
+a preset selected showing the access assignment (users/groups) panel.
+-->
+
+PotionUI is built for more than one person on the same box:
+
+- **Users and groups** — create accounts, group them, and assign presets,
+  models, and LLM configurations per user or to a whole group at once.
+- **Presets under control** — decide who sees which preset, and reshape any
+  preset's form per mode: change defaults, lock fields, or hide them
+  entirely, no YAML editing required.
+- **Backends** — configure where generations run and let users pick between
+  enabled backends.
+- **LLM setup** — wire up the providers behind the assistant (Ollama,
+  OpenRouter, …) and hand them out per user or group.
+- **Models, plugins, settings** — manage installed models and downloads,
+  toggle plugins, and set global options, all from the same panel.
+
+The full tour: [docs/user/admin.md](docs/user/admin.md).
 
 ## Plugins
 

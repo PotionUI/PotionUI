@@ -297,8 +297,12 @@
 
 <PageHeader wrap sticky={false}>
 	<div class="flex flex-col gap-2 w-full">
-		<!-- Primary row: always visible, sized to never wrap from ~1280px up -->
-		<div class="flex items-center gap-2 md:gap-4 w-full">
+		<!-- Primary row: never wraps from ~1280px up. Below md it wraps onto two
+			lines — title+actions, then the search bar spans the full width on its
+			own line — via `order-last` on the search block rather than reordering
+			the DOM, so the flex-wrap line break lands after title+actions instead
+			of splitting them across lines. -->
+		<div class="flex flex-wrap md:flex-nowrap items-center gap-2 md:gap-4 w-full">
 			<!-- Left: Title + count -->
 			<div class="flex items-baseline gap-3 flex-shrink-0">
 				<span class="text-sm font-semibold text-fg">History</span>
@@ -310,8 +314,11 @@
 			<!-- Divider -->
 			<div class="hidden md:block h-6 w-px bg-line-strong flex-shrink-0"></div>
 
-			<!-- Search - the anchor control -->
-			<div class="flex items-center gap-1.5 flex-1 min-w-[12rem] max-w-md">
+			<!-- Search - the anchor control. Full width of its own wrapped line on
+				mobile (the search-mode toggle's min-content width doesn't fit
+				alongside it in the flex-1/min-w-[12rem] box below md, which used to
+				overflow past the viewport and get silently clipped). -->
+			<div class="order-last md:order-none flex items-center gap-1.5 w-full md:w-auto md:flex-1 md:min-w-[12rem] md:max-w-md">
 				<div class="relative flex-1 min-w-[8rem]">
 					<Icon
 						name="search"
@@ -328,7 +335,7 @@
 					/>
 				</div>
 				<div
-					class="flex items-center gap-0.5 bg-surface-2/50 rounded p-0.5"
+					class="hidden md:flex items-center gap-0.5 bg-surface-2/50 rounded p-0.5"
 					role="radiogroup"
 					aria-label="Search mode"
 				>

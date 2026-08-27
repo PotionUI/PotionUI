@@ -150,6 +150,17 @@
 		touchDeltaX = 0;
 		isSwiping = false;
 	}
+
+	// Off-screen panels (e.g. the LLM chat composer autofocusing its input on
+	// mount) can trigger the browser's default focus scroll-into-view even
+	// though this container never scrolls under user control. That latches a
+	// permanent scrollLeft the translateX carousel math never accounts for, so
+	// stamp it back to 0 the instant it happens.
+	let mobilePanelsContainer: HTMLDivElement;
+	function resetSwipeContainerScroll() {
+		if (mobilePanelsContainer.scrollLeft !== 0) mobilePanelsContainer.scrollLeft = 0;
+		if (mobilePanelsContainer.scrollTop !== 0) mobilePanelsContainer.scrollTop = 0;
+	}
 	let mounted = false;
 	let isLoading = false;
 	let canGenerate = false;
@@ -1679,10 +1690,12 @@
 							class="flex-1 overflow-hidden relative min-h-0 touch-pan-y"
 							role="region"
 							aria-label="Swipeable panels"
+							bind:this={mobilePanelsContainer}
 							on:touchstart={handleTouchStart}
 							on:touchmove={handleTouchMove}
 							on:touchend={handleTouchEnd}
 							on:touchcancel={handleTouchCancel}
+							on:scroll={resetSwipeContainerScroll}
 						>
 							<!-- Geometry is container-relative on purpose: 100vw panels drift
 								out of alignment whenever the layout viewport ≠ container width

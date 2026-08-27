@@ -89,3 +89,36 @@ test('generate page fits and aligns at phone width', async ({ page }) => {
 	expect(tabBox!.y + tabBox!.height, 'tab bar bottom edge on-screen').toBeLessThanOrEqual(812 + 1);
 	expect(tabBox!.y, 'tab bar visible above viewport bottom').toBeGreaterThan(700);
 });
+
+test('carousel recovers from a stray scrollLeft on the swipe container', async ({ page }) => {
+	// Regression: the off-screen LLM chat panel autofocuses its composer on
+	// mount, and a browser's default focus scroll-into-view sets scrollLeft on
+	// the nearest clipping ancestor even though that container has no visible
+	// scrollbar and is never meant to scroll under user control. That offset
+	// used to latch forever because the carousel's translateX math never
+	// accounted for it. Simulates the same effect directly (any focus deep in
+	// an off-screen panel would set scrollLeft the same way).
+	await loginAsOwner(page);
+	await page.goto('/generate');
+
+	const panelStrip = page.getByRole('region', { name: 'Swipeable panels' });
+	await expect(panelStrip).toBeVisible({ timeout: 15000 });
+	const panels = panelStrip.locator('.mobile-panel');
+	await expect(panels).toHaveCount(4);
+	const containerBox = await panelStrip.boundingBox();
+
+	await page.evaluate(() => {
+		const region = document.querySelector('[aria-label="Swipeable panels"]')!;
+		region.scrollLeft = 200;
+	});
+	await page.waitForTimeout(200);
+
+	const scrollLeft = await page.evaluate(
+		() => document.querySelector('[aria-label="Swipeable panels"]')!.scrollLeft
+	);
+	expect(scrollLeft, 'swipe container scroll position resets itself').toBe(0);
+
+	// Active panel (Generate, index 2, the default) still lines up exactly.
+	const box = await panels.nth(2).boundingBox();
+	expect(Math.abs(box!.x - containerBox!.x), 'active panel realigned after stray scroll').toBeLessThanOrEqual(1);
+});

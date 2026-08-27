@@ -796,6 +796,19 @@
 					modesErrorShown.add(requestKey);
 					toasts.error("Couldn't load this preset's modes. Try reselecting the preset.");
 				}
+				// modesPresetPerTab[tabId] is only set on success, so nothing else
+				// re-triggers this fetch on its own — a reactive block only reruns
+				// when a tracked store value changes, and a failed request changes
+				// none of them. Retry once, after a beat, so a single dropped
+				// request self-heals instead of leaving the tab permanently on the
+				// "select a mode" placeholder.
+				if (!modesRetriedFor.has(requestKey)) {
+					modesRetriedFor.add(requestKey);
+					setTimeout(() => {
+						const stillOnThisPreset = $tabsStore.tabs.find((t) => t.id === tabId)?.selectedPreset === presetId;
+						if (stillOnThisPreset) loadModesForTab(tabId, presetId);
+					}, 1500);
+				}
 			} finally {
 				modesInFlight.delete(requestKey);
 			}

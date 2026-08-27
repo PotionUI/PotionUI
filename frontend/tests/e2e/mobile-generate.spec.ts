@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { loginAsOwner, screenshot } from './helpers';
+import { loginAsOwner, screenshot, ownerToken } from './helpers';
 
 const JOURNEY = 'mobile-generate';
 
@@ -154,4 +154,67 @@ test('overlay opened from inside a carousel panel covers the full viewport', asy
 	// the 400%-wide panel track (~1100px too wide), not off by a few px.
 	expect(Math.abs(backdropBox!.x), 'backdrop left edge at viewport origin').toBeLessThanOrEqual(20);
 	expect(Math.abs(backdropBox!.width - 375), 'backdrop spans the full viewport width').toBeLessThanOrEqual(20);
+});
+
+test('a dropped mode-list request does not strand the Form panel forever', async ({ page }) => {
+	// Regression: picking a preset kicks off GET /api/presets/{id}/modes to
+	// auto-select a mode. That fetch is only ever retried by the fallout of
+	// some OTHER reactive update (tab switch, generation event, ...) - nothing
+	// re-triggers it on its own. On a flaky mobile connection a single dropped
+	// request left the tab with selectedMode permanently null: the Form panel
+	// stuck on "Select a mode to continue" and Panel 0's session pill stuck
+	// disabled ("Session unavailable") forever, with no user-visible way to
+	// recover short of reselecting the preset from scratch.
+	await loginAsOwner(page);
+
+	let modesCallCount = 0;
+	await page.route('**/api/presets/*/modes', async (route) => {
+		modesCallCount++;
+		if (modesCallCount === 1) {
+			await route.abort('failed');
+			return;
+		}
+		await route.continue();
+	});
+
+	// installAndSelectImagePreset assumes the "Choose a preset" trigger is
+	// immediately reachable, which is only true on desktop - on mobile it
+	// lives in Panel 0, off-screen by default (the carousel opens on the
+	// Generate panel). Install/assign via its API calls, then drive the
+	// picker through the mobile chrome ourselves, same as the overlay test
+	// above.
+	const token = await ownerToken(page);
+	const headers = { Authorization: `Bearer ${token}` };
+	const list = await page.request.get('/api/presets?include_uninstalled=true', { headers });
+	const presetsData = ((await list.json()).data || []) as Array<{ id: string; name: string; engine?: string; category?: string; installed?: boolean }>;
+	const presetInfo =
+		presetsData.find((p) => /sdxl/i.test(p.id)) || presetsData.find((p) => p.engine === 'native' && p.category === 'image');
+	expect(presetInfo, 'a native image preset must exist to select').toBeTruthy();
+	if (!presetInfo!.installed) {
+		await page.request.post(`/api/presets/${presetInfo!.id}/install`, { headers });
+	}
+	const me = await page.request.get('/api/auth/me', { headers });
+	const userId = (await me.json())?.data?.id;
+	await page.request.post(`/api/presets/${presetInfo!.id}/assign`, { headers, data: { user_ids: [userId] } });
+
+	await page.goto('/generate');
+	const panelStrip = page.getByRole('region', { name: 'Swipeable panels' });
+	await expect(panelStrip).toBeVisible({ timeout: 15000 });
+
+	await page.getByRole('button', { name: 'Preset', exact: true }).click();
+	await page.waitForTimeout(400); // slide transition
+	const pickerTrigger = page.locator('button[aria-haspopup="dialog"]', { hasText: 'Choose a preset' });
+	await expect(pickerTrigger).toBeVisible({ timeout: 15000 });
+	await pickerTrigger.click();
+	const presetList = page.locator('[role="listbox"][aria-label="Presets"]');
+	await expect(presetList).toBeVisible({ timeout: 15000 });
+	await presetList.getByText(presetInfo!.name, { exact: true }).click();
+	await page.getByRole('button', { name: /Use this preset|Keep selected/ }).click();
+
+	await page.getByRole('button', { name: 'Form' }).click();
+
+	const formPanel = panelStrip.locator('.mobile-panel').nth(1);
+	await expect(formPanel.getByText('Select a mode to continue')).toBeHidden({ timeout: 5000 });
+	await expect(formPanel.locator('input, select, textarea').first()).toBeVisible();
+	expect(modesCallCount, 'the dropped /modes request must have been retried').toBeGreaterThan(1);
 });

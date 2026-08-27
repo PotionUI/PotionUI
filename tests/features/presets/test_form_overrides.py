@@ -6,6 +6,7 @@ from src.features.presets.form_overrides import (
     apply_overrides_to_fields,
     build_inventory_entries,
     mode_field_inventory,
+    mode_field_inventory_with_tabs,
     validate_form_overrides,
 )
 from src.features.presets.templates import FieldTemplate, FormTemplate, ModeTemplate, PresetTemplate
@@ -151,28 +152,150 @@ class TestBuildInventoryEntries:
                 default=True,
             )],
         })
-        entries = build_inventory_entries(preset, "txt2img", {"steps": {"default": 30, "editable": False}})
+        entries, tabs = build_inventory_entries(preset, "txt2img", {"steps": {"default": 30, "editable": False}})
         assert entries == [{
             "name": "steps",
             "label": "Steps",
             "type": "slider",
             "preset_default": 20,
+            "tab": None,
             "override": {"default": 30, "editable": False},
         }]
+        assert tabs == []
 
     def test_override_is_none_when_unset(self):
         preset = _preset({
             "txt2img": [FormTemplate(name="custom", fields=[_field("steps", type_="slider", default=20)], default=True)],
         })
-        entries = build_inventory_entries(preset, "txt2img", {})
+        entries, _tabs = build_inventory_entries(preset, "txt2img", {})
         assert entries[0]["override"] is None
 
     def test_label_falls_back_to_titleized_name(self):
         preset = _preset({
             "txt2img": [FormTemplate(name="custom", fields=[_field("model_checkpoint")], default=True)],
         })
-        entries = build_inventory_entries(preset, "txt2img", {})
+        entries, _tabs = build_inventory_entries(preset, "txt2img", {})
         assert entries[0]["label"] == "Model Checkpoint"
+
+
+class TestModeFieldInventoryWithTabs:
+    """`mode_field_inventory_with_tabs` - the tab-aware walk powering
+    `build_inventory_entries`/`get_form_overrides_inventory`."""
+
+    def test_field_inside_a_tab_gets_the_tab_label(self):
+        preset = _preset({
+            "txt2img": [FormTemplate(
+                name="custom",
+                fields=[
+                    FieldTemplate(
+                        type="tab", name="generation", label="Generation",
+                        children=[_field("steps", type_="slider", default=20)],
+                    ),
+                ],
+                default=True,
+            )],
+        })
+        _inventory, tab_of, tabs = mode_field_inventory_with_tabs(preset, "txt2img")
+        assert tab_of["steps"] == "Generation"
+        assert tabs == ["Generation"]
+
+    def test_field_nested_in_a_group_inside_a_tab_gets_the_tab_label(self):
+        preset = _preset({
+            "txt2img": [FormTemplate(
+                name="custom",
+                fields=[
+                    FieldTemplate(
+                        type="tab", name="generation", label="Generation",
+                        children=[
+                            FieldTemplate(
+                                type="group", name="core",
+                                children=[_field("steps", type_="slider", default=20)],
+                            ),
+                        ],
+                    ),
+                ],
+                default=True,
+            )],
+        })
+        _inventory, tab_of, tabs = mode_field_inventory_with_tabs(preset, "txt2img")
+        assert tab_of["steps"] == "Generation"
+        assert tabs == ["Generation"]
+
+    def test_field_outside_any_tab_gets_none(self):
+        preset = _preset({
+            "txt2img": [FormTemplate(name="custom", fields=[_field("steps", type_="slider", default=20)], default=True)],
+        })
+        _inventory, tab_of, tabs = mode_field_inventory_with_tabs(preset, "txt2img")
+        assert tab_of["steps"] is None
+        assert tabs == []
+
+    def test_tab_order_matches_declaration_order_and_dedupes_across_variants(self):
+        preset = _preset({
+            "txt2img": [
+                FormTemplate(
+                    name="simple",
+                    fields=[
+                        FieldTemplate(type="tab", name="a", label="Alpha", children=[_field("f1")]),
+                        FieldTemplate(type="tab", name="b", label="Beta", children=[_field("f2")]),
+                    ],
+                    default=True,
+                ),
+                FormTemplate(
+                    name="advanced",
+                    fields=[
+                        FieldTemplate(type="tab", name="b", label="Beta", children=[_field("f2")]),
+                        FieldTemplate(type="tab", name="c", label="Gamma", children=[_field("f3")]),
+                    ],
+                ),
+            ],
+        })
+        _inventory, _tab_of, tabs = mode_field_inventory_with_tabs(preset, "txt2img")
+        assert tabs == ["Alpha", "Beta", "Gamma"]
+
+    def test_tab_without_label_falls_back_to_titleized_name(self):
+        preset = _preset({
+            "txt2img": [FormTemplate(
+                name="custom",
+                fields=[
+                    FieldTemplate(type="tab", name="model_settings", children=[_field("steps")]),
+                ],
+                default=True,
+            )],
+        })
+        _inventory, tab_of, tabs = mode_field_inventory_with_tabs(preset, "txt2img")
+        assert tab_of["steps"] == "Model Settings"
+        assert tabs == ["Model Settings"]
+
+    def test_tab_without_label_or_name_is_not_a_tab_for_its_children(self):
+        preset = _preset({
+            "txt2img": [FormTemplate(
+                name="custom",
+                fields=[
+                    FieldTemplate(type="tab", name=None, children=[_field("steps")]),
+                ],
+                default=True,
+            )],
+        })
+        _inventory, tab_of, tabs = mode_field_inventory_with_tabs(preset, "txt2img")
+        assert tab_of["steps"] is None
+        assert tabs == []
+
+    def test_first_seen_variant_wins_for_tab_assignment(self):
+        preset = _preset({
+            "txt2img": [
+                FormTemplate(
+                    name="simple",
+                    fields=[FieldTemplate(type="tab", name="a", label="Alpha", children=[_field("steps")])],
+                    default=True,
+                ),
+                FormTemplate(
+                    name="advanced",
+                    fields=[_field("steps")],
+                ),
+            ],
+        })
+        _inventory, tab_of, _tabs = mode_field_inventory_with_tabs(preset, "txt2img")
+        assert tab_of["steps"] == "Alpha"
 
 
 class TestApplyOverridesToFields:

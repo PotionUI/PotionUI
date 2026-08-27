@@ -71,6 +71,93 @@ def mode_field_inventory(preset_template: PresetTemplate, mode: str) -> Dict[str
     return inventory
 
 
+def _resolve_tab_label(spec: FieldTemplate) -> Any:
+    """A tab's admin-facing label: its declared `label`, falling back to its
+    titleized `name` - the same fallback `build_inventory_entries` uses for
+    ordinary fields. A tab with neither (no stable identifier at all) is
+    treated as if it weren't a tab: its children fall back to whatever tab
+    (if any) already encloses it, and it contributes no entry to `tabs`.
+    """
+    if spec.label:
+        return spec.label
+    if spec.name:
+        return spec.name.replace("_", " ").title()
+    return None
+
+
+def _walk_mode_fields_with_tabs(
+    fields: List[FieldTemplate],
+    current_tab: Any,
+    inventory: Dict[str, FieldTemplate],
+    tab_of: Dict[str, Any],
+    tabs: List[str],
+) -> None:
+    """Depth-first walk mirroring `_flatten_fields`, but also recording each
+    named field's nearest-ancestor tab label and the declaration order of
+    every `type: "tab"` field encountered. A tab field's OWN `tab_of` entry
+    is whatever tab (if any) contains it, not itself - a tab is not its own
+    ancestor, so only nested tabs-in-tabs pick up a non-None value here.
+    """
+    for f in fields or []:
+        if f.name:
+            # Plain assignment, mirroring `_flatten_fields`: within one form
+            # variant a duplicated field name last-wins (the shared-tab
+            # shadowing behavior the rendered form actually has), so the admin
+            # inventory shows the same spec the form renders.
+            inventory[f.name] = f
+            tab_of[f.name] = current_tab
+
+        child_tab = current_tab
+        if f.type == "tab":
+            label = _resolve_tab_label(f)
+            if label is not None:
+                if label not in tabs:
+                    tabs.append(label)
+                child_tab = label
+
+        if isinstance(f.children, list):
+            _walk_mode_fields_with_tabs(f.children, child_tab, inventory, tab_of, tabs)
+
+
+def mode_field_inventory_with_tabs(
+    preset_template: PresetTemplate, mode: str,
+):
+    """Like `mode_field_inventory`, but also returns each field's nearest-
+    ancestor tab label and the mode's ordered tab list - the data a
+    tab-grouped admin UI needs. Returns `(inventory, tab_of, tabs)`:
+
+      - `inventory`: same as `mode_field_inventory` (name -> FieldTemplate,
+        first-seen-variant wins).
+      - `tab_of`: name -> nearest ancestor `type: "tab"` field's label, or
+        `None` if the field isn't inside any tab. Same first-seen-variant-
+        wins semantics as `inventory`.
+      - `tabs`: every tab label encountered across the mode's form variants,
+        in first-occurrence declaration order, deduped.
+
+    Kept separate from `mode_field_inventory` (used by
+    `validate_form_overrides`, whose validation semantics this must not
+    change) rather than folded into it.
+    """
+    mode_data = (preset_template.modes or {}).get(mode)
+    if mode_data is None or not mode_data.forms:
+        return {}, {}, []
+
+    inventory: Dict[str, FieldTemplate] = {}
+    tab_of: Dict[str, Any] = {}
+    tabs: List[str] = []
+    for form in mode_data.forms:
+        resolved_fields = _expand_form_fields(form.fields, preset_template)
+        variant_inventory: Dict[str, FieldTemplate] = {}
+        variant_tab_of: Dict[str, Any] = {}
+        _walk_mode_fields_with_tabs(resolved_fields, None, variant_inventory, variant_tab_of, tabs)
+        for name, spec in variant_inventory.items():
+            inventory.setdefault(name, spec)
+        for name, label in variant_tab_of.items():
+            tab_of.setdefault(name, label)
+
+    return inventory, tab_of, tabs
+
+
 def validate_form_overrides(
     preset_template: PresetTemplate,
     mode: str,
@@ -121,11 +208,18 @@ def build_inventory_entries(
     preset_template: PresetTemplate,
     mode: str,
     stored_overrides_for_mode: Dict[str, Any],
-) -> List[Dict[str, Any]]:
-    """The unmerged `fields` list for the `GET .../form-overrides` contract:
-    one entry per field in the mode's inventory, `override` is `None` when the
-    admin has never set one for that field."""
-    inventory = mode_field_inventory(preset_template, mode)
+):
+    """The unmerged `fields` list for the `GET .../form-overrides` contract,
+    plus the mode's ordered tab list. Returns `(entries, tabs)`:
+
+      - `entries`: one entry per field in the mode's inventory, `override` is
+        `None` when the admin has never set one for that field, and `tab` is
+        the label of the field's nearest ancestor `type: "tab"` field (see
+        `mode_field_inventory_with_tabs`), `None` if it isn't inside any tab.
+      - `tabs`: the mode's tab labels in declaration order, deduped - what a
+        tab-grouped admin UI renders as its group headers.
+    """
+    inventory, tab_of, tabs = mode_field_inventory_with_tabs(preset_template, mode)
     entries: List[Dict[str, Any]] = []
     for name, spec in inventory.items():
         entries.append({
@@ -133,9 +227,10 @@ def build_inventory_entries(
             "label": spec.label or name.replace("_", " ").title(),
             "type": spec.type,
             "preset_default": spec.default,
+            "tab": tab_of.get(name),
             "override": stored_overrides_for_mode.get(name) or None,
         })
-    return entries
+    return entries, tabs
 
 
 def apply_overrides_to_fields(

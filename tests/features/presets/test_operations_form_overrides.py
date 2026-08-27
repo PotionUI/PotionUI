@@ -122,6 +122,35 @@ class TestGetFormOverridesInventory:
         by_name = {f["name"]: f for f in result["fields"]}
         assert by_name["steps"]["override"] == {"editable": False}
         assert by_name["checkpoint"]["override"] is None
+        assert result["tabs"] == []
+        assert by_name["steps"]["tab"] is None
+
+    def test_fields_carry_their_tab_and_response_carries_tab_order(
+        self, collaborators, mock_file_repo, mock_db_repo, admin_user,
+    ):
+        preset = PresetTemplate(
+            id="test-preset", name="Test Preset", version="1.0.0", path="/presets/test-preset",
+            modes={"txt2img": ModeTemplate(forms=[FormTemplate(
+                name="custom",
+                fields=[
+                    FieldTemplate(
+                        type="tab", name="generation", label="Generation",
+                        children=[_field("steps", "slider", default=20, configuration={"min": 1, "max": 100})],
+                    ),
+                    _field("checkpoint"),
+                ],
+                default=True,
+            )], pipes=[])},
+        )
+        mock_file_repo.find_preset_by_id.return_value = preset
+        mock_db_repo.get_preset_form_overrides.return_value = {}
+
+        result = operations.get_form_overrides_inventory(collaborators, "test-preset", "txt2img", admin_user)
+
+        by_name = {f["name"]: f for f in result["fields"]}
+        assert by_name["steps"]["tab"] == "Generation"
+        assert by_name["checkpoint"]["tab"] is None
+        assert result["tabs"] == ["Generation"]
 
 
 class TestSetFormOverrides:

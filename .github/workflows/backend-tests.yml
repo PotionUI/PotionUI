@@ -64,7 +64,19 @@ jobs:
       # right at the job timeout. pytest-xdist across the runner's 4 cores
       # keeps the whole job well under it. The worker count is pinned (not
       # `auto`) so a runner-size change can't silently change test isolation.
+      #
+      # The *_NUM_THREADS=1 pins are load-bearing, not an optimization: with
+      # 4 workers each running torch at its default 4 OMP threads, the first
+      # -n 4 run oversubscribed the 4 cores 4x - two conv2d calls hung past
+      # the 300s test timeout, and OMP/MKL adjusting thread counts under
+      # contention changed float-reduction splits mid-test, breaking the
+      # chunked-vs-unchunked torch.equal contracts and a bf16 tolerance.
+      # One thread per worker = 4 busy cores and deterministic reductions.
       - name: pytest (CPU-only, no GPU/model-file/gc-sensitive tests)
+        env:
+          OMP_NUM_THREADS: "1"
+          MKL_NUM_THREADS: "1"
+          OPENBLAS_NUM_THREADS: "1"
         run: >
           python -m pytest tests/ -q --timeout=300 -n 4
           -m "not requires_gpu and not requires_models and not gc_sensitive"

@@ -10,6 +10,7 @@
 	import { loraSelectionsForTab } from '$lib/stores/loraPickerSelections';
 	import { page } from '$app/stores';
 	import { chatSession } from '$lib/stores/chatSession';
+	import { chatComposerDrafts } from '$lib/stores/chatComposerDrafts';
 	import { chatModes, resolveModeForRoute, resolveModeName, toolsForMode } from '$lib/stores/chatModes';
 	import ChatHeader from '$lib/components/chat/ChatHeader.svelte';
 	import ChatMemoryPanel from '$lib/components/chat/ChatMemoryPanel.svelte';
@@ -100,6 +101,23 @@
 	// UI state
 	let userInput = '';
 	let userResources: Record<string, ResourceChipData> = {};
+
+	// The composer's local state above doesn't survive GlobalChatPanel
+	// unmounting this component on close - restore/persist it against
+	// chatComposerDrafts (module-scope, keyed by session id) so a draft typed
+	// before closing the drawer is still there on reopen. Restoring keys off
+	// `sessionId` rather than running once on mount also covers switching to a
+	// different session (loadSession) and starting a new one (sessionId ->
+	// null): each transition adopts that session's own draft.
+	let lastDraftSessionId: string | null | undefined = undefined;
+	$: if (sessionId !== lastDraftSessionId) {
+		lastDraftSessionId = sessionId;
+		const draft = chatComposerDrafts.load(sessionId);
+		userInput = draft?.text ?? '';
+		userResources = draft?.resources ?? {};
+	}
+	$: chatComposerDrafts.save(sessionId, { text: userInput, resources: userResources });
+
 	let showImagePanel = false;
 	let showMemoryPanel = false;
 	let showToolPreferencesPanel = false;
@@ -510,6 +528,7 @@
 
 	function handleSelectMode(modeId: string) {
 		if ($chatSession.messages.length > 0 || modeId === $chatSession.mode) return;
+		chatComposerDrafts.clear(sessionId);
 		chatSession.newConversation(modeId);
 		applyStoredDisabledToolsForMode(modeId);
 	}
@@ -529,6 +548,7 @@
 
 	function handleNewSession() {
 		const resolved = resolveModeForRoute($page.url.pathname, $chatModes.modes);
+		chatComposerDrafts.clear(sessionId);
 		chatSession.newConversation(resolved);
 		saveActiveSessionId('');
 		applyStoredDisabledToolsForMode(resolved);
@@ -1260,7 +1280,6 @@
 	}
 
 	function handleClose() {
-		userInput = '';
 		selectedImageData = null;
 		chatSession.patch({ error: '' });
 		onClose?.();
@@ -1269,6 +1288,8 @@
 	// Called by the history view after it deletes a session on the backend.
 	function handleSessionDeleted(id: string) {
 		recentSessions = recentSessions.filter((s) => s.id !== id);
+
+		chatComposerDrafts.clear(id);
 
 		if ($chatSession.sessionId === id) {
 			const resolved = resolveModeForRoute($page.url.pathname, $chatModes.modes);

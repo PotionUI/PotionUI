@@ -6,6 +6,7 @@ import { logger } from '$lib/utils/logger';
 import { storage } from '$lib/utils/storage';
 import { tabsStore } from '$lib/stores/tabs';
 import { chatSession } from '$lib/stores/chatSession';
+import { chatComposerDrafts } from '$lib/stores/chatComposerDrafts';
 import { historyStore } from '$lib/stores/history';
 import { libraryStore } from '$lib/stores/library';
 import { phrasebookStore } from '$lib/stores/phrasebook';
@@ -49,9 +50,10 @@ function extractApiErrorMessage(error: any): string | undefined {
 // in before — wipe it before the new session can read or overwrite it.
 // A same-user relogin (e.g. after a token expiry) must NOT trigger this.
 // localStorage is not the only surface: module-scope stores that outlive a
-// login/logout cycle (the chat conversation lives in one so the panel
-// survives open/close, history/library/phrasebook keep a "selected item"
-// so a route can remount mid-edit) hold identity content in memory and must
+// login/logout cycle (the chat conversation and its unsent composer draft
+// live in one so the panel survives open/close, history/library/phrasebook
+// keep a "selected item" so a route can remount mid-edit) hold identity
+// content in memory and must
 // be reset too — otherwise a route that renders its "selected" field with no
 // loading gate (the details modal on History/Library, the phrasebook editor
 // pane) paints the previous user's content the instant it remounts.
@@ -67,6 +69,7 @@ export function applyIdentityGuard(userId: string): void {
 		for (const key of keysToPurge(allKeys)) localStorage.removeItem(key);
 		tabsStore.reset();
 		chatSession.reset();
+		chatComposerDrafts.reset();
 		historyStore.reset();
 		libraryStore.reset();
 		phrasebookStore.reset();

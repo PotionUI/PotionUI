@@ -48,6 +48,7 @@ async function freshGuardWithStores() {
 	const { applyIdentityGuard } = await import('./auth');
 	const { tabsStore } = await import('./tabs');
 	const { chatSession } = await import('./chatSession');
+	const { chatComposerDrafts } = await import('./chatComposerDrafts');
 	const { historyStore } = await import('./history');
 	const { libraryStore } = await import('./library');
 	const { phrasebookStore } = await import('./phrasebook');
@@ -55,7 +56,16 @@ async function freshGuardWithStores() {
 	const { previewGenerationStore } = await import('./previewGeneration');
 	return {
 		applyIdentityGuard,
-		stores: { tabsStore, chatSession, historyStore, libraryStore, phrasebookStore, nsfwFilterStore, previewGenerationStore }
+		stores: {
+			tabsStore,
+			chatSession,
+			chatComposerDrafts,
+			historyStore,
+			libraryStore,
+			phrasebookStore,
+			nsfwFilterStore,
+			previewGenerationStore
+		}
 	};
 }
 

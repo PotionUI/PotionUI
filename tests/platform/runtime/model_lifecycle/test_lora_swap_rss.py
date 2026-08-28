@@ -66,12 +66,8 @@ def _reset_default_manager_singleton():
 
 @pytest.fixture(autouse=True)
 def _plentiful_host_ram(monkeypatch):
-    # Same seam-stub as test_lifecycle.py: `acquire()` reads real host RAM
-    # through `get_system_memory()`, and on a small-RAM runner (CI has ~16GB,
-    # squeezed further by xdist sibling workers) the RAM-pressure path evicts
-    # entries mid-test - which fires allocator trims this file's
-    # `trim_calls == []` asserts must not see. Pin it high; the RSS
-    # measurements themselves read psutil directly and are unaffected.
+    # `acquire()` reads real host RAM; on a small-RAM runner the pressure
+    # path evicts mid-test and fires trims these tests assert against.
     gb = 1024**3
     monkeypatch.setattr(
         manager_module,

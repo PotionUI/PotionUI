@@ -417,10 +417,8 @@ def test_write_tensor_census_dispatches_on_device_kind(tmp_path, monkeypatch):
     tensors -- a regression here would make the new CUDA census meaningless
     (it would just re-report the same CPU tensors under a different label).
 
-    gc_sensitive: the closing `any(device == "cpu")` assert depends on the
-    census walk finding this test's tensor among whatever else the session's
-    heap holds -- under xdist the co-resident tests (and thus the live heap)
-    vary per run, and a crowded census can push it out."""
+    gc_sensitive: the `any(device == "cpu")` assert depends on what else the
+    session's heap holds; a crowded census can push this test's tensor out."""
     _enable(monkeypatch)
     big = torch.zeros(20_000_000, dtype=torch.float32)
     holder = _TensorHolder(big)

@@ -26,14 +26,8 @@ concurrency:
 
 jobs:
   backend-tests:
-    # Two parallel shards: the whole suite in one job needs ~25-30 min of
-    # wall clock on the 4-vCPU runner (~3x slower per core than a dev box,
-    # where the same config takes 8 min) - right at/over the old timeout.
-    # tests/platform holds the tensor-heavy native-runtime suites (5m50s of
-    # the dev box's 8 min; the other ~11.7k tests take 2m18s), so it gets a
-    # shard to itself. Bonus: the split separates test_migration_runner's
-    # Database-singleton teardown leak (tests/platform) from the
-    # tests/features/setup fixtures it is known to poison in shared sessions.
+    # The full suite in one job exceeds the timeout on the 4-vCPU runner;
+    # tests/platform (the tensor-heavy half) gets its own shard.
     name: backend pytest (CPU-only, ${{ matrix.shard.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -41,13 +35,8 @@ jobs:
       fail-fast: false
       matrix:
         shard:
-          # serial_paths: files that pass sequentially on this runner but
-          # fail under xdist there (conv2d stalls past the 300s timeout,
-          # a bf16 tolerance breach) - a worker-composition effect that a
-          # 4-core dev-box simulation of this exact config does not
-          # reproduce. They run as a short sequential step (~135 tests,
-          # seconds) instead of inside the parallel one. See
-          # docs/testing-notes.md ("xdist-only CI failures").
+          # serial_paths: fail under xdist on this runner only — see
+          # docs/testing-notes.md "xdist-only CI failures".
           - name: platform
             paths: >-
               tests/platform
@@ -90,18 +79,9 @@ jobs:
           pip install -r requirements-dev.txt
           pip install pytest-timeout
 
-      # -n 4: the suite is ~15.7k tests and takes 18-23 min sequentially -
-      # right at the job timeout. pytest-xdist across the runner's 4 cores
-      # keeps the whole job well under it. The worker count is pinned (not
-      # `auto`) so a runner-size change can't silently change test isolation.
-      #
-      # The *_NUM_THREADS=1 pins are load-bearing, not an optimization: with
-      # 4 workers each running torch at its default 4 OMP threads, the first
-      # -n 4 run oversubscribed the 4 cores 4x - two conv2d calls hung past
-      # the 300s test timeout, and OMP/MKL adjusting thread counts under
-      # contention changed float-reduction splits mid-test, breaking the
-      # chunked-vs-unchunked torch.equal contracts and a bf16 tolerance.
-      # One thread per worker = 4 busy cores and deterministic reductions.
+      # One BLAS thread per worker: without the pins, 4 workers x 4 OMP
+      # threads oversubscribe the 4 cores and float reductions go
+      # nondeterministic mid-test.
       - name: pytest (CPU-only, no GPU/model-file/gc-sensitive tests)
         env:
           OMP_NUM_THREADS: "1"

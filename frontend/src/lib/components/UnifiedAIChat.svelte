@@ -20,6 +20,8 @@
 	import ChatInput from '$lib/components/chat/ChatInput.svelte';
 	import ApprovalDock from '$lib/components/chat/ApprovalDock.svelte';
 	import ChatScopeBanner from '$lib/components/chat/ChatScopeBanner.svelte';
+	import ChatContextStrip from '$lib/components/chat/ChatContextStrip.svelte';
+	import { deriveContextStripModel, deriveTabSwitchDivider } from '$lib/chat/contextStrip';
 	import { shouldShowScopeMismatch, type ScopeDismissal } from '$lib/utils/chatScopeMismatch';
 	import ChatThinkingBubble from '$lib/components/chat/ChatThinkingBubble.svelte';
 	import { deriveApprovalQueue } from '$lib/chat/approvalQueue';
@@ -162,6 +164,105 @@
 	$: contextTab = pinnedTabId
 		? (allTabs.find((t: any) => t.id === pinnedTabId) || $activeTab)
 		: $activeTab;
+
+	// Preset display names for the context strip / pin picker, resolved once
+	// (same lookup ChatMemoryPanel does per-preset via listPresets().find) and
+	// cached for every preset id at once since both surfaces need it for
+	// every open tab, not just the current one.
+	let presetNamesCache: Record<string, string> = {};
+	async function loadPresetNames() {
+		try {
+			const response = await api.listPresets();
+			if (response.success) {
+				const map: Record<string, string> = {};
+				for (const p of response.data || []) map[p.id] = p.name;
+				presetNamesCache = map;
+			}
+		} catch (err) {
+			logger.error('Failed to load preset names:', err);
+		}
+	}
+	function resolvePresetName(id: string): string | null {
+		return presetNamesCache[id] ?? null;
+	}
+	$: tabPresetNames = Object.fromEntries(
+		allTabs.map((t: any) => [t.id, t.selectedPreset ? resolvePresetName(t.selectedPreset) : null])
+	);
+
+	// Context strip: states which tab the chat is reading (see contextStrip.ts).
+	$: pinnedTabResolved = pinnedTabId ? allTabs.find((t: any) => t.id === pinnedTabId) || null : null;
+	$: stripModel = deriveContextStripModel({
+		activeTab: $activeTab,
+		pinnedTab: pinnedTabResolved,
+		pinnedTabId,
+		presetName: resolvePresetName
+	});
+
+	// Tab-switch moment: a quiet transcript divider + a transient strip flash,
+	// fired only when FOLLOWING (pinning is a deliberate override, not a
+	// "switch" to announce). Both are client-side scratch state, never
+	// persisted, and cleared whenever the session view changes underneath
+	// them since their message-index anchors would no longer point at
+	// anything meaningful.
+	interface ContextDivider {
+		id: string;
+		afterIndex: number;
+		tabName: string;
+		presetLabel: string | null;
+		dims: string | null;
+	}
+	let contextDividers: ContextDivider[] = [];
+	let dividerCounter = 0;
+	let lastFollowedTabId: string | null = null;
+	let dividerTrackedSessionId: string | null = null;
+	let stripFlash = false;
+	let stripFlashTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function triggerStripFlash() {
+		stripFlash = true;
+		if (stripFlashTimer) clearTimeout(stripFlashTimer);
+		stripFlashTimer = setTimeout(() => {
+			stripFlash = false;
+			stripFlashTimer = null;
+		}, 1200);
+	}
+
+	$: if (sessionId !== dividerTrackedSessionId) {
+		contextDividers = [];
+		dividerTrackedSessionId = sessionId;
+	}
+
+	$: if (browser && $activeTab) {
+		const nextId = $activeTab.id;
+		const switched = deriveTabSwitchDivider({
+			previousTabId: lastFollowedTabId,
+			activeTab: $activeTab,
+			pinnedTabId,
+			hasMessages: messages.length > 0,
+			presetName: resolvePresetName
+		});
+		if (switched) {
+			contextDividers = [
+				...contextDividers,
+				{
+					id: `ctx-div-${++dividerCounter}`,
+					afterIndex: messages.length - 1,
+					tabName: switched.tabName,
+					presetLabel: switched.presetLabel,
+					dims: switched.dims
+				}
+			];
+		}
+		// lastFollowedTabId only advances while following -- frozen during a
+		// pin so an active-tab change that happens unobserved (pinned) never
+		// reads as a "switch" the moment the user later unpins.
+		if (!pinnedTabId) {
+			if (lastFollowedTabId !== null && lastFollowedTabId !== nextId) {
+				triggerStripFlash();
+			}
+			lastFollowedTabId = nextId;
+		}
+	}
 
 	// Images already loaded into the context tab's form / Video Director, for
 	// the "attach from current form" strip below — tracks live form edits.
@@ -335,7 +436,8 @@
 	async function loadAllData() {
 		const [configs] = await Promise.all([
 			loadConfigurations(),
-			chatModes.load()
+			chatModes.load(),
+			loadPresetNames()
 		]);
 		if (destroyed) return;
 		llmConfigs = configs;
@@ -537,6 +639,7 @@
 		destroyed = true;
 		sessionsRequestId += 1;
 		sessionLoadRequestId += 1;
+		if (stripFlashTimer) clearTimeout(stripFlashTimer);
 	});
 
 	async function handleCommand(command: string): Promise<boolean> {
@@ -1414,6 +1517,23 @@
 								variableRolls={contextTab?.variableRolls}
 							/>
 						{/if}
+							<!-- Tab-switch divider: same idiom as a date divider, not a system
+							     message. Client-side only (see contextDividers above); can land
+							     after any message index, including the last one. -->
+							{#each contextDividers.filter((d) => d.afterIndex === idx) as divider (divider.id)}
+								<div class="flex items-center gap-2 py-0.5" data-testid="context-switch-divider">
+									<div class="flex-1 h-px bg-line"></div>
+									<div class="flex items-center gap-1.5 flex-shrink-0">
+										<svg class="w-2.5 h-2.5 text-fg-subtle" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+											<path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4M16 17H4m0 0l4 4m-4-4l4-4" />
+										</svg>
+										<span class="font-mono text-2xs uppercase tracking-[0.08em] text-fg-subtle whitespace-nowrap">
+											Switched to {divider.tabName}{#if divider.presetLabel} · {divider.presetLabel}{/if}{#if divider.dims} · {divider.dims}{/if}
+										</span>
+									</div>
+									<div class="flex-1 h-px bg-line"></div>
+								</div>
+							{/each}
 					{/each}
 				{/if}
 
@@ -1495,6 +1615,24 @@
 				</div>
 			{/if}
 
+			<!-- Context strip: states which tab the chat is reading, always visible
+			     while the composer renders. Docked closest to the composer, below
+			     the occasional Approval/Scope banners above. -->
+			{#if stripModel}
+				<ChatContextStrip
+					model={stripModel}
+					flash={stripFlash}
+					{allTabs}
+					activeTabId={$activeTab?.id ?? null}
+					{pinnedTabId}
+					{tabPresetNames}
+					onPinTab={savePinnedTab}
+					onSwitchToPinned={() => {
+						if (pinnedTabId) tabsStore.setActiveTab(pinnedTabId);
+					}}
+				/>
+			{/if}
+
 			<!-- Input area: @resource chip editor + action row -->
 			<ChatInput
 				bind:this={inputRef}
@@ -1523,8 +1661,9 @@
 				onToggleAttachImage={toggleAttachLastImage}
 				onOpenMemory={() => (showMemoryPanel = true)}
 				memoryOpen={showMemoryPanel}
-				{allTabs}
 				{pinnedTabId}
+				contextTabId={contextTab?.id ?? ''}
+				contextTabName={contextTab?.name ?? ''}
 				onPinTab={savePinnedTab}
 			/>
 		</div>

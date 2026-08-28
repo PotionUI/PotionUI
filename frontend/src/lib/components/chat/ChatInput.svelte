@@ -49,26 +49,31 @@
 	export let onOpenMemory: (() => void) | undefined = undefined;
 	export let memoryOpen = false;
 
-	// Tab pinning
-	export let allTabs: any[] = [];
+	// Tab pinning: a plain toggle now (the tab picker itself moved to
+	// ChatContextStrip, which owns tab naming and the enriched dropdown) —
+	// this button only pins/unpins whichever tab the strip is currently
+	// reading (`contextTabId`/`contextTabName`, i.e. UnifiedAIChat's
+	// `contextTab`: the pinned tab if pinned, else the active tab).
 	export let pinnedTabId: string | null = null;
+	export let contextTabId: string = '';
+	export let contextTabName: string = '';
 	export let onPinTab: ((id: string | null) => void) | undefined = undefined;
+
+	function togglePin() {
+		onPinTab?.(pinnedTabId ? null : contextTabId);
+	}
 
 	let chipInputRef: ChatChipInput;
 	let showToolsDropdown = false;
-	let showPinDropdown = false;
 	let drillGroup: string | null = null;
 
-	// Both dropdowns open upward from a trigger near the bottom of the
+	// The Tools dropdown opens upward from a trigger near the bottom of the
 	// composer, so the menu is portaled to <body> (position: fixed) and its
 	// place computed from the trigger's rect rather than left-0/bottom-full,
 	// which only anchor correctly inside an untransformed ancestor.
 	let toolsTriggerEl: HTMLButtonElement;
 	let toolsMenuEl: HTMLDivElement;
 	let toolsMenuStyle = '';
-	let pinTriggerEl: HTMLButtonElement;
-	let pinMenuEl: HTMLDivElement;
-	let pinMenuStyle = '';
 
 	$: if (!showToolsDropdown) drillGroup = null;
 
@@ -84,26 +89,17 @@
 		if (showToolsDropdown) toolsMenuStyle = computeMenuStyle(toolsTriggerEl, 320);
 	}
 
-	function togglePinDropdown() {
-		showPinDropdown = !showPinDropdown;
-		if (showPinDropdown) pinMenuStyle = computeMenuStyle(pinTriggerEl, 208);
-	}
-
 	function handleOutsidePointerDown(e: PointerEvent) {
+		if (!showToolsDropdown) return;
 		const target = e.target as Node;
-		if (showToolsDropdown && !toolsMenuEl?.contains(target) && !toolsTriggerEl?.contains(target)) {
+		if (!toolsMenuEl?.contains(target) && !toolsTriggerEl?.contains(target)) {
 			showToolsDropdown = false;
-		}
-		if (showPinDropdown && !pinMenuEl?.contains(target) && !pinTriggerEl?.contains(target)) {
-			showPinDropdown = false;
 		}
 	}
 
 	function handleOutsideKeydown(e: KeyboardEvent) {
-		if (e.key !== 'Escape') return;
-		if (!showToolsDropdown && !showPinDropdown) return;
+		if (e.key !== 'Escape' || !showToolsDropdown) return;
 		showToolsDropdown = false;
-		showPinDropdown = false;
 		// A document-level bubble listener runs before window's (capture goes
 		// window->document->target, bubble reverses that), so stopping here
 		// keeps GlobalChatPanel's <svelte:window on:keydown> from also
@@ -359,58 +355,21 @@
 						</svg>
 					</button>
 				{/if}
-				<!-- Pin to tab -->
-				<div class="relative">
-					<button
-						bind:this={pinTriggerEl}
-						type="button"
-						title={pinnedTabId ? `Pinned: ${allTabs.find((t) => t.id === pinnedTabId)?.name || 'Tab'}` : 'Pin to tab'}
-						class="flex items-center gap-1 p-1.5 rounded transition-colors duration-100 {pinnedTabId ? 'bg-warning/10 text-warning' : 'text-fg-subtle hover:text-fg hover:bg-surface-2'}"
-						on:click={togglePinDropdown}
-					>
-						<svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
-						</svg>
-						{#if pinnedTabId}
-							<span class="max-w-[120px] truncate hidden sm:inline text-xs">{allTabs.find((t) => t.id === pinnedTabId)?.name || 'Pinned'}</span>
-						{/if}
-					</button>
-					{#if showPinDropdown}
-						<div
-							use:portal
-							bind:this={pinMenuEl}
-							class="fixed z-[9999] w-52 bg-surface-1 border border-line rounded-xl shadow-floating max-h-60 overflow-y-auto"
-							style={pinMenuStyle}
-						>
-							<button
-								type="button"
-								class="w-full px-3 py-2 text-left text-xs hover:bg-surface-2 transition-colors border-b border-line {!pinnedTabId ? 'text-fg-muted bg-surface-2' : 'text-fg-muted'}"
-								on:click={() => { onPinTab?.(null); showPinDropdown = false; }}
-							>
-								<span class="flex items-center gap-2">
-									<svg class="w-3.5 h-3.5 text-fg-subtle" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
-									</svg>
-									Follow active tab
-								</span>
-							</button>
-							{#each allTabs as tab}
-								<button
-									type="button"
-									class="w-full px-3 py-2 text-left text-xs hover:bg-surface-2 transition-colors {pinnedTabId === tab.id ? 'text-fg-muted bg-surface-2' : 'text-fg-muted'}"
-									on:click={() => { onPinTab?.(tab.id); showPinDropdown = false; }}
-								>
-									<span class="flex items-center gap-2">
-										<svg class="w-3.5 h-3.5 {pinnedTabId === tab.id ? 'text-warning' : 'text-fg-subtle'}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
-										</svg>
-										<span class="truncate">{tab.name}</span>
-									</span>
-								</button>
-							{/each}
-						</div>
-					{/if}
-				</div>
+				<!-- Pin the tab the strip is currently reading. Plain toggle only —
+				     picking a specific tab to pin lives in ChatContextStrip's own
+				     picker now (it owns tab naming); this button just flips the
+				     current one on/off. -->
+				<button
+					type="button"
+					title={pinnedTabId ? `Unpin from ${contextTabName}` : `Pin to ${contextTabName}`}
+					aria-pressed={!!pinnedTabId}
+					class="p-1.5 rounded transition-colors duration-100 {pinnedTabId ? 'bg-warning/10 text-warning' : 'text-fg-subtle hover:text-fg hover:bg-surface-2'}"
+					on:click={togglePin}
+				>
+					<svg class="w-4 h-4 flex-shrink-0" fill={pinnedTabId ? 'currentColor' : 'none'} stroke="currentColor" stroke-width={pinnedTabId ? '1.5' : '2'} viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+					</svg>
+				</button>
 			</div>
 			<!-- Send / Stop button: streaming turns can be stopped explicitly -->
 			{#if isGenerating && onStop}

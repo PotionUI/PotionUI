@@ -30,6 +30,50 @@ export function computeAnchoredMenuPosition(
 	return { top: rect.bottom + gap, left };
 }
 
+export interface FlippedMenuPosition {
+	left: number;
+	top?: number;
+	bottom?: number;
+}
+
+/**
+ * `left`-edge-anchored + viewport-clamped like computeAnchoredMenuPosition,
+ * but flips to open upward when there's more room above the trigger than
+ * below and not enough room below to fit `heightEstimate` — same flip rule as
+ * computeFixedMenuPosition, for triggers that (unlike a composer toolbar
+ * button) aren't reliably pinned near the bottom of the viewport, e.g.
+ * ChatContextStrip's tab-name trigger, which can land near the top of a
+ * scrolled panel.
+ */
+export function computeFlippedMenuPosition(
+	trigger: HTMLElement,
+	options: {
+		width?: number;
+		heightEstimate?: number;
+		gap?: number;
+		edgeGutter?: number;
+	} = {}
+): FlippedMenuPosition {
+	const {
+		width = 200,
+		heightEstimate = MENU_HEIGHT_ESTIMATE,
+		gap = MENU_GAP,
+		edgeGutter = MENU_EDGE_GUTTER
+	} = options;
+	const rect = trigger.getBoundingClientRect();
+
+	let left = rect.left;
+	const maxLeft = window.innerWidth - width - edgeGutter;
+	if (left > maxLeft) left = maxLeft;
+	if (left < edgeGutter) left = edgeGutter;
+
+	const spaceBelow = window.innerHeight - rect.bottom;
+	const spaceAbove = rect.top;
+	const openUpward = spaceBelow < heightEstimate && spaceAbove > spaceBelow;
+
+	return openUpward ? { left, bottom: window.innerHeight - rect.top + gap } : { left, top: rect.bottom + gap };
+}
+
 /** `right`/`top`-or-`bottom` inline style string, flipping upward when there's
  *  more room above the trigger than below and not enough room below to fit
  *  `heightEstimate`. */

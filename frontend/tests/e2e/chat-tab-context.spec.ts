@@ -81,7 +81,7 @@ test('strip follows the active tab, and its picker resolves pinned-active and pi
 	const contextStrip = strip(page);
 	await expect(contextStrip).toBeVisible({ timeout: 15000 });
 	await expect(contextStrip).toHaveAttribute('data-strip-state', 'following');
-	await expect(contextStrip).toContainText('Reading');
+	await expect(contextStrip).toContainText('Reading tab:');
 	await expect(contextStrip).toContainText('Generation 2');
 	await screenshot(page, JOURNEY, '00-following-at-rest');
 

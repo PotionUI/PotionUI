@@ -177,7 +177,7 @@
 				? 'text-fg'
 				: 'text-fg-muted'}"
 		>
-			Reading
+			Reading tab:
 			<button type="button" bind:this={triggerEl} class="text-signal font-medium hover:underline underline-offset-2" on:click={togglePicker}>
 				{model.tabName}
 			</button>

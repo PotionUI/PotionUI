@@ -39,6 +39,20 @@ class ToolApprovalPreview:
     # None for an add/remove respectively. Absent for tools that only need
     # `items`.
     changes: Optional[List[Dict[str, Any]]] = None
+    # Discriminates the richer dock layouts below. None means a tool that
+    # only fills the legacy action/target/items/note/changes fields above.
+    kind: Optional[str] = None  # "generation" | "timeline" | "text_edit"
+    # One-line text for the dock's collapsed row.
+    summary: Optional[str] = None
+    # Settings-grid rows: {"label", "value", "mono"?, "old"?}. `"old"` present
+    # means the tool changed this value from what the user had -> the UI
+    # flags it and renders old -> new.
+    fields: Optional[List[Dict[str, Any]]] = None
+    # Long-form text with an optional before/after diff: {"label", "text",
+    # "old_text"?}. `"old_text"` present -> the UI renders a stacked diff.
+    text_blocks: Optional[List[Dict[str, Any]]] = None
+    # Timeline scenes: {"range", "text", "op"?}.
+    rows: Optional[List[Dict[str, Any]]] = None
 
 
 @dataclass
@@ -62,6 +76,11 @@ def serialize_approval_preview(preview: Optional[ToolApprovalPreview]) -> Option
         "items": list(preview.items),
         "note": preview.note,
         "changes": preview.changes,
+        "kind": preview.kind,
+        "summary": preview.summary,
+        "fields": preview.fields,
+        "text_blocks": preview.text_blocks,
+        "rows": preview.rows,
     }
 
 

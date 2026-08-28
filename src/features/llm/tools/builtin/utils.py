@@ -3,9 +3,19 @@
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
+from src.features.llm.tools.base import ToolApprovalPreview
 from src.features.models.form_refs import is_model_ref, model_id_of
 
 logger = logging.getLogger(__name__)
+
+# form_data keys the generation preview's settings grid reads, in display order.
+_GENERATION_SETTINGS_FIELDS = (
+    ("batch_size", "Batch"),
+    ("steps", "Steps"),
+    ("cfg", "CFG"),
+    ("sampler", "Sampler"),
+    ("scheduler", "Scheduler"),
+)
 
 # Model file extensions used to detect model paths in form data
 MODEL_EXTENSIONS = {".safetensors", ".ckpt", ".pt", ".pth", ".bin", ".gguf"}
@@ -299,3 +309,79 @@ def model_to_dict(d: dict) -> Dict[str, Any]:
         result["combined_description"] = " | ".join(descriptions)
 
     return result
+
+
+def build_generation_preview(
+    *,
+    preset_id: Optional[str],
+    mode: str,
+    prompt_text: str,
+    negative_text: str,
+    form_data: Dict[str, Any],
+    old_form_data: Optional[Dict[str, Any]] = None,
+) -> ToolApprovalPreview:
+    """Build the `kind="generation"` approval preview shared by run_generation and
+    start_generation.
+
+    `form_data` holds the final (post-override) values the settings grid reads.
+    `old_form_data` is the form's values *before* any override was applied --
+    passed only by run_generation, which reads a live chat form; start_generation
+    has no live form baseline, so it passes None and no field is ever flagged
+    "old" (there is nothing real to diff against).
+    """
+    old_form_data = old_form_data or {}
+
+    def _old(key: str, new_value: Any) -> Optional[str]:
+        if key not in old_form_data:
+            return None
+        old_value = old_form_data[key]
+        if old_value == new_value:
+            return None
+        return str(old_value)
+
+    fields: List[Dict[str, Any]] = []
+    if preset_id:
+        fields.append({"label": "Preset", "value": str(preset_id)})
+    fields.append({"label": "Mode", "value": mode})
+
+    width, height = form_data.get("width"), form_data.get("height")
+    if width is not None and height is not None:
+        entry: Dict[str, Any] = {"label": "Resolution", "value": f"{width}×{height}", "mono": True}
+        old_width, old_height = old_form_data.get("width"), old_form_data.get("height")
+        if (old_width is not None or old_height is not None) and (old_width, old_height) != (width, height):
+            entry["old"] = f"{old_width if old_width is not None else width}×{old_height if old_height is not None else height}"
+        fields.append(entry)
+
+    for key, label in _GENERATION_SETTINGS_FIELDS:
+        # Presets use "cfg" natively; a few callers still pass "cfg_scale".
+        lookup_key = key if key != "cfg" or key in form_data else "cfg_scale"
+        if lookup_key not in form_data:
+            continue
+        value = form_data[lookup_key]
+        entry = {"label": label, "value": str(value)}
+        old = _old(lookup_key, value)
+        if old is not None:
+            entry["old"] = old
+        fields.append(entry)
+
+    if form_data.get("seed") is not None:
+        entry = {"label": "Seed", "value": str(form_data["seed"]), "mono": True}
+        old = _old("seed", form_data["seed"])
+        if old is not None:
+            entry["old"] = old
+        fields.append(entry)
+
+    summary = prompt_text[:90] + ("..." if len(prompt_text) > 90 else "") if prompt_text else "Generation"
+
+    text_blocks = [{"label": "Prompt", "text": prompt_text}]
+    if negative_text:
+        text_blocks.append({"label": "Negative prompt", "text": negative_text})
+
+    return ToolApprovalPreview(
+        action="Start generation",
+        target=str(preset_id) if preset_id else None,
+        kind="generation",
+        summary=summary,
+        fields=fields,
+        text_blocks=text_blocks,
+    )

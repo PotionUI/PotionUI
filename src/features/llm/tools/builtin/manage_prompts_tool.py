@@ -6,10 +6,15 @@ from typing import Any, Dict, Optional
 
 from src.features.prompt_database import operations
 from src.features.prompt_database.dto import PromptRequest
-from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
+from src.features.prompt_database.repository import flatten_segments
+from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
 from src.features.llm.tools.errors import unexpected
 
 logger = logging.getLogger(__name__)
+
+
+def _truncate(text: str, limit: int = 90) -> str:
+    return text[:limit] + ("..." if len(text) > limit else "")
 
 
 RICH_SEGMENT_SCHEMA = {
@@ -94,11 +99,25 @@ class AddPromptTool(BaseTool):
             request = _prompt_request(**kwargs)
         except Exception as exc:
             return ToolResult(success=False, data="", error=str(exc))
+        text = flatten_segments(request.segments)
+        fields = []
+        if request.usage_hint:
+            fields.append({"label": "Usage", "value": request.usage_hint})
+        if request.tags:
+            fields.append({"label": "Tags", "value": ", ".join(request.tags)})
+        preview = ToolApprovalPreview(
+            action="Add prompt",
+            target=request.name or None,
+            kind="text_edit",
+            summary=_truncate(text) or "New prompt",
+            fields=fields,
+            text_blocks=[{"label": "Prompt", "text": text}],
+        )
         return ToolResult(success=True, data=json.dumps({
             "action": "add_prompt",
             "proposal": request.model_dump(),
             "message": "This detached Prompt will be added to the library. Please confirm.",
-        }))
+        }), preview=preview)
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
         if not context.prompt_database:
@@ -168,6 +187,27 @@ class EditPromptTool(BaseTool):
             request = _prompt_request(existing, **kwargs)
         except Exception as exc:
             return ToolResult(success=False, data="", error=str(exc))
+
+        old_text = flatten_segments(existing.segments)
+        new_text = flatten_segments(request.segments)
+        text_block = {"label": "Prompt", "text": new_text}
+        if new_text != old_text:
+            text_block["old_text"] = old_text
+
+        fields = []
+        if kwargs.get("name") and kwargs["name"] != existing.name:
+            fields.append({"label": "Name", "value": kwargs["name"], "old": existing.name or "Untitled"})
+        if kwargs.get("usage_hint") and kwargs["usage_hint"] != existing.usage_hint:
+            fields.append({"label": "Usage", "value": kwargs["usage_hint"], "old": existing.usage_hint or "unset"})
+
+        preview = ToolApprovalPreview(
+            action="Edit prompt",
+            target=existing.display_name,
+            kind="text_edit",
+            summary=_truncate(new_text),
+            fields=fields,
+            text_blocks=[text_block],
+        )
         return ToolResult(success=True, data=json.dumps({
             "action": "edit_prompt",
             "proposal": {
@@ -176,7 +216,7 @@ class EditPromptTool(BaseTool):
                 "new": request.model_dump(),
             },
             "message": "The complete Prompt aggregate will be replaced. Please confirm.",
-        }))
+        }), preview=preview)
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
         prompt_id = kwargs.get("prompt_id")
@@ -226,11 +266,16 @@ class DeletePromptTool(BaseTool):
         existing = context.prompt_database.repository.get_by_id(prompt_id, context.user_id) if context.prompt_database and prompt_id else None
         if existing is None:
             return ToolResult(success=False, data="", error=f"Prompt '{prompt_id}' not found")
+        preview = ToolApprovalPreview(
+            action="Delete prompt",
+            target=existing.display_name,
+            summary=_truncate(existing.flattened_text),
+        )
         return ToolResult(success=True, data=json.dumps({
             "action": "delete_prompt",
             "proposal": {"prompt_id": prompt_id, "name": existing.display_name, "preview": existing.flattened_text[:200]},
             "message": "This Prompt will be permanently deleted. Please confirm.",
-        }))
+        }), preview=preview)
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
         prompt_id = kwargs.get("prompt_id")

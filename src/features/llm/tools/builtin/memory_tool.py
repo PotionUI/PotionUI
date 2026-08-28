@@ -453,6 +453,12 @@ class DeleteMemoryTool(BaseTool):
         if note.scope_ref:
             proposal["scope_ref"] = note.scope_ref
 
+        preview = ToolApprovalPreview(
+            action="Delete memory note",
+            target=f"'{note.key}'",
+            summary=_truncate(note.content),
+        )
+
         return ToolResult(
             success=True,
             data=json.dumps({
@@ -460,6 +466,7 @@ class DeleteMemoryTool(BaseTool):
                 "proposal": proposal,
                 "message": "The following memory note will be permanently deleted. Please confirm.",
             }),
+            preview=preview,
         )
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:

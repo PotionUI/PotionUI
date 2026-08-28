@@ -82,6 +82,40 @@ class TestExecutePreview:
         assert payload["mode"] == "img2img"
 
 
+class TestApprovalPreview:
+    @pytest.mark.asyncio
+    async def test_preview_kind_and_shared_fields(self):
+        result = await StartGenerationTool().execute(
+            make_context(),
+            preset_id="sdxl/base", mode="img2img", prompt="a red fox",
+            form_overrides={"width": 1024, "height": 1024, "steps": 30},
+        )
+        assert result.preview.kind == "generation"
+        labels = {f["label"]: f["value"] for f in result.preview.fields}
+        assert labels["Preset"] == "sdxl/base"
+        assert labels["Mode"] == "img2img"
+        assert labels["Resolution"] == "1024×1024"
+        assert labels["Steps"] == "30"
+        assert result.preview.summary.startswith("a red fox")
+        assert result.preview.text_blocks == [{"label": "Prompt", "text": "a red fox"}]
+
+    @pytest.mark.asyncio
+    async def test_preview_never_flags_old_values(self):
+        """No live form baseline here -- a field must never claim an 'old' value."""
+        result = await StartGenerationTool().execute(
+            make_context(), preset_id="sdxl/base", form_overrides={"steps": 50},
+        )
+        for f in result.preview.fields:
+            assert "old" not in f
+
+    @pytest.mark.asyncio
+    async def test_preview_omits_fields_not_in_form_overrides(self):
+        result = await StartGenerationTool().execute(make_context(), preset_id="sdxl/base")
+        labels = {f["label"] for f in result.preview.fields}
+        assert "Resolution" not in labels
+        assert "Steps" not in labels
+
+
 class TestExecuteConfirmed:
     @pytest.mark.asyncio
     async def test_returns_error_when_no_orchestrator(self):

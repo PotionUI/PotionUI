@@ -270,6 +270,71 @@ class TestRunGenerationToolExecute:
 
 
 # ---------------------------------------------------------------------------
+# execute() — structured approval preview (.preview)
+# ---------------------------------------------------------------------------
+
+class TestRunGenerationToolApprovalPreview:
+    @pytest.mark.asyncio
+    async def test_preview_kind_and_summary(self):
+        form_state = make_form_state(form_data={"prompt": "a beautiful landscape"})
+        ctx = make_context(session_metadata={"form_state": form_state})
+        result = await RunGenerationTool().execute(ctx)
+        assert result.preview is not None
+        assert result.preview.kind == "generation"
+        assert result.preview.summary.startswith("a beautiful landscape")
+
+    @pytest.mark.asyncio
+    async def test_preview_fields_carry_preset_mode_and_settings(self):
+        form_state = make_form_state(
+            preset="preset-sdxl", mode="txt2img",
+            form_data={"width": 1024, "height": 1024, "steps": 30, "cfg": 7.0,
+                       "sampler": "DPM++ 2M", "seed": 42},
+        )
+        ctx = make_context(session_metadata={"form_state": form_state})
+        result = await RunGenerationTool().execute(ctx)
+        labels = {f["label"]: f["value"] for f in result.preview.fields}
+        assert labels["Preset"] == "preset-sdxl"
+        assert labels["Mode"] == "txt2img"
+        assert labels["Resolution"] == "1024×1024"
+        assert labels["Steps"] == "30"
+        assert labels["CFG"] == "7.0"
+        assert labels["Sampler"] == "DPM++ 2M"
+        assert labels["Seed"] == "42"
+        seed_field = next(f for f in result.preview.fields if f["label"] == "Seed")
+        assert seed_field.get("mono") is True
+
+    @pytest.mark.asyncio
+    async def test_override_flags_old_value_on_changed_field(self):
+        form_state = make_form_state(form_data={"steps": 20, "width": 512, "height": 512})
+        ctx = make_context(session_metadata={"form_state": form_state})
+        result = await RunGenerationTool().execute(ctx, override_values={"steps": 50})
+        steps_field = next(f for f in result.preview.fields if f["label"] == "Steps")
+        assert steps_field["value"] == "50"
+        assert steps_field["old"] == "20"
+        # A field that was never overridden must not carry "old".
+        width_field = next(f for f in result.preview.fields if f["label"] == "Resolution")
+        assert "old" not in width_field
+
+    @pytest.mark.asyncio
+    async def test_text_blocks_hold_full_untruncated_prompt(self):
+        long_prompt = "a" * 400
+        form_state = make_form_state(form_data={"prompt": long_prompt, "negative_prompt": "blurry"})
+        ctx = make_context(session_metadata={"form_state": form_state})
+        result = await RunGenerationTool().execute(ctx)
+        prompt_block = next(b for b in result.preview.text_blocks if b["label"] == "Prompt")
+        assert prompt_block["text"] == long_prompt  # unlike `data`, never truncated at 300 chars
+        negative_block = next(b for b in result.preview.text_blocks if b["label"] == "Negative prompt")
+        assert negative_block["text"] == "blurry"
+
+    @pytest.mark.asyncio
+    async def test_negative_prompt_block_omitted_when_empty(self):
+        form_state = make_form_state(form_data={"prompt": "good stuff"})
+        ctx = make_context(session_metadata={"form_state": form_state})
+        result = await RunGenerationTool().execute(ctx)
+        assert [b["label"] for b in result.preview.text_blocks] == ["Prompt"]
+
+
+# ---------------------------------------------------------------------------
 # execute_confirmed() — mutation phase
 # ---------------------------------------------------------------------------
 

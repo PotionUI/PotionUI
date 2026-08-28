@@ -313,6 +313,48 @@ class TestExecuteSuccess:
 
 
 # ---------------------------------------------------------------------------
+# execute() – structured approval preview (.preview)
+# ---------------------------------------------------------------------------
+
+class TestApprovalPreview:
+    @pytest.mark.asyncio
+    async def test_preview_kind_and_summary(self):
+        ctx = make_context()
+        result = await SetPromptRelayTimelineTool().execute(ctx, segments=_SIMPLE_SEGMENTS, duration=5)
+        assert result.preview.kind == "timeline"
+        assert result.preview.summary == "2 scenes · 5s"
+
+    @pytest.mark.asyncio
+    async def test_preview_rows_formatted_and_sorted(self):
+        ctx = make_context()
+        segs = [
+            make_segment(2, 5, "second"),
+            make_segment(0, 2, "first"),
+        ]
+        result = await SetPromptRelayTimelineTool().execute(ctx, segments=segs, duration=5)
+        assert result.preview.rows == [
+            {"range": "0:00–0:02", "text": "first"},
+            {"range": "0:02–0:05", "text": "second"},
+        ]
+
+    @pytest.mark.asyncio
+    async def test_preview_range_renders_fractional_seconds(self):
+        ctx = make_context()
+        result = await SetPromptRelayTimelineTool().execute(
+            ctx, segments=[make_segment(0, 4.5, "scene")], duration=5,
+        )
+        assert result.preview.rows == [{"range": "0:00–0:04.5", "text": "scene"}]
+
+    @pytest.mark.asyncio
+    async def test_preview_summary_singular_scene(self):
+        ctx = make_context()
+        result = await SetPromptRelayTimelineTool().execute(
+            ctx, segments=[make_segment(0, 5, "one scene")], duration=5,
+        )
+        assert result.preview.summary == "1 scene · 5s"
+
+
+# ---------------------------------------------------------------------------
 # execute_confirmed() – action payload shape
 # ---------------------------------------------------------------------------
 

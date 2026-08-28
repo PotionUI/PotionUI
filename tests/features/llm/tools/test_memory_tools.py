@@ -387,6 +387,20 @@ class TestDeleteMemoryTool:
         assert data["proposal"]["key"] == "pref_style"
 
     @pytest.mark.asyncio
+    async def test_execute_preview_carries_legacy_action_target_and_summary(self, mock_ops):
+        note = make_note()
+        mm = MagicMock()
+        mock_ops.get_note.return_value = note
+        ctx = make_context(llm_memory_repository=mm)
+
+        result = await self._tool().execute(ctx, note_id="note-1")
+
+        assert result.preview is not None
+        assert result.preview.action == "Delete memory note"
+        assert result.preview.target == f"'{note.key}'"
+        assert result.preview.summary == note.content
+
+    @pytest.mark.asyncio
     async def test_execute_note_not_found(self, mock_ops):
         mm = MagicMock()
         mock_ops.get_note.return_value = None

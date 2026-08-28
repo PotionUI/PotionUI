@@ -12,6 +12,7 @@ import logging
 from typing import Any, Dict
 
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
+from src.features.llm.tools.builtin.utils import build_generation_preview
 from src.features.llm.tools.errors import unexpected
 from src.features.llm.tools.media_values import MEDIA_VALUE_FORM, preset_form_media_errors
 from src.features.llm.tools.model_values import preset_form_model_errors
@@ -96,6 +97,18 @@ class StartGenerationTool(BaseTool):
             preview["form_overrides"] = kwargs["form_overrides"]
         return preview
 
+    @staticmethod
+    def _build_approval_preview(kwargs: Dict[str, Any]):
+        # No live form here (see the module docstring), so there is no "old"
+        # value to diff a form_override against - old_form_data stays None.
+        return build_generation_preview(
+            preset_id=kwargs.get("preset_id"),
+            mode=kwargs.get("mode") or "txt2img",
+            prompt_text=kwargs.get("prompt") or "",
+            negative_text=kwargs.get("negative_prompt") or "",
+            form_data=kwargs.get("form_overrides") or {},
+        )
+
     async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
         """Build a generation preview for user approval."""
         preset_id = kwargs.get("preset_id")
@@ -113,7 +126,11 @@ class StartGenerationTool(BaseTool):
         if model_errors:
             return ToolResult(success=False, data="", error="; ".join(model_errors))
 
-        return ToolResult(success=True, data=json.dumps(self._build_preview(kwargs)))
+        return ToolResult(
+            success=True,
+            data=json.dumps(self._build_preview(kwargs)),
+            preview=self._build_approval_preview(kwargs),
+        )
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
         """Actually start the generation after user approval."""

@@ -4,12 +4,36 @@ import json
 import logging
 from typing import Any, Dict, List
 
-from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
+from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_DURATION = 5
 _DEFAULT_FPS = 24
+
+
+def _format_timestamp(seconds: float) -> str:
+    """"m:ss" or, for a fractional second, "m:ss.s" (e.g. "0:04.5")."""
+    minutes = int(seconds // 60)
+    secs = seconds - minutes * 60
+    if secs == int(secs):
+        return f"{minutes}:{int(secs):02d}"
+    return f"{minutes}:{secs:04.1f}"
+
+
+def _build_timeline_preview(sorted_segs: List[Dict[str, Any]], duration: float) -> ToolApprovalPreview:
+    rows = [
+        {"range": f"{_format_timestamp(seg['start'])}–{_format_timestamp(seg['end'])}", "text": seg["text"]}
+        for seg in sorted_segs
+    ]
+    scene_word = "scene" if len(sorted_segs) == 1 else "scenes"
+    return ToolApprovalPreview(
+        action="Set Prompt Relay timeline",
+        target=f"{len(sorted_segs)} {scene_word}, {duration:g}s",
+        kind="timeline",
+        summary=f"{len(sorted_segs)} {scene_word} · {duration:g}s",
+        rows=rows,
+    )
 
 
 def _normalize_segments(
@@ -219,7 +243,11 @@ class SetPromptRelayTimelineTool(BaseTool):
         if warnings:
             result["warnings"] = warnings
 
-        return ToolResult(success=True, data=json.dumps(result))
+        return ToolResult(
+            success=True,
+            data=json.dumps(result),
+            preview=_build_timeline_preview(sorted_segs, duration),
+        )
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:
         """After user approval, return the action payload for the frontend to apply."""

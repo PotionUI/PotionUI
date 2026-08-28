@@ -5,6 +5,7 @@ import logging
 from typing import Any, Dict
 
 from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult
+from src.features.llm.tools.builtin.utils import build_generation_preview
 from src.features.llm.tools.errors import unexpected
 from src.features.llm.tools.media_values import (
     MEDIA_VALUE_FORM,
@@ -99,6 +100,7 @@ class RunGenerationTool(BaseTool):
         preset_id = form_state.get("preset")
         mode = form_state.get("mode", "txt2img")
         form_data = dict(form_state.get("form_data", {}))
+        old_form_data = dict(form_data)
 
         if not preset_id:
             return ToolResult(
@@ -156,9 +158,19 @@ class RunGenerationTool(BaseTool):
         if settings_preview:
             preview["settings"] = settings_preview
 
+        approval_preview = build_generation_preview(
+            preset_id=preset_id,
+            mode=mode,
+            prompt_text=prompt_text,
+            negative_text=negative_text,
+            form_data=form_data,
+            old_form_data=old_form_data,
+        )
+
         return ToolResult(
             success=True,
             data=json.dumps(preview),
+            preview=approval_preview,
         )
 
     async def execute_confirmed(self, context: ToolContext, **kwargs) -> ToolResult:

@@ -5,7 +5,10 @@ from unittest.mock import AsyncMock, MagicMock
 from typing import Any, Dict, List
 
 from src.features.llm.clients.base import LLMResponse
-from src.features.llm.tools.base import BaseTool, ToolResult, ToolSource, ToolContext, ToolExecution
+from src.features.llm.tools.base import (
+    BaseTool, ToolApprovalPreview, ToolResult, ToolSource, ToolContext, ToolExecution,
+    serialize_approval_preview,
+)
 from src.features.llm.tools.registry import ToolRegistry
 from src.features.llm.tools.executor import ToolExecutor
 
@@ -113,6 +116,40 @@ class TestToolResult:
         result = ToolResult(success=False, data="", error="something went wrong")
         assert result.success is False
         assert result.error == "something went wrong"
+
+
+class TestSerializeApprovalPreview:
+    def test_none_serializes_to_none(self):
+        assert serialize_approval_preview(None) is None
+
+    def test_legacy_only_preview_has_none_for_new_fields(self):
+        preview = ToolApprovalPreview(action="Remove", target="from category camera", items=["a", "b"])
+        serialized = serialize_approval_preview(preview)
+        assert serialized["action"] == "Remove"
+        assert serialized["target"] == "from category camera"
+        assert serialized["items"] == ["a", "b"]
+        assert serialized["kind"] is None
+        assert serialized["summary"] is None
+        assert serialized["fields"] is None
+        assert serialized["text_blocks"] is None
+        assert serialized["rows"] is None
+
+    def test_round_trips_every_new_field(self):
+        preview = ToolApprovalPreview(
+            action="Start generation",
+            target="sdxl/base",
+            kind="generation",
+            summary="a red fox in snow",
+            fields=[{"label": "Steps", "value": "30", "old": "20"}],
+            text_blocks=[{"label": "Prompt", "text": "a red fox in snow"}],
+            rows=[{"range": "0:00–0:04.5", "text": "sunrise"}],
+        )
+        serialized = serialize_approval_preview(preview)
+        assert serialized["kind"] == "generation"
+        assert serialized["summary"] == "a red fox in snow"
+        assert serialized["fields"] == [{"label": "Steps", "value": "30", "old": "20"}]
+        assert serialized["text_blocks"] == [{"label": "Prompt", "text": "a red fox in snow"}]
+        assert serialized["rows"] == [{"range": "0:00–0:04.5", "text": "sunrise"}]
 
 
 # ---------------------------------------------------------------------------

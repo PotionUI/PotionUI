@@ -106,6 +106,24 @@ async def test_add_proposal_round_trips_rich_ordered_segments_without_mutating(m
 
 
 @pytest.mark.asyncio
+async def test_add_preview_carries_text_edit_shape():
+    result = await AddPromptTool().execute(
+        make_context(MagicMock()),
+        name="Fox study",
+        usage_hint="negative",
+        segments=[{"content": "blurry"}],
+        tags=["quality"],
+    )
+
+    assert result.preview.kind == "text_edit"
+    assert result.preview.target == "Fox study"
+    assert result.preview.text_blocks == [{"label": "Prompt", "text": "blurry"}]
+    fields = {f["label"]: f["value"] for f in result.preview.fields}
+    assert fields["Usage"] == "negative"
+    assert fields["Tags"] == "quality"
+
+
+@pytest.mark.asyncio
 async def test_add_rejects_an_empty_aggregate():
     result = await AddPromptTool().execute(make_context(MagicMock()), segments=[])
 
@@ -157,6 +175,43 @@ async def test_edit_proposal_shows_old_and_new_ordered_aggregates():
     assert proposal["new"]["segments"][0]["content"] == "low quality"
     assert proposal["new"]["usage_hint"] == "negative"
     assert "negative_prompt" not in json.dumps(proposal)
+
+
+@pytest.mark.asyncio
+async def test_edit_preview_carries_old_new_text_and_flags_changed_name():
+    prompt_database = MagicMock()
+    prompt_database.repository.get_by_id.return_value = make_prompt()
+
+    result = await EditPromptTool().execute(
+        make_context(prompt_database),
+        prompt_id="prompt-1",
+        name="Reworked",
+        segments=[{"content": "low quality"}],
+    )
+
+    assert result.preview.kind == "text_edit"
+    assert result.preview.target == "Study"  # existing.display_name
+    text_block = result.preview.text_blocks[0]
+    assert text_block["old_text"] == "a fox BREAK"
+    assert text_block["text"] == "low quality"
+    name_field = next(f for f in result.preview.fields if f["label"] == "Name")
+    assert name_field == {"label": "Name", "value": "Reworked", "old": "Study"}
+
+
+@pytest.mark.asyncio
+async def test_edit_preview_omits_old_text_when_prompt_text_unchanged():
+    prompt_database = MagicMock()
+    existing = make_prompt()
+    prompt_database.repository.get_by_id.return_value = existing
+
+    result = await EditPromptTool().execute(
+        make_context(prompt_database),
+        prompt_id="prompt-1",
+        name="Renamed only",
+    )
+
+    text_block = result.preview.text_blocks[0]
+    assert "old_text" not in text_block
 
 
 @pytest.mark.asyncio
@@ -216,3 +271,17 @@ async def test_delete_proposal_and_confirmation_operate_on_one_detached_prompt(m
     }
     assert applied.success is True
     mock_operations.delete_prompt.assert_called_once_with(prompt_database, "user-1", "prompt-1")
+
+
+@pytest.mark.asyncio
+async def test_delete_preview_is_legacy_action_target_and_summary(mock_operations):
+    prompt_database = MagicMock()
+    prompt_database.repository.get_by_id.return_value = make_prompt()
+
+    result = await DeletePromptTool().execute(make_context(prompt_database), prompt_id="prompt-1")
+
+    assert result.preview.action == "Delete prompt"
+    assert result.preview.target == "Study"
+    assert result.preview.summary == "a fox BREAK"
+    assert result.preview.kind is None
+    assert result.preview.fields is None

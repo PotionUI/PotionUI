@@ -14,6 +14,11 @@ real time.
 > releases. Back up anything you care about, and report what breaks — issues
 > and Discord reports steer what gets fixed next.
 
+> [!IMPORTANT]
+> **Runs on Linux x86_64 with an NVIDIA GPU** — that's the tested 0.0.1
+> matrix. On Windows, use WSL2 or Docker Desktop (native Windows won't even
+> install yet). Details in [Supported platforms](#supported-platforms).
+
 
 https://github.com/user-attachments/assets/950415f7-da97-403e-811b-4c9c41d8106f
 
@@ -186,13 +191,14 @@ git clone https://github.com/PotionUI/PotionUI.git potionui && cd potionui
 
 ### Supported platforms
 
-| Platform                   | Status                               |
-| -------------------------- | ------------------------------------ |
-| Linux x86_64 + NVIDIA CUDA | Tested and supported for 0.0.1       |
-| Windows / WSL2             | Untested — community reports welcome |
-| macOS                      | Untested — community reports welcome |
-| AMD GPU (ROCm)             | Untested — community reports welcome |
-| Docker                     | Supported — see below                |
+| Platform                    | Status                                                                                          |
+| --------------------------- | ----------------------------------------------------------------------------------------------- |
+| Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.0.1                                                                   |
+| Windows via WSL2            | Untested — community reports welcome (standard Linux CUDA stack; NVIDIA's WSL2 passthrough applies) |
+| Windows native              | Not yet — the install pulls Linux-only packages (e.g. `uvloop`); use WSL2 or Docker Desktop      |
+| macOS                       | Untested — community reports welcome                                                             |
+| AMD GPU (ROCm)              | Untested — community reports welcome                                                             |
+| Docker                      | Supported — see below (on Windows, Docker Desktop runs this via WSL2)                            |
 
 ```bash
 docker run --gpus all -p 8005:8005 ghcr.io/potionui/potionui:latest
@@ -211,7 +217,7 @@ setup:
 ```bash
 # Backend
 python -m venv venv
-source venv/bin/activate          # Windows: venv\Scripts\activate
+source venv/bin/activate          # Windows: run inside WSL2 (native isn't supported yet)
 pip install -r requirements.txt -c constraints.txt
 python api.py                     # serves on http://localhost:8005
 

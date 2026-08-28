@@ -163,3 +163,14 @@ state can leak between specs in the same chunk: a spec asserting a global
 empty state passes alone and can fail after a same-chunk sibling installs a
 preset — order specs accordingly, or run the affected spec alone.
 
+
+**`chat-tool-approval.spec.ts` fails before it reaches the dock (pre-existing,
+confirmed 2026-08-28).** In this container the scripted fake-LLM turn emits the
+`create_phrasebook_category` tool call but the execution comes back **failed**
+instead of `pending_approval`, the loop continues into an unscripted turn
+("(fake-llm: no scripted turn left)"), and no ApprovalDock ever renders — the
+spec then times out. Reproduced identically on a clean fd6239a worktree, i.e.
+NOT caused by the 2026-08-28 approval-dock rework. Separately, the spec's
+selectors assert the pre-rework dock anatomy (`div.border-warning\/35`,
+"from reply") and need updating to the compact-row dock once the underlying
+failure is fixed.

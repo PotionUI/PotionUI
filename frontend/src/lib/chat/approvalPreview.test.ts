@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildApprovalDiff, buildDirectorChangeGroups, humanizeApprovalArguments } from './approvalPreview';
+import { buildApprovalDiff, buildArgumentTree, buildDirectorChangeGroups, deriveCompactSummary } from './approvalPreview';
 import type { ToolApprovalPreview, ToolExecution } from '$lib/types/chat';
 
 function execution(data: string | undefined, args: Record<string, unknown> = {}): ToolExecution {
@@ -136,35 +136,109 @@ describe('buildDirectorChangeGroups', () => {
 	});
 });
 
-describe('humanizeApprovalArguments', () => {
-	it('summarizes scalar, array, and object arguments without dumping raw JSON', () => {
-		const summary = humanizeApprovalArguments(
+describe('buildArgumentTree', () => {
+	// Bite check: the old `humanizeApprovalArguments` fallback rendered a
+	// nested object as the literal word "object" and an array as "3 items"
+	// with no way to see what was inside — a dead end. This proves the
+	// replacement always carries real content instead.
+	it('never stands in "object" or a bare item count for nested values', () => {
+		const [, values, options] = buildArgumentTree(
 			execution(undefined, {
 				path: 'camera.angles',
 				values: [1, 2, 3],
 				options: { nested: true }
 			})
 		);
-		expect(summary).toBe('path: camera.angles · values: 3 items · options: object');
-		expect(summary).not.toContain('{');
-		expect(summary).not.toContain('nested');
+		expect(values.kind).toBe('array');
+		expect(values.preview).not.toBe('3 items');
+		expect(values.preview).toBe('1, 2, 3');
+		expect(options.kind).toBe('object');
+		expect(options.preview).not.toBe('object');
+		expect(options.preview).toContain('nested: true');
 	});
 
-	it('truncates long scalar values and reports overflow count', () => {
-		const summary = humanizeApprovalArguments(
+	it('builds a typed leaf per scalar argument: quoted strings, tabular numbers, bare booleans', () => {
+		const [path, steps, enabled] = buildArgumentTree(
+			execution(undefined, { path: 'camera.angles', steps: 28, enabled: true })
+		);
+		expect(path).toEqual({ key: 'path', kind: 'string', display: '"camera.angles"', open: false });
+		expect(steps).toEqual({ key: 'steps', kind: 'number', display: '28', open: false });
+		expect(enabled).toEqual({ key: 'enabled', kind: 'boolean', display: 'true', open: false });
+	});
+
+	it('renders null/undefined arguments as an explicit null leaf, not empty', () => {
+		const [missing] = buildArgumentTree(execution(undefined, { missing: null }));
+		expect(missing).toEqual({ key: 'missing', kind: 'null', display: 'null', open: false });
+	});
+
+	it('pre-opens only the root level: a nested object inside an object starts closed', () => {
+		const [outer] = buildArgumentTree(execution(undefined, { outer: { inner: { deep: 1 } } }));
+		expect(outer.open).toBe(true);
+		const [inner] = outer.children!;
+		expect(inner.key).toBe('inner');
+		expect(inner.open).toBe(false);
+	});
+
+	it('previews an array of objects by the first item\'s own fields', () => {
+		const [segments] = buildArgumentTree(
 			execution(undefined, {
-				a: 'x'.repeat(60),
-				b: 1,
-				c: 2,
-				d: 3,
-				e: 4
+				segments: [
+					{ start: '0:00', end: '0:04.5', text: 'Wide establishing shot' },
+					{ start: '0:04.5', end: '0:09.0', text: 'Close-up' }
+				]
 			})
 		);
-		expect(summary).toContain('…');
-		expect(summary).toContain('+1 more');
+		expect(segments.kind).toBe('array');
+		expect(segments.count).toBe(2);
+		expect(segments.preview).toBe('start: "0:00" · end: "0:04.5" · text: "Wide establishing shot"');
 	});
 
-	it('reports no arguments explicitly rather than an empty string', () => {
-		expect(humanizeApprovalArguments(execution(undefined, {}))).toBe('No arguments provided');
+	it('returns no nodes for an execution with no arguments', () => {
+		expect(buildArgumentTree(execution(undefined, {}))).toEqual([]);
+	});
+});
+
+describe('deriveCompactSummary', () => {
+	it('prefers the preview\'s own summary when present', () => {
+		expect(
+			deriveCompactSummary(execution(undefined), 'Start Generation', {
+				action: 'ignored',
+				items: [],
+				summary: 'Krea-2 Photoreal XL · 1216×832'
+			})
+		).toBe('Krea-2 Photoreal XL · 1216×832');
+	});
+
+	it('falls back to action + target for a legacy preview with no summary', () => {
+		expect(
+			deriveCompactSummary(execution(undefined), 'Update Prompt', {
+				action: 'Update prompt',
+				target: '"Lighthouse Keeper — Dawn"',
+				items: []
+			})
+		).toBe('Update prompt — "Lighthouse Keeper — Dawn"');
+	});
+
+	it('falls back to a change count when only `changes` is present', () => {
+		const preview: ToolApprovalPreview = {
+			action: '',
+			items: [],
+			changes: [
+				{ op: 'add_segment', summary: 'Add segment', before: null, after: { id: '1' } },
+				{ op: 'update_segment', summary: 'Update segment', before: { id: '1' }, after: { id: '1', prompt: 'x' } }
+			]
+		};
+		expect(deriveCompactSummary(execution(undefined), 'Update Video Director', preview)).toBe(
+			'Update Video Director · 2 changes'
+		);
+	});
+
+	it('falls back to a tool label + argument count with no preview at all', () => {
+		expect(
+			deriveCompactSummary(execution(undefined, { a: 1, b: 2 }), 'Update Segment Template', null)
+		).toBe('Update Segment Template · 2 arguments');
+		expect(deriveCompactSummary(execution(undefined, {}), 'Update Segment Template', null)).toBe(
+			'Update Segment Template'
+		);
 	});
 });

@@ -118,35 +118,134 @@ export function buildDirectorChangeGroups(
 	});
 }
 
-const MAX_HUMANIZED_ARGS = 4;
-const MAX_ARG_VALUE_LENGTH = 40;
+/**
+ * The compact-row text shown before "Review full details" is expanded, for
+ * a preview that didn't supply its own `summary`. Falls through the same
+ * shape priority the expanded renderers use — action/target from a legacy
+ * preview, an operation count from `changes`, or a tool-label + argument
+ * count for the raw fallback — so every approval reads as a real sentence.
+ */
+export function deriveCompactSummary(
+	execution: ToolExecution,
+	toolLabel: string,
+	preview: ToolApprovalPreview | null | undefined
+): string {
+	if (preview?.summary) return preview.summary;
+	if (preview?.action) {
+		return preview.target ? `${preview.action} — ${preview.target}` : preview.action;
+	}
+	if (preview?.changes?.length) {
+		const count = preview.changes.length;
+		return `${toolLabel} · ${count} change${count === 1 ? '' : 's'}`;
+	}
+	const argCount = Object.keys(execution.arguments || {}).length;
+	return argCount > 0 ? `${toolLabel} · ${argCount} argument${argCount === 1 ? '' : 's'}` : toolLabel;
+}
+
+/** Discriminates an {@link ArgTreeNode}'s rendering: scalars carry a typed
+ * `display` string, `object`/`array` carry `children` + a content `preview`. */
+export type ArgTreeValueKind = 'string' | 'number' | 'boolean' | 'null' | 'object' | 'array';
 
 /**
- * Terse, human-readable argument summary for a pending approval with no
- * `preview` and no `proposed_changes` diff — used instead of a raw JSON
- * dump so the dock never shows internal argument shapes verbatim.
+ * One key -> value entry in the generic argument tree fallback (used when a
+ * pending approval has no `preview` at all). Nested objects/arrays are never
+ * a dead end: `preview` always holds real content, not a placeholder like
+ * "object" or "N items".
  */
-export function humanizeApprovalArguments(execution: ToolExecution): string {
+export interface ArgTreeNode {
+	key: string;
+	kind: ArgTreeValueKind;
+	/** Typed display text for scalar kinds (quoted strings, tabular numbers, etc). */
+	display?: string;
+	/** Nested entries for `object`/`array` kinds. */
+	children?: ArgTreeNode[];
+	/** One-line content preview for a collapsed `object`/`array`. */
+	preview?: string;
+	/** Item count, `array` kind only. */
+	count?: number;
+	/** Mutable UI state: root-level objects/arrays start open ("one level
+	 * pre-opened"); anything nested starts closed. Toggled by the tree view. */
+	open: boolean;
+	/** Mutable UI state, `array` kind only: whether all children render vs
+	 * just the first item's preview line + a "+N more" expander. */
+	itemsExpanded?: boolean;
+}
+
+const PREVIEW_STRING_LENGTH = 40;
+const PREVIEW_OBJECT_FIELDS = 3;
+const PREVIEW_ARRAY_SCALARS = 4;
+
+function previewScalar(value: unknown): string {
+	if (value === null || value === undefined) return 'null';
+	if (typeof value === 'string') {
+		const quoted = JSON.stringify(value);
+		return quoted.length > PREVIEW_STRING_LENGTH
+			? `${quoted.slice(0, PREVIEW_STRING_LENGTH - 1)}…"`
+			: quoted;
+	}
+	if (typeof value === 'boolean' || typeof value === 'number') return String(value);
+	if (Array.isArray(value)) return previewArray(value);
+	if (typeof value === 'object') return previewObject(value as Record<string, unknown>);
+	return String(value);
+}
+
+/** A "key: value · key: value" preview of an object's own fields — used as
+ * a collapsed disclosure's preview line and as the per-item preview under a
+ * collapsed array of objects. */
+function previewObject(obj: Record<string, unknown>): string {
+	const entries = Object.entries(obj);
+	if (entries.length === 0) return '(empty)';
+	const parts = entries.slice(0, PREVIEW_OBJECT_FIELDS).map(([k, v]) => `${k}: ${previewScalar(v)}`);
+	const remaining = entries.length - PREVIEW_OBJECT_FIELDS;
+	return remaining > 0 ? `${parts.join(' · ')} · +${remaining} more` : parts.join(' · ');
+}
+
+function previewArray(arr: unknown[]): string {
+	if (arr.length === 0) return 'empty';
+	const [first] = arr;
+	if (first !== null && typeof first === 'object' && !Array.isArray(first)) {
+		return previewObject(first as Record<string, unknown>);
+	}
+	return arr.slice(0, PREVIEW_ARRAY_SCALARS).map(previewScalar).join(', ');
+}
+
+function buildTreeNode(key: string, value: unknown, topLevel: boolean): ArgTreeNode {
+	if (Array.isArray(value)) {
+		return {
+			key,
+			kind: 'array',
+			count: value.length,
+			children: value.map((item, index) => buildTreeNode(String(index), item, false)),
+			preview: previewArray(value),
+			open: topLevel,
+			itemsExpanded: false
+		};
+	}
+	if (value !== null && typeof value === 'object') {
+		const entries = Object.entries(value as Record<string, unknown>);
+		return {
+			key,
+			kind: 'object',
+			children: entries.map(([k, v]) => buildTreeNode(k, v, false)),
+			preview: previewObject(value as Record<string, unknown>),
+			open: topLevel
+		};
+	}
+	if (value === null || value === undefined) return { key, kind: 'null', display: 'null', open: false };
+	if (typeof value === 'boolean') return { key, kind: 'boolean', display: String(value), open: false };
+	if (typeof value === 'number') return { key, kind: 'number', display: String(value), open: false };
+	return { key, kind: 'string', display: JSON.stringify(String(value)), open: false };
+}
+
+/**
+ * Builds the generic key -> value tree shown when a pending approval has no
+ * typed `preview` at all — replaces the old humanized-sentence fallback,
+ * which stood in "object" or "N items" for anything nested instead of
+ * rendering it. Every value gets a typed leaf (quoted strings, tabular
+ * numbers, colored booleans); every object/array becomes a disclosure with
+ * a genuine content preview, one level pre-opened.
+ */
+export function buildArgumentTree(execution: ToolExecution): ArgTreeNode[] {
 	const args = execution.arguments || {};
-	const keys = Object.keys(args);
-	if (keys.length === 0) return 'No arguments provided';
-
-	const shown = keys.slice(0, MAX_HUMANIZED_ARGS).map((key) => {
-		const value = args[key];
-		let text: string;
-		if (Array.isArray(value)) {
-			text = `${value.length} item${value.length === 1 ? '' : 's'}`;
-		} else if (value !== null && typeof value === 'object') {
-			text = 'object';
-		} else {
-			text = formatValue(value);
-		}
-		if (text.length > MAX_ARG_VALUE_LENGTH) {
-			text = `${text.slice(0, MAX_ARG_VALUE_LENGTH - 1)}…`;
-		}
-		return `${key}: ${text}`;
-	});
-
-	const remaining = keys.length - shown.length;
-	return remaining > 0 ? `${shown.join(' · ')} · +${remaining} more` : shown.join(' · ');
+	return Object.entries(args).map(([key, value]) => buildTreeNode(key, value, true));
 }

@@ -35,6 +35,33 @@ export interface ToolApprovalChange {
 	after: Record<string, unknown> | null;
 }
 
+/** One settings-grid entry inside a `kind: 'generation'` preview. `old`
+ * present marks a value the LLM changed from the form's current default —
+ * the dock renders it with a signal-blue left rule and an old → value
+ * pair instead of the plain value. */
+export interface ToolApprovalField {
+	label: string;
+	value: string;
+	mono?: boolean;
+	old?: string;
+}
+
+/** One prompt/text block inside a preview's `text_blocks`. `old_text`
+ * present renders as a stacked struck-old / seam / signal-tinted-new diff
+ * instead of a single prose block. */
+export interface ToolApprovalTextBlock {
+	label: string;
+	text: string;
+	old_text?: string;
+}
+
+/** One scene row inside a `kind: 'timeline'` preview's `rows`. */
+export interface ToolApprovalTimelineRow {
+	range: string;
+	text: string;
+	op?: string;
+}
+
 /**
  * A structured, human-facing preview of an action awaiting approval, filled by
  * a `requires_approval` tool. Lets the approval surface state intent — the
@@ -49,6 +76,21 @@ export interface ToolApprovalPreview {
 	/** Present only for tools (currently video director) that preview full
 	 * before/after operations rather than a flat item list. */
 	changes?: ToolApprovalChange[] | null;
+	/**
+	 * Selects the dock's typed expanded renderer. Absent/null falls through
+	 * to `changes`, then the legacy action/target/items/note shape, then the
+	 * generic argument tree — so older previews keep rendering unchanged.
+	 */
+	kind?: 'generation' | 'timeline' | 'text_edit' | null;
+	/** One-line compact-row text. When absent the dock derives one from
+	 * whatever shape is present (action/target, or a tool-label + arg count). */
+	summary?: string | null;
+	/** Settings grid for `kind: 'generation'` (and the compact row's key chips). */
+	fields?: ToolApprovalField[] | null;
+	/** Prompt-style blocks for `kind: 'generation'` (plain) and `kind: 'text_edit'` (diff, via `old_text`). */
+	text_blocks?: ToolApprovalTextBlock[] | null;
+	/** Scene rows for `kind: 'timeline'`. */
+	rows?: ToolApprovalTimelineRow[] | null;
 }
 
 export interface ToolExecution {

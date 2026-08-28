@@ -43,6 +43,7 @@ import torch.nn as nn
 import src.platform.runtime.model_lifecycle.lifecycle as manager_module
 import src.platform.runtime.native.lora.apply as lora_apply
 from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
+from src.platform.runtime.system_memory import SystemMemory
 from src.platform.runtime.native.engine import NativeModel
 from src.platform.runtime.native.lora.key_mapping import LoraDelta
 
@@ -61,6 +62,22 @@ def _reset_default_manager_singleton():
     manager_module._default_lifecycle = None
     yield
     manager_module._default_lifecycle = None
+
+
+@pytest.fixture(autouse=True)
+def _plentiful_host_ram(monkeypatch):
+    # Same seam-stub as test_lifecycle.py: `acquire()` reads real host RAM
+    # through `get_system_memory()`, and on a small-RAM runner (CI has ~16GB,
+    # squeezed further by xdist sibling workers) the RAM-pressure path evicts
+    # entries mid-test - which fires allocator trims this file's
+    # `trim_calls == []` asserts must not see. Pin it high; the RSS
+    # measurements themselves read psutil directly and are unaffected.
+    gb = 1024**3
+    monkeypatch.setattr(
+        manager_module,
+        "get_system_memory",
+        lambda: SystemMemory(total=int(256 * gb), available=int(200 * gb)),
+    )
 
 # Small enough to run in well under a second on CPU, big enough that a
 # reintroduced full-model-sized cache duplication or a fragmentation

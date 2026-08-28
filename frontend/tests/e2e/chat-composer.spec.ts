@@ -1,7 +1,9 @@
 import { test, expect } from '@playwright/test';
-import { loginAsOwner, screenshot, shotPath } from './helpers';
+import { loginAsOwner, ownerToken, screenshot, shotPath } from './helpers';
+import { startFakeLLM, seedFakeLlmConfig, type FakeLLMServer } from './fake-llm';
 
 const JOURNEY = 'chat-composer';
+const BACKEND = process.env.E2E_BACKEND_URL || 'http://127.0.0.1:8055';
 
 // Deliberate pause so the recorded clip reads well for a human reviewer.
 const BEAT = 450;
@@ -13,8 +15,22 @@ const BEAT = 450;
 // resilient to the exact tool list (a fresh instance with no LLM has few or no
 // tools) — it asserts the popovers/panels and their fixed structure render, not
 // a tool count.
+let fake: FakeLLMServer;
+
+test.beforeEach(async () => {
+	fake = await startFakeLLM();
+});
+
+test.afterEach(async () => {
+	await fake.close();
+});
+
 test('chat composer exposes attach, tools, memory and pin controls (no command picker)', async ({ page }) => {
 	await loginAsOwner(page);
+	// The composer only mounts once an LLM config exists (UnifiedAIChat gates
+	// on configsLoaded && llmConfigs.length > 0), so seed the fake provider.
+	const token = await ownerToken(page);
+	await seedFakeLlmConfig(page.request, BACKEND, token, fake.url);
 
 	await page.goto('/models');
 	// Sidebar.svelte's AI Chat trigger has no `title` attribute (its tooltip
@@ -24,8 +40,6 @@ test('chat composer exposes attach, tools, memory and pin controls (no command p
 	await expect(fab).toBeVisible({ timeout: 15000 });
 	await fab.click();
 
-	// The composer card (chip input + action row) renders even with no LLM
-	// configured — only the send action is disabled.
 	const composer = page.locator('.bg-surface-1.rounded-lg:has(button[title="Send (Enter)"])');
 	await expect(composer).toBeVisible({ timeout: 15000 });
 	await page.waitForTimeout(BEAT);
@@ -48,7 +62,9 @@ test('chat composer exposes attach, tools, memory and pin controls (no command p
 	const toolsTitleBefore = await toolsButton.getAttribute('title');
 	await toolsButton.click();
 
-	const toolsPopover = page.locator('div.absolute.bottom-full').filter({ hasText: 'Enable tools' });
+	// The menu is portaled to <body> with computed fixed positioning (see
+	// ChatInput.svelte) — locate it by its floating-surface styling, not layout.
+	const toolsPopover = page.locator('div.shadow-floating').filter({ hasText: 'Enable tools' });
 	await expect(toolsPopover).toBeVisible();
 	await expect(page.getByText('Enable tools')).toBeVisible();
 
@@ -64,15 +80,18 @@ test('chat composer exposes attach, tools, memory and pin controls (no command p
 
 	// Tools arrive grouped behind a drill-down: the top level renders one row
 	// per group (tri-state checkbox + name + enabled/total count + chevron),
-	// never the full per-tool list. A backend that stops sending `group`
-	// collapses everything into "Other" and fails the count-of-groups check.
+	// never the full per-tool list. A throwaway backend serves however many
+	// groups its mode really has (this page's assistant may expose only one),
+	// so assert the grouped STRUCTURE — a backend that stops sending `group`
+	// still fails here, because everything collapses into a single "Other" row.
 	const groupList = toolsPopover.locator('[data-testid="tool-group-list"]');
 	await expect(groupList).toBeVisible();
 	const groupRows = groupList.locator('[data-testid="tool-group-row"]');
 	const groupCount = await groupRows.count();
-	expect(groupCount, 'tool groups should render as top-level rows').toBeGreaterThanOrEqual(5);
+	expect(groupCount, 'tool groups should render as top-level rows').toBeGreaterThanOrEqual(1);
 	const groupNames = await groupRows.evaluateAll((rows) => rows.map((r) => r.getAttribute('data-group')));
 	expect(groupNames).toContain('Memory');
+	expect(groupNames, 'grouping must not collapse into a lone Other bucket').not.toEqual(['Other']);
 	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'tools-top-level');
 
@@ -143,9 +162,10 @@ test('chat composer exposes attach, tools, memory and pin controls (no command p
 	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'tools-toggled');
 
-	// Restore + close (click the popover's full-screen backdrop, away from it).
+	// Restore + close (Escape closes the dropdown without closing the panel —
+	// the old full-screen click-catcher no longer exists).
 	await toolsPopover.locator('input[type="checkbox"]').first().click();
-	await page.locator('[aria-label="Close tools selector"]').click({ position: { x: 6, y: 6 } });
+	await page.keyboard.press('Escape');
 	await expect(toolsPopover).toBeHidden();
 	await page.waitForTimeout(BEAT);
 
@@ -160,14 +180,14 @@ test('chat composer exposes attach, tools, memory and pin controls (no command p
 	await expect(memoryPanel).toBeHidden();
 	await page.waitForTimeout(BEAT);
 
-	// --- 3. Pin-to-tab popover ---
-	await composer.locator('button[title="Pin to tab"]').click();
-	const pinPopover = page.locator('div.absolute.bottom-full').filter({ hasText: 'Follow active tab' });
-	await expect(pinPopover).toBeVisible();
+	// --- 3. Pin toggle (the picker itself lives in the context strip now) ---
+	await composer.locator('button[title^="Pin to"]').click();
+	await expect(page.locator('button[title^="Unpin from"]')).toBeVisible();
+	await expect(page.getByText('Pinned to').first()).toBeVisible();
 	await page.waitForTimeout(BEAT);
-	await screenshot(page, JOURNEY, 'pin-popover-open');
-	await page.locator('[aria-label="Close pin selector"]').click({ position: { x: 6, y: 6 } });
-	await expect(pinPopover).toBeHidden();
+	await screenshot(page, JOURNEY, 'pin-toggle-pinned');
+	await composer.locator('button[title^="Unpin from"]').click();
+	await expect(page.getByText('Reading tab:').first()).toBeVisible();
 	await page.waitForTimeout(BEAT);
 
 	// --- 4. Final full-composer screenshot of the settled bottom row ---

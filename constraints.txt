@@ -89,6 +89,7 @@ ecdsa==0.19.2
 einops==0.8.2
 email-validator==2.3.0
 encodec==0.1.1
+execnet==2.1.2
 fastapi==0.115.6
 filelock==3.29.7
 filterpy==1.4.5
@@ -201,6 +202,7 @@ pytest==9.1.1
 pytest-asyncio==1.4.0
 pytest-cov==7.1.0
 pytest-timeout==2.4.0
+pytest-xdist==3.8.0
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.2
 python-jose==3.5.0

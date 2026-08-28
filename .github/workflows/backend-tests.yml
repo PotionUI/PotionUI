@@ -41,10 +41,24 @@ jobs:
       fail-fast: false
       matrix:
         shard:
+          # serial_paths: files that pass sequentially on this runner but
+          # fail under xdist there (conv2d stalls past the 300s timeout,
+          # a bf16 tolerance breach) - a worker-composition effect that a
+          # 4-core dev-box simulation of this exact config does not
+          # reproduce. They run as a short sequential step (~135 tests,
+          # seconds) instead of inside the parallel one. See
+          # docs/testing-notes.md ("xdist-only CI failures").
           - name: platform
-            paths: tests/platform
+            paths: >-
+              tests/platform
+              --ignore=tests/platform/runtime/native/test_engine.py
+              --ignore=tests/platform/runtime/native/arch/test_minimax_music3_ar_loop.py
+            serial_paths: >-
+              tests/platform/runtime/native/test_engine.py
+              tests/platform/runtime/native/arch/test_minimax_music3_ar_loop.py
           - name: rest
             paths: tests/ --ignore=tests/platform
+            serial_paths: ""
     steps:
       - uses: actions/checkout@v4
 
@@ -95,6 +109,16 @@ jobs:
           OPENBLAS_NUM_THREADS: "1"
         run: >
           python -m pytest ${{ matrix.shard.paths }} -q --timeout=300 -n 4
+          -m "not requires_gpu and not requires_models and not gc_sensitive"
+
+      - name: pytest (sequential quarantine — xdist-only failures on this runner)
+        if: matrix.shard.serial_paths != ''
+        env:
+          OMP_NUM_THREADS: "1"
+          MKL_NUM_THREADS: "1"
+          OPENBLAS_NUM_THREADS: "1"
+        run: >
+          python -m pytest ${{ matrix.shard.serial_paths }} -q --timeout=300
           -m "not requires_gpu and not requires_models and not gc_sensitive"
 
   frontend-tests:

@@ -109,6 +109,19 @@ These are container/environment artefacts, not regressions caused by your change
   `any(device == "cpu")` assert needs the census walk to surface this test's
   own tensor, and a crowded heap can push it out. Marked `gc_sensitive` like
   its siblings.
+- **xdist-only CI failures (quarantined 2026-08-28):**
+  `tests/platform/runtime/native/test_engine.py` and
+  `tests/platform/runtime/native/arch/test_minimax_music3_ar_loop.py` pass
+  sequentially on the GitHub runner but fail under `pytest -n 4` there — two
+  engine tests stall inside a plain `F.conv2d` until the 300s timeout, and the
+  music3 bf16 prefill-vs-incremental tolerance (1e-2) breaks at 0.031. Both
+  reproduce across pinned (`OMP_NUM_THREADS=1`) and unpinned runs, so it is
+  not thread oversubscription; a `taskset` 4-core dev-box simulation of the
+  exact CI env does NOT reproduce it, so it is some worker-composition or
+  runner-environment effect (grep found no `set_num_threads` /
+  `torch.backends` / default-dtype poisoner). The CI workflow runs these two
+  files as a sequential step inside the platform shard (~135 tests, seconds).
+  If you root-cause it, fold them back into the parallel step.
 - `tests/pipelines/pipes/generator/img2vid_wan22/*` can OOM when the GPU is busy
   (shared box — check `nvidia-smi` before assuming a regression).
 - The media-editing suite (`tests/features/media/editing/`) skips every video and

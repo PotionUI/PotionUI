@@ -1,6 +1,7 @@
 <script lang="ts">
 	// Chat input card: @resource chip editor + action row (image / tools /
 	// memory / pin / send). Extracted from UnifiedAIChat's textarea block.
+	import { onMount } from 'svelte';
 	import ChatChipInput from './ChatChipInput.svelte';
 	import { fade } from 'svelte/transition';
 	import type { ResourceChipData, ChatToolInfo } from '$lib/types/chat';
@@ -8,6 +9,7 @@
 	import type { LoraSelectionRow } from '$lib/stores/loraPickerSelections';
 	import { filterVisibleToolsByPreferences } from '$lib/chat/toolPreferences';
 	import portal from '$lib/actions/portal';
+	import { computeAnchoredMenuPosition, MENU_GAP } from '$lib/utils/menuPosition';
 
 	export let value: string = '';
 	export let resources: Record<string, ResourceChipData> = {};
@@ -57,7 +59,66 @@
 	let showPinDropdown = false;
 	let drillGroup: string | null = null;
 
+	// Both dropdowns open upward from a trigger near the bottom of the
+	// composer, so the menu is portaled to <body> (position: fixed) and its
+	// place computed from the trigger's rect rather than left-0/bottom-full,
+	// which only anchor correctly inside an untransformed ancestor.
+	let toolsTriggerEl: HTMLButtonElement;
+	let toolsMenuEl: HTMLDivElement;
+	let toolsMenuStyle = '';
+	let pinTriggerEl: HTMLButtonElement;
+	let pinMenuEl: HTMLDivElement;
+	let pinMenuStyle = '';
+
 	$: if (!showToolsDropdown) drillGroup = null;
+
+	function computeMenuStyle(trigger: HTMLElement | undefined, width: number): string {
+		if (!trigger) return '';
+		const { left } = computeAnchoredMenuPosition(trigger, { width, align: 'left' });
+		const bottom = window.innerHeight - trigger.getBoundingClientRect().top + MENU_GAP;
+		return `left: ${left}px; bottom: ${bottom}px;`;
+	}
+
+	function toggleToolsDropdown() {
+		showToolsDropdown = !showToolsDropdown;
+		if (showToolsDropdown) toolsMenuStyle = computeMenuStyle(toolsTriggerEl, 320);
+	}
+
+	function togglePinDropdown() {
+		showPinDropdown = !showPinDropdown;
+		if (showPinDropdown) pinMenuStyle = computeMenuStyle(pinTriggerEl, 208);
+	}
+
+	function handleOutsidePointerDown(e: PointerEvent) {
+		const target = e.target as Node;
+		if (showToolsDropdown && !toolsMenuEl?.contains(target) && !toolsTriggerEl?.contains(target)) {
+			showToolsDropdown = false;
+		}
+		if (showPinDropdown && !pinMenuEl?.contains(target) && !pinTriggerEl?.contains(target)) {
+			showPinDropdown = false;
+		}
+	}
+
+	function handleOutsideKeydown(e: KeyboardEvent) {
+		if (e.key !== 'Escape') return;
+		if (!showToolsDropdown && !showPinDropdown) return;
+		showToolsDropdown = false;
+		showPinDropdown = false;
+		// A document-level bubble listener runs before window's (capture goes
+		// window->document->target, bubble reverses that), so stopping here
+		// keeps GlobalChatPanel's <svelte:window on:keydown> from also
+		// closing the whole chat panel on this same Escape press.
+		e.stopPropagation();
+	}
+
+	onMount(() => {
+		document.addEventListener('pointerdown', handleOutsidePointerDown, true);
+		document.addEventListener('keydown', handleOutsideKeydown);
+		return () => {
+			document.removeEventListener('pointerdown', handleOutsidePointerDown, true);
+			document.removeEventListener('keydown', handleOutsideKeydown);
+		};
+	});
 
 	const prefersReducedMotion =
 		typeof window !== 'undefined' &&
@@ -172,10 +233,11 @@
 				<!-- Tools -->
 				<div class="relative">
 					<button
+						bind:this={toolsTriggerEl}
 						type="button"
 						title="Tools {enableTools ? 'ON' : 'OFF'}"
 						class="p-1.5 rounded transition-colors duration-100 {enableTools ? 'bg-signal/10 text-signal' : 'text-fg-subtle hover:text-fg hover:bg-surface-2'}"
-						on:click={() => (showToolsDropdown = !showToolsDropdown)}
+						on:click={toggleToolsDropdown}
 					>
 						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
@@ -183,10 +245,12 @@
 						</svg>
 					</button>
 					{#if showToolsDropdown}
-						<!-- Portaled: a fixed full-page click-catcher, mispositioned when this
-					     mounts under a transformed ancestor (e.g. the mobile carousel). -->
-					<div use:portal class="fixed inset-0 z-30" role="button" tabindex="-1" aria-label="Close tools selector" on:click={() => (showToolsDropdown = false)} on:keydown={(e) => { if (e.key === 'Escape') showToolsDropdown = false; }}></div>
-						<div class="absolute z-40 bottom-full left-0 mb-1 w-80 bg-surface-1 border border-line rounded-lg shadow-floating max-h-[min(24rem,calc(100vh-8rem))] overflow-y-auto">
+						<div
+							use:portal
+							bind:this={toolsMenuEl}
+							class="fixed z-[9999] w-80 bg-surface-1 border border-line rounded-xl shadow-floating max-h-[min(24rem,calc(100vh-8rem))] overflow-y-auto"
+							style={toolsMenuStyle}
+						>
 							<div class="px-3 py-2.5 border-b border-line">
 								<div class="text-xs font-semibold text-fg-muted mb-2">Tools</div>
 								<label class="flex items-center gap-2 cursor-pointer">
@@ -298,23 +362,26 @@
 				<!-- Pin to tab -->
 				<div class="relative">
 					<button
+						bind:this={pinTriggerEl}
 						type="button"
 						title={pinnedTabId ? `Pinned: ${allTabs.find((t) => t.id === pinnedTabId)?.name || 'Tab'}` : 'Pin to tab'}
 						class="flex items-center gap-1 p-1.5 rounded transition-colors duration-100 {pinnedTabId ? 'bg-warning/10 text-warning' : 'text-fg-subtle hover:text-fg hover:bg-surface-2'}"
-						on:click={() => (showPinDropdown = !showPinDropdown)}
+						on:click={togglePinDropdown}
 					>
 						<svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
 						</svg>
 						{#if pinnedTabId}
-							<span class="max-w-[60px] truncate hidden sm:inline text-xs">{allTabs.find((t) => t.id === pinnedTabId)?.name || 'Pinned'}</span>
+							<span class="max-w-[120px] truncate hidden sm:inline text-xs">{allTabs.find((t) => t.id === pinnedTabId)?.name || 'Pinned'}</span>
 						{/if}
 					</button>
 					{#if showPinDropdown}
-						<!-- Portaled: a fixed full-page click-catcher, mispositioned when this
-					     mounts under a transformed ancestor (e.g. the mobile carousel). -->
-					<div use:portal class="fixed inset-0 z-30" role="button" tabindex="-1" aria-label="Close pin selector" on:click={() => (showPinDropdown = false)} on:keydown={(e) => { if (e.key === 'Escape') showPinDropdown = false; }}></div>
-						<div class="absolute z-40 bottom-full left-0 mb-1 w-52 bg-surface-1 border border-line rounded-lg shadow-floating max-h-60 overflow-y-auto">
+						<div
+							use:portal
+							bind:this={pinMenuEl}
+							class="fixed z-[9999] w-52 bg-surface-1 border border-line rounded-xl shadow-floating max-h-60 overflow-y-auto"
+							style={pinMenuStyle}
+						>
 							<button
 								type="button"
 								class="w-full px-3 py-2 text-left text-xs hover:bg-surface-2 transition-colors border-b border-line {!pinnedTabId ? 'text-fg-muted bg-surface-2' : 'text-fg-muted'}"

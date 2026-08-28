@@ -345,13 +345,13 @@ def test_missing_lifecycle_manager_raises_clean_error():
     client = NativeLLMClient(model_lifecycle=None)
     import src.platform.runtime.model_lifecycle.lifecycle as manager_module
 
-    saved = manager_module._default_manager
-    manager_module._default_manager = None
+    saved = manager_module._default_lifecycle
+    manager_module._default_lifecycle = None
     try:
         with pytest.raises(ValueError, match="ModelLifecycle"):
             client._models()
     finally:
-        manager_module._default_manager = saved
+        manager_module._default_lifecycle = saved
 
 
 def test_unsupported_checkpoint_family_raises_before_loading_weights(tmp_path, client):

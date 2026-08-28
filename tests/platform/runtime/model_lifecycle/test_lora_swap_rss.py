@@ -52,15 +52,15 @@ _DIT_KEY = "native/dit/fake_krea2.safetensors"
 @pytest.fixture(autouse=True)
 def _reset_default_manager_singleton():
     """``ModelLifecycle.__init__`` sets a module-level
-    ``_default_manager`` singleton the first time one is constructed in the
-    process and never again - so a manager (and its cached ``NativeModel``)
+    ``_default_lifecycle`` singleton the first time one is constructed in the
+    process and never again - so a lifecycle (and its cached ``NativeModel``)
     built by an earlier test in this session stays reachable, which would
     otherwise defeat this file's process-wide ``gc.get_objects()`` scans for
     live ``NativeModel`` instances. Reset it around every test in this file so
-    each test's manager starts and ends as the only one anyone can reach."""
-    manager_module._default_manager = None
+    each test's lifecycle starts and ends as the only one anyone can reach."""
+    manager_module._default_lifecycle = None
     yield
-    manager_module._default_manager = None
+    manager_module._default_lifecycle = None
 
 # Small enough to run in well under a second on CPU, big enough that a
 # reintroduced full-model-sized cache duplication or a fragmentation
@@ -245,8 +245,8 @@ def test_orphaned_dit_is_eventually_freed_and_trimmed_after_stale_holder_release
 
     monkeypatch.setattr(lora_apply, "map_lora_keys", _stub_map_lora_keys)
     # Isolate from any other test's tracked entries in the process-global
-    # residency manager (same singleton-leak concern as _default_manager).
-    monkeypatch.setattr(residency_module, "_manager", residency_module.GpuResidencyRegistry())
+    # residency registry (same singleton-leak concern as _default_lifecycle).
+    monkeypatch.setattr(residency_module, "_registry", residency_module.GpuResidencyRegistry())
     residency = get_residency_registry()
 
     trim_calls = []

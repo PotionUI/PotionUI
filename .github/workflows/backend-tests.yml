@@ -26,9 +26,25 @@ concurrency:
 
 jobs:
   backend-tests:
-    name: backend pytest (CPU-only)
+    # Two parallel shards: the whole suite in one job needs ~25-30 min of
+    # wall clock on the 4-vCPU runner (~3x slower per core than a dev box,
+    # where the same config takes 8 min) - right at/over the old timeout.
+    # tests/platform holds the tensor-heavy native-runtime suites (5m50s of
+    # the dev box's 8 min; the other ~11.7k tests take 2m18s), so it gets a
+    # shard to itself. Bonus: the split separates test_migration_runner's
+    # Database-singleton teardown leak (tests/platform) from the
+    # tests/features/setup fixtures it is known to poison in shared sessions.
+    name: backend pytest (CPU-only, ${{ matrix.shard.name }})
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - name: platform
+            paths: tests/platform
+          - name: rest
+            paths: tests/ --ignore=tests/platform
     steps:
       - uses: actions/checkout@v4
 
@@ -78,7 +94,7 @@ jobs:
           MKL_NUM_THREADS: "1"
           OPENBLAS_NUM_THREADS: "1"
         run: >
-          python -m pytest tests/ -q --timeout=300 -n 4
+          python -m pytest ${{ matrix.shard.paths }} -q --timeout=300 -n 4
           -m "not requires_gpu and not requires_models and not gc_sensitive"
 
   frontend-tests:

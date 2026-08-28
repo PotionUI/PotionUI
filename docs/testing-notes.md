@@ -103,6 +103,12 @@ These are container/environment artefacts, not regressions caused by your change
   `pinned_flags == {False}` — the pinned-CPU-tensor row didn't show up in that
   scan. Passes reliably alone or in any scoped subset. Do not attempt a
   `gc.collect()` fix here either — see the sibling entry.
+- `tests/platform/observability/profiling/test_profiler.py::test_write_tensor_census_dispatches_on_device_kind`
+  is the same mechanism again (first observed 2026-08-28 under `pytest -n 4`,
+  where which tests share a worker's heap varies per run): the final
+  `any(device == "cpu")` assert needs the census walk to surface this test's
+  own tensor, and a crowded heap can push it out. Marked `gc_sensitive` like
+  its siblings.
 - `tests/pipelines/pipes/generator/img2vid_wan22/*` can OOM when the GPU is busy
   (shared box — check `nvidia-smi` before assuming a regression).
 - The media-editing suite (`tests/features/media/editing/`) skips every video and

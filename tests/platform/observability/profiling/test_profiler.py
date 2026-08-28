@@ -410,11 +410,17 @@ def test_cuda_tensor_census_runs_as_a_safe_noop_without_cuda(tmp_path, monkeypat
     assert not [r for r in rows if r["kind"] == "census" and r.get("device") == "cuda"]
 
 
+@pytest.mark.gc_sensitive
 def test_write_tensor_census_dispatches_on_device_kind(tmp_path, monkeypatch):
     """Direct unit test of the shared walk: calling it with `device_kind="cuda"`
     must filter by that device type, not silently fall back to scanning CPU
     tensors -- a regression here would make the new CUDA census meaningless
-    (it would just re-report the same CPU tensors under a different label)."""
+    (it would just re-report the same CPU tensors under a different label).
+
+    gc_sensitive: the closing `any(device == "cpu")` assert depends on the
+    census walk finding this test's tensor among whatever else the session's
+    heap holds -- under xdist the co-resident tests (and thus the live heap)
+    vary per run, and a crowded census can push it out."""
     _enable(monkeypatch)
     big = torch.zeros(20_000_000, dtype=torch.float32)
     holder = _TensorHolder(big)

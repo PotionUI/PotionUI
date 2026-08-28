@@ -191,14 +191,14 @@ git clone https://github.com/PotionUI/PotionUI.git potionui && cd potionui
 
 ### Supported platforms
 
-| Platform                    | Status                                                                                          |
-| --------------------------- | ----------------------------------------------------------------------------------------------- |
-| Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.0.1                                                                   |
-| Windows via WSL2            | Untested — community reports welcome (standard Linux CUDA stack; NVIDIA's WSL2 passthrough applies) |
-| Windows native              | Not yet — the install pulls Linux-only packages (e.g. `uvloop`); use WSL2 or Docker Desktop      |
-| macOS                       | Untested — community reports welcome                                                             |
-| AMD GPU (ROCm)              | Untested — community reports welcome                                                             |
-| Docker                      | Supported — see below (on Windows, Docker Desktop runs this via WSL2)                            |
+| Platform                    | Status                                                                                      |
+| --------------------------- | ------------------------------------------------------------------------------------------- |
+| Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.0.1                                                              |
+| Windows via WSL2            | Should work — same Linux CUDA stack, just unverified; a success/failure report would help   |
+| Windows native              | No — the install pulls Linux-only packages (e.g. `uvloop`); use WSL2 or Docker Desktop      |
+| macOS                       | No — local generation needs CUDA; the native engine has no MPS support                      |
+| AMD GPU (ROCm)              | No — the pinned dependency stack is CUDA-only                                               |
+| Docker                      | Supported — see below (on Windows, Docker Desktop runs this via WSL2)                       |
 
 ```bash
 docker run --gpus all -p 8005:8005 ghcr.io/potionui/potionui:latest

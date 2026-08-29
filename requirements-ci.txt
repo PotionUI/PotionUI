@@ -32,8 +32,9 @@
 # Regenerate the exclusion list by re-grepping src/ and tests/ for each
 # package's import statements whenever requirements.txt changes.
 
-torch>=2.5.1
-torchvision>=0.20.1
+# <2.13: pytorch#183815 - 2.13.0 bf16 conv2d CPU regression (4-16x) stalls CI
+torch>=2.5.1,<2.13
+torchvision>=0.20.1,<0.28
 diffusers>=0.34.0
 transformers>=4.46.3
 accelerate>=1.1.1

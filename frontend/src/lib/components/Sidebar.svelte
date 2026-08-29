@@ -86,8 +86,7 @@
 		{ path: '/models', label: 'Models', icon: 'cube', order: 30, actionId: 'go_models' },
 		{ path: '/phrasebook', label: 'Phrasebook', icon: 'hash', order: 60, actionId: 'go_phrasebook' },
 		{ path: '/prompts', label: 'Prompts', icon: 'document', order: 70, actionId: 'go_prompts' },
-		{ path: '/inspirations', label: 'Inspirations', icon: 'lightbulb', order: 80, actionId: 'go_inspirations' },
-		{ path: '/docs', label: 'Documentation', icon: 'book', order: 90 }
+		{ path: '/inspirations', label: 'Inspirations', icon: 'lightbulb', order: 80, actionId: 'go_inspirations' }
 	];
 
 	// Core nav merged with `nav.primary` extension slot contributions, ordered together.

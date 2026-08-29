@@ -91,14 +91,18 @@ jobs:
           python -m pytest ${{ matrix.shard.paths }} -q --timeout=300 -n 4
           -m "not requires_gpu and not requires_models and not gc_sensitive"
 
+      # timeout-method=thread: the default signal method can't interrupt a
+      # hang inside native code.
       - name: pytest (sequential quarantine — xdist-only failures on this runner)
         if: matrix.shard.serial_paths != ''
+        timeout-minutes: 8
         env:
           OMP_NUM_THREADS: "1"
           MKL_NUM_THREADS: "1"
           OPENBLAS_NUM_THREADS: "1"
         run: >
-          python -m pytest ${{ matrix.shard.serial_paths }} -q --timeout=300
+          python -m pytest ${{ matrix.shard.serial_paths }} -q
+          --timeout=60 --timeout-method=thread
           -m "not requires_gpu and not requires_models and not gc_sensitive"
 
   frontend-tests:

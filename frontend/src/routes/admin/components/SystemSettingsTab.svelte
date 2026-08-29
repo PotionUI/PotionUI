@@ -14,6 +14,7 @@
 	import PromptSearchPanel from './settings/PromptSearchPanel.svelte';
 	import MediaTaggingPanel from './settings/MediaTaggingPanel.svelte';
 	import VisualSearchPanel from './settings/VisualSearchPanel.svelte';
+	import AiPanelFrame from './settings/AiPanelFrame.svelte';
 	import { SETTINGS_GROUPS, SETTINGS_KEY_GROUP, type SettingsGroupId } from './settings/settingsGroups';
 
 	// The PUT body System Settings sends - unchanged from the pre-rebuild
@@ -79,33 +80,19 @@
 		}
 	}
 
-	function shortModelName(id: string): string {
-		return id.split('/').pop() || id;
-	}
-
 	/** Bare mono hint per section, never prose - matches the pane family's
-	 * subtitle idiom elsewhere in admin. */
-	function subtitleFor(id: SettingsGroupId): string | undefined {
+	 * subtitle idiom elsewhere in admin. Every branch returns a real string:
+	 * a row with no subtitle would be the only single-line row in the rail. */
+	function subtitleFor(id: SettingsGroupId): string {
 		switch (id) {
 			case 'access':
 				return `${settings.registration_policy === 'open' ? 'open' : 'closed'} · mcp ${settings.mcp_enabled ? 'on' : 'off'}`;
 			case 'content_safety':
 				return `nsfw ${settings.nsfw ? 'on' : 'off'} · blur ${settings.media_nsfw_blur_threshold ?? 0.6}`;
-			case 'file_storage':
+			case 'storage':
 				return settings.storage_backend === 's3' ? 's3' : 'local';
-			case 'models_location':
-				return undefined;
-			case 'prompt_search': {
-				const model =
-					settings.prompt_embedding_provider === 'ollama'
-						? settings.prompt_embedding_ollama_model
-						: settings.prompt_embedding_model;
-				return model ? shortModelName(model) : undefined;
-			}
-			case 'media_tagging':
-				return settings.media_tagger_model ? shortModelName(settings.media_tagger_model) : undefined;
-			case 'visual_search':
-				return settings.media_vision_model ? shortModelName(settings.media_vision_model) : undefined;
+			case 'search_tagging':
+				return '3 models';
 		}
 	}
 </script>
@@ -155,16 +142,15 @@
 								<AccessPanel {settings} onSettingChange={handleSettingChange} />
 							{:else if activeGroup === 'content_safety'}
 								<ContentSafetyPanel {settings} onSettingChange={handleSettingChange} />
-							{:else if activeGroup === 'file_storage'}
+							{:else if activeGroup === 'storage'}
 								<FileStoragePanel {settings} onSettingChange={handleSettingChange} />
-							{:else if activeGroup === 'models_location'}
 								<ModelsLocationPanel />
-							{:else if activeGroup === 'prompt_search'}
-								<PromptSearchPanel {settings} onSettingChange={handleSettingChange} />
-							{:else if activeGroup === 'media_tagging'}
-								<MediaTaggingPanel {settings} onSettingChange={handleSettingChange} />
-							{:else if activeGroup === 'visual_search'}
-								<VisualSearchPanel {settings} onSettingChange={handleSettingChange} />
+							{:else if activeGroup === 'search_tagging'}
+								<AiPanelFrame>
+									<PromptSearchPanel {settings} onSettingChange={handleSettingChange} />
+									<MediaTaggingPanel {settings} onSettingChange={handleSettingChange} />
+									<VisualSearchPanel {settings} onSettingChange={handleSettingChange} />
+								</AiPanelFrame>
 							{/if}
 						</div>
 					</div>

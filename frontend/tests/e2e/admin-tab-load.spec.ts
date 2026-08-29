@@ -87,14 +87,26 @@ test('Stats and Documentation admin tabs load without error', async ({ page }) =
 	console.log(`[${JOURNEY}] system settings tab page errors:\n${pageErrors.join('\n')}`);
 	await expect(errorState, 'System Settings tab should not show the generic load-failure message').toHaveCount(0);
 
-	for (const section of ['Content Safety', 'Prompt Search']) {
-		await page.getByRole('option', { name: section }).click();
-		await page.waitForTimeout(500);
-		await expect(
-			page.getByRole('heading', { name: section, level: 3 }),
-			`${section} section should render its detail panel`
-		).toBeVisible();
-	}
+	await page.getByRole('option', { name: 'Content Safety' }).click();
+	await page.waitForTimeout(500);
+	await expect(
+		page.getByRole('heading', { name: 'Content Safety', level: 3 }),
+		'Content Safety section should render its detail panel'
+	).toBeVisible();
+
+	// Search & Tagging stacks three panels behind one rail row - assert two
+	// of them render to prove the stack, not just the first panel.
+	await page.getByRole('option', { name: 'Search & Tagging' }).click();
+	await page.waitForTimeout(500);
+	await expect(
+		page.getByRole('heading', { name: 'Prompt Search', level: 3 }),
+		'Search & Tagging section should render the Prompt Search panel'
+	).toBeVisible();
+	await expect(
+		page.getByRole('heading', { name: 'Media Tagging', level: 3 }),
+		'Search & Tagging section should render the Media Tagging panel'
+	).toBeVisible();
+	await screenshot(page, JOURNEY, 'system-settings-search-tagging');
 
 	// --- Reload straight onto each tab too (covers a fresh full navigation) ---
 	await page.goto('/admin?tab=stats');

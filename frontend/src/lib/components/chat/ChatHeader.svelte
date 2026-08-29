@@ -1,10 +1,12 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { chatModes, resolveModeName } from '$lib/stores/chatModes';
 	import { chatSession, modeLocked } from '$lib/stores/chatSession';
 	import ChatModeSelector from '$lib/components/chat/ChatModeSelector.svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import { formatTokenCount } from '$lib/utils/chat';
 	import portal from '$lib/actions/portal';
+	import { computeFlippedMenuPosition } from '$lib/utils/menuPosition';
 
 	// Provider+Model (LLM config) selection
 	export let llmConfigs: any[] = [];
@@ -28,6 +30,9 @@
 	export let selectorsHidden = false;
 
 	let showModelDropdown = false;
+	let modelTriggerEl: HTMLButtonElement;
+	let modelMenuEl: HTMLDivElement;
+	let modelMenuStyle = '';
 
 	$: mode = $chatSession.mode;
 
@@ -36,6 +41,44 @@
 		label: config.name
 	}));
 	$: selectedModelName = llmConfigs.find((c) => c.id === selectedConfigId)?.name || 'Model';
+
+	function toggleModelDropdown() {
+		showModelDropdown = !showModelDropdown;
+		if (showModelDropdown) modelMenuStyle = computeModelMenuStyle();
+	}
+
+	function computeModelMenuStyle(): string {
+		if (!modelTriggerEl) return '';
+		const pos = computeFlippedMenuPosition(modelTriggerEl, { width: 256 });
+		const vertical = pos.top !== undefined ? `top: ${pos.top}px;` : `bottom: ${pos.bottom}px;`;
+		return `left: ${pos.left}px; ${vertical}`;
+	}
+
+	function handleOutsidePointerDown(e: PointerEvent) {
+		if (!showModelDropdown) return;
+		const target = e.target as Node;
+		if (!modelMenuEl?.contains(target) && !modelTriggerEl?.contains(target)) {
+			showModelDropdown = false;
+		}
+	}
+
+	function handleOutsideKeydown(e: KeyboardEvent) {
+		if (e.key !== 'Escape' || !showModelDropdown) return;
+		showModelDropdown = false;
+		// A document-level bubble listener runs before window's, so stopping
+		// here keeps GlobalChatPanel's <svelte:window on:keydown> from also
+		// closing the whole chat panel on this same Escape press.
+		e.stopPropagation();
+	}
+
+	onMount(() => {
+		document.addEventListener('pointerdown', handleOutsidePointerDown, true);
+		document.addEventListener('keydown', handleOutsideKeydown);
+		return () => {
+			document.removeEventListener('pointerdown', handleOutsidePointerDown, true);
+			document.removeEventListener('keydown', handleOutsideKeydown);
+		};
+	});
 </script>
 
 <div class="flex items-center gap-1.5 px-2 py-1.5 border-b border-line bg-surface-1 flex-shrink-0">
@@ -46,10 +89,12 @@
 	{#if !selectorsHidden && llmConfigs.length > 0}
 		<div class="relative flex-shrink-0">
 			<button
+				bind:this={modelTriggerEl}
 				type="button"
 				title="LLM Model"
+				data-testid="chat-header-model-trigger"
 				class="flex items-center gap-1 px-1.5 py-1.5 text-xs rounded transition-colors {showModelDropdown ? 'bg-surface-2 text-fg-muted' : 'text-fg-muted hover:text-fg-muted hover:bg-surface-2'}"
-				on:click={() => (showModelDropdown = !showModelDropdown)}
+				on:click={toggleModelDropdown}
 			>
 				<svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
@@ -60,10 +105,13 @@
 				</svg>
 			</button>
 			{#if showModelDropdown}
-				<!-- Portaled: a fixed full-page click-catcher, mispositioned when this
-			     mounts under a transformed ancestor (e.g. the mobile carousel). -->
-			<div use:portal class="fixed inset-0 z-30" role="button" tabindex="-1" aria-label="Close model selector" on:click={() => (showModelDropdown = false)} on:keydown={(e) => { if (e.key === 'Escape') showModelDropdown = false; }}></div>
-				<div class="absolute z-40 top-full left-0 mt-1 w-64 bg-surface-1 border border-line rounded-lg shadow-floating max-h-60 overflow-y-auto">
+				<div
+					use:portal
+					bind:this={modelMenuEl}
+					data-testid="chat-header-model-menu"
+					class="fixed z-[9999] w-64 bg-surface-1 border border-line rounded-lg shadow-floating max-h-60 overflow-y-auto"
+					style={modelMenuStyle}
+				>
 					{#each llmConfigOptions as option}
 						<button
 							type="button"

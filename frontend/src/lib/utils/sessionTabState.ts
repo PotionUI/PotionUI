@@ -82,6 +82,20 @@ export function shouldHydrateSessionSelection(
 	return hasMounted && !!nextSessionId && nextSessionId !== previousSessionId;
 }
 
+/** `savedSessionSignature` is `undefined` only right after a full-reload
+ *  localStorage rehydration, before any baseline has been established this
+ *  app lifetime. A string (saved baseline) or `null` (deliberate dirty state
+ *  after a historical restore) both mean the tab already went through mount
+ *  hydration once — its in-memory draft is authoritative and must survive
+ *  further remounts (e.g. SPA navigation away and back). */
+export function shouldRestoreTabSessionOnMount(tab: {
+	selectedSessionId?: string | null;
+	selectedMode?: string | null;
+	savedSessionSignature?: string | null;
+}): boolean {
+	return !!tab.selectedSessionId && !!tab.selectedMode && tab.savedSessionSignature === undefined;
+}
+
 /** Null is an intentional "historical restore is dirty" baseline. */
 export function sessionIsDirty(
 	hasSession: boolean,

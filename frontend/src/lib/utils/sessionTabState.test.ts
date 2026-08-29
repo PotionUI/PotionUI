@@ -6,7 +6,8 @@ import {
 	isSessionMissingResponse,
 	normalizeSessionBaselineFormData,
 	sessionIsDirty,
-	shouldHydrateSessionSelection
+	shouldHydrateSessionSelection,
+	shouldRestoreTabSessionOnMount
 } from './sessionTabState';
 import { toPersistedTab } from '$lib/stores/tabPersistence';
 
@@ -149,6 +150,37 @@ describe('session tab remount state', () => {
 			leftPanelCollapsed: false
 		});
 		expect(sessionIsDirty(true, consumedBaseline, JSON.stringify(collectTabSessionData(firstEdit, 'txt2img')))).toBe(true);
+	});
+});
+
+describe('deciding whether a mount should hydrate a tab from the server', () => {
+	it('hydrates only when no baseline has been established this app lifetime', () => {
+		expect(
+			shouldRestoreTabSessionOnMount(tab({ savedSessionSignature: undefined }))
+		).toBe(true);
+	});
+
+	it('never re-hydrates once a saved baseline exists, even across a remount', () => {
+		expect(
+			shouldRestoreTabSessionOnMount(tab({ savedSessionSignature: 'server-baseline' }))
+		).toBe(false);
+	});
+
+	it('never re-hydrates over a deliberate historical-restore dirty state', () => {
+		expect(shouldRestoreTabSessionOnMount(tab({ savedSessionSignature: null }))).toBe(false);
+	});
+
+	it('skips tabs without a session id or mode regardless of signature', () => {
+		expect(
+			shouldRestoreTabSessionOnMount(
+				tab({ selectedSessionId: undefined, savedSessionSignature: undefined })
+			)
+		).toBe(false);
+		expect(
+			shouldRestoreTabSessionOnMount(
+				tab({ selectedMode: undefined, savedSessionSignature: undefined })
+			)
+		).toBe(false);
 	});
 });
 

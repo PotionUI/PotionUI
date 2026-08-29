@@ -11,7 +11,8 @@
 		collectTabSessionData,
 		isSessionGoneError,
 		isSessionMissingResponse,
-		normalizeSessionBaselineFormData
+		normalizeSessionBaselineFormData,
+		shouldRestoreTabSessionOnMount
 	} from '$lib/utils/sessionTabState';
 	import { WebSocketService, createGenerationSocket } from '$lib/services/websocket';
 	import type { WebSocketMessage } from '$lib/services/websocket';
@@ -409,14 +410,21 @@
 		const currentTabs = $tabsStore.tabs;
 
 		await Promise.all(currentTabs.map(async (tab) => {
-			// Skip if no session to restore
-			if (!tab.selectedSessionId || !tab.selectedMode) return;
+			// tabsStore is module-scope, so SPA navigation remounts this page without
+			// resetting it: a tab that already has a session baseline holds a live draft
+			// that must not be overwritten. Only a full reload (baseline undefined after
+			// localStorage rehydration) hydrates from the server.
+			if (!shouldRestoreTabSessionOnMount(tab)) return;
+			// shouldRestoreTabSessionOnMount already guarantees both are set; narrow
+			// locally so the compiler sees it too.
+			const selectedSessionId = tab.selectedSessionId!;
+			const selectedMode = tab.selectedMode!;
 
 			try {
-				const response = await api.getSessionById(tab.selectedSessionId);
+				const response = await api.getSessionById(selectedSessionId);
 				if (response.success && response.data) {
 					const session = response.data;
-					const modeData = session.data[tab.selectedMode];
+					const modeData = session.data[selectedMode];
 
 					if (modeData) {
 						// Non-blocking notice: the mode/variant selectors re-validate against

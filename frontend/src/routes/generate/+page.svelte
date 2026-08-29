@@ -7,7 +7,12 @@
 	import { buildSegmentsPayload, buildVariablesPayload, mapGenerationFiles } from '$lib/utils/generationOrchestrator';
 	import { findUndefinedVariableUsages } from '$lib/utils/promptVariables';
 	import { buildSessionRestoreTabPatch } from '$lib/utils/sessionRestore';
-	import { collectTabSessionData, normalizeSessionBaselineFormData } from '$lib/utils/sessionTabState';
+	import {
+		collectTabSessionData,
+		isSessionGoneError,
+		isSessionMissingResponse,
+		normalizeSessionBaselineFormData
+	} from '$lib/utils/sessionTabState';
 	import { WebSocketService, createGenerationSocket } from '$lib/services/websocket';
 	import type { WebSocketMessage } from '$lib/services/websocket';
 	import { dispatchGenerationMessage } from '$lib/stores/generation';
@@ -459,15 +464,28 @@
 							sessionBaselineAwaitingFormNormalization: true
 						});
 					}
+				} else if (isSessionMissingResponse(response)) {
+					console.warn(`[TabRestore] Session for tab ${tab.name} no longer exists, clearing the link.`);
+					tabsStore.updateTab(tab.id, {
+						selectedSessionId: null,
+						savedSessionSignature: null,
+						sessionBaselineAwaitingFormNormalization: false
+					});
 				}
 			} catch (error) {
-				console.error(`[TabRestore] Failed to restore session for tab ${tab.name}:`, error);
-				// Clear the invalid session ID
-				tabsStore.updateTab(tab.id, {
-					selectedSessionId: null,
-					savedSessionSignature: null,
-					sessionBaselineAwaitingFormNormalization: false
-				});
+				// A thrown HTTP 404 proves the session is gone; any other failure (network
+				// error, backend still booting) must not destroy the tab's saved link -
+				// the next successful loadSessions binds it back once reachable.
+				if (isSessionGoneError(error)) {
+					console.error(`[TabRestore] Failed to restore session for tab ${tab.name}:`, error);
+					tabsStore.updateTab(tab.id, {
+						selectedSessionId: null,
+						savedSessionSignature: null,
+						sessionBaselineAwaitingFormNormalization: false
+					});
+				} else {
+					console.warn(`[TabRestore] Backend unreachable while restoring session for tab ${tab.name}, keeping the saved link:`, error);
+				}
 			}
 		}));
 	}

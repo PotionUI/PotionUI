@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { Tab } from '$lib/types/tabs';
 import {
 	collectTabSessionData,
+	isSessionGoneError,
+	isSessionMissingResponse,
 	normalizeSessionBaselineFormData,
 	sessionIsDirty,
 	shouldHydrateSessionSelection
@@ -147,5 +149,29 @@ describe('session tab remount state', () => {
 			leftPanelCollapsed: false
 		});
 		expect(sessionIsDirty(true, consumedBaseline, JSON.stringify(collectTabSessionData(firstEdit, 'txt2img')))).toBe(true);
+	});
+});
+
+describe('distinguishing a missing session from an unreachable backend', () => {
+	it('treats a definitive not-found/access-denied response as missing', () => {
+		expect(isSessionMissingResponse({ success: false, error: 'session_not_found' })).toBe(true);
+		expect(isSessionMissingResponse({ success: false, error: 'session_access_denied' })).toBe(true);
+	});
+
+	it('does not treat a success response or an unrelated error code as missing', () => {
+		expect(isSessionMissingResponse({ success: true })).toBe(false);
+		expect(isSessionMissingResponse({ success: false, error: 'internal_error' })).toBe(false);
+		expect(isSessionMissingResponse(null)).toBe(false);
+		expect(isSessionMissingResponse(undefined)).toBe(false);
+	});
+
+	it('treats only a thrown HTTP 404 as proof the session is gone', () => {
+		expect(isSessionGoneError({ response: { status: 404 } })).toBe(true);
+	});
+
+	it('does not treat a 5xx, a plain error, or no error as proof the session is gone', () => {
+		expect(isSessionGoneError({ response: { status: 500 } })).toBe(false);
+		expect(isSessionGoneError(new Error('Network Error'))).toBe(false);
+		expect(isSessionGoneError(undefined)).toBe(false);
 	});
 });

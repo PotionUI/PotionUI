@@ -15,7 +15,13 @@
 	import { resolveVariant, sortVariants } from '$lib/utils/variants';
 	import { buildSessionRestoreTabPatch } from '$lib/utils/sessionRestore';
 	import { seedModeStateFromSessionData } from '$lib/utils/modeState';
-	import { collectTabSessionData, sessionIsDirty, shouldHydrateSessionSelection } from '$lib/utils/sessionTabState';
+	import {
+		collectTabSessionData,
+		isSessionGoneError,
+		isSessionMissingResponse,
+		sessionIsDirty,
+		shouldHydrateSessionSelection
+	} from '$lib/utils/sessionTabState';
 	import { toasts } from '$lib/stores/toast';
 	import { timeAgo } from '$lib/utils/relativeTime';
 	import SessionControl from '$lib/components/session/SessionControl.svelte';
@@ -76,6 +82,12 @@
 
 	// Session controls state
 	let sessionControlsEnabled = false;
+
+	// Retry state for loadSessions after a backend outage - the reactive trigger
+	// (presetId/currentMode) never fires again on its own, so without a retry the
+	// pill can never resolve currentSession for a tab's persisted selectedSessionId.
+	let loadSessionsRetryTimer: number | null = null;
+	let loadSessionsRetryDelay = 2000;
 
 	/** Non-blocking notice when the session's saved `presetVersion` no longer
 	 *  matches the live preset - the session may reference form fields/defaults
@@ -209,6 +221,7 @@
 
 	onDestroy(() => {
 		stopAutoSave();
+		if (loadSessionsRetryTimer !== null) clearTimeout(loadSessionsRetryTimer);
 	});
 
 	// Session Functions
@@ -236,15 +249,30 @@
 				// a remount. Apply the full server payload through the same path as
 				// the picker so prompt/form/layout state and the saved baseline agree.
 				await applySessionModeData(sessionId, response.data.data, response.data, { markSaved: true });
+			} else if (isSessionMissingResponse(response)) {
+				logger.warn('[Session] Session no longer exists, clearing it');
+				selectedSessionId = '';
+				currentSession = null;
+				hasUnsavedChanges = false;
+				recordSavedBaseline(null);
+				lastSavedTime = null;
+				tabsStore.updateTab(tabId, { selectedSessionId: null, savedSessionSignature: null });
 			}
 		} catch (err) {
-			logger.error('Failed to sync session from tab:', err);
-			selectedSessionId = '';
-			currentSession = null;
-			hasUnsavedChanges = false;
-			recordSavedBaseline(null);
-			lastSavedTime = null;
-			tabsStore.updateTab(tabId, { selectedSessionId: null, savedSessionSignature: null });
+			// A thrown HTTP 404 proves the session is gone; anything else (backend
+			// unreachable/restarting) must leave the tab's link intact so loadSessions'
+			// retry can still bind currentSession once the backend answers.
+			if (isSessionGoneError(err)) {
+				logger.error('Failed to sync session from tab:', err);
+				selectedSessionId = '';
+				currentSession = null;
+				hasUnsavedChanges = false;
+				recordSavedBaseline(null);
+				lastSavedTime = null;
+				tabsStore.updateTab(tabId, { selectedSessionId: null, savedSessionSignature: null });
+			} else {
+				logger.warn('[Session] Backend unreachable while syncing session, keeping the saved link:', err);
+			}
 		}
 	}
 
@@ -335,6 +363,11 @@
 	async function loadSessions() {
 		if (!presetId) return;
 
+		if (loadSessionsRetryTimer !== null) {
+			clearTimeout(loadSessionsRetryTimer);
+			loadSessionsRetryTimer = null;
+		}
+
 		try {
 			isSessionLoading = true;
 			error = null;
@@ -348,9 +381,12 @@
 					hasUnsavedChanges = sessionIsDirty(true, savedSessionSignature, currentSessionSignature);
 				}
 			}
+			loadSessionsRetryDelay = 2000;
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Failed to load sessions';
 			logger.error('Failed to load sessions:', err);
+			loadSessionsRetryTimer = window.setTimeout(loadSessions, loadSessionsRetryDelay);
+			loadSessionsRetryDelay = Math.min(loadSessionsRetryDelay * 2, 30000);
 		} finally {
 			isSessionLoading = false;
 		}

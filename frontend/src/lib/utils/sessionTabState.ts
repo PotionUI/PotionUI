@@ -54,6 +54,25 @@ export function collectTabSessionData(
 	};
 }
 
+/** The server answered and definitively has no such session for this user — as
+ *  opposed to a thrown request error, which can just as easily mean the
+ *  backend is unreachable or still booting. */
+export function isSessionMissingResponse(
+	response: { success: boolean; error?: string } | null | undefined
+): boolean {
+	return (
+		!!response &&
+		response.success === false &&
+		(response.error === 'session_not_found' || response.error === 'session_access_denied')
+	);
+}
+
+/** A thrown request error that proves the session itself is gone (HTTP 404),
+ *  as opposed to a network failure or a backend that is unreachable/restarting. */
+export function isSessionGoneError(err: unknown): boolean {
+	return (err as { response?: { status?: number } } | null | undefined)?.response?.status === 404;
+}
+
 /** A remount has an existing id but is not a request to reload its server data. */
 export function shouldHydrateSessionSelection(
 	hasMounted: boolean,

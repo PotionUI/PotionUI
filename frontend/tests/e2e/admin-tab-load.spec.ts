@@ -76,6 +76,26 @@ test('Stats and Documentation admin tabs load without error', async ({ page }) =
 	console.log(`[${JOURNEY}] docs tab page errors:\n${pageErrors.join('\n')}`);
 	await expect(errorState, 'Documentation tab should not show the generic load-failure message').toHaveCount(0);
 
+	consoleErrors.length = 0;
+	pageErrors.length = 0;
+
+	// --- System Settings tab (sectioned master-detail rebuild) ---
+	await nav.getByRole('link', { name: 'System Settings' }).click();
+	await page.waitForTimeout(1500);
+	await screenshot(page, JOURNEY, 'system-settings-tab');
+	console.log(`[${JOURNEY}] system settings tab console errors:\n${consoleErrors.join('\n')}`);
+	console.log(`[${JOURNEY}] system settings tab page errors:\n${pageErrors.join('\n')}`);
+	await expect(errorState, 'System Settings tab should not show the generic load-failure message').toHaveCount(0);
+
+	for (const section of ['Content Safety', 'Prompt Search']) {
+		await page.getByRole('option', { name: section }).click();
+		await page.waitForTimeout(500);
+		await expect(
+			page.getByRole('heading', { name: section, level: 3 }),
+			`${section} section should render its detail panel`
+		).toBeVisible();
+	}
+
 	// --- Reload straight onto each tab too (covers a fresh full navigation) ---
 	await page.goto('/admin?tab=stats');
 	await page.waitForTimeout(1500);

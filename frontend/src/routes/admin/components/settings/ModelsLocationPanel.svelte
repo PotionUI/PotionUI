@@ -66,73 +66,73 @@
 	</div>
 
 	<div class="px-6 py-4 space-y-3">
-	<p class="text-sm text-fg-muted">
-		Point PotionUI at an external directory for model files. The app keeps reading
-		from <span class="font-mono">models/</span> - each type directory becomes a symlink
-		into the location you set here.
-	</p>
+		<p class="text-sm text-fg-muted">
+			Point PotionUI at an external directory for model files. The app keeps reading
+			from <span class="font-mono">models/</span> - each type directory becomes a symlink
+			into the location you set here.
+		</p>
 
-	{#if loading}
-		<Spinner size="sm" />
-	{:else}
-		{#if config?.windows_unsupported}
-			<Alert variant="warning" icon
-				>Relocating the models directory isn't supported on Windows yet. Move files manually
-				and point individual type directories at them instead.</Alert
+		{#if loading}
+			<Spinner size="sm" />
+		{:else}
+			{#if config?.windows_unsupported}
+				<Alert variant="warning" icon
+					>Relocating the models directory isn't supported on Windows yet. Move files manually
+					and point individual type directories at them instead.</Alert
+				>
+			{/if}
+
+			{#if error}
+				<Alert variant="danger" icon>{error}</Alert>
+			{/if}
+
+			<label for="models-external-path" class="block text-sm font-medium text-fg mb-1"
+				>External directory</label
 			>
-		{/if}
+			<Input
+				id="models-external-path"
+				bind:value={externalPath}
+				placeholder="/mnt/storage/models"
+				disabled={applying}
+			/>
 
-		{#if error}
-			<Alert variant="danger" icon>{error}</Alert>
-		{/if}
+			<button
+				type="button"
+				class="text-xs text-fg-muted hover:text-fg mt-2"
+				onclick={() => (overridesOpen = !overridesOpen)}
+			>
+				{overridesOpen ? 'Hide' : 'Show'} per-type overrides
+			</button>
 
-		<label for="models-external-path" class="block text-sm font-medium text-fg mb-1"
-			>External directory</label
-		>
-		<Input
-			id="models-external-path"
-			bind:value={externalPath}
-			placeholder="/mnt/storage/models"
-			disabled={applying}
-		/>
+			{#if overridesOpen && config}
+				<div class="mt-2 space-y-2 border border-line rounded p-3">
+					{#each config.directories as dir (dir.directory)}
+						<div>
+							<label for="override-{dir.directory}" class="block text-xs text-fg-muted mb-1"
+								>{dir.directory}</label
+							>
+							<Input
+								id="override-{dir.directory}"
+								bind:value={overrideDrafts[dir.directory]}
+								placeholder={dir.target ?? 'uses the external directory above'}
+								disabled={applying}
+							/>
+						</div>
+					{/each}
+				</div>
+			{/if}
 
-		<button
-			type="button"
-			class="text-xs text-fg-muted hover:text-fg mt-2"
-			onclick={() => (overridesOpen = !overridesOpen)}
-		>
-			{overridesOpen ? 'Hide' : 'Show'} per-type overrides
-		</button>
-
-		{#if overridesOpen && config}
-			<div class="mt-2 space-y-2 border border-line rounded p-3">
-				{#each config.directories as dir (dir.directory)}
-					<div>
-						<label for="override-{dir.directory}" class="block text-xs text-fg-muted mb-1"
-							>{dir.directory}</label
-						>
-						<Input
-							id="override-{dir.directory}"
-							bind:value={overrideDrafts[dir.directory]}
-							placeholder={dir.target ?? 'uses the external directory above'}
-							disabled={applying}
-						/>
-					</div>
-				{/each}
+			<div class="flex items-center gap-3 mt-3">
+				<Button variant="primary" onclick={apply} loading={applying} disabled={applying}
+					>Apply</Button
+				>
+				{#if config}
+					<span class="text-xs text-fg-subtle">
+						{config.directories.filter((d) => d.linked).length} of {config.directories.length} type
+						directories linked
+					</span>
+				{/if}
 			</div>
 		{/if}
-
-		<div class="flex items-center gap-3 mt-3">
-			<Button variant="primary" onclick={apply} loading={applying} disabled={applying}
-				>Apply</Button
-			>
-			{#if config}
-				<span class="text-xs text-fg-subtle">
-					{config.directories.filter((d) => d.linked).length} of {config.directories.length} type
-					directories linked
-				</span>
-			{/if}
-		</div>
-	{/if}
 	</div>
 </div>

@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 //
-// The admin semantic-search settings pane used to track "a fetch is
-// running" only in a page-local downloadId->kind map, so a reload
-// or reconnect mid-download read back as idle/not-present and an admin could
-// fire a second fetch. This mounts the real card fresh (it never queues
-// anything itself in this test) against a status response that already
-// reports an in-flight job, proving the "downloading" state is reconstructed
-// from the backend response alone.
+// The admin Prompt Search settings panel used to track "a fetch is running"
+// only in a page-local downloadId->kind map, so a reload or reconnect
+// mid-download read back as idle/not-present and an admin could fire a
+// second fetch. This mounts the real panel fresh (it never queues anything
+// itself in this test) against a status response that already reports an
+// in-flight job, proving the "downloading" state is reconstructed from the
+// backend response alone.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('$lib/services/admin-api', () => ({
@@ -33,43 +33,21 @@ vi.mock('$lib/stores/downloads', () => ({
 
 const adminApi = await import('$lib/services/admin-api');
 const { downloaderWebSocket } = await import('$lib/services/downloaderWebsocket');
-const { default: SemanticSearchSettingsCard } = await import(
-	'../../src/routes/admin/components/SemanticSearchSettingsCard.svelte'
+const { default: PromptSearchPanel } = await import(
+	'../../src/routes/admin/components/settings/PromptSearchPanel.svelte'
 );
 const { createClassComponent } = await import('svelte/legacy');
 
 const SETTINGS = {
 	prompt_embedding_provider: 'local',
-	prompt_embedding_model: 'BAAI/bge-small-en-v1.5',
-	media_tagger_model: 'SmilingWolf/wd-vit-tagger-v3',
-	media_vision_model: 'google/siglip-base-patch16-224'
+	prompt_embedding_model: 'BAAI/bge-small-en-v1.5'
 };
 
-const IDLE_MEDIA_STATUS = {
-	success: true,
-	data: {
-		tagger: {
-			present: false,
-			path: '/models/taggers/x',
-			size: null,
-			loaded: false,
-			active_download: null
-		},
-		vision: {
-			present: false,
-			path: '/models/vision_embeddings/x',
-			size: null,
-			loaded: false,
-			active_download: null
-		}
-	}
-};
-
-function mountCard() {
+function mountPanel() {
 	const target = document.createElement('div');
 	document.body.appendChild(target);
 	const component = createClassComponent({
-		component: SemanticSearchSettingsCard as never,
+		component: PromptSearchPanel as never,
 		target,
 		props: { settings: SETTINGS, onSettingChange: () => {} }
 	});
@@ -80,10 +58,16 @@ async function settle() {
 	for (let i = 0; i < 6; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-let mounted: ReturnType<typeof mountCard> | undefined;
+let mounted: ReturnType<typeof mountPanel> | undefined;
 
 beforeEach(() => {
-	vi.mocked(adminApi.getMediaModelsStatus).mockResolvedValue(IDLE_MEDIA_STATUS as never);
+	vi.mocked(adminApi.getMediaModelsStatus).mockResolvedValue({
+		success: true,
+		data: {
+			tagger: { present: false, path: null, size: null, loaded: false, active_download: null },
+			vision: { present: false, path: null, size: null, loaded: false, active_download: null }
+		}
+	} as never);
 });
 
 afterEach(() => {
@@ -91,7 +75,7 @@ afterEach(() => {
 	vi.clearAllMocks();
 });
 
-describe('semantic-search settings pane reconstructs an in-flight fetch on mount', () => {
+describe('Prompt Search panel reconstructs an in-flight fetch on mount', () => {
 	it('reads "downloading" straight off the status response, with no download queued by this page', async () => {
 		vi.mocked(adminApi.getPromptEmbeddingStatus).mockResolvedValue({
 			success: true,
@@ -111,7 +95,7 @@ describe('semantic-search settings pane reconstructs an in-flight fetch on mount
 			}
 		} as never);
 
-		mounted = mountCard();
+		mounted = mountPanel();
 		await settle();
 
 		expect(mounted.target.textContent).toContain('Downloading');
@@ -139,7 +123,7 @@ describe('semantic-search settings pane reconstructs an in-flight fetch on mount
 			}
 		} as never);
 
-		mounted = mountCard();
+		mounted = mountPanel();
 		await settle();
 
 		expect(mounted.target.textContent).toContain('queued');
@@ -158,7 +142,7 @@ describe('semantic-search settings pane reconstructs an in-flight fetch on mount
 			}
 		} as never);
 
-		mounted = mountCard();
+		mounted = mountPanel();
 		await settle();
 
 		expect(mounted.target.textContent).not.toContain('Downloading');
@@ -166,7 +150,7 @@ describe('semantic-search settings pane reconstructs an in-flight fetch on mount
 	});
 });
 
-describe('semantic-search settings pane surfaces in-memory residency separately from on-disk presence', () => {
+describe('Prompt Search panel surfaces in-memory residency separately from on-disk presence', () => {
 	it('shows "In memory" only when the status response reports it loaded', async () => {
 		vi.mocked(adminApi.getPromptEmbeddingStatus).mockResolvedValue({
 			success: true,
@@ -179,7 +163,7 @@ describe('semantic-search settings pane surfaces in-memory residency separately 
 			}
 		} as never);
 
-		mounted = mountCard();
+		mounted = mountPanel();
 		await settle();
 
 		expect(mounted.target.textContent).toContain('Ready');
@@ -198,7 +182,7 @@ describe('semantic-search settings pane surfaces in-memory residency separately 
 			}
 		} as never);
 
-		mounted = mountCard();
+		mounted = mountPanel();
 		await settle();
 
 		expect(mounted.target.textContent).toContain('Ready');

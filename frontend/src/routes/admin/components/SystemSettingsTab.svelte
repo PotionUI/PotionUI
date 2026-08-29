@@ -4,19 +4,43 @@
 	import * as adminApi from '$lib/services/admin-api';
 	import { toasts } from '$lib/stores/toast';
 	import { Button, Spinner } from '$lib/components/ui';
+	import { MasterDetailLayout } from '$lib/components/master-detail';
+	import { Pane, PaneRow } from '$lib/components/pane';
 	import AdminTabShell from './AdminTabShell.svelte';
-	import SemanticSearchSettingsCard from './SemanticSearchSettingsCard.svelte';
-	import ModelsLocationCard from './ModelsLocationCard.svelte';
-	import FileStorageCard from './FileStorageCard.svelte';
+	import AccessPanel from './settings/AccessPanel.svelte';
+	import ContentSafetyPanel from './settings/ContentSafetyPanel.svelte';
+	import FileStoragePanel from './settings/FileStoragePanel.svelte';
+	import ModelsLocationPanel from './settings/ModelsLocationPanel.svelte';
+	import PromptSearchPanel from './settings/PromptSearchPanel.svelte';
+	import MediaTaggingPanel from './settings/MediaTaggingPanel.svelte';
+	import VisualSearchPanel from './settings/VisualSearchPanel.svelte';
+	import { SETTINGS_GROUPS, SETTINGS_KEY_GROUP, type SettingsGroupId } from './settings/settingsGroups';
 
-	let settings: Record<string, any> = {};
-	let loading = true;
-	let saving = false;
-	let unsavedChanges = false;
+	// The PUT body System Settings sends - unchanged from the pre-rebuild
+	// dict, just derived from the group map so there's one source of truth.
+	const USER_CONFIGURABLE_KEYS = Object.keys(SETTINGS_KEY_GROUP);
 
-	onMount(async () => {
-		await loadSettings();
+	let settings = $state<Record<string, any>>({});
+	// JSON snapshot of the last loaded/saved values, keyed the same as the
+	// PUT body - diffing against it drives both per-group dirty dots and the
+	// save bar without a heavier dirty-tracking system.
+	let snapshot = $state('{}');
+	let loading = $state(true);
+	let saving = $state(false);
+	let activeGroup = $state<SettingsGroupId>('access');
+
+	function snapshotOf(s: Record<string, any>): string {
+		return JSON.stringify(Object.fromEntries(USER_CONFIGURABLE_KEYS.map((k) => [k, s[k]])));
+	}
+
+	let dirtyKeys = $derived.by(() => {
+		const before = JSON.parse(snapshot) as Record<string, any>;
+		return USER_CONFIGURABLE_KEYS.filter((k) => settings[k] !== before[k]);
 	});
+	let dirtyGroups = $derived(new Set(dirtyKeys.map((k) => SETTINGS_KEY_GROUP[k])));
+	let unsavedChanges = $derived(dirtyKeys.length > 0);
+
+	onMount(loadSettings);
 
 	async function loadSettings() {
 		try {
@@ -24,6 +48,7 @@
 			const response = await adminApi.getSettings();
 			if (response.success && response.data) {
 				settings = response.data;
+				snapshot = snapshotOf(settings);
 			}
 		} catch (error) {
 			logger.error('Failed to load settings:', error);
@@ -34,36 +59,17 @@
 
 	function handleSettingChange(key: string, value: any) {
 		settings = { ...settings, [key]: value };
-		unsavedChanges = true;
 	}
 
 	async function saveSettings() {
 		try {
 			saving = true;
-			const userConfigurableSettings = {
-				file_storage_directory: settings.file_storage_directory,
-				nsfw: settings.nsfw,
-				prompt_embedding_provider: settings.prompt_embedding_provider,
-				prompt_embedding_model: settings.prompt_embedding_model,
-				prompt_embedding_device: settings.prompt_embedding_device,
-				prompt_embedding_auto_download: settings.prompt_embedding_auto_download,
-				prompt_embedding_ollama_base_url: settings.prompt_embedding_ollama_base_url,
-				prompt_embedding_ollama_model: settings.prompt_embedding_ollama_model,
-				registration_policy: settings.registration_policy,
-				media_tagger_model: settings.media_tagger_model,
-				media_tagger_device: settings.media_tagger_device,
-				media_tagger_auto_download: settings.media_tagger_auto_download,
-				media_tagger_tag_threshold: settings.media_tagger_tag_threshold,
-				media_tagger_character_threshold: settings.media_tagger_character_threshold,
-				media_nsfw_blur_threshold: settings.media_nsfw_blur_threshold,
-				media_vision_model: settings.media_vision_model,
-				media_vision_device: settings.media_vision_device,
-				media_vision_auto_download: settings.media_vision_auto_download,
-				mcp_enabled: settings.mcp_enabled
-			};
+			const userConfigurableSettings = Object.fromEntries(
+				USER_CONFIGURABLE_KEYS.map((k) => [k, settings[k]])
+			);
 			const response = await adminApi.updateSettings(userConfigurableSettings);
 			if (response.success) {
-				unsavedChanges = false;
+				snapshot = snapshotOf(settings);
 			}
 		} catch (error) {
 			logger.error('Failed to save settings:', error);
@@ -73,106 +79,111 @@
 		}
 	}
 
+	function shortModelName(id: string): string {
+		return id.split('/').pop() || id;
+	}
+
+	/** Bare mono hint per section, never prose - matches the pane family's
+	 * subtitle idiom elsewhere in admin. */
+	function subtitleFor(id: SettingsGroupId): string | undefined {
+		switch (id) {
+			case 'access':
+				return `${settings.registration_policy === 'open' ? 'open' : 'closed'} · mcp ${settings.mcp_enabled ? 'on' : 'off'}`;
+			case 'content_safety':
+				return `nsfw ${settings.nsfw ? 'on' : 'off'} · blur ${settings.media_nsfw_blur_threshold ?? 0.6}`;
+			case 'file_storage':
+				return settings.storage_backend === 's3' ? 's3' : 'local';
+			case 'models_location':
+				return undefined;
+			case 'prompt_search': {
+				const model =
+					settings.prompt_embedding_provider === 'ollama'
+						? settings.prompt_embedding_ollama_model
+						: settings.prompt_embedding_model;
+				return model ? shortModelName(model) : undefined;
+			}
+			case 'media_tagging':
+				return settings.media_tagger_model ? shortModelName(settings.media_tagger_model) : undefined;
+			case 'visual_search':
+				return settings.media_vision_model ? shortModelName(settings.media_vision_model) : undefined;
+		}
+	}
 </script>
 
-<div class="space-y-4">
+<div class="flex h-[calc(100dvh-var(--header-h)-2rem)] min-h-[36rem] flex-col gap-4 sm:h-[calc(100dvh-var(--header-h)-3rem)]">
 	<AdminTabShell title="System Settings" icon="settings" />
 
-{#if loading}
-	<div class="text-center py-12">
-		<Spinner size="lg" />
-		<p class="text-fg-muted mt-4">Loading settings...</p>
-	</div>
-{:else}
-	<div class="space-y-6">
-		<!-- Application Settings -->
-		<div class="bg-surface-1 rounded-lg border border-line shadow-raised">
-			<div class="px-6 py-3 border-b border-line">
-				<h3 class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted">Application Settings</h3>
+	<section class="flex-1 min-h-0 rounded-lg border border-line bg-surface-1 overflow-hidden">
+		{#if loading}
+			<div class="h-full flex flex-col items-center justify-center">
+				<Spinner size="lg" />
+				<p class="text-sm text-fg-muted mt-4">Loading settings…</p>
 			</div>
-			<div class="px-6 divide-y divide-line">
-				<div class="py-4 flex items-start justify-between gap-6">
-					<div>
-						<label for="file-storage-directory" class="block text-sm font-medium text-fg mb-1">
-							File Storage Directory
-						</label>
-						<p class="text-sm text-fg-muted">
-							Base directory for all file storage (generations, tmp, models)
-						</p>
-					</div>
-					<input
-						id="file-storage-directory"
-						type="text"
-						class="input w-64 flex-shrink-0"
-						value={settings.file_storage_directory || ''}
-						on:input={(e) => handleSettingChange('file_storage_directory', e.currentTarget.value)}
-						placeholder="storage"
-					/>
+		{:else}
+			<MasterDetailLayout leftWidth={300} minWidth={240} maxWidth={400} storageKey="admin-settings-width">
+				<div slot="list" class="h-full min-h-0">
+					<Pane label="Settings" bodyRole="listbox" ariaLabel="Settings sections">
+						{#snippet children()}
+							{#each SETTINGS_GROUPS as group (group.id)}
+								{#snippet rowTrailing()}
+									{#if dirtyGroups.has(group.id)}
+										<span
+											class="w-1.5 h-1.5 rounded-full bg-warning-solid flex-shrink-0"
+											title="Unsaved changes"
+											aria-hidden="true"
+										></span>
+									{/if}
+								{/snippet}
+								<PaneRow
+									selected={activeGroup === group.id}
+									onclick={() => (activeGroup = group.id)}
+									icon={group.icon}
+									title={group.label}
+									subtitle={subtitleFor(group.id)}
+									subtitleMono
+									trailing={rowTrailing}
+								/>
+							{/each}
+						{/snippet}
+					</Pane>
 				</div>
 
-				<div class="py-4 flex items-start justify-between gap-6">
-					<div>
-						<label for="nsfw" class="block text-sm font-medium text-fg mb-1">NSFW Content</label>
-						<p class="text-sm text-fg-muted">Allow generation of NSFW content</p>
+				<div slot="detail" class="h-full min-h-0 flex flex-col">
+					<div class="flex-1 min-h-0 overflow-y-auto bg-surface-2 p-4 sm:p-5">
+						<div class="max-w-[760px] space-y-5">
+							{#if activeGroup === 'access'}
+								<AccessPanel {settings} onSettingChange={handleSettingChange} />
+							{:else if activeGroup === 'content_safety'}
+								<ContentSafetyPanel {settings} onSettingChange={handleSettingChange} />
+							{:else if activeGroup === 'file_storage'}
+								<FileStoragePanel {settings} onSettingChange={handleSettingChange} />
+							{:else if activeGroup === 'models_location'}
+								<ModelsLocationPanel />
+							{:else if activeGroup === 'prompt_search'}
+								<PromptSearchPanel {settings} onSettingChange={handleSettingChange} />
+							{:else if activeGroup === 'media_tagging'}
+								<MediaTaggingPanel {settings} onSettingChange={handleSettingChange} />
+							{:else if activeGroup === 'visual_search'}
+								<VisualSearchPanel {settings} onSettingChange={handleSettingChange} />
+							{/if}
+						</div>
 					</div>
-					<input
-						type="checkbox"
-						id="nsfw"
-						class="w-4 h-4 mt-1 text-signal border-line-strong rounded focus:ring-signal flex-shrink-0"
-						checked={settings.nsfw || false}
-						on:change={(e) => handleSettingChange('nsfw', e.currentTarget.checked)}
-					/>
+
+					{#if unsavedChanges}
+						<div
+							class="flex-shrink-0 border-t border-line bg-surface-1 px-4 sm:px-5 py-3 flex items-center justify-end gap-3"
+						>
+							<span class="font-mono text-xs tabular-nums text-fg-muted mr-auto">
+								{dirtyKeys.length} unsaved change{dirtyKeys.length === 1 ? '' : 's'}
+							</span>
+							<Button variant="secondary" size="sm" disabled={saving} onclick={loadSettings}>Reset</Button>
+							<Button variant="primary" size="sm" loading={saving} disabled={saving} onclick={saveSettings}>
+								{saving ? 'Saving...' : 'Save Changes'}
+							</Button>
+						</div>
+					{/if}
 				</div>
-
-				<div class="py-4 flex items-start justify-between gap-6">
-					<div>
-						<label for="allow-registration" class="block text-sm font-medium text-fg mb-1">
-							Allow anyone to register
-						</label>
-						<p class="text-sm text-fg-muted">
-							When off, only the owner can create accounts in Administration → Users.
-						</p>
-					</div>
-					<input
-						type="checkbox"
-						id="allow-registration"
-						class="w-4 h-4 mt-1 text-signal border-line-strong rounded focus:ring-signal flex-shrink-0"
-						checked={settings.registration_policy === 'open'}
-						on:change={(e) =>
-							handleSettingChange('registration_policy', e.currentTarget.checked ? 'open' : 'closed')}
-					/>
-				</div>
-
-				<div class="py-4 flex items-start justify-between gap-6">
-					<div>
-						<label for="mcp-enabled" class="block text-sm font-medium text-fg mb-1">MCP Access</label>
-						<p class="text-sm text-fg-muted">
-							Allow external MCP clients to connect and act as PotionUI users via their tokens
-						</p>
-					</div>
-					<input
-						type="checkbox"
-						id="mcp-enabled"
-						class="w-4 h-4 mt-1 text-signal border-line-strong rounded focus:ring-signal flex-shrink-0"
-						checked={settings.mcp_enabled || false}
-						on:change={(e) => handleSettingChange('mcp_enabled', e.currentTarget.checked)}
-					/>
-				</div>
-			</div>
-		</div>
-
-		<ModelsLocationCard />
-		<FileStorageCard />
-
-		<SemanticSearchSettingsCard {settings} onSettingChange={handleSettingChange} />
-
-		<!-- Save Button -->
-		<div class="flex justify-end gap-4">
-			<Button variant="secondary" disabled={saving} onclick={loadSettings}>Reset</Button>
-			<Button variant="primary" disabled={!unsavedChanges || saving} loading={saving} onclick={saveSettings}>
-				{saving ? 'Saving...' : 'Save Changes'}
-			</Button>
-		</div>
-	</div>
-{/if}
+			</MasterDetailLayout>
+		{/if}
+	</section>
 </div>

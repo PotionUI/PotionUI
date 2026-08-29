@@ -1,6 +1,6 @@
 /**
- * Pure normalize/build helpers for `FileStorageCard.svelte`, split out so
- * they're testable without mounting the component.
+ * Pure normalize/build helpers for `settings/FileStoragePanel.svelte`, split
+ * out so they're testable without mounting the component.
  */
 
 export interface FileStorageSettingsState {

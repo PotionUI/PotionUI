@@ -115,7 +115,7 @@
 		background-color: rgb(var(--signal));
 	}
 
-	@media (max-width: 639px) {
+	@media (max-width: 767px) {
 		.master-detail {
 			flex-direction: column;
 		}

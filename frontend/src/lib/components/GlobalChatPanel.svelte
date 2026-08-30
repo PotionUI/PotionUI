@@ -35,7 +35,7 @@
 
 <!-- Slide-over panel -->
 <div
-	class="fixed top-0 right-0 bottom-0 z-50 w-[1000px] max-w-[90vw] bg-surface-1 border-l border-line-strong/50 shadow-overlay flex flex-col transition-transform duration-300 ease-in-out"
+	class="fixed top-0 right-0 bottom-0 z-50 w-full md:w-[1000px] md:max-w-[90vw] bg-surface-1 border-l border-line-strong/50 shadow-overlay flex flex-col transition-transform duration-300 ease-in-out"
 	class:translate-x-0={isOpen}
 	class:translate-x-full={!isOpen}
 >

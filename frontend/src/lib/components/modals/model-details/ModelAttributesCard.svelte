@@ -334,9 +334,9 @@
 							/>
 						</div>
 					{:else}
-						<div class="flex items-center justify-between py-1 gap-2">
+						<div class="flex flex-wrap items-center justify-between py-1 gap-2">
 							<span class="text-fg-muted flex-shrink-0">{field.label}</span>
-							<span class="font-medium font-mono tabular-nums text-fg">
+							<span class="font-medium font-mono tabular-nums text-fg break-words text-right">
 								{formatAttributeValue(field, value)}
 							</span>
 						</div>

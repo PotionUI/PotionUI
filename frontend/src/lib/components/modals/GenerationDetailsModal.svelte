@@ -742,7 +742,7 @@
 								<div class="flex items-center justify-between px-3 py-2">
 									<span class="font-mono text-2xs uppercase tracking-wider text-fg-disabled">Preset</span>
 									<div class="flex items-center gap-1">
-										<span class="font-mono text-xs text-fg truncate max-w-[220px]">{activeGeneration.preset_id}</span>
+										<span class="font-mono text-xs text-fg truncate max-w-[220px]" title={activeGeneration.preset_id}>{activeGeneration.preset_id}</span>
 										<CopyButton
 											text={activeGeneration.preset_id ?? ''}
 											ariaLabel="Copy preset"
@@ -1006,7 +1006,10 @@
 												class="opacity-0 group-hover:opacity-100"
 											/>
 										</div>
-										<div class="font-mono tabular-nums text-xs font-semibold text-fg truncate">
+										<div
+											class="font-mono tabular-nums text-xs font-semibold text-fg truncate"
+											title={typeof value === 'object' ? JSON.stringify(value) : String(value)}
+										>
 											{typeof value === 'object' ? JSON.stringify(value) : String(value)}
 										</div>
 									</div>

@@ -81,7 +81,7 @@
 		<Icon name="book" className="w-5 h-5 text-fg-muted flex-shrink-0" />
 	</svelte:fragment>
 
-	<div class="p-6">
+	<div class="p-4 md:p-6">
 		{#if sections.length === 0}
 			<div class="text-center text-fg-muted py-8">
 				<p>No tutorial content available.</p>
@@ -98,7 +98,7 @@
 								<h3 class="text-sm font-semibold text-fg mb-2">
 									{section.title}
 								</h3>
-								<div class="text-sm text-fg-muted leading-relaxed">
+								<div class="text-sm text-fg-muted leading-relaxed overflow-x-auto">
 									{@html formatContent(section.content)}
 								</div>
 							</div>
@@ -110,7 +110,7 @@
 	</div>
 
 	<svelte:fragment slot="footer">
-		<div class="px-6 py-4 flex justify-end">
+		<div class="px-4 py-3 md:px-6 md:py-4 flex justify-end">
 			<Button variant="primary" onclick={handleClose}>Got it</Button>
 		</div>
 	</svelte:fragment>

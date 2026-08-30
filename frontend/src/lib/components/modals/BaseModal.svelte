@@ -53,6 +53,7 @@
 	$: dialogClasses = [
 		'relative bg-surface-1 md:rounded-xl shadow-overlay flex flex-col',
 		'w-full h-full md:max-h-[90vh]',
+		'pb-[env(safe-area-inset-bottom)] md:pb-0',
 		hasExplicitMdHeight ? '' : 'md:h-auto',
 		appliedSizeClass
 	]
@@ -124,7 +125,7 @@
 		>
 			<!-- Header (rendered only when title or close button is needed) -->
 			{#if title || subtitle || $$slots.header || (!hideCloseButton && closeable)}
-				<div class="flex items-center justify-between px-6 py-4 border-b border-line flex-shrink-0">
+				<div class="flex items-center justify-between px-4 py-3 md:px-6 md:py-4 border-b border-line flex-shrink-0">
 					<div class="flex flex-wrap items-center gap-3 flex-1 min-w-0">
 						{#if $$slots.headerIcon}
 							<slot name="headerIcon" />

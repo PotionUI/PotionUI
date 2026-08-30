@@ -212,7 +212,7 @@
 {/snippet}
 
 {#snippet capabilityFields()}
-	<div class="flex items-center gap-6">
+	<div class="flex flex-wrap items-center gap-x-6 gap-y-2">
 		<div class="flex items-center gap-2">
 			<input
 				id="{idPrefix}-enabled"

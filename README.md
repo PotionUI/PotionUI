@@ -32,7 +32,7 @@ https://github.com/user-attachments/assets/950415f7-da97-403e-811b-4c9c41d8106f
 - [Prompt tooling](#prompt-tooling) · [AI assistant](#ai-assistant)
 - [Multi-user, with an admin panel](#multi-user-with-an-admin-panel)
 - [Plugins](#plugins)
-- [Quickstart](#quickstart) — [supported platforms](#supported-platforms),
+- [Install](#install) — [supported platforms](#supported-platforms),
   [manual setup](#running-backend-and-frontend-separately)
 - [Documentation](#documentation) · [Changelog](#changelog)
 - [Contributing](#contributing) · [Support](#support) · [License](#license)
@@ -180,7 +180,7 @@ backends are plugins, not core code:
 Plugin code imports only from `src/plugin_api/`. Authoring reference:
 [docs/plugin-api.md](docs/plugin-api.md).
 
-## Quickstart
+## Install
 
 You need:
 

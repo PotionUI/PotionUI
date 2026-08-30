@@ -15,13 +15,27 @@ real time.
 > and Discord reports steer what gets fixed next.
 
 > [!IMPORTANT]
-> **Runs on Linux x86_64 with an NVIDIA GPU** — that's the tested 0.0.1
+> **Runs on Linux x86_64 with an NVIDIA GPU** — that's the tested 0.0.2
 > matrix. On Windows, use WSL2 or Docker Desktop (native Windows won't even
 > install yet). Details in [Supported platforms](#supported-platforms).
 
 
 https://github.com/user-attachments/assets/950415f7-da97-403e-811b-4c9c41d8106f
 
+
+## Contents
+
+- [What you're looking at](#what-youre-looking-at)
+- [The generate workspace](#the-generate-workspace)
+- [History, tags, and collections](#history-tags-and-collections)
+- [Video Director](#video-director) · [Music Director](#music-director)
+- [Prompt tooling](#prompt-tooling) · [AI assistant](#ai-assistant)
+- [Multi-user, with an admin panel](#multi-user-with-an-admin-panel)
+- [Plugins](#plugins)
+- [Quickstart](#quickstart) — [supported platforms](#supported-platforms),
+  [manual setup](#running-backend-and-frontend-separately)
+- [Documentation](#documentation) · [Changelog](#changelog)
+- [Contributing](#contributing) · [Support](#support) · [License](#license)
 
 ## What you're looking at
 
@@ -193,7 +207,7 @@ git clone https://github.com/PotionUI/PotionUI.git potionui && cd potionui
 
 | Platform                    | Status                                                                                      |
 | --------------------------- | ------------------------------------------------------------------------------------------- |
-| Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.0.1                                                              |
+| Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.0.2                                                              |
 | Windows via WSL2            | Should work — same Linux CUDA stack, just unverified; a success/failure report would help   |
 | Windows native              | No — the install pulls Linux-only packages (e.g. `uvloop`); use WSL2 or Docker Desktop      |
 | macOS                       | No — local generation needs CUDA; the native engine has no MPS support                      |
@@ -247,6 +261,29 @@ Start with the in-app documentation browser, or read the Markdown directly:
   [models](docs/models.md), [video director](docs/video-director.md),
   [music director](docs/music-director.md), and per-model / per-technique
   docs under `docs/models/` and `docs/techniques/`.
+
+## Changelog
+
+The two most recent releases; older history lives in the
+[commit log](https://github.com/PotionUI/PotionUI/commits/master).
+
+### 0.0.2 — 2026-08-30
+
+- History and prompts filter by audio, alongside image and video.
+- Chat shows the active tab's context on a strip above the composer; tool
+  approvals summarize what they'll change, with full details on demand.
+- Composer drafts survive closing the drawer and page navigation; picker
+  menus close properly on selection.
+- A tab's session link survives transient backend errors instead of
+  detaching, and a dirty draft is never clobbered by server session data.
+- Admin System Settings rebuilt as a sectioned master-detail layout; the
+  form-overrides table now follows the preset's own tabs.
+- Every copy button confirms the copy; in-app docs moved fully into the
+  admin panel.
+
+### 0.0.1 — 2026-08-27
+
+First tagged alpha release.
 
 ## Contributing
 

@@ -48,7 +48,7 @@
 	$: ringOffset = ringDashOffset(progressFraction, ringCirc);
 	$: ringPercent = progressFraction !== null ? Math.round(progressFraction * 100) : null;
 
-	$: attachedMedia = !isGenerating && !isResult ? findAttachedMediaThumb(tab.formData) : null;
+	$: attachedMedia = !isGenerating ? findAttachedMediaThumb(tab.formData) : null;
 
 	// The resolution field's NAME varies per preset (it's whichever field the
 	// preset author typed `type: resolution` on - see docs/presets.md), so the
@@ -151,7 +151,7 @@
 	class="studio-dock pointer-events-none absolute inset-x-0 bottom-0 flex flex-col gap-3.5 px-4 pb-3.5 pt-6"
 	style="background: linear-gradient(rgb(var(--canvas) / 0), rgb(var(--canvas) / 0.92) 55%);"
 >
-	{#if !isResult && !promptlessActive}
+	{#if !promptlessActive}
 		<div class="pointer-events-auto flex items-center gap-2">
 			<button
 				type="button"
@@ -245,6 +245,17 @@
 			>
 				<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+				</svg>
+			</button>
+
+			<button
+				type="button"
+				class="flex h-11 w-11 items-center justify-center rounded-full border border-line-strong bg-surface-1/90 text-fg"
+				on:click={onOpenSettings}
+				aria-label="Settings"
+			>
+				<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
 				</svg>
 			</button>
 		</div>

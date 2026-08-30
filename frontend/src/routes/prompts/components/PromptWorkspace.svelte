@@ -377,7 +377,7 @@
 	 *  thumbnail matches what the history page itself would show first. */
 	function leadFileOf(item: PromptGenerationItem): GenerationFile | null {
 		const media = item.files.filter(
-			(file) => file.is_final !== false && ['image', 'video'].includes(file.file_type.toLowerCase())
+			(file) => file.is_final !== false && ['image', 'video', 'audio'].includes(file.file_type.toLowerCase())
 		);
 		if (!media.length) return null;
 		return media[leadIndex(media)];

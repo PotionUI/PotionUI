@@ -127,7 +127,7 @@
 		await historyStore.loadGenerations();
 	}
 
-	async function handleMediaTypeChange(mediaType: 'all' | 'image' | 'video') {
+	async function handleMediaTypeChange(mediaType: 'all' | 'image' | 'video' | 'audio') {
 		historyStore.setFilter('mediaType', mediaType);
 		await historyStore.loadGenerations();
 	}
@@ -412,6 +412,16 @@
 						on:click={() => handleMediaTypeChange('video')}
 					>
 						<Icon name="video" className="w-3.5 h-3.5" />
+					</button>
+					<button
+						class="p-1.5 rounded-sm transition-colors duration-100 {currentState.filters.mediaType === 'audio'
+							? 'bg-signal/10 text-signal'
+							: 'text-fg-muted hover:bg-surface-3/50 hover:text-fg'}"
+						title="Audio only"
+						aria-label="Audio only"
+						on:click={() => handleMediaTypeChange('audio')}
+					>
+						<Icon name="audio" className="w-3.5 h-3.5" />
 					</button>
 				</div>
 

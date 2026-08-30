@@ -44,7 +44,7 @@
 		// Same lead-file rule as GenerationCard, so the tile's aspect matches the
 		// preview it actually shows (a derived enhance pass may differ in size).
 		const media = generation.files.filter(
-			(f) => f.is_final !== false && ['image', 'video'].includes(f.file_type.toLowerCase())
+			(f) => f.is_final !== false && ['image', 'video', 'audio'].includes(f.file_type.toLowerCase())
 		);
 		const file = media[leadIndex(media)];
 		if (file?.width && file?.height) return clampAspect(file.width / file.height);

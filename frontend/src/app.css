@@ -38,6 +38,14 @@
 		scrollbar-gutter: stable;
 	}
 
+	/* Below md the shell never document-scrolls (main is the scroller, tab bar
+	   is fixed) — a stable gutter just insets the full-bleed mobile canvas. */
+	@media (max-width: 767px) {
+		html {
+			scrollbar-gutter: auto;
+		}
+	}
+
 	::selection {
 		background: rgb(var(--signal) / 0.35);
 	}

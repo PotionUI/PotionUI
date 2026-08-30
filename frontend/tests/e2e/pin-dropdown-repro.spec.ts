@@ -11,10 +11,15 @@ import { startFakeLLM, seedFakeLlmConfig, type FakeLLMServer } from './fake-llm'
 // currently reading. This spec covers both halves. The dropdown itself used
 // to build a portaled full-page click-catcher next to a non-portaled menu: on
 // desktop the catcher unmounted on close but the menu stayed in the DOM
-// forever, and on mobile (chat embedded in the generate page's transformed
-// swipe carousel) the catcher painted above the menu and absorbed every tap —
-// that regression risk now lives at the strip's anchor instead, so the tests
-// below target it there. Requires an enabled LLM config to exist, or
+// forever, and on mobile (chat used to be embedded in the generate page's
+// transformed swipe carousel, whose translateX became the containing block
+// for the catcher's `position: fixed`) the catcher painted above the menu and
+// absorbed every tap — that regression risk now lives at the strip's anchor
+// instead, so the tests below target it there. On mobile, chat lives inside
+// the Studio shell's AI chat sheet (opened from the top bar's "Open AI chat"
+// button), portaled to <body> like every Studio sheet — no transformed
+// ancestor anymore, but the "dropdown isn't intercepted by a stray overlay"
+// guard is still worth keeping. Requires an enabled LLM config to exist, or
 // UnifiedAIChat renders its "No enabled LLM configurations" empty state
 // instead of the composer.
 
@@ -150,10 +155,10 @@ test.describe('mobile', () => {
 		await seedFakeLlmConfig(page.request, BACKEND, token, fake.url);
 
 		await page.goto('/generate');
-		const panelStrip = page.getByRole('region', { name: 'Swipeable panels' });
-		await expect(panelStrip).toBeVisible({ timeout: 15000 });
-		await page.getByRole('button', { name: 'LLM' }).click();
-		await page.waitForTimeout(400);
+		await expect(page.locator('.studio-dock')).toBeVisible({ timeout: 15000 });
+		await page.getByRole('button', { name: 'Open AI chat' }).click();
+		const chatSheet = page.getByRole('dialog', { name: 'AI chat' });
+		await expect(chatSheet).toBeVisible({ timeout: 5000 });
 
 		await stripTrigger(page).click();
 		const dropdown = pickerDropdown(page);

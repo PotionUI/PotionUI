@@ -114,14 +114,17 @@ test('top section — tabs row cluster + relocated preset header', async ({ page
 	await overflowTrigger.click(); // close
 	await page.waitForTimeout(BEAT);
 
-	// 7. Mobile: the "Preset" swipe panel (item 31-46) now mounts PresetHeader
-	// + SessionPill in place of the deleted PresetSessionBar - not redesigned,
-	// just componentized, so confirm it still renders both.
+	// 7. Mobile: the Studio "preset & session" sheet now mounts PresetHeader +
+	// SessionPill in place of the deleted PresetSessionBar / mobile carousel
+	// panel - not redesigned, just re-homed, so confirm it still renders both.
 	await page.setViewportSize({ width: 390, height: 844 });
 	await page.waitForTimeout(BEAT);
-	const presetPanelTab = page.getByRole('button', { name: 'Preset', exact: true });
-	await expect(presetPanelTab).toBeVisible();
-	await presetPanelTab.click();
+	const presetSheetTrigger = page.getByRole('button', { name: 'Open preset and session' });
+	await expect(presetSheetTrigger).toBeVisible();
+	await presetSheetTrigger.click();
 	await page.waitForTimeout(BEAT);
+	const presetSheet = page.getByRole('dialog', { name: 'Preset and session' });
+	await expect(presetSheet).toBeVisible();
+	await expect(presetSheet.getByRole('button', { name: imagePreset.name, exact: false }).first()).toBeVisible();
 	await screenshot(page, JOURNEY, '07-mobile-preset-panel');
 });

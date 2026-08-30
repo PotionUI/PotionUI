@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { tabsStore } from '$lib/stores/tabs';
-	import { isMobile } from '$lib/stores/viewport';
 	import { api } from '$lib/services/api';
 	import type { Workspace, WorkspaceData } from '$lib/types/generation';
 	import type { GenerationLayoutMode } from '$lib/stores/generationLayout';
@@ -196,54 +195,6 @@
 	}
 </script>
 
-<!-- Mobile Tab Bar -->
-{#if $isMobile && tabs.length > 0}
-	<div class="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-canvas border-b border-line overflow-x-auto no-scrollbar md:hidden">
-		{#each tabs as tab (tab.id)}
-			<div
-				role="tab"
-				tabindex="0"
-				class="flex-shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer
-					{tab.id === activeTabId
-						? 'bg-accent text-accent-contrast'
-						: 'bg-surface-2 text-fg-muted hover:text-fg'}"
-				on:click={() => setActiveTab(tab.id)}
-				on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveTab(tab.id); } }}
-			>
-				{#if tab.generation.isGenerating}
-					<span class="w-1.5 h-1.5 rounded-full bg-warning animate-pulse flex-shrink-0"></span>
-				{/if}
-				<span class="truncate max-w-[80px]">{tab.name}</span>
-				{#if tabs.length > 1}
-					<Tooltip text="Close tab" kbd={$shortcutLabels['close_tab']} position="top" delay={150}>
-						<button
-							type="button"
-							class="ml-0.5 p-0.5 rounded-full hover:bg-surface-3/50 {tab.id === activeTabId ? 'hover:bg-accent-hover' : ''}"
-							on:click|stopPropagation={() => removeTab(tab.id)}
-							aria-label="Close tab"
-						>
-							<svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12" />
-							</svg>
-						</button>
-					</Tooltip>
-				{/if}
-			</div>
-		{/each}
-		<Tooltip text="New tab" kbd={$shortcutLabels['new_tab']} position="top" delay={150}>
-			<button
-				type="button"
-				class="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full bg-surface-2 text-fg-subtle hover:text-fg transition-colors"
-				on:click={addTab}
-				aria-label="New tab"
-			>
-				<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4" />
-				</svg>
-			</button>
-		</Tooltip>
-	</div>
-{/if}
 
 <!-- Generation Tab Bar at Top (Desktop) -->
 <div class="tab-bar-container flex-shrink-0 hidden md:block">

@@ -19,13 +19,10 @@
 	import { dispatchGenerationMessage } from '$lib/stores/generation';
 	import GenerationPanel from '$lib/components/GenerationPanel.svelte';
 	import type DynamicForm from '$lib/components/DynamicForm.svelte';
-	import SessionPill from '$lib/components/session/SessionPill.svelte';
 	import TabBar from './components/TabBar.svelte';
-	import PromptSection from './components/PromptSection.svelte';
 	import GenerationPanels from './components/GenerationPanels.svelte';
 	import PresetControls from './components/PresetControls.svelte';
-	import GenerationFormPane from './components/GenerationFormPane.svelte';
-	import GenerationWorkbenchPane from './components/GenerationWorkbenchPane.svelte';
+	import StudioView from './components/studio/StudioView.svelte';
 	import { resolveNegativeApplicability } from '$lib/generation/negativeApplied';
 	import { leadIndex } from '$lib/generation/leadFile';
 	import { normalizeFileType } from '$lib/utils/fileType';
@@ -38,7 +35,6 @@
 	import { keybindingsStore } from '$lib/stores/keybindings';
 	import { isMobile, viewportWidth } from '$lib/stores/viewport';
 	import { settingsPaneWidth } from '$lib/stores/generationLayout';
-	import UnifiedAIChat from '$lib/components/UnifiedAIChat.svelte';
 	import { resolveDirectorCapabilities, normalizeDirectorValue, validateDirector, buildDirectorSubmission, representativeDirectorPrompt, dereferenceFormMediaRefs, seedDirectorPromptFromLegacyText } from '$lib/utils/videoDirector';
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';
 	import { resolveMusicDirectorCapabilities, normalizeMusicDirectorValue, validateMusicDirector, buildMusicDirectorSubmission } from '$lib/utils/musicDirector';
@@ -85,88 +81,6 @@
 		}
 	}
 
-	// Mobile swipe panel state (0 = preset/session, 1 = form, 2 = generation, 3 = LLM chat)
-	const MOBILE_PANEL_COUNT = 4;
-	let mobilePanel = 2;
-	let touchStartX = 0;
-	let touchStartY = 0;
-	let touchDeltaX = 0;
-	let isSwiping = false;
-	const SWIPE_THRESHOLD = 50;
-
-	let swipeEligible = true;
-
-	// A horizontal drag inside these targets is the target's own gesture
-	// (slider drag, text selection, horizontal scroll) — never a panel swipe.
-	function swipeExempt(target: EventTarget | null): boolean {
-		if (!(target instanceof Element)) return false;
-		return !!target.closest(
-			'input, textarea, select, [contenteditable="true"], [data-no-swipe], .overflow-x-auto'
-		);
-	}
-
-	function handleTouchStart(e: TouchEvent) {
-		touchStartX = e.touches[0].clientX;
-		touchStartY = e.touches[0].clientY;
-		touchDeltaX = 0;
-		isSwiping = false;
-		swipeEligible = !swipeExempt(e.target);
-	}
-
-	function handleTouchMove(e: TouchEvent) {
-		const dx = e.touches[0].clientX - touchStartX;
-		const dy = e.touches[0].clientY - touchStartY;
-
-		if (!isSwiping && swipeEligible && Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) {
-			isSwiping = true;
-		}
-
-		if (isSwiping) {
-			e.preventDefault();
-			touchDeltaX = dx;
-		}
-	}
-
-	function handleTouchEnd() {
-		if (isSwiping) {
-			if (touchDeltaX > SWIPE_THRESHOLD && mobilePanel > 0) {
-				mobilePanel -= 1;
-			} else if (touchDeltaX < -SWIPE_THRESHOLD && mobilePanel < MOBILE_PANEL_COUNT - 1) {
-				mobilePanel += 1;
-			}
-		}
-		touchDeltaX = 0;
-		isSwiping = false;
-	}
-
-	// The browser fires touchcancel — not touchend — when it takes the gesture
-	// over mid-swipe (long-press text selection, notification shade, screenshot
-	// gesture). Without this reset the half-swiped transform stays latched and
-	// the carousel appears permanently misaligned.
-	function handleTouchCancel() {
-		touchDeltaX = 0;
-		isSwiping = false;
-	}
-
-	// Programmatic panel changes (indicator taps, auto-switch on submit) happen
-	// OUTSIDE the swipe container, so they must also discard any in-flight or
-	// stranded swipe delta — otherwise they jump panels but keep the offset.
-	function setMobilePanel(i: number) {
-		mobilePanel = i;
-		touchDeltaX = 0;
-		isSwiping = false;
-	}
-
-	// Off-screen panels (e.g. the LLM chat composer autofocusing its input on
-	// mount) can trigger the browser's default focus scroll-into-view even
-	// though this container never scrolls under user control. That latches a
-	// permanent scrollLeft the translateX carousel math never accounts for, so
-	// stamp it back to 0 the instant it happens.
-	let mobilePanelsContainer: HTMLDivElement;
-	function resetSwipeContainerScroll() {
-		if (mobilePanelsContainer.scrollLeft !== 0) mobilePanelsContainer.scrollLeft = 0;
-		if (mobilePanelsContainer.scrollTop !== 0) mobilePanelsContainer.scrollTop = 0;
-	}
 	let mounted = false;
 	let isLoading = false;
 	let canGenerate = false;
@@ -1342,11 +1256,6 @@
 					} : {})
 				});
 
-				// Auto-switch to generation panel on mobile
-				if ($isMobile) {
-					setMobilePanel(2);
-				}
-
 				// Subscribe to WebSocket updates — a queued generation gets
 				// `queue_update` messages the same way a running one gets
 				// `generation_status`/etc, so subscribe unconditionally.
@@ -1598,11 +1507,13 @@
 		<div class="flex-1 flex flex-col min-h-0" style="display: {isActive ? 'flex' : 'none'}">
 			{#if isActive}
 
-			{#snippet noSelectionState(mobile: boolean)}
+			{#snippet noSelectionState()}
 				<!-- Two dead ends collapse into this one snippet: an empty preset list
 					(nothing installed/assigned/usable — explained via readiness, role-aware)
-					vs. presets existing but nothing chosen yet (today's plain hint). -->
-				<div class="w-full {mobile ? 'px-6' : 'max-w-md'} text-center">
+					vs. presets existing but nothing chosen yet (today's plain hint).
+					Desktop-only since StudioView replaced the mobile carousel — mobile
+					handles "nothing selected" inline (disabled shutter + reason). -->
+				<div class="w-full max-w-md text-center">
 					{#if presets.length === 0}
 						<EmptyState
 							icon={presetsEmptyState.showSetupLink ? 'settings' : 'cube'}
@@ -1610,28 +1521,21 @@
 							description={presetsEmptyState.action
 								? `${presetsEmptyState.message} ${presetsEmptyState.action}`
 								: presetsEmptyState.message}
-							compact={mobile}
 						>
 							{#snippet actions()}
 								{#if presetsEmptyState.showSetupLink}
-									<Button variant="primary" size={mobile ? 'sm' : 'md'} href="/setup" icon="arrow-right">
+									<Button variant="primary" size="md" href="/setup" icon="arrow-right">
 										Go to Setup
 									</Button>
 								{/if}
 							{/snippet}
 						</EmptyState>
 					{:else}
-						{#if !mobile}
-							<svg class="w-20 h-20 mx-auto text-fg-subtle mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-							</svg>
-							<h3 class="text-xl font-semibold text-fg mb-2">Ready to generate</h3>
-						{:else}
-							<svg class="w-12 h-12 mx-auto text-fg-subtle mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
-							</svg>
-						{/if}
-						<p class={mobile ? 'text-fg-muted text-sm' : 'text-fg-muted mb-4'}>
+						<svg class="w-20 h-20 mx-auto text-fg-subtle mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+						</svg>
+						<h3 class="text-xl font-semibold text-fg mb-2">Ready to generate</h3>
+						<p class="text-fg-muted mb-4">
 							{#if !tab.selectedPreset && !tab.selectedMode}
 								Select a preset and mode to start generating
 							{:else if !tab.selectedPreset}
@@ -1640,16 +1544,12 @@
 								Select a mode to continue
 							{/if}
 						</p>
-						{#if mobile}
-							<button type="button" class="mt-3 text-xs text-fg-subtle underline" on:click={() => setMobilePanel(0)}>Go to Preset</button>
-						{:else}
-							<div class="inline-flex items-center gap-2 px-4 py-2 bg-surface-1/50 border border-line-strong/50 rounded-lg text-sm text-fg-muted">
-								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-								</svg>
-								Use the selectors above to get started
-							</div>
-						{/if}
+						<div class="inline-flex items-center gap-2 px-4 py-2 bg-surface-1/50 border border-line-strong/50 rounded-lg text-sm text-fg-muted">
+							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+							</svg>
+							Use the selectors above to get started
+						</div>
 					{/if}
 				</div>
 			{/snippet}
@@ -1657,186 +1557,32 @@
 			<!-- Main Content Area -->
 			<div class="flex-1 min-h-0 overflow-hidden">
 				{#if $isMobile}
-					<!-- Mobile: Swipeable three-panel layout -->
-					<div class="flex flex-col h-full">
-						<!-- Panel indicator bar -->
-						<div class="flex-shrink-0 flex items-center bg-surface-1 border-b border-line">
-							<button
-								type="button"
-								class="flex-1 py-2.5 text-xs font-medium text-center transition-colors relative
-									{mobilePanel === 0 ? 'text-signal' : 'text-fg-subtle'}"
-								on:click={() => setMobilePanel(0)}
-							>
-								<span class="flex items-center justify-center gap-1.5">
-									<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M6 13.5V3.75m0 9.75a1.5 1.5 0 010 3m0-3a1.5 1.5 0 000 3m0 3.75V16.5m12-3V3.75m0 9.75a1.5 1.5 0 010 3m0-3a1.5 1.5 0 000 3m0 3.75V16.5m-6-9V3.75m0 3.75a1.5 1.5 0 010 3m0-3a1.5 1.5 0 000 3m0 9.75V10.5" />
-									</svg>
-									Preset
-								</span>
-								{#if mobilePanel === 0}
-									<span class="absolute bottom-0 left-0 right-0 h-0.5 bg-signal rounded-t"></span>
-								{/if}
-							</button>
-							<button
-								type="button"
-								class="flex-1 py-2.5 text-xs font-medium text-center transition-colors relative
-									{mobilePanel === 1 ? 'text-signal' : 'text-fg-subtle'}"
-								on:click={() => setMobilePanel(1)}
-							>
-								<span class="flex items-center justify-center gap-1.5">
-									<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
-									</svg>
-									Form
-								</span>
-								{#if mobilePanel === 1}
-									<span class="absolute bottom-0 left-0 right-0 h-0.5 bg-signal rounded-t"></span>
-								{/if}
-							</button>
-							<button
-								type="button"
-								class="flex-1 py-2.5 text-xs font-medium text-center transition-colors relative
-									{mobilePanel === 2 ? 'text-signal' : 'text-fg-subtle'}"
-								on:click={() => setMobilePanel(2)}
-							>
-								<span class="flex items-center justify-center gap-1.5">
-									<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
-									</svg>
-									Generate
-								</span>
-								{#if mobilePanel === 2}
-									<span class="absolute bottom-0 left-0 right-0 h-0.5 bg-signal rounded-t"></span>
-								{/if}
-							</button>
-							<button
-								type="button"
-								class="flex-1 py-2.5 text-xs font-medium text-center transition-colors relative
-									{mobilePanel === 3 ? 'text-signal' : 'text-fg-subtle'}"
-								on:click={() => setMobilePanel(3)}
-							>
-								<span class="flex items-center justify-center gap-1.5">
-									<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 01-.825-.242m9.345-8.334a2.126 2.126 0 00-.476-.095 48.64 48.64 0 00-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0011.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155" />
-									</svg>
-									LLM
-								</span>
-								{#if mobilePanel === 3}
-									<span class="absolute bottom-0 left-0 right-0 h-0.5 bg-signal rounded-t"></span>
-								{/if}
-							</button>
-						</div>
-
-						<!-- Swipeable panels container -->
-						<!-- touch-action: pan-y — vertical scrolling stays native, horizontal
-							is ours, and fewer gestures escalate into a touchcancel. -->
-						<div
-							class="flex-1 overflow-hidden relative min-h-0 touch-pan-y"
-							role="region"
-							aria-label="Swipeable panels"
-							bind:this={mobilePanelsContainer}
-							on:touchstart={handleTouchStart}
-							on:touchmove={handleTouchMove}
-							on:touchend={handleTouchEnd}
-							on:touchcancel={handleTouchCancel}
-							on:scroll={resetSwipeContainerScroll}
-						>
-							<!-- Geometry is container-relative on purpose: 100vw panels drift
-								out of alignment whenever the layout viewport ≠ container width
-								(scrollbar gutter, iOS focus zoom). 25% of the 400%-wide track
-								is exactly one container width. -->
-							<div
-								class="mobile-panels-track flex h-full"
-								style="transform: translateX(calc({-mobilePanel * 25}% + {isSwiping ? touchDeltaX : 0}px));
-									transition: {isSwiping ? 'none' : 'transform 0.3s ease'};"
-							>
-								<!-- Panel 0: Preset / Session / Mode -->
-								<div class="mobile-panel overflow-y-auto">
-									<div class="flex flex-col gap-3 p-4">
-										<PresetControls
-											{tab}
-											{presets}
-											{readiness}
-											{isLoading}
-											isReloading={isReloadingPreset && tab.id === activeTabId}
-											availableModes={tabModes.map((m) => ({ id: m.name, label: m.label, variants: m.variants, sourcePlugin: m.source_plugin }))}
-											onPresetChange={(id) => tabHandlers.handlePresetChange(id)}
-											onModeChange={(mode) => tabHandlers.handleModeChange(mode)}
-											onVariantChange={(variant) => tabHandlers.handleVariantChange(variant)}
-											onReload={() => handlePresetReload(tab.id, tab.selectedPreset)}
-										/>
-										<SessionPill
-											presetId={tab.selectedPreset}
-											currentMode={tab.selectedMode}
-											tabId={tab.id}
-											presetVersion={presets.find((p: any) => p.id === tab.selectedPreset)?.version}
-											availableModes={tabModes.map((m) => ({ id: m.name, variants: m.variants }))}
-										/>
-									</div>
-								</div>
-
-								<!-- Panel 1: Form -->
-							<div class="mobile-panel overflow-y-auto">
-								{#if tab.selectedPreset && tab.selectedMode}
-							<div class="p-4 pb-32">
-											<GenerationFormPane
-												bind:formRef={dynamicFormRefs[tab.id]}
-												{tab}
-												{videoDirectorActive}
-												onFormDataChange={(data) => handleFormDataChange(tab.id, data)}
-											/>
-										</div>
-									{:else}
-										<div class="flex items-center justify-center h-full">
-											{@render noSelectionState(true)}
-										</div>
-									{/if}
-								</div>
-
-								<!-- Panel 2: Generation (Workbench + Prompts) -->
-								<div class="mobile-panel overflow-y-auto">
-									{#if tab.selectedPreset && tab.selectedMode}
-										<div class="p-4 pb-32">
-											{#if isActive}
-												<GenerationWorkbenchPane
-													{tab}
-													onWorkbenchPrevious={handleWorkbenchPrevious}
-													onWorkbenchNext={handleWorkbenchNext}
-													onWorkbenchHeightChange={handleWorkbenchHeightChange}
-													onMoveToWorkbench={handleMoveToWorkbench}
-												/>
-											{/if}
-
-											{#if !promptlessActive}
-												<PromptSection
-													{tab}
-													{tabHandlers}
-													{promptRelayActive}
-													{videoDirectorActive}
-													{videoDirectorCaps}
-													{musicDirectorActive}
-													{musicDirectorCaps}
-													{numPrompts}
-													{negativePromptSupported}
-													{negativeInert}
-													spacingClass="mt-4"
-												/>
-											{/if}
-										</div>
-									{:else}
-										<div class="flex items-center justify-center h-full">
-											{@render noSelectionState(true)}
-										</div>
-									{/if}
-								</div>
-
-								<!-- Panel 3: LLM Chat -->
-					<div class="mobile-panel flex flex-col overflow-hidden">
-						<UnifiedAIChat />
-					</div>
-							</div>
-						</div>
-					</div>
+					<StudioView
+						{tab}
+						{tabHandlers}
+						{presets}
+						{readiness}
+						{isLoading}
+						isReloadingPreset={isReloadingPreset && tab.id === activeTabId}
+						{tabModes}
+						{startGeneration}
+						{cancelGeneration}
+						{canGenerate}
+						{generateDisabledReason}
+						{promptRelayActive}
+						{videoDirectorActive}
+						{videoDirectorCaps}
+						{musicDirectorActive}
+						{musicDirectorCaps}
+						{numPrompts}
+						{negativePromptSupported}
+						{negativeInert}
+						{promptlessActive}
+						{dynamicFormRefs}
+						onFormDataChange={(data) => handleFormDataChange(tab.id, data)}
+						onReload={() => handlePresetReload(tab.id, tab.selectedPreset)}
+						onMoveToWorkbench={handleMoveToWorkbench}
+					/>
 				{:else if !tab.selectedPreset || !tab.selectedMode}
 					<!-- Desktop: Placeholder when preset/mode not selected. The preset
 						card still needs to be reachable before either is chosen, so it
@@ -1863,7 +1609,7 @@
 							/>
 						</div>
 						<div class="flex flex-1 items-center justify-center">
-							{@render noSelectionState(false)}
+							{@render noSelectionState()}
 						</div>
 					</div>
 				{:else}
@@ -1965,90 +1711,9 @@
 	</div>
 	{/if}
 
-	<!-- Mobile generation transport. Shown on the Form and Generate panels —
-		the two places the user is when they want to fire or cancel a run.
-		Anchored above the fixed bottom tab bar (4rem + safe-area). -->
-	{#if $isMobile && (mobilePanel === 1 || mobilePanel === 2)}
-		<div class="fixed bottom-[calc(4.75rem_+_env(safe-area-inset-bottom))] left-3 right-3 z-40 overflow-hidden rounded-xl border border-line-strong bg-surface-1 shadow-floating md:hidden">
-			<div class="absolute inset-x-0 top-0 h-1 bg-surface-3 overflow-hidden">
-				{#if isGenerating}
-					{#if generation.currentProgress?.progress != null}
-						<div class="h-full bg-accent" style="width: {generation.currentProgress.progress * 100}%; transition: width 150ms var(--ease-out-quart);"></div>
-					{:else}
-						<!-- The active stage hasn't reported a fraction yet (e.g. a cold
-						     model load) - a sliding bar reads as "still working", a bar
-						     stuck at 0% reads as hung. -->
-						<div class="h-full w-1/3 bg-accent progress-indeterminate"></div>
-					{/if}
-				{/if}
-			</div>
-			<div class="flex h-16 items-center gap-3 px-3 pt-1">
-				<span class="h-2.5 w-2.5 flex-shrink-0 rounded-full {isGenerating ? "bg-accent animate-pulse" : "bg-success"}"></span>
-				<div class="min-w-0 flex-1">
-					<p class="truncate text-sm font-medium text-fg">{isGenerating ? "Generating" : !canGenerate && generateDisabledReason ? "Can't generate yet" : "Ready to generate"}</p>
-					<p class="truncate font-mono text-2xs tabular-nums text-fg-subtle">
-						{#if isGenerating}
-							{#if generation.currentProgress?.progress != null}
-								{Math.round(generation.currentProgress.progress * 100)}%
-							{:else}
-								Working…
-							{/if}
-							{#if generation.queue?.length} · {generation.queue.length} {generation.queue.length === 1 ? "job" : "jobs"}{/if}
-						{:else if !canGenerate && generateDisabledReason}
-							{generateDisabledReason}
-						{:else}
-							Configure the prompt and settings
-						{/if}
-					</p>
-				</div>
-				<button
-					type="button"
-					on:click={isGenerating ? cancelGeneration : startGeneration}
-					disabled={!isGenerating && !canGenerate}
-					class="inline-flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full transition-colors active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 {isGenerating ? "bg-danger-solid text-white" : "bg-accent text-accent-contrast"}"
-					aria-label={isGenerating ? "Cancel generation" : !canGenerate && generateDisabledReason ? generateDisabledReason : "Generate"}
-				>
-					{#if isGenerating}
-						<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
-					{:else}
-						<svg class="h-5 w-5 translate-x-px" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5.8v12.4c0 .8.9 1.3 1.6.9l9.7-6.2a1 1 0 000-1.8L8.6 4.9A1 1 0 007 5.8z" /></svg>
-					{/if}
-				</button>
-			</div>
-		</div>
-	{/if}
 </div>
 
 <style>
-	/* Mobile swipeable panels */
-	.mobile-panels-track {
-		width: 400%;
-		will-change: transform;
-	}
-
-	/* Indeterminate progress: no known fraction yet, so slide a fixed-width
-	   segment instead of pinning the bar at 0% (reads as hung, not working). */
-	.progress-indeterminate {
-		animation: progress-indeterminate-slide 1.2s ease-in-out infinite;
-	}
-
-	@keyframes progress-indeterminate-slide {
-		0% {
-			transform: translateX(-100%);
-		}
-		100% {
-			transform: translateX(300%);
-		}
-	}
-
-	.mobile-panel {
-		min-width: 25%;
-		max-width: 25%;
-		width: 25%;
-		flex-shrink: 0;
-		height: 100%;
-	}
-
 	/* Custom scrollbar for panels */
 	:global(.overflow-y-auto) {
 		scrollbar-width: thin;

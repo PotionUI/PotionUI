@@ -1,12 +1,14 @@
 # Builds docker/Dockerfile (the single-process distribution image) and
-# publishes it to GHCR as ghcr.io/<owner>/<repo>.
+# docker/worker.Dockerfile (the RunPod Remote Native worker image), and
+# publishes them to GHCR as ghcr.io/<owner>/<repo> and
+# ghcr.io/<owner>/<repo>-worker respectively.
 #
 # Runs on version tags (v0.1.0 -> :0.1.0 + :latest) and on manual dispatch
-# (-> :sha-<commit>, no :latest) — never on plain pushes: the image is
-# multi-GB and takes ~half an hour, so it is a release artifact, not CI.
+# (-> :sha-<commit>, no :latest) — never on plain pushes: both images are
+# multi-GB and take a while to build, so this is a release artifact, not CI.
 #
 # No secrets needed: GITHUB_TOKEN with `packages: write` authenticates to
-# GHCR. The image inherits the repository's visibility the first time it is
+# GHCR. Each image inherits the repository's visibility the first time it is
 # pushed (public repo -> public package), so users can `docker pull` it with
 # no login.
 
@@ -22,16 +24,26 @@ permissions:
   packages: write
 
 jobs:
-  distribution-image:
-    name: build + push distribution image
+  build:
+    name: build + push ${{ matrix.name }} image
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    strategy:
+      matrix:
+        include:
+          - name: distribution
+            dockerfile: docker/Dockerfile
+            suffix: ""
+          - name: worker
+            dockerfile: docker/worker.Dockerfile
+            suffix: "-worker"
     steps:
       - uses: actions/checkout@v4
 
       # The CUDA torch stack makes this a >10GB image and the default runner
       # only has ~20GB free. Dropping the preinstalled toolchains this build
-      # never touches frees ~25GB more.
+      # never touches frees ~25GB more. Both images install the same
+      # constraints.txt-pinned torch stack, so both need this.
       - name: Free runner disk space
         run: |
           df -h /
@@ -54,13 +66,13 @@ jobs:
       # below is built by hand.
       - name: Compute lowercase image name
         id: image
-        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}${{ matrix.suffix }}" >> "$GITHUB_OUTPUT"
 
       - name: Docker metadata (tags + OCI labels)
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository }}
+          images: ghcr.io/${{ github.repository }}${{ matrix.suffix }}
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -75,7 +87,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: docker/Dockerfile
+          file: ${{ matrix.dockerfile }}
           platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}

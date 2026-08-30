@@ -179,10 +179,17 @@ docker/
 
 Supported. A reference image for the Remote Native worker
 (`worker.py`, [`docs/remote-native.md`](../docs/remote-native.md)) that the
-`runpod-provider` plugin (distributed separately, not part of this
-repository) points a RunPod GPU Pod at. Unlike `Dockerfile.dev` above, this image runs no
-frontend and no PotionUI database - just `worker.py`, speaking worker
-protocol v1 over HTTP+SSE.
+`runpod-provider` plugin points a RunPod GPU Pod at. Unlike `Dockerfile.dev`
+above, this image runs no frontend and no PotionUI database - just
+`worker.py`, speaking worker protocol v1 over HTTP+SSE.
+
+Published by CI on every version tag, same as the distribution image above:
+`ghcr.io/potionui/potionui-worker:latest`. The `runpod-provider` plugin's
+worker-image setting defaults to that reference, so a stock install needs no
+manual build or push.
+
+Building your own image is still an option - for a fork, or to pin a specific
+commit ahead of the next tagged release:
 
 ```bash
 # from the repo root
@@ -190,13 +197,10 @@ docker build -f docker/worker.Dockerfile -t <registry>/<image>:<tag> .
 docker push <registry>/<image>:<tag>
 ```
 
-`<registry>/<image>:<tag>` is deliberately not filled in here - which
-registry (Docker Hub, GHCR, a private one) and account to push to is the
-operator's choice, made once, and then entered as the provider plugin's
-worker-image setting (Admin -> Plugins). RunPod
-must be able to pull the reference: a public registry needs nothing further;
-a private one needs a RunPod Container Registry Auth entry, which this
-plugin does not manage.
+Then point the provider plugin's worker-image setting (Admin -> Plugins) at
+that reference instead of the default. RunPod must be able to pull it: a
+public registry needs nothing further; a private one needs a RunPod
+Container Registry Auth entry, which this plugin does not manage.
 
 The image itself never bakes in `POTIONUI_WORKER_TOKEN` or any other
 per-deployment secret - those are supplied as Pod environment variables at

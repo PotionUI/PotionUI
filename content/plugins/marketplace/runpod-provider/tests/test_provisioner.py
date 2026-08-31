@@ -10,6 +10,8 @@ import pytest
 
 import backend.provisioner as provisioner_module
 import backend.resources as resources_module
+from backend.catalog_client import DataCenter as LiveDataCenter
+from backend.catalog_client import GpuAvailability, RunPodCatalogError
 from backend.client import NetworkVolume, Pod
 from backend.provisioner import RunpodComputeProvisioner
 from backend.resources import RunPodResourceManager
@@ -112,6 +114,19 @@ def repo():
     })
 
 
+@pytest.fixture(autouse=True)
+def catalog_offline(monkeypatch):
+    """Every test gets the pre-live-catalog behavior (static fallback) by
+    default and never touches the network - `describe_fields` tests that
+    want the live catalog instead monkeypatch `catalog_client.get_catalog`
+    again inside the test body."""
+
+    async def _raise(api_key, **kwargs):
+        raise RunPodCatalogError("catalog unavailable in tests")
+
+    monkeypatch.setattr(provisioner_module.catalog_client, "get_catalog", _raise)
+
+
 @pytest.fixture
 def provisioner(resources, repo, monkeypatch):
     FakeRunPodClient.instances = []
@@ -155,6 +170,103 @@ async def test_describe_fields_data_center_has_no_default_when_region_setting_is
 
     by_key = {f.key: f for f in fields}
     assert by_key["data_center_id"].default is None
+
+
+async def test_describe_fields_gpu_type_declares_it_depends_on_data_center(provisioner):
+    # True both on the static-catalog fallback (exercised by every other test
+    # via the autouse `catalog_offline` fixture) and on the live-catalog path.
+    fields = await provisioner.describe_fields()
+
+    by_key = {f.key: f for f in fields}
+    assert by_key["gpu_type_id"].depends_on == ["data_center_id"]
+
+
+async def test_describe_fields_falls_back_to_static_catalogs_when_graphql_fails(provisioner):
+    # `catalog_offline` (autouse) already makes `get_catalog` raise - this
+    # test pins down the fallback's user-visible shape rather than relying
+    # on the other tests' incidental assertions.
+    fields = await provisioner.describe_fields({"data_center_id": "US-TX-3"})
+
+    by_key = {f.key: f for f in fields}
+    assert "static catalog" in by_key["data_center_id"].help_text
+    assert "static catalog" in by_key["gpu_type_id"].help_text
+    # The static GPU catalog isn't scoped by data center, so it stays the
+    # full unfiltered list even with a data center chosen.
+    assert len(by_key["gpu_type_id"].options) > 1
+
+
+def _fake_live_catalog(monkeypatch):
+    data_centers = [
+        LiveDataCenter(
+            id="EU-NL-1",
+            name="Amsterdam",
+            location="Netherlands",
+            gpus=[
+                GpuAvailability(
+                    gpu_type_id="NVIDIA GeForce RTX 4090",
+                    gpu_type_display_name="RTX 4090",
+                    stock_status="High",
+                    memory_gb=24,
+                ),
+                GpuAvailability(
+                    gpu_type_id="NVIDIA H100 80GB HBM3",
+                    gpu_type_display_name="H100 80GB",
+                    stock_status="None",
+                    memory_gb=80,
+                ),
+            ],
+        ),
+        LiveDataCenter(id="US-TX-3", name="Texas", location="United States", gpus=[]),
+    ]
+
+    async def _get_catalog(api_key, **kwargs):
+        return data_centers
+
+    monkeypatch.setattr(provisioner_module.catalog_client, "get_catalog", _get_catalog)
+    return data_centers
+
+
+async def test_describe_fields_data_center_options_come_from_the_live_catalog(provisioner, monkeypatch):
+    _fake_live_catalog(monkeypatch)
+
+    fields = await provisioner.describe_fields()
+
+    by_key = {f.key: f for f in fields}
+    values = {o.value for o in by_key["data_center_id"].options}
+    assert values == {"EU-NL-1", "US-TX-3"}
+    assert any(o.value == "EU-NL-1" and o.detail == "Netherlands" for o in by_key["data_center_id"].options)
+
+
+async def test_describe_fields_gpu_type_is_empty_until_a_data_center_is_chosen(provisioner, monkeypatch):
+    _fake_live_catalog(monkeypatch)
+
+    fields = await provisioner.describe_fields()
+
+    by_key = {f.key: f for f in fields}
+    assert by_key["gpu_type_id"].options == []
+    assert "data center" in by_key["gpu_type_id"].help_text.lower()
+
+
+async def test_describe_fields_gpu_type_scopes_to_the_chosen_data_center_and_excludes_out_of_stock(
+    provisioner, monkeypatch
+):
+    _fake_live_catalog(monkeypatch)
+
+    fields = await provisioner.describe_fields({"data_center_id": "EU-NL-1"})
+
+    by_key = {f.key: f for f in fields}
+    options = by_key["gpu_type_id"].options
+    assert [o.value for o in options] == ["NVIDIA GeForce RTX 4090"]
+    assert options[0].detail == "24 GB · High stock"
+
+
+async def test_describe_fields_gpu_type_is_empty_for_a_data_center_with_no_stock(provisioner, monkeypatch):
+    _fake_live_catalog(monkeypatch)
+
+    fields = await provisioner.describe_fields({"data_center_id": "US-TX-3"})
+
+    by_key = {f.key: f for f in fields}
+    assert by_key["gpu_type_id"].options == []
 
 
 async def test_provision_returns_connection_details_with_handle_as_profile_name(provisioner):

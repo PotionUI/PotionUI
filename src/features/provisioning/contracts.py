@@ -15,7 +15,7 @@ stores and echoes it back.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, ClassVar, Dict, List, Optional
 
 
@@ -47,6 +47,13 @@ class ComputeFieldDescriptorV1:
     default: Optional[Any] = None
     help_text: Optional[str] = None
     options: Optional[List[ComputeFieldOptionV1]] = None
+    # Keys of other fields this one's own descriptor (options, in practice)
+    # depends on - e.g. a "gpu_type_id" select whose choices narrow once a
+    # "data_center" field is picked. Purely advisory for the admin UI (which
+    # fields to resubmit `values` for as the user fills the form); the actual
+    # resolution happens in `describe_fields(values)` below, keyed by field
+    # name, not by this list.
+    depends_on: List[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -100,12 +107,20 @@ class ComputeProvisioner(ABC):
     label: ClassVar[str] = ""
 
     @abstractmethod
-    async def describe_fields(self) -> List[ComputeFieldDescriptorV1]:
+    async def describe_fields(
+        self, values: Optional[Dict[str, Any]] = None
+    ) -> List[ComputeFieldDescriptorV1]:
         """Describe this provider's own `provision()` inputs for the admin UI
         (e.g. a `gpu_type` select sourced from this provider's own catalog, a
         `volume_size_gb` number). Core validates a provision request's
         `values` against these descriptors before calling `provision()` -
-        the provisioner never sees an unvalidated value."""
+        the provisioner never sees an unvalidated value.
+
+        `values` is whatever the form has been filled in with so far
+        (possibly partial, possibly empty) - a provisioner whose descriptors
+        declare `depends_on` uses it to resolve a dependent field's options
+        (e.g. narrowing `gpu_type_id`'s choices once `data_center` is
+        picked). A provisioner with no dependent fields ignores it."""
 
     @abstractmethod
     async def provision(self, request: ProvisionRequest) -> ProvisionResult:

@@ -12,7 +12,7 @@ from src.features.backends.routes import BackendController
 from src.platform.http.base_controller import APIResponse
 from src.features.backends.backend_config import (
     BackendConfigStore, BackendHealth, BackendStatus, NATIVE_ENGINE,
-    BaseBackendConfig, NativeBackendConfig
+    BaseBackendConfig, NativeBackendConfig, NativeRemoteBackendConfig
 )
 from src.features.backends.backend_registry import BackendRegistry
 from src.platform.runtime.native.optimizations.catalog import OptimizationStatus, Requirement
@@ -740,6 +740,90 @@ class TestBackendSecretRedaction:
 
         merged = controller.backend_config_store.validate_backend_config.call_args[0][0]
         assert merged["api_key"] == "rotated-key"
+
+
+class TestRemoteBackendConfiguredGuard:
+    """A `native.remote` backend may be saved with no worker URL/token (see
+    `NativeRemoteBackendConfig.is_configured`) - but it must never come back
+    enabled while it is. Create silently forces it off; update rejects an
+    explicit attempt to turn it on."""
+
+    @pytest.fixture
+    def controller(self):
+        settings = Mock(spec=Settings)
+        backend_config_store = Mock(spec=BackendConfigStore)
+        backend_config_store.get_default_backend_ids.return_value = {}
+        backend_registry = Mock(spec=BackendRegistry)
+        backend_registry.refresh_backends = AsyncMock()
+        backend_registry.backend_config_store = backend_config_store
+        return BackendController(settings, backend_registry)
+
+    @pytest.mark.asyncio
+    async def test_create_unconfigured_remote_forces_disabled(self, controller):
+        # The client asked for enabled=True, but base_url/worker_token are
+        # blank - validate_backend_config would happily construct this
+        # (both fields are optional now), so the controller must catch it.
+        unconfigured = NativeRemoteBackendConfig(id="remote-1", name="RunPod A100", enabled=True)
+        controller.backend_config_store.validate_backend_config.return_value = unconfigured
+
+        response = await controller.create_backend(
+            {"id": "remote-1", "name": "RunPod A100", "engine": "native", "driver": "native.remote", "enabled": True}
+        )
+
+        assert response.success is True
+        assert response.data["enabled"] is False
+        assert response.data["configured"] is False
+        added = controller.backend_config_store.add_backend.call_args[0][0]
+        assert added.enabled is False
+
+    @pytest.mark.asyncio
+    async def test_create_configured_remote_stays_enabled(self, controller):
+        configured = NativeRemoteBackendConfig(
+            id="remote-1", name="RunPod A100", base_url="http://10.0.0.5:8100",
+            worker_token="tok-abc", enabled=True,
+        )
+        controller.backend_config_store.validate_backend_config.return_value = configured
+
+        response = await controller.create_backend({
+            "id": "remote-1", "name": "RunPod A100", "engine": "native", "driver": "native.remote",
+            "base_url": "http://10.0.0.5:8100", "worker_token": "tok-abc", "enabled": True,
+        })
+
+        assert response.data["enabled"] is True
+        assert response.data["configured"] is True
+
+    @pytest.mark.asyncio
+    async def test_update_enabling_an_unconfigured_remote_is_rejected(self, controller):
+        existing = NativeRemoteBackendConfig(id="remote-1", name="RunPod A100", enabled=False)
+        attempted = NativeRemoteBackendConfig(id="remote-1", name="RunPod A100", enabled=True)
+        controller.backend_config_store.get_backend.return_value = existing
+        controller.backend_config_store.validate_backend_config.return_value = attempted
+
+        with pytest.raises(HTTPException) as exc_info:
+            await controller.update_backend("remote-1", {"enabled": True})
+
+        assert exc_info.value.status_code == 400
+        assert exc_info.value.detail["error"] == "backend_validation_failed"
+        assert "connect or provision" in exc_info.value.detail["message"].lower()
+        controller.backend_config_store.update_backend.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_update_enabling_a_configured_remote_succeeds(self, controller):
+        existing = NativeRemoteBackendConfig(
+            id="remote-1", name="RunPod A100", base_url="http://10.0.0.5:8100",
+            worker_token="tok-abc", enabled=False,
+        )
+        attempted = NativeRemoteBackendConfig(
+            id="remote-1", name="RunPod A100", base_url="http://10.0.0.5:8100",
+            worker_token="tok-abc", enabled=True,
+        )
+        controller.backend_config_store.get_backend.return_value = existing
+        controller.backend_config_store.validate_backend_config.return_value = attempted
+
+        response = await controller.update_backend("remote-1", {"enabled": True})
+
+        assert response.data["enabled"] is True
+        controller.backend_config_store.update_backend.assert_called_once_with("remote-1", attempted)
 
 
 class TestBackendRequestShape:

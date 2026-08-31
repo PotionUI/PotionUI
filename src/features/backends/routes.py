@@ -43,16 +43,20 @@ def _is_blank_secret(value: Any) -> bool:
 
 
 def _redacted_backend_dump(backend) -> Dict[str, Any]:
-    """model_dump() with every secret-marked field removed.
+    """model_dump() with every secret-marked field removed, plus `configured`.
 
     Each secret `foo` is replaced by a boolean `has_foo` so the UI can show
     "configured / not configured" without ever receiving the credential.
+    `configured` (see `BaseBackendConfig.is_configured`) is the same idea one
+    level up: whether the backend has everything it needs to actually run,
+    not just whether a credential happens to be non-blank.
     """
     data = backend.model_dump()
     for name in type(backend).secret_field_names():
         present = not _is_blank_secret(data.get(name))
         data.pop(name, None)
         data[f"has_{name}"] = present
+    data["configured"] = backend.is_configured()
     return data
 
 
@@ -261,6 +265,13 @@ class BackendController(BaseController):
             # Validate and parse backend configuration
             backend_config = self.backend_config_store.validate_backend_config(backend_data)
 
+            # An unconfigured backend (e.g. a native.remote row created ahead
+            # of provisioning it) is legal to save, but never legal to enable -
+            # force it off rather than reject the create outright, since
+            # "create now, connect later" is exactly the flow this allows.
+            if backend_config.enabled and not backend_config.is_configured():
+                backend_config.enabled = False
+
             # Add the backend
             self.backend_config_store.add_backend(backend_config)
 
@@ -335,6 +346,13 @@ class BackendController(BaseController):
                     merged[name] = existing_dump.get(name)
 
             backend_config = self.backend_config_store.validate_backend_config(merged)
+
+            # Unlike create (which silently forces enabled off), an explicit
+            # attempt to enable an unconfigured backend here is a mistake the
+            # admin should hear about - most likely a stale form flipping the
+            # toggle before the connection fields were actually filled in.
+            if backend_config.enabled and not backend_config.is_configured():
+                raise ValueError("Connect or provision this backend before enabling it.")
 
             # Update the backend
             self.backend_config_store.update_backend(backend_id, backend_config)

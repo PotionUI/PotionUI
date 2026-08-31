@@ -6,7 +6,7 @@ provider's credits is not a regular-user action (mirrors the former
 this is where provisioning lives).
 """
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict
 
 from fastapi import APIRouter, Depends
 
@@ -16,9 +16,12 @@ from src.platform.security.user import User
 from src.features.backends.backend_registry import BackendRegistry
 from src.features.provisioning import operations
 from src.features.provisioning.contracts import ComputeProvisionerError
-from src.features.provisioning.dto import ProvisionComputeRequest
+from src.features.provisioning.dto import ProviderFieldsRequest, ProvisionComputeRequest
 from src.features.provisioning.operations import (
+    BackendAlreadyProvisionedError,
+    BackendNotFoundError,
     InvalidProvisionValuesError,
+    NotARemoteBackendError,
     ProvisionedComputeNotFoundError,
     UnknownProviderError,
 )
@@ -37,6 +40,7 @@ def _field_dict(descriptor) -> dict:
         "required": descriptor.required,
         "default": descriptor.default,
         "help_text": descriptor.help_text,
+        "depends_on": list(descriptor.depends_on),
         "options": [
             {"value": o.value, "label": o.label, "detail": o.detail}
             for o in descriptor.options
@@ -65,9 +69,9 @@ class ProvisioningController(BaseController):
             ]
         })
 
-    async def describe_fields(self, provider_id: str) -> APIResponse:
+    async def describe_fields(self, provider_id: str, values: Dict[str, Any]) -> APIResponse:
         try:
-            fields = await operations.describe_fields(self.registry, provider_id)
+            fields = await operations.describe_fields(self.registry, provider_id, values)
         except UnknownProviderError as e:
             return self.error_api_response(error="unknown_provider", message=str(e))
         return self.success_response(data={"fields": [_field_dict(f) for f in fields]})
@@ -93,13 +97,19 @@ class ProvisioningController(BaseController):
                 self.repository,
                 self.backend_registry,
                 provider_id=request.provider_id,
+                backend_id=request.backend_id,
                 profile_name=request.name,
                 values=request.values,
-                backend_name=request.backend_name,
                 created_by=user.id,
             )
         except UnknownProviderError as e:
             return self.error_api_response(error="unknown_provider", message=str(e))
+        except BackendNotFoundError as e:
+            return self.error_api_response(error="backend_not_found", message=str(e))
+        except NotARemoteBackendError as e:
+            return self.error_api_response(error="not_a_remote_backend", message=str(e))
+        except BackendAlreadyProvisionedError as e:
+            return self.error_api_response(error="backend_already_provisioned", message=str(e))
         except InvalidProvisionValuesError as e:
             return self.error_api_response(error="invalid_values", message=str(e))
         except ComputeProvisionerError as e:
@@ -152,9 +162,9 @@ def build_admin_router(container: "AppContainer") -> APIRouter:
     async def list_providers() -> APIResponse:
         return await controller.list_providers()
 
-    @router.get("/providers/{provider_id}/fields", response_model=APIResponse, summary="Describe Provider Fields")
-    async def describe_fields(provider_id: str) -> APIResponse:
-        return await controller.describe_fields(provider_id)
+    @router.post("/providers/{provider_id}/fields", response_model=APIResponse, summary="Describe Provider Fields")
+    async def describe_fields(provider_id: str, body: ProviderFieldsRequest) -> APIResponse:
+        return await controller.describe_fields(provider_id, body.values)
 
     @router.get("", response_model=APIResponse, summary="List Provisioned Compute")
     async def list_provisioned() -> APIResponse:

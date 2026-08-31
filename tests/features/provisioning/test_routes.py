@@ -18,6 +18,7 @@ from tests.features.provisioning.test_operations import (
     FakeProvisioner,
     FakeProvisionerRegistry,
     FakeRepository,
+    _seed_remote_backend,
 )
 
 
@@ -55,10 +56,13 @@ def _make_client(*, provisioner=None, repository=None, backend_registry=None):
 
 GATED = [
     ("get", "/api/admin/provisioning/providers", None),
-    ("get", "/api/admin/provisioning/providers/fake/fields", None),
+    ("post", "/api/admin/provisioning/providers/fake/fields", {"values": {}}),
     ("get", "/api/admin/provisioning", None),
     ("get", "/api/admin/provisioning/by-backend/backend-1", None),
-    ("post", "/api/admin/provisioning", {"provider_id": "fake", "name": "prof-1", "values": {"gpu_type_id": "fake-gpu"}}),
+    (
+        "post", "/api/admin/provisioning",
+        {"provider_id": "fake", "backend_id": "remote-1", "values": {"gpu_type_id": "fake-gpu"}},
+    ),
     ("get", "/api/admin/provisioning/row-1", None),
     ("post", "/api/admin/provisioning/row-1/stop", None),
     ("post", "/api/admin/provisioning/row-1/terminate", None),
@@ -89,14 +93,15 @@ def test_every_route_passes_the_admin_gate(method, path, body):
     assert response.status_code != 403
 
 
-def test_provision_creates_and_enables_a_backend_through_the_real_router():
+def test_provision_fills_the_existing_backend_through_the_real_router():
     app, provisioner, repository, backend_registry = _make_client()
     app.dependency_overrides[get_current_active_user] = lambda: _user(AccountType.ADMIN)
+    _seed_remote_backend_sync(backend_registry, backend_id="remote-1", name="RunPod A100")
     client = TestClient(app)
 
     response = client.post(
         "/api/admin/provisioning",
-        json={"provider_id": "fake", "name": "prof-1", "values": {"gpu_type_id": "fake-gpu"}},
+        json={"provider_id": "fake", "backend_id": "remote-1", "values": {"gpu_type_id": "fake-gpu"}},
     )
 
     assert response.status_code == 200
@@ -104,7 +109,7 @@ def test_provision_creates_and_enables_a_backend_through_the_real_router():
     assert body["success"] is True
     row_id = body["data"]["id"]
     backend_id = body["data"]["backend_id"]
-    assert backend_id is not None
+    assert backend_id == "remote-1"
     assert backend_registry.backend_config_store.get_backend(backend_id).enabled is True
 
     by_backend_response = client.get(f"/api/admin/provisioning/by-backend/{backend_id}")
@@ -117,18 +122,38 @@ def test_provision_creates_and_enables_a_backend_through_the_real_router():
 
     terminate_response = client.post(f"/api/admin/provisioning/{row_id}/terminate")
     assert terminate_response.status_code == 200
-    assert backend_registry.backend_config_store.get_backend(backend_id) is None
+    surviving_backend = backend_registry.backend_config_store.get_backend(backend_id)
+    assert surviving_backend is not None  # the backend row survives termination
+    assert surviving_backend.enabled is False
+    assert surviving_backend.base_url == ""
     assert repository.get_by_id(row_id) is None
 
 
-def test_provision_with_illegal_values_is_a_clean_error_not_a_500():
+def test_provision_unknown_backend_is_a_clean_error_not_a_500():
     app, *_ = _make_client()
     app.dependency_overrides[get_current_active_user] = lambda: _user(AccountType.ADMIN)
     client = TestClient(app)
 
     response = client.post(
         "/api/admin/provisioning",
-        json={"provider_id": "fake", "name": "prof-1", "values": {}},
+        json={"provider_id": "fake", "backend_id": "does-not-exist", "values": {"gpu_type_id": "fake-gpu"}},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is False
+    assert body["error"] == "backend_not_found"
+
+
+def test_provision_with_illegal_values_is_a_clean_error_not_a_500():
+    app, provisioner, repository, backend_registry = _make_client()
+    app.dependency_overrides[get_current_active_user] = lambda: _user(AccountType.ADMIN)
+    _seed_remote_backend_sync(backend_registry, backend_id="remote-1")
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/admin/provisioning",
+        json={"provider_id": "fake", "backend_id": "remote-1", "values": {}},
     )
 
     assert response.status_code == 200
@@ -136,13 +161,14 @@ def test_provision_with_illegal_values_is_a_clean_error_not_a_500():
 
 
 def test_provision_provisioner_error_is_a_clean_error_not_a_500():
-    app, *_ = _make_client(provisioner=_AuthFailingProvisioner())
+    app, provisioner, repository, backend_registry = _make_client(provisioner=_AuthFailingProvisioner())
     app.dependency_overrides[get_current_active_user] = lambda: _user(AccountType.ADMIN)
+    _seed_remote_backend_sync(backend_registry, backend_id="remote-1")
     client = TestClient(app)
 
     response = client.post(
         "/api/admin/provisioning",
-        json={"provider_id": "fake", "name": "prof-1", "values": {"gpu_type_id": "fake-gpu"}},
+        json={"provider_id": "fake", "backend_id": "remote-1", "values": {"gpu_type_id": "fake-gpu"}},
     )
 
     assert response.status_code == 200
@@ -157,12 +183,30 @@ def test_fields_route_delegates_to_the_provisioner():
     app.dependency_overrides[get_current_active_user] = lambda: _user(AccountType.ADMIN)
     client = TestClient(app)
 
-    response = client.get("/api/admin/provisioning/providers/fake/fields")
+    response = client.post("/api/admin/provisioning/providers/fake/fields", json={"values": {}})
 
     assert response.status_code == 200
     fields = response.json()["data"]["fields"]
     assert fields[0]["key"] == "gpu_type_id"
     assert fields[0]["options"] == [{"value": "fake-gpu", "label": "Fake GPU", "detail": "24 GB VRAM"}]
+    assert fields[0]["depends_on"] == []
+
+
+def test_fields_route_passes_values_through_for_dependent_fields():
+    app, *_ = _make_client()
+    app.dependency_overrides[get_current_active_user] = lambda: _user(AccountType.ADMIN)
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/admin/provisioning/providers/fake/fields",
+        json={"values": {"gpu_type_id": "fake-gpu"}},
+    )
+
+    assert response.status_code == 200
+    fields = response.json()["data"]["fields"]
+    volume_field = next(f for f in fields if f["key"] == "network_volume_id")
+    assert volume_field["depends_on"] == ["gpu_type_id"]
+    assert volume_field["options"] == [{"value": "vol-fake-gpu-1", "label": "1x NVMe (fake-gpu)", "detail": None}]
 
 
 def test_fields_route_unknown_provider_is_a_clean_error_not_a_500():
@@ -170,7 +214,7 @@ def test_fields_route_unknown_provider_is_a_clean_error_not_a_500():
     app.dependency_overrides[get_current_active_user] = lambda: _user(AccountType.ADMIN)
     client = TestClient(app)
 
-    response = client.get("/api/admin/provisioning/providers/missing/fields")
+    response = client.post("/api/admin/provisioning/providers/missing/fields", json={"values": {}})
 
     assert response.status_code == 200  # error_api_response, not a raised HTTPException
     assert response.json()["success"] is False
@@ -184,3 +228,12 @@ def test_by_backend_route_returns_404_when_no_row_is_linked():
     response = client.get("/api/admin/provisioning/by-backend/missing-backend")
 
     assert response.status_code == 404
+
+
+def _seed_remote_backend_sync(backend_registry, **kwargs):
+    """`TestClient` calls are synchronous but `_seed_remote_backend` is async
+    (it awaits `BackendRegistry.add_backend`) - run it to completion up front,
+    before the client ever makes a request."""
+    import asyncio
+
+    asyncio.run(_seed_remote_backend(backend_registry, **kwargs))

@@ -157,6 +157,18 @@ class BaseBackendConfig(BaseModel):
         """
         return []
 
+    def is_configured(self) -> bool:
+        """Whether this backend has everything it needs to actually run.
+
+        Default: always configured - a config class whose required fields
+        fail pydantic validation can never be constructed in the first place.
+        Overridden by a driver that allows saving with its connection details
+        still blank (e.g. `NativeRemoteBackendConfig` before a worker is
+        connected or provisioned), so admin surfaces and the enable guard can
+        tell "saved" apart from "usable".
+        """
+        return True
+
 
 def _field_type(annotation) -> str:
     """Map a pydantic annotation onto the three input types the admin UI renders."""
@@ -313,13 +325,19 @@ class NativeRemoteBackendConfig(BaseBackendConfig):
     # This driver dispatches to another process/host; it owns no local GPU/RAM.
     is_local: ClassVar[bool] = False
 
+    # Both blank is a legal, "not yet connected" state: a `native.remote`
+    # backend row may be created before a worker exists at all, so an admin
+    # can provision straight into it later (see `is_configured` and
+    # `src.features.provisioning.operations.provision_compute`). `enabled`
+    # is guarded separately - see `BackendController` - so an unconfigured
+    # row can never be selected for dispatch.
     base_url: str = Field(
-        ...,
+        default="",
         title="Worker URL",
         description="Base URL of the Remote Native worker, e.g. http://10.0.0.5:8100",
     )
     worker_token: str = Field(
-        ...,
+        default="",
         title="Worker Token",
         description="Bearer token the worker's POTIONUI_WORKER_TOKEN was started with",
         json_schema_extra={"secret": True},
@@ -337,10 +355,11 @@ class NativeRemoteBackendConfig(BaseBackendConfig):
 
     @field_validator('base_url')
     @classmethod
-    def base_url_not_empty(cls, v):
-        if not v or not v.strip():
-            raise ValueError('Worker URL cannot be empty')
-        return v.rstrip('/')
+    def _normalize_base_url(cls, v):
+        return v.rstrip('/') if v else v
+
+    def is_configured(self) -> bool:
+        return bool(self.base_url and self.worker_token)
 
 
 class BackendHealth(BaseModel):

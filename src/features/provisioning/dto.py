@@ -5,14 +5,25 @@ from pydantic import BaseModel, Field
 
 
 class ProvisionComputeRequest(BaseModel):
-    """Request model for provisioning compute through a registered provider.
-    `values` holds the provider's own fields, keyed and typed as described by
-    that provider's `GET providers/{id}/fields` - core validates them against
-    those descriptors before calling the provisioner."""
+    """Request model for provisioning compute through a registered provider,
+    into an EXISTING `native.remote` backend (`backend_id`). `values` holds
+    the provider's own fields, keyed and typed as described by that
+    provider's `POST providers/{id}/fields` - core validates them against
+    those descriptors before calling the provisioner. `name` (the
+    provisioner's `profile_name`) is optional and defaults to the target
+    backend's own name."""
     provider_id: str
-    name: str = Field(..., min_length=1)
+    backend_id: str
+    name: Optional[str] = None
     values: Dict[str, Any] = Field(default_factory=dict)
-    backend_name: Optional[str] = None
+
+
+class ProviderFieldsRequest(BaseModel):
+    """Body for `POST providers/{id}/fields`. `values` is whatever the form
+    has been filled in with so far (possibly partial, possibly empty) - a
+    provisioner with dependent fields (`ComputeFieldDescriptorV1.depends_on`)
+    uses it to resolve a dependent field's options."""
+    values: Dict[str, Any] = Field(default_factory=dict)
 
 
 class ProviderResponse(BaseModel):

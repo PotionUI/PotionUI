@@ -234,6 +234,16 @@ class RemoteNativeBackend(BaseBackend):
     async def start_generation(
         self, pipeline_data: Dict[str, Any], emit: Callable[[Optional[GenerationOutput]], None],
     ) -> str:
+        if not self.config.is_configured():
+            # Belt and braces: disabled/unconfigured backends shouldn't be
+            # selectable for dispatch in the first place (see the enable
+            # guard in BackendController), but a generation must never be
+            # silently swallowed if one is somehow reached anyway.
+            raise RuntimeError(
+                f"Backend '{self.config.id}' has no worker URL/token configured - "
+                "connect or provision it before dispatching generations to it."
+            )
+
         generation_id = pipeline_data.get('generation_id') or generate_ulid()
         pipes = pipeline_data.get('pipes')
         if not pipes:

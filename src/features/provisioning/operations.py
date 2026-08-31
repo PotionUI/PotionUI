@@ -3,17 +3,16 @@
 Plain functions over a `ComputeProvisionerRegistry` + `ProvisionedComputeRepository`
 + `BackendRegistry` - no manager/service class. `provision_compute` is the one
 seam that used to be manual (see `docs/remote-native.md` and the
-`runpod-provider` plugin's former README): a successful provision now creates
-and enables the `native.remote` backend row itself, through the same
-`BackendRegistry.add_backend` an admin's "create backend" form would call, and
-links it on the `ProvisionedCompute` row it returns.
+`runpod-provider` plugin's former README): it fills in an EXISTING
+`native.remote` backend row (created ahead of time, unconfigured, through the
+normal "create backend" form) rather than minting a new one - the backend is
+the durable, user-facing object; provisioning just connects it.
 """
 
 from typing import Any, Dict, List, Optional
 
-from src.features.backends.backend_config import NativeRemoteBackendConfig
+from src.features.backends.backend_config import NATIVE_REMOTE_DRIVER
 from src.features.backends.backend_registry import BackendRegistry
-from src.platform.util.ids import generate_ulid
 from src.features.provisioning.contracts import (
     ComputeFieldDescriptorV1,
     ComputeProvisioner,
@@ -38,6 +37,21 @@ class InvalidProvisionValuesError(ValueError):
     field, a non-numeric number, or a select value outside its options."""
 
 
+class BackendNotFoundError(ValueError):
+    """Raised when `provision_compute`'s target `backend_id` names no backend."""
+
+
+class NotARemoteBackendError(ValueError):
+    """Raised when `provision_compute`'s target backend is not a `native.remote`
+    backend - provisioning only ever fills an existing remote-worker row."""
+
+
+class BackendAlreadyProvisionedError(ValueError):
+    """Raised when `provision_compute`'s target backend is already linked to a
+    `ProvisionedCompute` row - re-provisioning must go through that row
+    (stop/terminate it first), not create a second link onto the same backend."""
+
+
 def _get_provisioner(registry: ComputeProvisionerRegistry, provider_id: str) -> ComputeProvisioner:
     provisioner = registry.get(provider_id)
     if provisioner is None:
@@ -50,6 +64,19 @@ def _get_row(repository: ProvisionedComputeRepository, row_id: str) -> Provision
     if row is None:
         raise ProvisionedComputeNotFoundError(f"No provisioned compute with id '{row_id}'")
     return row
+
+
+def _get_target_backend(backend_registry: BackendRegistry, backend_id: str):
+    backend = backend_registry.backend_config_store.get_backend(backend_id)
+    if backend is None:
+        raise BackendNotFoundError(f"No backend with id '{backend_id}'")
+    if backend.driver != NATIVE_REMOTE_DRIVER:
+        raise NotARemoteBackendError(
+            f"Backend '{backend_id}' is a '{backend.driver}' backend, not a "
+            "native.remote backend - provisioning only fills an existing "
+            "native.remote backend"
+        )
+    return backend
 
 
 def _validate_values(descriptors: List[ComputeFieldDescriptorV1], values: Dict[str, Any]) -> None:
@@ -78,10 +105,10 @@ def list_providers(registry: ComputeProvisionerRegistry) -> List[ComputeProvisio
 
 
 async def describe_fields(
-    registry: ComputeProvisionerRegistry, provider_id: str
+    registry: ComputeProvisionerRegistry, provider_id: str, values: Optional[Dict[str, Any]] = None
 ) -> List[ComputeFieldDescriptorV1]:
     provisioner = _get_provisioner(registry, provider_id)
-    return await provisioner.describe_fields()
+    return await provisioner.describe_fields(values)
 
 
 async def provision_compute(
@@ -90,33 +117,44 @@ async def provision_compute(
     backend_registry: BackendRegistry,
     *,
     provider_id: str,
-    profile_name: str,
+    backend_id: str,
     values: Dict[str, Any],
-    backend_name: Optional[str] = None,
+    profile_name: Optional[str] = None,
     created_by: Optional[str] = None,
 ) -> ProvisionedCompute:
-    """Validate `values` against `provider_id`'s own field descriptors, then
-    provision through it, then create+enable a `native.remote` backend row
-    from the connection details it hands back, and link the two."""
+    """Fill an existing `native.remote` backend (`backend_id`) through
+    `provider_id`: validate `values` against the provider's own field
+    descriptors - resolved WITH those same `values`, so a dependent field's
+    options are checked against the right set - provision through it, then
+    write the connection details it hands back onto the target backend row
+    (enabling it) and link the two. `profile_name` defaults to the target
+    backend's name.
+    """
     provisioner = _get_provisioner(registry, provider_id)
-    _validate_values(await provisioner.describe_fields(), values)
+    backend = _get_target_backend(backend_registry, backend_id)
+    if repository.get_by_backend_id(backend_id) is not None:
+        raise BackendAlreadyProvisionedError(
+            f"Backend '{backend_id}' is already linked to provisioned compute - "
+            "stop or terminate it before provisioning again"
+        )
 
-    result = await provisioner.provision(ProvisionRequest(profile_name=profile_name, values=values))
+    descriptors = await provisioner.describe_fields(values)
+    _validate_values(descriptors, values)
 
-    backend_id = f"remote-{generate_ulid()}"
-    backend_config = NativeRemoteBackendConfig(
-        id=backend_id,
-        name=backend_name or f"{provisioner.label or provider_id}: {profile_name}",
-        base_url=result.base_url,
-        worker_token=result.worker_token,
-        enabled=True,
+    resolved_profile_name = profile_name or backend.name
+    result = await provisioner.provision(
+        ProvisionRequest(profile_name=resolved_profile_name, values=values)
     )
-    await backend_registry.add_backend(backend_config)
+
+    backend.base_url = result.base_url
+    backend.worker_token = result.worker_token
+    backend.enabled = True
+    await backend_registry.update_backend(backend_id, backend)
 
     return repository.create(
         provider_id=provider_id,
         handle=result.handle,
-        profile_name=profile_name,
+        profile_name=resolved_profile_name,
         status="running" if result.ready else "unreachable",
         backend_id=backend_id,
         resource_ref=result.resource_ref,
@@ -167,16 +205,22 @@ async def terminate_compute(
     backend_registry: BackendRegistry,
     row_id: str,
 ) -> None:
-    """Tear the resource down, remove its linked backend row, and delete the
-    `ProvisionedCompute` row - the one irreversible step in this lifecycle."""
+    """Tear the resource down and delete the `ProvisionedCompute` row - the
+    one irreversible step in this lifecycle. The linked backend row survives:
+    it is the durable, user-facing object, so terminating only clears its
+    connection details (base_url/worker_token) and disables it, returning it
+    to "not configured" so the same row can be provisioned into again later.
+    """
     row = _get_row(repository, row_id)
     provisioner = _get_provisioner(registry, row.provider_id)
     await provisioner.terminate(row.handle)
 
     if row.backend_id:
-        try:
-            await backend_registry.remove_backend(row.backend_id)
-        except ValueError:
-            pass  # Already removed by hand - not this call's problem.
+        backend = backend_registry.backend_config_store.get_backend(row.backend_id)
+        if backend is not None:
+            backend.base_url = ""
+            backend.worker_token = ""
+            backend.enabled = False
+            await backend_registry.update_backend(row.backend_id, backend)
 
     repository.delete(row_id)

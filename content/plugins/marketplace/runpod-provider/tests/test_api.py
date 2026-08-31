@@ -9,8 +9,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import backend.api as api
-from src.platform.security.current_user import get_current_admin_user
-from src.platform.security.user import AccountType, User
+from src.plugin_api.identity import AccountType, User, get_current_admin_user
 
 
 def _admin_user() -> User:

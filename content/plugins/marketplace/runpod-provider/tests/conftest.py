@@ -35,7 +35,9 @@ def scratch_db(tmp_path):
     Mirrors the spritesheet plugin's own `scratch_db` fixture: a fresh
     `Database` pointed at a temp file, no migration replay (this plugin's
     table has no FOREIGN KEY on anything migration-owned)."""
-    from src.platform.database.database import Database
+    from src.plugin_api.storage import db
+
+    Database = type(db)
 
     Database._instance = None
     test_db = Database()

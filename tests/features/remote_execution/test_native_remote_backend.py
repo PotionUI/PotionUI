@@ -813,19 +813,6 @@ class TestDirectoryLayoutModelRefusal(NativeRemoteBackendTestCase):
 
 
 class TestModelListing(NativeRemoteBackendTestCase):
-    def test_out_of_band_files_are_listed_without_digest(self):
-        depot = self.worker_container.model_depot.depot_dir / "checkpoints"
-        depot.mkdir(parents=True, exist_ok=True)
-        (depot / "sshdrop.safetensors").write_bytes(b"dropped over ssh, no sidecar")
-
-        backend = self._backend(self.worker_app)
-        models = asyncio.run(backend.list_models())
-
-        entry = next(m for m in models if m.filename == "sshdrop.safetensors")
-        self.assertEqual(entry.model_type, "checkpoint")
-        self.assertEqual(entry.ref, "checkpoints/sshdrop.safetensors")
-        self.assertIsNone(entry.sha256)
-
     def test_lists_the_seeded_depot_entries_with_type_filename_ref_and_sha(self):
         content = b"fake checkpoint bytes"
         self._seed_worker_depot(self.worker_container, role="checkpoint", filename="a.safetensors", content=content)

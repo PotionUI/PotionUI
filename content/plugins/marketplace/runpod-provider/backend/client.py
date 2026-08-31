@@ -211,7 +211,14 @@ class RunPodClient:
             "env": env,
             "ports": ports,
             "containerDiskInGb": container_disk_in_gb,
-            "volumeInGb": volume_in_gb,
+            # Per RunPod's own `PodCreateInput.networkVolumeId` doc ("If
+            # attached, a network volume replaces the Pod network volume"),
+            # requesting a nonzero local `volumeInGb` on top of a network
+            # volume asks the scheduler for local disk it will never use -
+            # over-constraining host selection to the point of "could not
+            # find any pods with required specifications" on data centers
+            # without that much spare local disk.
+            "volumeInGb": 0 if network_volume_id else volume_in_gb,
             "volumeMountPath": volume_mount_path,
             "cloudType": cloud_type,
         }

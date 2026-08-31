@@ -15,6 +15,13 @@ Two things confirmed against the public schema, not guessed: data centers
 are not a top-level `Query` field - they hang off `myself.dataCenters` - and
 `gpuTypes` (which carries `memoryInGb`, absent from `gpuAvailability`) is a
 sibling root field, so both come back in a single POST.
+
+`DataCenter.gpuAvailability` takes an optional `input: GpuAvailabilityInput`,
+which has a `secureCloud: Boolean` field (confirmed against the same public
+schema). This plugin's pods are always created with `cloudType: SECURE`
+(network volumes require it, and `client.py`'s `create_pod` never exposes
+overriding that) - the query below scopes to `secureCloud: true` so the GPU
+picker only ever offers GPUs this plugin can actually provision.
 """
 
 from __future__ import annotations
@@ -43,7 +50,7 @@ query PotionUiComputeCatalog {
       id
       name
       location
-      gpuAvailability {
+      gpuAvailability(input: { secureCloud: true }) {
         stockStatus
         gpuTypeId
         gpuTypeDisplayName

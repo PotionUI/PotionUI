@@ -82,6 +82,22 @@ async def test_fetch_catalog_sends_bearer_auth_and_a_single_post():
     assert len(result) == 2
 
 
+async def test_fetch_catalog_scopes_gpu_availability_to_secure_cloud():
+    """This plugin's pods are always `cloudType: SECURE` - the GPU picker
+    must not offer GPUs only available on Community Cloud."""
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+        calls.append(json.loads(request.content))
+        return httpx.Response(200, json=CATALOG_PAYLOAD)
+
+    await fetch_catalog("key", transport=_transport(handler))
+
+    query = calls[0]["query"]
+    assert "gpuAvailability(input: { secureCloud: true })" in query
+
+
 async def test_fetch_catalog_joins_memory_in_gb_from_the_gputypes_query():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=CATALOG_PAYLOAD)

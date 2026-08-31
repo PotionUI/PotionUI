@@ -8,7 +8,7 @@ import logging
 import pytest
 
 import backend.resources as resources_module
-from backend.client import NetworkVolume, Pod, RunPodNotFoundError
+from backend.client import NetworkVolume, Pod, RunPodAPIError, RunPodNotFoundError
 from backend.provisioning import (
     ProvisioningProfile,
     RunPodProvisioningManager,
@@ -157,6 +157,38 @@ async def test_provision_reuses_an_existing_volume_for_the_same_profile(resource
     assert client.created_volumes == []
     assert result.volume_id == "vol-existing"
     assert client.created_pods[0]["network_volume_id"] == "vol-existing"
+
+
+async def test_provision_retry_after_a_failed_pod_create_reuses_the_volume(resources, repo, client):
+    """The volume is created and recorded *before* `create_pod` runs (see
+    `provisioning.py`) - if `create_pod` then fails, the volume record must
+    already be in place so the next `provision()` call for the same profile
+    reuses it instead of creating (and billing for) a second one."""
+
+    class FailFirstCreatePod(FakeRunPodClient):
+        def __init__(self):
+            super().__init__()
+            self.pod_create_attempts = 0
+
+        async def create_pod(self, **kwargs):
+            self.pod_create_attempts += 1
+            if self.pod_create_attempts == 1:
+                raise RunPodAPIError(500, "create pod: could not find any pods with required specifications")
+            return await super().create_pod(**kwargs)
+
+    failing_client = FailFirstCreatePod()
+    manager = RunPodProvisioningManager(failing_client, resources, repo, readiness_probe=_always_ready)
+
+    with pytest.raises(RunPodAPIError):
+        await manager.provision(_profile())
+
+    assert len(failing_client.created_volumes) == 1
+    recorded_volume_id = resources.get("prof-1", "network_volume").runpod_id
+
+    result = await manager.provision(_profile())
+
+    assert len(failing_client.created_volumes) == 1  # not recreated on retry
+    assert result.volume_id == recorded_volume_id
 
 
 async def test_provision_creates_pod_with_env_and_http_port(resources, repo, client):

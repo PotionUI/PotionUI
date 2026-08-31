@@ -48,6 +48,26 @@ _CONTAINER_DISK_GB = 20
 #: RunPod returns the GPU either way, distinguished only by this string.
 _OUT_OF_STOCK = {"none", ""}
 
+#: Substrings RunPod's own pod-create error text uses when a GPU/data-center
+#: combo has no capacity right now - matched case-insensitively since the
+#: exact wording isn't a documented contract.
+_NO_CAPACITY_MARKERS = (
+    "could not find any pods with required specifications",
+    "no instances available",
+)
+
+
+def _with_capacity_hint(message: str) -> str:
+    """Appends an actionable hint to a no-capacity-shaped RunPod error,
+    leaving every other error message untouched."""
+    lowered = message.lower()
+    if any(marker in lowered for marker in _NO_CAPACITY_MARKERS):
+        return (
+            f"{message} - the chosen GPU appears out of stock in that data "
+            "center on Secure Cloud right now. Try another GPU or data center."
+        )
+    return message
+
 
 def _gpu_detail(gpu: GpuAvailability) -> Optional[str]:
     parts = []
@@ -258,7 +278,7 @@ class RunpodComputeProvisioner(ComputeProvisioner):
         try:
             result = await self._manager(client).provision(profile)
         except RunPodAPIError as exc:
-            raise ComputeProvisionerError(str(exc)) from exc
+            raise ComputeProvisionerError(_with_capacity_hint(str(exc))) from exc
         finally:
             await client.aclose()
 

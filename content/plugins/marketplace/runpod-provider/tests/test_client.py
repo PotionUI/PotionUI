@@ -124,6 +124,46 @@ async def test_create_pod_sends_the_documented_payload_shape():
     assert pod.network_volume_id == "vol-1"
 
 
+async def test_create_pod_zeroes_volume_in_gb_when_a_network_volume_is_attached():
+    """A network volume replaces the Pod's local volume per RunPod's own
+    `PodCreateInput.networkVolumeId` doc - requesting a nonzero local
+    `volumeInGb` on top of it over-constrains host selection and produced
+    "could not find any pods with required specifications" in practice."""
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json=POD_PAYLOAD)
+
+    client = _client(handler)
+    await client.create_pod(
+        name="n", image_name="img", gpu_type_ids=["x"], env={}, ports=["8100/http"],
+        volume_in_gb=20, network_volume_id="vol-1",
+    )
+    await client.aclose()
+
+    assert captured["body"]["volumeInGb"] == 0
+
+
+async def test_create_pod_keeps_volume_in_gb_when_no_network_volume_is_attached():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json=POD_PAYLOAD)
+
+    client = _client(handler)
+    await client.create_pod(
+        name="n", image_name="img", gpu_type_ids=["x"], env={}, ports=["8100/http"],
+        volume_in_gb=20,
+    )
+    await client.aclose()
+
+    assert captured["body"]["volumeInGb"] == 20
+
+
 async def test_create_pod_omits_network_volume_id_when_none():
     captured = {}
 

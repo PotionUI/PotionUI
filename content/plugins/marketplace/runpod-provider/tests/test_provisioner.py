@@ -12,7 +12,7 @@ import backend.provisioner as provisioner_module
 import backend.resources as resources_module
 from backend.catalog_client import DataCenter as LiveDataCenter
 from backend.catalog_client import GpuAvailability, RunPodCatalogError
-from backend.client import NetworkVolume, Pod
+from backend.client import NetworkVolume, Pod, RunPodAPIError
 from backend.provisioner import RunpodComputeProvisioner
 from backend.resources import RunPodResourceManager
 from src.plugin_api.compute import ComputeProvisionerError, ProvisionRequest
@@ -349,6 +349,42 @@ async def test_provision_without_api_key_raises(provisioner, repo):
 
     with pytest.raises(ComputeProvisionerError):
         await provisioner.provision(ProvisionRequest(profile_name="prof-1", values={}))
+
+
+async def test_provision_no_capacity_error_gets_an_actionable_suffix(provisioner, monkeypatch):
+    """RunPod's own pod-create error ("could not find any pods with required
+    specifications") gives no hint that it means "out of stock" - the
+    wrapped `ComputeProvisionerError` must say so, on top of the original
+    message."""
+
+    async def _raise(self, **kwargs):
+        raise RunPodAPIError(500, "create pod: could not find any pods with required specifications")
+
+    monkeypatch.setattr(FakeRunPodClient, "create_pod", _raise)
+
+    with pytest.raises(ComputeProvisionerError) as excinfo:
+        await provisioner.provision(
+            ProvisionRequest(profile_name="prof-1", values={"gpu_type_id": "NVIDIA GeForce RTX 4090"})
+        )
+
+    message = str(excinfo.value)
+    assert "could not find any pods with required specifications" in message
+    assert "out of stock" in message.lower()
+
+
+async def test_provision_unrelated_error_is_not_rewritten(provisioner, monkeypatch):
+    async def _raise(self, **kwargs):
+        raise RunPodAPIError(401, "RunPod API key was rejected")
+
+    monkeypatch.setattr(FakeRunPodClient, "create_pod", _raise)
+
+    with pytest.raises(ComputeProvisionerError) as excinfo:
+        await provisioner.provision(
+            ProvisionRequest(profile_name="prof-1", values={"gpu_type_id": "NVIDIA GeForce RTX 4090"})
+        )
+
+    message = str(excinfo.value)
+    assert "out of stock" not in message.lower()
 
 
 async def test_status_reconciles_through_the_real_manager(provisioner, resources, repo):

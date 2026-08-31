@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-PLUGIN_ROOT = Path(__file__).resolve().parents[3] / "content" / "plugins" / "local" / "runpod-provider"
+PLUGIN_ROOT = Path(__file__).resolve().parents[3] / "content" / "plugins" / "marketplace" / "runpod-provider"
 
 for _key in list(sys.modules):
     if _key == "backend" or _key.startswith("backend."):

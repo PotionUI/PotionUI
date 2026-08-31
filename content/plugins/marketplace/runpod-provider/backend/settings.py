@@ -23,6 +23,7 @@ class RunPodSettings:
     gpu_type_id: str
     volume_size_gb: int
     worker_image: Optional[str]
+    container_registry_auth_id: Optional[str]
 
 
 def load_settings(repository: Optional[PluginRepository] = None) -> RunPodSettings:
@@ -40,4 +41,5 @@ def load_settings(repository: Optional[PluginRepository] = None) -> RunPodSettin
         gpu_type_id=_value("gpu_type_id") or "NVIDIA GeForce RTX 4090",
         volume_size_gb=int(volume_size_raw) if volume_size_raw else 100,
         worker_image=_value("worker_image"),
+        container_registry_auth_id=_value("container_registry_auth_id"),
     )

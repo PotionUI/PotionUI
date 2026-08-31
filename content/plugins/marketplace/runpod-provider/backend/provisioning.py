@@ -53,6 +53,7 @@ class ProvisioningProfile:
     region: Optional[str] = None
     volume_size_gb: int = 100
     worker_port: int = 8100
+    container_registry_auth_id: Optional[str] = None
     container_disk_gb: int = 20
 
 
@@ -123,6 +124,7 @@ class RunPodProvisioningManager:
         pod = await self._client.create_pod(
             name=f"potionui-{profile.name}",
             image_name=profile.image_ref,
+            container_registry_auth_id=profile.container_registry_auth_id,
             gpu_type_ids=[profile.gpu_type_id],
             env={
                 "POTIONUI_WORKER_TOKEN": worker_token,

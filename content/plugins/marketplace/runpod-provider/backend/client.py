@@ -193,6 +193,7 @@ class RunPodClient:
         volume_mount_path: str = "/workspace",
         cloud_type: str = "SECURE",
         data_center_ids: Optional[List[str]] = None,
+        container_registry_auth_id: Optional[str] = None,
     ) -> Pod:
         payload: Dict[str, Any] = {
             "name": name,
@@ -213,6 +214,8 @@ class RunPodClient:
             payload["networkVolumeId"] = network_volume_id
         if data_center_ids:
             payload["dataCenterIds"] = data_center_ids
+        if container_registry_auth_id:
+            payload["containerRegistryAuthId"] = container_registry_auth_id
 
         data = await self._request("POST", "/pods", json=payload)
         return Pod.from_api(data)

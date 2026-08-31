@@ -63,11 +63,13 @@ class FakeRunPodClient:
         self, *, name, image_name, gpu_type_ids, env, ports,
         container_disk_in_gb=20, volume_in_gb=20, network_volume_id=None,
         volume_mount_path="/workspace", cloud_type="SECURE", data_center_ids=None,
+        container_registry_auth_id=None,
     ):
         pod_id = f"pod-{len(self.created_pods) + 1}"
         self.created_pods.append({
             "name": name, "image_name": image_name, "gpu_type_ids": gpu_type_ids,
             "env": env, "ports": ports, "network_volume_id": network_volume_id,
+            "container_registry_auth_id": container_registry_auth_id,
         })
         return Pod(
             id=pod_id, name=name, image=image_name, desired_status="RUNNING",
@@ -365,3 +367,12 @@ async def test_deprovision_terminate_and_delete_volume_removes_both(resources, r
     assert client.deleted_volumes == ["vol-1"]
     assert resources.get("prof-1", "network_volume") is None
     assert resources.get("prof-1", "pod") is None
+
+
+async def test_provision_passes_the_registry_auth_id_to_create_pod(resources, repo):
+    client = FakeRunPodClient()
+    manager = RunPodProvisioningManager(client, resources, repo, readiness_probe=_always_ready)
+
+    await manager.provision(_profile(container_registry_auth_id="cra-1"))
+
+    assert client.created_pods[-1]["container_registry_auth_id"] == "cra-1"

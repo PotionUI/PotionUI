@@ -55,3 +55,8 @@ settings:
     description: "Container image reference for the Remote Native worker. Defaults to the image published by CI on release tags; override with your own build (docker/worker.Dockerfile, pushed to a registry the RunPod pod can pull from) for a custom fork."
     default: "ghcr.io/potionui/potionui-worker:latest"
     required: false
+  - name: "container_registry_auth_id"
+    type: "string"
+    label: "Container Registry Auth ID"
+    description: "RunPod credential id (Settings -> Container Registry Auth) used to pull the worker image from a private registry. Leave empty for public images."
+    required: false

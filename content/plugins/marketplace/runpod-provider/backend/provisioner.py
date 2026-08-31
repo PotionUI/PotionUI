@@ -346,6 +346,7 @@ class RunpodComputeProvisioner(ComputeProvisioner):
             volume_size_gb=request.values.get("volume_size_gb") or settings.volume_size_gb,
             worker_port=_WORKER_PORT,
             container_disk_gb=_CONTAINER_DISK_GB,
+            container_registry_auth_id=settings.container_registry_auth_id,
         )
 
         client = RunPodClient(api_key=settings.api_key)

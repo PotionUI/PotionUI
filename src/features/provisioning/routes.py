@@ -64,7 +64,12 @@ class ProvisioningController(BaseController):
         providers = operations.list_providers(self.registry)
         return self.success_response(data={
             "providers": [
-                {"provider_id": p.provider_id, "label": p.label or p.provider_id}
+                {
+                    "provider_id": p.provider_id,
+                    "label": p.label or p.provider_id,
+                    "signup_url": p.signup_url,
+                    "signup_note": p.signup_note,
+                }
                 for p in providers
             ]
         })

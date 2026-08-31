@@ -106,6 +106,13 @@ class ComputeProvisioner(ABC):
     #: Human-readable label for the admin UI. Falls back to `provider_id`.
     label: ClassVar[str] = ""
 
+    #: Optional signup/referral notice the admin UI shows for this provider —
+    #: a plugin may credit the project through the provider's referral program.
+    #: Rendered as one understated line with an external link; both empty = no
+    #: notice.
+    signup_url: ClassVar[str] = ""
+    signup_note: ClassVar[str] = ""
+
     @abstractmethod
     async def describe_fields(
         self, values: Optional[Dict[str, Any]] = None

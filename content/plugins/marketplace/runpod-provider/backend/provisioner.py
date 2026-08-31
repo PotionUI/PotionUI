@@ -61,6 +61,11 @@ def _gpu_detail(gpu: GpuAvailability) -> Optional[str]:
 class RunpodComputeProvisioner(ComputeProvisioner):
     provider_id = "runpod"
     label = "RunPod"
+    signup_url = "https://runpod.io/?ref=0y7tgfbp"
+    signup_note = (
+        "No RunPod account yet? Signing up through this link supports "
+        "PotionUI's development at no extra cost to you."
+    )
 
     def __init__(self) -> None:
         self._plugin_repository = PluginRepository()

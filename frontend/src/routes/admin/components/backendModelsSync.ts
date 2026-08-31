@@ -55,3 +55,25 @@ export function countByStatus(rows: RemoteModelSyncRow[]): Record<RemoteModelSyn
 export function sumSizeBytes(rows: RemoteModelSyncRow[]): number {
 	return rows.reduce((total, row) => total + (row.size_bytes ?? 0), 0);
 }
+
+/** Shape `ModelAssignmentPicker`'s card grid expects (`id`/`file_size`) -
+ * `status`/`providers_can_fetch` ride along for the sync-specific card extras. */
+export interface RemoteModelPickerModel {
+	id: string;
+	filename: string;
+	model_type: string;
+	file_size: number | null;
+	status: RemoteModelSyncStatus;
+	providers_can_fetch: boolean;
+}
+
+export function toPickerModel(row: RemoteModelSyncRow): RemoteModelPickerModel {
+	return {
+		id: row.model_id,
+		filename: row.filename,
+		model_type: row.model_type,
+		file_size: row.size_bytes,
+		status: row.status,
+		providers_can_fetch: row.providers_can_fetch
+	};
+}

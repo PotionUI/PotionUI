@@ -15,21 +15,32 @@
 	export let assignedGroupId: string | undefined = undefined;
 	export let onAssign: ((modelId: string) => void) | undefined = undefined;
 	export let onUnassign: ((modelId: string) => void) | undefined = undefined;
-	/** Reuse the admin model browser as a normal single-value picker. */
-	export let selectionMode: 'assignments' | 'single' = 'assignments';
+	/** Reuse the admin model browser as a normal single-value picker, or as a
+	 * staged multi-select (`selectedIds`/`onToggle`) for a caller that submits
+	 * the selection as a batch instead of acting per click. */
+	export let selectionMode: 'assignments' | 'single' | 'multi' = 'assignments';
 	export let selectedModelId: string | null = null;
 	export let allowClear: boolean = false;
 	export let onSelect: ((model: any) => void) | undefined = undefined;
 	export let onClear: (() => void) | undefined = undefined;
+	export let selectedIds: string[] = [];
+	export let onToggle: ((modelId: string) => void) | undefined = undefined;
+	/** `external`: filter/paginate a caller-supplied array client-side instead
+	 * of hitting `api.getModels()` - for a catalog the caller already has (and
+	 * that carries fields the shared model catalog doesn't, e.g. sync status). */
+	export let dataSource: 'catalog' | 'external' = 'catalog';
+	export let externalModels: any[] = [];
+	export let externalFilter: ((model: any) => boolean) | undefined = undefined;
 
-	// Internal state
+	// Internal state - the ones below re-exported as bindable props so an
+	// `external` caller can read (and reset) what's currently applied.
 	let models: any[] = [];
 	let totalCount = 0;
 	let loading = true;
-	let currentPage = 1;
-	let pageSize = 24;
-	let searchQuery = '';
-	let selectedType = 'all';
+	export let currentPage = 1;
+	export let pageSize = 24;
+	export let searchQuery = '';
+	export let selectedType = 'all';
 	let modelTypes: string[] = [];
 	type ViewFilter = 'all' | 'assigned' | 'unassigned';
 	let viewFilter: ViewFilter = 'all';
@@ -43,10 +54,30 @@
 	];
 
 	onMount(async () => {
+		if (dataSource === 'external') return;
 		await Promise.all([loadModels(), loadModelTypes()]);
 	});
 
+	// `external` mode is driven entirely by the reactive block below - the
+	// handlers below still flip `currentPage`/`searchQuery`/`selectedType`
+	// and call this, which is then a no-op.
+	$: if (dataSource === 'external') {
+		modelTypes = [...new Set(externalModels.map((m) => m.model_type).filter(Boolean))].sort();
+		const q = searchQuery.trim().toLowerCase();
+		const filtered = externalModels.filter((m) => {
+			if (selectedType !== 'all' && m.model_type !== selectedType) return false;
+			if (externalFilter && !externalFilter(m)) return false;
+			if (q && !(m.filename ?? '').toLowerCase().includes(q)) return false;
+			return true;
+		});
+		totalCount = filtered.length;
+		const start = (currentPage - 1) * pageSize;
+		models = filtered.slice(start, start + pageSize);
+		loading = false;
+	}
+
 	async function loadModels() {
+		if (dataSource === 'external') return;
 		try {
 			loading = true;
 			const params: Parameters<typeof api.getModels>[0] = {
@@ -116,6 +147,10 @@
 		if (processingModelId === model.id) return;
 		if (selectionMode === 'single') {
 			onSelect?.(model);
+			return;
+		}
+		if (selectionMode === 'multi') {
+			onToggle?.(model.id);
 			return;
 		}
 		if (assignedModelIds.includes(model.id)) {
@@ -213,6 +248,8 @@
 					{/each}
 				</div>
 			{/if}
+
+			<slot name="extraFilters" />
 		</div>
 
 		{#if showAdminVisibilityNote}
@@ -250,7 +287,7 @@
 		{:else}
 			<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
 				{#each models as model (model.id)}
-					{@const assigned = selectionMode === 'single' ? selectedModelId === model.id : assignedModelIds.includes(model.id)}
+					{@const assigned = selectionMode === 'single' ? selectedModelId === model.id : selectionMode === 'multi' ? selectedIds.includes(model.id) : assignedModelIds.includes(model.id)}
 					{@const media = getModelMedia(model)}
 					{@const processing = processingModelId === model.id}
 					<div
@@ -304,7 +341,7 @@
 							<p class="text-xs font-medium text-fg truncate" title={getDisplayName(model)}>
 								{getDisplayName(model)}
 							</p>
-							{#if model.filename}
+							{#if model.filename && model.filename !== getDisplayName(model)}
 								<p class="text-2xs text-fg-muted truncate" title={model.filename}>
 									{model.filename}
 								</p>
@@ -318,6 +355,7 @@
 									<span title="Indexed at">{formatDate(model.indexed_at)}</span>
 								{/if}
 							</div>
+							<slot name="cardExtra" {model} />
 						</div>
 					</div>
 				{/each}
@@ -329,7 +367,11 @@
 	<div class="px-6 py-3 border-t border-line bg-surface-2 flex items-center justify-between">
 		<div class="flex items-center gap-3">
 			<p class="text-xs text-fg-muted">
-				{selectionMode === 'single' ? 'Click a model to select it' : 'Click a model to assign/unassign'}
+				{selectionMode === 'single'
+					? 'Click a model to select it'
+					: selectionMode === 'multi'
+						? 'Click a model to select or deselect it'
+						: 'Click a model to assign/unassign'}
 			</p>
 			{#if selectionMode === 'single' && allowClear}
 				<button

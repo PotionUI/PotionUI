@@ -6,7 +6,8 @@ import {
 	transferProgressPercent,
 	filterSyncRows,
 	countByStatus,
-	sumSizeBytes
+	sumSizeBytes,
+	toPickerModel
 } from './backendModelsSync';
 import type { RemoteModelSyncRow, WorkerModelTransfer } from '$lib/services/admin-api';
 
@@ -139,5 +140,30 @@ describe('sumSizeBytes', () => {
 
 	it('is 0 for an empty list', () => {
 		expect(sumSizeBytes([])).toBe(0);
+	});
+});
+
+describe('toPickerModel', () => {
+	it('maps model_id to id and size_bytes to file_size, carrying status fields through', () => {
+		const source = row({
+			model_id: 'm42',
+			filename: 'checkpoint.safetensors',
+			model_type: 'checkpoints',
+			size_bytes: 512,
+			status: 'digest_mismatch',
+			providers_can_fetch: false
+		});
+		expect(toPickerModel(source)).toEqual({
+			id: 'm42',
+			filename: 'checkpoint.safetensors',
+			model_type: 'checkpoints',
+			file_size: 512,
+			status: 'digest_mismatch',
+			providers_can_fetch: false
+		});
+	});
+
+	it('preserves a null size', () => {
+		expect(toPickerModel(row({ size_bytes: null })).file_size).toBeNull();
 	});
 });

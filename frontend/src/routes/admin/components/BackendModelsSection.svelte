@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import { Alert, Badge, Button, Input, Spinner } from '$lib/components/ui';
+	import { Alert, Badge, Button, Spinner } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 	import { getApiErrorMessage } from '$lib/utils/logger';
 	import { toasts } from '$lib/stores/toast';
@@ -12,7 +12,7 @@
 		getRemoteModelTransfers
 	} from '$lib/services/admin-api';
 	import type { RemoteModelSyncRow, RemoteModelSyncStatus, WorkerModelTransfer } from '$lib/services/admin-api';
-	import AdminFilterBar from './AdminFilterBar.svelte';
+	import ModelAssignmentPicker from '$lib/components/modals/ModelAssignmentPicker.svelte';
 	import {
 		findTransferForFilename,
 		hasRunningTransfer,
@@ -20,7 +20,9 @@
 		transferProgressPercent,
 		filterSyncRows,
 		countByStatus,
-		sumSizeBytes
+		sumSizeBytes,
+		toPickerModel,
+		type RemoteModelPickerModel
 	} from './backendModelsSync';
 
 	/**
@@ -32,11 +34,15 @@
 	 * shouldn't have mounted this; `worker_unreachable` → an error card with
 	 * Retry; success → the row list. The caller re-mounts this with
 	 * `{#key backendId}` when the selected backend changes.
+	 *
+	 * Search/type filtering/pagination/card grid are `ModelAssignmentPicker` -
+	 * the same module the user-model and group-model assignment screens use -
+	 * driven in `external`+`multi` mode. Only the status pills, byte total, and
+	 * push/fetch actions below are sync-specific.
 	 */
 	let { backendId }: { backendId: string } = $props();
 
 	const POLL_INTERVAL_MS = 2000;
-	const PAGE_SIZE = 50;
 	let pollHandle: ReturnType<typeof setInterval> | null = null;
 
 	let loading = $state(true);
@@ -50,8 +56,8 @@
 
 	let searchQuery = $state('');
 	let typeFilter = $state('all');
+	let currentPage = $state(1);
 	let statusFilter = $state<RemoteModelSyncStatus | 'all'>('missing');
-	let visibleCount = $state(PAGE_SIZE);
 
 	const statusVariant: Record<RemoteModelSyncStatus, 'success' | 'warning' | 'danger'> = {
 		on_worker: 'success',
@@ -72,25 +78,23 @@
 		{ id: 'digest_mismatch', label: 'Mismatch' }
 	];
 
-	let modelTypes = $derived([...new Set(rows.map((r) => r.model_type))].sort());
+	let pickerModels = $derived(rows.map(toPickerModel));
+	let statusPredicate = $derived((m: RemoteModelPickerModel) => statusFilter === 'all' || m.status === statusFilter);
 	// Status excluded here so the pill counts reflect search + type only.
 	let rowsByTypeAndSearch = $derived(filterSyncRows(rows, { search: searchQuery, modelType: typeFilter, status: 'all' }));
 	let statusCounts = $derived(countByStatus(rowsByTypeAndSearch));
 	let filteredRows = $derived(
 		statusFilter === 'all' ? rowsByTypeAndSearch : rowsByTypeAndSearch.filter((r) => r.status === statusFilter)
 	);
-	let visibleRows = $derived(filteredRows.slice(0, visibleCount));
-	let remainingCount = $derived(filteredRows.length - visibleRows.length);
 	let activeFilterCount = $derived(
 		(searchQuery.trim() ? 1 : 0) + (typeFilter !== 'all' ? 1 : 0) + (statusFilter !== 'missing' ? 1 : 0)
 	);
 
-	// Reset the "Show more" page whenever a filter narrows or widens the set.
+	// The picker resets its own page on search/type changes - only the status
+	// pills (sync-specific, live outside the picker) need this nudge.
 	$effect(() => {
-		searchQuery;
-		typeFilter;
 		statusFilter;
-		visibleCount = PAGE_SIZE;
+		currentPage = 1;
 	});
 
 	let selectedRows = $derived(rows.filter((r) => selected.has(r.model_id)));
@@ -130,10 +134,6 @@
 		searchQuery = '';
 		typeFilter = 'all';
 		statusFilter = 'missing';
-	}
-
-	function showMore() {
-		visibleCount += PAGE_SIZE;
 	}
 
 	// `indeterminate` is a DOM property, not an HTML attribute - set via action.
@@ -286,7 +286,7 @@
 		</div>
 	</section>
 {:else if sectionError?.kind !== 'invalid_backend'}
-	<section class="rounded-lg border border-line bg-surface-1 shadow-raised">
+	<section class="rounded-lg border border-line bg-surface-1 shadow-raised overflow-hidden">
 		<div class="px-4 sm:px-5 py-3 border-b border-line flex items-center justify-between gap-2">
 			<h3 class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted flex items-center gap-1.5">
 				<Icon name="box" className="w-3.5 h-3.5" />
@@ -298,137 +298,104 @@
 		{#if rows.length === 0}
 			<p class="px-4 sm:px-5 py-4 text-sm text-fg-muted">No models are known on the host yet.</p>
 		{:else}
-			{#snippet modelSearch()}
-				<div class="relative">
-					<Icon name="search" className="w-3.5 h-3.5 text-fg-subtle absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-					<Input bind:value={searchQuery} type="search" class="pl-8" placeholder="Search filenames…" aria-label="Search models" />
-				</div>
-			{/snippet}
-			{#snippet modelFilters()}
-				<select class="input w-36" bind:value={typeFilter} aria-label="Filter by model type">
-					<option value="all">All types</option>
-					{#each modelTypes as t}
-						<option value={t}>{t}</option>
-					{/each}
-				</select>
-				<div class="flex items-center gap-1 bg-surface-2 border border-line rounded p-0.5">
-					{#each statusPills as p}
-						<button
-							type="button"
-							class="px-2.5 py-1 text-xs font-medium rounded transition-colors flex items-center gap-1.5 {statusFilter === p.id
-								? 'bg-signal/10 text-signal'
-								: 'text-fg-muted hover:text-fg hover:bg-surface-3'}"
-							onclick={() => (statusFilter = p.id)}
-						>
-							{p.label}
-							<span class="font-mono text-2xs tabular-nums">{p.id === 'all' ? rowsByTypeAndSearch.length : statusCounts[p.id]}</span>
-						</button>
-					{/each}
-				</div>
-			{/snippet}
-			{#snippet modelTrailing()}
-				<span class="font-mono text-2xs tabular-nums text-fg-subtle whitespace-nowrap">{filteredRows.length} / {rows.length}</span>
-			{/snippet}
-
-			<div class="px-4 sm:px-5 py-3 border-b border-line">
-				<AdminFilterBar search={modelSearch} filters={modelFilters} trailing={modelTrailing} activeCount={activeFilterCount} onClear={clearFilters} />
+			<div class="px-4 sm:px-5 py-2 border-b border-line flex items-center gap-3">
+				<input
+					type="checkbox"
+					class="h-4 w-4 rounded border-line-strong bg-surface-2 text-signal focus:ring-signal flex-shrink-0"
+					checked={allFilteredSelected}
+					use:indeterminateAction={!allFilteredSelected && someFilteredSelected}
+					onchange={toggleSelectAllFiltered}
+					aria-label="Select all filtered models"
+					disabled={filteredRows.length === 0}
+				/>
+				<span class="font-mono text-2xs tabular-nums text-fg-subtle">
+					{selected.size} selected · {filteredRows.length} / {rows.length} matched
+				</span>
+				{#if activeFilterCount > 0}
+					<Button variant="ghost" size="xs" icon="close" class="ml-auto" onclick={clearFilters}>Clear filters</Button>
+				{/if}
 			</div>
 
-			{#if filteredRows.length === 0}
-				<p class="px-4 sm:px-5 py-4 text-sm text-fg-muted">No models match the current filters.</p>
-			{:else}
-				<div class="px-4 sm:px-5 py-2 border-b border-line flex items-center gap-3">
-					<input
-						type="checkbox"
-						class="h-4 w-4 rounded border-line-strong bg-surface-2 text-signal focus:ring-signal flex-shrink-0"
-						checked={allFilteredSelected}
-						use:indeterminateAction={!allFilteredSelected && someFilteredSelected}
-						onchange={toggleSelectAllFiltered}
-						aria-label="Select all filtered models"
-					/>
-					<span class="font-mono text-2xs tabular-nums text-fg-subtle">{selected.size} selected</span>
-				</div>
-
-				<ul class="divide-y divide-line">
-					{#each visibleRows as row (row.model_id)}
-						{@const activeTransfer = activeTransferFor(row.filename)}
-						<li class="px-4 sm:px-5 py-2.5">
-							<div class="flex items-center gap-3 flex-wrap sm:flex-nowrap">
-								<input
-									type="checkbox"
-									class="h-4 w-4 rounded border-line-strong bg-surface-2 text-signal focus:ring-signal flex-shrink-0"
-									checked={selected.has(row.model_id)}
-									onchange={() => toggleSelected(row.model_id)}
-									aria-label={`Select ${row.filename}`}
-								/>
-								<div class="min-w-0 flex-1 basis-full sm:basis-auto">
-									<p class="text-sm text-fg truncate" title={row.filename}>{row.filename}</p>
-									<p class="font-mono text-2xs tabular-nums text-fg-subtle">
-										{row.model_type}{row.size_bytes != null ? ` · ${formatBytes(row.size_bytes)}` : ''}
-									</p>
-								</div>
-								{#if !row.providers_can_fetch}
-									<span title="No provider link or hash for this model - fetch via provider is unavailable" class="flex-shrink-0">
-										<Icon name="information-circle" className="w-3.5 h-3.5 text-fg-subtle" />
-									</span>
-								{/if}
-								<Badge variant={statusVariant[row.status]} size="sm">{statusLabel[row.status]}</Badge>
-							</div>
-							{#if activeTransfer}
-								{@const percent = transferProgressPercent(activeTransfer)}
-								<div class="mt-2 flex items-center gap-2">
-									<div class="flex-1 h-1.5 rounded-full bg-surface-3 overflow-hidden">
-										<div class="h-full bg-signal rounded-full transition-[width]" style="width: {percent}%"></div>
-									</div>
-									<span class="font-mono text-2xs tabular-nums text-fg-subtle w-24 text-right">
-										{formatBytes(activeTransfer.received_bytes)} / {formatBytes(activeTransfer.total_bytes)}
-									</span>
-								</div>
-							{:else if rowErrors[row.model_id]}
-								<p class="mt-1.5 text-2xs text-danger">{rowErrors[row.model_id]}</p>
-							{/if}
-						</li>
-					{/each}
-				</ul>
-
-				{#if remainingCount > 0}
-					<div class="px-4 sm:px-5 py-2.5 border-t border-line flex justify-center">
-						<Button variant="ghost" size="sm" onclick={showMore}>
-							Show more <span class="font-mono text-2xs tabular-nums">({remainingCount})</span>
-						</Button>
+			<ModelAssignmentPicker
+				dataSource="external"
+				externalModels={pickerModels}
+				externalFilter={statusPredicate}
+				selectionMode="multi"
+				selectedIds={[...selected]}
+				onToggle={toggleSelected}
+				bind:searchQuery
+				bind:selectedType={typeFilter}
+				bind:currentPage
+				pageSize={40}
+			>
+				<svelte:fragment slot="extraFilters">
+					<div class="flex flex-wrap items-center gap-0.5 rounded p-0.5 bg-surface-2/50">
+						{#each statusPills as p}
+							<button
+								type="button"
+								class="px-3 py-1 rounded text-xs font-medium transition-colors flex items-center gap-1.5 {statusFilter === p.id
+									? 'bg-signal/10 text-signal'
+									: 'text-fg-muted hover:bg-surface-3/50'}"
+								onclick={() => (statusFilter = p.id)}
+							>
+								{p.label}
+								<span class="font-mono text-2xs tabular-nums">{p.id === 'all' ? rowsByTypeAndSearch.length : statusCounts[p.id]}</span>
+							</button>
+						{/each}
 					</div>
-				{/if}
+				</svelte:fragment>
 
-				<div class="px-4 sm:px-5 py-3 border-t border-line flex items-center justify-end gap-2 flex-wrap">
-					{#if selectedRows.length > 0}
-						<span class="font-mono text-2xs tabular-nums text-fg-subtle mr-auto">{selectedRows.length} selected</span>
+				<svelte:fragment slot="cardExtra" let:model>
+					{@const m = model as RemoteModelPickerModel}
+					{@const activeTransfer = activeTransferFor(m.filename)}
+					<div class="flex items-center gap-1.5 flex-wrap pt-0.5">
+						<Badge variant={statusVariant[m.status]} size="sm">{statusLabel[m.status]}</Badge>
+						{#if !m.providers_can_fetch}
+							<span title="No provider link or hash for this model - fetch via provider is unavailable" class="flex-shrink-0">
+								<Icon name="information-circle" className="w-3.5 h-3.5 text-fg-subtle" />
+							</span>
+						{/if}
+					</div>
+					{#if activeTransfer}
+						{@const percent = transferProgressPercent(activeTransfer)}
+						<div class="mt-1 h-1 rounded-full bg-surface-3 overflow-hidden">
+							<div class="h-full bg-signal rounded-full transition-[width]" style="width: {percent}%"></div>
+						</div>
+					{:else if rowErrors[m.id]}
+						<p class="text-2xs text-danger truncate" title={rowErrors[m.id]}>{rowErrors[m.id]}</p>
 					{/if}
-					<Button
-						variant="secondary"
-						size="sm"
-						icon="upload"
-						loading={syncing === 'push'}
-						disabled={selected.size === 0 || syncing !== null || selectedInFlight}
-						onclick={() => submitSync('push')}
-					>
-						Upload from this machine
-					</Button>
-					{#if selectedRows.length > 0}
-						<span class="font-mono text-2xs tabular-nums text-fg-subtle">{formatBytes(selectedBytes)}</span>
-					{/if}
-					<Button
-						variant="secondary"
-						size="sm"
-						icon="download"
-						loading={syncing === 'fetch'}
-						disabled={!canFetchSelected || syncing !== null || selectedInFlight}
-						title={fetchDisabledTitle}
-						onclick={() => submitSync('fetch')}
-					>
-						Fetch via provider
-					</Button>
-				</div>
-			{/if}
+				</svelte:fragment>
+			</ModelAssignmentPicker>
+
+			<div class="px-4 sm:px-5 py-3 border-t border-line flex items-center justify-end gap-2 flex-wrap">
+				{#if selectedRows.length > 0}
+					<span class="font-mono text-2xs tabular-nums text-fg-subtle mr-auto">{selectedRows.length} selected</span>
+				{/if}
+				<Button
+					variant="secondary"
+					size="sm"
+					icon="upload"
+					loading={syncing === 'push'}
+					disabled={selected.size === 0 || syncing !== null || selectedInFlight}
+					onclick={() => submitSync('push')}
+				>
+					Upload from this machine
+				</Button>
+				{#if selectedRows.length > 0}
+					<span class="font-mono text-2xs tabular-nums text-fg-subtle">{formatBytes(selectedBytes)}</span>
+				{/if}
+				<Button
+					variant="secondary"
+					size="sm"
+					icon="download"
+					loading={syncing === 'fetch'}
+					disabled={!canFetchSelected || syncing !== null || selectedInFlight}
+					title={fetchDisabledTitle}
+					onclick={() => submitSync('fetch')}
+				>
+					Fetch via provider
+				</Button>
+			</div>
 		{/if}
 	</section>
 {/if}

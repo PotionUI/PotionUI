@@ -169,13 +169,18 @@ class RunpodComputeProvisioner(ComputeProvisioner):
         """RunPod's live GraphQL catalog, or `None` (logged, never raised) on
         a missing key or any catalog-fetch failure - callers fall back to the
         static catalogs on `None`, exactly like this plugin did before the
-        live catalog existed."""
+        live catalog existed. The failure reason is kept on
+        `self._catalog_error` so the fallback form can NAME it - a silently
+        degraded form is undebuggable from a screenshot."""
+        self._catalog_error: Optional[str] = None
         if not api_key:
+            self._catalog_error = "no RunPod API key configured"
             return None
         try:
             return await catalog_client.get_catalog(api_key)
         except RunPodCatalogError as exc:
             logger.warning("RunPod GraphQL catalog unavailable, using the static catalog instead: %s", exc)
+            self._catalog_error = str(exc)
             return None
 
     async def _resolve_data_center_id(
@@ -303,7 +308,8 @@ class RunpodComputeProvisioner(ComputeProvisioner):
                 help_text=(
                     "The network volume and pod are created in this data center. Showing the "
                     "static catalog - RunPod's live catalog is unavailable, so the data center "
-                    "can't be picked automatically; choose one explicitly."
+                    "can't be picked automatically; choose one explicitly. "
+                    f"(Live catalog error: {getattr(self, '_catalog_error', None) or 'unknown'})"
                 ),
                 options=[
                     ComputeFieldOptionV1(value=dc.id, label=dc.id, detail=dc.geography)

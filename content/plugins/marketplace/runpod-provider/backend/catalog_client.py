@@ -101,6 +101,10 @@ async def fetch_catalog(
         async with httpx.AsyncClient(timeout=timeout, transport=transport) as http:
             response = await http.post(
                 url,
+                # RunPod's GraphQL endpoint has historically authenticated via
+                # the `api_key` query parameter; newer deployments also accept
+                # the Bearer header. Send both - whichever the edge honors.
+                params={"api_key": api_key},
                 json={"query": _QUERY},
                 headers={
                     "Authorization": f"Bearer {api_key}",
@@ -118,7 +122,15 @@ async def fetch_catalog(
         raise RunPodCatalogError(f"GraphQL errors: {payload['errors']}")
 
     data = payload.get("data") or {}
-    myself = data.get("myself") or {}
+    # `myself: null` is how this endpoint spells "unauthenticated" when it
+    # still answers 200 - an empty catalog must be an error, never a silent
+    # zero-option form.
+    myself = data.get("myself")
+    if not myself:
+        raise RunPodCatalogError(
+            "GraphQL returned no account data (myself=null) - the API key was "
+            "not accepted by the catalog endpoint"
+        )
     raw_data_centers = myself.get("dataCenters") or []
     raw_gpu_types = data.get("gpuTypes") or []
 

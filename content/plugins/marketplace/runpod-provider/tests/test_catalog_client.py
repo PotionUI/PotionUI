@@ -77,7 +77,10 @@ async def test_fetch_catalog_sends_bearer_auth_and_a_single_post():
     result = await fetch_catalog("super-secret-key", transport=_transport(handler))
 
     assert len(calls) == 1
-    assert calls[0].url == httpx.URL(DEFAULT_GRAPHQL_URL)
+    assert calls[0].url.copy_with(query=None) == httpx.URL(DEFAULT_GRAPHQL_URL)
+    # Both auth spellings ride along - the query param is the one RunPod's
+    # GraphQL edge has historically required; Bearer covers newer deployments.
+    assert calls[0].url.params.get("api_key") == "super-secret-key"
     assert calls[0].headers.get("authorization") == "Bearer super-secret-key"
     assert len(result) == 2
 
@@ -182,3 +185,14 @@ async def test_get_catalog_keys_the_cache_by_api_key():
     await get_catalog("key-two", transport=_transport(handler))
 
     assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_fetch_catalog_rejects_myself_null_instead_of_serving_empty():
+    """A 200 with `myself: null` is unauthenticated, not an empty catalog."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"data": {"myself": None, "gpuTypes": []}})
+
+    with pytest.raises(RunPodCatalogError, match="myself=null"):
+        await fetch_catalog("rejected-key", transport=_transport(handler))

@@ -51,6 +51,8 @@ All routes below require `Authorization: Bearer <POTIONUI_WORKER_TOKEN>`.
 | `GET` | `/v1/worker` | Handshake: an enveloped `WorkerInfoV1` with probed capabilities and all three fingerprint domains. |
 | `POST` | `/v1/executions` | Submit an enveloped `ExecutionPackageV1`. Idempotent on `execution_id` (same `request_digest` → current status/200; a different digest → 409). Fingerprint mismatch or an expired package → `REJECTED`, never executed. A second submit while one is running → 429 (single-slot). Otherwise → 202, runs on a background thread. |
 | `POST` | `/v1/executions/{id}/assets/{logical_id}` | Stream-upload one input asset ahead of execution; verified against the package's `input_assets` manifest before it is accepted. See "Input assets" below. |
+| `POST` | `/v1/models/inventory` | Enveloped `ModelBundleManifestV1` in, enveloped `ModelInventoryResponseV1` out - which entries this worker's model depot already has (`present`), is missing, or has a size/digest `mismatch` for. Registers the manifest so a following staging upload can look an entry up by `(bundle_id, logical_id)`. 503 if this worker has no configured model depot. See "Models" below. |
+| `POST` | `/v1/models/{bundle_id}/{logical_id}` | Stream-upload one model file into the depot, verified by size and digest against the entry registered via the inventory call above. `404` if that bundle/logical_id was never inventoried first. A re-upload of already-correct bytes is a safe no-op. |
 | `GET` | `/v1/executions/{id}/events?after=N` | SSE stream of enveloped `JobEventV1`s: journaled events with `cursor > N` first, then live events, until a terminal event closes the stream. |
 | `POST` | `/v1/executions/{id}/cancel` | `{"result": "accepted" \| "already_terminal" \| "not_found"}`. Cooperative - a pipe mid-`process()` finishes its current step first. |
 | `GET` | `/v1/artifacts/{artifact_id}` | Streams a produced file from the worker's scoped artifacts directory. `artifact_id` is validated as a bare 32-hex-char id before it ever reaches a path. |
@@ -283,16 +285,38 @@ than a single file digest) fails the dispatch immediately with an actionable
 re-index it, rather than hashing a multi-gigabyte checkpoint on the hot
 dispatch path or silently shipping a bundle nothing can verify.
 
-Populating the manifest does not, on its own, close the shared-depot
-assumption: `package_assembly`'s "model paths stay verbatim" design still
-means a pipe's config carries the *dispatching host's* absolute path
-verbatim, and the worker still only runs correctly if that same path
-resolves on its own filesystem (the same mounted depot). The worker does not
-yet read `model_bundle` at all - it has the manifest available to build a
-staging/fetch or a stale-depot verification step against, but no such step
-exists on the worker side today. Staging models onto a worker that does
-*not* already share a depot, and worker-side verification that a locally
-mounted file actually matches the manifest's digest, are both still open.
+**Model push staging.** Before `POST /v1/executions`,
+`RemoteNativeBackend._dispatch` calls
+`src/features/remote_execution/model_bundle_staging.py`'s `stage_model_bundle`,
+which closes the shared-depot assumption for a worker that doesn't already
+have one: it posts the bundle manifest to `POST /v1/models/inventory`, and for
+every entry the worker reports missing or mismatched, resolves that entry's
+local source file (`ModelRepository.get_by_identity(role, filename)` - the
+inverse of the lookup `build_model_bundle` used to build the entry in the
+first place) and streams it to `POST /v1/models/{bundle_id}/{logical_id}` in
+fixed-size chunks (`WorkerTransport.upload_model`), sequentially, one entry at
+a time. An entry the inventory already reports `present` is never even
+resolved, let alone re-sent - **resuming after a partial upload is just a
+normal re-dispatch**: a second attempt's inventory call reports everything the
+first attempt finished as `present`, so only the remainder is pushed. Progress
+goes through the same channel a pipe's own progress does
+(`ProgressGenerationOutput`, `state="staging_models"`, a title like
+`"Staging models — 2.1 / 6.5 GB"`) so the UI shows staging activity instead of
+looking hung during a large push. A bundle with no entries never calls the
+worker at all. A pipeline referencing an HF-layout directory model still
+cannot dispatch (see below) - `build_model_bundle` refuses it before staging
+is ever reached, and `RemoteNativeBackend` turns that refusal into a
+`generation_error` naming the preset and the offending model file rather than
+a raw exception/stack trace.
+
+A pipe's config still carries the *dispatching host's* absolute path
+verbatim (`package_assembly`'s "model paths stay verbatim" design) - staging
+does not rewrite it. It is `remap_model_paths` (worker-side,
+`src/features/remote_execution/worker/path_remap.py`), run by
+`WorkerCoordinator._run` immediately before execution, that resolves each
+`file_path` to its depot location by matching the model bundle's entries on
+filename, so the pipe actually reads the just-staged depot copy, never the
+unreachable original path.
 
 ### Transport (`src/features/remote_execution/transport.py`)
 
@@ -309,7 +333,15 @@ it as the app produces it, so a genuinely still-in-flight SSE connection
 can't be exercised through it the way a real socket allows - tests that need
 that either target a pipe that finishes quickly (the response completes and
 the whole buffered history is delivered at once) or a cancel-aware pipe that
-notices promptly.
+notices promptly. That draining is not perfectly reliable for a very fast,
+fully-synchronous burst of events (observed under `ASGITransport` specifically:
+the response can close one event short of the worker's actual terminal event) -
+`RemoteNativeBackend._consume_events` treats a stream that closes without ever
+delivering a terminal event as a dropped connection, not a finished execution,
+and reconnects with `GET .../events?after=<last cursor seen>` (bounded retries)
+rather than leaving the row stuck non-terminal. This is a real production
+concern too, not just a test artifact - the same thing can happen to a real
+SSE connection over a flaky link to rented compute.
 
 ### Reconciliation
 
@@ -335,10 +367,23 @@ a reconciliation failure never prevents the app from starting.
 
 ### Known gaps
 
-- **Model staging and worker-side digest verification.** See "Models" above -
-  the manifest is now real and content-addressed, but the worker neither
-  fetches missing files with it nor verifies its own depot against it; the
-  MVP still relies on a shared depot path rather than closing either gap.
+- **Model staging survives a re-dispatch, not a worker restart mid-staging.**
+  `ModelDepot` keeps a registered bundle manifest (`bundle_id -> entries`) in
+  process memory only - if the worker restarts between an inventory call and
+  the staging uploads that follow it, that in-flight dispatch's uploads 404
+  ("no such model entry ... call /v1/models/inventory with this bundle
+  first"). Already-staged files on disk are untouched (digest sidecars
+  persist), and the dispatch's own top-level exception handling still fails
+  the row cleanly rather than hanging it - but the fix is a fresh dispatch
+  attempt (which re-registers via a fresh inventory call and resumes
+  correctly, per "Model push staging" above), not an automatic retry from
+  within the same attempt.
+- **Ephemeral/serverless compute defeats the depot's whole premise.** Staging
+  is a real optimization only because a worker's depot persists across
+  dispatches (an entry already `present` is never re-sent). A worker whose
+  disk doesn't survive between invocations (a serverless/per-job container)
+  would re-stage its full model set on every single dispatch - staging would
+  still be correct, just no better than re-uploading from scratch each time.
 - **HF-layout directory models are not bundled.** `build_model_bundle`
   refuses to build an entry for a directory-layout model (`Model.is_directory`)
   rather than emit a wrong one - a pipeline that references one cannot

@@ -24,6 +24,8 @@ from src.platform.worker_protocol import (
     ArtifactRefV1,
     ExecutionPackageV1,
     JobEventV1,
+    ModelBundleEntryV1,
+    ModelBundleManifestV1,
     WorkerInfoV1,
 )
 from src.platform.worker_protocol.envelope import (
@@ -31,6 +33,13 @@ from src.platform.worker_protocol.envelope import (
     envelope,
     read_envelope,
 )
+from src.platform.worker_protocol.model_inventory import ModelInventoryResponseV1
+
+#: Chunk size for streaming a model file to the worker's staging endpoint - a
+#: checkpoint is commonly multi-gigabyte, so unlike `upload_asset`'s
+#: `handle.read()` (fine for the small input assets it moves), the whole file
+#: must never be held in memory at once.
+_MODEL_UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024
 
 
 class WorkerTransportError(Exception):
@@ -150,6 +159,48 @@ class WorkerTransport:
                 f"asset {logical_id!r} upload rejected: HTTP {resp.status_code} {resp.text}"
             )
 
+    async def model_inventory(self, manifest: ModelBundleManifestV1) -> ModelInventoryResponseV1:
+        """Ask the worker which of *manifest*'s entries it already has staged."""
+        try:
+            async with self._client(timeout=self._timeout) as client:
+                resp = await client.post(
+                    self._url("/v1/models/inventory"), json=envelope(manifest), headers=self._headers,
+                )
+        except httpx.HTTPError as exc:
+            raise WorkerUnreachableError(f"could not reach worker at {self._base_url}: {exc}") from exc
+
+        if resp.status_code != 200:
+            raise WorkerProtocolError(f"model inventory failed: HTTP {resp.status_code} {resp.text}")
+        try:
+            response = read_envelope(resp.json())
+        except (WorkerEnvelopeError, json.JSONDecodeError) as exc:
+            raise WorkerProtocolError(f"model inventory returned an unreadable document: {exc}") from exc
+        if not isinstance(response, ModelInventoryResponseV1):
+            raise WorkerProtocolError(
+                f"model inventory returned a {type(response).__name__}, not ModelInventoryResponseV1"
+            )
+        return response
+
+    async def upload_model(self, bundle_id: str, entry: ModelBundleEntryV1, source_path: Path) -> None:
+        """Stream *source_path*'s bytes to the worker as the named model bundle
+        entry, in fixed-size chunks (see `_MODEL_UPLOAD_CHUNK_BYTES`)."""
+        try:
+            async with self._client(timeout=httpx.Timeout(None, connect=self._connect_timeout)) as client:
+                resp = await client.post(
+                    self._url(f"/v1/models/{bundle_id}/{entry.logical_id}"),
+                    content=_iter_file_chunks(source_path),
+                    headers=self._headers,
+                )
+        except (httpx.HTTPError, OSError) as exc:
+            raise WorkerUnreachableError(
+                f"could not upload model {entry.logical_id!r} to {self._base_url}: {exc}"
+            ) from exc
+
+        if resp.status_code != 200:
+            raise WorkerProtocolError(
+                f"model {entry.logical_id!r} upload rejected: HTTP {resp.status_code} {resp.text}"
+            )
+
     async def stream_events(self, execution_id: str, after: int = 0) -> AsyncIterator[JobEventV1]:
         """Yield every `JobEventV1` for ``execution_id`` with cursor > ``after``,
         journaled events first, then live events, until a terminal event closes
@@ -245,3 +296,12 @@ class WorkerTransport:
             )
 
         tmp_path.replace(dest_path)
+
+
+async def _iter_file_chunks(path: Path, chunk_size: int = _MODEL_UPLOAD_CHUNK_BYTES):
+    with path.open("rb") as handle:
+        while True:
+            chunk = handle.read(chunk_size)
+            if not chunk:
+                return
+            yield chunk

@@ -35,7 +35,11 @@ from src.features.remote_execution.artifact_import import (
     output_for_artifact,
     resolve_import_destination,
 )
-from src.features.remote_execution.model_bundle_builder import build_model_bundle
+from src.features.remote_execution.model_bundle_builder import (
+    ModelBundleResolutionError,
+    build_model_bundle,
+)
+from src.features.remote_execution.model_bundle_staging import stage_model_bundle
 from src.features.remote_execution.policy import RemoteExecutionPolicy
 from src.features.remote_execution.records import (
     IllegalStateTransition,
@@ -69,6 +73,14 @@ from src.platform.worker_protocol import (
     WorkerInfoV1,
 )
 from src.platform.worker_protocol.worker_info import FINGERPRINT_DOMAINS
+
+
+#: A closed SSE connection before a terminal event is a dropped connection,
+#: not a finished execution (see `_consume_events`) - bounded so a worker
+#: that genuinely never terminates an execution still fails the dispatch
+#: rather than retrying forever.
+_MAX_EVENT_STREAM_RECONNECTS = 3
+_EVENT_STREAM_RECONNECT_DELAY_SECONDS = 0.05
 
 
 class RemoteNativeBackend(BaseBackend):
@@ -263,7 +275,18 @@ class RemoteNativeBackend(BaseBackend):
 
         processed = build_processed_pipeline(pipes, self._pipe_catalog)
         _rewritten, _manifest, sources = collect_input_assets(processed.pipes, storage_dir)
-        model_bundle = build_model_bundle(processed.pipes)
+        try:
+            model_bundle = build_model_bundle(processed.pipes)
+        except ModelBundleResolutionError as exc:
+            # Fails before any row is created or the worker is ever
+            # contacted - same as every other resolution error this raises,
+            # just with the preset named so the operator knows which preset
+            # to fix rather than only which file.
+            preset_label = f"preset {preset_id!r}" if preset_id else "this pipeline"
+            emit(ErrorGenerationOutput(
+                error=f"Cannot dispatch {preset_label} to a remote worker: {exc}",
+            ))
+            return
 
         built = BuiltPipeline(
             generation_id=generation_id, preset_id=preset_id, preset_template=None, pipes=pipes,
@@ -334,6 +357,7 @@ class RemoteNativeBackend(BaseBackend):
         renew_task = asyncio.create_task(self._renew_lease_loop(row.id, claimed.lease_epoch))
         try:
             try:
+                await stage_model_bundle(model_bundle, transport, emit)
                 await transport.submit(package)
 
                 if package.input_assets is not None:
@@ -348,8 +372,9 @@ class RemoteNativeBackend(BaseBackend):
                 await self._consume_events(row.id, package, transport, storage_dir, emit)
             except Exception as exc:
                 # Anything that goes wrong between claiming the row and a
-                # terminal worker event (submit failing, an upload failing,
-                # the SSE connection dying mid-stream) must still terminate
+                # terminal worker event (model staging failing, submit
+                # failing, an upload failing, the SSE connection dying
+                # mid-stream) must still terminate
                 # the row - otherwise it is stuck DISPATCHING/STAGING/RUNNING
                 # forever, since nothing else in this single-slot MVP retries
                 # it. A no-op when the event loop already reached a terminal
@@ -391,13 +416,29 @@ class RemoteNativeBackend(BaseBackend):
         pipe_index_by_id = {p.pipe_id: idx for idx, p in enumerate(package.processed_pipes.pipes)}
         imports_dir = storage_dir / "remote_imports" / execution_id
 
-        async for event in transport.stream_events(execution_id, after=0):
-            self._repository.apply_job_event(execution_id, event)
-            await self._handle_event(
-                event, transport, imports_dir, pipe_type_by_id, pipe_index_by_id, emit,
-            )
-            if event.is_terminal:
-                return
+        cursor = 0
+        for attempt in range(_MAX_EVENT_STREAM_RECONNECTS):
+            async for event in transport.stream_events(execution_id, after=cursor):
+                cursor = event.cursor
+                self._repository.apply_job_event(execution_id, event)
+                await self._handle_event(
+                    event, transport, imports_dir, pipe_type_by_id, pipe_index_by_id, emit,
+                )
+                if event.is_terminal:
+                    return
+            # The stream closed (the worker's response ended) without ever
+            # delivering a terminal event - a dropped connection, not
+            # necessarily a finished execution. Reconnect from the last
+            # cursor we actually saw rather than treating a closed stream as
+            # a completed one; the worker still has the full history in its
+            # journal regardless of why this particular connection ended.
+            if attempt < _MAX_EVENT_STREAM_RECONNECTS - 1:
+                await asyncio.sleep(_EVENT_STREAM_RECONNECT_DELAY_SECONDS)
+
+        raise WorkerProtocolError(
+            f"event stream for {execution_id!r} closed without a terminal event after "
+            f"{_MAX_EVENT_STREAM_RECONNECTS} attempts"
+        )
 
     async def _handle_event(
         self, event: JobEventV1, transport: WorkerTransport, imports_dir: Path,

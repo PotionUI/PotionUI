@@ -259,6 +259,10 @@ class NativeRemoteBackendTestCase(unittest.TestCase):
             patch("src.platform.database.migration_runner.db", self.db),
             patch("src.features.remote_execution.repository.db", self.db),
             patch("src.features.models.repository.db", self.db),
+            # ModelRepository.create -> get_by_id loads tags through the tag
+            # repo's own module-bound db; unpatched it reaches the dev DB,
+            # which only exists locally (CI: "no such table: tags").
+            patch("src.features.tags.repository.db", self.db),
             patch("src.platform.settings.repository.db", self.db),
             # os.getenv("POTIONUI_BUILD_ID") must read as unset so the "build"
             # fingerprint domain matches the worker's build_id=None below.

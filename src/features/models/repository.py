@@ -411,6 +411,17 @@ class ModelRepository:
 
             return cursor.rowcount > 0
 
+    def update_digest(self, model_id: str, *, sha256: str, file_size: int) -> bool:
+        """Persist a freshly computed content digest without touching any other column."""
+        with db.get_cursor() as cursor:
+            cursor.execute("""
+                UPDATE models
+                SET sha256 = ?, file_size = ?
+                WHERE id = ?
+            """, (sha256, file_size, model_id))
+
+            return cursor.rowcount > 0
+
     def update_prompting_guidance(self, model_id: str, prompting_guidance: str) -> bool:
         """Update the admin-authored prompting guidance text for a model"""
         with db.get_cursor() as cursor:

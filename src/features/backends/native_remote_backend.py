@@ -301,7 +301,7 @@ class RemoteNativeBackend(BaseBackend):
         processed = build_processed_pipeline(pipes, self._pipe_catalog)
         _rewritten, _manifest, sources = collect_input_assets(processed.pipes, storage_dir)
         try:
-            model_bundle = build_model_bundle(processed.pipes)
+            model_bundle = await asyncio.to_thread(build_model_bundle, processed.pipes)
         except ModelBundleResolutionError as exc:
             # Fails before any row is created or the worker is ever
             # contacted - same as every other resolution error this raises,

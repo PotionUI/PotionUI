@@ -8,19 +8,16 @@ module, nothing turned that set of paths into the
 :class:`~src.platform.worker_protocol.ModelBundleManifestV1` an execution
 package carries - ``RemoteNativeBackend`` sent an always-empty one.
 
-**Digests are never computed here.** The models feature already records a
-content sha256 per indexed file (``models.sha256``, migration-backed) as
-part of ordinary indexing - re-hashing a multi-gigabyte checkpoint on every
-dispatch would make remote dispatch itself the slow path, and would compute a
-digest this process cannot cross-check against anything. A model with no
-recorded digest fails the dispatch with an actionable message rather than
-silently hashing on the hot path or silently shipping an unverifiable bundle.
+A model with no recorded digest gets hashed here, once, and the digest is
+persisted so later dispatches skip straight to the recorded value. This
+function does blocking file I/O - the caller runs it off the event loop.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+from pathlib import Path
 from typing import Any, Dict, Iterator, Optional, Sequence, Tuple
 
 from src.features.models.records import Model
@@ -35,15 +32,11 @@ from src.platform.worker_protocol import (
 )
 
 _DIGEST_ALGORITHM = "sha256"
+_HASH_CHUNK_BYTES = 1024 * 1024
 
 
 class ModelBundleResolutionError(RuntimeError):
-    """A model a pipeline references cannot be turned into a bundle entry.
-
-    Always actionable: the fix is to (re)index the model's location so its
-    digest (and, for a directory-layout model, real per-file digests) are on
-    record - never to weaken this check.
-    """
+    """A model a pipeline references cannot be turned into a bundle entry."""
 
 
 def build_model_bundle(
@@ -126,11 +119,7 @@ def _entry_for(file_path: str, repo: ModelRepository) -> ModelBundleEntryV1:
             "entries, not a single-file digest."
         )
     if not model.sha256 or model.file_size is None:
-        raise ModelBundleResolutionError(
-            f"Model {model.filename!r} ({file_path}) has no recorded content digest. "
-            "Re-index its location so a digest is on record - remote dispatch does not "
-            "hash model files on the fly."
-        )
+        model.sha256, model.file_size = _hash_and_persist(model, file_path, repo)
 
     role = model.model_type or "unknown"
     directory = MODEL_TYPE_TO_DIRECTORY.get(role, role)
@@ -141,6 +130,27 @@ def _entry_for(file_path: str, repo: ModelRepository) -> ModelBundleEntryV1:
         digest=ContentDigest(algorithm=_DIGEST_ALGORITHM, hex=model.sha256),
         size_bytes=model.file_size,
     )
+
+
+def _hash_and_persist(model: Model, file_path: str, repo: ModelRepository) -> Tuple[str, int]:
+    path = Path(file_path)
+    if not path.is_file():
+        raise ModelBundleResolutionError(
+            f"Model {model.filename!r} ({file_path}) is missing on disk - cannot dispatch it "
+            "to a remote worker."
+        )
+    sha256 = _hash_file(path)
+    file_size = path.stat().st_size
+    repo.update_digest(model.id, sha256=sha256, file_size=file_size)
+    return sha256, file_size
+
+
+def _hash_file(path: Path) -> str:
+    hasher = hashlib.new(_DIGEST_ALGORITHM)
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(_HASH_CHUNK_BYTES), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
 
 
 def _bundle_digest(entries: Tuple[ModelBundleEntryV1, ...]) -> ContentDigest:

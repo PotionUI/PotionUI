@@ -1,9 +1,11 @@
 """build_model_bundle: turning a processed pipeline's model references into a
-real ModelBundleManifestV1, sourced from recorded model digests only - never
-by hashing a file on the dispatch path."""
+real ModelBundleManifestV1."""
 
 from __future__ import annotations
 
+import hashlib
+import os
+import tempfile
 import unittest
 from typing import Dict, Optional
 
@@ -16,22 +18,35 @@ from src.platform.worker_protocol import ProcessedPipeV1
 
 
 class FakeModelRepository:
-    """A `get_by_file_path`-only stand-in - no database, no filesystem.
+    """A `get_by_file_path`/`update_digest` stand-in - no database, no filesystem.
 
-    Tracks which paths were actually looked up so a test can assert a
-    skipped (e.g. zero-weight LoRA) reference never even reached the repo.
+    `rows` is the source of truth (keyed by file_path); `get_by_file_path`
+    hands back a fresh `Model` each call, mirroring a real repository read.
+    `digest_writes` records every `update_digest` call so a test can assert
+    a second bundle build does not re-hash an already-digested model.
     """
 
     def __init__(self):
-        self.by_path: Dict[str, Model] = {}
+        self.rows: Dict[str, dict] = {}
         self.lookups: list = []
+        self.digest_writes: list = []
 
     def register(self, file_path: str, **fields) -> None:
-        self.by_path[file_path] = Model(file_path=file_path, **fields)
+        self.rows[file_path] = {"file_path": file_path, **fields}
 
     def get_by_file_path(self, file_path: str, include_providers: bool = True) -> Optional[Model]:
         self.lookups.append(file_path)
-        return self.by_path.get(file_path)
+        fields = self.rows.get(file_path)
+        return Model(**fields) if fields is not None else None
+
+    def update_digest(self, model_id: str, *, sha256: str, file_size: int) -> bool:
+        self.digest_writes.append((model_id, sha256, file_size))
+        for fields in self.rows.values():
+            if fields.get("id") == model_id:
+                fields["sha256"] = sha256
+                fields["file_size"] = file_size
+                return True
+        return False
 
 
 def _pipe(pipe_id: str, config: dict) -> ProcessedPipeV1:
@@ -141,17 +156,57 @@ class TestMissingDigest(unittest.TestCase):
             build_model_bundle([pipe], model_repository=repo)
         self.assertIn("not indexed", str(ctx.exception))
 
-    def test_an_indexed_model_with_no_recorded_digest_fails_loudly(self):
+    def test_a_missing_digest_is_hashed_and_persisted_and_dispatch_proceeds(self):
+        fd, path = tempfile.mkstemp()
+        self.addCleanup(os.remove, path)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(b"checkpoint bytes")
+        expected_digest = hashlib.sha256(b"checkpoint bytes").hexdigest()
+
         repo = FakeModelRepository()
         repo.register(
-            "/models/checkpoints/no_digest.safetensors", id="m-nd", filename="no_digest.safetensors",
-            model_type="checkpoint", sha256=None, file_size=500,
+            path, id="m-nd", filename="no_digest.safetensors",
+            model_type="checkpoint", sha256=None, file_size=None,
         )
-        pipe = _pipe("p1", {"diffusion_model": {"file_path": "/models/checkpoints/no_digest.safetensors"}})
+        pipe = _pipe("p1", {"diffusion_model": {"file_path": path}})
+
+        bundle = build_model_bundle([pipe], model_repository=repo)
+
+        self.assertEqual(len(bundle.entries), 1)
+        self.assertEqual(bundle.entries[0].digest.hex, expected_digest)
+        self.assertEqual(bundle.entries[0].size_bytes, len(b"checkpoint bytes"))
+        self.assertEqual(repo.digest_writes, [("m-nd", expected_digest, len(b"checkpoint bytes"))])
+
+    def test_a_second_build_does_not_rehash_an_already_digested_model(self):
+        fd, path = tempfile.mkstemp()
+        self.addCleanup(os.remove, path)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(b"checkpoint bytes")
+
+        repo = FakeModelRepository()
+        repo.register(
+            path, id="m-nd", filename="no_digest.safetensors",
+            model_type="checkpoint", sha256=None, file_size=None,
+        )
+        pipe = _pipe("p1", {"diffusion_model": {"file_path": path}})
+
+        build_model_bundle([pipe], model_repository=repo)
+        build_model_bundle([pipe], model_repository=repo)
+
+        self.assertEqual(len(repo.digest_writes), 1)
+
+    def test_a_missing_digest_for_a_file_absent_on_disk_still_refuses(self):
+        repo = FakeModelRepository()
+        repo.register(
+            "/models/checkpoints/gone.safetensors", id="m-gone", filename="gone.safetensors",
+            model_type="checkpoint", sha256=None, file_size=None,
+        )
+        pipe = _pipe("p1", {"diffusion_model": {"file_path": "/models/checkpoints/gone.safetensors"}})
 
         with self.assertRaises(ModelBundleResolutionError) as ctx:
             build_model_bundle([pipe], model_repository=repo)
-        self.assertIn("no recorded content digest", str(ctx.exception))
+        self.assertIn("missing on disk", str(ctx.exception))
+        self.assertEqual(repo.digest_writes, [])
 
     def test_a_directory_layout_model_fails_loudly_rather_than_a_wrong_entry(self):
         repo = FakeModelRepository()

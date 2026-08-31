@@ -8,6 +8,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from src.features.provisioning.contracts import ComputeProvisionerError
 from src.features.provisioning.routes import ProvisioningController, build_admin_router
 from src.platform.security.current_user import get_current_active_user
 from src.platform.security.user import AccountType, User
@@ -18,6 +19,15 @@ from tests.features.provisioning.test_operations import (
     FakeProvisionerRegistry,
     FakeRepository,
 )
+
+
+class _AuthFailingProvisioner(FakeProvisioner):
+    """Simulates a provider rejecting credentials mid-provision (e.g. the real
+    RunPod plugin's 401 when its API key is wrong) - the shape of failure that
+    used to reach the client as an unhandled 500."""
+
+    async def provision(self, request):
+        raise ComputeProvisionerError("RunPod API error 401: RunPod API key was rejected")
 
 
 def _user(account_type):
@@ -123,6 +133,23 @@ def test_provision_with_illegal_values_is_a_clean_error_not_a_500():
 
     assert response.status_code == 200
     assert response.json()["success"] is False
+
+
+def test_provision_provisioner_error_is_a_clean_error_not_a_500():
+    app, *_ = _make_client(provisioner=_AuthFailingProvisioner())
+    app.dependency_overrides[get_current_active_user] = lambda: _user(AccountType.ADMIN)
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/admin/provisioning",
+        json={"provider_id": "fake", "name": "prof-1", "values": {"gpu_type_id": "fake-gpu"}},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is False
+    assert body["error"] == "provision_failed"
+    assert "RunPod API key was rejected" in body["message"]
 
 
 def test_fields_route_delegates_to_the_provisioner():

@@ -202,6 +202,18 @@ async def test_provision_compute_missing_required_field_raises():
         )
 
 
+@pytest.mark.asyncio
+async def test_provision_compute_empty_string_required_field_raises():
+    """An empty form input arrives as "", not None - required must reject it."""
+    _, registry, repository, backend_registry = _collaborators()
+
+    with pytest.raises(InvalidProvisionValuesError):
+        await operations.provision_compute(
+            registry, repository, backend_registry,
+            provider_id="fake", profile_name="prof-1", values={"gpu_type_id": ""},
+        )
+
+
 async def test_provision_compute_illegal_select_value_raises():
     _, registry, repository, backend_registry = _collaborators()
 

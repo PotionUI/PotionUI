@@ -72,6 +72,13 @@
 		void loadProviderFields(providerId);
 	}
 
+	// A provisioner's own error message (see ComputeProvisionerError - surfaced
+	// verbatim by the server, never rewritten here) is shown as-is; this only adds
+	// a follow-up hint for the specific case an admin can actually act on themselves.
+	function looksLikeAuthFailure(message: string): boolean {
+		return /api key|unauthoriz|forbidden|\b401\b|\b403\b|credential/i.test(message);
+	}
+
 	async function submitProvision() {
 		if (!canProvision) return;
 		provisioning = true;
@@ -97,7 +104,12 @@
 
 <div class="space-y-5">
 	{#if provisionError}
-		<Alert variant="danger" density="compact">{provisionError}</Alert>
+		<Alert variant="danger" density="compact">
+			{provisionError}
+			{#if looksLikeAuthFailure(provisionError)}
+				<p class="mt-1">Check the provider plugin's API key in Admin → Plugins.</p>
+			{/if}
+		</Alert>
 	{/if}
 
 	<div>

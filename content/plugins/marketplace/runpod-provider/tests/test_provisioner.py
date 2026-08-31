@@ -42,16 +42,28 @@ class FakeRunPodClient:
     """Swapped in for `backend.provisioner.RunPodClient` - constructed the
     same way (`RunPodClient(api_key=...)`), never touches the network."""
 
+    #: Every instance constructed, in order - `provision()` builds its own
+    #: `RunPodClient(api_key=...)` internally, so a test recovers the instance
+    #: it actually used from here rather than injecting one.
+    instances = []
+
     def __init__(self, api_key: str):
         self.api_key = api_key
+        self.create_network_volume_calls = []
+        self.create_pod_calls = []
+        FakeRunPodClient.instances.append(self)
 
     async def aclose(self):
         pass
 
     async def create_network_volume(self, *, name, size_gb, data_center_id):
+        self.create_network_volume_calls.append(
+            {"name": name, "size_gb": size_gb, "data_center_id": data_center_id}
+        )
         return NetworkVolume(id="vol-1", name=name, size_gb=size_gb, data_center_id=data_center_id)
 
     async def create_pod(self, *, name, image_name, gpu_type_ids, env, ports, **kwargs):
+        self.create_pod_calls.append({"name": name, "image_name": image_name, **kwargs})
         return Pod(
             id="pod-1", name=name, image=image_name, desired_status="RUNNING",
             public_ip=None, port_mappings={}, ports=ports, cost_per_hr=None,
@@ -102,6 +114,7 @@ def repo():
 
 @pytest.fixture
 def provisioner(resources, repo, monkeypatch):
+    FakeRunPodClient.instances = []
     monkeypatch.setattr(provisioner_module, "RunPodClient", FakeRunPodClient)
     import backend.provisioning as provisioning_module
     monkeypatch.setattr(provisioning_module, "default_readiness_probe", _always_ready)
@@ -123,6 +136,27 @@ async def test_describe_fields_reports_gpu_type_and_volume_size(provisioner):
     assert by_key["volume_size_gb"].default == 100
 
 
+async def test_describe_fields_reports_data_center_as_a_required_select(provisioner):
+    fields = await provisioner.describe_fields()
+
+    by_key = {f.key: f for f in fields}
+    field = by_key["data_center_id"]
+    assert field.type == "select"
+    assert field.required is True
+    assert field.default == "US-TX-3"  # from the `region` plugin setting
+    assert any(o.value == "US-TX-3" and o.detail == "US" for o in field.options)
+    assert len(field.options) > 1
+
+
+async def test_describe_fields_data_center_has_no_default_when_region_setting_is_unset(provisioner, repo):
+    repo._store.pop((PLUGIN_ID, "region"))
+
+    fields = await provisioner.describe_fields()
+
+    by_key = {f.key: f for f in fields}
+    assert by_key["data_center_id"].default is None
+
+
 async def test_provision_returns_connection_details_with_handle_as_profile_name(provisioner):
     result = await provisioner.provision(
         ProvisionRequest(profile_name="prof-1", values={"gpu_type_id": "NVIDIA GeForce RTX 4090"})
@@ -133,6 +167,62 @@ async def test_provision_returns_connection_details_with_handle_as_profile_name(
     assert result.base_url.startswith("https://pod-1-8100.proxy.runpod.net")
     assert result.worker_token
     assert result.ready is True
+
+
+async def test_provision_sends_the_chosen_data_center_to_both_volume_and_pod(provisioner):
+    await provisioner.provision(
+        ProvisionRequest(
+            profile_name="prof-1",
+            values={"gpu_type_id": "NVIDIA GeForce RTX 4090", "data_center_id": "EU-NL-1"},
+        )
+    )
+
+    client = FakeRunPodClient.instances[-1]
+    assert client.create_network_volume_calls[-1]["data_center_id"] == "EU-NL-1"
+    assert client.create_pod_calls[-1]["data_center_ids"] == ["EU-NL-1"]
+
+
+async def test_provision_falls_back_to_the_region_setting_when_data_center_is_omitted(provisioner):
+    # `repo` fixture seeds region="US-TX-3" - a caller that never mentions
+    # data_center_id at all (not the admin form, which always sends it).
+    await provisioner.provision(
+        ProvisionRequest(profile_name="prof-1", values={"gpu_type_id": "NVIDIA GeForce RTX 4090"})
+    )
+
+    client = FakeRunPodClient.instances[-1]
+    assert client.create_network_volume_calls[-1]["data_center_id"] == "US-TX-3"
+    assert client.create_pod_calls[-1]["data_center_ids"] == ["US-TX-3"]
+
+
+async def test_provision_without_data_center_or_region_setting_raises_clean_error_naming_it(provisioner, repo):
+    repo._store.pop((PLUGIN_ID, "region"))
+
+    with pytest.raises(ComputeProvisionerError, match="data_center_id"):
+        await provisioner.provision(
+            ProvisionRequest(profile_name="prof-1", values={"gpu_type_id": "NVIDIA GeForce RTX 4090"})
+        )
+
+    # Never reaches RunPod at all - not a call made with an empty/invalid value.
+    assert FakeRunPodClient.instances == []
+
+
+async def test_provision_rejects_an_empty_string_data_center_with_no_region_fallback(provisioner, repo):
+    """Core's own required-field validation only checks a value isn't `None` -
+    an empty string satisfies "present". This is the provisioner's own
+    belt-and-braces check against exactly the bug that shipped: `values` with
+    `data_center_id: ""` and no `region` setting used to reach RunPod as
+    `dataCenterId: ""`, which RunPod rejects as "not provided"."""
+    repo._store.pop((PLUGIN_ID, "region"))
+
+    with pytest.raises(ComputeProvisionerError, match="data_center_id"):
+        await provisioner.provision(
+            ProvisionRequest(
+                profile_name="prof-1",
+                values={"gpu_type_id": "NVIDIA GeForce RTX 4090", "data_center_id": ""},
+            )
+        )
+
+    assert FakeRunPodClient.instances == []
 
 
 async def test_provision_without_image_ref_or_setting_raises(provisioner, repo):

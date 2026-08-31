@@ -25,6 +25,7 @@ from src.plugin_api.compute import (
 )
 
 from .client import RunPodAPIError, RunPodClient
+from .datacenter_catalog import STATIC_DATACENTER_CATALOG
 from .gpu_catalog import STATIC_GPU_CATALOG
 from .provisioning import ProvisioningProfile, RunPodProvisioningManager
 from .resources import RunPodResourceManager
@@ -82,6 +83,24 @@ class RunpodComputeProvisioner(ComputeProvisioner):
                 default=settings.volume_size_gb,
                 help_text="Size of the persistent network volume models are cached on.",
             ),
+            ComputeFieldDescriptorV1(
+                key="data_center_id",
+                label="Data Center",
+                type="select",
+                required=True,
+                # No fallback to a type-appropriate empty here: `dataCenterId` is a
+                # required RunPod field, and defaulting to "" would just recreate the
+                # bug this fixes (an empty string satisfies core's "value is present"
+                # check, so the actual data-center dropdown must never quietly submit
+                # empty - forcing an explicit choice when the optional `region`
+                # setting isn't set is the point).
+                default=settings.region or None,
+                help_text="The network volume and pod are created in this data center. GPU availability varies by data center.",
+                options=[
+                    ComputeFieldOptionV1(value=dc.id, label=dc.id, detail=dc.geography)
+                    for dc in STATIC_DATACENTER_CATALOG
+                ],
+            ),
         ]
 
     async def provision(self, request: ProvisionRequest) -> ProvisionResult:
@@ -94,11 +113,26 @@ class RunpodComputeProvisioner(ComputeProvisioner):
                 "Provider plugin settings"
             )
 
+        # `data_center_id` is required on RunPod's own `POST /networkvolumes` -
+        # core's own required-field validation already rejects a missing key, but
+        # not an empty string (a value only needs to be non-None to satisfy
+        # "present"), and a caller that bypasses the admin form's select entirely
+        # could still omit the key outright. Belt and braces beyond core: fall
+        # back to the optional `region` setting for an omitted key, then refuse
+        # to provision at all rather than send RunPod the empty string that
+        # produced "dataCenterId of required type String! was not provided".
+        data_center_id = request.values.get("data_center_id") or settings.region
+        if not data_center_id:
+            raise ComputeProvisionerError(
+                "'data_center_id' is required - choose a data center, or set "
+                "'region' in the RunPod Provider plugin settings"
+            )
+
         profile = ProvisioningProfile(
             name=request.profile_name,
             gpu_type_id=request.values.get("gpu_type_id") or settings.gpu_type_id,
             image_ref=image_ref,
-            region=settings.region,
+            region=data_center_id,
             volume_size_gb=request.values.get("volume_size_gb") or settings.volume_size_gb,
             worker_port=_WORKER_PORT,
             container_disk_gb=_CONTAINER_DISK_GB,

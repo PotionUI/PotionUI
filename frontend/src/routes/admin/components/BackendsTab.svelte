@@ -200,6 +200,19 @@
 	// and only when at least one compute provider plugin is enabled.
 	$: showCreateSourceToggle = formData.driver === NATIVE_REMOTE_DRIVER && providers.length > 0;
 
+	// Gates the create modal's "Create Backend" button. Its inputs are plain
+	// onclick handlers, not a <form> submit, so the HTML `required` attributes
+	// BackendForm sets never block a click - without this, a required field left
+	// empty (e.g. native.remote's Worker URL) submits anyway and 400s server-side.
+	$: canCreateBackend =
+		!saving &&
+		!isBlank(formData.name) &&
+		activeEngineFields.every((field) => !field.required || !isBlank(formData[field.name]));
+
+	function isBlank(value: unknown): boolean {
+		return value === undefined || value === null || value === '';
+	}
+
 	// True once the pane's draft diverges from the last loaded/saved snapshot.
 	$: editDirty = JSON.stringify(editFormData) !== editSnapshot;
 
@@ -352,6 +365,7 @@
 	// Create a new backend from the modal form ("Connect to existing worker" for
 	// native.remote, or any other driver's own form).
 	async function saveBackend() {
+		if (!canCreateBackend) return;
 		saving = true;
 		try {
 			const backendData = buildBackendPayload(formData, { includeDriver: true });
@@ -1078,7 +1092,7 @@
 	<svelte:fragment slot="footer">
 		{#if !(formData.driver === NATIVE_REMOTE_DRIVER && createSource === 'provision')}
 			<div class="px-6 py-4 flex gap-3">
-				<Button variant="primary" class="flex-1" loading={saving} onclick={saveBackend}>
+				<Button variant="primary" class="flex-1" loading={saving} disabled={!canCreateBackend} onclick={saveBackend}>
 					{saving ? 'Creating…' : 'Create Backend'}
 				</Button>
 				<Button variant="secondary" onclick={closeModal}>Cancel</Button>

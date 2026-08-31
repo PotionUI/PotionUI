@@ -15,6 +15,7 @@ from src.platform.security.current_user import get_current_admin_user
 from src.platform.security.user import User
 from src.features.backends.backend_registry import BackendRegistry
 from src.features.provisioning import operations
+from src.features.provisioning.contracts import ComputeProvisionerError
 from src.features.provisioning.dto import ProvisionComputeRequest
 from src.features.provisioning.operations import (
     InvalidProvisionValuesError,
@@ -101,6 +102,12 @@ class ProvisioningController(BaseController):
             return self.error_api_response(error="unknown_provider", message=str(e))
         except InvalidProvisionValuesError as e:
             return self.error_api_response(error="invalid_values", message=str(e))
+        except ComputeProvisionerError as e:
+            # Raised by the provisioner itself (a rejected API key, a rate limit, a
+            # gone resource, ...) - its message is provider-facing and safe to show
+            # verbatim, unlike handle_exception's default (which never echoes str(e),
+            # since an arbitrary exception can carry paths or connection strings).
+            return self.error_api_response(error="provision_failed", message=str(e))
         except Exception as e:
             self.handle_exception(e, error_code="provision_failed")
         return self.success_response(data=row.to_dict())

@@ -55,7 +55,9 @@ def _get_row(repository: ProvisionedComputeRepository, row_id: str) -> Provision
 def _validate_values(descriptors: List[ComputeFieldDescriptorV1], values: Dict[str, Any]) -> None:
     for descriptor in descriptors:
         value = values.get(descriptor.key)
-        if value is None:
+        # "" counts as absent: an empty form input arrives as an empty string,
+        # not None, and a required field must reject both.
+        if value is None or value == "":
             if descriptor.required:
                 raise InvalidProvisionValuesError(f"'{descriptor.key}' is required")
             continue

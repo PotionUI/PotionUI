@@ -13,7 +13,7 @@ import backend.resources as resources_module
 from backend.catalog_client import DataCenter as LiveDataCenter
 from backend.catalog_client import GpuAvailability, RunPodCatalogError
 from backend.client import NetworkVolume, Pod, RunPodAPIError
-from backend.provisioner import RunpodComputeProvisioner
+from backend.provisioner import ComputeProvisionerError, RunpodComputeProvisioner
 from backend.resources import RunPodResourceManager
 from src.plugin_api.compute import ComputeProvisionerError, ProvisionRequest
 
@@ -140,7 +140,8 @@ def provisioner(resources, repo, monkeypatch):
     return instance
 
 
-async def test_describe_fields_reports_gpu_type_and_volume_size(provisioner):
+async def test_describe_fields_reports_gpu_type_and_volume_size(provisioner, monkeypatch):
+    _fake_live_catalog(monkeypatch)
     fields = await provisioner.describe_fields()
 
     by_key = {f.key: f for f in fields}
@@ -151,37 +152,32 @@ async def test_describe_fields_reports_gpu_type_and_volume_size(provisioner):
     assert by_key["volume_size_gb"].default == 100
 
 
-async def test_describe_fields_reports_data_center_as_required_in_fallback_mode(provisioner):
-    # `catalog_offline` (autouse) means no live catalog - there's no stock
-    # data to auto-pick a data center from, so it stays a required, explicit
-    # choice (unlike the live-catalog path below).
-    fields = await provisioner.describe_fields()
+async def test_describe_fields_refuses_when_catalog_unavailable(provisioner):
+    # `catalog_offline` (autouse) means no live catalog. A static GPU list x
+    # a static data-center list with no stock data is a guessing game over
+    # combinations that mostly don't exist - the form must refuse loudly
+    # (naming the reason) instead of rendering guesswork.
+    with pytest.raises(ComputeProvisionerError) as excinfo:
+        await provisioner.describe_fields()
 
-    by_key = {f.key: f for f in fields}
-    field = by_key["data_center_id"]
-    assert field.type == "select"
-    assert field.required is True
-    assert field.default == "US-TX-3"  # from the `region` plugin setting
-    assert any(o.value == "US-TX-3" and o.detail == "US" for o in field.options)
-    assert len(field.options) > 1
+    message = str(excinfo.value)
+    assert "unreachable" in message
+    assert "catalog unavailable in tests" in message
 
 
-async def test_describe_fields_data_center_has_no_default_when_region_setting_is_unset(provisioner, repo):
+async def test_describe_fields_data_center_is_optional_without_region_setting(provisioner, repo, monkeypatch):
     repo._store.pop((PLUGIN_ID, "region"))
+    _fake_live_catalog(monkeypatch)
 
     fields = await provisioner.describe_fields()
 
     by_key = {f.key: f for f in fields}
-    assert by_key["data_center_id"].default is None
+    assert by_key["data_center_id"].required is False
 
 
 async def test_describe_fields_gpu_type_never_depends_on_data_center(provisioner, monkeypatch):
     # A RunPod Pod can float with no data center at all - GPU is the primary
-    # field. True both on the static-catalog fallback (via the autouse
-    # `catalog_offline` fixture) and on the live-catalog path.
-    fallback_fields = await provisioner.describe_fields()
-    assert {f.key: f for f in fallback_fields}["gpu_type_id"].depends_on == []
-
+    # field; `data_center_id` narrows from it, never the other way around.
     _fake_live_catalog(monkeypatch)
     live_fields = await provisioner.describe_fields()
     assert {f.key: f for f in live_fields}["gpu_type_id"].depends_on == []
@@ -197,15 +193,12 @@ async def test_describe_fields_data_center_depends_on_gpu_type_in_live_mode(prov
     assert by_key["data_center_id"].required is False
 
 
-async def test_describe_fields_falls_back_to_static_catalogs_when_graphql_fails(provisioner):
-    # `catalog_offline` (autouse) already makes `get_catalog` raise - this
-    # test pins down the fallback's user-visible shape rather than relying
-    # on the other tests' incidental assertions.
-    fields = await provisioner.describe_fields()
+async def test_describe_fields_error_points_at_plugin_settings(provisioner):
+    # The refusal must tell the admin where to act, not just that it failed.
+    with pytest.raises(ComputeProvisionerError) as excinfo:
+        await provisioner.describe_fields()
 
-    by_key = {f.key: f for f in fields}
-    assert "static catalog" in by_key["data_center_id"].help_text
-    assert "static catalog" in by_key["gpu_type_id"].help_text
+    assert "plugin settings" in str(excinfo.value)
 
 
 def _fake_live_catalog(monkeypatch):

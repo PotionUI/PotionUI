@@ -334,6 +334,11 @@
 					{#if looksLikeAuthFailure(provisionError)}
 						<p class="mt-1">Check the provider plugin's API key in Admin → Plugins.</p>
 					{/if}
+					{#if providerFields.length === 0 && selectedProviderId}
+						<div class="mt-2">
+							<Button variant="secondary" size="sm" onclick={() => loadProviderFields()}>Retry</Button>
+						</div>
+					{/if}
 				</Alert>
 			{/if}
 

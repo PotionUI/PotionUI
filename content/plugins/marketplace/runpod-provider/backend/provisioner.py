@@ -29,8 +29,6 @@ from . import catalog_client
 from .catalog_client import DataCenter as LiveDataCenter
 from .catalog_client import GpuAvailability, RunPodCatalogError
 from .client import RunPodAPIError, RunPodClient
-from .datacenter_catalog import STATIC_DATACENTER_CATALOG
-from .gpu_catalog import STATIC_GPU_CATALOG
 from .provisioning import ProvisioningProfile, RunPodProvisioningManager
 from .resources import RunPodResourceManager
 from .settings import RunPodSettings, load_settings
@@ -152,6 +150,17 @@ class RunpodComputeProvisioner(ComputeProvisioner):
         values = values or {}
         live_data_centers = await self._live_data_centers(settings.api_key)
 
+        # No live catalog, no form. A static GPU list x a static data-center
+        # list with no stock data is a guessing game over combinations that
+        # mostly don't exist - refusing loudly (the admin UI shows this
+        # message with a retry) beats rendering guesswork.
+        if live_data_centers is None:
+            raise ComputeProvisionerError(
+                "RunPod's catalog is unreachable, so GPU availability can't be shown "
+                f"({getattr(self, '_catalog_error', None) or 'unknown error'}). "
+                "Check the API key in the RunPod Provider plugin settings and retry."
+            )
+
         return [
             self._gpu_type_field(settings, live_data_centers),
             self._data_center_field(settings, values, live_data_centers),
@@ -234,32 +243,13 @@ class RunpodComputeProvisioner(ComputeProvisioner):
         return record.meta.get("data_center_id")
 
     def _gpu_type_field(
-        self, settings: RunPodSettings, live_data_centers: Optional[List[LiveDataCenter]]
+        self, settings: RunPodSettings, live_data_centers: List[LiveDataCenter]
     ) -> ComputeFieldDescriptorV1:
         """The primary field: a RunPod Pod can float with no data center
         pinned at all, so the GPU is what the admin actually chooses first -
-        `data_center_id` narrows *from* it, not the other way around."""
-        if live_data_centers is None:
-            return ComputeFieldDescriptorV1(
-                key="gpu_type_id",
-                label="GPU Type",
-                type="select",
-                required=True,
-                default=settings.gpu_type_id,
-                help_text=(
-                    "The GPU RunPod starts the pod on. Showing the static catalog - RunPod's live "
-                    "catalog is unavailable."
-                ),
-                options=[
-                    ComputeFieldOptionV1(
-                        value=gpu.id,
-                        label=gpu.id,
-                        detail=f"{gpu.memory_gb} GB VRAM" if gpu.memory_gb else None,
-                    )
-                    for gpu in STATIC_GPU_CATALOG
-                ],
-            )
-
+        `data_center_id` narrows *from* it, not the other way around.
+        Only ever called with a live catalog - `describe_fields` raises
+        before this point when the catalog is unreachable."""
         # Union across every data center - a GPU only needs to be in stock
         # somewhere to be offered; `_data_center_field` narrows by data
         # center once one is picked.
@@ -293,30 +283,10 @@ class RunpodComputeProvisioner(ComputeProvisioner):
         self,
         settings: RunPodSettings,
         values: Dict[str, Any],
-        live_data_centers: Optional[List[LiveDataCenter]],
+        live_data_centers: List[LiveDataCenter],
     ) -> ComputeFieldDescriptorV1:
-        if live_data_centers is None:
-            # GraphQL unavailable - there is no stock data to auto-pick a data
-            # center from, so (unlike the live-catalog branch below) this
-            # stays a required, explicit choice.
-            return ComputeFieldDescriptorV1(
-                key="data_center_id",
-                label="Data Center",
-                type="select",
-                required=True,
-                default=settings.region or None,
-                help_text=(
-                    "The network volume and pod are created in this data center. Showing the "
-                    "static catalog - RunPod's live catalog is unavailable, so the data center "
-                    "can't be picked automatically; choose one explicitly. "
-                    f"(Live catalog error: {getattr(self, '_catalog_error', None) or 'unknown'})"
-                ),
-                options=[
-                    ComputeFieldOptionV1(value=dc.id, label=dc.id, detail=dc.geography)
-                    for dc in STATIC_DATACENTER_CATALOG
-                ],
-            )
-
+        """Only ever called with a live catalog - `describe_fields` raises
+        before this point when the catalog is unreachable."""
         chosen_gpu = values.get("gpu_type_id")
         if not chosen_gpu:
             return ComputeFieldDescriptorV1(

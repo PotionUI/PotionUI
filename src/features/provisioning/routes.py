@@ -79,6 +79,11 @@ class ProvisioningController(BaseController):
             fields = await operations.describe_fields(self.registry, provider_id, values)
         except UnknownProviderError as e:
             return self.error_api_response(error="unknown_provider", message=str(e))
+        except ComputeProvisionerError as e:
+            # A provider that cannot describe its form right now (e.g. its
+            # upstream catalog is unreachable) - the admin UI shows this
+            # message with a retry instead of rendering a degraded form.
+            return self.error_api_response(error="provider_unavailable", message=str(e))
         return self.success_response(data={"fields": [_field_dict(f) for f in fields]})
 
     async def list_provisioned(self) -> APIResponse:

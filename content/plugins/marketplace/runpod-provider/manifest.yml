@@ -1,0 +1,57 @@
+id: "runpod-provider"
+name: "RunPod Provider"
+version: "0.1.0"
+description: "Provisions a RunPod GPU Pod running the PotionUI Remote Native worker, through core's compute-provisioning API (Admin -> Remote Compute)."
+author: "PotionUI Team"
+type: "backend-only"
+category: "system"
+
+capabilities:
+  - "compute-provisioning"
+
+api:
+  module: "backend/api.py"
+
+hooks:
+  backend:
+    - hook: "plugin.lifecycle.boot"
+      handler: "backend.hooks.lifecycle_hooks.on_boot"
+    - hook: "plugin.lifecycle.enable"
+      handler: "backend.hooks.lifecycle_hooks.on_enable"
+    - hook: "plugin.lifecycle.disable"
+      handler: "backend.hooks.lifecycle_hooks.on_disable"
+    - hook: "compute.register"
+      handler: "backend.hooks.compute_hooks.register_provisioner"
+
+settings:
+  - name: "api_key"
+    type: "string"
+    label: "RunPod API Key"
+    description: "REST API key from console.runpod.io -> Settings -> API Keys. Required before provisioning."
+    required: false
+    is_secret: true
+  - name: "region"
+    type: "string"
+    label: "Default Data Center"
+    description: "RunPod data center id used when a provisioning profile doesn't name one, e.g. \"US-TX-3\" or \"EU-RO-1\". Left blank lets RunPod place the pod in any data center with capacity."
+    required: false
+  - name: "gpu_type_id"
+    type: "string"
+    label: "Default GPU Type"
+    description: "RunPod GPU type id used when a profile doesn't name one. See GET /api/plugins/runpod-provider/gpu-types for known ids."
+    default: "NVIDIA GeForce RTX 4090"
+    required: false
+  - name: "volume_size_gb"
+    type: "number"
+    label: "Default Network Volume Size (GB)"
+    description: "Size of the persistent network volume mounted at /models when a profile doesn't set its own size."
+    default: 100
+    min: 10
+    max: 4000
+    required: false
+  - name: "worker_image"
+    type: "string"
+    label: "Worker Image"
+    description: "Container image reference for the Remote Native worker. Defaults to the image published by CI on release tags; override with your own build (docker/worker.Dockerfile, pushed to a registry the RunPod pod can pull from) for a custom fork."
+    default: "ghcr.io/potionui/potionui-worker:latest"
+    required: false

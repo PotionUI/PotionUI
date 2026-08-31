@@ -2,13 +2,14 @@
 	import { logger, getErrorMessage, getApiErrorMessage } from '$lib/utils/logger';
 	import { onMount } from 'svelte';
 	import { isAxiosError } from 'axios';
-	import type { EngineDescriptor, EngineField, IndexModelsResult, BackendStats } from '$lib/services/admin-api';
+	import type { ComputeProvider, EngineDescriptor, EngineField, IndexModelsResult, BackendStats } from '$lib/services/admin-api';
 	import {
 		indexBackendModels,
 		getBackendStats,
 		getBackendEngines,
 		getBackends,
 		getAllBackendsHealth,
+		getComputeProviders,
 		createBackend,
 		updateBackend,
 		deleteBackend as deleteBackendRequest,
@@ -31,16 +32,22 @@
 	import type { Backend, BackendHealth } from '$lib/services/admin-api';
 	import BackendOptimizations from './BackendOptimizations.svelte';
 	import BackendQuickActions from './BackendQuickActions.svelte';
-	import RemoteComputeSection from './RemoteComputeSection.svelte';
+	import RemoteWorkerProvisionForm from './RemoteWorkerProvisionForm.svelte';
+	import BackendInfrastructureSection from './BackendInfrastructureSection.svelte';
 
 	type DetailTab = 'overview' | 'optimizations' | 'stats';
-	type SurfaceView = 'backends' | 'compute';
-	let surfaceView: SurfaceView = 'backends';
+	type CreateSource = 'connect' | 'provision';
 
-	function openBackendFromCompute(backendId: string) {
-		surfaceView = 'backends';
-		selectBackend(backendId);
-	}
+	// The two built-in `native` drivers (see backend_config.py). Both are core,
+	// not plugin-contributed, so - like the pre-existing `engine === 'native'`
+	// checks below - naming them here isn't the kind of plugin-name hardcoding
+	// CLAUDE.md forbids. `native.local` is the always-present, in-process,
+	// singleton driver; `native.remote` is the user-creatable Remote Native
+	// worker driver. A capability gated on running in-process (Optimizations,
+	// delete-protection) must check the DRIVER, not the engine - both drivers
+	// report engine="native".
+	const NATIVE_LOCAL_DRIVER = 'native.local';
+	const NATIVE_REMOTE_DRIVER = 'native.remote';
 
 	interface TestConnectionResult {
 		success: boolean;
@@ -51,6 +58,12 @@
 	let backends: Backend[] = [];
 	let backendsHealth: BackendHealth[] = [];
 	let engines: EngineDescriptor[] = [];
+	// Compute providers, for the create modal's Connect/Provision toggle - a
+	// provider always provisions a native.remote backend (see
+	// src.features.provisioning.operations.provision_compute), so this is the
+	// only extra state the create flow needs beyond `engines`.
+	let providers: ComputeProvider[] = [];
+	let createSource: CreateSource = 'connect';
 	let loading = true;
 	let error: string | null = null;
 	let searchQuery = '';
@@ -99,26 +112,28 @@
 	let editSnapshot = JSON.stringify(editFormData);
 	let editSaving = false;
 
-	// `engine` is passed in rather than derived here: this runs during component
+	// `driver` is passed in rather than derived here: this runs during component
 	// init, before any `$:` statement has executed and before onMount has fetched
 	// the engine list, so a derived value would still be undefined.
-	function emptyFormData(engine = ''): BackendFormData {
+	function emptyFormData(driver = ''): BackendFormData {
+		const descriptor = engines.find((e) => e.driver === driver);
 		const data: BackendFormData = {
 			name: '',
-			engine,
+			engine: descriptor?.engine ?? driver,
+			driver,
 			enabled: true,
 			priority: 1,
 			timeout_seconds: 300
 		};
-		return applyEngineDefaults(data, engine);
+		return applyEngineDefaults(data, driver);
 	}
 
-	/** Seed the engine's own fields with the defaults the server declared for them.
+	/** Seed the driver's own fields with the defaults the server declared for them.
 	 * Every declared field ends up DEFINED: a field without a stored value or a
 	 * server default gets a type-appropriate empty — `bind:value={undefined}`
 	 * crashes at runtime against the Input primitive's fallback default. */
-	function applyEngineDefaults(data: BackendFormData, engine: string): BackendFormData {
-		for (const field of fieldsFor(engine)) {
+	function applyEngineDefaults(data: BackendFormData, driver: string): BackendFormData {
+		for (const field of fieldsFor(driver)) {
 			if (data[field.name] !== null && data[field.name] !== undefined) continue;
 			if (field.default !== null && field.default !== undefined) {
 				data[field.name] = field.default;
@@ -133,12 +148,15 @@
 		return data;
 	}
 
-	function fieldsFor(engine: string): EngineField[] {
-		return engines.find((e) => e.engine === engine)?.fields ?? [];
+	function fieldsFor(driver: string): EngineField[] {
+		return engines.find((e) => e.driver === driver)?.fields ?? [];
 	}
 
-	/** Construct a PUT/POST body from a form-shaped source: common fields plus whatever the engine declares. */
-	function buildBackendPayload(source: BackendFormData): Record<string, unknown> {
+	/** Construct a PUT/POST body from a form-shaped source: common fields plus whatever the
+	 * driver declares. `driver` is included only on create - it's immutable after that, and
+	 * (unlike `engine`) the update route doesn't re-pin it to the stored value, so an update
+	 * payload must never carry a driver that could ever be misread as a request to change it. */
+	function buildBackendPayload(source: BackendFormData, opts: { includeDriver?: boolean } = {}): Record<string, unknown> {
 		const payload: Record<string, unknown> = {
 			name: source.name,
 			engine: source.engine,
@@ -146,7 +164,8 @@
 			priority: source.priority,
 			timeout_seconds: source.timeout_seconds
 		};
-		for (const field of fieldsFor(source.engine ?? '')) {
+		if (opts.includeDriver) payload.driver = source.driver;
+		for (const field of fieldsFor(source.driver ?? '')) {
 			const value = source[field.name];
 			if (field.required || (value !== undefined && value !== null && value !== '')) {
 				payload[field.name] = value;
@@ -155,23 +174,31 @@
 		return payload;
 	}
 
-	/** The engine to preselect when the create modal opens (engines load on mount). */
-	function defaultCreatableEngine(): string {
-		return creatableEngines[0]?.engine ?? '';
+	/** The driver to preselect when the create modal opens (engines load on mount). */
+	function defaultCreatableDriver(): string {
+		return creatableEngines[0]?.driver ?? '';
 	}
 
-	// Engines the "create backend" dropdown may offer (native is auto-provisioned, never creatable).
-	// A singleton engine (e.g. the built-in native one) is auto-provisioned and
-	// can never be created by hand.
-	$: creatableEngines = engines.filter((e) => !e.singleton);
+	// Drivers the "create backend" dropdown may offer (native.local is auto-provisioned,
+	// never creatable). native.remote sorts last - it's always registered before any
+	// plugin engine load, so without this it would otherwise win the default selection
+	// over the engine an admin more commonly wants (e.g. a just-enabled comfyui plugin).
+	$: creatableEngines = engines
+		.filter((e) => e.creatable)
+		.sort((a, b) => (a.driver === NATIVE_REMOTE_DRIVER ? 1 : b.driver === NATIVE_REMOTE_DRIVER ? -1 : 0));
 
-	// Fields declared by the engine currently selected in the create form.
+	// Fields declared by the driver currently selected in the create form.
 	// `engines` is named explicitly so this recomputes once the engine list arrives;
 	// Svelte derives dependencies syntactically and would not see it inside fieldsFor().
-	$: activeEngineFields = engines.length ? fieldsFor(formData.engine ?? '') : [];
+	$: activeEngineFields = engines.length ? fieldsFor(formData.driver ?? '') : [];
 
-	// Fields declared by the engine of the backend currently being edited in the pane.
-	$: activeEditEngineFields = engines.length ? fieldsFor(editFormData.engine ?? '') : [];
+	// Fields declared by the driver of the backend currently being edited in the pane.
+	$: activeEditEngineFields = engines.length ? fieldsFor(editFormData.driver ?? '') : [];
+
+	// Whether the create modal offers "Provision new compute" alongside "Connect to
+	// existing worker" - only meaningful once native.remote is the selected driver,
+	// and only when at least one compute provider plugin is enabled.
+	$: showCreateSourceToggle = formData.driver === NATIVE_REMOTE_DRIVER && providers.length > 0;
 
 	// True once the pane's draft diverges from the last loaded/saved snapshot.
 	$: editDirty = JSON.stringify(editFormData) !== editSnapshot;
@@ -224,6 +251,7 @@
 		await loadEngines();
 		await loadBackends();
 		await loadBackendsHealth();
+		await loadProviders();
 	});
 
 	// Load supported backend engines
@@ -232,14 +260,17 @@
 			const response = await getBackendEngines();
 			if (!response.success || !Array.isArray(response.data)) return;
 
-			// `/engines` returns one descriptor per engine. An older server returned
-			// bare name strings; rather than silently coercing them (which would key
-			// the engine <select> on `undefined` and crash), reject the payload and
-			// say why.
+			// `/engines` returns one descriptor per DRIVER (not deduped by engine -
+			// see EngineDescriptor). An older server returned bare name strings or
+			// omitted `driver`; rather than silently degrading (which would key the
+			// engine <select> on `undefined` and crash), reject the payload and say why.
 			const received = response.data;
 			const valid = received.filter(
 				(e: unknown): e is EngineDescriptor =>
-					!!e && typeof e === 'object' && typeof (e as EngineDescriptor).engine === 'string'
+					!!e &&
+					typeof e === 'object' &&
+					typeof (e as EngineDescriptor).engine === 'string' &&
+					typeof (e as EngineDescriptor).driver === 'string'
 			);
 
 			if (valid.length !== received.length) {
@@ -252,6 +283,17 @@
 			engines = valid;
 		} catch (e: unknown) {
 			logger.warn('Failed to load backend engines:', getErrorMessage(e));
+		}
+	}
+
+	// Load compute providers, for the create modal's Provision toggle. Best-effort -
+	// no provider plugin enabled just means that toggle never appears.
+	async function loadProviders() {
+		try {
+			const response = await getComputeProviders();
+			if (response.success && response.data) providers = response.data.providers;
+		} catch (e: unknown) {
+			logger.warn('Failed to load compute providers:', getErrorMessage(e));
 		}
 	}
 
@@ -289,26 +331,30 @@
 
 	// Open create modal
 	function openCreateModal() {
-		formData = emptyFormData(defaultCreatableEngine());
+		formData = emptyFormData(defaultCreatableDriver());
+		createSource = 'connect';
 		showModal = true;
 	}
 
-	/** Reseed engine-declared defaults when the admin picks a different engine. */
-	function onEngineChange(engine: string) {
-		formData = emptyFormData(engine);
+	/** Reseed driver-declared defaults when the admin picks a different engine/driver. */
+	function onDriverChange(driver: string) {
+		formData = emptyFormData(driver);
+		createSource = 'connect';
 	}
 
 	// Close modal
 	function closeModal() {
 		showModal = false;
 		formData = emptyFormData();
+		createSource = 'connect';
 	}
 
-	// Create a new backend from the modal form.
+	// Create a new backend from the modal form ("Connect to existing worker" for
+	// native.remote, or any other driver's own form).
 	async function saveBackend() {
 		saving = true;
 		try {
-			const backendData = buildBackendPayload(formData);
+			const backendData = buildBackendPayload(formData, { includeDriver: true });
 			const response = await createBackend(backendData);
 			if (response.success) {
 				await loadBackends();
@@ -320,12 +366,31 @@
 				toasts.error(response.message || 'Failed to save backend');
 			}
 		} catch (e: unknown) {
-			// The server also refuses engine: "native" (400) — surface its message rather
-			// than assuming success, since the UI shouldn't have offered this anyway.
+			// The server also refuses driver: "native.local" (400) — surface its message
+			// rather than assuming success, since the UI shouldn't have offered this anyway.
 			toasts.error(getApiErrorMessage(e, 'Failed to save backend'));
 		} finally {
 			saving = false;
 		}
+	}
+
+	// Called by RemoteWorkerProvisionForm once provisioning has created the backend
+	// itself - this file never builds that payload, since it's a different endpoint
+	// (POST /api/admin/provisioning) with its own provider-defined field shapes.
+	async function handleRemoteWorkerCreated(backendId: string) {
+		await loadBackends();
+		await loadBackendsHealth();
+		closeModal();
+		selectBackend(backendId);
+	}
+
+	// Terminating provisioned infrastructure removes its linked backend row -
+	// the currently-selected backend no longer exists once this fires.
+	async function handleInfrastructureTerminated() {
+		await loadBackends();
+		await loadBackendsHealth();
+		selectedBackendId = null;
+		loadEditForm(null);
 	}
 
 	// Select a backend for the detail pane, loading its edit draft. If the
@@ -370,10 +435,10 @@
 
 	function loadEditForm(backend: Backend | null) {
 		// A stored backend record doesn't necessarily carry every field its
-		// engine declares (fields added later, never-set optionals) — seed the
+		// driver declares (fields added later, never-set optionals) — seed the
 		// gaps so no bind target is ever undefined.
 		editFormData = backend
-			? applyEngineDefaults({ ...backend }, backend.engine ?? '')
+			? applyEngineDefaults({ ...backend }, backend.driver ?? backend.engine ?? '')
 			: emptyFormData();
 		editSnapshot = JSON.stringify(editFormData);
 		testResult = null;
@@ -548,10 +613,21 @@
 		return 'neutral';
 	}
 
-	// Display name for an engine, as declared by the server.
+	// Display name for an engine, as declared by the server. Used where backends are
+	// grouped/searched at engine granularity (a pane group holds every driver of an
+	// engine together) - falls back to the first descriptor sharing that engine name
+	// if more than one does, which is fine at this granularity.
 	function formatEngineName(engine: string): string {
 		const label = engines.find((e) => e.engine === engine)?.label;
 		return label || engine.charAt(0).toUpperCase() + engine.slice(1).replace(/_/g, ' ');
+	}
+
+	// Display name for a specific DRIVER - distinguishes "Native" from "Native
+	// (Remote Worker)", which share engine="native" and would collide under
+	// formatEngineName. Used wherever a single backend's own identity is shown.
+	function formatDriverLabel(driver: string): string {
+		const label = engines.find((e) => e.driver === driver)?.label;
+		return label || formatEngineName(driver);
 	}
 
 	// Check if backend is healthy/available
@@ -609,48 +685,20 @@
 </style>
 
 <div class="flex h-[calc(100dvh-var(--header-h)-2rem)] min-h-[36rem] flex-col gap-4 sm:h-[calc(100dvh-var(--header-h)-3rem)]">
-	<SegmentedControl
-		items={[
-			{ id: 'backends', label: 'Backends', icon: 'cpu' },
-			{ id: 'compute', label: 'Remote Compute', icon: 'database' }
-		]}
-		selected={surfaceView}
-		onSelect={(id) => (surfaceView = id as SurfaceView)}
-		ariaLabel="Backends surface"
-	/>
-
 	<AdminTabShell
-		title={surfaceView === 'compute' ? 'Remote Compute' : 'Backends'}
-		icon={surfaceView === 'compute' ? 'database' : 'cpu'}
-		counts={surfaceView === 'compute'
-			? []
-			: [
-					{ label: 'backends', value: totalBackends },
-					{ label: 'healthy', value: healthyBackends, tone: 'success' },
-					{ label: 'enabled', value: enabledBackends, tone: 'info' }
-				]}
+		title="Backends"
+		icon="cpu"
+		counts={[
+			{ label: 'backends', value: totalBackends },
+			{ label: 'healthy', value: healthyBackends, tone: 'success' },
+			{ label: 'enabled', value: enabledBackends, tone: 'info' }
+		]}
 	>
 		{#snippet actions()}
-			{#if surfaceView === 'backends'}
-				<Button
-					variant="primary"
-					size="sm"
-					icon="plus"
-					onclick={openCreateModal}
-					disabled={creatableEngines.length === 0}
-					title={creatableEngines.length === 0 ? 'No configurable engines available' : undefined}
-				>
-					Add Backend
-				</Button>
-			{/if}
+			<Button variant="primary" size="sm" icon="plus" onclick={openCreateModal}>Add Backend</Button>
 		{/snippet}
 	</AdminTabShell>
 
-	{#if surfaceView === 'compute'}
-		<section class="flex-1 min-h-0 rounded-lg border border-line bg-surface-1 overflow-y-auto">
-			<RemoteComputeSection {backends} onOpenBackend={openBackendFromCompute} />
-		</section>
-	{:else}
 	{#snippet backendSearch()}
 		<div class="relative">
 			<Icon name="search" className="w-4 h-4 text-fg-subtle absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -689,15 +737,7 @@
 					compact
 				>
 					{#snippet actions()}
-						<Button
-							variant="primary"
-							size="sm"
-							icon="plus"
-							onclick={openCreateModal}
-							disabled={creatableEngines.length === 0}
-						>
-							Add Backend
-						</Button>
+						<Button variant="primary" size="sm" icon="plus" onclick={openCreateModal}>Add Backend</Button>
 					{/snippet}
 				</EmptyState>
 			</div>
@@ -759,7 +799,7 @@
 									on:click={() => (detailTab = 'overview')}
 									aria-current={detailTab === 'overview' ? 'page' : undefined}
 								><Icon name="info" className="w-3.5 h-3.5" />Overview</button>
-								{#if activeBackend.engine === 'native'}
+								{#if activeBackend.driver === NATIVE_LOCAL_DRIVER}
 									<button
 										type="button"
 										class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors {detailTab === 'optimizations' ? 'bg-signal/10 text-signal' : 'text-fg-muted hover:bg-surface-2 hover:text-fg'}"
@@ -807,7 +847,7 @@
 											loadBackendsHealth();
 										}}
 									/>
-									{#if activeBackend.engine !== 'native'}
+									{#if activeBackend.driver !== NATIVE_LOCAL_DRIVER}
 									<Tooltip text="Delete backend">
 										<button type="button" aria-label="Delete backend" class="inline-flex items-center justify-center min-w-8 min-h-8 p-1.5 rounded transition-colors duration-100 text-danger hover:text-danger hover:bg-danger/10" on:click={() => activeBackend && openDeleteModal(activeBackend)}>
 											<Icon name="trash" className="w-4 h-4" />
@@ -832,7 +872,7 @@
 												</span>
 											{/if}
 										</h2>
-										<Badge variant="neutral" size="sm" class="font-mono uppercase">{formatEngineName(activeBackend.engine)}</Badge>
+										<Badge variant="neutral" size="sm" class="font-mono uppercase">{formatDriverLabel(activeBackend.driver)}</Badge>
 										{#if activeBackend.is_default}<Badge variant="signal" size="sm" class="uppercase">Default</Badge>{/if}
 										{#if activeHealth}<Badge variant={getHealthVariant(activeHealth.health.status)} size="sm" dot class="{activeIsHealthy ? 'health-dot-pulse' : ''} uppercase">{activeHealth.health.status}</Badge>{/if}
 									</div>
@@ -906,13 +946,24 @@
 									     stranded far to the right. Capped to a readable column so
 									     controls never stretch across an ultrawide pane. -->
 									<div class="max-w-2xl space-y-5">
+										{#key activeBackend.id}
+											<BackendInfrastructureSection
+												backendId={activeBackend.id}
+												onStopped={() => {
+													loadBackends();
+													loadBackendsHealth();
+												}}
+												onTerminated={handleInfrastructureTerminated}
+											/>
+										{/key}
+
 										<BackendForm
 											bind:draft={editFormData}
 											mode="edit"
 											layout="panel"
 											idPrefix="edit-backend"
 											engineMutable={false}
-											engineLabel={formatEngineName(activeBackend.engine)}
+											engineLabel={formatDriverLabel(activeBackend.driver)}
 											fieldDescriptors={activeEditEngineFields}
 											enabledPlacement="none"
 										/>
@@ -925,7 +976,7 @@
 										</div>
 									</div>
 								</div>
-							{:else if detailTab === 'optimizations' && activeBackend.engine === 'native'}
+							{:else if detailTab === 'optimizations' && activeBackend.driver === NATIVE_LOCAL_DRIVER}
 								<div class="p-4 sm:p-5">
 									{#key activeBackend.id}
 										<BackendOptimizations backendId={activeBackend.id} />
@@ -982,7 +1033,6 @@
 			</MasterDetailLayout>
 		{/if}
 	</section>
-	{/if}
 </div>
 
 
@@ -994,26 +1044,46 @@
 	on:close={closeModal}
 >
 	<div class="px-6 py-4">
-		<BackendForm
-			bind:draft={formData}
-			mode="create"
-			layout="plain"
-			idPrefix="create-backend"
-			engineMutable={true}
-			{creatableEngines}
-			{onEngineChange}
-			fieldDescriptors={activeEngineFields}
-			enabledPlacement="inline"
-		/>
+		{#if showCreateSourceToggle}
+			<div class="mb-5">
+				<SegmentedControl
+					items={[
+						{ id: 'connect', label: 'Connect to existing worker', icon: 'cpu' },
+						{ id: 'provision', label: 'Provision new compute', icon: 'zap' }
+					]}
+					selected={createSource}
+					onSelect={(id) => (createSource = id as CreateSource)}
+					ariaLabel="Remote worker source"
+				/>
+			</div>
+		{/if}
+
+		{#if formData.driver === NATIVE_REMOTE_DRIVER && createSource === 'provision'}
+			<RemoteWorkerProvisionForm {providers} onCreated={handleRemoteWorkerCreated} onCancel={closeModal} />
+		{:else}
+			<BackendForm
+				bind:draft={formData}
+				mode="create"
+				layout="plain"
+				idPrefix="create-backend"
+				engineMutable={true}
+				{creatableEngines}
+				{onDriverChange}
+				fieldDescriptors={activeEngineFields}
+				enabledPlacement="inline"
+			/>
+		{/if}
 	</div>
 
 	<svelte:fragment slot="footer">
-		<div class="px-6 py-4 flex gap-3">
-			<Button variant="primary" class="flex-1" loading={saving} onclick={saveBackend}>
-				{saving ? 'Creating…' : 'Create Backend'}
-			</Button>
-			<Button variant="secondary" onclick={closeModal}>Cancel</Button>
-		</div>
+		{#if !(formData.driver === NATIVE_REMOTE_DRIVER && createSource === 'provision')}
+			<div class="px-6 py-4 flex gap-3">
+				<Button variant="primary" class="flex-1" loading={saving} onclick={saveBackend}>
+					{saving ? 'Creating…' : 'Create Backend'}
+				</Button>
+				<Button variant="secondary" onclick={closeModal}>Cancel</Button>
+			</div>
+		{/if}
 	</svelte:fragment>
 </BaseModal>
 

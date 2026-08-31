@@ -323,6 +323,9 @@ class BackendController(BaseController):
             merged.update(backend_data)
             merged["id"] = backend_id
             merged["engine"] = existing.engine
+            # Same immutability as engine: a stray driver in an update payload
+            # must not reclassify the backend (native.local <-> native.remote).
+            merged["driver"] = existing.driver
 
             # Redaction roundtrip: a read never returns secrets, so a client that
             # isn't changing a credential sends it absent/blank/masked. Restore the

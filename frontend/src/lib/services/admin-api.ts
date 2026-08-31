@@ -474,15 +474,23 @@ export interface EngineField {
 }
 
 /**
- * An engine as described by the server. Engines are an open set — `native` is
- * built in, others come from plugins — so nothing in the frontend may hardcode
- * an engine name or assume which fields it needs.
+ * One registered DRIVER as described by the server — not deduped by engine.
+ * An engine with more than one driver (`native`: `native.local`, always-present
+ * and singleton; `native.remote`, user-creatable) reports one descriptor per
+ * driver, each with its own fields, since `driver` — not `engine` — is what
+ * `createBackend` must key an engine-only-registration bypass on and what a
+ * backend row's own `fields` lookup must match. Engines are an open set —
+ * `native` is built in, others come from plugins — so nothing in the frontend
+ * may hardcode an engine name or assume which fields a driver needs.
  */
 export interface EngineDescriptor {
 	engine: string;
+	driver: string;
 	label: string;
 	/** Exactly one backend, auto-provisioned; never offered in the create form. */
 	singleton: boolean;
+	/** Server-computed `!singleton`, reported explicitly so the frontend never re-derives it. */
+	creatable: boolean;
 	fields: EngineField[];
 }
 
@@ -509,6 +517,9 @@ export interface Backend {
 	id: string;
 	name: string;
 	engine: string;
+	/** Which registered implementation this row uses — see `EngineDescriptor`.
+	 * Defaults to `engine` server-side, so always present. */
+	driver: string;
 	enabled: boolean;
 	is_default: boolean;
 	priority: number;
@@ -1155,9 +1166,24 @@ export interface ComputeProvider {
 	label: string;
 }
 
-export interface ComputeGpuType {
-	id: string;
-	memory_gb: number | null;
+/** One choice in a `select`-typed `ComputeField`. */
+export interface ComputeFieldOption {
+	value: string;
+	label: string;
+	detail: string | null;
+}
+
+/** One field a provider declares for its own `provision()` inputs — the
+ * provisioning analogue of `EngineField`, self-described by the provider
+ * rather than an engine. */
+export interface ComputeField {
+	key: string;
+	label: string;
+	type: 'text' | 'number' | 'select';
+	required: boolean;
+	default: string | number | boolean | null;
+	help_text: string | null;
+	options: ComputeFieldOption[] | null;
 }
 
 export interface ProvisionedCompute {
@@ -1177,10 +1203,8 @@ export interface ProvisionedCompute {
 
 export interface ProvisionComputeRequest {
 	provider_id: string;
-	profile_name: string;
-	gpu_type_id?: string;
-	region?: string;
-	volume_size_gb?: number;
+	name: string;
+	values: Record<string, unknown>;
 	backend_name?: string;
 }
 
@@ -1189,15 +1213,15 @@ export async function getComputeProviders(): Promise<APIResponse<{ providers: Co
 	return response.data;
 }
 
-export async function getComputeGpuTypes(
-	providerId: string
-): Promise<APIResponse<{ gpu_types: ComputeGpuType[] }>> {
-	const response = await api.getClient().get(`/api/admin/provisioning/providers/${providerId}/gpu-types`);
+export async function getProviderFields(providerId: string): Promise<APIResponse<{ fields: ComputeField[] }>> {
+	const response = await api.getClient().get(`/api/admin/provisioning/providers/${providerId}/fields`);
 	return response.data;
 }
 
-export async function getProvisionedCompute(): Promise<APIResponse<{ items: ProvisionedCompute[] }>> {
-	const response = await api.getClient().get('/api/admin/provisioning');
+/** 200 with the linked row, or a real 404 (no provisioned infrastructure for this backend) — callers
+ * distinguish "not provisioned" from an error by catching the 404, not by `response.success`. */
+export async function getProvisionedComputeByBackend(backendId: string): Promise<APIResponse<ProvisionedCompute>> {
+	const response = await api.getClient().get(`/api/admin/provisioning/by-backend/${backendId}`);
 	return response.data;
 }
 

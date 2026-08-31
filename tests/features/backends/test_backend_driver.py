@@ -234,6 +234,57 @@ class TestSecondNativeRowCoexistsAtTheRepositoryLayer(unittest.TestCase):
         self.assertIsNotNone(self.repo.get_by_id("remote-1"))
 
 
+class TestEngineDescriptorsAreDriverAware(unittest.TestCase):
+    """get_engine_descriptors() reports one descriptor per DRIVER, not deduped
+    by engine - native.local and native.remote both speak engine="native", so
+    a dedup keyed on engine would silently drop whichever driver loses (the
+    admin "Add Backend" flow could never reach native.remote's own fields -
+    base_url/worker_token/timeouts - through this endpoint before this)."""
+
+    def test_native_remote_is_not_swallowed_by_native_local(self):
+        from src.features.backends.backend_config import NativeRemoteBackendConfig
+
+        registry = BackendRegistry.__new__(BackendRegistry)
+        registry._registered_config_types = {
+            NATIVE_LOCAL_DRIVER: NativeBackendConfig,
+            "native.remote": NativeRemoteBackendConfig,
+        }
+
+        descriptors = {d["driver"]: d for d in registry.get_engine_descriptors()}
+
+        self.assertEqual(set(descriptors), {NATIVE_LOCAL_DRIVER, "native.remote"})
+
+        local = descriptors[NATIVE_LOCAL_DRIVER]
+        self.assertEqual(local["engine"], NATIVE_ENGINE)
+        self.assertTrue(local["singleton"])
+        self.assertFalse(local["creatable"])
+
+        remote = descriptors["native.remote"]
+        self.assertEqual(remote["engine"], NATIVE_ENGINE)
+        self.assertFalse(remote["singleton"])
+        self.assertTrue(remote["creatable"])
+        field_names = {f["name"] for f in remote["fields"]}
+        self.assertEqual(
+            field_names,
+            {"base_url", "worker_token", "connect_timeout_seconds", "request_timeout_seconds"},
+        )
+        worker_token_field = next(f for f in remote["fields"] if f["name"] == "worker_token")
+        self.assertTrue(worker_token_field["secret"])
+
+    def test_single_driver_engine_still_reports_exactly_one_descriptor(self):
+        class ComfyLikeConfig(BaseBackendConfig):
+            engine: str = "comfyui"
+
+        registry = BackendRegistry.__new__(BackendRegistry)
+        registry._registered_config_types = {"comfyui": ComfyLikeConfig}
+
+        descriptors = registry.get_engine_descriptors()
+
+        self.assertEqual(len(descriptors), 1)
+        self.assertEqual(descriptors[0]["driver"], "comfyui")
+        self.assertEqual(descriptors[0]["engine"], "comfyui")
+
+
 class TestRequireLocalBackendCapabilityGating(unittest.TestCase):
     """The native-engine "Optimizations" panel gates on the `is_local`
     capability of the backend's registered driver, not on `engine == 'native'`

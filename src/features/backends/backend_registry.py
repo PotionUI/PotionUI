@@ -136,26 +136,34 @@ class BackendRegistry:
 
     def get_engine_descriptors(self) -> List[Dict[str, Any]]:
         """
-        Describe every registered ENGINE for the admin UI (not every driver: an
-        engine with more than one driver, e.g. native, is reported once - the
-        admin "create backend" form picks an engine, not a driver).
+        Describe every registered DRIVER for the admin UI - one descriptor per
+        driver, not deduped by engine. `native` has two drivers
+        (`native.local`, always-present and singleton; `native.remote`,
+        user-creatable) with different config classes and different fields;
+        collapsing them to one "native" descriptor would silently hide
+        whichever driver lost the dedup (see git history - `native.remote`'s
+        own fields, base_url/worker_token/timeouts, were unreachable through
+        this endpoint until this fixed it). An engine with exactly one driver
+        (the common case, e.g. `comfyui`) still reports exactly one descriptor.
 
-        Each engine reports its own label, whether it is a singleton (exactly one
-        auto-provisioned backend, never creatable), and the configuration fields
-        it needs. This is what lets the frontend render a create/edit form for a
-        plugin-provided engine without knowing anything about it.
+        Each descriptor carries its own label, `singleton` (exactly one
+        auto-provisioned backend, never creatable) and `creatable` (the
+        create-backend form may offer it - always `not singleton` today,
+        reported explicitly so the frontend never re-derives it), and the
+        configuration fields the driver's own config class declares. This is
+        what lets the frontend render a create/edit form for a plugin-provided
+        engine without knowing anything about it.
         """
         descriptors = []
-        seen_engines = set()
-        for key, config_class in self._registered_config_types.items():
-            engine = config_class_engine(config_class) or key
-            if engine in seen_engines:
-                continue
-            seen_engines.add(engine)
+        for driver, config_class in self._registered_config_types.items():
+            engine = config_class_engine(config_class) or driver
+            singleton = bool(getattr(config_class, "engine_singleton", False))
             descriptors.append({
                 "engine": engine,
+                "driver": driver,
                 "label": getattr(config_class, "engine_label", None) or engine,
-                "singleton": bool(getattr(config_class, "engine_singleton", False)),
+                "singleton": singleton,
+                "creatable": not singleton,
                 "fields": config_class.engine_fields(),
             })
         return descriptors

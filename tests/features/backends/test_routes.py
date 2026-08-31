@@ -426,6 +426,17 @@ class TestBackendController:
         assert merged["engine"] == sample_local_backend.engine
 
     @pytest.mark.asyncio
+    async def test_update_backend_cannot_change_driver(self, controller, sample_local_backend):
+        """`driver` is immutable: a body trying to reclassify it is overridden."""
+        controller.backend_config_store.get_backend.return_value = sample_local_backend
+        controller.backend_config_store.validate_backend_config.return_value = sample_local_backend
+
+        await controller.update_backend("local-1", {"driver": "native.remote"})
+
+        merged = controller.backend_config_store.validate_backend_config.call_args[0][0]
+        assert merged["driver"] == sample_local_backend.driver
+
+    @pytest.mark.asyncio
     async def test_delete_backend_success(self, controller):
         """Test successful backend deletion"""
         # Arrange

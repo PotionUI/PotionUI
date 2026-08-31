@@ -25,7 +25,7 @@
 		engineMutable,
 		engineLabel = '',
 		creatableEngines = [],
-		onEngineChange,
+		onDriverChange,
 		fieldDescriptors = [],
 		enabledPlacement = 'inline'
 	}: {
@@ -33,12 +33,15 @@
 		mode: 'create' | 'edit';
 		layout?: 'panel' | 'plain';
 		idPrefix: string;
-		/** True only for the create form — an existing backend's engine can't change. */
+		/** True only for the create form — an existing backend's driver can't change. */
 		engineMutable: boolean;
-		/** Formatted display name shown when the engine is immutable. */
+		/** Formatted display name shown when the driver is immutable. */
 		engineLabel?: string;
 		creatableEngines?: EngineDescriptor[];
-		onEngineChange?: (engine: string) => void;
+		/** An engine with more than one driver (native.local/native.remote) shares
+		 * one `engine` value across descriptors — the picker keys and reports by
+		 * `driver`, the actually-unique identifier, not `engine`. */
+		onDriverChange?: (driver: string) => void;
 		fieldDescriptors?: EngineField[];
 		/** 'inline' renders the Enabled checkbox in Behavior; 'none' omits it
 		 * (edit mode surfaces enable/disable via a live Switch elsewhere). */
@@ -80,12 +83,12 @@
 				<select
 					id="{idPrefix}-engine"
 					class="input"
-					value={draft.engine}
-					onchange={(e) => onEngineChange?.((e.target as HTMLSelectElement).value)}
+					value={draft.driver}
+					onchange={(e) => onDriverChange?.((e.target as HTMLSelectElement).value)}
 					required
 				>
-					{#each creatableEngines as descriptor (descriptor.engine)}
-						<option value={descriptor.engine}>{descriptor.label}</option>
+					{#each creatableEngines as descriptor (descriptor.driver)}
+						<option value={descriptor.driver}>{descriptor.label}</option>
 					{/each}
 				</select>
 			{:else}

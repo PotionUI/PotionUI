@@ -26,8 +26,9 @@ class DownloadRepository:
                     id, type, url, destination_path, filename, status, progress,
                     total_bytes, downloaded_bytes, speed_bytes_per_sec, error_message,
                     provider_id, tags, checksum_sha256, retry_count, group_id,
-                    repo_id, revision, created_at, started_at, completed_at, created_by
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    repo_id, revision, created_at, started_at, completed_at, created_by,
+                    destination_backend_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 download.id,
                 download.type.value,
@@ -50,7 +51,8 @@ class DownloadRepository:
                 download.created_at.isoformat() if download.created_at else None,
                 download.started_at.isoformat() if download.started_at else None,
                 download.completed_at.isoformat() if download.completed_at else None,
-                download.created_by
+                download.created_by,
+                download.destination_backend_id
             ))
 
         return self.get_by_id(download.id)

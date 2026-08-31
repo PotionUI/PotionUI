@@ -50,6 +50,7 @@ class Download:
     group_id: Optional[str] = None  # parent download id for grouped (hf_repo) children
     repo_id: Optional[str] = None   # hf_repo parents: the Hugging Face repo id
     revision: Optional[str] = None  # hf_repo parents: the pinned revision, if any
+    destination_backend_id: Optional[str] = None  # None = local disk; set = a native.remote worker's depot
     created_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
@@ -77,6 +78,7 @@ class Download:
             group_id=row['group_id'],
             repo_id=row['repo_id'],
             revision=row['revision'],
+            destination_backend_id=row['destination_backend_id'],
             created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else None,
             started_at=datetime.fromisoformat(row['started_at']) if row['started_at'] else None,
             completed_at=datetime.fromisoformat(row['completed_at']) if row['completed_at'] else None,
@@ -104,6 +106,7 @@ class Download:
             'group_id': self.group_id,
             'repo_id': self.repo_id,
             'revision': self.revision,
+            'destination_backend_id': self.destination_backend_id,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'started_at': self.started_at.isoformat() if self.started_at else None,
             'completed_at': self.completed_at.isoformat() if self.completed_at else None,

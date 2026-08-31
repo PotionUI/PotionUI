@@ -1,10 +1,15 @@
 <script lang="ts">
-	import { downloadStore, type Download } from '$lib/stores/downloads';
+	import { downloadStore, remoteBackends, type Download } from '$lib/stores/downloads';
 	import { confirmDialog } from '$lib/stores/confirm';
 	import Icon from '$lib/components/Icon.svelte';
 	import { Badge } from '$lib/components/ui';
 
 	export let download: Download;
+
+	$: destinationBackendName = download.destination_backend_id
+		? $remoteBackends.find((b) => b.id === download.destination_backend_id)?.name ??
+			download.destination_backend_id
+		: null;
 
 	$: progress = Math.round(download.progress * 100);
 	$: sizeDisplay = download.total_bytes
@@ -80,6 +85,11 @@
 					<Badge variant={getStatusVariant(download.status)} size="sm" class="flex-shrink-0 uppercase tracking-wide">
 						{download.status}
 					</Badge>
+					{#if destinationBackendName}
+						<Badge variant="neutral" size="sm" class="flex-shrink-0 font-mono">
+							{destinationBackendName}
+						</Badge>
+					{/if}
 				</div>
 
 				<!-- Actions -->

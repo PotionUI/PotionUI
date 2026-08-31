@@ -313,6 +313,108 @@ class TestQueueModelDownloadDestinationResolution:
         ).resolve()
 
 
+class _FakeRemoteBackendConfig:
+    def __init__(self, *, driver="native.remote", configured=True):
+        self.driver = driver
+        self._configured = configured
+
+    def is_configured(self):
+        return self._configured
+
+
+class _FakeBackendConfigStore:
+    def __init__(self, configs):
+        self._configs = configs
+
+    def get_backend(self, backend_id):
+        return self._configs.get(backend_id)
+
+
+class _FakeBackendRegistry:
+    """Just enough of `BackendRegistry` for
+    `resolve_remote_backend_config`, which only ever reads
+    `.backend_config_store.get_backend(...)`."""
+
+    def __init__(self, configs):
+        self.backend_config_store = _FakeBackendConfigStore(configs)
+
+
+class TestQueueModelDownloadDestinationBackend:
+    """`destination_backend_id` routes a download onto a `native.remote`
+    worker's depot instead of local disk - validated at queue time so a bad
+    id fails before a row is ever created."""
+
+    @pytest.fixture
+    def manager_with_backend_registry(self, mock_repository, mock_plugin_registry, tmp_path):
+        configs = {
+            "remote-1": _FakeRemoteBackendConfig(),
+            "remote-unconfigured": _FakeRemoteBackendConfig(configured=False),
+            "comfy-1": _FakeRemoteBackendConfig(driver="comfyui"),
+        }
+        manager = DownloadQueue(
+            download_repository=mock_repository,
+            plugin_registry=mock_plugin_registry,
+            settings=_settings(models_dir=str(tmp_path / "depot")),
+            connection_hub=AsyncMock(),
+            backend_registry=_FakeBackendRegistry(configs),
+        )
+        manager.worker = AsyncMock()
+        manager.worker.get_queue_position.return_value = 0
+        mock_repository.create.side_effect = lambda d: d
+        return manager
+
+    async def _queue(self, manager, **kwargs):
+        with patch.object(manager, 'conn', AsyncMock()):
+            return await manager.queue_model_download(
+                url='https://example.com/model.safetensors',
+                filename='model.safetensors',
+                **kwargs,
+            )
+
+    @pytest.mark.asyncio
+    async def test_a_configured_native_remote_backend_is_accepted_and_persisted(
+        self, manager_with_backend_registry
+    ):
+        result = await self._queue(manager_with_backend_registry, destination_backend_id='remote-1')
+        assert result.destination_backend_id == 'remote-1'
+
+    @pytest.mark.asyncio
+    async def test_unknown_backend_id_is_rejected(self, manager_with_backend_registry):
+        with pytest.raises(DownloadQueueException):
+            await self._queue(manager_with_backend_registry, destination_backend_id='does-not-exist')
+
+    @pytest.mark.asyncio
+    async def test_non_native_remote_driver_is_rejected(self, manager_with_backend_registry):
+        with pytest.raises(DownloadQueueException):
+            await self._queue(manager_with_backend_registry, destination_backend_id='comfy-1')
+
+    @pytest.mark.asyncio
+    async def test_unconfigured_native_remote_backend_is_rejected(self, manager_with_backend_registry):
+        with pytest.raises(DownloadQueueException):
+            await self._queue(manager_with_backend_registry, destination_backend_id='remote-unconfigured')
+
+    @pytest.mark.asyncio
+    async def test_no_backend_registry_configured_rejects_any_destination(
+        self, mock_repository, mock_plugin_registry
+    ):
+        manager = DownloadQueue(
+            download_repository=mock_repository,
+            plugin_registry=mock_plugin_registry,
+            settings=_settings(),
+            connection_hub=AsyncMock(),
+        )
+        manager.worker = AsyncMock()
+        with pytest.raises(DownloadQueueException):
+            await self._queue(manager, destination_backend_id='remote-1')
+
+    @pytest.mark.asyncio
+    async def test_local_destination_is_unaffected_by_backend_registry_presence(
+        self, manager_with_backend_registry
+    ):
+        result = await self._queue(manager_with_backend_registry)
+        assert result.destination_backend_id is None
+
+
 class TestQueueModelDownloadSymlinkedTypeDir:
     """The bug this card fixes: on real installs a depot type directory is a
     symlink into shared storage (e.g. `models/diffusion_models ->

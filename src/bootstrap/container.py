@@ -567,20 +567,15 @@ def build_container() -> AppContainer:
     plugin_repository = PluginRepository()
     _sync_enabled_plugins(plugin_registry, plugin_repository)
 
-    # Download queue: built early because model fetches across the app (admin
-    # queueing, model recommendations, setup runs, lazy first-use HF loaders)
-    # all route through this one manager for unified history. The connection
-    # manager is the module-level singleton from the platform websocket layer,
-    # injected as an instance (mirrors the notification wiring below).
+    # Download queue: built early (repository only - see below) because model
+    # fetches across the app (admin queueing, model recommendations, setup
+    # runs, lazy first-use HF loaders) all route through this one manager for
+    # unified history. The connection manager is the module-level singleton
+    # from the platform websocket layer, injected as an instance (mirrors the
+    # notification wiring below).
     from src.platform.websocket.download_connection_hub import download_connection_hub
 
     download_repository = DownloadRepository()
-    download_queue = DownloadQueue(
-        download_repository=download_repository,
-        plugin_registry=plugin_registry,
-        settings=settings,
-        connection_hub=download_connection_hub,
-    )
 
     # Initialize core managers
     gpu_monitor = GpuMonitor()
@@ -664,6 +659,21 @@ def build_container() -> AppContainer:
         plugin_registry=plugin_registry,
         pipe_catalog=pipe_catalog,
     )
+
+    # Now that backend_registry exists, the download queue can validate and
+    # dispatch a `destination_backend_id` (fetch straight onto a native.remote
+    # worker's depot) alongside its always-available local-disk path.
+    from src.features.models.backend_indexer import backend_model_indexer
+
+    download_queue = DownloadQueue(
+        download_repository=download_repository,
+        plugin_registry=plugin_registry,
+        settings=settings,
+        connection_hub=download_connection_hub,
+        backend_registry=backend_registry,
+        backend_model_indexer=backend_model_indexer,
+    )
+
     field_factory = FieldFactory(preset_template_loader, template_processor, field_registry=field_type_registry)
 
     # Compute provisioning (rented GPU compute running the Remote Native worker -

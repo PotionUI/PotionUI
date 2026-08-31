@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { logger, getErrorMessage } from '$lib/utils/logger';
 	import { createEventDispatcher, onMount } from 'svelte';
-	import { downloadStore, type QueueModelDownloadOptions } from '$lib/stores/downloads';
+	import { downloadStore, remoteBackends, type QueueModelDownloadOptions } from '$lib/stores/downloads';
 	import { api } from '$lib/services/api/index';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import Icon from '$lib/components/Icon.svelte';
@@ -30,6 +30,7 @@
 	let filename = '';
 	let selectedTags: string[] = [];
 	let selectedProviderId = '';
+	let destinationBackendId = '';
 	let checksumSha256 = '';
 	let submitting = false;
 	let errorMessage = '';
@@ -174,6 +175,7 @@
 			}
 			if (checksumSha256.trim()) options.checksum_sha256 = checksumSha256.trim();
 			if (selectedProviderId) options.provider_id = selectedProviderId;
+			if (destinationBackendId) options.destination_backend_id = destinationBackendId;
 
 			const result = await downloadStore.queueModelDownload(url.trim(), options);
 
@@ -270,6 +272,32 @@
 					</select>
 					<p class="text-xs text-fg-subtle mt-1">
 						Associate this download with a model provider
+					</p>
+				</div>
+			{/if}
+
+			<!-- Destination -->
+			{#if $remoteBackends.length > 0}
+				<div>
+					<label for="destination-backend" class="block text-sm font-medium text-fg-muted mb-1">
+						Destination
+					</label>
+					<select
+						id="destination-backend"
+						bind:value={destinationBackendId}
+						class="input"
+					>
+						<option value="">Local</option>
+						{#each $remoteBackends as backend}
+							<option value={backend.id}>{backend.name}</option>
+						{/each}
+					</select>
+					<p class="text-xs text-fg-subtle mt-1">
+						{#if destinationBackendId}
+							Downloaded straight onto this worker's depot - never touches this host's disk
+						{:else}
+							Downloaded to this host's model depot
+						{/if}
 					</p>
 				</div>
 			{/if}

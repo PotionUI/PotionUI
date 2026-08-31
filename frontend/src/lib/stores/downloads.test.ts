@@ -66,6 +66,39 @@ describe('stores/downloads REST paths', () => {
 		);
 	});
 
+	it('loadRemoteBackends hits /api/backends and keeps only configured native.remote rows', async () => {
+		mockGet.mockResolvedValueOnce({
+			data: {
+				success: true,
+				data: [
+					{ id: 'r1', name: 'Remote One', driver: 'native.remote', configured: true },
+					{ id: 'r2', name: 'Remote Two', driver: 'native.remote', configured: false },
+					{ id: 'l1', name: 'Local', driver: 'native.local', configured: true }
+				]
+			}
+		});
+
+		const { get } = await import('svelte/store');
+		const { remoteBackends } = await import('./downloads');
+		await downloadStore.loadRemoteBackends();
+
+		expect(mockGet).toHaveBeenCalledWith('/api/backends');
+		expect(get(remoteBackends)).toEqual([{ id: 'r1', name: 'Remote One' }]);
+	});
+
+	it('queueModelDownload with a destination backend sends destination_backend_id', async () => {
+		await downloadStore.queueModelDownload('https://example.com/model.safetensors', {
+			destination_backend_id: 'r1'
+		});
+		expect(mockPost).toHaveBeenCalledWith(
+			'/api/downloads/model',
+			expect.objectContaining({
+				url: 'https://example.com/model.safetensors',
+				destination_backend_id: 'r1'
+			})
+		);
+	});
+
 	it('queueMediaDownload hits /api/downloads/media', async () => {
 		await downloadStore.queueMediaDownload('https://example.com/img.png');
 		expect(mockPost).toHaveBeenCalledWith(

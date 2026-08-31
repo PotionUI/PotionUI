@@ -21,7 +21,7 @@ import logging
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Optional, Dict, List
+from typing import Callable, Optional, Dict, List, TYPE_CHECKING
 from urllib.parse import urlparse
 
 from src.features.downloads.exceptions import DownloadAuthenticationException
@@ -29,6 +29,10 @@ from src.features.downloads.models import Download, DownloadStatus, DownloadType
 from src.features.downloads.repository import DownloadRepository
 from src.features.downloads.utils import extract_filename_from_url
 from src.platform.websocket.download_connection_hub import DownloadConnectionHub
+
+if TYPE_CHECKING:
+    from src.features.backends.backend_registry import BackendRegistry
+    from src.features.models.backend_indexer import BackendModelIndexer
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +49,23 @@ def _default_provider_registry():
     from src.features.providers.registry import get_provider_registry
 
     return get_provider_registry()
+
+
+def _default_backend_model_indexer():
+    from src.features.models.backend_indexer import backend_model_indexer
+
+    return backend_model_indexer
+
+
+def _relative_depot_path(download: Download, models_root: str) -> str:
+    """`download.destination_path` re-expressed as a depot-relative path -
+    the same `{type_directory}/{filename}` shape a worker's own depot listing
+    and the backend indexer use. `destination_path` is always resolved
+    against `models_root` at queue time (see `DownloadQueue._resolve_contained_dir`),
+    remote destination or not, so no separate column is needed to recover it.
+    """
+    relative = os.path.relpath(download.destination_path, models_root)
+    return relative.replace(os.sep, "/")
 
 
 class DownloadWorker:
@@ -66,6 +87,9 @@ class DownloadWorker:
         repo: DownloadRepository,
         connection_hub: DownloadConnectionHub,
         provider_registry_factory: Optional[Callable] = None,
+        backend_registry: Optional["BackendRegistry"] = None,
+        backend_model_indexer: Optional["BackendModelIndexer"] = None,
+        worker_transport_override=None,
     ):
         """Initialize download worker.
 
@@ -75,11 +99,24 @@ class DownloadWorker:
             connection_hub: WebSocket broadcast surface for progress/status
             provider_registry_factory: Returns the ProviderRegistry; injectable
                 for tests, defaults to the module-level registry (resolved lazily)
+            backend_registry: Resolves a download's `destination_backend_id`
+                to its `native.remote` backend config/instance. `None` means
+                this worker can never run a remote-destination download (any
+                row with one set fails with a clear error).
+            backend_model_indexer: Re-indexes the destination backend after a
+                remote fetch completes. Defaults to the module-level singleton.
+            worker_transport_override: Test-only seam (an `httpx.ASGITransport`
+                pointed at a real worker app, never a real socket) forwarded to
+                every `WorkerTransport` a remote-destination download builds.
+                Always `None` in production.
         """
         self.settings = settings
         self.repo = repo
         self.conn = connection_hub
         self._provider_registry_factory = provider_registry_factory or _default_provider_registry
+        self.backend_registry = backend_registry
+        self.backend_model_indexer = backend_model_indexer or _default_backend_model_indexer()
+        self._worker_transport_override = worker_transport_override
 
         # Worker management
         self.queue: asyncio.Queue = asyncio.Queue()
@@ -366,12 +403,16 @@ class DownloadWorker:
             )
             await self._refresh_group(download)
 
-            # Perform download
-            success = await self._download_file(download)
+            # Perform download - straight to a worker's depot when a
+            # destination backend is set, otherwise onto this host's disk.
+            is_remote = bool(download.destination_backend_id)
+            success = await self._fetch_remote(download) if is_remote else await self._download_file(download)
 
             if success:
-                # Verify checksum if provided
-                if download.checksum_sha256 and self.settings.verify_checksum:
+                # Verify checksum if provided. A remote fetch's digest is
+                # verified worker-side (ModelFetchRequestV1.expected_digest) -
+                # there is no local file here to re-hash.
+                if download.checksum_sha256 and self.settings.verify_checksum and not is_remote:
                     if not await self._verify_checksum(download):
                         raise Exception("Checksum verification failed")
 
@@ -395,6 +436,9 @@ class DownloadWorker:
                 await self._refresh_group(download)
 
                 logger.info(f"Download completed: {download.filename}")
+
+                if is_remote:
+                    await self._index_remote_backend(download)
 
         except asyncio.CancelledError:
             # Download was cancelled
@@ -703,6 +747,111 @@ class DownloadWorker:
         )
 
         return True
+
+    # ========== Remote destination (straight onto a worker's depot) ==========
+
+    async def _fetch_remote(self, download: Download) -> bool:
+        """Resolve `download.url` to a credential-free URL and have
+        `download.destination_backend_id`'s worker pull it directly into its
+        depot, bridging the worker's own transfer record into the same
+        progress/status broadcasts a local download sends.
+        """
+        from src.features.models.jobs import DOWNLOAD_POLL_INTERVAL_SECONDS
+        from src.features.providers.remote_download import (
+            RemoteDownloadResolutionError,
+            resolve_url_remote_download,
+        )
+        from src.features.remote_execution.ops import (
+            RemoteModelsBackendError,
+            resolve_remote_backend_config,
+            transport_for,
+        )
+        from src.platform.worker_protocol import ContentDigest
+        from src.platform.worker_protocol.model_fetch import ModelFetchRequestV1
+
+        provider = self._resolve_provider(download)
+        try:
+            ref = await resolve_url_remote_download(provider, self.session, download.url)
+        except RemoteDownloadResolutionError as exc:
+            raise DownloadAuthenticationException(str(exc))
+
+        try:
+            config = resolve_remote_backend_config(self.backend_registry, download.destination_backend_id)
+        except RemoteModelsBackendError as exc:
+            raise DownloadAuthenticationException(str(exc))
+
+        transport = transport_for(config, transport_override=self._worker_transport_override)
+        request = ModelFetchRequestV1(
+            relative_path=_relative_depot_path(download, self.settings.default_model_directory),
+            url=ref.url,
+            headers=ref.headers or None,
+            expected_digest=ContentDigest(algorithm="sha256", hex=download.checksum_sha256)
+            if download.checksum_sha256 else None,
+        )
+        transfer_id = await transport.fetch_model(request)
+        transfer = await self._poll_remote_transfer(
+            transport, transfer_id, download, DOWNLOAD_POLL_INTERVAL_SECONDS,
+        )
+
+        if transfer["state"] == "failed":
+            raise Exception(transfer.get("error") or "Remote fetch failed on the worker")
+
+        download.total_bytes = transfer.get("size_bytes") or transfer.get("total_bytes")
+        download.downloaded_bytes = download.total_bytes or 0
+        download.checksum_sha256 = download.checksum_sha256 or transfer.get("digest")
+        self.repo.update_total_bytes(download.id, download.total_bytes)
+        self.repo.update_progress(download.id, 1.0, download.downloaded_bytes, None)
+        await self.conn.send_download_progress(
+            download.id, 1.0, download.downloaded_bytes, download.total_bytes, None, download.filename,
+        )
+        return True
+
+    async def _poll_remote_transfer(self, transport, transfer_id: str, download: Download, interval: float) -> dict:
+        """Poll the worker's transfer registry for `transfer_id` until it
+        leaves the `running` state, bridging byte-level progress into the
+        same broadcasts a local download's chunk loop sends."""
+        while True:
+            transfers = await transport.list_transfers()
+            transfer = next((t for t in transfers if t["id"] == transfer_id), None)
+            if transfer is None:
+                return {"state": "failed", "error": "transfer disappeared from the worker"}
+            if transfer["state"] != "running":
+                return transfer
+
+            total = transfer.get("total_bytes")
+            received = transfer.get("received_bytes", 0)
+            progress = (received / total) if total else 0.0
+            self.repo.update_progress(download.id, progress, received, None)
+            if total:
+                self.repo.update_total_bytes(download.id, total)
+            await self.conn.send_download_progress(
+                download.id, progress, received, total, None, download.filename,
+            )
+            await self._refresh_group(download, broadcast_status=False)
+
+            if download.id in self.cancelled_downloads or download.id in self.paused_downloads:
+                raise asyncio.CancelledError()
+
+            await asyncio.sleep(interval)
+
+    async def _index_remote_backend(self, download: Download) -> None:
+        """Re-index the destination backend so the fetched model's row +
+        Remote-only availability appear exactly as manual indexing would.
+        A failure here leaves the download COMPLETED (the bytes are on the
+        worker regardless) with a warning in `error_message`."""
+        if self.backend_registry is None:
+            return
+        backend = self.backend_registry.get_backend(download.destination_backend_id)
+        if backend is None:
+            return
+        try:
+            await self.backend_model_indexer.index_backend(backend)
+        except Exception as exc:
+            logger.warning(f"Indexing backend '{download.destination_backend_id}' after remote fetch failed: {exc}")
+            self.repo.update_status(
+                download.id, DownloadStatus.COMPLETED,
+                f"Downloaded, but the catalog could not be refreshed automatically: {exc}",
+            )
 
     # ========== Group aggregation ==========
 

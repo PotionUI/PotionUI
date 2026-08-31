@@ -42,6 +42,8 @@ from src.platform.websocket.download_connection_hub import DownloadConnectionHub
 
 if TYPE_CHECKING:
     from src.platform.settings.settings import Settings
+    from src.features.backends.backend_registry import BackendRegistry
+    from src.features.models.backend_indexer import BackendModelIndexer
 
 _T = TypeVar("_T")
 
@@ -68,6 +70,8 @@ class DownloadQueue:
         plugin_registry: PluginRegistry,
         settings: "Settings",
         connection_hub: DownloadConnectionHub,
+        backend_registry: Optional["BackendRegistry"] = None,
+        backend_model_indexer: Optional["BackendModelIndexer"] = None,
     ):
         """Initialize DownloadQueue.
 
@@ -76,6 +80,13 @@ class DownloadQueue:
             plugin_registry: Plugin registry for hook execution
             settings: Settings source for default directories
             connection_hub: WebSocket broadcast surface
+            backend_registry: Resolves a `destination_backend_id` to a
+                `native.remote` backend. Optional so existing tests that never
+                queue a remote destination don't need it; a queue call that
+                names a destination backend without one configured refuses.
+            backend_model_indexer: Re-indexes the destination backend once a
+                remote fetch lands, so it appears in availability the same
+                way manual indexing would.
         """
         self.repo = download_repository
         self.plugins = plugin_registry
@@ -84,6 +95,8 @@ class DownloadQueue:
         # own DownloadSettings snapshot hydrated from it in _load_settings.
         self.app_settings = settings
         self.conn = connection_hub
+        self.backend_registry = backend_registry
+        self.backend_model_indexer = backend_model_indexer
         self.settings = DownloadSettings()
         self._load_settings()
         self.worker: Optional[DownloadWorker] = None
@@ -135,7 +148,11 @@ class DownloadQueue:
         loop that is guaranteed to outlive any single one of those calls is
         what keeps queued downloads from silently never starting.
         """
-        self.worker = DownloadWorker(self.settings, self.repo, self.conn)
+        self.worker = DownloadWorker(
+            self.settings, self.repo, self.conn,
+            backend_registry=self.backend_registry,
+            backend_model_indexer=self.backend_model_indexer,
+        )
         self._worker_loop = self._persistent_loop.ensure_running()
         await self._call_on_worker(self.worker.start())
         logger.info(
@@ -349,6 +366,22 @@ class DownloadQueue:
             )
         return candidate
 
+    def _validate_destination_backend(self, backend_id: str) -> None:
+        """`backend_id` names a `native.remote` backend that's fully
+        configured, or `DownloadQueueException`."""
+        if self.backend_registry is None:
+            raise DownloadQueueException("Remote destinations are not available")
+
+        from src.features.remote_execution.ops import RemoteModelsBackendError, resolve_remote_backend_config
+
+        try:
+            config = resolve_remote_backend_config(self.backend_registry, backend_id)
+        except RemoteModelsBackendError as exc:
+            raise DownloadQueueException(str(exc))
+
+        if not config.is_configured():
+            raise DownloadQueueException(f"Backend '{backend_id}' is not fully configured")
+
     @staticmethod
     def _filename_from_url(url: str, fallback_prefix: str) -> str:
         """A single safe path segment derived from `url`'s last path component.
@@ -381,6 +414,7 @@ class DownloadQueue:
         provider_id: Optional[str] = None,
         created_by: Optional[str] = None,
         model_type: Optional[str] = None,
+        destination_backend_id: Optional[str] = None,
     ) -> Download:
         """Queue a model file for download.
 
@@ -404,13 +438,18 @@ class DownloadQueue:
                 the destination via `TYPE_DIR_MAP` - the same mapping the
                 indexer scans by - so the file lands where it will actually
                 be found.
+            destination_backend_id: When given, the file is fetched straight
+                onto that `native.remote` backend's worker depot instead of
+                this host's disk - the backend must exist, be a `native.remote`
+                driver, and be fully configured.
 
         Returns:
             Created Download object
 
         Raises:
-            DownloadQueueException: If queueing fails, is blocked, or the
-                resolved destination would escape the configured depot
+            DownloadQueueException: If queueing fails, is blocked, the
+                destination backend is unusable, or the resolved destination
+                would escape the configured depot
         """
         # Execute before_queue hook
         hook_data, blocked = execute_hook(self.plugins,
@@ -440,6 +479,9 @@ class DownloadQueue:
         tags = hook_data.get("tags", tags)
         model_type = hook_data.get("model_type", model_type)
 
+        if destination_backend_id:
+            self._validate_destination_backend(destination_backend_id)
+
         trusted_subdir = None
         if model_type:
             from src.features.models.jobs import TYPE_DIR_MAP
@@ -468,7 +510,8 @@ class DownloadQueue:
             tags=tags or [],
             checksum_sha256=checksum_sha256,
             provider_id=provider_id,
-            created_by=created_by
+            created_by=created_by,
+            destination_backend_id=destination_backend_id,
         )
 
         created_download = self.repo.create(download)

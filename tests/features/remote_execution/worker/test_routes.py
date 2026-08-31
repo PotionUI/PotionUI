@@ -339,6 +339,8 @@ def test_a_staged_upload_reports_a_completed_transfer_with_full_bytes_received(c
     assert transfer["kind"] == "upload"
     assert transfer["state"] == "completed"
     assert transfer["received_bytes"] == transfer["total_bytes"] == len(MODEL_CONTENT)
+    assert transfer["digest"] == MODEL_DIGEST
+    assert transfer["size_bytes"] == len(MODEL_CONTENT)
 
     listing = client.get("/v1/models/transfers", headers=_auth()).json()["transfers"]
     assert any(t["id"] == transfer_id for t in listing)
@@ -395,11 +397,37 @@ def test_fetching_a_url_verifies_digest_and_publishes_to_the_depot(client, conta
     assert transfer["kind"] == "fetch"
     assert transfer["state"] == "completed"
     assert transfer["received_bytes"] == len(FETCH_CONTENT)
+    assert transfer["digest"] == FETCH_DIGEST
+    assert transfer["size_bytes"] == len(FETCH_CONTENT)
 
     dest = container.model_depot.depot_dir / "fetched/model.safetensors"
     assert dest.read_bytes() == FETCH_CONTENT
     sidecar = dest.with_name(dest.name + ".digest")
     assert jsonlib.loads(sidecar.read_text())["digest"] == FETCH_DIGEST
+
+
+def test_fetching_a_url_with_no_expected_digest_publishes_and_reports_the_computed_digest(client, container):
+    container.model_depot.http_transport = httpx.MockTransport(_upstream(FETCH_CONTENT))
+
+    request = ModelFetchRequestV1(
+        relative_path="fetched/unknown.safetensors", url="https://example.invalid/unknown",
+    )
+    resp = client.post("/v1/models/fetch", json=envelope(request), headers=_auth())
+    assert resp.status_code == 202
+    transfer_id = resp.json()["transfer_id"]
+
+    transfer = client.get(f"/v1/models/transfers/{transfer_id}", headers=_auth()).json()
+    assert transfer["state"] == "completed"
+    assert transfer["digest"] == FETCH_DIGEST
+    assert transfer["size_bytes"] == len(FETCH_CONTENT)
+
+    dest = container.model_depot.depot_dir / "fetched/unknown.safetensors"
+    assert dest.read_bytes() == FETCH_CONTENT
+    sidecar = dest.with_name(dest.name + ".digest")
+    assert jsonlib.loads(sidecar.read_text())["digest"] == FETCH_DIGEST
+
+    listing = client.get("/v1/models/transfers", headers=_auth()).json()["transfers"]
+    assert any(t["id"] == transfer_id and t["digest"] == FETCH_DIGEST for t in listing)
 
 
 def test_fetching_a_url_that_redirects_once_still_succeeds(client, container):

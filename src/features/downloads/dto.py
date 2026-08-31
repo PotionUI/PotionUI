@@ -15,6 +15,7 @@ class QueueModelDownloadRequest(BaseModel):
     tags: Optional[List[str]] = None
     checksum_sha256: Optional[str] = None
     provider_id: Optional[str] = None
+    destination_backend_id: Optional[str] = None
 
 
 class QueueMediaDownloadRequest(BaseModel):

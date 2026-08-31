@@ -117,6 +117,7 @@ def build_router(container: "AppContainer") -> APIRouter:
                 checksum_sha256=request.checksum_sha256,
                 provider_id=request.provider_id,
                 created_by=current_user.id if current_user else None,
+                destination_backend_id=request.destination_backend_id,
             )
             return {"success": True, "data": download.to_dict(), "message": f"Download queued: {download.filename}"}
         except DownloadQueueException as e:

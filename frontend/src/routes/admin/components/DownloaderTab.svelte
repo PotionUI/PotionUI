@@ -62,6 +62,7 @@
 		// Load initial data
 		await downloadStore.loadDownloads();
 		await downloadStore.loadSettings();
+		await downloadStore.loadRemoteBackends();
 	});
 
 	onDestroy(() => {

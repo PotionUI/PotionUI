@@ -140,6 +140,41 @@ def _ensure_digest(model: Model, model_repository: ModelRepository) -> str:
     return sha256
 
 
+async def resolve_url_remote_download(provider, session, url: str) -> RemoteDownloadRef:
+    """A pasted download URL, resolved for handing to a remote (untrusted)
+    worker - the Downloader's "download straight onto a worker" destination.
+
+    `provider` is whatever `DownloadWorker._resolve_provider` already
+    resolved for this download (explicit `provider_id`, or the first
+    provider whose `matches_download_url` claims the URL) - `None` when no
+    provider claims it, which is the common case for a plain, unauthenticated
+    URL and is safe to hand to the worker as-is, same as a local download
+    makes no auth attempt in that case.
+
+    A provider that DOES claim the URL must declare `REMOTE_DOWNLOAD` and its
+    `prepare_download()` must land off its own authenticated host with no
+    leftover header credentials (mirrors the check `resolve_remote_download`
+    implementations make, e.g. CivitAI's own token-in-URL guard) - otherwise
+    this refuses rather than leak credentials to the worker.
+    """
+    if provider is None:
+        return RemoteDownloadRef(url=url)
+
+    provider_name = provider.get_metadata().name
+    if not provider.get_metadata().has_capability(ProviderCapability.REMOTE_DOWNLOAD):
+        raise ProviderCapabilityMissingError(
+            f"Provider '{provider_name}' does not support remote destinations"
+        )
+
+    headers: dict = {}
+    resolved_url = await provider.prepare_download(session, url, headers)
+    if headers or provider.matches_download_url(resolved_url):
+        raise ProviderCapabilityMissingError(
+            f"Provider '{provider_name}' could not resolve a credential-free URL for a remote worker"
+        )
+    return RemoteDownloadRef(url=resolved_url)
+
+
 def _check_size(model: Model, ref: RemoteDownloadRef) -> None:
     if ref.size_hint is None or model.file_size is None:
         return

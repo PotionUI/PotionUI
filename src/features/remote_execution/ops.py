@@ -14,6 +14,8 @@ import asyncio
 from pathlib import Path
 from typing import List, Optional, Set, Tuple
 
+import httpx
+
 from src.features.backends.backend_config import NATIVE_REMOTE_DRIVER, NativeRemoteBackendConfig
 from src.features.backends.backend_registry import BackendRegistry
 from src.features.models.records import Model
@@ -57,11 +59,18 @@ def resolve_remote_backend_config(
     return config
 
 
-def transport_for(config: NativeRemoteBackendConfig) -> WorkerTransport:
+def transport_for(
+    config: NativeRemoteBackendConfig, *, transport_override: Optional[httpx.AsyncBaseTransport] = None,
+) -> WorkerTransport:
+    """`transport_override` is a test-only seam (an `httpx.ASGITransport`
+    pointed at a real worker app, never a real socket) - always `None` in
+    production, where `WorkerTransport`'s own default (a real connection) is
+    wanted."""
     return WorkerTransport(
         config.base_url, config.worker_token,
         connect_timeout=config.connect_timeout_seconds,
         request_timeout=config.request_timeout_seconds,
+        transport=transport_override,
     )
 
 

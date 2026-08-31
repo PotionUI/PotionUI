@@ -8,11 +8,14 @@ import { logger, getErrorMessage } from '$lib/utils/logger';
 import { writable, derived } from 'svelte/store';
 import type { Writable } from 'svelte/store';
 import { api } from '$lib/services/api/index';
+import { getBackends } from '$lib/services/admin-api';
 import {
 	downloaderWebSocket,
 	type DownloadProgressUpdate,
 	type DownloadStatusUpdate
 } from '$lib/services/downloaderWebsocket';
+
+const NATIVE_REMOTE_DRIVER = 'native.remote';
 
 // Types
 export type DownloadStatus =
@@ -46,6 +49,14 @@ export interface Download {
 	started_at: string | null;
 	completed_at: string | null;
 	created_by: string | null;
+	/** Set when this model was fetched straight onto a `native.remote`
+	 * backend's worker depot instead of local disk. */
+	destination_backend_id?: string | null;
+}
+
+export interface RemoteDestinationBackend {
+	id: string;
+	name: string;
 }
 
 export interface QueueHfRepoDownloadOptions {
@@ -75,6 +86,7 @@ export interface QueueModelDownloadOptions {
 	tags?: string[];
 	checksum_sha256?: string;
 	provider_id?: string;
+	destination_backend_id?: string;
 }
 
 // Stores
@@ -83,6 +95,10 @@ export const downloadCounts: Writable<DownloadCounts> = writable({});
 export const downloadSettings: Writable<DownloadSettings | null> = writable(null);
 export const loading: Writable<boolean> = writable(false);
 export const error: Writable<string | null> = writable(null);
+/** Configured `native.remote` backends the Downloader can target as a
+ * destination - empty when none are configured, in which case the
+ * destination picker stays hidden and every download is local (unchanged). */
+export const remoteBackends: Writable<RemoteDestinationBackend[]> = writable([]);
 
 // Derived stores
 export const activeDownloads = derived(downloads, ($downloads) =>
@@ -155,6 +171,7 @@ function createDownloadStore() {
 		failedDownloads,
 		pausedDownloads,
 		cancelledDownloads,
+		remoteBackends,
 
 		// Helpers
 		formatBytes,
@@ -295,6 +312,22 @@ function createDownloadStore() {
 				return false;
 			} finally {
 				loading.set(false);
+			}
+		},
+
+		// Load configured native.remote backends the Downloader can target
+		async loadRemoteBackends(): Promise<void> {
+			try {
+				const response = await getBackends();
+				if (response.success && response.data) {
+					remoteBackends.set(
+						response.data
+							.filter((b) => b.driver === NATIVE_REMOTE_DRIVER && b.configured)
+							.map((b) => ({ id: b.id, name: b.name }))
+					);
+				}
+			} catch (err) {
+				logger.error('Failed to load remote destination backends:', err);
 			}
 		},
 
@@ -523,6 +556,7 @@ function createDownloadStore() {
 			downloads.set([]);
 			downloadCounts.set({});
 			downloadSettings.set(null);
+			remoteBackends.set([]);
 			loading.set(false);
 			error.set(null);
 		}

@@ -23,6 +23,7 @@ class ProviderCapability(Enum):
     PROMPT_FETCH = auto()      # Can import browse-only prompt examples
     API_KEY_REQUIRED = auto()  # Requires API key for authentication
     REMOTE_DOWNLOAD = auto()   # Can resolve a credential-free URL a remote worker can fetch
+    REMOTE_DOWNLOAD_BY_HASH = auto()  # Can resolve that URL from a SHA256 alone, no provider link needed
 
 
 class ProviderError(Exception):
@@ -181,6 +182,7 @@ class RemoteDownloadRef:
     url: str
     headers: Dict[str, str] = field(default_factory=dict)
     expires_hint: Optional[str] = None
+    size_hint: Optional[int] = None  # Provider-reported byte size, when known, for a pre-download sanity check
 
 
 class MarketplaceProviderBase(ABC):
@@ -356,6 +358,26 @@ class MarketplaceProviderBase(ABC):
             NotImplementedError: If provider doesn't support remote download resolution
         """
         raise NotImplementedError("This provider does not support remote download resolution")
+
+    async def resolve_remote_download_by_hash(self, sha256: str) -> RemoteDownloadRef:
+        """
+        Resolve a model to a remote-worker-fetchable URL from its SHA256
+        alone, for models with no recorded provider link.
+
+        Optional method - only required if provider has
+        REMOTE_DOWNLOAD_BY_HASH capability. Same credential-free contract as
+        `resolve_remote_download`.
+
+        Args:
+            sha256: SHA256 hash of the model file
+
+        Returns:
+            A RemoteDownloadRef safe to hand to a remote worker
+
+        Raises:
+            NotImplementedError: If provider doesn't support by-hash remote download resolution
+        """
+        raise NotImplementedError("This provider does not support remote download resolution by hash")
 
     async def fetch_image_prompts(self, **kwargs) -> List[ProviderPromptItem]:
         """Return prompt browsing records when PROMPT_FETCH is advertised."""

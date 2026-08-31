@@ -161,6 +161,20 @@ class TestSyncView(OpsTestCase):
         rows = self._run(ops.sync_view(self.repo, MagicMock(), self.transport))
         self.assertEqual(rows, [])
 
+    def test_a_linkless_model_can_fetch_when_a_provider_supports_hash_lookup(self):
+        content = b"checkpoint bytes" * 100
+        self.repo.add(_model(
+            model_id="m-linkless", filename="dit.safetensors", role="checkpoint",
+            file_path=str(self._source("dit.safetensors", content)), content=content,
+        ))
+
+        registry = MagicMock()
+        registry.get_providers_with_capability.return_value = [MagicMock()]
+
+        rows = self._run(ops.sync_view(self.repo, registry, self.transport))
+
+        self.assertTrue(rows[0]["providers_can_fetch"])
+
 
 # -- push -----------------------------------------------------------------
 

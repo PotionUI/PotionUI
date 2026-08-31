@@ -64,6 +64,7 @@ class CivitaiProvider(MarketplaceProviderBase):
                 ProviderCapability.MEDIA_DOWNLOAD,
                 ProviderCapability.PROMPT_FETCH,
                 ProviderCapability.REMOTE_DOWNLOAD,
+                ProviderCapability.REMOTE_DOWNLOAD_BY_HASH,
             ],
             icon=None,  # Could be base64 encoded icon
             version="1.0.0"
@@ -335,6 +336,70 @@ class CivitaiProvider(MarketplaceProviderBase):
             )
 
         return RemoteDownloadRef(url=resolved_url, headers={})
+
+    async def resolve_remote_download_by_hash(self, sha256: str) -> RemoteDownloadRef:
+        """
+        Resolve a model to a remote-worker-fetchable URL by SHA256 alone.
+
+        CivitAI's by-hash endpoint has been seen returning HTTP 200 with the
+        wrong model-version record, so the returned record's own file list is
+        searched for the file whose hash actually matches - never trust the
+        first (or "primary") file. A version can list a file under an
+        unrelated hash-lookup match while another file in the same list is
+        the real one, so a lookup that returned no matching file is treated
+        as a miss, not as "use whatever's there".
+        """
+        if not self._initialized:
+            raise ProviderConnectionError("Provider not initialized")
+
+        await self._rate_limit()
+
+        url = f"{self.BASE_URL}/model-versions/by-hash/{sha256}"
+        session = await self._get_session()
+
+        try:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                if response.status == 404:
+                    raise ProviderNotFoundError(f"No CivitAI model found for hash {sha256}")
+                if response.status == 429:
+                    retry_after = response.headers.get('Retry-After', '60')
+                    raise ProviderRateLimitError(
+                        "CivitAI rate limit exceeded", retry_after=float(retry_after)
+                    )
+                if response.status != 200:
+                    raise ProviderConnectionError(f"CivitAI by-hash lookup returned HTTP {response.status}")
+                data = await response.json()
+        except asyncio.TimeoutError:
+            raise ProviderConnectionError(f"Timeout during CivitAI by-hash lookup for {sha256}")
+        except aiohttp.ClientError as e:
+            raise ProviderConnectionError(f"Connection error: {e}")
+
+        file_info = self._matching_file(data.get('files', []), sha256)
+        if file_info is None or not file_info.get('downloadUrl'):
+            raise ProviderNotFoundError(f"CivitAI by-hash response for {sha256} has no matching file")
+
+        session = await self._get_session()
+        headers: Dict[str, str] = {}
+        resolved_url = await self.prepare_download(session, file_info['downloadUrl'], headers)
+
+        if 'civitai.com/api/download' in resolved_url:
+            raise ProviderConnectionError(
+                "CivitAI did not return a pre-signed CDN URL for a by-hash lookup; check the API key"
+            )
+
+        size_kb = file_info.get('sizeKB')
+        size_hint = round(size_kb * 1024) if isinstance(size_kb, (int, float)) else None
+
+        return RemoteDownloadRef(url=resolved_url, headers={}, size_hint=size_hint)
+
+    @staticmethod
+    def _matching_file(files: List[Dict[str, Any]], sha256: str) -> Optional[Dict[str, Any]]:
+        target = sha256.lower()
+        for file_info in files:
+            file_hash = (file_info.get('hashes') or {}).get('SHA256')
+            if file_hash and file_hash.lower() == target:
+                return file_info
+        return None
 
     def get_settings_schema(self) -> Dict[str, Any]:
         """Get JSON schema for CivitAI provider settings."""

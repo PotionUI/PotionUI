@@ -22,6 +22,7 @@ from src.features.providers.base_provider import ProviderCapability
 from src.features.providers.registry import ProviderRegistry
 from src.features.providers.remote_download import (
     RemoteDownloadResolutionError,
+    providers_support_hash_lookup,
     resolve_model_remote_download,
 )
 from src.features.remote_execution.model_bundle_builder import (
@@ -71,14 +72,16 @@ def _relative_path(model: Model) -> str:
 
 
 def _can_fetch(model: Model, provider_registry: ProviderRegistry) -> bool:
-    """Cheap capability + link check only - never resolves a URL."""
+    """Cheap capability check only - never resolves a URL. True for a usable
+    provider link, or for any model when some registered provider can
+    resolve a download from a hash alone (most scanned models have no link)."""
     for link in model.providers:
         if not link.provider_model_id:
             continue
         provider = provider_registry.get_provider(link.provider)
         if provider and provider.get_metadata().has_capability(ProviderCapability.REMOTE_DOWNLOAD):
             return True
-    return False
+    return providers_support_hash_lookup(provider_registry)
 
 
 def _status(model: Model, worker_entry: Optional[dict]) -> str:

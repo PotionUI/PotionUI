@@ -13,7 +13,44 @@ sys.path.insert(0, str(_provider_dir))
 _mod = importlib.import_module("provider.civitai_provider")
 CivitaiProvider = _mod.CivitaiProvider
 
-from src.features.providers import ProviderCapability, ProviderConnectionError, RemoteDownloadRef
+from src.features.providers import (
+    ProviderCapability,
+    ProviderConnectionError,
+    ProviderNotFoundError,
+    RemoteDownloadRef,
+)
+
+
+class _FakeJsonResponse:
+    """Async context manager mimicking aiohttp's response for a JSON GET."""
+
+    def __init__(self, status, payload=None):
+        self.status = status
+        self._payload = payload
+        self.headers = {}
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        pass
+
+    async def json(self):
+        return self._payload
+
+
+class _FakeByHashSession:
+    """Returns the by-hash JSON response first, then the redirect chain
+    `prepare_download` drives against `.get(...)`."""
+
+    def __init__(self, by_hash_response, redirect_responses):
+        self._by_hash_response = by_hash_response
+        self._redirect_responses = list(redirect_responses)
+
+    def get(self, url, headers=None, allow_redirects=True, **kwargs):
+        if "by-hash" in url:
+            return self._by_hash_response
+        return self._redirect_responses.pop(0)
 
 
 class _FakeRedirectResponse:
@@ -80,3 +117,78 @@ async def test_resolve_remote_download_rejects_unresolved_civitai_url(provider):
 def test_remote_download_capability_advertised():
     provider = CivitaiProvider()
     assert provider.get_metadata().has_capability(ProviderCapability.REMOTE_DOWNLOAD)
+
+
+def test_remote_download_by_hash_capability_advertised():
+    provider = CivitaiProvider()
+    assert provider.get_metadata().has_capability(ProviderCapability.REMOTE_DOWNLOAD_BY_HASH)
+
+
+_TARGET_SHA256 = "b" * 64
+
+
+def _by_hash_payload(*, matching_index: int):
+    """A model-version record with two files - only `matching_index` carries
+    the hash we searched for, mimicking a fp16/fp32 pair on the same version."""
+    files = [
+        {
+            "downloadUrl": "https://civitai.com/api/download/models/999?type=Model&format=SafeTensor",
+            "hashes": {"SHA256": "a" * 64},
+            "sizeKB": 100.0,
+        },
+        {
+            "downloadUrl": "https://civitai.com/api/download/models/999?type=Model&format=SafeTensor&size=pruned",
+            "hashes": {"SHA256": _TARGET_SHA256.upper()},
+            "sizeKB": 50.0,
+        },
+    ]
+    if matching_index != 1:
+        files[0], files[1] = files[1], files[0]
+    return {"id": 999, "modelId": 111, "files": files}
+
+
+@pytest.mark.asyncio
+async def test_resolve_remote_download_by_hash_selects_the_matching_file_not_the_first(provider):
+    """Only the second file's hash matches - the first must never be picked."""
+    session = _FakeByHashSession(
+        by_hash_response=_FakeJsonResponse(200, _by_hash_payload(matching_index=1)),
+        redirect_responses=[
+            _FakeRedirectResponse(
+                302, "https://civitai-delivery-worker.example.com/signed/pruned.safetensors?sig=abc"
+            ),
+        ],
+    )
+    provider._get_session = AsyncMock(return_value=session)
+
+    ref = await provider.resolve_remote_download_by_hash(_TARGET_SHA256)
+
+    assert isinstance(ref, RemoteDownloadRef)
+    assert ref.url == "https://civitai-delivery-worker.example.com/signed/pruned.safetensors?sig=abc"
+    assert ref.headers == {}
+    assert ref.size_hint == 50 * 1024
+
+
+@pytest.mark.asyncio
+async def test_resolve_remote_download_by_hash_raises_when_no_file_matches(provider):
+    """A 200 response whose files list has no matching hash is a miss, not a
+    fallback to the first (or 'primary') file - CivitAI's by-hash endpoint has
+    returned the wrong record before."""
+    session = _FakeByHashSession(
+        by_hash_response=_FakeJsonResponse(200, {"id": 999, "files": [
+            {"downloadUrl": "https://civitai.com/api/download/models/999", "hashes": {"SHA256": "c" * 64}},
+        ]}),
+        redirect_responses=[],
+    )
+    provider._get_session = AsyncMock(return_value=session)
+
+    with pytest.raises(ProviderNotFoundError):
+        await provider.resolve_remote_download_by_hash(_TARGET_SHA256)
+
+
+@pytest.mark.asyncio
+async def test_resolve_remote_download_by_hash_miss_raises_not_found(provider):
+    session = _FakeByHashSession(by_hash_response=_FakeJsonResponse(404), redirect_responses=[])
+    provider._get_session = AsyncMock(return_value=session)
+
+    with pytest.raises(ProviderNotFoundError):
+        await provider.resolve_remote_download_by_hash(_TARGET_SHA256)

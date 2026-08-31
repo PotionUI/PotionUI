@@ -193,7 +193,9 @@ def build_worker_router(container) -> APIRouter:
             container.model_depot.transfers.fail(transfer.id, exc.reason)
             raise HTTPException(422, detail={"reason": exc.reason}) from exc
 
-        container.model_depot.transfers.complete(transfer.id)
+        container.model_depot.transfers.complete(
+            transfer.id, digest=entry.digest.hex, size_bytes=entry.size_bytes,
+        )
         return {"logical_id": logical_id, "staged": True, "transfer_id": transfer.id}
 
     @router.get("/v1/models")
@@ -272,4 +274,6 @@ def _transfer_json(transfer: Transfer) -> dict:
         "received_bytes": transfer.received_bytes,
         "state": transfer.state,
         "error": transfer.error,
+        "digest": transfer.digest,
+        "size_bytes": transfer.size_bytes,
     }

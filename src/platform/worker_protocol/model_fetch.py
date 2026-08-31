@@ -25,8 +25,9 @@ class ModelFetchRequestV1(ProtocolModel):
     """Body of ``POST /v1/models/fetch``."""
 
     relative_path: NonEmptyText
-    expected_digest: ContentDigest
-    expected_size: Annotated[int, Field(ge=0)]
+    #: None for a net-new download whose hash the worker computes on the fly.
+    expected_digest: Optional[ContentDigest] = None
+    expected_size: Optional[Annotated[int, Field(ge=0)]] = None
     #: Opaque to the worker beyond being a URL it streams a GET from -
     #: possibly presigned, possibly redirecting once (a CDN in front of the
     #: real object store).

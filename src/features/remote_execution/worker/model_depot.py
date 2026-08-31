@@ -42,6 +42,7 @@ _SIDECAR_SUFFIX = ".digest"
 _HASH_CHUNK_BYTES = 1024 * 1024
 _PART_SUFFIX = ".part"
 _FETCH_CHUNK_BYTES = 8 * 1024 * 1024
+_FETCH_DEFAULT_ALGORITHM = "sha256"
 
 
 class ModelStagingError(Exception):
@@ -175,15 +176,19 @@ class ModelDepot:
         return self.transfers.start("fetch", request.relative_path, request.expected_size)
 
     async def run_fetch(self, transfer_id: str, request: ModelFetchRequestV1) -> None:
-        """Stream *request.url* into the depot, verifying size and digest as
-        bytes arrive, then atomically publish - the fetch counterpart to
-        ``stage()``. Always terminates the transfer (completed or failed),
-        never leaves it ``running``."""
+        """Stream *request.url* into the depot, computing its digest as bytes
+        arrive - the fetch counterpart to ``stage()``. When
+        ``expected_digest``/``expected_size`` are given, verifies against them
+        (mismatch fails, nothing published); when absent (a net-new download),
+        publishes unconditionally on a clean HTTP 200 and reports the computed
+        digest back through the transfer record. Always terminates the
+        transfer (completed or failed), never leaves it ``running``."""
         dest = self._destination_for(request.relative_path, request.relative_path)
         dest.parent.mkdir(parents=True, exist_ok=True)
         tmp = dest.with_name(dest.name + _PART_SUFFIX)
 
-        hasher = hashlib.new(request.expected_digest.algorithm)
+        algorithm = request.expected_digest.algorithm if request.expected_digest else _FETCH_DEFAULT_ALGORITHM
+        hasher = hashlib.new(algorithm)
         size = 0
         try:
             async with httpx.AsyncClient(transport=self.http_transport, timeout=None) as client:
@@ -197,7 +202,7 @@ class ModelDepot:
                     with tmp.open("wb") as handle:
                         async for chunk in response.aiter_bytes(_FETCH_CHUNK_BYTES):
                             size += len(chunk)
-                            if size > request.expected_size:
+                            if request.expected_size is not None and size > request.expected_size:
                                 raise ModelStagingError(
                                     request.relative_path,
                                     f"size mismatch: expected {request.expected_size} bytes, got more",
@@ -206,14 +211,14 @@ class ModelDepot:
                             handle.write(chunk)
                             self.transfers.progress(transfer_id, size)
 
-            if size != request.expected_size:
+            if request.expected_size is not None and size != request.expected_size:
                 raise ModelStagingError(
                     request.relative_path,
                     f"size mismatch: expected {request.expected_size}, got {size}",
                 )
 
             digest = hasher.hexdigest()
-            if digest != request.expected_digest.hex:
+            if request.expected_digest is not None and digest != request.expected_digest.hex:
                 raise ModelStagingError(
                     request.relative_path,
                     f"digest mismatch: expected {request.expected_digest.hex}, got {digest}",
@@ -226,7 +231,7 @@ class ModelDepot:
 
         tmp.replace(dest)
         self._write_sidecar(dest, digest)
-        self.transfers.complete(transfer_id)
+        self.transfers.complete(transfer_id, digest=digest, size_bytes=size)
 
     def _status(self, entry: ModelBundleEntryV1) -> str:
         dest = self._destination(entry)

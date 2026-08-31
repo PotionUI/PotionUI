@@ -23,10 +23,15 @@ class Transfer:
     id: str
     kind: TransferKind
     relative_path: str
-    total_bytes: int
+    #: None when a fetch's size is unknown until the download completes.
+    total_bytes: Optional[int]
     received_bytes: int = 0
     state: TransferState = "running"
     error: Optional[str] = None
+    #: Set on completion - the digest the worker actually computed.
+    digest: Optional[str] = None
+    #: Set on completion - the final byte count actually received.
+    size_bytes: Optional[int] = None
 
 
 class TransferRegistry:
@@ -34,7 +39,7 @@ class TransferRegistry:
         self._lock = threading.Lock()
         self._transfers: Dict[str, Transfer] = {}
 
-    def start(self, kind: TransferKind, relative_path: str, total_bytes: int) -> Transfer:
+    def start(self, kind: TransferKind, relative_path: str, total_bytes: Optional[int]) -> Transfer:
         transfer = Transfer(
             id=uuid.uuid4().hex, kind=kind, relative_path=relative_path, total_bytes=total_bytes,
         )
@@ -48,11 +53,17 @@ class TransferRegistry:
             if transfer is not None:
                 transfer.received_bytes = received_bytes
 
-    def complete(self, transfer_id: str) -> None:
+    def complete(
+        self, transfer_id: str, *, digest: Optional[str] = None, size_bytes: Optional[int] = None,
+    ) -> None:
         with self._lock:
             transfer = self._transfers.get(transfer_id)
             if transfer is not None:
                 transfer.state = "completed"
+                if digest is not None:
+                    transfer.digest = digest
+                if size_bytes is not None:
+                    transfer.size_bytes = size_bytes
 
     def fail(self, transfer_id: str, error: str) -> None:
         with self._lock:

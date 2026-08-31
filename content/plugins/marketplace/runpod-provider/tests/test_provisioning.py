@@ -52,6 +52,9 @@ class FakeRunPodClient:
         self.deleted_volumes = []
         self.pod_to_return = None  # set by a test to control get_pod()
 
+    async def get_network_volume(self, volume_id):
+        return NetworkVolume(id=volume_id, name="existing", size_gb=100, data_center_id="US-TX-3")
+
     async def create_network_volume(self, *, name, size_gb, data_center_id):
         vol_id = f"vol-{len(self.created_volumes) + 1}"
         self.created_volumes.append(
@@ -376,3 +379,18 @@ async def test_provision_passes_the_registry_auth_id_to_create_pod(resources, re
     await manager.provision(_profile(container_registry_auth_id="cra-1"))
 
     assert client.created_pods[-1]["container_registry_auth_id"] == "cra-1"
+
+
+async def test_provision_recreates_the_volume_when_the_recorded_one_is_gone(resources, repo):
+    class VolumeGoneClient(FakeRunPodClient):
+        async def get_network_volume(self, volume_id):
+            raise RunPodNotFoundError(404, f"/networkvolumes/{volume_id} not found")
+
+    client = VolumeGoneClient()
+    manager = RunPodProvisioningManager(client, resources, repo, readiness_probe=_always_ready)
+    resources.record("prof-1", "network_volume", "vol-deleted-in-console")
+
+    result = await manager.provision(_profile())
+
+    assert result.volume_id != "vol-deleted-in-console"
+    assert resources.get("prof-1", "network_volume").runpod_id == result.volume_id

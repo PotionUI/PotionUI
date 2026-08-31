@@ -107,7 +107,17 @@ class RunPodProvisioningManager:
     async def provision(self, profile: ProvisioningProfile) -> ProvisionResult:
         plan = self.plan(profile)
 
-        if plan.create_volume:
+        volume_id = None
+        if not plan.create_volume:
+            # A recorded volume can be deleted out-of-band (RunPod console);
+            # verify before reuse and recreate on 404.
+            try:
+                existing = await self._client.get_network_volume(plan.existing_volume_id)
+                volume_id = existing.id
+            except RunPodNotFoundError:
+                self._resources.delete(profile.name, "network_volume")
+
+        if volume_id is None:
             volume = await self._client.create_network_volume(
                 name=f"potionui-{profile.name}",
                 size_gb=profile.volume_size_gb,
@@ -117,8 +127,6 @@ class RunPodProvisioningManager:
                 profile.name, "network_volume", volume.id, meta={"data_center_id": volume.data_center_id}
             )
             volume_id = volume.id
-        else:
-            volume_id = plan.existing_volume_id
 
         worker_token = generate_worker_token()
         pod = await self._client.create_pod(

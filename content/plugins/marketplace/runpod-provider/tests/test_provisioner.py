@@ -58,6 +58,9 @@ class FakeRunPodClient:
     async def aclose(self):
         pass
 
+    async def get_network_volume(self, volume_id):
+        return NetworkVolume(id=volume_id, name="existing", size_gb=100, data_center_id="EU-NL-1")
+
     async def create_network_volume(self, *, name, size_gb, data_center_id):
         self.create_network_volume_calls.append(
             {"name": name, "size_gb": size_gb, "data_center_id": data_center_id}

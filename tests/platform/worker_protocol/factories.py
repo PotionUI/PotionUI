@@ -22,6 +22,8 @@ from src.platform.worker_protocol import (
     JobEventV1,
     ModelBundleEntryV1,
     ModelBundleManifestV1,
+    ModelInventoryEntryV1,
+    ModelInventoryResponseV1,
     ProcessedPipelineV1,
     ProcessedPipeV1,
     WorkerCapabilitiesV1,
@@ -215,3 +217,13 @@ def make_rejected_event(cursor: int = 1) -> JobEventV1:
 
 def make_event_resume_request() -> EventResumeRequestV1:
     return EventResumeRequestV1(execution_id="exec-1", after_cursor=3)
+
+
+def make_model_inventory_response() -> ModelInventoryResponseV1:
+    return ModelInventoryResponseV1(
+        bundle_id="bundle-1",
+        entries=(
+            ModelInventoryEntryV1(logical_id="ckpt-main", status="present"),
+            ModelInventoryEntryV1(logical_id="lora-style", status="missing"),
+        ),
+    )

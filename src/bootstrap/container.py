@@ -129,6 +129,9 @@ if TYPE_CHECKING:
     from src.features.workspaces.repository import WorkspaceRepository
     from src.features.user_groups.repository import UserGroupRepository
     from src.features.system_monitor.routes import SystemMonitorController
+    from src.features.provisioning.registry import ComputeProvisionerRegistry
+    from src.features.provisioning.repository import ProvisionedComputeRepository
+    from src.features.provisioning.routes import ProvisioningController
     from src.features.plugins.routes import PluginController
     from src.features.llm.routes import LLMController
     from src.features.llm.tools.governance import ToolGovernanceEditor, ToolGovernanceRepository
@@ -201,6 +204,11 @@ class AppContainer:
     image_writer: ImageWriter
     backend_registry: BackendRegistry
     field_factory: FieldFactory
+
+    # Compute provisioning
+    compute_provisioner_registry: "ComputeProvisionerRegistry"
+    provisioned_compute_repository: "ProvisionedComputeRepository"
+    provisioning_controller: "ProvisioningController"
 
     # LLM
     llm_repository: LLMRepository
@@ -657,6 +665,20 @@ def build_container() -> AppContainer:
         pipe_catalog=pipe_catalog,
     )
     field_factory = FieldFactory(preset_template_loader, template_processor, field_registry=field_type_registry)
+
+    # Compute provisioning (rented GPU compute running the Remote Native worker -
+    # see docs/remote-native.md). Provisioners are collected from plugins via
+    # the compute.register hook, mirroring BackendRegistry's own plugin-engine
+    # discovery, one line above.
+    from src.features.provisioning.registry import ComputeProvisionerRegistry
+    from src.features.provisioning.repository import ProvisionedComputeRepository
+    from src.features.provisioning.routes import ProvisioningController
+
+    compute_provisioner_registry = ComputeProvisionerRegistry(plugin_registry=plugin_registry)
+    provisioned_compute_repository = ProvisionedComputeRepository()
+    provisioning_controller = ProvisioningController(
+        compute_provisioner_registry, provisioned_compute_repository, backend_registry
+    )
 
     # Initialize system monitor manager
     system_monitor_coordinator = SystemMonitorCoordinator(

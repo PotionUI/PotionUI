@@ -11,9 +11,9 @@ Import from the package itself - every name below is available directly:
     from src.plugin_api import BaseTool, ToolContext, ToolResult
 
 The capability modules (`src.plugin_api.providers`, `.chat`, `.backends`,
-`.pipes`, `.native`, `.hooks`, `.storage`, `.presets`, `.forms`, `.identity`,
-`.media`) are the same names, grouped, and each one's docstring explains what
-it is for. Import from whichever reads better.
+`.compute`, `.pipes`, `.native`, `.hooks`, `.storage`, `.presets`, `.forms`,
+`.identity`, `.media`) are the same names, grouped, and each one's docstring
+explains what it is for. Import from whichever reads better.
 
 If you need something the application can do but this module does not expose,
 that is a gap in the API - ask for it to be added rather than importing around
@@ -77,6 +77,17 @@ from src.plugin_api.backends import (
     InProcessBackend,
     ModelListingNotSupported,
     deduplicate,
+)
+
+# Provisioning rented GPU compute.
+from src.plugin_api.compute import (
+    COMPUTE_HOOKS,
+    ComputeGpuType,
+    ComputeProvisioner,
+    ComputeProvisionerError,
+    ComputeStatus,
+    ProvisionRequest,
+    ProvisionResult,
 )
 
 # Contributing a pipe, and the outputs it emits while it runs.
@@ -195,6 +206,14 @@ __all__ = [
     "InProcessBackend",
     "ModelListingNotSupported",
     "deduplicate",
+    # Compute provisioning
+    "COMPUTE_HOOKS",
+    "ComputeGpuType",
+    "ComputeProvisioner",
+    "ComputeProvisionerError",
+    "ComputeStatus",
+    "ProvisionRequest",
+    "ProvisionResult",
     # Pipes
     "AudioGenerationOutput",
     "BasePipe",

@@ -130,11 +130,14 @@ class ComputeProvisioner(ABC):
 
     @abstractmethod
     async def stop(self, handle: str) -> None:
-        """Stop the resource without destroying it - it can be started again."""
+        """Stop the resource without destroying it - it can be started again.
+        A resource that no longer exists on the provider is not an error."""
 
     @abstractmethod
     async def terminate(self, handle: str) -> None:
         """Tear the resource down. Whether this also destroys persistent
         storage (a volume, a disk) is the provisioner's own policy - core
         only ever calls this once, when an operator asks to delete the
-        `ProvisionedCompute` row entirely."""
+        `ProvisionedCompute` row entirely. Idempotent: a resource already
+        gone on the provider counts as terminated, never as a failure -
+        raising here would strand the row with no way to clean it up."""

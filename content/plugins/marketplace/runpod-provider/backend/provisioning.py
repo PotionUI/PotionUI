@@ -213,20 +213,31 @@ class RunPodProvisioningManager:
         pod_terminated = False
 
         if pod_record is not None:
+            # A pod already gone on RunPod's side (console deletion, reclaim)
+            # counts as torn down - the point is the cleanup, not the call.
             if terminate_pod:
-                await self._client.terminate_pod(pod_record.runpod_id)
+                try:
+                    await self._client.terminate_pod(pod_record.runpod_id)
+                except RunPodNotFoundError:
+                    pass
                 self._resources.delete(profile_name, "pod")
                 self._repo.delete_plugin_setting(PLUGIN_ID, _worker_token_key(profile_name))
                 pod_terminated = True
             else:
-                await self._client.stop_pod(pod_record.runpod_id)
+                try:
+                    await self._client.stop_pod(pod_record.runpod_id)
+                except RunPodNotFoundError:
+                    self._resources.delete(profile_name, "pod")
                 pod_stopped = True
 
         volume_deleted = False
         if delete_volume:
             volume_record = self._resources.get(profile_name, "network_volume")
             if volume_record is not None:
-                await self._client.delete_network_volume(volume_record.runpod_id)
+                try:
+                    await self._client.delete_network_volume(volume_record.runpod_id)
+                except RunPodNotFoundError:
+                    pass
                 self._resources.delete(profile_name, "network_volume")
                 volume_deleted = True
 

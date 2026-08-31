@@ -403,6 +403,44 @@ async def test_deprovision_terminate_and_delete_volume_removes_both(resources, r
     assert resources.get("prof-1", "pod") is None
 
 
+async def test_deprovision_terminate_of_an_already_gone_pod_still_cleans_up(resources, repo, client):
+    class PodGoneClient(type(client)):
+        async def terminate_pod(self, pod_id):
+            raise RunPodNotFoundError(404, f"/pods/{pod_id} not found")
+
+        async def delete_network_volume(self, volume_id):
+            raise RunPodNotFoundError(404, f"/networkvolumes/{volume_id} not found")
+
+    gone = PodGoneClient()
+    resources.record("prof-1", "pod", "pod-1")
+    resources.record("prof-1", "network_volume", "vol-1")
+    repo.set_plugin_setting(PLUGIN_ID, "worker_token:prof-1", "tok", is_secret=True)
+    manager = RunPodProvisioningManager(gone, resources, repo)
+
+    result = await manager.deprovision("prof-1", terminate_pod=True, delete_volume=True)
+
+    assert result.pod_terminated is True
+    assert result.volume_deleted is True
+    assert resources.get("prof-1", "pod") is None
+    assert resources.get("prof-1", "network_volume") is None
+    assert repo.get_plugin_setting(PLUGIN_ID, "worker_token:prof-1") is None
+
+
+async def test_deprovision_stop_of_an_already_gone_pod_does_not_raise(resources, repo, client):
+    class PodGoneClient(type(client)):
+        async def stop_pod(self, pod_id):
+            raise RunPodNotFoundError(404, f"/pods/{pod_id} not found")
+
+    gone = PodGoneClient()
+    resources.record("prof-1", "pod", "pod-1")
+    manager = RunPodProvisioningManager(gone, resources, repo)
+
+    result = await manager.deprovision("prof-1")
+
+    assert result.pod_stopped is True
+    assert resources.get("prof-1", "pod") is None
+
+
 async def test_provision_passes_the_registry_auth_id_to_create_pod(resources, repo):
     client = FakeRunPodClient()
     manager = RunPodProvisioningManager(client, resources, repo, readiness_probe=_always_ready)

@@ -22,6 +22,7 @@ from src.platform.worker_protocol import (
     JobEventV1,
     ModelBundleEntryV1,
     ModelBundleManifestV1,
+    ModelFetchRequestV1,
     ModelInventoryEntryV1,
     ModelInventoryResponseV1,
     ProcessedPipelineV1,
@@ -218,6 +219,16 @@ def make_rejected_event(cursor: int = 1) -> JobEventV1:
 
 def make_event_resume_request() -> EventResumeRequestV1:
     return EventResumeRequestV1(execution_id="exec-1", after_cursor=3)
+
+
+def make_model_fetch_request() -> ModelFetchRequestV1:
+    return ModelFetchRequestV1(
+        relative_path="checkpoint/model.safetensors",
+        expected_digest=make_digest("9"),
+        expected_size=6_000_000_000,
+        url="https://example.invalid/model.safetensors",
+        headers={"Authorization": "Bearer upstream-token"},
+    )
 
 
 def make_model_inventory_response() -> ModelInventoryResponseV1:

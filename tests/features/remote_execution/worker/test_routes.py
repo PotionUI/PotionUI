@@ -11,6 +11,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -31,6 +32,7 @@ from src.platform.worker_protocol import (
     ProcessedPipeV1,
 )
 from src.platform.worker_protocol.envelope import envelope, read_envelope
+from src.platform.worker_protocol.model_fetch import ModelFetchRequestV1
 
 TOKEN = "secret-worker-token"
 MODEL_CONTENT = b"fake checkpoint bytes" * 100
@@ -206,7 +208,10 @@ def test_staging_registers_via_inventory_then_uploads_and_persists_to_the_depot(
         content=MODEL_CONTENT, headers=_auth(),
     )
     assert resp.status_code == 200
-    assert resp.json() == {"logical_id": MODEL_ENTRY.logical_id, "staged": True}
+    body = resp.json()
+    assert body["logical_id"] == MODEL_ENTRY.logical_id
+    assert body["staged"] is True
+    assert body["transfer_id"]
 
     dest = container.model_depot.depot_dir / MODEL_ENTRY.relative_path
     assert dest.read_bytes() == MODEL_CONTENT
@@ -294,3 +299,149 @@ def test_a_pipeline_with_no_model_references_is_unaffected_by_the_depot(client, 
     _wait_for_terminal(container, "exec-no-models")
     record = container.coordinator.record_for("exec-no-models")
     assert record.events[-1].kind == "succeeded"
+
+
+# -- depot listing --------------------------------------------------------
+
+def test_listing_an_empty_depot_returns_no_entries(client):
+    resp = client.get("/v1/models", headers=_auth())
+    assert resp.status_code == 200
+    assert resp.json() == {"entries": []}
+
+
+def test_listing_the_depot_reports_a_staged_entry_with_its_digest(client):
+    client.post("/v1/models/inventory", json=envelope(MODEL_BUNDLE), headers=_auth())
+    client.post(
+        f"/v1/models/{MODEL_BUNDLE.bundle_id}/{MODEL_ENTRY.logical_id}",
+        content=MODEL_CONTENT, headers=_auth(),
+    )
+
+    resp = client.get("/v1/models", headers=_auth())
+    assert resp.status_code == 200
+    assert resp.json()["entries"] == [{
+        "relative_path": MODEL_ENTRY.relative_path,
+        "size_bytes": len(MODEL_CONTENT),
+        "digest": MODEL_DIGEST,
+    }]
+
+
+# -- upload transfer tracking ----------------------------------------------
+
+def test_a_staged_upload_reports_a_completed_transfer_with_full_bytes_received(client):
+    client.post("/v1/models/inventory", json=envelope(MODEL_BUNDLE), headers=_auth())
+    resp = client.post(
+        f"/v1/models/{MODEL_BUNDLE.bundle_id}/{MODEL_ENTRY.logical_id}",
+        content=MODEL_CONTENT, headers=_auth(),
+    )
+    transfer_id = resp.json()["transfer_id"]
+
+    transfer = client.get(f"/v1/models/transfers/{transfer_id}", headers=_auth()).json()
+    assert transfer["kind"] == "upload"
+    assert transfer["state"] == "completed"
+    assert transfer["received_bytes"] == transfer["total_bytes"] == len(MODEL_CONTENT)
+
+    listing = client.get("/v1/models/transfers", headers=_auth()).json()["transfers"]
+    assert any(t["id"] == transfer_id for t in listing)
+
+
+def test_an_unknown_transfer_id_is_not_found(client):
+    resp = client.get("/v1/models/transfers/does-not-exist", headers=_auth())
+    assert resp.status_code == 404
+
+
+# -- fetch ------------------------------------------------------------------
+
+FETCH_CONTENT = b"fetched checkpoint bytes" * 5000
+FETCH_DIGEST = hashlib.sha256(FETCH_CONTENT).hexdigest()
+
+
+def _fetch_request(
+    *,
+    relative_path: str = "fetched/model.safetensors",
+    url: str = "https://example.invalid/model.safetensors",
+    digest: str = FETCH_DIGEST,
+    size: int = len(FETCH_CONTENT),
+) -> ModelFetchRequestV1:
+    return ModelFetchRequestV1(
+        relative_path=relative_path,
+        expected_digest=ContentDigest(algorithm="sha256", hex=digest),
+        expected_size=size,
+        url=url,
+    )
+
+
+def _upstream(content: bytes, *, redirect_once_from: str | None = None):
+    """A fake CDN: optionally redirects the first request for one path once,
+    then always answers 200 with *content*."""
+    state = {"redirected": False}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if redirect_once_from and request.url.path == redirect_once_from and not state["redirected"]:
+            state["redirected"] = True
+            return httpx.Response(302, headers={"Location": "https://example.invalid/direct"})
+        return httpx.Response(200, content=content)
+
+    return handler
+
+
+def test_fetching_a_url_verifies_digest_and_publishes_to_the_depot(client, container):
+    container.model_depot.http_transport = httpx.MockTransport(_upstream(FETCH_CONTENT))
+
+    resp = client.post("/v1/models/fetch", json=envelope(_fetch_request()), headers=_auth())
+    assert resp.status_code == 202
+    transfer_id = resp.json()["transfer_id"]
+
+    transfer = client.get(f"/v1/models/transfers/{transfer_id}", headers=_auth()).json()
+    assert transfer["kind"] == "fetch"
+    assert transfer["state"] == "completed"
+    assert transfer["received_bytes"] == len(FETCH_CONTENT)
+
+    dest = container.model_depot.depot_dir / "fetched/model.safetensors"
+    assert dest.read_bytes() == FETCH_CONTENT
+    sidecar = dest.with_name(dest.name + ".digest")
+    assert jsonlib.loads(sidecar.read_text())["digest"] == FETCH_DIGEST
+
+
+def test_fetching_a_url_that_redirects_once_still_succeeds(client, container):
+    container.model_depot.http_transport = httpx.MockTransport(
+        _upstream(FETCH_CONTENT, redirect_once_from="/redirected")
+    )
+    request = _fetch_request(
+        relative_path="fetched/redirected.safetensors", url="https://example.invalid/redirected",
+    )
+    resp = client.post("/v1/models/fetch", json=envelope(request), headers=_auth())
+    transfer_id = resp.json()["transfer_id"]
+
+    transfer = client.get(f"/v1/models/transfers/{transfer_id}", headers=_auth()).json()
+    assert transfer["state"] == "completed"
+
+
+def test_a_fetch_digest_mismatch_fails_the_transfer_and_publishes_nothing(client, container):
+    wrong_content = b"y" * len(FETCH_CONTENT)  # same length, wrong bytes
+    container.model_depot.http_transport = httpx.MockTransport(_upstream(wrong_content))
+
+    request = _fetch_request(relative_path="fetched/bad.safetensors")
+    resp = client.post("/v1/models/fetch", json=envelope(request), headers=_auth())
+    transfer_id = resp.json()["transfer_id"]
+
+    transfer = client.get(f"/v1/models/transfers/{transfer_id}", headers=_auth()).json()
+    assert transfer["state"] == "failed"
+    assert "digest mismatch" in transfer["error"]
+
+    dest = container.model_depot.depot_dir / "fetched/bad.safetensors"
+    assert not dest.exists()
+    assert not dest.with_name(dest.name + ".part").exists()
+
+
+def test_fetch_rejects_a_relative_path_that_escapes_the_depot(client):
+    body = envelope(_fetch_request())
+    body["payload"]["relative_path"] = "../../etc/passwd"
+
+    resp = client.post("/v1/models/fetch", json=body, headers=_auth())
+    assert resp.status_code == 422
+    assert resp.json()["detail"]["code"] == "invalid_payload"
+
+
+def test_fetch_requires_a_token(client):
+    resp = client.post("/v1/models/fetch", json=envelope(_fetch_request()))
+    assert resp.status_code == 401

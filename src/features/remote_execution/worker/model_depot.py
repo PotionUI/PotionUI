@@ -26,9 +26,13 @@ import hashlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Iterable, Optional
+from typing import Dict, Iterable, List, Optional
 
+import httpx
+
+from src.features.remote_execution.worker.transfers import Transfer, TransferRegistry
 from src.platform.worker_protocol import ModelBundleEntryV1, ModelBundleManifestV1
+from src.platform.worker_protocol.model_fetch import ModelFetchRequestV1
 from src.platform.worker_protocol.model_inventory import (
     ModelInventoryEntryV1,
     ModelInventoryResponseV1,
@@ -36,6 +40,8 @@ from src.platform.worker_protocol.model_inventory import (
 
 _SIDECAR_SUFFIX = ".digest"
 _HASH_CHUNK_BYTES = 1024 * 1024
+_PART_SUFFIX = ".part"
+_FETCH_CHUNK_BYTES = 8 * 1024 * 1024
 
 
 class ModelStagingError(Exception):
@@ -50,6 +56,12 @@ class ModelDepot:
     """One instance per worker process."""
 
     depot_dir: Path
+    #: Overridable so a test can point a fetch at a fake upstream
+    #: (httpx.MockTransport / httpx.ASGITransport) instead of a real socket -
+    #: never set in production, where the default (a real connection) is
+    #: wanted.
+    http_transport: Optional[httpx.AsyncBaseTransport] = None
+    transfers: TransferRegistry = field(default_factory=TransferRegistry)
     _manifests: Dict[str, ModelBundleManifestV1] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -120,15 +132,101 @@ class ModelDepot:
         return dest
 
     def _destination(self, entry: ModelBundleEntryV1) -> Path:
-        # entry.relative_path is already structurally validated (no `..`, not
+        return self._destination_for(entry.relative_path, entry.logical_id)
+
+    def _destination_for(self, relative_path: str, error_id: str) -> Path:
+        # relative_path is already structurally validated (no `..`, not
         # absolute - see validate_contained_relative_path); this is a second,
         # resolved-path containment check, the same defense-in-depth pattern
         # the artifact-serving route uses.
-        dest = (self.depot_dir / entry.relative_path).resolve()
+        dest = (self.depot_dir / relative_path).resolve()
         root = self.depot_dir.resolve()
         if root != dest and root not in dest.parents:
-            raise ModelStagingError(entry.logical_id, "relative_path escapes the model depot")
+            raise ModelStagingError(error_id, "relative_path escapes the model depot")
         return dest
+
+    # -- depot listing ----------------------------------------------------
+
+    def list_entries(self) -> List[dict]:
+        """Every published file in the depot - never a ``.part`` (in-flight
+        staging) or ``.digest`` sidecar. Digest is reported only when a
+        trusted sidecar already exists; this never hashes a file just to list
+        it, or the listing endpoint becomes the slow path on a multi-terabyte
+        depot."""
+        root = self.depot_dir.resolve()
+        entries: List[dict] = []
+        for path in sorted(root.rglob("*")):
+            if not path.is_file() or path.name.endswith(_PART_SUFFIX) or path.name.endswith(_SIDECAR_SUFFIX):
+                continue
+            entries.append({
+                "relative_path": path.relative_to(root).as_posix(),
+                "size_bytes": path.stat().st_size,
+                "digest": self._sidecar_digest(path),
+            })
+        return entries
+
+    # -- fetch (core -> worker URL pull) -----------------------------------
+
+    def start_fetch(self, request: ModelFetchRequestV1) -> Transfer:
+        """Validate destination containment and register the transfer.
+        Raises ``ModelStagingError`` before anything is registered so a
+        rejected fetch never appears in the transfer list."""
+        self._destination_for(request.relative_path, request.relative_path)
+        return self.transfers.start("fetch", request.relative_path, request.expected_size)
+
+    async def run_fetch(self, transfer_id: str, request: ModelFetchRequestV1) -> None:
+        """Stream *request.url* into the depot, verifying size and digest as
+        bytes arrive, then atomically publish - the fetch counterpart to
+        ``stage()``. Always terminates the transfer (completed or failed),
+        never leaves it ``running``."""
+        dest = self._destination_for(request.relative_path, request.relative_path)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dest.with_name(dest.name + _PART_SUFFIX)
+
+        hasher = hashlib.new(request.expected_digest.algorithm)
+        size = 0
+        try:
+            async with httpx.AsyncClient(transport=self.http_transport, timeout=None) as client:
+                async with client.stream(
+                    "GET", request.url, headers=dict(request.headers or {}), follow_redirects=True,
+                ) as response:
+                    if response.status_code != 200:
+                        raise ModelStagingError(
+                            request.relative_path, f"fetch failed: HTTP {response.status_code}",
+                        )
+                    with tmp.open("wb") as handle:
+                        async for chunk in response.aiter_bytes(_FETCH_CHUNK_BYTES):
+                            size += len(chunk)
+                            if size > request.expected_size:
+                                raise ModelStagingError(
+                                    request.relative_path,
+                                    f"size mismatch: expected {request.expected_size} bytes, got more",
+                                )
+                            hasher.update(chunk)
+                            handle.write(chunk)
+                            self.transfers.progress(transfer_id, size)
+
+            if size != request.expected_size:
+                raise ModelStagingError(
+                    request.relative_path,
+                    f"size mismatch: expected {request.expected_size}, got {size}",
+                )
+
+            digest = hasher.hexdigest()
+            if digest != request.expected_digest.hex:
+                raise ModelStagingError(
+                    request.relative_path,
+                    f"digest mismatch: expected {request.expected_digest.hex}, got {digest}",
+                )
+        except (ModelStagingError, httpx.HTTPError) as exc:
+            tmp.unlink(missing_ok=True)
+            reason = exc.reason if isinstance(exc, ModelStagingError) else str(exc)
+            self.transfers.fail(transfer_id, reason)
+            return
+
+        tmp.replace(dest)
+        self._write_sidecar(dest, digest)
+        self.transfers.complete(transfer_id)
 
     def _status(self, entry: ModelBundleEntryV1) -> str:
         dest = self._destination(entry)

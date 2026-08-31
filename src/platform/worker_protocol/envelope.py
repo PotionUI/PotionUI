@@ -34,6 +34,7 @@ from src.platform.worker_protocol.event_resume import EventResumeRequestV1
 from src.platform.worker_protocol.execution_package import ExecutionPackageV1
 from src.platform.worker_protocol.job_event import JobEventV1
 from src.platform.worker_protocol.model_bundle import ModelBundleManifestV1
+from src.platform.worker_protocol.model_fetch import ModelFetchRequestV1
 from src.platform.worker_protocol.model_inventory import ModelInventoryResponseV1
 from src.platform.worker_protocol.version import WORKER_PROTOCOL_VERSION
 from src.platform.worker_protocol.worker_info import WorkerInfoV1
@@ -51,6 +52,7 @@ KIND_WORKER_INFO = "worker_info"
 KIND_EXECUTION_PACKAGE = "execution_package"
 KIND_MODEL_BUNDLE_MANIFEST = "model_bundle_manifest"
 KIND_MODEL_INVENTORY_RESPONSE = "model_inventory_response"
+KIND_MODEL_FETCH_REQUEST = "model_fetch_request"
 KIND_JOB_EVENT = "job_event"
 KIND_ARTIFACT_REF = "artifact_ref"
 KIND_EVENT_RESUME_REQUEST = "event_resume_request"
@@ -63,6 +65,7 @@ PAYLOAD_MODELS: Dict[Tuple[str, int], Type[BaseModel]] = {
     (KIND_EXECUTION_PACKAGE, 1): ExecutionPackageV1,
     (KIND_MODEL_BUNDLE_MANIFEST, 1): ModelBundleManifestV1,
     (KIND_MODEL_INVENTORY_RESPONSE, 1): ModelInventoryResponseV1,
+    (KIND_MODEL_FETCH_REQUEST, 1): ModelFetchRequestV1,
     (KIND_JOB_EVENT, 1): JobEventV1,
     (KIND_ARTIFACT_REF, 1): ArtifactRefV1,
     (KIND_EVENT_RESUME_REQUEST, 1): EventResumeRequestV1,
@@ -74,6 +77,7 @@ PAYLOAD_KINDS: Dict[Type[BaseModel], str] = {
     ExecutionPackageV1: KIND_EXECUTION_PACKAGE,
     ModelBundleManifestV1: KIND_MODEL_BUNDLE_MANIFEST,
     ModelInventoryResponseV1: KIND_MODEL_INVENTORY_RESPONSE,
+    ModelFetchRequestV1: KIND_MODEL_FETCH_REQUEST,
     JobEventV1: KIND_JOB_EVENT,
     ArtifactRefV1: KIND_ARTIFACT_REF,
     EventResumeRequestV1: KIND_EVENT_RESUME_REQUEST,
@@ -194,6 +198,10 @@ def read_envelope(
     try:
         return model.model_validate(document["payload"])
     except ValidationError as exc:
+        # include_context=False: a field validator that raises ValueError
+        # (e.g. validate_contained_relative_path) puts the exception object
+        # itself in ctx, which a caller that JSON-serializes this detail
+        # (every HTTP route does) cannot encode.
         raise WorkerEnvelopeError(
-            "invalid_payload", kind=document["kind"], errors=exc.errors()
+            "invalid_payload", kind=document["kind"], errors=exc.errors(include_context=False)
         ) from exc

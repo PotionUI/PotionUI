@@ -43,7 +43,7 @@ class TestNarrowBackendsByAvailability:
 
         assert instance._narrow_backends_by_availability("comfyui", form) is None
 
-    @patch("src.features.models.availability.candidate_backends")
+    @patch("src.features.models.availability.require_candidate_backends")
     @patch("src.features.models.availability_repository.model_availability_repo")
     def test_indexed_engine_narrows_to_backends_holding_every_model(self, repo, candidates):
         repo.any_indexed.return_value = True
@@ -56,21 +56,21 @@ class TestNarrowBackendsByAvailability:
         assert allowed == ["comfy_b"]
         assert candidates.call_args[0][1] == ["m1", "m2"]
 
-    @patch("src.features.models.availability.candidate_backends")
+    @patch("src.features.models.availability.require_candidate_backends")
     @patch("src.features.models.availability_repository.model_availability_repo")
-    def test_no_backend_holds_everything_yields_empty_not_none(self, repo, candidates):
-        """Empty means "narrow to nothing" and must reach selection as a failure;
-        None would mean "do not narrow" and silently route anywhere."""
+    def test_no_backend_holds_everything_raises_the_detailed_error(self, repo, candidates):
+        """The detailed explanation (which model blocks, where it lives) must reach the
+        user, not the registry's generic one-liner."""
+        from src.features.models.availability import NoBackendHoldsAllModelsError
+
         repo.any_indexed.return_value = True
-        candidates.return_value = []
+        candidates.side_effect = NoBackendHoldsAllModelsError("'a.safetensors' is on Remote One")
         instance = self._orchestrator(["comfy_a"])
 
-        allowed = instance._narrow_backends_by_availability(
-            "comfyui", {"checkpoint": make_model_ref("m1")}
-        )
-
-        assert allowed == []
-        assert allowed is not None
+        with pytest.raises(NoBackendHoldsAllModelsError, match="Remote One"):
+            instance._narrow_backends_by_availability(
+                "comfyui", {"checkpoint": make_model_ref("m1")}
+            )
 
 
 class TestSelectionRejectsEmptyCandidateSet:

@@ -30,13 +30,29 @@ class FakeCatalog:
         return self._classes.get(name)
 
 
-class LoaderPipe:
+class _ContractlessPipe:
+    """Just enough pipe-class surface for `compute_pipe_contract_fingerprint`."""
+
+    @classmethod
+    def inputs(cls):
+        return []
+
+    @classmethod
+    def outputs(cls):
+        return []
+
+    @classmethod
+    def configuration(cls):
+        return []
+
+
+class LoaderPipe(_ContractlessPipe):
     @classmethod
     def get_default_config(cls):
         return {'model': 'models/checkpoints/default.safetensors', 'clip_skip': 2}
 
 
-class GeneratorPipe:
+class GeneratorPipe(_ContractlessPipe):
     @classmethod
     def get_default_config(cls):
         return {'steps': 20, 'sampler': {'name': 'euler', 'scheduler': 'normal'}}

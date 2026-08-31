@@ -13,9 +13,12 @@ from src.features.models import availability as av
 def registry_with(*backend_ids):
     """Backends are returned in priority order; that order must survive narrowing."""
     registry = Mock()
-    registry.get_backends_for_engine.return_value = [
-        Mock(backend_id=bid) for bid in backend_ids
-    ]
+    backends = []
+    for bid in backend_ids:
+        backend = Mock(backend_id=bid)
+        backend.name = bid
+        backends.append(backend)
+    registry.get_backends_for_engine.return_value = backends
     return registry
 
 
@@ -67,15 +70,25 @@ def test_require_names_the_models_no_backend_holds(repo, _model_repo):
 
 @patch.object(av, "model_availability_repo")
 def test_require_distinguishes_scattered_models_from_missing_ones(repo):
-    """Each model exists somewhere, but no single backend holds them all."""
+    """Each model exists somewhere, but no single backend holds them all - the error
+    names which backend holds which model, or the operator can't act on it."""
     repo.backends_holding.return_value = set()
     repo.backend_ids_by_model.return_value = {"m1": ["comfy_a"], "m2": ["comfy_b"]}
+    repo.conflicts_for.return_value = []
     registry = registry_with("comfy_a", "comfy_b")
 
-    with pytest.raises(av.NoBackendHoldsAllModelsError) as exc:
-        av.require_candidate_backends("comfyui", ["m1", "m2"], registry)
+    def _get_by_id(model_id, **kwargs):
+        return Mock(filename=f"{model_id}.safetensors")
 
-    assert "no single backend holds all of them" in str(exc.value)
+    with patch("src.features.models.repository.model_repo") as mr:
+        mr.get_by_id.side_effect = _get_by_id
+        with pytest.raises(av.NoBackendHoldsAllModelsError) as exc:
+            av.require_candidate_backends("comfyui", ["m1", "m2"], registry)
+
+    message = str(exc.value)
+    assert "no single backend holds all of them" in message
+    assert "'m1.safetensors' is on comfy_a" in message
+    assert "'m2.safetensors' is on comfy_b" in message
 
 
 @patch.object(av, "model_repo", create=True)

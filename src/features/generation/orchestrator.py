@@ -457,7 +457,7 @@ class GenerationOrchestrator:
         been asked. Enforcing availability against an empty index would fail every
         generation on that engine rather than degrade to the previous behaviour.
         """
-        from src.features.models.availability import candidate_backends
+        from src.features.models.availability import require_candidate_backends
         from src.features.models.availability_repository import (
             model_availability_repo,
         )
@@ -478,9 +478,9 @@ class GenerationOrchestrator:
                 _warned_unindexed_engine.add(engine)
             return None
 
-        allowed = candidate_backends(engine, model_ids, self.backend_registry)
+        allowed = require_candidate_backends(engine, model_ids, self.backend_registry)
         logger.debug(
-            f"Availability narrowed '{engine}' backends to {allowed or 'none'} "
+            f"Availability narrowed '{engine}' backends to {allowed} "
             f"for {len(model_ids)} selected model(s)"
         )
         return allowed

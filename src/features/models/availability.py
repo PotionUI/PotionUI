@@ -216,7 +216,15 @@ def _explain_missing(engine: str, model_ids: List[str], backend_registry) -> str
     if parts:
         return " ".join(parts)
 
+    names_by_id = {b.backend_id: b.name for b in backend_registry.get_backends_for_engine(engine)}
+    holders_desc = []
+    for model_id in model_ids:
+        held = sorted(set(by_model.get(model_id, [])) & engine_backends)
+        model = model_repo.get_by_id(model_id, include_providers=False, include_tags=False)
+        name = model.filename if model else model_id
+        holders_desc.append(f"'{name}' is on {', '.join(names_by_id.get(b, b) for b in held)}")
     return (
-        "Each model is available somewhere, but no single backend holds all of them. "
-        "Re-index the backends, or pick models that share one."
+        "Each model is available somewhere, but no single backend holds all of them: "
+        + "; ".join(holders_desc)
+        + ". Sync the missing models to one backend (its Models section in Admin → Backends)."
     )

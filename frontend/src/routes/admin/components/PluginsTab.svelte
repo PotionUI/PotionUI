@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount, onDestroy, type Snippet } from 'svelte';
 	import { pluginStore, plugins, loading, error, pendingPluginIds, type Plugin, type PluginSettingSchema } from '$lib/stores/plugins';
 	import { Button, Badge, Spinner, Input, Kbd, EmptyState, Switch, Alert } from '$lib/components/ui';
 	import { MasterDetailLayout } from '$lib/components/master-detail';
@@ -361,137 +361,153 @@
 							</div>
 						</div>
 
-						<div class="flex-1 min-h-0 overflow-y-auto bg-surface-2 p-4 sm:p-5">
-							<div class="max-w-2xl space-y-5">
-								{#if liveSelected.state === 'error' && liveSelected.error}
-									<Alert variant="danger" icon title="Invalid manifest">{liveSelected.error}</Alert>
-								{/if}
-
-								<div>
-									<h3 class="text-sm font-semibold text-fg-muted mb-2">Description</h3>
-									<p class="text-sm text-fg-muted">
-										{liveSelected.description || 'No description available'}
-									</p>
+						{#snippet section(title: string, body: Snippet)}
+							<section class="rounded-lg border border-line bg-surface-1 shadow-raised">
+								<div class="px-4 sm:px-5 py-3 border-b border-line">
+									<h3 class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted">{title}</h3>
 								</div>
+								<div class="px-4 sm:px-5 py-4">
+									{@render body()}
+								</div>
+							</section>
+						{/snippet}
 
-								{#if liveSelected.tags && liveSelected.tags.length > 0}
+						{#snippet overviewBody()}
+							<div class="space-y-4">
+								<p class="text-sm text-fg-muted">
+									{liveSelected!.description || 'No description available'}
+								</p>
+
+								{#if liveSelected!.tags && liveSelected!.tags.length > 0}
 									<div class="flex flex-wrap gap-1.5">
-										{#each liveSelected.tags as tag}
+										{#each liveSelected!.tags as tag}
 											<Badge variant="neutral" size="sm">{tag}</Badge>
 										{/each}
 									</div>
 								{/if}
 
 								<div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-									{#if liveSelected.author}
+									{#if liveSelected!.author}
 										<div>
 											<span class="text-fg-subtle">Author</span>
-											<p class="font-medium text-fg">{liveSelected.author}</p>
+											<p class="font-medium text-fg">{liveSelected!.author}</p>
 										</div>
 									{/if}
-									{#if liveSelected.installed_at}
+									{#if liveSelected!.installed_at}
 										<div>
 											<span class="text-fg-subtle">Installed</span>
 											<p class="font-medium text-fg font-mono tabular-nums">
-												{new Date(liveSelected.installed_at).toLocaleDateString()}
+												{new Date(liveSelected!.installed_at).toLocaleDateString()}
 											</p>
 										</div>
 									{/if}
-									{#if liveSelected.homepage}
+									{#if liveSelected!.homepage}
 										<div class="min-w-0">
 											<span class="text-fg-subtle">Homepage</span>
 											<p class="font-medium text-fg truncate">
-												<a href={liveSelected.homepage} target="_blank" rel="noreferrer" class="text-signal hover:underline">
-													{liveSelected.homepage}
+												<a href={liveSelected!.homepage} target="_blank" rel="noreferrer" class="text-signal hover:underline">
+													{liveSelected!.homepage}
 												</a>
 											</p>
 										</div>
 									{/if}
-									{#if liveSelected.repository}
+									{#if liveSelected!.repository}
 										<div class="min-w-0">
 											<span class="text-fg-subtle">Repository</span>
 											<p class="font-medium text-fg truncate">
-												<a href={liveSelected.repository} target="_blank" rel="noreferrer" class="text-signal hover:underline">
-													{liveSelected.repository}
+												<a href={liveSelected!.repository} target="_blank" rel="noreferrer" class="text-signal hover:underline">
+													{liveSelected!.repository}
 												</a>
 											</p>
 										</div>
 									{/if}
 								</div>
+							</div>
+						{/snippet}
 
-								{#if liveSelected.hooks && liveSelected.hooks.length > 0}
-									<div>
-										<h3 class="text-sm font-semibold text-fg-muted mb-3">Registered Hooks</h3>
-										<div class="space-y-2">
-											{#each liveSelected.hooks as hook}
-												<div class="bg-surface-1 rounded-lg p-3 border border-line">
-													<div class="flex items-center justify-between mb-1 gap-2">
-														<span class="font-medium text-sm text-fg truncate">{hook.hook_name}</span>
-														<Badge variant={hook.hook_type === 'frontend' ? 'signal' : 'neutral'} size="sm" class="uppercase flex-shrink-0">
-															{hook.hook_type}
-														</Badge>
-													</div>
-													{#if hook.handler_path}
-														<p class="text-xs text-fg-subtle font-mono mt-1 break-all">{hook.handler_path}</p>
-													{/if}
-													{#if hook.component_path}
-														<p class="text-xs text-fg-subtle font-mono mt-1 break-all">{hook.component_path}</p>
-													{/if}
-													{#if hook.position}
-														<p class="text-xs text-fg-subtle mt-1">Position: {hook.position}</p>
-													{/if}
-												</div>
-											{/each}
+						{#snippet hooksBody()}
+							<div class="space-y-2">
+								{#each liveSelected!.hooks ?? [] as hook}
+									<div class="bg-surface-2 rounded-lg p-3 border border-line">
+										<div class="flex items-center justify-between mb-1 gap-2">
+											<span class="font-medium text-sm text-fg truncate">{hook.hook_name}</span>
+											<Badge variant={hook.hook_type === 'frontend' ? 'signal' : 'neutral'} size="sm" class="uppercase flex-shrink-0">
+												{hook.hook_type}
+											</Badge>
 										</div>
+										{#if hook.handler_path}
+											<p class="text-xs text-fg-subtle font-mono mt-1 break-all">{hook.handler_path}</p>
+										{/if}
+										{#if hook.component_path}
+											<p class="text-xs text-fg-subtle font-mono mt-1 break-all">{hook.component_path}</p>
+										{/if}
+										{#if hook.position}
+											<p class="text-xs text-fg-subtle mt-1">Position: {hook.position}</p>
+										{/if}
 									</div>
+								{/each}
+							</div>
+						{/snippet}
+
+						{#snippet settingsBody()}
+							{#if liveSelected!.settings_schema && liveSelected!.settings_schema.length > 0}
+								<form on:submit|preventDefault={saveSettings} class="space-y-4">
+									{#each liveSelected!.settings_schema as schema}
+										<div>
+											<label for={schema.name} class="block text-sm font-medium text-fg-muted mb-1">
+												{schema.label}
+												{#if schema.required}
+													<span class="text-danger">*</span>
+												{/if}
+											</label>
+											{#if schema.description}
+												<p class="text-xs text-fg-subtle mb-1">{schema.description}</p>
+											{/if}
+											{#if schema.type === 'boolean'}
+												<Switch
+													checked={!!settingsValues[schema.name]}
+													onchange={(v) => (settingsValues[schema.name] = v)}
+													label={schema.label}
+													id={schema.name}
+												/>
+											{:else}
+												<Input
+													id={schema.name}
+													type={getInputType(schema)}
+													bind:value={settingsValues[schema.name]}
+													placeholder={schema.default !== undefined ? `Default: ${schema.default}` : 'Enter value...'}
+												/>
+											{/if}
+										</div>
+									{/each}
+
+									<div class="flex gap-3 pt-2">
+										<Button type="submit" variant="primary" class="flex-1" loading={saving}>
+											{saving ? 'Saving...' : 'Save Settings'}
+										</Button>
+										<Button type="button" variant="secondary" onclick={resetSettings}>Reset</Button>
+									</div>
+								</form>
+							{:else}
+								<div class="bg-surface-2 rounded-lg p-4 text-center text-sm text-fg-subtle">
+									This plugin has no configurable settings
+								</div>
+							{/if}
+						{/snippet}
+
+						<div class="flex-1 min-h-0 overflow-y-auto bg-surface-2 p-4 sm:p-5">
+							<div class="max-w-2xl space-y-5">
+								{#if liveSelected.state === 'error' && liveSelected.error}
+									<Alert variant="danger" icon title="Invalid manifest">{liveSelected.error}</Alert>
 								{/if}
 
-								<div>
-									<h3 class="text-sm font-semibold text-fg-muted mb-3">Settings</h3>
-									{#if liveSelected.settings_schema && liveSelected.settings_schema.length > 0}
-										<form on:submit|preventDefault={saveSettings} class="space-y-4">
-											{#each liveSelected.settings_schema as schema}
-												<div>
-													<label for={schema.name} class="block text-sm font-medium text-fg-muted mb-1">
-														{schema.label}
-														{#if schema.required}
-															<span class="text-danger">*</span>
-														{/if}
-													</label>
-													{#if schema.description}
-														<p class="text-xs text-fg-subtle mb-1">{schema.description}</p>
-													{/if}
-													{#if schema.type === 'boolean'}
-														<Switch
-															checked={!!settingsValues[schema.name]}
-															onchange={(v) => (settingsValues[schema.name] = v)}
-															label={schema.label}
-															id={schema.name}
-														/>
-													{:else}
-														<Input
-															id={schema.name}
-															type={getInputType(schema)}
-															bind:value={settingsValues[schema.name]}
-															placeholder={schema.default !== undefined ? `Default: ${schema.default}` : 'Enter value...'}
-														/>
-													{/if}
-												</div>
-											{/each}
+								{@render section('Overview', overviewBody)}
 
-											<div class="flex gap-3 pt-2">
-												<Button type="submit" variant="primary" class="flex-1" loading={saving}>
-													{saving ? 'Saving...' : 'Save Settings'}
-												</Button>
-												<Button type="button" variant="secondary" onclick={resetSettings}>Reset</Button>
-											</div>
-										</form>
-									{:else}
-										<div class="bg-surface-1 rounded-lg p-4 text-center text-sm text-fg-subtle">
-											This plugin has no configurable settings
-										</div>
-									{/if}
-								</div>
+								{#if liveSelected.hooks && liveSelected.hooks.length > 0}
+									{@render section('Registered Hooks', hooksBody)}
+								{/if}
+
+								{@render section('Settings', settingsBody)}
 							</div>
 						</div>
 					{:else}

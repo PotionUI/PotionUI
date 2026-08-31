@@ -38,6 +38,11 @@ logger = logging.getLogger(__name__)
 DEFAULT_GRAPHQL_URL = "https://api.runpod.io/graphql"
 DEFAULT_TIMEOUT_SECONDS = 30.0
 
+#: api.runpod.io sits behind Cloudflare bot rules that 403 (error 1010) the
+#: default python-httpx User-Agent before the request ever reaches RunPod's
+#: auth. Any honest product UA passes - verified empirically 2026-08-31.
+USER_AGENT = "PotionUI (+https://github.com/PotionUI/PotionUI)"
+
 #: Provisioning UIs re-describe fields on every dependency change (a data
 #: center pick re-renders the GPU field) - this bounds how often that turns
 #: into a real GraphQL round trip without going stale for an entire session.
@@ -109,6 +114,7 @@ async def fetch_catalog(
                 headers={
                     "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
+                    "User-Agent": USER_AGENT,
                 },
             )
     except httpx.HTTPError as exc:

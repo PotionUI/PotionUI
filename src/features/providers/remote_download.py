@@ -162,13 +162,18 @@ async def resolve_url_remote_download(provider, session, url: str) -> RemoteDown
     URL and is safe to hand to the worker as-is, same as a local download
     makes no auth attempt in that case.
 
-    A provider that DOES claim the URL must declare `REMOTE_DOWNLOAD` and its
-    `prepare_download()` must land off its own authenticated host with no
-    leftover credential (mirrors the check `resolve_remote_download`
+    A provider that DOES claim the URL must declare `REMOTE_DOWNLOAD`. If it
+    implements `resolve_remote_url` (e.g. HuggingFace, whose public files
+    legitimately stay on huggingface.co so the generic host-check below can't
+    apply), that ref is used directly - the provider vouches for it, same as
+    `resolve_remote_download` implementations do. Otherwise falls back to
+    `prepare_download()`, which must land off its own authenticated host with
+    no leftover credential (mirrors the check `resolve_remote_download`
     implementations make, e.g. CivitAI's own token-in-URL guard) - otherwise
-    this refuses rather than leak credentials to the worker. Leftover headers
-    from `_BENIGN_DOWNLOAD_HEADERS` (a User-Agent, an Accept) are not
-    credentials and travel with the ref; any other leftover header refuses.
+    this refuses rather than leak credentials to the worker. Either way,
+    leftover headers from `_BENIGN_DOWNLOAD_HEADERS` (a User-Agent, an
+    Accept) are not credentials and travel with the ref; any other leftover
+    header refuses.
     """
     if provider is None:
         return RemoteDownloadRef(url=url)
@@ -178,6 +183,17 @@ async def resolve_url_remote_download(provider, session, url: str) -> RemoteDown
         raise ProviderCapabilityMissingError(
             f"Provider '{provider_name}' does not support remote destinations"
         )
+
+    try:
+        ref = await provider.resolve_remote_url(session, url)
+    except NotImplementedError:
+        pass
+    else:
+        if {k for k in ref.headers if k.lower() not in _BENIGN_DOWNLOAD_HEADERS}:
+            raise ProviderCapabilityMissingError(
+                f"Provider '{provider_name}' could not resolve a credential-free URL for a remote worker"
+            )
+        return ref
 
     headers: dict = {}
     resolved_url = await provider.prepare_download(session, url, headers)

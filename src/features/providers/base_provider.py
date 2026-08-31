@@ -379,6 +379,30 @@ class MarketplaceProviderBase(ABC):
         """
         raise NotImplementedError("This provider does not support remote download resolution by hash")
 
+    async def resolve_remote_url(self, session, url: str) -> RemoteDownloadRef:
+        """
+        Resolve a pasted download URL this provider claims (via
+        `matches_download_url`) into a URL a remote (untrusted) worker can
+        fetch without this provider's credentials.
+
+        Optional method - only required if provider has REMOTE_DOWNLOAD
+        capability and wants to support the Downloader's "paste a URL"
+        remote-worker destination (as opposed to only the linked-model path
+        via `resolve_remote_download`). Must resolve credentials host-side
+        or raise - never return a ref carrying a token.
+
+        Args:
+            session: The download worker's aiohttp ClientSession
+            url: The pasted download URL, already claimed by this provider
+
+        Returns:
+            A RemoteDownloadRef safe to hand to a remote worker
+
+        Raises:
+            NotImplementedError: If provider doesn't support this
+        """
+        raise NotImplementedError("This provider does not support remote URL resolution")
+
     async def fetch_image_prompts(self, **kwargs) -> List[ProviderPromptItem]:
         """Return prompt browsing records when PROMPT_FETCH is advertised."""
         raise NotImplementedError("This provider does not support prompt imports")

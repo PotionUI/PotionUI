@@ -30,7 +30,7 @@ import asyncio
 import logging
 import time
 from typing import Any, Dict, List, Optional
-from urllib.parse import quote
+from urllib.parse import quote, urljoin
 
 import aiohttp
 
@@ -43,6 +43,7 @@ from src.plugin_api import (
     ProviderConnectionError,
     ProviderRateLimitError,
     ProviderNotFoundError,
+    RemoteDownloadRef,
 )
 
 logger = logging.getLogger(__name__)
@@ -95,6 +96,7 @@ class HuggingFaceProvider(MarketplaceProviderBase):
                 ProviderCapability.SEARCH,
                 ProviderCapability.DOWNLOAD_URL,
                 ProviderCapability.MODEL_INFO,
+                ProviderCapability.REMOTE_DOWNLOAD,
             ],
             icon=None,
             version="1.0.0"
@@ -303,6 +305,78 @@ class HuggingFaceProvider(MarketplaceProviderBase):
                 f"No file specified in provider_version_id for {provider_model_id}"
             )
         return self._build_resolve_url(provider_model_id, revision, filepath)
+
+    # === Capability: REMOTE_DOWNLOAD ===
+
+    async def resolve_remote_url(self, session, url: str) -> RemoteDownloadRef:
+        """
+        Resolve a huggingface.co URL for a remote (untrusted) worker.
+
+        Public repo files stay on huggingface.co, so (unlike CivitAI) there's
+        no host to redirect off of - a `Range: bytes=0-0` probe with no auth
+        decides it instead: 2xx/3xx means the URL is already fetchable with
+        no credentials. A 401/403 means gated/private; with a token
+        configured, a second probe carries the Authorization header and only
+        a redirect (a pre-signed CDN URL, safe without the token) is usable -
+        a 200 means the bytes only flow with the header attached, which can't
+        be handed to a remote worker.
+        """
+        if not self._initialized:
+            raise ProviderConnectionError("Provider not initialized")
+
+        await self._rate_limit()
+        own_session = await self._get_session()
+        probe_headers = {"User-Agent": "PotionUI/1.0", "Range": "bytes=0-0"}
+
+        async with own_session.get(url, headers=probe_headers, allow_redirects=False) as response:
+            status = response.status
+
+        if status < 400:
+            return RemoteDownloadRef(url=url)
+
+        if status not in (401, 403):
+            raise ProviderConnectionError(f"HuggingFace returned {status} resolving {url}")
+
+        if not self._api_key:
+            raise ProviderConnectionError(
+                f"{url} is gated or private - configure a HuggingFace access token "
+                "in the provider settings"
+            )
+
+        auth_headers = dict(probe_headers)
+        auth_headers["Authorization"] = f"Bearer {self._api_key}"
+        async with own_session.get(url, headers=auth_headers, allow_redirects=False) as response:
+            auth_status = response.status
+            location = response.headers.get("Location")
+
+        if 300 <= auth_status < 400 and location:
+            resolved = urljoin(url, location)
+            if self._api_key in resolved:
+                raise ProviderConnectionError(
+                    f"HuggingFace redirect for {url} carries the access token - refusing to hand it to a remote worker"
+                )
+            return RemoteDownloadRef(url=resolved)
+
+        if auth_status == 200:
+            raise ProviderConnectionError(
+                f"{url} can only be fetched with a header-based token, which cannot "
+                "be handed to a remote worker"
+            )
+
+        raise ProviderConnectionError(f"HuggingFace returned {auth_status} resolving {url} with a token")
+
+    async def resolve_remote_download(
+        self,
+        provider_model_id: str,
+        provider_version_id: Optional[str] = None
+    ) -> RemoteDownloadRef:
+        """Resolve a repo/file pair to a remote-worker-fetchable ref, via `resolve_remote_url`."""
+        url = await self.get_download_url(provider_model_id, provider_version_id)
+        if not url:
+            raise ProviderNotFoundError(f"No download URL for HuggingFace repo {provider_model_id}")
+
+        session = await self._get_session()
+        return await self.resolve_remote_url(session, url)
 
     def get_settings_schema(self) -> Dict[str, Any]:
         """Get JSON schema for HuggingFace provider settings."""

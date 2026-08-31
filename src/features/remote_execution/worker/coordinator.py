@@ -20,6 +20,8 @@ from src.features.remote_execution.worker.executor import (
     WorkerPipelineExecutor,
 )
 from src.features.remote_execution.worker.journal import ExecutionRecord, WorkerJournal
+from src.features.remote_execution.worker.model_depot import ModelDepot
+from src.features.remote_execution.worker.path_remap import ModelRemapError, remap_model_paths
 from src.pipelines.catalog import PipeCatalog
 from src.pipelines.remote_fingerprint import (
     compute_build_fingerprint,
@@ -73,6 +75,8 @@ class WorkerCoordinator:
         build_id: Optional[str] = None,
         gpu_monitor: Any = None,
         system_monitor: Any = None,
+        model_lifecycle: Any = None,
+        model_depot: Optional[ModelDepot] = None,
     ):
         self._worker_id = worker_id
         self._catalog = pipe_catalog
@@ -84,6 +88,8 @@ class WorkerCoordinator:
         self._build_id = build_id
         self._gpu_monitor = gpu_monitor
         self._system_monitor = system_monitor
+        self._model_lifecycle = model_lifecycle
+        self._model_depot = model_depot
 
         self._lock = threading.Lock()
         self._running_execution_id: Optional[str] = None
@@ -197,6 +203,24 @@ class WorkerCoordinator:
 
             self._append(execution_id, kind="running")
 
+            pipeline = package.processed_pipes
+            if package.model_bundle.entries:
+                if self._model_depot is None:
+                    raise PipeExecutionError(
+                        "model_depot_unavailable",
+                        "this worker has no configured model depot, but the package "
+                        "references models",
+                        retryable=False,
+                    )
+                try:
+                    pipeline = remap_model_paths(
+                        pipeline, package.model_bundle, self._model_depot.depot_dir,
+                    )
+                except ModelRemapError as exc:
+                    raise PipeExecutionError(
+                        "model_not_staged", str(exc), retryable=False,
+                    ) from exc
+
             executor = WorkerPipelineExecutor(
                 self._catalog,
                 device=self._device,
@@ -205,6 +229,7 @@ class WorkerCoordinator:
                 artifacts_dir=self._artifacts_dir,
                 gpu_monitor=self._gpu_monitor,
                 system_monitor=self._system_monitor,
+                model_lifecycle=self._model_lifecycle,
                 resolve_asset=(stager.resolve if stager is not None else None),
             )
 
@@ -221,7 +246,7 @@ class WorkerCoordinator:
                 for artifact in worker_event.artifacts:
                     self._artifact_paths[artifact.artifact_id] = self._artifact_file(artifact)
 
-            executor.run(package.processed_pipes, emit=emit, is_cancelled=cancel_event.is_set)
+            executor.run(pipeline, emit=emit, is_cancelled=cancel_event.is_set)
 
             if cancel_event.is_set():
                 self._append(execution_id, kind="cancelled")

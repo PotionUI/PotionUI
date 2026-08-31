@@ -16,11 +16,12 @@ sits between the pipe's own defaults and the preset's explicit config).
 **What is deliberately not reconstructed.** ``GenerationEngine`` (the local
 executor) also injects SERVICE-typed pipe inputs (GPU/SYSTEM/MEMORY/LLM/
 MODELS/ASSETS/SETTINGS) and runs plugin before/after-execute hooks. A worker
-process has no PotionUI database, no settings table, and no model-lifecycle
-cache to back MEMORY/MODELS/LLM/ASSETS/SETTINGS with, so only GPU and SYSTEM -
-the two that need no such state - are wired; a pipe requesting anything else
-gets ``None`` with a logged warning. Plugin hooks are out of scope entirely: a
-worker's plugin surface is its pipe catalog, not the hook chain.
+process has no PotionUI database, no settings table, and no settings-backed
+cache scope, so only GPU, SYSTEM, and MODELS (a real ``ModelLifecycle``
+constructed with ``settings=None``, see ``src.bootstrap.worker_container``)
+are wired; a pipe requesting MEMORY/LLM/ASSETS/SETTINGS gets ``None`` with a
+logged warning. Plugin hooks are out of scope entirely: a worker's plugin
+surface is its pipe catalog, not the hook chain.
 """
 
 from __future__ import annotations
@@ -103,6 +104,7 @@ class WorkerPipelineExecutor:
         artifacts_dir: Path,
         gpu_monitor: Any = None,
         system_monitor: Any = None,
+        model_lifecycle: Any = None,
         resolve_asset: Optional[Callable[[str], Path]] = None,
     ):
         self._catalog = pipe_catalog
@@ -112,6 +114,7 @@ class WorkerPipelineExecutor:
         self._artifacts_dir = artifacts_dir
         self._gpu_monitor = gpu_monitor
         self._system_monitor = system_monitor
+        self._model_lifecycle = model_lifecycle
         self._resolve_asset = resolve_asset
 
     def run(
@@ -231,6 +234,8 @@ class WorkerPipelineExecutor:
                 pipe_input[spec.name] = self._gpu_monitor
             elif service_name == "SYSTEM":
                 pipe_input[spec.name] = self._system_monitor
+            elif service_name == "MODELS":
+                pipe_input[spec.name] = self._model_lifecycle
             else:
                 logger.warning(
                     "[WORKER] pipe '%s' requests service '%s', which this worker does not "

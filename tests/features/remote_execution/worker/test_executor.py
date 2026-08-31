@@ -122,10 +122,43 @@ class FailingPipe:
         raise RuntimeError("boom")
 
 
+class ModelsAwarePipe:
+    """Declares the MODELS SERVICE input and records exactly what it received,
+    so the test can tell "the real object" from "silently injected None"."""
+
+    name = "models_aware/fake"
+    description = "fake"
+    received_models = "not set"
+
+    def __init__(self, config):
+        self.config = config
+
+    @classmethod
+    def get_default_config(cls):
+        return {}
+
+    @classmethod
+    def inputs(cls):
+        return [PipeInputSpec(name="models", io_type=IOType.SERVICE, required=False)]
+
+    @classmethod
+    def outputs(cls):
+        return []
+
+    @classmethod
+    def configuration(cls):
+        return []
+
+    def process(self, pipe_input, generation_outputs):
+        type(self).received_models = pipe_input.input.get("models")
+        return PipeOutput(output={})
+
+
 CATALOG = FakeCatalog({
     "loader/fake": LoaderPipe,
     "generator/fake": GeneratorPipe,
     "failing/fake": FailingPipe,
+    "models_aware/fake": ModelsAwarePipe,
 })
 
 
@@ -207,6 +240,32 @@ def test_an_unknown_pipe_type_is_not_retryable(tmp_path):
         _executor(tmp_path).run(pipeline, emit=lambda e: None, is_cancelled=lambda: False)
     assert exc_info.value.retryable is False
     assert exc_info.value.code == "unknown_pipe"
+
+
+def test_the_models_service_is_injected_from_the_constructor_argument(tmp_path):
+    sentinel_model_lifecycle = object()
+    executor = WorkerPipelineExecutor(
+        CATALOG, device="cuda:7", dtype="bf16", vram_limit_gb=10.0, artifacts_dir=tmp_path,
+        model_lifecycle=sentinel_model_lifecycle,
+    )
+    pipeline = ProcessedPipelineV1(pipes=(
+        ProcessedPipeV1(pipe_id="m", pipe_type="models_aware/fake", config={}, inputs={}),
+    ))
+
+    executor.run(pipeline, emit=lambda e: None, is_cancelled=lambda: False)
+
+    assert ModelsAwarePipe.received_models is sentinel_model_lifecycle
+
+
+def test_the_models_service_is_none_when_the_executor_has_no_lifecycle(tmp_path):
+    executor = _executor(tmp_path)  # constructed without model_lifecycle
+    pipeline = ProcessedPipelineV1(pipes=(
+        ProcessedPipeV1(pipe_id="m", pipe_type="models_aware/fake", config={}, inputs={}),
+    ))
+
+    executor.run(pipeline, emit=lambda e: None, is_cancelled=lambda: False)
+
+    assert ModelsAwarePipe.received_models is None
 
 
 def test_cancellation_stops_before_the_next_pipe_starts(tmp_path):

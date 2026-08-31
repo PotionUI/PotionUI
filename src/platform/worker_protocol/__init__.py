@@ -41,6 +41,7 @@ from src.platform.worker_protocol.envelope import (
     KIND_EXECUTION_PACKAGE,
     KIND_JOB_EVENT,
     KIND_MODEL_BUNDLE_MANIFEST,
+    KIND_MODEL_INVENTORY_RESPONSE,
     KIND_WORKER_INFO,
     PAYLOAD_KINDS,
     PAYLOAD_MODELS,
@@ -72,6 +73,11 @@ from src.platform.worker_protocol.model_bundle import (
     ModelBundleEntryV1,
     ModelBundleManifestV1,
 )
+from src.platform.worker_protocol.model_inventory import (
+    ModelEntryStatus,
+    ModelInventoryEntryV1,
+    ModelInventoryResponseV1,
+)
 from src.platform.worker_protocol.worker_info import (
     FINGERPRINT_DOMAINS,
     GpuInfoV1,
@@ -99,9 +105,13 @@ __all__ = [
     "KIND_EXECUTION_PACKAGE",
     "KIND_JOB_EVENT",
     "KIND_MODEL_BUNDLE_MANIFEST",
+    "KIND_MODEL_INVENTORY_RESPONSE",
     "KIND_WORKER_INFO",
     "ModelBundleEntryV1",
     "ModelBundleManifestV1",
+    "ModelEntryStatus",
+    "ModelInventoryEntryV1",
+    "ModelInventoryResponseV1",
     "PAYLOAD_KINDS",
     "PAYLOAD_MODELS",
     "ProcessedPipeV1",

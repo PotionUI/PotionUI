@@ -22,6 +22,7 @@ from src.features.remote_execution.worker.assets import AssetStagingError
 from src.features.remote_execution.worker.auth import build_token_dependency
 from src.features.remote_execution.worker.capabilities import probe_capabilities
 from src.features.remote_execution.worker.coordinator import CancelOutcome, SubmitOutcome
+from src.features.remote_execution.worker.model_depot import ModelStagingError
 from src.platform.worker_protocol import WorkerInfoV1
 from src.platform.worker_protocol.envelope import (
     WorkerEnvelopeError,
@@ -29,6 +30,7 @@ from src.platform.worker_protocol.envelope import (
     read_envelope,
 )
 from src.platform.worker_protocol.execution_package import ExecutionPackageV1
+from src.platform.worker_protocol.model_bundle import ModelBundleManifestV1
 
 #: artifact_id is always uuid4().hex - reject anything else before it ever
 #: reaches a filesystem path.
@@ -141,6 +143,54 @@ def build_worker_router(container) -> APIRouter:
         outcome = container.coordinator.cancel(execution_id)
         status_code = 404 if outcome == CancelOutcome.NOT_FOUND else 200
         return _json_response({"result": outcome}, status_code)
+
+    @router.post("/v1/models/inventory")
+    async def model_inventory(request: Request, _=require_token):
+        if container.model_depot is None:
+            raise HTTPException(503, detail="this worker has no configured model depot")
+
+        body = await request.json()
+        try:
+            manifest = read_envelope(body)
+        except WorkerEnvelopeError as exc:
+            raise HTTPException(422, detail={"code": exc.code, **exc.detail}) from exc
+        if not isinstance(manifest, ModelBundleManifestV1):
+            raise HTTPException(422, detail={"code": "wrong_kind", "expected": "model_bundle_manifest"})
+
+        response = container.model_depot.inventory(manifest)
+        return envelope(response)
+
+    @router.post("/v1/models/{bundle_id}/{logical_id:path}")
+    async def upload_model(bundle_id: str, logical_id: str, request: Request, _=require_token):
+        if container.model_depot is None:
+            raise HTTPException(503, detail="this worker has no configured model depot")
+
+        entry = container.model_depot.entry_for(bundle_id, logical_id)
+        if entry is None:
+            raise HTTPException(
+                404, detail=f"no such model entry '{logical_id}' in bundle '{bundle_id}' "
+                "- call /v1/models/inventory with this bundle first",
+            )
+
+        chunks = []
+        received = 0
+        async for chunk in request.stream():
+            received += len(chunk)
+            if received > entry.size_bytes:
+                raise HTTPException(
+                    422,
+                    detail={
+                        "reason": f"size mismatch: expected {entry.size_bytes} bytes, got more",
+                    },
+                )
+            chunks.append(chunk)
+
+        try:
+            container.model_depot.stage(entry, chunks)
+        except ModelStagingError as exc:
+            raise HTTPException(422, detail={"reason": exc.reason}) from exc
+
+        return {"logical_id": logical_id, "staged": True}
 
     @router.get("/v1/artifacts/{artifact_id}")
     async def get_artifact(artifact_id: str, _=require_token):

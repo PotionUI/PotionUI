@@ -11,13 +11,16 @@ compute is that it cannot reach any of those.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Optional
 
 from src.features.remote_execution.worker.config import WorkerConfig
 from src.features.remote_execution.worker.coordinator import WorkerCoordinator
 from src.features.remote_execution.worker.journal import WorkerJournal
+from src.features.remote_execution.worker.model_depot import ModelDepot
 from src.pipelines.catalog import PipeCatalog
 from src.platform.observability.system_probe import SystemMonitor
 from src.platform.runtime.gpu import GpuMonitor
+from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
 
 
 @dataclass
@@ -28,6 +31,10 @@ class WorkerContainer:
     coordinator: WorkerCoordinator
     gpu_monitor: GpuMonitor
     system_monitor: SystemMonitor
+    #: Defaulted so existing direct WorkerContainer(...) construction (tests
+    #: predating the model depot) keeps working without naming them.
+    model_lifecycle: Optional[ModelLifecycle] = None
+    model_depot: Optional[ModelDepot] = None
 
 
 def build_worker_container(config: WorkerConfig) -> WorkerContainer:
@@ -35,6 +42,11 @@ def build_worker_container(config: WorkerConfig) -> WorkerContainer:
     journal = WorkerJournal(config.work_dir)
     gpu_monitor = GpuMonitor()
     system_monitor = SystemMonitor()
+    # settings=None: a worker has no PotionUI settings table, so the
+    # lifecycle's settings-backed cache-scope lookup (lifecycle.py:788)
+    # degrades to its own no-settings default rather than erroring.
+    model_lifecycle = ModelLifecycle(gpu_monitor=gpu_monitor, settings=None)
+    model_depot = ModelDepot(depot_dir=config.model_dir)
 
     coordinator = WorkerCoordinator(
         worker_id=config.worker_id,
@@ -47,6 +59,8 @@ def build_worker_container(config: WorkerConfig) -> WorkerContainer:
         build_id=config.build_id,
         gpu_monitor=gpu_monitor,
         system_monitor=system_monitor,
+        model_lifecycle=model_lifecycle,
+        model_depot=model_depot,
     )
 
     return WorkerContainer(
@@ -56,6 +70,8 @@ def build_worker_container(config: WorkerConfig) -> WorkerContainer:
         coordinator=coordinator,
         gpu_monitor=gpu_monitor,
         system_monitor=system_monitor,
+        model_lifecycle=model_lifecycle,
+        model_depot=model_depot,
     )
 
 

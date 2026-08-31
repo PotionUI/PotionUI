@@ -35,6 +35,13 @@ class WorkerConfig:
     device: Optional[str]
     dtype: Optional[str]
     vram_limit_gb: Optional[float]
+    #: The network-volume mount every staged model lands under, keyed by
+    #: role/filename - see ModelBundleEntryV1.relative_path. Deliberately
+    #: outside work_dir: a model depot is persistent across executions and
+    #: (on RunPod) the mount PotionUI does not otherwise own. Defaulted so
+    #: existing direct WorkerConfig(...) construction (tests predating the
+    #: model depot) keeps working without naming it.
+    model_dir: Path = Path("/models")
 
     @classmethod
     def from_env(cls, env: Optional[Mapping[str, str]] = None) -> "WorkerConfig":
@@ -58,6 +65,7 @@ class WorkerConfig:
             port=int(source.get("POTIONUI_WORKER_PORT", "8100")),
             work_dir=work_dir,
             artifacts_dir=work_dir / "artifacts",
+            model_dir=Path(source.get("POTIONUI_WORKER_MODEL_DIR", "/models")).resolve(),
             build_id=source.get("POTIONUI_BUILD_ID") or None,
             device=source.get("POTIONUI_WORKER_DEVICE") or None,
             dtype=source.get("POTIONUI_WORKER_DTYPE") or None,

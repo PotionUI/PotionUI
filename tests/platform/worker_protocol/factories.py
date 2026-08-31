@@ -139,6 +139,7 @@ def make_package() -> ExecutionPackageV1:
         issued_at=ISSUED_AT,
         expires_at=EXPIRES_AT,
         required_fingerprints={"pipe_catalog": "c" * 16, "plugin_bundle": "p" * 16},
+        pipe_contracts={"checkpoint_loader": "l" * 16, "sdxl_generator": "g" * 16},
         model_bundle=make_bundle(),
         processed_pipes=make_pipeline(),
         input_assets=make_input_asset_manifest(),

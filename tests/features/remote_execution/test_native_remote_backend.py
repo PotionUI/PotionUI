@@ -222,10 +222,14 @@ _CLASSES = {
 
 class FakeCatalog:
     """One instance per side (worker vs. core) so nothing is literally
-    shared, but built from the same class dict - see module docstring."""
+    shared, but built from the same class dict - see module docstring.
 
-    def __init__(self):
-        self.pipes = dict(_CLASSES)
+    ``only`` restricts which of ``_CLASSES`` this instance carries - used to
+    simulate a worker image that lacks a host-only plugin's pipe."""
+
+    def __init__(self, only=None):
+        names = only if only is not None else _CLASSES.keys()
+        self.pipes = {name: _CLASSES[name] for name in names}
         self.pipe_sources = {}
 
     def get_pipe(self, name):
@@ -298,7 +302,7 @@ class NativeRemoteBackendTestCase(unittest.TestCase):
                 leftover.unlink()
         Database._instance = None
 
-    def _build_worker(self, *, build_id):
+    def _build_worker(self, *, build_id, catalog_only=None):
         worker_tmp = Path(tempfile.mkdtemp())
         config = WorkerConfig(
             token=TOKEN, worker_id="worker-1", provider="manual", host="127.0.0.1", port=0,
@@ -306,7 +310,7 @@ class NativeRemoteBackendTestCase(unittest.TestCase):
             device="cpu", dtype="fp32", vram_limit_gb=None,
         )
         journal = WorkerJournal(config.work_dir)
-        catalog = FakeCatalog()
+        catalog = FakeCatalog(only=catalog_only)
         model_depot = ModelDepot(depot_dir=worker_tmp / "models")
         coordinator = WorkerCoordinator(
             worker_id=config.worker_id, pipe_catalog=catalog, journal=journal,
@@ -400,6 +404,54 @@ class TestFingerprintPreGate(NativeRemoteBackendTestCase):
         self.assertEqual(len(errors), 1)
 
 
+# -- per-pipeline compatibility gate -------------------------------------------
+
+class TestPerPipelineCompatibilityGate(NativeRemoteBackendTestCase):
+    """A worker's catalog is gated per-pipeline (per pipe_contracts), not as a
+    whole - a host with a plugin the worker image lacks must still be able to
+    dispatch a pipeline that never touches that plugin's pipe."""
+
+    def test_a_worker_missing_an_unused_host_only_pipe_still_dispatches(self):
+        narrower_container, narrower_app = self._build_worker(
+            build_id=None, catalog_only=["image/fake"],  # lacks "rejected/fake", "asset/fake", ...
+        )
+        backend = self._backend(narrower_app)
+        pipeline_data = {
+            "generation_id": "gen-narrower-ok", "preset_id": "preset-1",
+            "pipes": [{"name": "image/fake", "id": "p1", "enabled": True, "config": {}, "input": []}],
+        }
+
+        generation_id, outputs = self._run_generation(backend, pipeline_data)
+
+        images = [o for o in outputs if isinstance(o, ImageGenerationOutput)]
+        self.assertEqual(len(images), 1)
+        row = self.repo.get_by_id(generation_id)
+        self.assertEqual(row.state, S.SUCCEEDED)
+        self.assertIsNotNone(narrower_container.coordinator.record_for(generation_id))
+
+    def test_a_worker_missing_a_pipe_the_pipeline_actually_uses_is_rejected_naming_it(self):
+        narrower_container, narrower_app = self._build_worker(
+            build_id=None, catalog_only=["image/fake"],  # lacks "asset/fake"
+        )
+        backend = self._backend(narrower_app)
+        pipeline_data = {
+            "generation_id": "gen-narrower-missing", "preset_id": "preset-1",
+            "pipes": [{"name": "asset/fake", "id": "p1", "enabled": True,
+                       "config": {"input_path": "x"}, "input": []}],
+        }
+
+        generation_id, outputs = self._run_generation(backend, pipeline_data)
+
+        row = self.repo.get_by_id(generation_id)
+        self.assertEqual(row.state, S.FAILED)
+        self.assertEqual(row.error_code, "fingerprint_mismatch")
+        self.assertIn("asset/fake", row.error_message)
+
+        errors = [o for o in outputs if isinstance(o, ErrorGenerationOutput)]
+        self.assertEqual(len(errors), 1)
+        self.assertIn("asset/fake", errors[0].error or "")
+
+
 # -- happy path with an input asset -------------------------------------------
 
 class TestHappyPathWithInputAsset(NativeRemoteBackendTestCase):
@@ -447,9 +499,9 @@ class TestHappyPathWithInputAsset(NativeRemoteBackendTestCase):
 # -- worker-side rejection ----------------------------------------------------
 
 class TestWorkerRejection(NativeRemoteBackendTestCase):
-    """A package the WORKER itself refuses (its own required_fingerprints
-    check, independent of core's pre-gate) must still land the row on FAILED
-    with the structured reason - entered one level below start_generation
+    """A package the WORKER itself refuses (its own pipe_contracts check,
+    independent of core's pre-gate) must still land the row on FAILED with
+    the structured reason - entered one level below start_generation
     (directly at _consume_events) so this exercises the worker's REJECTED path
     specifically, rather than core's own pre-gate (covered above)."""
 
@@ -475,10 +527,12 @@ class TestWorkerRejection(NativeRemoteBackendTestCase):
             built, pipe_catalog=backend._pipe_catalog,
             model_bundle=build_model_bundle(processed.pipes),
             engine="native",
-            # Deliberately wrong - the WORKER will refuse this at submit time.
-            required_fingerprints={"pipe_catalog": "not-the-real-value"},
             storage_dir=self.storage_dir,
         )
+        # Deliberately wrong - the WORKER will refuse this at submit time.
+        body = package.model_dump(mode="json")
+        body["pipe_contracts"]["image/fake"] = "not-the-real-value"
+        package = package.model_validate(body)
 
         row = self.repo.create(RemoteExecution(
             id="gen-rejected", provider="native.remote", state=S.PENDING,
@@ -502,7 +556,7 @@ class TestWorkerRejection(NativeRemoteBackendTestCase):
 
         errors = [o for o in outputs if isinstance(o, ErrorGenerationOutput)]
         self.assertEqual(len(errors), 1)
-        self.assertIn("pipe_catalog", errors[0].error or errors[0].detail or "")
+        self.assertIn("image/fake", errors[0].error or errors[0].detail or "")
 
 
 # -- cancel mid-run -----------------------------------------------------------

@@ -85,6 +85,12 @@ def _pipe_contract(pipe_class: type) -> dict:
     }
 
 
+def compute_pipe_contract_fingerprint(pipe_class: type) -> str:
+    """Fingerprint of one pipe's I/O + config contract - the per-pipeline
+    gate's unit, unlike `compute_pipe_catalog_fingerprint`'s whole-catalog one."""
+    return _digest(_pipe_contract(pipe_class))
+
+
 def compute_pipe_catalog_fingerprint(catalog: PipeCatalog) -> str:
     """Fingerprint of every registered pipe's I/O + config contract.
 

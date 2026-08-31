@@ -92,6 +92,11 @@ class ExecutionPackageV1(ProtocolModel):
     #: domain -> opaque digest the worker must match before accepting. See
     #: src.platform.worker_protocol.worker_info.FINGERPRINT_DOMAINS.
     required_fingerprints: dict[Identifier, NonEmptyText] = {}
+    #: pipe_type -> contract fingerprint, for exactly this package's pipes
+    #: (see src.pipelines.remote_fingerprint.compute_pipe_contract_fingerprint).
+    #: Empty (a package built before this field existed) makes the worker fall
+    #: back to comparing required_fingerprints against its whole catalog.
+    pipe_contracts: dict[Identifier, NonEmptyText] = {}
     model_bundle: ModelBundleManifestV1
     processed_pipes: ProcessedPipelineV1
     #: The content-addressed user-media files ``processed_pipes`` references

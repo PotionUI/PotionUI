@@ -26,6 +26,7 @@ from src.pipelines.catalog import PipeCatalog
 from src.pipelines.remote_fingerprint import (
     compute_build_fingerprint,
     compute_pipe_catalog_fingerprint,
+    compute_pipe_contract_fingerprint,
     compute_remote_plugin_bundle_fingerprint,
 )
 from src.platform.worker_protocol import (
@@ -45,6 +46,12 @@ class SubmitOutcome:
     BUSY = "busy"
     REJECTED = "rejected"
     EXPIRED = "expired"
+
+
+@dataclass
+class _MismatchReport:
+    mismatch: FingerprintMismatchV1
+    message: str
 
 
 @dataclass
@@ -123,8 +130,8 @@ class WorkerCoordinator:
                 return SubmitResult(SubmitOutcome.DIGEST_CONFLICT, execution_id, record=existing)
             return SubmitResult(SubmitOutcome.DUPLICATE, execution_id, record=existing)
 
-        mismatch = self._fingerprint_mismatch(package)
-        if mismatch is not None:
+        report = self._fingerprint_mismatch(package)
+        if report is not None:
             self._journal.start(execution_id, digest)
             self._packages[execution_id] = package
             self._append(
@@ -132,12 +139,12 @@ class WorkerCoordinator:
                 kind="rejected",
                 error=JobErrorV1(
                     code="fingerprint_mismatch",
-                    message=f"{mismatch.domain} fingerprint mismatch",
+                    message=report.message,
                     retryable=False,
-                    fingerprint_mismatch=mismatch,
+                    fingerprint_mismatch=report.mismatch,
                 ),
             )
-            return SubmitResult(SubmitOutcome.REJECTED, execution_id, detail=mismatch.domain)
+            return SubmitResult(SubmitOutcome.REJECTED, execution_id, detail=report.mismatch.domain)
 
         if package.expires_at is not None and package.expires_at <= datetime.now(timezone.utc):
             self._journal.start(execution_id, digest)
@@ -165,12 +172,48 @@ class WorkerCoordinator:
         thread.start()
         return SubmitResult(SubmitOutcome.ACCEPTED, execution_id, record=record)
 
-    def _fingerprint_mismatch(self, package: ExecutionPackageV1) -> Optional[FingerprintMismatchV1]:
-        actual = self.fingerprints()
-        for domain in FINGERPRINT_DOMAINS:
-            required = package.required_fingerprints.get(domain)
-            if required is not None and required != actual.get(domain):
-                return FingerprintMismatchV1(domain=domain, expected=required, actual=actual.get(domain) or "")
+    def _fingerprint_mismatch(self, package: ExecutionPackageV1) -> Optional[_MismatchReport]:
+        """Gates per-pipe when pipe_contracts is populated; empty (pre-gate
+        host) falls back to the old whole-catalog comparison."""
+        if not package.pipe_contracts:
+            actual = self.fingerprints()
+            for domain in FINGERPRINT_DOMAINS:
+                required = package.required_fingerprints.get(domain)
+                if required is not None and required != actual.get(domain):
+                    mismatch = FingerprintMismatchV1(
+                        domain=domain, expected=required, actual=actual.get(domain) or "",
+                    )
+                    return _MismatchReport(mismatch, f"{domain} fingerprint mismatch")
+            return None
+
+        required_build = package.required_fingerprints.get("build")
+        if required_build is not None:
+            actual_build = compute_build_fingerprint(self._build_id)
+            if required_build != actual_build:
+                mismatch = FingerprintMismatchV1(domain="build", expected=required_build, actual=actual_build)
+                return _MismatchReport(mismatch, "build fingerprint mismatch")
+
+        for pipe_type, required_contract in package.pipe_contracts.items():
+            pipe_class = self._catalog.get_pipe(pipe_type)
+            if pipe_class is None:
+                mismatch = FingerprintMismatchV1(
+                    domain="pipe_catalog", expected=required_contract, actual="missing",
+                )
+                return _MismatchReport(
+                    mismatch,
+                    f"worker has no pipe '{pipe_type}' - the plugin providing it is not "
+                    "installed in the worker image",
+                )
+            actual_contract = compute_pipe_contract_fingerprint(pipe_class)
+            if actual_contract != required_contract:
+                mismatch = FingerprintMismatchV1(
+                    domain="pipe_catalog", expected=required_contract, actual=actual_contract,
+                )
+                return _MismatchReport(
+                    mismatch,
+                    f"pipe '{pipe_type}' contract differs between host and worker - "
+                    "rebuild/update the worker image",
+                )
         return None
 
     # -- staging (assets) -------------------------------------------------

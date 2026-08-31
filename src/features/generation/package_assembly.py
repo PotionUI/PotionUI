@@ -40,6 +40,7 @@ from src.features.generation.input_assets import collect_input_assets
 from src.features.generation.pipeline_builder import BuiltPipeline
 from src.features.remote_execution.policy import RemoteExecutionPolicy
 from src.pipelines.catalog import PipeCatalog
+from src.pipelines.remote_fingerprint import compute_pipe_contract_fingerprint
 from src.platform.worker_protocol import (
     ContentDigest,
     ExecutionLimitsV1,
@@ -107,6 +108,7 @@ def assemble_execution_package(
         'issued_at': resolved_issued_at,
         'expires_at': resolved_expires_at,
         'required_fingerprints': dict(required_fingerprints or {}),
+        'pipe_contracts': _pipe_contracts(processed_pipeline, pipe_catalog),
         'model_bundle': model_bundle,
         'processed_pipes': processed_pipeline,
         'input_assets': input_assets,
@@ -116,6 +118,18 @@ def assemble_execution_package(
 
     draft = ExecutionPackageV1(request_digest=_DIGEST_PLACEHOLDER, **fields)
     return ExecutionPackageV1(request_digest=_body_digest(draft), **fields)
+
+
+def _pipe_contracts(pipeline: ProcessedPipelineV1, pipe_catalog: PipeCatalog) -> Dict[str, str]:
+    """pipe_type -> contract fingerprint, one entry per distinct type in *pipeline*."""
+    contracts: Dict[str, str] = {}
+    for pipe in pipeline.pipes:
+        if pipe.pipe_type in contracts:
+            continue
+        pipe_class = pipe_catalog.get_pipe(pipe.pipe_type)
+        if pipe_class is not None:
+            contracts[pipe.pipe_type] = compute_pipe_contract_fingerprint(pipe_class)
+    return contracts
 
 
 def _body_digest(draft: ExecutionPackageV1) -> ContentDigest:

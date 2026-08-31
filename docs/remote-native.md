@@ -49,7 +49,7 @@ All routes below require `Authorization: Bearer <POTIONUI_WORKER_TOKEN>`.
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/v1/worker` | Handshake: an enveloped `WorkerInfoV1` with probed capabilities and all three fingerprint domains. |
-| `POST` | `/v1/executions` | Submit an enveloped `ExecutionPackageV1`. Idempotent on `execution_id` (same `request_digest` → current status/200; a different digest → 409). Fingerprint mismatch or an expired package → `REJECTED`, never executed. A second submit while one is running → 429 (single-slot). Otherwise → 202, runs on a background thread. |
+| `POST` | `/v1/executions` | Submit an enveloped `ExecutionPackageV1`. Idempotent on `execution_id` (same `request_digest` → current status/200; a different digest → 409). A per-pipe contract mismatch (or, for a package without `pipe_contracts`, a whole-catalog mismatch) or an expired package → `REJECTED`, never executed. A second submit while one is running → 429 (single-slot). Otherwise → 202, runs on a background thread. |
 | `POST` | `/v1/executions/{id}/assets/{logical_id}` | Stream-upload one input asset ahead of execution; verified against the package's `input_assets` manifest before it is accepted. See "Input assets" below. |
 | `POST` | `/v1/models/inventory` | Enveloped `ModelBundleManifestV1` in, enveloped `ModelInventoryResponseV1` out - which entries this worker's model depot already has (`present`), is missing, or has a size/digest `mismatch` for. Registers the manifest so a following staging upload can look an entry up by `(bundle_id, logical_id)`. 503 if this worker has no configured model depot. See "Models" below. |
 | `POST` | `/v1/models/{bundle_id}/{logical_id}` | Stream-upload one model file into the depot, verified by size and digest against the entry registered via the inventory call above. `404` if that bundle/logical_id was never inventoried first. A re-upload of already-correct bytes is a safe no-op. |
@@ -209,13 +209,20 @@ forces eager pipe discovery the first time it runs).
    precomputed manifest through the assembly API).
 3. Create the `RemoteExecution` row (`RemoteExecutionRepository.create`,
    `id == generation_id`, idempotent on that key).
-4. **Handshake + fingerprint pre-gate.** `GET /v1/worker`, compare all three
-   domains against this backend's cached values. A mismatch or an
-   unreachable worker fails the row immediately (`error_code`
-   `fingerprint_mismatch` / `worker_unreachable`) and returns *without ever
-   calling submit* - the worker's own server-side check
-   (`WorkerCoordinator._fingerprint_mismatch`) is defense in depth, not the
-   only gate.
+4. **Handshake + build pre-gate.** `GET /v1/worker`, compare the `build`
+   domain against this backend's cached value only - `pipe_catalog`/
+   `plugin_bundle` are whole-catalog and no longer gate here, since a worker
+   missing a host-only plugin's pipe should not block a pipeline that never
+   uses it. A build mismatch or an unreachable worker fails the row
+   immediately (`error_code` `fingerprint_mismatch` / `worker_unreachable`)
+   and returns *without ever calling submit*. The real pipe-catalog check is
+   the worker's own per-package gate (`WorkerCoordinator._fingerprint_mismatch`):
+   the package carries `pipe_contracts` (pipe_type -> contract fingerprint,
+   one entry per pipe the pipeline actually uses); the worker rejects only if
+   one of those types is missing from its catalog or its contract differs -
+   never for a pipe the pipeline doesn't touch. A package built before this
+   field existed (`pipe_contracts` empty) falls back to the old whole-catalog
+   comparison across all three domains.
 5. `RemoteExecutionRepository.claim_specific` leases the row directly by id
    (PENDING -> DISPATCHING), a single-row analogue of `claim_for_dispatch`
    added because the single-slot dispatch path (an execution is claimed the

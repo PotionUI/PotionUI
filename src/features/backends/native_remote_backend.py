@@ -72,8 +72,6 @@ from src.platform.worker_protocol import (
     JobEventV1,
     WorkerInfoV1,
 )
-from src.platform.worker_protocol.worker_info import FINGERPRINT_DOMAINS
-
 
 #: A closed SSE connection before a terminal event is a dropped connection,
 #: not a finished execution (see `_consume_events`) - bounded so a worker
@@ -179,8 +177,11 @@ class RemoteNativeBackend(BaseBackend):
             health["reason"] = (
                 f"Worker '{info.worker_id}' reports a different {mismatch.domain} than this "
                 "installation. Every generation dispatched here will be rejected until both "
-                "sides run the same pipe catalog / plugin bundle / build."
+                "sides run the same build."
             )
+        catalog_note = self._catalog_mismatch_note(info)
+        if catalog_note is not None:
+            health["catalog_note"] = catalog_note
         return health
 
     async def get_system_info(self) -> Dict[str, Any]:
@@ -203,12 +204,25 @@ class RemoteNativeBackend(BaseBackend):
         }
 
     def _fingerprint_mismatch(self, info: WorkerInfoV1) -> Optional[FingerprintMismatchV1]:
-        for domain in FINGERPRINT_DOMAINS:
-            expected = self._fingerprints.get(domain)
-            actual = info.fingerprints.get(domain)
-            if expected is not None and expected != actual:
-                return FingerprintMismatchV1(domain=domain, expected=expected, actual=actual or "")
+        """Pre-gate on ``build`` only - pipe_catalog/plugin_bundle are gated
+        per-package by the worker now (WorkerCoordinator._fingerprint_mismatch)."""
+        expected = self._fingerprints.get("build")
+        actual = info.fingerprints.get("build")
+        if expected is not None and expected != actual:
+            return FingerprintMismatchV1(domain="build", expected=expected, actual=actual or "")
         return None
+
+    def _catalog_mismatch_note(self, info: WorkerInfoV1) -> Optional[str]:
+        mismatched = [
+            domain for domain in ("pipe_catalog", "plugin_bundle")
+            if self._fingerprints.get(domain) not in (None, info.fingerprints.get(domain))
+        ]
+        if not mismatched:
+            return None
+        return (
+            f"Worker '{info.worker_id}'s {'/'.join(mismatched)} differs from this "
+            "installation - informational only, dispatch is gated per pipeline."
+        )
 
     # -- cancel ---------------------------------------------------------
 

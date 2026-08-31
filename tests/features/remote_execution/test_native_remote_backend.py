@@ -46,8 +46,10 @@ from src.pipelines.contracts import IOType, PipeConfigSpec, PipeOutput, PipeOutp
 from src.pipelines.outputs import ErrorGenerationOutput, ImageGenerationOutput, ProgressGenerationOutput
 from src.platform.database.database import Database
 from src.platform.database.migration_runner import MigrationRunner
+from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY
 from src.platform.settings.repository import SettingRepository
 from src.platform.settings.settings import Settings
+from src.platform.worker_protocol import ContentDigest, ModelBundleEntryV1
 
 S = RemoteExecutionState
 TOKEN = "secret-worker-token"
@@ -337,6 +339,18 @@ class NativeRemoteBackendTestCase(unittest.TestCase):
             sha256=hashlib.sha256(content).hexdigest(), model_type=role, is_directory=is_directory,
         ))
         return source_path
+
+    def _seed_worker_depot(self, container: WorkerContainer, *, role: str, filename: str, content: bytes) -> None:
+        """Puts a file straight onto the worker's depot, the same shape an
+        admin's model-push (`src.features.remote_execution.ops.push_models`)
+        would leave behind - dispatch itself never writes here anymore."""
+        directory = MODEL_TYPE_TO_DIRECTORY.get(role, role)
+        entry = ModelBundleEntryV1(
+            logical_id=f"{role}/{filename}", role=role, relative_path=f"{directory}/{filename}",
+            digest=ContentDigest(algorithm="sha256", hex=hashlib.sha256(content).hexdigest()),
+            size_bytes=len(content),
+        )
+        container.model_depot.stage(entry, [content])
 
     def _plant_generation_row(self, generation_id: str) -> None:
         """RemoteExecution.generation_id FKs to generations(id) - in the real
@@ -702,10 +716,14 @@ class TestEventStreamReconnect(NativeRemoteBackendTestCase):
 # -- model bundle staging ------------------------------------------------------
 
 class TestModelBundleStagingHappyPath(NativeRemoteBackendTestCase):
-    def test_a_referenced_model_is_pushed_before_submit_with_progress_and_runs_from_the_depot(self):
+    def test_a_model_already_on_the_worker_lets_dispatch_proceed_from_the_depot_copy(self):
         ModelAwarePipe.received_file_path = None
         content = b"fake checkpoint bytes" * 5000
         self._register_model(role="checkpoint", filename="dit.safetensors", content=content)
+        # Simulates an admin having already synced this model in - dispatch
+        # itself never pushes bytes anymore (model sync is admin
+        # configuration, never a side effect of a generation).
+        self._seed_worker_depot(self.worker_container, role="checkpoint", filename="dit.safetensors", content=content)
 
         backend = self._backend(self.worker_app)
         pipeline_data = {
@@ -728,44 +746,44 @@ class TestModelBundleStagingHappyPath(NativeRemoteBackendTestCase):
         self.assertTrue(ModelAwarePipe.received_file_path.startswith(str(depot_dir)))
         self.assertEqual(Path(ModelAwarePipe.received_file_path).read_bytes(), content)
 
+        # Dispatch only checked inventory - it never pushed anything.
         staging_events = [
             o for o in outputs if isinstance(o, ProgressGenerationOutput) and o.state == "staging_models"
         ]
-        self.assertGreaterEqual(len(staging_events), 2)
-        self.assertEqual(staging_events[0].progress.current, 0)
-        self.assertEqual(staging_events[-1].progress.current, 100)
-        self.assertIn("Staging models", staging_events[0].title)
+        self.assertEqual(staging_events, [])
 
 
-class TestModelBundleStagingResume(NativeRemoteBackendTestCase):
-    def test_a_second_dispatch_referencing_an_already_staged_model_pushes_nothing(self):
+class TestModelBundleMissingOnWorker(NativeRemoteBackendTestCase):
+    def test_a_model_missing_on_the_worker_fails_dispatch_fast_naming_the_file(self):
         ModelAwarePipe.received_file_path = None
         content = b"fake checkpoint bytes" * 5000
+        # Registered on the host, deliberately never pushed to the worker.
         source_path = self._register_model(role="checkpoint", filename="dit.safetensors", content=content)
 
         backend = self._backend(self.worker_app)
+        pipeline_data = {
+            "generation_id": "gen-model-missing", "preset_id": "preset-1",
+            "pipes": [{
+                "name": "model_aware/fake", "id": "p1", "enabled": True,
+                "config": {"checkpoint": {"file_path": str(source_path)}}, "input": [],
+            }],
+        }
 
-        def _pipeline(generation_id: str) -> dict:
-            return {
-                "generation_id": generation_id, "preset_id": "preset-1",
-                "pipes": [{
-                    "name": "model_aware/fake", "id": "p1", "enabled": True,
-                    "config": {"checkpoint": {"file_path": str(source_path)}}, "input": [],
-                }],
-            }
+        generation_id, outputs = self._run_generation(backend, pipeline_data)
 
-        first_id, first_outputs = self._run_generation(backend, _pipeline("gen-model-resume-1"))
-        self.assertEqual(self.repo.get_by_id(first_id).state, S.SUCCEEDED)
-        first_staging = [o for o in first_outputs if isinstance(o, ProgressGenerationOutput) and o.state == "staging_models"]
-        self.assertGreater(len(first_staging), 0)
+        # Dispatch never reached the worker's execution endpoint at all.
+        self.assertIsNone(self.worker_container.coordinator.record_for(generation_id))
+        self.assertIsNone(ModelAwarePipe.received_file_path)
 
-        second_id, second_outputs = self._run_generation(backend, _pipeline("gen-model-resume-2"))
-        self.assertEqual(self.repo.get_by_id(second_id).state, S.SUCCEEDED)
-        second_staging = [o for o in second_outputs if isinstance(o, ProgressGenerationOutput) and o.state == "staging_models"]
-        # Nothing missing on the worker's depot this time - the inventory
-        # check alone answers "present", and stage_model_bundle never even
-        # reaches the upload loop.
-        self.assertEqual(second_staging, [])
+        row = self.repo.get_by_id(generation_id)
+        self.assertEqual(row.state, S.FAILED)
+        self.assertEqual(row.error_code, "models_not_staged")
+        self.assertIn("dit.safetensors", row.error_message)
+        self.assertIn("Remote Worker", row.error_message)
+
+        errors = [o for o in outputs if isinstance(o, ErrorGenerationOutput)]
+        self.assertEqual(len(errors), 1)
+        self.assertIn("dit.safetensors", errors[0].error or "")
 
 
 class TestDirectoryLayoutModelRefusal(NativeRemoteBackendTestCase):

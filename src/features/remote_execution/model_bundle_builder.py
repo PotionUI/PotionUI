@@ -18,7 +18,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
-from typing import Any, Dict, Iterator, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, Iterator, Optional, Sequence, Tuple
 
 from src.features.models.records import Model
 from src.features.models.repository import ModelRepository
@@ -73,7 +73,15 @@ def build_model_bundle(
             entry = _entry_for(file_path, repo)
             entries[entry.logical_id] = entry
 
-    ordered = tuple(sorted(entries.values(), key=lambda e: e.logical_id))
+    return build_bundle_manifest(entries.values())
+
+
+def build_bundle_manifest(entries: Iterable[ModelBundleEntryV1]) -> ModelBundleManifestV1:
+    """A deterministic manifest for an already-resolved set of entries -
+    the tail half of `build_model_bundle`, exposed for callers (the admin
+    model-push op) that resolve entries by model id rather than by walking a
+    pipeline."""
+    ordered = tuple(sorted(entries, key=lambda e: e.logical_id))
     digest = _bundle_digest(ordered)
     return ModelBundleManifestV1(
         bundle_id=f"bundle-{digest.hex[:32]}",
@@ -112,14 +120,22 @@ def _entry_for(file_path: str, repo: ModelRepository) -> ModelBundleEntryV1:
             f"Pipeline references model file {file_path!r}, which is not indexed. "
             "Re-index its location before dispatching to a remote worker."
         )
+    return resolve_bundle_entry(model, repo)
+
+
+def resolve_bundle_entry(model: Model, repo: ModelRepository) -> ModelBundleEntryV1:
+    """The bundle entry for an already-resolved model row, hashing it on
+    demand if it has never been hashed. Shared by pipeline bundling
+    (`_entry_for`) and the admin model-push op, which resolves a model by id
+    rather than by the file path a pipe config carries."""
     if model.is_directory:
         raise ModelBundleResolutionError(
-            f"Model {model.filename!r} ({file_path}) is an HF-layout directory model - "
+            f"Model {model.filename!r} ({model.file_path}) is an HF-layout directory model - "
             "remote bundling of directory models is not implemented; it needs per-shard "
             "entries, not a single-file digest."
         )
     if not model.sha256 or model.file_size is None:
-        model.sha256, model.file_size = _hash_and_persist(model, file_path, repo)
+        model.sha256, model.file_size = _hash_and_persist(model, model.file_path, repo)
 
     role = model.model_type or "unknown"
     directory = MODEL_TYPE_TO_DIRECTORY.get(role, role)

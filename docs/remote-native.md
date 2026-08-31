@@ -292,27 +292,26 @@ than a single file digest) fails the dispatch immediately with an actionable
 re-index it, rather than hashing a multi-gigabyte checkpoint on the hot
 dispatch path or silently shipping a bundle nothing can verify.
 
-**Model push staging.** Before `POST /v1/executions`,
-`RemoteNativeBackend._dispatch` calls
-`src/features/remote_execution/model_bundle_staging.py`'s `stage_model_bundle`,
-which closes the shared-depot assumption for a worker that doesn't already
-have one: it posts the bundle manifest to `POST /v1/models/inventory`, and for
-every entry the worker reports missing or mismatched, resolves that entry's
-local source file (`ModelRepository.get_by_identity(role, filename)` - the
-inverse of the lookup `build_model_bundle` used to build the entry in the
-first place) and streams it to `POST /v1/models/{bundle_id}/{logical_id}` in
-fixed-size chunks (`WorkerTransport.upload_model`), sequentially, one entry at
-a time. An entry the inventory already reports `present` is never even
-resolved, let alone re-sent - **resuming after a partial upload is just a
-normal re-dispatch**: a second attempt's inventory call reports everything the
-first attempt finished as `present`, so only the remainder is pushed. Progress
-goes through the same channel a pipe's own progress does
-(`ProgressGenerationOutput`, `state="staging_models"`, a title like
-`"Staging models — 2.1 / 6.5 GB"`) so the UI shows staging activity instead of
-looking hung during a large push. A bundle with no entries never calls the
-worker at all. A pipeline referencing an HF-layout directory model still
-cannot dispatch (see below) - `build_model_bundle` refuses it before staging
-is ever reached, and `RemoteNativeBackend` turns that refusal into a
+**Model sync is admin configuration, never a dispatch side effect.** Before
+`POST /v1/executions`, `RemoteNativeBackend._dispatch` only *checks* worker
+inventory - `model_bundle_staging.find_unstaged_entries` posts the bundle
+manifest to `POST /v1/models/inventory` and returns whatever the worker
+reports missing or mismatched. If anything comes back, dispatch fails
+immediately (`error_code="models_not_staged"`, no submit) naming the missing
+filenames and pointing at Admin -> Backends -> `<name>` -> Models; nothing is
+pushed. Pushing/fetching bytes onto a worker's depot happens only through
+that admin surface (`src/features/remote_execution/ops.py`,
+`POST /api/admin/remote-models/{backend_id}/push` and `.../fetch`), which
+reuses the same bundle-entry resolution `build_model_bundle` uses
+(`resolve_bundle_entry` - `ModelRepository.get_by_id`, hashing on demand) and
+streams to `POST /v1/models/{bundle_id}/{logical_id}`
+(`WorkerTransport.upload_model`) or hands the worker a provider-resolved URL
+to pull directly (`POST /v1/models/fetch`). `stage_model_bundle` (the old
+inventory-then-push routine) still exists and backs the push op's upload
+loop; it is simply never called from dispatch anymore. A pipeline referencing
+an HF-layout directory model still cannot dispatch (see below) -
+`build_model_bundle`/`resolve_bundle_entry` refuse it before a manifest is
+ever built, and `RemoteNativeBackend` turns that refusal into a
 `generation_error` naming the preset and the offending model file rather than
 a raw exception/stack trace.
 
@@ -374,17 +373,15 @@ a reconciliation failure never prevents the app from starting.
 
 ### Known gaps
 
-- **Model staging survives a re-dispatch, not a worker restart mid-staging.**
+- **An admin push does not survive a worker restart mid-upload.**
   `ModelDepot` keeps a registered bundle manifest (`bundle_id -> entries`) in
   process memory only - if the worker restarts between an inventory call and
-  the staging uploads that follow it, that in-flight dispatch's uploads 404
+  the staging uploads that follow it, that in-flight push's uploads 404
   ("no such model entry ... call /v1/models/inventory with this bundle
   first"). Already-staged files on disk are untouched (digest sidecars
-  persist), and the dispatch's own top-level exception handling still fails
-  the row cleanly rather than hanging it - but the fix is a fresh dispatch
-  attempt (which re-registers via a fresh inventory call and resumes
-  correctly, per "Model push staging" above), not an automatic retry from
-  within the same attempt.
+  persist); the fix is re-running the push from Admin -> Backends ->
+  `<name>` -> Models, which re-registers via a fresh inventory call and
+  resumes correctly (an entry already `present` is never re-sent).
 - **Ephemeral/serverless compute defeats the depot's whole premise.** Staging
   is a real optimization only because a worker's depot persists across
   dispatches (an entry already `present` is never re-sent). A worker whose

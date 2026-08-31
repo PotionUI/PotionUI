@@ -16,7 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator, List, Optional
 
 import httpx
 
@@ -33,6 +33,7 @@ from src.platform.worker_protocol.envelope import (
     envelope,
     read_envelope,
 )
+from src.platform.worker_protocol.model_fetch import ModelFetchRequestV1
 from src.platform.worker_protocol.model_inventory import ModelInventoryResponseV1
 
 #: Chunk size for streaming a model file to the worker's staging endpoint - a
@@ -181,9 +182,10 @@ class WorkerTransport:
             )
         return response
 
-    async def upload_model(self, bundle_id: str, entry: ModelBundleEntryV1, source_path: Path) -> None:
+    async def upload_model(self, bundle_id: str, entry: ModelBundleEntryV1, source_path: Path) -> str:
         """Stream *source_path*'s bytes to the worker as the named model bundle
-        entry, in fixed-size chunks (see `_MODEL_UPLOAD_CHUNK_BYTES`)."""
+        entry, in fixed-size chunks (see `_MODEL_UPLOAD_CHUNK_BYTES`). Returns
+        the worker-assigned transfer id."""
         try:
             async with self._client(timeout=httpx.Timeout(None, connect=self._connect_timeout)) as client:
                 resp = await client.post(
@@ -200,6 +202,63 @@ class WorkerTransport:
             raise WorkerProtocolError(
                 f"model {entry.logical_id!r} upload rejected: HTTP {resp.status_code} {resp.text}"
             )
+        try:
+            return resp.json()["transfer_id"]
+        except (json.JSONDecodeError, KeyError) as exc:
+            raise WorkerProtocolError(
+                f"model {entry.logical_id!r} upload response is missing its transfer_id"
+            ) from exc
+
+    async def list_models(self) -> List[dict]:
+        """The worker depot's own listing (`GET /v1/models`) - plain JSON,
+        not enveloped protocol documents (see `routes.py`'s module docstring)."""
+        try:
+            async with self._client(timeout=self._timeout) as client:
+                resp = await client.get(self._url("/v1/models"), headers=self._headers)
+        except httpx.HTTPError as exc:
+            raise WorkerUnreachableError(f"could not reach worker at {self._base_url}: {exc}") from exc
+
+        if resp.status_code != 200:
+            raise WorkerProtocolError(f"model listing failed: HTTP {resp.status_code} {resp.text}")
+        try:
+            return resp.json()["entries"]
+        except (json.JSONDecodeError, KeyError) as exc:
+            raise WorkerProtocolError(f"model listing returned an unreadable body: {exc}") from exc
+
+    async def fetch_model(self, request: ModelFetchRequestV1) -> str:
+        """Ask the worker to pull *request.url* straight into its depot.
+        Returns the transfer id immediately - the worker runs the download
+        itself as its own background task (`POST /v1/models/fetch` -> 202)."""
+        try:
+            async with self._client(timeout=self._timeout) as client:
+                resp = await client.post(
+                    self._url("/v1/models/fetch"), json=envelope(request), headers=self._headers,
+                )
+        except httpx.HTTPError as exc:
+            raise WorkerUnreachableError(f"could not reach worker at {self._base_url}: {exc}") from exc
+
+        if resp.status_code != 202:
+            raise WorkerProtocolError(f"model fetch rejected: HTTP {resp.status_code} {resp.text}")
+        try:
+            return resp.json()["transfer_id"]
+        except (json.JSONDecodeError, KeyError) as exc:
+            raise WorkerProtocolError("model fetch response is missing its transfer_id") from exc
+
+    async def list_transfers(self) -> List[dict]:
+        """The worker's own model-transfer registry (`GET /v1/models/transfers`) -
+        the source of truth an admin sync view polls for push/fetch progress."""
+        try:
+            async with self._client(timeout=self._timeout) as client:
+                resp = await client.get(self._url("/v1/models/transfers"), headers=self._headers)
+        except httpx.HTTPError as exc:
+            raise WorkerUnreachableError(f"could not reach worker at {self._base_url}: {exc}") from exc
+
+        if resp.status_code != 200:
+            raise WorkerProtocolError(f"transfer listing failed: HTTP {resp.status_code} {resp.text}")
+        try:
+            return resp.json()["transfers"]
+        except (json.JSONDecodeError, KeyError) as exc:
+            raise WorkerProtocolError(f"transfer listing returned an unreadable body: {exc}") from exc
 
     async def stream_events(self, execution_id: str, after: int = 0) -> AsyncIterator[JobEventV1]:
         """Yield every `JobEventV1` for ``execution_id`` with cursor > ``after``,

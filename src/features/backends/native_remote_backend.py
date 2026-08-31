@@ -39,7 +39,7 @@ from src.features.remote_execution.model_bundle_builder import (
     ModelBundleResolutionError,
     build_model_bundle,
 )
-from src.features.remote_execution.model_bundle_staging import stage_model_bundle
+from src.features.remote_execution.model_bundle_staging import find_unstaged_entries
 from src.features.remote_execution.policy import RemoteExecutionPolicy
 from src.features.remote_execution.records import (
     IllegalStateTransition,
@@ -387,6 +387,25 @@ class RemoteNativeBackend(BaseBackend):
             ))
             return
 
+        # Model sync is admin configuration, never a silent side effect of a
+        # user's generation - a generation that references a file the worker
+        # doesn't have fails fast, naming what's missing, instead of pushing
+        # it. See Admin -> Backends -> <name> -> Models.
+        missing = await find_unstaged_entries(model_bundle, transport)
+        if missing:
+            backend_name = self.config.name or self.config.id
+            filenames = ", ".join(Path(entry.relative_path).name for entry in missing)
+            error_message = (
+                f"Models not present on worker '{backend_name}': {filenames}. "
+                f"Sync them in Admin → Backends → {backend_name} → Models."
+            )
+            self._repository.apply_state(
+                row.id, RemoteExecutionState.FAILED,
+                error_code="models_not_staged", error_message=error_message,
+            )
+            emit(ErrorGenerationOutput(error=error_message))
+            return
+
         claimed = self._repository.claim_specific(row.id, self._owner, self._policy.lease_seconds)
         if claimed is None:
             # Already claimed by a concurrent call (duplicate submit racing
@@ -396,7 +415,6 @@ class RemoteNativeBackend(BaseBackend):
         renew_task = asyncio.create_task(self._renew_lease_loop(row.id, claimed.lease_epoch))
         try:
             try:
-                await stage_model_bundle(model_bundle, transport, emit)
                 await transport.submit(package)
 
                 if package.input_assets is not None:
@@ -411,9 +429,8 @@ class RemoteNativeBackend(BaseBackend):
                 await self._consume_events(row.id, package, transport, storage_dir, emit)
             except Exception as exc:
                 # Anything that goes wrong between claiming the row and a
-                # terminal worker event (model staging failing, submit
-                # failing, an upload failing, the SSE connection dying
-                # mid-stream) must still terminate
+                # terminal worker event (submit failing, an upload failing,
+                # the SSE connection dying mid-stream) must still terminate
                 # the row - otherwise it is stuck DISPATCHING/STAGING/RUNNING
                 # forever, since nothing else in this single-slot MVP retries
                 # it. A no-op when the event loop already reached a terminal

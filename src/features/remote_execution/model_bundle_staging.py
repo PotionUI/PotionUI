@@ -39,6 +39,22 @@ class ModelStagingSourceError(RuntimeError):
     """
 
 
+async def find_unstaged_entries(
+    model_bundle: ModelBundleManifestV1, transport: WorkerTransport,
+) -> tuple[ModelBundleEntryV1, ...]:
+    """Every entry the worker's depot does not already have present, without
+    pushing anything - the read-only counterpart to `stage_model_bundle`, used
+    to gate dispatch (model sync is admin configuration, never a side effect
+    of a generation)."""
+    if not model_bundle.entries:
+        return ()
+    inventory = await transport.model_inventory(model_bundle)
+    status_by_id = {entry.logical_id: entry.status for entry in inventory.entries}
+    return tuple(
+        entry for entry in model_bundle.entries if status_by_id.get(entry.logical_id) != "present"
+    )
+
+
 async def stage_model_bundle(
     model_bundle: ModelBundleManifestV1,
     transport: WorkerTransport,

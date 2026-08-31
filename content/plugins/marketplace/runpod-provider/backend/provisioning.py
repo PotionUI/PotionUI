@@ -1,15 +1,10 @@
 """Plan / provision / reconcile / deprovision for one RunPod provisioning
 profile.
 
-Core owns backend rows and the worker protocol (see `docs/remote-native.md`
-and `docs/backends.md`'s "Why runpod and remote_http are gone" - RunPod is a
-hosting provider, not an engine). This manager provisions infrastructure
-only: it returns connection details `{base_url, worker_token}` for whichever
-process wires up a `native.remote`-style backend from them. `src.plugin_api`
-exposes no seam for registering backend config through core managers today
-(`.backends` is for contributing an *engine*, which this explicitly is not -
-see `client.py`'s module docstring for the same distinction) - that gap is
-reported upstream rather than worked around by importing a core internal.
+Provisions infrastructure only; returns connection details
+`{base_url, worker_token}` for the backend that wires up the worker. RunPod
+is a hosting provider, not an engine - core owns backend rows and the worker
+protocol.
 """
 
 from __future__ import annotations

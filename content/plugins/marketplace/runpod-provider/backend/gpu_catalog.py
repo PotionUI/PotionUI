@@ -1,21 +1,14 @@
-"""A static GPU type catalog.
+"""Static GPU type catalog.
 
-RunPod's REST API (v1) has no endpoint to list GPU types or their pricing -
-verified by enumerating every path in `https://rest.runpod.io/v1/openapi.json`
-(fetched 2026-08-15): only `/pods`, `/endpoints`, `/networkvolumes`,
-`/templates`, `/containerregistryauth`, and `/billing/*` exist. GPU catalog
-browsing and live pricing are GraphQL-only (`podGpuTypes`), which this plugin
-does not speak.
+RunPod's REST API (v1) has no endpoint to list GPU types or pricing; that
+exists only on the GraphQL API (`podGpuTypes`), which this plugin does not
+speak.
 
-The ids below are the exact `gpuTypeIds` enum from that same OpenAPI spec, so
-every id here is guaranteed to be one `RunPodClient.create_pod` accepts -
-this is not a hand-copied marketing list. `memory_gb` is filled in from
-public NVIDIA/AMD specs for the well-known cards; a handful of newer
-Blackwell-generation entries are left `None` rather than guessed, since the
-REST API does not expose it and getting it wrong would be worse than leaving
-it blank. There is no live pricing field for the same reason - do not add
-one without a real source; RunPod's own docs point pricing questions at the
-GraphQL API this client does not use.
+The ids below are the `gpuTypeIds` enum RunPod's REST API accepts, so every
+id here is guaranteed to work with `RunPodClient.create_pod`. `memory_gb` is
+left `None` for newer Blackwell-generation cards the REST API doesn't
+describe, rather than guessed. There is no live pricing field - do not add
+one without a real source.
 """
 
 from __future__ import annotations

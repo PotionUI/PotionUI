@@ -1,16 +1,12 @@
 """RunPod Provider plugin API: validate an API key before it's saved.
 
 Mounted at `/api/plugins/runpod-provider` by `PluginRouterMounter` from the
-`api:` section of `manifest.yml`. Admin-only, mirroring form-builder's
-router-level `dependencies=[Depends(get_current_admin_user)]`.
+`api:` section of `manifest.yml`. Admin-only.
 
-Provisioning itself (GPU types, provision/status/stop/terminate) no longer
-lives here - it goes through core's `/api/admin/provisioning` routes
-(`src.features.provisioning.routes`), which dispatch to this plugin's
-`RunpodComputeProvisioner` (`backend/provisioner.py`, registered via the
-`compute.register` hook). Core owns the `native.remote` backend row a
-provision produces; this plugin no longer hands connection details back for
-an admin to wire up by hand.
+Provisioning (GPU types, provision/status/stop/terminate) goes through
+core's `/api/admin/provisioning` routes (`src.features.provisioning.routes`),
+which dispatch to `RunpodComputeProvisioner` (`backend/provisioner.py`),
+registered via the `compute.register` hook.
 """
 
 from __future__ import annotations

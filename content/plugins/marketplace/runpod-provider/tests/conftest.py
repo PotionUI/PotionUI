@@ -1,12 +1,11 @@
 """Test fixtures for the runpod-provider plugin.
 
 Mirrors `PluginLoader.load_plugin_module`'s runtime behavior (puts the
-plugin dir on `sys.path` before loading its `api:` module) - the same idiom
-`comfyui_backend`/`spritesheet`'s own conftests use, including evicting any
-`backend` module another plugin's test directory already claimed. Run this
-directory on its own or alongside other single-`backend`-package plugin
-tests in separate invocations, not as sibling args in one pytest call - see
-the spritesheet conftest's docstring for why.
+plugin dir on `sys.path` before loading its `api:` module), including
+evicting any `backend` module another plugin's test directory already
+claimed. Run this directory on its own or alongside other single-`backend`-
+package plugin tests in separate invocations, not as sibling args in one
+pytest call.
 """
 
 import sys
@@ -32,9 +31,8 @@ import backend  # noqa: E402,F401  (claims the namespace for this plugin)
 @pytest.fixture
 def scratch_db(tmp_path):
     """A throwaway sqlite file for exactly one test - never the real app DB.
-    Mirrors the spritesheet plugin's own `scratch_db` fixture: a fresh
-    `Database` pointed at a temp file, no migration replay (this plugin's
-    table has no FOREIGN KEY on anything migration-owned)."""
+    A fresh `Database` pointed at a temp file, no migration replay (this
+    plugin's table has no FOREIGN KEY on anything migration-owned)."""
     from src.plugin_api.storage import db
 
     Database = type(db)

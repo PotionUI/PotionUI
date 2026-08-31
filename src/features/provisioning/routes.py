@@ -1,9 +1,7 @@
 """Compute-provisioning controller and admin router.
 
 Every route is admin-only - provisioning infrastructure and spending a
-provider's credits is not a regular-user action (mirrors the former
-`runpod-provider` plugin's own router-level gating, now here instead since
-this is where provisioning lives).
+provider's credits is not a regular-user action.
 """
 
 from typing import TYPE_CHECKING, Any, Dict

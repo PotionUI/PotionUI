@@ -1,8 +1,6 @@
 """Registry of `ComputeProvisioner` implementations, collected via the
-`compute.register` hook - mirrors `BackendRegistry._load_plugin_backends`:
-built once at container-construction time (the plugin registry has already
-run every enabled plugin's manifest by then), synchronously, not lazily
-rediscovered per request.
+`compute.register` hook. Built once at container-construction time,
+synchronously - not lazily rediscovered per request.
 """
 
 from typing import Dict, List, Optional

@@ -1,12 +1,10 @@
 """Mutations for provisioned compute: provision/refresh/stop/terminate.
 
 Plain functions over a `ComputeProvisionerRegistry` + `ProvisionedComputeRepository`
-+ `BackendRegistry` - no manager/service class. `provision_compute` is the one
-seam that used to be manual (see `docs/remote-native.md` and the
-`runpod-provider` plugin's former README): it fills in an EXISTING
-`native.remote` backend row (created ahead of time, unconfigured, through the
-normal "create backend" form) rather than minting a new one - the backend is
-the durable, user-facing object; provisioning just connects it.
++ `BackendRegistry` - no manager/service class. `provision_compute` fills in
+an EXISTING `native.remote` backend row (created ahead of time, unconfigured)
+rather than minting a new one - the backend is the durable, user-facing
+object; provisioning just connects it.
 """
 
 from typing import Any, Dict, List, Optional

@@ -1,27 +1,15 @@
 """Tracking which RunPod resources this plugin manages, per provisioning
 profile.
 
-Own table (`db` from `src.plugin_api.storage` - "a plugin may create and own
-its own tables", per that module's docstring), mirroring the
-spritesheet/video-editor precedent: ULID primary key, lazy `_ensure_table()`
-guard on every public operation (table creation is *also* wired to
-`plugin.lifecycle.boot` in `hooks/lifecycle_hooks.py`, but that alone misses
-a test-bound scratch database and an already-enabled plugin that never
-replays `enable` - see `SessionsManager`'s docstring in the spritesheet
-plugin for the full argument).
+Own table via `db` from `src.plugin_api.storage`. One row per
+(profile_name, resource_type): a profile has at most one managed Pod and at
+most one managed network volume. `meta` is a small JSON blob for fields that
+don't need their own column (currently just the worker's port, used to
+reconstruct the RunPod proxy URL).
 
-One row per (profile_name, resource_type): a profile has at most one managed
-Pod and at most one managed network volume, which is what lets `provision()`
-tell "create a volume" apart from "reuse the one already recorded for this
-profile". `meta` is a small JSON blob for fields that don't need their own
-column (currently just the worker's port, needed to reconstruct the RunPod
-proxy URL - see `provisioning.py`).
-
-The worker token itself is NOT stored here. It goes through
-`PluginRepository.set_plugin_setting(..., is_secret=True)` instead (see
-`provisioning.py`) - that is the only encryption-at-rest primitive
-`src.plugin_api` exposes to a plugin, and a bearer credential belongs behind
-it, not in a plaintext column in a table this module owns directly.
+The worker token is not stored here - it goes through
+`PluginRepository.set_plugin_setting(..., is_secret=True)` instead, the only
+encryption-at-rest primitive `src.plugin_api` exposes to a plugin.
 """
 
 from __future__ import annotations
@@ -56,9 +44,8 @@ class ResourceRecord:
 
 class RunPodResourceManager:
     def __init__(self) -> None:
-        # Per-instance, not per-process - see SessionsManager's identical
-        # comment in the spritesheet plugin for why sharing this wider would
-        # leak a test's scratch-db "already ensured" state across instances.
+        # Per-instance, not per-process: a shared flag would leak a test's
+        # scratch-db "already ensured" state across instances.
         self._table_ensured = False
 
     def create_table(self) -> None:

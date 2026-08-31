@@ -1,19 +1,14 @@
-"""A minimal, read-only GraphQL client for RunPod's live GPU-by-data-center
-catalog.
+"""Read-only GraphQL client for RunPod's live GPU-by-data-center catalog.
 
 RunPod's REST API (v1) has no endpoint to discover data centers or GPU
-availability - the same honest-absence situation `client.py` and
-`gpu_catalog.py`/`datacenter_catalog.py` document (verified by enumerating
-`https://rest.runpod.io/v1/openapi.json`). That discovery exists only on
-RunPod's GraphQL API (`https://api.runpod.io/graphql`, public schema at
-graphql-spec.runpod.io), which this module speaks for catalog reads only -
-every mutation (create/stop/terminate a pod, create/delete a volume) still
-goes through `RunPodClient`'s REST v1 calls; this module never writes
-anything. Same Bearer API key as REST.
+availability; that exists only on the GraphQL API
+(`https://api.runpod.io/graphql`). This module is catalog-read-only - every
+mutation (create/stop/terminate a pod, create/delete a volume) goes through
+`RunPodClient`'s REST v1 calls. Same Bearer API key as REST.
 
 `dataCenters` is a top-level Query field (`myself.dataCenters` fails schema
-validation). The query scopes `gpuAvailability` to `secureCloud: true`
-because pods here are always `cloudType: SECURE` (network volumes require it).
+validation). `gpuAvailability` is scoped to `secureCloud: true` because pods
+here are always `cloudType: SECURE`.
 """
 
 from __future__ import annotations
@@ -61,7 +56,7 @@ query PotionUiComputeCatalog {
 
 class RunPodCatalogError(Exception):
     """The GraphQL catalog call failed (network, HTTP, or a GraphQL-level
-    `errors` payload) - callers fall back to the static catalogs on this."""
+    `errors` payload)."""
 
 
 @dataclass(frozen=True)

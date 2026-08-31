@@ -1,16 +1,10 @@
-"""A thin, typed wrapper over RunPod's REST API (v1) - not the deprecated
-GraphQL API and not the `runpod` SDK, per this plugin's brief. Every field
-below is confirmed against `https://rest.runpod.io/v1/openapi.json` (fetched
-2026-08-15), not guessed from marketing docs.
+"""Typed wrapper over RunPod's REST API (v1) - not the deprecated GraphQL
+API and not the `runpod` SDK.
 
-Two real gaps in RunPod's REST v1, confirmed by enumerating every path in
-that spec: there is no endpoint to list GPU types with pricing, and no
-endpoint to fetch a Pod's logs. Both exist only on the deprecated GraphQL API
-(`podGpuTypes`, `podLogs`), which this client deliberately does not use.
-`list_gpu_types()` therefore returns a static catalog (the exact
-`gpuTypeIds` enum from the same OpenAPI spec, so ids are guaranteed to match
-what `create_pod` accepts) with no live pricing; `get_pod_logs()` raises
-`RunPodFeatureUnavailable` rather than silently returning nothing.
+REST v1 has no endpoint to list GPU types with pricing or to fetch a Pod's
+logs; both exist only on the deprecated GraphQL API. `list_gpu_types()`
+returns a static catalog instead; `get_pod_logs()` raises
+`RunPodFeatureUnavailable`.
 """
 
 from __future__ import annotations
@@ -44,8 +38,8 @@ class RunPodNotFoundError(RunPodAPIError):
 
 
 class RunPodFeatureUnavailable(Exception):
-    """The operation has no REST v1 endpoint - only the deprecated GraphQL
-    API exposes it, and this client does not speak GraphQL."""
+    """The operation has no REST v1 endpoint; only the deprecated GraphQL
+    API exposes it."""
 
 
 @dataclass(frozen=True)
@@ -95,10 +89,8 @@ class NetworkVolume:
 
 @dataclass(frozen=True)
 class RunPodClient:
-    """Not a dataclass for its data - `field(init=False)` builds the actual
-    httpx client from `api_key`/`base_url`/`timeout` so callers only ever
-    pass those three, matching every other provider client in this codebase
-    (see `CivitaiProvider`)."""
+    """`field(init=False)` builds the httpx client from `api_key`/`base_url`/
+    `timeout`; callers only ever pass those three."""
 
     api_key: str
     base_url: str = DEFAULT_BASE_URL
@@ -150,9 +142,8 @@ class RunPodClient:
     # -- Authentication ----------------------------------------------------
 
     async def validate_api_key(self) -> bool:
-        """A lightweight authenticated call (REST v1 has no dedicated
-        "whoami"/key-check endpoint) - `False` only on a 401/403; any other
-        error propagates, since it says nothing about the key itself."""
+        """REST v1 has no whoami/key-check endpoint. Returns `False` only
+        on 401/403; other errors propagate."""
         try:
             await self._request("GET", "/pods")
             return True
@@ -162,8 +153,7 @@ class RunPodClient:
     # -- GPU types -----------------------------------------------------------
 
     def list_gpu_types(self) -> List[GpuType]:
-        """Static catalog - see this module's docstring for why. Synchronous
-        and side-effect-free on purpose: it never touches the network."""
+        """Static catalog, synchronous - never touches the network."""
         return list(STATIC_GPU_CATALOG)
 
     # -- Network volumes -----------------------------------------------------
@@ -212,13 +202,9 @@ class RunPodClient:
             "env": env,
             "ports": ports,
             "containerDiskInGb": container_disk_in_gb,
-            # Per RunPod's own `PodCreateInput.networkVolumeId` doc ("If
-            # attached, a network volume replaces the Pod network volume"),
-            # requesting a nonzero local `volumeInGb` on top of a network
-            # volume asks the scheduler for local disk it will never use -
-            # over-constraining host selection to the point of "could not
-            # find any pods with required specifications" on data centers
-            # without that much spare local disk.
+            # A network volume replaces the pod's local volume, so 0 here -
+            # a nonzero volumeInGb on top of a network volume over-constrains
+            # host selection.
             "volumeInGb": 0 if network_volume_id else volume_in_gb,
             "volumeMountPath": volume_mount_path,
             "cloudType": cloud_type,

@@ -3,7 +3,7 @@
 the translation between `src.plugin_api.compute`'s typed contract and
 `RunPodProvisioningManager` - the manager itself is exercised directly in
 `test_provisioning.py`, so these tests fake at the `RunPodClient` boundary
-only, the same way `test_api.py` used to for the now-removed bespoke routes.
+only.
 """
 
 import pytest
@@ -116,10 +116,10 @@ def repo():
 
 @pytest.fixture(autouse=True)
 def catalog_offline(monkeypatch):
-    """Every test gets the pre-live-catalog behavior (static fallback) by
-    default and never touches the network - `describe_fields` tests that
-    want the live catalog instead monkeypatch `catalog_client.get_catalog`
-    again inside the test body."""
+    """Every test gets an unreachable live catalog by default and never
+    touches the network - `describe_fields` tests that want the live catalog
+    instead monkeypatch `catalog_client.get_catalog` again inside the test
+    body."""
 
     async def _raise(api_key, **kwargs):
         raise RunPodCatalogError("catalog unavailable in tests")

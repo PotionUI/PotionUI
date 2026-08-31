@@ -1,12 +1,8 @@
 """Adapts `RunPodProvisioningManager` to core's `ComputeProvisioner` contract
-(`src.plugin_api.compute`) - registered via the `compute.register` hook, see
-`hooks/compute_hooks.py`.
+(registered via the `compute.register` hook in `hooks/compute_hooks.py`).
 
-`handle` in every `ComputeProvisioner` call is this plugin's `profile_name`:
-`RunPodProvisioningManager` and `RunPodResourceManager` key every stored
-resource by `profile_name`, not by RunPod's own pod id, so `profile_name` is
-the one identifier that survives round-tripping through core's
-`provisioned_compute` row and back.
+`handle` is this plugin's `profile_name` - resources are keyed by it, not by
+RunPod's own pod id.
 """
 
 from __future__ import annotations
@@ -35,10 +31,8 @@ from .settings import RunPodSettings, load_settings
 
 logger = logging.getLogger(__name__)
 
-#: Fixed defaults for the RunPod-only knobs that don't get an admin-facing
-#: field - `worker_port` is the Remote Native worker's own listen port
-#: (never anything else), `container_disk_gb` is scratch space unrelated to
-#: the persistent network volume `volume_size_gb` describes.
+#: Fixed defaults with no admin-facing field. `container_disk_gb` is scratch
+#: space, unrelated to the persistent network volume `volume_size_gb`.
 _WORKER_PORT = 8100
 _CONTAINER_DISK_GB = 20
 
@@ -81,9 +75,8 @@ def _gpu_detail(gpu: GpuAvailability) -> Optional[str]:
 
 
 def _gpu_union_detail(entries: List[GpuAvailability]) -> Optional[str]:
-    """Detail for a `gpu_type_id` option built from every data center that
-    stocks it - unlike `_gpu_detail`, `entries` spans data centers, so this
-    summarizes stock rather than naming one center's `GpuAvailability`."""
+    """Detail for a `gpu_type_id` option spanning every data center that
+    stocks it."""
     parts = []
     memory_gb = next((gpu.memory_gb for gpu in entries if gpu.memory_gb), None)
     if memory_gb:
@@ -150,8 +143,7 @@ class RunpodComputeProvisioner(ComputeProvisioner):
         values = values or {}
         live_data_centers = await self._live_data_centers(settings.api_key)
 
-        # No live catalog, no form - static lists with no stock data would
-        # just make the admin guess at combinations.
+        # No live catalog, no form.
         if live_data_centers is None:
             raise ComputeProvisionerError(
                 "RunPod's catalog is unreachable, so GPU availability can't be shown "

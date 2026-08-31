@@ -1,19 +1,8 @@
 """Lifecycle handlers for the runpod-provider plugin.
 
-This plugin registers no marketplace provider (`provider.register` is for
-model marketplaces - `ProviderCapability.HASH_LOOKUP`/`SEARCH`/... none of
-which describe provisioning compute) and no engine (`backend.register` is
-for a pipeline *protocol* - `docs/backends.md` is explicit that a hosting
-provider like RunPod is neither). What it actually is - a plugin with its
-own settings, its own admin-only API routes, and its own DB table - is
-exactly what `plugin.lifecycle.boot`/`enable`/`disable` are for; every other
-plugin shaped this way (spritesheet, video-editor, form-builder) uses the
-same three hooks for the same reason.
-
-`plugin.lifecycle.enable` fires only on the disabled->enabled transition, so
-anything that must be true on every process start belongs in
-`plugin.lifecycle.boot` instead - that one fires for every enabled plugin at
-startup, and again right after a runtime enable.
+`plugin.lifecycle.enable` fires only on the disabled->enabled transition;
+`plugin.lifecycle.boot` fires on every start the plugin is enabled for, and
+again right after a runtime enable.
 """
 
 import logging

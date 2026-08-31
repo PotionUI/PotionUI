@@ -1,15 +1,12 @@
 """The `ComputeProvisioner` contract: what a plugin implements to let core
-provision rented GPU compute (see `docs/remote-native.md`'s "Core side" and
-the `runpod-provider` plugin, the first implementation).
+provision rented GPU compute.
 
-A provisioner owns exactly one thing: turning a `ProvisionRequest` into a
-running Remote Native worker and reporting/tearing down its lifecycle. It
-never touches a `native.remote` backend row - that is core's job
-(`src.features.provisioning.operations`), driven by the `handle` a
-provisioner hands back from `provision()` and expects unchanged in every
-later `status`/`stop`/`terminate` call. What `handle` actually is is entirely
-the provisioner's choice (a profile name, a pod id, ...); core only ever
-stores and echoes it back.
+A provisioner turns a `ProvisionRequest` into a running Remote Native worker
+and reports/tears down its lifecycle. It never touches a `native.remote`
+backend row - that's core's job (`src.features.provisioning.operations`),
+driven by the `handle` a provisioner hands back from `provision()` and
+expects unchanged in later `status`/`stop`/`terminate` calls. `handle` is
+entirely the provisioner's choice; core only stores and echoes it back.
 """
 
 from __future__ import annotations
@@ -35,11 +32,7 @@ class ComputeFieldOptionV1:
 @dataclass(frozen=True)
 class ComputeFieldDescriptorV1:
     """One field a `ComputeProvisioner.describe_fields()` reports, describing
-    its own `provision()` inputs to the admin UI - the same self-description
-    idiom `BaseBackendConfig.engine_fields()` uses for an engine's own
-    settings (`src/features/backends/backend_config.py`), so the admin
-    "Remote Compute" form renders any provider's fields without core knowing
-    what any particular provider needs."""
+    its own `provision()` inputs to the admin UI."""
     key: str
     label: str
     type: str  # "text" | "number" | "select"
@@ -47,12 +40,10 @@ class ComputeFieldDescriptorV1:
     default: Optional[Any] = None
     help_text: Optional[str] = None
     options: Optional[List[ComputeFieldOptionV1]] = None
-    # Keys of other fields this one's own descriptor (options, in practice)
-    # depends on - e.g. a "gpu_type_id" select whose choices narrow once a
-    # "data_center" field is picked. Purely advisory for the admin UI (which
-    # fields to resubmit `values` for as the user fills the form); the actual
-    # resolution happens in `describe_fields(values)` below, keyed by field
-    # name, not by this list.
+    # Keys of other fields this descriptor's options depend on (e.g. a
+    # "gpu_type_id" select narrowed once "data_center" is picked). Advisory
+    # for the admin UI only - actual resolution happens in
+    # describe_fields(values).
     depends_on: List[str] = field(default_factory=list)
 
 
@@ -94,9 +85,8 @@ class ComputeProvisioner(ABC):
     """Implemented by a plugin (manifest `hooks: backend: - hook: "compute.register"`)
     to provision rented GPU compute running the Remote Native worker.
 
-    Registered by class, not instance - `ComputeProvisionerRegistry` instantiates
-    it once per process, the same way `BackendRegistry` instantiates a registered
-    backend class.
+    Registered by class, not instance - `ComputeProvisionerRegistry`
+    instantiates it once per process.
     """
 
     #: Stable id this provisioner registers under (e.g. "runpod"). Used as the

@@ -294,11 +294,7 @@ class DownloadQueue:
         The join alone does not contain it: a `../..`-laden relative path
         survives the join, and under `pathlib` semantics an absolute path
         (e.g. `/etc`) replaces `root` entirely rather than nesting under it.
-        Containment comes from what happens next - the joined result is
-        realpath-resolved (so a symlink hop out of the depot is caught too)
-        and checked against `root`; if it resolves to anywhere outside `root`,
-        this raises `DownloadQueueException` rather than silently re-rooting
-        the path.
+        Containment comes from what happens next, in `_verify_contained_dir`.
 
         A destination this process already resolved against the depot must NOT
         come back through here - joining a depot-rooted path onto the depot
@@ -322,9 +318,21 @@ class DownloadQueue:
 
         Takes a complete directory rather than a subdir to join, which is what
         an already-resolved destination needs: the check is what makes a path
-        acceptable, and it holds however the path was built. `candidate` is
-        realpath-resolved before the comparison, so a `../..` component or a
-        symlink hop out of the depot is caught rather than smuggled through.
+        acceptable, and it holds however the path was built.
+
+        Containment is LEXICAL: both paths are made absolute with
+        `os.path.abspath` (CWD-anchored, `..`-collapsing, but never following a
+        symlink) and compared with `os.path.commonpath` - deliberately not
+        `Path.resolve()`. A depot's type directories are routinely symlinks
+        into shared storage on real installs (e.g. `models/diffusion_models ->
+        /mnt/ssd2/models/diffusion_models`); realpath-resolving the candidate
+        would follow that symlink to a target outside the depot's own root and
+        reject a layout the admin deliberately configured. Nothing reachable
+        from here can plant a symlink itself - `requested`/`trusted_subdir` are
+        plain strings from an HTTP body, a plugin hook, or `TYPE_DIR_MAP` - so
+        lexical containment (no unresolved `..`, no drive/root swap via an
+        absolute component) is sufficient: `root/a/b` cannot land outside
+        `root` without one of those.
 
         Returns the path as given, not its resolved form: `models/checkpoints`
         is a symlink into shared storage on some installs, and baking the
@@ -332,15 +340,34 @@ class DownloadQueue:
         layout no longer explains. `label` names the path in the refusal when
         the caller has a more meaningful spelling of it than the joined result.
         """
-        root_path = Path(root)
-        resolved_root = root_path.resolve()
-        resolved_candidate = candidate.resolve()
-        if resolved_candidate != resolved_root and resolved_root not in resolved_candidate.parents:
+        root_abs = os.path.abspath(str(root))
+        candidate_abs = os.path.abspath(str(candidate))
+        if candidate_abs != root_abs and os.path.commonpath([root_abs, candidate_abs]) != root_abs:
             raise DownloadQueueException(
                 f"Destination directory '{label if label is not None else candidate}' "
                 f"escapes the configured directory '{root}'"
             )
         return candidate
+
+    @staticmethod
+    def _filename_from_url(url: str, fallback_prefix: str) -> str:
+        """A single safe path segment derived from `url`'s last path component.
+
+        Must unquote BEFORE splitting on `/`: an encoded segment like
+        `..%2F..%2Fetc%2Fcron` has no raw slash, so `os.path.basename` on the
+        still-encoded path leaves it whole, and unquoting afterwards turns it
+        into `../../etc/cron` - which `os.path.join(destination_dir, filename)`
+        then walks straight out of the depot. Decoding first makes
+        `os.path.basename` split on the real separators, collapsing any
+        traversal down to its last segment; that segment is still rejected if
+        it is `..`, `.`, empty, or itself carries a separator (e.g. the URL
+        path ended in `/foo/..`).
+        """
+        decoded_path = unquote(urlparse(url).path)
+        name = os.path.basename(decoded_path)
+        if not name or name in (".", "..") or os.sep in name or (os.altsep and os.altsep in name):
+            name = f"{fallback_prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        return name
 
     # ========== Queue Operations ==========
 
@@ -427,10 +454,7 @@ class DownloadQueue:
 
         # Extract filename from URL if not provided
         if not filename:
-            parsed = urlparse(url)
-            filename = unquote(os.path.basename(parsed.path))
-            if not filename:
-                filename = f"download_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            filename = self._filename_from_url(url, "download")
 
         destination_path = os.path.join(destination_dir, filename)
 
@@ -535,10 +559,7 @@ class DownloadQueue:
 
         # Extract filename from URL if not provided
         if not filename:
-            parsed = urlparse(url)
-            filename = unquote(os.path.basename(parsed.path))
-            if not filename:
-                filename = f"media_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            filename = self._filename_from_url(url, "media")
 
         destination_path = os.path.join(destination_dir, filename)
 

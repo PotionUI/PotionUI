@@ -303,6 +303,123 @@ class TestQueueModelDownloadDestinationResolution:
             depot / 'model.safetensors'
         ).resolve()
 
+    @pytest.mark.asyncio
+    async def test_plain_nested_requested_dir_is_accepted(self, manager_with_depot):
+        manager, depot = manager_with_depot
+        result = await self._queue(manager, destination_dir='nested/sub')
+
+        assert Path(result.destination_path).resolve() == (
+            depot / 'nested' / 'sub' / 'model.safetensors'
+        ).resolve()
+
+
+class TestQueueModelDownloadSymlinkedTypeDir:
+    """The bug this card fixes: on real installs a depot type directory is a
+    symlink into shared storage (e.g. `models/diffusion_models ->
+    /mnt/ssd2/models/diffusion_models`). `model_type="diffusion_models"` has
+    no entry in `TYPE_DIR_MAP` and falls through as its own literal name
+    (`TYPE_DIR_MAP.get(model_type, model_type)`), which used to be
+    realpath-resolved and rejected as escaping the depot even though the
+    symlink is the depot's own declared layout.
+    """
+
+    @pytest.fixture
+    def manager_with_symlinked_depot(self, mock_repository, mock_plugin_registry, tmp_path):
+        depot = tmp_path / "depot"
+        depot.mkdir()
+        outside = tmp_path / "shared-storage" / "diffusion_models"
+        outside.mkdir(parents=True)
+        (depot / "diffusion_models").symlink_to(outside, target_is_directory=True)
+
+        manager = DownloadQueue(
+            download_repository=mock_repository,
+            plugin_registry=mock_plugin_registry,
+            settings=_settings(models_dir=str(depot)),
+            connection_hub=AsyncMock(),
+        )
+        manager.worker = AsyncMock()
+        manager.worker.get_queue_position.return_value = 0
+        mock_repository.create.side_effect = lambda d: d
+        return manager, depot
+
+    async def _queue(self, manager, **kwargs):
+        with patch.object(manager, 'conn', AsyncMock()):
+            return await manager.queue_model_download(
+                url='https://example.com/model.safetensors',
+                filename='model.safetensors',
+                **kwargs,
+            )
+
+    @pytest.mark.asyncio
+    async def test_symlinked_type_dir_is_accepted(self, manager_with_symlinked_depot):
+        manager, depot = manager_with_symlinked_depot
+
+        result = await self._queue(manager, model_type='diffusion_models')
+
+        # Unresolved: the destination stays the depot's own symlink path, not
+        # the shared-storage target it points at.
+        assert Path(result.destination_path) == depot / 'diffusion_models' / 'model.safetensors'
+
+    @pytest.mark.asyncio
+    async def test_model_type_traversal_is_rejected(self, manager_with_symlinked_depot):
+        manager, _depot = manager_with_symlinked_depot
+
+        with pytest.raises(DownloadQueueException):
+            await self._queue(manager, model_type='../../etc')
+
+    @pytest.mark.asyncio
+    async def test_absolute_model_type_is_rejected(self, manager_with_symlinked_depot):
+        manager, _depot = manager_with_symlinked_depot
+
+        with pytest.raises(DownloadQueueException):
+            await self._queue(manager, model_type='/etc/cron.d')
+
+
+class TestQueueModelDownloadFilenameFromUrl:
+    """A filename derived from the URL when none is given, guarded against an
+    encoded traversal segment (`unquote` must run before `os.path.basename`
+    splits on `/`, not after)."""
+
+    @pytest.fixture
+    def manager_with_depot(self, mock_repository, mock_plugin_registry, tmp_path):
+        depot = tmp_path / "custom-depot"
+        manager = DownloadQueue(
+            download_repository=mock_repository,
+            plugin_registry=mock_plugin_registry,
+            settings=_settings(models_dir=str(depot)),
+            connection_hub=AsyncMock(),
+        )
+        manager.worker = AsyncMock()
+        manager.worker.get_queue_position.return_value = 0
+        mock_repository.create.side_effect = lambda d: d
+        return manager, depot
+
+    @pytest.mark.asyncio
+    async def test_encoded_traversal_filename_stays_contained(self, manager_with_depot):
+        manager, depot = manager_with_depot
+
+        with patch.object(manager, 'conn', AsyncMock()):
+            result = await manager.queue_model_download(
+                url='https://example.com/foo%2F..%2F..%2Fetc%2Fcron',
+            )
+
+        resolved = Path(result.destination_path).resolve()
+        assert depot.resolve() in resolved.parents
+        assert resolved.parent == depot.resolve()
+
+    @pytest.mark.asyncio
+    async def test_trailing_dotdot_segment_falls_back_to_generated_name(self, manager_with_depot):
+        manager, depot = manager_with_depot
+
+        with patch.object(manager, 'conn', AsyncMock()):
+            result = await manager.queue_model_download(
+                url='https://example.com/foo/..',
+            )
+
+        resolved = Path(result.destination_path).resolve()
+        assert resolved.parent == depot.resolve()
+        assert resolved.name not in ('..', '.', '')
+
 
 class TestQueueMediaDownload:
     """Tests for queue_media_download method."""

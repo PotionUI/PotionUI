@@ -357,21 +357,26 @@ class TestTrustedDestinationIsStillContained:
         enumerate_mock.assert_not_called()
         assert repo.rows == {}
 
-    async def test_trusted_symlink_hop_out_of_depot_is_rejected(
+    async def test_trusted_symlink_hop_through_depot_subdir_is_accepted(
         self, cwd_manager, repo, tmp_path
     ):
+        """A depot subdir symlinked into shared storage - the real-install
+        topology this containment check must not reject (that rejection is
+        the bug this test used to pin down) - is legitimate: nothing
+        reachable from `trusted_destination_dir` can plant a symlink itself,
+        so lexical containment under the depot is what matters, not where the
+        symlink target actually lives."""
         outside = tmp_path / "outside"
         outside.mkdir()
         (tmp_path / "depot" / "hop").symlink_to(outside, target_is_directory=True)
 
-        enumerate_mock = self._forbidden_enumerate()
-        with patch.object(DownloadQueue, "_enumerate_hf_repo", enumerate_mock):
-            with pytest.raises(DownloadQueueException, match="escapes the configured directory"):
-                await cwd_manager.queue_hf_repo_download(
-                    "org/tiny", trusted_destination_dir="depot/hop/weights"
-                )
-        enumerate_mock.assert_not_called()
-        assert repo.rows == {}
+        with patch.object(DownloadQueue, "_enumerate_hf_repo", return_value=list(_FILES)):
+            parent = await cwd_manager.queue_hf_repo_download(
+                "org/tiny", trusted_destination_dir="depot/hop/weights"
+            )
+
+        assert Path(parent.destination_path) == Path("depot/hop/weights")
+        assert repo.rows
 
     def test_ensure_local_hf_repo_target_outside_depot_is_rejected(self, cwd_manager, repo):
         """End to end through the sync wrapper, which is what actually marks a

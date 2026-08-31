@@ -48,6 +48,10 @@ _CONTAINER_DISK_GB = 20
 #: RunPod returns the GPU either way, distinguished only by this string.
 _OUT_OF_STOCK = {"none", ""}
 
+#: Ranks `stockStatus` for auto-picking a data center - unranked values (an
+#: unrecognized string, missing entirely) sort last, not first.
+_STOCK_RANK = {"high": 3, "medium": 2, "low": 1}
+
 #: Substrings RunPod's own pod-create error text uses when a GPU/data-center
 #: combo has no capacity right now - matched case-insensitively since the
 #: exact wording isn't a documented contract.
@@ -76,6 +80,47 @@ def _gpu_detail(gpu: GpuAvailability) -> Optional[str]:
     if gpu.stock_status:
         parts.append(f"{gpu.stock_status} stock")
     return " · ".join(parts) or None
+
+
+def _gpu_union_detail(entries: List[GpuAvailability]) -> Optional[str]:
+    """Detail for a `gpu_type_id` option built from every data center that
+    stocks it - unlike `_gpu_detail`, `entries` spans data centers, so this
+    summarizes stock rather than naming one center's `GpuAvailability`."""
+    parts = []
+    memory_gb = next((gpu.memory_gb for gpu in entries if gpu.memory_gb), None)
+    if memory_gb:
+        parts.append(f"{memory_gb} GB")
+    count = len(entries)
+    parts.append(f"available in {count} data center{'s' if count != 1 else ''}")
+    best = _best_stock_status(entries)
+    if best:
+        parts.append(f"best: {best} stock")
+    return " · ".join(parts) or None
+
+
+def _best_stock_status(entries: List[GpuAvailability]) -> Optional[str]:
+    ranked = [gpu for gpu in entries if (gpu.stock_status or "").strip().lower() in _STOCK_RANK]
+    if not ranked:
+        return None
+    return max(ranked, key=lambda gpu: _STOCK_RANK[gpu.stock_status.strip().lower()]).stock_status
+
+
+def _best_stocked_data_center(data_centers: List[LiveDataCenter], gpu_type_id: str) -> Optional[str]:
+    """The data center to auto-pick for `gpu_type_id`: highest `stockStatus`
+    first, then lowest data-center id for a deterministic tiebreak."""
+    candidates = []
+    for dc in data_centers:
+        gpu = next((g for g in dc.gpus if g.gpu_type_id == gpu_type_id), None)
+        if gpu is None:
+            continue
+        status = (gpu.stock_status or "").strip().lower()
+        if status in _OUT_OF_STOCK:
+            continue
+        candidates.append((_STOCK_RANK.get(status, 0), dc.id))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda pair: (-pair[0], pair[1]))
+    return candidates[0][1]
 
 
 class RunpodComputeProvisioner(ComputeProvisioner):
@@ -108,8 +153,8 @@ class RunpodComputeProvisioner(ComputeProvisioner):
         live_data_centers = await self._live_data_centers(settings.api_key)
 
         return [
-            self._data_center_field(settings, live_data_centers),
-            self._gpu_type_field(settings, values, live_data_centers),
+            self._gpu_type_field(settings, live_data_centers),
+            self._data_center_field(settings, values, live_data_centers),
             ComputeFieldDescriptorV1(
                 key="volume_size_gb",
                 label="Volume Size (GB)",
@@ -133,53 +178,63 @@ class RunpodComputeProvisioner(ComputeProvisioner):
             logger.warning("RunPod GraphQL catalog unavailable, using the static catalog instead: %s", exc)
             return None
 
-    def _data_center_field(
-        self, settings: RunPodSettings, live_data_centers: Optional[List[LiveDataCenter]]
-    ) -> ComputeFieldDescriptorV1:
-        if live_data_centers is not None:
-            options = [
-                ComputeFieldOptionV1(value=dc.id, label=dc.id, detail=dc.location or dc.name)
-                for dc in live_data_centers
-            ]
-            help_text = (
-                "The network volume and pod are created in this data center. "
-                "GPU availability varies by data center."
-            )
-        else:
-            options = [
-                ComputeFieldOptionV1(value=dc.id, label=dc.id, detail=dc.geography)
-                for dc in STATIC_DATACENTER_CATALOG
-            ]
-            help_text = (
-                "The network volume and pod are created in this data center. GPU availability varies "
-                "by data center. Showing the static catalog - RunPod's live catalog is unavailable."
-            )
+    async def _resolve_data_center_id(
+        self,
+        *,
+        requested: Optional[str],
+        gpu_type_id: str,
+        profile_name: str,
+        settings: RunPodSettings,
+    ) -> str:
+        """Resolution order: an explicit choice wins, but must agree with
+        this profile's existing network volume if it has one (the volume,
+        and the models on it, live in one data center for its lifetime).
+        Absent an explicit choice, the existing volume's data center wins;
+        failing that, the live catalog auto-picks the best-stocked data
+        center for `gpu_type_id`; failing that, the `region` plugin setting;
+        failing that, a clean error naming the field."""
+        pinned = self._pinned_data_center(profile_name)
 
-        return ComputeFieldDescriptorV1(
-            key="data_center_id",
-            label="Data Center",
-            type="select",
-            required=True,
-            # No fallback to a type-appropriate empty here: `dataCenterId` is a
-            # required RunPod field, and defaulting to "" would just recreate the
-            # bug this fixes (an empty string satisfies core's "value is present"
-            # check, so the actual data-center dropdown must never quietly submit
-            # empty - forcing an explicit choice when the optional `region`
-            # setting isn't set is the point).
-            default=settings.region or None,
-            help_text=help_text,
-            options=options,
+        if requested:
+            if pinned and requested != pinned:
+                raise ComputeProvisionerError(
+                    f"This backend's network volume already lives in '{pinned}' - its models are "
+                    "stored there. Choose that data center, or delete the existing volume before "
+                    "provisioning in a different one."
+                )
+            return requested
+
+        if pinned:
+            return pinned
+
+        live_data_centers = await self._live_data_centers(settings.api_key)
+        if live_data_centers is not None:
+            best = _best_stocked_data_center(live_data_centers, gpu_type_id)
+            if best is not None:
+                return best
+
+        if settings.region:
+            return settings.region
+
+        raise ComputeProvisionerError(
+            "'data_center_id' is required - RunPod's live catalog is unavailable, so a data "
+            "center can't be picked automatically. Choose one explicitly, or set 'region' in "
+            "the RunPod Provider plugin settings"
         )
 
+    def _pinned_data_center(self, profile_name: str) -> Optional[str]:
+        record = self._resources.get(profile_name, "network_volume")
+        if record is None:
+            return None
+        return record.meta.get("data_center_id")
+
     def _gpu_type_field(
-        self,
-        settings: RunPodSettings,
-        values: Dict[str, Any],
-        live_data_centers: Optional[List[LiveDataCenter]],
+        self, settings: RunPodSettings, live_data_centers: Optional[List[LiveDataCenter]]
     ) -> ComputeFieldDescriptorV1:
+        """The primary field: a RunPod Pod can float with no data center
+        pinned at all, so the GPU is what the admin actually chooses first -
+        `data_center_id` narrows *from* it, not the other way around."""
         if live_data_centers is None:
-            # GraphQL unavailable - the static catalog isn't scoped to any data
-            # center, so it can't be filtered; offer the full list unfiltered.
             return ComputeFieldDescriptorV1(
                 key="gpu_type_id",
                 label="GPU Type",
@@ -190,7 +245,6 @@ class RunpodComputeProvisioner(ComputeProvisioner):
                     "The GPU RunPod starts the pod on. Showing the static catalog - RunPod's live "
                     "catalog is unavailable."
                 ),
-                depends_on=["data_center_id"],
                 options=[
                     ComputeFieldOptionV1(
                         value=gpu.id,
@@ -201,24 +255,23 @@ class RunpodComputeProvisioner(ComputeProvisioner):
                 ],
             )
 
-        chosen_dc = values.get("data_center_id")
-        if not chosen_dc:
-            return ComputeFieldDescriptorV1(
-                key="gpu_type_id",
-                label="GPU Type",
-                type="select",
-                required=True,
-                default=settings.gpu_type_id,
-                help_text="Choose a data center first.",
-                depends_on=["data_center_id"],
-                options=[],
-            )
+        # Union across every data center - a GPU only needs to be in stock
+        # somewhere to be offered; `_data_center_field` narrows by data
+        # center once one is picked.
+        by_gpu: Dict[str, List[GpuAvailability]] = {}
+        for dc in live_data_centers:
+            for gpu in dc.gpus:
+                if (gpu.stock_status or "").strip().lower() in _OUT_OF_STOCK:
+                    continue
+                by_gpu.setdefault(gpu.gpu_type_id, []).append(gpu)
 
-        data_center = next((dc for dc in live_data_centers if dc.id == chosen_dc), None)
-        available = [
-            gpu
-            for gpu in (data_center.gpus if data_center else [])
-            if (gpu.stock_status or "").strip().lower() not in _OUT_OF_STOCK
+        options = [
+            ComputeFieldOptionV1(
+                value=gpu_type_id,
+                label=entries[0].gpu_type_display_name,
+                detail=_gpu_union_detail(entries),
+            )
+            for gpu_type_id, entries in sorted(by_gpu.items(), key=lambda kv: kv[1][0].gpu_type_display_name)
         ]
 
         return ComputeFieldDescriptorV1(
@@ -227,15 +280,79 @@ class RunpodComputeProvisioner(ComputeProvisioner):
             type="select",
             required=True,
             default=settings.gpu_type_id,
+            help_text="The GPU RunPod starts the pod on.",
+            options=options,
+        )
+
+    def _data_center_field(
+        self,
+        settings: RunPodSettings,
+        values: Dict[str, Any],
+        live_data_centers: Optional[List[LiveDataCenter]],
+    ) -> ComputeFieldDescriptorV1:
+        if live_data_centers is None:
+            # GraphQL unavailable - there is no stock data to auto-pick a data
+            # center from, so (unlike the live-catalog branch below) this
+            # stays a required, explicit choice.
+            return ComputeFieldDescriptorV1(
+                key="data_center_id",
+                label="Data Center",
+                type="select",
+                required=True,
+                default=settings.region or None,
+                help_text=(
+                    "The network volume and pod are created in this data center. Showing the "
+                    "static catalog - RunPod's live catalog is unavailable, so the data center "
+                    "can't be picked automatically; choose one explicitly."
+                ),
+                options=[
+                    ComputeFieldOptionV1(value=dc.id, label=dc.id, detail=dc.geography)
+                    for dc in STATIC_DATACENTER_CATALOG
+                ],
+            )
+
+        chosen_gpu = values.get("gpu_type_id")
+        if not chosen_gpu:
+            return ComputeFieldDescriptorV1(
+                key="data_center_id",
+                label="Data Center",
+                type="select",
+                required=False,
+                default=None,
+                help_text="Choose a GPU first.",
+                depends_on=["gpu_type_id"],
+                options=[],
+            )
+
+        scoped = []
+        for dc in live_data_centers:
+            gpu = next(
+                (
+                    g
+                    for g in dc.gpus
+                    if g.gpu_type_id == chosen_gpu and (g.stock_status or "").strip().lower() not in _OUT_OF_STOCK
+                ),
+                None,
+            )
+            if gpu is not None:
+                scoped.append(ComputeFieldOptionV1(value=dc.id, label=dc.id, detail=_gpu_detail(gpu)))
+
+        return ComputeFieldDescriptorV1(
+            key="data_center_id",
+            label="Data Center",
+            type="select",
+            required=False,
+            default=None,
             help_text=(
-                f"GPUs available in {chosen_dc}."
-                if available
-                else f"No GPUs currently in stock in {chosen_dc}."
+                "Automatic picks the best-stocked data center for this GPU. The network volume "
+                "(your models) is created there, and future pods for this backend stay there."
             ),
-            depends_on=["data_center_id"],
+            depends_on=["gpu_type_id"],
             options=[
-                ComputeFieldOptionV1(value=gpu.gpu_type_id, label=gpu.gpu_type_display_name, detail=_gpu_detail(gpu))
-                for gpu in available
+                ComputeFieldOptionV1(
+                    value="", label="Automatic", detail="Picks the best-stocked data center for this GPU."
+                ),
+                *scoped,
             ],
         )
 
@@ -249,24 +366,20 @@ class RunpodComputeProvisioner(ComputeProvisioner):
                 "Provider plugin settings"
             )
 
-        # `data_center_id` is required on RunPod's own `POST /networkvolumes` -
-        # core's own required-field validation already rejects a missing key, but
-        # not an empty string (a value only needs to be non-None to satisfy
-        # "present"), and a caller that bypasses the admin form's select entirely
-        # could still omit the key outright. Belt and braces beyond core: fall
-        # back to the optional `region` setting for an omitted key, then refuse
-        # to provision at all rather than send RunPod the empty string that
-        # produced "dataCenterId of required type String! was not provided".
-        data_center_id = request.values.get("data_center_id") or settings.region
-        if not data_center_id:
-            raise ComputeProvisionerError(
-                "'data_center_id' is required - choose a data center, or set "
-                "'region' in the RunPod Provider plugin settings"
-            )
+        gpu_type_id = request.values.get("gpu_type_id") or settings.gpu_type_id
+        if not gpu_type_id:
+            raise ComputeProvisionerError("'gpu_type_id' is required - choose a GPU")
+
+        data_center_id = await self._resolve_data_center_id(
+            requested=request.values.get("data_center_id") or None,
+            gpu_type_id=gpu_type_id,
+            profile_name=request.profile_name,
+            settings=settings,
+        )
 
         profile = ProvisioningProfile(
             name=request.profile_name,
-            gpu_type_id=request.values.get("gpu_type_id") or settings.gpu_type_id,
+            gpu_type_id=gpu_type_id,
             image_ref=image_ref,
             region=data_center_id,
             volume_size_gb=request.values.get("volume_size_gb") or settings.volume_size_gb,

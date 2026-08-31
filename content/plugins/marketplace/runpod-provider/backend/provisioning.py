@@ -117,7 +117,9 @@ class RunPodProvisioningManager:
                 size_gb=profile.volume_size_gb,
                 data_center_id=profile.region or "",
             )
-            self._resources.record(profile.name, "network_volume", volume.id)
+            self._resources.record(
+                profile.name, "network_volume", volume.id, meta={"data_center_id": volume.data_center_id}
+            )
             volume_id = volume.id
         else:
             volume_id = plan.existing_volume_id

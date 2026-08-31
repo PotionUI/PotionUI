@@ -148,6 +148,17 @@ async def test_provision_creates_a_new_volume_when_none_recorded(resources, repo
     assert resources.get("prof-1", "network_volume").runpod_id == result.volume_id
 
 
+async def test_provision_records_the_new_volumes_data_center_in_meta(resources, repo, client):
+    """The recorded data center is how a later `provision()` call for this
+    profile knows where the volume (and its models) already live - see
+    `provisioner.py`'s `_pinned_data_center`."""
+    manager = RunPodProvisioningManager(client, resources, repo, readiness_probe=_always_ready)
+
+    await manager.provision(_profile(region="US-TX-3"))
+
+    assert resources.get("prof-1", "network_volume").meta["data_center_id"] == "US-TX-3"
+
+
 async def test_provision_reuses_an_existing_volume_for_the_same_profile(resources, repo, client):
     resources.record("prof-1", "network_volume", "vol-existing")
     manager = RunPodProvisioningManager(client, resources, repo, readiness_probe=_always_ready)

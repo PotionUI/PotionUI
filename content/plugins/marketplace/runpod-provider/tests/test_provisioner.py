@@ -151,7 +151,10 @@ async def test_describe_fields_reports_gpu_type_and_volume_size(provisioner):
     assert by_key["volume_size_gb"].default == 100
 
 
-async def test_describe_fields_reports_data_center_as_a_required_select(provisioner):
+async def test_describe_fields_reports_data_center_as_required_in_fallback_mode(provisioner):
+    # `catalog_offline` (autouse) means no live catalog - there's no stock
+    # data to auto-pick a data center from, so it stays a required, explicit
+    # choice (unlike the live-catalog path below).
     fields = await provisioner.describe_fields()
 
     by_key = {f.key: f for f in fields}
@@ -172,27 +175,37 @@ async def test_describe_fields_data_center_has_no_default_when_region_setting_is
     assert by_key["data_center_id"].default is None
 
 
-async def test_describe_fields_gpu_type_declares_it_depends_on_data_center(provisioner):
-    # True both on the static-catalog fallback (exercised by every other test
-    # via the autouse `catalog_offline` fixture) and on the live-catalog path.
+async def test_describe_fields_gpu_type_never_depends_on_data_center(provisioner, monkeypatch):
+    # A RunPod Pod can float with no data center at all - GPU is the primary
+    # field. True both on the static-catalog fallback (via the autouse
+    # `catalog_offline` fixture) and on the live-catalog path.
+    fallback_fields = await provisioner.describe_fields()
+    assert {f.key: f for f in fallback_fields}["gpu_type_id"].depends_on == []
+
+    _fake_live_catalog(monkeypatch)
+    live_fields = await provisioner.describe_fields()
+    assert {f.key: f for f in live_fields}["gpu_type_id"].depends_on == []
+
+
+async def test_describe_fields_data_center_depends_on_gpu_type_in_live_mode(provisioner, monkeypatch):
+    _fake_live_catalog(monkeypatch)
+
     fields = await provisioner.describe_fields()
 
     by_key = {f.key: f for f in fields}
-    assert by_key["gpu_type_id"].depends_on == ["data_center_id"]
+    assert by_key["data_center_id"].depends_on == ["gpu_type_id"]
+    assert by_key["data_center_id"].required is False
 
 
 async def test_describe_fields_falls_back_to_static_catalogs_when_graphql_fails(provisioner):
     # `catalog_offline` (autouse) already makes `get_catalog` raise - this
     # test pins down the fallback's user-visible shape rather than relying
     # on the other tests' incidental assertions.
-    fields = await provisioner.describe_fields({"data_center_id": "US-TX-3"})
+    fields = await provisioner.describe_fields()
 
     by_key = {f.key: f for f in fields}
     assert "static catalog" in by_key["data_center_id"].help_text
     assert "static catalog" in by_key["gpu_type_id"].help_text
-    # The static GPU catalog isn't scoped by data center, so it stays the
-    # full unfiltered list even with a data center chosen.
-    assert len(by_key["gpu_type_id"].options) > 1
 
 
 def _fake_live_catalog(monkeypatch):
@@ -216,7 +229,19 @@ def _fake_live_catalog(monkeypatch):
                 ),
             ],
         ),
-        LiveDataCenter(id="US-TX-3", name="Texas", location="United States", gpus=[]),
+        LiveDataCenter(
+            id="US-TX-3",
+            name="Texas",
+            location="United States",
+            gpus=[
+                GpuAvailability(
+                    gpu_type_id="NVIDIA GeForce RTX 4090",
+                    gpu_type_display_name="RTX 4090",
+                    stock_status="Medium",
+                    memory_gb=24,
+                ),
+            ],
+        ),
     ]
 
     async def _get_catalog(api_key, **kwargs):
@@ -226,47 +251,65 @@ def _fake_live_catalog(monkeypatch):
     return data_centers
 
 
-async def test_describe_fields_data_center_options_come_from_the_live_catalog(provisioner, monkeypatch):
+async def test_describe_fields_gpu_type_options_are_unioned_across_data_centers(provisioner, monkeypatch):
     _fake_live_catalog(monkeypatch)
 
     fields = await provisioner.describe_fields()
 
     by_key = {f.key: f for f in fields}
-    values = {o.value for o in by_key["data_center_id"].options}
-    assert values == {"EU-NL-1", "US-TX-3"}
-    assert any(o.value == "EU-NL-1" and o.detail == "Netherlands" for o in by_key["data_center_id"].options)
+    options = by_key["gpu_type_id"].options
+    rtx = next(o for o in options if o.value == "NVIDIA GeForce RTX 4090")
+    assert "available in 2 data centers" in rtx.detail
+    assert "24 GB" in rtx.detail
 
 
-async def test_describe_fields_gpu_type_is_empty_until_a_data_center_is_chosen(provisioner, monkeypatch):
+async def test_describe_fields_gpu_type_excludes_a_gpu_with_no_stock_anywhere(provisioner, monkeypatch):
+    _fake_live_catalog(monkeypatch)  # H100 is "None" stock in the only data center listing it
+
+    fields = await provisioner.describe_fields()
+
+    by_key = {f.key: f for f in fields}
+    values = {o.value for o in by_key["gpu_type_id"].options}
+    assert "NVIDIA H100 80GB HBM3" not in values
+
+
+async def test_describe_fields_data_center_is_empty_until_a_gpu_is_chosen(provisioner, monkeypatch):
     _fake_live_catalog(monkeypatch)
 
     fields = await provisioner.describe_fields()
 
     by_key = {f.key: f for f in fields}
-    assert by_key["gpu_type_id"].options == []
-    assert "data center" in by_key["gpu_type_id"].help_text.lower()
+    assert by_key["data_center_id"].options == []
+    assert "gpu" in by_key["data_center_id"].help_text.lower()
 
 
-async def test_describe_fields_gpu_type_scopes_to_the_chosen_data_center_and_excludes_out_of_stock(
+async def test_describe_fields_data_center_options_scoped_to_the_chosen_gpu_and_excludes_out_of_stock(
     provisioner, monkeypatch
 ):
     _fake_live_catalog(monkeypatch)
 
-    fields = await provisioner.describe_fields({"data_center_id": "EU-NL-1"})
+    fields = await provisioner.describe_fields({"gpu_type_id": "NVIDIA H100 80GB HBM3"})
 
     by_key = {f.key: f for f in fields}
-    options = by_key["gpu_type_id"].options
-    assert [o.value for o in options] == ["NVIDIA GeForce RTX 4090"]
-    assert options[0].detail == "24 GB · High stock"
+    # H100 is only listed (out of stock) in EU-NL-1 - no data center stocks it.
+    real_options = [o for o in by_key["data_center_id"].options if o.value]
+    assert real_options == []
 
 
-async def test_describe_fields_gpu_type_is_empty_for_a_data_center_with_no_stock(provisioner, monkeypatch):
+async def test_describe_fields_data_center_options_include_an_automatic_choice(provisioner, monkeypatch):
     _fake_live_catalog(monkeypatch)
 
-    fields = await provisioner.describe_fields({"data_center_id": "US-TX-3"})
+    fields = await provisioner.describe_fields({"gpu_type_id": "NVIDIA GeForce RTX 4090"})
 
     by_key = {f.key: f for f in fields}
-    assert by_key["gpu_type_id"].options == []
+    options = by_key["data_center_id"].options
+    assert options[0].value == ""
+    assert options[0].label == "Automatic"
+    values = {o.value for o in options}
+    assert values == {"", "EU-NL-1", "US-TX-3"}
+    real = {o.value: o.detail for o in options if o.value}
+    assert real["EU-NL-1"] == "24 GB · High stock"
+    assert real["US-TX-3"] == "24 GB · Medium stock"
 
 
 async def test_provision_returns_connection_details_with_handle_as_profile_name(provisioner):
@@ -292,6 +335,106 @@ async def test_provision_sends_the_chosen_data_center_to_both_volume_and_pod(pro
     client = FakeRunPodClient.instances[-1]
     assert client.create_network_volume_calls[-1]["data_center_id"] == "EU-NL-1"
     assert client.create_pod_calls[-1]["data_center_ids"] == ["EU-NL-1"]
+
+
+def _fake_multi_stock_catalog(monkeypatch, entries, gpu_type_id="NVIDIA GeForce RTX 4090"):
+    """`entries` is `[(data_center_id, stock_status), ...]`, all for the same
+    `gpu_type_id` - lets a test control exactly which data center should win
+    an auto-pick."""
+    data_centers = [
+        LiveDataCenter(
+            id=dc_id,
+            name=dc_id,
+            location=None,
+            gpus=[
+                GpuAvailability(
+                    gpu_type_id=gpu_type_id, gpu_type_display_name="RTX 4090", stock_status=stock, memory_gb=24
+                )
+            ],
+        )
+        for dc_id, stock in entries
+    ]
+
+    async def _get_catalog(api_key, **kwargs):
+        return data_centers
+
+    monkeypatch.setattr(provisioner_module.catalog_client, "get_catalog", _get_catalog)
+    return data_centers
+
+
+async def test_provision_auto_picks_the_best_stocked_data_center(provisioner, monkeypatch):
+    _fake_multi_stock_catalog(monkeypatch, [("CA-MTL-1", "Medium"), ("US-TX-3", "High"), ("EU-NL-1", "Low")])
+
+    await provisioner.provision(
+        ProvisionRequest(profile_name="prof-1", values={"gpu_type_id": "NVIDIA GeForce RTX 4090"})
+    )
+
+    client = FakeRunPodClient.instances[-1]
+    assert client.create_network_volume_calls[-1]["data_center_id"] == "US-TX-3"
+    assert client.create_pod_calls[-1]["data_center_ids"] == ["US-TX-3"]
+
+
+async def test_provision_auto_pick_tiebreaks_deterministically_on_equal_stock(provisioner, monkeypatch):
+    _fake_multi_stock_catalog(monkeypatch, [("US-TX-3", "High"), ("CA-MTL-1", "High")])
+
+    await provisioner.provision(
+        ProvisionRequest(profile_name="prof-1", values={"gpu_type_id": "NVIDIA GeForce RTX 4090"})
+    )
+
+    client = FakeRunPodClient.instances[-1]
+    assert client.create_network_volume_calls[-1]["data_center_id"] == "CA-MTL-1"  # alphabetically first
+
+
+async def test_provision_auto_pick_respects_an_existing_volumes_data_center(provisioner, resources, monkeypatch):
+    """The volume (and the models on it) already lives in EU-NL-1 - the
+    auto-pick must reuse that, even though US-TX-3 is the better-stocked
+    choice for a brand-new volume."""
+    resources.record("prof-1", "network_volume", "vol-existing", meta={"data_center_id": "EU-NL-1"})
+    _fake_multi_stock_catalog(monkeypatch, [("US-TX-3", "High"), ("EU-NL-1", "Low")])
+
+    await provisioner.provision(
+        ProvisionRequest(profile_name="prof-1", values={"gpu_type_id": "NVIDIA GeForce RTX 4090"})
+    )
+
+    client = FakeRunPodClient.instances[-1]
+    assert client.create_network_volume_calls == []  # reused, not recreated
+    assert client.create_pod_calls[-1]["network_volume_id"] == "vol-existing"
+    assert client.create_pod_calls[-1]["data_center_ids"] == ["EU-NL-1"]
+
+
+async def test_provision_explicit_data_center_mismatching_the_existing_volume_raises(
+    provisioner, resources, monkeypatch
+):
+    resources.record("prof-1", "network_volume", "vol-existing", meta={"data_center_id": "EU-NL-1"})
+    _fake_multi_stock_catalog(monkeypatch, [("US-TX-3", "High"), ("EU-NL-1", "Low")])
+
+    with pytest.raises(ComputeProvisionerError, match="EU-NL-1"):
+        await provisioner.provision(
+            ProvisionRequest(
+                profile_name="prof-1",
+                values={"gpu_type_id": "NVIDIA GeForce RTX 4090", "data_center_id": "US-TX-3"},
+            )
+        )
+
+    assert FakeRunPodClient.instances == []
+
+
+async def test_provision_explicit_data_center_matching_the_existing_volume_succeeds(
+    provisioner, resources, monkeypatch
+):
+    resources.record("prof-1", "network_volume", "vol-existing", meta={"data_center_id": "EU-NL-1"})
+    _fake_multi_stock_catalog(monkeypatch, [("US-TX-3", "High"), ("EU-NL-1", "Low")])
+
+    result = await provisioner.provision(
+        ProvisionRequest(
+            profile_name="prof-1",
+            values={"gpu_type_id": "NVIDIA GeForce RTX 4090", "data_center_id": "EU-NL-1"},
+        )
+    )
+
+    assert result.handle == "prof-1"
+    client = FakeRunPodClient.instances[-1]
+    assert client.create_network_volume_calls == []
 
 
 async def test_provision_falls_back_to_the_region_setting_when_data_center_is_omitted(provisioner):

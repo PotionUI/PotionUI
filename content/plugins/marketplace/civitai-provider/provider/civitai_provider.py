@@ -20,6 +20,7 @@ from src.plugin_api import (
     ProviderConnectionError,
     ProviderRateLimitError,
     ProviderNotFoundError,
+    RemoteDownloadRef,
 )
 
 logger = logging.getLogger(__name__)
@@ -62,6 +63,7 @@ class CivitaiProvider(MarketplaceProviderBase):
                 ProviderCapability.MODEL_INFO,
                 ProviderCapability.MEDIA_DOWNLOAD,
                 ProviderCapability.PROMPT_FETCH,
+                ProviderCapability.REMOTE_DOWNLOAD,
             ],
             icon=None,  # Could be base64 encoded icon
             version="1.0.0"
@@ -305,6 +307,34 @@ class CivitaiProvider(MarketplaceProviderBase):
             raise ProviderConnectionError("Timeout getting download URL from CivitAI")
         except aiohttp.ClientError as e:
             raise ProviderConnectionError(f"Connection error: {e}")
+
+    async def resolve_remote_download(
+        self,
+        provider_model_id: str,
+        provider_version_id: Optional[str] = None
+    ) -> RemoteDownloadRef:
+        """
+        Resolve a CivitAI model to the pre-signed CDN URL a remote worker
+        can fetch without our API key.
+
+        Reuses prepare_download's redirect dance. If it doesn't land off
+        civitai.com (no API key, or the token-in-URL fallback), that's a
+        resolution failure - never hand an API key to a remote worker.
+        """
+        url = await self.get_download_url(provider_model_id, provider_version_id)
+        if not url:
+            raise ProviderNotFoundError(f"No download URL for CivitAI model {provider_model_id}")
+
+        session = await self._get_session()
+        headers: Dict[str, str] = {}
+        resolved_url = await self.prepare_download(session, url, headers)
+
+        if 'civitai.com/api/download' in resolved_url:
+            raise ProviderConnectionError(
+                "CivitAI did not return a pre-signed CDN URL; check the API key"
+            )
+
+        return RemoteDownloadRef(url=resolved_url, headers={})
 
     def get_settings_schema(self) -> Dict[str, Any]:
         """Get JSON schema for CivitAI provider settings."""

@@ -23,6 +23,7 @@ from src.features.providers import (
     ProviderPromptItem,
     ProviderRateLimitError,
     ProviderSearchResult,
+    RemoteDownloadRef,
 )
 from src.features.providers.registry import get_provider_registry
 from src.features.models.records import ModelInfo
@@ -39,5 +40,6 @@ __all__ = [
     "ProviderPromptItem",
     "ProviderRateLimitError",
     "ProviderSearchResult",
+    "RemoteDownloadRef",
     "get_provider_registry",
 ]

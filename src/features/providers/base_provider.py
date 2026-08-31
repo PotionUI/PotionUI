@@ -22,6 +22,7 @@ class ProviderCapability(Enum):
     MEDIA_DOWNLOAD = auto()    # Can download preview media (images/videos)
     PROMPT_FETCH = auto()      # Can import browse-only prompt examples
     API_KEY_REQUIRED = auto()  # Requires API key for authentication
+    REMOTE_DOWNLOAD = auto()   # Can resolve a credential-free URL a remote worker can fetch
 
 
 class ProviderError(Exception):
@@ -166,6 +167,20 @@ class ProviderPromptItem(TypedDict, total=False):
     nsfw: bool
     source_url: str
     metadata: Dict[str, Any]
+
+
+@dataclass
+class RemoteDownloadRef:
+    """A credential-free URL a remote worker can fetch a model from.
+
+    Headers are empty for a truly pre-signed URL; a provider that must attach
+    a header-based token instead should treat that as a resolution failure
+    rather than hand the token to an untrusted remote worker.
+    """
+
+    url: str
+    headers: Dict[str, str] = field(default_factory=dict)
+    expires_hint: Optional[str] = None
 
 
 class MarketplaceProviderBase(ABC):
@@ -315,6 +330,32 @@ class MarketplaceProviderBase(ABC):
             NotImplementedError: If provider doesn't support download URLs
         """
         raise NotImplementedError("This provider does not support download URLs")
+
+    async def resolve_remote_download(
+        self,
+        provider_model_id: str,
+        provider_version_id: Optional[str] = None
+    ) -> RemoteDownloadRef:
+        """
+        Resolve a model to a URL a remote (untrusted) worker can download
+        from without ever seeing this provider's credentials.
+
+        Optional method - only required if provider has REMOTE_DOWNLOAD
+        capability. Implementations must resolve credentials host-side (e.g.
+        a pre-signed, time-limited CDN URL) and return empty headers, or
+        raise rather than expose a token.
+
+        Args:
+            provider_model_id: Model ID on the provider
+            provider_version_id: Optional version ID
+
+        Returns:
+            A RemoteDownloadRef safe to hand to a remote worker
+
+        Raises:
+            NotImplementedError: If provider doesn't support remote download resolution
+        """
+        raise NotImplementedError("This provider does not support remote download resolution")
 
     async def fetch_image_prompts(self, **kwargs) -> List[ProviderPromptItem]:
         """Return prompt browsing records when PROMPT_FETCH is advertised."""

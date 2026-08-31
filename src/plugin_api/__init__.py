@@ -56,6 +56,7 @@ from src.plugin_api.providers import (
     ProviderPromptItem,
     ProviderRateLimitError,
     ProviderSearchResult,
+    RemoteDownloadRef,
     get_provider_registry,
 )
 
@@ -192,6 +193,7 @@ __all__ = [
     "ProviderPromptItem",
     "ProviderRateLimitError",
     "ProviderSearchResult",
+    "RemoteDownloadRef",
     "get_provider_registry",
     # Chat
     "BaseTool",

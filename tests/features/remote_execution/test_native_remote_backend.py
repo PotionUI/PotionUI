@@ -738,3 +738,22 @@ class TestDirectoryLayoutModelRefusal(NativeRemoteBackendTestCase):
         self.assertIn("my-preset", errors[0].error)
         self.assertIn("directory", errors[0].error)
         self.assertNotIn("Traceback", errors[0].error)
+
+
+class TestModelListing(unittest.TestCase):
+    def test_remote_backend_lists_the_hosts_models(self):
+        from unittest.mock import patch as mock_patch
+
+        from src.features.backends.model_listing import BackendModel
+
+        config = NativeRemoteBackendConfig(
+            id="r1", name="Remote", base_url="http://w", worker_token="t",
+        )
+        backend = RemoteNativeBackend(config)
+        self.assertTrue(backend.supports_model_listing())
+
+        fake = [BackendModel(model_type="checkpoint", filename="a.safetensors", ref="/m/a.safetensors")]
+        with mock_patch("src.features.backends.native_model_scan.scan_native_models", return_value=fake), \
+             mock_patch("src.platform.settings.settings.Settings.get_models_dir", return_value="/m"):
+            models = asyncio.run(backend.list_models())
+        self.assertEqual(models, fake)

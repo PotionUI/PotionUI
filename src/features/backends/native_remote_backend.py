@@ -123,6 +123,21 @@ class RemoteNativeBackend(BaseBackend):
             "build": compute_build_fingerprint(os.getenv("POTIONUI_BUILD_ID") or None),
         }
 
+    def supports_model_listing(self) -> bool:
+        return True
+
+    async def list_models(self):
+        """The host's models are this backend's capability set: dispatch
+        pushes any file the worker's depot is missing before submit."""
+        from src.platform.settings.repository import SettingRepository
+        from src.platform.settings.settings import Settings
+
+        from .model_listing import deduplicate
+        from .native_model_scan import scan_native_models
+
+        models_dir = Settings(SettingRepository()).get_models_dir()
+        return deduplicate(scan_native_models(models_dir))
+
     def prepare_pipes(self, pipes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """No-op, deliberately. Unlike `NativeBackend.prepare_pipes`, this
         backend must NOT inject device/dtype/vram_limit_gb into pipe configs -

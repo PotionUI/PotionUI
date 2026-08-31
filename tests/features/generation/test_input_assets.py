@@ -152,3 +152,15 @@ class TestDeterminism:
 
         assert manifest is None
         assert rewritten[0].config == {"steps": 20}
+
+
+class TestPromptLengthStringsAreNotPaths:
+    def test_a_prompt_longer_than_a_filename_passes_through_untouched(self, storage_dir):
+        prompt = ", ".join(f"tag{i}" for i in range(120)) + ",\nsecond line, more tags"
+        assert len(prompt) > 255
+        pipes = [_pipe("generator", {"prompt": prompt})]
+
+        rewritten, manifest, _sources = collect_input_assets(pipes, storage_dir)
+
+        assert manifest is None
+        assert rewritten[0].config["prompt"] == prompt

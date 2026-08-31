@@ -111,9 +111,11 @@ class _Collector:
             return None
         try:
             resolved = resolve_within(self._storage_root, value)
+            # is_file() stats and raises ENAMETOOLONG for prompt-length
+            # strings, so it must sit inside this try too.
+            if resolved is None or not resolved.is_file():
+                return None
         except OSError:
-            return None
-        if resolved is None or not resolved.is_file():
             return None
         return resolved
 

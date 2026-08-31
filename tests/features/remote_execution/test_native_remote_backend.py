@@ -812,20 +812,72 @@ class TestDirectoryLayoutModelRefusal(NativeRemoteBackendTestCase):
         self.assertNotIn("Traceback", errors[0].error)
 
 
-class TestModelListing(unittest.TestCase):
-    def test_remote_backend_lists_the_hosts_models(self):
-        from unittest.mock import patch as mock_patch
+class TestModelListing(NativeRemoteBackendTestCase):
+    def test_out_of_band_files_are_listed_without_digest(self):
+        depot = self.worker_container.model_depot.depot_dir / "checkpoints"
+        depot.mkdir(parents=True, exist_ok=True)
+        (depot / "sshdrop.safetensors").write_bytes(b"dropped over ssh, no sidecar")
 
-        from src.features.backends.model_listing import BackendModel
+        backend = self._backend(self.worker_app)
+        models = asyncio.run(backend.list_models())
 
-        config = NativeRemoteBackendConfig(
-            id="r1", name="Remote", base_url="http://w", worker_token="t",
-        )
-        backend = RemoteNativeBackend(config)
+        entry = next(m for m in models if m.filename == "sshdrop.safetensors")
+        self.assertEqual(entry.model_type, "checkpoint")
+        self.assertEqual(entry.ref, "checkpoints/sshdrop.safetensors")
+        self.assertIsNone(entry.sha256)
+
+    def test_lists_the_seeded_depot_entries_with_type_filename_ref_and_sha(self):
+        content = b"fake checkpoint bytes"
+        self._seed_worker_depot(self.worker_container, role="checkpoint", filename="a.safetensors", content=content)
+
+        backend = self._backend(self.worker_app)
         self.assertTrue(backend.supports_model_listing())
 
-        fake = [BackendModel(model_type="checkpoint", filename="a.safetensors", ref="/m/a.safetensors")]
-        with mock_patch("src.features.backends.native_model_scan.scan_native_models", return_value=fake), \
-             mock_patch("src.platform.settings.settings.Settings.get_models_dir", return_value="/m"):
-            models = asyncio.run(backend.list_models())
-        self.assertEqual(models, fake)
+        models = self._run(backend.list_models())
+
+        self.assertEqual(len(models), 1)
+        model = models[0]
+        self.assertEqual(model.model_type, "checkpoint")
+        self.assertEqual(model.filename, "a.safetensors")
+        self.assertEqual(model.ref, "checkpoints/a.safetensors")
+        self.assertEqual(model.size, len(content))
+        self.assertEqual(model.sha256, hashlib.sha256(content).hexdigest())
+
+    def test_an_empty_depot_lists_nothing(self):
+        backend = self._backend(self.worker_app)
+        self.assertEqual(self._run(backend.list_models()), [])
+
+    def test_a_nested_relative_path_maps_its_type_from_the_first_segment(self):
+        content = b"lora bytes"
+        self._seed_worker_depot(
+            self.worker_container, role="lora", filename="sub/style.safetensors", content=content,
+        )
+
+        backend = self._backend(self.worker_app)
+        models = self._run(backend.list_models())
+
+        self.assertEqual(len(models), 1)
+        model = models[0]
+        self.assertEqual(model.model_type, "lora")
+        self.assertEqual(model.filename, "style.safetensors")
+        self.assertEqual(model.ref, "loras/sub/style.safetensors")
+
+    def test_out_of_band_files_are_listed_without_digest(self):
+        # Placed directly on disk (e.g. via SSH), bypassing ModelDepot.stage -
+        # no `.digest` sidecar exists, and list_entries never hashes to list.
+        depot_dir = self.worker_container.model_depot.depot_dir
+        content = b"placed directly on disk, no sidecar"
+        dest = depot_dir / "checkpoints" / "manual.safetensors"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(content)
+
+        backend = self._backend(self.worker_app)
+        models = self._run(backend.list_models())
+
+        self.assertEqual(len(models), 1)
+        model = models[0]
+        self.assertEqual(model.model_type, "checkpoint")
+        self.assertEqual(model.filename, "manual.safetensors")
+        self.assertEqual(model.ref, "checkpoints/manual.safetensors")
+        self.assertEqual(model.size, len(content))
+        self.assertIsNone(model.sha256)

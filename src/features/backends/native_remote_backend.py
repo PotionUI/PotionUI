@@ -125,16 +125,26 @@ class RemoteNativeBackend(BaseBackend):
         return True
 
     async def list_models(self):
-        """The host's models are this backend's capability set: dispatch
-        pushes any file the worker's depot is missing before submit."""
-        from src.platform.settings.repository import SettingRepository
-        from src.platform.settings.settings import Settings
+        """The worker depot's own listing, not the host's - mirrors how
+        ComfyUIBackend reports its own server's models."""
+        from src.platform.filesystem.model_types import DIRECTORY_TO_MODEL_TYPE
 
-        from .model_listing import deduplicate
-        from .native_model_scan import scan_native_models
+        from .model_listing import BackendModel, deduplicate
 
-        models_dir = Settings(SettingRepository()).get_models_dir()
-        return deduplicate(scan_native_models(models_dir))
+        entries = await self._transport().list_models()
+        models = [
+            BackendModel(
+                model_type=DIRECTORY_TO_MODEL_TYPE.get(
+                    entry["relative_path"].split("/", 1)[0], entry["relative_path"].split("/", 1)[0],
+                ),
+                filename=entry["relative_path"].rsplit("/", 1)[-1],
+                ref=entry["relative_path"],
+                size=entry.get("size_bytes"),
+                sha256=entry.get("digest"),
+            )
+            for entry in entries
+        ]
+        return deduplicate(models)
 
     def prepare_pipes(self, pipes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """No-op, deliberately. Unlike `NativeBackend.prepare_pipes`, this

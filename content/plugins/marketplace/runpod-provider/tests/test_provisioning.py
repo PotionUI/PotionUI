@@ -10,6 +10,8 @@ import pytest
 import backend.resources as resources_module
 from backend.client import NetworkVolume, Pod, RunPodAPIError, RunPodNotFoundError
 from backend.provisioning import (
+    NETWORK_VOLUME_CREATE,
+    NETWORK_VOLUME_NONE,
     ProvisioningProfile,
     RunPodProvisioningManager,
 )
@@ -72,6 +74,7 @@ class FakeRunPodClient:
         self.created_pods.append({
             "name": name, "image_name": image_name, "gpu_type_ids": gpu_type_ids,
             "env": env, "ports": ports, "network_volume_id": network_volume_id,
+            "volume_mount_path": volume_mount_path,
             "container_registry_auth_id": container_registry_auth_id,
         })
         return Pod(
@@ -205,6 +208,34 @@ async def test_provision_retry_after_a_failed_pod_create_reuses_the_volume(resou
 
     assert len(failing_client.created_volumes) == 1  # not recreated on retry
     assert result.volume_id == recorded_volume_id
+
+
+# ---- provision: network_volume mode ("__none__" / existing id) ------------
+
+async def test_provision_none_mode_creates_no_volume_and_omits_it_from_the_pod(resources, repo, client):
+    manager = RunPodProvisioningManager(client, resources, repo, readiness_probe=_always_ready)
+
+    result = await manager.provision(_profile(network_volume=NETWORK_VOLUME_NONE))
+
+    assert client.created_volumes == []
+    assert client.created_pods[0]["network_volume_id"] is None
+    assert client.created_pods[0]["volume_mount_path"] == "/workspace"
+    assert result.volume_id is None
+    assert resources.get("prof-1", "network_volume") is None
+
+
+async def test_provision_existing_volume_id_is_used_directly_and_recorded(resources, repo, client):
+    manager = RunPodProvisioningManager(client, resources, repo, readiness_probe=_always_ready)
+
+    result = await manager.provision(_profile(network_volume="vol-account-1", region="EU-NL-1"))
+
+    assert client.created_volumes == []  # not created, not looked up again - the caller already verified it
+    assert result.volume_id == "vol-account-1"
+    assert client.created_pods[0]["network_volume_id"] == "vol-account-1"
+    assert client.created_pods[0]["volume_mount_path"] == "/models"
+    recorded = resources.get("prof-1", "network_volume")
+    assert recorded.runpod_id == "vol-account-1"
+    assert recorded.meta["data_center_id"] == "EU-NL-1"
 
 
 async def test_provision_creates_pod_with_env_and_http_port(resources, repo, client):

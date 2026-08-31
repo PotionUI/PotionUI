@@ -24,8 +24,13 @@ from src.plugin_api.compute import (
 from . import catalog_client
 from .catalog_client import DataCenter as LiveDataCenter
 from .catalog_client import GpuAvailability, RunPodCatalogError
-from .client import RunPodAPIError, RunPodClient
-from .provisioning import ProvisioningProfile, RunPodProvisioningManager
+from .client import NetworkVolume, RunPodAPIError, RunPodClient
+from .provisioning import (
+    NETWORK_VOLUME_CREATE,
+    NETWORK_VOLUME_NONE,
+    ProvisioningProfile,
+    RunPodProvisioningManager,
+)
 from .resources import RunPodResourceManager
 from .settings import RunPodSettings, load_settings
 
@@ -151,18 +156,67 @@ class RunpodComputeProvisioner(ComputeProvisioner):
                 "Check the API key in the RunPod Provider plugin settings and retry."
             )
 
-        return [
+        volumes = await self._account_volumes(settings.api_key)
+
+        fields = [
             self._gpu_type_field(settings, live_data_centers),
-            self._data_center_field(settings, values, live_data_centers),
-            ComputeFieldDescriptorV1(
-                key="volume_size_gb",
-                label="Volume Size (GB)",
-                type="number",
-                required=True,
-                default=settings.volume_size_gb,
-                help_text="Size of the persistent network volume models are cached on.",
+            self._network_volume_field(volumes),
+            self._data_center_field(settings, values, live_data_centers, volumes),
+        ]
+        if values.get("network_volume", NETWORK_VOLUME_CREATE) == NETWORK_VOLUME_CREATE:
+            fields.append(
+                ComputeFieldDescriptorV1(
+                    key="volume_size_gb",
+                    label="Volume Size (GB)",
+                    type="number",
+                    required=True,
+                    default=settings.volume_size_gb,
+                    help_text="Size of the persistent network volume models are cached on.",
+                    depends_on=["network_volume"],
+                )
+            )
+        return fields
+
+    async def _account_volumes(self, api_key: str) -> List[NetworkVolume]:
+        """The account's existing network volumes, or `[]` if listing fails -
+        a degraded form (create/none only) rather than a hard refusal, since
+        `describe_fields` already refuses loudly when the catalog itself is
+        unreachable."""
+        client = RunPodClient(api_key=api_key)
+        try:
+            return await client.list_network_volumes()
+        except RunPodAPIError as exc:
+            logger.warning("RunPod network volume listing unavailable: %s", exc)
+            return []
+        finally:
+            await client.aclose()
+
+    def _network_volume_field(self, volumes: List[NetworkVolume]) -> ComputeFieldDescriptorV1:
+        options = [
+            ComputeFieldOptionV1(value=NETWORK_VOLUME_CREATE, label="Create new volume"),
+            ComputeFieldOptionV1(
+                value=NETWORK_VOLUME_NONE,
+                label="No persistent storage",
+                detail="Models re-upload on every new pod.",
+            ),
+            *(
+                ComputeFieldOptionV1(
+                    value=volume.id,
+                    label=volume.name,
+                    detail=f"{volume.id} · {volume.size_gb} GB · {volume.data_center_id}",
+                )
+                for volume in volumes
             ),
         ]
+        return ComputeFieldDescriptorV1(
+            key="network_volume",
+            label="Network Volume",
+            type="select",
+            required=True,
+            default=NETWORK_VOLUME_CREATE,
+            help_text="Persistent storage for cached models across pods.",
+            options=options,
+        )
 
     async def _live_data_centers(self, api_key: Optional[str]) -> Optional[List[LiveDataCenter]]:
         """The live catalog, or `None` with the reason on `self._catalog_error`."""
@@ -182,18 +236,16 @@ class RunpodComputeProvisioner(ComputeProvisioner):
         *,
         requested: Optional[str],
         gpu_type_id: str,
-        profile_name: str,
+        pinned: Optional[str],
         settings: RunPodSettings,
     ) -> str:
         """Resolution order: an explicit choice wins, but must agree with
-        this profile's existing network volume if it has one (the volume,
-        and the models on it, live in one data center for its lifetime).
-        Absent an explicit choice, the existing volume's data center wins;
-        failing that, the live catalog auto-picks the best-stocked data
-        center for `gpu_type_id`; failing that, the `region` plugin setting;
-        failing that, a clean error naming the field."""
-        pinned = self._pinned_data_center(profile_name)
-
+        `pinned` if given (the network volume being used, and the models on
+        it, live in one data center for its lifetime). Absent an explicit
+        choice, `pinned` wins; failing that, the live catalog auto-picks the
+        best-stocked data center for `gpu_type_id`; failing that, the
+        `region` plugin setting; failing that, a clean error naming the
+        field."""
         if requested:
             if pinned and requested != pinned:
                 raise ComputeProvisionerError(
@@ -269,9 +321,27 @@ class RunpodComputeProvisioner(ComputeProvisioner):
         settings: RunPodSettings,
         values: Dict[str, Any],
         live_data_centers: List[LiveDataCenter],
+        volumes: List[NetworkVolume],
     ) -> ComputeFieldDescriptorV1:
         """Only ever called with a live catalog - `describe_fields` raises
         before this point when the catalog is unreachable."""
+        chosen_volume_id = values.get("network_volume")
+        pinned_volume = None
+        if chosen_volume_id and chosen_volume_id not in (NETWORK_VOLUME_CREATE, NETWORK_VOLUME_NONE):
+            pinned_volume = next((v for v in volumes if v.id == chosen_volume_id), None)
+
+        if pinned_volume is not None:
+            return ComputeFieldDescriptorV1(
+                key="data_center_id",
+                label="Data Center",
+                type="select",
+                required=True,
+                default=pinned_volume.data_center_id,
+                help_text="Pinned by the selected volume.",
+                depends_on=["gpu_type_id", "network_volume"],
+                options=[ComputeFieldOptionV1(value=pinned_volume.data_center_id, label=pinned_volume.data_center_id)],
+            )
+
         chosen_gpu = values.get("gpu_type_id")
         if not chosen_gpu:
             return ComputeFieldDescriptorV1(
@@ -281,7 +351,7 @@ class RunpodComputeProvisioner(ComputeProvisioner):
                 required=False,
                 default=None,
                 help_text="Choose a GPU first.",
-                depends_on=["gpu_type_id"],
+                depends_on=["gpu_type_id", "network_volume"],
                 options=[],
             )
 
@@ -308,7 +378,7 @@ class RunpodComputeProvisioner(ComputeProvisioner):
                 "Automatic picks the best-stocked data center for this GPU. The network volume "
                 "(your models) is created there, and future pods for this backend stay there."
             ),
-            depends_on=["gpu_type_id"],
+            depends_on=["gpu_type_id", "network_volume"],
             options=[
                 ComputeFieldOptionV1(
                     value="", label="Automatic", detail="Picks the best-stocked data center for this GPU."
@@ -331,31 +401,49 @@ class RunpodComputeProvisioner(ComputeProvisioner):
         if not gpu_type_id:
             raise ComputeProvisionerError("'gpu_type_id' is required - choose a GPU")
 
-        data_center_id = await self._resolve_data_center_id(
-            requested=request.values.get("data_center_id") or None,
-            gpu_type_id=gpu_type_id,
-            profile_name=request.profile_name,
-            settings=settings,
-        )
+        network_volume = request.values.get("network_volume") or NETWORK_VOLUME_CREATE
 
-        profile = ProvisioningProfile(
-            name=request.profile_name,
-            gpu_type_id=gpu_type_id,
-            image_ref=image_ref,
-            region=data_center_id,
-            volume_size_gb=request.values.get("volume_size_gb") or settings.volume_size_gb,
-            worker_port=_WORKER_PORT,
-            container_disk_gb=_CONTAINER_DISK_GB,
-            container_registry_auth_id=settings.container_registry_auth_id,
-        )
-
-        client = RunPodClient(api_key=settings.api_key)
+        # A brand-new client only if an explicit existing volume needs
+        # verifying up front - the create/none paths never touch RunPod
+        # until data_center_id has resolved cleanly.
+        client: Optional[RunPodClient] = None
         try:
+            if network_volume == NETWORK_VOLUME_NONE:
+                pinned = None
+            elif network_volume == NETWORK_VOLUME_CREATE:
+                pinned = self._pinned_data_center(request.profile_name)
+            else:
+                client = RunPodClient(api_key=settings.api_key)
+                existing_volume = await client.get_network_volume(network_volume)
+                pinned = existing_volume.data_center_id
+
+            data_center_id = await self._resolve_data_center_id(
+                requested=request.values.get("data_center_id") or None,
+                gpu_type_id=gpu_type_id,
+                pinned=pinned,
+                settings=settings,
+            )
+
+            profile = ProvisioningProfile(
+                name=request.profile_name,
+                gpu_type_id=gpu_type_id,
+                image_ref=image_ref,
+                region=data_center_id,
+                volume_size_gb=request.values.get("volume_size_gb") or settings.volume_size_gb,
+                worker_port=_WORKER_PORT,
+                container_disk_gb=_CONTAINER_DISK_GB,
+                container_registry_auth_id=settings.container_registry_auth_id,
+                network_volume=network_volume,
+            )
+
+            if client is None:
+                client = RunPodClient(api_key=settings.api_key)
             result = await self._manager(client).provision(profile)
         except RunPodAPIError as exc:
             raise ComputeProvisionerError(_with_capacity_hint(str(exc))) from exc
         finally:
-            await client.aclose()
+            if client is not None:
+                await client.aclose()
 
         return ProvisionResult(
             handle=request.profile_name,

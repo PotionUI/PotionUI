@@ -30,6 +30,11 @@ STATUS_STOPPED = "stopped"
 STATUS_MISSING = "missing"
 STATUS_UNREACHABLE = "unreachable"
 
+#: `ProvisioningProfile.network_volume` sentinels; any other value is an
+#: existing volume's RunPod id.
+NETWORK_VOLUME_CREATE = "__create__"
+NETWORK_VOLUME_NONE = "__none__"
+
 
 async def default_readiness_probe(base_url: str, worker_token: str) -> bool:
     """GET /v1/worker through the RunPod HTTP proxy - the same handshake
@@ -55,18 +60,13 @@ class ProvisioningProfile:
     worker_port: int = 8100
     container_registry_auth_id: Optional[str] = None
     container_disk_gb: int = 20
-
-
-@dataclass(frozen=True)
-class ProvisionPlan:
-    create_volume: bool
-    existing_volume_id: Optional[str]
+    network_volume: str = NETWORK_VOLUME_CREATE
 
 
 @dataclass(frozen=True)
 class ProvisionResult:
     pod_id: str
-    volume_id: str
+    volume_id: Optional[str]
     base_url: str
     worker_token: str
     ready: bool
@@ -97,39 +97,43 @@ class RunPodProvisioningManager:
         self._repo = plugin_repository
         self._readiness_probe = readiness_probe or default_readiness_probe
 
-    def plan(self, profile: ProvisioningProfile) -> ProvisionPlan:
+    async def _create_or_reuse_volume(self, profile: ProvisioningProfile) -> str:
+        """Reuses this profile's own recorded volume when there is one. A
+        recorded volume can be deleted out-of-band (RunPod console); verify
+        before reuse and recreate on 404."""
         existing = self._resources.get(profile.name, "network_volume")
-        return ProvisionPlan(
-            create_volume=existing is None,
-            existing_volume_id=existing.runpod_id if existing else None,
-        )
-
-    async def provision(self, profile: ProvisioningProfile) -> ProvisionResult:
-        plan = self.plan(profile)
-
-        volume_id = None
-        if not plan.create_volume:
-            # A recorded volume can be deleted out-of-band (RunPod console);
-            # verify before reuse and recreate on 404.
+        if existing is not None:
             try:
-                existing = await self._client.get_network_volume(plan.existing_volume_id)
-                volume_id = existing.id
+                volume = await self._client.get_network_volume(existing.runpod_id)
+                return volume.id
             except RunPodNotFoundError:
                 self._resources.delete(profile.name, "network_volume")
 
-        if volume_id is None:
-            volume = await self._client.create_network_volume(
-                name=f"potionui-{profile.name}",
-                size_gb=profile.volume_size_gb,
-                data_center_id=profile.region or "",
-            )
+        volume = await self._client.create_network_volume(
+            name=f"potionui-{profile.name}",
+            size_gb=profile.volume_size_gb,
+            data_center_id=profile.region or "",
+        )
+        self._resources.record(
+            profile.name, "network_volume", volume.id, meta={"data_center_id": volume.data_center_id}
+        )
+        return volume.id
+
+    async def provision(self, profile: ProvisioningProfile) -> ProvisionResult:
+        if profile.network_volume == NETWORK_VOLUME_NONE:
+            volume_id = None
+        elif profile.network_volume == NETWORK_VOLUME_CREATE:
+            volume_id = await self._create_or_reuse_volume(profile)
+        else:
+            # An admin-selected existing volume - the caller already
+            # verified it exists and resolved `profile.region` from it.
+            volume_id = profile.network_volume
             self._resources.record(
-                profile.name, "network_volume", volume.id, meta={"data_center_id": volume.data_center_id}
+                profile.name, "network_volume", volume_id, meta={"data_center_id": profile.region}
             )
-            volume_id = volume.id
 
         worker_token = generate_worker_token()
-        pod = await self._client.create_pod(
+        create_pod_kwargs: Dict[str, Any] = dict(
             name=f"potionui-{profile.name}",
             image_name=profile.image_ref,
             container_registry_auth_id=profile.container_registry_auth_id,
@@ -142,10 +146,12 @@ class RunPodProvisioningManager:
             },
             ports=[f"{profile.worker_port}/http"],
             network_volume_id=volume_id,
-            volume_mount_path="/models",
             container_disk_in_gb=profile.container_disk_gb,
             data_center_ids=[profile.region] if profile.region else None,
         )
+        if volume_id:
+            create_pod_kwargs["volume_mount_path"] = "/models"
+        pod = await self._client.create_pod(**create_pod_kwargs)
         self._resources.record(
             profile.name, "pod", pod.id, meta={"worker_port": profile.worker_port}
         )

@@ -12,8 +12,9 @@ import backend.provisioner as provisioner_module
 import backend.resources as resources_module
 from backend.catalog_client import DataCenter as LiveDataCenter
 from backend.catalog_client import GpuAvailability, RunPodCatalogError
-from backend.client import NetworkVolume, Pod, RunPodAPIError
+from backend.client import NetworkVolume, Pod, RunPodAPIError, RunPodNotFoundError
 from backend.provisioner import ComputeProvisionerError, RunpodComputeProvisioner
+from backend.provisioning import NETWORK_VOLUME_CREATE, NETWORK_VOLUME_NONE
 from backend.resources import RunPodResourceManager
 from src.plugin_api.compute import ComputeProvisionerError, ProvisionRequest
 
@@ -49,6 +50,10 @@ class FakeRunPodClient:
     #: it actually used from here rather than injecting one.
     instances = []
 
+    #: Class-level so `_account_volumes()` (a fresh instance per call) sees
+    #: whatever a test seeded, without needing to inject an instance.
+    network_volumes = []
+
     def __init__(self, api_key: str):
         self.api_key = api_key
         self.create_network_volume_calls = []
@@ -60,6 +65,9 @@ class FakeRunPodClient:
 
     async def get_network_volume(self, volume_id):
         return NetworkVolume(id=volume_id, name="existing", size_gb=100, data_center_id="EU-NL-1")
+
+    async def list_network_volumes(self):
+        return list(FakeRunPodClient.network_volumes)
 
     async def create_network_volume(self, *, name, size_gb, data_center_id):
         self.create_network_volume_calls.append(
@@ -133,6 +141,7 @@ def catalog_offline(monkeypatch):
 @pytest.fixture
 def provisioner(resources, repo, monkeypatch):
     FakeRunPodClient.instances = []
+    FakeRunPodClient.network_volumes = []
     monkeypatch.setattr(provisioner_module, "RunPodClient", FakeRunPodClient)
     import backend.provisioning as provisioning_module
     monkeypatch.setattr(provisioning_module, "default_readiness_probe", _always_ready)
@@ -192,7 +201,7 @@ async def test_describe_fields_data_center_depends_on_gpu_type_in_live_mode(prov
     fields = await provisioner.describe_fields()
 
     by_key = {f.key: f for f in fields}
-    assert by_key["data_center_id"].depends_on == ["gpu_type_id"]
+    assert by_key["data_center_id"].depends_on == ["gpu_type_id", "network_volume"]
     assert by_key["data_center_id"].required is False
 
 
@@ -306,6 +315,68 @@ async def test_describe_fields_data_center_options_include_an_automatic_choice(p
     real = {o.value: o.detail for o in options if o.value}
     assert real["EU-NL-1"] == "24 GB · High stock"
     assert real["US-TX-3"] == "24 GB · Medium stock"
+
+
+async def test_describe_fields_network_volume_options_include_account_volumes(provisioner, monkeypatch):
+    _fake_live_catalog(monkeypatch)
+    FakeRunPodClient.network_volumes = [
+        NetworkVolume(id="vol-1", name="my-models", size_gb=200, data_center_id="EU-NL-1")
+    ]
+
+    fields = await provisioner.describe_fields()
+
+    by_key = {f.key: f for f in fields}
+    options = by_key["network_volume"].options
+    assert {o.value for o in options} == {"__create__", "__none__", "vol-1"}
+    assert by_key["network_volume"].default == "__create__"
+    account_option = next(o for o in options if o.value == "vol-1")
+    assert account_option.label == "my-models"
+    assert account_option.detail == "vol-1 · 200 GB · EU-NL-1"
+
+
+async def test_describe_fields_network_volume_degrades_when_listing_fails(provisioner, monkeypatch):
+    _fake_live_catalog(monkeypatch)
+
+    async def _raise(self):
+        raise RunPodAPIError(500, "listing unavailable")
+
+    monkeypatch.setattr(FakeRunPodClient, "list_network_volumes", _raise)
+
+    fields = await provisioner.describe_fields()
+
+    by_key = {f.key: f for f in fields}
+    assert {o.value for o in by_key["network_volume"].options} == {"__create__", "__none__"}
+
+
+async def test_describe_fields_volume_size_present_only_when_creating(provisioner, monkeypatch):
+    _fake_live_catalog(monkeypatch)
+
+    default_fields = await provisioner.describe_fields()
+    assert "volume_size_gb" in {f.key for f in default_fields}
+
+    none_fields = await provisioner.describe_fields({"network_volume": NETWORK_VOLUME_NONE})
+    assert "volume_size_gb" not in {f.key for f in none_fields}
+
+    existing_fields = await provisioner.describe_fields({"network_volume": "vol-1"})
+    assert "volume_size_gb" not in {f.key for f in existing_fields}
+
+
+async def test_describe_fields_data_center_pinned_by_selected_existing_volume(provisioner, monkeypatch):
+    _fake_live_catalog(monkeypatch)
+    FakeRunPodClient.network_volumes = [
+        NetworkVolume(id="vol-1", name="my-models", size_gb=200, data_center_id="EU-NL-1")
+    ]
+
+    fields = await provisioner.describe_fields(
+        {"gpu_type_id": "NVIDIA GeForce RTX 4090", "network_volume": "vol-1"}
+    )
+
+    by_key = {f.key: f for f in fields}
+    dc_field = by_key["data_center_id"]
+    assert dc_field.required is True
+    assert dc_field.default == "EU-NL-1"
+    assert [o.value for o in dc_field.options] == ["EU-NL-1"]
+    assert "pinned" in dc_field.help_text.lower()
 
 
 async def test_provision_returns_connection_details_with_handle_as_profile_name(provisioner):
@@ -431,6 +502,75 @@ async def test_provision_explicit_data_center_matching_the_existing_volume_succe
     assert result.handle == "prof-1"
     client = FakeRunPodClient.instances[-1]
     assert client.create_network_volume_calls == []
+
+
+async def test_provision_none_mode_skips_the_volume_entirely(provisioner, resources):
+    result = await provisioner.provision(
+        ProvisionRequest(
+            profile_name="prof-1",
+            values={"gpu_type_id": "NVIDIA GeForce RTX 4090", "network_volume": NETWORK_VOLUME_NONE},
+        )
+    )
+
+    client = FakeRunPodClient.instances[-1]
+    assert client.create_network_volume_calls == []
+    assert client.create_pod_calls[-1]["network_volume_id"] is None
+    assert resources.get("prof-1", "network_volume") is None
+    assert result.handle == "prof-1"
+
+
+async def test_provision_with_existing_volume_id_pins_dc_and_records_it(provisioner, resources, monkeypatch):
+    # The catalog's best-stocked auto-pick is US-TX-3 - the volume's own DC
+    # (EU-NL-1, per the fake's `get_network_volume`) must win anyway.
+    _fake_multi_stock_catalog(monkeypatch, [("US-TX-3", "High"), ("EU-NL-1", "Low")])
+
+    result = await provisioner.provision(
+        ProvisionRequest(
+            profile_name="prof-1",
+            values={"gpu_type_id": "NVIDIA GeForce RTX 4090", "network_volume": "vol-account-1"},
+        )
+    )
+
+    client = FakeRunPodClient.instances[-1]
+    assert client.create_network_volume_calls == []
+    assert client.create_pod_calls[-1]["network_volume_id"] == "vol-account-1"
+    assert client.create_pod_calls[-1]["data_center_ids"] == ["EU-NL-1"]  # from the fake's get_network_volume
+    recorded = resources.get("prof-1", "network_volume")
+    assert recorded.runpod_id == "vol-account-1"
+    assert recorded.meta["data_center_id"] == "EU-NL-1"
+    assert result.handle == "prof-1"
+
+
+async def test_provision_with_stale_explicit_volume_id_raises_clean_error_naming_it(provisioner, monkeypatch):
+    async def _raise_not_found(self, volume_id):
+        raise RunPodNotFoundError(404, f"/networkvolumes/{volume_id} not found")
+
+    monkeypatch.setattr(FakeRunPodClient, "get_network_volume", _raise_not_found)
+
+    with pytest.raises(ComputeProvisionerError, match="vol-gone"):
+        await provisioner.provision(
+            ProvisionRequest(
+                profile_name="prof-1",
+                values={"gpu_type_id": "NVIDIA GeForce RTX 4090", "network_volume": "vol-gone"},
+            )
+        )
+
+
+async def test_provision_with_existing_volume_id_and_conflicting_data_center_raises(provisioner):
+    # The fake's `get_network_volume` always reports "EU-NL-1".
+    with pytest.raises(ComputeProvisionerError, match="EU-NL-1"):
+        await provisioner.provision(
+            ProvisionRequest(
+                profile_name="prof-1",
+                values={
+                    "gpu_type_id": "NVIDIA GeForce RTX 4090",
+                    "network_volume": "vol-account-1",
+                    "data_center_id": "US-TX-3",
+                },
+            )
+        )
+
+    assert FakeRunPodClient.instances[-1].create_pod_calls == []
 
 
 async def test_provision_falls_back_to_the_region_setting_when_data_center_is_omitted(provisioner):

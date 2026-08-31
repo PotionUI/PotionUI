@@ -524,6 +524,11 @@ export interface Backend {
 	is_default: boolean;
 	priority: number;
 	timeout_seconds: number;
+	/** Whether this backend has everything it needs to actually run (see
+	 * `BaseBackendConfig.is_configured`) — distinct from `enabled`. A
+	 * `native.remote` backend can be saved with no worker connected yet;
+	 * every other driver is always configured. */
+	configured: boolean;
 	quick_actions?: BackendQuickAction[];
 	/** Engine-specific settings, flat. Which keys exist depends on the engine. */
 	[key: string]: unknown;
@@ -1164,6 +1169,10 @@ export async function updateToolGovernance(
 export interface ComputeProvider {
 	provider_id: string;
 	label: string;
+	/** An optional referral/signup link for this provider (e.g. RunPod's) and
+	 * the note to show alongside it - both "" when the provider has none. */
+	signup_url: string;
+	signup_note: string;
 }
 
 /** One choice in a `select`-typed `ComputeField`. */
@@ -1184,6 +1193,10 @@ export interface ComputeField {
 	default: string | number | boolean | null;
 	help_text: string | null;
 	options: ComputeFieldOption[] | null;
+	/** Keys of other fields whose value narrows this field's own `options`
+	 * (e.g. `gpu_type_id` depends on `data_center_id`) — re-POST `fields`
+	 * with the current `values` whenever one of these changes. */
+	depends_on: string[];
 }
 
 export interface ProvisionedCompute {
@@ -1203,9 +1216,13 @@ export interface ProvisionedCompute {
 
 export interface ProvisionComputeRequest {
 	provider_id: string;
-	name: string;
+	/** Existing `native.remote` backend row this provision fills in — see
+	 * `src.features.provisioning.operations.provision_compute`. Provisioning
+	 * no longer mints a new backend row. */
+	backend_id: string;
+	/** Defaults server-side to the target backend's own name. */
+	name?: string;
 	values: Record<string, unknown>;
-	backend_name?: string;
 }
 
 export async function getComputeProviders(): Promise<APIResponse<{ providers: ComputeProvider[] }>> {
@@ -1213,8 +1230,15 @@ export async function getComputeProviders(): Promise<APIResponse<{ providers: Co
 	return response.data;
 }
 
-export async function getProviderFields(providerId: string): Promise<APIResponse<{ fields: ComputeField[] }>> {
-	const response = await api.getClient().get(`/api/admin/provisioning/providers/${providerId}/fields`);
+/** `values` is whatever the form has been filled in with so far (possibly
+ * partial) — a provider whose descriptors declare `depends_on` uses it to
+ * resolve a dependent field's options (e.g. narrowing `gpu_type_id` once
+ * `data_center_id` is picked). */
+export async function getProviderFields(
+	providerId: string,
+	values: Record<string, unknown> = {}
+): Promise<APIResponse<{ fields: ComputeField[] }>> {
+	const response = await api.getClient().post(`/api/admin/provisioning/providers/${providerId}/fields`, { values });
 	return response.data;
 }
 

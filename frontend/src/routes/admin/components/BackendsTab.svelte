@@ -2,14 +2,13 @@
 	import { logger, getErrorMessage, getApiErrorMessage } from '$lib/utils/logger';
 	import { onMount } from 'svelte';
 	import { isAxiosError } from 'axios';
-	import type { ComputeProvider, EngineDescriptor, EngineField, IndexModelsResult, BackendStats } from '$lib/services/admin-api';
+	import type { EngineDescriptor, EngineField, IndexModelsResult, BackendStats } from '$lib/services/admin-api';
 	import {
 		indexBackendModels,
 		getBackendStats,
 		getBackendEngines,
 		getBackends,
 		getAllBackendsHealth,
-		getComputeProviders,
 		createBackend,
 		updateBackend,
 		deleteBackend as deleteBackendRequest,
@@ -19,7 +18,7 @@
 	import { toasts } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';
 	import { timeAgo } from '$lib/utils/relativeTime';
-	import { Button, Badge, Spinner, EmptyState, Input, Switch, Alert, SegmentedControl } from '$lib/components/ui';
+	import { Button, Badge, Spinner, EmptyState, Input, Switch, Alert } from '$lib/components/ui';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import BackendForm from './BackendForm.svelte';
@@ -32,11 +31,9 @@
 	import type { Backend, BackendHealth } from '$lib/services/admin-api';
 	import BackendOptimizations from './BackendOptimizations.svelte';
 	import BackendQuickActions from './BackendQuickActions.svelte';
-	import RemoteWorkerProvisionForm from './RemoteWorkerProvisionForm.svelte';
 	import BackendInfrastructureSection from './BackendInfrastructureSection.svelte';
 
 	type DetailTab = 'overview' | 'optimizations' | 'stats';
-	type CreateSource = 'connect' | 'provision';
 
 	// The two built-in `native` drivers (see backend_config.py). Both are core,
 	// not plugin-contributed, so - like the pre-existing `engine === 'native'`
@@ -58,12 +55,6 @@
 	let backends: Backend[] = [];
 	let backendsHealth: BackendHealth[] = [];
 	let engines: EngineDescriptor[] = [];
-	// Compute providers, for the create modal's Connect/Provision toggle - a
-	// provider always provisions a native.remote backend (see
-	// src.features.provisioning.operations.provision_compute), so this is the
-	// only extra state the create flow needs beyond `engines`.
-	let providers: ComputeProvider[] = [];
-	let createSource: CreateSource = 'connect';
 	let loading = true;
 	let error: string | null = null;
 	let searchQuery = '';
@@ -195,15 +186,14 @@
 	// Fields declared by the driver of the backend currently being edited in the pane.
 	$: activeEditEngineFields = engines.length ? fieldsFor(editFormData.driver ?? '') : [];
 
-	// Whether the create modal offers "Provision new compute" alongside "Connect to
-	// existing worker" - only meaningful once native.remote is the selected driver,
-	// and only when at least one compute provider plugin is enabled.
-	$: showCreateSourceToggle = formData.driver === NATIVE_REMOTE_DRIVER && providers.length > 0;
-
 	// Gates the create modal's "Create Backend" button. Its inputs are plain
 	// onclick handlers, not a <form> submit, so the HTML `required` attributes
 	// BackendForm sets never block a click - without this, a required field left
-	// empty (e.g. native.remote's Worker URL) submits anyway and 400s server-side.
+	// empty submits anyway and 400s server-side. native.remote's own connection
+	// fields (Worker URL/Token) are NOT required here - the server accepts a
+	// bare, unconfigured native.remote row (see BaseBackendConfig.is_configured);
+	// they're connected by hand later or filled by BackendInfrastructureSection's
+	// provision form.
 	$: canCreateBackend =
 		!saving &&
 		!isBlank(formData.name) &&
@@ -264,7 +254,6 @@
 		await loadEngines();
 		await loadBackends();
 		await loadBackendsHealth();
-		await loadProviders();
 	});
 
 	// Load supported backend engines
@@ -296,17 +285,6 @@
 			engines = valid;
 		} catch (e: unknown) {
 			logger.warn('Failed to load backend engines:', getErrorMessage(e));
-		}
-	}
-
-	// Load compute providers, for the create modal's Provision toggle. Best-effort -
-	// no provider plugin enabled just means that toggle never appears.
-	async function loadProviders() {
-		try {
-			const response = await getComputeProviders();
-			if (response.success && response.data) providers = response.data.providers;
-		} catch (e: unknown) {
-			logger.warn('Failed to load compute providers:', getErrorMessage(e));
 		}
 	}
 
@@ -345,25 +323,23 @@
 	// Open create modal
 	function openCreateModal() {
 		formData = emptyFormData(defaultCreatableDriver());
-		createSource = 'connect';
 		showModal = true;
 	}
 
 	/** Reseed driver-declared defaults when the admin picks a different engine/driver. */
 	function onDriverChange(driver: string) {
 		formData = emptyFormData(driver);
-		createSource = 'connect';
 	}
 
 	// Close modal
 	function closeModal() {
 		showModal = false;
 		formData = emptyFormData();
-		createSource = 'connect';
 	}
 
-	// Create a new backend from the modal form ("Connect to existing worker" for
-	// native.remote, or any other driver's own form).
+	// Create a new backend from the modal form. For native.remote this creates
+	// a bare, unconfigured row (connection fields are optional) - connecting or
+	// provisioning it happens afterward, in the detail pane.
 	async function saveBackend() {
 		if (!canCreateBackend) return;
 		saving = true;
@@ -388,23 +364,27 @@
 		}
 	}
 
-	// Called by RemoteWorkerProvisionForm once provisioning has created the backend
-	// itself - this file never builds that payload, since it's a different endpoint
-	// (POST /api/admin/provisioning) with its own provider-defined field shapes.
-	async function handleRemoteWorkerCreated(backendId: string) {
+	// Called by BackendInfrastructureSection once it has provisioned compute into
+	// the selected backend (POST /api/admin/provisioning) - the backend row itself
+	// is unchanged in identity, just now configured+enabled, so refresh the list
+	// and the pane's edit draft rather than re-selecting.
+	async function handleInfrastructureProvisioned() {
 		await loadBackends();
 		await loadBackendsHealth();
-		closeModal();
-		selectBackend(backendId);
+		if (selectedBackendId) {
+			loadEditForm(backends.find((b) => b.id === selectedBackendId) ?? null);
+		}
 	}
 
-	// Terminating provisioned infrastructure removes its linked backend row -
-	// the currently-selected backend no longer exists once this fires.
+	// Terminating provisioned infrastructure clears the linked backend's connection
+	// and disables it (see provisioning.operations.terminate_compute) - the row
+	// survives as "Not configured", so keep it selected and refresh its edit draft.
 	async function handleInfrastructureTerminated() {
 		await loadBackends();
 		await loadBackendsHealth();
-		selectedBackendId = null;
-		loadEditForm(null);
+		if (selectedBackendId) {
+			loadEditForm(backends.find((b) => b.id === selectedBackendId) ?? null);
+		}
 	}
 
 	// Select a backend for the detail pane, loading its edit draft. If the
@@ -888,6 +868,7 @@
 										</h2>
 										<Badge variant="neutral" size="sm" class="font-mono uppercase">{formatDriverLabel(activeBackend.driver)}</Badge>
 										{#if activeBackend.is_default}<Badge variant="signal" size="sm" class="uppercase">Default</Badge>{/if}
+										{#if !activeBackend.configured}<Badge variant="warning" size="sm" class="uppercase">Not configured</Badge>{/if}
 										{#if activeHealth}<Badge variant={getHealthVariant(activeHealth.health.status)} size="sm" dot class="{activeIsHealthy ? 'health-dot-pulse' : ''} uppercase">{activeHealth.health.status}</Badge>{/if}
 									</div>
 
@@ -963,10 +944,13 @@
 										{#key activeBackend.id}
 											<BackendInfrastructureSection
 												backendId={activeBackend.id}
+												backendDriver={activeBackend.driver}
+												configured={activeBackend.configured}
 												onStopped={() => {
 													loadBackends();
 													loadBackendsHealth();
 												}}
+												onProvisioned={handleInfrastructureProvisioned}
 												onTerminated={handleInfrastructureTerminated}
 											/>
 										{/key}
@@ -1058,46 +1042,31 @@
 	on:close={closeModal}
 >
 	<div class="px-6 py-4">
-		{#if showCreateSourceToggle}
-			<div class="mb-5">
-				<SegmentedControl
-					items={[
-						{ id: 'connect', label: 'Connect to existing worker', icon: 'cpu' },
-						{ id: 'provision', label: 'Provision new compute', icon: 'zap' }
-					]}
-					selected={createSource}
-					onSelect={(id) => (createSource = id as CreateSource)}
-					ariaLabel="Remote worker source"
-				/>
-			</div>
+		{#if formData.driver === NATIVE_REMOTE_DRIVER}
+			<Alert variant="info" density="compact" class="mb-5">
+				Connect or provision this worker after creating it — the fields below are optional.
+			</Alert>
 		{/if}
-
-		{#if formData.driver === NATIVE_REMOTE_DRIVER && createSource === 'provision'}
-			<RemoteWorkerProvisionForm {providers} onCreated={handleRemoteWorkerCreated} onCancel={closeModal} />
-		{:else}
-			<BackendForm
-				bind:draft={formData}
-				mode="create"
-				layout="plain"
-				idPrefix="create-backend"
-				engineMutable={true}
-				{creatableEngines}
-				{onDriverChange}
-				fieldDescriptors={activeEngineFields}
-				enabledPlacement="inline"
-			/>
-		{/if}
+		<BackendForm
+			bind:draft={formData}
+			mode="create"
+			layout="plain"
+			idPrefix="create-backend"
+			engineMutable={true}
+			{creatableEngines}
+			{onDriverChange}
+			fieldDescriptors={activeEngineFields}
+			enabledPlacement="inline"
+		/>
 	</div>
 
 	<svelte:fragment slot="footer">
-		{#if !(formData.driver === NATIVE_REMOTE_DRIVER && createSource === 'provision')}
-			<div class="px-6 py-4 flex gap-3">
-				<Button variant="primary" class="flex-1" loading={saving} disabled={!canCreateBackend} onclick={saveBackend}>
-					{saving ? 'Creating…' : 'Create Backend'}
-				</Button>
-				<Button variant="secondary" onclick={closeModal}>Cancel</Button>
-			</div>
-		{/if}
+		<div class="px-6 py-4 flex gap-3">
+			<Button variant="primary" class="flex-1" loading={saving} disabled={!canCreateBackend} onclick={saveBackend}>
+				{saving ? 'Creating…' : 'Create Backend'}
+			</Button>
+			<Button variant="secondary" onclick={closeModal}>Cancel</Button>
+		</div>
 	</svelte:fragment>
 </BaseModal>
 

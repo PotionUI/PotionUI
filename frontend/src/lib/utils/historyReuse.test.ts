@@ -28,6 +28,7 @@ function makeBackend(id: string): Backend {
 		name: id,
 		engine: 'native',
 		driver: 'native.local',
+		configured: true,
 		enabled: true,
 		is_default: false,
 		priority: 0,

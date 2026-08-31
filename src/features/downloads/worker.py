@@ -785,7 +785,7 @@ class DownloadWorker:
             relative_path=_relative_depot_path(download, self.settings.default_model_directory),
             url=ref.url,
             headers=ref.headers or None,
-            expected_digest=ContentDigest(algorithm="sha256", hex=download.checksum_sha256)
+            expected_digest=ContentDigest(algorithm="sha256", hex=download.checksum_sha256.lower())
             if download.checksum_sha256 else None,
         )
         transfer_id = await transport.fetch_model(request)

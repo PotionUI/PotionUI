@@ -6,6 +6,7 @@ idiom as `tests/features/remote_execution/test_ops.py`.
 
 from __future__ import annotations
 
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -232,6 +233,20 @@ class TestRemoteDownloadHappyPath(RemoteDestinationTestCase):
             if call.args[1] == 1.0
         ]
         self.assertTrue(final_progress_calls)
+
+
+class TestRemoteDownloadChecksumNormalization(RemoteDestinationTestCase):
+    async def test_an_uppercase_checksum_is_lowercased_for_the_pod_fetch(self):
+        download = self._download(url="https://cdn.example.invalid/model.safetensors")
+        download.checksum_sha256 = hashlib.sha256(self.UPSTREAM_CONTENT).hexdigest().upper()
+        worker = self._worker(download=download)
+        worker.session = MagicMock()
+
+        await worker._process_download(download.id)
+
+        self.assertEqual(download.status, DownloadStatus.COMPLETED)
+        entries = self.model_depot.list_entries()
+        self.assertEqual(len(entries), 1)
 
 
 class TestRemoteDownloadProviderCapabilityGuard(RemoteDestinationTestCase):

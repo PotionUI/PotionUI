@@ -117,7 +117,6 @@ class RunPodClient:
                 headers={
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json",
-                    # Same Cloudflare bot-rule guard as catalog_client.USER_AGENT.
                     "User-Agent": "PotionUI (+https://github.com/PotionUI/PotionUI)",
                 },
             ),

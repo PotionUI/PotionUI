@@ -150,10 +150,8 @@ class RunpodComputeProvisioner(ComputeProvisioner):
         values = values or {}
         live_data_centers = await self._live_data_centers(settings.api_key)
 
-        # No live catalog, no form. A static GPU list x a static data-center
-        # list with no stock data is a guessing game over combinations that
-        # mostly don't exist - refusing loudly (the admin UI shows this
-        # message with a retry) beats rendering guesswork.
+        # No live catalog, no form - static lists with no stock data would
+        # just make the admin guess at combinations.
         if live_data_centers is None:
             raise ComputeProvisionerError(
                 "RunPod's catalog is unreachable, so GPU availability can't be shown "
@@ -175,12 +173,7 @@ class RunpodComputeProvisioner(ComputeProvisioner):
         ]
 
     async def _live_data_centers(self, api_key: Optional[str]) -> Optional[List[LiveDataCenter]]:
-        """RunPod's live GraphQL catalog, or `None` (logged, never raised) on
-        a missing key or any catalog-fetch failure - callers fall back to the
-        static catalogs on `None`, exactly like this plugin did before the
-        live catalog existed. The failure reason is kept on
-        `self._catalog_error` so the fallback form can NAME it - a silently
-        degraded form is undebuggable from a screenshot."""
+        """The live catalog, or `None` with the reason on `self._catalog_error`."""
         self._catalog_error: Optional[str] = None
         if not api_key:
             self._catalog_error = "no RunPod API key configured"

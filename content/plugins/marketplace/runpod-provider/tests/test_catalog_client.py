@@ -14,8 +14,7 @@ from backend.catalog_client import (
 
 CATALOG_PAYLOAD = {
     "data": {
-        "myself": {
-            "dataCenters": [
+        "dataCenters": [
                 {
                     "id": "US-TX-3",
                     "name": "Texas",
@@ -45,8 +44,7 @@ CATALOG_PAYLOAD = {
                         },
                     ],
                 },
-            ]
-        },
+        ],
         "gpuTypes": [
             {"id": "NVIDIA GeForce RTX 4090", "displayName": "RTX 4090", "memoryInGb": 24},
             {"id": "NVIDIA H100 80GB HBM3", "displayName": "H100 80GB", "memoryInGb": 80},
@@ -188,11 +186,11 @@ async def test_get_catalog_keys_the_cache_by_api_key():
 
 
 @pytest.mark.asyncio
-async def test_fetch_catalog_rejects_myself_null_instead_of_serving_empty():
-    """A 200 with `myself: null` is unauthenticated, not an empty catalog."""
+async def test_fetch_catalog_rejects_missing_data_centers_instead_of_serving_empty():
+    """A 200 with no dataCenters is broken/unauthenticated, not an empty catalog."""
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"data": {"myself": None, "gpuTypes": []}})
+        return httpx.Response(200, json={"data": {"gpuTypes": []}})
 
-    with pytest.raises(RunPodCatalogError, match="myself=null"):
+    with pytest.raises(RunPodCatalogError, match="no data centers"):
         await fetch_catalog("rejected-key", transport=_transport(handler))

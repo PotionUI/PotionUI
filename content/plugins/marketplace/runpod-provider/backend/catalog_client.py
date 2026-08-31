@@ -11,17 +11,9 @@ every mutation (create/stop/terminate a pod, create/delete a volume) still
 goes through `RunPodClient`'s REST v1 calls; this module never writes
 anything. Same Bearer API key as REST.
 
-Two things confirmed against the public schema, not guessed: data centers
-are not a top-level `Query` field - they hang off `myself.dataCenters` - and
-`gpuTypes` (which carries `memoryInGb`, absent from `gpuAvailability`) is a
-sibling root field, so both come back in a single POST.
-
-`DataCenter.gpuAvailability` takes an optional `input: GpuAvailabilityInput`,
-which has a `secureCloud: Boolean` field (confirmed against the same public
-schema). This plugin's pods are always created with `cloudType: SECURE`
-(network volumes require it, and `client.py`'s `create_pod` never exposes
-overriding that) - the query below scopes to `secureCloud: true` so the GPU
-picker only ever offers GPUs this plugin can actually provision.
+`dataCenters` is a top-level Query field (`myself.dataCenters` fails schema
+validation). The query scopes `gpuAvailability` to `secureCloud: true`
+because pods here are always `cloudType: SECURE` (network volumes require it).
 """
 
 from __future__ import annotations
@@ -38,9 +30,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_GRAPHQL_URL = "https://api.runpod.io/graphql"
 DEFAULT_TIMEOUT_SECONDS = 30.0
 
-#: api.runpod.io sits behind Cloudflare bot rules that 403 (error 1010) the
-#: default python-httpx User-Agent before the request ever reaches RunPod's
-#: auth. Any honest product UA passes - verified empirically 2026-08-31.
+#: Cloudflare 403s the default python-httpx User-Agent before auth runs.
 USER_AGENT = "PotionUI (+https://github.com/PotionUI/PotionUI)"
 
 #: Provisioning UIs re-describe fields on every dependency change (a data
@@ -50,16 +40,14 @@ CACHE_TTL_SECONDS = 60.0
 
 _QUERY = """
 query PotionUiComputeCatalog {
-  myself {
-    dataCenters {
-      id
-      name
-      location
-      gpuAvailability(input: { secureCloud: true }) {
-        stockStatus
-        gpuTypeId
-        gpuTypeDisplayName
-      }
+  dataCenters {
+    id
+    name
+    location
+    gpuAvailability(input: { secureCloud: true }) {
+      stockStatus
+      gpuTypeId
+      gpuTypeDisplayName
     }
   }
   gpuTypes {
@@ -106,9 +94,6 @@ async def fetch_catalog(
         async with httpx.AsyncClient(timeout=timeout, transport=transport) as http:
             response = await http.post(
                 url,
-                # RunPod's GraphQL endpoint has historically authenticated via
-                # the `api_key` query parameter; newer deployments also accept
-                # the Bearer header. Send both - whichever the edge honors.
                 params={"api_key": api_key},
                 json={"query": _QUERY},
                 headers={
@@ -128,16 +113,13 @@ async def fetch_catalog(
         raise RunPodCatalogError(f"GraphQL errors: {payload['errors']}")
 
     data = payload.get("data") or {}
-    # `myself: null` is how this endpoint spells "unauthenticated" when it
-    # still answers 200 - an empty catalog must be an error, never a silent
-    # zero-option form.
-    myself = data.get("myself")
-    if not myself:
+    # No/empty dataCenters on a 200 = unauthenticated, not an empty catalog.
+    raw_data_centers = data.get("dataCenters")
+    if not raw_data_centers:
         raise RunPodCatalogError(
-            "GraphQL returned no account data (myself=null) - the API key was "
-            "not accepted by the catalog endpoint"
+            "GraphQL returned no data centers - the API key was not accepted "
+            "by the catalog endpoint or the account has no visibility"
         )
-    raw_data_centers = myself.get("dataCenters") or []
     raw_gpu_types = data.get("gpuTypes") or []
 
     memory_by_id: Dict[str, Optional[int]] = {

@@ -19,6 +19,17 @@ from src.features.providers.registry import ProviderRegistry
 
 _HASH_CHUNK_BYTES = 1024 * 1024
 
+#: Headers a provider's `prepare_download` may leave behind that carry no
+#: credential and are safe to forward to a remote worker. Anything else
+#: remaining is treated as a credential and refused.
+_BENIGN_DOWNLOAD_HEADERS = frozenset({
+    "user-agent",
+    "accept",
+    "accept-encoding",
+    "accept-language",
+    "referer",
+})
+
 
 class RemoteDownloadResolutionError(Exception):
     """Base for remote-download resolution failures."""
@@ -153,9 +164,11 @@ async def resolve_url_remote_download(provider, session, url: str) -> RemoteDown
 
     A provider that DOES claim the URL must declare `REMOTE_DOWNLOAD` and its
     `prepare_download()` must land off its own authenticated host with no
-    leftover header credentials (mirrors the check `resolve_remote_download`
+    leftover credential (mirrors the check `resolve_remote_download`
     implementations make, e.g. CivitAI's own token-in-URL guard) - otherwise
-    this refuses rather than leak credentials to the worker.
+    this refuses rather than leak credentials to the worker. Leftover headers
+    from `_BENIGN_DOWNLOAD_HEADERS` (a User-Agent, an Accept) are not
+    credentials and travel with the ref; any other leftover header refuses.
     """
     if provider is None:
         return RemoteDownloadRef(url=url)
@@ -168,11 +181,12 @@ async def resolve_url_remote_download(provider, session, url: str) -> RemoteDown
 
     headers: dict = {}
     resolved_url = await provider.prepare_download(session, url, headers)
-    if headers or provider.matches_download_url(resolved_url):
+    credentialed = {k for k in headers if k.lower() not in _BENIGN_DOWNLOAD_HEADERS}
+    if credentialed or provider.matches_download_url(resolved_url):
         raise ProviderCapabilityMissingError(
             f"Provider '{provider_name}' could not resolve a credential-free URL for a remote worker"
         )
-    return RemoteDownloadRef(url=resolved_url)
+    return RemoteDownloadRef(url=resolved_url, headers=dict(headers))
 
 
 def _check_size(model: Model, ref: RemoteDownloadRef) -> None:

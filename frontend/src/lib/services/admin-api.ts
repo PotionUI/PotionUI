@@ -1271,3 +1271,77 @@ export async function terminateProvisionedCompute(rowId: string): Promise<APIRes
 	const response = await api.getClient().post(`/api/admin/provisioning/${rowId}/terminate`);
 	return response.data;
 }
+
+// ========== Remote Model Sync (native.remote backends only, see
+// src/features/remote_execution/ops.py) - all routes 200 with success:false
+// + error: "invalid_backend" | "worker_unreachable" on failure, never a
+// thrown 4xx/5xx, so callers must check `response.success`, not just catch. ==========
+
+export type RemoteModelSyncStatus = 'on_worker' | 'missing' | 'digest_mismatch';
+
+export interface RemoteModelSyncRow {
+	model_id: string;
+	filename: string;
+	model_type: string;
+	size_bytes: number | null;
+	status: RemoteModelSyncStatus;
+	providers_can_fetch: boolean;
+}
+
+/** Per-model outcome of a push/fetch request - `transfer_id` can be `null`
+ * even on success (a push whose upload started before the server's own
+ * registration-poll window closed); correlate progress by `relative_path`
+ * (see `WorkerModelTransfer`), never by `transfer_id` alone. */
+export interface ModelSyncTransferResult {
+	model_id: string;
+	transfer_id: string | null;
+	error?: string;
+}
+
+export type WorkerTransferState = 'running' | 'completed' | 'failed';
+
+export interface WorkerModelTransfer {
+	id: string;
+	kind: 'upload' | 'fetch';
+	/** Ends with the model's filename - the only reliable join key back to a
+	 * `RemoteModelSyncRow`, since `transfer_id` can be missing. */
+	relative_path: string;
+	total_bytes: number;
+	received_bytes: number;
+	state: WorkerTransferState;
+	error: string | null;
+}
+
+export async function getRemoteModelSyncView(
+	backendId: string
+): Promise<APIResponse<{ models: RemoteModelSyncRow[] }>> {
+	const response = await api.getClient().get(`/api/admin/remote-models/${backendId}`);
+	return response.data;
+}
+
+export async function pushRemoteModels(
+	backendId: string,
+	modelIds: string[]
+): Promise<APIResponse<{ transfers: ModelSyncTransferResult[] }>> {
+	const response = await api
+		.getClient()
+		.post(`/api/admin/remote-models/${backendId}/push`, { model_ids: modelIds });
+	return response.data;
+}
+
+export async function fetchRemoteModels(
+	backendId: string,
+	modelIds: string[]
+): Promise<APIResponse<{ transfers: ModelSyncTransferResult[] }>> {
+	const response = await api
+		.getClient()
+		.post(`/api/admin/remote-models/${backendId}/fetch`, { model_ids: modelIds });
+	return response.data;
+}
+
+export async function getRemoteModelTransfers(
+	backendId: string
+): Promise<APIResponse<{ transfers: WorkerModelTransfer[] }>> {
+	const response = await api.getClient().get(`/api/admin/remote-models/${backendId}/transfers`);
+	return response.data;
+}

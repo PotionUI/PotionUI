@@ -32,6 +32,7 @@
 	import BackendOptimizations from './BackendOptimizations.svelte';
 	import BackendQuickActions from './BackendQuickActions.svelte';
 	import BackendInfrastructureSection from './BackendInfrastructureSection.svelte';
+	import BackendModelsSection from './BackendModelsSection.svelte';
 
 	type DetailTab = 'overview' | 'optimizations' | 'stats';
 
@@ -954,6 +955,12 @@
 												onTerminated={handleInfrastructureTerminated}
 											/>
 										{/key}
+
+										{#if activeBackend.driver === NATIVE_REMOTE_DRIVER}
+											{#key activeBackend.id}
+												<BackendModelsSection backendId={activeBackend.id} />
+											{/key}
+										{/if}
 
 										<BackendForm
 											bind:draft={editFormData}

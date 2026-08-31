@@ -1,25 +1,18 @@
 """Compute-provisioning DTOs for request/response models."""
 
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 
 class ProvisionComputeRequest(BaseModel):
-    """Request model for provisioning compute through a registered provider."""
+    """Request model for provisioning compute through a registered provider.
+    `values` holds the provider's own fields, keyed and typed as described by
+    that provider's `GET providers/{id}/fields` - core validates them against
+    those descriptors before calling the provisioner."""
     provider_id: str
-    profile_name: str = Field(..., min_length=1)
-    gpu_type_id: Optional[str] = None
-    region: Optional[str] = None
-    image_ref: Optional[str] = None
-    volume_size_gb: Optional[int] = None
-    worker_port: int = 8100
-    container_disk_gb: int = 20
+    name: str = Field(..., min_length=1)
+    values: Dict[str, Any] = Field(default_factory=dict)
     backend_name: Optional[str] = None
-
-
-class GpuTypeResponse(BaseModel):
-    id: str
-    memory_gb: Optional[int]
 
 
 class ProviderResponse(BaseModel):

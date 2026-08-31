@@ -82,7 +82,8 @@ from src.plugin_api.backends import (
 # Provisioning rented GPU compute.
 from src.plugin_api.compute import (
     COMPUTE_HOOKS,
-    ComputeGpuType,
+    ComputeFieldDescriptorV1,
+    ComputeFieldOptionV1,
     ComputeProvisioner,
     ComputeProvisionerError,
     ComputeStatus,
@@ -208,7 +209,8 @@ __all__ = [
     "deduplicate",
     # Compute provisioning
     "COMPUTE_HOOKS",
-    "ComputeGpuType",
+    "ComputeFieldDescriptorV1",
+    "ComputeFieldOptionV1",
     "ComputeProvisioner",
     "ComputeProvisionerError",
     "ComputeStatus",

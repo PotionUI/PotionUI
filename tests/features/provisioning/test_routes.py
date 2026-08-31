@@ -45,9 +45,10 @@ def _make_client(*, provisioner=None, repository=None, backend_registry=None):
 
 GATED = [
     ("get", "/api/admin/provisioning/providers", None),
-    ("get", "/api/admin/provisioning/providers/fake/gpu-types", None),
+    ("get", "/api/admin/provisioning/providers/fake/fields", None),
     ("get", "/api/admin/provisioning", None),
-    ("post", "/api/admin/provisioning", {"provider_id": "fake", "profile_name": "prof-1"}),
+    ("get", "/api/admin/provisioning/by-backend/backend-1", None),
+    ("post", "/api/admin/provisioning", {"provider_id": "fake", "name": "prof-1", "values": {"gpu_type_id": "fake-gpu"}}),
     ("get", "/api/admin/provisioning/row-1", None),
     ("post", "/api/admin/provisioning/row-1/stop", None),
     ("post", "/api/admin/provisioning/row-1/terminate", None),
@@ -85,7 +86,7 @@ def test_provision_creates_and_enables_a_backend_through_the_real_router():
 
     response = client.post(
         "/api/admin/provisioning",
-        json={"provider_id": "fake", "profile_name": "prof-1"},
+        json={"provider_id": "fake", "name": "prof-1", "values": {"gpu_type_id": "fake-gpu"}},
     )
 
     assert response.status_code == 200
@@ -95,6 +96,10 @@ def test_provision_creates_and_enables_a_backend_through_the_real_router():
     backend_id = body["data"]["backend_id"]
     assert backend_id is not None
     assert backend_registry.backend_config_store.get_backend(backend_id).enabled is True
+
+    by_backend_response = client.get(f"/api/admin/provisioning/by-backend/{backend_id}")
+    assert by_backend_response.status_code == 200
+    assert by_backend_response.json()["data"]["id"] == row_id
 
     stop_response = client.post(f"/api/admin/provisioning/{row_id}/stop")
     assert stop_response.status_code == 200
@@ -106,24 +111,49 @@ def test_provision_creates_and_enables_a_backend_through_the_real_router():
     assert repository.get_by_id(row_id) is None
 
 
-def test_gpu_types_route_delegates_to_the_provisioner():
+def test_provision_with_illegal_values_is_a_clean_error_not_a_500():
     app, *_ = _make_client()
     app.dependency_overrides[get_current_active_user] = lambda: _user(AccountType.ADMIN)
     client = TestClient(app)
 
-    response = client.get("/api/admin/provisioning/providers/fake/gpu-types")
+    response = client.post(
+        "/api/admin/provisioning",
+        json={"provider_id": "fake", "name": "prof-1", "values": {}},
+    )
 
     assert response.status_code == 200
-    body = response.json()["data"]["gpu_types"]
-    assert body == [{"id": "fake-gpu", "memory_gb": 24}]
+    assert response.json()["success"] is False
 
 
-def test_gpu_types_route_unknown_provider_is_a_clean_error_not_a_500():
+def test_fields_route_delegates_to_the_provisioner():
     app, *_ = _make_client()
     app.dependency_overrides[get_current_active_user] = lambda: _user(AccountType.ADMIN)
     client = TestClient(app)
 
-    response = client.get("/api/admin/provisioning/providers/missing/gpu-types")
+    response = client.get("/api/admin/provisioning/providers/fake/fields")
+
+    assert response.status_code == 200
+    fields = response.json()["data"]["fields"]
+    assert fields[0]["key"] == "gpu_type_id"
+    assert fields[0]["options"] == [{"value": "fake-gpu", "label": "Fake GPU", "detail": "24 GB VRAM"}]
+
+
+def test_fields_route_unknown_provider_is_a_clean_error_not_a_500():
+    app, *_ = _make_client()
+    app.dependency_overrides[get_current_active_user] = lambda: _user(AccountType.ADMIN)
+    client = TestClient(app)
+
+    response = client.get("/api/admin/provisioning/providers/missing/fields")
 
     assert response.status_code == 200  # error_api_response, not a raised HTTPException
     assert response.json()["success"] is False
+
+
+def test_by_backend_route_returns_404_when_no_row_is_linked():
+    app, *_ = _make_client()
+    app.dependency_overrides[get_current_active_user] = lambda: _user(AccountType.ADMIN)
+    client = TestClient(app)
+
+    response = client.get("/api/admin/provisioning/by-backend/missing-backend")
+
+    assert response.status_code == 404

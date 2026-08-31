@@ -43,6 +43,12 @@ class ProvisionedComputeRepository:
             row = cursor.fetchone()
             return ProvisionedCompute.from_row(row) if row else None
 
+    def get_by_backend_id(self, backend_id: str) -> Optional[ProvisionedCompute]:
+        with db.get_cursor() as cursor:
+            cursor.execute("SELECT * FROM provisioned_compute WHERE backend_id = ?", (backend_id,))
+            row = cursor.fetchone()
+            return ProvisionedCompute.from_row(row) if row else None
+
     def list_all(self) -> List[ProvisionedCompute]:
         # `id DESC` as a tiebreaker, not just `created_at`: SQLite's
         # CURRENT_TIMESTAMP has one-second resolution, and a ULID sorts

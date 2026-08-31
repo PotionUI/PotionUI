@@ -112,13 +112,21 @@ def provisioner(resources, repo, monkeypatch):
     return instance
 
 
-async def test_list_gpu_types_returns_the_static_catalog(provisioner):
-    gpu_types = await provisioner.list_gpu_types()
-    assert any(g.id == "NVIDIA GeForce RTX 4090" for g in gpu_types)
+async def test_describe_fields_reports_gpu_type_and_volume_size(provisioner):
+    fields = await provisioner.describe_fields()
+
+    by_key = {f.key: f for f in fields}
+    assert by_key["gpu_type_id"].type == "select"
+    assert by_key["gpu_type_id"].default == "NVIDIA GeForce RTX 4090"
+    assert any(o.value == "NVIDIA GeForce RTX 4090" for o in by_key["gpu_type_id"].options)
+    assert by_key["volume_size_gb"].type == "number"
+    assert by_key["volume_size_gb"].default == 100
 
 
 async def test_provision_returns_connection_details_with_handle_as_profile_name(provisioner):
-    result = await provisioner.provision(ProvisionRequest(profile_name="prof-1"))
+    result = await provisioner.provision(
+        ProvisionRequest(profile_name="prof-1", values={"gpu_type_id": "NVIDIA GeForce RTX 4090"})
+    )
 
     assert result.handle == "prof-1"
     assert result.resource_ref == "pod-1"
@@ -131,14 +139,14 @@ async def test_provision_without_image_ref_or_setting_raises(provisioner, repo):
     repo._store.pop((PLUGIN_ID, "worker_image"))
 
     with pytest.raises(ComputeProvisionerError):
-        await provisioner.provision(ProvisionRequest(profile_name="prof-1"))
+        await provisioner.provision(ProvisionRequest(profile_name="prof-1", values={}))
 
 
 async def test_provision_without_api_key_raises(provisioner, repo):
     repo._store.pop((PLUGIN_ID, "api_key"))
 
     with pytest.raises(ComputeProvisionerError):
-        await provisioner.provision(ProvisionRequest(profile_name="prof-1"))
+        await provisioner.provision(ProvisionRequest(profile_name="prof-1", values={}))
 
 
 async def test_status_reconciles_through_the_real_manager(provisioner, resources, repo):

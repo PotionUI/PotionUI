@@ -15,7 +15,8 @@ from typing import List
 
 from src.plugin_api import PluginRepository
 from src.plugin_api.compute import (
-    ComputeGpuType,
+    ComputeFieldDescriptorV1,
+    ComputeFieldOptionV1,
     ComputeProvisioner,
     ComputeProvisionerError,
     ComputeStatus,
@@ -28,6 +29,13 @@ from .gpu_catalog import STATIC_GPU_CATALOG
 from .provisioning import ProvisioningProfile, RunPodProvisioningManager
 from .resources import RunPodResourceManager
 from .settings import load_settings
+
+#: Fixed defaults for the RunPod-only knobs that don't get an admin-facing
+#: field - `worker_port` is the Remote Native worker's own listen port
+#: (never anything else), `container_disk_gb` is scratch space unrelated to
+#: the persistent network volume `volume_size_gb` describes.
+_WORKER_PORT = 8100
+_CONTAINER_DISK_GB = 20
 
 
 class RunpodComputeProvisioner(ComputeProvisioner):
@@ -47,27 +55,53 @@ class RunpodComputeProvisioner(ComputeProvisioner):
             raise ComputeProvisionerError("RunPod API key is not configured")
         return settings
 
-    async def list_gpu_types(self) -> List[ComputeGpuType]:
-        return [ComputeGpuType(id=gpu.id, memory_gb=gpu.memory_gb) for gpu in STATIC_GPU_CATALOG]
+    async def describe_fields(self) -> List[ComputeFieldDescriptorV1]:
+        settings = load_settings(self._plugin_repository)
+        return [
+            ComputeFieldDescriptorV1(
+                key="gpu_type_id",
+                label="GPU Type",
+                type="select",
+                required=True,
+                default=settings.gpu_type_id,
+                help_text="The GPU RunPod starts the pod on.",
+                options=[
+                    ComputeFieldOptionV1(
+                        value=gpu.id,
+                        label=gpu.id,
+                        detail=f"{gpu.memory_gb} GB VRAM" if gpu.memory_gb else None,
+                    )
+                    for gpu in STATIC_GPU_CATALOG
+                ],
+            ),
+            ComputeFieldDescriptorV1(
+                key="volume_size_gb",
+                label="Volume Size (GB)",
+                type="number",
+                required=True,
+                default=settings.volume_size_gb,
+                help_text="Size of the persistent network volume models are cached on.",
+            ),
+        ]
 
     async def provision(self, request: ProvisionRequest) -> ProvisionResult:
         settings = self._require_api_key()
 
-        image_ref = request.image_ref or settings.worker_image
+        image_ref = settings.worker_image
         if not image_ref:
             raise ComputeProvisionerError(
                 "No worker image configured - set 'worker_image' in the RunPod "
-                "Provider plugin settings or pass image_ref"
+                "Provider plugin settings"
             )
 
         profile = ProvisioningProfile(
             name=request.profile_name,
-            gpu_type_id=request.gpu_type_id or settings.gpu_type_id,
+            gpu_type_id=request.values.get("gpu_type_id") or settings.gpu_type_id,
             image_ref=image_ref,
-            region=request.region or settings.region,
-            volume_size_gb=request.volume_size_gb or settings.volume_size_gb,
-            worker_port=request.worker_port,
-            container_disk_gb=request.container_disk_gb,
+            region=settings.region,
+            volume_size_gb=request.values.get("volume_size_gb") or settings.volume_size_gb,
+            worker_port=_WORKER_PORT,
+            container_disk_gb=_CONTAINER_DISK_GB,
         )
 
         client = RunPodClient(api_key=settings.api_key)

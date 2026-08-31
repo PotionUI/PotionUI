@@ -8,7 +8,8 @@ see `docs/remote-native.md` and the `runpod-provider` plugin.
 """
 
 from src.features.provisioning.contracts import (
-    ComputeGpuType,
+    ComputeFieldDescriptorV1,
+    ComputeFieldOptionV1,
     ComputeProvisioner,
     ComputeProvisionerError,
     ComputeStatus,
@@ -18,7 +19,8 @@ from src.features.provisioning.contracts import (
 from src.features.provisioning.hooks import COMPUTE_HOOKS
 
 __all__ = [
-    "ComputeGpuType",
+    "ComputeFieldDescriptorV1",
+    "ComputeFieldOptionV1",
     "ComputeProvisioner",
     "ComputeProvisionerError",
     "ComputeStatus",

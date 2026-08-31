@@ -9,13 +9,13 @@ and enables the `native.remote` backend row itself, through the same
 links it on the `ProvisionedCompute` row it returns.
 """
 
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from src.features.backends.backend_config import NativeRemoteBackendConfig
 from src.features.backends.backend_registry import BackendRegistry
 from src.platform.util.ids import generate_ulid
 from src.features.provisioning.contracts import (
-    ComputeGpuType,
+    ComputeFieldDescriptorV1,
     ComputeProvisioner,
     ProvisionRequest,
 )
@@ -32,6 +32,12 @@ class ProvisionedComputeNotFoundError(ValueError):
     """Raised when a `ProvisionedCompute` row id does not exist."""
 
 
+class InvalidProvisionValuesError(ValueError):
+    """Raised when a provision request's `values` fail validation against the
+    provider's own `describe_fields()` descriptors - a missing required
+    field, a non-numeric number, or a select value outside its options."""
+
+
 def _get_provisioner(registry: ComputeProvisionerRegistry, provider_id: str) -> ComputeProvisioner:
     provisioner = registry.get(provider_id)
     if provisioner is None:
@@ -46,13 +52,34 @@ def _get_row(repository: ProvisionedComputeRepository, row_id: str) -> Provision
     return row
 
 
+def _validate_values(descriptors: List[ComputeFieldDescriptorV1], values: Dict[str, Any]) -> None:
+    for descriptor in descriptors:
+        value = values.get(descriptor.key)
+        if value is None:
+            if descriptor.required:
+                raise InvalidProvisionValuesError(f"'{descriptor.key}' is required")
+            continue
+
+        if descriptor.type == "number":
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise InvalidProvisionValuesError(f"'{descriptor.key}' must be a number")
+        elif descriptor.type == "select":
+            legal = {option.value for option in (descriptor.options or [])}
+            if value not in legal:
+                raise InvalidProvisionValuesError(
+                    f"'{descriptor.key}' must be one of {sorted(legal)}"
+                )
+
+
 def list_providers(registry: ComputeProvisionerRegistry) -> List[ComputeProvisioner]:
     return registry.list_provisioners()
 
 
-async def list_gpu_types(registry: ComputeProvisionerRegistry, provider_id: str) -> List[ComputeGpuType]:
+async def describe_fields(
+    registry: ComputeProvisionerRegistry, provider_id: str
+) -> List[ComputeFieldDescriptorV1]:
     provisioner = _get_provisioner(registry, provider_id)
-    return await provisioner.list_gpu_types()
+    return await provisioner.describe_fields()
 
 
 async def provision_compute(
@@ -61,19 +88,23 @@ async def provision_compute(
     backend_registry: BackendRegistry,
     *,
     provider_id: str,
-    request: ProvisionRequest,
+    profile_name: str,
+    values: Dict[str, Any],
     backend_name: Optional[str] = None,
     created_by: Optional[str] = None,
 ) -> ProvisionedCompute:
-    """Provision through `provider_id`, then create+enable a `native.remote`
-    backend row from the connection details it hands back, and link the two."""
+    """Validate `values` against `provider_id`'s own field descriptors, then
+    provision through it, then create+enable a `native.remote` backend row
+    from the connection details it hands back, and link the two."""
     provisioner = _get_provisioner(registry, provider_id)
-    result = await provisioner.provision(request)
+    _validate_values(await provisioner.describe_fields(), values)
+
+    result = await provisioner.provision(ProvisionRequest(profile_name=profile_name, values=values))
 
     backend_id = f"remote-{generate_ulid()}"
     backend_config = NativeRemoteBackendConfig(
         id=backend_id,
-        name=backend_name or f"{provisioner.label or provider_id}: {request.profile_name}",
+        name=backend_name or f"{provisioner.label or provider_id}: {profile_name}",
         base_url=result.base_url,
         worker_token=result.worker_token,
         enabled=True,
@@ -83,12 +114,12 @@ async def provision_compute(
     return repository.create(
         provider_id=provider_id,
         handle=result.handle,
-        profile_name=request.profile_name,
+        profile_name=profile_name,
         status="running" if result.ready else "unreachable",
         backend_id=backend_id,
         resource_ref=result.resource_ref,
-        gpu_type_id=request.gpu_type_id,
-        region=request.region,
+        gpu_type_id=values.get("gpu_type_id"),
+        region=values.get("region"),
         created_by=created_by,
     )
 

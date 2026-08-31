@@ -40,6 +40,24 @@ class TestCreateAndRead(ProvisionedComputeRepositoryTestBase):
     def test_get_by_id_missing_row_returns_none(self):
         self.assertIsNone(self.repo.get_by_id("does-not-exist"))
 
+    def test_get_by_backend_id_missing_returns_none(self):
+        self.assertIsNone(self.repo.get_by_backend_id("does-not-exist"))
+
+    def test_get_by_backend_id_returns_the_linked_row(self):
+        with self.db.get_cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO backends (id, name, engine) VALUES ('remote-1', 'remote', 'native')"
+            )
+        row = self.repo.create(
+            provider_id="fake", handle="prof-1", profile_name="prof-1",
+            status="running", backend_id="remote-1",
+        )
+
+        fetched = self.repo.get_by_backend_id("remote-1")
+
+        self.assertIsNotNone(fetched)
+        self.assertEqual(fetched.id, row.id)
+
     def test_list_all_orders_newest_first(self):
         first = self.repo.create(provider_id="fake", handle="a", profile_name="a", status="running")
         second = self.repo.create(provider_id="fake", handle="b", profile_name="b", status="running")

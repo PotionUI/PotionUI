@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import ClassVar, List, Optional
+from typing import Any, ClassVar, Dict, List, Optional
 
 
 class ComputeProvisionerError(RuntimeError):
@@ -25,24 +25,40 @@ class ComputeProvisionerError(RuntimeError):
 
 
 @dataclass(frozen=True)
-class ComputeGpuType:
-    """One GPU type a provisioner can start a pod on."""
-    id: str
-    memory_gb: Optional[int] = None
+class ComputeFieldOptionV1:
+    """One choice in a `ComputeFieldDescriptorV1` of type "select"."""
+    value: str
+    label: str
+    detail: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class ComputeFieldDescriptorV1:
+    """One field a `ComputeProvisioner.describe_fields()` reports, describing
+    its own `provision()` inputs to the admin UI - the same self-description
+    idiom `BaseBackendConfig.engine_fields()` uses for an engine's own
+    settings (`src/features/backends/backend_config.py`), so the admin
+    "Remote Compute" form renders any provider's fields without core knowing
+    what any particular provider needs."""
+    key: str
+    label: str
+    type: str  # "text" | "number" | "select"
+    required: bool = False
+    default: Optional[Any] = None
+    help_text: Optional[str] = None
+    options: Optional[List[ComputeFieldOptionV1]] = None
 
 
 @dataclass(frozen=True)
 class ProvisionRequest:
     """What to provision. `profile_name` is the operator-chosen label a
     provisioner may use to identify/reuse its own resources (e.g. a network
-    volume) across repeated provisions - it is not core's row id."""
+    volume) across repeated provisions - it is not core's row id. `values`
+    holds the provider's own fields (as described by `describe_fields()`),
+    already validated against those descriptors by
+    `src.features.provisioning.operations.provision_compute`."""
     profile_name: str
-    gpu_type_id: Optional[str] = None
-    region: Optional[str] = None
-    image_ref: Optional[str] = None
-    volume_size_gb: Optional[int] = None
-    worker_port: int = 8100
-    container_disk_gb: int = 20
+    values: Dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -84,8 +100,12 @@ class ComputeProvisioner(ABC):
     label: ClassVar[str] = ""
 
     @abstractmethod
-    async def list_gpu_types(self) -> List[ComputeGpuType]:
-        """GPU types this provider can start a pod on."""
+    async def describe_fields(self) -> List[ComputeFieldDescriptorV1]:
+        """Describe this provider's own `provision()` inputs for the admin UI
+        (e.g. a `gpu_type` select sourced from this provider's own catalog, a
+        `volume_size_gb` number). Core validates a provision request's
+        `values` against these descriptors before calling `provision()` -
+        the provisioner never sees an unvalidated value."""
 
     @abstractmethod
     async def provision(self, request: ProvisionRequest) -> ProvisionResult:

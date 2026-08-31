@@ -11,13 +11,15 @@ import pytest
 
 from src.features.provisioning import operations
 from src.features.provisioning.contracts import (
-    ComputeGpuType,
+    ComputeFieldDescriptorV1,
+    ComputeFieldOptionV1,
     ComputeProvisioner,
     ComputeStatus,
     ProvisionRequest,
     ProvisionResult,
 )
 from src.features.provisioning.operations import (
+    InvalidProvisionValuesError,
     ProvisionedComputeNotFoundError,
     UnknownProviderError,
 )
@@ -34,8 +36,24 @@ class FakeProvisioner(ComputeProvisioner):
         self.terminated = []
         self.status_state = "running"
 
-    async def list_gpu_types(self):
-        return [ComputeGpuType(id="fake-gpu", memory_gb=24)]
+    async def describe_fields(self):
+        return [
+            ComputeFieldDescriptorV1(
+                key="gpu_type_id",
+                label="GPU Type",
+                type="select",
+                required=True,
+                default="fake-gpu",
+                options=[ComputeFieldOptionV1(value="fake-gpu", label="Fake GPU", detail="24 GB VRAM")],
+            ),
+            ComputeFieldDescriptorV1(
+                key="volume_size_gb",
+                label="Volume Size (GB)",
+                type="number",
+                required=False,
+                default=100,
+            ),
+        ]
 
     async def provision(self, request: ProvisionRequest) -> ProvisionResult:
         self.provisioned.append(request)
@@ -85,6 +103,12 @@ class FakeRepository:
 
     def get_by_id(self, row_id):
         return self._rows.get(row_id)
+
+    def get_by_backend_id(self, backend_id):
+        for row in self._rows.values():
+            if row.backend_id == backend_id:
+                return row
+        return None
 
     def list_all(self):
         return list(self._rows.values())
@@ -141,13 +165,15 @@ async def test_provision_compute_creates_and_enables_a_backend_and_links_it():
     row = await operations.provision_compute(
         registry, repository, backend_registry,
         provider_id="fake",
-        request=ProvisionRequest(profile_name="prof-1", gpu_type_id="fake-gpu"),
+        profile_name="prof-1",
+        values={"gpu_type_id": "fake-gpu"},
         created_by="user-1",
     )
 
     assert row.handle == "prof-1"
     assert row.status == "running"
     assert row.backend_id is not None
+    assert row.gpu_type_id == "fake-gpu"
 
     backend = backend_registry.backend_config_store.get_backend(row.backend_id)
     assert backend is not None
@@ -162,7 +188,39 @@ async def test_provision_compute_unknown_provider_raises():
     with pytest.raises(UnknownProviderError):
         await operations.provision_compute(
             registry, repository, backend_registry,
-            provider_id="missing", request=ProvisionRequest(profile_name="p"),
+            provider_id="missing", profile_name="p", values={},
+        )
+
+
+async def test_provision_compute_missing_required_field_raises():
+    _, registry, repository, backend_registry = _collaborators()
+
+    with pytest.raises(InvalidProvisionValuesError):
+        await operations.provision_compute(
+            registry, repository, backend_registry,
+            provider_id="fake", profile_name="prof-1", values={},
+        )
+
+
+async def test_provision_compute_illegal_select_value_raises():
+    _, registry, repository, backend_registry = _collaborators()
+
+    with pytest.raises(InvalidProvisionValuesError):
+        await operations.provision_compute(
+            registry, repository, backend_registry,
+            provider_id="fake", profile_name="prof-1",
+            values={"gpu_type_id": "not-a-real-gpu"},
+        )
+
+
+async def test_provision_compute_non_numeric_number_raises():
+    _, registry, repository, backend_registry = _collaborators()
+
+    with pytest.raises(InvalidProvisionValuesError):
+        await operations.provision_compute(
+            registry, repository, backend_registry,
+            provider_id="fake", profile_name="prof-1",
+            values={"gpu_type_id": "fake-gpu", "volume_size_gb": "not-a-number"},
         )
 
 
@@ -170,7 +228,7 @@ async def test_stop_compute_disables_the_backend_without_removing_it():
     provisioner, registry, repository, backend_registry = _collaborators()
     row = await operations.provision_compute(
         registry, repository, backend_registry,
-        provider_id="fake", request=ProvisionRequest(profile_name="prof-1"),
+        provider_id="fake", profile_name="prof-1", values={"gpu_type_id": "fake-gpu"},
     )
 
     stopped_row = await operations.stop_compute(registry, repository, backend_registry, row.id)
@@ -186,7 +244,7 @@ async def test_terminate_compute_removes_the_backend_and_deletes_the_row():
     provisioner, registry, repository, backend_registry = _collaborators()
     row = await operations.provision_compute(
         registry, repository, backend_registry,
-        provider_id="fake", request=ProvisionRequest(profile_name="prof-1"),
+        provider_id="fake", profile_name="prof-1", values={"gpu_type_id": "fake-gpu"},
     )
 
     await operations.terminate_compute(registry, repository, backend_registry, row.id)
@@ -203,12 +261,12 @@ async def test_terminate_compute_unknown_row_raises():
         await operations.terminate_compute(registry, repository, backend_registry, "missing-row")
 
 
-async def test_list_gpu_types_delegates_to_the_provisioner():
+async def test_describe_fields_delegates_to_the_provisioner():
     _, registry, _, _ = _collaborators()
 
-    gpu_types = await operations.list_gpu_types(registry, "fake")
+    fields = await operations.describe_fields(registry, "fake")
 
-    assert gpu_types == [ComputeGpuType(id="fake-gpu", memory_gb=24)]
+    assert [f.key for f in fields] == ["gpu_type_id", "volume_size_gb"]
 
 
 async def test_refresh_status_updates_the_row_from_the_provisioner():
@@ -216,7 +274,7 @@ async def test_refresh_status_updates_the_row_from_the_provisioner():
     provisioner.status_state = "unreachable"
     row = await operations.provision_compute(
         registry, repository, backend_registry,
-        provider_id="fake", request=ProvisionRequest(profile_name="prof-1"),
+        provider_id="fake", profile_name="prof-1", values={"gpu_type_id": "fake-gpu"},
     )
 
     refreshed = await operations.refresh_status(registry, repository, row.id)

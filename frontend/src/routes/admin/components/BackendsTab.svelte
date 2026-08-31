@@ -18,7 +18,7 @@
 	import { toasts } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';
 	import { timeAgo } from '$lib/utils/relativeTime';
-	import { Button, Badge, Spinner, EmptyState, Input, Switch, Alert } from '$lib/components/ui';
+	import { Button, Badge, Spinner, EmptyState, Input, Switch, Alert, SegmentedControl } from '$lib/components/ui';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import BackendForm from './BackendForm.svelte';
@@ -31,8 +31,16 @@
 	import type { Backend, BackendHealth } from '$lib/services/admin-api';
 	import BackendOptimizations from './BackendOptimizations.svelte';
 	import BackendQuickActions from './BackendQuickActions.svelte';
+	import RemoteComputeSection from './RemoteComputeSection.svelte';
 
 	type DetailTab = 'overview' | 'optimizations' | 'stats';
+	type SurfaceView = 'backends' | 'compute';
+	let surfaceView: SurfaceView = 'backends';
+
+	function openBackendFromCompute(backendId: string) {
+		surfaceView = 'backends';
+		selectBackend(backendId);
+	}
 
 	interface TestConnectionResult {
 		success: boolean;
@@ -601,29 +609,48 @@
 </style>
 
 <div class="flex h-[calc(100dvh-var(--header-h)-2rem)] min-h-[36rem] flex-col gap-4 sm:h-[calc(100dvh-var(--header-h)-3rem)]">
-	<AdminTabShell
-		title="Backends"
-		icon="cpu"
-		counts={[
-			{ label: 'backends', value: totalBackends },
-			{ label: 'healthy', value: healthyBackends, tone: 'success' },
-			{ label: 'enabled', value: enabledBackends, tone: 'info' }
+	<SegmentedControl
+		items={[
+			{ id: 'backends', label: 'Backends', icon: 'cpu' },
+			{ id: 'compute', label: 'Remote Compute', icon: 'database' }
 		]}
+		selected={surfaceView}
+		onSelect={(id) => (surfaceView = id as SurfaceView)}
+		ariaLabel="Backends surface"
+	/>
+
+	<AdminTabShell
+		title={surfaceView === 'compute' ? 'Remote Compute' : 'Backends'}
+		icon={surfaceView === 'compute' ? 'database' : 'cpu'}
+		counts={surfaceView === 'compute'
+			? []
+			: [
+					{ label: 'backends', value: totalBackends },
+					{ label: 'healthy', value: healthyBackends, tone: 'success' },
+					{ label: 'enabled', value: enabledBackends, tone: 'info' }
+				]}
 	>
 		{#snippet actions()}
-			<Button
-				variant="primary"
-				size="sm"
-				icon="plus"
-				onclick={openCreateModal}
-				disabled={creatableEngines.length === 0}
-				title={creatableEngines.length === 0 ? 'No configurable engines available' : undefined}
-			>
-				Add Backend
-			</Button>
+			{#if surfaceView === 'backends'}
+				<Button
+					variant="primary"
+					size="sm"
+					icon="plus"
+					onclick={openCreateModal}
+					disabled={creatableEngines.length === 0}
+					title={creatableEngines.length === 0 ? 'No configurable engines available' : undefined}
+				>
+					Add Backend
+				</Button>
+			{/if}
 		{/snippet}
 	</AdminTabShell>
 
+	{#if surfaceView === 'compute'}
+		<section class="flex-1 min-h-0 rounded-lg border border-line bg-surface-1 overflow-y-auto">
+			<RemoteComputeSection {backends} onOpenBackend={openBackendFromCompute} />
+		</section>
+	{:else}
 	{#snippet backendSearch()}
 		<div class="relative">
 			<Icon name="search" className="w-4 h-4 text-fg-subtle absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -955,6 +982,7 @@
 			</MasterDetailLayout>
 		{/if}
 	</section>
+	{/if}
 </div>
 
 

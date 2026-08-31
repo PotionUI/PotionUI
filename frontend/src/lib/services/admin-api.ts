@@ -1145,3 +1145,81 @@ export async function updateToolGovernance(
 	const response = await api.getClient().put(`/api/llm/configurations/${configId}/toolset/${toolName}`, changes);
 	return response.data;
 }
+
+// Admin API - Compute provisioning (rented remote GPUs, see
+// src/features/provisioning). Core names no provider - the list of
+// providers is always whatever `compute.register` plugins contributed.
+
+export interface ComputeProvider {
+	provider_id: string;
+	label: string;
+}
+
+export interface ComputeGpuType {
+	id: string;
+	memory_gb: number | null;
+}
+
+export interface ProvisionedCompute {
+	id: string;
+	provider_id: string;
+	handle: string;
+	profile_name: string;
+	status: string;
+	backend_id: string | null;
+	resource_ref: string | null;
+	gpu_type_id: string | null;
+	region: string | null;
+	created_by: string | null;
+	created_at: string | null;
+	updated_at: string | null;
+}
+
+export interface ProvisionComputeRequest {
+	provider_id: string;
+	profile_name: string;
+	gpu_type_id?: string;
+	region?: string;
+	volume_size_gb?: number;
+	backend_name?: string;
+}
+
+export async function getComputeProviders(): Promise<APIResponse<{ providers: ComputeProvider[] }>> {
+	const response = await api.getClient().get('/api/admin/provisioning/providers');
+	return response.data;
+}
+
+export async function getComputeGpuTypes(
+	providerId: string
+): Promise<APIResponse<{ gpu_types: ComputeGpuType[] }>> {
+	const response = await api.getClient().get(`/api/admin/provisioning/providers/${providerId}/gpu-types`);
+	return response.data;
+}
+
+export async function getProvisionedCompute(): Promise<APIResponse<{ items: ProvisionedCompute[] }>> {
+	const response = await api.getClient().get('/api/admin/provisioning');
+	return response.data;
+}
+
+export async function provisionCompute(
+	request: ProvisionComputeRequest
+): Promise<APIResponse<ProvisionedCompute>> {
+	const response = await api.getClient().post('/api/admin/provisioning', request);
+	return response.data;
+}
+
+/** Reconciles the row's status against the provider (not a cached read) - safe to poll. */
+export async function refreshProvisionedComputeStatus(rowId: string): Promise<APIResponse<ProvisionedCompute>> {
+	const response = await api.getClient().get(`/api/admin/provisioning/${rowId}`);
+	return response.data;
+}
+
+export async function stopProvisionedCompute(rowId: string): Promise<APIResponse<ProvisionedCompute>> {
+	const response = await api.getClient().post(`/api/admin/provisioning/${rowId}/stop`);
+	return response.data;
+}
+
+export async function terminateProvisionedCompute(rowId: string): Promise<APIResponse<{ terminated: string }>> {
+	const response = await api.getClient().post(`/api/admin/provisioning/${rowId}/terminate`);
+	return response.data;
+}

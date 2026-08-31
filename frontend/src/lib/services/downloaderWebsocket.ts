@@ -64,12 +64,14 @@ class DownloaderWebSocketService extends StatefulWebSocket {
 				this.handleDownloadProgress(message);
 				break;
 
-			case 'download_started':
+			// The server derives these from DownloadStatus: 'download_' + enum value
+			// (download_connection_hub.py broadcast_status). Keep in lockstep.
+			case 'download_pending':
+			case 'download_downloading':
+			case 'download_paused':
 			case 'download_completed':
 			case 'download_failed':
 			case 'download_cancelled':
-			case 'download_retrying':
-			case 'download_paused':
 				this.handleDownloadStatus(message);
 				break;
 

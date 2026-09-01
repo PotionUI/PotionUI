@@ -867,12 +867,11 @@
 								</div>
 							</div>
 
-							<!-- Strength -->
-							<div class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5">
-								<!-- Strength group and action cluster are separate flex items so the row
-								     can WRAP between them: in a ~320px sidebar the icons drop to their own
-								     line instead of squeezing the slider down to nothing. -->
-								<div class="flex min-w-0 flex-1 basis-[10rem] items-center gap-1.5">
+							<!-- Strength, then the action cluster on its own line. Two fixed lines, never a
+							     wrap: a wrapped row put the icons beside the slider on rows with room and below
+							     it on rows without, so neighbouring rows disagreed on where things were. -->
+							<div class="mt-2 flex flex-col gap-1.5">
+								<div class="flex min-w-0 items-center gap-1.5">
 									<Tooltip text={enabled ? 'Disable (strength → 0)' : 'Enable (restore strength)'} position="top">
 										<Switch
 											size="sm"
@@ -930,7 +929,7 @@
 										</Tooltip>
 									</div>
 								</div>
-								<div class="ml-auto flex shrink-0 items-center gap-0.5">
+								<div class="flex items-center justify-end gap-0.5">
 									{#if model}
 										<Tooltip text={model.is_favorite ? 'Remove from favorites' : 'Add to favorites'} position="top">
 											<button

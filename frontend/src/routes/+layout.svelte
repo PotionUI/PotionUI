@@ -18,6 +18,8 @@
 	import { notificationsWebSocket } from '$lib/services/notificationsWebsocket';
 	import { themeStore } from '$lib/stores/theme';
 	import { printStartupBanner } from '$lib/utils/startupBanner';
+	import { resolveAuthLayoutMode } from '$lib/utils/authLayout';
+	import { Spinner } from '$lib/components/ui';
 	import '../app.css';
 
 	let mounted = false;
@@ -178,6 +180,17 @@
 		$page.url.pathname === '/setup/claim';
 	$: shouldShowNav = mounted && $authStore.isAuthenticated && !isPublicRoute;
 
+	// Drives which branch of the shell markup below renders. Kept as a
+	// dedicated derivation (rather than reusing shouldShowNav/isPublicRoute
+	// inline) so the public/login branch never renders for an authenticated
+	// user who is merely mid-redirect off a public route - see authLayout.ts.
+	$: layoutMode = resolveAuthLayoutMode({
+		mounted,
+		loading: $authStore.loading,
+		isAuthenticated: $authStore.isAuthenticated,
+		isPublicRoute
+	});
+
 	// Reflect the unread count in the tab title, but only inside the authenticated
 	// app shell — unauthenticated routes (login/docs) manage their own <title> via
 	// svelte:head and we don't fight them. afterNavigate reapplies because a route's
@@ -200,14 +213,11 @@
 	}
 </script>
 
-{#if $authStore.loading}
+{#if layoutMode === 'boot' || layoutMode === 'redirecting'}
 	<div class="min-h-screen flex items-center justify-center bg-canvas">
-		<div class="text-center">
-			<div class="animate-spin rounded-full h-12 w-12 border-b-2 border-accent mx-auto mb-4"></div>
-			<p class="text-fg-muted">Loading...</p>
-		</div>
+		<Spinner size="lg" />
 	</div>
-{:else if shouldShowNav}
+{:else if layoutMode === 'app'}
 	<!-- Authenticated layout with sidebar -->
 	<div class="min-h-screen bg-canvas">
 			<div class="hidden md:block">

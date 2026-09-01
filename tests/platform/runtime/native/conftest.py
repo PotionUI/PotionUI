@@ -7,6 +7,10 @@ dim / patch_size**2 == in_channels), so absolute sizes are shrunk.
 
 from __future__ import annotations
 
+import os
+import time
+
+import pytest
 import torch
 
 
@@ -128,13 +132,13 @@ def seedvr2_dit_sd(
     txt_in_dim: int = 5120, emb_dim: int | None = None, mlp_hidden: int = 96,
     variant: str = "3b",
 ) -> dict[str, torch.Tensor]:
-    """Minimal SeedVR2 NaDiT signature — only the keys ``_detect_seedvr2`` reads.
+    """Minimal SeedVR2 NaDiT signature -- only the keys ``_detect_seedvr2`` reads.
 
     ``vid_in``/``vid_out`` fold ``patch_t*patch_h*patch_w == 4`` voxels into the
     channel dim (so raw cols/rows are ``channels * 4``). The first ``mm_layers``
     blocks carry split ``.vid``/``.txt`` weights (block 0 must be one, since the
     detector probes ``blocks.0.*.vid``); later blocks share a single ``.all`` set
-    — both counted by ``count_blocks`` but only ``.vid`` blocks count as mm.
+    -- both counted by ``count_blocks`` but only ``.vid`` blocks count as mm.
 
     ``variant`` toggles the 3B-vs-7B discriminator keys: the 3B carries a SwiGLU
     ``proj_in_gate`` (and a ``vid_out_norm`` head), the 7B has neither.
@@ -201,3 +205,86 @@ def minimax_h3_audio_vae_sd(latent_channels: int = 32, latent_dim: int = 64, enc
         "mean_proj.weight": torch.zeros(latent_channels, latent_channels, 1),
         "encoder.block.0.weight": torch.zeros(encoder_dim, 1, 7),
     }
+
+
+# --- bf16_cpu_heavy: deterministic skip for the runner-CPU bf16 roulette ---
+#
+# Part of GitHub's hosted runner fleet lacks native bf16 (no AMX/AVX512-BF16);
+# torch's bf16 conv2d fallback there is 10-20x slower, and a full sample+decode
+# at real (if tiny) tensor sizes then blows through even a 300s per-test
+# timeout inside the VAE's conv2d layers. Tests marked ``bf16_cpu_heavy`` are
+# skipped on such a runner instead of stalling -- see docs/testing-notes.md.
+
+_FORCE_ENV = "POTIONUI_FORCE_BF16_PROBE"
+
+# Workload: (1,128,192,192) x (128,128,3,3) conv2d, the shape of a mid-decode
+# VAE layer. Measured on this dev container (11th-gen Intel, no
+# avx512_bf16/amx_bf16 cpuid flag) at a stable ~41ms/call (<5% spread over 10
+# reps) -- i.e. this box's fallback is *not* the catastrophic one, so it
+# reads as "native-ish" against the threshold below. A runner hitting the
+# reported 10-20x-slower fallback would land at ~410-820ms/call for the same
+# workload. 150ms sits ~3.6x above this container's measured time and
+# ~2.7-5.4x below the 10-20x-fallback range -- wide margin on both sides so
+# per-run jitter can't flip the classification.
+_THRESHOLD_MS = 150.0
+_WARMUP_ITERS = 1
+_TIMED_ITERS = 2
+_HARD_CAP_S = 5.0
+
+_cached_result: bool | None = None
+
+
+def _probe_once() -> float:
+    x = torch.randn(1, 128, 192, 192, dtype=torch.bfloat16)
+    w = torch.randn(128, 128, 3, 3, dtype=torch.bfloat16)
+    t0 = time.perf_counter()
+    torch.nn.functional.conv2d(x, w, padding=1)
+    return (time.perf_counter() - t0) * 1000.0
+
+
+def cpu_bf16_is_usable() -> bool:
+    """True when this CPU runs bf16 conv2d at native (not 10-20x-fallback)
+    speed. Measured once per process and cached.
+
+    ``POTIONUI_FORCE_BF16_PROBE=pass|fail`` overrides the measurement so the
+    skip mechanism itself can be exercised without a slow-bf16 CPU on hand
+    (see docs/testing-notes.md).
+    """
+    global _cached_result
+
+    override = os.environ.get(_FORCE_ENV)
+    if override == "pass":
+        return True
+    if override == "fail":
+        return False
+
+    if _cached_result is not None:
+        return _cached_result
+
+    deadline = time.perf_counter() + _HARD_CAP_S
+    for _ in range(_WARMUP_ITERS):
+        _probe_once()
+        if time.perf_counter() > deadline:
+            _cached_result = False
+            return _cached_result
+
+    samples = [_probe_once() for _ in range(_TIMED_ITERS)]
+    _cached_result = (sum(samples) / len(samples)) < _THRESHOLD_MS
+    return _cached_result
+
+
+def pytest_collection_modifyitems(config, items):
+    """Skip ``bf16_cpu_heavy`` tests on a CPU that can't run bf16 at native
+    speed. A GPU host runs these tests on the fast path regardless of what
+    the CPU probe would say, so the skip only applies when no CUDA device is
+    present."""
+    skip_bf16_heavy = pytest.mark.skip(
+        reason="runner CPU lacks native bf16; bf16 e2e would time out (deterministic skip, see testing-notes)"
+    )
+    for item in items:
+        if "bf16_cpu_heavy" not in item.keywords:
+            continue
+        if torch.cuda.is_available():
+            continue
+        if not cpu_bf16_is_usable():
+            item.add_marker(skip_bf16_heavy)

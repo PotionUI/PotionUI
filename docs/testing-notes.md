@@ -119,6 +119,38 @@ These are container/environment artefacts, not regressions caused by your change
   and no `set_num_threads`/`torch.backends`/default-dtype poisoner exists in
   the tree. The workflow runs these two files as a sequential step in the
   platform shard; fold them back into the parallel step if root-caused.
+- **runner-CPU bf16 roulette (deterministic skip added):** part of GitHub's
+  hosted runner fleet lacks native bf16 (no AMX/AVX512-BF16); torch's bf16
+  conv2d fallback there is 10-20x slower, so a real sample+decode at size
+  (`test_engine.py::test_end_to_end_sample_and_decode`) or a real bf16
+  forward (`test_minimax_music3_ar_loop.py::TestBf16Compute::
+  test_generate_runs_end_to_end_in_bf16`,
+  `::test_incremental_step_matches_full_prefill_in_bf16`) can blow through
+  even the 300s per-test timeout — identical trees go green/red purely on
+  which runner they land on. These tests carry `@pytest.mark.bf16_cpu_heavy`;
+  `tests/platform/runtime/native/conftest.py`'s `cpu_bf16_is_usable()` times
+  a representative bf16 `F.conv2d` workload once per session (cached) and a
+  `pytest_collection_modifyitems` hook skips `bf16_cpu_heavy` tests, with
+  reason `"runner CPU lacks native bf16; bf16 e2e would time out
+  (deterministic skip, see testing-notes)"`, when the probe reports fallback
+  AND no CUDA device is present (a GPU host runs these on the fast path
+  regardless of the CPU probe). **A skip here means the runner lost the CPU
+  roulette, not that coverage vanished from the suite** — a capable runner
+  still executes these tests for real. Measured on the dev container this was
+  calibrated on (11th-gen Intel, no `avx512_bf16`/`amx_bf16` cpuid flag): the
+  probe workload (`(1,128,192,192)` input, `(128,128,3,3)` weight,
+  `padding=1`) runs a stable ~41ms/call (<5% spread over 10 reps), and
+  `test_end_to_end_sample_and_decode` itself completes in <1s — this
+  container's fallback is not the catastrophic one. The threshold
+  (`_THRESHOLD_MS = 150.0`) sits ~3.6x above that measurement, with a
+  10-20x-slower runner expected at ~410-820ms/call for the same workload —
+  wide margin on both sides. `POTIONUI_FORCE_BF16_PROBE=pass|fail` overrides
+  the probe result for testing the skip mechanism itself without a slow-bf16
+  CPU on hand (combine with `CUDA_VISIBLE_DEVICES=` to also hide a real GPU
+  locally, since the hook only skips when none is visible). This is a
+  separate mechanism from the xdist-only quarantine entry above — it
+  addresses the *timeout* half of that entry, not the music3 tolerance flake,
+  which is unrelated and still open.
 - `tests/pipelines/pipes/generator/img2vid_wan22/*` can OOM when the GPU is busy
   (shared box — check `nvidia-smi` before assuming a regression).
 - The media-editing suite (`tests/features/media/editing/`) skips every video and

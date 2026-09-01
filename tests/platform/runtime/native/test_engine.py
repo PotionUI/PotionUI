@@ -1248,6 +1248,7 @@ def test_guard_host_ram_noop_for_fully_resident_plan(monkeypatch):
     model._guard_host_ram_for_streaming(_Plan())  # must not raise or query
 
 
+@pytest.mark.bf16_cpu_heavy
 def test_end_to_end_sample_and_decode(dit_path, vae_path):
     loader = NativeEngineLoader(device="cpu")
     dit = loader.load(dit_path, "diffusion_model")

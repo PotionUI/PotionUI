@@ -462,6 +462,7 @@ class TestBf16Compute:
     up once the weights themselves stop tolerating a foreign activation
     dtype, which the float32-only tests elsewhere in this file can't catch."""
 
+    @pytest.mark.bf16_cpu_heavy
     @pytest.mark.parametrize("pruned", [True, False])
     def test_generate_runs_end_to_end_in_bf16(self, pruned):
         lm = _build_lm(pruned=pruned, seed=11, dtype=torch.bfloat16)
@@ -481,6 +482,7 @@ class TestBf16Compute:
         out = lm.embed_audio_code0(torch.tensor([2]))
         assert out.dtype == torch.bfloat16
 
+    @pytest.mark.bf16_cpu_heavy
     def test_incremental_step_matches_full_prefill_in_bf16(self):
         """The KV-cache equivalence contract (see ``TestKVCacheEquivalence``)
         must keep holding once every activation runs at bf16, not just fp32."""

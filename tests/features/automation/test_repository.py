@@ -22,10 +22,9 @@ class TestAutomationRepository:
 
     @pytest.fixture
     def repository(self, mock_db):
-        # This module does `from ..database import db` at import time - re-patch
-        # explicitly so it targets the fixture's test database, matching the
-        # workaround used by the other repository tests in this directory.
-        with patch('src.features.automation.repository.db', mock_db):
+        # The repository resolves `db` at call time via
+        # `src.platform.database.database.db`, which `mock_db` already patches.
+        with patch('src.platform.database.database.db', mock_db):
             yield AutomationRepository()
 
     # -- automations ---------------------------------------------------------

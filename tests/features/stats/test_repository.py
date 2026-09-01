@@ -1,9 +1,8 @@
 """StatsRepository runs real SQL, so these tests run it against a real (in-memory) SQLite
 database built by the real migrations, with real rows.
 
-`stats_repository` does `from ..database import db` at import time, so patching
-`src.platform.database.database.db` does not reach it -- the module already holds a reference to the
-original object. The module's own `db` attribute is patched instead.
+`stats_repository` resolves `db` at call time, so patching the canonical
+`src.platform.database.database.db` reaches it.
 """
 
 import sqlite3
@@ -12,7 +11,6 @@ from unittest.mock import patch
 
 import pytest
 
-import src.features.stats.repository as stats_repository_module
 from src.features.stats.repository import StatsRepository
 
 
@@ -117,7 +115,7 @@ def _seed(db):
 def repo():
     db = _MemoryDb()
     _seed(db)
-    with patch.object(stats_repository_module, 'db', db):
+    with patch('src.platform.database.database.db', db):
         yield StatsRepository()
 
 

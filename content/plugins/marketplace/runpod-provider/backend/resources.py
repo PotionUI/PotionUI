@@ -18,7 +18,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from src.plugin_api import db, generate_ulid
+from src.plugin_api import generate_ulid
 
 TABLE_NAME = "runpod_provider_resources"
 
@@ -49,6 +49,7 @@ class RunPodResourceManager:
         self._table_ensured = False
 
     def create_table(self) -> None:
+        from src.plugin_api import db
         with db.get_cursor() as cursor:
             cursor.execute(f"""
                 CREATE TABLE IF NOT EXISTS {TABLE_NAME} (
@@ -81,6 +82,7 @@ class RunPodResourceManager:
         RunPod handed back a freshly created id."""
         self._ensure_table()
         payload = json.dumps(meta or {})
+        from src.plugin_api import db
         with db.get_cursor() as cursor:
             cursor.execute(f"""
                 INSERT INTO {TABLE_NAME} (id, profile_name, resource_type, runpod_id, meta, updated_at)
@@ -92,6 +94,7 @@ class RunPodResourceManager:
 
     def get(self, profile_name: str, resource_type: str) -> Optional[ResourceRecord]:
         self._ensure_table()
+        from src.plugin_api import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 f"SELECT * FROM {TABLE_NAME} WHERE profile_name = ? AND resource_type = ?",
@@ -102,6 +105,7 @@ class RunPodResourceManager:
 
     def list_for_profile(self, profile_name: str) -> List[ResourceRecord]:
         self._ensure_table()
+        from src.plugin_api import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 f"SELECT * FROM {TABLE_NAME} WHERE profile_name = ? ORDER BY resource_type",
@@ -111,6 +115,7 @@ class RunPodResourceManager:
 
     def delete(self, profile_name: str, resource_type: str) -> bool:
         self._ensure_table()
+        from src.plugin_api import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 f"DELETE FROM {TABLE_NAME} WHERE profile_name = ? AND resource_type = ?",

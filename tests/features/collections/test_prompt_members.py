@@ -16,8 +16,6 @@ from src.features.prompt_database.records import Prompt
 from src.features.prompt_database.repository import PromptRepository
 from src.features.segments.dto import RichSegment
 
-import src.features.prompt_database.repository as prompt_repository_module
-
 HISTORY = "history"
 LIBRARY = "library"
 PROMPTS = "prompts"
@@ -27,10 +25,6 @@ class TestCollectionPromptMembers(PersistenceTestBase):
 
     def setUp(self):
         super().setUp()
-        # PromptRepository binds `db` at import time (see PersistenceTestBase's
-        # own redirect list) - it isn't on that list, so it's redirected here.
-        prompt_repository_module.db = self.db
-
         self.repo = CollectionRepository()
         self.prompts = PromptRepository()
         self.user_id = self.create_test_user()

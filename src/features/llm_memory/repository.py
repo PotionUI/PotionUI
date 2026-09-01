@@ -1,5 +1,4 @@
 from typing import List, Optional
-from src.platform.database import db
 from src.features.llm_memory.records import LLMMemoryNote
 from src.platform.util.ids import generate_ulid
 
@@ -13,6 +12,7 @@ class LLMMemoryRepository:
         coalesced_scope_ref = note.scope_ref or ''
         result_id = note.id
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             # Check if a note with this key/scope/scope_ref already exists
             cursor.execute("""
@@ -41,6 +41,7 @@ class LLMMemoryRepository:
 
     def get_by_id(self, id: str, user_id: str) -> Optional[LLMMemoryNote]:
         """Get a memory note by ID scoped to user."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM llm_memory WHERE id = ? AND user_id = ?",
@@ -58,6 +59,7 @@ class LLMMemoryRepository:
     ) -> Optional[LLMMemoryNote]:
         """Get a memory note by its (user_id, key, scope, scope_ref) address."""
         coalesced_scope_ref = scope_ref or ''
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 SELECT * FROM llm_memory
@@ -90,12 +92,14 @@ class LLMMemoryRepository:
             f" ORDER BY updated_at DESC"
         )
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(query, params)
             return [LLMMemoryNote.from_row(row) for row in cursor.fetchall()]
 
     def update(self, note_id: str, user_id: str, key: str, content: str) -> Optional[LLMMemoryNote]:
         """Update a note's key/content by id, scoped to user. Returns the refreshed note."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 UPDATE llm_memory
@@ -109,6 +113,7 @@ class LLMMemoryRepository:
 
     def delete(self, id: str, user_id: str) -> bool:
         """Delete a memory note by ID scoped to user."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "DELETE FROM llm_memory WHERE id = ? AND user_id = ?",

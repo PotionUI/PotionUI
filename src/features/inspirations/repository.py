@@ -10,7 +10,6 @@ import json
 import logging
 from typing import List, Optional, Tuple
 
-from src.platform.database import db
 from src.platform.util.ids import generate_ulid
 
 from src.features.inspirations.records import (
@@ -49,6 +48,7 @@ class InspirationRepository:
         `viewer_id` only affects `saved_by_me` - the row itself is public to
         any viewer (feature-flag gating happens above this layer).
         """
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 _FEED_SELECT + " WHERE i.id = ?",
@@ -98,6 +98,7 @@ class InspirationRepository:
 
         where_clause = f"WHERE {' AND '.join(where)}" if where else ""
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 _FEED_SELECT + f" {where_clause} ORDER BY i.created_at DESC LIMIT ? OFFSET ?",
@@ -119,6 +120,7 @@ class InspirationRepository:
         if not inspiration.id:
             inspiration.id = generate_ulid()
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO inspirations (
@@ -145,6 +147,7 @@ class InspirationRepository:
 
     def delete(self, inspiration_id: str) -> bool:
         """Delete the row (comments/collection items/saves cascade)."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("DELETE FROM inspirations WHERE id = ?", (inspiration_id,))
             return cursor.rowcount > 0
@@ -153,6 +156,7 @@ class InspirationRepository:
 
     def create_comment(self, inspiration_id: str, user_id: str, body: str) -> InspirationComment:
         comment_id = generate_ulid()
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO inspiration_comments (id, inspiration_id, user_id, body)
@@ -164,6 +168,7 @@ class InspirationRepository:
         return comment
 
     def get_comment(self, comment_id: str) -> Optional[InspirationComment]:
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 SELECT c.*, u.username AS author_username, u.avatar_filename AS author_avatar_filename
@@ -175,6 +180,7 @@ class InspirationRepository:
             return InspirationComment.from_row(row) if row else None
 
     def list_comments(self, inspiration_id: str) -> List[InspirationComment]:
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 SELECT c.*, u.username AS author_username, u.avatar_filename AS author_avatar_filename
@@ -186,6 +192,7 @@ class InspirationRepository:
             return [InspirationComment.from_row(row) for row in cursor.fetchall()]
 
     def delete_comment(self, comment_id: str) -> bool:
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("DELETE FROM inspiration_comments WHERE id = ?", (comment_id,))
             return cursor.rowcount > 0
@@ -194,6 +201,7 @@ class InspirationRepository:
 
     def create_save(self, user_id: str, inspiration_id: str) -> None:
         """Idempotent: saving an already-saved inspiration is a no-op."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "INSERT OR IGNORE INTO inspiration_saves (user_id, inspiration_id) VALUES (?, ?)",
@@ -201,6 +209,7 @@ class InspirationRepository:
             )
 
     def delete_save(self, user_id: str, inspiration_id: str) -> None:
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "DELETE FROM inspiration_saves WHERE user_id = ? AND inspiration_id = ?",
@@ -208,6 +217,7 @@ class InspirationRepository:
             )
 
     def count_saves(self, inspiration_id: str) -> int:
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "SELECT COUNT(*) AS n FROM inspiration_saves WHERE inspiration_id = ?",
@@ -219,6 +229,7 @@ class InspirationRepository:
 
     def create_collection(self, user_id: str, name: str, parent_id: Optional[str] = None) -> InspirationCollection:
         collection_id = generate_ulid()
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "INSERT INTO inspiration_collections (id, user_id, name, parent_id) VALUES (?, ?, ?, ?)",
@@ -230,6 +241,7 @@ class InspirationRepository:
         return collection
 
     def get_collection(self, collection_id: str, user_id: str) -> Optional[InspirationCollection]:
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 SELECT ic.*,
@@ -242,6 +254,7 @@ class InspirationRepository:
             return InspirationCollection.from_row(row) if row else None
 
     def list_collections(self, user_id: str) -> List[InspirationCollection]:
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 SELECT ic.*,
@@ -254,6 +267,7 @@ class InspirationRepository:
             return [InspirationCollection.from_row(row) for row in cursor.fetchall()]
 
     def rename_collection(self, collection_id: str, user_id: str, name: str) -> bool:
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "UPDATE inspiration_collections SET name = ? WHERE id = ? AND user_id = ?",
@@ -262,6 +276,7 @@ class InspirationRepository:
             return cursor.rowcount > 0
 
     def move_collection(self, collection_id: str, user_id: str, new_parent_id: Optional[str]) -> bool:
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "UPDATE inspiration_collections SET parent_id = ? WHERE id = ? AND user_id = ?",
@@ -274,6 +289,7 @@ class InspirationRepository:
         cycle - detected by walking up from the new parent toward the root."""
         if new_parent_id is None:
             return False
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             current = new_parent_id
             seen = set()
@@ -292,6 +308,7 @@ class InspirationRepository:
 
     def delete_collection(self, collection_id: str, user_id: str) -> bool:
         """Delete a collection (memberships cascade; inspirations themselves untouched)."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "DELETE FROM inspiration_collections WHERE id = ? AND user_id = ?",
@@ -301,6 +318,7 @@ class InspirationRepository:
 
     def add_item(self, collection_id: str, inspiration_id: str) -> None:
         """Idempotent: adding an already-present inspiration is a no-op."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "INSERT OR IGNORE INTO inspiration_collection_items (collection_id, inspiration_id) "
@@ -309,6 +327,7 @@ class InspirationRepository:
             )
 
     def remove_item(self, collection_id: str, inspiration_id: str) -> bool:
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "DELETE FROM inspiration_collection_items WHERE collection_id = ? AND inspiration_id = ?",

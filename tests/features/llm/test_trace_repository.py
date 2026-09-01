@@ -44,11 +44,6 @@ class TestChatCallTraceRepository(PersistenceTestBase):
         self.repo = ChatCallTraceRepository()
         self.session_repo = ChatSessionRepository()
 
-        import src.features.llm.trace_repository
-        src.features.llm.trace_repository.db = self.db
-        import src.features.chat.repository
-        src.features.chat.repository.db = self.db
-
         self.user_id = self.create_test_user()
         self.session = self.session_repo.create(ChatSession(
             id=generate_ulid(),
@@ -155,13 +150,6 @@ class TestChatCallTraceRecorderSettingGate(PersistenceTestBase):
     def setUp(self):
         super().setUp()
         self.session_repo = ChatSessionRepository()
-
-        import src.features.llm.trace_repository
-        src.features.llm.trace_repository.db = self.db
-        import src.features.chat.repository
-        src.features.chat.repository.db = self.db
-        import src.platform.settings.repository
-        src.platform.settings.repository.db = self.db
 
         self.user_id = self.create_test_user()
         self.session = self.session_repo.create(ChatSession(

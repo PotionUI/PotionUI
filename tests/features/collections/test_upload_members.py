@@ -17,8 +17,6 @@ from src.features.media.records import Upload
 from src.features.media.upload_repository import UploadRepository
 from src.platform.util.ids import generate_ulid
 
-import src.features.media.upload_repository as upload_repository_module
-
 HISTORY = "history"
 LIBRARY = "library"
 
@@ -27,8 +25,6 @@ class TestCollectionUploadMembers(PersistenceTestBase):
 
     def setUp(self):
         super().setUp()
-        upload_repository_module.db = self.db
-
         self.repo = CollectionRepository()
         self.gen_repo = GenerationRepository()
         self.uploads = UploadRepository()

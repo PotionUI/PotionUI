@@ -99,10 +99,7 @@ def db(tmp_path, key):
     """A file-backed DB with the plugin + backend schema, and a live cipher."""
     database = FileDatabase(tmp_path / "db.sqlite")
     configure_secret_cipher(SecretCipher([key]))
-    with patch("src.platform.database.database.db", database), \
-         patch("src.platform.database.db", database), \
-         patch("src.features.plugins.repository.db", database), \
-         patch("src.features.backends.repository.db", database):
+    with patch("src.platform.database.database.db", database):
         _load("001_baseline", f"m001_{id(database)}").up()
         # The migration sets WAL (correct for a real install) on this same
         # persistent connection - put DELETE back so a committed write keeps

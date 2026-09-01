@@ -21,9 +21,6 @@ class TestGenerationSegmentRepository(PersistenceTestBase):
         super().setUp()
         self.repo = GenerationSegmentRepository()
 
-        import src.features.generation.segment_repository
-        src.features.generation.segment_repository.db = self.db
-
         self.user_id = self.create_test_user()
 
     def _create_generation(self, gen_id: str = None) -> str:

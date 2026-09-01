@@ -7,8 +7,6 @@ feeds.
 from datetime import datetime
 from typing import Dict, Iterable, Optional, Set, Tuple
 
-from src.platform.database import db
-
 
 class ToolGovernanceRepository:
     """Persistence for per-config admin tool config and the global per-user
@@ -17,6 +15,7 @@ class ToolGovernanceRepository:
     def get_all_config(self, llm_config_id: str) -> Dict[str, Dict[str, bool]]:
         """Every governed tool's {enabled, locked} for one LLM config, keyed
         by tool name."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "SELECT tool_name, enabled, locked FROM tool_governance WHERE llm_config_id = ?",
@@ -28,6 +27,7 @@ class ToolGovernanceRepository:
             }
 
     def get_config(self, llm_config_id: str, tool_name: str) -> Optional[Dict[str, bool]]:
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "SELECT enabled, locked FROM tool_governance "
@@ -50,6 +50,7 @@ class ToolGovernanceRepository:
         if not names:
             return {}
         placeholders = ",".join("?" for _ in names)
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 f"SELECT tool_name, enabled, locked FROM tool_governance "
@@ -75,6 +76,7 @@ class ToolGovernanceRepository:
         merged_enabled = existing["enabled"] if enabled is None else enabled
         merged_locked = existing["locked"] if locked is None else locked
         now = datetime.now().isoformat()
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 """
@@ -91,10 +93,12 @@ class ToolGovernanceRepository:
 
     def delete_config(self, llm_config_id: str) -> None:
         """Drop every governance row for a deleted LLM config."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("DELETE FROM tool_governance WHERE llm_config_id = ?", (llm_config_id,))
 
     def get_user_disabled(self, user_id: str) -> Set[str]:
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "SELECT tool_name FROM user_disabled_tools WHERE user_id = ?", (user_id,)
@@ -102,6 +106,7 @@ class ToolGovernanceRepository:
             return {row["tool_name"] for row in cursor.fetchall()}
 
     def set_user_disabled(self, user_id: str, tool_name: str, disabled: bool) -> None:
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             if disabled:
                 cursor.execute(

@@ -11,18 +11,12 @@ class TestNotificationRepository:
 
     @pytest.fixture
     def repository(self, mock_db):
-        """
-        Create repository instance with test database (migrations applied).
+        """Create repository instance with test database (migrations applied).
 
-        `mock_db` only patches `src.platform.database.database.db`; this module did
-        `from ..database import db` at import time, which copied that
-        reference into its own namespace. If this module was already
-        imported (e.g. at test collection) before `mock_db`'s patch took
-        effect, its local `db` name would still point at the real
-        production database. Re-patch it explicitly here, same workaround
-        `tests/persistence/test_base.py` uses for other repositories.
+        The repository resolves `db` at call time via
+        `src.platform.database.database.db`, which `mock_db` already patches.
         """
-        with patch('src.features.notifications.repository.db', mock_db):
+        with patch('src.platform.database.database.db', mock_db):
             yield NotificationRepository()
 
     # ========== Create / Read ==========

@@ -46,9 +46,8 @@ class _NoopPluginRegistry:
 
 @pytest.fixture
 def repos_on_test_db(mock_db):
-    """Point the repositories at the test database (they bind `db` at import)."""
-    with patch('src.features.generation.file_repository.db', mock_db), \
-         patch('src.features.generation.repository.db', mock_db):
+    """Point the repositories at the test database (they resolve `db` at call time)."""
+    with patch('src.platform.database.database.db', mock_db):
         yield mock_db
 
 

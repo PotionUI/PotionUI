@@ -138,12 +138,11 @@ from src.plugin_api.presets import (
     PromptPair,
 )
 
-# Keeping data.
+# Keeping data. `db` is deliberately absent here - see __getattr__ below.
 from src.plugin_api.storage import (
     PluginRepository,
     SettingRepository,
     Settings,
-    db,
     generate_ulid,
 )
 
@@ -275,3 +274,16 @@ __all__ = [
     # Model metadata fields
     "WellKnownModelMetadataField",
 ]
+
+
+def __getattr__(name):
+    """`db` is resolved on access, not bound here at import time - a plugin
+    importing this module before a test patches the process-default
+    `Database` singleton would otherwise keep the pre-patch reference for the
+    rest of the process. Plugins should still reach for `db` inside the
+    function that uses it, not at their own module top level, so that even
+    the binding they make is short-lived."""
+    if name == "db":
+        from src.platform.database.database import db
+        return db
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

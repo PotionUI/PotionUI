@@ -2,7 +2,6 @@ from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime
 import json
 import logging
-from src.platform.database import db
 from src.features.chat.records import ChatSession, ChatMessage
 from src.features.chat.dto import SessionResponse, MessageResponse
 from src.platform.util.ids import generate_ulid
@@ -64,6 +63,7 @@ class ChatMessageRepository:
 
     def _get_by_id_internal(self, message_id: str) -> Optional[ChatMessage]:
         """Get a message by ID (internal model)"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("SELECT * FROM chat_messages WHERE id = ?", (message_id,))
             row = cursor.fetchone()
@@ -76,6 +76,7 @@ class ChatMessageRepository:
 
     def _get_by_session_internal(self, session_id: str) -> List[ChatMessage]:
         """Get all messages for a session (internal models)"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM chat_messages WHERE session_id = ? ORDER BY created_at ASC",
@@ -96,6 +97,7 @@ class ChatMessageRepository:
             parsed_content_json = json.dumps(message.parsed_content) if message.parsed_content else None
             metadata_json = json.dumps(message.metadata) if message.metadata else None
 
+            from src.platform.database.database import db
             with db.get_cursor() as cursor:
                 cursor.execute("""
                     INSERT INTO chat_messages
@@ -112,12 +114,14 @@ class ChatMessageRepository:
 
     def delete_by_session(self, session_id: str) -> bool:
         """Delete all messages for a session"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("DELETE FROM chat_messages WHERE session_id = ?", (session_id,))
             return True
 
     def count_by_session(self, session_id: str) -> int:
         """Count messages in a session"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "SELECT COUNT(*) FROM chat_messages WHERE session_id = ?",
@@ -135,6 +139,7 @@ class ChatSessionRepository:
 
     def _get_by_id_internal(self, session_id: str) -> Optional[ChatSession]:
         """Get a session by ID (internal model)"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("SELECT * FROM chat_sessions WHERE id = ?", (session_id,))
             row = cursor.fetchone()
@@ -194,6 +199,7 @@ class ChatSessionRepository:
 
         where_sql = " AND ".join(where)
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 f"SELECT COUNT(*) FROM chat_sessions WHERE {where_sql}",
@@ -235,6 +241,7 @@ class ChatSessionRepository:
             params.extend([f"%{search}%", f"%{search}%", f"%{search}%"])
         where_sql = f"WHERE {' AND '.join(where)}" if where else ""
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(f"""
                 SELECT COUNT(*) FROM chat_sessions s
@@ -267,6 +274,7 @@ class ChatSessionRepository:
             session.updated_at = now
             metadata_json = json.dumps(session.metadata) if session.metadata else None
 
+            from src.platform.database.database import db
             with db.get_cursor() as cursor:
                 cursor.execute("""
                     INSERT INTO chat_sessions
@@ -316,6 +324,7 @@ class ChatSessionRepository:
             values.append(session_id)
             update_sql = f"UPDATE chat_sessions SET {', '.join(update_parts)} WHERE id = ?"
 
+            from src.platform.database.database import db
             with db.get_cursor() as cursor:
                 cursor.execute(update_sql, tuple(values))
                 return cursor.rowcount > 0
@@ -343,6 +352,7 @@ class ChatSessionRepository:
 
     def delete(self, session_id: str) -> bool:
         """Delete a session and all its messages"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             # Messages are deleted via CASCADE
             cursor.execute("DELETE FROM chat_sessions WHERE id = ?", (session_id,))
@@ -350,6 +360,7 @@ class ChatSessionRepository:
 
     def exists(self, session_id: str) -> bool:
         """Check if session exists"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("SELECT 1 FROM chat_sessions WHERE id = ?", (session_id,))
             return cursor.fetchone() is not None
@@ -513,6 +524,7 @@ class ChatRepository:
         """
         try:
             metadata_json = json.dumps(metadata)
+            from src.platform.database.database import db
             with db.get_cursor() as cursor:
                 cursor.execute(
                     "UPDATE chat_messages SET metadata = ? WHERE id = ?",

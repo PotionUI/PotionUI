@@ -11,18 +11,12 @@ import unittest
 from tests.fixtures.persistence_base import PersistenceTestBase
 from src.features.media.records import Upload
 from src.features.media.upload_repository import UploadRepository
-import src.features.media.upload_repository as upload_repository_module
 
 
 class TestUploadRepository(PersistenceTestBase):
 
     def setUp(self):
         super().setUp()
-        # `upload_repository` binds `db` at import time via `from ... import db`,
-        # so it isn't covered by PersistenceTestBase's own redirect list -
-        # redirect it here the same way other feature repositories do.
-        upload_repository_module.db = self.db
-
         self.repo = UploadRepository()
         self.user_id = self.create_test_user()
         self.other_user_id = self.create_test_user("other_user", "other", "other@example.com")

@@ -29,14 +29,6 @@ class TestUserGroupAccessControl(PersistenceTestBase):
         self.group_repo = UserGroupRepository()
         self.llm_repo = LLMRepository()
 
-        # Patch db references for ALL repos
-        import src.features.presets.repository
-        src.features.presets.repository.db = self.db
-        import src.features.user_groups.repository
-        src.features.user_groups.repository.db = self.db
-        import src.features.llm.repository
-        src.features.llm.repository.db = self.db
-
     def tearDown(self):
         try:
             if hasattr(self, 'db'):

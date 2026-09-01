@@ -11,7 +11,6 @@ import json
 import sqlite3
 from typing import Any, Dict, List, Optional
 
-from src.platform.database import db
 from src.platform.database.rows import now_iso
 from src.platform.util.ids import generate_ulid
 from src.features.setup.records import (
@@ -57,6 +56,7 @@ class SetupRunRepository:
         the single-active index - the caller decides what to do with that.
         """
         run_id = generate_ulid()
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 """
@@ -78,6 +78,7 @@ class SetupRunRepository:
         return self.get_run(run_id)
 
     def get_run(self, run_id: str) -> Optional[SetupRun]:
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("SELECT * FROM setup_runs WHERE id = ?", (run_id,))
             row = cursor.fetchone()
@@ -85,6 +86,7 @@ class SetupRunRepository:
 
     def get_active_run(self) -> Optional[SetupRun]:
         """The one non-terminal run, if any (active_marker = 1)."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("SELECT * FROM setup_runs WHERE active_marker = 1")
             row = cursor.fetchone()
@@ -94,6 +96,7 @@ class SetupRunRepository:
         """The most recent COMPLETED run for `recipe_id`, if any - lets the
         recipe catalog mark a recipe "Installed" instead of re-offering
         "Start" on one a run already finished."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM setup_runs WHERE recipe_id = ? AND status = ? "
@@ -120,6 +123,7 @@ class SetupRunRepository:
         ever moved forward)."""
         sets: List[str] = ["updated_at = ?"]
         params: List[Any] = [now_iso()]
+        from src.platform.database.database import db
 
         if status is not None:
             sets.append("status = ?")
@@ -159,6 +163,7 @@ class SetupRunRepository:
     # --- step attempts -----------------------------------------------------
 
     def next_attempt_number(self, run_id: str, step_key: str) -> int:
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "SELECT COALESCE(MAX(attempt), 0) AS n FROM setup_step_attempts "
@@ -187,6 +192,7 @@ class SetupRunRepository:
             attempt = self.next_attempt_number(run_id, step_key)
         attempt_id = generate_ulid()
         finished_at = now_iso() if finished else None
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 """
@@ -269,6 +275,7 @@ class SetupRunRepository:
             sets.append("finished_at = ?")
             params.append(now_iso())
 
+        from src.platform.database.database import db
         if not sets:
             with db.get_cursor() as cursor:
                 cursor.execute(
@@ -290,6 +297,7 @@ class SetupRunRepository:
             return SetupStepAttempt.from_row(row) if row else None
 
     def list_attempts(self, run_id: str) -> List[SetupStepAttempt]:
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM setup_step_attempts WHERE run_id = ? "
@@ -301,6 +309,7 @@ class SetupRunRepository:
     # --- per-user onboarding ----------------------------------------------
 
     def get_onboarding_state(self, user_id: str) -> Optional[UserOnboardingState]:
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM user_onboarding_state WHERE user_id = ?", (user_id,)
@@ -318,6 +327,7 @@ class SetupRunRepository:
     ) -> UserOnboardingState:
         existing = self.get_onboarding_state(user_id)
         now = now_iso()
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             if existing is None:
                 cursor.execute(

@@ -18,7 +18,6 @@ queries as a page of 200.
 import logging
 from typing import List, Optional, Tuple
 
-from src.platform.database import db
 from src.features.media.records import Upload
 
 logger = logging.getLogger(__name__)
@@ -85,6 +84,7 @@ class LibraryRepository:
         """One page of the user's library, newest first."""
         where, params = self._filters(user_id, media_type, tag_ids, collection_id, search)
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(f"""
                 SELECT u.* FROM uploads u
@@ -105,6 +105,7 @@ class LibraryRepository:
         """Total rows matching the same filters `list_items` applies."""
         where, params = self._filters(user_id, media_type, tag_ids, collection_id, search)
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(f"SELECT COUNT(*) as count FROM uploads u WHERE {where}", params)
             row = cursor.fetchone()
@@ -112,6 +113,7 @@ class LibraryRepository:
 
     def media_type_counts(self, user_id: str) -> dict:
         """How many items of each media type the user's library holds."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 SELECT media_type, COUNT(*) as count FROM uploads

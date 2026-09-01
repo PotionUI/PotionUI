@@ -4,10 +4,9 @@ inheritance: when a generation carries a `generation_sources` link (an
 params and models fall back to the linked source - recursively, through an
 enhance-of-enhance chain, with a cycle guard and a depth cap.
 
-Uses a real (temp-file) database via PersistenceTestBase, since
-generation_parameter_repo/generation_model_repo/generation_source_repo are
-module-level singletons bound to `src.platform.database`'s `db` at import
-time, not constructor-injected.
+Uses a real (temp-file) database via PersistenceTestBase, which redirects the
+canonical `src.platform.database.database.db` name every repository resolves
+at call time.
 """
 
 import sys
@@ -31,22 +30,6 @@ class TestGetParamsProvenanceInheritance(PersistenceTestBase):
 
     def setUp(self):
         super().setUp()
-
-        # These repositories bind `db` at import time - redirect each one at
-        # the module level, same as test_segment_repository.py /
-        # test_model_repository.py do for their own modules.
-        # `src.features.models.repository` too: get_params's
-        # `include_files=True` model fetch reaches into it for
-        # `_get_model_files_with_urls`, a separate module PersistenceTestBase
-        # doesn't redirect on its own.
-        import src.features.generation.parameter_repository
-        import src.features.generation.model_repository
-        import src.features.generation.source_repository
-        import src.features.models.repository
-        src.features.generation.parameter_repository.db = self.db
-        src.features.generation.model_repository.db = self.db
-        src.features.generation.source_repository.db = self.db
-        src.features.models.repository.db = self.db
 
         self.param_repo = GenerationParameterRepository()
         self.model_repo = GenerationModelRepository()

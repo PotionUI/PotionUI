@@ -1,5 +1,4 @@
 from typing import Any, Dict, List, Optional
-from src.platform.database import db
 from src.features.generation.source_records import GenerationSource
 from src.platform.util.ids import generate_ulid
 
@@ -17,6 +16,7 @@ class GenerationSourceRepository:
         """
         created: List[GenerationSource] = []
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             for origin in origins:
                 source_id = generate_ulid()
@@ -47,6 +47,7 @@ class GenerationSourceRepository:
         When a generation carries more than one origin field, callers that
         need a single "the" source (e.g. `get_params` inheritance) take the
         first row here - see that method's docstring for the limitation."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 SELECT * FROM generation_sources

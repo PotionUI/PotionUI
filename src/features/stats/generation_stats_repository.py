@@ -18,7 +18,6 @@ table exists to provide).
 import logging
 from typing import Any, Dict, List, Optional
 
-from src.platform.database import db
 from src.platform.util.ids import generate_ulid
 
 logger = logging.getLogger(__name__)
@@ -57,6 +56,7 @@ class GenerationStatsRepository:
         the caller wraps this in a best-effort try/except, but the INSERT
         itself is a single row write with no side effects, so failure here
         should never be silent; callers should still log it."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 """
@@ -92,6 +92,7 @@ class GenerationStatsRepository:
         never guessed as warm.
         """
         limit = clamp_limit(limit)
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 """
@@ -121,6 +122,7 @@ class GenerationStatsRepository:
         capture available (e.g. no CUDA device) reports NULL, not 0.
         """
         limit = clamp_limit(limit)
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 """
@@ -144,6 +146,7 @@ class GenerationStatsRepository:
             return [dict(r) for r in cursor.fetchall()]
 
     def count(self) -> int:
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("SELECT COUNT(*) FROM generation_stats")
             return cursor.fetchone()[0] or 0

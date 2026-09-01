@@ -22,10 +22,6 @@ class TestDownloadRepository(PersistenceTestBase):
         super().setUp()
         self.repository = DownloadRepository()
 
-        # Patch db reference in the repository
-        import src.features.downloads.repository
-        src.features.downloads.repository.db = self.db
-
         # Create downloads table if not exists
         self._create_downloads_table()
 
@@ -378,10 +374,6 @@ class TestDownloadRepositoryEdgeCases(PersistenceTestBase):
         super().setUp()
         self.repository = DownloadRepository()
 
-        # Patch db reference in the repository
-        import src.features.downloads.repository
-        src.features.downloads.repository.db = self.db
-
         # Create downloads table
         with self.db.get_cursor() as cursor:
             cursor.execute("""
@@ -455,8 +447,6 @@ class TestDownloadGroups(PersistenceTestBase):
     def setUp(self):
         super().setUp()
         self.repository = DownloadRepository()
-        import src.features.downloads.repository
-        src.features.downloads.repository.db = self.db
 
     def _make_group(self):
         parent = self.repository.create(Download(

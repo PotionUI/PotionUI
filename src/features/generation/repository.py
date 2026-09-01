@@ -1,7 +1,6 @@
 import re
 from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime, timezone
-from src.platform.database import db
 from src.features.generation.records import Generation, File, GenerationFile
 from .file_repository import file_repo
 from src.platform.util.ids import generate_ulid
@@ -28,6 +27,7 @@ _SORT_COLUMNS = {
 class GenerationRepository:
     def create(self, generation: Generation) -> Generation:
         """Create a new generation"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO generations (
@@ -54,6 +54,7 @@ class GenerationRepository:
 
     def get_by_id(self, generation_id: str, user_id: Optional[str] = None, include_files: bool = False) -> Optional[Generation]:
         """Get generation by ID, optionally filtered by user"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             if user_id:
                 cursor.execute("SELECT * FROM generations WHERE id = ? AND user_id = ?", (generation_id, user_id))
@@ -286,6 +287,7 @@ class GenerationRepository:
             query += " LIMIT ? OFFSET ?"
             params.extend([limit, offset])
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(query, params)
             generations = [Generation.from_row(row) for row in cursor.fetchall()]
@@ -361,6 +363,7 @@ class GenerationRepository:
             if conditions:
                 query += " WHERE " + " AND ".join(conditions)
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(query, params)
             return cursor.fetchone()[0]
@@ -376,6 +379,7 @@ class GenerationRepository:
         Scoped to `user_id` the same way the history endpoints are - a prompt
         id alone can't leak another user's generations through this side door.
         """
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM generations WHERE source_prompt_id = ? AND user_id = ? "
@@ -394,6 +398,7 @@ class GenerationRepository:
 
     def count_by_source_prompt(self, prompt_id: str, user_id: str) -> int:
         """Total completed generations for `get_by_source_prompt`'s pagination."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "SELECT COUNT(*) FROM generations WHERE source_prompt_id = ? AND user_id = ? "
@@ -413,6 +418,7 @@ class GenerationRepository:
         if not prompt_ids:
             return {}
         placeholders = ','.join('?' * len(prompt_ids))
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 f"SELECT source_prompt_id, COUNT(*) AS usage_count, MAX(created_at) AS last_used_at "
@@ -432,6 +438,7 @@ class GenerationRepository:
 
     def update_rating(self, generation_id: str, rating: int, user_id: Optional[str] = None) -> bool:
         """Set the star rating (0-5) for a generation."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             if user_id:
                 cursor.execute(
@@ -448,6 +455,7 @@ class GenerationRepository:
     def set_favorite(self, generation_id: str, is_favorite: bool, user_id: Optional[str] = None) -> bool:
         """Toggle the favorite flag for a generation."""
         value = 1 if is_favorite else 0
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             if user_id:
                 cursor.execute(
@@ -468,6 +476,7 @@ class GenerationRepository:
         user_filter = " WHERE user_id = ?" if user_id else ""
         user_params: List[Any] = [user_id] if user_id else []
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             # Modes
             cursor.execute(
@@ -530,6 +539,7 @@ class GenerationRepository:
         A generation cancelled while still queued never ran, so it keeps a NULL `started_at`
         and its duration falls back to `created_at`.
         """
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             now = datetime.now(timezone.utc).strftime(_TIMESTAMP_FMT)
 
@@ -562,6 +572,7 @@ class GenerationRepository:
 
     def update_preset_version(self, generation_id: str, preset_version: str) -> bool:
         """Record which preset version actually rendered this generation's pipeline."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "UPDATE generations SET preset_version = ? WHERE id = ?",
@@ -571,6 +582,7 @@ class GenerationRepository:
 
     def update_progress(self, generation_id: str, progress: float) -> bool:
         """Update generation progress"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 UPDATE generations
@@ -582,6 +594,7 @@ class GenerationRepository:
 
     def delete(self, generation_id: str) -> bool:
         """Delete generation and its files"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("DELETE FROM generations WHERE id = ?", (generation_id,))
             return cursor.rowcount > 0
@@ -617,6 +630,7 @@ class GenerationRepository:
         `update_generations_updated_at` trigger bumps `updated_at` for touched rows only.
         """
         from src.features.generation.status_tracker import GenerationState
+        from src.platform.database.database import db
 
         with db.get_cursor() as cursor:
             now = datetime.now(timezone.utc).strftime(_TIMESTAMP_FMT)

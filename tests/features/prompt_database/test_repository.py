@@ -36,9 +36,6 @@ def _chip():
 class TestPromptRepository(PersistenceTestBase):
     def setUp(self):
         super().setUp()
-        import src.features.prompt_database.repository as repository_module
-
-        repository_module.db = self.db
         self.repository = PromptRepository()
         self.user_1 = self.create_test_user(
             "prompt-user-1", "promptuser1", "prompt1@example.com"

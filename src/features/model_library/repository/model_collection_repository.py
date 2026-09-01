@@ -9,7 +9,6 @@ CollectionRepository (generation collections) with `model_collections` /
 """
 from typing import List, Optional
 from datetime import datetime
-from src.platform.database import db
 from src.features.model_library.records.model_collection import ModelCollection
 from src.platform.util.ids import generate_ulid
 import logging
@@ -25,6 +24,7 @@ class ModelCollectionRepository:
         collection_id = generate_ulid()
         now = datetime.now()
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO model_collections (id, name, user_id, parent_id, created_at)
@@ -57,6 +57,7 @@ class ModelCollectionRepository:
 
         query += " GROUP BY c.id"
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(query, params)
             row = cursor.fetchone()
@@ -64,6 +65,7 @@ class ModelCollectionRepository:
 
     def list(self, user_id: str) -> List[ModelCollection]:
         """List all model collections owned by the user, each with a model count."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 SELECT c.id, c.name, c.user_id, c.parent_id, c.created_at,
@@ -78,6 +80,7 @@ class ModelCollectionRepository:
 
     def rename(self, collection_id: str, name: str, user_id: str) -> bool:
         """Rename a model collection owned by the user."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 UPDATE model_collections SET name = ?
@@ -113,6 +116,7 @@ class ModelCollectionRepository:
         Raises:
             ValueError: If the move would create a cycle.
         """
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             if not self._owns(cursor, collection_id, user_id):
                 return False
@@ -126,6 +130,7 @@ class ModelCollectionRepository:
 
     def delete(self, collection_id: str, user_id: str) -> bool:
         """Delete a model collection owned by the user (cascades members and subfolders)."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 DELETE FROM model_collections WHERE id = ? AND user_id = ?
@@ -151,6 +156,7 @@ class ModelCollectionRepository:
             return 0
 
         added = 0
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             if not self._owns(cursor, collection_id, user_id):
                 return 0
@@ -169,6 +175,7 @@ class ModelCollectionRepository:
         if not model_ids:
             return 0
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             placeholders = ','.join('?' * len(model_ids))
             cursor.execute(f"""
@@ -179,6 +186,7 @@ class ModelCollectionRepository:
 
     def get_for_model(self, model_id: str) -> List[ModelCollection]:
         """List collections that contain the given model."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 SELECT c.id, c.name, c.user_id, c.parent_id, c.created_at

@@ -4,11 +4,11 @@ import importlib.util
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
-from src.platform.database.database import Database, db as REAL_DB
+from src.platform.database.database import Database
 from src.features.generation.run_report_repository import GenerationRunReportRepository
-import src.features.generation.run_report_repository as run_report_repository_module
 
 _MIGRATIONS = (
     Path(__file__).resolve().parents[3]
@@ -36,18 +36,15 @@ class TestGenerationRunReportRepository(unittest.TestCase):
 
         _load_migration("001_baseline", self.db).up()
 
-        run_report_repository_module.db = self.db
+        patcher = patch("src.platform.database.database.db", self.db)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.repo = GenerationRunReportRepository()
 
         self._insert_generation("gen-1")
         self._insert_generation("gen-2")
 
     def tearDown(self):
-        # A dangling reference to this test's (about-to-vanish) temp database
-        # would break the next test that imports this module fresh in the
-        # same process - restore the real singleton, matching
-        # PersistenceTestBase._restore_patched_db.
-        run_report_repository_module.db = REAL_DB
         Database._instance = None
 
     def _insert_generation(self, generation_id):

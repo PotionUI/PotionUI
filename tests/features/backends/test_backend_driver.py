@@ -171,7 +171,6 @@ class TestSecondNativeRowCoexistsAtTheRepositoryLayer(unittest.TestCase):
         self._patchers = [
             patch("src.platform.database.database.db", self.db),
             patch("src.platform.database.migration_runner.db", self.db),
-            patch("src.features.backends.repository.db", self.db),
         ]
         for p in self._patchers:
             p.start()

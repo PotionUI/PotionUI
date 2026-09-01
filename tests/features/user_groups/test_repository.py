@@ -22,8 +22,6 @@ class TestUserGroupRepository(PersistenceTestBase):
     def setUp(self):
         super().setUp()
         self.repo = UserGroupRepository()
-        import src.features.user_groups.repository
-        src.features.user_groups.repository.db = self.db
         # Migration 095 seeds the built-in All Users/All Admins groups onto
         # every fresh schema - clear them so this file's count-based
         # assertions start from an empty table, as they did before that

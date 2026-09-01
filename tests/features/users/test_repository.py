@@ -21,8 +21,6 @@ class TestUserRepositoryBuiltinGroupMembership(PersistenceTestBase):
     def setUp(self):
         super().setUp()
         self.repo = UserRepository()
-        import src.features.users.repository
-        src.features.users.repository.db = self.db
 
     def tearDown(self):
         try:

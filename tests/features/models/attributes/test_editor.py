@@ -20,15 +20,6 @@ class ModelAttributeDefinitionsEditorTestBase(PersistenceTestBase):
 
     def setUp(self):
         super().setUp()
-        import src.features.models.attributes.repository as def_repo_module
-        def_repo_module.db = self.db
-        import src.features.models.attributes.user_repository as user_repo_module
-        user_repo_module.db = self.db
-        import src.features.models.repository as model_repository_module
-        model_repository_module.db = self.db
-        import src.features.tags.repository as tag_repository_module
-        tag_repository_module.db = self.db
-
         self.definitions = AttributeDefinitionRepository()
         self.user_attributes = UserModelAttributeRepository()
         self.manager = ModelAttributeDefinitionsEditor(self.definitions, self.user_attributes)

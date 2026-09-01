@@ -7,7 +7,6 @@ import logging
 
 import pytest
 
-import backend.resources as resources_module
 from backend.client import NetworkVolume, Pod, RunPodAPIError, RunPodNotFoundError
 from backend.provisioning import (
     NETWORK_VOLUME_CREATE,
@@ -105,7 +104,7 @@ class FakeRunPodClient:
 
 @pytest.fixture
 def resources(scratch_db, monkeypatch):
-    monkeypatch.setattr(resources_module, "db", scratch_db)
+    monkeypatch.setattr("src.platform.database.database.db", scratch_db)
     manager = RunPodResourceManager()
     manager.create_table()
     return manager

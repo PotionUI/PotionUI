@@ -20,14 +20,6 @@ class TestBulkMoveCollections(PersistenceTestBase):
         self.repo = ModelCollectionRepository()
         self.test_user_id = self.create_test_user()
 
-        # PersistenceTestBase only repatches the module-level `db` reference for
-        # file_repository/generation_repository/collection_repository - this
-        # repository imports `db` the same way, so without repatching here it
-        # ends up bound to whatever `db` instance was live the first time the
-        # module was imported, instead of this test's fresh temp database.
-        import src.features.model_library.repository.model_collection_repository as model_collection_repository_module
-        model_collection_repository_module.db = self.db
-
     def test_bulk_move_happy_path(self):
         a = self.repo.create("A", self.test_user_id)
         b = self.repo.create("B", self.test_user_id)

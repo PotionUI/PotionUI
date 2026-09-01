@@ -25,8 +25,7 @@ from src.features.llm.tools.governance import ToolGovernanceRepository
 def governance_db():
     test_database = TestDatabase()
     with patch("src.platform.database.database.db", test_database), \
-         patch("src.platform.database.migration_runner.db", test_database), \
-         patch("src.features.llm.tools.governance_repository.db", test_database):
+         patch("src.platform.database.migration_runner.db", test_database):
         from src.platform.database.migration_runner import MigrationRunner
 
         old_stdout = sys.stdout

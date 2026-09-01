@@ -12,22 +12,13 @@ from tests.fixtures.persistence_base import PersistenceTestBase
 from src.features.library.repository import LibraryRepository
 from src.features.media.records import Upload
 from src.features.media.upload_repository import UploadRepository
-import src.features.library.repository as library_repository_module
-import src.features.media.upload_repository as upload_repository_module
-import src.features.tags.repository as tag_repository_module
 
 
 class LibraryRepositoryTestBase(PersistenceTestBase):
-    """Scratch DB with the three modules this feature reads through redirected."""
+    """Scratch DB, provided by PersistenceTestBase."""
 
     def setUp(self):
         super().setUp()
-        # These modules bind `db` at import time (`from ... import db`), so each
-        # has to be pointed at the temp database by name.
-        library_repository_module.db = self.db
-        upload_repository_module.db = self.db
-        tag_repository_module.db = self.db
-
         self.repo = LibraryRepository()
         self.uploads = UploadRepository()
         self.user_id = self.create_test_user()

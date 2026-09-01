@@ -13,8 +13,6 @@ class TestAttributeDefinitionRepository(PersistenceTestBase):
 
     def setUp(self):
         super().setUp()
-        import src.features.models.attributes.repository as repo_module
-        repo_module.db = self.db
         self.repo = AttributeDefinitionRepository()
 
     def test_create_and_get_by_id(self):
@@ -79,13 +77,6 @@ class TestUserModelAttributeRepository(PersistenceTestBase):
 
     def setUp(self):
         super().setUp()
-        import src.features.models.attributes.user_repository as user_repo_module
-        user_repo_module.db = self.db
-        import src.features.models.repository as model_repository_module
-        model_repository_module.db = self.db
-        import src.features.tags.repository as tag_repository_module
-        tag_repository_module.db = self.db
-
         self.repo = UserModelAttributeRepository()
 
         from src.features.models.repository import ModelRepository

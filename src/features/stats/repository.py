@@ -17,8 +17,6 @@ Date filters bound `generations.created_at`, which SQLite writes in UTC.
 
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.platform.database import db
-
 
 # Public dimension name -> how to aggregate it. Nothing outside this map can reach the SQL,
 # so a caller can never inject a column or a parameter name.
@@ -107,6 +105,7 @@ class StatsRepository:
 
     def overview(self, date_from: Optional[str] = None, date_to: Optional[str] = None) -> Dict[str, Any]:
         where, params = self._range(date_from, date_to)
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 f"""
@@ -190,6 +189,7 @@ class StatsRepository:
         else:
             value_expr, extra = f'COALESCE(SUM({_BYTES_FOR_GENERATION}), 0)', ''
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 f"""
@@ -212,6 +212,7 @@ class StatsRepository:
         where, params = self._range(date_from, date_to)
         kind = spec['kind']
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             if kind == 'column':
                 col = spec['column']
@@ -292,6 +293,7 @@ class StatsRepository:
         edges = [0, 5, 10, 20, 30, 60, 120, 300, 600]  # seconds; last bin is open-ended
         where, params = self._range(date_from, date_to)
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             buckets: List[Dict[str, Any]] = []
             for i, lower in enumerate(edges):
@@ -345,6 +347,7 @@ class StatsRepository:
             "JOIN files f ON f.id = gf.file_id "
         )
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 f"SELECT f.file_type, COUNT(*) AS count, COALESCE(SUM(f.file_size), 0) AS bytes "

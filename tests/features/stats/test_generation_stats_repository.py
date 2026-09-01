@@ -1,9 +1,7 @@
 """GenerationStatsRepository runs real SQL against a real (in-memory) SQLite
 database, mirroring `tests/features/stats/test_repository.py`'s pattern: the
-module does `from src.platform.database import db` at import time, so the
-module's OWN `db` attribute is patched directly (see that file's docstring
-for why `unittest.mock.patch('src.platform.database.database.db', ...)`
-would not reach it).
+repository resolves `db` at call time, so patching the canonical
+`src.platform.database.database.db` reaches it.
 """
 
 import sqlite3
@@ -12,7 +10,6 @@ from unittest.mock import patch
 
 import pytest
 
-import src.features.stats.generation_stats_repository as generation_stats_repository_module
 from src.features.stats.generation_stats_repository import (
     MAX_LIMIT,
     GenerationStatsRepository,
@@ -59,7 +56,7 @@ def repo():
     memory_db = _MemoryDb()
     with memory_db.get_cursor() as c:
         c.executescript(_SCHEMA)
-    with patch.object(generation_stats_repository_module, "db", memory_db):
+    with patch("src.platform.database.database.db", memory_db):
         yield GenerationStatsRepository()
 
 
@@ -97,7 +94,8 @@ class TestRecordCompletion:
 
 
 def repo_db(repo):
-    return generation_stats_repository_module.db
+    from src.platform.database.database import db
+    return db
 
 
 class TestPresetTiming:

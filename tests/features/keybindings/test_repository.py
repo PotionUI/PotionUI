@@ -16,8 +16,6 @@ class TestKeybindingRepository(PersistenceTestBase):
     def setUp(self):
         super().setUp()
         self.repo = KeybindingRepository()
-        import src.features.keybindings.repository
-        src.features.keybindings.repository.db = self.db
         self.user_id = self.create_test_user("user-1", "user1", "user1@test.com")
 
     # ========== Default Keybinding Tests ==========

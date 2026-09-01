@@ -10,8 +10,24 @@ order: 45
 backend a plugin may import.
 
 ```python
-from src.plugin_api import User, get_current_active_user, db, generate_ulid
+from src.plugin_api import User, get_current_active_user, generate_ulid
 ```
+
+`db` is the one export to import differently — inside the function that uses it,
+never at your module's top level:
+
+```python
+def list_rows():
+    from src.plugin_api import db
+    with db.get_cursor() as cursor:
+        ...
+```
+
+A module-level `from src.plugin_api import db` copies the database handle into your
+module's namespace the first time your plugin is imported, and keeps that copy for the
+life of the process. Anything that later swaps the application's database — a test
+harness, most commonly — swaps the handle your module is no longer reading. Importing
+inside the function resolves it fresh on every call.
 
 Everything else under `src/` is internal. It is refactored, renamed and moved as the
 application changes, and none of those changes are announced. A plugin that imports an

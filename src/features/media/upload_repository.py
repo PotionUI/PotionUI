@@ -8,7 +8,6 @@ that a user's upload library only ever shows (or deletes) their own files.
 
 from typing import List, Optional
 
-from src.platform.database import db
 from src.features.media.records import Upload
 from src.platform.util.ids import generate_ulid
 
@@ -21,6 +20,7 @@ class UploadRepository:
         if not upload.id:
             upload.id = generate_ulid()
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO uploads (
@@ -56,6 +56,7 @@ class UploadRepository:
         Same contract as `get_by_filename`: None covers both "no such id" and
         "not yours", so a caller cannot tell the two apart.
         """
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM uploads WHERE id = ? AND user_id = ?",
@@ -71,6 +72,7 @@ class UploadRepository:
         belongs to a different user - callers must not distinguish the two
         (GenerationPolicy precedent: 404, never 403).
         """
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM uploads WHERE filename = ? AND user_id = ?",
@@ -88,6 +90,7 @@ class UploadRepository:
         which thumbnail sizes exist for it adds nothing an unscoped read of
         the bytes themselves doesn't already expose.
         """
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("SELECT * FROM uploads WHERE filename = ?", (filename,))
             row = cursor.fetchone()
@@ -105,6 +108,7 @@ class UploadRepository:
         Only the asynchronous video path needs this - image thumbnails are
         generated before the row is first created and go in with `create()`.
         """
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 """
@@ -134,6 +138,7 @@ class UploadRepository:
         query += " ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?"
         params.extend([limit, offset])
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(query, params)
             return [Upload.from_row(row) for row in cursor.fetchall()]
@@ -147,6 +152,7 @@ class UploadRepository:
             query += " AND media_type = ?"
             params.append(media_type)
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(query, params)
             row = cursor.fetchone()
@@ -175,6 +181,7 @@ class UploadRepository:
         Returns the updated row, or None if no row with this id belongs to this
         user - callers must not distinguish "no such id" from "not yours".
         """
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 UPDATE uploads
@@ -206,6 +213,7 @@ class UploadRepository:
 
     def delete(self, filename: str, user_id: str) -> bool:
         """Delete one upload row, scoped to its owner. Returns whether a row was removed."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "DELETE FROM uploads WHERE filename = ? AND user_id = ?",

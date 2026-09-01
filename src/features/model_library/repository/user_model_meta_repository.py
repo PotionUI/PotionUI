@@ -6,7 +6,6 @@ name. One row per (user_id, model_id), upserted via SQLite's
 `ON CONFLICT ... DO UPDATE`.
 """
 from typing import Dict, List, Optional
-from src.platform.database import db
 from src.features.model_library.records.user_model_meta import UserModelMeta
 import logging
 
@@ -18,6 +17,7 @@ class UserModelMetaRepository:
 
     def get(self, user_id: str, model_id: str) -> Optional[UserModelMeta]:
         """Get the metadata row for a user/model pair, if any."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 SELECT * FROM user_model_meta WHERE user_id = ? AND model_id = ?
@@ -27,6 +27,7 @@ class UserModelMetaRepository:
 
     def set_favorite(self, user_id: str, model_id: str, is_favorite: bool) -> UserModelMeta:
         """Set (or clear) the favorite flag for a user/model pair."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO user_model_meta (user_id, model_id, is_favorite, created_at, updated_at)
@@ -40,6 +41,7 @@ class UserModelMetaRepository:
 
     def set_custom_name(self, user_id: str, model_id: str, name: Optional[str]) -> UserModelMeta:
         """Set (or clear, when name is None) the custom display name for a user/model pair."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO user_model_meta (user_id, model_id, custom_name, created_at, updated_at)
@@ -56,6 +58,7 @@ class UserModelMetaRepository:
         if not model_ids:
             return {}
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             placeholders = ','.join('?' * len(model_ids))
             cursor.execute(f"""
@@ -66,6 +69,7 @@ class UserModelMetaRepository:
 
     def favorite_model_ids(self, user_id: str) -> set:
         """Return the set of model IDs the user has favorited."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 SELECT model_id FROM user_model_meta WHERE user_id = ? AND is_favorite = 1

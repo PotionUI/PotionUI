@@ -5,6 +5,7 @@ worker app over an in-process ASGI transport (never a real socket) so a
 of it.
 """
 
+
 from __future__ import annotations
 
 import asyncio
@@ -129,7 +130,6 @@ class RemoteExecutionReconcilerTestCase(unittest.TestCase):
         self._patchers = [
             patch("src.platform.database.database.db", self.db),
             patch("src.platform.database.migration_runner.db", self.db),
-            patch("src.features.remote_execution.repository.db", self.db),
         ]
         for p in self._patchers:
             p.start()

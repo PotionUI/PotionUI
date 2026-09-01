@@ -9,7 +9,6 @@ import pytest
 import yaml
 
 import tests.conftest as ct
-import src.features.phrasebook.repository as phrasebook_repository_module
 from src.features.phrasebook.import_service import (
     PhrasebookImporter,
     PhrasebookImporterRegistry,
@@ -22,7 +21,6 @@ from src.features.phrasebook.repository import (
     phrasebook_category_repo,
     phrasebook_value_repo
 )
-from src.platform.database.database import db
 
 
 class _FakeImporter(PhrasebookImporter):
@@ -78,19 +76,14 @@ class TestPhrasebookImportService:
     @pytest.fixture(autouse=True)
     def setup(self):
         """Setup and teardown for each test"""
-        global db
         from src.platform.util.ids import generate_ulid
         import bcrypt
 
-        # Both this module's own `db` name and phrasebook_repository's (which
-        # `phrasebook_category_repo`/`phrasebook_value_repo` query through)
-        # bind the real database singleton at import time; redirect both to a
-        # fresh, migrated scratch database rather than the real one, which a
-        # clean checkout never created.
+        # `phrasebook_category_repo`/`phrasebook_value_repo` resolve `db` at
+        # call time, so redirecting the canonical name for the whole fixture
+        # points them at a fresh, migrated scratch database rather than the
+        # real one, which a clean checkout never created.
         test_database = ct.TestDatabase()
-        real_db, real_repo_db = db, phrasebook_repository_module.db
-        db = test_database
-        phrasebook_repository_module.db = test_database
 
         old_stdout = sys.stdout
         sys.stdout = io.StringIO()
@@ -105,29 +98,28 @@ class TestPhrasebookImportService:
         finally:
             sys.stdout = old_stdout
 
-        # Create a test user if it doesn't exist
-        self.test_user = 'test_user_' + generate_ulid()[:8]
-        with db.get_cursor() as cursor:
-            # Create test user
-            hashed_password = bcrypt.hashpw('test123'.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-            cursor.execute("""
-                INSERT INTO users (id, username, email, password_hash, account_type, created_at)
-                VALUES (?, ?, ?, ?, ?, datetime('now'))
-            """, (self.test_user, 'testuser', 'test@example.com', hashed_password, 'USER'))
+        with patch('src.platform.database.database.db', test_database):
+            # Create a test user if it doesn't exist
+            self.test_user = 'test_user_' + generate_ulid()[:8]
+            with test_database.get_cursor() as cursor:
+                # Create test user
+                hashed_password = bcrypt.hashpw('test123'.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+                cursor.execute("""
+                    INSERT INTO users (id, username, email, password_hash, account_type, created_at)
+                    VALUES (?, ?, ?, ?, ?, datetime('now'))
+                """, (self.test_user, 'testuser', 'test@example.com', hashed_password, 'USER'))
 
-        self.service = PhrasebookImportService()
+            self.service = PhrasebookImportService()
 
-        yield
+            yield
 
-        # Cleanup after test
-        with db.get_cursor() as cursor:
-            cursor.execute("DELETE FROM phrasebook_values WHERE user_id = ?", (self.test_user,))
-            cursor.execute("DELETE FROM phrasebook_categories WHERE user_id = ?", (self.test_user,))
-            cursor.execute("DELETE FROM users WHERE id = ?", (self.test_user,))
+            # Cleanup after test
+            with test_database.get_cursor() as cursor:
+                cursor.execute("DELETE FROM phrasebook_values WHERE user_id = ?", (self.test_user,))
+                cursor.execute("DELETE FROM phrasebook_categories WHERE user_id = ?", (self.test_user,))
+                cursor.execute("DELETE FROM users WHERE id = ?", (self.test_user,))
 
         test_database.close()
-        db = real_db
-        phrasebook_repository_module.db = real_repo_db
     
     def test_import_nested_dict_format(self):
         """Test importing nested dictionary format (like clothes.yaml)"""

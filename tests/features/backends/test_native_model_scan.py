@@ -18,9 +18,7 @@ from unittest.mock import patch
 import pytest
 
 import tests.conftest as ct
-import src.features.models.hash_cache_repository as hash_cache_repository_module
 import src.features.models.repository as model_repository_module
-import src.features.tags.repository as tag_repository_module
 from src.features.backends.native_model_scan import (
     DIRECTORY_TYPE_MAPPING,
     scan_native_models,
@@ -35,20 +33,17 @@ def _touch(path: Path, size: int = 16) -> None:
 
 @pytest.fixture
 def hash_cache_db():
-    """A fresh migrated DB with `model_hash_cache` (migration 110), patched onto
-    every module that binds `db` at import time and that the scan touches.
-
-    `models` repository included: the scan reads `models.sha256`/`indexed_at`
-    through it, and a test that leaves it bound to the real database gets an empty
-    answer rather than the row it just wrote - which quietly turns a "did the scan
-    trust this row?" test into one that cannot fail.
+    """A fresh migrated DB with `model_hash_cache` (migration 110). Every
+    repository the scan touches resolves `db` at call time from
+    `src.platform.database.database`, so patching that one canonical name is
+    enough to redirect all of them - including `models`, which the scan reads
+    `sha256`/`indexed_at` through; leaving that one bound to the real database
+    would quietly turn a "did the scan trust this row?" test into one that
+    cannot fail.
     """
     test_database = ct.TestDatabase()
     with patch("src.platform.database.database.db", test_database), \
-         patch("src.platform.database.migration_runner.db", test_database), \
-         patch.object(hash_cache_repository_module, "db", test_database), \
-         patch.object(model_repository_module, "db", test_database), \
-         patch.object(tag_repository_module, "db", test_database):
+         patch("src.platform.database.migration_runner.db", test_database):
         from src.platform.database.migration_runner import MigrationRunner
 
         old_stdout = sys.stdout

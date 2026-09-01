@@ -25,12 +25,6 @@ class TestUserModelAccessControl(PersistenceTestBase):
     def setUp(self):
         super().setUp()
 
-        # Patch db references for ALL repos
-        import src.features.models.repository
-        src.features.models.repository.db = self.db
-        import src.features.user_groups.repository
-        src.features.user_groups.repository.db = self.db
-
     def tearDown(self):
         try:
             if hasattr(self, 'db'):

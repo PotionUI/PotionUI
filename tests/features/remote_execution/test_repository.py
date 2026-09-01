@@ -1,9 +1,7 @@
 """RemoteExecutionRepository against a real migrated sqlite file.
 
-Uses the explicit-patching pattern from tests/features/backends/test_repository.py:
-the repo-wide `mock_db`/`test_db` fixtures patch
-`src.platform.database.database.db` but not the `db` name already bound inside
-the repository module at import time, so they would not isolate this test.
+The repository resolves `db` at call time from `src.platform.database.database`,
+so patching that one canonical name redirects it to the test database below.
 """
 
 import io
@@ -42,7 +40,6 @@ class RemoteExecutionRepositoryTestCase(unittest.TestCase):
         self._patchers = [
             patch("src.platform.database.database.db", self.db),
             patch("src.platform.database.migration_runner.db", self.db),
-            patch("src.features.remote_execution.repository.db", self.db),
         ]
         for p in self._patchers:
             p.start()

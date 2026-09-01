@@ -16,7 +16,6 @@ import json
 import time
 from typing import List, Optional
 
-from src.platform.database import db
 from src.platform.util.ids import generate_ulid
 from src.platform.worker_protocol import JobEventV1
 
@@ -48,6 +47,7 @@ class RemoteExecutionRepository:
         if not execution.id:
             execution.id = generate_ulid()
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 """
@@ -86,6 +86,7 @@ class RemoteExecutionRepository:
         return self.get_by_id(execution.id)
 
     def get_by_id(self, execution_id: str) -> Optional[RemoteExecution]:
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM remote_executions WHERE id = ?", (execution_id,)
@@ -94,6 +95,7 @@ class RemoteExecutionRepository:
             return RemoteExecution.from_row(row) if row else None
 
     def get_by_idempotency_key(self, key: str) -> Optional[RemoteExecution]:
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM remote_executions WHERE idempotency_key = ?", (key,)
@@ -105,6 +107,7 @@ class RemoteExecutionRepository:
         self, provider: str, provider_job_id: str
     ) -> Optional[RemoteExecution]:
         """Route an inbound provider callback back to its row."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 """
@@ -119,6 +122,7 @@ class RemoteExecutionRepository:
     def list_by_state(
         self, state: RemoteExecutionState, limit: int = 100
     ) -> List[RemoteExecution]:
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 """
@@ -160,6 +164,7 @@ class RemoteExecutionRepository:
         if max_attempts is not None:
             params.append(max_attempts)
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 f"""
@@ -203,6 +208,7 @@ class RemoteExecutionRepository:
         """
         current = now_ms() if now is None else now
         deadline = current + lease_seconds * 1000
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 """
@@ -236,6 +242,7 @@ class RemoteExecutionRepository:
     ) -> bool:
         """Extend a lease. False means the caller no longer owns the row."""
         current = now_ms() if now is None else now
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 """
@@ -249,6 +256,7 @@ class RemoteExecutionRepository:
 
     def release_lease(self, execution_id: str, owner: str, epoch: int) -> bool:
         """Drop a lease without changing state. False if it was already taken."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 """
@@ -270,6 +278,7 @@ class RemoteExecutionRepository:
         ever saw this claim (see migration 118).
         """
         current = now_ms() if now is None else now
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 """
@@ -335,6 +344,7 @@ class RemoteExecutionRepository:
             assignments.append("lease_owner = NULL")
             assignments.append("lease_expires_at_ms = NULL")
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 f"UPDATE remote_executions SET {', '.join(assignments)} "
@@ -369,6 +379,7 @@ class RemoteExecutionRepository:
         callers that only need the cursor moved (or that already have their
         own record of the event).
         """
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 """
@@ -392,6 +403,7 @@ class RemoteExecutionRepository:
         :meth:`advance_event_cursor`, which this makes the transactional entry
         point for on the inbound path.
         """
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 """
@@ -473,6 +485,7 @@ class RemoteExecutionRepository:
         summary columns, so a resume (EventResumeRequestV1) returns exactly
         what the worker sent, not a lossy projection of it.
         """
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 """
@@ -504,6 +517,7 @@ class RemoteExecutionRepository:
             RemoteExecutionState.RUNNING.value,
         )
         placeholders = ", ".join("?" for _ in live_states)
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 f"""
@@ -530,6 +544,7 @@ class RemoteExecutionRepository:
         something must move it to FAILED explicitly rather than leaving it to
         starve in the queue.
         """
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 """
@@ -568,6 +583,7 @@ class RemoteExecutionRepository:
 
         assert_transition(current.state, RemoteExecutionState.PENDING)
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 """
@@ -595,6 +611,7 @@ class RemoteExecutionRepository:
         return self.get_by_id(execution_id)
 
     def delete(self, execution_id: str) -> bool:
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "DELETE FROM remote_executions WHERE id = ?", (execution_id,)

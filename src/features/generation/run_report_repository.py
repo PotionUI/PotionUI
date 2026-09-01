@@ -1,8 +1,6 @@
 import json
 from typing import Any, Dict, Iterable, Optional, Set
 
-from src.platform.database import db
-
 
 class GenerationRunReportRepository:
     """Durable store for `RunReportRecorder.flush()` output (migration 117)."""
@@ -15,6 +13,7 @@ class GenerationRunReportRepository:
         retried completion signal) overwrite rather than raise on the
         primary-key collision.
         """
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 """
@@ -25,6 +24,7 @@ class GenerationRunReportRepository:
             )
 
     def get(self, generation_id: str) -> Optional[Dict[str, Any]]:
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "SELECT report FROM generation_run_reports WHERE generation_id = ?",
@@ -43,6 +43,7 @@ class GenerationRunReportRepository:
         if not ids:
             return set()
         placeholders = ",".join("?" * len(ids))
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 f"SELECT generation_id FROM generation_run_reports "

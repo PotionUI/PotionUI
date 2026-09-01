@@ -41,9 +41,6 @@ def _chip(chip_id: str = "chip-1") -> dict:
 class TestSegmentLibraryRepository(PersistenceTestBase):
     def setUp(self):
         super().setUp()
-        import src.features.segments.repository as repository_module
-
-        repository_module.db = self.db
         self.categories = SegmentCategoryRepository()
         self.segments = SavedSegmentRepository()
         self.templates = SegmentTemplateRepository()

@@ -1,31 +1,38 @@
 """Permanent guard for the module-level `db` import hole.
 
-Incident: a repository that does ``from src.platform.database.database import
-db`` at module top level binds its own ``db`` name to whatever ``Database``
-singleton exists at the moment that module is *first* imported - collection
-alone is enough. `tests/conftest.py`'s ``mock_db`` fixture only patches two
-names (``src.platform.database.database.db`` and
-``src.platform.database.migration_runner.db``); any other module that bound
-its own ``db`` this way keeps talking to whatever ``db`` was at that first
-import - the live database, in a plain ``pytest tests/`` run - for the rest
-of the process, invisible to `mock_db`.
+Incident: a module that binds ``db`` at its own top level binds that name to
+whatever ``Database`` singleton exists at the moment the module is *first*
+imported - collection alone is enough. `tests/conftest.py`'s ``mock_db``
+fixture (and `tests/fixtures/persistence_base.py`) redirect the canonical
+``src.platform.database.database.db``; any module that bound its own ``db``
+at import time keeps talking to whatever ``db`` was at that first import -
+the live database, in a plain ``pytest tests/`` run - for the rest of the
+process, invisible to those fixtures.
 
 The fix is to defer the import to call time, inside whichever function uses
 ``db`` - see any method in ``src/features/downloads/repository.py`` or
-``src/platform/settings/repository.py`` for the pattern (module re-exporting
-the name for callers to import elsewhere, like ``src/plugin_api/storage.py``,
-use a module ``__getattr__`` instead, so the name is still resolved fresh on
-each access rather than snapshotted at re-export time).
+``src/platform/settings/repository.py`` for the pattern.
 
-This check is intentionally narrow: it only recognizes imports of the
-``database`` *submodule* (``src.platform.database.database``, absolute or
-relative). ``from src.platform.database import db`` - the package-level
-re-export in ``src/platform/database/__init__.py`` - resolves the exact same
-frozen-at-import-time object and carries the identical risk, and is not yet
-covered by any guard; a large number of existing repositories use that form
-(see the follow-up noted where this test was introduced). Extending this
-guard to that form is a separate, much larger change and is deliberately not
-attempted here.
+Every spelling of the import freezes the same object, so all of them are
+forbidden here:
+
+- ``src.platform.database.database`` - the defining submodule.
+- ``src.platform.database`` - the package-level re-export.
+- ``src.plugin_api`` / ``src.plugin_api.storage`` - the plugin-facing
+  re-exports.
+
+The two package ``__init__`` modules resolve ``db`` through a PEP 562
+``__getattr__`` rather than binding it, which is what makes a *call-time*
+``from src.plugin_api import db`` re-resolve on every call. That alone does
+not close the hole: ``from ... import db`` still copies the result into the
+importer's namespace, so a module-level import freezes it just the same.
+Call-time resolution per use site is the real fix; ``__getattr__`` is
+defence-in-depth for out-of-tree plugins this guard cannot see.
+
+Modules that only *re-export* the name for others to import (like
+``src/plugin_api/storage.py``) use a module ``__getattr__`` instead, so the
+name is resolved fresh on each access rather than snapshotted at re-export
+time.
 """
 
 from __future__ import annotations
@@ -36,17 +43,21 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-SKIP_DIRS = {"__pycache__", "node_modules", "venv", ".git"}
+SKIP_DIRS = {"__pycache__", "node_modules", "venv", ".git", "dist"}
 
-TARGET_MODULE = "src.platform.database.database"
+# Every module whose `db` is the same frozen singleton handle.
+TARGET_MODULES = {
+    "src.platform.database.database",
+    "src.platform.database",
+    "src.plugin_api",
+    "src.plugin_api.storage",
+}
 
-_MIGRATIONS_RATIONALE = (
-    "loaded fresh per run via importlib.util.spec_from_file_location "
-    "(src/platform/database/migration_runner.py), never cached in "
-    "sys.modules - a module-level import here always executes after any "
-    "test's db patch is already in place, so it cannot freeze a stale "
-    "reference."
-)
+# Trees this guard walks. `content/plugins/local/` is a separate, gitignored
+# repository that is simply absent from a clean checkout - rglob yields
+# nothing there and the guard passes, while a developer who does have it
+# checked out still gets told when one of those plugins reopens the hole.
+SCAN_ROOTS = ("src", "content/plugins")
 
 # path (relative to repo root) -> why this module-level `db` import is safe.
 ALLOWLIST: dict[str, str] = {
@@ -56,19 +67,41 @@ ALLOWLIST: dict[str, str] = {
         "along with database.database.db itself; other modules should defer "
         "their own import to call time rather than ask to be added here."
     ),
-    "src/platform/database/migrations/001_baseline.py": _MIGRATIONS_RATIONALE,
-    "src/platform/database/migrations/002_rename_clip_to_text_encoder.py": _MIGRATIONS_RATIONALE,
-    "src/platform/database/migrations/003_remove_quick_search_keybinding.py": _MIGRATIONS_RATIONALE,
-    "src/platform/database/migrations/004_provisioned_compute.py": _MIGRATIONS_RATIONALE,
-    "src/platform/database/migrations/005_download_destination_backend.py": _MIGRATIONS_RATIONALE,
 }
 
 
+def _is_exempt(path: Path) -> bool:
+    """Migration modules and test modules are not part of the hazard.
+
+    A migration is loaded fresh per run via
+    ``importlib.util.spec_from_file_location``
+    (``src/platform/database/migration_runner.py``) and never cached in
+    ``sys.modules``, so its module-level import always executes after the
+    current db redirection is in place and cannot freeze a stale reference.
+    The same holds for a plugin's own ``migrations/`` directory.
+
+    Test modules are excluded because they are the code performing the
+    redirection - a test that deliberately reaches for the process-wide
+    singleton (to mutate its ``db_path``, say) is doing so on purpose.
+    """
+    parts = set(path.parts)
+    return "migrations" in parts or "tests" in parts
+
+
 def _py_files(base: Path):
+    if not base.exists():
+        return
     for f in base.rglob("*.py"):
         if any(part in SKIP_DIRS for part in f.parts):
             continue
+        if _is_exempt(f):
+            continue
         yield f
+
+
+def _scanned_files():
+    for root in SCAN_ROOTS:
+        yield from _py_files(ROOT / root)
 
 
 def _package_of(path: Path) -> str:
@@ -94,19 +127,19 @@ def _resolved_module(path: Path, node: ast.ImportFrom) -> str:
 
 
 def _module_level_db_imports(path: Path) -> list[int]:
-    """Line numbers of top-level `from <database submodule> import db`
-    (or `... as db`) statements - `tree.body` only, so anything nested inside
-    a function or class (already call-time) is not a violation."""
+    """Line numbers of top-level `from <forbidden module> import db` (or
+    `... as db`) statements - `tree.body` only, so anything nested inside a
+    function or class (already call-time) is not a violation."""
     try:
         tree = ast.parse(path.read_text(encoding="utf-8"))
-    except SyntaxError:
+    except (SyntaxError, UnicodeDecodeError):
         return []
 
     hits = []
     for node in tree.body:
         if not isinstance(node, ast.ImportFrom):
             continue
-        if _resolved_module(path, node) != TARGET_MODULE:
+        if _resolved_module(path, node) not in TARGET_MODULES:
             continue
         for alias in node.names:
             bound_name = alias.asname or alias.name
@@ -115,9 +148,31 @@ def _module_level_db_imports(path: Path) -> list[int]:
     return hits
 
 
+def _module_level_db_aliases(path: Path) -> list[int]:
+    """Line numbers of top-level `<name> = <something>.db` assignments - the
+    `import src.platform.database as X` / `X.db` spelling of the same freeze,
+    which no `from ... import` check would see."""
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (SyntaxError, UnicodeDecodeError):
+        return []
+
+    hits = []
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            value = node.value
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            value = node.value
+        else:
+            continue
+        if isinstance(value, ast.Attribute) and value.attr == "db":
+            hits.append(node.lineno)
+    return hits
+
+
 def test_no_module_level_db_import_outside_allowlist():
     violations: list[str] = []
-    for f in _py_files(ROOT / "src"):
+    for f in _scanned_files():
         rel = str(f.relative_to(ROOT))
         if rel in ALLOWLIST:
             continue
@@ -125,10 +180,107 @@ def test_no_module_level_db_import_outside_allowlist():
             violations.append(f"{rel}:{lineno}")
 
     assert not violations, (
-        "module-level `from ... database import db` freezes `db` at this "
-        "module's first import, escaping tests/conftest.py's mock_db patch "
-        "- defer the import to call time instead (see "
-        "src/features/downloads/repository.py):\n" + "\n".join(violations)
+        "module-level `import db` freezes `db` at this module's first import, "
+        "escaping the db redirection in tests/conftest.py and "
+        "tests/fixtures/persistence_base.py - defer the import to call time "
+        "instead (see src/features/downloads/repository.py):\n"
+        + "\n".join(violations)
+    )
+
+
+def test_no_module_level_db_attribute_alias():
+    violations: list[str] = []
+    for f in _scanned_files():
+        for lineno in _module_level_db_aliases(f):
+            violations.append(f"{str(f.relative_to(ROOT))}:{lineno}")
+
+    assert not violations, (
+        "a module-level `x = <module>.db` alias freezes the handle exactly "
+        "like a module-level import of it - read `db` inside the function "
+        "that uses it instead:\n" + "\n".join(violations)
+    )
+
+
+def _redirectable_modules() -> set[str]:
+    """The only modules whose `db` attribute a test may assign to: the two
+    that still bind the name, and so are the ones a redirection has to go
+    through."""
+    return {
+        "src.platform.database.database",
+        "src.platform.database.migration_runner",
+    }
+
+
+def _module_aliases(tree: ast.Module) -> dict[str, str]:
+    """`import a.b.c as x` / `import a.b.c` -> the dotted module each
+    module-level name refers to."""
+    aliases = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Import):
+            continue
+        for alias in node.names:
+            aliases[alias.asname or alias.name.split(".")[0]] = alias.name
+    return aliases
+
+
+def _dotted(node: ast.AST) -> str | None:
+    """Dotted source text of a pure Name/Attribute chain, else None."""
+    parts = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if not isinstance(node, ast.Name):
+        return None
+    parts.append(node.id)
+    return ".".join(reversed(parts))
+
+
+def _silent_db_redirections(path: Path) -> list[str]:
+    """`<module>.db = <x>` assignments onto a module that no longer binds
+    `db` - the assignment succeeds, the repository never reads it, and the
+    test quietly runs against whatever database was already in place."""
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (SyntaxError, UnicodeDecodeError):
+        return []
+
+    aliases = _module_aliases(tree)
+    allowed = _redirectable_modules()
+    hits = []
+    for node in ast.walk(tree):
+        targets = node.targets if isinstance(node, ast.Assign) else []
+        for target in targets:
+            if not (isinstance(target, ast.Attribute) and target.attr == "db"):
+                continue
+            base = _dotted(target.value)
+            if base is None:
+                continue
+            # Either a dotted import path written out in full, or a name
+            # bound to one by `import ... as ...`.
+            module_name = base if base.startswith("src.") else aliases.get(base)
+            if module_name is None or not module_name.startswith("src."):
+                continue
+            if module_name in allowed:
+                continue
+            hits.append(f"{path.relative_to(ROOT)}:{node.lineno} ({module_name}.db)")
+    return hits
+
+
+def test_no_test_redirects_db_on_a_module_that_no_longer_binds_it():
+    """The failure mode this catches is silent: the assignment lands on a
+    module attribute nothing reads, so the test keeps passing while running
+    against the real database instead of its scratch one."""
+    violations: list[str] = []
+    for root in ("tests", "content/plugins"):
+        for f in (ROOT / root).rglob("*.py"):
+            if any(part in SKIP_DIRS for part in f.parts):
+                continue
+            violations.extend(_silent_db_redirections(f))
+
+    assert not violations, (
+        "these assignments no longer reach anything - the module resolves "
+        "`db` at call time, so redirect "
+        "`src.platform.database.database.db` instead:\n" + "\n".join(violations)
     )
 
 
@@ -139,3 +291,19 @@ def test_allowlist_entries_still_exist_and_are_needed():
         assert _module_level_db_imports(path), (
             f"{rel} no longer has a module-level db import - remove its allowlist entry"
         )
+
+
+@pytest.mark.parametrize("module_name", sorted(TARGET_MODULES))
+def test_every_forbidden_module_actually_exposes_db(module_name):
+    """The guard is only worth anything while each name it forbids really
+    does resolve to the singleton - a typo'd or moved module would silently
+    forbid nothing."""
+    import importlib
+
+    from src.platform.database.database import db as canonical
+
+    module = importlib.import_module(module_name)
+    assert getattr(module, "db", None) is canonical, (
+        f"{module_name}.db no longer resolves to the canonical Database "
+        "singleton - this guard's TARGET_MODULES is out of date"
+    )

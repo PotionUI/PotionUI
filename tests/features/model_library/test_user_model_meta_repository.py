@@ -29,22 +29,6 @@ class TestUserModelMetaRepository(PersistenceTestBase):
         self.model_repo = ModelRepository()
         self.test_user_id = self.create_test_user()
 
-        # PersistenceTestBase only repatches the module-level `db` reference for
-        # file_repository/generation_repository/collection_repository - these
-        # repositories import `db` the same way, so without repatching here they
-        # end up bound to whatever `db` instance was live the first time the
-        # module was imported, instead of this test's fresh temp database.
-        import src.features.model_library.repository.user_model_meta_repository as user_model_meta_repository_module
-        user_model_meta_repository_module.db = self.db
-
-        import src.features.models.repository as model_repository_module
-        model_repository_module.db = self.db
-
-        # ModelRepository.create()/get_by_id() also reaches into tag_repository
-        # (get_model_tags), so it needs the same repatching.
-        import src.features.tags.repository as tag_repository_module
-        tag_repository_module.db = self.db
-
     def _make_model(self, filename: str = "test_model.safetensors") -> str:
         """Create a persisted model and return its id."""
         model = Model(

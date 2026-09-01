@@ -1,11 +1,10 @@
 """`backend.resources.RunPodResourceManager` against a scratch sqlite db."""
 
-import backend.resources as resources_module
 from backend.resources import RunPodResourceManager
 
 
 def _manager(scratch_db, monkeypatch) -> RunPodResourceManager:
-    monkeypatch.setattr(resources_module, "db", scratch_db)
+    monkeypatch.setattr("src.platform.database.database.db", scratch_db)
     manager = RunPodResourceManager()
     manager.create_table()
     return manager

@@ -10,6 +10,7 @@ assert nothing but its own configuration.
 
 import dataclasses
 import unittest
+from unittest.mock import patch
 from datetime import datetime
 from pathlib import Path
 
@@ -28,24 +29,12 @@ from src.platform.filesystem import FileStore
 from src.platform.filesystem.storage_driver import LocalFileStorageDriver
 from src.platform.util.ids import generate_ulid
 
-import src.features.generation.file_repository as file_repository_module
-import src.features.library.repository as library_repository_module
-import src.features.media.upload_repository as upload_repository_module
-import src.features.tags.repository as tag_repository_module
 
 
 class LibraryTestBase(PersistenceTestBase):
 
     def setUp(self):
         super().setUp()
-        for module in (
-            library_repository_module,
-            upload_repository_module,
-            tag_repository_module,
-            file_repository_module,
-        ):
-            module.db = self.db
-
         self.storage_dir = Path(self.temp_dir) / "storage"
         self.storage_dir.mkdir(parents=True, exist_ok=True)
 
@@ -200,8 +189,9 @@ class TestLibraryListing(LibraryTestBase):
         page under real data.
         """
         counting = CountingDb(self.db)
-        for module in (library_repository_module, upload_repository_module, tag_repository_module):
-            module.db = counting
+        counting_patcher = patch("src.platform.database.database.db", counting)
+        counting_patcher.start()
+        self.addCleanup(counting_patcher.stop)
 
         for i in range(3):
             item = self._upload(filename=f"small_{i}.png")

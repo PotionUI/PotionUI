@@ -19,9 +19,6 @@ class TestPluginRepository(PersistenceTestBase):
     def setUp(self):
         """Set up test data"""
         super().setUp()
-        # Patch the repository to use our test database
-        import src.features.plugins.repository
-        src.features.plugins.repository.db = self.db
         self.repo = PluginRepository()
 
     def _create_sample_plugin(self, plugin_id="test_plugin_01"):

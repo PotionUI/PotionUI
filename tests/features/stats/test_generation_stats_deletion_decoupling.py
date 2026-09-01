@@ -9,12 +9,9 @@ can never cascade into it.
 
 Runs real SQL against a real (in-memory) SQLite database, mirroring the
 pattern `tests/features/stats/test_repository.py` already uses: both
-`GenerationRepository` and `GenerationStatsRepository` do
-`from src.platform.database import db` at module import time, so the global
-`mock_db`/`test_db` conftest fixtures (which patch
-`src.platform.database.database.db`) don't reach either module's own,
-already-bound `db` name -- each module's `db` attribute is patched directly
-instead.
+`GenerationRepository` and `GenerationStatsRepository` resolve `db` at call
+time, so patching the canonical `src.platform.database.database.db` reaches
+both.
 
 `generation_files` is included (with a real `ON DELETE CASCADE` FK, matching
 the real schema) purely as the control: it proves the same deletion call
@@ -26,8 +23,6 @@ import sqlite3
 from contextlib import contextmanager
 from unittest.mock import patch
 
-import src.features.generation.repository as generation_repository_module
-import src.features.stats.generation_stats_repository as generation_stats_repository_module
 from src.features.generation.repository import GenerationRepository
 from src.features.stats.generation_stats_repository import GenerationStatsRepository
 
@@ -97,7 +92,7 @@ def test_deleting_generation_leaves_stat_row_but_fully_removes_generation():
             ("file-1", generation_id, "f-1"),
         )
 
-    with patch.object(generation_stats_repository_module, "db", memory_db):
+    with patch("src.platform.database.database.db", memory_db):
         GenerationStatsRepository().record_completion(
             generation_id=generation_id,
             preset_id="native/SDXL/base",
@@ -120,7 +115,7 @@ def test_deleting_generation_leaves_stat_row_but_fully_removes_generation():
 
     # Delete the generation the same way the real deletion path does
     # (GenerationRepository.delete -> plain `DELETE FROM generations`).
-    with patch.object(generation_repository_module, "db", memory_db):
+    with patch("src.platform.database.database.db", memory_db):
         deleted = GenerationRepository().delete(generation_id)
     assert deleted is True
 
@@ -151,7 +146,7 @@ def test_deleting_nonexistent_generation_still_leaves_orphaned_stat_row_alone():
     memory_db = _MemoryDb()
     _seed(memory_db)
 
-    with patch.object(generation_stats_repository_module, "db", memory_db):
+    with patch("src.platform.database.database.db", memory_db):
         GenerationStatsRepository().record_completion(
             generation_id="already-gone",
             preset_id="native/SDXL/base",
@@ -166,7 +161,7 @@ def test_deleting_nonexistent_generation_still_leaves_orphaned_stat_row_alone():
             cpu_percent=None,
         )
 
-    with patch.object(generation_repository_module, "db", memory_db):
+    with patch("src.platform.database.database.db", memory_db):
         deleted = GenerationRepository().delete("some-other-id-never-existed")
     assert deleted is False
 

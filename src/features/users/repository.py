@@ -2,7 +2,6 @@ import logging
 import sqlite3
 from typing import List, Optional, Tuple
 from datetime import datetime
-from src.platform.database import db
 from src.platform.security.user import User, AccountType
 from src.platform.util.ids import generate_ulid
 from src.features.segments.repository import DEFAULT_SEGMENT_CATEGORIES
@@ -14,6 +13,7 @@ logger = logging.getLogger(__name__)
 class UserRepository:
     def get_by_id(self, user_id: str) -> Optional[User]:
         """Get user by ID"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
             row = cursor.fetchone()
@@ -21,6 +21,7 @@ class UserRepository:
     
     def get_by_username(self, username: str) -> Optional[User]:
         """Get user by username"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
             row = cursor.fetchone()
@@ -28,6 +29,7 @@ class UserRepository:
     
     def get_all(self) -> List[User]:
         """Get all users"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("SELECT * FROM users ORDER BY created_at DESC")
             return [User.from_row(row) for row in cursor.fetchall()]
@@ -93,6 +95,7 @@ class UserRepository:
         """Create a new user"""
         user_id = generate_ulid()
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             self._insert_user(cursor, user_id, username, email, password_hash, account_type)
 
@@ -117,6 +120,7 @@ class UserRepository:
         """
         user_id = generate_ulid()
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             try:
                 # id/username/claimed_at only; no FK, since the user row does
@@ -152,7 +156,8 @@ class UserRepository:
         
         set_clause = ", ".join([f"{k} = ?" for k in update_fields])
         values = list(update_fields.values()) + [user_id]
-        
+
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(f"UPDATE users SET {set_clause} WHERE id = ?", values)
             if cursor.rowcount == 0:
@@ -170,18 +175,21 @@ class UserRepository:
     
     def delete(self, user_id: str) -> bool:
         """Delete user by ID"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
             return cursor.rowcount > 0
     
     def exists_by_username(self, username: str) -> bool:
         """Check if username exists"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("SELECT 1 FROM users WHERE username = ? LIMIT 1", (username,))
             return cursor.fetchone() is not None
     
     def exists_by_email(self, email: str) -> bool:
         """Check if email exists"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("SELECT 1 FROM users WHERE email = ? LIMIT 1", (email,))
             return cursor.fetchone() is not None

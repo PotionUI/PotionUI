@@ -1,11 +1,10 @@
 """Tests for BackendRepository - per-engine default isolation.
 
 Uses a real temp-file sqlite database migrated through the full migration
-chain (mirrors the pattern in tests/persistence/test_base.py). The repo-wide
-`mock_db`/`test_db` fixtures in conftest.py only patch
-`src.platform.database.database.db`, not the `db` name already bound inside
-`src.features.backends.repository` at import time, so they do
-not actually isolate this repository - hence the explicit patching below.
+chain (mirrors the pattern in tests/persistence/test_base.py). The repository
+resolves `db` at call time from `src.platform.database.database`, so patching
+that one canonical name redirects it (and every other repository) to the test
+database below.
 """
 
 import io
@@ -35,7 +34,6 @@ class TestBackendRepository(unittest.TestCase):
         self._patchers = [
             patch("src.platform.database.database.db", self.db),
             patch("src.platform.database.migration_runner.db", self.db),
-            patch("src.features.backends.repository.db", self.db),
         ]
         for p in self._patchers:
             p.start()

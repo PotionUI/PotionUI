@@ -30,13 +30,6 @@ from src.platform.security.user import User, AccountType
 class TestModelPreviewIntegration(PersistenceTestBase):
     def setUp(self):
         super().setUp()
-        # Repositories bind the module-level `db` at import; redirect the ones
-        # this flow touches at the same key PersistenceTestBase uses.
-        import src.features.models.repository as model_repository_module
-        model_repository_module.db = self.db
-        import src.features.tags.repository as tag_repository_module
-        tag_repository_module.db = self.db
-
         self.repo = ModelRepository()
 
         # Storage lives outside self.temp_dir: PersistenceTestBase.tearDown rmdir()s
@@ -161,11 +154,6 @@ class TestModelPreviewListIntegration(PersistenceTestBase):
 
     def setUp(self):
         super().setUp()
-        import src.features.models.repository as model_repository_module
-        model_repository_module.db = self.db
-        import src.features.tags.repository as tag_repository_module
-        tag_repository_module.db = self.db
-
         self.repo = ModelRepository()
 
         self._storage_root = tempfile.mkdtemp()
@@ -337,11 +325,6 @@ class TestModelPreviewAccessControl(PersistenceTestBase):
 
     def setUp(self):
         super().setUp()
-        import src.features.models.repository as model_repository_module
-        model_repository_module.db = self.db
-        import src.features.tags.repository as tag_repository_module
-        tag_repository_module.db = self.db
-
         self.repo = ModelRepository()
 
         self._storage_root = tempfile.mkdtemp()

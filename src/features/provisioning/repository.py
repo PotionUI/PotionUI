@@ -2,7 +2,6 @@
 
 from typing import List, Optional
 
-from src.platform.database import db
 from src.platform.util.ids import generate_ulid
 from src.features.provisioning.records import ProvisionedCompute
 
@@ -22,6 +21,7 @@ class ProvisionedComputeRepository:
         created_by: Optional[str] = None,
     ) -> ProvisionedCompute:
         row_id = generate_ulid()
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 """
@@ -38,12 +38,14 @@ class ProvisionedComputeRepository:
         return self.get_by_id(row_id)
 
     def get_by_id(self, row_id: str) -> Optional[ProvisionedCompute]:
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("SELECT * FROM provisioned_compute WHERE id = ?", (row_id,))
             row = cursor.fetchone()
             return ProvisionedCompute.from_row(row) if row else None
 
     def get_by_backend_id(self, backend_id: str) -> Optional[ProvisionedCompute]:
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("SELECT * FROM provisioned_compute WHERE backend_id = ?", (backend_id,))
             row = cursor.fetchone()
@@ -54,11 +56,13 @@ class ProvisionedComputeRepository:
         # CURRENT_TIMESTAMP has one-second resolution, and a ULID sorts
         # lexicographically by its own embedded creation time, so two rows
         # created within the same second still land newest-first.
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("SELECT * FROM provisioned_compute ORDER BY created_at DESC, id DESC")
             return [ProvisionedCompute.from_row(row) for row in cursor.fetchall()]
 
     def update_status(self, row_id: str, status: str) -> bool:
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "UPDATE provisioned_compute SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
@@ -67,6 +71,7 @@ class ProvisionedComputeRepository:
             return cursor.rowcount > 0
 
     def clear_backend_link(self, row_id: str) -> bool:
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "UPDATE provisioned_compute SET backend_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
@@ -75,6 +80,7 @@ class ProvisionedComputeRepository:
             return cursor.rowcount > 0
 
     def delete(self, row_id: str) -> bool:
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("DELETE FROM provisioned_compute WHERE id = ?", (row_id,))
             return cursor.rowcount > 0

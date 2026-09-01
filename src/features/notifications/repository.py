@@ -9,7 +9,6 @@ import logging
 from typing import List, Optional
 from datetime import datetime
 
-from src.platform.database import db
 from src.features.notifications.records import Notification, NotificationLevel
 from src.platform.util.ids import generate_ulid
 
@@ -74,6 +73,7 @@ class NotificationRepository:
         metadata_json = json.dumps(metadata) if metadata is not None else None
         now = datetime.now()
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO notifications
@@ -119,12 +119,14 @@ class NotificationRepository:
         query += " ORDER BY id DESC LIMIT ?"
         params.append(limit)
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(query, params)
             return [self._row_to_notification(row) for row in cursor.fetchall()]
 
     def unread_count(self, user_id: str) -> int:
         """Count unread notifications for a user."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "SELECT COUNT(*) as cnt FROM notifications WHERE user_id = ? AND read = 0",
@@ -135,6 +137,7 @@ class NotificationRepository:
 
     def mark_read(self, notification_id: str, user_id: str) -> bool:
         """Mark a single notification as read for its owning user."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "UPDATE notifications SET read = 1 WHERE id = ? AND user_id = ?",
@@ -144,6 +147,7 @@ class NotificationRepository:
 
     def mark_all_read(self, user_id: str) -> int:
         """Mark all of a user's notifications as read. Returns rows updated."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "UPDATE notifications SET read = 1 WHERE user_id = ? AND read = 0",
@@ -153,6 +157,7 @@ class NotificationRepository:
 
     def delete(self, notification_id: str, user_id: str) -> bool:
         """Delete a single notification owned by the user."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "DELETE FROM notifications WHERE id = ? AND user_id = ?",
@@ -162,12 +167,14 @@ class NotificationRepository:
 
     def delete_all(self, user_id: str) -> int:
         """Delete all notifications for a user. Returns rows deleted."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("DELETE FROM notifications WHERE user_id = ?", (user_id,))
             return cursor.rowcount
 
     def prune(self, user_id: str, keep: int = 200) -> int:
         """Delete the oldest notifications beyond `keep` most-recent rows for a user."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 DELETE FROM notifications

@@ -1,6 +1,5 @@
 from typing import List, Optional, Dict, Any
 import json
-from src.platform.database import db
 from src.features.generation.records import GenerationParameter
 from src.platform.util.ids import generate_ulid
 
@@ -9,7 +8,8 @@ class GenerationParameterRepository:
         """Create a new generation parameter"""
         if not parameter.id:
             parameter.id = generate_ulid()
-            
+
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO generation_parameters (
@@ -35,7 +35,8 @@ class GenerationParameterRepository:
     def create_batch(self, generation_id: str, param_name: str, values: List[Any]) -> List[GenerationParameter]:
         """Create multiple parameters for a generation"""
         parameters = []
-        
+
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             for index, value in enumerate(values):
                 # Check if parameter already exists
@@ -76,6 +77,7 @@ class GenerationParameterRepository:
     
     def get_by_generation(self, generation_id: str) -> List[GenerationParameter]:
         """Get all parameters for a generation"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 SELECT * FROM generation_parameters 
@@ -87,6 +89,7 @@ class GenerationParameterRepository:
     
     def get_by_generation_and_index(self, generation_id: str, parameter_index: int) -> List[GenerationParameter]:
         """Get all parameters for a specific generation and index"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 SELECT * FROM generation_parameters 
@@ -98,6 +101,7 @@ class GenerationParameterRepository:
     
     def get_by_name(self, generation_id: str, parameter_name: str) -> List[GenerationParameter]:
         """Get all values for a specific parameter name"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 SELECT * FROM generation_parameters 
@@ -109,6 +113,7 @@ class GenerationParameterRepository:
     
     def delete_by_generation(self, generation_id: str) -> int:
         """Delete all parameters for a generation"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "DELETE FROM generation_parameters WHERE generation_id = ?",

@@ -88,19 +88,6 @@ class TestExportPngAgainstRealHistoryFacade(PersistenceTestBase):
     def setUp(self):
         super().setUp()
 
-        # These repositories bind `db` at import time - redirect each one at
-        # the module level, same as test_history_query_provenance.py does.
-        import src.features.generation.parameter_repository
-        import src.features.generation.model_repository
-        import src.features.generation.source_repository
-        import src.features.generation.segment_repository
-        import src.features.tags.repository
-        src.features.generation.parameter_repository.db = self.db
-        src.features.generation.model_repository.db = self.db
-        src.features.generation.source_repository.db = self.db
-        src.features.generation.segment_repository.db = self.db
-        src.features.tags.repository.db = self.db
-
         self.history = GenerationHistoryFacade(
             generation_repo=GenerationRepository(),
             file_service=None,

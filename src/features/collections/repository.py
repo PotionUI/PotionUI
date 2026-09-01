@@ -15,7 +15,6 @@ but the expression stays a sum of all three for safety).
 """
 from typing import List, Optional
 from datetime import datetime
-from src.platform.database import db
 from src.features.collections.records import Collection
 from src.platform.util.ids import generate_ulid
 import logging
@@ -48,6 +47,7 @@ class CollectionRepository:
         collection_id = generate_ulid()
         now = datetime.now()
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO collections (id, name, user_id, parent_id, created_at, scope)
@@ -81,6 +81,7 @@ class CollectionRepository:
 
         query += " GROUP BY c.id"
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(query, params)
             row = cursor.fetchone()
@@ -88,6 +89,7 @@ class CollectionRepository:
 
     def list(self, user_id: str, scope: str) -> List[Collection]:
         """List all of the user's collections within a scope, each with its item count."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(f"""
                 SELECT c.id, c.name, c.user_id, c.parent_id, c.created_at, c.scope,
@@ -102,6 +104,7 @@ class CollectionRepository:
 
     def rename(self, collection_id: str, name: str, user_id: str, scope: str) -> bool:
         """Rename a collection owned by the user, within its scope."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 UPDATE collections SET name = ?
@@ -137,6 +140,7 @@ class CollectionRepository:
         Raises:
             ValueError: If the move would create a cycle.
         """
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             if not self._owns(cursor, collection_id, user_id, scope):
                 return False
@@ -150,6 +154,7 @@ class CollectionRepository:
 
     def delete(self, collection_id: str, user_id: str, scope: str) -> bool:
         """Delete a collection owned by the user, within scope (cascades members and subfolders)."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 DELETE FROM collections WHERE id = ? AND user_id = ? AND scope = ?
@@ -175,6 +180,7 @@ class CollectionRepository:
             return 0
 
         added = 0
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             if not self._owns(cursor, collection_id, user_id, scope):
                 return 0
@@ -193,6 +199,7 @@ class CollectionRepository:
         if not generation_ids:
             return 0
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             placeholders = ','.join('?' * len(generation_ids))
             cursor.execute(f"""
@@ -217,6 +224,7 @@ class CollectionRepository:
             return 0
 
         added = 0
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             if not self._owns(cursor, collection_id, user_id, scope):
                 return 0
@@ -235,6 +243,7 @@ class CollectionRepository:
         if not upload_ids:
             return 0
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             placeholders = ','.join('?' * len(upload_ids))
             cursor.execute(f"""
@@ -257,6 +266,7 @@ class CollectionRepository:
             return 0
 
         added = 0
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             if not self._owns(cursor, collection_id, user_id, scope):
                 return 0
@@ -275,6 +285,7 @@ class CollectionRepository:
         if not prompt_ids:
             return 0
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             placeholders = ','.join('?' * len(prompt_ids))
             cursor.execute(f"""
@@ -285,6 +296,7 @@ class CollectionRepository:
 
     def get_for_prompt(self, prompt_id: str) -> List[Collection]:
         """List collections that contain the given saved prompt (always 'prompts' scope)."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 SELECT c.id, c.name, c.user_id, c.parent_id, c.created_at, c.scope
@@ -297,6 +309,7 @@ class CollectionRepository:
 
     def get_for_upload(self, upload_id: str) -> List[Collection]:
         """List collections that contain the given library upload (always 'library' scope)."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 SELECT c.id, c.name, c.user_id, c.parent_id, c.created_at, c.scope
@@ -309,6 +322,7 @@ class CollectionRepository:
 
     def get_for_generation(self, generation_id: str) -> List[Collection]:
         """List collections that contain the given generation (always 'history' scope)."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 SELECT c.id, c.name, c.user_id, c.parent_id, c.created_at, c.scope

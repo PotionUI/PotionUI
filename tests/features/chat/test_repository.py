@@ -35,10 +35,6 @@ class TestChatMessageRepository(PersistenceTestBase):
         self.session_repo = ChatSessionRepository()
         self.test_user_id = self.create_test_user()
 
-        # Patch the db reference in chat_repository module
-        import src.features.chat.repository
-        src.features.chat.repository.db = self.db
-
         # Create a test session
         self.test_session = ChatSession(
             id=generate_ulid(),
@@ -174,10 +170,6 @@ class TestChatSessionRepository(PersistenceTestBase):
         super().setUp()
         self.repo = ChatSessionRepository()
         self.test_user_id = self.create_test_user()
-
-        # Patch the db reference in chat_repository module
-        import src.features.chat.repository
-        src.features.chat.repository.db = self.db
 
     def tearDown(self):
         """Clean up test data"""
@@ -429,10 +421,6 @@ class TestChatRepository(PersistenceTestBase):
         super().setUp()
         self.repo = ChatRepository()
         self.test_user_id = self.create_test_user()
-
-        # Patch the db reference in chat_repository module
-        import src.features.chat.repository
-        src.features.chat.repository.db = self.db
 
     def tearDown(self):
         """Clean up test data"""

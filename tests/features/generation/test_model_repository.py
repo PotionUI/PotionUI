@@ -27,14 +27,6 @@ class TestGenerationModelRepository(PersistenceTestBase):
         super().setUp()
         self.repo = GenerationModelRepository()
 
-        # Patch db in the generation_model_repository module, and in the
-        # models repository it enriches file rows through (also imports
-        # `db` at load time, so left unpatched it queries the real database).
-        import src.features.generation.model_repository
-        src.features.generation.model_repository.db = self.db
-        import src.features.models.repository
-        src.features.models.repository.db = self.db
-
         self.test_user_id = self.create_test_user()
         self.other_user_id = self.create_test_user(
             user_id="other_user", username="otheruser", email="other@example.com"

@@ -21,8 +21,6 @@ from src.platform.settings.repository import SettingRepository
 class TestApplyBulkUpdates(PersistenceTestBase):
     def setUp(self):
         super().setUp()
-        import src.platform.settings.repository as repo_module
-        repo_module.db = self.db
         self.repo = SettingRepository()
 
     def test_commits_system_and_user_together(self):

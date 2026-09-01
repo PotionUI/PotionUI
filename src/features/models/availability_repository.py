@@ -2,7 +2,6 @@ from typing import Any, Dict, List, Optional, Set
 
 from src.platform.util.ids import generate_ulid
 
-from src.platform.database import db
 from src.features.models.availability_records import ModelAvailability
 
 
@@ -18,6 +17,7 @@ class ModelAvailabilityRepository:
         if not availability.id:
             availability.id = generate_ulid()
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 """
@@ -56,6 +56,7 @@ class ModelAvailabilityRepository:
         have on record for model Y" - the piece a remote-execution package builder
         would use to embed an expected digest per model.
         """
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM model_availability WHERE model_id = ? AND backend_id = ?",
@@ -65,6 +66,7 @@ class ModelAvailabilityRepository:
             return ModelAvailability.from_row(row) if row else None
 
     def get_for_backend(self, backend_id: str) -> List[ModelAvailability]:
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM model_availability WHERE backend_id = ?", (backend_id,)
@@ -79,6 +81,7 @@ class ModelAvailabilityRepository:
         this is admin-dashboard-facing and only needs the three numbers, not the
         rows themselves.
         """
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 """
@@ -104,6 +107,7 @@ class ModelAvailabilityRepository:
             return False
 
         placeholders = ",".join("?" for _ in backend_ids)
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 f"SELECT 1 FROM model_availability WHERE backend_id IN ({placeholders}) LIMIT 1",
@@ -117,6 +121,7 @@ class ModelAvailabilityRepository:
         Distinguishes "this model is available nowhere" from "nothing has been indexed",
         which look identical from an empty `backend_ids` list.
         """
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("SELECT 1 FROM model_availability LIMIT 1")
             return cursor.fetchone() is not None
@@ -133,6 +138,7 @@ class ModelAvailabilityRepository:
             return []
 
         placeholders = ",".join("?" for _ in backend_ids)
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 f"SELECT DISTINCT model_id FROM model_availability "
@@ -142,6 +148,7 @@ class ModelAvailabilityRepository:
             return [r["model_id"] for r in cursor.fetchall()]
 
     def get_for_model(self, model_id: str) -> List[ModelAvailability]:
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM model_availability WHERE model_id = ?", (model_id,)
@@ -161,6 +168,7 @@ class ModelAvailabilityRepository:
 
         model_placeholders = ",".join("?" for _ in model_ids)
         backend_placeholders = ",".join("?" for _ in backend_ids)
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 f"""
@@ -188,6 +196,7 @@ class ModelAvailabilityRepository:
             return set()
 
         placeholders = ",".join("?" for _ in model_ids)
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 f"""
@@ -211,6 +220,7 @@ class ModelAvailabilityRepository:
             return {}
 
         placeholders = ",".join("?" for _ in model_ids)
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 f"SELECT model_id, backend_id FROM model_availability "
@@ -228,6 +238,7 @@ class ModelAvailabilityRepository:
         A model removed from the remote server must stop being offered, so anything not
         seen in the latest listing is deleted rather than left to fail at generation time.
         """
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             if keep_model_ids:
                 placeholders = ",".join("?" for _ in keep_model_ids)

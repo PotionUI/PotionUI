@@ -40,12 +40,10 @@ def settings(test_storage):
 def repos_on_test_db(mock_db):
     """Point the repositories at the test database.
 
-    `mock_db` only replaces `src.platform.database.database.db`; the
-    repositories bound their own `db` name at import time, so without this
-    they would keep writing to the real one.
+    Repositories resolve `db` at call time from
+    `src.platform.database.database`, which `mock_db` already redirects.
     """
-    with patch('src.features.generation.file_repository.db', mock_db), \
-         patch('src.features.generation.repository.db', mock_db):
+    with patch('src.platform.database.database.db', mock_db):
         yield mock_db
 
 

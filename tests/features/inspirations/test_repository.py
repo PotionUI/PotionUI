@@ -13,15 +13,11 @@ from src.features.inspirations.dto import inspiration_to_dto
 from src.features.inspirations.records import Inspiration
 from src.features.inspirations.repository import InspirationRepository
 
-import src.features.inspirations.repository as inspiration_repository_module
-
 
 class InspirationRepositoryTestBase(PersistenceTestBase):
 
     def setUp(self):
         super().setUp()
-        inspiration_repository_module.db = self.db
-
         self.repo = InspirationRepository()
         self.user_id = self.create_test_user()
         self.other_user_id = self.create_test_user("other_user", "other", "other@example.com")

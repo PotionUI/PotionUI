@@ -1,5 +1,4 @@
 from typing import List, Optional, Dict, Any
-from src.platform.database import db
 from src.features.models.records import Model, ModelInfo, ModelFile, UserModel
 from src.platform.util.ids import generate_ulid
 import json
@@ -13,6 +12,7 @@ class ModelRepository:
         if not model.id:
             model.id = generate_ulid()
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO models (
@@ -53,6 +53,7 @@ class ModelRepository:
             library_join = " LEFT JOIN user_model_meta umm ON umm.model_id = m.id AND umm.user_id = ?"
             params = [library_user_id, model_id]
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(f"SELECT m.*{library_select} FROM models m{library_join} WHERE m.id = ?", params)
             row = cursor.fetchone()
@@ -76,6 +77,7 @@ class ModelRepository:
 
     def get_by_sha256(self, sha256: str, include_providers: bool = True) -> Optional[Model]:
         """Get model by SHA256 hash"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("SELECT * FROM models WHERE sha256 = ?", (sha256,))
             row = cursor.fetchone()
@@ -95,6 +97,7 @@ class ModelRepository:
 
     def get_by_file_path(self, file_path: str, include_providers: bool = True) -> Optional[Model]:
         """Get model by file path"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("SELECT * FROM models WHERE file_path = ?", (file_path,))
             row = cursor.fetchone()
@@ -120,6 +123,7 @@ class ModelRepository:
         This is how a model is matched across backends — native's local path and a
         ComfyUI server's bare name reduce to the same identity. See docs/models.md.
         """
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM models WHERE model_type = ? AND filename = ?",
@@ -145,6 +149,7 @@ class ModelRepository:
         `UNIQUE(model_type, filename)` means at most one per type, so more than one row
         here is a genuine cross-type ambiguity for the caller to resolve.
         """
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("SELECT * FROM models WHERE filename = ?", (filename,))
             return [Model.from_row(row) for row in cursor.fetchall()]
@@ -333,6 +338,7 @@ class ModelRepository:
             query += " LIMIT ? OFFSET ?"
             params.extend([limit, offset])
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(query, params)
             models = [Model.from_row(row) for row in cursor.fetchall()]
@@ -361,6 +367,7 @@ class ModelRepository:
         disk, so every update through this path is implicitly a revival for a
         row that had been marked unavailable.
         """
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 UPDATE models
@@ -391,6 +398,7 @@ class ModelRepository:
         Keeps the row (tags/ratings/assignments survive); `update()` clears
         this the next time a scan finds the file again.
         """
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 UPDATE models
@@ -402,6 +410,7 @@ class ModelRepository:
 
     def update_description(self, model_id: str, description: str) -> bool:
         """Update the markdown description for a model"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 UPDATE models
@@ -413,6 +422,7 @@ class ModelRepository:
 
     def update_digest(self, model_id: str, *, sha256: str, file_size: int) -> bool:
         """Persist a freshly computed content digest without touching any other column."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 UPDATE models
@@ -424,6 +434,7 @@ class ModelRepository:
 
     def update_prompting_guidance(self, model_id: str, prompting_guidance: str) -> bool:
         """Update the admin-authored prompting guidance text for a model"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 UPDATE models
@@ -435,6 +446,7 @@ class ModelRepository:
 
     def update_preview_media(self, model_id: str, preview_media: Optional[str]) -> bool:
         """Set (or clear, with None) a model's admin-set preview media JSON."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 UPDATE models
@@ -448,6 +460,7 @@ class ModelRepository:
 
     def list_preview_media(self, model_id: str) -> List[Dict[str, Any]]:
         """List a model's preview rows ordered by position (0 = primary)."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 SELECT id, model_id, file_id, url, type, name, position, created_at
@@ -479,6 +492,7 @@ class ModelRepository:
     ) -> str:
         """Insert one preview row at `position`, returning its new id."""
         row_id = generate_ulid()
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO model_preview_media (id, model_id, file_id, url, type, name, position)
@@ -488,6 +502,7 @@ class ModelRepository:
 
     def get_preview_media_row(self, preview_id: str) -> Optional[Dict[str, Any]]:
         """Fetch a single preview row by id, or None."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 SELECT id, model_id, file_id, url, type, name, position
@@ -509,12 +524,14 @@ class ModelRepository:
 
     def delete_preview_media_row(self, preview_id: str) -> bool:
         """Delete one preview row. Caller is responsible for its `files` row."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("DELETE FROM model_preview_media WHERE id = ?", (preview_id,))
             return cursor.rowcount > 0
 
     def set_preview_media_positions(self, model_id: str, ordered_ids: List[str]) -> None:
         """Rewrite positions 0..n-1 for `ordered_ids`, in the order given."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             for position, preview_id in enumerate(ordered_ids):
                 cursor.execute("""
@@ -525,6 +542,7 @@ class ModelRepository:
 
     def update_model_metadata(self, model_id: str, metadata: Dict[str, Any]) -> bool:
         """Replace a model's per-model-type metadata fields dict"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 UPDATE models
@@ -536,6 +554,7 @@ class ModelRepository:
 
     def delete(self, model_id: str) -> bool:
         """Delete model and its Civitai info"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("DELETE FROM models WHERE id = ?", (model_id,))
             return cursor.rowcount > 0
@@ -556,6 +575,7 @@ class ModelRepository:
     def count_by_type(self, tag_ids: Optional[List[str]] = None,
                      allowed_model_ids: Optional[List[str]] = None) -> Dict[str, int]:
         """Count models by type with optional tag and access filtering"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             if allowed_model_ids is not None and len(allowed_model_ids) == 0:
                 return {}
@@ -597,6 +617,7 @@ class ModelRepository:
 
     def get_total_size_by_type(self, tag_ids: Optional[List[str]] = None) -> Dict[str, int]:
         """Get total size by model type with optional tag filtering"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             if tag_ids and len(tag_ids) > 0:
                 # Get sizes with tag filtering
@@ -626,6 +647,7 @@ class ModelRepository:
 
     def get_models_missing_hashes(self) -> List[Model]:
         """Get models that don't have SHA256 hashes yet"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("SELECT * FROM models WHERE sha256 IS NULL ORDER BY filename")
             return [Model.from_row(row) for row in cursor.fetchall()]
@@ -636,6 +658,7 @@ class ModelRepository:
         if not provider_info.id:
             provider_info.id = generate_ulid()
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO providers (
@@ -659,6 +682,7 @@ class ModelRepository:
 
     def get_providers(self, model_id: str, provider: Optional[str] = None) -> List[ModelInfo]:
         """Get all provider info for a model, optionally filtered by provider"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             if provider:
                 cursor.execute("SELECT * FROM providers WHERE model_id = ? AND provider = ?", (model_id, provider))
@@ -669,6 +693,7 @@ class ModelRepository:
 
     def get_provider_by_id(self, info_id: str) -> Optional[ModelInfo]:
         """Get provider info by its ID"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("SELECT * FROM providers WHERE id = ?", (info_id,))
             row = cursor.fetchone()
@@ -680,6 +705,7 @@ class ModelRepository:
 
     def update_provider(self, provider_info: ModelInfo) -> bool:
         """Update provider info"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 UPDATE providers
@@ -716,6 +742,7 @@ class ModelRepository:
 
     def get_models_without_provider_info(self, provider: str = 'civitai', include_tags: bool = False) -> List[Model]:
         """Get models that don't have info from a specific provider"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 SELECT m.* FROM models m
@@ -761,6 +788,7 @@ class ModelRepository:
         if favorites_only and library_user_id:
             library_where_clauses.append("COALESCE(umm.is_favorite, 0) = 1")
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             if tag_ids and len(tag_ids) > 0:
                 placeholders = ','.join('?' * len(tag_ids))
@@ -854,6 +882,7 @@ class ModelRepository:
     # Model Files Methods
     def get_model_file_by_id(self, model_file_id: str) -> Optional[ModelFile]:
         """Get model file by ID"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("SELECT * FROM model_files WHERE id = ?", (model_file_id,))
             row = cursor.fetchone()
@@ -861,6 +890,7 @@ class ModelRepository:
 
     def get_model_files(self, model_id: str, file_type: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get all files for a model with file details"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             query = """
                 SELECT mf.*, f.file_path, f.file_size, f.created_at as file_created_at,
@@ -937,6 +967,7 @@ class ModelRepository:
         so the real constraint is always recoverable from the logs.
         """
         assignment_id = generate_ulid()
+        from src.platform.database.database import db
         try:
             with db.get_cursor() as cursor:
                 cursor.execute(
@@ -952,6 +983,7 @@ class ModelRepository:
 
     def find_user_model_assignment(self, model_id: str, user_id: str) -> Optional[UserModel]:
         """The existing assignment for this (model, user) pair, if there is one."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM user_models WHERE model_id = ? AND user_id = ?",
@@ -962,6 +994,7 @@ class ModelRepository:
 
     def get_user_model_assignment(self, assignment_id: str) -> Optional[UserModel]:
         """Get a user-model assignment by ID"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("SELECT * FROM user_models WHERE id = ?", (assignment_id,))
             row = cursor.fetchone()
@@ -969,6 +1002,7 @@ class ModelRepository:
 
     def unassign_model_from_user(self, model_id: str, user_id: str) -> bool:
         """Unassign a model from a user"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "DELETE FROM user_models WHERE model_id = ? AND user_id = ?",
@@ -978,6 +1012,7 @@ class ModelRepository:
 
     def get_user_model_assignments(self, user_id: str) -> List[str]:
         """Get model IDs assigned directly to a user"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "SELECT model_id FROM user_models WHERE user_id = ?",
@@ -987,6 +1022,7 @@ class ModelRepository:
 
     def get_user_models(self, user_id: str) -> List[UserModel]:
         """Get all UserModel records for a user"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM user_models WHERE user_id = ? ORDER BY assigned_at DESC",
@@ -996,6 +1032,7 @@ class ModelRepository:
 
     def get_model_users(self, model_id: str) -> List[UserModel]:
         """Get all users directly assigned to a model"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM user_models WHERE model_id = ? ORDER BY assigned_at DESC",
@@ -1006,6 +1043,7 @@ class ModelRepository:
     def get_model_assignment_summary(self) -> Dict[str, Dict[str, int]]:
         """Direct-user and group assignment counts per model, batched (two
         GROUP BY queries, not one per model)."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("SELECT model_id, COUNT(*) as c FROM user_models GROUP BY model_id")
             direct = {row['model_id']: row['c'] for row in cursor.fetchall()}
@@ -1021,6 +1059,7 @@ class ModelRepository:
 
     def is_model_assigned_to_user(self, model_id: str, user_id: str) -> bool:
         """Check if a model is assigned to a user (direct or via group)"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 SELECT 1 FROM (
@@ -1035,6 +1074,7 @@ class ModelRepository:
 
     def get_available_model_ids_for_user(self, user_id: str) -> List[str]:
         """Get model IDs available to a user from direct + group assignments"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 SELECT DISTINCT model_id FROM (

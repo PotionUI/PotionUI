@@ -12,6 +12,7 @@ by re-reading the row, and "the original is untouched" by comparing bytes.
 
 import shutil
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -33,8 +34,6 @@ from tests.fixtures.persistence_base import PersistenceTestBase
 from tests.fixtures.query_counter import CountingDb
 from tests.features.media.editing.test_operations import make_image, make_video, make_wav
 
-import src.features.media.upload_repository as upload_repository_module
-import src.features.tags.repository as tag_repository_module
 
 from PIL import Image
 
@@ -61,9 +60,6 @@ class MediaEditRoutesTestBase(PersistenceTestBase):
 
     def setUp(self):
         super().setUp()
-        for module in (upload_repository_module, tag_repository_module):
-            module.db = self.db
-
         self.storage_dir = Path(self.temp_dir) / "storage"
         self.storage_dir.mkdir(parents=True, exist_ok=True)
 
@@ -492,7 +488,9 @@ class TestQueryCost(MediaEditRoutesTestBase):
     def test_an_edit_costs_the_same_number_of_queries_however_many_operations(self):
         """One lookup, one write, one read-back - and nothing per operation."""
         counting = CountingDb(self.db)
-        upload_repository_module.db = counting
+        counting_patcher = patch("src.platform.database.database.db", counting)
+        counting_patcher.start()
+        self.addCleanup(counting_patcher.stop)
 
         one_op = self._image_item(name="one.png", width=200, height=100)
         counting.statements.clear()

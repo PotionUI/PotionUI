@@ -8,7 +8,6 @@ import json
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-from src.platform.database import db
 from src.platform.database.rows import json_column
 from src.platform.util.ids import generate_ulid
 
@@ -66,6 +65,7 @@ class ChatCallTraceRepository:
     ) -> str:
         """Insert one call trace row. Returns the new row id."""
         trace_id = generate_ulid()
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO chat_llm_call_traces (
@@ -92,6 +92,7 @@ class ChatCallTraceRepository:
         the same session), so "every NULL row for this session" is exactly
         "this turn's rows" in practice.
         """
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "UPDATE chat_llm_call_traces SET message_id = ? "
@@ -102,6 +103,7 @@ class ChatCallTraceRepository:
 
     def list_for_session(self, session_id: str) -> List[Dict[str, Any]]:
         """All call traces for a session, oldest first, grouped by message via message_id."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM chat_llm_call_traces WHERE session_id = ? "
@@ -111,11 +113,13 @@ class ChatCallTraceRepository:
             return [_row_to_dict(row) for row in cursor.fetchall()]
 
     def delete_for_session(self, session_id: str) -> int:
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("DELETE FROM chat_llm_call_traces WHERE session_id = ?", (session_id,))
             return cursor.rowcount
 
     def delete_all(self) -> int:
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("DELETE FROM chat_llm_call_traces")
             return cursor.rowcount
@@ -123,6 +127,7 @@ class ChatCallTraceRepository:
     def prune_older_than(self, days: int = RETENTION_DAYS) -> int:
         """Delete rows created before ``days`` ago. Returns the row count deleted."""
         cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("DELETE FROM chat_llm_call_traces WHERE created_at < ?", (cutoff,))
             return cursor.rowcount

@@ -1,6 +1,5 @@
 from typing import List, Optional, Dict, Any
 from datetime import datetime
-from src.platform.database import db
 from src.features.generation.records import File, GenerationFile
 from src.platform.util.ids import generate_ulid
 
@@ -14,7 +13,8 @@ class FileRepository:
         # Generate ULID for the file if not provided
         if not file.id:
             file.id = generate_ulid()
-            
+
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO files (
@@ -52,6 +52,7 @@ class FileRepository:
     
     def get_by_id(self, file_id: str, user_id: Optional[str] = None) -> Optional[File]:
         """Get file by ID, optionally filtered by user"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             if user_id:
                 cursor.execute("SELECT * FROM files WHERE id = ? AND user_id = ?", (file_id, user_id))
@@ -83,17 +84,19 @@ class FileRepository:
             query += " WHERE " + " AND ".join(conditions)
         
         query += " ORDER BY created_at DESC"
-        
+
         if limit:
             query += " LIMIT ? OFFSET ?"
             params.extend([limit, offset])
-        
+
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(query, params)
             return [File.from_row(row) for row in cursor.fetchall()]
-    
+
     def delete(self, file_id: str) -> bool:
         """Delete file"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("DELETE FROM files WHERE id = ?", (file_id,))
             return cursor.rowcount > 0
@@ -105,7 +108,8 @@ class FileRepository:
             generation_id=generation_id,
             file_id=file_id
         )
-        
+
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO generation_files (id, generation_id, file_id)
@@ -147,6 +151,7 @@ class FileRepository:
         
         query += " ORDER BY f.created_at ASC, f.id ASC"
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(query, params)
             return [File.from_row(row) for row in cursor.fetchall()]
@@ -170,6 +175,7 @@ class FileRepository:
         if not generation_ids:
             return result
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             for start in range(0, len(generation_ids), _SQLITE_IN_CHUNK_SIZE):
                 chunk = generation_ids[start:start + _SQLITE_IN_CHUNK_SIZE]
@@ -195,6 +201,7 @@ class FileRepository:
 
     def remove_generation_association(self, generation_id: str, file_id: str) -> bool:
         """Remove association between generation and file"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "DELETE FROM generation_files WHERE generation_id = ? AND file_id = ?",
@@ -210,6 +217,7 @@ class FileRepository:
         access on those keys raises and the caller reports it as an error.
         Preserved as-is; not the caller's job to redesign a debug endpoint.
         """
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("SELECT * FROM generation_files ORDER BY id DESC LIMIT ?", (limit,))
             rows = cursor.fetchall()
@@ -235,6 +243,7 @@ class FileRepository:
         record (duplicates), so all of them are updated together or not at all.
         Returns the number of files updated.
         """
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             for file_id in file_ids:
                 cursor.execute(
@@ -249,6 +258,7 @@ class FileRepository:
 
     def get_generation_file_by_file_id(self, file_id: str) -> Optional[GenerationFile]:
         """Get GenerationFile junction record by file_id"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM generation_files WHERE file_id = ?",

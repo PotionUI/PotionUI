@@ -41,8 +41,7 @@ class _NoLocalPathDriver(LocalFileStorageDriver):
 
 @pytest.fixture
 def repos_on_test_db(mock_db):
-    with patch('src.features.generation.file_repository.db', mock_db), \
-         patch('src.features.generation.repository.db', mock_db):
+    with patch('src.platform.database.database.db', mock_db):
         yield mock_db
 
 

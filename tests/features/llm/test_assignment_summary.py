@@ -17,8 +17,6 @@ from src.platform.util.ids import generate_ulid
 class TestLLMAssignmentSummary(PersistenceTestBase):
     def setUp(self):
         super().setUp()
-        import src.features.llm.repository as llm_repository_module
-        llm_repository_module.db = self.db
         self.repository = LLMRepository()
 
     def tearDown(self):

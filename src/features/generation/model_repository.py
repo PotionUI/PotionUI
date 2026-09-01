@@ -1,5 +1,4 @@
 from typing import List, Tuple
-from src.platform.database import db
 from src.features.generation.records import Generation, GenerationModel
 from src.features.models.records import Model
 from src.platform.util.ids import generate_ulid
@@ -10,6 +9,7 @@ class GenerationModelRepository:
         if not generation_model.id:
             generation_model.id = generate_ulid()
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO generation_models (
@@ -33,6 +33,7 @@ class GenerationModelRepository:
         """Create multiple generation-model associations"""
         generation_models = []
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             for model_id in model_ids:
                 # Check if association already exists
@@ -65,6 +66,7 @@ class GenerationModelRepository:
 
     def get_by_generation(self, generation_id: str, include_model_info: bool = False, include_files: bool = False) -> List[Model]:
         """Get all models for a generation with full model data via JOIN"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 SELECT m.* FROM models m
@@ -92,6 +94,7 @@ class GenerationModelRepository:
         """Get generations that used a specific model, filtered by user.
         Returns a tuple of (generations_list, total_count)."""
         from .file_repository import file_repo
+        from src.platform.database.database import db
 
         with db.get_cursor() as cursor:
             # Get total count
@@ -121,6 +124,7 @@ class GenerationModelRepository:
 
     def delete_by_generation(self, generation_id: str) -> int:
         """Delete all model associations for a generation"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "DELETE FROM generation_models WHERE generation_id = ?",

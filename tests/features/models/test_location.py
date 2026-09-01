@@ -25,8 +25,6 @@ from src.features.models.location import (
 class TestModelsRelocator(PersistenceTestBase):
     def setUp(self):
         super().setUp()
-        import src.platform.settings.repository as repo_module
-        repo_module.db = self.db
 
         # A directory of our own, separate from PersistenceTestBase's temp_dir
         # (which its tearDown expects to still be empty except for the sqlite

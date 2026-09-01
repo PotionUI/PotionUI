@@ -23,8 +23,6 @@ class TestPluginRepositoryAdvanced(PersistenceTestBase):
     def setUp(self):
         """Set up test data"""
         super().setUp()
-        import src.features.plugins.repository
-        src.features.plugins.repository.db = self.db
         self.repo = PluginRepository()
 
     def _create_sample_plugin(self, plugin_id="test_plugin_01", **kwargs):

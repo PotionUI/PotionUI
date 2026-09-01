@@ -7,7 +7,6 @@ from typing import List, Optional
 import json
 from datetime import datetime, timezone
 
-from src.platform.database import db
 from src.features.workspaces.records import Workspace
 from src.platform.util.ids import generate_ulid
 
@@ -34,6 +33,7 @@ class WorkspaceRepository:
         created_at = workspace.created_at if workspace.created_at else datetime.now(timezone.utc)
         updated_at = datetime.now(timezone.utc)
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO workspaces (id, user_id, name, data, created_at, updated_at)
@@ -58,6 +58,7 @@ class WorkspaceRepository:
 
     def get_by_id(self, workspace_id: str) -> Optional[Workspace]:
         """Get workspace by ID."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("SELECT * FROM workspaces WHERE id = ?", (workspace_id,))
             row = cursor.fetchone()
@@ -68,6 +69,7 @@ class WorkspaceRepository:
 
     def get_by_user(self, user_id: str) -> List[Workspace]:
         """Get all workspaces for a user."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 SELECT * FROM workspaces
@@ -82,6 +84,7 @@ class WorkspaceRepository:
         """Update an existing workspace."""
         updated_at = datetime.now(timezone.utc)
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 UPDATE workspaces
@@ -105,6 +108,7 @@ class WorkspaceRepository:
 
     def delete(self, workspace_id: str) -> bool:
         """Delete a workspace."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("DELETE FROM workspaces WHERE id = ?", (workspace_id,))
             return cursor.rowcount > 0

@@ -193,15 +193,13 @@ class TestGenerationHistoryFilters(PersistenceTestBase):
         return value_id
 
     def repo_db(self):
-        """The test-patched db instance shared by the generation repository module."""
-        import src.features.generation.repository as gr_module
-        return gr_module.db
+        """The test database every repository resolves at call time."""
+        from src.platform.database.database import db
+        return db
 
     def _add_segment(self, generation_id, phrasebook_value_id=None):
         from src.features.generation.segment_repository import GenerationSegmentRepository
         seg_repo = GenerationSegmentRepository()
-        import src.features.generation.segment_repository as seg_module
-        seg_module.db = self.repo_db()
         seg_repo.create_for_generation(generation_id, [{
             "channel": "positive",
             "segment_index": 0,

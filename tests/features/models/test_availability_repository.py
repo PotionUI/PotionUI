@@ -22,22 +22,6 @@ class TestModelAvailabilityRepositoryStatsForBackend(PersistenceTestBase):
         super().setUp()
         self.repo = ModelAvailabilityRepository()
 
-        # Same repatching TestModelRepository does: each of these modules
-        # imports `db` at module load time, so without repatching them here
-        # they stay bound to whatever `db` was live on first import, not this
-        # test's fresh temp database.
-        import src.features.models.availability_repository as availability_repository_module
-        availability_repository_module.db = self.db
-
-        import src.features.models.repository as model_repository_module
-        model_repository_module.db = self.db
-
-        import src.features.backends.repository as backend_repository_module
-        backend_repository_module.db = self.db
-
-        import src.features.tags.repository as tag_repository_module
-        tag_repository_module.db = self.db
-
         self.model_repo = ModelRepository()
         self.backend_repo = BackendRepository()
 
@@ -114,18 +98,6 @@ class TestModelAvailabilityRepositoryDigest(PersistenceTestBase):
     def setUp(self):
         super().setUp()
         self.repo = ModelAvailabilityRepository()
-
-        import src.features.models.availability_repository as availability_repository_module
-        availability_repository_module.db = self.db
-
-        import src.features.models.repository as model_repository_module
-        model_repository_module.db = self.db
-
-        import src.features.backends.repository as backend_repository_module
-        backend_repository_module.db = self.db
-
-        import src.features.tags.repository as tag_repository_module
-        tag_repository_module.db = self.db
 
         self.model_repo = ModelRepository()
         self.backend_repo = BackendRepository()

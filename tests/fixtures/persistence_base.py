@@ -104,19 +104,9 @@ class PersistenceTestBase(unittest.TestCase):
         db.db_path.parent.mkdir(exist_ok=True)
         db._initialized = True  # Mark as initialized to avoid conflicts
 
-        # Repositories bind `db` at import time, so each one that already did
-        # holds its own reference and has to be redirected by name.
-        for module_path in (
-            "src.platform.database.database",
-            "src.features.generation.file_repository",
-            "src.features.generation.repository",
-            "src.features.collections.repository",
-        ):
-            try:
-                module = importlib.import_module(module_path)
-            except ImportError:
-                continue
-            module.db = db
+        # Repositories resolve `db` at call time, so redirecting the one
+        # canonical name reaches every one of them.
+        importlib.import_module("src.platform.database.database").db = db
 
         return db
     

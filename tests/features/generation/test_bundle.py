@@ -173,8 +173,9 @@ class _StubPresetNameResolver:
 
 class TestExportImportRoundTrip:
     """Real-DB round trip: export_bundle's envelope feeds straight into
-    import_bundle. Uses PersistenceTestBase since the parameter/model/segment
-    repos this touches are module-level singletons bound to `db` at import time."""
+    import_bundle. Uses PersistenceTestBase, which redirects the canonical
+    `src.platform.database.database.db` name every repository resolves at
+    call time."""
 
     @pytest.fixture(autouse=True)
     def _base(self, tmp_path):
@@ -187,15 +188,6 @@ class TestExportImportRoundTrip:
         self.harness = _Harness()
         self.harness.setUp()
         self.db = self.harness.db
-
-        import src.features.generation.parameter_repository as parameter_repository
-        import src.features.generation.model_repository as model_repository
-        import src.features.generation.segment_repository as segment_repository
-        import src.features.models.repository as models_repository
-        parameter_repository.db = self.db
-        model_repository.db = self.db
-        segment_repository.db = self.db
-        models_repository.db = self.db
 
         from src.features.generation.repository import GenerationRepository
         from src.features.generation.parameter_repository import generation_parameter_repo

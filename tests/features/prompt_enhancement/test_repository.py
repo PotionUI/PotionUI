@@ -16,11 +16,6 @@ class TestEnhancementFeedbackModePersistence(PersistenceTestBase):
     def setUp(self):
         super().setUp()
         self.repo = EnhancementFeedbackRepository()
-
-        # Patch the db reference in the repository module
-        import src.features.prompt_enhancement.repository
-        src.features.prompt_enhancement.repository.db = self.db
-
         self.test_user_id = self.create_test_user()
 
     def tearDown(self):

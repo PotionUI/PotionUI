@@ -23,9 +23,6 @@ class TestGenerationSourceRepository(PersistenceTestBase):
         super().setUp()
         self.repo = GenerationSourceRepository()
 
-        import src.features.generation.source_repository
-        src.features.generation.source_repository.db = self.db
-
         self.user_id = self.create_test_user()
 
     def _create_generation(self, gen_id: str = None) -> str:

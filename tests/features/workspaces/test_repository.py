@@ -36,10 +36,6 @@ class TestWorkspaceRepository(PersistenceTestBase):
         super().setUp()
         self.repository = WorkspaceRepository()
 
-        # Patch the module-level db reference used by the repository
-        import src.features.workspaces.repository
-        src.features.workspaces.repository.db = self.db
-
         # Ensure the workspaces table exists
         self._create_workspaces_table()
 

@@ -255,22 +255,6 @@ class TestUpdateModelMetadataValidation(PersistenceTestBase):
 
     def setUp(self):
         super().setUp()
-        import src.features.models.repository as model_repository_module
-        model_repository_module.db = self.db
-        import src.features.tags.repository as tag_repository_module
-        tag_repository_module.db = self.db
-        import src.features.models.attributes.repository as attribute_repo_module
-        attribute_repo_module.db = self.db
-        import src.features.models.attributes.user_repository as user_attribute_repo_module
-        user_attribute_repo_module.db = self.db
-        import src.features.models.availability_repository as availability_repository_module
-        availability_repository_module.db = self.db
-        # `settings.repository` binds `db` at its own top-level import - a
-        # third, separate name from `database.database` - so the real,
-        # module-level ModelScanner singleton's SettingRepository().get_setting_by_key
-        # call has to be redirected here too, or it queries the real database.
-        import src.platform.settings.repository as settings_repository_module
-        settings_repository_module.db = self.db
 
         self.model_repo = ModelRepository()
         self.tag_repo = TagRepository()

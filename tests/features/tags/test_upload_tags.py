@@ -8,6 +8,7 @@ path depends on really is one query.
 """
 
 import unittest
+from unittest.mock import patch
 
 from tests.fixtures.persistence_base import PersistenceTestBase
 from tests.fixtures.query_counter import CountingDb
@@ -15,17 +16,12 @@ from src.features.media.records import Upload
 from src.features.media.upload_repository import UploadRepository
 from src.features.tags.repository import TagRepository
 
-import src.features.media.upload_repository as upload_repository_module
-import src.features.tags.repository as tag_repository_module
 
 
 class TestUploadTags(PersistenceTestBase):
 
     def setUp(self):
         super().setUp()
-        tag_repository_module.db = self.db
-        upload_repository_module.db = self.db
-
         self.repo = TagRepository()
         self.uploads = UploadRepository()
         self.user_id = self.create_test_user()
@@ -84,11 +80,8 @@ class TestUploadTags(PersistenceTestBase):
         self.repo.set_upload_tags(tagged.id, [tag.id])
 
         counting = CountingDb(self.db)
-        tag_repository_module.db = counting
-        try:
+        with patch("src.platform.database.database.db", counting):
             result = self.repo.get_upload_tags_bulk([tagged.id, untagged.id])
-        finally:
-            tag_repository_module.db = self.db
 
         self.assertEqual([t.name for t in result[tagged.id]], ["cats"])
         self.assertEqual(result[untagged.id], [])

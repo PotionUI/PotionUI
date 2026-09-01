@@ -780,8 +780,6 @@ class TestScanPluginsWithInvalidManifest(PersistenceTestBase):
 
     def setUp(self):
         super().setUp()
-        import src.features.plugins.repository
-        src.features.plugins.repository.db = self.db
 
         self.plugins_dir = Path(tempfile.mkdtemp())
         self.marketplace_dir = self.plugins_dir / "marketplace"

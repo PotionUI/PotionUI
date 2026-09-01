@@ -22,8 +22,6 @@ from src.platform.filesystem.storage_driver import LocalFileStorageDriver
 from tests.fixtures.persistence_base import PersistenceTestBase
 from tests.features.media.editing.test_operations import make_image
 
-import src.features.media.upload_repository as upload_repository_module
-
 
 class _NoLocalPathDriver(LocalFileStorageDriver):
     """Same storage as `LocalFileStorageDriver`, but reports no local file -
@@ -37,7 +35,6 @@ class TestDriverBypassClosed(PersistenceTestBase):
 
     def setUp(self):
         super().setUp()
-        upload_repository_module.db = self.db
         self.upload_repo = UploadRepository()
 
         # The driver's own storage lives OUTSIDE any FilePathResolver-owned

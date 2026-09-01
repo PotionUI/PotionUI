@@ -9,7 +9,6 @@ only.
 import pytest
 
 import backend.provisioner as provisioner_module
-import backend.resources as resources_module
 from backend.catalog_client import DataCenter as LiveDataCenter
 from backend.catalog_client import GpuAvailability, RunPodCatalogError
 from backend.client import NetworkVolume, Pod, RunPodAPIError, RunPodNotFoundError
@@ -108,7 +107,7 @@ async def _always_ready(base_url, token):
 
 @pytest.fixture
 def resources(scratch_db, monkeypatch):
-    monkeypatch.setattr(resources_module, "db", scratch_db)
+    monkeypatch.setattr("src.platform.database.database.db", scratch_db)
     manager = RunPodResourceManager()
     manager.create_table()
     return manager

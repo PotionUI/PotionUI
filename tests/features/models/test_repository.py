@@ -21,24 +21,6 @@ class TestModelRepository(PersistenceTestBase):
         super().setUp()
         self.repository = ModelRepository()
 
-        # PersistenceTestBase only repatches the module-level `db` reference for
-        # file_repository/generation_repository - model_repository imports `db`
-        # the same way, so without repatching it here, ModelRepository ends up
-        # bound to whatever `db` instance was live the first time this module
-        # was imported (e.g. a previous test's already-torn-down database),
-        # instead of this test's fresh temp database.
-        import src.features.models.repository as model_repository_module
-        model_repository_module.db = self.db
-
-        import src.features.tags.repository as tag_repository_module
-        tag_repository_module.db = self.db
-
-        import src.features.model_library.repository.model_collection_repository as model_collection_repository_module
-        model_collection_repository_module.db = self.db
-
-        import src.features.model_library.repository.user_model_meta_repository as user_model_meta_repository_module
-        user_model_meta_repository_module.db = self.db
-
         self.model_collection_repo = ModelCollectionRepository()
         self.user_model_meta_repo = UserModelMetaRepository()
 

@@ -25,11 +25,6 @@ class TestPluginModelAttributeDefinitionRegistration(PersistenceTestBase):
 
     def setUp(self):
         super().setUp()
-        import src.features.models.attributes.repository as def_repo_module
-        def_repo_module.db = self.db
-        import src.features.models.attributes.user_repository as user_repo_module
-        user_repo_module.db = self.db
-
         self.definitions = AttributeDefinitionRepository()
         self.model_attributes_manager = ModelAttributeDefinitionsEditor(
             self.definitions, UserModelAttributeRepository()

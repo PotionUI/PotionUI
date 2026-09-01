@@ -35,7 +35,6 @@ from src.features.generation.routes import GenerationController, build_admin_rou
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
 from src.platform.security.user import User, AccountType
 
-import src.features.generation.run_report_repository as run_report_repository_module
 
 
 def _user(account_type=AccountType.ADMIN, user_id="admin-1"):
@@ -55,11 +54,6 @@ class TestAdminGenerationsController(PersistenceTestBase):
 
     def setUp(self):
         super().setUp()
-        # PersistenceTestBase redirects generation/file repositories; the run
-        # report repository is this feature's own addition and isn't on its
-        # whitelist, so redirect it here.
-        run_report_repository_module.db = self.db
-
         self.generation_repo = GenerationRepository()
         self.history_facade = GenerationHistoryFacade(
             generation_repo=self.generation_repo,
@@ -80,11 +74,6 @@ class TestAdminGenerationsController(PersistenceTestBase):
 
         self.gen_a = self._create_generation(self.user_a)
         self.gen_b = self._create_generation(self.user_b)
-
-    def tearDown(self):
-        from src.platform.database.database import db as REAL_DB
-        run_report_repository_module.db = REAL_DB
-        super().tearDown()
 
     def _create_generation(self, user_id, prompt="a cat"):
         generation = Generation(

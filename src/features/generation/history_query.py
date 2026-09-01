@@ -224,7 +224,7 @@ class GenerationHistoryQuery:
             completed_to: Filter by completion end date
             tag_ids: Filter by tag IDs
             include_tags: Whether to include tags in response
-            media_type: Filter by media type (IMAGE, VIDEO, AUDIO)
+            media_type: Filter by media type (IMAGE, VIDEO, AUDIO, MESH)
             semantic_query: Free-text visual description ranked against the
                 gallery's image embeddings. When set, results are ordered by
                 visual relevance (``sort_by``/``sort_dir`` are ignored) and

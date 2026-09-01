@@ -131,7 +131,7 @@ export interface Collection {
 
 export type DatePreset = 'all' | 'today' | 'yesterday' | 'last_week' | 'last_month';
 
-export type MediaType = 'all' | 'image' | 'video' | 'audio';
+export type MediaType = 'all' | 'image' | 'video' | 'audio' | 'mesh';
 
 export type SortBy = 'created_at' | 'completed_at' | 'rating' | 'file_size';
 

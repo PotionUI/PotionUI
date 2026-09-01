@@ -4,29 +4,34 @@ import { filterFilesByMediaType } from './generationHistoryMediaFilter';
 const IMAGE = { id: 'i1', file_type: 'IMAGE' };
 const VIDEO = { id: 'v1', file_type: 'video' };
 const AUDIO = { id: 'a1', file_type: 'AUDIO' };
+const MESH = { id: 'm1', file_type: 'MESH' };
 
 describe('filterFilesByMediaType', () => {
 	it('passes everything through when mediaType is unset', () => {
-		expect(filterFilesByMediaType([IMAGE, VIDEO, AUDIO], undefined)).toEqual([IMAGE, VIDEO, AUDIO]);
+		expect(filterFilesByMediaType([IMAGE, VIDEO, AUDIO, MESH], undefined)).toEqual([IMAGE, VIDEO, AUDIO, MESH]);
 	});
 
 	it('keeps only image files for image', () => {
-		expect(filterFilesByMediaType([IMAGE, VIDEO, AUDIO], 'image')).toEqual([IMAGE]);
+		expect(filterFilesByMediaType([IMAGE, VIDEO, AUDIO, MESH], 'image')).toEqual([IMAGE]);
 	});
 
 	it('keeps only video files for video', () => {
-		expect(filterFilesByMediaType([IMAGE, VIDEO, AUDIO], 'video')).toEqual([VIDEO]);
+		expect(filterFilesByMediaType([IMAGE, VIDEO, AUDIO, MESH], 'video')).toEqual([VIDEO]);
 	});
 
 	it('keeps only audio files for audio', () => {
-		expect(filterFilesByMediaType([IMAGE, VIDEO, AUDIO], 'audio')).toEqual([AUDIO]);
+		expect(filterFilesByMediaType([IMAGE, VIDEO, AUDIO, MESH], 'audio')).toEqual([AUDIO]);
+	});
+
+	it('keeps only mesh files for mesh', () => {
+		expect(filterFilesByMediaType([IMAGE, VIDEO, AUDIO, MESH], 'mesh')).toEqual([MESH]);
 	});
 
 	it('drops every file for an unrecognized media type instead of bucketing it as video', () => {
-		// A caller smuggling an unknown type (e.g. 'mesh') through a stale type
-		// cast used to fall into the `: isVideo` branch and surface video files
-		// under a bogus selection. Assert the closed switch instead.
-		const filtered = filterFilesByMediaType([IMAGE, VIDEO, AUDIO], 'mesh' as any);
+		// A caller smuggling an unknown type through a stale type cast used to
+		// fall into the `: isVideo` branch and surface video files under a
+		// bogus selection. Assert the closed switch instead.
+		const filtered = filterFilesByMediaType([IMAGE, VIDEO, AUDIO, MESH], 'bogus' as any);
 		expect(filtered).toEqual([]);
 	});
 

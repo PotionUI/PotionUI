@@ -10,7 +10,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from tests.fixtures.persistence_base import PersistenceTestBase
-from src.features.generation.records import Generation
+from src.features.generation.records import Generation, File
 from src.features.generation.repository import GenerationRepository
 from src.platform.util.ids import generate_ulid
 
@@ -92,6 +92,24 @@ class TestGenerationHistoryFilters(PersistenceTestBase):
         b = self._make(preset_id="native/QwenImage/standard")
         results = self.repo.get_all(user_id=self.user_id, preset_id="native/QwenImage/standard")
         self.assertEqual({g.id for g in results}, {b.id})
+
+    def test_media_type_filter_mesh(self):
+        mesh_gen = self._make(prompt="a mesh")
+        image_gen = self._make(prompt="an image")
+        self.repo.add_file(mesh_gen.id, File(
+            file_path="/test/model.glb",
+            file_type="MESH",
+            user_id=self.user_id,
+            is_final=True,
+        ))
+        self.repo.add_file(image_gen.id, File(
+            file_path="/test/image.png",
+            file_type="IMAGE",
+            user_id=self.user_id,
+            is_final=True,
+        ))
+        results = self.repo.get_all(user_id=self.user_id, media_type="mesh")
+        self.assertEqual({g.id for g in results}, {mesh_gen.id})
 
     # --- Search ---
 

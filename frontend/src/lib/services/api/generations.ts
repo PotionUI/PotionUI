@@ -66,7 +66,7 @@ export function createGenerationsApi(client: AxiosInstance) {
 			completedTo?: string;
 			tagIds?: string[];
 			includeTags?: boolean;
-			mediaType?: 'image' | 'video' | 'audio';
+			mediaType?: 'image' | 'video' | 'audio' | 'mesh';
 			search?: string;
 			semanticQuery?: string;
 			mode?: string;

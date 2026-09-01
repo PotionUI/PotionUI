@@ -162,21 +162,44 @@ def build_processed_pipeline(
     itself rather than re-deriving the pipe-shape logic.
     """
     merged = merge_pipe_defaults(pipes, pipe_catalog)
+    wire_ids = [pipe.get('id') or f"{pipe['name']}#{index}" for index, pipe in enumerate(merged)]
+    provider_map = _provider_identifier_map(merged, wire_ids)
     return ProcessedPipelineV1(
         pipes=tuple(
             ProcessedPipeV1(
-                pipe_id=pipe.get('id') or f"{pipe['name']}#{index}",
+                pipe_id=wire_id,
                 pipe_type=pipe['name'],
                 enabled=bool(pipe.get('enabled')),
                 config=pipe.get('config') or {},
-                inputs=_pipe_inputs(pipe),
+                inputs=_pipe_inputs(pipe, provider_map),
             )
-            for index, pipe in enumerate(merged)
+            for wire_id, pipe in zip(wire_ids, merged)
         )
     )
 
 
-def _pipe_inputs(pipe: Dict[str, Any]) -> Dict[str, Any]:
+def _provider_identifier_map(merged: List[Dict[str, Any]], wire_ids: List[str]) -> Dict[str, str]:
+    """Input wiring references a provider by declared id OR by pipe name; the
+    wire keys outputs by ``pipe_id`` (declared id, else ``name#index``).
+    Mirrors the local engine's resolution (engine.py's pipe_identifier_map):
+    declared ids always map, a bare name maps only when it is unique among
+    enabled pipes - an ambiguous name stays verbatim and fails on the worker
+    the same way it fails locally."""
+    enabled_name_counts: Dict[str, int] = {}
+    for pipe in merged:
+        if pipe.get('enabled'):
+            enabled_name_counts[pipe['name']] = enabled_name_counts.get(pipe['name'], 0) + 1
+
+    provider_map: Dict[str, str] = {}
+    for wire_id, pipe in zip(wire_ids, merged):
+        if pipe.get('id'):
+            provider_map[pipe['id']] = wire_id
+        if pipe.get('enabled') and enabled_name_counts.get(pipe['name']) == 1:
+            provider_map.setdefault(pipe['name'], wire_id)
+    return provider_map
+
+
+def _pipe_inputs(pipe: Dict[str, Any], provider_map: Dict[str, str]) -> Dict[str, Any]:
     """Project a pipe's input wiring onto ``parameter -> [providers]``.
 
     A list per parameter rather than a single provider, because feeding one
@@ -191,7 +214,7 @@ def _pipe_inputs(pipe: Dict[str, Any]) -> Dict[str, Any]:
                 f"pipe '{pipe['name']}' has an input that is not a mapping: {entry!r}"
             )
         inputs.setdefault(entry['name'], []).append({
-            'provider': entry['provider'],
+            'provider': provider_map.get(entry['provider'], entry['provider']),
             'output_var': entry['output_var'],
             'enabled': bool(entry.get('enabled', True)),
         })

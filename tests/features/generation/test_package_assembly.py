@@ -292,6 +292,50 @@ class TestInputWiring:
             {'provider': 'second', 'output_var': 'image', 'enabled': False},
         ]
 
+    def test_a_by_name_provider_reference_resolves_to_the_generated_wire_id(
+        self, catalog, model_bundle
+    ):
+        """Preset YAML wires inputs by pipe NAME when no id is declared; the wire
+        keys outputs by the generated `name#index` id, so unresolved names made
+        the worker drop the input (the Anima 'text_encoder' KeyError)."""
+        pipes = [
+            pipe('model_loader/sdxl', {'model': 'm.safetensors'}),
+            pipe('generator/sdxl', {}, inputs=[
+                {'name': 'model', 'provider': 'model_loader/sdxl', 'output_var': 'model',
+                 'enabled': True},
+            ]),
+        ]
+
+        package = assemble_execution_package(
+            build(pipes), pipe_catalog=catalog, model_bundle=model_bundle,
+            issued_at=ISSUED_AT,
+        )
+
+        loader_id = package.processed_pipes.pipes[0].pipe_id
+        assert loader_id == 'model_loader/sdxl#0'
+        assert package.processed_pipes.pipes[1].inputs['model'] == [
+            {'provider': loader_id, 'output_var': 'model', 'enabled': True}
+        ]
+
+    def test_an_ambiguous_by_name_reference_stays_verbatim(self, catalog, model_bundle):
+        pipes = [
+            pipe('model_loader/sdxl', {'model': 'a.safetensors'}),
+            pipe('model_loader/sdxl', {'model': 'b.safetensors'}),
+            pipe('generator/sdxl', {}, inputs=[
+                {'name': 'model', 'provider': 'model_loader/sdxl', 'output_var': 'model',
+                 'enabled': True},
+            ]),
+        ]
+
+        package = assemble_execution_package(
+            build(pipes), pipe_catalog=catalog, model_bundle=model_bundle,
+            issued_at=ISSUED_AT,
+        )
+
+        assert package.processed_pipes.pipes[2].inputs['model'] == [
+            {'provider': 'model_loader/sdxl', 'output_var': 'model', 'enabled': True}
+        ]
+
 
 class TestInputAssetWiring:
     def test_without_a_storage_dir_no_collection_runs(self, catalog, model_bundle):

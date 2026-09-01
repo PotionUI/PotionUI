@@ -222,6 +222,22 @@ class MediaIndexRepository:
 
     # --- System tags -----------------------------------------------------------
 
+    def set_thumbnails(
+        self, file_id: str, small: Optional[str], medium: Optional[str], large: Optional[str]
+    ) -> None:
+        """Write `files.thumbnail_small/medium/large` directly - used by the
+        mesh-preview render path, which needs to persist a thumbnail outside
+        the `generation` feature's own write path (`file_repository.py`)."""
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE files
+                SET thumbnail_small = ?, thumbnail_medium = ?, thumbnail_large = ?
+                WHERE id = ?
+                """,
+                (small, medium, large, file_id),
+            )
+
     def replace_file_tags(
         self,
         file_id: str,

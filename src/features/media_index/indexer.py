@@ -9,6 +9,7 @@ model forward); the queue schema and drain loop are shared.
 
 import asyncio
 import logging
+import os
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
 from src.features.media_index.records import MediaIndexQueueItem
@@ -30,13 +31,16 @@ PASS_PROMPT_EMBED = "prompt_embed"
 
 MAX_ATTEMPTS = 3
 
-# Sentinel outcome (batch path) / exception (per-item path) for a non-IMAGE
-# file whose thumbnail hasn't been written yet: video thumbnails are produced
-# by a background thread that can still be running when the file is enqueued
-# at generation-complete, so `_resolve_source_path` finds nothing yet. This is
+# Sentinel outcome (batch path) / exception (per-item path) for a VIDEO file
+# whose thumbnail hasn't been written yet: video thumbnails are produced by a
+# background thread that can still be running when the file is enqueued at
+# generation-complete, so `_resolve_source_path` finds nothing yet. This is
 # routed through the same `mark_failed` attempts/give-up gate as a real
 # failure (so a thumbnail that never shows up can't wedge the queue forever),
-# but logged quietly since it is the expected common case, not an error.
+# but logged quietly since it is the expected common case, not an error. MESH
+# renders its own thumbnail synchronously in `_resolve_source_path` instead of
+# waiting on anything, and AUDIO has no renderable source at all - neither
+# ever takes this path.
 _SOURCE_NOT_READY = "source not ready yet (thumbnail pending)"
 
 SEMANTIC_TOP_K = 100
@@ -244,16 +248,86 @@ class MediaIndexer:
     # --- Pass processors -------------------------------------------------------
 
     def _resolve_source_path(self, item: MediaIndexQueueItem) -> Optional[str]:
-        """Image files are indexed directly; videos through their thumbnail."""
-        relative = item.file_path if item.file_type == "IMAGE" else item.thumbnail_path
+        """Image files are indexed directly; videos through their thumbnail
+        (written asynchronously later, so a miss here can still resolve on a
+        retry); mesh files render (and persist) their own thumbnail right
+        here; audio has nothing to resolve."""
+        if item.file_type == "IMAGE":
+            relative = item.file_path
+        elif item.file_type == "MESH":
+            return self._resolve_mesh_source_path(item)
+        else:
+            relative = item.thumbnail_path
         if not relative:
             return None
         return self.file_service.get_full_path(relative)
 
+    def _resolve_mesh_source_path(self, item: MediaIndexQueueItem) -> Optional[str]:
+        """Render (and persist) a mesh's thumbnail the first time it's
+        touched by either pass - unlike video, nothing else is ever going to
+        produce one, so there is nothing to wait on. A later pass in the same
+        or a later drain just finds `item.thumbnail_path` already set.
+        """
+        if item.thumbnail_path:
+            return self._mesh_thumbnail_full_path(item)
+        if not item.file_path:
+            return None
+
+        # Deferred: `mesh_preview` imports torch, and this module is on the
+        # boot import chain (`test_bootstrap_app_import_leaves_heavy_modules_
+        # unimported`) - import it here, at the one call site that actually
+        # renders a mesh, not at module load.
+        from src.platform.runtime.native.mesh_preview import MeshPreviewError, render_mesh_preview
+
+        mesh_path = self.file_service.get_full_path(item.file_path)
+        try:
+            png_bytes = render_mesh_preview(mesh_path)
+        except MeshPreviewError:
+            logger.warning(
+                "media_index: mesh file %s does not parse as a renderable "
+                "glTF-binary, skipping",
+                item.file_id,
+            )
+            return None
+        except FileNotFoundError:
+            logger.warning(
+                "media_index: mesh file %s is gone (%s), skipping", item.file_id, mesh_path
+            )
+            return None
+        except Exception:
+            logger.exception(
+                "media_index: mesh preview render failed for file %s", item.file_id
+            )
+            return None
+
+        item.thumbnail_path = self._store_mesh_thumbnail(item, png_bytes)
+        return self._mesh_thumbnail_full_path(item)
+
+    def _mesh_thumbnail_full_path(self, item: MediaIndexQueueItem) -> str:
+        base_key = os.path.dirname(item.file_path)
+        relative = f"{base_key}/{item.thumbnail_path}" if base_key else item.thumbnail_path
+        return self.file_service.get_full_path(relative)
+
+    def _store_mesh_thumbnail(self, item: MediaIndexQueueItem, png_bytes: bytes) -> str:
+        """Writes through the same `base_key/thumbnails/...` convention
+        `generate_thumbnails`/`generate_video_thumbnails` use (see
+        `src.features.generation.handlers`), so the existing media-serving
+        route resolves it exactly like an image/video thumbnail - and the
+        gallery card just works once this returns. One size only: it's a
+        synthetic render, not a photo that benefits from three resolutions.
+        """
+        base_key = os.path.dirname(item.file_path)
+        stem = os.path.splitext(os.path.basename(item.file_path))[0]
+        relative = f"thumbnails/{stem}_medium.png"
+        key = f"{base_key}/{relative}" if base_key else relative
+        self.file_service.storage_driver.put_bytes(key, png_bytes)
+        self.repository.set_thumbnails(item.file_id, relative, relative, relative)
+        return relative
+
     def _process_tags_item(self, item: MediaIndexQueueItem) -> None:
         source = self._resolve_source_path(item)
         if source is None:
-            if item.file_type != "IMAGE":
+            if item.file_type == "VIDEO":
                 # Thumbnail not written yet - retry later rather than
                 # finalizing a row that will never get its tags.
                 raise _SourceNotReadyError(item.file_id)
@@ -300,7 +374,7 @@ class MediaIndexer:
         for item in items:
             source = self._resolve_source_path(item)
             if source is None:
-                if item.file_type != "IMAGE":
+                if item.file_type == "VIDEO":
                     # Thumbnail not written yet - retry later rather than
                     # finalizing a row that will never get embedded.
                     outcomes[item.id] = _SOURCE_NOT_READY

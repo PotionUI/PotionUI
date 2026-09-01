@@ -290,14 +290,28 @@
 		>
 			{#if mediaFiles.length > 0 && currentMediaFile}
 				{#if isCurrentMediaMesh}
-					<!-- Grid tiles stay lightweight: no <model-viewer> here, just a marker. -->
-					<div
-						class="w-full h-full flex flex-col items-center justify-center gap-2"
-						style={placeholderTint(currentMediaFile.file_path)}
-					>
-						<Icon name="cube" className="h-10 w-10 text-fg-subtle" strokeWidth={1.5} />
-						<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">{currentMeshFormat}</span>
-					</div>
+					<!-- Grid tiles stay lightweight: no <model-viewer> here. A
+					     server-rendered thumbnail (media-index queue) is preferred
+					     once one exists; otherwise fall back to the format marker. -->
+					{#if currentMediaFile.thumbnail_small || currentMediaFile.thumbnail_medium || currentMediaFile.thumbnail_large}
+						{#key currentMediaFile.file_path}
+							<MediaPreview
+								file={currentMediaFile}
+								generationId={generation.id}
+								className="w-full h-full {tile ? 'object-contain' : 'object-cover'}"
+								{thumbnailSize}
+								loadFullOnClick={false}
+							/>
+						{/key}
+					{:else}
+						<div
+							class="w-full h-full flex flex-col items-center justify-center gap-2"
+							style={placeholderTint(currentMediaFile.file_path)}
+						>
+							<Icon name="cube" className="h-10 w-10 text-fg-subtle" strokeWidth={1.5} />
+							<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">{currentMeshFormat}</span>
+						</div>
+					{/if}
 				{:else if isCurrentMediaAudio}
 					<!-- No waveform in the grid tile - a compact affordance (icon + duration)
 					     rather than embedding the full AudioPlayer, mirroring the mesh marker. -->

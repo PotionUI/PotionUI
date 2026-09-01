@@ -1,7 +1,7 @@
 """MediaIndexer: queue feeding, draining, provenance re-tagging."""
 
 import importlib
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -34,9 +34,19 @@ class FakeTagger:
         return self.result
 
 
+class FakeStorageDriver:
+    def __init__(self):
+        self.written = {}
+
+    def put_bytes(self, key, data):
+        self.written[key] = data
+        return len(data)
+
+
 class FakeFileStore:
     def __init__(self, base="/storage"):
         self.base = base
+        self.storage_driver = FakeStorageDriver()
 
     def get_full_path(self, relative_path):
         return f"{self.base}/{relative_path}"
@@ -720,3 +730,136 @@ class TestGalleryRebuildSettlement(ClipDrainTestBase):
         manager.process_pending(PASS_CLIP_EMBED, batch_size=10)
 
         assert self.store.pruned == []
+
+
+class TestMeshPass(IndexerTestBase):
+    """Mesh files have no async thumbnail thread to wait on like video -
+    `_resolve_source_path` renders (and persists) the thumbnail itself the
+    first time a mesh row is touched, then indexes through it."""
+
+    def _make_mesh_file(self, file_id, generation_id=None, file_path=None):
+        self._make_file(file_id, generation_id, file_type="MESH")
+        if file_path:
+            with self.db.get_cursor() as cursor:
+                cursor.execute(
+                    "UPDATE files SET file_path = ? WHERE id = ?", (file_path, file_id)
+                )
+
+    def test_mesh_file_renders_thumbnail_and_tags_through_it(self):
+        render_calls = []
+
+        def fake_render(path):
+            render_calls.append(path)
+            return b"fake-png-bytes"
+
+        self._make_mesh_file("m1", file_path="generations/g/m1.glb")
+        self.repo.enqueue_files(["m1"], PASS_TAGS)
+        manager = self._indexer()
+
+        with patch(
+            "src.platform.runtime.native.mesh_preview.render_mesh_preview", side_effect=fake_render
+        ):
+            result = manager.process_pending(PASS_TAGS, batch_size=10)
+
+        assert result == {"processed": 1, "failed": 0}
+        assert render_calls == ["/storage/generations/g/m1.glb"]
+        assert self.tagger.calls == ["/storage/generations/g/thumbnails/m1_medium.png"]
+        assert self._queue_row("m1")["status"] == "done"
+
+        written = manager.file_service.storage_driver.written
+        assert written["generations/g/thumbnails/m1_medium.png"] == b"fake-png-bytes"
+
+        with self.db.get_cursor() as cursor:
+            cursor.execute(
+                "SELECT thumbnail_small, thumbnail_medium, thumbnail_large "
+                "FROM files WHERE id = ?",
+                ("m1",),
+            )
+            row = cursor.fetchone()
+        assert row["thumbnail_small"] == "thumbnails/m1_medium.png"
+        assert row["thumbnail_medium"] == "thumbnails/m1_medium.png"
+        assert row["thumbnail_large"] == "thumbnails/m1_medium.png"
+
+    def test_second_pass_reuses_the_already_rendered_thumbnail(self):
+        """A file that already ran through PASS_TAGS (and rendered its
+        thumbnail there) must not render a second time for PASS_CLIP_EMBED -
+        it just indexes through the same stored thumbnail, like video does."""
+        render_calls = []
+
+        def fake_render(path):
+            render_calls.append(path)
+            return b"fake-png-bytes"
+
+        self._make_mesh_file("m1", file_path="generations/g/m1.glb")
+        self.repo.enqueue_files(["m1"], PASS_TAGS)
+        manager = self._indexer()
+        with patch(
+            "src.platform.runtime.native.mesh_preview.render_mesh_preview", side_effect=fake_render
+        ):
+            manager.process_pending(PASS_TAGS, batch_size=10)
+        assert len(render_calls) == 1
+
+        self.repo.enqueue_files(["m1"], PASS_CLIP_EMBED)
+        manager2 = self._indexer(file_service=manager.file_service)
+        with patch(
+            "src.platform.runtime.native.mesh_preview.render_mesh_preview", side_effect=fake_render
+        ):
+            result = manager2.process_pending(PASS_CLIP_EMBED, batch_size=10)
+
+        assert result["failed"] == 0
+        assert len(render_calls) == 1, "must not re-render once a thumbnail already exists"
+
+    def test_render_failure_skips_permanently_instead_of_churning_to_failed(self):
+        """This is the bug fix: before it, a mesh row (no thumbnail, ever)
+        retried `_SourceNotReadyError` until MAX_ATTEMPTS then landed on
+        `failed`. A render failure must skip once, immediately - not churn."""
+        from src.platform.runtime.native.mesh_preview import MeshPreviewError
+
+        def fake_render(path):
+            raise MeshPreviewError("not a real glTF-binary file")
+
+        self._make_mesh_file("m1", file_path="generations/g/m1.glb")
+        self.repo.enqueue_files(["m1"], PASS_TAGS)
+        manager = self._indexer()
+
+        with patch(
+            "src.platform.runtime.native.mesh_preview.render_mesh_preview", side_effect=fake_render
+        ):
+            result = manager.process_pending(PASS_TAGS, batch_size=10)
+
+        assert result == {"processed": 1, "failed": 0}
+        assert self.tagger.calls == []
+        row = self._queue_row("m1")
+        assert row["status"] == "done"
+        assert row["attempts"] == 0
+
+
+class TestAudioPass(IndexerTestBase):
+    """Audio has no renderable source and never will - unlike video (whose
+    thumbnail is merely delayed) it must skip once rather than retry to
+    `failed`."""
+
+    def test_audio_file_skips_immediately_for_tags(self):
+        self._make_file("a1", file_type="AUDIO")
+        self.repo.enqueue_files(["a1"], PASS_TAGS)
+        manager = self._indexer()
+
+        result = manager.process_pending(PASS_TAGS, batch_size=10)
+
+        assert result == {"processed": 1, "failed": 0}
+        assert self.tagger.calls == []
+        row = self._queue_row("a1")
+        assert row["status"] == "done"
+        assert row["attempts"] == 0
+
+    def test_audio_file_skips_immediately_for_clip_embed(self):
+        self._make_file("a1", file_type="AUDIO")
+        self.repo.enqueue_files(["a1"], PASS_CLIP_EMBED)
+        manager = self._indexer()
+
+        result = manager.process_pending(PASS_CLIP_EMBED, batch_size=10)
+
+        assert result == {"processed": 1, "failed": 0}
+        row = self._queue_row("a1", PASS_CLIP_EMBED)
+        assert row["status"] == "done"
+        assert row["attempts"] == 0

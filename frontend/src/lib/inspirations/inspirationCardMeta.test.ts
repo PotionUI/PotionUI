@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
 	inspirationPrimaryMedia,
 	inspirationIsVideo,
+	inspirationAspect,
 	inspirationDisplayTitle,
 	inspirationAuthorInitial,
 	canModerateInspiration
@@ -31,6 +32,30 @@ describe('inspirationIsVideo', () => {
 
 	it('treats a missing media entry as not a video', () => {
 		expect(inspirationIsVideo(null)).toBe(false);
+	});
+});
+
+describe('inspirationAspect', () => {
+	it('derives aspect from portrait media dimensions', () => {
+		expect(inspirationAspect({ url: '/a.png', type: 'image', width: 1080, height: 1920 })).toBeCloseTo(
+			1080 / 1920
+		);
+	});
+
+	it('derives aspect from landscape media dimensions', () => {
+		expect(inspirationAspect({ url: '/a.png', type: 'image', width: 1920, height: 1080 })).toBeCloseTo(
+			1920 / 1080
+		);
+	});
+
+	it('clamps extreme aspect ratios so a row never gets a sliver tile', () => {
+		expect(inspirationAspect({ url: '/a.png', type: 'image', width: 10000, height: 100 })).toBeLessThan(3);
+		expect(inspirationAspect({ url: '/a.png', type: 'image', width: 100, height: 10000 })).toBeGreaterThan(0.4);
+	});
+
+	it('falls back to square when dimensions are missing', () => {
+		expect(inspirationAspect({ url: '/a.png', type: 'image' })).toBe(1);
+		expect(inspirationAspect(null)).toBe(1);
 	});
 });
 

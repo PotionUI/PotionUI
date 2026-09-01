@@ -4,6 +4,7 @@
  */
 
 import type { InspirationDto, InspirationMedia } from '$lib/services/api/inspirations';
+import { clampAspect } from '$lib/utils/justifiedLayout';
 
 export interface InspirationAuthorLike {
 	id: string;
@@ -18,6 +19,16 @@ export function inspirationPrimaryMedia(dto: Pick<InspirationDto, 'media'>): Ins
 
 export function inspirationIsVideo(media: InspirationMedia | null): boolean {
 	return (media?.type ?? '').toLowerCase() === 'video';
+}
+
+/**
+ * Native aspect ratio (width / height) of the card's primary media, clamped
+ * the same way the history justified grid clamps generation tiles. Falls
+ * back to square for media with no reported dimensions.
+ */
+export function inspirationAspect(media: InspirationMedia | null): number {
+	if (media?.width && media?.height) return clampAspect(media.width / media.height);
+	return 1;
 }
 
 /** Falls back to the account name when no display title was given. */

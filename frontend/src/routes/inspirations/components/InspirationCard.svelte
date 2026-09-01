@@ -12,6 +12,11 @@
 
 	export let item: InspirationDto;
 	export let onOpen: (item: InspirationDto) => void;
+	/**
+	 * Justified-gallery box in px (native aspect ratio, from `justifiedLayout`).
+	 * When null the card falls back to a fixed aspect-[4/3] tile.
+	 */
+	export let tile: { width: number; height: number } | null = null;
 
 	$: media = inspirationPrimaryMedia(item);
 	$: isVideo = inspirationIsVideo(media);
@@ -22,16 +27,31 @@
 <button
 	type="button"
 	class="group text-left w-full rounded-lg overflow-hidden border border-line-strong hover:border-line-hover bg-surface-1 transition-colors duration-100"
+	style={tile ? `width: ${tile.width}px` : undefined}
 	on:click={() => onOpen(item)}
 >
-	<div class="relative aspect-[4/3] bg-black overflow-hidden">
+	<div
+		class="relative bg-black overflow-hidden {tile ? '' : 'aspect-[4/3]'}"
+		style={tile ? `height: ${tile.height}px` : undefined}
+	>
 		{#if media}
 			{#if isVideo}
-				<video src={media.url} class="w-full h-full object-cover" muted playsinline preload="metadata">
+				<video
+					src={media.url}
+					class="w-full h-full {tile ? 'object-contain' : 'object-cover'}"
+					muted
+					playsinline
+					preload="metadata"
+				>
 					<track kind="captions" />
 				</video>
 			{:else}
-				<img src={media.url} alt={title} class="w-full h-full object-cover" loading="lazy" />
+				<img
+					src={media.url}
+					alt={title}
+					class="w-full h-full {tile ? 'object-contain' : 'object-cover'}"
+					loading="lazy"
+				/>
 			{/if}
 		{:else}
 			<div class="w-full h-full flex items-center justify-center" style={placeholderTint(title)}>

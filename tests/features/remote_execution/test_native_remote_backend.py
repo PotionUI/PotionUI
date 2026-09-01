@@ -946,6 +946,79 @@ class TestModelBundleMissingOnWorker(NativeRemoteBackendTestCase):
         self.assertIn("dit.safetensors", errors[0].error or "")
 
 
+class TestWorkerModelDigestRejection(NativeRemoteBackendTestCase):
+    """Defense in depth: the worker refuses to run against depot bytes that
+    no longer match the manifest digest, even when the host's own
+    inventory-based pre-dispatch gate (`find_unstaged_entries`) is bypassed -
+    entered one level below start_generation the same way TestWorkerRejection
+    exercises the worker's own pipe_contracts refusal."""
+
+    def test_a_digest_mismatch_on_the_worker_is_rejected_pre_gpu_naming_the_file(self):
+        from src.features.generation.package_assembly import (
+            assemble_execution_package,
+            build_processed_pipeline,
+        )
+        from src.features.generation.pipeline_builder import BuiltPipeline
+        from src.features.remote_execution.model_bundle_builder import build_model_bundle
+        from src.features.remote_execution.records import RemoteExecution
+        from src.features.remote_execution.transport import WorkerTransport
+
+        ModelAwarePipe.received_file_path = None
+        content = b"fake checkpoint bytes" * 5000
+        source_path = self._register_model(role="checkpoint", filename="dit.safetensors", content=content)
+
+        # Present on the worker's depot at the right size, with corrupted
+        # bytes and no sidecar - a file that changed since the last inventory
+        # poll, not something `find_unstaged_entries` was ever asked about.
+        directory = MODEL_TYPE_TO_DIRECTORY.get("checkpoint", "checkpoint")
+        dest = self.worker_container.model_depot.depot_dir / directory / "dit.safetensors"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"corrupted" + content[9:])
+
+        backend = self._backend(self.worker_app)
+        pipes = [{
+            "name": "model_aware/fake", "id": "p1", "enabled": True,
+            "config": {"checkpoint": {"file_path": str(source_path)}}, "input": [],
+        }]
+        built = BuiltPipeline(
+            generation_id="gen-digest-mismatch", preset_id="preset-1", preset_template=None, pipes=pipes,
+        )
+        processed = build_processed_pipeline(pipes, backend._pipe_catalog)
+        package = assemble_execution_package(
+            built, pipe_catalog=backend._pipe_catalog,
+            model_bundle=build_model_bundle(processed.pipes),
+            engine="native",
+            storage_dir=self.storage_dir,
+        )
+
+        row = self.repo.create(RemoteExecution(
+            id="gen-digest-mismatch", provider="native.remote", state=S.PENDING,
+            idempotency_key="gen-digest-mismatch", request_digest=str(package.request_digest),
+        ))
+        self.repo.claim_specific(row.id, "test-owner", 60)
+
+        transport = WorkerTransport(
+            "http://fake-worker", TOKEN, transport=httpx.ASGITransport(app=self.worker_app),
+        )
+        self._run(transport.submit(package))
+
+        outputs = []
+        self._run(backend._consume_events(
+            "gen-digest-mismatch", package, transport, self.storage_dir, outputs.append,
+        ))
+
+        self.assertIsNone(ModelAwarePipe.received_file_path)
+
+        final = self.repo.get_by_id("gen-digest-mismatch")
+        self.assertEqual(final.state, S.FAILED)
+        self.assertEqual(final.error_code, "model_digest_mismatch")
+        self.assertIn("dit.safetensors", final.error_message)
+
+        errors = [o for o in outputs if isinstance(o, ErrorGenerationOutput)]
+        self.assertEqual(len(errors), 1)
+        self.assertIn("dit.safetensors", errors[0].error or errors[0].detail or "")
+
+
 class TestDirectoryLayoutModelRefusal(NativeRemoteBackendTestCase):
     def test_a_directory_layout_model_fails_the_generation_with_a_friendly_message_naming_the_preset(self):
         self._register_model(role="llm", filename="gemma3", content=b"placeholder", is_directory=True)

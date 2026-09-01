@@ -52,6 +52,19 @@ class ModelStagingError(Exception):
         super().__init__(f"model '{logical_id}': {reason}")
 
 
+@dataclass(frozen=True)
+class DigestVerification:
+    """The outcome of checking one entry's bytes against its manifest digest.
+
+    ``found_digest`` is the digest actually observed on disk - populated
+    whenever a real hash ran (sidecar or fresh), ``None`` when the file is
+    absent or its size already disagrees (never hashed).
+    """
+
+    status: str  # "present" | "missing" | "mismatched"
+    found_digest: Optional[str] = None
+
+
 @dataclass
 class ModelDepot:
     """One instance per worker process."""
@@ -233,22 +246,32 @@ class ModelDepot:
         self._write_sidecar(dest, digest)
         self.transfers.complete(transfer_id, digest=digest, size_bytes=size)
 
-    def _status(self, entry: ModelBundleEntryV1) -> str:
+    def verify(self, entry: ModelBundleEntryV1) -> DigestVerification:
+        """Whether the depot's bytes at ``entry.relative_path`` actually match
+        ``entry.digest`` right now - the coordinator's pre-execution gate calls
+        this directly (rather than trusting an earlier ``inventory()`` answer)
+        so nothing runs against a file that changed on disk since the last
+        inventory poll. Same sidecar-trust rule as ``inventory()`` - a fresh
+        hash only when there is no trustworthy sidecar - so this never turns
+        submission into the slow path on a depot already verified once."""
         dest = self._destination(entry)
         if not dest.exists():
-            return "missing"
+            return DigestVerification("missing")
         if dest.stat().st_size != entry.size_bytes:
-            return "mismatched"
+            return DigestVerification("mismatched")
 
         trusted = self._sidecar_digest(dest)
         if trusted is not None and trusted == entry.digest.hex:
-            return "present"
+            return DigestVerification("present", trusted)
 
         digest = _hash_file(dest)
         if digest != entry.digest.hex:
-            return "mismatched"
+            return DigestVerification("mismatched", digest)
         self._write_sidecar(dest, digest)
-        return "present"
+        return DigestVerification("present", digest)
+
+    def _status(self, entry: ModelBundleEntryV1) -> str:
+        return self.verify(entry).status
 
     @staticmethod
     def _sidecar_path(dest: Path) -> Path:

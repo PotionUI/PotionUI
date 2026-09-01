@@ -146,6 +146,17 @@ class WorkerCoordinator:
             )
             return SubmitResult(SubmitOutcome.REJECTED, execution_id, detail=report.mismatch.domain)
 
+        digest_mismatch = self._model_bundle_mismatch(package)
+        if digest_mismatch is not None:
+            self._journal.start(execution_id, digest)
+            self._packages[execution_id] = package
+            self._append(
+                execution_id,
+                kind="rejected",
+                error=JobErrorV1(code="model_digest_mismatch", message=digest_mismatch, retryable=False),
+            )
+            return SubmitResult(SubmitOutcome.REJECTED, execution_id, detail="model_digest_mismatch")
+
         if package.expires_at is not None and package.expires_at <= datetime.now(timezone.utc):
             self._journal.start(execution_id, digest)
             self._packages[execution_id] = package
@@ -213,6 +224,36 @@ class WorkerCoordinator:
                     mismatch,
                     f"pipe '{pipe_type}' contract differs between host and worker - "
                     "rebuild/update the worker image",
+                )
+        return None
+
+    def _model_bundle_mismatch(self, package: ExecutionPackageV1) -> Optional[str]:
+        """The message for the first ``model_bundle`` entry whose depot bytes
+        don't verify against its digest, or ``None`` when every entry
+        verifies (or the bundle is empty).
+
+        Defense in depth against a stale/wrong file on this worker's volume:
+        the host already gates dispatch on inventory presence
+        (``model_bundle_staging.find_unstaged_entries``), but that is a
+        moment-in-time answer from an earlier network round trip - this
+        re-verifies against the depot's current bytes right before the
+        package would run. A missing model depot is left for `_run` to raise
+        `model_depot_unavailable` against - not this pre-GPU gate's problem
+        when the bundle is empty for lack of a depot to check against.
+        """
+        entries = package.model_bundle.entries
+        if not entries or self._model_depot is None:
+            return None
+        for entry in entries:
+            verification = self._model_depot.verify(entry)
+            if verification.status == "missing":
+                return f"model '{entry.relative_path}' is not staged on this worker's depot"
+            if verification.status == "mismatched":
+                if verification.found_digest is None:
+                    return f"model '{entry.relative_path}' size does not match the manifest"
+                return (
+                    f"model '{entry.relative_path}' digest mismatch: expected "
+                    f"{entry.digest.hex}, found {verification.found_digest}"
                 )
         return None
 

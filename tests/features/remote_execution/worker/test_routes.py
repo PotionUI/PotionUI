@@ -275,20 +275,22 @@ def test_a_submitted_execution_receives_the_depot_path_not_the_host_path(client,
     assert ModelAwarePipe.received_file_path != "/dispatching-host/models/checkpoint/model.safetensors"
 
 
-def test_a_submitted_execution_referencing_an_unstaged_model_fails_cleanly(client, container):
-    # deliberately never inventoried/staged
+def test_a_submitted_execution_referencing_an_unstaged_model_is_rejected_pre_gpu(client, container):
+    # deliberately never inventoried/staged - the model_bundle digest gate
+    # (submit()'s pre-GPU check) refuses this before a thread ever starts,
+    # so it never reaches remap_model_paths's own "model_not_staged" failure.
     package = _package(
         container, execution_id="exec-remap-missing",
         pipe_config={"model": {"file_path": "/dispatching-host/models/checkpoint/model.safetensors"}},
     )
     resp = client.post("/v1/executions", json=envelope(package), headers=_auth())
-    assert resp.status_code == 202
+    assert resp.status_code == 200
 
-    _wait_for_terminal(container, "exec-remap-missing")
     record = container.coordinator.record_for("exec-remap-missing")
-    assert record.events[-1].kind == "failed"
-    assert record.events[-1].error.code == "model_not_staged"
+    assert record.events[-1].kind == "rejected"
+    assert record.events[-1].error.code == "model_digest_mismatch"
     assert record.events[-1].error.retryable is False
+    assert MODEL_ENTRY.relative_path in record.events[-1].error.message
 
 
 def test_a_pipeline_with_no_model_references_is_unaffected_by_the_depot(client, container):

@@ -7,6 +7,7 @@ microsoft/TRELLIS.2's ``trellis2/modules/sparse/`` (MIT) — see each file's
 
 from .attention import sparse_scaled_dot_product_attention
 from .basic import SparseTensor, sparse_cat, sparse_unbind
+from .conv import SparseConv3d
 from .linear import SparseLinear
 from .rope import SparseRotaryPositionEmbedder
 from .spatial import SparseChannel2Spatial, SparseDownsample, SparseSpatial2Channel, SparseUpsample
@@ -21,5 +22,6 @@ __all__ = [
     "SparseSpatial2Channel",
     "SparseRotaryPositionEmbedder",
     "SparseLinear",
+    "SparseConv3d",
     "sparse_scaled_dot_product_attention",
 ]

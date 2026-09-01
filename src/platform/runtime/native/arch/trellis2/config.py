@@ -88,3 +88,34 @@ SS_VAE_DECODER_PRODUCTION = SSVAEDecoderConfig(
     num_res_blocks_middle=2,
     norm_type="layer",
 )
+
+
+@dataclass(frozen=True)
+class OctreeVaeDecoderConfig:
+    """Shared torso hyper-parameters for both octree sparse U-Net VAE decoders
+    (``octree_vae.SparseUnetVaeDecoder`` / ``octree_vae.FlexiDualGridVaeDecoder``).
+    Mirrors upstream's shared ``_SC_VAE_DECODER_BASE`` dict — ``out_channels``/
+    ``pred_subdiv`` differ per decoder and are passed to the decoder directly,
+    not carried on this config."""
+
+    model_channels: Tuple[int, ...]
+    latent_channels: int
+    num_blocks: Tuple[int, ...]
+    mlp_ratio: float = 4.0
+
+    def __post_init__(self) -> None:
+        if len(self.model_channels) != len(self.num_blocks):
+            raise ValueError(
+                f"model_channels ({len(self.model_channels)} levels) and num_blocks "
+                f"({len(self.num_blocks)} levels) must have the same length"
+            )
+
+
+# `_SC_VAE_DECODER_BASE` in the trellis2 generator plugin's
+# `pipes/generator_trellis2/main.py`, shared by `shape_slat_decoder` and
+# `tex_slat_decoder`.
+OCTREE_VAE_DECODER_TORSO_PRODUCTION = OctreeVaeDecoderConfig(
+    model_channels=(1024, 512, 256, 128, 64),
+    latent_channels=32,
+    num_blocks=(4, 16, 8, 4, 0),
+)

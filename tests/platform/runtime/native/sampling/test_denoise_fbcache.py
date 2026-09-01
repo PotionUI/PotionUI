@@ -11,6 +11,10 @@ from __future__ import annotations
 import torch
 
 from src.platform.runtime.native.sampling.denoise_loop import denoise
+from src.platform.runtime.native.sampling.multimodal_guider import (
+    MultiModalGuidance,
+    MultiModalGuiderParams,
+)
 
 
 def _fbcache_stub(probe_for_step, velocity=0.0):
@@ -175,3 +179,60 @@ def test_skip_layers_pass_never_uses_the_cache():
     # the degraded pass ran and NEVER carried a step_cache.
     assert seen["skip_layers_had_cache"]
     assert not any(seen["skip_layers_had_cache"])
+
+
+def test_multimodal_guider_composes_with_fbcache():
+    """MultiModalGuidance (quality_mode's guidance_override) + FBCache: the
+    cond/uncond forwards it makes with the identical cond/uncond dict objects
+    get identity-matched, per-branch caches (same routing plain CFG gets);
+    the STG-perturbed forward it builds as a fresh ``{**cond, ...}`` dict
+    never identity-matches, so it always bypasses the cache and computes in
+    full every step -- the two features coexist without either corrupting
+    the other's branch."""
+    steps = 6
+    cond_probe = torch.ones(1, 6, 4)
+    calls = {"cond": 0, "uncond": 0, "cond_evals": 0, "uncond_evals": 0, "stg": 0}
+    stg_had_cache = []
+
+    def model_forward(x, sigma, conditioning):
+        cache = conditioning.get("step_cache")
+        if "stg_skip_blocks" in conditioning:
+            calls["stg"] += 1
+            stg_had_cache.append(cache is not None)
+            return torch.full_like(x, 5.0)
+        branch = conditioning["branch"]
+        calls[branch] += 1
+        if cache is not None and cache.should_skip(cond_probe):
+            return cache.record_skip()
+        calls[branch + "_evals"] += 1
+        out = torch.full_like(x, 3.0 if branch == "cond" else 1.0)
+        if cache is not None:
+            cache.record_compute(cond_probe, out)
+        return out
+
+    video_params = MultiModalGuiderParams(
+        cfg_scale=3.0, stg_scale=1.0, modality_scale=1.0, rescale_scale=0.0, stg_blocks=[0],
+    )
+    guidance_override = MultiModalGuidance(video_params)
+
+    denoise(
+        model_forward,
+        latents=torch.zeros(1, 6, 4),
+        cond={"context": "pos", "mm_video_tokens": 6, "branch": "cond"},
+        uncond={"context": "neg", "mm_video_tokens": 6, "branch": "uncond"},
+        steps=steps,
+        sampling_settings={"shift": 2.02, "guidance": "cfg"},  # unused: guidance_override wins
+        guidance_scale=1.0,
+        seed_noise=torch.zeros(1, 6, 4),
+        guidance_override=guidance_override,
+        step_cache_options={"rel_threshold": 0.5, "warmup_steps": 1,
+                            "max_consecutive_skips": 999},
+    )
+
+    # STG runs every step (the guider doesn't skip it) and NEVER sees a cache.
+    assert calls["stg"] == steps
+    assert stg_had_cache and not any(stg_had_cache)
+    # cond/uncond each get their own cache and benefit from it (warmup + the
+    # forced final compute are the only real evals; the rest skip).
+    assert calls["cond"] == steps and calls["cond_evals"] < calls["cond"]
+    assert calls["uncond"] == steps and calls["uncond_evals"] < calls["uncond"]

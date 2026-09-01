@@ -27,9 +27,19 @@ Design constraints:
     projection passthrough (v = to_v(norm_input) through gating+to_out);
     modality-off disables a2v/v2a cross-attention (zero residual contribution).
     This decouples the guider (strategy) from the model (arch module).
-  - FBCache / NAG: INCOMPATIBLE with this multi-pass strategy.  When active,
-    step_cache and NAG are gated off with a log warning (no deep integration
-    in this port).
+  - FBCache / NAG: both compose with this multi-pass strategy without any
+    special handling, and neither is gated off. FBCache's per-branch caching
+    (``_CachingGuidance`` in ``denoise_loop.py``) attaches a cache only to a
+    forward whose conditioning dict IS (by identity) the ``cond``/``uncond``
+    object this strategy was called with; the STG-perturbed and modality-off
+    forwards built here are fresh ``{**cond, ...}`` dicts, so they never
+    identity-match and always bypass the cache -- the base cond/uncond
+    caching is unaffected by them. NAG's negative-attention injection rides
+    on the ``cond`` dict alone (see the pipe's ``_attach_nag``), so it is
+    applied identically inside every forward built from ``cond`` here (cond,
+    STG-perturbed, modality-off), the same way it already stacks with plain
+    CFG. See ``tests/platform/runtime/native/sampling/test_denoise_fbcache.py``'s
+    ``test_multimodal_guider_composes_with_fbcache`` for the traced proof.
 
 Forward-count accounting per step (reference-matching):
   1. **cond** (positive forward): always.

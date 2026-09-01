@@ -376,11 +376,13 @@ usual guidance strategy outright (`quality_mode` config knob →
 to four forwards per step (cond, uncond, STG-perturbed, modality-off) and combining them per
 modality slice (video/audio). `quality_mode` and `distilled_mode` are mutually exclusive full-recipe
 overrides — setting both raises (`check_guider_mode_conflict`). `MultiModalGuidance` fully owns the
-guidance strategy for the step, so it cannot be combined with FBCache (`step_cache`) or NAG
-(`nag_scale`) in the same run the way the normal guidance path can — the source documents this pairing
-as unsupported ("INCOMPATIBLE with this multi-pass strategy ... no deep integration in this port"),
-though neither of those two knobs is disabled or blocked from being set at the same time as Quality
-today; enabling all three together is untested and not recommended.
+guidance strategy for the step, and FBCache (`step_cache`) and NAG (`nag_scale`) both compose with it
+safely without any special handling: FBCache's per-branch caching only attaches to the cond/uncond
+forwards (identity-matched by `_CachingGuidance`), so the STG-perturbed/modality-off forwards this
+guider builds simply bypass the cache and always compute in full; NAG's negative-attention injection
+is attached to the cond conditioning alone, so it applies uniformly across every forward this guider
+builds from cond, the same way it already stacks with plain CFG. See the module docstring on
+`src/platform/runtime/native/sampling/multimodal_guider.py` and its FBCache-composition test.
 
 **First-party validation (Lightricks `LTX-2` repo, `packages/ltx-pipelines`,
 Apache-2.0).** Checked the 9-value sigma recipe above and the ComfyUI

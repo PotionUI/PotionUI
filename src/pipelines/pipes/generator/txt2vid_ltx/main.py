@@ -763,7 +763,8 @@ class GeneratorLtxTxt2VidPipe(BaseGeneratorPipe):
             return dit_module([x], sigma, conditioning["context"], attention_mask=None, frame_rate=fps, **extra)
 
         # MultiModalGuider (quality recipe): build the guidance strategy from
-        # pipe config; when active, FBCache/NAG are gated off with a log.
+        # pipe config. FBCache/NAG (already wired above/at model_forward) compose
+        # with it safely -- see multimodal_guider.py's module docstring.
         mm_params = build_multimodal_guider_params(self.config)
         guidance_override = None
         if mm_params is not None:

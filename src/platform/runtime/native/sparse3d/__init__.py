@@ -10,6 +10,7 @@ from .basic import SparseTensor, sparse_cat, sparse_unbind
 from .conv import SparseConv3d
 from .linear import SparseLinear
 from .rope import SparseRotaryPositionEmbedder
+from .sample import sparse_grid_sample_3d
 from .spatial import SparseChannel2Spatial, SparseDownsample, SparseSpatial2Channel, SparseUpsample
 
 __all__ = [
@@ -23,5 +24,6 @@ __all__ = [
     "SparseRotaryPositionEmbedder",
     "SparseLinear",
     "SparseConv3d",
+    "sparse_grid_sample_3d",
     "sparse_scaled_dot_product_attention",
 ]

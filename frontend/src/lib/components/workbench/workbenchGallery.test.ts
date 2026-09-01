@@ -96,11 +96,13 @@ describe('galleryItemUrl', () => {
 });
 
 describe('workbenchActionsFor a mesh', () => {
-	it('offers download and open-in-new-tab but withholds the raster-only actions', () => {
+	it('offers download, open-in-new-tab and expand but withholds the raster-only actions', () => {
 		const actions = workbenchActionsFor('MESH');
 		expect(actions.canDownload).toBe(true);
 		expect(actions.canOpenInNewTab).toBe(true);
-		expect(actions.canExpand).toBe(false);
+		// Expand renders through MeshPreview's own interactive viewer, not the
+		// modal's <img>/<video> pair - see Workbench.svelte's mesh branch.
+		expect(actions.canExpand).toBe(true);
 		expect(actions.canCompare).toBe(false);
 		expect(actions.canZoom).toBe(false);
 		expect(actions.canCopyImage).toBe(false);

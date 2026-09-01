@@ -20,6 +20,7 @@
 	import ImagePreview from '$lib/components/workbench/renderers/ImagePreview.svelte';
 	import VideoPreview from '$lib/components/workbench/renderers/VideoPreview.svelte';
 	import AudioPreview from '$lib/components/workbench/renderers/AudioPreview.svelte';
+	import MeshPreview from '$lib/components/workbench/renderers/MeshPreview.svelte';
 	import '$lib/components/workbench/renderers/builtin'; // registers the image/video/audio core defaults
 	import { IconButton, Button } from '$lib/components/ui';
 	import { copyText } from '$lib/utils/clipboard';
@@ -1393,8 +1394,13 @@
 			</button>
 		{/if}
 
-		<!-- Ambient "screen extend" background echo behind the full-screen media -->
-		{#if displayFileType !== 'audio' && (displayImage || displayVideo)}
+		<!-- Ambient "screen extend" background echo behind the full-screen media.
+		     A mesh has no flat 2D frame to blur (and, in gallery mode,
+		     `displayImage` resolves to the gallery item's URL regardless of its
+		     actual file type - it isn't image-gated the way `displayVideo` is -
+		     so a mesh entry must be excluded explicitly here or it would try to
+		     render its GLB URL as a broken <img>). -->
+		{#if displayFileType !== 'audio' && displayFileType !== 'mesh' && (displayImage || displayVideo)}
 			<div class="ambient-bg ambient-bg--modal" aria-hidden="true">
 				{#if displayFileType === 'video' && displayVideo}
 					<!-- svelte-ignore a11y-media-has-caption -->
@@ -1441,6 +1447,16 @@
 					muted={isVideoMuted}
 					loop
 				></video>
+			{:else if displayFileType === 'mesh' && displayMesh}
+				<!-- MeshPreview is its own interactive viewer (wireframe, camera
+				     presets, material inspector, ...), not a flat <img>/<video> -
+				     it fills whatever box it's given rather than intrinsically
+				     sizing itself, hence the explicit w/h here. -->
+				<div class="w-[80vw] h-[80vh] max-h-[90vh]">
+					<MeshPreview
+						file={{ url: getDisplayUrl(displayMesh), originalUrl: getDisplayUrl(displayMesh) }}
+					/>
+				</div>
 			{:else if displayImage}
 				<img
 					src={getDisplayUrl(displayImage)}

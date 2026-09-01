@@ -104,20 +104,24 @@ export interface WorkbenchActions {
 
 /**
  * Which of the workbench's per-output actions apply to a file type. Anything
- * not in the built-in set (mesh today, whatever a plugin registers next)
- * degrades to download + open-in-new-tab rather than silently offering an
- * image-only tool that does nothing.
+ * not in the built-in set (whatever a plugin registers next) degrades to
+ * download + open-in-new-tab rather than silently offering an image-only
+ * tool that does nothing.
  */
 export function workbenchActionsFor(fileType: unknown): WorkbenchActions {
 	const kind = normalizeFileType(fileType);
 	const isImage = kind === 'image' || kind === '';
 	const isVideo = kind === 'video';
 	const isAudio = kind === 'audio';
+	const isMesh = kind === 'mesh';
 
 	return {
 		canDownload: !isAudio,
 		canOpenInNewTab: true,
-		canExpand: isImage || isVideo,
+		// A mesh's fullscreen expand renders through MeshPreview (its own
+		// interactive viewer), not the modal's <img>/<video> pair - see the
+		// mesh branch of Workbench.svelte's "Image/Video Preview Modal".
+		canExpand: isImage || isVideo || isMesh,
 		canCompare: isImage || isVideo,
 		canZoom: isImage,
 		canCopyImage: isImage,

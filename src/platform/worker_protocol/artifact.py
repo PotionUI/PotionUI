@@ -41,6 +41,17 @@ class ArtifactRefV1(ProtocolModel):
     filename: Optional[str] = None
     #: Which pipe emitted it, when the worker knows.
     pipe_id: Optional[str] = None
+    #: "gallery" for a final output nested in a worker's `GalleryGenerationOutput`,
+    #: "preview" for a transient workbench preview, `None` for a bare leaf output
+    #: (also what an older worker that predates this field always sends - core
+    #: reads that the same way it reads an explicit `None`).
+    role: Optional[Identifier] = None
+    #: Carried from the nested `GenerationOutput` when it has one, so core can
+    #: restore it without re-deriving it.
+    seed: Optional[int] = None
+    #: Carried from the nested `GenerationOutput`'s `derived` flag, when it has
+    #: one (audio members don't).
+    derived: Optional[bool] = None
     metadata: dict[str, JsonValue] = {}
 
     @field_validator("filename")

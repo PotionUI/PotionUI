@@ -163,6 +163,9 @@ def make_artifact() -> ArtifactRefV1:
         uri="https://example.invalid/artifacts/art-1.png",
         filename="out/art-1.png",
         pipe_id="generator",
+        role="gallery",
+        seed=1234,
+        derived=False,
         metadata={"width": 1024, "height": 1024, "seed": 1234},
     )
 

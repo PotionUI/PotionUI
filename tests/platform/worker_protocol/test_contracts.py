@@ -157,6 +157,29 @@ class TestPathContainment:
             )
 
 
+class TestArtifactRole:
+    def test_role_seed_and_derived_default_to_none_for_a_legacy_artifact(self):
+        artifact = ArtifactRefV1(
+            artifact_id="a", kind="image", media_type="image/png", size_bytes=1,
+            digest=make_digest("a"), uri="https://example.invalid/a",
+        )
+        assert artifact.role is None
+        assert artifact.seed is None
+        assert artifact.derived is None
+
+    def test_role_seed_and_derived_round_trip(self):
+        artifact = make_artifact()
+        assert artifact.role == "gallery"
+        assert artifact.seed == 1234
+        assert artifact.derived is False
+
+        restored = read_envelope(to_wire(artifact))
+        assert restored == artifact
+        assert restored.role == "gallery"
+        assert restored.seed == 1234
+        assert restored.derived is False
+
+
 class TestModelBundleManifest:
     def test_total_size_is_derived_when_absent(self):
         bundle = make_bundle()

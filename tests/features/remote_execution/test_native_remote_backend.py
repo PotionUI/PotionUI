@@ -46,7 +46,12 @@ from src.features.remote_execution.worker.journal import WorkerJournal
 from src.features.remote_execution.worker.model_depot import ModelDepot
 from src.features.remote_execution.worker.routes import build_worker_router
 from src.pipelines.contracts import IOType, PipeConfigSpec, PipeOutput, PipeOutputSpec
-from src.pipelines.outputs import ErrorGenerationOutput, ImageGenerationOutput, ProgressGenerationOutput
+from src.pipelines.outputs import (
+    ErrorGenerationOutput,
+    GalleryGenerationOutput,
+    ImageGenerationOutput,
+    ProgressGenerationOutput,
+)
 from src.platform.database.database import Database
 from src.platform.database.migration_runner import MigrationRunner
 from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY
@@ -187,6 +192,72 @@ class CancelAwarePipe:
         return PipeOutput(output={})
 
 
+class GalleryPipe:
+    """Mirrors the local `gallery` pipe: emits one GalleryGenerationOutput
+    wrapping the final images, the shape a real remote generation ends on."""
+
+    name = "gallery/fake"
+
+    def __init__(self, config):
+        self.config = config
+
+    @classmethod
+    def get_default_config(cls):
+        return {}
+
+    @classmethod
+    def inputs(cls):
+        return []
+
+    @classmethod
+    def outputs(cls):
+        return []
+
+    @classmethod
+    def configuration(cls):
+        return []
+
+    def process(self, pipe_input, generation_outputs):
+        from PIL import Image
+
+        images = [
+            ImageGenerationOutput(image=Image.new("RGB", (3, 3), color=(1, 2, 3)), temporary=False, seed=1),
+            ImageGenerationOutput(image=Image.new("RGB", (3, 3), color=(4, 5, 6)), temporary=False, seed=2),
+        ]
+        generation_outputs(GalleryGenerationOutput(images=images))
+        return PipeOutput(output={})
+
+
+class PreviewPipe:
+    name = "preview/fake"
+
+    def __init__(self, config):
+        self.config = config
+
+    @classmethod
+    def get_default_config(cls):
+        return {}
+
+    @classmethod
+    def inputs(cls):
+        return []
+
+    @classmethod
+    def outputs(cls):
+        return []
+
+    @classmethod
+    def configuration(cls):
+        return []
+
+    def process(self, pipe_input, generation_outputs):
+        from PIL import Image
+
+        image = Image.new("RGB", (3, 3), color=(9, 9, 9))
+        generation_outputs(ImageGenerationOutput(image=image, temporary=True))
+        return PipeOutput(output={})
+
+
 class RejectedByFingerprintPipe:
     """Never actually runs in the REJECTION test - only needs to exist on
     both catalogs so build_processed_pipeline can resolve it."""
@@ -222,6 +293,8 @@ _CLASSES = {
     "model_aware/fake": ModelAwarePipe,
     "cancelable/fake": CancelAwarePipe,
     "rejected/fake": RejectedByFingerprintPipe,
+    "gallery/fake": GalleryPipe,
+    "preview/fake": PreviewPipe,
 }
 
 
@@ -898,6 +971,71 @@ class TestDirectoryLayoutModelRefusal(NativeRemoteBackendTestCase):
         self.assertIn("my-preset", errors[0].error)
         self.assertIn("directory", errors[0].error)
         self.assertNotIn("Traceback", errors[0].error)
+
+
+class TestGalleryArtifactsRegroup(NativeRemoteBackendTestCase):
+    """A worker's role='gallery' members must reassemble into the SAME
+    GalleryGenerationOutput a local run would produce - not surface as
+    separate leaf ImageGenerationOutputs - so history/gallery_update persist
+    a remote run exactly like a local one."""
+
+    def test_two_gallery_artifacts_in_one_event_become_one_gallery_output(self):
+        backend = self._backend(self.worker_app)
+        pipeline_data = {
+            "generation_id": "gen-gallery-regroup", "preset_id": "preset-1",
+            "pipes": [{"name": "gallery/fake", "id": "p1", "enabled": True, "config": {}, "input": []}],
+        }
+
+        generation_id, outputs = self._run_generation(backend, pipeline_data)
+
+        self.assertEqual(self.repo.get_by_id(generation_id).state, S.SUCCEEDED)
+
+        galleries = [o for o in outputs if isinstance(o, GalleryGenerationOutput)]
+        self.assertEqual(len(galleries), 1)
+        self.assertEqual(sorted(i.seed for i in galleries[0].images), [1, 2])
+
+        # No leftover per-artifact leaf emission for gallery-role members.
+        self.assertEqual([o for o in outputs if isinstance(o, ImageGenerationOutput)], [])
+
+
+class TestPreviewArtifactImport(NativeRemoteBackendTestCase):
+    def test_a_preview_artifact_imports_as_a_temporary_image_output(self):
+        backend = self._backend(self.worker_app)
+        pipeline_data = {
+            "generation_id": "gen-preview-import", "preset_id": "preset-1",
+            "pipes": [{"name": "preview/fake", "id": "p1", "enabled": True, "config": {}, "input": []}],
+        }
+
+        generation_id, outputs = self._run_generation(backend, pipeline_data)
+
+        self.assertEqual(self.repo.get_by_id(generation_id).state, S.SUCCEEDED)
+
+        images = [o for o in outputs if isinstance(o, ImageGenerationOutput)]
+        self.assertEqual(len(images), 1)
+        self.assertTrue(images[0].temporary)
+        self.assertEqual([o for o in outputs if isinstance(o, GalleryGenerationOutput)], [])
+
+
+class TestLegacyArtifactWithoutRole(NativeRemoteBackendTestCase):
+    """A bare (non-Gallery-wrapped) final output still carries role=None and
+    must still emit as a standalone leaf output, exactly as before role
+    existed - the behavior an old worker (which never sets role at all) gets
+    too."""
+
+    def test_a_role_less_artifact_still_emits_as_a_bare_leaf(self):
+        backend = self._backend(self.worker_app)
+        pipeline_data = {
+            "generation_id": "gen-legacy-role", "preset_id": "preset-1",
+            "pipes": [{"name": "image/fake", "id": "p1", "enabled": True, "config": {}, "input": []}],
+        }
+
+        generation_id, outputs = self._run_generation(backend, pipeline_data)
+
+        self.assertEqual(self.repo.get_by_id(generation_id).state, S.SUCCEEDED)
+        images = [o for o in outputs if isinstance(o, ImageGenerationOutput)]
+        self.assertEqual(len(images), 1)
+        self.assertFalse(images[0].temporary)
+        self.assertEqual([o for o in outputs if isinstance(o, GalleryGenerationOutput)], [])
 
 
 class TestModelListing(NativeRemoteBackendTestCase):

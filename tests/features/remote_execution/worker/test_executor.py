@@ -16,7 +16,12 @@ from src.pipelines.contracts import (
     PipeOutputSpec,
     PipeOutput,
 )
-from src.pipelines.outputs import ImageGenerationOutput, ProgressGenerationOutput, Progress
+from src.pipelines.outputs import (
+    GalleryGenerationOutput,
+    ImageGenerationOutput,
+    ProgressGenerationOutput,
+    Progress,
+)
 from src.platform.worker_protocol import ProcessedPipelineV1, ProcessedPipeV1
 
 
@@ -241,6 +246,71 @@ class ArrayCondConsumerPipe:
         return PipeOutput(output={})
 
 
+class GalleryEmittingPipe:
+    """Mirrors what the local `gallery` pipe (and generator base's
+    `emit_gallery`) actually emit at the end of a real pipeline: one
+    GalleryGenerationOutput wrapping the final images."""
+
+    name = "gallery_emit/fake"
+    description = "fake"
+
+    def __init__(self, config):
+        self.config = config
+
+    @classmethod
+    def get_default_config(cls):
+        return {}
+
+    @classmethod
+    def inputs(cls):
+        return []
+
+    @classmethod
+    def outputs(cls):
+        return []
+
+    @classmethod
+    def configuration(cls):
+        return []
+
+    def process(self, pipe_input, generation_outputs):
+        images = [
+            ImageGenerationOutput(image=Image.new("RGB", (4, 4)), temporary=False, seed=111, derived=False),
+            ImageGenerationOutput(image=Image.new("RGB", (4, 4)), temporary=False, seed=222, derived=True),
+        ]
+        generation_outputs(GalleryGenerationOutput(images=images))
+        return PipeOutput(output={})
+
+
+class TemporaryImagePipe:
+    name = "temp_image/fake"
+    description = "fake"
+
+    def __init__(self, config):
+        self.config = config
+
+    @classmethod
+    def get_default_config(cls):
+        return {}
+
+    @classmethod
+    def inputs(cls):
+        return []
+
+    @classmethod
+    def outputs(cls):
+        return []
+
+    @classmethod
+    def configuration(cls):
+        return []
+
+    def process(self, pipe_input, generation_outputs):
+        big = Image.new("RGB", (2000, 1000))
+        generation_outputs(ImageGenerationOutput(image=big, temporary=True, seed=7))
+        return PipeOutput(output={})
+
+
 CATALOG = FakeCatalog({
     "loader/fake": LoaderPipe,
     "generator/fake": GeneratorPipe,
@@ -249,6 +319,8 @@ CATALOG = FakeCatalog({
     "cond_encoder/fake": CondEncoderPipe,
     "cond_single/fake": SingleCondConsumerPipe,
     "cond_array/fake": ArrayCondConsumerPipe,
+    "gallery_emit/fake": GalleryEmittingPipe,
+    "temp_image/fake": TemporaryImagePipe,
 })
 
 
@@ -324,6 +396,49 @@ def test_artifact_is_written_to_disk_and_hashed(tmp_path):
     written = tmp_path / artifact.filename
     assert written.exists()
     assert written.stat().st_size == artifact.size_bytes
+
+
+def test_a_gallery_output_materializes_every_member_into_one_artifact_event(tmp_path):
+    pipeline = ProcessedPipelineV1(pipes=(
+        ProcessedPipeV1(pipe_id="g", pipe_type="gallery_emit/fake", config={}, inputs={}),
+    ))
+    events = []
+    _executor(tmp_path).run(pipeline, emit=events.append, is_cancelled=lambda: False)
+
+    artifact_events = [e for e in events if e.kind == "artifact"]
+    assert len(artifact_events) == 1
+    artifacts = artifact_events[0].artifacts
+    assert len(artifacts) == 2
+    assert [a.role for a in artifacts] == ["gallery", "gallery"]
+    assert sorted(a.seed for a in artifacts) == [111, 222]
+    assert [a.derived for a in sorted(artifacts, key=lambda a: a.seed)] == [False, True]
+
+
+def test_a_temporary_image_produces_a_downscaled_preview_artifact(tmp_path):
+    pipeline = ProcessedPipelineV1(pipes=(
+        ProcessedPipeV1(pipe_id="p", pipe_type="temp_image/fake", config={}, inputs={}),
+    ))
+    events = []
+    _executor(tmp_path).run(pipeline, emit=events.append, is_cancelled=lambda: False)
+
+    artifact_events = [e for e in events if e.kind == "artifact"]
+    assert len(artifact_events) == 1
+    artifact = artifact_events[0].artifacts[0]
+    assert artifact.role == "preview"
+    assert artifact.media_type == "image/jpeg"
+    assert artifact.seed == 7
+
+    written = tmp_path / artifact.filename
+    with Image.open(written) as saved:
+        assert max(saved.size) <= 768
+
+
+def test_a_bare_non_temporary_artifact_carries_no_role(tmp_path):
+    events = []
+    _executor(tmp_path).run(_pipeline(), emit=events.append, is_cancelled=lambda: False)
+
+    artifact = [e for e in events if e.kind == "artifact"][0].artifacts[0]
+    assert artifact.role is None
 
 
 def test_temporary_images_produce_no_artifact(tmp_path):

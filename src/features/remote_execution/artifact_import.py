@@ -60,23 +60,39 @@ def output_for_artifact(
 ) -> Optional[GenerationOutput]:
     """The `GenerationOutput` a local pipe would have emitted for this artifact,
     or `None` for a `kind` this build doesn't know how to import (logged by the
-    caller, never fatal - an unknown artifact kind must not fail the whole run)."""
+    caller, never fatal - an unknown artifact kind must not fail the whole run).
+
+    `role == "preview"` is the only case that comes back temporary - a bare
+    leaf artifact (`role is None`, what a pre-role worker always sends) and a
+    `role == "gallery"` member are both final output, exactly as
+    `WorkerPipelineExecutor` only ever materialized non-temporary artifacts
+    before previews existed. An unrecognized role degrades the same way `None`
+    does: a plain, non-temporary leaf output.
+    """
     common = {"pipe_id": pipe_index, "pipe_name": pipe_type}
+    temporary = artifact.role == "preview"
+    derived = bool(artifact.derived) if artifact.derived is not None else False
 
     if artifact.kind == "image":
         from PIL import Image
 
         image = Image.open(local_path)
         image.load()
-        return ImageGenerationOutput(image=image, temporary=False, **common)
+        return ImageGenerationOutput(
+            image=image, temporary=temporary, seed=artifact.seed, derived=derived, **common,
+        )
 
     if artifact.kind == "video":
-        return VideoGenerationOutput(video_path=local_path, temporary=False, **common)
+        return VideoGenerationOutput(
+            video_path=local_path, temporary=temporary, seed=artifact.seed, derived=derived, **common,
+        )
 
     if artifact.kind == "audio":
-        return AudioGenerationOutput(audio_path=local_path, temporary=False, **common)
+        return AudioGenerationOutput(audio_path=local_path, temporary=temporary, seed=artifact.seed, **common)
 
     if artifact.kind == "mesh":
-        return MeshGenerationOutput(mesh_path=local_path, temporary=False, **common)
+        return MeshGenerationOutput(
+            mesh_path=local_path, temporary=temporary, seed=artifact.seed, derived=derived, **common,
+        )
 
     return None

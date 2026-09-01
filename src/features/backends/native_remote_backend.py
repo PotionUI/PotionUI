@@ -55,10 +55,15 @@ from src.features.remote_execution.transport import (
 )
 from src.pipelines.contracts import resolve_display_title
 from src.pipelines.outputs import (
+    AudioGenerationOutput,
     ErrorGenerationOutput,
+    GalleryGenerationOutput,
     GenerationOutput,
+    ImageGenerationOutput,
+    MeshGenerationOutput,
     Progress,
     ProgressGenerationOutput,
+    VideoGenerationOutput,
 )
 from src.pipelines.remote_fingerprint import (
     compute_build_fingerprint,
@@ -544,6 +549,12 @@ class RemoteNativeBackend(BaseBackend):
         emit: Callable[[Optional[GenerationOutput]], None],
     ) -> None:
         pipe_type = pipe_type_by_id.get(event.pipe_id) if event.pipe_id else None
+        pipe_index = pipe_index_by_id.get(event.pipe_id) if event.pipe_id else None
+
+        gallery_images: list = []
+        gallery_videos: list = []
+        gallery_audios: list = []
+        gallery_meshes: list = []
 
         for artifact in event.artifacts:
             # An artifact that fails integrity verification (or can't be
@@ -554,15 +565,36 @@ class RemoteNativeBackend(BaseBackend):
             # catch-all marks the row FAILED.
             dest = resolve_import_destination(imports_dir, artifact)
             await transport.download_artifact(artifact, dest)
-            output = output_for_artifact(
-                artifact, dest,
-                pipe_index=pipe_index_by_id.get(event.pipe_id) if event.pipe_id else None,
-                pipe_type=pipe_type,
-            )
-            if output is not None:
-                emit(output)
-            else:
+            output = output_for_artifact(artifact, dest, pipe_index=pipe_index, pipe_type=pipe_type)
+            if output is None:
                 logger.warning(f"[NATIVE_REMOTE_BACKEND] No local handler for artifact kind {artifact.kind!r}")
+                continue
+
+            # role == "gallery" members of the SAME event are held back and
+            # reassembled into one GalleryGenerationOutput below, so a remote
+            # run's finals reach the same gallery handler (history rows,
+            # gallery_update) a local run's do, rather than surfacing only as
+            # individual leaf outputs. Anything else - role == "preview",
+            # role is None (a worker predating this field), or an
+            # unrecognized role - emits as a standalone leaf, unchanged.
+            if artifact.role == "gallery":
+                if isinstance(output, ImageGenerationOutput):
+                    gallery_images.append(output)
+                elif isinstance(output, VideoGenerationOutput):
+                    gallery_videos.append(output)
+                elif isinstance(output, AudioGenerationOutput):
+                    gallery_audios.append(output)
+                elif isinstance(output, MeshGenerationOutput):
+                    gallery_meshes.append(output)
+                continue
+
+            emit(output)
+
+        if gallery_images or gallery_videos or gallery_audios or gallery_meshes:
+            emit(GalleryGenerationOutput(
+                images=gallery_images, videos=gallery_videos,
+                audios=gallery_audios, meshes=gallery_meshes,
+            ))
 
         if event.kind in ("staging", "running", "pipe_started", "pipe_progress"):
             progress = None

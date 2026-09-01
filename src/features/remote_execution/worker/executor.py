@@ -34,6 +34,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from PIL import Image
+
 from src.features.generation.engine import deep_update, validate_pipe_configuration
 from src.features.remote_execution.worker.device_injection import inject_worker_device
 from src.pipelines.catalog import PipeCatalog
@@ -41,6 +43,7 @@ from src.pipelines.contracts import IOType, PipeInput
 from src.pipelines.outputs import (
     AudioGenerationOutput,
     ErrorGenerationOutput,
+    GalleryGenerationOutput,
     ImageGenerationOutput,
     MeshGenerationOutput,
     ProgressGenerationOutput,
@@ -50,6 +53,12 @@ from src.pipelines.outputs import (
 from src.platform.worker_protocol import ArtifactRefV1, ContentDigest, ProcessedPipelineV1
 
 logger = logging.getLogger(__name__)
+
+#: Previews are transient (superseded by the next step or the final gallery
+#: artifact) - bandwidth matters more than fidelity, so they travel as small
+#: JPEGs rather than the lossless PNG a final image gets.
+_PREVIEW_MAX_SIDE = 768
+_PREVIEW_JPEG_QUALITY = 80
 
 
 class PipeExecutionError(Exception):
@@ -269,40 +278,144 @@ class WorkerPipelineExecutor:
             emit(WorkerEvent(kind="log", pipe_id=pipe_id, detail=str(getattr(output, "message", output))))
             return
 
+        if isinstance(output, GalleryGenerationOutput):
+            artifacts = self._materialize_gallery(output, pipe_id=pipe_id)
+            if artifacts:
+                emit(WorkerEvent(kind="artifact", pipe_id=pipe_id, artifacts=tuple(artifacts)))
+            return
+
         artifact = self._materialize_artifact(output, pipe_id=pipe_id)
         if artifact is not None:
             emit(WorkerEvent(kind="artifact", pipe_id=pipe_id, artifacts=(artifact,)))
 
+    def _materialize_gallery(self, output: GalleryGenerationOutput, *, pipe_id: str) -> List[ArtifactRefV1]:
+        """Every non-temporary member becomes a role='gallery' artifact so the
+        host can reassemble one GalleryGenerationOutput on the other side; a
+        temporary image member is a live preview nested in the gallery
+        wrapper (see `emit_gallery`), materialized the same way a bare
+        temporary ImageGenerationOutput is. Temporary video/audio/mesh
+        members have no preview path and are dropped, same as a bare one."""
+        artifacts: List[ArtifactRefV1] = []
+
+        for image in output.images:
+            if image.temporary:
+                artifacts.append(self._materialize_preview(image, pipe_id=pipe_id))
+            else:
+                artifacts.append(self._materialize_image(
+                    image, pipe_id=pipe_id, role="gallery", seed=image.seed, derived=image.derived,
+                ))
+        for video in output.videos:
+            if video.temporary:
+                continue
+            artifact = self._materialize_leaf_file(
+                Path(video.video_path), kind="video", media_type="video/mp4", pipe_id=pipe_id,
+                role="gallery", seed=video.seed, derived=video.derived,
+            )
+            if artifact is not None:
+                artifacts.append(artifact)
+        for audio in output.audios:
+            if audio.temporary:
+                continue
+            artifact = self._materialize_leaf_file(
+                Path(audio.audio_path), kind="audio", media_type="audio/wav", pipe_id=pipe_id,
+                role="gallery", seed=audio.seed, derived=None,
+            )
+            if artifact is not None:
+                artifacts.append(artifact)
+        for mesh in output.meshes:
+            if mesh.temporary:
+                continue
+            artifact = self._materialize_leaf_file(
+                Path(mesh.mesh_path), kind="mesh", media_type="model/gltf-binary", pipe_id=pipe_id,
+                role="gallery", seed=mesh.seed, derived=mesh.derived,
+            )
+            if artifact is not None:
+                artifacts.append(artifact)
+
+        return artifacts
+
     def _materialize_artifact(self, output: Any, *, pipe_id: str) -> Optional[ArtifactRefV1]:
         if isinstance(output, ImageGenerationOutput):
             if output.temporary:
-                return None
-            artifact_id = uuid.uuid4().hex
-            self._artifacts_dir.mkdir(parents=True, exist_ok=True)
-            dest = self._artifacts_dir / f"{artifact_id}.png"
-            output.image.save(dest, format="PNG")
-            return self._ref_for_file(dest, artifact_id, kind="image", media_type="image/png", pipe_id=pipe_id)
+                return self._materialize_preview(output, pipe_id=pipe_id)
+            return self._materialize_image(
+                output, pipe_id=pipe_id, role=None, seed=output.seed, derived=output.derived,
+            )
 
         source_path: Optional[Path] = None
         kind = media_type = None
+        seed = derived = None
         if isinstance(output, VideoGenerationOutput) and not output.temporary:
             source_path, kind, media_type = Path(output.video_path), "video", "video/mp4"
+            seed, derived = output.seed, output.derived
         elif isinstance(output, AudioGenerationOutput) and not output.temporary:
             source_path, kind, media_type = Path(output.audio_path), "audio", "audio/wav"
+            seed = output.seed
         elif isinstance(output, MeshGenerationOutput) and not output.temporary:
             source_path, kind, media_type = Path(output.mesh_path), "mesh", "model/gltf-binary"
+            seed, derived = output.seed, output.derived
 
-        if source_path is None or not source_path.exists():
+        if source_path is None:
             return None
+        return self._materialize_leaf_file(
+            source_path, kind=kind, media_type=media_type, pipe_id=pipe_id,
+            role=None, seed=seed, derived=derived,
+        )
 
+    def _materialize_image(
+        self, output: ImageGenerationOutput, *, pipe_id: str,
+        role: Optional[str], seed: Optional[int], derived: Optional[bool],
+    ) -> ArtifactRefV1:
+        artifact_id = uuid.uuid4().hex
+        self._artifacts_dir.mkdir(parents=True, exist_ok=True)
+        dest = self._artifacts_dir / f"{artifact_id}.png"
+        output.image.save(dest, format="PNG")
+        return self._ref_for_file(
+            dest, artifact_id, kind="image", media_type="image/png", pipe_id=pipe_id,
+            role=role, seed=seed, derived=derived,
+        )
+
+    def _materialize_preview(self, output: ImageGenerationOutput, *, pipe_id: str) -> ArtifactRefV1:
+        image = output.image
+        if image.mode not in ("RGB", "L"):
+            image = image.convert("RGB")
+        width, height = image.size
+        longest = max(width, height)
+        if longest > _PREVIEW_MAX_SIDE:
+            scale = _PREVIEW_MAX_SIDE / longest
+            image = image.resize(
+                (max(1, round(width * scale)), max(1, round(height * scale))), Image.LANCZOS,
+            )
+
+        artifact_id = uuid.uuid4().hex
+        self._artifacts_dir.mkdir(parents=True, exist_ok=True)
+        dest = self._artifacts_dir / f"{artifact_id}.jpg"
+        image.save(dest, format="JPEG", quality=_PREVIEW_JPEG_QUALITY)
+        return self._ref_for_file(
+            dest, artifact_id, kind="image", media_type="image/jpeg", pipe_id=pipe_id,
+            role="preview", seed=output.seed, derived=output.derived,
+        )
+
+    def _materialize_leaf_file(
+        self, source_path: Path, *, kind: str, media_type: str, pipe_id: str,
+        role: Optional[str], seed: Optional[int], derived: Optional[bool],
+    ) -> Optional[ArtifactRefV1]:
+        if not source_path.exists():
+            return None
         artifact_id = uuid.uuid4().hex
         self._artifacts_dir.mkdir(parents=True, exist_ok=True)
         dest = self._artifacts_dir / f"{artifact_id}{source_path.suffix}"
         dest.write_bytes(source_path.read_bytes())
-        return self._ref_for_file(dest, artifact_id, kind=kind, media_type=media_type, pipe_id=pipe_id)
+        return self._ref_for_file(
+            dest, artifact_id, kind=kind, media_type=media_type, pipe_id=pipe_id,
+            role=role, seed=seed, derived=derived,
+        )
 
     @staticmethod
-    def _ref_for_file(path: Path, artifact_id: str, *, kind: str, media_type: str, pipe_id: str) -> ArtifactRefV1:
+    def _ref_for_file(
+        path: Path, artifact_id: str, *, kind: str, media_type: str, pipe_id: str,
+        role: Optional[str] = None, seed: Optional[int] = None, derived: Optional[bool] = None,
+    ) -> ArtifactRefV1:
         data = path.read_bytes()
         return ArtifactRefV1(
             artifact_id=artifact_id,
@@ -313,4 +426,7 @@ class WorkerPipelineExecutor:
             uri=f"/v1/artifacts/{artifact_id}",
             filename=path.name,
             pipe_id=pipe_id,
+            role=role,
+            seed=seed,
+            derived=derived,
         )

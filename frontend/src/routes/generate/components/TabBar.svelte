@@ -9,7 +9,11 @@
 	import TabsOverflowMenu from '$lib/components/layout/TabsOverflowMenu.svelte';
 	import { shortcutLabels } from '$lib/stores/keybindings';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
+	import NewWorkspaceModal from '$lib/components/modals/NewWorkspaceModal.svelte';
 	import { Button, Input } from '$lib/components/ui';
+	import { workspaceHasUnsavedChanges, hasUnsavedWorkOutsideTab } from '$lib/utils/newWorkspace';
+	import { requestTabSave } from '$lib/stores/workspaceSaveRequest';
+	import { queryTabDirty } from '$lib/stores/workspaceDirtyQuery';
 
 	// Mostly self-contained: reads/writes tabsStore directly. The session
 	// picker lives in the generation console bar's session/save cells, not here.
@@ -193,6 +197,70 @@
 	function handleTabReorder(event: CustomEvent<{ draggedId: string; targetId: string; position: 'left' | 'right' }>) {
 		tabsStore.reorderTabs(event.detail.draggedId, event.detail.targetId, event.detail.position);
 	}
+
+	// "New workspace": wipe every open tab down to one fresh empty tab. Reuses
+	// tabsStore.reset() — the same call the "Load workspace" flow above already
+	// uses — so a fresh tab comes out of the one code path already proven to
+	// reset per-tab state cleanly (new id, createDefaultTab()), and its `set()`
+	// call naturally supersedes the debounced localStorage save (see
+	// stores/tabs.ts) rather than racing it.
+	let showNewWorkspaceModal = false;
+	let newWorkspaceSaving = false;
+	let newWorkspaceOtherTabsDirty = false;
+	let checkingNewWorkspace = false;
+
+	// The cheap cross-tab heuristic (workspaceHasUnsavedChanges) can't see a
+	// background tab's live prompt/form edits - only the ACTIVE tab's mounted
+	// SessionCluster knows that in real time. Ask it once, at click time (see
+	// stores/workspaceDirtyQuery.ts for why this is a one-shot query rather
+	// than a continuous push).
+	async function handleNewWorkspaceClick() {
+		if (checkingNewWorkspace) return;
+		checkingNewWorkspace = true;
+		try {
+			const tabsSnapshot = tabs;
+			const activeTabIdSnapshot = activeTabId;
+			const liveActiveDirty = await queryTabDirty(activeTabIdSnapshot);
+			const dirty = workspaceHasUnsavedChanges(tabsSnapshot) || liveActiveDirty === true;
+			if (!dirty) {
+				tabsStore.reset();
+				return;
+			}
+			newWorkspaceOtherTabsDirty = hasUnsavedWorkOutsideTab(tabsSnapshot, activeTabIdSnapshot);
+			showNewWorkspaceModal = true;
+		} finally {
+			checkingNewWorkspace = false;
+		}
+	}
+
+	function cancelNewWorkspace() {
+		if (newWorkspaceSaving) return;
+		showNewWorkspaceModal = false;
+	}
+
+	function discardAndCreateNewWorkspace() {
+		showNewWorkspaceModal = false;
+		tabsStore.reset();
+	}
+
+	// "Save" reuses the real save flow (SessionCluster's quick-save/save-as),
+	// requested through workspaceSaveRequest.ts since that UI only mounts for
+	// the active tab. A background tab's own unsaved edits are not saved by
+	// this - see NewWorkspaceModal's `otherTabsAlsoDirty` copy.
+	async function saveAndCreateNewWorkspace() {
+		newWorkspaceSaving = true;
+		try {
+			const ok = await requestTabSave(activeTabId);
+			if (ok) {
+				showNewWorkspaceModal = false;
+				tabsStore.reset();
+			} else {
+				toasts.error('Failed to save the session — nothing was discarded.');
+			}
+		} finally {
+			newWorkspaceSaving = false;
+		}
+	}
 </script>
 
 
@@ -228,6 +296,20 @@
 					>
 						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+						</svg>
+					</button>
+				</Tooltip>
+
+				<!-- New Workspace Button -->
+				<Tooltip text="New workspace" position="bottom" delay={150}>
+					<button
+						class="new-tab-button"
+						on:click={handleNewWorkspaceClick}
+						type="button"
+						aria-label="New workspace"
+					>
+						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
 						</svg>
 					</button>
 				</Tooltip>
@@ -369,6 +451,15 @@
 		</div>
 	</div>
 </BaseModal>
+
+<NewWorkspaceModal
+	isOpen={showNewWorkspaceModal}
+	otherTabsAlsoDirty={newWorkspaceOtherTabsDirty}
+	busy={newWorkspaceSaving}
+	on:save={saveAndCreateNewWorkspace}
+	on:discard={discardAndCreateNewWorkspace}
+	on:cancel={cancelNewWorkspace}
+/>
 
 <style>
 	.tab-bar-container {

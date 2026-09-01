@@ -26,6 +26,8 @@
 		sessionIsDirty,
 		shouldHydrateSessionSelection
 	} from '$lib/utils/sessionTabState';
+	import { activeWorkspaceSaveRequest, settleWorkspaceSaveRequest } from '$lib/stores/workspaceSaveRequest';
+	import { activeWorkspaceDirtyQuery, answerWorkspaceDirtyQuery } from '$lib/stores/workspaceDirtyQuery';
 	import { toasts } from '$lib/stores/toast';
 	import { timeAgo } from '$lib/utils/relativeTime';
 	import Icon from '$lib/components/Icon.svelte';
@@ -159,6 +161,36 @@
 
 	$: if (currentTabData && currentTabData.savedSessionSignature !== undefined && currentTabData.savedSessionSignature !== savedSessionSignature) {
 		savedSessionSignature = currentTabData.savedSessionSignature;
+	}
+
+	// "New workspace" (TabBar) asks whichever tab owns this mounted instance to
+	// run its real save action before wiping. See stores/workspaceSaveRequest.ts.
+	$: if ($activeWorkspaceSaveRequest && $activeWorkspaceSaveRequest.tabId === tabId) {
+		void handleWorkspaceSaveRequest($activeWorkspaceSaveRequest.id);
+	}
+
+	async function handleWorkspaceSaveRequest(requestId: number) {
+		if (!sessionControlsEnabled || !currentSession || !hasUnsavedChanges) {
+			// Nothing saveable on this tab right now (no session, or already
+			// clean) - nothing to do, so this is a success from the caller's
+			// point of view.
+			settleWorkspaceSaveRequest(requestId, true);
+			return;
+		}
+		await handleQuickSave();
+		settleWorkspaceSaveRequest(requestId, !error);
+	}
+
+	// "New workspace" also needs to know, at the moment of the click, whether
+	// THIS tab (the only one with a live `hasUnsavedChanges`) is currently
+	// dirty. A one-shot answer to a one-shot query, unlike the sessionDirty
+	// push this replaced: continuously writing a dirty flag onto the shared
+	// tabsStore on every `hasUnsavedChanges` transition churned the tabs array
+	// during normal typing and intermittently stole focus from the segment
+	// editor mid-keystroke (regressed session-tab-switch-preserves-draft.spec.ts).
+	// A query answered only when asked has no such steady-state cost.
+	$: if ($activeWorkspaceDirtyQuery && $activeWorkspaceDirtyQuery.tabId === tabId) {
+		answerWorkspaceDirtyQuery($activeWorkspaceDirtyQuery.id, hasUnsavedChanges);
 	}
 
 	$: saveCellText = !sessionControlsEnabled

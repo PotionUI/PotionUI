@@ -218,11 +218,39 @@ class TestPauseResumeCancelRetry:
         result = await worker.retry('test-id')
 
         assert result is True
-        mock_repository.update_status.assert_called_once_with('test-id', DownloadStatus.PENDING)
+        mock_repository.reset_for_retry.assert_called_once_with('test-id')
+
+    @pytest.mark.asyncio
+    async def test_retry_cancelled_download(self, worker, mock_repository):
+        """Test retrying a cancelled download - "download again"."""
+        mock_download = Mock()
+        mock_download.id = 'test-id'
+        mock_download.filename = 'test.safetensors'
+        mock_download.status = DownloadStatus.CANCELLED
+        mock_repository.get_by_id.return_value = mock_download
+
+        result = await worker.retry('test-id')
+
+        assert result is True
+        mock_repository.reset_for_retry.assert_called_once_with('test-id')
+
+    @pytest.mark.asyncio
+    async def test_retry_completed_download(self, worker, mock_repository):
+        """Test retrying a completed download - "download again"."""
+        mock_download = Mock()
+        mock_download.id = 'test-id'
+        mock_download.filename = 'test.safetensors'
+        mock_download.status = DownloadStatus.COMPLETED
+        mock_repository.get_by_id.return_value = mock_download
+
+        result = await worker.retry('test-id')
+
+        assert result is True
+        mock_repository.reset_for_retry.assert_called_once_with('test-id')
 
     @pytest.mark.asyncio
     async def test_retry_non_failed(self, worker, mock_repository):
-        """Test retrying a non-failed download."""
+        """Test retrying a download that is neither failed, cancelled, nor completed."""
         mock_download = Mock()
         mock_download.id = 'test-id'
         mock_download.status = DownloadStatus.PENDING
@@ -231,6 +259,20 @@ class TestPauseResumeCancelRetry:
         result = await worker.retry('test-id')
 
         assert result is False
+        mock_repository.reset_for_retry.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_retry_downloading_is_refused(self, worker, mock_repository):
+        """An in-flight download cannot be retried."""
+        mock_download = Mock()
+        mock_download.id = 'test-id'
+        mock_download.status = DownloadStatus.DOWNLOADING
+        mock_repository.get_by_id.return_value = mock_download
+
+        result = await worker.retry('test-id')
+
+        assert result is False
+        mock_repository.reset_for_retry.assert_not_called()
 
 
 class TestResumePending:

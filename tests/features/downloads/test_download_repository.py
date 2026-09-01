@@ -311,6 +311,25 @@ class TestDownloadRepository(PersistenceTestBase):
         updated = self.repository.get_by_id("retry-test-1")
         self.assertEqual(updated.retry_count, 1)
 
+    def test_reset_for_retry_clears_terminal_state(self):
+        """A "download again" reset zeroes progress/bytes/speed/error and
+        drops the row back to pending, whatever terminal status it came from."""
+        created = self._create_test_download("reset-retry-1", status="completed")
+        self.repository.update_progress(
+            "reset-retry-1", progress=1.0, downloaded_bytes=1000000, speed_bytes_per_sec=2000000
+        )
+        self.repository.update_status("reset-retry-1", DownloadStatus.COMPLETED, error_message=None)
+
+        result = self.repository.reset_for_retry("reset-retry-1")
+
+        self.assertTrue(result)
+        updated = self.repository.get_by_id("reset-retry-1")
+        self.assertEqual(updated.status, DownloadStatus.PENDING)
+        self.assertEqual(updated.progress, 0.0)
+        self.assertEqual(updated.downloaded_bytes, 0)
+        self.assertIsNone(updated.speed_bytes_per_sec)
+        self.assertIsNone(updated.error_message)
+
     def test_set_error(self):
         """Test setting error message"""
         created = self._create_test_download("error-test-1", status="downloading")

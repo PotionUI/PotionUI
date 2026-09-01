@@ -265,6 +265,19 @@ class DownloadRepository:
                 """, (status.value, error_message, download_id))
             return cursor.rowcount > 0
 
+    def reset_for_retry(self, download_id: str) -> bool:
+        """Reset a terminal (failed/cancelled/completed) download back to
+        pending for a re-fetch - clears bytes/progress/speed/error so a stale
+        completed or cancelled row doesn't leak into the retried attempt."""
+        with db.get_cursor() as cursor:
+            cursor.execute("""
+                UPDATE downloads
+                SET status = 'pending', progress = 0.0, downloaded_bytes = 0,
+                    speed_bytes_per_sec = NULL, error_message = NULL
+                WHERE id = ?
+            """, (download_id,))
+            return cursor.rowcount > 0
+
     def increment_retry(self, download_id: str) -> int:
         """Increment retry count and return new count"""
         with db.get_cursor() as cursor:

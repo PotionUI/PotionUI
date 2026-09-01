@@ -298,6 +298,135 @@ class TestRetryDownload:
 
         mock_worker.retry.assert_called_once_with("test-download-1")
 
+    @pytest.mark.asyncio
+    async def test_retry_cancelled_download(self, mock_download_repo, mock_plugin_registry, sample_download):
+        """A cancelled download can be retried - "download again"."""
+        sample_download.status = DownloadStatus.CANCELLED
+        mock_download_repo.get_by_id.return_value = sample_download
+
+        manager = _build_queue(
+            download_repository=mock_download_repo,
+            plugin_registry=mock_plugin_registry,
+        )
+
+        mock_worker = AsyncMock()
+        mock_worker.retry.return_value = True
+        manager.worker = mock_worker
+
+        result = await manager.retry_download("test-download-1")
+
+        mock_worker.retry.assert_called_once_with("test-download-1")
+        assert result is sample_download
+
+    @pytest.mark.asyncio
+    async def test_retry_completed_download(self, mock_download_repo, mock_plugin_registry, sample_download):
+        """A completed download can be retried - "download again"."""
+        sample_download.status = DownloadStatus.COMPLETED
+        mock_download_repo.get_by_id.return_value = sample_download
+
+        manager = _build_queue(
+            download_repository=mock_download_repo,
+            plugin_registry=mock_plugin_registry,
+        )
+
+        mock_worker = AsyncMock()
+        mock_worker.retry.return_value = True
+        manager.worker = mock_worker
+
+        result = await manager.retry_download("test-download-1")
+
+        mock_worker.retry.assert_called_once_with("test-download-1")
+        assert result is sample_download
+
+    @pytest.mark.asyncio
+    async def test_retry_downloading_raises_naming_the_state(self, mock_download_repo, mock_plugin_registry, sample_download):
+        """Retrying an in-flight download is refused; the error names the actual status."""
+        from src.features.downloads.exceptions import DownloadOperationException
+
+        sample_download.status = DownloadStatus.DOWNLOADING
+        mock_download_repo.get_by_id.return_value = sample_download
+
+        manager = _build_queue(
+            download_repository=mock_download_repo,
+            plugin_registry=mock_plugin_registry,
+        )
+
+        mock_worker = AsyncMock()
+        mock_worker.retry.return_value = False
+        manager.worker = mock_worker
+
+        with pytest.raises(DownloadOperationException, match="downloading"):
+            await manager.retry_download("test-download-1")
+
+    @pytest.mark.asyncio
+    async def test_retry_group_retries_every_retryable_child(self, mock_download_repo, mock_plugin_registry):
+        """A grouped retry retries every child in a retryable state, not just failed ones."""
+        parent = Download(
+            id="parent-1", type=DownloadType.HF_REPO,
+            status=DownloadStatus.FAILED, filename="repo",
+        )
+        completed_child = Download(
+            id="child-completed", type=DownloadType.MODEL,
+            status=DownloadStatus.COMPLETED, filename="a.safetensors", group_id="parent-1",
+        )
+        failed_child = Download(
+            id="child-failed", type=DownloadType.MODEL,
+            status=DownloadStatus.FAILED, filename="b.safetensors", group_id="parent-1",
+        )
+        pending_child = Download(
+            id="child-pending", type=DownloadType.MODEL,
+            status=DownloadStatus.PENDING, filename="c.safetensors", group_id="parent-1",
+        )
+
+        mock_download_repo.get_by_id.return_value = parent
+        mock_download_repo.get_children.return_value = [completed_child, failed_child, pending_child]
+
+        manager = _build_queue(
+            download_repository=mock_download_repo,
+            plugin_registry=mock_plugin_registry,
+        )
+
+        mock_worker = AsyncMock()
+        mock_worker.retry.side_effect = lambda child_id: child_id in ("child-completed", "child-failed")
+        manager.worker = mock_worker
+
+        await manager.retry_download("parent-1")
+
+        assert mock_worker.retry.await_count == 3
+        mock_worker.retry.assert_any_await("child-completed")
+        mock_worker.retry.assert_any_await("child-failed")
+        mock_worker.retry.assert_any_await("child-pending")
+        mock_download_repo.refresh_group.assert_called_once_with("parent-1")
+
+    @pytest.mark.asyncio
+    async def test_retry_group_raises_only_when_no_child_retryable(self, mock_download_repo, mock_plugin_registry):
+        """A grouped retry raises only when every child is non-retryable."""
+        from src.features.downloads.exceptions import DownloadOperationException
+
+        parent = Download(
+            id="parent-1", type=DownloadType.HF_REPO,
+            status=DownloadStatus.FAILED, filename="repo",
+        )
+        pending_child = Download(
+            id="child-pending", type=DownloadType.MODEL,
+            status=DownloadStatus.PENDING, filename="c.safetensors", group_id="parent-1",
+        )
+
+        mock_download_repo.get_by_id.return_value = parent
+        mock_download_repo.get_children.return_value = [pending_child]
+
+        manager = _build_queue(
+            download_repository=mock_download_repo,
+            plugin_registry=mock_plugin_registry,
+        )
+
+        mock_worker = AsyncMock()
+        mock_worker.retry.return_value = False
+        manager.worker = mock_worker
+
+        with pytest.raises(DownloadOperationException):
+            await manager.retry_download("parent-1")
+
 
 # ========== Filename Override Tests ==========
 

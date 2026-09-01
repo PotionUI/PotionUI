@@ -1325,7 +1325,8 @@ class DownloadQueue:
         return self.get_download(download_id)
 
     async def retry_download(self, download_id: str) -> Download:
-        """Retry a failed download (all failed children, for a grouped one).
+        """Retry a download (every retryable child, for a grouped one) -
+        "download again" for a failed, cancelled, or completed download.
 
         Args:
             download_id: ID of download to retry
@@ -1349,12 +1350,16 @@ class DownloadQueue:
                 if await self._call_on_worker(self.worker.retry(child.id)):
                     retried_any = True
             if not retried_any:
-                raise DownloadOperationException("Download cannot be retried (not failed)")
+                raise DownloadOperationException(
+                    "Download cannot be retried (no child is in a retryable state)"
+                )
             self.repo.refresh_group(download.id)
         else:
             success = await self._call_on_worker(self.worker.retry(download_id))
             if not success:
-                raise DownloadOperationException("Download cannot be retried (not failed)")
+                raise DownloadOperationException(
+                    f"Download cannot be retried (status is '{download.status.value}', not in a retryable state)"
+                )
 
         return self.get_download(download_id)
 

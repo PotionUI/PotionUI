@@ -288,7 +288,8 @@ class DownloadWorker:
         return True
 
     async def retry(self, download_id: str) -> bool:
-        """Retry a failed download.
+        """Retry a download that ended in a terminal state (failed, cancelled,
+        or completed - "download again").
 
         Args:
             download_id: ID of the download to retry
@@ -300,11 +301,12 @@ class DownloadWorker:
         if not download:
             return False
 
-        if download.status != DownloadStatus.FAILED:
+        if download.status not in (DownloadStatus.FAILED, DownloadStatus.CANCELLED, DownloadStatus.COMPLETED):
             return False
 
-        # Reset status to pending
-        self.repo.update_status(download_id, DownloadStatus.PENDING)
+        # Reset to pending, clearing bytes/progress/speed/error from the
+        # previous attempt
+        self.repo.reset_for_retry(download_id)
 
         # Re-queue
         await self.queue.put(download_id)

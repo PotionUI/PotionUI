@@ -10,12 +10,15 @@
 	import AddDownloadModal from './AddDownloadModal.svelte';
 	import DownloadSettingsModal from './DownloadSettingsModal.svelte';
 	import AdminTabShell from './AdminTabShell.svelte';
+	import AdminFilterBar from './AdminFilterBar.svelte';
 	import { MasterDetailLayout, DetailEmptyState } from '$lib/components/master-detail';
 	import { Pane, PaneGroupHeader } from '$lib/components/pane';
-	import { Button, EmptyState, Alert, Spinner } from '$lib/components/ui';
+	import { Button, EmptyState, Alert, Spinner, Input, Kbd } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 
 	type StatusFilter = 'all' | 'active' | 'pending' | 'completed' | 'failed';
+
+	const SEARCH_INPUT_ID = 'downloads-search';
 
 	let statusFilter: StatusFilter = 'all';
 	let query = '';
@@ -87,6 +90,8 @@
 
 	$: selectedDownload = selectedId ? ($downloads.find((d) => d.id === selectedId) ?? null) : null;
 
+	$: activeFilterCount = Number(!!query.trim()) + Number(statusFilter !== 'all');
+
 	// Default selection to the first row once downloads have loaded; keeps
 	// whatever's already selected stable across WebSocket-driven updates.
 	$: if (!selectedId && $downloads.length > 0) {
@@ -120,6 +125,15 @@
 		downloaderWebSocket.disconnect();
 	});
 
+	function handleGlobalKeydown(e: KeyboardEvent) {
+		if (e.key !== '/') return;
+		const target = e.target as HTMLElement | null;
+		const tag = target?.tagName;
+		if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) return;
+		e.preventDefault();
+		document.getElementById(SEARCH_INPUT_ID)?.focus();
+	}
+
 	function selectDownload(id: string) {
 		selectedId = id;
 	}
@@ -152,6 +166,8 @@
 		}
 	}
 </script>
+
+<svelte:window on:keydown={handleGlobalKeydown} />
 
 <div class="flex h-[calc(100dvh-var(--header-h)-2rem)] min-h-[36rem] flex-col gap-4 sm:h-[calc(100dvh-var(--header-h)-3rem)]">
 	<AdminTabShell
@@ -226,38 +242,55 @@
 			{/snippet}
 		</EmptyState>
 	{:else}
+		{#snippet downloadsSearch()}
+			<div class="relative flex-1 min-w-0">
+				<Icon name="search" className="w-3.5 h-3.5 text-fg-subtle absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+				<Input
+					id={SEARCH_INPUT_ID}
+					bind:value={query}
+					placeholder="Search downloads..."
+					class="pl-8 pr-8 text-sm h-8"
+				/>
+				{#if !query}
+					<span class="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none">
+						<Kbd keys="/" />
+					</span>
+				{/if}
+			</div>
+		{/snippet}
+		{#snippet downloadStatusFilters()}
+			<div class="flex items-center gap-1 bg-surface-2 border border-line rounded p-0.5">
+				{#each statusFilters as f (f.id)}
+					<button
+						type="button"
+						class="px-2.5 py-1 text-xs font-medium rounded transition-colors {statusFilter === f.id
+							? 'bg-signal/10 text-signal'
+							: 'text-fg-muted hover:text-fg hover:bg-surface-3'}"
+						onclick={() => (statusFilter = f.id)}
+					>
+						{f.label}
+					</button>
+				{/each}
+			</div>
+		{/snippet}
+
+		<AdminFilterBar
+			search={downloadsSearch}
+			filters={downloadStatusFilters}
+			activeCount={activeFilterCount}
+			onClear={clearFilters}
+		/>
+
 		<section class="flex-1 min-h-0 rounded-lg border border-line bg-surface-1 overflow-hidden">
 			<MasterDetailLayout leftWidth={360} minWidth={300} maxWidth={480} storageKey="admin-downloads-width">
 				<div slot="list" class="h-full min-h-0">
 					<Pane
 						label="Downloads"
 						count={filteredDownloads.length}
-						searchable
-						bind:search={query}
-						searchPlaceholder="Search downloads..."
 						isEmpty={filteredDownloads.length === 0}
 						bodyRole="listbox"
 						ariaLabel="Downloads"
 					>
-						{#snippet filters()}
-							<div class="px-3 pb-2.5 pt-1 border-b border-line flex-shrink-0">
-								<div class="flex items-center gap-1 bg-surface-2 border border-line rounded p-0.5">
-									{#each statusFilters as f (f.id)}
-										<button
-											type="button"
-											class="flex-1 px-2 py-1 text-2xs font-mono uppercase tracking-wide rounded transition-colors {statusFilter ===
-											f.id
-												? 'bg-signal/10 text-signal'
-												: 'text-fg-muted hover:text-fg hover:bg-surface-3'}"
-											onclick={() => (statusFilter = f.id)}
-										>
-											{f.label}
-										</button>
-									{/each}
-								</div>
-							</div>
-						{/snippet}
-
 						{#snippet empty()}
 							<div class="p-4 h-full flex items-center justify-center">
 								<EmptyState

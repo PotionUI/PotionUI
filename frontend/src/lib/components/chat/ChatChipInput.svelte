@@ -13,6 +13,8 @@
 	import type { ResourceChipData } from '$lib/types/chat';
 	import { encodeResourceToken } from '$lib/utils/resourceTokens';
 	import { resolveMentionRowAction } from '$lib/utils/mentionRowAction';
+	import { findImageItemIndex } from './chatPasteImage';
+	import { pastedImageFileName } from '$lib/components/form-fields/mediaLoaderUpload';
 	import AutocompleteDropdown from '$lib/components/AutocompleteDropdown.svelte';
 	import ResourceChip from './ResourceChip.svelte';
 	import { parseValueToSegments } from './resourceChipSegments';
@@ -203,12 +205,7 @@
 		dispatch('keydown', e);
 	}
 
-	function handlePaste(e: ClipboardEvent) {
-		e.preventDefault();
-
-		const text = e.clipboardData?.getData('text/plain') || '';
-
-		// Insert text at cursor
+	function insertTextAtCursor(text: string) {
 		const selection = window.getSelection();
 		if (!selection || !selection.rangeCount) return;
 
@@ -223,7 +220,37 @@
 		range.collapse(true);
 		selection.removeAllRanges();
 		selection.addRange(range);
+	}
 
+	function handlePaste(e: ClipboardEvent) {
+		const items = e.clipboardData?.items;
+		const imageIndex = items ? findImageItemIndex(items) : -1;
+
+		// A paste can carry an image alongside real text (e.g. copied from a
+		// web page, where the clipboard also holds the alt text or the page
+		// URL) - the image goes to the parent to attach, and any text still
+		// lands in the editor exactly as a text-only paste would. Whether
+		// there's anywhere for the image to go (the chat mode has no vision
+		// surface) is the parent's call, not this editor's - it dispatches
+		// unconditionally and lets `pasteimage` go unhandled if there's no
+		// listener for it.
+		if (imageIndex !== -1) {
+			const blob = items![imageIndex].getAsFile();
+			if (blob) {
+				e.preventDefault();
+				const file = new File([blob], pastedImageFileName(), { type: blob.type });
+				dispatch('pasteimage', { file });
+
+				const text = e.clipboardData?.getData('text/plain') || '';
+				if (text) insertTextAtCursor(text);
+				handleInput();
+				return;
+			}
+		}
+
+		e.preventDefault();
+		const text = e.clipboardData?.getData('text/plain') || '';
+		insertTextAtCursor(text);
 		handleInput();
 	}
 

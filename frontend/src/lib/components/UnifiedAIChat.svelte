@@ -6,6 +6,7 @@
 	import { api, type ChatSessionResponse, type ChatMessageResponse } from '$lib/services/api/index';
 	import ChatMessage from '$lib/components/ChatMessage.svelte';
 	import MediaLoaderField from '$lib/components/form-fields/MediaLoaderField.svelte';
+	import { buildUploadedMediaItem } from '$lib/components/form-fields/mediaLoaderUpload';
 	import { activeTab, tabsStore } from '$lib/stores/tabs';
 	import { loraSelectionsForTab } from '$lib/stores/loraPickerSelections';
 	import { page } from '$app/stores';
@@ -1310,6 +1311,33 @@
 		showImagePanel = true;
 	}
 
+	// A pasted image reaches here from ChatChipInput via ChatInput's
+	// `onPasteImage`, unconditionally - whether there's anywhere for it to go
+	// is decided here, not upstream.
+	async function handlePasteImage(file: File) {
+		// No vision surface to receive it - nothing to attach, and no toast
+		// either: an accidental image paste in a text-only mode should be a
+		// silent no-op, not an error.
+		if (!supportsVision) return;
+
+		showImagePanel = true;
+
+		try {
+			const response = await api.uploadMedia(file);
+			if (!response.success || !response.data) {
+				throw new Error(response.message || 'Failed to upload pasted image');
+			}
+			// Same shape MediaLoaderField's own upload path builds - reused so a
+			// pasted image is indistinguishable, downstream, from one picked
+			// through the field itself.
+			const mediaItem = buildUploadedMediaItem(response.data, file.name, 'image');
+			handleMediaLoaderChange('vision_image', mediaItem);
+		} catch (error) {
+			logger.error('Failed to upload pasted image:', error);
+			chatSession.patch({ error: 'Failed to attach the pasted image.' });
+		}
+	}
+
 	function handleMediaLoaderChange(_fieldName: string, value: any) {
 		const scrollPos = messagesContainerRef?.scrollTop || 0;
 
@@ -1671,6 +1699,7 @@
 				onStop={handleStop}
 				onToggleImagePanel={() => (showImagePanel = !showImagePanel)}
 				onKeydown={handleKeyDown}
+				onPasteImage={handlePasteImage}
 				{visibleTools}
 				disabledTools={$chatSession.disabledTools}
 				{enableTools}

@@ -36,6 +36,15 @@ export interface UploadedMediaItem {
 	};
 }
 
+/**
+ * Filename synthesized for a clipboard-pasted image, which usually carries
+ * none of its own. Shared so every paste path - this field's own, and the
+ * chat composer's - names the file identically.
+ */
+export function pastedImageFileName(): string {
+	return `pasted-image-${Date.now()}.png`;
+}
+
 export function buildUploadedMediaItem(
 	data: UploadResponseData,
 	fileName: string,

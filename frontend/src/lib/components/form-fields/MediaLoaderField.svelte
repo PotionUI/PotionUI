@@ -19,7 +19,7 @@
 	import Waveform from '$lib/components/Waveform.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { maskSubjectKey, shouldClearMask } from './mediaLoaderMask';
-	import { buildUploadedMediaItem, type UploadedMediaItem } from './mediaLoaderUpload';
+	import { buildUploadedMediaItem, pastedImageFileName, type UploadedMediaItem } from './mediaLoaderUpload';
 	import { describeDropTarget, describeFormats, readMediaLoaderConfig, type MediaKind } from './mediaLoaderConfig';
 	import { kindFromDeclared, kindFromFilename, kindFromMimeType, kindOfMediaItem } from './mediaLoaderKind';
 	import {
@@ -372,7 +372,7 @@
 
 			const blob = item.getAsFile();
 			if (blob) {
-				const file = new File([blob], `pasted-image-${Date.now()}.png`, { type: blob.type });
+				const file = new File([blob], pastedImageFileName(), { type: blob.type });
 				uploadFile(file);
 				isPasteActive = false;
 			}

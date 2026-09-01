@@ -28,6 +28,8 @@
 	export let onStop: (() => void) | undefined = undefined;
 	export let onToggleImagePanel: (() => void) | undefined = undefined;
 	export let onKeydown: ((e: KeyboardEvent) => void) | undefined = undefined;
+	/** An image pasted into the composer text, forwarded here from ChatChipInput. */
+	export let onPasteImage: ((file: File) => void) | undefined = undefined;
 
 	// Auto-attach last generated image (vision only)
 	export let alwaysAttachLastImage = false;
@@ -198,6 +200,7 @@
 			on:change={handleChange}
 			on:submit={handleSubmit}
 			on:keydown={(e) => onKeydown?.(e.detail)}
+			on:pasteimage={(e) => onPasteImage?.(e.detail.file)}
 		/>
 		<!-- Action row -->
 		<div class="flex items-center justify-between px-2 pb-2">

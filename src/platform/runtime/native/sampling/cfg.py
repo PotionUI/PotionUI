@@ -237,6 +237,23 @@ class TrueCFG:
     recombination -> map back to velocity space. APG is applied AFTER the
     CFG-Zero* rescale (i.e. on the already-alpha-corrected delta), matching
     the existing correction order.
+
+    Two further optional, paper-backed corrections (TRELLIS.2, arXiv:2512.14692):
+
+    * ``guidance_rescale`` (default ``0.0`` = off, a.k.a. "cfg rescale" /
+      "Common Diffusion Noise Schedules and Sample Steps are Flawed" §3.4) —
+      applied LAST, after whichever combination above produced ``guided``:
+      rescale ``guided`` by the std ratio of the raw conditional prediction
+      (``cond_v``, never the CFG-Zero*-adjusted branch) over ``guided``'s own
+      std, both taken over all non-batch dims per batch element, then blend
+      by the factor: ``out = f*rescaled + (1-f)*guided``. ``0.0`` is an exact
+      no-op (no extra computation, byte-identical to plain ``guided``).
+    * ``interval`` (default ``None`` = always-on, a.k.a. "guidance interval")
+      — a ``(lo, hi)`` window on sigma (which runs ``1 -> 0`` like TRELLIS.2's
+      own normalized ``t``). Outside the window the uncond forward pass is
+      SKIPPED entirely (cond-only, single forward) exactly like the existing
+      ``scale ~= 1.0`` short-circuit. ``None`` never gates, so behaviour is
+      unchanged for every caller that doesn't pass it.
     """
 
     def __init__(
@@ -247,6 +264,8 @@ class TrueCFG:
         apg_eta: float = 1.0,
         apg_norm_threshold: float = 0.0,
         apg_momentum: float = 0.0,
+        guidance_rescale: float = 0.0,
+        interval: tuple[float, float] | None = None,
     ) -> None:
         self.scale = scale
         self.cfg_zero_star = cfg_zero_star
@@ -254,6 +273,8 @@ class TrueCFG:
         self.apg_eta = apg_eta
         self.apg_norm_threshold = apg_norm_threshold
         self.apg_momentum = apg_momentum
+        self.guidance_rescale = guidance_rescale
+        self.interval = interval
         self.reset_momentum()
 
     def reset_momentum(self) -> None:
@@ -279,13 +300,40 @@ class TrueCFG:
     def _apg_active(self) -> bool:
         return not (self.apg_eta == 1.0 and self.apg_norm_threshold == 0.0 and self.apg_momentum == 0.0)
 
+    def _skip_uncond(self, sigma: Tensor, scale: float, uncond: dict | None) -> bool:
+        if uncond is None or abs(scale - 1.0) < 1e-6:
+            return True
+        if self.interval is None:
+            return False
+        lo, hi = self.interval
+        t = float(sigma.reshape(-1)[0])
+        return not (lo <= t <= hi)
+
+    def _apply_guidance_rescale(self, cond_v: Tensor, guided: Tensor) -> Tensor:
+        """TRELLIS.2 CFG rescale (arXiv:2512.14692): pulls ``guided`` back toward
+        ``cond_v``'s std to counter oversaturation from a large ``scale``.
+        ``guidance_rescale <= 0.0`` is checked by the caller and never reaches
+        here -- this method always does the (float32) std/blend work."""
+        batch = guided.shape[0]
+        std_pos = cond_v.reshape(batch, -1).float().std(dim=-1, keepdim=True)
+        std_guided = guided.reshape(batch, -1).float().std(dim=-1, keepdim=True)
+        factor = (std_pos / std_guided.clamp(min=1e-8)).view(batch, *([1] * (guided.ndim - 1)))
+        rescaled = guided * factor.to(guided.dtype)
+        f = self.guidance_rescale
+        return (f * rescaled + (1.0 - f) * guided).to(guided.dtype)
+
+    def _finish(self, cond_v: Tensor, guided: Tensor) -> Tensor:
+        if self.guidance_rescale <= 0.0:
+            return guided
+        return self._apply_guidance_rescale(cond_v, guided)
+
     def __call__(self, model_fn, x, sigma, cond, uncond, step_index) -> Tensor:
         if step_index < self.zero_init_steps:
             return torch.zeros_like(x)
         scale = _scale_at(self.scale, step_index)
         cond_v = model_fn(x, sigma, cond)
         self.last_cond_v = cond_v  # SLG anchor (see SkipLayerGuidance)
-        if abs(scale - 1.0) < 1e-6 or uncond is None:
+        if self._skip_uncond(sigma, scale, uncond):
             self.last_uncond_v = None  # no uncond branch ran -- see reset_momentum
             return cond_v
         uncond_v = model_fn(x, sigma, uncond)
@@ -295,7 +343,7 @@ class TrueCFG:
 
         delta_v = cond_v - uncond_v
         if not self._apg_active:
-            return uncond_v + scale * delta_v
+            return self._finish(cond_v, uncond_v + scale * delta_v)
 
         # The whole APG projection runs in fp32 (S1): ``sigma`` cast to the model
         # dtype underflows to 0.0 in fp16 at a small/zero sigma, which then feeds a
@@ -307,7 +355,7 @@ class TrueCFG:
         # to 0 and APG is a no-op (S1): fall back to plain CFG rather than divide
         # 0/0 (euler_restart can probe at sigma_low == 0).
         if float(sigma_view.max()) == 0.0:
-            return uncond_v + scale * delta_v
+            return self._finish(cond_v, uncond_v + scale * delta_v)
 
         x0_cond = x - sigma_view * cond_v
         delta_x0 = -sigma_view * delta_v  # linear image of delta_v under x0 = x - sigma*v
@@ -330,7 +378,7 @@ class TrueCFG:
         # For plain CFG this equals uncond + scale*delta, but once the delta is
         # APG-processed the two anchors diverge and the conditional one is correct
         # (suppressing a wholly-parallel delta must retain x0_cond, not x0_uncond).
-        return cond_v + (scale - 1.0) * delta_v_final
+        return self._finish(cond_v, cond_v + (scale - 1.0) * delta_v_final)
 
 
 class SkipLayerGuidance:

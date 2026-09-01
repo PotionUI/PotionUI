@@ -609,6 +609,98 @@ def test_skip_layer_guidance_forwards_none_when_inner_has_no_uncond_branch():
     assert slg.last_uncond_v is None
 
 
+# -- TRELLIS.2: guidance_rescale + interval (arXiv:2512.14692) --------------
+
+def test_guidance_rescale_hand_computed_blend():
+    # cond_v=[1,2,3,4], uncond_v=[0,0,0,0], scale=2.0 (cfg_zero_star off) ->
+    # guided = uncond + scale*delta = [2,4,6,8] (== 2*cond_v, so std_guided ==
+    # 2*std_pos exactly). factor = std_pos/std_guided = 0.5 -> rescaled =
+    # guided*0.5 = cond_v = [1,2,3,4]. f=0.5 blend:
+    # out = 0.5*[1,2,3,4] + 0.5*[2,4,6,8] = [1.5,3,4.5,6].
+    cond_v = torch.tensor([[1.0, 2.0, 3.0, 4.0]])
+    uncond_v = torch.tensor([[0.0, 0.0, 0.0, 0.0]])
+
+    def model_fn(x, sigma, cond):
+        return cond_v if cond["tag"] == "c" else uncond_v
+
+    x = torch.zeros(1, 4)
+    out = TrueCFG(2.0, cfg_zero_star=False, guidance_rescale=0.5)(
+        model_fn, x, torch.ones(1), {"tag": "c"}, {"tag": "u"}, 0
+    )
+    expected = torch.tensor([[1.5, 3.0, 4.5, 6.0]])
+    assert torch.allclose(out, expected, atol=1e-4)
+
+
+def test_guidance_rescale_full_factor_recovers_cond_std():
+    # f=1.0: out == rescaled == guided * (std_pos/std_guided) == cond_v exactly
+    # (guided is a pure scalar multiple of cond_v here).
+    cond_v = torch.tensor([[1.0, 2.0, 3.0, 4.0]])
+    uncond_v = torch.tensor([[0.0, 0.0, 0.0, 0.0]])
+
+    def model_fn(x, sigma, cond):
+        return cond_v if cond["tag"] == "c" else uncond_v
+
+    x = torch.zeros(1, 4)
+    out = TrueCFG(2.0, cfg_zero_star=False, guidance_rescale=1.0)(
+        model_fn, x, torch.ones(1), {"tag": "c"}, {"tag": "u"}, 0
+    )
+    assert torch.allclose(out, cond_v, atol=1e-4)
+
+
+def test_guidance_rescale_zero_is_byte_identical_noop():
+    model_fn, cond_v, uncond_v = _random_model_fn(9)
+    x = torch.randn(2, 3, 5)
+    sigma = torch.full((2,), 0.5)
+
+    plain = TrueCFG(2.0, cfg_zero_star=True)(model_fn, x, sigma, {"tag": "c"}, {"tag": "u"}, 0)
+    with_zero_rescale = TrueCFG(2.0, cfg_zero_star=True, guidance_rescale=0.0)(
+        model_fn, x, sigma, {"tag": "c"}, {"tag": "u"}, 0
+    )
+    assert torch.equal(plain, with_zero_rescale)
+
+
+def test_guidance_interval_skips_uncond_outside_window():
+    calls = {"n": 0}
+
+    def model_fn(x, sigma, cond):
+        calls["n"] += 1
+        return torch.full_like(x, cond["v"])
+
+    x = torch.zeros(1, 2)
+    strat = TrueCFG(2.0, cfg_zero_star=False, interval=(0.2, 0.8))
+    sigma = torch.full((1,), 0.9)  # above hi=0.8 -> out of window
+    out = strat(model_fn, x, sigma, {"v": 7.0}, {"v": 1.0}, 0)
+    assert calls["n"] == 1  # uncond pass skipped
+    assert torch.allclose(out, torch.full_like(x, 7.0))  # cond-only
+
+
+def test_guidance_interval_applies_cfg_inside_window():
+    calls = {"n": 0}
+
+    def model_fn(x, sigma, cond):
+        calls["n"] += 1
+        return torch.full_like(x, cond["v"])
+
+    x = torch.zeros(1, 2)
+    strat = TrueCFG(2.0, cfg_zero_star=False, interval=(0.2, 0.8))
+    sigma = torch.full((1,), 0.5)  # inside [0.2, 0.8]
+    out = strat(model_fn, x, sigma, {"v": 7.0}, {"v": 1.0}, 0)
+    assert calls["n"] == 2  # both passes ran
+    assert torch.allclose(out, torch.full_like(x, 1 + 2 * 6))  # 13
+
+
+def test_guidance_interval_none_is_byte_identical_noop():
+    model_fn, cond_v, uncond_v = _random_model_fn(10)
+    x = torch.randn(2, 3, 5)
+    sigma = torch.full((2,), 0.95)  # would be excluded by a tight interval
+
+    plain = TrueCFG(2.0, cfg_zero_star=True)(model_fn, x, sigma, {"tag": "c"}, {"tag": "u"}, 0)
+    with_none_interval = TrueCFG(2.0, cfg_zero_star=True, interval=None)(
+        model_fn, x, sigma, {"tag": "c"}, {"tag": "u"}, 0
+    )
+    assert torch.equal(plain, with_none_interval)
+
+
 def test_slg_negative_scale_is_a_noop():
     calls = []
     model_fn = _slg_stub_model_fn(calls)

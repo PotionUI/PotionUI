@@ -18,10 +18,9 @@ _warned_unmapped_type_dir: set = set()
 class ModelScanner:
     """Scans the models directory and reconciles it with the model index.
 
-    Distinct from `src.features.models.directory.ModelIndexer`, which maintains a
-    JSON side-cache; this class hashes files and upserts rows in the database, and
-    owns the single-file entry point (`index_single_model`) the download job and
-    the automation `action.index_model` need.
+    Hashes files and upserts rows in the database, and owns the single-file
+    entry point (`index_single_model`) the download job and the automation
+    `action.index_model` need.
     """
 
     SUPPORTED_EXTENSIONS = SUPPORTED_MODEL_EXTENSIONS

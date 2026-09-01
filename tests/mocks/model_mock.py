@@ -81,49 +81,10 @@ def mock_model_directories():
     mock_directories = Mock()
 
     mock_directories.get_model_dir = Mock(side_effect=lambda model_type: Path(f"/fake/models/{model_type}"))
-    mock_directories.create_model_dirs = Mock()
     mock_directories.base_path = Path("/fake/models")
 
     with patch('src.features.models.directory.ModelDirectories', return_value=mock_directories):
         yield mock_directories
-
-
-@pytest.fixture
-def mock_model_indexer():
-    """
-    Mock the ModelIndexer to avoid filesystem scanning and hashing.
-
-    This fixture creates a mock ModelIndexer that:
-    - Returns empty index without scanning filesystem
-    - Skips SHA256 hash calculations
-    - Provides fake model metadata
-
-    Usage:
-        def test_model_discovery(mock_model_indexer):
-            # ModelIndexer operations are mocked
-            indexer = ModelIndexer(model_directories)
-            indexer.index_models()  # Does nothing
-    """
-    from src.features.models.directory import ModelIndex
-
-    mock_indexer = Mock()
-    mock_indexer.index = {}
-    mock_indexer.name_to_hash = {}
-
-    # Mock index_models to do nothing
-    mock_indexer.index_models = Mock()
-
-    # Mock get_models_by_type to return empty list
-    mock_indexer.get_models_by_type = Mock(return_value=[])
-
-    # Mock get_model_by_sha256 to return None
-    mock_indexer.get_model_by_sha256 = Mock(return_value=None)
-
-    # Mock verify_model_integrity to always return True
-    mock_indexer.verify_model_integrity = Mock(return_value=True)
-
-    with patch('src.features.models.directory.ModelIndexer', return_value=mock_indexer):
-        yield mock_indexer
 
 
 @pytest.fixture

@@ -123,7 +123,6 @@ def test_offline(mock_all_external_apis):
 ### Model Mocks
 - `mock_model_loader` - Mock heavy model loading
 - `mock_model_manager` - Mock ModelManager operations
-- `mock_model_indexer` - Mock ModelIndexer operations
 - `mock_diffusers_pipeline` - Mock diffusers pipeline loading
 - `mock_safetensors` - Mock safetensors file operations
 - `mock_upscaler_model` - Mock upscaler model loading

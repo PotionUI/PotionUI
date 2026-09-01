@@ -1,20 +1,18 @@
 """
 Guards the seam between `AutomationServices` and the real objects wired into it.
 
-Two classes are named `ModelIndexer`:
+`action.index_model` needs `src.features.models.indexer.ModelScanner` -
+`index_single_model()` with its SHA256 dedup. The composition root used to
+inject `src.features.models.directory.ModelIndexer` instead (a same-named,
+whole-directory scanner with no single-file entry point), so `action.index_model`
+raised `AttributeError: 'ModelIndexer' object has no attribute 'index_single_model'`
+- but only at run time, inside a pipe, after a file landed in a watched
+directory. `ModelIndexer` has since been deleted (it had no runtime reader),
+so the mix-up itself can no longer happen; the wiring check below stays as a
+regression guard on `ModelScanner` specifically.
 
-- `src.features.models.directory.ModelIndexer` — a whole-directory scanner (`index_models`), no
-  single-file entry point.
-- `src.features.models.indexer.ModelScanner` — has `index_single_model()` with
-  SHA256 dedup. This is the one `ModelIndexCollaborators` uses, and the one
-  `action.index_model` is written against.
-
-The composition root used to inject the first, so `action.index_model` raised
-`AttributeError: 'ModelIndexer' object has no attribute 'index_single_model'` —
-but only at run time, inside a pipe, after a file landed in a watched directory.
-
-Unit tests missed it because a bare `MagicMock()` fabricates any attribute you
-touch. Two defences live here:
+Unit tests missed the original bug because a bare `MagicMock()` fabricates any
+attribute you touch. Two defences live here:
 
 1. `TestServiceMethodContracts` pins the methods each node's `execute()` calls,
    against the REAL classes. A rename or removal turns this red.
@@ -32,7 +30,6 @@ import unittest
 from pathlib import Path
 
 from src.features.models.indexer import ModelScanner as FileModelIndexer
-from src.features.models.directory import ModelIndexer as DirectoryModelIndexer
 from src.features.models.assignments import ModelAssignmentService
 from src.features.models.provider_info import ProviderInfoFetcher
 from src.features.models.repository import ModelRepository
@@ -104,14 +101,6 @@ class TestServiceMethodContracts(unittest.TestCase):
                         callable(getattr(service_class, method, None)),
                         f"{node_type} calls {service_class.__name__}.{method}(), which does not exist",
                     )
-
-    def test_the_directory_scanner_is_not_a_drop_in_for_the_file_indexer(self):
-        """Pins the trap: these two same-named classes are NOT interchangeable."""
-        self.assertFalse(
-            hasattr(DirectoryModelIndexer, "index_single_model"),
-            "src.features.models.directory.ModelIndexer grew index_single_model - re-check the wiring "
-            "in the composition root and this test's premise.",
-        )
 
 
 class TestAutomationWiring(unittest.TestCase):

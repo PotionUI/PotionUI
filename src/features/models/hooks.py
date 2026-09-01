@@ -23,7 +23,7 @@ MODEL_INDEX_HOOKS = hooks_registry.declare(
         "after_index": {
             "description": "Fired after a background model-indexing scan completes.",
             "payload": {
-                "result": {"type": "Any", "description": "Return value of ModelIndexer.index_models(), shape depends on the indexer implementation"},
+                "result": {"type": "Any", "description": "Return value of ModelScanner.index_models(), shape depends on the indexer implementation"},
             },
             "use_when": ["Log or report indexing results"],
         },

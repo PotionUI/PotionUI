@@ -25,7 +25,6 @@ from src.features.backends.native_model_scan import (
     DIRECTORY_TYPE_MAPPING,
     scan_native_models,
 )
-from src.features.models.directory import ModelIndexer
 from src.features.models.indexer import ModelScanner
 
 
@@ -82,7 +81,6 @@ def test_unmapped_directory_is_skipped(tmp_path):
 def test_vfi_present_in_every_type_mapping():
     assert DIRECTORY_TYPE_MAPPING.get("vfi") == "vfi"
     assert ModelScanner.MODEL_TYPE_MAPPING.get("vfi") == "vfi"
-    assert ModelIndexer.TYPE_MAPPING.get("vfi") == "vfi"
 
 
 # --- hash cache: what gets hashed and what doesn't -------------------------------

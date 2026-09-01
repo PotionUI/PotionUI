@@ -14,7 +14,6 @@ from src.features.backends.backend_registry import BackendRegistry
 from src.features.settings.dto import (
     SettingsSchema,
     SystemInfo,
-    ModelInfo,
     SettingResponse,
     UserSettingResponse,
     SettingUpdateRequest,
@@ -420,47 +419,6 @@ class SettingsController(BaseController):
                 message=f"Failed to get system info: {str(e)}"
             )
 
-    async def list_models(self, model_type: Optional[str] = None) -> APIResponse:
-        """List available models"""
-        try:
-            if model_type:
-                models = self.model_directories.get_models_by_type(model_type)
-            else:
-                models = self.model_directories.get_all_models()
-
-            model_list = []
-            for model in models:
-                # Check if model file exists
-                file_path = model.get('file_path', '')
-                available = Path(file_path).exists() if file_path else False
-
-                # Get file size if available
-                file_size = None
-                if available:
-                    try:
-                        file_size = Path(file_path).stat().st_size
-                    except Exception:
-                        pass
-
-                model_info = ModelInfo(
-                    id=model.get('id', ''),
-                    name=model.get('name', 'Unknown'),
-                    type=model.get('type', 'unknown'),
-                    file_path=file_path,
-                    size=file_size,
-                    base=model.get('base'),
-                    available=available
-                )
-                model_list.append(model_info.dict())
-
-            return self.success_response(data=model_list)
-
-        except Exception as e:
-            return self.error_response(
-                error="models_list_failed",
-                message=f"Failed to list models: {str(e)}"
-            )
-
     async def get_model_types(self) -> APIResponse:
         """Get available model types"""
         try:
@@ -568,11 +526,6 @@ def build_router(container: "AppContainer") -> APIRouter:
     async def get_system_info(current_user = Depends(get_current_active_user)):
         """Get detailed system information including hardware specifications."""
         return await controller.get_system_info()
-
-    @router.get("/models/list", response_model=APIResponse, summary="List Available Models")
-    async def list_models(model_type: Optional[str] = None, current_user = Depends(get_current_active_user)):
-        """List all available models, optionally filtered by model type."""
-        return await controller.list_models(model_type)
 
     @router.get("/models/types", response_model=APIResponse, summary="Get Model Types")
     async def get_model_types(current_user = Depends(get_current_active_user)):

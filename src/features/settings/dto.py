@@ -51,13 +51,3 @@ class SystemInfo(BaseModel):
     disk_info: Dict[str, Any]
     models_count: int
     presets_count: int
-
-
-class ModelInfo(BaseModel):
-    id: str
-    name: str
-    type: str
-    file_path: str
-    size: Optional[int] = None
-    base: Optional[str] = None
-    available: bool = True

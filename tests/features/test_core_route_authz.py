@@ -121,3 +121,22 @@ def test_sessions_test_route_removed():
     app.include_router(build_sessions_router(MagicMock()))
     client = TestClient(app, raise_server_exceptions=False)
     assert client.get("/api/sessions/test").status_code == 401
+
+
+def test_settings_models_list_route_removed():
+    """GET /api/settings/models/list was a dead duplicate of the working
+    /api/models/list: it called get_models_by_type/get_all_models on
+    ModelDirectories, which never had those methods (AttributeError -> 500 for
+    any request that reached it), and nothing in the frontend or plugins
+    called it. Deleted rather than fixed; the live model listing stays on
+    /api/models/list.
+    """
+    app = FastAPI()
+    app.include_router(build_settings_router(MagicMock()))
+
+    async def _fake_active_user():
+        return _user(AccountType.ADMIN)
+
+    app.dependency_overrides[get_current_active_user] = _fake_active_user
+    client = TestClient(app, raise_server_exceptions=False)
+    assert client.get("/api/settings/models/list").status_code == 404

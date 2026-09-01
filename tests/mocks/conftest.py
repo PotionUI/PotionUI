@@ -15,7 +15,6 @@ from tests.mocks.gpu_mock import (
 from tests.mocks.model_mock import (
     mock_model_loader,
     mock_model_directories,
-    mock_model_indexer,
     mock_diffusers_pipeline,
     mock_safetensors,
     mock_upscaler_model
@@ -49,7 +48,6 @@ __all__ = [
     # Model mocks
     'mock_model_loader',
     'mock_model_directories',
-    'mock_model_indexer',
     'mock_diffusers_pipeline',
     'mock_safetensors',
     'mock_upscaler_model',

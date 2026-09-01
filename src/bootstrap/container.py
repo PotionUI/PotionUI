@@ -35,7 +35,7 @@ from src.platform.runtime.gpu import GpuMonitor
 from src.platform.observability.system_probe import SystemMonitor
 from src.platform.runtime.memory_advisor import MemoryAdvisor
 from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
-from src.features.models.directory import ModelDirectories, ModelIndexer
+from src.features.models.directory import ModelDirectories
 from src.pipelines.catalog import PipeCatalog
 from src.pipelines.installer import PipeInstaller
 from src.features.pipes import PipeInstallRunner
@@ -197,7 +197,6 @@ class AppContainer:
     model_directories: ModelDirectories
     pipe_catalog: PipeCatalog
     pipe_install_runner: PipeInstallRunner
-    model_indexer: ModelIndexer
     preset_template_loader: PresetTemplateLoader
     preset_processor: PresetProcessor
     template_processor: TemplateProcessor
@@ -584,7 +583,6 @@ def build_container() -> AppContainer:
     model_lifecycle = ModelLifecycle(gpu_monitor=gpu_monitor, settings=settings)
     pipe_catalog = PipeCatalog("src/pipelines/pipes", "pipes/custom", plugin_registry=plugin_registry)
     pipe_install_runner = PipeInstallRunner(pipe_catalog, PipeInstaller(pipe_catalog))
-    model_indexer = ModelIndexer(model_directories)
     preset_processor = PresetProcessor(template_processor, model_directories, settings, preset_template_loader)
     image_writer = ImageWriter(template_processor, settings)
 
@@ -1064,12 +1062,10 @@ def build_container() -> AppContainer:
     from src.platform.websocket.automation_connection_hub import automation_connection_hub
     from src.features.automation.routes import AutomationController
 
-    # NOT the `model_indexer` local above (that's `src.features.models.directory.ModelIndexer`,
-    # a whole-directory scanner with no single-file entry point). `action.index_model`
-    # needs `index_single_model()` with its SHA256 dedup, which lives on
-    # `src.features.models.indexer.ModelScanner` - the same scanner
-    # `ModelIndexCollaborators` uses. Imported as the lazy proxy singleton because its
-    # `__init__` reads the settings DB.
+    # `action.index_model` needs `index_single_model()` with its SHA256 dedup,
+    # which lives on `src.features.models.indexer.ModelScanner` - the same
+    # scanner `ModelIndexCollaborators` uses. Imported as the lazy proxy
+    # singleton because its `__init__` reads the settings DB.
     from src.features.models.indexer import model_scanner as file_model_indexer
 
     # `action.index_models` runs the same per-backend availability indexing the

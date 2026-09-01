@@ -79,6 +79,33 @@ export interface DownloadCounts {
 	[status: string]: number;
 }
 
+export type DownloadBadgeVariant = 'neutral' | 'success' | 'warning' | 'danger' | 'info' | 'signal';
+
+const STATUS_BADGE_VARIANTS: Record<DownloadStatus, DownloadBadgeVariant> = {
+	pending: 'warning',
+	downloading: 'signal',
+	paused: 'neutral',
+	completed: 'success',
+	failed: 'danger',
+	cancelled: 'neutral'
+};
+
+export function statusBadgeVariant(status: DownloadStatus): DownloadBadgeVariant {
+	return STATUS_BADGE_VARIANTS[status] ?? 'neutral';
+}
+
+export function statusLabel(status: DownloadStatus): string {
+	return status.charAt(0).toUpperCase() + status.slice(1);
+}
+
+/** Best-effort model type extracted from `destination_path` (e.g.
+ * `.../models/checkpoint/x.safetensors` -> "checkpoint") - the Download
+ * record itself carries no `model_type` field, only where it landed. */
+export function modelTypeFromPath(destinationPath: string): string | null {
+	const match = destinationPath.replace(/\\/g, '/').match(/\/models\/([^/]+)\//);
+	return match ? match[1] : null;
+}
+
 export interface QueueModelDownloadOptions {
 	destination_dir?: string;
 	model_type?: string;
@@ -139,6 +166,13 @@ function formatSpeed(bytesPerSec: number | null): string {
 	return formatBytes(bytesPerSec) + '/s';
 }
 
+function formatTimestamp(value: string | null | undefined): string {
+	if (!value) return '-';
+	const date = new Date(value);
+	if (Number.isNaN(date.getTime())) return '-';
+	return date.toLocaleTimeString(undefined, { hour12: false });
+}
+
 function formatEta(download: Download): string {
 	if (!download.speed_bytes_per_sec || download.speed_bytes_per_sec <= 0) return '-';
 	if (!download.total_bytes) return '-';
@@ -177,6 +211,7 @@ function createDownloadStore() {
 		formatBytes,
 		formatSpeed,
 		formatEta,
+		formatTimestamp,
 
 		// Initialize WebSocket handlers
 		initializeWebSocket(): void {

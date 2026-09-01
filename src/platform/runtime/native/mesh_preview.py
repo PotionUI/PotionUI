@@ -4,10 +4,13 @@ Pure-torch software rasterizer - no OpenGL/EGL/OSMesa context, so it runs
 anywhere the rest of the native engine does (including headless CPU-only
 workers). `trimesh` is not a project dependency yet, so loading sits behind a
 seam: use it when importable, otherwise fall back to a minimal glTF-binary
-parser that reads positions/indices/`COLOR_0`/`baseColorFactor` directly out
-of the container (same chunk-reading shape as `src.platform.filesystem.
-mesh_formats.probe_glb`). Textures, animations and skinning are intentionally
-not read - the goal is a shaded-geometry preview, not a faithful renderer.
+parser that reads positions/indices/`COLOR_0`/`TEXCOORD_0`/`baseColorFactor`/
+`baseColorTexture` directly out of the container (same chunk-reading shape as
+`src.platform.filesystem.mesh_formats.probe_glb`). `baseColorTexture` images
+are decoded with PIL (WebP included, via the `EXT_texture_webp` extension
+TRELLIS exports use) and sampled bilinearly per pixel. Animations and skinning
+are intentionally not read - the goal is a shaded-geometry preview, not a
+faithful renderer.
 """
 
 from __future__ import annotations
@@ -16,7 +19,7 @@ import io
 import json
 import math
 import struct
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
@@ -28,10 +31,13 @@ PREVIEW_SIZE = 512
 BACKGROUND_RGB = (12, 13, 15)
 
 #: A background job, not the generation hot path - but still bounded so one
-#: pathological asset cannot pin a worker indefinitely. Triangles beyond this
-#: are dropped by a fixed stride rather than randomly, so a render stays
+#: pathological asset cannot pin a worker indefinitely. Memory is bounded by
+#: CHUNK_TRIANGLES regardless; this cap only bounds render TIME, so it sits
+#: far above real generated meshes (TRELLIS pre-decimation ~0.5M faces) -
+#: stride-dropping below that leaves visible holes. Beyond it, triangles are
+#: dropped by a fixed stride rather than randomly, keeping a render
 #: deterministic for a given input.
-MAX_TRIANGLES = 200_000
+MAX_TRIANGLES = 2_000_000
 
 #: Triangles are rasterized in chunks rather than all vectorized at once - a
 #: fully vectorized batch across every triangle and the whole image would be
@@ -67,7 +73,11 @@ class MeshPreviewError(ValueError):
 class LoadedMesh:
     positions: torch.Tensor  # (N, 3) float32, object space
     faces: torch.Tensor  # (M, 3) int64, indices into positions
-    colors: torch.Tensor  # (N, 3) float32 in [0, 1]
+    colors: torch.Tensor  # (N, 3) float32 in [0, 1], used when a vertex has no texture
+    uvs: torch.Tensor = field(default_factory=lambda: torch.zeros((0, 2), dtype=torch.float32))
+    texture_ids: torch.Tensor = field(default_factory=lambda: torch.zeros((0,), dtype=torch.int64))
+    factors: torch.Tensor = field(default_factory=lambda: torch.zeros((0, 3), dtype=torch.float32))
+    textures: List[torch.Tensor] = field(default_factory=list)  # each (H, W, 3) float32 in [0, 1]
 
 
 # --- Public entry point -----------------------------------------------------
@@ -130,6 +140,10 @@ def _load_with_trimesh(data: bytes, trimesh_module: Any) -> Optional[LoadedMesh]
     positions: List[Tuple[float, float, float]] = []
     colors: List[Tuple[float, float, float]] = []
     faces: List[Tuple[int, int, int]] = []
+    uvs: List[Tuple[float, float]] = []
+    texture_ids: List[int] = []
+    factors: List[Tuple[float, float, float]] = []
+    textures: List[torch.Tensor] = []
 
     for geometry in geometries:
         vertices = getattr(geometry, "vertices", None)
@@ -138,7 +152,10 @@ def _load_with_trimesh(data: bytes, trimesh_module: Any) -> Optional[LoadedMesh]
             continue
 
         base_color = _DEFAULT_COLOR
+        base_factor = (1.0, 1.0, 1.0)
         vertex_colors = None
+        texture_image: Optional[torch.Tensor] = None
+        uv_attr = None
         visual = getattr(geometry, "visual", None)
         if visual is not None:
             vc = getattr(visual, "vertex_colors", None)
@@ -148,13 +165,41 @@ def _load_with_trimesh(data: bytes, trimesh_module: Any) -> Optional[LoadedMesh]
                 material = getattr(visual, "material", None)
                 factor = getattr(material, "baseColorFactor", None) if material is not None else None
                 if factor is not None and len(factor) >= 3:
-                    base_color = tuple(float(c) for c in factor[:3])
+                    base_color = tuple(float(c) / 255.0 for c in factor[:3])
+                    base_factor = base_color
+
+                pil_texture = getattr(material, "baseColorTexture", None) if material is not None else None
+                uv = getattr(visual, "uv", None)
+                if pil_texture is not None and uv is not None and len(uv) == len(vertices):
+                    try:
+                        rgb = pil_texture.convert("RGB")
+                        raw = torch.frombuffer(bytearray(rgb.tobytes()), dtype=torch.uint8)
+                        texture_image = raw.view(rgb.height, rgb.width, 3).to(torch.float32) / 255.0
+                        uv_attr = uv
+                    except Exception:
+                        texture_image = None
+
+        texture_slot = -1
+        if texture_image is not None and uv_attr is not None:
+            textures.append(texture_image)
+            texture_slot = len(textures) - 1
 
         offset = len(positions)
         for vertex in vertices:
             positions.append((float(vertex[0]), float(vertex[1]), float(vertex[2])))
         for i in range(len(vertices)):
             colors.append(vertex_colors[i] if vertex_colors else base_color)
+            if texture_slot >= 0:
+                # trimesh flips TEXCOORD_0's V on load (glTF top-left origin
+                # -> its own bottom-left convention) - undo that so it lines
+                # up with `_sample_texture_bilinear`'s glTF-space convention.
+                uvs.append((float(uv_attr[i][0]), 1.0 - float(uv_attr[i][1])))
+                texture_ids.append(texture_slot)
+                factors.append(base_factor)
+            else:
+                uvs.append((0.0, 0.0))
+                texture_ids.append(-1)
+                factors.append((1.0, 1.0, 1.0))
         for tri in triangles:
             faces.append((int(tri[0]) + offset, int(tri[1]) + offset, int(tri[2]) + offset))
 
@@ -165,6 +210,10 @@ def _load_with_trimesh(data: bytes, trimesh_module: Any) -> Optional[LoadedMesh]
         positions=torch.tensor(positions, dtype=torch.float32),
         faces=torch.tensor(faces, dtype=torch.int64),
         colors=torch.tensor(colors, dtype=torch.float32).clamp(0.0, 1.0),
+        uvs=torch.tensor(uvs, dtype=torch.float32),
+        texture_ids=torch.tensor(texture_ids, dtype=torch.int64),
+        factors=torch.tensor(factors, dtype=torch.float32).clamp(0.0, 1.0),
+        textures=textures,
     )
 
 
@@ -266,6 +315,60 @@ def _read_accessor(
             values = [max(v / 32767.0, -1.0) for v in values]
 
     return values, num_components, count
+
+
+def _decode_base_color_texture(
+    document: dict, bin_data: bytes, material: dict, cache: Dict[int, Optional[torch.Tensor]]
+) -> Optional[torch.Tensor]:
+    """The `baseColorTexture` image as an (H, W, 3) float32 tensor in [0, 1],
+    or None if the material has none / it cannot be decoded. `EXT_texture_webp`
+    (TRELLIS's export path) is resolved alongside the plain `source` field -
+    the base glTF spec has no native WebP mimeType, so a WebP image only ever
+    arrives via that extension."""
+    pbr = material.get("pbrMetallicRoughness")
+    texture_info = (pbr or {}).get("baseColorTexture") if isinstance(pbr, dict) else None
+    texture_index = texture_info.get("index") if isinstance(texture_info, dict) else None
+    if not isinstance(texture_index, int):
+        return None
+
+    textures = document.get("textures") or []
+    if not (0 <= texture_index < len(textures)):
+        return None
+    if texture_index in cache:
+        return cache[texture_index]
+
+    texture = textures[texture_index]
+    image_index = texture.get("source") if isinstance(texture, dict) else None
+    if not isinstance(image_index, int):
+        extensions = texture.get("extensions") if isinstance(texture, dict) else None
+        webp_ext = (extensions or {}).get("EXT_texture_webp") if isinstance(extensions, dict) else None
+        image_index = webp_ext.get("source") if isinstance(webp_ext, dict) else None
+
+    result: Optional[torch.Tensor] = None
+    images = document.get("images") or []
+    if isinstance(image_index, int) and 0 <= image_index < len(images):
+        image_entry = images[image_index]
+        bv_index = image_entry.get("bufferView") if isinstance(image_entry, dict) else None
+        buffer_views = document.get("bufferViews") or []
+        if isinstance(bv_index, int) and 0 <= bv_index < len(buffer_views):
+            buffer_view = buffer_views[bv_index]
+            if isinstance(buffer_view, dict):
+                start = buffer_view.get("byteOffset", 0)
+                length = buffer_view.get("byteLength", 0)
+                payload = bin_data[start:start + length]
+                if len(payload) == length and length > 0:
+                    try:
+                        with Image.open(io.BytesIO(payload)) as pil_image:
+                            rgb = pil_image.convert("RGB")
+                            array = torch.frombuffer(bytearray(rgb.tobytes()), dtype=torch.uint8)
+                            result = (
+                                array.view(rgb.height, rgb.width, 3).to(torch.float32) / 255.0
+                            )
+                    except Exception:
+                        result = None
+
+    cache[texture_index] = result
+    return result
 
 
 Matrix4 = List[List[float]]
@@ -377,6 +480,11 @@ def _build_mesh(document: dict, bin_data: bytes) -> Optional[LoadedMesh]:
     positions: List[Tuple[float, float, float]] = []
     colors: List[Tuple[float, float, float]] = []
     faces: List[Tuple[int, int, int]] = []
+    uvs: List[Tuple[float, float]] = []
+    texture_ids: List[int] = []
+    factors: List[Tuple[float, float, float]] = []
+    textures: List[torch.Tensor] = []
+    texture_cache: Dict[int, Optional[torch.Tensor]] = {}
 
     for mesh_index, matrix in _collect_mesh_instances(document):
         if not (0 <= mesh_index < len(meshes)):
@@ -421,19 +529,45 @@ def _build_mesh(document: dict, bin_data: bytes) -> Optional[LoadedMesh]:
                     ]
 
             base_color = _DEFAULT_COLOR
+            base_factor = (1.0, 1.0, 1.0)
+            texture_image = None
             material_index = primitive.get("material")
             if isinstance(material_index, int) and 0 <= material_index < len(materials):
                 material = materials[material_index]
-                pbr = (material or {}).get("pbrMetallicRoughness") if isinstance(material, dict) else None
-                factor = (pbr or {}).get("baseColorFactor") if isinstance(pbr, dict) else None
-                if isinstance(factor, list) and len(factor) >= 3:
-                    base_color = tuple(float(c) for c in factor[:3])
+                if isinstance(material, dict):
+                    pbr = material.get("pbrMetallicRoughness")
+                    factor = (pbr or {}).get("baseColorFactor") if isinstance(pbr, dict) else None
+                    if isinstance(factor, list) and len(factor) >= 3:
+                        base_color = tuple(float(c) for c in factor[:3])
+                        base_factor = base_color
+                    texture_image = _decode_base_color_texture(document, bin_data, material, texture_cache)
+
+            uv_values = None
+            if texture_image is not None:
+                uv_result = _read_accessor(document, bin_data, attributes.get("TEXCOORD_0"))
+                if uv_result is not None:
+                    uv_vals, uv_components, uv_count = uv_result
+                    if uv_count == pos_count and uv_components == 2:
+                        uv_values = uv_vals
+
+            texture_slot = -1
+            if texture_image is not None and uv_values is not None:
+                textures.append(texture_image)
+                texture_slot = len(textures) - 1
 
             vertex_offset = len(positions)
             for i in range(pos_count):
                 x, y, z = pos_values[i * 3: i * 3 + 3]
                 positions.append(_apply_matrix(matrix, x, y, z))
                 colors.append(vertex_colors[i] if vertex_colors else base_color)
+                if texture_slot >= 0:
+                    uvs.append((uv_values[i * 2], uv_values[i * 2 + 1]))
+                    texture_ids.append(texture_slot)
+                    factors.append(base_factor)
+                else:
+                    uvs.append((0.0, 0.0))
+                    texture_ids.append(-1)
+                    factors.append((1.0, 1.0, 1.0))
 
             for t in range(0, len(indices) - 2, 3):
                 a, b, c = indices[t], indices[t + 1], indices[t + 2]
@@ -448,6 +582,10 @@ def _build_mesh(document: dict, bin_data: bytes) -> Optional[LoadedMesh]:
         positions=torch.tensor(positions, dtype=torch.float32),
         faces=torch.tensor(faces, dtype=torch.int64),
         colors=torch.tensor(colors, dtype=torch.float32).clamp(0.0, 1.0),
+        uvs=torch.tensor(uvs, dtype=torch.float32),
+        texture_ids=torch.tensor(texture_ids, dtype=torch.int64),
+        factors=torch.tensor(factors, dtype=torch.float32).clamp(0.0, 1.0),
+        textures=textures,
     )
 
 
@@ -464,6 +602,24 @@ def _rasterize_mesh(mesh: LoadedMesh, canvas: torch.Tensor, size: int, device: s
     )
     colors = mesh.colors.to(device=device, dtype=torch.float32).clamp(0.0, 1.0)
     faces = mesh.faces.to(device=device, dtype=torch.int64)
+
+    # Per-vertex texture data is only trustworthy when it was actually built
+    # alongside `positions` (both loaders do this, but a `LoadedMesh` built
+    # by hand - e.g. a test - may not) - fall back to "no vertex has a
+    # texture" rather than indexing with a mismatched-length tensor.
+    has_texture_data = (
+        mesh.texture_ids.shape[0] == positions.shape[0] and positions.shape[0] > 0
+    )
+    if has_texture_data:
+        vertex_texture_id = mesh.texture_ids.to(device=device, dtype=torch.int64)
+        vertex_uv = mesh.uvs.to(device=device, dtype=torch.float32)
+        vertex_factor = mesh.factors.to(device=device, dtype=torch.float32)
+        textures = [t.to(device=device, dtype=torch.float32) for t in mesh.textures]
+    else:
+        vertex_texture_id = torch.full((positions.shape[0],), -1, dtype=torch.int64, device=device)
+        vertex_uv = torch.zeros((positions.shape[0], 2), dtype=torch.float32, device=device)
+        vertex_factor = torch.ones((positions.shape[0], 3), dtype=torch.float32, device=device)
+        textures = []
 
     if faces.shape[0] > MAX_TRIANGLES:
         stride = math.ceil(faces.shape[0] / MAX_TRIANGLES)
@@ -515,6 +671,13 @@ def _rasterize_mesh(mesh: LoadedMesh, canvas: torch.Tensor, size: int, device: s
     tri_color = torch.stack([colors[v0], colors[v1], colors[v2]], dim=1)
     shaded = (tri_color * lambert.view(-1, 1, 1) + rim.view(-1, 1, 1)).clamp(0.0, 1.0)
 
+    # A face's texture comes from its first vertex - all three vertices of a
+    # triangle are always emitted from the same primitive by the loaders
+    # above, so they agree on which texture (if any) applies.
+    face_texture_id = vertex_texture_id[v0]
+    tri_uv = torch.stack([vertex_uv[v0], vertex_uv[v1], vertex_uv[v2]], dim=1)
+    face_factor = vertex_factor[v0]
+
     depth_buf = torch.full((size, size), float("inf"), dtype=torch.float32, device=device)
     color_buf = canvas.clone()
 
@@ -522,12 +685,45 @@ def _rasterize_mesh(mesh: LoadedMesh, canvas: torch.Tensor, size: int, device: s
     for start in range(0, num_faces, CHUNK_TRIANGLES):
         end = min(start + CHUNK_TRIANGLES, num_faces)
         for f in range(start, end):
+            texture_ctx = None
+            tex_id = int(face_texture_id[f])
+            if 0 <= tex_id < len(textures):
+                texture_ctx = (tri_uv[f], textures[tex_id], face_factor[f], float(lambert[f]), float(rim[f]))
             _rasterize_triangle(
                 color_buf, depth_buf, size,
                 tri_screen_x[f], tri_screen_y[f], tri_depth[f], shaded[f],
+                texture_ctx,
             )
 
     return _to_png_bytes(color_buf.cpu())
+
+
+def _sample_texture_bilinear(image: torch.Tensor, u: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
+    """Bilinear-sample an (H, W, 3) float32 texture at (u, v) in glTF texture
+    space - (0, 0) is the image's top-left corner, matching row-major image
+    storage, so no vertical flip is needed. Wraps (REPEAT), matching the
+    glTF default sampler when a primitive declares none."""
+    h, w = image.shape[0], image.shape[1]
+    uu = u - torch.floor(u)
+    vv = v - torch.floor(v)
+    x = uu * w - 0.5
+    y = vv * h - 0.5
+    x0 = torch.floor(x)
+    y0 = torch.floor(y)
+    fx = (x - x0).unsqueeze(-1)
+    fy = (y - y0).unsqueeze(-1)
+    x0i = torch.remainder(x0, w).long()
+    x1i = torch.remainder(x0 + 1, w).long()
+    y0i = torch.remainder(y0, h).long()
+    y1i = torch.remainder(y0 + 1, h).long()
+
+    c00 = image[y0i, x0i]
+    c10 = image[y0i, x1i]
+    c01 = image[y1i, x0i]
+    c11 = image[y1i, x1i]
+    top = c00 * (1.0 - fx) + c10 * fx
+    bottom = c01 * (1.0 - fx) + c11 * fx
+    return top * (1.0 - fy) + bottom * fy
 
 
 def _rasterize_triangle(
@@ -538,6 +734,7 @@ def _rasterize_triangle(
     sy: torch.Tensor,
     sz: torch.Tensor,
     col: torch.Tensor,
+    texture_ctx: Optional[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, float, float]] = None,
 ) -> None:
     x0, x1, x2 = sx.tolist()
     y0, y1, y2 = sy.tolist()
@@ -572,10 +769,19 @@ def _rasterize_triangle(
     if not bool(closer.any()):
         return
 
-    col0, col1, col2 = col[0], col[1], col[2]
-    r = w0 * col0[0] + w1 * col1[0] + w2 * col2[0]
-    g = w0 * col0[1] + w1 * col1[1] + w2 * col2[1]
-    b = w0 * col0[2] + w1 * col1[2] + w2 * col2[2]
+    if texture_ctx is not None:
+        uv, image, factor, lambert, rim = texture_ctx
+        u = w0 * uv[0][0] + w1 * uv[1][0] + w2 * uv[2][0]
+        v = w0 * uv[0][1] + w1 * uv[1][1] + w2 * uv[2][1]
+        sample = _sample_texture_bilinear(image, u, v)
+        r = sample[..., 0] * factor[0] * lambert + rim
+        g = sample[..., 1] * factor[1] * lambert + rim
+        b = sample[..., 2] * factor[2] * lambert + rim
+    else:
+        col0, col1, col2 = col[0], col[1], col[2]
+        r = w0 * col0[0] + w1 * col1[0] + w2 * col2[0]
+        g = w0 * col0[1] + w1 * col1[1] + w2 * col2[1]
+        b = w0 * col0[2] + w1 * col1[2] + w2 * col2[2]
 
     region_depth[closer] = tri_depth[closer]
     region_color = color_buf[min_y:max_y + 1, min_x:max_x + 1, :]

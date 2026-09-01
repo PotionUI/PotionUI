@@ -104,9 +104,176 @@ def build_cube_glb(color: "tuple[float, float, float, float] | None" = (1.0, 0.2
     return header + body
 
 
+def build_inward_cube_glb(color: "tuple[float, float, float, float] | None" = (1.0, 0.2, 0.2, 1.0)) -> bytes:
+    """Same cube as `build_cube_glb`, every triangle's winding reversed - the
+    TRELLIS dual-grid export produces inward-facing normals intrinsically, so
+    a preview that isn't honestly double-sided renders this shape black."""
+    verts = [
+        (-1, -1, -1), (1, -1, -1), (1, 1, -1), (-1, 1, -1),
+        (-1, -1, 1), (1, -1, 1), (1, 1, 1), (-1, 1, 1),
+    ]
+    faces = [
+        (0, 2, 1), (0, 3, 2),
+        (4, 5, 6), (4, 6, 7),
+        (0, 5, 4), (0, 1, 5),
+        (3, 6, 2), (3, 7, 6),
+        (0, 7, 3), (0, 4, 7),
+        (1, 6, 5), (1, 2, 6),
+    ]
+
+    positions = struct.pack(f"<{len(verts) * 3}f", *[c for v in verts for c in v])
+    indices = struct.pack(f"<{len(faces) * 3}H", *[i for f in faces for i in f])
+    binary = _pad(positions) + _pad(indices)
+    positions_padded = _pad(positions)
+
+    material = None
+    if color is not None:
+        material = {"pbrMetallicRoughness": {"baseColorFactor": list(color)}}
+
+    document = {
+        "asset": {"version": "2.0"},
+        "scene": 0,
+        "scenes": [{"nodes": [0]}],
+        "nodes": [{"mesh": 0}],
+        "meshes": [{
+            "primitives": [{
+                "attributes": {"POSITION": 0},
+                "indices": 1,
+                **({"material": 0} if material else {}),
+            }],
+        }],
+        "materials": [material] if material else [],
+        "accessors": [
+            {
+                "bufferView": 0, "componentType": _COMPONENT_TYPE_FLOAT,
+                "count": len(verts), "type": "VEC3",
+                "min": [-1.0, -1.0, -1.0], "max": [1.0, 1.0, 1.0],
+            },
+            {
+                "bufferView": 1, "componentType": _COMPONENT_TYPE_UNSIGNED_SHORT,
+                "count": len(faces) * 3, "type": "SCALAR",
+            },
+        ],
+        "bufferViews": [
+            {"buffer": 0, "byteOffset": 0, "byteLength": len(positions)},
+            {"buffer": 0, "byteOffset": len(positions_padded), "byteLength": len(indices)},
+        ],
+        "buffers": [{"byteLength": len(binary)}],
+    }
+
+    json_chunk = _pad(json.dumps(document, separators=(",", ":")).encode("utf-8"), b" ")
+    body = (
+        struct.pack("<II", len(json_chunk), _CHUNK_TYPE_JSON) + json_chunk
+        + struct.pack("<II", len(binary), _CHUNK_TYPE_BIN) + binary
+    )
+    header = b"glTF" + struct.pack("<II", 2, 12 + len(body))
+    return header + body
+
+
+def build_textured_quad_glb() -> bytes:
+    """A single quad (2 triangles, 4 vertices) with a 2x2 lossless-WebP
+    texture behind `EXT_texture_webp` - the same texture-delivery shape as a
+    real TRELLIS export - and UVs that put one distinct color at each vertex."""
+    verts = [(-1.0, -1.0, 0.0), (1.0, -1.0, 0.0), (1.0, 1.0, 0.0), (-1.0, 1.0, 0.0)]
+    faces = [(0, 1, 2), (0, 2, 3)]
+    # glTF UV origin is the image's top-left corner.
+    uv = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
+
+    texture = Image.new("RGB", (2, 2))
+    texture.putpixel((0, 0), (255, 0, 0))
+    texture.putpixel((1, 0), (0, 255, 0))
+    texture.putpixel((1, 1), (0, 0, 255))
+    texture.putpixel((0, 1), (255, 255, 0))
+    webp_buf = io.BytesIO()
+    texture.save(webp_buf, format="WEBP", lossless=True)
+    webp_bytes = webp_buf.getvalue()
+
+    positions = struct.pack(f"<{len(verts) * 3}f", *[c for v in verts for c in v])
+    indices = struct.pack(f"<{len(faces) * 3}H", *[i for f in faces for i in f])
+    uvs_packed = struct.pack(f"<{len(uv) * 2}f", *[c for p in uv for c in p])
+
+    positions_padded = _pad(positions)
+    indices_padded = _pad(indices)
+    uvs_padded = _pad(uvs_packed)
+    webp_padded = _pad(webp_bytes)
+    binary = positions_padded + indices_padded + uvs_padded + webp_padded
+
+    document = {
+        "asset": {"version": "2.0"},
+        "scene": 0,
+        "scenes": [{"nodes": [0]}],
+        "nodes": [{"mesh": 0}],
+        "meshes": [{
+            "primitives": [{
+                "attributes": {"POSITION": 0, "TEXCOORD_0": 2},
+                "indices": 1,
+                "material": 0,
+            }],
+        }],
+        "materials": [{
+            "pbrMetallicRoughness": {
+                "baseColorTexture": {"index": 0},
+                "baseColorFactor": [1.0, 1.0, 1.0, 1.0],
+            },
+        }],
+        "textures": [{"extensions": {"EXT_texture_webp": {"source": 0}}}],
+        "images": [{"bufferView": 3, "mimeType": "image/webp"}],
+        "accessors": [
+            {
+                "bufferView": 0, "componentType": _COMPONENT_TYPE_FLOAT,
+                "count": len(verts), "type": "VEC3",
+                "min": [-1.0, -1.0, 0.0], "max": [1.0, 1.0, 0.0],
+            },
+            {
+                "bufferView": 1, "componentType": _COMPONENT_TYPE_UNSIGNED_SHORT,
+                "count": len(faces) * 3, "type": "SCALAR",
+            },
+            {
+                "bufferView": 2, "componentType": _COMPONENT_TYPE_FLOAT,
+                "count": len(uv), "type": "VEC2",
+            },
+        ],
+        "bufferViews": [
+            {"buffer": 0, "byteOffset": 0, "byteLength": len(positions)},
+            {"buffer": 0, "byteOffset": len(positions_padded), "byteLength": len(indices)},
+            {
+                "buffer": 0, "byteOffset": len(positions_padded) + len(indices_padded),
+                "byteLength": len(uvs_packed),
+            },
+            {
+                "buffer": 0,
+                "byteOffset": len(positions_padded) + len(indices_padded) + len(uvs_padded),
+                "byteLength": len(webp_bytes),
+            },
+        ],
+        "buffers": [{"byteLength": len(binary)}],
+    }
+
+    json_chunk = _pad(json.dumps(document, separators=(",", ":")).encode("utf-8"), b" ")
+    body = (
+        struct.pack("<II", len(json_chunk), _CHUNK_TYPE_JSON) + json_chunk
+        + struct.pack("<II", len(binary), _CHUNK_TYPE_BIN) + binary
+    )
+    header = b"glTF" + struct.pack("<II", 2, 12 + len(body))
+    return header + body
+
+
 def _pixels(png_bytes: bytes):
     image = Image.open(io.BytesIO(png_bytes)).convert("RGB")
     return image
+
+
+def _foreground_pixels(png_bytes: bytes):
+    image = _pixels(png_bytes)
+    pixels = image.load()
+    bg = BACKGROUND_RGB
+    out = []
+    for y in range(image.height):
+        for x in range(image.width):
+            p = pixels[x, y]
+            if p != bg:
+                out.append(p)
+    return out
 
 
 class TestSingleTriangle:
@@ -238,3 +405,85 @@ class TestMinimalParserSourceSelection:
         mesh = load_glb(build_minimal_glb())
         assert mesh is not None
         assert mesh.faces.shape == (TRIANGLE_FACE_COUNT, 3)
+
+
+@pytest.fixture
+def no_trimesh(monkeypatch):
+    """Forces the minimal-parser loading path regardless of whether
+    `trimesh` happens to be importable in the environment this test runs
+    in."""
+    import builtins
+
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "trimesh":
+            raise ImportError("no trimesh in this environment")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+
+class TestDoubleSidedShading:
+    """TRELLIS's dual-grid export produces inward-facing triangle winding
+    intrinsically - a preview that lights a triangle by `max(0, n.l)` instead
+    of `abs(n.l)` renders it black because every normal faces away from the
+    camera-headlight. Flipping every face's winding must not change the
+    render at all: the shading term already only depends on how face-on a
+    triangle is, not which way it points."""
+
+    def test_inward_winding_renders_identically_to_outward(self):
+        outward = render_mesh_preview(build_cube_glb())
+        inward = render_mesh_preview(build_inward_cube_glb())
+        assert outward == inward
+
+    def test_inward_winding_still_produces_lit_pixels(self):
+        png = render_mesh_preview(build_inward_cube_glb())
+        image = _pixels(png)
+        foreground = _foreground_pixels(png)
+        assert foreground, "inward-wound cube produced no visible pixels"
+        # Every foreground pixel should show real shading, not the flat rim
+        # sliver a `max(0, n.l)` regression would leave behind.
+        coverage = len(foreground) / (image.width * image.height)
+        assert coverage > 0.05
+
+
+class TestTexturedMesh:
+    """`baseColorTexture` (WebP behind `EXT_texture_webp`, as TRELLIS exports
+    it) must be sampled into the render - without it every triangle falls
+    back to a flat, colorless `baseColorFactor`."""
+
+    def _assert_multiple_hues_present(self, png: bytes) -> None:
+        foreground = _foreground_pixels(png)
+        assert foreground, "textured quad produced no visible pixels"
+
+        def dominant(p):
+            r, g, b = p
+            if r > g + 20 and r > b + 20:
+                return "red"
+            if g > r + 20 and g > b + 20:
+                return "green"
+            if b > r + 20 and b > g + 20:
+                return "blue"
+            if r > b + 20 and g > b + 20 and abs(int(r) - int(g)) < 30:
+                return "yellow"
+            return None
+
+        hues = {dominant(p) for p in foreground} - {None}
+        assert len(hues) >= 3, f"expected multiple distinct texture hues, saw {hues}"
+
+        spreads = [max(p) - min(p) for p in foreground]
+        assert sum(1 for s in spreads if s > 10) / len(spreads) > 0.3
+
+    def test_texture_colors_appear_via_live_loader(self):
+        png = render_mesh_preview(build_textured_quad_glb())
+        self._assert_multiple_hues_present(png)
+
+    def test_texture_colors_appear_via_minimal_parser(self, no_trimesh):
+        png = render_mesh_preview(build_textured_quad_glb())
+        self._assert_multiple_hues_present(png)
+
+    def test_missing_texture_falls_back_to_flat_base_color(self):
+        mesh = load_glb(build_cube_glb(color=(0.0, 1.0, 0.0, 1.0)))
+        assert mesh is not None
+        assert mesh.colors[0].tolist() == pytest.approx([0.0, 1.0, 0.0], abs=1e-5)

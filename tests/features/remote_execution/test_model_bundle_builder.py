@@ -28,15 +28,27 @@ class FakeModelRepository:
 
     def __init__(self):
         self.rows: Dict[str, dict] = {}
+        self.identity_rows: Dict[tuple, dict] = {}
         self.lookups: list = []
         self.digest_writes: list = []
 
     def register(self, file_path: str, **fields) -> None:
         self.rows[file_path] = {"file_path": file_path, **fields}
 
+    def register_identity(self, model_type: str, filename: str, **fields) -> None:
+        self.identity_rows[(model_type, filename)] = {
+            "model_type": model_type, "filename": filename, "file_path": None, **fields,
+        }
+
     def get_by_file_path(self, file_path: str, include_providers: bool = True) -> Optional[Model]:
         self.lookups.append(file_path)
         fields = self.rows.get(file_path)
+        return Model(**fields) if fields is not None else None
+
+    def get_by_identity(
+        self, model_type: str, filename: str, include_providers: bool = True
+    ) -> Optional[Model]:
+        fields = self.identity_rows.get((model_type, filename))
         return Model(**fields) if fields is not None else None
 
     def update_digest(self, model_id: str, *, sha256: str, file_size: int) -> bool:
@@ -155,6 +167,55 @@ class TestMissingDigest(unittest.TestCase):
         with self.assertRaises(ModelBundleResolutionError) as ctx:
             build_model_bundle([pipe], model_repository=repo)
         self.assertIn("not indexed", str(ctx.exception))
+
+    def test_a_remote_only_model_resolves_by_identity_from_its_depot_relative_path(self):
+        repo = FakeModelRepository()
+        repo.register_identity(
+            "diffusion_model", "anima_aesthetic_1_1.safetensors",
+            id="m-remote", sha256="b" * 64, file_size=5600,
+        )
+        pipe = _pipe("p1", {
+            "diffusion_model": {"file_path": "diffusion_models/anima_aesthetic_1_1.safetensors"}
+        })
+
+        bundle = build_model_bundle([pipe], model_repository=repo)
+
+        self.assertEqual(len(bundle.entries), 1)
+        entry = bundle.entries[0]
+        self.assertEqual(entry.logical_id, "diffusion_model/anima_aesthetic_1_1.safetensors")
+        self.assertEqual(entry.relative_path, "diffusion_models/anima_aesthetic_1_1.safetensors")
+        self.assertEqual(entry.digest.hex, "b" * 64)
+        self.assertEqual(repo.digest_writes, [])
+
+    def test_a_locally_indexed_model_referenced_by_its_remote_depot_ref_resolves_by_identity(self):
+        repo = FakeModelRepository()
+        repo.register_identity(
+            "diffusion_model", "anima_aesthetic_1_1.safetensors",
+            id="m-local", file_path="/srv/models/diffusion_models/anima_aesthetic_1_1.safetensors",
+            sha256="c" * 64, file_size=5600,
+        )
+        pipe = _pipe("p1", {
+            "diffusion_model": {"file_path": "diffusion_models/anima_aesthetic_1_1.safetensors"}
+        })
+
+        bundle = build_model_bundle([pipe], model_repository=repo)
+
+        self.assertEqual(len(bundle.entries), 1)
+        self.assertEqual(bundle.entries[0].digest.hex, "c" * 64)
+
+    def test_a_remote_only_model_without_a_digest_refuses_with_a_named_remedy(self):
+        repo = FakeModelRepository()
+        repo.register_identity(
+            "diffusion_model", "dropped_via_ssh.safetensors",
+            id="m-ssh", sha256=None, file_size=None,
+        )
+        pipe = _pipe("p1", {
+            "diffusion_model": {"file_path": "diffusion_models/dropped_via_ssh.safetensors"}
+        })
+
+        with self.assertRaises(ModelBundleResolutionError) as ctx:
+            build_model_bundle([pipe], model_repository=repo)
+        self.assertIn("no local file to hash", str(ctx.exception))
 
     def test_a_missing_digest_is_hashed_and_persisted_and_dispatch_proceeds(self):
         fd, path = tempfile.mkstemp()

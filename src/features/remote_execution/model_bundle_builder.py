@@ -23,7 +23,7 @@ from typing import Any, Dict, Iterable, Iterator, Optional, Sequence, Tuple
 from src.features.models.records import Model
 from src.features.models.repository import ModelRepository
 from src.features.models.repository import model_repo as _default_model_repo
-from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY
+from src.platform.filesystem.model_types import DIRECTORY_TO_MODEL_TYPE, MODEL_TYPE_TO_DIRECTORY
 from src.platform.worker_protocol import (
     ContentDigest,
     ModelBundleEntryV1,
@@ -116,11 +116,30 @@ def _is_disabled(entry: Dict[str, Any]) -> bool:
 def _entry_for(file_path: str, repo: ModelRepository) -> ModelBundleEntryV1:
     model: Optional[Model] = repo.get_by_file_path(file_path, include_providers=False)
     if model is None:
+        model = _by_identity(file_path, repo)
+    if model is None:
         raise ModelBundleResolutionError(
             f"Pipeline references model file {file_path!r}, which is not indexed. "
             "Re-index its location before dispatching to a remote worker."
         )
     return resolve_bundle_entry(model, repo)
+
+
+def _by_identity(file_path: str, repo: ModelRepository) -> Optional[Model]:
+    """When the executing backend is remote, `resolve_form_model_refs` writes
+    that backend's availability ref - the depot-relative
+    `{type_directory}/{filename}` - which never equals the row's local
+    `file_path` (and a remote-only row has none at all). Both reduce to the
+    `(model_type, filename)` identity the catalog is keyed on."""
+    parts = file_path.replace("\\", "/").strip("/").split("/")
+    if len(parts) == 3 and parts[0] == "models":
+        parts = parts[1:]
+    if len(parts) != 2:
+        return None
+    model_type = DIRECTORY_TO_MODEL_TYPE.get(parts[0])
+    if model_type is None:
+        return None
+    return repo.get_by_identity(model_type, parts[1], include_providers=False)
 
 
 def resolve_bundle_entry(model: Model, repo: ModelRepository) -> ModelBundleEntryV1:
@@ -135,6 +154,12 @@ def resolve_bundle_entry(model: Model, repo: ModelRepository) -> ModelBundleEntr
             "entries, not a single-file digest."
         )
     if not model.sha256 or model.file_size is None:
+        if not model.file_path:
+            raise ModelBundleResolutionError(
+                f"Model {model.filename!r} has no recorded digest and no local file to hash "
+                "(it exists only on a remote worker). Re-fetch it via the Downloader, or "
+                "re-index the backend once the worker has a digest for it."
+            )
         model.sha256, model.file_size = _hash_and_persist(model, model.file_path, repo)
 
     role = model.model_type or "unknown"

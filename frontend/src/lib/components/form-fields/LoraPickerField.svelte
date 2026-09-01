@@ -717,14 +717,16 @@
 					class="inline-flex items-center gap-1 px-1.5 py-0.5 text-2xs rounded border bg-signal/10 text-signal border-signal/25"
 				>
 					{tag}
-					<button
-						type="button"
-						class="hover:opacity-70"
-						title="Remove filter"
-						on:click={() => removeTagFilter(index)}
-					>
-						<Icon name="close" className="w-2.5 h-2.5" />
-					</button>
+					<Tooltip text="Remove filter" position="top">
+						<button
+							type="button"
+							class="hover:opacity-70"
+							aria-label="Remove filter"
+							on:click={() => removeTagFilter(index)}
+						>
+							<Icon name="close" className="w-2.5 h-2.5" />
+						</button>
+					</Tooltip>
 				</span>
 			{/each}
 			{#if showTagInput}
@@ -1109,7 +1111,9 @@
 					placeholder={fieldConfig.placeholder || 'Search LoRAs...'}
 					class="input flex-1 text-sm py-1"
 				/>
-				<IconButton icon="close" label="Close search" size="sm" onclick={closeSearch} />
+				<Tooltip text="Close search" position="top">
+					<IconButton icon="close" label="Close search" size="sm" onclick={closeSearch} />
+				</Tooltip>
 			</div>
 
 			<div class="max-h-72 overflow-y-auto">

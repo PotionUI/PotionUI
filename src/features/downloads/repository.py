@@ -3,7 +3,6 @@ from typing import List, Optional, Dict, Tuple
 from datetime import datetime
 import json
 
-from src.platform.database.database import db
 from src.platform.util.ids import generate_ulid
 
 from src.features.downloads.models import Download, DownloadStatus, DownloadType
@@ -20,6 +19,7 @@ class DownloadRepository:
         if not download.created_at:
             download.created_at = datetime.now()
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO downloads (
@@ -59,6 +59,7 @@ class DownloadRepository:
 
     def get_by_id(self, download_id: str) -> Optional[Download]:
         """Get download by ID"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("SELECT * FROM downloads WHERE id = ?", (download_id,))
             row = cursor.fetchone()
@@ -106,6 +107,7 @@ class DownloadRepository:
             query += " LIMIT ? OFFSET ?"
             params.extend([limit, offset])
 
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(query, params)
             return [Download.from_row(row) for row in cursor.fetchall()]
@@ -140,6 +142,7 @@ class DownloadRepository:
         rows (`group_id IS NULL`) are considered; per-file children never
         carry `repo_id` themselves.
         """
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 """
@@ -155,6 +158,7 @@ class DownloadRepository:
 
     def get_children(self, group_id: str) -> List[Download]:
         """Get the child downloads of a grouped download, oldest first."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM downloads WHERE group_id = ? ORDER BY created_at ASC, id ASC",
@@ -164,6 +168,7 @@ class DownloadRepository:
 
     def update(self, download: Download) -> bool:
         """Update existing download"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 UPDATE downloads
@@ -205,6 +210,7 @@ class DownloadRepository:
         speed_bytes_per_sec: Optional[float] = None
     ) -> bool:
         """Update download progress"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 UPDATE downloads
@@ -215,6 +221,7 @@ class DownloadRepository:
 
     def update_total_bytes(self, download_id: str, total_bytes: Optional[int]) -> bool:
         """Update a download's known total size"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "UPDATE downloads SET total_bytes = ? WHERE id = ?",
@@ -229,6 +236,7 @@ class DownloadRepository:
         destination_path: str
     ) -> bool:
         """Update download filename and destination path"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 UPDATE downloads
@@ -244,6 +252,7 @@ class DownloadRepository:
         error_message: Optional[str] = None
     ) -> bool:
         """Update download status"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             if status == DownloadStatus.DOWNLOADING:
                 cursor.execute("""
@@ -269,6 +278,7 @@ class DownloadRepository:
         """Reset a terminal (failed/cancelled/completed) download back to
         pending for a re-fetch - clears bytes/progress/speed/error so a stale
         completed or cancelled row doesn't leak into the retried attempt."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 UPDATE downloads
@@ -280,6 +290,7 @@ class DownloadRepository:
 
     def increment_retry(self, download_id: str) -> int:
         """Increment retry count and return new count"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 UPDATE downloads
@@ -353,6 +364,7 @@ class DownloadRepository:
 
     def delete(self, download_id: str) -> bool:
         """Delete a download record (and any grouped children)."""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 "DELETE FROM downloads WHERE id = ? OR group_id = ?",
@@ -369,6 +381,7 @@ class DownloadRepository:
         return self._delete_top_level_by_status(DownloadStatus.CANCELLED)
 
     def _delete_top_level_by_status(self, status: DownloadStatus) -> int:
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 """
@@ -390,6 +403,7 @@ class DownloadRepository:
         if top_level_only:
             query += " WHERE group_id IS NULL"
         query += " GROUP BY status"
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(query)
             return {row['status']: row['count'] for row in cursor.fetchall()}
@@ -399,6 +413,7 @@ class DownloadRepository:
         query = "SELECT COUNT(*) as count FROM downloads"
         if top_level_only:
             query += " WHERE group_id IS NULL"
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(query)
             return cursor.fetchone()['count']

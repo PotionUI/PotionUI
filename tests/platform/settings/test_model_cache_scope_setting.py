@@ -42,13 +42,13 @@ def seeded_db():
     """A fresh isolated in-memory DB with the full baseline schema applied, so
     model_cache_scope is deterministically seeded.
 
-    Patches the ``db`` reference in BOTH the database module (for the freshly-
-    loaded migration) AND the setting repository module (which binds its own
-    ``db`` name at import), so writes and reads hit the same test DB.
+    Patches the ``db`` reference in the database module (for the freshly-
+    loaded migration); ``SettingRepository`` imports ``db`` at call time, so
+    it picks up the same patched reference without a module of its own to
+    patch.
     """
     test_database = ct.TestDatabase()
-    with patch("src.platform.database.database.db", test_database), \
-         patch("src.platform.settings.repository.db", test_database):
+    with patch("src.platform.database.database.db", test_database):
         _load("001_baseline", f"m001_{id(test_database)}").up()
         yield test_database
     test_database.close()

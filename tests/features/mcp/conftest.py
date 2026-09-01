@@ -17,7 +17,6 @@ def mcp_db():
     with patch("src.platform.database.database.db", test_database), \
          patch("src.platform.database.migration_runner.db", test_database), \
          patch("src.features.mcp.repository.db", test_database), \
-         patch("src.platform.settings.repository.db", test_database), \
          patch("src.features.users.repository.db", test_database), \
          patch("src.features.llm.tools.governance_repository.db", test_database):
         from src.platform.database.migration_runner import MigrationRunner

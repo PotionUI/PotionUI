@@ -30,8 +30,7 @@ def _load(stem: str, name: str):
 @pytest.fixture
 def storage_settings():
     test_database = ct.TestDatabase()
-    with patch("src.platform.database.database.db", test_database), \
-         patch("src.platform.settings.repository.db", test_database):
+    with patch("src.platform.database.database.db", test_database):
         _load("001_baseline", f"m001_{id(test_database)}").up()
         settings = Settings(SettingRepository())
         yield StorageSettings(settings)

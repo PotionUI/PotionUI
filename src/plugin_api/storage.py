@@ -12,7 +12,6 @@ settings.
 
 from src.features.plugins.repository import PluginRepository
 from src.platform.settings.repository import SettingRepository
-from src.platform.database.database import db
 from src.platform.settings.settings import Settings
 from src.platform.util.ids import generate_ulid
 
@@ -23,3 +22,14 @@ __all__ = [
     "db",
     "generate_ulid",
 ]
+
+
+def __getattr__(name):
+    """`db` is resolved on access, not bound here at import time - a plugin
+    importing this module before a test patches the process-default
+    `Database` singleton would otherwise keep the pre-patch reference for the
+    rest of the process."""
+    if name == "db":
+        from src.platform.database.database import db
+        return db
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

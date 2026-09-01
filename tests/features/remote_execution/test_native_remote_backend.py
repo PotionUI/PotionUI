@@ -345,7 +345,6 @@ class NativeRemoteBackendTestCase(unittest.TestCase):
             # repo's own module-bound db; unpatched it reaches the dev DB,
             # which only exists locally (CI: "no such table: tags").
             patch("src.features.tags.repository.db", self.db),
-            patch("src.platform.settings.repository.db", self.db),
             # os.getenv("POTIONUI_BUILD_ID") must read as unset so the "build"
             # fingerprint domain matches the worker's build_id=None below.
             patch.dict("os.environ", {"POTIONUI_BUILD_ID": ""}),

@@ -1,7 +1,6 @@
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
-from src.platform.database.database import db
 from src.platform.settings.records import Setting, UserSetting, SettingType, SettingValueType
 from src.platform.util.ids import generate_ulid
 
@@ -38,6 +37,7 @@ class SettingRepository:
 
     def get_setting_by_key(self, key: str) -> Optional[Setting]:
         """Get a setting by its key"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(f"""
                 SELECT {_SETTING_COLUMNS}
@@ -50,6 +50,7 @@ class SettingRepository:
 
     def get_setting_by_id(self, setting_id: str) -> Optional[Setting]:
         """Get a setting by its ID"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(f"""
                 SELECT {_SETTING_COLUMNS}
@@ -62,6 +63,7 @@ class SettingRepository:
 
     def get_all_settings(self, setting_type: Optional[SettingType] = None) -> List[Setting]:
         """Get all settings, optionally filtered by type"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             if setting_type:
                 cursor.execute(f"""
@@ -90,7 +92,8 @@ class SettingRepository:
         """Create a new setting"""
         setting_id = generate_ulid()
         now = datetime.utcnow()
-        
+
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 INSERT INTO settings (id, key, value, value_type, description, type, created_at, updated_at)
@@ -110,6 +113,7 @@ class SettingRepository:
 
     def update_setting_value(self, setting_id: str, value: str) -> bool:
         """Update a setting's value"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 UPDATE settings
@@ -120,6 +124,7 @@ class SettingRepository:
 
     def update_setting_value_by_key(self, key: str, value: str) -> bool:
         """Update a setting's value addressed by key"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 UPDATE settings
@@ -151,7 +156,8 @@ class SettingRepository:
         
         updates.append("updated_at = CURRENT_TIMESTAMP")
         params.append(setting_id)
-        
+
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(f"""
                 UPDATE settings
@@ -174,6 +180,7 @@ class SettingRepository:
         never leave earlier keys persisted while a later one fails.
         """
         now = datetime.utcnow()
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             for setting_id, value in system_updates:
                 cursor.execute(
@@ -204,6 +211,7 @@ class SettingRepository:
     # User Settings methods
     def get_user_setting(self, user_id: str, setting_id: str) -> Optional[UserSetting]:
         """Get a user's override for a specific setting"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(f"""
                 SELECT {_USER_SETTING_COLUMNS}
@@ -216,6 +224,7 @@ class SettingRepository:
 
     def get_user_settings(self, user_id: str) -> List[UserSetting]:
         """Get all user setting overrides for a user"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(f"""
                 SELECT {_USER_SETTING_COLUMNS}
@@ -233,6 +242,7 @@ class SettingRepository:
 
     def delete_user_setting(self, user_id: str, setting_id: str) -> bool:
         """Delete a user setting override"""
+        from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute("""
                 DELETE FROM user_settings

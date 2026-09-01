@@ -1,6 +1,7 @@
 import pytest
 from datetime import datetime
 from typing import Dict, Any
+from unittest.mock import patch
 
 from src.platform.settings.repository import SettingRepository
 from src.platform.settings.records import Setting, SettingType, SettingValueType
@@ -117,13 +118,35 @@ class TestSettingRepository:
         assert hasattr(repository, 'get_effective_settings')
 
     def test_mock_db_actually_isolates_this_repository(self, repository, mock_db):
-        # Regression: `settings/repository.py` binds `db` at its own top-level
-        # `from ... import db` - once anything (a prior test, collection
-        # itself) has imported that module once, patching `database.db`
-        # doesn't reach it: this module keeps its own frozen reference,
-        # writes-and-all, to whatever `db` was at that first import - the live
-        # `storage/db.sqlite` in a plain `pytest tests/` run. `mock_db` (see
-        # tests/conftest.py) now patches this module too; prove it took.
-        from src.platform.settings import repository as repo_module
+        # Regression: `settings/repository.py` used to bind `db` at its own
+        # top-level `from ... import db` - once anything (a prior test,
+        # collection itself) had imported that module once, patching
+        # `database.db` never reached it: the module kept its own frozen
+        # reference, writes-and-all, to whatever `db` was at that first
+        # import - the live `storage/db.sqlite` in a plain `pytest tests/`
+        # run. `db` is now imported at call time inside each method, so
+        # re-pointing `database.db` mid-test (as `mock_db` already did once,
+        # for the whole test) must be picked up on the very next call - not
+        # only on the first one after collection.
+        from tests.conftest import TestDatabase
+        from src.platform.database.migration_runner import MigrationRunner
 
-        assert repo_module.db is mock_db
+        second_db = TestDatabase()
+        with patch("src.platform.database.database.db", second_db), \
+             patch("src.platform.database.migration_runner.db", second_db):
+            MigrationRunner().run_migrations()
+
+        with patch("src.platform.database.database.db", second_db):
+            setting = repository.create_setting(
+                key="mock_db_isolation_probe",
+                value="probe",
+                value_type=SettingValueType.STRING,
+            )
+
+        with mock_db.get_cursor() as cursor:
+            cursor.execute("SELECT 1 FROM settings WHERE id = ?", (setting.id,))
+            assert cursor.fetchone() is None, "write leaked into the fixture's own db, not the re-pointed one"
+
+        with second_db.get_cursor() as cursor:
+            cursor.execute("SELECT 1 FROM settings WHERE id = ?", (setting.id,))
+            assert cursor.fetchone() is not None, "write did not land on the re-pointed db"

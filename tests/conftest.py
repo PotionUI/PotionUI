@@ -205,16 +205,11 @@ def mock_db():
 
     # Patch the database for the entire test duration. `database.db` and
     # `migration_runner.db` cover the two names that resolve `db` fresh on
-    # every call; `settings.repository.db` is a THIRD, separate name — that
-    # module binds `db` at its own top-level import (not deferred), so once
-    # anything has imported it (collection alone is enough), patching
-    # `database.db` never reaches it: SettingRepository keeps talking to
-    # whatever `db` was at that first import, live database included, for the
-    # rest of the process. Patched here too so `Settings`/
-    # `SettingRepository` under `mock_db` are actually isolated.
+    # every call. `SettingRepository` (and every other repository) imports
+    # `db` at call time, not at module top level, so patching these two names
+    # is enough to reach it.
     with patch('src.platform.database.database.db', test_database), \
-         patch('src.platform.database.migration_runner.db', test_database), \
-         patch('src.platform.settings.repository.db', test_database):
+         patch('src.platform.database.migration_runner.db', test_database):
         # Create a new migration manager instance with patched db
         from src.platform.database.migration_runner import MigrationRunner
         migration_runner = MigrationRunner()

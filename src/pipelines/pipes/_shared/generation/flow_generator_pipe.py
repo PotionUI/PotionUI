@@ -22,19 +22,22 @@ the ``_optional_float`` shift-parsing helper) live here.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import replace
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from PIL import Image
 
 from src.pipelines.outputs import ImageGenerationOutput, WarmStartGenerationOutput
 from src.platform.runtime.native.engine import Conditioning, NativeGenerator
+from src.platform.runtime.native.lora import LoraStepWindowHook
 from src.platform.runtime.native.memory import make_device_plan
 from src.pipelines.contracts import logger
 from src.pipelines.contracts import PipeConfigSpec, PipeInput
 from src.pipelines.outputs import Icon
 from src.pipelines.pipes._shared.generation.generator_base import BaseGeneratorPipe, GeneratorContext
 from src.pipelines.pipes._shared.generation.img2img import Img2ImgGeneratorMixin
+from src.pipelines.pipes._shared.generation.loader_helpers import load_windowed_lora_stack
 from src.pipelines.pipes._shared.generation.progress import ProgressEmitter, native_step_hooks
 
 # `spectral_progressive`'s only recognised sub-keys -- everything
@@ -214,6 +217,19 @@ class FlowMatchGeneratorPipe(Img2ImgGeneratorMixin, BaseGeneratorPipe):
         # resume metadata. Default off -> byte-identical to today.
         iterate_mode = bool(self.config.get("iterate_mode", False))
 
+        # LoRAs the loader deliberately left unapplied because they carry a step
+        # window; loaded once per process() and toggled per step by the
+        # LoraStepWindowHook that `generation_scope` installs.
+        windowed_loras = tuple(getattr(bundle, "windowed_loras", ()) or ())
+        lora_window_stack = load_windowed_lora_stack(list(windowed_loras)) if windowed_loras else []
+        if lora_window_stack and iterate_mode:
+            # Warm start resumes mid-trajectory on a TRUNCATED schedule, so the
+            # sampler's step indices restart at 0 and every window would fire at
+            # the wrong point in the run. Correctness beats the speedup.
+            logger.info("[%s] iterate mode disabled: a step-windowed LoRA needs the full step schedule",
+                        self.family_tag)
+            iterate_mode = False
+
         # Spectral Progressive Diffusion (opt-in prototype): a nested config
         # {scales, delta, basis, ...}. The engine gates it to eligible families
         # (4D image latents, txt2img); ineligible families no-op with a log.
@@ -254,6 +270,7 @@ class FlowMatchGeneratorPipe(Img2ImgGeneratorMixin, BaseGeneratorPipe):
                 "step_cache_options": step_cache_options,
                 "schedule_settings": schedule_settings,
                 "iterate_mode": iterate_mode,
+                "lora_window_stack": lora_window_stack,
                 "spectral_progressive": spectral_progressive,
                 "sampler": sampler,
                 "width": width,
@@ -261,6 +278,51 @@ class FlowMatchGeneratorPipe(Img2ImgGeneratorMixin, BaseGeneratorPipe):
                 **self.img2img_context(pipe_input),
             },
         )
+
+    # -- step-windowed LoRA -------------------------------------------------
+
+    def extra_step_hooks(self) -> Tuple[Any, ...]:
+        hook = getattr(self, "_lora_window_hook", None)
+        return (hook,) if hook is not None else ()
+
+    @contextmanager
+    def generation_scope(self, ctx: GeneratorContext, index: int) -> Iterator[None]:
+        """Install a :class:`LoraStepWindowHook` for ONE generated item.
+
+        The hook is fresh per item (it tracks which windows are currently
+        patched in) and is closed in a ``finally``, which is the whole
+        cache-safety guarantee: the DiT is shared through the MODELS cache, and
+        the sampler *swallows* hook exceptions, so neither ``on_end`` nor the
+        sampler returning normally can be trusted to have removed the patch. An
+        error, a cancellation, or a hook that failed mid-window all land here
+        and leave the model exactly as the loader left it.
+        """
+        stack = ctx.extra.get("lora_window_stack") or ()
+        if not stack:
+            yield
+            return
+        gen: NativeGenerator = ctx.extra["generator"]
+        hook = LoraStepWindowHook(gen.dit.module, stack)
+        self._lora_window_hook = hook
+        completed = False
+        try:
+            yield
+            completed = True
+        finally:
+            self._lora_window_hook = None
+            hook.close()
+        # The item finished, so the sampler ran — if it never started the hook,
+        # this pipe's sampling call did not forward extra_step_hooks() and the
+        # window was silently ignored. A LoRA the preset asked to switch off
+        # mid-run is not optional (leaving krea2-turbo-sda on for all 8 steps is
+        # a documented quality collapse), so say so rather than hand back a
+        # quietly wrong image.
+        if completed and not hook.started:
+            raise RuntimeError(
+                f"[{self.family_tag}] {len(stack)} step-windowed LoRA(s) were never applied: this "
+                f"generator's sampling call does not pass extra_step_hooks() to native_step_hooks(). "
+                f"Forward it, or drop step_start/step_end from the preset's LoRA entries."
+            )
 
     # -- per-seed generation ----------------------------------------------
 
@@ -304,7 +366,8 @@ class FlowMatchGeneratorPipe(Img2ImgGeneratorMixin, BaseGeneratorPipe):
             schedule_settings=ctx.extra.get("schedule_settings"),
             warm_start=ctx.extra.get("iterate_mode", False),
             spectral_progressive=ctx.extra.get("spectral_progressive"),
-            hooks=native_step_hooks(gen, progress, on_progress, preview=self.config.get("preview", True)),
+            hooks=native_step_hooks(gen, progress, on_progress, preview=self.config.get("preview", True),
+                                    extra=self.extra_step_hooks()),
             is_cancelled=ctx.is_cancelled,
         )
         # Iterate mode: when sample() actually resumed from a cached trajectory,

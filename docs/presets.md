@@ -778,6 +778,7 @@ pattern of six hand-written `lora_N` / `lora_N_strength` field pairs):
     strength_step: 0.1
     strength_default: 1.0         # strength for newly added rows (default: 1.0)
     max_items: 6                  # maximum number of rows (default: 6)
+    allow_step_window: false      # per-row step-window controls (default: false)
   default:                        # optional default rows (same shape as the runtime value)
     - { model: "some_lora.safetensors", strength: 1.0 }
 ```
@@ -786,6 +787,13 @@ The submitted value is a **list of `{model, strength}` mappings** containing onl
 selected model — it may be empty (`[]`). Consume it in `pipeline.yml` with an `items:`-based
 `@loop` (see "The `@loop` recipe" below); no `when:` filtering is needed because unselected rows
 are never submitted.
+
+`allow_step_window: true` adds a per-row advanced control that also submits `step_start`/`step_end`
+on the rows that set one (see "Step-windowed LoRAs" below). It is **off by default and must stay
+off** for any preset whose model family bakes LoRAs in at load time — those loaders reject a
+windowed entry rather than applying it for the whole run, so offering the control there builds a
+form that can only fail. A field that leaves the flag off drops the two keys even if they somehow
+arrive on the wire.
 
 Camera-shot autocomplete (`type: "camera_shot"` — a display-only viewfinder picker that inserts or
 copies a shot-describing phrase into the prompt, for when you know the shot you want but forget how
@@ -1080,6 +1088,45 @@ list value (`content/presets/marketplace/ZImage/modes/txt2img/pipeline.yml`):
           file_path: "{{ item.model }}"
           weight: "{{ item.strength }}"
 ```
+
+### Step-windowed LoRAs
+
+A LoRA entry may add `step_start` / `step_end` to be active only inside a range of denoise steps.
+Both are **1-based and inclusive**, so "on for the first two steps" is `step_start: 1, step_end: 2`;
+omit `step_start` to default to `1`, omit `step_end` to stay on through the last step. An entry with
+neither key is unwindowed and behaves exactly as it always has.
+
+Some distilled LoRAs require this. `F16/krea2-turbo-sda` states it "must only be active for the
+first 2 of the 8 denoise steps, then switched off" — leaving it on for all 8 is a documented quality
+collapse, not a mild approximation.
+
+The form side is the `lora_picker` field's `allow_step_window: true` (see above), which turns on a
+per-row control writing `item.step_start` / `item.step_end`; the pipeline forwards them:
+
+```yaml
+- name: "model_loader/krea2"
+  enabled: true
+  configuration:
+    loras:
+      "@loop":
+        items: "{{ form.loras | default([]) }}"
+        template:
+          file_path: "{{ item.model }}"
+          weight: "{{ item.strength }}"
+          step_start: "{{ item.step_start | default(none) }}"
+          step_end: "{{ item.step_end | default(none) }}"
+```
+
+A windowed entry is **not** baked into the loaded model: the loader hands it to the generator, whose
+sampling loop patches it in at the window's first step and out after its last (and removes it on
+error or cancellation, so the shared model cache is never left contaminated). Because the model
+cache is keyed on the baked stack only, a windowed LoRA never changes the cache identity.
+
+Only families whose generator runs the native flow-matching sampling loop honour windows — Krea-2
+today. A loader that bakes LoRAs at load time **rejects** a windowed entry with an error naming the
+family rather than silently applying it for the whole run. `iterate_mode` is disabled automatically
+while a window is present, since a warm start resumes on a truncated schedule whose step numbering
+would put every window in the wrong place.
 
 For numbered slots (`lora_1`, `lora_2`, ...) use `count` with `~` concatenation, and a `when:` to
 drop empty slots:

@@ -26,6 +26,7 @@ class LoraPicker(BaseField):
             'max_items': config.get('max_items', 6),
             'allow_info_modal': config.get('allow_info_modal', True),
             'show_triggers': config.get('show_triggers', True),
+            'allow_step_window': bool(config.get('allow_step_window', False)),
             # Resolved tag-id list (or None = no filtering), same admin-set
             # "base model" mechanism as the `model` field - see
             # resolve_field_filter_tags in src/features/presets/configuration.py.
@@ -39,6 +40,38 @@ class LoraPicker(BaseField):
         schema['preset_id'] = preset_id
 
         return schema
+
+    @staticmethod
+    def _step_bounds(field_name: str, item: Dict[str, Any]) -> Dict[str, int]:
+        """Read a row's optional `step_start`/`step_end` (1-based, inclusive).
+
+        Absent/blank keys yield `{}` — the row is unwindowed and takes the
+        unchanged bake-at-load path. A present-but-unusable value is a rejected
+        submission rather than a silently dropped window: a LoRA that must
+        switch off partway through a run produces a materially different image
+        if it stays on, so quietly ignoring the bound would hand back a wrong
+        result that looks successful.
+        """
+        bounds: Dict[str, int] = {}
+        for key in ('step_start', 'step_end'):
+            raw = item.get(key)
+            if raw is None or (isinstance(raw, str) and not raw.strip()):
+                continue
+            try:
+                parsed = int(raw)
+            except (TypeError, ValueError):
+                raise ValueError(f"Invalid {key} for '{field_name}': expected a step number, got {raw!r}")
+            if parsed < 1:
+                raise ValueError(f"Invalid {key} for '{field_name}': steps are 1-based, got {parsed}")
+            bounds[key] = parsed
+
+        start, end = bounds.get('step_start'), bounds.get('step_end')
+        if start is not None and end is not None and end < start:
+            raise ValueError(
+                f"Invalid step window for '{field_name}': step_end ({end}) is before "
+                f"step_start ({start}), which would leave the LoRA permanently off"
+            )
+        return bounds
 
     def input(self, field_name: str, value: Any, validation_rules: Optional[Dict[str, Any]] = None) -> Any:
         """Process lora_picker input - a list of {model, strength} entries"""
@@ -56,6 +89,10 @@ class LoraPicker(BaseField):
         strength_max = validation_rules.get('strength_max', 2.0)
         strength_default = validation_rules.get('strength_default', 1.0)
         max_items = validation_rules.get('max_items', 6)
+        # Step bounds are only read for a field that offers the control. A form
+        # without it can't have produced them legitimately, and the model family
+        # behind such a form rejects a windowed entry anyway.
+        allow_step_window = bool(validation_rules.get('allow_step_window', False))
 
         cleaned: List[Dict[str, Any]] = []
         for item in value:
@@ -75,10 +112,13 @@ class LoraPicker(BaseField):
 
             strength = max(strength_min, min(strength_max, strength))
 
-            cleaned.append({
+            entry: Dict[str, Any] = {
                 'model': model.strip(),
                 'strength': strength,
-            })
+            }
+            if allow_step_window:
+                entry.update(self._step_bounds(field_name, item))
+            cleaned.append(entry)
 
         if max_items is not None and len(cleaned) > max_items:
             raise ValueError(f"Too many LoRA entries for '{field_name}': maximum is {max_items}")
@@ -156,6 +196,19 @@ class LoraPicker(BaseField):
                 param_type=bool,
                 default=True,
                 description="Show trigger words for each selected LoRA",
+                example=True
+            ),
+            FieldConfigSpec(
+                name="allow_step_window",
+                param_type=bool,
+                default=False,
+                description=(
+                    "Offer per-LoRA step-window controls ('step_start'/'step_end', 1-based and "
+                    "inclusive) so a LoRA can be applied only between two denoise steps. Off by "
+                    "default and only correct for a model family whose generator can toggle a LoRA "
+                    "mid-sampling (Krea-2); a family that bakes LoRAs at load time rejects a "
+                    "windowed entry outright, so enabling it there builds a form that can only fail."
+                ),
                 example=True
             ),
             FieldConfigSpec(

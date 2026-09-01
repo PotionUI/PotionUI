@@ -64,6 +64,11 @@ pipeline:
           template:
             file_path: "{{ item.model }}"
             weight: "{{ item.strength }}"
+            # Optional per-LoRA step window (1-based, inclusive). Absent on a
+            # row that didn't set one, which reads as "not windowed" and takes
+            # the ordinary bake-at-load path — see docs/presets.md.
+            step_start: "{{ item.step_start | default(none) }}"
+            step_end: "{{ item.step_end | default(none) }}"
 
   - name: "prompt_encoder"
     input:

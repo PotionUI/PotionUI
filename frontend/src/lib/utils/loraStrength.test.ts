@@ -3,6 +3,7 @@ import {
 	clampStrength,
 	parseStrengthInput,
 	nudgeStrength,
+	setLoraStrength,
 	toggleLoraStrength,
 	isLoraRowDisabled,
 	formatStrength
@@ -185,5 +186,46 @@ describe('isLoraRowDisabled', () => {
 		expect(isLoraRowDisabled({ model: 'model:a', strength: 0, saved_strength: 0.7 })).toBe(true);
 		expect(isLoraRowDisabled({ model: 'model:a', strength: 0, saved_strength: 0 })).toBe(true);
 		expect(isLoraRowDisabled({ model: 'model:a', strength: 0, saved_strength: -0.8 })).toBe(true);
+	});
+});
+
+describe('row settings survive strength changes', () => {
+	// A step window is nothing to do with strength, but it lives on the same row
+	// object - so every helper that returns a "new row" has to carry it through.
+	// Rebuilding the row from {model, strength} silently wiped it, which looked
+	// like the window being ignored at generation time.
+	const windowed = { model: 'model:a', strength: 0.7, step_start: 1, step_end: 2 };
+
+	it('setLoraStrength keeps the step window', () => {
+		expect(setLoraStrength(windowed, 0.4)).toEqual({
+			model: 'model:a',
+			strength: 0.4,
+			step_start: 1,
+			step_end: 2
+		});
+	});
+
+	it('setLoraStrength never flips disabled-ness in either direction', () => {
+		expect(setLoraStrength({ model: 'model:a', strength: 1 }, 0).saved_strength).toBeUndefined();
+		const disabled = setLoraStrength({ model: 'model:a', strength: 0, saved_strength: 0.7 }, 0.2);
+		expect(isLoraRowDisabled(disabled)).toBe(true);
+	});
+
+	it('toggling off and back on round-trips the step window', () => {
+		const off = toggleLoraStrength(windowed, 1);
+		expect(off).toEqual({
+			model: 'model:a',
+			strength: 0,
+			saved_strength: 0.7,
+			step_start: 1,
+			step_end: 2
+		});
+		expect(toggleLoraStrength(off, 1)).toEqual(windowed);
+	});
+
+	it('toggling back on drops saved_strength rather than leaving the row disabled', () => {
+		const on = toggleLoraStrength({ model: 'model:a', strength: 0, saved_strength: 0.7 }, 1);
+		expect('saved_strength' in on).toBe(false);
+		expect(isLoraRowDisabled(on)).toBe(false);
 	});
 });

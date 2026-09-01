@@ -368,6 +368,30 @@ def _restore_linear_states(
             delattr(sub, _INPLACE_ATTR)
 
 
+#: Opaque per-``Linear`` LoRA state captured by :func:`snapshot_lora_state`.
+LoraStateSnapshot = List[Tuple[nn.Module, "int | None", "int | None"]]
+
+
+def snapshot_lora_state(module: nn.Module) -> LoraStateSnapshot:
+    """Capture ``module``'s current LoRA state so a later
+    :func:`restore_lora_state` undoes only what is applied AFTER this call.
+
+    The public form of what :func:`temporarily_applied_loras` does internally,
+    for callers that cannot use a ``with`` block because the apply and the
+    restore happen at different points in a loop (step-windowed LoRA). A
+    snapshot stays valid across repeated apply/restore cycles: restoring
+    returns every ``Linear`` to exactly the recorded lengths, so the same
+    snapshot describes the module again.
+    """
+    return _snapshot_linear_states(module)
+
+
+def restore_lora_state(snapshot: LoraStateSnapshot) -> None:
+    """Undo every LoRA applied since ``snapshot`` was taken, leaving the stack
+    that was already resident/baked at snapshot time untouched."""
+    _restore_linear_states(snapshot)
+
+
 @contextmanager
 def temporarily_applied_loras(
     module: nn.Module,

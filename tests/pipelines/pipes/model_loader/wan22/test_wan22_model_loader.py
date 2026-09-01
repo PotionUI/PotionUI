@@ -107,9 +107,9 @@ def test_bundle_carries_its_own_base_lora_stacks():
     cfg["loras_low"] = [{"model": "/m/lightning_low.safetensors", "strength": 1.0}, {"model": "/m/zero.safetensors", "strength": 0.0}]
     _, out = _run(cfg)
     bundle = out.output["model"]
-    assert bundle.loras_high == [{"file_path": "/m/lightning_high.safetensors", "weight": 1.0}]
+    assert bundle.loras_high == [{"file_path": "/m/lightning_high.safetensors", "weight": 1.0, "window": None}]
     # The zero-weight entry is filtered out, matching acquire_wan_dit's own filtering.
-    assert bundle.loras_low == [{"file_path": "/m/lightning_low.safetensors", "weight": 1.0}]
+    assert bundle.loras_low == [{"file_path": "/m/lightning_low.safetensors", "weight": 1.0, "window": None}]
 
 
 def test_bundle_lora_stacks_default_empty():

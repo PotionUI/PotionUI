@@ -2,8 +2,11 @@
 
 import types
 
+import pytest
+
 from src.pipelines.outputs import ProgressGenerationOutput
 from src.pipelines.pipes._shared.generation import loader_helpers as lh
+from src.platform.runtime.native.lora import LoraStepWindow
 
 
 class TestPathOf:
@@ -93,11 +96,11 @@ class TestActiveLoras:
 
     def test_keeps_active_entries_with_normalized_shape(self):
         loras = [{"file_path": "/a.safetensors", "weight": 0.8}]
-        assert lh.active_loras(loras) == [{"file_path": "/a.safetensors", "weight": 0.8}]
+        assert lh.active_loras(loras) == [{"file_path": "/a.safetensors", "weight": 0.8, "window": None}]
 
     def test_falls_back_to_model_and_strength_keys(self):
         loras = [{"model": "/b.safetensors", "strength": 0.5}]
-        assert lh.active_loras(loras) == [{"file_path": "/b.safetensors", "weight": 0.5}]
+        assert lh.active_loras(loras) == [{"file_path": "/b.safetensors", "weight": 0.5, "window": None}]
 
     def test_mixed_active_and_inactive(self):
         loras = [
@@ -105,7 +108,43 @@ class TestActiveLoras:
             {"file_path": "/b.safetensors", "weight": 0.0},
             {"weight": 0.5},
         ]
-        assert lh.active_loras(loras) == [{"file_path": "/a.safetensors", "weight": 0.8}]
+        assert lh.active_loras(loras) == [{"file_path": "/a.safetensors", "weight": 0.8, "window": None}]
+
+
+class TestLoraStepWindows:
+    """``step_windows`` is a loader's declaration that it hands windowed entries
+    to the step loop instead of baking them into the model."""
+
+    def test_a_window_is_parsed_onto_the_entry(self):
+        entry = {"file_path": "/a.safetensors", "weight": 1.0, "step_start": 1, "step_end": 2}
+        [out] = lh.active_loras([entry], step_windows=True)
+        assert out["window"] == LoraStepWindow(1, 2)
+
+    def test_a_loader_that_bakes_refuses_a_windowed_entry(self):
+        entry = {"file_path": "/turbo-sda.safetensors", "weight": 1.0, "step_end": 2}
+        with pytest.raises(ValueError, match="cannot switch one off mid-generation"):
+            lh.active_loras([entry], log_tag="MODEL LOADER FLUX")
+
+    def test_an_unwindowed_entry_is_accepted_by_every_loader(self):
+        entry = {"file_path": "/a.safetensors", "weight": 1.0}
+        assert lh.active_loras([entry]) == lh.active_loras([entry], step_windows=True)
+
+    def test_refiltering_already_parsed_entries_keeps_the_window(self):
+        """wan22's ``acquire`` re-runs active_loras on its own output; a second
+        pass must not drop the window (the raw keys are gone by then)."""
+        once = lh.active_loras(
+            [{"file_path": "/a.safetensors", "weight": 1.0, "step_end": 2}], step_windows=True)
+        twice = lh.active_loras(once, step_windows=True)
+        assert twice == once
+
+    def test_partition_keeps_windowed_entries_out_of_the_baked_stack(self):
+        loras = lh.active_loras([
+            {"file_path": "/always.safetensors", "weight": 0.8},
+            {"file_path": "/turbo-sda.safetensors", "weight": 1.0, "step_end": 2},
+        ], step_windows=True)
+        baked, windowed = lh.partition_step_windows(loras)
+        assert [l["file_path"] for l in baked] == ["/always.safetensors"]
+        assert [l["file_path"] for l in windowed] == ["/turbo-sda.safetensors"]
 
 
 class TestVramBudget:

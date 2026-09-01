@@ -37,6 +37,13 @@ class Krea2ModelBundle:
     # and LTX idle-TE paths use). ``None`` for a bundle built without the MODELS
     # cache (isolated pipe tests).
     te_cache_key: Optional[str] = None
+    # LoRA entries the preset asked to apply only inside a step window
+    # (``{"file_path", "weight", "window"}``, see ``loader_helpers.active_loras``).
+    # SPECS ONLY, never loaded tensors: a bundle is a view over the cache, not
+    # an ownership root, so the generator loads these state dicts itself for the
+    # span of one ``process()`` and drops them after. The loader deliberately
+    # leaves them unapplied — ``generator/krea2`` toggles them per step.
+    windowed_loras: tuple = ()
 
     @property
     def spec(self):

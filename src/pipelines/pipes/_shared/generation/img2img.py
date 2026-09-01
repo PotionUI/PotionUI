@@ -114,6 +114,12 @@ class Img2ImgGeneratorMixin:
       3. returning early on :meth:`maybe_img2img` at the top of ``generate_one``.
     """
 
+    def extra_step_hooks(self):
+        """Fallback for a host that isn't a :class:`BaseGeneratorPipe` (which
+        declares the real seam) — :meth:`maybe_img2img` calls this, so the mixin
+        cannot assume the base class is in the MRO."""
+        return ()
+
     @staticmethod
     def img2img_config_specs(default_denoise: float = 0.55) -> List[PipeConfigSpec]:
         return [
@@ -195,7 +201,8 @@ class Img2ImgGeneratorMixin:
             step_cache_options=ctx.extra.get("step_cache_options"),
             schedule_settings=ctx.extra.get("schedule_settings"),
             sigmas=ctx.extra.get("sigmas"),
-            hooks=native_step_hooks(gen, progress, on_progress, preview=self.config.get("preview", True)),
+            hooks=native_step_hooks(gen, progress, on_progress, preview=self.config.get("preview", True),
+                                    extra=self.extra_step_hooks()),
             is_cancelled=ctx.is_cancelled,
         )
         image = Image.fromarray(pixels[0])

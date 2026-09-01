@@ -44,7 +44,7 @@ class ProgressEmitter:
         self.emit(ImageGenerationOutput(image=image, temporary=True, **meta))
 
 
-def native_step_hooks(gen, progress: "ProgressEmitter", on_progress, *, preview: bool = True):
+def native_step_hooks(gen, progress: "ProgressEmitter", on_progress, *, preview: bool = True, extra=()):
     """Sampler hook list for a native generator: progress + (optional) preview.
 
     Every native generator wires the same ``[ProgressHook(on_progress)]``; this
@@ -54,6 +54,10 @@ def native_step_hooks(gen, progress: "ProgressEmitter", on_progress, *, preview:
     the progress hook, so a caller unconditionally passes the returned list as
     ``hooks=``. ``make_preview_hook`` guards decode+emit, and the sampler isolates
     hook failures regardless, so a preview error can never break generation.
+
+    ``extra`` appends pipe-supplied hooks (see
+    ``BaseGeneratorPipe.extra_step_hooks``) — the one place both the txt2img and
+    img2img sampling paths agree on, so a pipe declaring a hook gets it in both.
     """
     from src.platform.runtime.native.sampling import ProgressHook, make_preview_hook
 
@@ -63,4 +67,5 @@ def native_step_hooks(gen, progress: "ProgressEmitter", on_progress, *, preview:
         preview_hook = make_preview_hook(spec, progress.preview)
         if preview_hook is not None:
             hooks.append(preview_hook)
+    hooks.extend(extra)
     return hooks

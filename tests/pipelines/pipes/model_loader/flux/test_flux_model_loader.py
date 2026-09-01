@@ -215,7 +215,7 @@ def test_lora_change_on_warm_dit_reuses_cached_weights(_fake_engine, _apply_spy)
     assert dit2._active_lora_fp == "/m/style.safetensors@0.8"
     # apply_loras ran once for the (empty) cold load and once for the sync.
     non_empty_calls = [c for c in _apply_spy if c]
-    assert non_empty_calls == [[{"file_path": "/m/style.safetensors", "weight": 0.8}]]
+    assert non_empty_calls == [[{"file_path": "/m/style.safetensors", "weight": 0.8, "window": None}]]
 
 
 def test_repeat_generation_with_same_loras_is_a_pure_noop(_fake_engine, _apply_spy):
@@ -244,7 +244,7 @@ def test_removing_all_loras_on_warm_dit_unpatches_without_reload(_fake_engine, _
     _run(ModelLoaderFluxPipe(config=_config(loras=[])), models)
     assert len(remove_calls) == 1
     # No re-apply for an empty target stack.
-    assert [c for c in _apply_spy if c] == [[{"file_path": "/m/style.safetensors", "weight": 0.8}]]
+    assert [c for c in _apply_spy if c] == [[{"file_path": "/m/style.safetensors", "weight": 0.8, "window": None}]]
     assert _fake_engine["diffusion_model"] == 1
 
 

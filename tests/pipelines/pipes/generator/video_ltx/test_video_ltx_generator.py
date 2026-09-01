@@ -1502,7 +1502,7 @@ def test_stage2_loras_without_initial_latent_ignored_with_warning(caplog):
     with caplog.at_level("WARNING"):
         ctx = _pipe(
             resolution="64x64", frames=17,
-            stage2_loras=[{"file_path": "/fake/distilled.safetensors", "weight": 1.0}],
+            stage2_loras=[{"file_path": "/fake/distilled.safetensors", "weight": 1.0, "window": None}],
         ).build_context(pipe_input)
     assert ctx.extra.stage2_lora_stack == []
     assert any("stage2_loras" in r.message for r in caplog.records)
@@ -1523,9 +1523,9 @@ def test_stage2_loras_loaded_once_in_build_context_on_a_refine_call(mock_load):
     pipe_input.input["initial_latent"] = [torch.zeros(1, 128, 3, 2, 2)]
     ctx = _pipe(
         resolution="64x64", frames=17, refine_sigmas="0.9, 0.0",
-        stage2_loras=[{"file_path": "/fake/distilled.safetensors", "weight": 1.0}],
+        stage2_loras=[{"file_path": "/fake/distilled.safetensors", "weight": 1.0, "window": None}],
     ).build_context(pipe_input)
-    mock_load.assert_called_once_with([{"file_path": "/fake/distilled.safetensors", "weight": 1.0}])
+    mock_load.assert_called_once_with([{"file_path": "/fake/distilled.safetensors", "weight": 1.0, "window": None}])
     assert ctx.extra.stage2_lora_stack is sentinel_stack
 
 
@@ -1556,7 +1556,7 @@ def test_stage2_loras_wraps_only_the_sampling_call_on_a_refine_call(mock_load):
          patch("src.pipelines.pipes.generator.video_ltx.main.denoise_prenoised", fake_denoise):
         _pipe(
             resolution="64x64", frames=17, refine_sigmas="0.9, 0.0",
-            stage2_loras=[{"file_path": "/fake/distilled.safetensors", "weight": 1.0}],
+            stage2_loras=[{"file_path": "/fake/distilled.safetensors", "weight": 1.0, "window": None}],
         ).process(pipe_input, lambda o: None)
 
     assert calls == [("enter", sentinel_stack), ("denoise",), ("exit", sentinel_stack)]
@@ -1579,7 +1579,7 @@ def test_stage2_loras_wraps_with_empty_stack_on_a_plain_generation(caplog):
         with caplog.at_level("WARNING"):
             _pipe(
                 resolution="64x64", frames=17,
-                stage2_loras=[{"file_path": "/fake/distilled.safetensors", "weight": 1.0}],
+                stage2_loras=[{"file_path": "/fake/distilled.safetensors", "weight": 1.0, "window": None}],
             ).process(_pipe_input(), lambda o: None)
 
     assert calls == [[]]

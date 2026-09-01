@@ -190,6 +190,65 @@ class TestLoraPickerField(unittest.TestCase):
         result = self.field.input('loras', value, validation_rules)
         self.assertEqual(len(result), 20)
 
+    # --- step windows ---
+
+    WINDOWED = {'allow_step_window': True}
+
+    def test_input_keeps_a_step_window_when_the_field_offers_one(self):
+        value = [{'model': 'turbo-sda.safetensors', 'strength': 1.0, 'step_start': 1, 'step_end': 2}]
+        result = self.field.input('loras', value, self.WINDOWED)
+        self.assertEqual(result, [{'model': 'turbo-sda.safetensors', 'strength': 1.0,
+                                   'step_start': 1, 'step_end': 2}])
+
+    def test_input_keeps_a_half_open_window(self):
+        result = self.field.input('loras', [{'model': 'a.safetensors', 'strength': 1.0, 'step_end': 2}],
+                                  self.WINDOWED)
+        self.assertEqual(result, [{'model': 'a.safetensors', 'strength': 1.0, 'step_end': 2}])
+
+    def test_input_coerces_string_step_bounds(self):
+        """Form JSON can deliver the numbers as strings."""
+        result = self.field.input('loras', [{'model': 'a.safetensors', 'strength': 1.0,
+                                             'step_start': '1', 'step_end': '2'}], self.WINDOWED)
+        self.assertEqual(result[0]['step_start'], 1)
+        self.assertEqual(result[0]['step_end'], 2)
+
+    def test_input_treats_blank_and_none_bounds_as_unwindowed(self):
+        for bounds in ({'step_start': None, 'step_end': None}, {'step_start': '', 'step_end': '  '}):
+            with self.subTest(bounds=bounds):
+                result = self.field.input('loras', [{'model': 'a.safetensors', 'strength': 1.0, **bounds}],
+                                          self.WINDOWED)
+                self.assertEqual(result, [{'model': 'a.safetensors', 'strength': 1.0}])
+
+    def test_input_drops_step_bounds_when_the_field_does_not_offer_them(self):
+        """A form without the control cannot legitimately have produced them, and
+        the families behind such a form reject a windowed entry anyway."""
+        value = [{'model': 'a.safetensors', 'strength': 1.0, 'step_start': 1, 'step_end': 2}]
+        self.assertEqual(self.field.input('loras', value), [{'model': 'a.safetensors', 'strength': 1.0}])
+
+    def test_input_rejects_a_zero_or_negative_step(self):
+        for bad in (0, -3):
+            with self.subTest(bad=bad):
+                with self.assertRaisesRegex(ValueError, '1-based'):
+                    self.field.input('loras', [{'model': 'a.safetensors', 'strength': 1.0,
+                                                'step_start': bad}], self.WINDOWED)
+
+    def test_input_rejects_a_non_numeric_step(self):
+        with self.assertRaisesRegex(ValueError, 'step_end'):
+            self.field.input('loras', [{'model': 'a.safetensors', 'strength': 1.0,
+                                        'step_end': 'two'}], self.WINDOWED)
+
+    def test_input_rejects_an_inverted_window(self):
+        with self.assertRaisesRegex(ValueError, 'permanently off'):
+            self.field.input('loras', [{'model': 'a.safetensors', 'strength': 1.0,
+                                        'step_start': 5, 'step_end': 2}], self.WINDOWED)
+
+    def test_output_advertises_step_window_support(self):
+        base = {'type': 'lora_picker', 'name': 'loras', 'label': 'LoRAs'}
+        off = self.field.output({**base, 'configuration': {}})
+        on = self.field.output({**base, 'configuration': {'allow_step_window': True}})
+        self.assertFalse(off['configuration']['allow_step_window'])
+        self.assertTrue(on['configuration']['allow_step_window'])
+
     # --- classmethod specs ---
 
     def test_configuration_spec_shape(self):

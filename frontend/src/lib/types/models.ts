@@ -189,6 +189,13 @@ export interface LoraPickerItem {
 	/** Strength to restore when this row is re-enabled after being toggled off
 	 * (strength: 0). Absent while the row is enabled - see loraStrength.ts. */
 	saved_strength?: number;
+	/** Optional step window, 1-based and INCLUSIVE on both ends: apply this
+	 * LoRA only from `step_start` through `step_end`. Absent = unwindowed (the
+	 * LoRA is baked in for the whole run, the behaviour before windows existed).
+	 * A missing `step_start` reads as 1, a missing `step_end` as "through the
+	 * last step". See loraStepWindow.ts. */
+	step_start?: number | null;
+	step_end?: number | null;
 }
 
 export interface LoraPickerConfig {
@@ -203,4 +210,8 @@ export interface LoraPickerConfig {
 	show_triggers?: boolean;
 	allow_tag_filters?: boolean;
 	tags?: string[]; // Default/preseeded tag filters
+	/** Offer the per-row step-window controls. Off unless the preset's model
+	 * family can actually honour a window - a family that bakes LoRAs at load
+	 * time rejects a windowed entry outright, so the control must not appear. */
+	allow_step_window?: boolean;
 }

@@ -19,6 +19,14 @@ different stack unpatches the old and patches the new in place (via
 ``lora/apply.py``'s ``remove_loras``/``apply_loras``, not a disk reload); a MISS
 applies once and stamps the fingerprint so the next acquire's comparison is a
 no-op.
+
+Step-windowed LoRAs (``step_start``/``step_end`` on an entry) take a different
+route entirely: they are split out by ``partition_step_windows`` and passed to
+``generator/krea2`` on the bundle, unapplied and absent from ``lora_fp``. The
+generator's sampling loop patches them in at the window's first step and out
+after its last. Baking one here would be a correctness bug, not an
+optimisation — the DiT is shared through the MODELS cache, so a patch that
+outlives its window silently contaminates every later generation on that entry.
 """
 
 from __future__ import annotations
@@ -46,11 +54,14 @@ from src.pipelines.pipes._shared.generation.loader_helpers import (
     ComponentProgress,
     active_loras as _active_loras,
     apply_loras_to as _apply_loras_to,
+    partition_step_windows as _partition_step_windows,
     path_of as _path_of,
     vram_budget as _vram_budget_fn,
 )
 from src.pipelines.pipes.model_loader.krea2.bundle import Krea2ModelBundle
 from src.pipelines.pipes.model_loader.krea2.krea2_clip import Krea2ClipTextEncoder
+
+_LOG_TAG = "MODEL LOADER KREA2"
 
 
 class ModelLoaderKrea2Pipe(BaseModelLoaderPipe):
@@ -75,7 +86,13 @@ class ModelLoaderKrea2Pipe(BaseModelLoaderPipe):
             PipeConfigSpec("diffusion_model", dict, None, "Krea-2 DiT checkpoint (bf16)", required=True),
             PipeConfigSpec("text_encoder", dict, None, "Qwen3-VL-4B text encoder", required=True),
             PipeConfigSpec("vae", dict, None, "Qwen-Image causal-3D VAE", required=True),
-            PipeConfigSpec("loras", list, [], "LoRA adapters (patched in place on an already-cached DiT)", required=False),
+            PipeConfigSpec("loras", list, [],
+                           "LoRA adapters (patched in place on an already-cached DiT). An entry may add "
+                           "'step_start'/'step_end' (1-based, inclusive) to be active only inside that step "
+                           "range — such an entry is NOT baked into the model; the generator's sampling loop "
+                           "switches it on at the window's first step and off after its last. Omit both keys "
+                           "for the ordinary always-on behaviour.",
+                           required=False),
             PipeConfigSpec("device", str, "cuda", "Compute device", required=False, choices=["cuda", "cpu"]),
             PipeConfigSpec("dtype", str, "bfloat16", "Compute dtype", required=False,
                            choices=["bfloat16", "float16", "float32"]),
@@ -119,9 +136,13 @@ class ModelLoaderKrea2Pipe(BaseModelLoaderPipe):
             cfg = self.config.get(key)
             if _path_of(cfg):
                 out.append(ModelGenerationOutput(name=cfg.get("name") or Path(_path_of(cfg)).stem, type=mtype))
-        for lora in _active_loras(self.config.get("loras")):
+        for lora in self._loras():
             out.append(ModelGenerationOutput(name=Path(lora["file_path"]).stem, type="lora", weight=lora["weight"]))
         return out
+
+    def _loras(self) -> List[Dict[str, Any]]:
+        """Active LoRA entries, step windows permitted (see ``process``)."""
+        return _active_loras(self.config.get("loras"), step_windows=True, log_tag=_LOG_TAG)
 
     def process(self, pipe_input: PipeInput, generation_outputs: callable) -> PipeOutput:
         self.validate()
@@ -135,7 +156,11 @@ class ModelLoaderKrea2Pipe(BaseModelLoaderPipe):
 
         device = self.config.get("device", "cuda")
         dtype = self.config.get("dtype", "bfloat16")
-        loras = _active_loras(self.config.get("loras"))
+        # Windowed entries are split off here and never reach the DiT: they are
+        # handed to `generator/krea2` on the bundle and toggled by the sampler's
+        # step hook. Baking one would patch the SHARED, MODELS-cached DiT for
+        # good, leaking the LoRA into every later generation that hits the cache.
+        loras, windowed_loras = _partition_step_windows(self._loras())
         vision = bool(self.config.get("vision", False))
 
         vram_gb = self._vram_budget(pipe_input)
@@ -148,6 +173,8 @@ class ModelLoaderKrea2Pipe(BaseModelLoaderPipe):
         # could hand back a stale module from the MODELS cache.
         te_fp = f"{te_path}|{dtype}|vision={vision}"
         vae_fp = f"{vae_path}|{dtype}"
+        # Baked entries only: a windowed LoRA is never patched into the cached
+        # DiT, so including it here would stamp weights that aren't there.
         lora_fp = "+".join(f"{l['file_path']}@{l['weight']}" for l in loras) or "none"
         # LoRA-INDEPENDENT: the DiT cache identity is path+dtype only, so a
         # different LoRA stack is a cache HIT reusing the resident weights;
@@ -182,16 +209,19 @@ class ModelLoaderKrea2Pipe(BaseModelLoaderPipe):
             progress.advance("DiT", f"native/dit/{dit_path}")
             te_model, vae_model, dit_model = load_te(), load_vae(), load_dit()
 
-        bundle = Krea2ModelBundle(dit=dit_model, te=te_model, vae=vae_model, te_cache_key=f"native/te/{te_path}")
+        bundle = Krea2ModelBundle(
+            dit=dit_model, te=te_model, vae=vae_model, te_cache_key=f"native/te/{te_path}",
+            windowed_loras=tuple(windowed_loras),
+        )
         clip = Krea2ClipTextEncoder(te_model.module, device=device, model_fingerprint=f"{te_fp}|{dit_fp}")
         return PipeOutput(output={"model": bundle, "text_encoder": clip})
 
     def _vram_budget(self, pipe_input: PipeInput) -> Optional[float]:
-        return _vram_budget_fn(pipe_input, self.config.get("vram_limit_gb", None), "MODEL LOADER KREA2")
+        return _vram_budget_fn(pipe_input, self.config.get("vram_limit_gb", None), _LOG_TAG)
 
     @staticmethod
     def _apply_loras(dit_model: NativeModel, loras: List[Dict[str, Any]]) -> None:
-        _apply_loras_to(dit_model, loras, "MODEL LOADER KREA2")
+        _apply_loras_to(dit_model, loras, _LOG_TAG)
 
     @staticmethod
     def _sync_loras(dit_model: NativeModel, loras: List[Dict[str, Any]], lora_fp: str) -> None:

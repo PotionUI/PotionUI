@@ -10,11 +10,11 @@ existing per-preset log lines.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from src.platform.runtime.native.engine import NativeModel
 from src.platform.runtime.native.io.safetensors_loader import load_torch_file
-from src.platform.runtime.native.lora import apply_loras
+from src.platform.runtime.native.lora import apply_loras, parse_lora_window
 from src.pipelines.contracts import logger
 from src.pipelines.contracts import PipeInput
 from src.pipelines.outputs import Progress, ProgressGenerationOutput
@@ -65,8 +65,22 @@ class ComponentProgress:
         self._step += 1
 
 
-def active_loras(loras: Any) -> List[Dict[str, Any]]:
-    """Selected LoRA entries with a real file and a non-zero weight."""
+def active_loras(loras: Any, *, step_windows: bool = False, log_tag: str = "") -> List[Dict[str, Any]]:
+    """Selected LoRA entries with a real file and a non-zero weight.
+
+    Each returned entry carries ``window``: a
+    :class:`~src.platform.runtime.native.lora.LoraStepWindow` when the raw entry
+    asked for one via ``step_start``/``step_end``, else ``None`` (the entry is
+    baked into the model at load time, exactly as before windows existed).
+
+    ``step_windows`` is the caller's declaration that it can honour a window —
+    i.e. that it hands windowed entries to the generator's step loop instead of
+    baking them. A loader that leaves it False and receives a windowed entry
+    raises: silently baking a LoRA the preset asked to switch off mid-run is
+    the failure mode this contract exists to prevent (for the motivating
+    ``krea2-turbo-sda``, an always-on application is a documented quality
+    collapse, not a mild approximation).
+    """
     out: List[Dict[str, Any]] = []
     for lora in loras or []:
         path = lora.get("file_path") or lora.get("model")
@@ -78,8 +92,40 @@ def active_loras(loras: Any) -> List[Dict[str, Any]]:
                 continue
         except (TypeError, ValueError):
             continue
-        out.append({"file_path": str(path), "weight": float(weight)})
+        window = parse_lora_window(lora)
+        if window is not None and not step_windows:
+            raise ValueError(
+                f"[{log_tag or 'model_loader'}] LoRA {Path(str(path)).name} requests a step window "
+                f"({window.describe()}), but this model family bakes LoRAs into the model at load "
+                f"time and cannot switch one off mid-generation. Remove step_start/step_end, or use "
+                f"a family whose generator supports step windows."
+            )
+        out.append({"file_path": str(path), "weight": float(weight), "window": window})
     return out
+
+
+def partition_step_windows(
+    loras: List[Dict[str, Any]],
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Split :func:`active_loras` output into ``(baked, windowed)``.
+
+    ``baked`` is applied at load and folded into the model's LoRA fingerprint;
+    ``windowed`` is deliberately kept OUT of both — a windowed LoRA patched
+    into a cached model would leak past its window into every later generation
+    that reuses the cache entry.
+    """
+    baked = [lora for lora in loras if lora.get("window") is None]
+    windowed = [lora for lora in loras if lora.get("window") is not None]
+    return baked, windowed
+
+
+def load_windowed_lora_stack(loras: List[Dict[str, Any]]) -> List[Any]:
+    """Load windowed entries into the ``(state_dict, strength, window)`` triples
+    :class:`~src.platform.runtime.native.lora.LoraStepWindowHook` toggles."""
+    return [
+        (load_torch_file(lora["file_path"], device="cpu")[0], lora["weight"], lora["window"])
+        for lora in loras
+    ]
 
 
 # The native engine's tiering models activation/decode spikes explicitly

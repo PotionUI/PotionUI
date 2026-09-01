@@ -15,4 +15,6 @@ fields:
       strength_step: 0.1
       strength_default: 1.0
       max_items: 10
+      # Krea-2 is the family whose generator can toggle a LoRA mid-sampling.
+      allow_step_window: true
       filter_tags: "@config:lora_tags"

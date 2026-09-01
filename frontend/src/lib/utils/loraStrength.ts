@@ -23,24 +23,27 @@ import type { LoraPickerItem } from '$lib/types/models';
  * be a smooth pass-through.
  *
  * The signal `isLoraRowDisabled()` reads is the presence of `saved_strength`
- * on the row - not its value. Only the toggle-off path ever adds that key
- * (see `toggleLoraStrength` below); every direct strength edit (drag, nudge,
- * typed value - see `updateStrength()` in LoraPickerField.svelte) rebuilds
- * the row as `{model, strength}` with no `saved_strength`, so it can never be
- * `strength === 0` that flips a row's disabled-ness - only the toggle can.
+ * on the row - not its value. Only `toggleLoraStrength` ever adds or removes
+ * that key; a direct strength edit (drag, nudge, typed value) goes through
+ * `setLoraStrength`, which carries the row's existing keys through unchanged,
+ * so it can never be `strength === 0` that flips a row's disabled-ness - only
+ * the toggle can. These helpers COPY the rest of the row rather than rebuilding
+ * it from `{model, strength}`, because a row now carries settings that are
+ * nothing to do with strength (`step_start`/`step_end` - see loraStepWindow.ts)
+ * and moving a slider must not silently discard them.
  *
  * The remembered strength lives ON THE ROW ITSELF (`saved_strength`), not in
  * component state, so it survives a page reload - it round-trips through the
  * Session feature's raw `data` JSON blob (src/features/sessions/manager.py -
  * no per-field schema on save/load) the same way the rest of a tab's form
- * data does. This is deliberately safe to ride along on the wire value:
- * `bind_form` (src/features/forms/binding.py) never inspects the CONTENTS of
- * a `lora_picker` field's list value, only every preset's pipeline.yml reads
- * `item.model`/`item.strength` explicitly (never a wholesale dict copy or
- * `tojson`), and the native pipes' own `active_loras()` helpers rebuild a
- * fresh `{file_path, weight}` dict from `.get()` calls - so an unrecognized
- * extra key is invisible everywhere downstream, both in templates and in the
- * stored generation record.
+ * data does. This is deliberately safe to ride along on the wire value: a
+ * preset's pipeline.yml reads the keys it wants off each row explicitly (never
+ * a wholesale dict copy or `tojson`), so a key no template mentions is
+ * invisible downstream, both in the pipe config and in the stored generation
+ * record. `saved_strength` is such a key. `step_start`/`step_end` are NOT -
+ * they are read by `LoraPicker.input()` (only when the field declares
+ * `allow_step_window`) and forwarded by the Krea-2 pipelines into
+ * `model_loader/krea2`, which is the whole point of them.
  *
  * Residual note (not fixed here, backend-visible): a row parked at exactly
  * live strength 0 - enabled, mid-drag or deliberately - is still, on the
@@ -113,7 +116,7 @@ export function isLoraRowDisabled(row: LoraPickerItem): boolean {
  * meaningful to restore to). */
 export function toggleLoraStrength(row: LoraPickerItem, defaultStrength: number): LoraPickerItem {
 	if (!isLoraRowDisabled(row)) {
-		return { model: row.model, strength: 0, saved_strength: row.strength };
+		return { ...row, strength: 0, saved_strength: row.strength };
 	}
 
 	const restored =
@@ -123,5 +126,15 @@ export function toggleLoraStrength(row: LoraPickerItem, defaultStrength: number)
 				? defaultStrength
 				: 1;
 
-	return { model: row.model, strength: restored };
+	const next: LoraPickerItem = { ...row, strength: restored };
+	delete next.saved_strength;
+	return next;
+}
+
+/** A direct strength edit (drag, nudge, typed value). Spreads rather than
+ * rebuilding so a row's OTHER settings - its step window above all - survive
+ * moving the slider; `saved_strength` is deliberately included in that spread,
+ * so this can never flip a row's disabled-ness in either direction. */
+export function setLoraStrength(row: LoraPickerItem, strength: number): LoraPickerItem {
+	return { ...row, strength };
 }

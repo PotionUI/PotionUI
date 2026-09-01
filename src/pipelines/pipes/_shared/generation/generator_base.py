@@ -10,6 +10,7 @@ generators cancellable for free: GenerationEngine introspects the pipe's
 `process` signature and only passes `is_cancelled` through when the pipe
 declares it (see src/features/generation/generation.py).
 """
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -101,6 +102,25 @@ class BaseGeneratorPipe(BasePipe):
         """Generate a single item for `seed`. Must be implemented by subclasses."""
         raise NotImplementedError
 
+    def extra_step_hooks(self) -> Tuple[Any, ...]:
+        """Sampler step hooks this pipe adds on top of progress/preview, valid
+        for the sampling call currently in flight. Empty by default; overridden
+        by pipes that steer the loop (step-windowed LoRA). Read by
+        `native_step_hooks`, so both the txt2img and img2img paths pick it up.
+        """
+        return ()
+
+    def generation_scope(self, ctx: GeneratorContext, index: int):
+        """Context manager wrapping ONE `generate_one` call, for per-item state
+        that must be torn down even when generation raises.
+
+        Wrapped at the seed loop rather than inside `generate_one` on purpose:
+        subclasses (and plugin pipes) routinely override `generate_one`
+        wholesale, and an override must not be able to silently opt out of a
+        teardown that protects shared, cached state.
+        """
+        return nullcontext()
+
     def emit_results(self, generation_outputs: callable, results: List[Any], used_seeds: List[int]) -> None:
         """Default: emit a GalleryGenerationOutput of images plus a "seed"
         ParamGenerationOutput. Override for audio/video outputs, or to
@@ -131,7 +151,8 @@ class BaseGeneratorPipe(BasePipe):
             for i, seed in enumerate(seeds):
                 if ctx.is_cancelled():
                     break
-                result = self.generate_one(ctx, i, seed, progress)
+                with self.generation_scope(ctx, i):
+                    result = self.generate_one(ctx, i, seed, progress)
                 if ctx.is_cancelled():
                     # A cancellation observed mid-`generate_one` (e.g. a
                     # sampling loop that noticed and raced past its own

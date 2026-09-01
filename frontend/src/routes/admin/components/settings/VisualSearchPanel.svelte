@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { createModelFetchController, modelNameLookup } from './modelFetch.svelte';
 	import ModelFetchRow from './ModelFetchRow.svelte';
+	import { DetailSection } from '$lib/components/detail';
 
 	let {
 		settings,
@@ -10,12 +11,8 @@
 	const fetch = createModelFetchController(['media_vision'], modelNameLookup(settings));
 </script>
 
-<div class="bg-surface-1 rounded-lg border border-line shadow-raised">
-	<div class="px-6 py-3 border-b border-line">
-		<h3 class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted">Visual Search</h3>
-	</div>
-
-	<div class="px-6 divide-y divide-line">
+<DetailSection label="Visual Search" padded={false}>
+	<div class="px-4 sm:px-5 divide-y divide-line">
 		<div class="py-4 space-y-4">
 			<div class="flex items-start justify-between gap-6">
 				<div>
@@ -74,4 +71,4 @@
 			</div>
 		</div>
 	</div>
-</div>
+</DetailSection>

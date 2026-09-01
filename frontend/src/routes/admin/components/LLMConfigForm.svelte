@@ -21,6 +21,7 @@
 	import type { Snippet } from 'svelte';
 	import type { PreChatAction } from '$lib/types/llm';
 	import { Badge, Input } from '$lib/components/ui';
+	import { DetailSection } from '$lib/components/detail';
 	import { coerceProviderOptionText } from './llmProviderOptions';
 
 	/**
@@ -112,15 +113,9 @@
 
 {#snippet section(title: string, isFirst: boolean, body: Snippet, headerExtra?: Snippet)}
 	{#if isPanel}
-		<section class="rounded-lg border border-line bg-surface-1 shadow-raised">
-			<div class="px-4 sm:px-5 py-3 border-b border-line flex items-center justify-between gap-3">
-				<h3 class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted">{title}</h3>
-				{#if headerExtra}{@render headerExtra()}{/if}
-			</div>
-			<div class="px-4 sm:px-5 py-4">
-				{@render body()}
-			</div>
-		</section>
+		<DetailSection label={title} {headerExtra}>
+			{@render body()}
+		</DetailSection>
 	{:else}
 		<div class={isFirst ? '' : 'border-t border-line pt-5'}>
 			<div class="flex items-center justify-between gap-3 mb-2.5">

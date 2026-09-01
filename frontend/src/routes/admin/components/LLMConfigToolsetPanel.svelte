@@ -4,6 +4,7 @@
 	import * as adminApi from '$lib/services/admin-api';
 	import { toasts } from '$lib/stores/toast';
 	import { Badge, Spinner, EmptyState, Switch } from '$lib/components/ui';
+	import { DetailSection } from '$lib/components/detail';
 	import type { AdminToolsetEntry } from '$lib/types/llm';
 
 	// Tool governance for one LLM configuration - the same tool can be enabled
@@ -76,9 +77,8 @@
 			configuration; Locked keeps it on for everyone using this configuration — users can't opt out.
 		</p>
 		{#each groupedTools as [group, groupTools] (group)}
-			<div>
-				<h3 class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle mb-1.5 px-0.5">{group}</h3>
-				<div class="rounded-lg border border-line bg-surface-1 divide-y divide-line">
+			<DetailSection label={group} padded={false}>
+				<div class="divide-y divide-line">
 					{#each groupTools as tool (tool.name)}
 						<div class="flex items-center gap-3 px-4 py-3" data-testid="toolset-row" data-tool={tool.name}>
 							<div class="min-w-0 flex-1">
@@ -120,7 +120,7 @@
 						</div>
 					{/each}
 				</div>
-			</div>
+			</DetailSection>
 		{/each}
 	</div>
 {/if}

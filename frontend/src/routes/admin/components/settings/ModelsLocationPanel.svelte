@@ -4,6 +4,7 @@
 	import { api } from '$lib/services/api';
 	import { toasts } from '$lib/stores/toast';
 	import { Button, Input, Alert, Spinner } from '$lib/components/ui';
+	import { DetailSection } from '$lib/components/detail';
 	import type { ModelsLocationConfig } from '$lib/services/api/models';
 
 	let config = $state<ModelsLocationConfig | null>(null);
@@ -60,12 +61,8 @@
 	}
 </script>
 
-<div class="bg-surface-1 rounded-lg border border-line shadow-raised">
-	<div class="px-6 py-3 border-b border-line">
-		<h3 class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted">Models Location</h3>
-	</div>
-
-	<div class="px-6 py-4 space-y-3">
+<DetailSection label="Models Location">
+	<div class="space-y-3">
 		<p class="text-sm text-fg-muted">
 			Point PotionUI at an external directory for model files. The app keeps reading
 			from <span class="font-mono">models/</span> - each type directory becomes a symlink
@@ -135,4 +132,4 @@
 			</div>
 		{/if}
 	</div>
-</div>
+</DetailSection>

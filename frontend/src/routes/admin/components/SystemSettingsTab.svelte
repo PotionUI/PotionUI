@@ -6,6 +6,7 @@
 	import { Button, Spinner } from '$lib/components/ui';
 	import { MasterDetailLayout } from '$lib/components/master-detail';
 	import { Pane, PaneRow } from '$lib/components/pane';
+	import { DetailHeader, DetailBody, DetailFooter } from '$lib/components/detail';
 	import AdminTabShell from './AdminTabShell.svelte';
 	import AccessPanel from './settings/AccessPanel.svelte';
 	import ContentSafetyPanel from './settings/ContentSafetyPanel.svelte';
@@ -40,6 +41,7 @@
 	});
 	let dirtyGroups = $derived(new Set(dirtyKeys.map((k) => SETTINGS_KEY_GROUP[k])));
 	let unsavedChanges = $derived(dirtyKeys.length > 0);
+	let activeGroupLabel = $derived(SETTINGS_GROUPS.find((g) => g.id === activeGroup)?.label ?? '');
 
 	onMount(loadSettings);
 
@@ -136,38 +138,31 @@
 				</div>
 
 				<div slot="detail" class="h-full min-h-0 flex flex-col">
-					<div class="flex-1 min-h-0 overflow-y-auto bg-surface-2 p-4 sm:p-5">
-						<div class="max-w-[760px] space-y-5">
-							{#if activeGroup === 'access'}
-								<AccessPanel {settings} onSettingChange={handleSettingChange} />
-							{:else if activeGroup === 'content_safety'}
-								<ContentSafetyPanel {settings} onSettingChange={handleSettingChange} />
-							{:else if activeGroup === 'storage'}
-								<FileStoragePanel {settings} onSettingChange={handleSettingChange} />
-								<ModelsLocationPanel />
-							{:else if activeGroup === 'search_tagging'}
-								<AiPanelFrame>
-									<PromptSearchPanel {settings} onSettingChange={handleSettingChange} />
-									<MediaTaggingPanel {settings} onSettingChange={handleSettingChange} />
-									<VisualSearchPanel {settings} onSettingChange={handleSettingChange} />
-								</AiPanelFrame>
-							{/if}
-						</div>
-					</div>
+					<DetailHeader title={activeGroupLabel} />
 
-					{#if unsavedChanges}
-						<div
-							class="flex-shrink-0 border-t border-line bg-surface-1 px-4 sm:px-5 py-3 flex items-center justify-end gap-3"
-						>
-							<span class="font-mono text-xs tabular-nums text-fg-muted mr-auto">
-								{dirtyKeys.length} unsaved change{dirtyKeys.length === 1 ? '' : 's'}
-							</span>
-							<Button variant="secondary" size="sm" disabled={saving} onclick={loadSettings}>Reset</Button>
-							<Button variant="primary" size="sm" loading={saving} disabled={saving} onclick={saveSettings}>
-								{saving ? 'Saving...' : 'Save Changes'}
-							</Button>
-						</div>
-					{/if}
+					<DetailBody>
+						{#if activeGroup === 'access'}
+							<AccessPanel {settings} onSettingChange={handleSettingChange} />
+						{:else if activeGroup === 'content_safety'}
+							<ContentSafetyPanel {settings} onSettingChange={handleSettingChange} />
+						{:else if activeGroup === 'storage'}
+							<FileStoragePanel {settings} onSettingChange={handleSettingChange} />
+							<ModelsLocationPanel />
+						{:else if activeGroup === 'search_tagging'}
+							<AiPanelFrame>
+								<PromptSearchPanel {settings} onSettingChange={handleSettingChange} />
+								<MediaTaggingPanel {settings} onSettingChange={handleSettingChange} />
+								<VisualSearchPanel {settings} onSettingChange={handleSettingChange} />
+							</AiPanelFrame>
+						{/if}
+					</DetailBody>
+
+					<DetailFooter dirtyCount={dirtyKeys.length}>
+						<Button variant="ghost" size="sm" disabled={!unsavedChanges || saving} onclick={loadSettings}>Reset</Button>
+						<Button variant="primary" size="sm" loading={saving} disabled={!unsavedChanges || saving} onclick={saveSettings}>
+							{saving ? 'Saving...' : 'Save Changes'}
+						</Button>
+					</DetailFooter>
 				</div>
 			</MasterDetailLayout>
 		{/if}

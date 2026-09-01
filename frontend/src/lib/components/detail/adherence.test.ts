@@ -16,10 +16,9 @@ import { join, relative } from 'node:path';
 
 const ROUTES_ROOT = join(__dirname, '..', '..', '..', 'routes');
 
-const SHADOW_RAISED_ALLOWLIST = new Set(['admin/components/PluginsTab.svelte']);
+const SHADOW_RAISED_ALLOWLIST = new Set<string>([]);
 
 const TRACKING_ALLOWLIST = new Set([
-	'admin/components/PluginsTab.svelte',
 	'admin/components/GenerationsTab.svelte',
 	'admin/components/SessionsDebugTab.svelte',
 	'admin/components/PresetsTab.svelte'

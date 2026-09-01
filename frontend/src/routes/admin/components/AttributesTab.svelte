@@ -12,12 +12,13 @@
 	import { toasts } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';
 	import { logger, getErrorMessage, getApiErrorMessage } from '$lib/utils/logger';
-	import { Button, Badge, Spinner, EmptyState } from '$lib/components/ui';
+	import { Button, Badge, Spinner, EmptyState, IconButton } from '$lib/components/ui';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import AttributeDefinitionForm from './AttributeDefinitionForm.svelte';
-	import { MasterDetailLayout } from '$lib/components/master-detail';
+	import { MasterDetailLayout, DetailEmptyState } from '$lib/components/master-detail';
 	import { Pane, PaneRow, PaneGroupHeader } from '$lib/components/pane';
+	import { DetailHeader, DetailBody, DetailFooter } from '$lib/components/detail';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import AdminTabShell from './AdminTabShell.svelte';
@@ -345,58 +346,43 @@
 
 				<div slot="detail" class="h-full min-h-0 flex flex-col">
 					{#if activeDefinition}
-						<div class="flex flex-wrap items-center gap-2 px-4 sm:px-5 py-2.5 border-b border-line bg-surface-1 flex-shrink-0">
-							<h2 class="text-base font-semibold text-fg truncate">{activeDefinition.label}</h2>
-							<Badge variant="neutral" size="sm" class="font-mono">{activeDefinition.key}</Badge>
-							<Badge variant="neutral" size="sm" class="uppercase">{activeDefinition.field_type}</Badge>
-							{#if activeDefinition.system}<Badge variant="info" size="sm">Built-in</Badge>{/if}
-							<div class="ml-auto flex items-center gap-2">
-								{#if editDirty}<Badge variant="warning" size="sm" dot>Unsaved</Badge>{/if}
-								{#if activeDefinition.system}
-									<Tooltip text="Built-in attributes can't be deleted.">
-										<Button variant="ghost" size="sm" icon="trash" disabled class="text-danger">Delete</Button>
-									</Tooltip>
-								{:else}
-									<Button
-										variant="ghost"
-										size="sm"
+						<DetailHeader title={activeDefinition.label}>
+							{#snippet chips()}
+								<Badge variant="neutral" size="sm" class="font-mono">{activeDefinition.key}</Badge>
+								<Badge variant="neutral" size="sm" class="uppercase">{activeDefinition.field_type}</Badge>
+								{#if activeDefinition.system}<Badge variant="info" size="sm">Built-in</Badge>{/if}
+							{/snippet}
+							{#snippet actions()}
+								<Tooltip text={activeDefinition.system ? "Built-in attributes can't be deleted." : 'Delete attribute'}>
+									<IconButton
 										icon="trash"
-										class="text-danger"
+										label="Delete attribute"
+										class="text-danger hover:text-danger hover:bg-danger/10"
+										disabled={activeDefinition.system}
 										onclick={() => activeDefinition && openDeleteModal(activeDefinition)}
-									>
-										Delete
-									</Button>
-								{/if}
-							</div>
-						</div>
-
-						<div class="flex-1 min-h-0 overflow-y-auto bg-surface-2 p-4 sm:p-5">
-							<div class="max-w-2xl space-y-5">
-								{#key activeDefinition.id}
-									<AttributeDefinitionForm
-										bind:draft={editDraft}
-										layout="panel"
-										idPrefix="edit-attr"
-										locked={activeDefinition.system}
-										{modelTypeOptions}
 									/>
-								{/key}
+								</Tooltip>
+							{/snippet}
+						</DetailHeader>
 
-								<div class="flex items-center justify-end gap-2">
-									<Button variant="ghost" size="sm" disabled={!editDirty} onclick={discardEditForm}>Discard</Button>
-									<Button variant="primary" size="sm" loading={editSaving} disabled={!editDirty} onclick={saveEditForm}>Save</Button>
-								</div>
-							</div>
-						</div>
+						<DetailBody>
+							{#key activeDefinition.id}
+								<AttributeDefinitionForm
+									bind:draft={editDraft}
+									layout="panel"
+									idPrefix="edit-attr"
+									locked={activeDefinition.system}
+									{modelTypeOptions}
+								/>
+							{/key}
+						</DetailBody>
+
+						<DetailFooter dirtyCount={editDirty ? 1 : 0} dirtyLabel={editDirty ? 'Unsaved changes' : undefined}>
+							<Button variant="ghost" size="sm" disabled={!editDirty} onclick={discardEditForm}>Discard</Button>
+							<Button variant="primary" size="sm" loading={editSaving} disabled={!editDirty} onclick={saveEditForm}>Save</Button>
+						</DetailFooter>
 					{:else}
-						<div class="h-full p-5 flex items-center justify-center">
-							<EmptyState
-								title="No attribute selected"
-								description="Choose an attribute from the list to see and edit its details."
-								icon="settings"
-								compact
-							/>
-						</div>
+						<DetailEmptyState message="Select an attribute to view its details" icon="document" />
 					{/if}
 				</div>
 			</MasterDetailLayout>

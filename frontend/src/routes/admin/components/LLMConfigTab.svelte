@@ -7,9 +7,11 @@
 	import { confirmDialog } from '$lib/stores/confirm';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import Icon from '$lib/components/Icon.svelte';
-	import { Button, Badge, Spinner, EmptyState, Input } from '$lib/components/ui';
-	import { MasterDetailLayout } from '$lib/components/master-detail';
+	import Tooltip from '$lib/components/Tooltip.svelte';
+	import { Button, Badge, Spinner, EmptyState, Input, IconButton } from '$lib/components/ui';
+	import { MasterDetailLayout, DetailEmptyState } from '$lib/components/master-detail';
 	import { Pane, PaneRow } from '$lib/components/pane';
+	import { DetailHeader, DetailTabs, DetailBody, DetailFooter } from '$lib/components/detail';
 	import AdminTabShell from './AdminTabShell.svelte';
 	import AdminFilterBar from './AdminFilterBar.svelte';
 	import LLMConfigForm, { type LLMConfigFormData } from './LLMConfigForm.svelte';
@@ -75,6 +77,19 @@ Always be creative and helpful while staying focused on the image generation con
 	let editFormData: LLMConfigFormData = configFormFrom(null);
 	let editSnapshot = JSON.stringify(editFormData);
 	let editSaving = false;
+
+	$: llmDetailTabs = activeConfig
+		? [
+				{ id: 'configuration', label: 'Configuration', icon: 'sliders' },
+				{ id: 'toolset', label: 'Toolset', icon: 'shield' },
+				{
+					id: 'access',
+					label: 'Access',
+					icon: 'group',
+					count: (assignmentSummary[activeConfig.id]?.assignment_count || 0) + (assignmentSummary[activeConfig.id]?.group_count || 0)
+				}
+			]
+		: [];
 
 	$: enabledCount = configurations.filter(c => c.enabled).length;
 	$: filteredConfigurations = configurations.filter((c) => {
@@ -328,103 +343,68 @@ Always be creative and helpful while staying focused on the image generation con
 
 				<div slot="detail" class="h-full min-h-0 flex flex-col">
 					{#if activeConfig}
-						<div class="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-5 py-2.5 border-b border-line bg-surface-1 flex-shrink-0">
-							<div class="min-w-0">
-								<h2 class="text-base font-semibold text-fg truncate">{activeConfig.name}</h2>
-								<p class="font-mono text-2xs text-fg-subtle truncate mt-0.5">{activeConfig.id}</p>
-							</div>
-							<div class="flex items-center gap-2 flex-shrink-0 flex-wrap">
+						<DetailHeader title={activeConfig.name}>
+							{#snippet subtitle()}
+								{activeConfig.id}
+							{/snippet}
+							{#snippet chips()}
 								<Badge variant={editFormData.enabled ? 'success' : 'neutral'} dot>
 									{editFormData.enabled ? 'Enabled' : 'Disabled'}
 								</Badge>
-								<Button variant="secondary" size="sm" onclick={() => handleDuplicateConfig(activeConfig)} title="Duplicate configuration">
-									Duplicate
-								</Button>
-								<Button
-									variant="secondary"
-									size="sm"
-									icon="trash"
-									class="text-danger hover:text-danger"
-									title="Delete configuration"
-									onclick={() => handleDeleteConfig(activeConfig.id)}
-								/>
-								<div class="h-5 w-px bg-line-strong mx-1"></div>
-								{#if editDirty}<Badge variant="warning" size="sm" dot>Unsaved</Badge>{/if}
-								<Button variant="ghost" size="sm" disabled={!editDirty} onclick={discardEditForm}>Discard</Button>
-								<Button variant="primary" size="sm" loading={editSaving} disabled={!editDirty} onclick={saveEditForm}>Save</Button>
-							</div>
-						</div>
-
-						<div class="flex flex-wrap items-center gap-2 px-4 sm:px-5 py-2.5 border-b border-line bg-surface-1 flex-shrink-0">
-							<nav class="inline-flex items-center gap-1" aria-label="LLM configuration details">
-								<button
-									type="button"
-									class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors {detailTab === 'configuration' ? 'bg-signal/10 text-signal' : 'text-fg-muted hover:bg-surface-2 hover:text-fg'}"
-									on:click={() => (detailTab = 'configuration')}
-									aria-current={detailTab === 'configuration' ? 'page' : undefined}
-								><Icon name="sliders" className="w-3.5 h-3.5" />Configuration</button>
-								<button
-									type="button"
-									class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors {detailTab === 'toolset' ? 'bg-signal/10 text-signal' : 'text-fg-muted hover:bg-surface-2 hover:text-fg'}"
-									on:click={() => (detailTab = 'toolset')}
-									aria-current={detailTab === 'toolset' ? 'page' : undefined}
-								><Icon name="shield" className="w-3.5 h-3.5" />Toolset</button>
-								<button
-									type="button"
-									class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors {detailTab === 'access' ? 'bg-signal/10 text-signal' : 'text-fg-muted hover:bg-surface-2 hover:text-fg'}"
-									on:click={() => (detailTab = 'access')}
-									aria-current={detailTab === 'access' ? 'page' : undefined}
-								>
-									<Icon name="group" className="w-3.5 h-3.5" />Access
-									<span class="font-mono text-2xs opacity-70">{(assignmentSummary[activeConfig.id]?.assignment_count || 0) + (assignmentSummary[activeConfig.id]?.group_count || 0)}</span>
-								</button>
-							</nav>
-						</div>
-
-						<div class="flex-1 min-h-0 overflow-y-auto bg-surface-2 p-4 sm:p-5">
-							{#if detailTab === 'configuration'}
-								<!-- Section cards matching System Settings' panel style — a WQHD
-								     pane keeps the control right under its label instead of stranded
-								     far to the right. Capped to a readable column so controls never
-								     stretch across an ultrawide pane. -->
-								<div class="max-w-2xl">
-									<LLMConfigForm
-										bind:draft={editFormData}
-										mode="edit"
-										layout="panel"
-										idPrefix="edit-config"
-										apiKeySet={!!activeConfig?.api_key_set}
-										{preChatActions}
+							{/snippet}
+							{#snippet actions()}
+								<Tooltip text="Duplicate configuration">
+									<IconButton icon="copy" label="Duplicate configuration" onclick={() => handleDuplicateConfig(activeConfig)} />
+								</Tooltip>
+								<Tooltip text="Delete configuration">
+									<IconButton
+										icon="trash"
+										label="Delete configuration"
+										class="text-danger hover:text-danger hover:bg-danger/10"
+										onclick={() => handleDeleteConfig(activeConfig.id)}
 									/>
-								</div>
-							{:else if detailTab === 'toolset'}
-								<div class="max-w-2xl">
-									{#key activeConfig.id}
-										<LLMConfigToolsetPanel configId={activeConfig.id} />
-									{/key}
-								</div>
-							{:else}
-								<div class="max-w-3xl">
-									{#key activeConfig.id}
-										<AssignmentCard
-											adapter={createLLMAssignmentAdapter(activeConfig.id)}
-											resourceKey={activeConfig.id}
-											resourceName={activeConfig.name}
-											on:changed={(event) => handleAssignmentChanged(activeConfig.id, event)}
-										/>
-									{/key}
-								</div>
-							{/if}
-						</div>
+								</Tooltip>
+							{/snippet}
+						</DetailHeader>
+
+						<DetailTabs tabs={llmDetailTabs} active={detailTab} onSelect={(id) => (detailTab = id as typeof detailTab)} ariaLabel="LLM configuration details" />
+
+						{#if detailTab === 'configuration'}
+							<DetailBody>
+								<LLMConfigForm
+									bind:draft={editFormData}
+									mode="edit"
+									layout="panel"
+									idPrefix="edit-config"
+									apiKeySet={!!activeConfig?.api_key_set}
+									{preChatActions}
+								/>
+							</DetailBody>
+						{:else if detailTab === 'toolset'}
+							<DetailBody>
+								{#key activeConfig.id}
+									<LLMConfigToolsetPanel configId={activeConfig.id} />
+								{/key}
+							</DetailBody>
+						{:else}
+							<DetailBody>
+								{#key activeConfig.id}
+									<AssignmentCard
+										adapter={createLLMAssignmentAdapter(activeConfig.id)}
+										resourceKey={activeConfig.id}
+										resourceName={activeConfig.name}
+										on:changed={(event) => handleAssignmentChanged(activeConfig.id, event)}
+									/>
+								{/key}
+							</DetailBody>
+						{/if}
+
+						<DetailFooter dirtyCount={editDirty ? 1 : 0} dirtyLabel={editDirty ? 'Unsaved changes' : undefined}>
+							<Button variant="ghost" size="sm" disabled={!editDirty} onclick={discardEditForm}>Discard</Button>
+							<Button variant="primary" size="sm" loading={editSaving} disabled={!editDirty} onclick={saveEditForm}>Save</Button>
+						</DetailFooter>
 					{:else}
-						<div class="h-full p-5 flex items-center justify-center">
-							<EmptyState
-								title="No configuration selected"
-								description="Choose an LLM configuration from the list to see and edit it."
-								icon="model"
-								compact
-							/>
-						</div>
+						<DetailEmptyState message="Select a configuration to view its details" icon="document" />
 					{/if}
 				</div>
 			</MasterDetailLayout>

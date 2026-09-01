@@ -4,6 +4,7 @@
 	import * as adminApi from '$lib/services/admin-api';
 	import { toasts } from '$lib/stores/toast';
 	import { Button, Input, Alert, Spinner, SegmentedControl, Switch } from '$lib/components/ui';
+	import { DetailSection } from '$lib/components/detail';
 	import { parseFileStorageSettings, buildFileStorageSettingsPayload } from '../fileStorageSettings';
 
 	let {
@@ -86,11 +87,8 @@
 </script>
 
 <div class="space-y-5">
-	<div class="bg-surface-1 rounded-lg border border-line shadow-raised">
-		<div class="px-6 py-3 border-b border-line">
-			<h3 class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted">File Storage</h3>
-		</div>
-		<div class="px-6 divide-y divide-line">
+	<DetailSection label="File Storage" padded={false}>
+		<div class="px-4 sm:px-5 divide-y divide-line">
 			<div class="py-4 flex items-start justify-between gap-6">
 				<div>
 					<label for="file-storage-directory" class="block text-sm font-medium text-fg mb-1">
@@ -110,14 +108,10 @@
 				/>
 			</div>
 		</div>
-	</div>
+	</DetailSection>
 
-	<div class="bg-surface-1 rounded-lg border border-line shadow-raised">
-		<div class="px-6 py-3 border-b border-line">
-			<h3 class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted">Storage Backend</h3>
-		</div>
-
-		<div class="px-6 py-4 space-y-3">
+	<DetailSection label="Storage Backend">
+		<div class="space-y-3">
 			<p class="text-sm text-fg-muted">
 				Where generation outputs, uploads and thumbnails are written. Local disk is the default.
 				Switching to S3 only affects <span class="font-medium text-fg">new</span> writes - files already
@@ -199,5 +193,5 @@
 				</div>
 			{/if}
 		</div>
-	</div>
+	</DetailSection>
 </div>

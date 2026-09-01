@@ -44,6 +44,12 @@ fields:
       model_type: "upscaler"
       placeholder: "ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0..."
       filter_tags: "@config:upscaler_tags"
+      recommendations:
+        - name: "ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors"
+          provider: "huggingface"
+          ref: '{"repo": "Lightricks/LTX-2.5", "file": "latent_upscale_models/ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors", "revision": "main"}'
+          size: "949.6 MB"
+          description: "LTX-2.5 latent spatial upscaler, x2. Gated repo: accept the LTX-2 license on Hugging Face and set a token in Admin - Plugins."
 
   - name: "enhancement_loras"
     type: "lora_picker"
@@ -133,6 +139,12 @@ fields:
       model_type: "upscaler"
       placeholder: "ltx-2.5-latent-temporal-upscaler-x2-bf16-1.0..."
       filter_tags: "@config:upscaler_tags"
+      recommendations:
+        - name: "ltx-2.5-latent-temporal-upscaler-x2-bf16-1.0.safetensors"
+          provider: "huggingface"
+          ref: '{"repo": "Lightricks/LTX-2.5", "file": "latent_upscale_models/ltx-2.5-latent-temporal-upscaler-x2-bf16-1.0.safetensors", "revision": "main"}'
+          size: "249.8 MB"
+          description: "LTX-2.5 latent temporal upscaler, x2 - doubles frame rate in latent space. Gated repo: accept the LTX-2 license on Hugging Face and set a token in Admin - Plugins."
     reactions:
       - when: { field: "dfr_rounds", equals: "off" }
         then: { set_visibility: false }

@@ -10,6 +10,27 @@ fields:
       model_type: "diffusion_model"
       placeholder: "ltx-2.5-22b-dev-transformer-bf16 / -distilled-..."
       filter_tags: "@config:checkpoint_tags"
+      recommendations:
+        - name: "ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors"
+          provider: "huggingface"
+          ref: '{"repo": "Lightricks/LTX-2.5", "file": "diffusion_models/ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors", "revision": "main"}'
+          size: "20.03 GB"
+          description: "LTX-2.5 22B distilled DiT, int8 ConvRot - half of bf16. Gated repo: accept the LTX-2 license on Hugging Face and set a token in Admin - Plugins."
+        - name: "ltx-2.5-22b-distilled-transformer-nvfp4.safetensors"
+          provider: "huggingface"
+          ref: '{"repo": "Lightricks/LTX-2.5", "file": "diffusion_models/ltx-2.5-22b-distilled-transformer-nvfp4.safetensors", "revision": "main"}'
+          size: "17.44 GB"
+          description: "LTX-2.5 22B distilled DiT, nvfp4 - smallest tier, fast path needs Blackwell. Gated repo: accept the LTX-2 license on Hugging Face and set a token in Admin - Plugins."
+        - name: "ltx-2.5-22b-distilled-transformer-bf16.safetensors"
+          provider: "huggingface"
+          ref: '{"repo": "Lightricks/LTX-2.5", "file": "diffusion_models/ltx-2.5-22b-distilled-transformer-bf16.safetensors", "revision": "main"}'
+          size: "39.13 GB"
+          description: "LTX-2.5 22B distilled DiT, bf16 reference. Gated repo: accept the LTX-2 license on Hugging Face and set a token in Admin - Plugins."
+        - name: "ltx-2.5-22b-dev-transformer-bf16.safetensors"
+          provider: "huggingface"
+          ref: '{"repo": "Lightricks/LTX-2.5", "file": "diffusion_models/ltx-2.5-22b-dev-transformer-bf16.safetensors", "revision": "main"}'
+          size: "39.13 GB"
+          description: "LTX-2.5 22B dev DiT, bf16 - non-distilled, more steps. Gated repo: accept the LTX-2 license on Hugging Face and set a token in Admin - Plugins."
 
   - name: "text_encoder"
     type: "model"
@@ -19,6 +40,17 @@ fields:
       model_type: "text_encoder"
       placeholder: "gemma4-12b-with-proj-ltx-2.5-bf16..."
       filter_tags: "@config:text_encoder_tags"
+      recommendations:
+        - name: "gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors"
+          provider: "huggingface"
+          ref: '{"repo": "Lightricks/LTX-2.5", "file": "text_encoders/gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors", "revision": "main"}'
+          size: "14.32 GB"
+          description: "Gemma4-12B with text-embedding projection, int8 ConvRot. Gated repo: accept the LTX-2 license on Hugging Face and set a token in Admin - Plugins."
+        - name: "gemma4-12b-with-proj-ltx-2.5-bf16.safetensors"
+          provider: "huggingface"
+          ref: '{"repo": "Lightricks/LTX-2.5", "file": "text_encoders/gemma4-12b-with-proj-ltx-2.5-bf16.safetensors", "revision": "main"}'
+          size: "24.46 GB"
+          description: "Gemma4-12B with projection, bf16 reference - 2.5 needs the with-proj build. Gated repo: accept the LTX-2 license on Hugging Face and set a token in Admin - Plugins."
 
   - name: "video_vae"
     type: "model"
@@ -28,6 +60,17 @@ fields:
       model_type: "vae"
       placeholder: "ltx-2.5-video-vae-bf16 (diffusion decode) or -conv- (conv decode)..."
       filter_tags: "@config:vae_tags"
+      recommendations:
+        - name: "ltx-2.5-video-vae-conv-bf16.safetensors"
+          provider: "huggingface"
+          ref: '{"repo": "Lightricks/LTX-2.5", "file": "vae/ltx-2.5-video-vae-conv-bf16.safetensors", "revision": "main"}'
+          size: "1.35 GB"
+          description: "LTX-2.5 video VAE, conv decode - the cheaper decode path. Gated repo: accept the LTX-2 license on Hugging Face and set a token in Admin - Plugins."
+        - name: "ltx-2.5-video-vae-bf16.safetensors"
+          provider: "huggingface"
+          ref: '{"repo": "Lightricks/LTX-2.5", "file": "vae/ltx-2.5-video-vae-bf16.safetensors", "revision": "main"}'
+          size: "1.37 GB"
+          description: "LTX-2.5 video VAE, diffusion decode - sharper, heavier. Gated repo: accept the LTX-2 license on Hugging Face and set a token in Admin - Plugins."
 
   - name: "upscale_model"
     type: "model"
@@ -37,3 +80,9 @@ fields:
       model_type: "upscaler"
       placeholder: "ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0..."
       filter_tags: "@config:upscaler_tags"
+      recommendations:
+        - name: "ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors"
+          provider: "huggingface"
+          ref: '{"repo": "Lightricks/LTX-2.5", "file": "latent_upscale_models/ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors", "revision": "main"}'
+          size: "949.6 MB"
+          description: "LTX-2.5 latent spatial upscaler, x2. Gated repo: accept the LTX-2 license on Hugging Face and set a token in Admin - Plugins."

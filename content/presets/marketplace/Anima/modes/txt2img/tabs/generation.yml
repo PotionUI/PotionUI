@@ -35,6 +35,22 @@ fields:
           model_type: "diffusion_model"
           placeholder: "Select Anima DiT (e.g. anima_aestheticV10b)..."
           filter_tags: "@config:checkpoint_tags"
+          recommendations:
+            - name: "anima-aesthetic-v1.1.safetensors"
+              link: "https://huggingface.co/circlestone-labs/Anima/resolve/main/split_files/diffusion_models/anima-aesthetic-v1.1.safetensors"
+              size: "3.90 GB"
+              sha256: "3c1868387a3a1ff504bbb87c33678321965ead381fcf87afbd0264daa600c082"
+              description: "Anima aesthetic v1.1 - the general-purpose DiT; bf16 is the only precision published."
+            - name: "anima-turbo-v1.1.safetensors"
+              link: "https://huggingface.co/circlestone-labs/Anima/resolve/main/split_files/diffusion_models/anima-turbo-v1.1.safetensors"
+              size: "3.90 GB"
+              sha256: "fba11953276b57edf59d1dc4f1857ac05aa079c56f982b4d7c20298d57d3f7eb"
+              description: "Anima turbo v1.1 - few-step variant; drop steps and CFG well below the aesthetic defaults."
+            - name: "anima-base-v1.0.safetensors"
+              link: "https://huggingface.co/circlestone-labs/Anima/resolve/main/split_files/diffusion_models/anima-base-v1.0.safetensors"
+              size: "3.89 GB"
+              sha256: "bd43b7cffe1ed1153d9c41e7beb2f18cb1273eafbaa3af3edd6a173dc90a006e"
+              description: "Anima base v1.0 - unaesthetic-tuned base, the better starting point for LoRA training."
 
       # Single text encoder: Qwen3-0.6B. The T5 tokenizer is bundled (no T5 model,
       # no CLIP-L) — the DiT's LLMAdapter owns the T5-vocab embedding.
@@ -46,6 +62,12 @@ fields:
           model_type: "text_encoder"
           placeholder: "Select Qwen3-0.6B text encoder..."
           filter_tags: "@config:text_encoder_tags"
+          recommendations:
+            - name: "qwen_3_06b_base.safetensors"
+              link: "https://huggingface.co/circlestone-labs/Anima/resolve/main/split_files/text_encoders/qwen_3_06b_base.safetensors"
+              size: "1.11 GB"
+              sha256: "cd2a512003e2f9f3cd3c32a9c3573f820bb28c940f73c57b1ddaa983d9223eba"
+              description: "Qwen3-0.6B base encoder - the smallest text encoder of any native family."
 
       - name: "vae"
         type: "model"
@@ -55,3 +77,9 @@ fields:
           model_type: "vae"
           placeholder: "Select the Wan-2.1 VAE (wan_2.1_vae / qwen_image_vae)..."
           filter_tags: "@config:vae_tags"
+          recommendations:
+            - name: "qwen_image_vae.safetensors"
+              link: "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/vae/qwen_image_vae.safetensors"
+              size: "242.0 MB"
+              sha256: "a70580f0213e67967ee9c95f05bb400e8fb08307e017a924bf3441223e023d1f"
+              description: "Wan 2.1 causal-3D VAE, shared with Qwen-Image."

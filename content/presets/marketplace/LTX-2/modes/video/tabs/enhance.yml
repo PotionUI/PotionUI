@@ -44,6 +44,17 @@ fields:
       model_type: "upscaler"
       placeholder: "Select an LTX-2.3 spatial upscaler..."
       filter_tags: "@config:upscaler_tags"
+      recommendations:
+        - name: "ltx-2.3-spatial-upscaler-x2-1.1.safetensors"
+          link: "https://huggingface.co/Lightricks/LTX-2.3/resolve/main/ltx-2.3-spatial-upscaler-x2-1.1.safetensors"
+          size: "949.6 MB"
+          sha256: "5f416311fa8172b65af67530758964708d29a317b830d689a51143b7f91913ed"
+          description: "LTX-2.3 latent spatial upscaler, x2."
+        - name: "ltx-2.3-spatial-upscaler-x1.5-1.0.safetensors"
+          link: "https://huggingface.co/Lightricks/LTX-2.3/resolve/main/ltx-2.3-spatial-upscaler-x1.5-1.0.safetensors"
+          size: "1.02 GB"
+          sha256: "b2b3193e68cb04b4701e1d59bec4ed5d5e3e84506d9a42d5a129d37d39823df7"
+          description: "LTX-2.3 latent spatial upscaler, x1.5 - gentler step for tight VRAM."
 
   - name: "enhancement_loras"
     type: "lora_picker"

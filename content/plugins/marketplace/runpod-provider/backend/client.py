@@ -194,6 +194,7 @@ class RunPodClient:
         cloud_type: str = "SECURE",
         data_center_ids: Optional[List[str]] = None,
         container_registry_auth_id: Optional[str] = None,
+        allowed_cuda_versions: Optional[List[str]] = None,
     ) -> Pod:
         payload: Dict[str, Any] = {
             "name": name,
@@ -216,6 +217,10 @@ class RunPodClient:
             payload["dataCenterIds"] = data_center_ids
         if container_registry_auth_id:
             payload["containerRegistryAuthId"] = container_registry_auth_id
+        # Omitted means "any CUDA version is acceptable" per PodCreateInput -
+        # sending an empty list would allow nothing.
+        if allowed_cuda_versions:
+            payload["allowedCudaVersions"] = list(allowed_cuda_versions)
 
         data = await self._request("POST", "/pods", json=payload)
         return Pod.from_api(data)

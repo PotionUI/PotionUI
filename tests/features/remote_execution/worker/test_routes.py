@@ -8,11 +8,13 @@ from __future__ import annotations
 import hashlib
 import json as jsonlib
 import time
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import httpx
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from src.bootstrap.worker_app import create_worker_app
@@ -21,6 +23,7 @@ from src.features.remote_execution.worker.config import WorkerConfig
 from src.features.remote_execution.worker.coordinator import WorkerCoordinator
 from src.features.remote_execution.worker.journal import WorkerJournal
 from src.features.remote_execution.worker.model_depot import ModelDepot
+from src.features.remote_execution.worker.routes import build_worker_router
 from src.pipelines.contracts import PipeConfigSpec, PipeOutput
 from src.platform.worker_protocol import (
     ContentDigest,
@@ -473,3 +476,60 @@ def test_fetch_rejects_a_relative_path_that_escapes_the_depot(client):
 def test_fetch_requires_a_token(client):
     resp = client.post("/v1/models/fetch", json=envelope(_fetch_request()))
     assert resp.status_code == 401
+
+
+# -- handshake: the CUDA claim ------------------------------------------------
+
+def _worker_info_client(container: WorkerContainer, *, device, cuda_probe) -> TestClient:
+    """The real /v1/worker route, with the CUDA probe faked so both answers
+    are reachable on a machine whose real answer is fixed."""
+    app = FastAPI()
+    app.include_router(build_worker_router(
+        replace(container, config=replace(container.config, device=device)),
+        cuda_probe=cuda_probe,
+    ))
+    return TestClient(app)
+
+
+def _never_probed():
+    raise AssertionError("a CPU worker must not pay for a CUDA probe")
+
+
+def test_worker_info_reports_a_usable_cuda_device(container):
+    client = _worker_info_client(container, device="cuda", cuda_probe=lambda: (True, None))
+
+    info = read_envelope(client.get("/v1/worker", headers=_auth()).json())
+    assert info.device == "cuda"
+    assert info.cuda_available is True
+    assert info.cuda_error is None
+
+
+def test_worker_info_names_why_cuda_is_unusable(container):
+    reason = "The NVIDIA driver on your system is too old (found version 12040)."
+    client = _worker_info_client(container, device="cuda", cuda_probe=lambda: (False, reason))
+
+    info = read_envelope(client.get("/v1/worker", headers=_auth()).json())
+    assert info.device == "cuda"
+    assert info.cuda_available is False
+    assert info.cuda_error == reason
+
+
+def test_a_worker_naming_no_device_reports_cuda_not_the_cpu_it_would_fall_back_to(container):
+    """POTIONUI_WORKER_DEVICE unset means "use this pod's GPU" - the CPU a
+    failed probe degrades to must never read back as the operator's choice."""
+    client = _worker_info_client(
+        container, device=None, cuda_probe=lambda: (False, "Found no NVIDIA driver"),
+    )
+
+    info = read_envelope(client.get("/v1/worker", headers=_auth()).json())
+    assert info.device == "cuda"
+    assert info.cuda_available is False
+
+
+def test_a_cpu_worker_makes_no_cuda_claim_either_way(container):
+    client = _worker_info_client(container, device="cpu", cuda_probe=_never_probed)
+
+    info = read_envelope(client.get("/v1/worker", headers=_auth()).json())
+    assert info.device == "cpu"
+    assert info.cuda_available is None
+    assert info.cuda_error is None

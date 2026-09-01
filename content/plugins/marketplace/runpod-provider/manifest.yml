@@ -60,3 +60,9 @@ settings:
     label: "Container Registry Auth ID"
     description: "RunPod credential id (Settings -> Container Registry Auth) used to pull the worker image from a private registry. Leave empty for public images."
     required: false
+  - name: "allowed_cuda_versions"
+    type: "string"
+    label: "Allowed CUDA Versions"
+    description: "Comma-separated host CUDA versions a pod may be placed on, matched exactly against RunPod's list (13.0, 12.9 ... 11.8). The default matches the worker image's cu130 torch build - on an older host driver torch falls back to CPU and generation silently crawls. Leave empty to accept any CUDA version."
+    default: "13.0"
+    required: false

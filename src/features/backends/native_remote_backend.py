@@ -80,6 +80,11 @@ from src.platform.worker_protocol import (
 _MAX_EVENT_STREAM_RECONNECTS = 3
 _EVENT_STREAM_RECONNECT_DELAY_SECONDS = 0.05
 
+_CUDA_UNAVAILABLE_MESSAGE = (
+    "Worker reports CUDA unavailable — generation would run on CPU. The pod's "
+    "driver is too old for the worker image's torch build."
+)
+
 
 class RemoteNativeBackend(BaseBackend):
     """A configured Remote Native worker."""
@@ -189,6 +194,13 @@ class RemoteNativeBackend(BaseBackend):
                 "installation. Every generation dispatched here will be rejected until both "
                 "sides run the same build."
             )
+        cuda_reason = self._cuda_unavailable_reason(info)
+        if cuda_reason is not None:
+            # Deliberately overwrites a fingerprint reason: a worker that
+            # cannot reach its GPU still produces wrong output once both sides
+            # run the same build, so it is the reason worth reading first.
+            health["status"] = "degraded"
+            health["reason"] = cuda_reason
         catalog_note = self._catalog_mismatch_note(info)
         if catalog_note is not None:
             health["catalog_note"] = catalog_note
@@ -221,6 +233,17 @@ class RemoteNativeBackend(BaseBackend):
         if expected is not None and expected != actual:
             return FingerprintMismatchV1(domain="build", expected=expected, actual=actual or "")
         return None
+
+    def _cuda_unavailable_reason(self, info: WorkerInfoV1) -> Optional[str]:
+        """None when the worker never reported the field: a handshake that
+        predates it is silence, not a denial, and must not gate dispatch."""
+        if info.cuda_available is not False:
+            return None
+        if not (info.device or "").startswith("cuda"):
+            return None
+        if info.cuda_error:
+            return f"{_CUDA_UNAVAILABLE_MESSAGE} Worker reports: {info.cuda_error}"
+        return _CUDA_UNAVAILABLE_MESSAGE
 
     def _catalog_mismatch_note(self, info: WorkerInfoV1) -> Optional[str]:
         mismatched = [
@@ -377,6 +400,15 @@ class RemoteNativeBackend(BaseBackend):
                 error_code="worker_unreachable", error_message=str(exc),
             )
             emit(ErrorGenerationOutput(error=f"Remote worker unreachable: {exc}"))
+            return
+
+        cuda_reason = self._cuda_unavailable_reason(info)
+        if cuda_reason is not None:
+            self._repository.apply_state(
+                row.id, RemoteExecutionState.FAILED,
+                error_code="cuda_unavailable", error_message=cuda_reason,
+            )
+            emit(ErrorGenerationOutput(error=cuda_reason))
             return
 
         mismatch = self._fingerprint_mismatch(info)

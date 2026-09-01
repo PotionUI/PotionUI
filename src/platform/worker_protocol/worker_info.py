@@ -67,6 +67,16 @@ class WorkerInfoV1(ProtocolModel):
     #: rather than discovering the mismatch on the first real payload.
     protocol_versions: tuple[Annotated[int, Field(ge=1)], ...] = (1,)
     capabilities: WorkerCapabilitiesV1 = WorkerCapabilitiesV1()
+    #: The device this worker was configured for - not necessarily the one it
+    #: would end up on. A worker whose CUDA probe fails degrades to CPU
+    #: silently, so it is the *request* that makes ``cuda_available`` legible.
+    device: str | None = None
+    #: None, not False, when the worker predates this field: core must read
+    #: that silence as "unknown" and keep dispatching, never as "no GPU".
+    cuda_available: bool | None = None
+    #: Why CUDA is unusable, as torch words it (e.g. the driver-too-old
+    #: message). Only set when ``cuda_available`` is False.
+    cuda_error: str | None = None
     #: domain -> opaque digest. See FINGERPRINT_DOMAINS.
     fingerprints: dict[Identifier, NonEmptyText] = {}
     started_at: datetime | None = None

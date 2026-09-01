@@ -623,6 +623,42 @@ async def test_provision_without_image_ref_or_setting_raises(provisioner, repo):
         await provisioner.provision(ProvisionRequest(profile_name="prof-1", values={}))
 
 
+async def test_provision_constrains_host_cuda_to_the_worker_images_floor_by_default(provisioner):
+    """With the setting untouched, every pod created must be constrained to a
+    host advertising CUDA 13.0 - the worker image's torch is a cu130 build,
+    and an older host driver drops it to CPU without failing the generation."""
+    await provisioner.provision(
+        ProvisionRequest(profile_name="prof-1", values={"gpu_type_id": "NVIDIA GeForce RTX 4090"})
+    )
+
+    client = FakeRunPodClient.instances[-1]
+    assert client.create_pod_calls[-1]["allowed_cuda_versions"] == ["13.0"]
+
+
+async def test_provision_with_the_setting_cleared_constrains_nothing(provisioner, repo):
+    """An admin running a worker image built against an older torch clears the
+    setting to opt out; RunPod reads the absent field as "any CUDA version"."""
+    repo._store[(PLUGIN_ID, "allowed_cuda_versions")] = ""
+
+    await provisioner.provision(
+        ProvisionRequest(profile_name="prof-1", values={"gpu_type_id": "NVIDIA GeForce RTX 4090"})
+    )
+
+    client = FakeRunPodClient.instances[-1]
+    assert client.create_pod_calls[-1]["allowed_cuda_versions"] == []
+
+
+async def test_provision_accepts_several_allowed_cuda_versions(provisioner, repo):
+    repo._store[(PLUGIN_ID, "allowed_cuda_versions")] = "13.0, 12.9"
+
+    await provisioner.provision(
+        ProvisionRequest(profile_name="prof-1", values={"gpu_type_id": "NVIDIA GeForce RTX 4090"})
+    )
+
+    client = FakeRunPodClient.instances[-1]
+    assert client.create_pod_calls[-1]["allowed_cuda_versions"] == ["13.0", "12.9"]
+
+
 async def test_provision_without_api_key_raises(provisioner, repo):
     repo._store.pop((PLUGIN_ID, "api_key"))
 

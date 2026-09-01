@@ -15,6 +15,35 @@ from pathlib import Path
 from src.platform.worker_protocol import GpuInfoV1, WorkerCapabilitiesV1
 
 
+def probe_cuda() -> tuple[bool, str | None]:
+    """Whether this host can actually use CUDA, and why not when it cannot.
+
+    ``torch.cuda.is_available()`` answers False for a driver too old for the
+    wheel's CUDA build exactly as it does for a machine with no GPU at all,
+    and only warns on stderr about the difference - so the reason has to be
+    forced out of ``torch.cuda.init()``, which raises it. Initialising the
+    driver is not a weight load; this stays as cheap as the rest of this
+    module.
+    """
+    try:
+        import torch
+    except Exception as exc:
+        return False, f"torch is not importable: {_first_line(exc)}"
+
+    try:
+        if torch.cuda.is_available():
+            return True, None
+        torch.cuda.init()
+    except Exception as exc:
+        return False, _first_line(exc)
+    return False, "torch reports no usable CUDA device"
+
+
+def _first_line(exc: BaseException) -> str:
+    text = str(exc).strip()
+    return text.splitlines()[0] if text else type(exc).__name__
+
+
 def probe_capabilities(work_dir: Path) -> WorkerCapabilitiesV1:
     import psutil
 

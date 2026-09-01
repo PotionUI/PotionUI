@@ -10,7 +10,7 @@ protocol.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict, Optional
+from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
 
 import httpx
 
@@ -61,6 +61,7 @@ class ProvisioningProfile:
     container_registry_auth_id: Optional[str] = None
     container_disk_gb: int = 20
     network_volume: str = NETWORK_VOLUME_CREATE
+    allowed_cuda_versions: Tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -148,6 +149,7 @@ class RunPodProvisioningManager:
             network_volume_id=volume_id,
             container_disk_in_gb=profile.container_disk_gb,
             data_center_ids=[profile.region] if profile.region else None,
+            allowed_cuda_versions=list(profile.allowed_cuda_versions),
         )
         if volume_id:
             create_pod_kwargs["volume_mount_path"] = "/models"

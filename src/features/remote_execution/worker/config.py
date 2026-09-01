@@ -43,6 +43,18 @@ class WorkerConfig:
     #: model depot) keeps working without naming it.
     model_dir: Path = Path("/models")
 
+    def requested_device(self) -> str:
+        """What this worker was asked to run on, for the handshake to report.
+
+        Unset means the worker probes for itself
+        (``src.bootstrap.worker_container._probe_default_device``), and that
+        probe answers ``cpu`` for a *broken* CUDA install as readily as for a
+        host that genuinely has no GPU. Reporting the request rather than that
+        degraded result is the only way a dispatching host can tell a
+        driver-too-old pod from a deliberate CPU worker.
+        """
+        return self.device or "cuda"
+
     @classmethod
     def from_env(cls, env: Optional[Mapping[str, str]] = None) -> "WorkerConfig":
         source = os.environ if env is None else env

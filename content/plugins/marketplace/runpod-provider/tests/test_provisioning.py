@@ -68,7 +68,7 @@ class FakeRunPodClient:
         self, *, name, image_name, gpu_type_ids, env, ports,
         container_disk_in_gb=20, volume_in_gb=20, network_volume_id=None,
         volume_mount_path="/workspace", cloud_type="SECURE", data_center_ids=None,
-        container_registry_auth_id=None,
+        container_registry_auth_id=None, allowed_cuda_versions=None,
     ):
         pod_id = f"pod-{len(self.created_pods) + 1}"
         self.created_pods.append({
@@ -76,6 +76,7 @@ class FakeRunPodClient:
             "env": env, "ports": ports, "network_volume_id": network_volume_id,
             "volume_mount_path": volume_mount_path,
             "container_registry_auth_id": container_registry_auth_id,
+            "allowed_cuda_versions": allowed_cuda_versions,
         })
         return Pod(
             id=pod_id, name=name, image=image_name, desired_status="RUNNING",
@@ -448,6 +449,24 @@ async def test_provision_passes_the_registry_auth_id_to_create_pod(resources, re
     await manager.provision(_profile(container_registry_auth_id="cra-1"))
 
     assert client.created_pods[-1]["container_registry_auth_id"] == "cra-1"
+
+
+async def test_provision_passes_the_allowed_cuda_versions_to_create_pod(resources, repo):
+    client = FakeRunPodClient()
+    manager = RunPodProvisioningManager(client, resources, repo, readiness_probe=_always_ready)
+
+    await manager.provision(_profile(allowed_cuda_versions=("13.0",)))
+
+    assert client.created_pods[-1]["allowed_cuda_versions"] == ["13.0"]
+
+
+async def test_provision_with_no_allowed_cuda_versions_constrains_nothing(resources, repo):
+    client = FakeRunPodClient()
+    manager = RunPodProvisioningManager(client, resources, repo, readiness_probe=_always_ready)
+
+    await manager.provision(_profile())
+
+    assert client.created_pods[-1]["allowed_cuda_versions"] == []
 
 
 async def test_provision_recreates_the_volume_when_the_recorded_one_is_gone(resources, repo):

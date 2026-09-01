@@ -433,6 +433,7 @@ class RunpodComputeProvisioner(ComputeProvisioner):
                 worker_port=_WORKER_PORT,
                 container_disk_gb=_CONTAINER_DISK_GB,
                 container_registry_auth_id=settings.container_registry_auth_id,
+                allowed_cuda_versions=settings.allowed_cuda_versions,
                 network_volume=network_volume,
             )
 

@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import io
+import json
 import sys
 import tempfile
 import time
@@ -29,6 +30,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import httpx
+from fastapi import FastAPI
 
 from src.bootstrap.worker_app import create_worker_app
 from src.bootstrap.worker_container import WorkerContainer
@@ -42,6 +44,7 @@ from src.features.remote_execution.worker.config import WorkerConfig
 from src.features.remote_execution.worker.coordinator import WorkerCoordinator
 from src.features.remote_execution.worker.journal import WorkerJournal
 from src.features.remote_execution.worker.model_depot import ModelDepot
+from src.features.remote_execution.worker.routes import build_worker_router
 from src.pipelines.contracts import IOType, PipeConfigSpec, PipeOutput, PipeOutputSpec
 from src.pipelines.outputs import ErrorGenerationOutput, ImageGenerationOutput, ProgressGenerationOutput
 from src.platform.database.database import Database
@@ -304,12 +307,12 @@ class NativeRemoteBackendTestCase(unittest.TestCase):
                 leftover.unlink()
         Database._instance = None
 
-    def _build_worker(self, *, build_id, catalog_only=None):
+    def _build_worker(self, *, build_id, catalog_only=None, device="cpu", cuda_probe=None):
         worker_tmp = Path(tempfile.mkdtemp())
         config = WorkerConfig(
             token=TOKEN, worker_id="worker-1", provider="manual", host="127.0.0.1", port=0,
             work_dir=worker_tmp, artifacts_dir=worker_tmp / "artifacts", build_id=build_id,
-            device="cpu", dtype="fp32", vram_limit_gb=None,
+            device=device, dtype="fp32", vram_limit_gb=None,
         )
         journal = WorkerJournal(config.work_dir)
         catalog = FakeCatalog(only=catalog_only)
@@ -324,7 +327,14 @@ class NativeRemoteBackendTestCase(unittest.TestCase):
             config=config, pipe_catalog=catalog, journal=journal, coordinator=coordinator,
             gpu_monitor=None, system_monitor=None, model_depot=model_depot,
         )
-        return container, create_worker_app(container=container)
+        if cuda_probe is None:
+            return container, create_worker_app(container=container)
+        # create_worker_app carries no seam for the CUDA probe, and a gated
+        # dispatch never reaches a second route - the real router alone is
+        # everything this variant needs to answer /v1/worker.
+        app = FastAPI()
+        app.include_router(build_worker_router(container, cuda_probe=cuda_probe))
+        return container, app
 
     def _register_model(self, *, role: str, filename: str, content: bytes, is_directory: bool = False) -> Path:
         """Index a real on-disk model file the same way the models feature
@@ -416,6 +426,84 @@ class TestFingerprintPreGate(NativeRemoteBackendTestCase):
 
         errors = [o for o in outputs if isinstance(o, ErrorGenerationOutput)]
         self.assertEqual(len(errors), 1)
+
+
+# -- CUDA pre-gate ------------------------------------------------------------
+
+DRIVER_TOO_OLD = "The NVIDIA driver on your system is too old (found version 12040)."
+
+
+class LegacyWorkerTransport(httpx.ASGITransport):
+    """Drops the CUDA fields from the handshake, so the host sees exactly the
+    payload a worker built before those fields existed would send."""
+
+    async def handle_async_request(self, request):
+        response = await super().handle_async_request(request)
+        if request.url.path != "/v1/worker":
+            return response
+        await response.aread()
+        body = json.loads(response.content)
+        for field in ("device", "cuda_available", "cuda_error"):
+            body["payload"].pop(field, None)
+        return httpx.Response(response.status_code, json=body)
+
+
+class TestCudaPreGate(NativeRemoteBackendTestCase):
+    """A pod whose driver is too old for the worker image's torch build gets no
+    error from torch - it falls back to CPU and the generation "succeeds",
+    slowly and wrongly. Core has to refuse on the handshake instead."""
+
+    def test_a_worker_that_cannot_reach_its_gpu_is_refused_before_any_submit(self):
+        cuda_container, cuda_app = self._build_worker(
+            build_id=None, device="cuda", cuda_probe=lambda: (False, DRIVER_TOO_OLD),
+        )
+        backend = self._backend(cuda_app)
+        pipeline_data = {
+            "generation_id": "gen-no-cuda", "preset_id": "preset-1",
+            "pipes": [{"name": "image/fake", "id": "p1", "enabled": True, "config": {}, "input": []}],
+        }
+
+        generation_id, outputs = self._run_generation(backend, pipeline_data)
+
+        self.assertIsNone(cuda_container.coordinator.record_for(generation_id))
+
+        row = self.repo.get_by_id(generation_id)
+        self.assertEqual(row.state, S.FAILED)
+        self.assertEqual(row.error_code, "cuda_unavailable")
+        self.assertIn("generation would run on CPU", row.error_message)
+        self.assertIn("found version 12040", row.error_message)
+
+        errors = [o for o in outputs if isinstance(o, ErrorGenerationOutput)]
+        self.assertEqual(len(errors), 1)
+        self.assertIn("generation would run on CPU", errors[0].error)
+
+    def test_a_working_gpu_worker_is_not_gated(self):
+        _container, cuda_app = self._build_worker(
+            build_id=None, device="cuda", cuda_probe=lambda: (True, None),
+        )
+        backend = self._backend(cuda_app)
+        pipeline_data = {
+            "generation_id": "gen-cuda-ok", "preset_id": "preset-1",
+            "pipes": [{"name": "image/fake", "id": "p1", "enabled": True, "config": {}, "input": []}],
+        }
+
+        generation_id, outputs = self._run_generation(backend, pipeline_data)
+
+        self.assertEqual(self.repo.get_by_id(generation_id).state, S.SUCCEEDED)
+        self.assertEqual(len([o for o in outputs if isinstance(o, ImageGenerationOutput)]), 1)
+
+    def test_a_worker_predating_the_cuda_fields_still_dispatches(self):
+        backend = self._backend(self.worker_app)
+        backend._transport_override = LegacyWorkerTransport(app=self.worker_app)
+        pipeline_data = {
+            "generation_id": "gen-legacy-worker", "preset_id": "preset-1",
+            "pipes": [{"name": "image/fake", "id": "p1", "enabled": True, "config": {}, "input": []}],
+        }
+
+        generation_id, outputs = self._run_generation(backend, pipeline_data)
+
+        self.assertEqual(self.repo.get_by_id(generation_id).state, S.SUCCEEDED)
+        self.assertEqual(len([o for o in outputs if isinstance(o, ImageGenerationOutput)]), 1)
 
 
 # -- per-pipeline compatibility gate -------------------------------------------

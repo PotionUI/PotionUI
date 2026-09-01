@@ -181,6 +181,47 @@ async def test_create_pod_omits_network_volume_id_when_none():
     assert "networkVolumeId" not in captured["body"]
 
 
+async def test_create_pod_sends_allowed_cuda_versions_when_set():
+    """A pod whose host driver predates the worker image's torch build runs
+    generation on CPU without erroring - `allowedCudaVersions` is what keeps
+    such a host from being handed out in the first place."""
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json=POD_PAYLOAD)
+
+    client = _client(handler)
+    await client.create_pod(
+        name="n", image_name="img", gpu_type_ids=["x"], env={}, ports=["8100/http"],
+        allowed_cuda_versions=["13.0"],
+    )
+    await client.aclose()
+
+    assert captured["body"]["allowedCudaVersions"] == ["13.0"]
+
+
+async def test_create_pod_omits_allowed_cuda_versions_when_empty():
+    """RunPod reads an absent field as "any CUDA version is acceptable"; an
+    empty list would instead allow nothing."""
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json=POD_PAYLOAD)
+
+    client = _client(handler)
+    await client.create_pod(
+        name="n", image_name="img", gpu_type_ids=["x"], env={}, ports=["8100/http"],
+        allowed_cuda_versions=[],
+    )
+    await client.aclose()
+
+    assert "allowedCudaVersions" not in captured["body"]
+
+
 async def test_create_network_volume_payload_and_parsing():
     captured = {}
 

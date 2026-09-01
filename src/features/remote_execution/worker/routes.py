@@ -20,7 +20,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from src.features.remote_execution.worker.assets import AssetStagingError
 from src.features.remote_execution.worker.auth import build_token_dependency
-from src.features.remote_execution.worker.capabilities import probe_capabilities
+from src.features.remote_execution.worker.capabilities import probe_capabilities, probe_cuda
 from src.features.remote_execution.worker.coordinator import CancelOutcome, SubmitOutcome
 from src.features.remote_execution.worker.model_depot import ModelStagingError
 from src.features.remote_execution.worker.transfers import Transfer
@@ -48,17 +48,27 @@ _SUBMIT_STATUS_CODES = {
 }
 
 
-def build_worker_router(container) -> APIRouter:
+def build_worker_router(container, *, cuda_probe=probe_cuda) -> APIRouter:
+    # cuda_probe is a test-only seam (mirrors RemoteNativeBackend's
+    # transport_override): a suite has to drive both answers on a machine
+    # whose real answer is fixed. Never passed in production.
     router = APIRouter()
     require_token = Depends(build_token_dependency(container.config.token))
 
     @router.get("/v1/worker")
     async def get_worker_info(_=require_token):
+        device = container.config.requested_device()
+        # A worker configured for CPU has no CUDA claim to make either way,
+        # and reporting False there would read as a fault rather than a choice.
+        cuda_available, cuda_error = cuda_probe() if device.startswith("cuda") else (None, None)
         info = WorkerInfoV1(
             worker_id=container.config.worker_id,
             provider=container.config.provider,
             engine="native",
             capabilities=probe_capabilities(container.config.work_dir),
+            device=device,
+            cuda_available=cuda_available,
+            cuda_error=cuda_error,
             fingerprints=container.coordinator.fingerprints(),
             started_at=datetime.now(timezone.utc),
         )

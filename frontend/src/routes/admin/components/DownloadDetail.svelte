@@ -8,8 +8,9 @@
 		type Download
 	} from '$lib/stores/downloads';
 	import { confirmDialog } from '$lib/stores/confirm';
-	import { Badge, Button, CopyButton } from '$lib/components/ui';
+	import { Badge, CopyButton, IconButton } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 
 	export let download: Download;
 	export let allDownloads: Download[] = [];
@@ -110,22 +111,22 @@
 			{/if}
 		</div>
 	</div>
-	<div class="flex items-center gap-2 flex-shrink-0">
+	<div class="flex items-center gap-1 flex-shrink-0">
 		{#if download.status === 'downloading'}
-			<Button variant="secondary" size="sm" icon="pause" disabled={busy} onclick={handlePause}>Pause</Button>
-			<Button variant="ghost" size="sm" icon="close" class="text-danger" disabled={busy} onclick={handleCancel}>Cancel</Button>
+			<Tooltip text="Pause"><IconButton icon="pause" label="Pause" size="sm" disabled={busy} onclick={handlePause} /></Tooltip>
+			<Tooltip text="Cancel"><IconButton icon="close" label="Cancel" size="sm" class="text-danger hover:bg-danger/10" disabled={busy} onclick={handleCancel} /></Tooltip>
 		{:else if download.status === 'paused'}
-			<Button variant="primary" size="sm" icon="play" disabled={busy} onclick={handleResume}>Resume</Button>
-			<Button variant="ghost" size="sm" icon="close" class="text-danger" disabled={busy} onclick={handleCancel}>Cancel</Button>
+			<Tooltip text="Resume"><IconButton icon="play" label="Resume" size="sm" disabled={busy} onclick={handleResume} /></Tooltip>
+			<Tooltip text="Cancel"><IconButton icon="close" label="Cancel" size="sm" class="text-danger hover:bg-danger/10" disabled={busy} onclick={handleCancel} /></Tooltip>
 		{:else if download.status === 'pending'}
-			<Button variant="ghost" size="sm" icon="close" class="text-danger" disabled={busy} onclick={handleCancel}>Cancel</Button>
+			<Tooltip text="Cancel"><IconButton icon="close" label="Cancel" size="sm" class="text-danger hover:bg-danger/10" disabled={busy} onclick={handleCancel} /></Tooltip>
 		{:else if download.status === 'failed'}
-			<Button variant="primary" size="sm" icon="refresh" disabled={busy} onclick={handleRetry}>Retry</Button>
-			<Button variant="secondary" size="sm" icon="download" disabled={busy} onclick={handleDownloadAgain}>Download again</Button>
-			<Button variant="ghost" size="sm" icon="trash" class="text-danger" disabled={busy} onclick={handleRemove}>Remove</Button>
+			<Tooltip text="Retry"><IconButton icon="refresh" label="Retry" size="sm" disabled={busy} onclick={handleRetry} /></Tooltip>
+			<Tooltip text="Download again"><IconButton icon="download" label="Download again" size="sm" disabled={busy} onclick={handleDownloadAgain} /></Tooltip>
+			<Tooltip text="Remove from history"><IconButton icon="trash" label="Remove from history" size="sm" class="text-danger hover:bg-danger/10" disabled={busy} onclick={handleRemove} /></Tooltip>
 		{:else}
-			<Button variant="primary" size="sm" icon="download" disabled={busy} onclick={handleDownloadAgain}>Download again</Button>
-			<Button variant="ghost" size="sm" icon="trash" class="text-danger" disabled={busy} onclick={handleRemove}>Remove</Button>
+			<Tooltip text="Download again"><IconButton icon="download" label="Download again" size="sm" disabled={busy} onclick={handleDownloadAgain} /></Tooltip>
+			<Tooltip text="Remove from history"><IconButton icon="trash" label="Remove from history" size="sm" class="text-danger hover:bg-danger/10" disabled={busy} onclick={handleRemove} /></Tooltip>
 		{/if}
 	</div>
 </div>

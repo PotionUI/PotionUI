@@ -845,9 +845,12 @@
 											</div>
 										{/if}
 									</div>
-								<div class="flex items-center gap-0.5 shrink-0">
-									<!-- Drag handle - moved off the row's left edge (was crowding thumbnail/content
-									     width); the top-right corner cluster already reserves space for row controls. -->
+								<!-- Only the drag handle stays in the header: the row actions moved down
+								     to the strength row so the name/filename column gets its width back. -->
+								<div class="flex shrink-0 items-center">
+									<!-- Drag handle - kept off the row's left edge (it crowded the
+									     thumbnail/content width there) and out of the strength row, where a
+									     grab target sitting among click targets invites a mis-drag. -->
 									<Tooltip text="Drag to reorder" position="top">
 										<button
 											type="button"
@@ -859,102 +862,120 @@
 											<Icon name="grip" className="w-4 h-4" />
 										</button>
 									</Tooltip>
-									{#if model}
-										<button
-											type="button"
-											class="inline-flex items-center justify-center rounded p-1.5 transition-colors {model.is_favorite
-												? 'text-warning hover:bg-surface-3/50'
-												: 'text-fg-muted hover:text-fg hover:bg-surface-3/50'}"
-											aria-label={model.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
-											title={model.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
-											on:click={(e) => toggleModelFavorite(model, e)}
-										>
-											<Icon name="star" className="w-4 h-4" />
-										</button>
-									{/if}
-									{#if allowStepWindow}
-										<IconButton
-											icon="sliders"
-											label="Step window"
-											size="sm"
-											active={stepWindowIndex === index || hasStepWindow(row)}
-											onclick={() => toggleStepWindowPanel(index)}
-										/>
-									{/if}
-									<IconButton
-										icon="refresh"
-										label="Switch LoRA model"
-										size="sm"
-										active={switchingIndex === index}
-										onclick={() => openSwitch(index)}
-									/>
-									{#if allowInfoModal && model}
-										<IconButton
-											icon="info"
-											label="View LoRA details"
-											size="sm"
-											onclick={() => handleOpenDetails(row.model)}
-										/>
-									{/if}
-									<IconButton icon="close" label="Remove LoRA" size="sm" onclick={() => removeRow(index)} />
 								</div>
 							</div>
 
 							<!-- Strength -->
-							<div class="flex items-center gap-1.5 mt-2">
-								<Tooltip text={enabled ? 'Disable (strength → 0)' : 'Enable (restore strength)'} position="top">
-									<Switch
-										size="sm"
-										checked={enabled}
-										label={enabled ? 'Disable LoRA' : 'Enable LoRA'}
-										onchange={() => toggleRowEnabled(index)}
-									/>
-								</Tooltip>
-								<input
-									type="range"
-									class="flex-1 h-2 bg-surface-3 rounded-lg appearance-none cursor-pointer accent-signal disabled:cursor-not-allowed"
-									min={strengthMin}
-									max={strengthMax}
-									step={strengthStep}
-									value={row.strength}
-									disabled={!enabled}
-									on:input={(e) =>
-										updateStrength(index, parseFloat((e.target as HTMLInputElement).value))}
-								/>
-								<div class="flex items-center gap-px shrink-0">
-									<button
-										type="button"
-										class="inline-flex items-center justify-center h-5 w-5 rounded text-fg-subtle hover:text-fg hover:bg-surface-3 disabled:pointer-events-none transition-colors"
-										aria-label="Decrease strength"
-										title="−0.05 (Shift: −0.25)"
-										disabled={!enabled}
-										on:click={(e) => nudgeRowStrength(index, -1, e)}
-									>
-										<Icon name="minus" className="w-3 h-3" />
-									</button>
+							<div class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5">
+								<!-- Strength group and action cluster are separate flex items so the row
+								     can WRAP between them: in a ~320px sidebar the icons drop to their own
+								     line instead of squeezing the slider down to nothing. -->
+								<div class="flex min-w-0 flex-1 basis-[10rem] items-center gap-1.5">
+									<Tooltip text={enabled ? 'Disable (strength → 0)' : 'Enable (restore strength)'} position="top">
+										<Switch
+											size="sm"
+											checked={enabled}
+											label={enabled ? 'Disable LoRA' : 'Enable LoRA'}
+											onchange={() => toggleRowEnabled(index)}
+										/>
+									</Tooltip>
 									<input
-										type="text"
-										inputmode="decimal"
-										autocomplete="off"
-										class="w-12 shrink-0 text-right text-xs font-mono tabular-nums text-fg bg-surface-3/40 border border-line rounded px-1 py-0.5 hover:border-line-hover focus:outline-none focus:border-line-strong focus:bg-surface-3 transition-colors disabled:pointer-events-none"
-										value={editingIndex === index ? editText : formatStrength(row.strength)}
-										aria-label="LoRA strength value"
+										type="range"
+										class="h-2 min-w-[4rem] flex-1 cursor-pointer appearance-none rounded-lg bg-surface-3 accent-signal disabled:cursor-not-allowed"
+										min={strengthMin}
+										max={strengthMax}
+										step={strengthStep}
+										value={row.strength}
 										disabled={!enabled}
-										on:focus={() => focusStrengthEdit(index, row.strength)}
-										on:input={inputStrengthEdit}
-										on:blur={() => commitStrengthEdit(index)}
-										on:keydown={(e) => handleStrengthEditKeydown(e, index)}
+										on:input={(e) =>
+											updateStrength(index, parseFloat((e.target as HTMLInputElement).value))}
 									/>
-									<button
-										type="button"
-										class="inline-flex items-center justify-center h-5 w-5 rounded text-fg-subtle hover:text-fg hover:bg-surface-3 disabled:pointer-events-none transition-colors"
-										aria-label="Increase strength"
-										title="+0.05 (Shift: +0.25)"
-										disabled={!enabled}
-										on:click={(e) => nudgeRowStrength(index, 1, e)}
-									>
-										<Icon name="plus" className="w-3 h-3" />
-									</button>
+									<div class="flex items-center gap-px shrink-0">
+										<Tooltip text="−0.05 (Shift: −0.25)" position="top">
+											<button
+												type="button"
+												class="inline-flex items-center justify-center h-5 w-5 rounded text-fg-subtle hover:text-fg hover:bg-surface-3 disabled:pointer-events-none transition-colors"
+												aria-label="Decrease strength"
+												disabled={!enabled}
+												on:click={(e) => nudgeRowStrength(index, -1, e)}
+											>
+												<Icon name="minus" className="w-3 h-3" />
+											</button>
+										</Tooltip>
+										<input
+											type="text"
+											inputmode="decimal"
+											autocomplete="off"
+											class="w-12 shrink-0 text-right text-xs font-mono tabular-nums text-fg bg-surface-3/40 border border-line rounded px-1 py-0.5 hover:border-line-hover focus:outline-none focus:border-line-strong focus:bg-surface-3 transition-colors disabled:pointer-events-none"
+											value={editingIndex === index ? editText : formatStrength(row.strength)}
+											aria-label="LoRA strength value"
+											disabled={!enabled}
+											on:focus={() => focusStrengthEdit(index, row.strength)}
+											on:input={inputStrengthEdit}
+											on:blur={() => commitStrengthEdit(index)}
+											on:keydown={(e) => handleStrengthEditKeydown(e, index)}
+										/>
+										<Tooltip text="+0.05 (Shift: +0.25)" position="top">
+											<button
+												type="button"
+												class="inline-flex items-center justify-center h-5 w-5 rounded text-fg-subtle hover:text-fg hover:bg-surface-3 disabled:pointer-events-none transition-colors"
+												aria-label="Increase strength"
+												disabled={!enabled}
+												on:click={(e) => nudgeRowStrength(index, 1, e)}
+											>
+												<Icon name="plus" className="w-3 h-3" />
+											</button>
+										</Tooltip>
+									</div>
+								</div>
+								<div class="ml-auto flex shrink-0 items-center gap-0.5">
+									{#if model}
+										<Tooltip text={model.is_favorite ? 'Remove from favorites' : 'Add to favorites'} position="top">
+											<button
+												type="button"
+												class="inline-flex items-center justify-center rounded p-1.5 transition-colors {model.is_favorite
+													? 'text-warning hover:bg-surface-3/50'
+													: 'text-fg-muted hover:text-fg hover:bg-surface-3/50'}"
+												aria-label={model.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
+												on:click={(e) => toggleModelFavorite(model, e)}
+											>
+												<Icon name="star" className="w-4 h-4" />
+											</button>
+										</Tooltip>
+									{/if}
+									{#if allowStepWindow}
+										<Tooltip text="Step window" position="top">
+											<IconButton
+												icon="sliders"
+												label="Step window"
+												size="sm"
+												active={stepWindowIndex === index || hasStepWindow(row)}
+												onclick={() => toggleStepWindowPanel(index)}
+											/>
+										</Tooltip>
+									{/if}
+									<Tooltip text="Switch LoRA model" position="top">
+										<IconButton
+											icon="refresh"
+											label="Switch LoRA model"
+											size="sm"
+											active={switchingIndex === index}
+											onclick={() => openSwitch(index)}
+										/>
+									</Tooltip>
+									{#if allowInfoModal && model}
+										<Tooltip text="View LoRA details" position="top">
+											<IconButton
+												icon="info"
+												label="View LoRA details"
+												size="sm"
+												onclick={() => handleOpenDetails(row.model)}
+											/>
+										</Tooltip>
+									{/if}
+									<Tooltip text="Remove LoRA" position="top">
+										<IconButton icon="close" label="Remove LoRA" size="sm" onclick={() => removeRow(index)} />
+									</Tooltip>
 								</div>
 							</div>
 
@@ -1038,7 +1059,9 @@
 									placeholder="Search LoRAs..."
 									class="input flex-1 text-sm py-1"
 								/>
-								<IconButton icon="close" label="Close switch" size="sm" onclick={closeSwitch} />
+								<Tooltip text="Close switch" position="top">
+									<IconButton icon="close" label="Close switch" size="sm" onclick={closeSwitch} />
+								</Tooltip>
 							</div>
 							<div class="max-h-72 overflow-y-auto">
 								<ModelBrowserPanel

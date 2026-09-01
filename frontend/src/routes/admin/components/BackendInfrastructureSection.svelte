@@ -2,7 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { isAxiosError } from 'axios';
 	import { Alert, Badge, Button, Input, Spinner } from '$lib/components/ui';
-	import Icon from '$lib/components/Icon.svelte';
+	import { DetailSection } from '$lib/components/detail';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
 	import { getApiErrorMessage } from '$lib/utils/logger';
 	import { toasts } from '$lib/stores/toast';
@@ -281,15 +281,11 @@
 </script>
 
 {#if row}
-	<section class="rounded-lg border border-line bg-surface-1 shadow-raised">
-		<div class="px-4 sm:px-5 py-3 border-b border-line flex items-center justify-between gap-2">
-			<h3 class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted flex items-center gap-1.5">
-				<Icon name="database" className="w-3.5 h-3.5" />
-				Infrastructure
-			</h3>
-			<Badge variant={statusVariant[row.status] ?? 'neutral'} size="sm" dot class="uppercase">{row.status}</Badge>
-		</div>
-		<div class="px-4 sm:px-5 py-4 space-y-4">
+	<DetailSection label="Infrastructure">
+		{#snippet headerExtra()}
+			<Badge variant={statusVariant[row!.status] ?? 'neutral'} size="sm" dot class="uppercase">{row!.status}</Badge>
+		{/snippet}
+		<div class="space-y-4">
 			<dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-sm">
 				<dt class="text-fg-subtle">Pod ID</dt>
 				<dd class="font-mono tabular-nums text-fg-muted truncate min-w-0">{row.resource_ref ?? row.handle}</dd>
@@ -306,7 +302,7 @@
 				</Button>
 			</div>
 		</div>
-	</section>
+	</DetailSection>
 
 	<ConfirmModal
 		isOpen={pendingAction !== null}
@@ -320,14 +316,8 @@
 		on:cancel={() => (pendingAction = null)}
 	/>
 {:else if !loading && backendDriver === NATIVE_REMOTE_DRIVER && !configured}
-	<section class="rounded-lg border border-line bg-surface-1 shadow-raised">
-		<div class="px-4 sm:px-5 py-3 border-b border-line">
-			<h3 class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted flex items-center gap-1.5">
-				<Icon name="database" className="w-3.5 h-3.5" />
-				Infrastructure
-			</h3>
-		</div>
-		<div class="px-4 sm:px-5 py-4 space-y-4">
+	<DetailSection label="Infrastructure">
+		<div class="space-y-4">
 			{#if provisionError}
 				<Alert variant="danger" density="compact">
 					{provisionError}
@@ -421,5 +411,5 @@
 				</div>
 			{/if}
 		</div>
-	</section>
+	</DetailSection>
 {/if}

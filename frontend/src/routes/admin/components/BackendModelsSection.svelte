@@ -2,6 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { Alert, Badge, Button, Spinner } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
+	import { DetailSection } from '$lib/components/detail';
 	import { getApiErrorMessage } from '$lib/utils/logger';
 	import { toasts } from '$lib/stores/toast';
 	import { formatBytes } from '$lib/utils/format';
@@ -256,44 +257,56 @@
 	}
 </script>
 
+{#snippet modelsFooter()}
+	{#if selectedRows.length > 0}
+		<span class="font-mono text-2xs tabular-nums text-fg-subtle mr-auto">{selectedRows.length} selected</span>
+	{/if}
+	<Button
+		variant="secondary"
+		size="sm"
+		icon="upload"
+		loading={syncing === 'push'}
+		disabled={selected.size === 0 || syncing !== null || selectedInFlight}
+		onclick={() => submitSync('push')}
+	>
+		Upload from this machine
+	</Button>
+	{#if selectedRows.length > 0}
+		<span class="font-mono text-2xs tabular-nums text-fg-subtle">{formatBytes(selectedBytes)}</span>
+	{/if}
+	<Button
+		variant="secondary"
+		size="sm"
+		icon="download"
+		loading={syncing === 'fetch'}
+		disabled={!canFetchSelected || syncing !== null || selectedInFlight}
+		title={fetchDisabledTitle}
+		onclick={() => submitSync('fetch')}
+	>
+		Fetch via provider
+	</Button>
+{/snippet}
+
 {#if loading}
-	<section class="rounded-lg border border-line bg-surface-1 shadow-raised">
-		<div class="px-4 sm:px-5 py-3 border-b border-line">
-			<h3 class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted flex items-center gap-1.5">
-				<Icon name="box" className="w-3.5 h-3.5" />
-				Models
-			</h3>
-		</div>
-		<div class="px-4 sm:px-5 py-6 flex items-center justify-center">
+	<DetailSection label="Models">
+		<div class="flex items-center justify-center py-2">
 			<Spinner size="md" />
 		</div>
-	</section>
+	</DetailSection>
 {:else if sectionError?.kind === 'worker_unreachable'}
-	<section class="rounded-lg border border-line bg-surface-1 shadow-raised">
-		<div class="px-4 sm:px-5 py-3 border-b border-line">
-			<h3 class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted flex items-center gap-1.5">
-				<Icon name="box" className="w-3.5 h-3.5" />
-				Models
-			</h3>
-		</div>
-		<div class="px-4 sm:px-5 py-4">
-			<Alert variant="danger" density="compact">
-				{sectionError.message}
-				<div class="mt-2">
-					<Button variant="secondary" size="sm" onclick={retry}>Retry</Button>
-				</div>
-			</Alert>
-		</div>
-	</section>
+	<DetailSection label="Models">
+		<Alert variant="danger" density="compact">
+			{sectionError.message}
+			<div class="mt-2">
+				<Button variant="secondary" size="sm" onclick={retry}>Retry</Button>
+			</div>
+		</Alert>
+	</DetailSection>
 {:else if sectionError?.kind !== 'invalid_backend'}
-	<section class="rounded-lg border border-line bg-surface-1 shadow-raised overflow-hidden">
-		<div class="px-4 sm:px-5 py-3 border-b border-line flex items-center justify-between gap-2">
-			<h3 class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted flex items-center gap-1.5">
-				<Icon name="box" className="w-3.5 h-3.5" />
-				Models
-			</h3>
+	<DetailSection label="Models" padded={false} footer={rows.length > 0 ? modelsFooter : undefined}>
+		{#snippet headerExtra()}
 			<span class="font-mono text-2xs tabular-nums text-fg-subtle">{rows.length}</span>
-		</div>
+		{/snippet}
 
 		{#if rows.length === 0}
 			<p class="px-4 sm:px-5 py-4 text-sm text-fg-muted">No models are known on the host yet.</p>
@@ -366,36 +379,6 @@
 					{/if}
 				</svelte:fragment>
 			</ModelAssignmentPicker>
-
-			<div class="px-4 sm:px-5 py-3 border-t border-line flex items-center justify-end gap-2 flex-wrap">
-				{#if selectedRows.length > 0}
-					<span class="font-mono text-2xs tabular-nums text-fg-subtle mr-auto">{selectedRows.length} selected</span>
-				{/if}
-				<Button
-					variant="secondary"
-					size="sm"
-					icon="upload"
-					loading={syncing === 'push'}
-					disabled={selected.size === 0 || syncing !== null || selectedInFlight}
-					onclick={() => submitSync('push')}
-				>
-					Upload from this machine
-				</Button>
-				{#if selectedRows.length > 0}
-					<span class="font-mono text-2xs tabular-nums text-fg-subtle">{formatBytes(selectedBytes)}</span>
-				{/if}
-				<Button
-					variant="secondary"
-					size="sm"
-					icon="download"
-					loading={syncing === 'fetch'}
-					disabled={!canFetchSelected || syncing !== null || selectedInFlight}
-					title={fetchDisabledTitle}
-					onclick={() => submitSync('fetch')}
-				>
-					Fetch via provider
-				</Button>
-			</div>
 		{/if}
-	</section>
+	</DetailSection>
 {/if}

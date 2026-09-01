@@ -22,8 +22,9 @@
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import BackendForm from './BackendForm.svelte';
-	import { MasterDetailLayout } from '$lib/components/master-detail';
+	import { MasterDetailLayout, DetailEmptyState } from '$lib/components/master-detail';
 	import { Pane, PaneRow, PaneGroupHeader } from '$lib/components/pane';
+	import { DetailHeader, DetailTabs, DetailBody, DetailSection, DetailFooter } from '$lib/components/detail';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import AdminTabShell from './AdminTabShell.svelte';
@@ -230,6 +231,16 @@
 		? backendsHealth.find((h) => h.backend_id === activeBackend!.id)
 		: undefined;
 	$: activeIsHealthy = !!activeHealth && isHealthy(activeHealth.health.status);
+
+	// Optimizations only applies to the in-process native driver — see the
+	// NATIVE_LOCAL_DRIVER/NATIVE_REMOTE_DRIVER note above.
+	$: backendDetailTabs = [
+		{ id: 'overview', label: 'Overview', icon: 'info' },
+		...(activeBackend?.driver === NATIVE_LOCAL_DRIVER
+			? [{ id: 'optimizations', label: 'Optimizations', icon: 'sliders' }]
+			: []),
+		{ id: 'stats', label: 'Stats', icon: 'gauge' }
+	];
 
 	const dotColorClasses: Record<string, string> = {
 		success: 'bg-success-solid',
@@ -786,94 +797,67 @@
 				<div slot="detail" class="h-full min-h-0 flex flex-col">
 					{#if activeBackend}
 						{@const backendIsOffline = activeHealth && (activeHealth.health.status === 'offline' || activeHealth.health.status === 'error')}
-						<div class="flex flex-wrap items-center gap-2 px-4 sm:px-5 py-2.5 border-b border-line bg-surface-1 flex-shrink-0">
-							<nav class="inline-flex items-center gap-1" aria-label="Backend details">
-								<button
-									type="button"
-									class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors {detailTab === 'overview' ? 'bg-signal/10 text-signal' : 'text-fg-muted hover:bg-surface-2 hover:text-fg'}"
-									on:click={() => (detailTab = 'overview')}
-									aria-current={detailTab === 'overview' ? 'page' : undefined}
-								><Icon name="info" className="w-3.5 h-3.5" />Overview</button>
-								{#if activeBackend.driver === NATIVE_LOCAL_DRIVER}
-									<button
-										type="button"
-										class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors {detailTab === 'optimizations' ? 'bg-signal/10 text-signal' : 'text-fg-muted hover:bg-surface-2 hover:text-fg'}"
-										on:click={() => (detailTab = 'optimizations')}
-										aria-current={detailTab === 'optimizations' ? 'page' : undefined}
-									><Icon name="sliders" className="w-3.5 h-3.5" />Optimizations</button>
+						<DetailHeader title={activeBackend.name} icon="server">
+							{#snippet chips()}
+								{#if activeIsHealthy && activeBackend.enabled}
+									<span class="relative flex h-2.5 w-2.5">
+										<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-success-solid opacity-75"></span>
+										<span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-success-solid"></span>
+									</span>
 								{/if}
-								<button
-									type="button"
-									class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors {detailTab === 'stats' ? 'bg-signal/10 text-signal' : 'text-fg-muted hover:bg-surface-2 hover:text-fg'}"
-									on:click={() => (detailTab = 'stats')}
-									aria-current={detailTab === 'stats' ? 'page' : undefined}
-								><Icon name="gauge" className="w-3.5 h-3.5" />Stats</button>
-							</nav>
-							<div class="ml-auto flex items-center gap-2 flex-wrap">
-									<Switch
-										checked={activeBackend.enabled}
-										busy={togglingBackendId === activeBackend.id}
-										size="lg"
-										onchange={() => activeBackend && toggleEnabled(activeBackend)}
-										label="Backend enabled"
-									/>
-									{#if !activeBackend.is_default}
+								<Badge variant="neutral" size="sm" class="font-mono uppercase">{formatDriverLabel(activeBackend.driver)}</Badge>
+								{#if activeBackend.is_default}<Badge variant="signal" size="sm" class="uppercase">Default</Badge>{/if}
+								{#if !activeBackend.configured}<Badge variant="warning" size="sm" class="uppercase">Not configured</Badge>{/if}
+								{#if activeHealth}<Badge variant={getHealthVariant(activeHealth.health.status)} size="sm" dot class="{activeIsHealthy ? 'health-dot-pulse' : ''} uppercase">{activeHealth.health.status}</Badge>{/if}
+							{/snippet}
+							{#snippet actions()}
+								<Switch
+									checked={activeBackend.enabled}
+									busy={togglingBackendId === activeBackend.id}
+									size="lg"
+									onchange={() => activeBackend && toggleEnabled(activeBackend)}
+									label="Backend enabled"
+								/>
+								{#if !activeBackend.is_default}
 									<Tooltip text="Make default">
-										<button type="button" aria-label="Make default" class="inline-flex items-center justify-center min-w-8 min-h-8 p-1.5 rounded transition-colors duration-100 text-fg-muted hover:text-fg hover:bg-surface-3/50" on:click={() => activeBackend && makeDefault(activeBackend)}>
+										<button type="button" aria-label="Make default" class="inline-flex items-center justify-center min-w-8 min-h-8 p-1.5 rounded transition-colors duration-100 text-fg-muted hover:text-fg hover:bg-surface-3/50" onclick={() => activeBackend && makeDefault(activeBackend)}>
 											<Icon name="star" className="w-4 h-4" />
 										</button>
 									</Tooltip>
 								{/if}
-									<Tooltip text={indexingBackendId === activeBackend.id ? 'Indexing…' : 'Index models'}>
-									<button type="button" aria-label="Index models" class="inline-flex items-center justify-center min-w-8 min-h-8 p-1.5 rounded transition-colors duration-100 text-fg-muted hover:text-fg hover:bg-surface-3/50 disabled:opacity-50 disabled:cursor-not-allowed" disabled={indexingBackendId !== null && indexingBackendId !== activeBackend.id} on:click={() => activeBackend && indexModels(activeBackend)}>
+								<Tooltip text={indexingBackendId === activeBackend.id ? 'Indexing…' : 'Index models'}>
+									<button type="button" aria-label="Index models" class="inline-flex items-center justify-center min-w-8 min-h-8 p-1.5 rounded transition-colors duration-100 text-fg-muted hover:text-fg hover:bg-surface-3/50 disabled:opacity-50 disabled:cursor-not-allowed" disabled={indexingBackendId !== null && indexingBackendId !== activeBackend.id} onclick={() => activeBackend && indexModels(activeBackend)}>
 										{#if indexingBackendId === activeBackend.id}<Spinner size="sm" />{:else}<Icon name="refresh" className="w-4 h-4" />{/if}
 									</button>
 								</Tooltip>
-									<Tooltip text="Test connection">
-									<button type="button" aria-label="Test connection" class="inline-flex items-center justify-center min-w-8 min-h-8 p-1.5 rounded transition-colors duration-100 text-fg-muted hover:text-fg hover:bg-surface-3/50 disabled:opacity-50 disabled:cursor-not-allowed" disabled={testing} on:click={() => activeBackend && testConnection(activeBackend.id)}>
+								<Tooltip text="Test connection">
+									<button type="button" aria-label="Test connection" class="inline-flex items-center justify-center min-w-8 min-h-8 p-1.5 rounded transition-colors duration-100 text-fg-muted hover:text-fg hover:bg-surface-3/50 disabled:opacity-50 disabled:cursor-not-allowed" disabled={testing} onclick={() => activeBackend && testConnection(activeBackend.id)}>
 										{#if testing}<Spinner size="sm" />{:else}<Icon name="check" className="w-4 h-4" />{/if}
 									</button>
 								</Tooltip>
-									<BackendQuickActions
-										actions={activeBackend.quick_actions ?? []}
-										backendName={activeBackend.name}
-										onDone={() => {
-											loadBackends();
-											loadBackendsHealth();
-										}}
-									/>
-									{#if activeBackend.driver !== NATIVE_LOCAL_DRIVER}
+								<BackendQuickActions
+									actions={activeBackend.quick_actions ?? []}
+									backendName={activeBackend.name}
+									onDone={() => {
+										loadBackends();
+										loadBackendsHealth();
+									}}
+								/>
+								{#if activeBackend.driver !== NATIVE_LOCAL_DRIVER}
 									<Tooltip text="Delete backend">
-										<button type="button" aria-label="Delete backend" class="inline-flex items-center justify-center min-w-8 min-h-8 p-1.5 rounded transition-colors duration-100 text-danger hover:text-danger hover:bg-danger/10" on:click={() => activeBackend && openDeleteModal(activeBackend)}>
+										<button type="button" aria-label="Delete backend" class="inline-flex items-center justify-center min-w-8 min-h-8 p-1.5 rounded transition-colors duration-100 text-danger hover:text-danger hover:bg-danger/10" onclick={() => activeBackend && openDeleteModal(activeBackend)}>
 											<Icon name="trash" className="w-4 h-4" />
 										</button>
 									</Tooltip>
 								{/if}
-									<div class="h-5 w-px bg-line-strong mx-1"></div>
-									{#if editDirty}<Badge variant="warning" size="sm" dot>Unsaved</Badge>{/if}
-							</div>
-						</div>
+							{/snippet}
+						</DetailHeader>
 
-						<div class="flex-1 min-h-0 overflow-y-auto bg-surface-2 {backendIsOffline ? 'backend-card-offline' : ''}">
+						<DetailTabs tabs={backendDetailTabs} active={detailTab} onSelect={(id) => (detailTab = id as DetailTab)} ariaLabel="Backend details" />
+
+						<div class="flex-1 min-h-0 flex flex-col {backendIsOffline ? 'backend-card-offline' : ''}">
 							{#if detailTab === 'overview'}
-								<div class="p-4 sm:p-5 space-y-5">
-									<div class="flex items-center gap-2 flex-wrap">
-										<h2 class="text-base font-semibold text-fg truncate flex items-center gap-2">
-											{activeBackend.name}
-											{#if activeIsHealthy && activeBackend.enabled}
-												<span class="relative flex h-2.5 w-2.5">
-													<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-success-solid opacity-75"></span>
-													<span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-success-solid"></span>
-												</span>
-											{/if}
-										</h2>
-										<Badge variant="neutral" size="sm" class="font-mono uppercase">{formatDriverLabel(activeBackend.driver)}</Badge>
-										{#if activeBackend.is_default}<Badge variant="signal" size="sm" class="uppercase">Default</Badge>{/if}
-										{#if !activeBackend.configured}<Badge variant="warning" size="sm" class="uppercase">Not configured</Badge>{/if}
-										{#if activeHealth}<Badge variant={getHealthVariant(activeHealth.health.status)} size="sm" dot class="{activeIsHealthy ? 'health-dot-pulse' : ''} uppercase">{activeHealth.health.status}</Badge>{/if}
-									</div>
-
-									<!-- Test Connection Result -->
+								<DetailBody>
 									{#if testResult}
 										<Alert variant={testResult.success ? 'success' : 'danger'} density="compact" title={testResult.success ? 'Connection successful' : 'Connection failed'}>
 											{#if testResult.message}{testResult.message}{/if}
@@ -903,7 +887,7 @@
 													class="flex items-center gap-1.5 text-2xs font-mono uppercase tracking-[0.05em] {hasDigestConflicts
 														? 'text-danger'
 														: 'text-warning'} hover:underline"
-													on:click={() => toggleIndexWarnings(activeBackend.id)}
+													onclick={() => toggleIndexWarnings(activeBackend.id)}
 												>
 													<Badge variant={hasDigestConflicts ? 'danger' : 'warning'} size="sm" dot>
 														{warningCount} warning{warningCount === 1 ? '' : 's'}
@@ -937,58 +921,45 @@
 										</div>
 									{/if}
 
-									<!-- Section cards matching System Settings' panel style — a WQHD
-									     pane keeps the control right under its label instead of
-									     stranded far to the right. Capped to a readable column so
-									     controls never stretch across an ultrawide pane. -->
-									<div class="max-w-2xl space-y-5">
-										{#key activeBackend.id}
-											<BackendInfrastructureSection
-												backendId={activeBackend.id}
-												backendDriver={activeBackend.driver}
-												configured={activeBackend.configured}
-												onStopped={() => {
-													loadBackends();
-													loadBackendsHealth();
-												}}
-												onProvisioned={handleInfrastructureProvisioned}
-												onTerminated={handleInfrastructureTerminated}
-											/>
-										{/key}
-
-										{#if activeBackend.driver === NATIVE_REMOTE_DRIVER}
-											{#key activeBackend.id}
-												<BackendModelsSection backendId={activeBackend.id} />
-											{/key}
-										{/if}
-
-										<BackendForm
-											bind:draft={editFormData}
-											mode="edit"
-											layout="panel"
-											idPrefix="edit-backend"
-											engineMutable={false}
-											engineLabel={formatDriverLabel(activeBackend.driver)}
-											fieldDescriptors={activeEditEngineFields}
-											enabledPlacement="none"
+									{#key activeBackend.id}
+										<BackendInfrastructureSection
+											backendId={activeBackend.id}
+											backendDriver={activeBackend.driver}
+											configured={activeBackend.configured}
+											onStopped={() => {
+												loadBackends();
+												loadBackendsHealth();
+											}}
+											onProvisioned={handleInfrastructureProvisioned}
+											onTerminated={handleInfrastructureTerminated}
 										/>
+									{/key}
 
-										<!-- Save/Discard live at the bottom of the form, same as System
-										     Settings' own trailing save row. -->
-										<div class="flex items-center justify-end gap-2">
-											<Button variant="ghost" size="sm" disabled={!editDirty} onclick={discardEditForm}>Discard</Button>
-											<Button variant="primary" size="sm" loading={editSaving} disabled={!editDirty} onclick={saveEditForm}>Save</Button>
-										</div>
-									</div>
-								</div>
+									{#if activeBackend.driver === NATIVE_REMOTE_DRIVER}
+										{#key activeBackend.id}
+											<BackendModelsSection backendId={activeBackend.id} />
+										{/key}
+									{/if}
+
+									<BackendForm
+										bind:draft={editFormData}
+										mode="edit"
+										layout="panel"
+										idPrefix="edit-backend"
+										engineMutable={false}
+										engineLabel={formatDriverLabel(activeBackend.driver)}
+										fieldDescriptors={activeEditEngineFields}
+										enabledPlacement="none"
+									/>
+								</DetailBody>
 							{:else if detailTab === 'optimizations' && activeBackend.driver === NATIVE_LOCAL_DRIVER}
-								<div class="p-4 sm:p-5">
+								<DetailBody>
 									{#key activeBackend.id}
 										<BackendOptimizations backendId={activeBackend.id} />
 									{/key}
-								</div>
+								</DetailBody>
 							{:else if detailTab === 'stats'}
-								<div class="p-4 sm:p-5">
+								<DetailBody>
 									{#if backendStatsLoading}
 										<div class="flex items-center justify-center py-12">
 											<Spinner size="lg" />
@@ -998,41 +969,41 @@
 											{#snippet actions()}<Button variant="secondary" size="sm" icon="refresh" onclick={() => activeBackend && loadBackendStats(activeBackend.id)}>Try again</Button>{/snippet}
 										</EmptyState>
 									{:else if backendStats}
-										<div class="max-w-2xl grid grid-cols-1 sm:grid-cols-3 gap-4">
-											<div class="bg-surface-1 rounded-lg border border-line shadow-raised p-4 text-center">
-												<div class="text-2xl font-mono tabular-nums font-semibold text-fg">{backendStats.indexed_models}</div>
-												<div class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted mt-1">Indexed Models</div>
-											</div>
-											<div class="bg-surface-1 rounded-lg border border-line shadow-raised p-4 text-center">
-												<div class="text-2xl font-mono tabular-nums font-semibold text-fg">{backendStats.total_size_gb.toFixed(1)} GB</div>
-												<div class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted mt-1">Total Size</div>
-											</div>
-											<div class="bg-surface-1 rounded-lg border border-line shadow-raised p-4 text-center">
-												<div class="text-2xl font-mono tabular-nums font-semibold text-fg">
-													{backendStats.last_indexed_at ? timeAgo(backendStats.last_indexed_at) : 'Never'}
+										<DetailSection label="Stats">
+											<div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+												<div class="text-center">
+													<div class="text-2xl font-mono tabular-nums font-semibold text-fg">{backendStats.indexed_models}</div>
+													<div class="font-mono text-2xs uppercase tracking-wider text-fg-muted mt-1">Indexed Models</div>
 												</div>
-												<div class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted mt-1">Last Indexed</div>
+												<div class="text-center">
+													<div class="text-2xl font-mono tabular-nums font-semibold text-fg">{backendStats.total_size_gb.toFixed(1)} GB</div>
+													<div class="font-mono text-2xs uppercase tracking-wider text-fg-muted mt-1">Total Size</div>
+												</div>
+												<div class="text-center">
+													<div class="text-2xl font-mono tabular-nums font-semibold text-fg">
+														{backendStats.last_indexed_at ? timeAgo(backendStats.last_indexed_at) : 'Never'}
+													</div>
+													<div class="font-mono text-2xs uppercase tracking-wider text-fg-muted mt-1">Last Indexed</div>
+												</div>
 											</div>
-										</div>
+										</DetailSection>
 										{#if backendStats.indexed_models === 0}
-											<p class="text-sm text-fg-muted mt-4 max-w-2xl">
+											<p class="text-sm text-fg-muted">
 												This backend hasn't been indexed yet — these numbers come from its own
 												index, not a live scan. Use "Index models" above to populate them.
 											</p>
 										{/if}
 									{/if}
-								</div>
+								</DetailBody>
 							{/if}
 						</div>
+
+						<DetailFooter dirtyCount={editDirty ? 1 : 0} dirtyLabel={editDirty ? 'Unsaved changes' : undefined}>
+							<Button variant="ghost" size="sm" disabled={!editDirty} onclick={discardEditForm}>Discard</Button>
+							<Button variant="primary" size="sm" loading={editSaving} disabled={!editDirty} onclick={saveEditForm}>Save</Button>
+						</DetailFooter>
 					{:else}
-						<div class="h-full p-5 flex items-center justify-center">
-							<EmptyState
-								title="No backend selected"
-								description="Choose a backend from the list to see and edit its details."
-								icon="cpu"
-								compact
-							/>
-						</div>
+						<DetailEmptyState message="Select a backend to view its details" icon="document" />
 					{/if}
 				</div>
 			</MasterDetailLayout>

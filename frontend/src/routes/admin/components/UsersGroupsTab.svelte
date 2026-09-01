@@ -10,8 +10,9 @@
 	import ModelAssignmentPicker from '$lib/components/modals/ModelAssignmentPicker.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import { Button, Badge, Input, SegmentedControl, Spinner, EmptyState, Switch } from '$lib/components/ui';
-	import { MasterDetailLayout } from '$lib/components/master-detail';
+	import { MasterDetailLayout, DetailEmptyState } from '$lib/components/master-detail';
 	import { Pane, PaneRow } from '$lib/components/pane';
+	import { DetailHeader, DetailTabs, DetailBody, DetailSection, DetailFooter } from '$lib/components/detail';
 	import AdminTabShell from './AdminTabShell.svelte';
 	import AdminFilterBar from './AdminFilterBar.svelte';
 	import AssignmentList from './AssignmentList.svelte';
@@ -757,6 +758,31 @@
 	$: activeUser = users.find((u) => u.id === selectedUserId) ?? null;
 	$: activeGroupEntity = groups.find((g) => g.id === selectedGroupId) ?? null;
 
+	$: userDetailTabs = activeUser
+		? [
+				{ id: 'overview', label: 'Overview', icon: 'info' },
+				{ id: 'groups', label: 'Groups', icon: 'group', count: (userGroupIds[activeUser.id] || []).length },
+				{
+					id: 'presets',
+					label: 'Presets',
+					icon: 'layers',
+					count: userPresetAssignments[activeUser.id]?.length
+				},
+				{ id: 'llms', label: 'LLMs', icon: 'chat', count: userLLMAssignments[activeUser.id]?.length },
+				{ id: 'models', label: 'Models', icon: 'cube', count: userModelAssignments[activeUser.id]?.length }
+			]
+		: [];
+
+	$: groupDetailTabs = activeGroupEntity
+		? [
+				{ id: 'overview', label: 'Overview', icon: 'info' },
+				{ id: 'users', label: 'Users', icon: 'user', count: activeGroupEntity.member_count ?? 0 },
+				{ id: 'presets', label: 'Presets', icon: 'layers', count: groupPresets.length },
+				{ id: 'llms', label: 'LLMs', icon: 'chat', count: groupLLMs.length },
+				{ id: 'models', label: 'Models', icon: 'cube', count: groupModels.length }
+			]
+		: [];
+
 	$: filteredUsers = users.filter((user: any) => {
 		const matchesSearch =
 			user.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -915,53 +941,14 @@
 
 					<div slot="detail" class="h-full min-h-0 flex flex-col">
 						{#if activeUser}
-							<div class="flex flex-wrap items-center gap-2 px-4 sm:px-5 py-2.5 border-b border-line bg-surface-1 flex-shrink-0">
-								<nav class="inline-flex items-center gap-1" aria-label="User details">
-									<button
-										type="button"
-										class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors {userDetailTab === 'overview' ? 'bg-signal/10 text-signal' : 'text-fg-muted hover:bg-surface-2 hover:text-fg'}"
-										on:click={() => (userDetailTab = 'overview')}
-										aria-current={userDetailTab === 'overview' ? 'page' : undefined}
-									><Icon name="info" className="w-3.5 h-3.5" />Overview</button>
-									<button
-										type="button"
-										class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors {userDetailTab === 'groups' ? 'bg-signal/10 text-signal' : 'text-fg-muted hover:bg-surface-2 hover:text-fg'}"
-										on:click={() => (userDetailTab = 'groups')}
-										aria-current={userDetailTab === 'groups' ? 'page' : undefined}
-									>
-										<Icon name="group" className="w-3.5 h-3.5" />Groups
-										<span class="font-mono text-2xs opacity-70">{(userGroupIds[activeUser.id] || []).length}</span>
-									</button>
-									<button
-										type="button"
-										class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors {userDetailTab === 'presets' ? 'bg-signal/10 text-signal' : 'text-fg-muted hover:bg-surface-2 hover:text-fg'}"
-										on:click={() => (userDetailTab = 'presets')}
-										aria-current={userDetailTab === 'presets' ? 'page' : undefined}
-									>
-										<Icon name="layers" className="w-3.5 h-3.5" />Presets
-										{#if userPresetAssignments[activeUser.id]}<span class="font-mono text-2xs opacity-70">{userPresetAssignments[activeUser.id].length}</span>{/if}
-									</button>
-									<button
-										type="button"
-										class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors {userDetailTab === 'llms' ? 'bg-signal/10 text-signal' : 'text-fg-muted hover:bg-surface-2 hover:text-fg'}"
-										on:click={() => (userDetailTab = 'llms')}
-										aria-current={userDetailTab === 'llms' ? 'page' : undefined}
-									>
-										<Icon name="chat" className="w-3.5 h-3.5" />LLMs
-										{#if userLLMAssignments[activeUser.id]}<span class="font-mono text-2xs opacity-70">{userLLMAssignments[activeUser.id].length}</span>{/if}
-									</button>
-									<button
-										type="button"
-										class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors {userDetailTab === 'models' ? 'bg-signal/10 text-signal' : 'text-fg-muted hover:bg-surface-2 hover:text-fg'}"
-										on:click={() => (userDetailTab = 'models')}
-										aria-current={userDetailTab === 'models' ? 'page' : undefined}
-									>
-										<Icon name="cube" className="w-3.5 h-3.5" />Models
-										{#if userModelAssignments[activeUser.id]}<span class="font-mono text-2xs opacity-70">{userModelAssignments[activeUser.id].length}</span>{/if}
-									</button>
-								</nav>
-								<div class="ml-auto flex items-center gap-2 flex-wrap">
-									{#if editUserDirty}<Badge variant="warning" size="sm" dot>Unsaved</Badge>{/if}
+							<DetailHeader title={activeUser.username}>
+								{#snippet chips()}
+									<Badge variant="neutral" size="sm" class="font-mono uppercase">{activeUser.account_type}</Badge>
+								{/snippet}
+								{#snippet subtitle()}
+									{activeUser.email}
+								{/snippet}
+								{#snippet actions()}
 									<Button
 										variant="ghost"
 										size="sm"
@@ -971,166 +958,151 @@
 										disabled={activeUser.id === currentUser?.id}
 										onclick={() => handleDeleteUser(activeUser.id, activeUser.username)}
 									/>
-								</div>
-							</div>
+								{/snippet}
+							</DetailHeader>
 
-							<div class="flex-1 min-h-0 overflow-y-auto bg-surface-2">
-								{#if userDetailTab === 'overview'}
-									<div class="p-4 sm:p-5 space-y-5">
-										<div class="flex items-center gap-2 flex-wrap">
-											<h2 class="text-base font-semibold text-fg truncate">{activeUser.username}</h2>
-											<Badge variant="neutral" size="sm" class="font-mono uppercase">{activeUser.account_type}</Badge>
-											<span class="font-mono text-2xs text-fg-subtle truncate">{activeUser.email}</span>
-										</div>
-										<div class="max-w-2xl space-y-5">
-											<section class="rounded-lg border border-line bg-surface-1 shadow-raised">
-												<div class="px-4 sm:px-5 py-3 border-b border-line">
-													<h3 class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted">Identity</h3>
-												</div>
-												<div class="px-4 sm:px-5 py-4 space-y-4">
-													<div>
-														<label for="edit-user-username" class="block text-sm font-medium text-fg-muted mb-1">Username</label>
-														<Input id="edit-user-username" type="text" bind:value={editUserFormData.username} />
-													</div>
-													<div>
-														<label for="edit-user-email" class="block text-sm font-medium text-fg-muted mb-1">Email</label>
-														<Input id="edit-user-email" type="text" bind:value={editUserFormData.email} />
-													</div>
-													<div>
-														<label for="edit-user-password" class="block text-sm font-medium text-fg-muted mb-1">New Password</label>
-														<Input id="edit-user-password" type="password" bind:value={editUserFormData.password} placeholder="Leave empty to keep current" />
-													</div>
-													<div>
-														<label for="edit-user-type" class="block text-sm font-medium text-fg-muted mb-1">Account Type</label>
-														<select id="edit-user-type" class="input" bind:value={editUserFormData.account_type}>
-															<option value="USER">Regular User</option>
-															<option value="ADMIN">Administrator</option>
-														</select>
-													</div>
-												</div>
-											</section>
+							<DetailTabs tabs={userDetailTabs} active={userDetailTab} onSelect={(id) => (userDetailTab = id as UserDetailTab)} ariaLabel="User details" />
 
-											<div class="flex items-center justify-end gap-2">
-												<Button variant="ghost" size="sm" disabled={!editUserDirty} onclick={discardUserEdit}>Discard</Button>
-												<Button variant="primary" size="sm" loading={editUserSaving} disabled={!editUserDirty} onclick={saveUserEdit}>Save</Button>
+							{#if userDetailTab === 'overview'}
+								<DetailBody>
+									<DetailSection label="Identity">
+										<div class="space-y-4">
+											<div>
+												<label for="edit-user-username" class="block text-sm font-medium text-fg-muted mb-1">Username</label>
+												<Input id="edit-user-username" type="text" bind:value={editUserFormData.username} />
 											</div>
-
-											<section class="rounded-lg border border-line bg-surface-1 shadow-raised">
-												<div class="px-4 sm:px-5 py-3 border-b border-line">
-													<h3 class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted">MCP Access</h3>
-												</div>
-												<div class="px-4 sm:px-5 py-4 flex items-start justify-between gap-6">
-													<div>
-														<p class="text-sm font-medium text-fg mb-1">Allow MCP connections</p>
-														<p class="text-sm text-fg-muted">
-															Lets this user mint tokens external MCP clients can use to act as them.
-														</p>
-													</div>
-													<Switch
-														checked={userMcpEnabled[activeUser.id] ?? true}
-														busy={togglingUserMcp === activeUser.id}
-														onchange={(next) => toggleUserMcp(activeUser.id, next)}
-														label="Allow MCP connections"
-													/>
-												</div>
-											</section>
+											<div>
+												<label for="edit-user-email" class="block text-sm font-medium text-fg-muted mb-1">Email</label>
+												<Input id="edit-user-email" type="text" bind:value={editUserFormData.email} />
+											</div>
+											<div>
+												<label for="edit-user-password" class="block text-sm font-medium text-fg-muted mb-1">New Password</label>
+												<Input id="edit-user-password" type="password" bind:value={editUserFormData.password} placeholder="Leave empty to keep current" />
+											</div>
+											<div>
+												<label for="edit-user-type" class="block text-sm font-medium text-fg-muted mb-1">Account Type</label>
+												<select id="edit-user-type" class="input" bind:value={editUserFormData.account_type}>
+													<option value="USER">Regular User</option>
+													<option value="ADMIN">Administrator</option>
+												</select>
+											</div>
 										</div>
-									</div>
-								{:else if userDetailTab === 'groups'}
-									<div class="p-4 sm:p-5">
-										<AssignmentList
-											items={groups}
-											getId={(g) => g.id}
-											getSearchText={(g) => `${g.name} ${g.description || ''}`}
-											isAssigned={(g) => (userGroupIds[activeUser.id] || []).includes(g.id)}
-											isToggling={(g) => togglingMembership === `${activeUser.id}:${g.id}`}
-											onToggle={(g) => toggleUserGroupMembership(activeUser.id, g.id, (userGroupIds[activeUser.id] || []).includes(g.id))}
-											searchPlaceholder="Search groups…"
-											ariaLabel="Groups"
-											emptyIcon="group"
-											emptyTitle="No groups yet"
-											emptyDescription="Create one from the Groups view, then come back here to add this user to it."
-										>
-											{#snippet row(group)}
-												<div class="flex items-center gap-2">
-													<p class="text-sm font-medium text-fg truncate">{group.name}</p>
-													{#if group.is_system}<Badge variant="neutral" size="sm">Built in</Badge>{/if}
-												</div>
-												{#if group.description}<p class="font-mono text-2xs text-fg-subtle truncate mt-0.5">{group.description}</p>{/if}
-											{/snippet}
-										</AssignmentList>
-									</div>
-								{:else if userDetailTab === 'presets'}
-									<div class="p-4 sm:p-5">
-										<AssignmentList
-											items={allPresets}
-											getId={(p) => p.id}
-											getSearchText={(p) => `${p.name} ${p.id}`}
-											isAssigned={(p) => (userPresetAssignments[activeUser.id] || []).some((a: any) => a.preset_id === p.preset_db_id)}
-											isToggling={(p) => assigningUserPreset === p.id}
-											onToggle={(p) => {
-												const assigned = (userPresetAssignments[activeUser.id] || []).some((a: any) => a.preset_id === p.preset_db_id);
-												assigned ? handleUnassignUserPreset(p.id) : handleAssignUserPreset(p.id);
-											}}
-											loading={loadingUserPresets}
-											searchPlaceholder="Search presets…"
-											ariaLabel="Presets"
-											emptyIcon="layers"
-											emptyTitle="No presets installed"
-											emptyDescription="Install presets in the Presets tab, then come back here to grant this user access."
-										>
-											{#snippet row(preset)}
-												<p class="text-sm font-medium text-fg truncate">{preset.name}</p>
-												<p class="font-mono text-2xs text-fg-subtle truncate mt-0.5">{preset.id}</p>
-											{/snippet}
-										</AssignmentList>
-									</div>
-								{:else if userDetailTab === 'llms'}
-									<div class="p-4 sm:p-5">
-										<AssignmentList
-											items={allLLMConfigs}
-											getId={(l) => l.id}
-											getSearchText={(l) => `${l.name} ${l.type} ${l.model}`}
-											isAssigned={(l) => (userLLMAssignments[activeUser.id] || []).some((a: any) => a.id === l.id)}
-											isToggling={(l) => assigningUserLLM === l.id}
-											onToggle={(l) => {
-												const assigned = (userLLMAssignments[activeUser.id] || []).some((a: any) => a.id === l.id);
-												assigned ? handleUnassignUserLLM(l.id) : handleAssignUserLLM(l.id);
-											}}
-											loading={loadingUserLLMs}
-											searchPlaceholder="Search LLM configurations…"
-											ariaLabel="LLM configurations"
-											emptyIcon="chat"
-											emptyTitle="No LLM configurations yet"
-											emptyDescription="Create an LLM configuration in the LLM Configuration tab, then come back here to grant this user access."
-										>
-											{#snippet row(llm)}
-												<div class="flex items-center gap-2">
-													<p class="text-sm font-medium text-fg truncate">{llm.name}</p>
-													{#if !llm.enabled}<Badge variant="warning" size="sm">Disabled</Badge>{/if}
-												</div>
-												<p class="font-mono text-2xs text-fg-subtle truncate mt-0.5">{llm.type} · {llm.model}</p>
-											{/snippet}
-										</AssignmentList>
-									</div>
-								{:else if userDetailTab === 'models'}
-									<div class="p-4 sm:p-5">
-										<div class="rounded-lg border border-line bg-surface-1 overflow-hidden">
-											<ModelAssignmentPicker
-												assignedModelIds={userModelAssignments[activeUser.id] || []}
-												processingModelId={assigningUserModel}
-												assignedUserId={activeUser.id}
-												onAssign={(modelId) => assignUserModel(modelId)}
-												onUnassign={(modelId) => unassignUserModel(modelId)}
+									</DetailSection>
+
+									<DetailSection label="MCP Access">
+										<div class="flex items-start justify-between gap-6">
+											<div>
+												<p class="text-sm font-medium text-fg mb-1">Allow MCP connections</p>
+												<p class="text-sm text-fg-muted">
+													Lets this user mint tokens external MCP clients can use to act as them.
+												</p>
+											</div>
+											<Switch
+												checked={userMcpEnabled[activeUser.id] ?? true}
+												busy={togglingUserMcp === activeUser.id}
+												onchange={(next) => toggleUserMcp(activeUser.id, next)}
+												label="Allow MCP connections"
 											/>
 										</div>
+									</DetailSection>
+								</DetailBody>
+							{:else if userDetailTab === 'groups'}
+								<DetailBody fullWidth>
+									<AssignmentList
+										items={groups}
+										getId={(g) => g.id}
+										getSearchText={(g) => `${g.name} ${g.description || ''}`}
+										isAssigned={(g) => (userGroupIds[activeUser.id] || []).includes(g.id)}
+										isToggling={(g) => togglingMembership === `${activeUser.id}:${g.id}`}
+										onToggle={(g) => toggleUserGroupMembership(activeUser.id, g.id, (userGroupIds[activeUser.id] || []).includes(g.id))}
+										searchPlaceholder="Search groups…"
+										ariaLabel="Groups"
+										emptyIcon="group"
+										emptyTitle="No groups yet"
+										emptyDescription="Create one from the Groups view, then come back here to add this user to it."
+									>
+										{#snippet row(group)}
+											<div class="flex items-center gap-2">
+												<p class="text-sm font-medium text-fg truncate">{group.name}</p>
+												{#if group.is_system}<Badge variant="neutral" size="sm">Built in</Badge>{/if}
+											</div>
+											{#if group.description}<p class="font-mono text-2xs text-fg-subtle truncate mt-0.5">{group.description}</p>{/if}
+										{/snippet}
+									</AssignmentList>
+								</DetailBody>
+							{:else if userDetailTab === 'presets'}
+								<DetailBody fullWidth>
+									<AssignmentList
+										items={allPresets}
+										getId={(p) => p.id}
+										getSearchText={(p) => `${p.name} ${p.id}`}
+										isAssigned={(p) => (userPresetAssignments[activeUser.id] || []).some((a: any) => a.preset_id === p.preset_db_id)}
+										isToggling={(p) => assigningUserPreset === p.id}
+										onToggle={(p) => {
+											const assigned = (userPresetAssignments[activeUser.id] || []).some((a: any) => a.preset_id === p.preset_db_id);
+											assigned ? handleUnassignUserPreset(p.id) : handleAssignUserPreset(p.id);
+										}}
+										loading={loadingUserPresets}
+										searchPlaceholder="Search presets…"
+										ariaLabel="Presets"
+										emptyIcon="layers"
+										emptyTitle="No presets installed"
+										emptyDescription="Install presets in the Presets tab, then come back here to grant this user access."
+									>
+										{#snippet row(preset)}
+											<p class="text-sm font-medium text-fg truncate">{preset.name}</p>
+											<p class="font-mono text-2xs text-fg-subtle truncate mt-0.5">{preset.id}</p>
+										{/snippet}
+									</AssignmentList>
+								</DetailBody>
+							{:else if userDetailTab === 'llms'}
+								<DetailBody fullWidth>
+									<AssignmentList
+										items={allLLMConfigs}
+										getId={(l) => l.id}
+										getSearchText={(l) => `${l.name} ${l.type} ${l.model}`}
+										isAssigned={(l) => (userLLMAssignments[activeUser.id] || []).some((a: any) => a.id === l.id)}
+										isToggling={(l) => assigningUserLLM === l.id}
+										onToggle={(l) => {
+											const assigned = (userLLMAssignments[activeUser.id] || []).some((a: any) => a.id === l.id);
+											assigned ? handleUnassignUserLLM(l.id) : handleAssignUserLLM(l.id);
+										}}
+										loading={loadingUserLLMs}
+										searchPlaceholder="Search LLM configurations…"
+										ariaLabel="LLM configurations"
+										emptyIcon="chat"
+										emptyTitle="No LLM configurations yet"
+										emptyDescription="Create an LLM configuration in the LLM Configuration tab, then come back here to grant this user access."
+									>
+										{#snippet row(llm)}
+											<div class="flex items-center gap-2">
+												<p class="text-sm font-medium text-fg truncate">{llm.name}</p>
+												{#if !llm.enabled}<Badge variant="warning" size="sm">Disabled</Badge>{/if}
+											</div>
+											<p class="font-mono text-2xs text-fg-subtle truncate mt-0.5">{llm.type} · {llm.model}</p>
+										{/snippet}
+									</AssignmentList>
+								</DetailBody>
+							{:else if userDetailTab === 'models'}
+								<DetailBody fullWidth>
+									<div class="rounded-lg border border-line bg-surface-1 overflow-hidden">
+										<ModelAssignmentPicker
+											assignedModelIds={userModelAssignments[activeUser.id] || []}
+											processingModelId={assigningUserModel}
+											assignedUserId={activeUser.id}
+											onAssign={(modelId) => assignUserModel(modelId)}
+											onUnassign={(modelId) => unassignUserModel(modelId)}
+										/>
 									</div>
-								{/if}
-							</div>
+								</DetailBody>
+							{/if}
+
+							<DetailFooter dirtyCount={editUserDirty ? 1 : 0} dirtyLabel={editUserDirty ? 'Unsaved changes' : undefined}>
+								<Button variant="ghost" size="sm" disabled={!editUserDirty} onclick={discardUserEdit}>Discard</Button>
+								<Button variant="primary" size="sm" loading={editUserSaving} disabled={!editUserDirty} onclick={saveUserEdit}>Save</Button>
+							</DetailFooter>
 						{:else}
-							<div class="h-full p-5 flex items-center justify-center">
-								<EmptyState title="No user selected" description="Choose a user from the list to see and edit their details." icon="group" compact />
-							</div>
+							<DetailEmptyState message="Select a user to view their details" icon="document" />
 						{/if}
 					</div>
 				</MasterDetailLayout>
@@ -1213,41 +1185,14 @@
 
 					<div slot="detail" class="h-full min-h-0 flex flex-col">
 						{#if activeGroupEntity}
-							<div class="flex flex-wrap items-center gap-2 px-4 sm:px-5 py-2.5 border-b border-line bg-surface-1 flex-shrink-0">
-								<nav class="inline-flex items-center gap-1" aria-label="Group details">
-									<button
-										type="button"
-										class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors {groupDetailTab === 'overview' ? 'bg-signal/10 text-signal' : 'text-fg-muted hover:bg-surface-2 hover:text-fg'}"
-										on:click={() => (groupDetailTab = 'overview')}
-										aria-current={groupDetailTab === 'overview' ? 'page' : undefined}
-									><Icon name="info" className="w-3.5 h-3.5" />Overview</button>
-									<button
-										type="button"
-										class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors {groupDetailTab === 'users' ? 'bg-signal/10 text-signal' : 'text-fg-muted hover:bg-surface-2 hover:text-fg'}"
-										on:click={() => (groupDetailTab = 'users')}
-										aria-current={groupDetailTab === 'users' ? 'page' : undefined}
-									><Icon name="user" className="w-3.5 h-3.5" />Users<span class="font-mono text-2xs opacity-70">{activeGroupEntity.member_count ?? 0}</span></button>
-									<button
-										type="button"
-										class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors {groupDetailTab === 'presets' ? 'bg-signal/10 text-signal' : 'text-fg-muted hover:bg-surface-2 hover:text-fg'}"
-										on:click={() => (groupDetailTab = 'presets')}
-										aria-current={groupDetailTab === 'presets' ? 'page' : undefined}
-									><Icon name="layers" className="w-3.5 h-3.5" />Presets<span class="font-mono text-2xs opacity-70">{groupPresets.length}</span></button>
-									<button
-										type="button"
-										class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors {groupDetailTab === 'llms' ? 'bg-signal/10 text-signal' : 'text-fg-muted hover:bg-surface-2 hover:text-fg'}"
-										on:click={() => (groupDetailTab = 'llms')}
-										aria-current={groupDetailTab === 'llms' ? 'page' : undefined}
-									><Icon name="chat" className="w-3.5 h-3.5" />LLMs<span class="font-mono text-2xs opacity-70">{groupLLMs.length}</span></button>
-									<button
-										type="button"
-										class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors {groupDetailTab === 'models' ? 'bg-signal/10 text-signal' : 'text-fg-muted hover:bg-surface-2 hover:text-fg'}"
-										on:click={() => (groupDetailTab = 'models')}
-										aria-current={groupDetailTab === 'models' ? 'page' : undefined}
-									><Icon name="cube" className="w-3.5 h-3.5" />Models<span class="font-mono text-2xs opacity-70">{groupModels.length}</span></button>
-								</nav>
-								<div class="ml-auto flex items-center gap-2 flex-wrap">
-									{#if editGroupDirty}<Badge variant="warning" size="sm" dot>Unsaved</Badge>{/if}
+							<DetailHeader title={activeGroupEntity.name}>
+								{#snippet chips()}
+									{#if activeGroupEntity.is_system}<Badge variant="neutral" size="sm">Built in</Badge>{/if}
+								{/snippet}
+								{#snippet subtitle()}
+									{activeGroupEntity.member_count ?? 0} members
+								{/snippet}
+								{#snippet actions()}
 									<Button
 										variant="ghost"
 										size="sm"
@@ -1257,132 +1202,120 @@
 										disabled={activeGroupEntity.is_system}
 										onclick={() => handleDeleteGroup(activeGroupEntity)}
 									/>
-								</div>
-							</div>
+								{/snippet}
+							</DetailHeader>
 
-							<div class="flex-1 min-h-0 overflow-y-auto bg-surface-2">
-								{#if groupDetailTab === 'overview'}
-									<div class="p-4 sm:p-5 space-y-5">
-										<div class="flex items-center gap-2 flex-wrap">
-											<h2 class="text-base font-semibold text-fg truncate">{activeGroupEntity.name}</h2>
-											{#if activeGroupEntity.is_system}<Badge variant="neutral" size="sm">Built in</Badge>{/if}
-											<span class="font-mono text-2xs text-fg-subtle">{activeGroupEntity.member_count ?? 0} members</span>
-										</div>
-										<div class="max-w-2xl space-y-5">
-											<section class="rounded-lg border border-line bg-surface-1 shadow-raised">
-												<div class="px-4 sm:px-5 py-3 border-b border-line">
-													<h3 class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-muted">Identity</h3>
-												</div>
-												<div class="px-4 sm:px-5 py-4 space-y-4">
-													<div>
-														<label for="edit-group-name" class="block text-sm font-medium text-fg-muted mb-1">Group Name</label>
-														<Input id="edit-group-name" type="text" bind:value={editGroupFormData.name} />
-													</div>
-													<div>
-														<label for="edit-group-description" class="block text-sm font-medium text-fg-muted mb-1">Description</label>
-														<textarea id="edit-group-description" class="input" rows="3" bind:value={editGroupFormData.description} placeholder="Optional description"></textarea>
-													</div>
-												</div>
-											</section>
+							<DetailTabs tabs={groupDetailTabs} active={groupDetailTab} onSelect={(id) => (groupDetailTab = id as GroupDetailTab)} ariaLabel="Group details" />
 
-											<div class="flex items-center justify-end gap-2">
-												<Button variant="ghost" size="sm" disabled={!editGroupDirty} onclick={discardGroupEdit}>Discard</Button>
-												<Button variant="primary" size="sm" loading={editGroupSaving} disabled={!editGroupDirty} onclick={saveGroupEdit}>Save</Button>
+							{#if groupDetailTab === 'overview'}
+								<DetailBody>
+									<DetailSection label="Identity">
+										<div class="space-y-4">
+											<div>
+												<label for="edit-group-name" class="block text-sm font-medium text-fg-muted mb-1">Group Name</label>
+												<Input id="edit-group-name" type="text" bind:value={editGroupFormData.name} />
+											</div>
+											<div>
+												<label for="edit-group-description" class="block text-sm font-medium text-fg-muted mb-1">Description</label>
+												<textarea id="edit-group-description" class="input" rows="3" bind:value={editGroupFormData.description} placeholder="Optional description"></textarea>
 											</div>
 										</div>
+									</DetailSection>
+								</DetailBody>
+							{:else if groupDetailTab === 'users'}
+								<DetailBody fullWidth>
+									<AssignmentList
+										items={users}
+										getId={(u) => u.id}
+										getSearchText={(u) => `${u.username} ${u.email}`}
+										isAssigned={(u) => (userGroupIds[u.id] || []).includes(activeGroupEntity.id)}
+										isToggling={(u) => togglingMembership === `${u.id}:${activeGroupEntity.id}`}
+										onToggle={(u) => toggleUserGroupMembership(u.id, activeGroupEntity.id, (userGroupIds[u.id] || []).includes(activeGroupEntity.id))}
+										searchPlaceholder="Search users…"
+										ariaLabel="Users"
+										emptyIcon="user"
+										emptyTitle="No users yet"
+										emptyDescription="Add users from the Users view, then come back here to add them to this group."
+									>
+										{#snippet row(user)}
+											<p class="text-sm font-medium text-fg truncate">{user.username}</p>
+											<p class="font-mono text-2xs text-fg-subtle truncate mt-0.5">{user.email}</p>
+										{/snippet}
+									</AssignmentList>
+								</DetailBody>
+							{:else if groupDetailTab === 'presets'}
+								<DetailBody fullWidth>
+									<AssignmentList
+										items={allPresets}
+										getId={(p) => p.id}
+										getSearchText={(p) => `${p.name} ${p.id}`}
+										isAssigned={(p) => groupPresets.some((gp) => gp.preset_id === p.preset_db_id)}
+										isToggling={(p) => assigningGroupPreset === p.id}
+										onToggle={(p) => {
+											const assigned = groupPresets.some((gp) => gp.preset_id === p.preset_db_id);
+											assigned ? handleUnassignGroupPreset(p.id) : handleAssignGroupPreset(p.id);
+										}}
+										loading={loadingGroupPresets}
+										searchPlaceholder="Search presets…"
+										ariaLabel="Presets"
+										emptyIcon="layers"
+										emptyTitle="No presets installed"
+										emptyDescription="Install presets in the Presets tab, then come back here to grant this group access."
+									>
+										{#snippet row(preset)}
+											<p class="text-sm font-medium text-fg truncate">{preset.name}</p>
+											<p class="font-mono text-2xs text-fg-subtle truncate mt-0.5">{preset.id}</p>
+										{/snippet}
+									</AssignmentList>
+								</DetailBody>
+							{:else if groupDetailTab === 'llms'}
+								<DetailBody fullWidth>
+									<AssignmentList
+										items={allLLMConfigs}
+										getId={(l) => l.id}
+										getSearchText={(l) => `${l.name} ${l.type} ${l.model}`}
+										isAssigned={(l) => groupLLMs.some((gl) => gl.llm_config_id === l.id)}
+										isToggling={(l) => assigningGroupLLM === l.id}
+										onToggle={(l) => {
+											const assigned = groupLLMs.some((gl) => gl.llm_config_id === l.id);
+											assigned ? handleUnassignGroupLLM(l.id) : handleAssignGroupLLM(l.id);
+										}}
+										loading={loadingGroupLLMs}
+										searchPlaceholder="Search LLM configurations…"
+										ariaLabel="LLM configurations"
+										emptyIcon="chat"
+										emptyTitle="No LLM configurations yet"
+										emptyDescription="Create an LLM configuration in the LLM Configuration tab, then come back here to grant this group access."
+									>
+										{#snippet row(llm)}
+											<div class="flex items-center gap-2">
+												<p class="text-sm font-medium text-fg truncate">{llm.name}</p>
+												{#if !llm.enabled}<Badge variant="warning" size="sm">Disabled</Badge>{/if}
+											</div>
+											<p class="font-mono text-2xs text-fg-subtle truncate mt-0.5">{llm.type} · {llm.model}</p>
+										{/snippet}
+									</AssignmentList>
+								</DetailBody>
+							{:else if groupDetailTab === 'models'}
+								<DetailBody fullWidth>
+									<div class="rounded-lg border border-line bg-surface-1 overflow-hidden">
+										<ModelAssignmentPicker
+											assignedModelIds={groupModels.map((gm) => gm.model_id)}
+											processingModelId={assigningGroupModel}
+											assignedGroupId={activeGroupEntity.id}
+											onAssign={(modelId) => handleAssignGroupModel(modelId)}
+											onUnassign={(modelId) => handleUnassignGroupModel(modelId)}
+										/>
 									</div>
-								{:else if groupDetailTab === 'users'}
-									<div class="p-4 sm:p-5">
-										<AssignmentList
-											items={users}
-											getId={(u) => u.id}
-											getSearchText={(u) => `${u.username} ${u.email}`}
-											isAssigned={(u) => (userGroupIds[u.id] || []).includes(activeGroupEntity.id)}
-											isToggling={(u) => togglingMembership === `${u.id}:${activeGroupEntity.id}`}
-											onToggle={(u) => toggleUserGroupMembership(u.id, activeGroupEntity.id, (userGroupIds[u.id] || []).includes(activeGroupEntity.id))}
-											searchPlaceholder="Search users…"
-											ariaLabel="Users"
-											emptyIcon="user"
-											emptyTitle="No users yet"
-											emptyDescription="Add users from the Users view, then come back here to add them to this group."
-										>
-											{#snippet row(user)}
-												<p class="text-sm font-medium text-fg truncate">{user.username}</p>
-												<p class="font-mono text-2xs text-fg-subtle truncate mt-0.5">{user.email}</p>
-											{/snippet}
-										</AssignmentList>
-									</div>
-								{:else if groupDetailTab === 'presets'}
-									<div class="p-4 sm:p-5">
-										<AssignmentList
-											items={allPresets}
-											getId={(p) => p.id}
-											getSearchText={(p) => `${p.name} ${p.id}`}
-											isAssigned={(p) => groupPresets.some((gp) => gp.preset_id === p.preset_db_id)}
-											isToggling={(p) => assigningGroupPreset === p.id}
-											onToggle={(p) => {
-												const assigned = groupPresets.some((gp) => gp.preset_id === p.preset_db_id);
-												assigned ? handleUnassignGroupPreset(p.id) : handleAssignGroupPreset(p.id);
-											}}
-											loading={loadingGroupPresets}
-											searchPlaceholder="Search presets…"
-											ariaLabel="Presets"
-											emptyIcon="layers"
-											emptyTitle="No presets installed"
-											emptyDescription="Install presets in the Presets tab, then come back here to grant this group access."
-										>
-											{#snippet row(preset)}
-												<p class="text-sm font-medium text-fg truncate">{preset.name}</p>
-												<p class="font-mono text-2xs text-fg-subtle truncate mt-0.5">{preset.id}</p>
-											{/snippet}
-										</AssignmentList>
-									</div>
-								{:else if groupDetailTab === 'llms'}
-									<div class="p-4 sm:p-5">
-										<AssignmentList
-											items={allLLMConfigs}
-											getId={(l) => l.id}
-											getSearchText={(l) => `${l.name} ${l.type} ${l.model}`}
-											isAssigned={(l) => groupLLMs.some((gl) => gl.llm_config_id === l.id)}
-											isToggling={(l) => assigningGroupLLM === l.id}
-											onToggle={(l) => {
-												const assigned = groupLLMs.some((gl) => gl.llm_config_id === l.id);
-												assigned ? handleUnassignGroupLLM(l.id) : handleAssignGroupLLM(l.id);
-											}}
-											loading={loadingGroupLLMs}
-											searchPlaceholder="Search LLM configurations…"
-											ariaLabel="LLM configurations"
-											emptyIcon="chat"
-											emptyTitle="No LLM configurations yet"
-											emptyDescription="Create an LLM configuration in the LLM Configuration tab, then come back here to grant this group access."
-										>
-											{#snippet row(llm)}
-												<div class="flex items-center gap-2">
-													<p class="text-sm font-medium text-fg truncate">{llm.name}</p>
-													{#if !llm.enabled}<Badge variant="warning" size="sm">Disabled</Badge>{/if}
-												</div>
-												<p class="font-mono text-2xs text-fg-subtle truncate mt-0.5">{llm.type} · {llm.model}</p>
-											{/snippet}
-										</AssignmentList>
-									</div>
-								{:else if groupDetailTab === 'models'}
-									<div class="p-4 sm:p-5">
-										<div class="rounded-lg border border-line bg-surface-1 overflow-hidden">
-											<ModelAssignmentPicker
-												assignedModelIds={groupModels.map((gm) => gm.model_id)}
-												processingModelId={assigningGroupModel}
-												assignedGroupId={activeGroupEntity.id}
-												onAssign={(modelId) => handleAssignGroupModel(modelId)}
-												onUnassign={(modelId) => handleUnassignGroupModel(modelId)}
-											/>
-										</div>
-									</div>
-								{/if}
-							</div>
+								</DetailBody>
+							{/if}
+
+							<DetailFooter dirtyCount={editGroupDirty ? 1 : 0} dirtyLabel={editGroupDirty ? 'Unsaved changes' : undefined}>
+								<Button variant="ghost" size="sm" disabled={!editGroupDirty} onclick={discardGroupEdit}>Discard</Button>
+								<Button variant="primary" size="sm" loading={editGroupSaving} disabled={!editGroupDirty} onclick={saveGroupEdit}>Save</Button>
+							</DetailFooter>
 						{:else}
-							<div class="h-full p-5 flex items-center justify-center">
-								<EmptyState title="No group selected" description="Choose a group from the list to see and edit its details." icon="group" compact />
-							</div>
+							<DetailEmptyState message="Select a group to view its details" icon="document" />
 						{/if}
 					</div>
 				</MasterDetailLayout>

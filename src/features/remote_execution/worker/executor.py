@@ -198,6 +198,7 @@ class WorkerPipelineExecutor:
         resolved: Dict[str, Any] = {}
 
         for param_name, providers in processed.inputs.items():
+            spec = input_specs.get(param_name)
             values: List[Any] = []
             for entry in providers:
                 if not entry.get("enabled", True):
@@ -212,16 +213,18 @@ class WorkerPipelineExecutor:
                         processed.pipe_id, param_name, provider_id, output_var,
                     )
                     continue
-                values.append(provider_outputs[output_var])
+                value = provider_outputs[output_var]
+                # Mirrors the local engine: a single-value input fed an array
+                # takes its first element; an array input fed a single value
+                # gets it verbatim, never wrapped.
+                if spec is not None and not spec.is_array and isinstance(value, list):
+                    value = value[0] if value else None
+                values.append(value)
 
             if not values:
                 continue
 
-            spec = input_specs.get(param_name)
-            if (spec is not None and spec.is_array) or len(values) > 1:
-                resolved[param_name] = values
-            else:
-                resolved[param_name] = values[0]
+            resolved[param_name] = values if len(values) > 1 else values[0]
 
         return resolved
 

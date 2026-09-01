@@ -154,11 +154,101 @@ class ModelsAwarePipe:
         return PipeOutput(output={})
 
 
+class CondEncoderPipe:
+    name = "cond_encoder/fake"
+    description = "fake"
+
+    def __init__(self, config):
+        self.config = config
+
+    @classmethod
+    def get_default_config(cls):
+        return {}
+
+    @classmethod
+    def inputs(cls):
+        return []
+
+    @classmethod
+    def outputs(cls):
+        return [PipeOutputSpec(name="conditioning", io_type=IOType.CONDITIONING, is_array=True)]
+
+    @classmethod
+    def configuration(cls):
+        return []
+
+    def process(self, pipe_input, generation_outputs):
+        return PipeOutput(output={"conditioning": ["cond-0", "cond-1"]})
+
+
+class SingleCondConsumerPipe:
+    """Declares a NON-array conditioning input; records what actually arrived."""
+
+    name = "cond_single/fake"
+    description = "fake"
+    received = "not set"
+
+    def __init__(self, config):
+        self.config = config
+
+    @classmethod
+    def get_default_config(cls):
+        return {}
+
+    @classmethod
+    def inputs(cls):
+        return [PipeInputSpec(name="conditioning", io_type=IOType.CONDITIONING, required=True, is_array=False)]
+
+    @classmethod
+    def outputs(cls):
+        return []
+
+    @classmethod
+    def configuration(cls):
+        return []
+
+    def process(self, pipe_input, generation_outputs):
+        type(self).received = pipe_input.input["conditioning"]
+        return PipeOutput(output={})
+
+
+class ArrayCondConsumerPipe:
+    name = "cond_array/fake"
+    description = "fake"
+    received = "not set"
+
+    def __init__(self, config):
+        self.config = config
+
+    @classmethod
+    def get_default_config(cls):
+        return {}
+
+    @classmethod
+    def inputs(cls):
+        return [PipeInputSpec(name="conditioning", io_type=IOType.CONDITIONING, required=True, is_array=True)]
+
+    @classmethod
+    def outputs(cls):
+        return []
+
+    @classmethod
+    def configuration(cls):
+        return []
+
+    def process(self, pipe_input, generation_outputs):
+        type(self).received = pipe_input.input["conditioning"]
+        return PipeOutput(output={})
+
+
 CATALOG = FakeCatalog({
     "loader/fake": LoaderPipe,
     "generator/fake": GeneratorPipe,
     "failing/fake": FailingPipe,
     "models_aware/fake": ModelsAwarePipe,
+    "cond_encoder/fake": CondEncoderPipe,
+    "cond_single/fake": SingleCondConsumerPipe,
+    "cond_array/fake": ArrayCondConsumerPipe,
 })
 
 
@@ -189,6 +279,38 @@ def test_runs_pipes_in_order_wiring_outputs_between_them(tmp_path):
         "pipe_started", "pipe_progress",
         "pipe_started", "pipe_progress", "artifact",
     ]
+
+
+def test_an_array_output_feeding_a_single_input_delivers_the_first_element(tmp_path):
+    """Mirrors the local engine (the remote Anima 'list has no n_embeds' failure):
+    prompt_encoder emits conditioning as an array; a non-array input takes [0]."""
+    pipeline = ProcessedPipelineV1(pipes=(
+        ProcessedPipeV1(pipe_id="enc", pipe_type="cond_encoder/fake", config={}, inputs={}),
+        ProcessedPipeV1(
+            pipe_id="use", pipe_type="cond_single/fake", config={},
+            inputs={"conditioning": [{"provider": "enc", "output_var": "conditioning", "enabled": True}]},
+        ),
+    ))
+    SingleCondConsumerPipe.received = "not set"
+
+    _executor(tmp_path).run(pipeline, emit=lambda e: None, is_cancelled=lambda: False)
+
+    assert SingleCondConsumerPipe.received == "cond-0"
+
+
+def test_an_array_output_feeding_an_array_input_passes_verbatim_unwrapped(tmp_path):
+    pipeline = ProcessedPipelineV1(pipes=(
+        ProcessedPipeV1(pipe_id="enc", pipe_type="cond_encoder/fake", config={}, inputs={}),
+        ProcessedPipeV1(
+            pipe_id="use", pipe_type="cond_array/fake", config={},
+            inputs={"conditioning": [{"provider": "enc", "output_var": "conditioning", "enabled": True}]},
+        ),
+    ))
+    ArrayCondConsumerPipe.received = "not set"
+
+    _executor(tmp_path).run(pipeline, emit=lambda e: None, is_cancelled=lambda: False)
+
+    assert ArrayCondConsumerPipe.received == ["cond-0", "cond-1"]
 
 
 def test_artifact_is_written_to_disk_and_hashed(tmp_path):

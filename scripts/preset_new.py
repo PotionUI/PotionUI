@@ -15,7 +15,7 @@ The generated directory has no engine segment - nothing parses one; the
 authoritative value is `engine:` in preset.yml (see --engine below).
 
 Options:
-    --category   One of: image | video | audio | utility   (default: image)
+    --category   One of: image | video | audio | 3d | utility   (default: image)
     --modes      Comma-separated list of mode names          (default: txt2img)
     --engine     Engine value written into preset.yml         (default: native)
     --name       Human-readable display name (default: "<Model> <variant>")

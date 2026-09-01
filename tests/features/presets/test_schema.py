@@ -66,6 +66,12 @@ class TestPresetManifest:
         assert manifest is None
         assert errors
 
+    def test_3d_category_accepted(self):
+        manifest, errors = validate_manifest(valid_manifest_data(category="3d", modes=["img2mesh"]))
+        assert errors == []
+        assert manifest is not None
+        assert manifest.category == "3d"
+
     def test_empty_modes_rejected(self):
         manifest, errors = validate_manifest(valid_manifest_data(modes=[]))
         assert manifest is None

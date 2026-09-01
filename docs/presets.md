@@ -91,7 +91,7 @@ The manifest is `PresetManifest` in `src/features/presets/schema.py`, validated 
 | `id` | yes | string | Must match `^[A-Za-z0-9_-]{3,64}$` and be globally unique. Existing ids are DB-referenced — never change an id in place. |
 | `name` | yes | string | Human-readable display name. |
 | `version` | yes | string | Semver, e.g. `1.0.0` (regex `^\d+\.\d+\.\d+(?:[-+].+)?$`). |
-| `category` | yes | enum | One of `image`, `video`, `audio`, `utility`. |
+| `category` | yes | enum | One of `image`, `video`, `audio`, `3d`, `utility`. |
 | `engine` | yes | string | The protocol this preset's pipes speak: `native` (in-process diffusers pipes) or `comfyui` (a ComfyUI server), or an engine contributed by a plugin. Scalar, not a list — a preset has exactly one engine. See [Backends and Engines](backends.md). |
 | `tags` | no | list | Free-form strings (default `[]`). |
 | `media` | no | mapping | Cover image + example gallery. See [Preset media](#preset-media). |

@@ -83,8 +83,12 @@ describe('fallbackIconForCategory', () => {
 		expect(fallbackIconForCategory('video')).toBe('film');
 	});
 
-	it('uses the audio icon and falls back to layers for unknown or missing categories', () => {
+	it('uses the audio icon and the cube icon for 3d', () => {
 		expect(fallbackIconForCategory('audio')).toBe('audio');
+		expect(fallbackIconForCategory('3d')).toBe('cube');
+	});
+
+	it('falls back to layers for unknown or missing categories', () => {
 		expect(fallbackIconForCategory('utility')).toBe('layers');
 		expect(fallbackIconForCategory(undefined)).toBe('layers');
 		expect(fallbackIconForCategory(null)).toBe('layers');

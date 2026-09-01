@@ -20,7 +20,7 @@ from src.features.presets.exceptions import (
     PermissionDeniedException,
     InvalidModeDataException,
 )
-from src.features.presets.templates import ModeTemplate
+from src.features.presets.templates import ModeTemplate, GenerationMode
 from src.platform.security.user import User, AccountType
 
 
@@ -495,6 +495,27 @@ class TestPresetOperationsQuery:
         result = operations.get_pipeline(collaborators, "test-preset", "img2img", {})
 
         assert result.mode == "img2img"
+
+    def test_get_pipeline_img2mesh_mode_with_enum_keyed_modes(
+        self, collaborators, mock_file_repo, mock_preset_template, mock_pipeline_builder
+    ):
+        """A legacy preset whose `modes` dict is keyed by `GenerationMode` (not
+        raw strings) must still resolve an `img2mesh` request - this is the
+        path that raised ModeNotFoundException before IMG2MESH existed on the
+        enum, even though the mode was genuinely declared."""
+        mesh_mode = Mock(spec=ModeTemplate)
+        mock_preset_template.modes = {GenerationMode.IMG2MESH: mesh_mode}
+        mock_file_repo.find_preset_by_id.return_value = mock_preset_template
+        mock_pipeline_builder.build_pipeline.return_value = BuiltPipeline(
+            generation_id="gen-1",
+            preset_id="test-preset",
+            preset_template=mock_preset_template,
+            pipes=[],
+        )
+
+        result = operations.get_pipeline(collaborators, "test-preset", "img2mesh", {})
+
+        assert result.mode == "img2mesh"
 
     # ===== reload_preset tests =====
 

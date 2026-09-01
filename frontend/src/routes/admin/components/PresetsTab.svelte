@@ -45,7 +45,7 @@
 	let mediaModalOpen = false;
 	let presetConfigEntries: PresetConfigurationEntry[] = [];
 
-	const primaryCategoryOrder = ['image', 'video', 'audio', 'utility'];
+	const primaryCategoryOrder = ['image', 'video', 'audio', '3d', 'utility'];
 
 	$: engines = availablePresetEngines(presets);
 	$: categories = Array.from(
@@ -103,6 +103,7 @@
 		if (category === 'image') return 'Image';
 		if (category === 'video') return 'Video';
 		if (category === 'audio') return 'Audio';
+		if (category === '3d') return '3D';
 		if (category === 'utility') return 'Utility';
 		return category.charAt(0).toUpperCase() + category.slice(1);
 	}
@@ -111,6 +112,7 @@
 		if (category === 'image') return 'photo';
 		if (category === 'video') return 'film';
 		if (category === 'audio') return 'audio';
+		if (category === '3d') return 'cube';
 		if (category === 'utility') return 'wand';
 		return 'layers';
 	}

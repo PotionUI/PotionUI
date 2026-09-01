@@ -26,7 +26,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 PRESET_ID_RE = re.compile(r"^[A-Za-z0-9_-]{3,64}$")
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(?:[-+].+)?$")
 
-CATEGORIES = ("image", "video", "audio", "utility")
+CATEGORIES = ("image", "video", "audio", "3d", "utility")
 
 OPERATORS = frozenset(
     {
@@ -569,7 +569,7 @@ class PresetManifest(BaseModel):
     id: str
     name: str
     version: str
-    category: Literal["image", "video", "audio", "utility"]
+    category: Literal["image", "video", "audio", "3d", "utility"]
     engine: str  # Engine this preset's pipes speak, e.g. "native" or "comfyui"
     tags: List[str] = Field(default_factory=list)
     vars: Dict[str, Any] = Field(default_factory=dict)

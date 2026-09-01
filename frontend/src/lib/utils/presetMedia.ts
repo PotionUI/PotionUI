@@ -40,6 +40,8 @@ export function fallbackIconForCategory(category: string | undefined | null): st
 			return 'film';
 		case 'audio':
 			return 'audio';
+		case '3d':
+			return 'cube';
 		default:
 			return 'layers';
 	}

@@ -13,6 +13,7 @@
 	import type { ReadinessReport } from '$lib/services/api/setup';
 	import { api } from '$lib/services/api/index';
 	import { formatVramBadge, formatRamBadge, vramShortfall } from '$lib/utils/presetHardware';
+	import { fallbackIconForCategory } from '$lib/utils/presetMedia';
 
 	export let presets: PresetInfo[] = [];
 	export let selectedPreset: string = '';
@@ -40,7 +41,8 @@
 	const categoryFilters = [
 		{ id: 'image', label: 'Image', icon: 'photo' },
 		{ id: 'video', label: 'Video', icon: 'film' },
-		{ id: 'audio', label: 'Audio', icon: 'audio' }
+		{ id: 'audio', label: 'Audio', icon: 'audio' },
+		{ id: '3d', label: '3D', icon: 'cube' }
 	];
 
 	$: isAdmin = $authStore.user?.account_type === 'ADMIN';
@@ -72,8 +74,8 @@
 	$: previewVramShortfall = vramShortfall(previewPreset?.requires, detectedVramGb);
 
 	function groupByCategory(items: PresetInfo[]) {
-		const categoryOrder = ['image', 'video', 'audio'];
-		const labels: Record<string, string> = { image: 'Image', video: 'Video', audio: 'Audio' };
+		const categoryOrder = ['image', 'video', 'audio', '3d'];
+		const labels: Record<string, string> = { image: 'Image', video: 'Video', audio: 'Audio', '3d': '3D' };
 		const groups = new Map<string, PresetInfo[]>();
 
 		for (const preset of items) {
@@ -264,7 +266,7 @@
 						{#snippet children()}
 							{#each groupedPresets as group (group.category)}
 								<PaneGroupHeader
-									icon={group.category === 'image' ? 'photo' : group.category === 'video' ? 'film' : group.category === 'audio' ? 'audio' : 'layers'}
+									icon={fallbackIconForCategory(group.category)}
 									label={group.label}
 									count={group.presets.length}
 								/>
@@ -309,7 +311,7 @@
 								/>
 								<div class="min-w-0 flex-1">
 									<p class="label mb-1 inline-flex items-center gap-1.5">
-										<Icon name={previewPreset.category === 'image' ? 'photo' : previewPreset.category === 'video' ? 'film' : previewPreset.category === 'audio' ? 'audio' : 'layers'} className="w-3.5 h-3.5" />
+										<Icon name={fallbackIconForCategory(previewPreset.category)} className="w-3.5 h-3.5" />
 										{previewPreset.category || 'Preset'}
 									</p>
 									<h3 class="text-xl font-semibold text-fg">{previewPreset.name}</h3>

@@ -22,6 +22,7 @@ class GenerationMode(Enum):
     VID2VID = "vid2vid"
     TXT2AUDIO = "txt2audio"  # Text-to-audio generation
     TXT2SPEECH = "txt2speech"  # Text-to-speech generation
+    IMG2MESH = "img2mesh"  # Image-to-3D-mesh generation
 
 
 @dataclass
@@ -127,7 +128,7 @@ class PresetTemplate:
     modes: Dict[str, ModeTemplate]  # mode name -> mode definition
     description: Optional[str] = None
     tags: List[str] = None
-    category: Optional[str] = None  # "image", "video", "audio", "utility"
+    category: Optional[str] = None  # "image", "video", "audio", "3d", "utility"
     form: FormTemplate = None  # Deprecated/unused: legacy top-level form, no longer populated by the loader
     vars: Dict[str, Any] = None
     # Named generation profiles from preset.yml's `speed_profiles:` (roadmap 3.6),

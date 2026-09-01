@@ -16,7 +16,7 @@ With no paths given, lints/migrates `content/presets/marketplace/` and
   4. add explicit `engine:` using the auto-detect logic (comfyui path/pipe name ->
      "comfyui", else -> "native"). The linter separately enforces, as a live check,
      that a preset's pipes match the engine it declares.
-  5. infer and add `category:` if missing (video/audio/utility heuristics, else image) -
+  5. infer and add `category:` if missing (video/audio/3d/utility heuristics, else image) -
      ALWAYS reviewed and printed in the summary since inference can be wrong
   6. delete dead top-level keys never read by any loader: `resolutions`, `prompt_helpers`,
      `author`, `model`, `extras`
@@ -190,6 +190,7 @@ CATEGORY_HEURISTICS = (
     (re.compile(r"wan_?2_?2|wan22", re.I), "video"),
     (re.compile(r"seedvr2", re.I), "video"),
     (re.compile(r"carousel_demo", re.I), "utility"),
+    (re.compile(r"trellis", re.I), "3d"),
 )
 
 
@@ -261,7 +262,7 @@ def migrate_preset(preset_path: Path) -> List[str]:
         changes.append(f"added engine: {engine} (auto-detected)")
 
     if "category" not in original_data or original_data.get("category") not in (
-        "image", "video", "audio", "utility"
+        "image", "video", "audio", "3d", "utility"
     ):
         category, confident = infer_category(preset_dir)
         anchor = "version" if _has_top_level_key(lines, "version") else "id"

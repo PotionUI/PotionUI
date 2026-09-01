@@ -118,7 +118,8 @@ describe('LoraPickerField trigger chip click', () => {
 		const promptAfter = get(tabsStore).tabs.find((t) => t.id === activeTabId)?.prompt;
 		expect(promptAfter, 'active tab prompt left untouched').toBe(promptBefore);
 
-		const lastToast = get(toasts).at(-1);
-		expect(lastToast?.message).toBe('Copied to clipboard');
+		// Feedback is the chip itself swapping to "Copied" - no toast on success.
+		expect(chip!.textContent?.trim()).toBe('Copied');
+		expect(get(toasts).at(-1)).toBeUndefined();
 	});
 });

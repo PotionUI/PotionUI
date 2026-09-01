@@ -980,73 +980,75 @@
 									</Tooltip>
 								</div>
 							</div>
-
-							<!-- Step window (advanced): apply this LoRA only between two steps.
-							     Both bounds are 1-based and inclusive; an empty box means "no bound"
-							     on that side, and clearing both returns the row to the ordinary
-							     always-on behaviour. -->
-							{#if allowStepWindow && stepWindowIndex === index}
-								<div class="mt-2 rounded border border-line bg-surface-1 p-2">
-									<div class="flex items-center justify-between gap-2">
-										<span class="text-2xs uppercase tracking-wide text-fg-subtle">Step window</span>
-										{#if hasStepWindow(row)}
-											<button
-												type="button"
-												class="text-2xs text-fg-muted transition-colors hover:text-fg"
-												on:click={() => clearRowStepWindow(index)}
-											>
-												Clear
-											</button>
-										{/if}
-									</div>
-									<div class="mt-1.5 flex items-center gap-3">
-										{#each STEP_BOUNDS as [bound, boundLabel] (bound)}
-											{@const current = stepBound(row, bound)}
-											<label class="flex items-center gap-1.5 text-2xs text-fg-muted">
-												{boundLabel}
-												<input
-													type="text"
-													inputmode="numeric"
-													autocomplete="off"
-													class="w-12 rounded border border-line bg-surface-3/40 px-1 py-0.5 text-right font-mono text-xs tabular-nums text-fg transition-colors hover:border-line-hover focus:border-line-strong focus:bg-surface-3 focus:outline-none"
-													placeholder={bound === 'step_start' ? '1' : 'end'}
-													value={stepEditKey === `${index}:${bound}` ? stepEditText : (current ?? '')}
-													on:focus={() => focusStepEdit(index, bound, current)}
-													on:input={inputStepEdit}
-													on:blur={() => commitStepEdit(index, bound)}
-													on:keydown={(e) => handleStepEditKeydown(e, index, bound)}
-												/>
-											</label>
-										{/each}
-									</div>
-									<p class="mt-1.5 text-2xs text-fg-subtle">
-										Steps count from 1 and both ends are included. Leave a box empty for no bound
-										on that side. Some distilled LoRAs must switch off early — check the model's
-										own notes.
-									</p>
-								</div>
-							{/if}
-
-							<!-- Trigger chips -->
-							{#if showTriggers && triggers.length > 0}
-								<div class="flex flex-wrap gap-1 mt-2">
-									{#each triggers as trigger}
-										{@const isActive = hasTriggerWordMatch(activePromptText, trigger)}
-										<button
-											type="button"
-											class="px-1.5 py-0.5 text-2xs rounded border transition-colors {isActive
-												? 'bg-signal/10 text-signal border-signal/25'
-												: 'bg-surface-3 text-fg-muted border-line-strong hover:text-fg hover:border-line-hover'}"
-											title={isActive ? 'Already in prompt' : `Copy "${trigger}"`}
-											on:click={() => handleTriggerClick(trigger)}
-										>
-											{copiedTrigger === trigger ? 'Copied' : trigger}
-										</button>
-									{/each}
-								</div>
-							{/if}
 						</div>
 					</div>
+
+					<!-- Step window and trigger chips span the full card width below the thumbnail row -
+					     inside the name/strength column they lost the thumbnail's 56px on every line.
+					     Step window (advanced): apply this LoRA only between two steps.
+					     Both bounds are 1-based and inclusive; an empty box means "no bound"
+					     on that side, and clearing both returns the row to the ordinary
+					     always-on behaviour. -->
+					{#if allowStepWindow && stepWindowIndex === index}
+						<div class="mt-2 rounded border border-line bg-surface-1 p-2">
+							<div class="flex items-center justify-between gap-2">
+								<span class="text-2xs uppercase tracking-wide text-fg-subtle">Step window</span>
+								{#if hasStepWindow(row)}
+									<button
+										type="button"
+										class="text-2xs text-fg-muted transition-colors hover:text-fg"
+										on:click={() => clearRowStepWindow(index)}
+									>
+										Clear
+									</button>
+								{/if}
+							</div>
+							<div class="mt-1.5 flex items-center gap-3">
+								{#each STEP_BOUNDS as [bound, boundLabel] (bound)}
+									{@const current = stepBound(row, bound)}
+									<label class="flex items-center gap-1.5 text-2xs text-fg-muted">
+										{boundLabel}
+										<input
+											type="text"
+											inputmode="numeric"
+											autocomplete="off"
+											class="w-12 rounded border border-line bg-surface-3/40 px-1 py-0.5 text-right font-mono text-xs tabular-nums text-fg transition-colors hover:border-line-hover focus:border-line-strong focus:bg-surface-3 focus:outline-none"
+											placeholder={bound === 'step_start' ? '1' : 'end'}
+											value={stepEditKey === `${index}:${bound}` ? stepEditText : (current ?? '')}
+											on:focus={() => focusStepEdit(index, bound, current)}
+											on:input={inputStepEdit}
+											on:blur={() => commitStepEdit(index, bound)}
+											on:keydown={(e) => handleStepEditKeydown(e, index, bound)}
+										/>
+									</label>
+								{/each}
+							</div>
+							<p class="mt-1.5 text-2xs text-fg-subtle">
+								Steps count from 1 and both ends are included. Leave a box empty for no bound
+								on that side. Some distilled LoRAs must switch off early — check the model's
+								own notes.
+							</p>
+						</div>
+					{/if}
+
+					<!-- Trigger chips -->
+					{#if showTriggers && triggers.length > 0}
+						<div class="flex flex-wrap gap-1 mt-2">
+							{#each triggers as trigger}
+								{@const isActive = hasTriggerWordMatch(activePromptText, trigger)}
+								<button
+									type="button"
+									class="px-1.5 py-0.5 text-2xs rounded border transition-colors {isActive
+										? 'bg-signal/10 text-signal border-signal/25'
+										: 'bg-surface-3 text-fg-muted border-line-strong hover:text-fg hover:border-line-hover'}"
+									title={isActive ? 'Already in prompt' : `Copy "${trigger}"`}
+									on:click={() => handleTriggerClick(trigger)}
+								>
+									{copiedTrigger === trigger ? 'Copied' : trigger}
+								</button>
+							{/each}
+						</div>
+					{/if}
 
 					{#if switchingIndex === index}
 						{@const switchExcludeIds = new Set([...selectedModelIds].filter((id) => id !== model?.id))}

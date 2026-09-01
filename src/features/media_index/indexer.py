@@ -12,6 +12,7 @@ import logging
 import os
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
+from src.features.media_index.mesh_thumbnails import render_and_store_mesh_thumbnail
 from src.features.media_index.records import MediaIndexQueueItem
 from src.features.media_index.repository import MediaIndexRepository
 from src.features.media_index.tagger import WDTaggerProvider
@@ -267,62 +268,30 @@ class MediaIndexer:
         touched by either pass - unlike video, nothing else is ever going to
         produce one, so there is nothing to wait on. A later pass in the same
         or a later drain just finds `item.thumbnail_path` already set.
+
+        In practice a generation-completion trigger usually renders it first
+        (see `src.features.generation.orchestrator`), so this is the fallback
+        for whatever that trigger missed - the render+store itself is shared
+        (`mesh_thumbnails.render_and_store_mesh_thumbnail`).
         """
         if item.thumbnail_path:
             return self._mesh_thumbnail_full_path(item)
         if not item.file_path:
             return None
 
-        # Deferred: `mesh_preview` imports torch, and this module is on the
-        # boot import chain (`test_bootstrap_app_import_leaves_heavy_modules_
-        # unimported`) - import it here, at the one call site that actually
-        # renders a mesh, not at module load.
-        from src.platform.runtime.native.mesh_preview import MeshPreviewError, render_mesh_preview
-
-        mesh_path = self.file_service.get_full_path(item.file_path)
-        try:
-            png_bytes = render_mesh_preview(mesh_path)
-        except MeshPreviewError:
-            logger.warning(
-                "media_index: mesh file %s does not parse as a renderable "
-                "glTF-binary, skipping",
-                item.file_id,
-            )
-            return None
-        except FileNotFoundError:
-            logger.warning(
-                "media_index: mesh file %s is gone (%s), skipping", item.file_id, mesh_path
-            )
-            return None
-        except Exception:
-            logger.exception(
-                "media_index: mesh preview render failed for file %s", item.file_id
-            )
+        relative = render_and_store_mesh_thumbnail(
+            self.file_service, self.repository, item.file_id, item.file_path
+        )
+        if relative is None:
             return None
 
-        item.thumbnail_path = self._store_mesh_thumbnail(item, png_bytes)
+        item.thumbnail_path = relative
         return self._mesh_thumbnail_full_path(item)
 
     def _mesh_thumbnail_full_path(self, item: MediaIndexQueueItem) -> str:
         base_key = os.path.dirname(item.file_path)
         relative = f"{base_key}/{item.thumbnail_path}" if base_key else item.thumbnail_path
         return self.file_service.get_full_path(relative)
-
-    def _store_mesh_thumbnail(self, item: MediaIndexQueueItem, png_bytes: bytes) -> str:
-        """Writes through the same `base_key/thumbnails/...` convention
-        `generate_thumbnails`/`generate_video_thumbnails` use (see
-        `src.features.generation.handlers`), so the existing media-serving
-        route resolves it exactly like an image/video thumbnail - and the
-        gallery card just works once this returns. One size only: it's a
-        synthetic render, not a photo that benefits from three resolutions.
-        """
-        base_key = os.path.dirname(item.file_path)
-        stem = os.path.splitext(os.path.basename(item.file_path))[0]
-        relative = f"thumbnails/{stem}_medium.png"
-        key = f"{base_key}/{relative}" if base_key else relative
-        self.file_service.storage_driver.put_bytes(key, png_bytes)
-        self.repository.set_thumbnails(item.file_id, relative, relative, relative)
-        return relative
 
     def _process_tags_item(self, item: MediaIndexQueueItem) -> None:
         source = self._resolve_source_path(item)

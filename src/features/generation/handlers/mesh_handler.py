@@ -15,11 +15,12 @@ same streamed disk-to-disk save applies. It differs in two ways:
   failure all the way out to a viewer in the browser. An extension that is
   not registered at all is rejected the same way - through `save_error` -
   rather than silently stored under a format nothing understands.
-- No thumbnail is generated. Rendering a mesh to an image needs an offscreen
-  GL context, which is neither a dependency here nor something to hold a
-  generation open for; `thumbnail_small/medium/large` stay NULL and the
-  gallery is expected to render a typed mesh card from `file_type` plus the
-  geometry counts on the WebSocket payload.
+- No thumbnail is generated HERE - a generation is never held open for a
+  render. The orchestrator schedules `render_and_store_mesh_thumbnail`
+  (src/features/media_index/mesh_thumbnails.py, a pure-torch rasterizer, no
+  GL) as a background task after completion; until it lands, the gallery
+  renders a typed mesh card from `file_type` plus the geometry counts on the
+  WebSocket payload.
 """
 
 import logging

@@ -119,6 +119,24 @@ class TestMeshSavePath:
         assert output.vertex_count == TRIANGLE_VERTEX_COUNT
         assert output.face_count == TRIANGLE_FACE_COUNT
 
+    def test_handle_never_renders_a_thumbnail_synchronously(
+        self, generation_id, settings, minimal_glb_file
+    ):
+        """The generation must not wait on a mesh render (mesh_handler.py's
+        stated constraint) - that happens later, off this call, at generation
+        completion (`GenerationOrchestrator._schedule_mesh_thumbnails`)."""
+        gen_id, user_id = generation_id
+        handler = MeshGenerationOutputHandler(gen_id, user_id, settings)
+
+        output = MeshGenerationOutput(mesh_path=minimal_glb_file, temporary=False)
+        with patch(
+            'src.platform.runtime.native.mesh_preview.render_mesh_preview'
+        ) as mock_render:
+            metadata = handler.handle(output)
+
+        assert metadata['processed'] is True
+        mock_render.assert_not_called()
+
     def test_counts_set_by_the_pipe_are_not_overwritten(
         self, generation_id, settings, minimal_glb_file
     ):

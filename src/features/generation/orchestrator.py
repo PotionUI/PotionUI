@@ -43,8 +43,10 @@ if TYPE_CHECKING:
     from src.features.stats.generation_stats_repository import GenerationStatsRepository
     from src.features.media_index.indexer import MediaIndexer
     from src.platform.runtime.gpu import GpuMonitor
+    from src.features.generation.records import File
 
 from src.platform.util.ids import generate_ulid
+from src.features.media_index.mesh_thumbnails import render_and_store_mesh_thumbnail
 from src.features.generation.pipeline_builder import PipelineBuilder
 from src.features.generation.output_processor import OutputProcessor
 from src.features.generation.output_bridge import OutputBridge
@@ -318,6 +320,19 @@ def _validate_generation_origins(origins: List[Dict[str, Any]], user_id: str) ->
             )
 
 
+def _render_mesh_thumbnails(file_service, repository, files: List['File']) -> None:
+    """Runs on a worker thread via `asyncio.to_thread` - render is CPU/GL
+    work, and several meshes from one generation render serially here, one
+    background task at a time, rather than as a render storm."""
+    for file_record in files:
+        try:
+            render_and_store_mesh_thumbnail(
+                file_service, repository, file_record.id, file_record.file_path
+            )
+        except Exception:
+            logger.exception(f"mesh thumbnail render failed for file {file_record.id}")
+
+
 class GenerationOrchestrator:
     """
     Orchestrates the complete generation lifecycle.
@@ -420,6 +435,11 @@ class GenerationOrchestrator:
         # Keeps OutputBridge.run() consumer tasks alive (fire-and-forget
         # tasks would otherwise be eligible for GC mid-flight).
         self._bridge_tasks: Dict[str, asyncio.Task] = {}
+
+        # Same GC-safety reason as `_bridge_tasks`: `_schedule_mesh_thumbnails`
+        # fires a background render off the completion path, and nothing else
+        # holds a reference to that task.
+        self._mesh_thumbnail_tasks: set = set()
 
         logger.debug("GenerationOrchestrator initialized")
 
@@ -1241,6 +1261,9 @@ class GenerationOrchestrator:
             except Exception:
                 logger.exception(f"failed queueing media index for {generation_id}")
 
+            if record.state == GenerationState.COMPLETED:
+                self._schedule_mesh_thumbnails(generation_id)
+
         # Execute generation.after_complete hook
         if self.plugin_registry:
             logger.debug(f"Executing {GENERATION_HOOKS.after_complete} hook")
@@ -1274,6 +1297,36 @@ class GenerationOrchestrator:
         # Notify callback about completion (with None to signal completion)
         if output_callback:
             await output_callback(generation_id, None)
+
+    def _schedule_mesh_thumbnails(self, generation_id: str) -> None:
+        """Fire-and-forget render of this generation's finished MESH files'
+        thumbnails, off the completion path entirely (the mesh handler must
+        not wait on a render - see `mesh_handler.py`). Reuses the media
+        indexer's own `file_service`/`repository` rather than taking new
+        constructor args, since it already writes through the same
+        `render_and_store_mesh_thumbnail` convention the media-index mesh
+        pass falls back to for anything this misses.
+        """
+        try:
+            mesh_files = generation_repo.get_files(generation_id, file_type='MESH', is_final=True)
+        except Exception:
+            logger.exception(f"failed reading mesh files for {generation_id}")
+            return
+
+        pending = [f for f in mesh_files if not f.thumbnail_medium]
+        if not pending:
+            return
+
+        task = asyncio.create_task(
+            asyncio.to_thread(
+                _render_mesh_thumbnails,
+                self.media_indexer.file_service,
+                self.media_indexer.repository,
+                pending,
+            )
+        )
+        self._mesh_thumbnail_tasks.add(task)
+        task.add_done_callback(self._mesh_thumbnail_tasks.discard)
 
     async def get_generation_status(self, generation_id: str) -> Optional[Any]:
         """

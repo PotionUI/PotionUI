@@ -1,0 +1,99 @@
+fields:
+  - type: "section"
+    label: "Sampling"
+    children:
+      - type: "row"
+        children:
+          - name: "sparse_structure_steps"
+            type: "slider"
+            label: "Steps (Sparse Structure)"
+            audience: "advanced"
+            default: 12
+            configuration: {min: 1, max: 50, step: 1}
+
+          - name: "sparse_structure_guidance_strength"
+            type: "slider"
+            label: "Guidance Strength (Sparse Structure)"
+            audience: "advanced"
+            default: 7.5
+            configuration: {min: 1.0, max: 10.0, step: 0.1}
+
+      - type: "row"
+        children:
+          - name: "sparse_structure_guidance_rescale"
+            type: "slider"
+            label: "Guidance Rescale (Sparse Structure)"
+            audience: "advanced"
+            default: 0.7
+            configuration: {min: 0.0, max: 1.0, step: 0.01}
+
+          - name: "sparse_structure_rescale_t"
+            type: "slider"
+            label: "Rescale T (Sparse Structure)"
+            audience: "advanced"
+            default: 5.0
+            configuration: {min: 1.0, max: 6.0, step: 0.1}
+
+      - type: "row"
+        children:
+          - name: "shape_steps"
+            type: "slider"
+            label: "Steps (Shape)"
+            audience: "advanced"
+            default: 12
+            configuration: {min: 1, max: 50, step: 1}
+
+          - name: "shape_guidance_strength"
+            type: "slider"
+            label: "Guidance Strength (Shape)"
+            audience: "advanced"
+            default: 7.5
+            configuration: {min: 1.0, max: 10.0, step: 0.1}
+
+      - type: "row"
+        children:
+          - name: "shape_guidance_rescale"
+            type: "slider"
+            label: "Guidance Rescale (Shape)"
+            audience: "advanced"
+            default: 0.5
+            configuration: {min: 0.0, max: 1.0, step: 0.01}
+
+          - name: "shape_rescale_t"
+            type: "slider"
+            label: "Rescale T (Shape)"
+            audience: "advanced"
+            default: 3.0
+            configuration: {min: 1.0, max: 6.0, step: 0.1}
+
+      - type: "row"
+        children:
+          - name: "texture_steps"
+            type: "slider"
+            label: "Steps (Texture)"
+            audience: "advanced"
+            default: 12
+            configuration: {min: 1, max: 50, step: 1}
+
+          - name: "texture_guidance_strength"
+            type: "slider"
+            label: "Guidance Strength (Texture)"
+            audience: "advanced"
+            default: 1.0
+            configuration: {min: 1.0, max: 10.0, step: 0.1}
+
+      - type: "row"
+        children:
+          - name: "texture_guidance_rescale"
+            type: "slider"
+            label: "Guidance Rescale (Texture)"
+            audience: "advanced"
+            default: 0.0
+            configuration: {min: 0.0, max: 1.0, step: 0.01}
+
+          - name: "texture_rescale_t"
+            type: "slider"
+            label: "Rescale T (Texture)"
+            audience: "advanced"
+            default: 3.0
+            configuration: {min: 1.0, max: 6.0, step: 0.1}

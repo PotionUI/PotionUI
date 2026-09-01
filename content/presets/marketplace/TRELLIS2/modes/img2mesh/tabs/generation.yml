@@ -1,0 +1,99 @@
+fields:
+  - name: "resolution_tier"
+    type: "select"
+    label: "Detail Level"
+    default: "1024"
+    description: "How finely the shape is resolved. Higher captures more detail and costs sharply more time and VRAM."
+    ai_hint: "The single most useful dial on this preset. It picks which of TRELLIS.2's three reconstruction paths runs, and that decides how much geometric detail survives. Roughly 3s / 17s / 60s per mesh on an H100, so the steps up are expensive. Suggest 512 while the user is still deciding whether an image reconstructs at all, 1024 for anything they mean to keep, and 1536 only for a final asset where surface detail carries the result. Do NOT suggest 512 for texture-critical work: the consolidated weights ship one texture model where upstream trains two, so Draft runs its texture stage on weights trained for the 1024 path and materials may come out weaker than the geometry."
+    configuration:
+      options:
+        - { label: "Draft (512)", value: "512", sub_label: "Single pass · ~3s per mesh on an H100 · weaker textures" }
+        - { label: "Standard (1024)", value: "1024", sub_label: "Cascade · ~17s per mesh on an H100 · default" }
+        - { label: "High (1536)", value: "1536", sub_label: "Cascade · ~60s per mesh on an H100 · heaviest on VRAM" }
+
+  - type: "section"
+    label: "Mesh"
+    children:
+      - name: "remove_background"
+        type: "checkbox"
+        label: "Remove background"
+        default: false
+        description: "Segment the subject out of its background before reconstructing it."
+        ai_hint: "Left off, whatever is in the frame gets reconstructed, so a pre-cut image is best. An image that already has a transparent background needs nothing else; an opaque one is matted with the checkpoint picked under Matting Model, and nothing is ever downloaded for you."
+
+      - name: "seed"
+        type: "seed"
+        label: "Seed"
+        default: -1
+
+      - type: "row"
+        children:
+          - name: "decimation_target"
+            type: "slider"
+            label: "Decimation Target"
+            default: 100000
+            description: "Face budget the exported mesh is simplified down to."
+            ai_hint: "This dominates export time, not generation time: the UV unwrap runs on CPU and scales worse than linearly — roughly 12 seconds at 50k faces and over ten minutes at 200k. Keep it at or below the 100k default unless the user explicitly wants a denser asset and accepts the wait; raise it only for a final export."
+            configuration:
+              min: 20000
+              max: 300000
+              step: 10000
+
+          - name: "texture_size"
+            type: "select"
+            label: "Texture Size"
+            default: 2048
+            description: "Edge length of the baked PBR maps."
+            configuration:
+              options:
+                - { label: "1024", value: 1024 }
+                - { label: "2048", value: 2048 }
+                - { label: "4096", value: 4096 }
+
+  - type: "section"
+    label: "Models"
+    children:
+      - name: "diffusion_model"
+        type: "model"
+        label: "TRELLIS.2 Transformer"
+        required: true
+        description: "The consolidated TRELLIS.2 transformer, carrying the sparse-structure, shape and texture flow models in one file."
+        configuration:
+          model_type: "diffusion_model"
+          placeholder: "Select trellis_2_bf16.safetensors..."
+
+      - name: "shape_vae"
+        type: "model"
+        label: "Shape VAE"
+        required: true
+        description: "Decodes the sparse structure and the shape latent into geometry."
+        configuration:
+          model_type: "vae"
+          placeholder: "Select trellis_2_shape_vae_bf16.safetensors..."
+
+      - name: "texture_vae"
+        type: "model"
+        label: "Texture VAE"
+        required: true
+        description: "Decodes the texture latent into the PBR attributes baked onto the mesh."
+        configuration:
+          model_type: "vae"
+          placeholder: "Select trellis_2_texture_vae_bf16.safetensors..."
+
+      - name: "image_encoder"
+        type: "model"
+        label: "Image Encoder (DINOv3)"
+        required: true
+        description: "DINOv3 ViT-L/16. This is what the reconstruction is conditioned on — TRELLIS.2 has no text encoder."
+        configuration:
+          model_type: "text_encoder"
+          placeholder: "Select dino_v3_vit_l.safetensors..."
+
+      - name: "matting_model"
+        type: "model"
+        label: "Matting Model"
+        required: false
+        description: "Only used by Remove background, and only when the source image is opaque. BiRefNet-general from ZhengPeng7/BiRefNet (MIT) and RMBG-2.0 from briaai/RMBG-2.0 (stronger on product shots, non-commercial licence) share the same architecture, so either loads."
+        configuration:
+          model_type: "detection_segm"
+          placeholder: "Select BiRefNet-general.safetensors..."

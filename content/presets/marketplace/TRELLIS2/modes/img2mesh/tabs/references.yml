@@ -1,0 +1,6 @@
+fields:
+  - name: "source_image"
+    type: "image"
+    label: "Source Image"
+    required: true
+    ai_hint: "The object to reconstruct. A single, well-lit subject reconstructs best — the model builds one object at a time, so crop to it."

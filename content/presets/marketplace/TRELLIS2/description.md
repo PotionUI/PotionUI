@@ -1,0 +1,1 @@
+Turn a single image into a textured GLB mesh with PBR materials. Built for TRELLIS.2, an open image-to-3D model from Microsoft that reconstructs geometry and materials in three stages — sparse structure, shape, then texture.

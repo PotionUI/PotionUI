@@ -1,0 +1,71 @@
+pipeline:
+  - name: "media_loader"
+    id: "media_loader"
+    enabled: true
+    configuration:
+      validate_files: true
+      max_file_size: 52428800
+      auto_detect_type: true
+      media:
+        - type: "image"
+          path: "{{ form.source_image }}"
+
+  - name: "model_loader/trellis2"
+    id: "model_loader"
+    enabled: true
+    configuration:
+      diffusion_model:
+        file_path: "{{ form.diffusion_model }}"
+        name: "{{ form.diffusion_model }}"
+      shape_vae:
+        file_path: "{{ form.shape_vae }}"
+        name: "{{ form.shape_vae }}"
+      texture_vae:
+        file_path: "{{ form.texture_vae }}"
+        name: "{{ form.texture_vae }}"
+      image_encoder:
+        file_path: "{{ form.image_encoder }}"
+        name: "{{ form.image_encoder }}"
+      matting_model:
+        file_path: "{{ form.matting_model | default('') }}"
+        name: "{{ form.matting_model | default('') }}"
+      resolution_tier: "{{ form.resolution_tier | default('1024') }}"
+
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    configuration:
+      quantity: 1
+      parameters:
+        - ["model", "{{ form.diffusion_model }}"]
+        - ["model", "{{ form.shape_vae }}"]
+        - ["model", "{{ form.texture_vae }}"]
+        - ["model", "{{ form.image_encoder }}"]
+        - ["seed", "{{ form.seed | default(-1) }}"]
+        - ["resolution_tier", "{{ form.resolution_tier | default('1024') }}"]
+        - ["decimation_target", "{{ form.decimation_target | default(100000) }}"]
+        - ["texture_size", "{{ form.texture_size | default(2048) }}"]
+
+  - name: "generator/trellis2"
+    id: "generator"
+    input:
+      - ["model", "model_loader", "model"]
+      - ["image", "media_loader", "image"]
+    enabled: true
+    configuration:
+      seed: "{{ form.seed | default(-1) }}"
+      remove_background: "{{ form.remove_background | default(false) }}"
+      decimation_target: "{{ form.decimation_target | default(100000) }}"
+      texture_size: "{{ form.texture_size | default(2048) }}"
+      sparse_structure_steps: "{{ form.sparse_structure_steps | default(12) }}"
+      sparse_structure_guidance_strength: "{{ form.sparse_structure_guidance_strength | default(7.5) }}"
+      sparse_structure_guidance_rescale: "{{ form.sparse_structure_guidance_rescale | default(0.7) }}"
+      sparse_structure_rescale_t: "{{ form.sparse_structure_rescale_t | default(5.0) }}"
+      shape_steps: "{{ form.shape_steps | default(12) }}"
+      shape_guidance_strength: "{{ form.shape_guidance_strength | default(7.5) }}"
+      shape_guidance_rescale: "{{ form.shape_guidance_rescale | default(0.5) }}"
+      shape_rescale_t: "{{ form.shape_rescale_t | default(3.0) }}"
+      texture_steps: "{{ form.texture_steps | default(12) }}"
+      texture_guidance_strength: "{{ form.texture_guidance_strength | default(1.0) }}"
+      texture_guidance_rescale: "{{ form.texture_guidance_rescale | default(0.0) }}"
+      texture_rescale_t: "{{ form.texture_rescale_t | default(3.0) }}"

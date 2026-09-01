@@ -1,0 +1,217 @@
+{
+  "mode": "img2mesh",
+  "pipes": [
+    {
+      "config": {
+        "auto_detect_type": {
+          "type": "bool",
+          "value": true
+        },
+        "max_file_size": {
+          "type": "int",
+          "value": 52428800
+        },
+        "media": {
+          "type": "list",
+          "value": [
+            {
+              "path": "/GOLDEN/media/source_image.png",
+              "type": "image"
+            }
+          ]
+        },
+        "validate_files": {
+          "type": "bool",
+          "value": true
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "media_loader",
+      "name": "media_loader"
+    },
+    {
+      "config": {
+        "diffusion_model.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/diffusion_model.safetensors"
+        },
+        "diffusion_model.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/diffusion_model.safetensors"
+        },
+        "image_encoder.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/image_encoder.safetensors"
+        },
+        "image_encoder.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/image_encoder.safetensors"
+        },
+        "matting_model.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/matting_model.safetensors"
+        },
+        "matting_model.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/matting_model.safetensors"
+        },
+        "resolution_tier": {
+          "type": "str",
+          "value": "1024"
+        },
+        "shape_vae.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/shape_vae.safetensors"
+        },
+        "shape_vae.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/shape_vae.safetensors"
+        },
+        "texture_vae.file_path": {
+          "type": "str",
+          "value": "/GOLDEN/models/texture_vae.safetensors"
+        },
+        "texture_vae.name": {
+          "type": "str",
+          "value": "/GOLDEN/models/texture_vae.safetensors"
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "model_loader",
+      "name": "model_loader/trellis2"
+    },
+    {
+      "config": {
+        "parameters": {
+          "type": "list",
+          "value": [
+            [
+              "model",
+              "/GOLDEN/models/diffusion_model.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/shape_vae.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/texture_vae.safetensors"
+            ],
+            [
+              "model",
+              "/GOLDEN/models/image_encoder.safetensors"
+            ],
+            [
+              "seed",
+              -1
+            ],
+            [
+              "resolution_tier",
+              "1024"
+            ],
+            [
+              "decimation_target",
+              100000
+            ],
+            [
+              "texture_size",
+              2048
+            ]
+          ]
+        },
+        "quantity": {
+          "type": "int",
+          "value": 1
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "param_emitter",
+      "name": "param_emitter"
+    },
+    {
+      "config": {
+        "decimation_target": {
+          "type": "int",
+          "value": 100000
+        },
+        "remove_background": {
+          "type": "bool",
+          "value": false
+        },
+        "seed": {
+          "type": "int",
+          "value": -1
+        },
+        "shape_guidance_rescale": {
+          "type": "float",
+          "value": 0.5
+        },
+        "shape_guidance_strength": {
+          "type": "float",
+          "value": 7.5
+        },
+        "shape_rescale_t": {
+          "type": "float",
+          "value": 3.0
+        },
+        "shape_steps": {
+          "type": "int",
+          "value": 12
+        },
+        "sparse_structure_guidance_rescale": {
+          "type": "float",
+          "value": 0.7
+        },
+        "sparse_structure_guidance_strength": {
+          "type": "float",
+          "value": 7.5
+        },
+        "sparse_structure_rescale_t": {
+          "type": "float",
+          "value": 5.0
+        },
+        "sparse_structure_steps": {
+          "type": "int",
+          "value": 12
+        },
+        "texture_guidance_rescale": {
+          "type": "float",
+          "value": 0.0
+        },
+        "texture_guidance_strength": {
+          "type": "float",
+          "value": 1.0
+        },
+        "texture_rescale_t": {
+          "type": "float",
+          "value": 3.0
+        },
+        "texture_size": {
+          "type": "int",
+          "value": 2048
+        },
+        "texture_steps": {
+          "type": "int",
+          "value": 12
+        }
+      },
+      "enabled": {
+        "type": "bool",
+        "value": true
+      },
+      "id": "generator",
+      "name": "generator/trellis2"
+    }
+  ],
+  "preset_id": "01M1ERSFQTVP21KDSRF81CXEZY",
+  "preset_name": "TRELLIS.2"
+}

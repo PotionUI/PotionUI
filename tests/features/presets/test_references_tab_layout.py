@@ -5,9 +5,13 @@ ia2v, ref2va, edit, inpaint) carry their media loaders on a dedicated
 "References" tab, positioned immediately after the mode's first tab and before
 any LoRA tab. Modes whose media is the sole OPERAND of a transform (the
 ImageTools/AudioTools/VideoTools utilities, the SeedVR2 and LTX upscalers, the
-LTX-2-3 utility preset, WAN interpolation, TRELLIS2 img2mesh) deliberately do
-NOT get the tab -- their input is the subject of the operation, not a
-reference, and moving it would leave the first tab holding one stray slider.
+LTX-2-3 utility preset, WAN interpolation) deliberately do NOT get the tab --
+their input is the subject of the operation, not a reference, and moving it
+would leave the first tab holding one stray slider.
+
+TRELLIS2's img2mesh was such a mode until the maintainer ruled otherwise
+(2026-09-01): its source image CONDITIONS a reconstruction rather than being
+transformed in place, so the marketplace preset carries a References tab.
 
 The assertions run through the SAME path that serves `GET /api/presets/{id}/form`:
 PresetTemplateLoader -> PresetFormSerializer.process_form_fields. That matters
@@ -50,6 +54,7 @@ CASES = [
     ("presets/marketplace/Krea2", "enhance", {"source_image"}),
     ("presets/marketplace/Krea2", "edit", {"source_image", "source_image_b"}),
     ("presets/marketplace/SDXL", "inpaint", {"source_image"}),
+    ("presets/marketplace/TRELLIS2", "img2mesh", {"source_image"}),
     ("presets/marketplace/MiniMax-H3", "refs", {"references", "reference_videos", "reference_audios"}),
     ("comfyui-backend/presets/FluxKlein9b", "img2img", {"input_image", "input_image_2"}),
     ("comfyui-backend/presets/LTX-2-3/official", "flf2v", {"first_frame", "last_frame"}),
@@ -95,7 +100,6 @@ UNTOUCHED_CASES = [
     ("presets/marketplace/LTX-2.5", "upscale"),
     ("comfyui-backend/presets/LTX-2-3/utility", "effects"),
     ("comfyui-backend/presets/WAN_2_2/custom", "interpolation"),
-    ("trellis2/presets/TRELLIS2", "img2mesh"),
 ]
 
 

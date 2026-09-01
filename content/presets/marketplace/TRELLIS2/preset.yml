@@ -1,0 +1,17 @@
+schema: 1
+id: "01M1ERSFQTVP21KDSRF81CXEZY"
+name: "TRELLIS.2"
+category: "3d"
+version: "1.0.0"
+engine: "native"
+tags: ["trellis", "trellis2", "3d", "mesh", "glb", "pbr", "image-to-3d", "local"]
+
+requires:
+  min_vram_gb: 12
+  recommended_vram_gb: 24
+
+vars:
+  promptless_modes: [img2mesh]
+
+modes:
+  - img2mesh

@@ -96,6 +96,16 @@ _MINIMAX_H3_SIG2 = "audio_patch_proj.weight"
 _MINIMAX_MUSIC3_SIG = "cond_layer_logits"
 _MINIMAX_MUSIC3_SIG2 = "latent_conditioners.0.weight"
 _MINIMAX_MUSIC3_SIG3 = "diffusion_transformer.transformer.layers.0.self_attn.to_qkv.weight"
+# TRELLIS.2 (Comfy-Org unified file). Unlike every other family here this is not
+# one DiT: four flow models sit side by side under four prefixes, so the config
+# returned below describes the BUNDLE, and ``arch/trellis2/load.py`` — not
+# ``NativeEngineLoader._load_dit`` — is what builds them. Detection still lives
+# here so a user who points a plain diffusion-model slot at this file gets a
+# named family instead of "not a recognised native DiT".
+_TRELLIS2_STRUCTURE_PREFIX = "model.structure_model."
+_TRELLIS2_SHAPE_PREFIX = "model.img2shape."
+_TRELLIS2_SHAPE_512_PREFIX = "model.img2shape_512."
+_TRELLIS2_TEXTURE_PREFIX = "model.shape2txt."
 # Extra-module signature key -> the Wan variant it marks. These carry modules the
 # native engine does not vendor (base t2v/i2v only), so they are rejected up front.
 _WAN_REJECT: dict[str, str] = {
@@ -118,6 +128,10 @@ def detect_unet_config(sd: dict[str, torch.Tensor], metadata: dict[str, str] | N
     checkpoint's own embedded ``config.transformer`` JSON for the fields it
     covers over shape-sniffing — see ``_detect_ltx``.
     """
+    trellis2 = _detect_trellis2(sd)
+    if trellis2 is not None:
+        return trellis2
+
     if _KREA2_SIG in sd:
         return _detect_krea2(sd)
 
@@ -205,6 +219,51 @@ def _log_flux(config: dict) -> dict:
         config["in_channels"],
         config["context_in_dim"],
         config["guidance_embed"],
+    )
+    return config
+
+
+def _detect_trellis2(sd: dict[str, torch.Tensor]) -> dict | None:
+    """Config for the Comfy-Org TRELLIS.2 unified flow file, else ``None``.
+
+    All four prefixes are required. A file carrying only some of them is a
+    truncated or repacked bundle, and claiming it would lose a cascade stage
+    silently — better to fall through and be reported as unrecognised.
+
+    ``resolution`` is the one field no tensor shape carries (the flow models are
+    shape-identical at 32 and 64 SLat resolution), so the shape/texture latent
+    grids come from ``arch/trellis2/config.py``, not from here.
+    """
+    prefixes = (
+        _TRELLIS2_STRUCTURE_PREFIX,
+        _TRELLIS2_SHAPE_PREFIX,
+        _TRELLIS2_SHAPE_512_PREFIX,
+        _TRELLIS2_TEXTURE_PREFIX,
+    )
+    if not all(any(k.startswith(p) for k in sd) for p in prefixes):
+        return None
+
+    config: dict = {"image_model": "trellis2"}
+    for name, prefix in (
+        ("structure", _TRELLIS2_STRUCTURE_PREFIX),
+        ("shape_512", _TRELLIS2_SHAPE_512_PREFIX),
+        ("shape_1024", _TRELLIS2_SHAPE_PREFIX),
+        ("texture", _TRELLIS2_TEXTURE_PREFIX),
+    ):
+        config[name] = {
+            "model_channels": int(sd[f"{prefix}input_layer.weight"].shape[0]),
+            "in_channels": linear_in_features(sd, f"{prefix}input_layer.weight"),
+            "out_channels": int(sd[f"{prefix}out_layer.weight"].shape[0]),
+            "cond_channels": linear_in_features(sd, f"{prefix}blocks.0.cross_attn.to_kv.weight"),
+            "num_blocks": count_blocks(sd, prefix + "blocks.{}."),
+            # The QK RMS-norm gain is per-head: [num_heads, head_dim].
+            "num_heads": int(sd[f"{prefix}blocks.0.self_attn.q_rms_norm.gamma"].shape[0]),
+        }
+
+    logger.debug(
+        "detected trellis2 bundle: structure in=%d blocks=%d, shape_1024 in=%d, texture in=%d",
+        config["structure"]["in_channels"], config["structure"]["num_blocks"],
+        config["shape_1024"]["in_channels"], config["texture"]["in_channels"],
     )
     return config
 

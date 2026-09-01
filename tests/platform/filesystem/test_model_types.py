@@ -35,6 +35,14 @@ def test_llm_is_present_for_directory_per_model_callers_to_special_case():
     assert DIRECTORY_TO_MODEL_TYPE['llm'] == 'llm'
 
 
+def test_conditioning_encoders_have_exactly_one_home():
+    """TRELLIS.2's DINOv3 image conditioner sits in `text_encoders/` alongside
+    the text encoders. Comfy-Org ships it under `clip_vision/`; defining that as
+    a second directory would split every picker that lists an encoder."""
+    assert DIRECTORY_TO_MODEL_TYPE['text_encoders'] == 'text_encoder'
+    assert 'clip_vision' not in DIRECTORY_TO_MODEL_TYPE
+
+
 def test_every_depot_scanner_shares_the_same_supported_extensions():
     from src.features.backends.native_model_scan import SUPPORTED_EXTENSIONS as native_scan_extensions
     from src.features.models.indexer import ModelScanner

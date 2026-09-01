@@ -8,6 +8,12 @@ types/directories - imports it from here rather than keeping its own copy.
 `llm` is directory-per-model (HF layout: `config.json` + sharded weights)
 rather than flat-file-per-model; callers that walk the depot file-by-file may
 need to special-case it (see `ModelScanner.DIRECTORY_MODEL_TYPES`).
+
+`text_encoders` is the conditioning-encoder directory generally, not text only:
+TRELLIS.2's DINOv3 ViT-L/16 image conditioner lives there too. Comfy-Org ships
+that file under `clip_vision/`, which this map deliberately does NOT define -
+there is one home for a conditioning encoder, and adding a second would split
+the pickers that list them.
 """
 
 DIRECTORY_TO_MODEL_TYPE = {

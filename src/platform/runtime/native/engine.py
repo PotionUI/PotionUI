@@ -606,6 +606,12 @@ class NativeEngineLoader:
                 f"'{Path(path).name}' is not a recognised native DiT "
                 "(no Flux signature keys)"
             )
+        if config.get("image_model") == "trellis2":
+            raise NativeEngineUnsupportedError(
+                f"'{Path(path).name}' is the TRELLIS.2 flow bundle: four DiTs in one "
+                "file, which this single-model path cannot load. Its components are "
+                "built by src.platform.runtime.native.arch.trellis2.load."
+            )
         spec = match_model_spec(config)
 
         quant_format = detect_quant_format(metadata, sd)

@@ -62,6 +62,41 @@ class TestCoerceAttributeValue(unittest.TestCase):
         with self.assertRaises(InvalidModelMetadataException):
             coerce_attribute_value(definition, [1, 2])
 
+    def test_range_accepts_a_pair(self):
+        definition = _definition("range", config={"min": -2, "max": 2})
+        self.assertEqual(coerce_attribute_value(definition, [0.7, 1.0]), [0.7, 1.0])
+
+    def test_range_widens_a_single_value_to_a_1_to_1_band(self):
+        definition = _definition("range", config={"min": -2, "max": 2})
+        self.assertEqual(coerce_attribute_value(definition, 0.8), [0.8, 0.8])
+        self.assertEqual(coerce_attribute_value(definition, [0.8]), [0.8, 0.8])
+
+    def test_range_none_means_not_set(self):
+        definition = _definition("range", config={"min": -2, "max": 2})
+        self.assertIsNone(coerce_attribute_value(definition, None))
+
+    def test_range_accepts_a_negative_band(self):
+        definition = _definition("range", config={"min": -2, "max": 2})
+        self.assertEqual(coerce_attribute_value(definition, [-1.0, -0.5]), [-1.0, -0.5])
+
+    def test_range_rejects_inverted_bounds_rather_than_sorting_them(self):
+        definition = _definition("range", config={"min": -2, "max": 2})
+        with self.assertRaises(InvalidModelMetadataException):
+            coerce_attribute_value(definition, [1.0, 0.7])
+
+    def test_range_bounds_checked_at_both_ends(self):
+        definition = _definition("range", config={"min": 0, "max": 2})
+        with self.assertRaises(InvalidModelMetadataException):
+            coerce_attribute_value(definition, [-0.5, 1.0])
+        with self.assertRaises(InvalidModelMetadataException):
+            coerce_attribute_value(definition, [1.0, 3.0])
+
+    def test_range_rejects_malformed_shapes(self):
+        definition = _definition("range", config={"min": -2, "max": 2})
+        for bad in ([], [0.1, 0.2, 0.3], ["low", "high"], "0.7-1.0", {"low": 1}):
+            with self.assertRaises(InvalidModelMetadataException):
+                coerce_attribute_value(definition, bad)
+
     def test_text_requires_string(self):
         definition = _definition("text")
         self.assertEqual(coerce_attribute_value(definition, "hello"), "hello")

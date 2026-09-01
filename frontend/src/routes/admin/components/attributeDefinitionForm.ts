@@ -92,9 +92,13 @@ export function resetDraftForFieldType(draft: AttributeDraft, fieldType: Attribu
 function coerceDraftDefaultValue(fieldType: AttributeFieldType, raw: DraftValue): unknown {
 	if (fieldType === 'checkbox') return !!raw;
 	if (fieldType === 'tags') return Array.isArray(raw) ? raw : [];
-	if (fieldType === 'slider' || fieldType === 'number') {
+	if (fieldType === 'slider' || fieldType === 'number' || fieldType === 'range') {
 		const num = typeof raw === 'string' ? parseFloat(raw) : typeof raw === 'number' ? raw : NaN;
-		return Number.isNaN(num) ? 0 : num;
+		if (!Number.isNaN(num)) return num;
+		// A range attribute states what a model declares, so "nothing entered"
+		// has to stay expressible - falling back to 0 the way a slider does
+		// would have every new range claim a recommended band of 0.
+		return fieldType === 'range' ? null : 0;
 	}
 	return typeof raw === 'string' ? raw : String(raw ?? '');
 }
@@ -110,7 +114,7 @@ export function buildAttributeDefinitionPayload(
 	draft: AttributeDraft
 ): Omit<AttributeDefinition, 'id' | 'system' | 'source'> {
 	const config: AttributeDefinition['config'] = {};
-	if (draft.field_type === 'slider' || draft.field_type === 'number') {
+	if (draft.field_type === 'slider' || draft.field_type === 'number' || draft.field_type === 'range') {
 		const min = numberOrUndefined(draft.config.min);
 		const max = numberOrUndefined(draft.config.max);
 		const step = numberOrUndefined(draft.config.step);

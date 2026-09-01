@@ -33,6 +33,7 @@
 		isLoraRowDisabled,
 		formatStrength
 	} from '$lib/utils/loraStrength';
+	import { formatRange, normalizeRange, strengthWithinRange } from '$lib/utils/attributeRange';
 	import { moveItem, dropIndexFor } from '$lib/utils/reorder';
 	import { LORA_STRENGTH_KEY, TRIGGERS_KEY } from '$lib/constants/modelMetadata';
 
@@ -307,12 +308,23 @@
 		}
 	}
 
-	// A model's own declared default (if any) wins over the field's configured
-	// strength_default - the user's own override (if set) wins over that. See
-	// ModelAttributesCard for where these values are edited.
-	function suggestedStrength(model: Model): number | undefined {
-		const raw = model.user_model_metadata?.[LORA_STRENGTH_KEY] ?? model.model_metadata?.[LORA_STRENGTH_KEY];
-		return typeof raw === 'number' ? raw : undefined;
+	// The LoRA author's recommended strength range (if any), read from the
+	// `strength` attribute - the user's own override (if set) wins over the
+	// shared, admin-set range. See ModelAttributesCard for where these values
+	// are edited.
+	function recommendedRange(model: Model): [number, number] | null {
+		return normalizeRange(
+			model.user_model_metadata?.[LORA_STRENGTH_KEY] ?? model.model_metadata?.[LORA_STRENGTH_KEY]
+		);
+	}
+
+	// The strength a newly-added row is seeded with: the field's configured
+	// `strength_default` wins whenever it already falls inside the model's
+	// recommended range (a recommendation, not a mandate); otherwise the
+	// range's upper bound - the author's "full effect" setting - is used. No
+	// recommended range at all falls back to `strengthDefault` unchanged.
+	function suggestedStrength(model: Model): number {
+		return strengthWithinRange(strengthDefault, recommendedRange(model));
 	}
 
 	// Trigger-word highlighting/copying shows the model's own declared
@@ -328,7 +340,7 @@
 
 	function selectModel(model: Model) {
 		if (atMaxItems) return;
-		emit([...rows, { model: refFor(model), strength: suggestedStrength(model) ?? strengthDefault }]);
+		emit([...rows, { model: refFor(model), strength: suggestedStrength(model) }]);
 		// Keep the resolved model info available immediately for the new row.
 		if (!models.some((m) => m.id === model.id)) {
 			models = [...models, model];
@@ -728,10 +740,15 @@
 												File · {filenameStem(model)}
 											</div>
 										{/if}
-										{#if model && suggestedStrength(model) !== undefined}
-											<div class="font-mono text-2xs tabular-nums text-fg-subtle">
-												Suggested {formatStrength(suggestedStrength(model) ?? strengthDefault)}
-											</div>
+										{#if model}
+											{@const range = recommendedRange(model)}
+											{#if range}
+												<Tooltip text="Recommended strength" position="top">
+													<div class="w-fit font-mono text-2xs tabular-nums text-fg-subtle">
+														{formatRange(range)}
+													</div>
+												</Tooltip>
+											{/if}
 										{/if}
 										{#if model}
 											<div class="mt-1 flex min-w-0 items-center gap-1 overflow-hidden">

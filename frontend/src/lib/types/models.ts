@@ -66,7 +66,7 @@ export interface Model {
 // Attribute definitions (GET/POST/PUT/DELETE /api/models/attributes) - the
 // DB-backed replacement for the old static metadata-field schema.
 
-export type AttributeFieldType = 'slider' | 'number' | 'text' | 'select' | 'checkbox' | 'tags';
+export type AttributeFieldType = 'slider' | 'number' | 'text' | 'select' | 'checkbox' | 'tags' | 'range';
 
 export interface AttributeSelectOption {
 	value: string;

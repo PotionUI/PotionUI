@@ -35,6 +35,7 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import { Spinner } from '$lib/components/ui';
 	import TagsChipInput from '$lib/components/form-fields/TagsChipInput.svelte';
+	import { normalizeRange } from '$lib/utils/attributeRange';
 	import {
 		coerceAttributeInput,
 		definitionsForModelType,
@@ -84,6 +85,10 @@
 		const config = inputConfigForAttribute(field);
 		if (config.type === 'checkbox') return !!value;
 		if (config.type === 'tags') return Array.isArray(value) ? (value as string[]) : [];
+		if (config.type === 'range') {
+			const range = normalizeRange(value);
+			return range ? [String(range[0]), String(range[1])] : ['', ''];
+		}
 		return value === undefined || value === null ? '' : String(value);
 	}
 
@@ -214,6 +219,33 @@
 				class="input text-xs font-mono tabular-nums w-24"
 				on:blur={(e) => commitUserValue(field, (e.target as HTMLInputElement).value)}
 			/>
+		{:else if userConfig.type === 'range'}
+			{@const rangeDraft = draft as string[]}
+			<div class="flex items-center gap-1.5">
+				<input
+					type="number"
+					min={userConfig.min}
+					max={userConfig.max}
+					step={userConfig.step}
+					value={rangeDraft[0] ?? ''}
+					class="input text-xs font-mono tabular-nums w-16"
+					aria-label={`${field.label} minimum`}
+					on:blur={(e) =>
+						commitUserValue(field, [(e.target as HTMLInputElement).value, rangeDraft[1] ?? ''])}
+				/>
+				<span class="text-fg-subtle">–</span>
+				<input
+					type="number"
+					min={userConfig.min}
+					max={userConfig.max}
+					step={userConfig.step}
+					value={rangeDraft[1] ?? ''}
+					class="input text-xs font-mono tabular-nums w-16"
+					aria-label={`${field.label} maximum`}
+					on:blur={(e) =>
+						commitUserValue(field, [rangeDraft[0] ?? '', (e.target as HTMLInputElement).value])}
+				/>
+			</div>
 		{:else}
 			<input
 				type="text"
@@ -285,6 +317,34 @@
 								on:input={(e) => (editValues[field.key] = (e.target as HTMLInputElement).value)}
 								class="input text-sm font-mono tabular-nums"
 							/>
+						{:else if inputConfig.type === 'range'}
+							{@const rangeDraft = (editValues[field.key] as string[]) ?? ['', '']}
+							<div class="flex items-center gap-2">
+								<input
+									id={`attr-${field.key}`}
+									type="number"
+									min={inputConfig.min}
+									max={inputConfig.max}
+									step={inputConfig.step}
+									value={rangeDraft[0] ?? ''}
+									aria-label={`${field.label} minimum`}
+									on:input={(e) =>
+										(editValues[field.key] = [(e.target as HTMLInputElement).value, rangeDraft[1] ?? ''])}
+									class="input text-sm font-mono tabular-nums w-24"
+								/>
+								<span class="text-fg-subtle">–</span>
+								<input
+									type="number"
+									min={inputConfig.min}
+									max={inputConfig.max}
+									step={inputConfig.step}
+									value={rangeDraft[1] ?? ''}
+									aria-label={`${field.label} maximum`}
+									on:input={(e) =>
+										(editValues[field.key] = [rangeDraft[0] ?? '', (e.target as HTMLInputElement).value])}
+									class="input text-sm font-mono tabular-nums w-24"
+								/>
+							</div>
 						{:else}
 							<input
 								id={`attr-${field.key}`}

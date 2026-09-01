@@ -20,7 +20,7 @@ from src.features.models.attributes.validation import coerce_attribute_value
 from src.features.models.exceptions import InvalidModelMetadataException
 
 KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
-FIELD_TYPES = {"slider", "number", "text", "select", "checkbox", "tags"}
+FIELD_TYPES = {"slider", "number", "range", "text", "select", "checkbox", "tags"}
 
 
 class ModelAttributeDefinitionsEditor:

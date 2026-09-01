@@ -129,6 +129,11 @@ describe('buildAttributeDefinitionPayload', () => {
 		});
 	});
 
+	it('keeps min/max/step config for a range definition, same as slider/number', () => {
+		const draft = { ...emptyAttributeDraft(), key: 'x', label: 'X', field_type: 'range' as const, config: { min: -2, max: 2, step: 0.05, options: [] } };
+		expect(buildAttributeDefinitionPayload(draft).config).toEqual({ min: -2, max: 2, step: 0.05 });
+	});
+
 	it('never carries slider config onto a text definition', () => {
 		const draft = { ...emptyAttributeDraft(), key: 'x', label: 'X', field_type: 'text' as const, config: { min: 1, max: 2, step: 1, options: [] } };
 		expect(buildAttributeDefinitionPayload(draft).config).toEqual({});
@@ -146,5 +151,17 @@ describe('buildAttributeDefinitionPayload', () => {
 		expect(buildAttributeDefinitionPayload({ ...emptyAttributeDraft(), key: 'x', label: 'X', field_type: 'checkbox', default_value: true }).default_value).toBe(true);
 		expect(buildAttributeDefinitionPayload({ ...emptyAttributeDraft(), key: 'x', label: 'X', field_type: 'tags', default_value: ['a', 'b'] }).default_value).toEqual(['a', 'b']);
 		expect(buildAttributeDefinitionPayload({ ...emptyAttributeDraft(), key: 'x', label: 'X', field_type: 'number', default_value: '3.5' }).default_value).toBe(3.5);
+		expect(buildAttributeDefinitionPayload({ ...emptyAttributeDraft(), key: 'x', label: 'X', field_type: 'range', default_value: '0.8' }).default_value).toBe(0.8);
+	});
+
+	it('leaves a range definition with no entered default unset rather than falling back to 0', () => {
+		// A slider's blank default becoming 0 is harmless; a range's would make
+		// every model look like it recommends a band of 0.
+		expect(
+			buildAttributeDefinitionPayload({ ...emptyAttributeDraft(), key: 'x', label: 'X', field_type: 'range', default_value: '' }).default_value
+		).toBeNull();
+		expect(
+			buildAttributeDefinitionPayload({ ...emptyAttributeDraft(), key: 'x', label: 'X', field_type: 'slider', default_value: '' }).default_value
+		).toBe(0);
 	});
 });

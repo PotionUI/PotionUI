@@ -72,6 +72,12 @@ describe('inputConfigForAttribute', () => {
 			type: 'tags'
 		});
 	});
+
+	it('maps range fields to a range input carrying min/max/step', () => {
+		expect(
+			inputConfigForAttribute(definition({ field_type: 'range', config: { min: -2, max: 2, step: 0.05 } }))
+		).toEqual({ type: 'range', min: -2, max: 2, step: 0.05 });
+	});
 });
 
 describe('definitionsForModelType', () => {
@@ -135,6 +141,24 @@ describe('coerceAttributeInput', () => {
 		expect(coerceAttributeInput(definition({ field_type: 'tags' }), ['a', 'b'])).toEqual(['a', 'b']);
 		expect(coerceAttributeInput(definition({ field_type: 'tags' }), 'not-an-array' as any)).toEqual([]);
 	});
+
+	it('coerces a range field two-element string tuple to a sorted [lo, hi] pair', () => {
+		const def = definition({ field_type: 'range', config: { min: -2, max: 2, step: 0.05 } });
+		expect(coerceAttributeInput(def, ['0.7', '1'])).toEqual([0.7, 1]);
+		expect(coerceAttributeInput(def, ['1', '0.7'])).toEqual([0.7, 1]);
+	});
+
+	it('coerces a range field with only one filled input to a degenerate range', () => {
+		const def = definition({ field_type: 'range', config: { min: -2, max: 2, step: 0.05 } });
+		expect(coerceAttributeInput(def, ['0.8', ''])).toEqual([0.8, 0.8]);
+		expect(coerceAttributeInput(def, ['', '0.8'])).toEqual([0.8, 0.8]);
+	});
+
+	it('coerces an empty/unparseable range buffer to null, not a garbage range', () => {
+		const def = definition({ field_type: 'range', config: { min: -2, max: 2, step: 0.05 } });
+		expect(coerceAttributeInput(def, ['', ''])).toBeNull();
+		expect(coerceAttributeInput(def, [])).toBeNull();
+	});
 });
 
 describe('formatAttributeValue', () => {
@@ -162,6 +186,21 @@ describe('formatAttributeValue', () => {
 
 	it('stringifies any other value', () => {
 		expect(formatAttributeValue(definition(), 0.7)).toBe('0.7');
+	});
+
+	it('renders a range value formatted with an en dash', () => {
+		const def = definition({ field_type: 'range', config: { min: -2, max: 2, step: 0.05 } });
+		expect(formatAttributeValue(def, [0.7, 1])).toBe('0.70–1.00');
+	});
+
+	it('renders a degenerate range as a single number', () => {
+		const def = definition({ field_type: 'range', config: { min: -2, max: 2, step: 0.05 } });
+		expect(formatAttributeValue(def, [1, 1])).toBe('1.00');
+	});
+
+	it('renders a not-set range as an em dash', () => {
+		const def = definition({ field_type: 'range', config: { min: -2, max: 2, step: 0.05 } });
+		expect(formatAttributeValue(def, null)).toBe('—');
 	});
 });
 

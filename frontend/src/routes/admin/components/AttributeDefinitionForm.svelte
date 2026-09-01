@@ -45,6 +45,7 @@
 		{ value: 'text', label: 'Text' },
 		{ value: 'number', label: 'Number' },
 		{ value: 'slider', label: 'Slider (number with min/max/step)' },
+		{ value: 'range', label: 'Range (recommended min–max)' },
 		{ value: 'checkbox', label: 'Checkbox' },
 		{ value: 'select', label: 'Select' },
 		{ value: 'tags', label: 'Tags' }
@@ -56,7 +57,11 @@
 
 	const isPanel = $derived(layout === 'panel');
 	const labelClass = $derived(isPanel ? 'block text-sm font-medium text-fg-muted mb-1' : 'label');
-	const isNumericType = $derived(draft.field_type === 'slider' || draft.field_type === 'number');
+	// `range` shares the plain number input's min/max/step config - those bound
+	// both ends of the [lo, hi] pair a range's value carries (see attributeRange.ts).
+	const isNumericType = $derived(
+		draft.field_type === 'slider' || draft.field_type === 'number' || draft.field_type === 'range'
+	);
 
 	// `bind:value` above has already written the new label into `draft.label`
 	// by the time this fires - see attributeDefinitionForm.ts for the pure slug fn.

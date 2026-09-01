@@ -2,8 +2,9 @@
 // so it's unit-testable without mounting a component.
 
 import type { AttributeDefinition, AttributeFieldType } from '$lib/types/models';
+import { formatRange, normalizeRange } from '$lib/utils/attributeRange';
 
-export type AttributeInputType = 'number' | 'text' | 'checkbox' | 'select' | 'tags';
+export type AttributeInputType = 'number' | 'text' | 'checkbox' | 'select' | 'tags' | 'range';
 
 export interface AttributeInputConfig {
 	type: AttributeInputType;
@@ -15,7 +16,8 @@ export interface AttributeInputConfig {
 
 /** Decides the HTML input shape for a definition from its `field_type`.
  * `slider` renders as a plain number input honoring the declared min/max/step
- * (see ModelAttributesCard.svelte) - there is no drag-slider widget here. */
+ * (see ModelAttributesCard.svelte) - there is no drag-slider widget here.
+ * `range` renders as a pair of number inputs (min/max), same min/max/step. */
 export function inputConfigForAttribute(definition: AttributeDefinition): AttributeInputConfig {
 	switch (definition.field_type) {
 		case 'checkbox':
@@ -28,6 +30,13 @@ export function inputConfigForAttribute(definition: AttributeDefinition): Attrib
 		case 'number':
 			return {
 				type: 'number',
+				min: definition.config.min,
+				max: definition.config.max,
+				step: definition.config.step
+			};
+		case 'range':
+			return {
+				type: 'range',
 				min: definition.config.min,
 				max: definition.config.max,
 				step: definition.config.step
@@ -67,6 +76,19 @@ function coerceNumberInput(raw: unknown, fallback: unknown): unknown {
 	return Number.isNaN(num) ? fallback : num;
 }
 
+/** Coerces a two-element string tuple edit buffer (min, max) for a `range`
+ * field back to the wire shape - a real `[lo, hi]` pair via `normalizeRange`.
+ * A buffer with no parseable number (both inputs blank/garbage) coerces to
+ * `null` ("not set") rather than to a garbage range; a buffer with exactly
+ * one parseable number coerces to a degenerate `[x, x]` range, same as the
+ * backend does for a bare number. */
+function coerceRangeInput(raw: string | boolean | string[]): [number, number] | null {
+	const tuple = Array.isArray(raw) ? raw : [];
+	const nums = tuple.map((entry) => parseFloat(entry)).filter((n) => !Number.isNaN(n));
+	if (nums.length === 0) return null;
+	return normalizeRange(nums.length === 1 ? nums[0] : nums);
+}
+
 /** Coerces a raw edit-buffer value back to the shape its `field_type` puts on
  * the wire. Edit buffers are always string|boolean|string[] (whatever the
  * matching HTML control produces). */
@@ -82,6 +104,8 @@ export function coerceAttributeInput(
 		case 'slider':
 		case 'number':
 			return coerceNumberInput(raw, definition.default_value);
+		case 'range':
+			return coerceRangeInput(raw);
 		default:
 			return String(raw);
 	}
@@ -96,6 +120,10 @@ export function formatAttributeValue(definition: AttributeDefinition, value: unk
 	if (definition.field_type === 'select') {
 		const option = definition.config.options?.find((o) => o.value === value);
 		if (option) return option.label;
+	}
+	if (definition.field_type === 'range') {
+		const range = normalizeRange(value);
+		return range ? formatRange(range) : '—';
 	}
 	if (value === null || value === undefined || value === '') return '—';
 	return String(value);

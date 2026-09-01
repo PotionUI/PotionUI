@@ -12,8 +12,6 @@ class TestEnsureBuiltinAttributeDefinitions(PersistenceTestBase):
 
     def setUp(self):
         super().setUp()
-        import src.features.models.attributes.repository as repo_module
-        repo_module.db = self.db
         self.repo = AttributeDefinitionRepository()
 
     def test_seeds_every_builtin(self):
@@ -28,6 +26,17 @@ class TestEnsureBuiltinAttributeDefinitions(PersistenceTestBase):
         self.assertTrue(strength.system)
         self.assertEqual(strength.source, "core")
         self.assertEqual(strength.model_types, ["lora"])
+
+    def test_lora_strength_is_a_range_with_no_stand_in_default(self):
+        ensure_builtin_attribute_definitions(self.repo)
+
+        strength = self.repo.get_by_key(WellKnownModelAttribute.LORA_STRENGTH)
+        self.assertEqual(strength.field_type, "range")
+        # A default here would claim every LoRA recommends it; "not set" has to
+        # stay distinguishable so the picker can fall back to the preset's own.
+        self.assertIsNone(strength.default_value)
+        # Inverted LoRAs are legitimate, so the band may reach below zero.
+        self.assertEqual(strength.config["min"], -2)
 
     def test_rerun_does_not_overwrite_admin_edits(self):
         ensure_builtin_attribute_definitions(self.repo)

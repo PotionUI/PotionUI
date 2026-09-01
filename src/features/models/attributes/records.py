@@ -11,7 +11,7 @@ class ModelAttributeDefinition:
 
     key: str
     label: str
-    field_type: str  # 'slider' | 'number' | 'text' | 'select' | 'checkbox' | 'tags'
+    field_type: str  # 'slider' | 'number' | 'range' | 'text' | 'select' | 'checkbox' | 'tags'
     id: Optional[str] = None
     model_types: List[str] = field(default_factory=list)
     config: Dict[str, Any] = field(default_factory=dict)

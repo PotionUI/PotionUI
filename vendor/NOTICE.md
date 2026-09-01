@@ -38,10 +38,9 @@ GPL-3.0-compatible.
 ## Permissively-licensed lineage under `src/` (outside `vendor/`)
 
 `# Derived from:` markers under `src/` are not all GPL. The entries below name
-code whose upstream is **Apache-2.0**, so it imposes no copyleft of its own on
-the combined program — only the attribution the licence requires, which the
-per-file markers provide. Each upstream is `diffusers` 0.39.0, already a
-first-order runtime dependency, so every claim here is checkable in-tree.
+code whose upstream is permissively licensed (**Apache-2.0** or **MIT**), so it
+imposes no copyleft of its own on the combined program — only the attribution
+the licence requires, which the per-file markers provide.
 
 | Location | Upstream | License | Notes |
 |----------|----------|---------|-------|
@@ -49,6 +48,7 @@ first-order runtime dependency, so every claim here is checkable in-tree.
 | `src/platform/runtime/native/sampling/flow_schedule.py` (`_anchored_mu`) | `diffusers` `calculate_shift` (`pipelines/krea2/pipeline_krea2.py`, itself copied from `pipelines/flux/pipeline_flux.py`) | Apache-2.0 | Two-point sequence-length -> mu line, with the endpoints reparameterised from tokens to pixels. Krea-2's anchors are the `base_image_seq_len`/`max_image_seq_len`/`base_shift`/`max_shift` documented on `Krea2Pipeline`. Covered by the same test file. |
 | `src/platform/runtime/native/arch/krea2/{model,layers}.py` | `diffusers` `transformer_krea2.py`, Copyright Krea AI and The HuggingFace Team | Apache-2.0 | Forked and renamed to the native checkpoint's key space; see each file's own header for the per-symbol mapping and the local additions. Rotary embeddings are the exception: they come from `vendor/gpl/comfyui/flux/math_ops.py` (GPL-3.0) by reference. |
 | `src/platform/runtime/native/text_encoders/{qwen3,tokenization}.py` (Krea-2 Qwen3-VL conditioning) | `diffusers` `Krea2Pipeline` | Apache-2.0 | Prompt template strings, the stripped system-prefix length, and the fused hidden-state layer set. |
+| `src/platform/runtime/native/sparse3d/` | `microsoft/TRELLIS.2` `trellis2/modules/sparse/`, Copyright (c) Microsoft Corporation | MIT | Pure-torch port of the sparse spatial-tensor container, spatial up/down-sampling and channel<->spatial octree ops, sparse RoPE, and varlen attention packing; the compiled conv/attention backends are not ported. Per-file `# Derived from:` markers name the exact source modules. |
 
 ### Wan2GP
 

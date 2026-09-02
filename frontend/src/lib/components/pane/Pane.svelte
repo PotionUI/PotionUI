@@ -91,7 +91,7 @@
 </script>
 
 <div class="flex flex-col h-full min-h-0 text-sm {className}">
-	<div class="flex items-center gap-2 px-3 py-2 border-b border-line flex-shrink-0">
+	<div class="flex items-center gap-2 px-3 min-h-header border-b border-line flex-shrink-0">
 		<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle truncate">{label}</span>
 		{#if count !== undefined}
 			<span class="font-mono text-2xs tabular-nums text-fg-subtle">{count}</span>

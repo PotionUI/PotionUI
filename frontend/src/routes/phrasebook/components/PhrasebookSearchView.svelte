@@ -260,6 +260,9 @@
 				Searching…
 			{/if}
 		</span>
+		<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle" data-search-mode-scope>
+			{filters.mode} · {filters.scope}
+		</span>
 		{#if loading}<Spinner size="sm" />{/if}
 	</div>
 

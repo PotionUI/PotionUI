@@ -7,6 +7,7 @@ import {
 	highlightSegments,
 	isSearching,
 	isTopLevelPath,
+	nonDefaultFilterCount,
 	rangeIds,
 	retainSelection,
 	selectedFields,
@@ -21,6 +22,47 @@ describe('isSearching', () => {
 		expect(isSearching('')).toBe(false);
 		expect(isSearching('   ')).toBe(false);
 		expect(isSearching(' dog ')).toBe(true);
+	});
+});
+
+describe('nonDefaultFilterCount', () => {
+	it('is zero for the defaults', () => {
+		expect(nonDefaultFilterCount(defaultFilters())).toBe(0);
+	});
+
+	it('counts case, fields, scope, include-inactive and subtree independently', () => {
+		expect(nonDefaultFilterCount({ ...defaultFilters(), caseSensitive: true })).toBe(1);
+		expect(nonDefaultFilterCount({ ...defaultFilters(), inLabel: false })).toBe(1);
+		expect(nonDefaultFilterCount({ ...defaultFilters(), inValue: false })).toBe(1);
+		expect(nonDefaultFilterCount({ ...defaultFilters(), scope: 'values' })).toBe(1);
+		expect(nonDefaultFilterCount({ ...defaultFilters(), includeInactive: false })).toBe(1);
+		expect(nonDefaultFilterCount({ ...defaultFilters(), pathPrefix: 'animals' })).toBe(1);
+	});
+
+	it('ignores query and mode', () => {
+		expect(nonDefaultFilterCount({ ...defaultFilters(), query: 'dog', mode: 'regex' })).toBe(0);
+	});
+
+	it('sums independent deviations', () => {
+		expect(
+			nonDefaultFilterCount({
+				...defaultFilters(),
+				caseSensitive: true,
+				scope: 'categories',
+				pathPrefix: 'animals'
+			})
+		).toBe(3);
+	});
+
+	it('counts a non-"all" browsing state filter, defaulting to "all" when omitted', () => {
+		expect(nonDefaultFilterCount(defaultFilters())).toBe(0);
+		expect(nonDefaultFilterCount(defaultFilters(), 'all')).toBe(0);
+		expect(nonDefaultFilterCount(defaultFilters(), 'active')).toBe(1);
+		expect(nonDefaultFilterCount(defaultFilters(), 'inactive')).toBe(1);
+	});
+
+	it('sums the state filter alongside search filter deviations', () => {
+		expect(nonDefaultFilterCount({ ...defaultFilters(), caseSensitive: true }, 'active')).toBe(2);
 	});
 });
 

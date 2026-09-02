@@ -9,13 +9,12 @@
 		allActiveValueIds
 	} from '$lib/stores/phrasebook';
 	import { previewGenerationStore } from '$lib/stores/previewGeneration';
-	import PhrasebookToolbar from './components/PhrasebookToolbar.svelte';
 	import CategoryTreePane from './components/CategoryTreePane.svelte';
 	import ValuesListPane from './components/ValuesListPane.svelte';
 	import CategoryInfoView from './components/CategoryInfoView.svelte';
 	import CategoryEditForm from './components/CategoryEditForm.svelte';
 	import ValueEditForm from './components/ValueEditForm.svelte';
-	import PhrasebookFindBar from './components/PhrasebookFindBar.svelte';
+	import PhrasebookHeader from './components/PhrasebookHeader.svelte';
 	import PhrasebookSearchView from './components/PhrasebookSearchView.svelte';
 	import { api } from '$lib/services/api/index';
 	import { logger } from '$lib/utils/logger';
@@ -237,9 +236,7 @@
 </script>
 
 <div class="h-screen flex flex-col bg-canvas">
-	<PhrasebookToolbar />
-
-	<PhrasebookFindBar
+	<PhrasebookHeader
 		{filters}
 		{searching}
 		error={findError}

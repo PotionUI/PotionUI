@@ -4,6 +4,7 @@ import type {
 	PhrasebookFindParams,
 	PhrasebookFindScope,
 	PhrasebookMatchSpan,
+	PhrasebookStateFilter,
 	PhrasebookValueField
 } from '$lib/types/api';
 
@@ -35,6 +36,23 @@ export function defaultFilters(): FindFilters {
 
 export function isSearching(query: string): boolean {
 	return query.trim().length > 0;
+}
+
+// Counts filters that differ from their defaults, for the header's Filters
+// badge. `mode` and `query` are shown outside the popover and excluded here.
+// `stateFilter` is the browsing "Show" group (All/Active/Inactive), a
+// separate control from the search-only `filters` — see the "Show" vs
+// "Include inactive" note on nonDefaultFilterCount's caller.
+export function nonDefaultFilterCount(filters: FindFilters, stateFilter: PhrasebookStateFilter = 'all'): number {
+	const defaults = defaultFilters();
+	let count = 0;
+	if (stateFilter !== 'all') count++;
+	if (filters.caseSensitive !== defaults.caseSensitive) count++;
+	if (filters.inLabel !== defaults.inLabel || filters.inValue !== defaults.inValue) count++;
+	if (filters.scope !== defaults.scope) count++;
+	if (filters.includeInactive !== defaults.includeInactive) count++;
+	if (filters.pathPrefix !== defaults.pathPrefix) count++;
+	return count;
 }
 
 export function selectedFields(filters: Pick<FindFilters, 'inLabel' | 'inValue'>): PhrasebookValueField[] {

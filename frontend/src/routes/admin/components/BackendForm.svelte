@@ -28,7 +28,8 @@
 		creatableEngines = [],
 		onDriverChange,
 		fieldDescriptors = [],
-		enabledPlacement = 'inline'
+		enabledPlacement = 'inline',
+		fieldHints = {}
 	}: {
 		draft: Record<string, any>;
 		mode: 'create' | 'edit';
@@ -47,6 +48,10 @@
 		/** 'inline' renders the Enabled checkbox in Behavior; 'none' omits it
 		 * (edit mode surfaces enable/disable via a live Switch elsewhere). */
 		enabledPlacement?: 'inline' | 'none';
+		/** Extra UI-only guidance rendered under a named connection field, below
+		 * its own server-supplied `description` — keyed by field name so a caller
+		 * never has to hardcode which field it is inside this generic form. */
+		fieldHints?: Record<string, Snippet>;
 	} = $props();
 
 	const isPanel = $derived(layout === 'panel');
@@ -145,6 +150,9 @@
 				{/if}
 				{#if field.description}
 					<p class="text-xs text-fg-subtle mt-1">{field.description}</p>
+				{/if}
+				{#if fieldHints[field.name]}
+					<div class="mt-2">{@render fieldHints[field.name]()}</div>
 				{/if}
 			</div>
 		{/each}

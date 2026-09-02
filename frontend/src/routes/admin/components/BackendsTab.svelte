@@ -34,8 +34,9 @@
 	import BackendQuickActions from './BackendQuickActions.svelte';
 	import BackendInfrastructureSection from './BackendInfrastructureSection.svelte';
 	import BackendModelsSection from './BackendModelsSection.svelte';
+	import { backendDetailTabsFor, isBackendDetailTab, type BackendDetailTabId } from './backendDetailTabs';
 
-	type DetailTab = 'overview' | 'optimizations' | 'stats';
+	type DetailTab = BackendDetailTabId;
 
 	// The two built-in `native` drivers (see backend_config.py). Both are core,
 	// not plugin-contributed, so - like the pre-existing `engine === 'native'`
@@ -232,15 +233,16 @@
 		: undefined;
 	$: activeIsHealthy = !!activeHealth && isHealthy(activeHealth.health.status);
 
-	// Optimizations only applies to the in-process native driver — see the
-	// NATIVE_LOCAL_DRIVER/NATIVE_REMOTE_DRIVER note above.
-	$: backendDetailTabs = [
-		{ id: 'overview', label: 'Overview', icon: 'info' },
-		...(activeBackend?.driver === NATIVE_LOCAL_DRIVER
-			? [{ id: 'optimizations', label: 'Optimizations', icon: 'sliders' }]
-			: []),
-		{ id: 'stats', label: 'Stats', icon: 'gauge' }
-	];
+	// Per-driver tab set — see backendDetailTabs.ts for the rules (Infrastructure
+	// + Models only for native.remote, Optimizations only for native.local).
+	$: backendDetailTabs = backendDetailTabsFor(activeBackend?.driver ?? '');
+
+	// If the selected backend changes to one whose tab set doesn't include the
+	// currently open tab (e.g. leaving a native.remote's Infrastructure tab for
+	// a comfyui backend), fall back to Overview rather than showing a blank pane.
+	$: if (activeBackend && !isBackendDetailTab(activeBackend.driver, detailTab)) {
+		detailTab = 'overview';
+	}
 
 	const dotColorClasses: Record<string, string> = {
 		success: 'bg-success-solid',
@@ -690,6 +692,21 @@
 	}
 </style>
 
+{#snippet workerUrlEditHint()}
+	<Alert variant="info" density="compact">
+		A Remote Native backend needs a running worker. Paste the URL of a worker you started
+		yourself, or provision one from this backend's Infrastructure tab — its URL and token are
+		filled in for you automatically.
+	</Alert>
+{/snippet}
+{#snippet workerUrlCreateHint()}
+	<Alert variant="info" density="compact">
+		A Remote Native backend needs a running worker. Paste the URL of a worker you started
+		yourself, or leave this blank — after creating, open its Infrastructure tab to provision one
+		and its URL and token are filled in for you automatically.
+	</Alert>
+{/snippet}
+
 <div class="flex h-[calc(100dvh-var(--header-h)-2rem)] min-h-[36rem] flex-col gap-4 sm:h-[calc(100dvh-var(--header-h)-3rem)]">
 	<AdminTabShell
 		title="Backends"
@@ -921,6 +938,22 @@
 										</div>
 									{/if}
 
+									<BackendForm
+										bind:draft={editFormData}
+										mode="edit"
+										layout="panel"
+										idPrefix="edit-backend"
+										engineMutable={false}
+										engineLabel={formatDriverLabel(activeBackend.driver)}
+										fieldDescriptors={activeEditEngineFields}
+										enabledPlacement="none"
+										fieldHints={activeBackend.driver === NATIVE_REMOTE_DRIVER
+											? { base_url: workerUrlEditHint }
+											: {}}
+									/>
+								</DetailBody>
+							{:else if detailTab === 'infrastructure' && activeBackend.driver === NATIVE_REMOTE_DRIVER}
+								<DetailBody>
 									{#key activeBackend.id}
 										<BackendInfrastructureSection
 											backendId={activeBackend.id}
@@ -934,23 +967,27 @@
 											onTerminated={handleInfrastructureTerminated}
 										/>
 									{/key}
-
-									{#if activeBackend.driver === NATIVE_REMOTE_DRIVER}
+								</DetailBody>
+							{:else if detailTab === 'models' && activeBackend.driver === NATIVE_REMOTE_DRIVER}
+								<DetailBody>
+									{#if !activeBackend.configured}
+										<EmptyState
+											icon="cube"
+											title="Worker not connected"
+											description="Set a Worker URL in Overview or provision one in Infrastructure to list this worker's models."
+											compact
+										>
+											{#snippet actions()}
+												<Button variant="secondary" size="sm" icon="server" onclick={() => (detailTab = 'infrastructure')}>
+													Go to Infrastructure
+												</Button>
+											{/snippet}
+										</EmptyState>
+									{:else}
 										{#key activeBackend.id}
 											<BackendModelsSection backendId={activeBackend.id} />
 										{/key}
 									{/if}
-
-									<BackendForm
-										bind:draft={editFormData}
-										mode="edit"
-										layout="panel"
-										idPrefix="edit-backend"
-										engineMutable={false}
-										engineLabel={formatDriverLabel(activeBackend.driver)}
-										fieldDescriptors={activeEditEngineFields}
-										enabledPlacement="none"
-									/>
 								</DetailBody>
 							{:else if detailTab === 'optimizations' && activeBackend.driver === NATIVE_LOCAL_DRIVER}
 								<DetailBody>
@@ -1020,11 +1057,6 @@
 	on:close={closeModal}
 >
 	<div class="px-6 py-4">
-		{#if formData.driver === NATIVE_REMOTE_DRIVER}
-			<Alert variant="info" density="compact" class="mb-5">
-				Connect or provision this worker after creating it — the fields below are optional.
-			</Alert>
-		{/if}
 		<BackendForm
 			bind:draft={formData}
 			mode="create"
@@ -1035,6 +1067,7 @@
 			{onDriverChange}
 			fieldDescriptors={activeEngineFields}
 			enabledPlacement="inline"
+			fieldHints={formData.driver === NATIVE_REMOTE_DRIVER ? { base_url: workerUrlCreateHint } : {}}
 		/>
 	</div>
 

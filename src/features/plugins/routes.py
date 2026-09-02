@@ -555,10 +555,17 @@ class PluginController(BaseController):
                 f"Serving plugin asset: {plugin_id}/{file_path} ({media_type})"
             )
 
+            # Plugin bundles are loaded by dynamic `import()` and rebuilt in
+            # place; without an explicit policy browsers apply heuristic
+            # freshness to a module URL and keep serving a stale bundle for
+            # hours after `build-plugins.mjs` wrote a new one. `no-cache`
+            # forces a conditional request each time, answered 304 by the
+            # ETag/Last-Modified FileResponse already sends.
             return FileResponse(
                 path=str(asset_path),
                 media_type=media_type,
-                filename=asset_path.name
+                filename=asset_path.name,
+                headers={"Cache-Control": "no-cache"},
             )
 
         except HTTPException:

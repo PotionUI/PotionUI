@@ -805,6 +805,21 @@ async def test_get_plugin_asset_success(controller, mock_plugin_registry, sample
 
 
 @pytest.mark.asyncio
+async def test_get_plugin_asset_is_revalidated_on_every_load(controller, mock_plugin_registry, sample_plugin_manifest, tmp_path):
+    """A rebuilt bundle must reach the browser on the next page load - a
+    module URL with no cache policy is heuristically cached for hours."""
+    dist_dir = tmp_path / "frontend" / "dist"
+    dist_dir.mkdir(parents=True)
+    (dist_dir / "TextImportModal.js").write_text("export default function () {}")
+    sample_plugin_manifest.plugin_dir = tmp_path
+    mock_plugin_registry.get_plugin.return_value = sample_plugin_manifest
+
+    response = await controller.get_plugin_asset("test-plugin-1", "TextImportModal.js")
+
+    assert response.headers["cache-control"] == "no-cache"
+
+
+@pytest.mark.asyncio
 async def test_get_plugin_asset_plugin_not_found(controller, mock_plugin_registry):
     """Test serving asset for non-existent plugin"""
     from fastapi import HTTPException

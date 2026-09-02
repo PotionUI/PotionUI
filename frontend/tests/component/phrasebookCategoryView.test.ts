@@ -163,6 +163,16 @@ describe('CategoryInfoView', () => {
 		expect(sectionLabels()).toEqual(['Details', 'Subcategories']);
 	});
 
+	it('renders both detail bodies full width, without the narrow max-w-2xl wrapper', async () => {
+		await mountView();
+
+		expect(target.querySelector('.max-w-2xl')).toBeNull();
+
+		await switchToTab('Preview images');
+
+		expect(target.querySelector('.max-w-2xl')).toBeNull();
+	});
+
 	it('shows the header chips for value/subcategory counts and status', async () => {
 		await mountView();
 

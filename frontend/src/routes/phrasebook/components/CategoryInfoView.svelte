@@ -112,7 +112,8 @@
 		/>
 
 		{#if current.categoryDetailTab === 'overview'}
-			<DetailBody>
+			<DetailBody fullWidth>
+				<div class="space-y-5">
 				<DetailSection label="Details">
 					<div class="flex flex-col gap-3.5">
 						<p class="text-xs text-fg-muted leading-relaxed">
@@ -205,9 +206,10 @@
 						</button>
 					{/snippet}
 				</DetailSection>
+				</div>
 			</DetailBody>
 		{:else if current.selectedCategoryId}
-			<DetailBody>
+			<DetailBody fullWidth>
 				<PreviewImagesSection categoryId={current.selectedCategoryId} />
 			</DetailBody>
 		{/if}

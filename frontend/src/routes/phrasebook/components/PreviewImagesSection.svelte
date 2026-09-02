@@ -48,33 +48,25 @@
 </script>
 
 <div class="flex flex-col gap-4">
-	<div class="flex items-start justify-between gap-3 flex-wrap">
-		<p class="text-xs text-fg-muted leading-relaxed flex-1 min-w-[16rem]">
+	<div class="rounded-lg border border-line bg-surface-1 px-4 py-2.5 flex items-center gap-3 flex-wrap">
+		<p class="text-xs text-fg-muted leading-relaxed">
 			One generation per value selected in the Values pane &mdash;
-			<span class="text-fg font-semibold">{$selectedCount} of {values.length}</span> selected.
-			<button
-				type="button"
-				class="ml-1 text-fg-muted underline decoration-line-strong hover:text-fg hover:decoration-fg-muted"
-				onclick={() => phrasebookStore.selectAllValues()}
-			>
-				Select all
-			</button>
-			{#if missingIds.length > 0}
-				<button
-					type="button"
-					class="ml-1 text-fg-muted underline decoration-line-strong hover:text-fg hover:decoration-fg-muted"
-					onclick={() => phrasebookStore.selectValuesWithoutPreview()}
-				>
-					Select missing ({missingIds.length})
-				</button>
-			{/if}
+			<span class="font-mono tabular-nums text-fg">{$selectedCount} of {values.length}</span> selected.
 		</p>
+		<div class="flex items-center gap-1 flex-shrink-0 ml-auto">
+			<Button variant="ghost" size="xs" onclick={() => phrasebookStore.selectAllValues()}>Select all</Button>
+			{#if missingIds.length > 0}
+				<Button variant="ghost" size="xs" onclick={() => phrasebookStore.selectValuesWithoutPreview()}>
+					Select missing ({missingIds.length})
+				</Button>
+			{/if}
+		</div>
 		<Badge size="sm" class="font-mono flex-shrink-0">{withPreview} / {values.length} HAVE A PREVIEW</Badge>
 	</div>
 
 	<div class="flex flex-col gap-4 {$selectedCount === 0 ? 'opacity-45 pointer-events-none' : ''}">
 		<DetailSection label="Target">
-			<div class="grid grid-cols-3 gap-3">
+			<div class="grid grid-cols-3 gap-4">
 				<div>
 					<label for="preview-preset" class="block font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle mb-1.5">Preset</label>
 					<select

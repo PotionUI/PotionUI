@@ -13,7 +13,6 @@ community avatars, banners, posts. All PNGs are rendered from the canonical
 | `potionui-mark-dark-{256,512,1024}.png` | Transparent mark in `#171717` — place on light backgrounds. |
 | `potionui-lockup-{light,dark}.png` | Transparent mark + "PotionUI" wordmark (IBM Plex Sans 600 / Plex Mono 500, as in the app). |
 | `potionui-banner-dark.png` | 1920×480 header/banner on the dark canvas. |
-| `potionui-lockup-canvas-dark.png` | The banner cropped to the lockup with padding — an opaque dark card for places that can't switch assets by theme (the repository README). |
 
 Rules (same as in-app): the mark is monochrome — never recolor per-element,
 distort, or add effects. White is `#EDEDED`, black is `#171717`, canvases are

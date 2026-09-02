@@ -1,4 +1,4 @@
-<img src="docs/media/brand/potionui-lockup-canvas-dark.png" alt="PotionUI" width="360">
+# PotionUI
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/A3B325D031)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/avR4trp3b8)

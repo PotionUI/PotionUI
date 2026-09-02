@@ -131,3 +131,7 @@ jobs:
       - name: npm run test:unit
         working-directory: frontend
         run: npm run test:unit
+
+      - name: npm run test:component
+        working-directory: frontend
+        run: npm run test:component

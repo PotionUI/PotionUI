@@ -1,6 +1,8 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import Icon from './Icon.svelte';
+	import portal from '$lib/actions/portal';
+	import { computeFlippedMenuPosition, type FlippedMenuPosition } from '$lib/utils/menuPosition';
 
 	// The chrome and behavior shared by every inline chip that opens a popover
 	// in place inside a contenteditable host (InlineChipEditor). What lives here
@@ -43,6 +45,15 @@
 	} = $props();
 
 	let chipRef = $state<HTMLSpanElement>();
+	let popoverRef = $state<HTMLDivElement>();
+	let popoverPos = $state<FlippedMenuPosition>({ left: 0, top: 0 });
+
+	// Matches the `w-72` popover width; the height is a rough pre-portal
+	// estimate refined once the popover has actually mounted and can be
+	// measured (its content — a few inputs or a short list — varies by chip).
+	const POPOVER_WIDTH = 288;
+	const POPOVER_HEIGHT_ESTIMATE = 220;
+	const POPOVER_GAP = 6;
 
 	// Written as full literal strings so Tailwind's class scanner can see them.
 	const toneClasses: Record<ChipTone, string> = {
@@ -75,12 +86,52 @@
 	}
 
 	function handleWindowPointerDown(e: PointerEvent) {
-		if (open && chipRef && !chipRef.contains(e.target as Node)) open = false;
+		if (!open) return;
+		const target = e.target as Node;
+		if (chipRef?.contains(target)) return;
+		// The popover itself lives at body level once open (see `use:portal`
+		// below), so it's outside `chipRef` even for a click the user sees as
+		// "inside the chip".
+		if (popoverRef?.contains(target)) return;
+		open = false;
 	}
 
 	function handleWindowKeydown(e: KeyboardEvent) {
 		if (open && e.key === 'Escape') open = false;
 	}
+
+	function updatePosition() {
+		if (!chipRef) return;
+		const heightEstimate = popoverRef?.getBoundingClientRect().height || POPOVER_HEIGHT_ESTIMATE;
+		popoverPos = computeFlippedMenuPosition(chipRef, {
+			width: POPOVER_WIDTH,
+			heightEstimate,
+			gap: POPOVER_GAP
+		});
+	}
+
+	let popoverStyle = $derived(
+		`left: ${popoverPos.left}px; ${
+			popoverPos.top !== undefined ? `top: ${popoverPos.top}px;` : `bottom: ${popoverPos.bottom}px;`
+		}`
+	);
+
+	// The chip sits inside a prompt segment card with `overflow: hidden`
+	// (PromptSegment.svelte `.card`), which clips an absolutely positioned
+	// popover — `use:portal` escapes it and this keeps the fixed-position
+	// popover anchored to the trigger while it's open.
+	$effect(() => {
+		if (!open) return;
+		updatePosition();
+		const raf = requestAnimationFrame(updatePosition);
+		window.addEventListener('resize', updatePosition);
+		window.addEventListener('scroll', updatePosition, true);
+		return () => {
+			cancelAnimationFrame(raf);
+			window.removeEventListener('resize', updatePosition);
+			window.removeEventListener('scroll', updatePosition, true);
+		};
+	});
 </script>
 
 <svelte:window onpointerdown={handleWindowPointerDown} onkeydown={handleWindowKeydown} />
@@ -117,7 +168,10 @@
 
 	{#if open}
 		<div
-			class="absolute left-0 top-full z-50 mt-1.5 w-72 rounded-lg border border-line-strong bg-surface-1 p-2.5 shadow-floating"
+			bind:this={popoverRef}
+			use:portal
+			class="fixed z-50 w-72 rounded-lg border border-line-strong bg-surface-1 p-2.5 shadow-floating"
+			style={popoverStyle}
 			role="dialog"
 			aria-label={popoverLabel}
 		>

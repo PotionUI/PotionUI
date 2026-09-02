@@ -530,21 +530,53 @@ class ProviderRegistry:
 
             logger.info(f"Updated settings for provider {provider_id}")
 
-            # Re-initialize the provider with new settings
-            if provider_id in self._initialized_providers:
-                await provider.shutdown()
-                self._initialized_providers.discard(provider_id)
-
-                new_settings = self._get_provider_settings(provider_id)
-                success = await provider.initialize(new_settings)
-                if success:
-                    self._initialized_providers.add(provider_id)
+            await self.reinitialize_provider(provider_id)
 
             return True
 
         except Exception as e:
             logger.error(f"Error updating settings for provider {provider_id}: {e}")
             return False
+
+    async def reinitialize_provider(self, provider_id: str) -> bool:
+        """Shut down (if running) and re-initialize a provider with freshly read settings.
+
+        For when a provider's plugin settings changed through a write path other
+        than `update_provider_settings` (e.g. the plugin settings API), so the
+        live instance picks up new credentials without a process restart.
+        """
+        provider = self._providers.get(provider_id)
+        if not provider:
+            logger.error(f"Provider not found: {provider_id}")
+            return False
+
+        try:
+            if provider_id in self._initialized_providers:
+                await provider.shutdown()
+                self._initialized_providers.discard(provider_id)
+
+            settings = self._get_provider_settings(provider_id)
+            success = await provider.initialize(settings)
+            if success:
+                self._initialized_providers.add(provider_id)
+                logger.info(f"Reinitialized provider: {provider_id}")
+            return success
+
+        except Exception as e:
+            logger.error(f"Error reinitializing provider {provider_id}: {e}")
+            return False
+
+    def provider_id_for_plugin(self, plugin_id: str) -> Optional[str]:
+        """The registered provider id whose settings live under `plugin_id`, if any.
+
+        Inverse of the `f"{provider_id}-provider"` plugin_id convention used by
+        `_get_provider_settings` - derived from the providers this registry
+        actually knows about, never guessed from the plugin id string.
+        """
+        for provider_id in self._providers:
+            if f"{provider_id}-provider" == plugin_id:
+                return provider_id
+        return None
 
     def get_provider_current_settings(
         self,
@@ -642,6 +674,23 @@ async def ensure_providers_discovered() -> ProviderRegistry:
         _discovery_done = True
 
     return _provider_registry
+
+
+async def refresh_provider_for_plugin(plugin_id: str) -> bool:
+    """Re-initialize the live provider backed by a plugin's settings, if any.
+
+    No-ops (returns False) when the registry hasn't been created or discovery
+    hasn't run yet - the next `ensure_providers_discovered` call reads the
+    fresh settings from the DB anyway, so there is nothing live to refresh.
+    """
+    if _provider_registry is None or not _discovery_done:
+        return False
+
+    provider_id = _provider_registry.provider_id_for_plugin(plugin_id)
+    if provider_id is None:
+        return False
+
+    return await _provider_registry.reinitialize_provider(provider_id)
 
 
 def reset_provider_registry():

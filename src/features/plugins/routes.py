@@ -16,7 +16,7 @@ from src.features.plugins import operations
 from src.features.plugins.operations import PluginManifestUnavailableError
 from src.features.plugins.repository import PluginRepository
 from src.platform.plugins.registry import PluginRegistry
-from src.features.providers.registry import reset_provider_registry
+from src.features.providers.registry import reset_provider_registry, refresh_provider_for_plugin
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
@@ -392,6 +392,15 @@ class PluginController(BaseController):
                 actor_user_id=actor_user_id,
                 actor_username=actor_username,
             )
+
+            try:
+                await refresh_provider_for_plugin(plugin_id)
+            except Exception as e:
+                self.logger.warning(
+                    f"Saved settings for plugin {plugin_id} but failed to refresh its "
+                    f"live provider instance: {e}"
+                )
+
             return self.success_response(
                 data=[s.model_dump() for s in updated_settings],
                 message=f"Updated {len(updated_settings)} settings"

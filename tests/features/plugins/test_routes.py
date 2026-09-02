@@ -11,7 +11,7 @@ against it exactly like the previous manager mock, without the controller
 holding a stateful collaborator it doesn't need.
 """
 import pytest
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock, MagicMock, AsyncMock
 from datetime import datetime
 
 from src.features.plugins import routes as routes_module
@@ -560,6 +560,58 @@ async def test_update_plugin_settings_with_complex_types(controller, mock_operat
     assert response.success is True
     # Manager receives the complex types and serializes them
     mock_operations.update_plugin_settings.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_update_plugin_settings_refreshes_live_provider(
+    controller, mock_operations, monkeypatch
+):
+    """Saving settings triggers a refresh of the plugin's live provider instance."""
+    setting_response = PluginSettingResponse(
+        id=1,
+        plugin_id="civitai-provider",
+        setting_key="api_key",
+        setting_value="new-key",
+        user_id=None,
+        is_secret=True,
+    )
+    mock_operations.update_plugin_settings.return_value = [setting_response]
+
+    mock_refresh = AsyncMock(return_value=True)
+    monkeypatch.setattr(routes_module, "refresh_provider_for_plugin", mock_refresh)
+
+    settings_request = PluginSettingsUpdateRequest(settings={"api_key": "new-key"})
+
+    response = await controller.update_plugin_settings("civitai-provider", settings_request)
+
+    assert response.success is True
+    mock_refresh.assert_awaited_once_with("civitai-provider")
+
+
+@pytest.mark.asyncio
+async def test_update_plugin_settings_refresh_failure_does_not_fail_save(
+    controller, mock_operations, monkeypatch
+):
+    """A refresh failure is logged but the settings save still succeeds."""
+    setting_response = PluginSettingResponse(
+        id=1,
+        plugin_id="civitai-provider",
+        setting_key="api_key",
+        setting_value="new-key",
+        user_id=None,
+        is_secret=True,
+    )
+    mock_operations.update_plugin_settings.return_value = [setting_response]
+
+    mock_refresh = AsyncMock(side_effect=RuntimeError("boom"))
+    monkeypatch.setattr(routes_module, "refresh_provider_for_plugin", mock_refresh)
+
+    settings_request = PluginSettingsUpdateRequest(settings={"api_key": "new-key"})
+
+    response = await controller.update_plugin_settings("civitai-provider", settings_request)
+
+    assert response.success is True
+    mock_refresh.assert_awaited_once_with("civitai-provider")
 
 
 @pytest.mark.asyncio

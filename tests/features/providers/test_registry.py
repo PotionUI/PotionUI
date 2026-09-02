@@ -19,6 +19,7 @@ class MockProvider(MarketplaceProviderBase):
         self._id = provider_id
         self._name = name
         self._initialized = False
+        self.last_settings = None
 
     def get_metadata(self) -> ProviderMetadata:
         return ProviderMetadata(
@@ -31,6 +32,7 @@ class MockProvider(MarketplaceProviderBase):
 
     async def initialize(self, settings):
         self._initialized = True
+        self.last_settings = settings
         return True
 
     async def shutdown(self):
@@ -319,6 +321,140 @@ class TestProviderRegistry(unittest.TestCase):
         asyncio.run(run_test())
 
         self.assertNotIn('mock', service._initialized_providers)
+
+    @patch('src.features.providers.registry.PluginRepository')
+    def test_reinitialize_provider_reads_fresh_settings(self, mock_plugin_repo):
+        """reinitialize_provider re-reads settings, not the ones it started with."""
+        from src.features.providers.registry import ProviderRegistry
+
+        service = ProviderRegistry(self.mock_registry)
+
+        mock_provider = MockProvider()
+        service._providers['mock'] = mock_provider
+        service._initialized_providers.add('mock')
+        # Simulate the provider having been initialized earlier with a stale
+        # (e.g. empty) key, before the admin saved a new one.
+        mock_provider.last_settings = {'api_key': 'stale'}
+
+        fresh_setting = MagicMock(setting_key='api_key', setting_value='fresh')
+        mock_plugin_repo.return_value.get_plugin_settings.return_value = [fresh_setting]
+
+        async def run_test():
+            return await service.reinitialize_provider('mock')
+
+        success = asyncio.run(run_test())
+
+        self.assertTrue(success)
+        self.assertIn('mock', service._initialized_providers)
+        self.assertEqual(mock_provider.last_settings, {'api_key': 'fresh'})
+
+    @patch('src.features.providers.registry.PluginRepository')
+    def test_reinitialize_provider_initializes_never_initialized(self, mock_plugin_repo):
+        """A provider that was never initialized is initialized too."""
+        from src.features.providers.registry import ProviderRegistry
+
+        service = ProviderRegistry(self.mock_registry)
+
+        mock_provider = MockProvider()
+        service._providers['mock'] = mock_provider
+        mock_plugin_repo.return_value.get_plugin_settings.return_value = []
+
+        async def run_test():
+            return await service.reinitialize_provider('mock')
+
+        success = asyncio.run(run_test())
+
+        self.assertTrue(success)
+        self.assertIn('mock', service._initialized_providers)
+
+    @patch('src.features.providers.registry.PluginRepository')
+    def test_reinitialize_provider_unknown_id(self, mock_plugin_repo):
+        """An unknown provider id reinitializes to False."""
+        from src.features.providers.registry import ProviderRegistry
+
+        service = ProviderRegistry(self.mock_registry)
+
+        async def run_test():
+            return await service.reinitialize_provider('nonexistent')
+
+        self.assertFalse(asyncio.run(run_test()))
+
+    @patch('src.features.providers.registry.PluginRepository')
+    def test_provider_id_for_plugin_derives_from_registered_providers(self, mock_plugin_repo):
+        """provider_id_for_plugin maps a plugin id back to its provider without hardcoding names."""
+        from src.features.providers.registry import ProviderRegistry
+
+        service = ProviderRegistry(self.mock_registry)
+
+        mock_provider = MockProvider(provider_id='acme')
+        service._providers['acme'] = mock_provider
+
+        self.assertEqual(service.provider_id_for_plugin('acme-provider'), 'acme')
+        self.assertIsNone(service.provider_id_for_plugin('unrelated-plugin'))
+
+
+class TestRefreshProviderForPlugin(unittest.TestCase):
+    """Test the module-level refresh_provider_for_plugin() helper."""
+
+    def setUp(self):
+        import src.features.providers.registry as module
+        self.module = module
+        self._orig_registry = module._provider_registry
+        self._orig_discovery_done = module._discovery_done
+
+    def tearDown(self):
+        self.module._provider_registry = self._orig_registry
+        self.module._discovery_done = self._orig_discovery_done
+
+    def test_noop_when_registry_not_created(self):
+        self.module._provider_registry = None
+        self.module._discovery_done = False
+
+        result = asyncio.run(self.module.refresh_provider_for_plugin('acme-provider'))
+
+        self.assertFalse(result)
+
+    @patch('src.features.providers.registry.PluginRepository')
+    def test_noop_when_discovery_not_done(self, mock_plugin_repo):
+        from src.features.providers.registry import ProviderRegistry
+
+        service = ProviderRegistry(MagicMock())
+        service._providers['acme'] = MockProvider(provider_id='acme')
+        self.module._provider_registry = service
+        self.module._discovery_done = False
+
+        result = asyncio.run(self.module.refresh_provider_for_plugin('acme-provider'))
+
+        self.assertFalse(result)
+
+    @patch('src.features.providers.registry.PluginRepository')
+    def test_reinitializes_matching_provider(self, mock_plugin_repo):
+        from src.features.providers.registry import ProviderRegistry
+
+        service = ProviderRegistry(MagicMock())
+        mock_provider = MockProvider(provider_id='acme')
+        service._providers['acme'] = mock_provider
+        mock_plugin_repo.return_value.get_plugin_settings.return_value = []
+        self.module._provider_registry = service
+        self.module._discovery_done = True
+
+        result = asyncio.run(self.module.refresh_provider_for_plugin('acme-provider'))
+
+        self.assertTrue(result)
+        self.assertIn('acme', service._initialized_providers)
+
+    @patch('src.features.providers.registry.PluginRepository')
+    def test_noop_for_unrelated_plugin_id(self, mock_plugin_repo):
+        from src.features.providers.registry import ProviderRegistry
+
+        service = ProviderRegistry(MagicMock())
+        service._providers['acme'] = MockProvider(provider_id='acme')
+        self.module._provider_registry = service
+        self.module._discovery_done = True
+
+        result = asyncio.run(self.module.refresh_provider_for_plugin('some-other-plugin'))
+
+        self.assertFalse(result)
 
 
 class TestGetProviderService(unittest.TestCase):

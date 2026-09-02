@@ -1,36 +1,54 @@
 # PotionUI
 
-A self-hosted studio for generating images, video, and audio with diffusion
-models. Pick a model, describe what you want, watch it come together in
-real time.
-
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/A3B325D031)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/avR4trp3b8)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Status: Alpha](https://img.shields.io/badge/Status-Alpha-orange.svg)](#)
 
-> [!WARNING]
-> PotionUI is in **alpha**: expect rough edges and breaking changes between
-> releases. Back up anything you care about, and report what breaks — issues
-> and Discord reports steer what gets fixed next.
+**The self-hosted generation studio you can hand to other people.**
 
-> [!IMPORTANT]
-> **Runs on Linux x86_64 with an NVIDIA GPU** — that's the tested 0.0.2
-> matrix. On Windows, use WSL2 or Docker Desktop (native Windows won't even
-> install yet). Details in [Supported platforms](#supported-platforms).
+Run Flux, Wan, LTX, Qwen-Image and MiniMax on one box — then give your team,
+your household, or your agents their own logins, presets, and limits. No node
+graphs. No per-model setup. Pick a model, type, watch it render live.
 
+<!-- TODO: record 6–10s GIF: switch model → form changes → live preview fills in. GitHub does not autoplay mp4. -->
+![PotionUI demo](docs/assets/hero.gif)
 
 https://github.com/user-attachments/assets/950415f7-da97-403e-811b-4c9c41d8106f
 
+**Why this instead of ComfyUI / A1111:**
+
+- **Forms, not wiring** — each model exposes only the controls it actually
+  understands.
+- **Accounts, groups, admin panel** — one GPU, many users, per-user presets
+  and model access.
+- **Drive it from Claude Desktop or any MCP client** — per-user tokens; every
+  write action needs your approval.
+- **Video and Music Directors** — compose shots and songs in sections instead
+  of one giant prompt.
+
+*Alpha 0.0.2 · Linux x86_64 + NVIDIA · Windows via WSL2 or Docker ·
+[Discord](https://discord.gg/avR4trp3b8) · [Ko-fi](https://ko-fi.com/A3B325D031)*
+
+## 60 seconds to first image
+
+```bash
+git clone https://github.com/PotionUI/PotionUI.git potionui && cd potionui
+./potionui doctor    # check prerequisites, with a repair command for anything missing
+./potionui start     # create the venv, install deps, launch backend + frontend, print the URL
+```
+
+Floor: 8 GB VRAM + 16 GB RAM (SDXL). Full requirements below.
 
 ## Contents
 
 - [What you're looking at](#what-youre-looking-at)
+- [Multi-user, with an admin panel](#multi-user-with-an-admin-panel)
+- [AI assistant](#ai-assistant)
 - [The generate workspace](#the-generate-workspace)
 - [History, tags, and collections](#history-tags-and-collections)
 - [Video Director](#video-director) · [Music Director](#music-director)
-- [Prompt tooling](#prompt-tooling) · [AI assistant](#ai-assistant)
-- [Multi-user, with an admin panel](#multi-user-with-an-admin-panel)
+- [Prompt tooling](#prompt-tooling)
 - [Plugins](#plugins)
 - [Install](#install) — [supported platforms](#supported-platforms),
   [manual setup](#running-backend-and-frontend-separately)
@@ -39,9 +57,9 @@ https://github.com/user-attachments/assets/950415f7-da97-403e-811b-4c9c41d8106f
 
 ## What you're looking at
 
-- **Pick a model, get the right controls** — no wall of generic sliders and
-  no hand-wiring: each model comes with a form showing only what it actually
-  understands (resolution, camera angle, art style, whatever applies).
+- **Pick a model, get the right controls** — each model ships a form with only
+  the controls it understands: resolution, camera angle, art style, whatever
+  applies.
 - **Watch it happen live** — step-by-step progress, streaming previews, and a
   gallery that fills in as results land.
 - **One app for all of it** — images, video, and audio side by side, no
@@ -60,6 +78,46 @@ https://github.com/user-attachments/assets/950415f7-da97-403e-811b-4c9c41d8106f
 | MiniMax-H3         | Video (with reference images)     | [docs/models/minimax_h3.md](docs/models/minimax_h3.md)         |
 | MiniMax-Music3     | Audio (song)                      | [docs/models/minimax_music3.md](docs/models/minimax_music3.md) |
 | SeedVR2            | Image & video upscale / restore   | [docs/models/seedvr2.md](docs/models/seedvr2.md)               |
+
+## Multi-user, with an admin panel
+
+<!--
+SCREENSHOT SLOT — ADMIN
+Admin area open on the Presets tab: preset list with installed status,
+a preset selected showing the access assignment (users/groups) panel.
+-->
+
+PotionUI is built for more than one person on the same box:
+
+- **Users and groups** — create accounts, group them, and assign presets,
+  models, and LLM configurations per user or to a whole group at once.
+- **Presets under control** — decide who sees which preset, and reshape any
+  preset's form per mode: change defaults, lock fields, or hide them
+  entirely, no YAML editing required.
+- **Backends** — configure where generations run and let users pick between
+  enabled backends.
+- **LLM setup** — wire up the providers behind the assistant (Ollama,
+  OpenRouter, …) and hand them out per user or group.
+- **Models, plugins, settings** — manage installed models and downloads,
+  toggle plugins, and set global options, all from the same panel.
+
+The full tour: [docs/user/admin.md](docs/user/admin.md).
+
+## AI assistant
+
+<!--
+SCREENSHOT SLOT — CHAT ASSISTANT
+LLM chat panel open beside the generate form, showing a pending tool-approval
+prompt (e.g. a proposed phrasebook edit awaiting your confirmation).
+-->
+
+- Configure a language model and get an assistant beside generation: it
+  brainstorms and rewrites prompts, edits phrasebook values, adjusts form
+  state — **with your approval on every action that changes something**.
+- The same tools are reachable from outside the app: PotionUI mints per-user
+  [Model Context Protocol](https://modelcontextprotocol.io) tokens, so an MCP
+  client (Claude Desktop, an agent, your own tooling) can drive your instance
+  directly.
 
 ## The generate workspace
 
@@ -127,46 +185,6 @@ prompt editor mid-type with a Phrasebook autocomplete suggestion popup open
 - **Dynamic prompts** — `{a|b}`, weighted choices, `${vars}`.
 - **LLM enhancement** — optional, layered on the same editor.
 
-## AI assistant
-
-<!--
-SCREENSHOT SLOT — CHAT ASSISTANT
-LLM chat panel open beside the generate form, showing a pending tool-approval
-prompt (e.g. a proposed phrasebook edit awaiting your confirmation).
--->
-
-- Configure a language model and get an assistant beside generation: it
-  brainstorms and rewrites prompts, edits phrasebook values, adjusts form
-  state — **with your approval on every action that changes something**.
-- The same tools are reachable from outside the app: PotionUI mints per-user
-  [Model Context Protocol](https://modelcontextprotocol.io) tokens, so an MCP
-  client (Claude Desktop, an agent, your own tooling) can drive your instance
-  directly.
-
-## Multi-user, with an admin panel
-
-<!--
-SCREENSHOT SLOT — ADMIN
-Admin area open on the Presets tab: preset list with installed status,
-a preset selected showing the access assignment (users/groups) panel.
--->
-
-PotionUI is built for more than one person on the same box:
-
-- **Users and groups** — create accounts, group them, and assign presets,
-  models, and LLM configurations per user or to a whole group at once.
-- **Presets under control** — decide who sees which preset, and reshape any
-  preset's form per mode: change defaults, lock fields, or hide them
-  entirely, no YAML editing required.
-- **Backends** — configure where generations run and let users pick between
-  enabled backends.
-- **LLM setup** — wire up the providers behind the assistant (Ollama,
-  OpenRouter, …) and hand them out per user or group.
-- **Models, plugins, settings** — manage installed models and downloads,
-  toggle plugins, and set global options, all from the same panel.
-
-The full tour: [docs/user/admin.md](docs/user/admin.md).
-
 ## Plugins
 
 Nearly every subsystem is an extension point — even alternate inference
@@ -181,6 +199,16 @@ Plugin code imports only from `src/plugin_api/`. Authoring reference:
 [docs/plugin-api.md](docs/plugin-api.md).
 
 ## Install
+
+> [!WARNING]
+> PotionUI is in **alpha**: expect rough edges and breaking changes between
+> releases. Back up anything you care about, and report what breaks — issues
+> and Discord reports steer what gets fixed next.
+
+> [!IMPORTANT]
+> **Runs on Linux x86_64 with an NVIDIA GPU** — that's the tested 0.0.2
+> matrix. On Windows, use WSL2 or Docker Desktop (native Windows won't even
+> install yet). Details in [Supported platforms](#supported-platforms).
 
 You need:
 

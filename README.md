@@ -31,7 +31,7 @@ https://github.com/user-attachments/assets/950415f7-da97-403e-811b-4c9c41d8106f
 - **Video and Music Directors** — compose shots and songs in sections instead
   of one giant prompt.
 
-*Alpha 0.0.2 · Linux x86_64 + NVIDIA · Windows via WSL2 or Docker ·
+*Alpha 0.0.3 · Linux x86_64 + NVIDIA · Windows via WSL2 or Docker ·
 [Discord](https://discord.gg/avR4trp3b8) · [Ko-fi](https://ko-fi.com/A3B325D031)*
 
 ## 60 seconds to first image
@@ -213,7 +213,7 @@ Plugin code imports only from `src/plugin_api/`. Authoring reference:
 > and Discord reports steer what gets fixed next.
 
 > [!IMPORTANT]
-> **Runs on Linux x86_64 with an NVIDIA GPU** — that's the tested 0.0.2
+> **Runs on Linux x86_64 with an NVIDIA GPU** — that's the tested 0.0.3
 > matrix. On Windows, use WSL2 or Docker Desktop (native Windows won't even
 > install yet). Details in [Supported platforms](#supported-platforms).
 
@@ -251,7 +251,7 @@ git clone https://github.com/PotionUI/PotionUI.git potionui && cd potionui
 
 | Platform                    | Status                                                                                      |
 | --------------------------- | ------------------------------------------------------------------------------------------- |
-| Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.0.2                                                              |
+| Linux x86_64 + NVIDIA CUDA  | Tested and supported for 0.0.3                                                              |
 | Windows via WSL2            | Should work — same Linux CUDA stack, just unverified; a success/failure report would help   |
 | Windows native              | No — the install pulls Linux-only packages (e.g. `uvloop`); use WSL2 or Docker Desktop      |
 | macOS                       | No — local generation needs CUDA; the native engine has no MPS support                      |
@@ -311,6 +311,50 @@ Start with the in-app documentation browser, or read the Markdown directly:
 The two most recent releases; older history lives in the
 [commit log](https://github.com/PotionUI/PotionUI/commits/master).
 
+### 0.0.3 — 2026-09-02
+
+- Remote native workers: Add Backend creates a remote worker, connects one you
+  run yourself, or provisions a pod through a provider plugin (RunPod ships in
+  the marketplace) with a live stage timeline; a heartbeat monitor tracks the
+  pod, pauses the backend when it stops and Start brings it back.
+- Remote backends get Infrastructure and Models tabs; the Models tab lists
+  what is on the worker with its depot path per file, pushes missing models
+  from this machine with per-file progress, and downloads can land straight
+  on a worker. Remote runs return the same outputs, previews and media as
+  local.
+- Install profiles: the launcher offers local, hybrid and remote installs plus
+  a worker subcommand for a GPU box that serves another instance.
+- 3D generation: TRELLIS.2 image-to-mesh runs on the native engine with a
+  marketplace preset; meshes get automatic thumbnails, an interactive viewer
+  in History (wireframe, materials, camera presets, screenshot) and a 3D
+  media-type filter.
+- LoRAs: step-windowed LoRAs on Krea-2 apply between chosen sampling steps;
+  strength becomes a recommended range shown in the picker; rows are
+  reorganized with tooltips on every action. Model pickers recommend
+  downloadable variants (bf16, fp8, nvfp4, int8) across nine native families.
+- Prompt library: import styles.csv, Fooocus style JSON, wildcard YAML, plain
+  lines and image metadata (A1111, ComfyUI, InvokeAI, NovelAI) with
+  auto-detection; export to styles.csv; a prompt can be assigned a catalog
+  model; new prompts are created directly in the workspace instead of a modal.
+- Phrasebook: find and replace across the whole module with highlighted
+  matches and a server-side preview; batch activate, deactivate, move and
+  delete; text search from the category pane with inline quick edit; search
+  and toolbar merge into one header; the category panel gains Overview and
+  Preview images tabs.
+- Admin: Plugins and Downloads become master-detail lists; every admin detail
+  panel shares one layout; Backends remembers the selected backend and tab in
+  the URL; a saved provider API key takes effect immediately; secret plugin
+  settings render as password fields; downloads can be retried after
+  completion or cancel.
+- Mobile: Generate becomes the Studio camera view with sheets instead of the
+  swipe carousel; modals fit the phone with safe-area footers.
+- Chat: pasting an image into the composer attaches it.
+- Generate: a New workspace button resets to a single fresh tab, asking to
+  save or discard when dirty; variable and choice chip menus are no longer
+  clipped by the segment card.
+- Inspirations use justified rows with native aspect ratios; login no longer
+  flashes the form mid-redirect.
+
 ### 0.0.2 — 2026-08-30
 
 - History and prompts filter by audio, alongside image and video.
@@ -324,10 +368,6 @@ The two most recent releases; older history lives in the
   form-overrides table now follows the preset's own tabs.
 - Every copy button confirms the copy; in-app docs moved fully into the
   admin panel.
-
-### 0.0.1 — 2026-08-27
-
-First tagged alpha release.
 
 ## Contributing
 

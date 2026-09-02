@@ -285,7 +285,7 @@
 			></button>
 
 			<!-- Right Pane: Editor -->
-			<div class="flex-1 min-w-0 flex flex-col bg-canvas">
+			<div class="flex-1 min-w-0 flex flex-col bg-surface-2">
 				{#if current.editMode === 'none' && !current.selectedCategoryId}
 					<DetailEmptyState message="Select a category to view its values" icon="folder" />
 				{:else if current.editMode === 'none' && current.selectedCategoryId && !current.selectedValueId}

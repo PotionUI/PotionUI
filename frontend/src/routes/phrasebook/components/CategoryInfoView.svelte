@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
 	import { api } from '$lib/services/api/index';
-	import { Badge, IconButton, CopyButton, Spinner } from '$lib/components/ui';
+	import { Alert, Badge, IconButton, CopyButton, Spinner } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { DetailHeader, DetailTabs, DetailBody, DetailSection, KVGrid, KVItem } from '$lib/components/detail';
@@ -116,16 +116,16 @@
 				<div class="space-y-5">
 				<DetailSection label="Details">
 					<div class="flex flex-col gap-3.5">
-						<p class="text-xs text-fg-muted leading-relaxed">
+						<Alert variant="info" density="compact">
 							A category is a named bag of interchangeable phrases; insert it into a prompt as
 							<span
-								class="inline-flex items-center gap-1 mx-0.5 rounded bg-signal/10 border border-signal/30 px-1.5 py-0.5 align-middle font-mono text-2xs font-semibold text-signal"
+								class="inline-flex items-center gap-1 mx-0.5 rounded bg-surface-2 border border-line-strong px-1.5 py-0.5 align-middle font-mono text-2xs font-semibold text-fg"
 							>
 								<Icon name="folder" className="w-3 h-3" />#{category.path}
 							</span>
 							<CopyButton text={'#' + category.path} ariaLabel="Copy phrasebook reference" size="xs" />
 							and a value is picked for you &mdash; shuffle, pinned, or per image.
-						</p>
+						</Alert>
 
 						<KVGrid>
 							<KVItem label="Path" mono>{category.path}</KVItem>

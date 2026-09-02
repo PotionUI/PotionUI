@@ -50,8 +50,9 @@ def test_slow_measurement_reports_unusable(monkeypatch):
 
 
 class _FakeItem:
-    def __init__(self, keywords):
+    def __init__(self, keywords, fixturenames=()):
         self.keywords = keywords
+        self.fixturenames = tuple(fixturenames)
         self.markers_added = []
 
     def add_marker(self, marker):
@@ -97,3 +98,29 @@ def test_collection_hook_ignores_unmarked_items(monkeypatch):
     bf16_conftest.pytest_collection_modifyitems(config=None, items=[item])
 
     assert item.markers_added == []
+
+
+def test_collection_hook_skips_real_vae_fixture_user_when_cpu_lacks_bf16(monkeypatch):
+    """A test that never carried the marker but draws real VAE weights runs
+    the same bf16 conv2d stack - it must skip by construction, not by memory."""
+    monkeypatch.setattr(bf16_conftest.torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(bf16_conftest, "cpu_bf16_is_usable", lambda: False)
+
+    item = _FakeItem(keywords={}, fixturenames=("dit_path", "vae_path"))
+    bf16_conftest.pytest_collection_modifyitems(config=None, items=[item])
+
+    assert [m.name for m in item.markers_added] == ["skip"]
+
+
+def test_collection_hook_leaves_real_vae_fixture_user_alone_when_probe_passes(monkeypatch):
+    monkeypatch.setattr(bf16_conftest.torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(bf16_conftest, "cpu_bf16_is_usable", lambda: True)
+
+    item = _FakeItem(keywords={}, fixturenames=("vae_path",))
+    bf16_conftest.pytest_collection_modifyitems(config=None, items=[item])
+
+    assert item.markers_added == []
+
+
+def test_dit_only_fixture_user_is_not_heavy():
+    assert bf16_conftest.is_bf16_cpu_heavy(_FakeItem(keywords={}, fixturenames=("dit_path",))) is False

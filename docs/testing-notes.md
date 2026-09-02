@@ -127,10 +127,15 @@ These are container/environment artefacts, not regressions caused by your change
   test_generate_runs_end_to_end_in_bf16`,
   `::test_incremental_step_matches_full_prefill_in_bf16`) can blow through
   even the 300s per-test timeout — identical trees go green/red purely on
-  which runner they land on. These tests carry `@pytest.mark.bf16_cpu_heavy`;
+  which runner they land on. Two things make a test bf16-heavy: the explicit
+  `@pytest.mark.bf16_cpu_heavy` marker, or drawing a real-VAE fixture
+  (`vae_path`) — every encode/decode through the engine on CPU is that same
+  bf16 conv2d stack, and an unmarked `encode_image` test stalled a runner
+  after the marker alone had landed (2026-09-02), so the fixture rule exists
+  to make the skip hold by construction rather than by memory.
   `tests/platform/runtime/native/conftest.py`'s `cpu_bf16_is_usable()` times
   a representative bf16 `F.conv2d` workload once per session (cached) and a
-  `pytest_collection_modifyitems` hook skips `bf16_cpu_heavy` tests, with
+  `pytest_collection_modifyitems` hook skips bf16-heavy tests, with
   reason `"runner CPU lacks native bf16; bf16 e2e would time out
   (deterministic skip, see testing-notes)"`, when the probe reports fallback
   AND no CUDA device is present (a GPU host runs these on the fast path

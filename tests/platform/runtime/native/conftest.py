@@ -273,16 +273,30 @@ def cpu_bf16_is_usable() -> bool:
     return _cached_result
 
 
+# Fixtures that hand a test real (tiny) VAE weights. Through the engine every
+# encode/decode on CPU runs its conv2d stack in bf16 (pick_dtypes keeps CPU on
+# the GPU's no-cast path on purpose), so any test drawing one of these is heavy
+# by construction - marking them one by one is how an unmarked encode_image
+# test still stalled a runner after the marker landed.
+_BF16_HEAVY_FIXTURES = frozenset({"vae_path"})
+
+
+def is_bf16_cpu_heavy(item) -> bool:
+    if "bf16_cpu_heavy" in item.keywords:
+        return True
+    return bool(_BF16_HEAVY_FIXTURES & set(getattr(item, "fixturenames", ())))
+
+
 def pytest_collection_modifyitems(config, items):
-    """Skip ``bf16_cpu_heavy`` tests on a CPU that can't run bf16 at native
-    speed. A GPU host runs these tests on the fast path regardless of what
-    the CPU probe would say, so the skip only applies when no CUDA device is
-    present."""
+    """Skip bf16-heavy tests (the ``bf16_cpu_heavy`` marker, or any test using
+    a real-VAE fixture) on a CPU that can't run bf16 at native speed. A GPU
+    host runs these tests on the fast path regardless of what the CPU probe
+    would say, so the skip only applies when no CUDA device is present."""
     skip_bf16_heavy = pytest.mark.skip(
         reason="runner CPU lacks native bf16; bf16 e2e would time out (deterministic skip, see testing-notes)"
     )
     for item in items:
-        if "bf16_cpu_heavy" not in item.keywords:
+        if not is_bf16_cpu_heavy(item):
             continue
         if torch.cuda.is_available():
             continue

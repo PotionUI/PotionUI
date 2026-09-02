@@ -264,6 +264,23 @@ class PromptImporterSpec(BaseModel):
     backend: str
 
 
+class PhrasebookOpSpec(BaseModel):
+    """A plugin-provided phrasebook batch tool: `phrasebook_ops[]`.
+
+    `backend` is a `"module.path:ClassName"` reference to a
+    `src.plugin_api.phrasebook.PhrasebookBatchOperation` subclass, loaded the
+    same way a `prompt_importers[].backend` is; `component` is the optional
+    plugin frontend asset that collects the operation's parameters.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    label: str
+    backend: str
+    component: Optional[str] = None
+
+
 class DocEntry(BaseModel):
     """A plugin-provided documentation page: `docs[]` (used by the docs feature)."""
 
@@ -480,3 +497,6 @@ class PluginManifestSchema(BaseModel):
 
     # Prompt library import sources
     prompt_importers: List[PromptImporterSpec] = Field(default_factory=list)
+
+    # Phrasebook batch tools
+    phrasebook_ops: List[PhrasebookOpSpec] = Field(default_factory=list)

@@ -15,21 +15,38 @@ from src.features.phrasebook.dto import (
 logger = logging.getLogger(__name__)
 
 
-def _text_match_patterns(query: str) -> tuple[str, str, str, str]:
-    """Return (exact, prefix, substring, escape) LIKE operands for a
-    case-insensitive text match. `%`/`_`/`\\` in the query are escaped so
-    they match literally."""
-    lowered = query.strip().lower()
-    escaped = lowered.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    return lowered, f"{escaped}%", f"%{escaped}%", "\\"
-
-
-def _relevance_case(columns: list[str]) -> str:
-    """SQL CASE ranking a row 0 (exact) / 1 (prefix) / 2 (substring) across
-    `columns`; bind params in order: exact, prefix per column."""
-    exact = " OR ".join(f"LOWER({c}) = ?" for c in columns)
-    prefix = " OR ".join(f"LOWER({c}) LIKE ? ESCAPE '\\'" for c in columns)
-    return f"CASE WHEN {exact} THEN 0 WHEN {prefix} THEN 1 ELSE 2 END"
+def _find_scope_clause(
+    text_columns: list[str],
+    path_column: str,
+    active_columns: list[str],
+    substring: Optional[str],
+    path_prefix: str,
+    include_inactive: bool,
+) -> tuple[str, list]:
+    """WHERE fragments (and bind params) shared by both find fetchers: an
+    optional case-insensitive substring prefilter across `text_columns`, a
+    category-subtree restriction, and the active flags."""
+    clauses: list[str] = []
+    params: list = []
+    if substring:
+        escaped = (
+            substring.lower()
+            .replace("\\", "\\\\")
+            .replace("%", "\\%")
+            .replace("_", "\\_")
+        )
+        like = " OR ".join(f"LOWER({c}) LIKE ? ESCAPE '\\'" for c in text_columns)
+        clauses.append(f"({like})")
+        params.extend([f"%{escaped}%"] * len(text_columns))
+    if path_prefix:
+        clauses.append(f"({path_column} = ? OR {path_column} LIKE ? ESCAPE '\\')")
+        escaped_prefix = (
+            path_prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        )
+        params.extend([path_prefix, f"{escaped_prefix}.%"])
+    if not include_inactive:
+        clauses.extend(f"{c} = 1" for c in active_columns)
+    return ("".join(f" AND {c}" for c in clauses), params)
 
 
 class PhrasebookCategoryRepository:
@@ -126,35 +143,25 @@ class PhrasebookCategoryRepository:
             )
             return [self._row_to_category(row) for row in cursor.fetchall()]
 
-    def find_by_text(self, user_id: str, query: str, limit: int = 50) -> List[PhrasebookCategory]:
-        """Case-insensitive substring match on name, path and description,
-        active and inactive alike. Exact matches first, then prefix, then
-        substring, then alphabetical by path."""
-        exact, prefix, substring, escape = _text_match_patterns(query)
-        if not exact:
-            return []
-        columns = ["name", "path", "description"]
-        rank = _relevance_case(columns)
+    def list_for_find(
+        self,
+        user_id: str,
+        substring: Optional[str],
+        path_prefix: str = "",
+        include_inactive: bool = True,
+    ) -> List[PhrasebookCategory]:
+        """The user's categories that can match a find: optionally prefiltered
+        by a case-insensitive substring of name/path/description, restricted
+        to a path subtree, active-only on request. Ordered by path."""
+        scope, params = _find_scope_clause(
+            ["name", "path", "description"], "path", ["is_active"],
+            substring, path_prefix, include_inactive,
+        )
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
-                f"""
-                SELECT *, {rank} AS relevance
-                FROM phrasebook_categories
-                WHERE user_id = ?
-                  AND (LOWER(name) LIKE ? ESCAPE ?
-                       OR LOWER(path) LIKE ? ESCAPE ?
-                       OR LOWER(description) LIKE ? ESCAPE ?)
-                ORDER BY relevance, path
-                LIMIT ?
-                """,
-                (
-                    *([exact] * len(columns)),
-                    *([prefix] * len(columns)),
-                    user_id,
-                    substring, escape, substring, escape, substring, escape,
-                    limit,
-                ),
+                f"SELECT * FROM phrasebook_categories WHERE user_id = ?{scope} ORDER BY path",
+                (user_id, *params),
             )
             return [self._row_to_category(row) for row in cursor.fetchall()]
 
@@ -373,56 +380,129 @@ class PhrasebookValueRepository:
                 LIMIT ?
             """, (f"{path_prefix}%", user_id, limit))
 
-            results = []
-            for row in cursor.fetchall():
-                value = self._row_to_value(row)
-                value_dict = value.model_dump()
-                value_dict['category_path'] = row['category_path']
-                value_dict['category_name'] = row['category_name']
-                value_dict['category_is_active'] = bool(row['category_is_active'])
-                results.append(value_dict)
+            return [self._hit_from_row(row) for row in cursor.fetchall()]
 
-            return results
-
-    def find_by_text(self, user_id: str, query: str, limit: int = 50) -> List[Dict[str, Any]]:
-        """Case-insensitive substring match on label and value text, joined to
-        the owning category (`category_id`, `category_path`, `category_name`,
-        `category_is_active`). Inactive rows are included with their flag.
-        Exact matches first, then prefix, then substring, then alphabetical."""
-        exact, prefix, substring, escape = _text_match_patterns(query)
-        if not exact:
-            return []
-        columns = ["v.label", "v.value"]
-        rank = _relevance_case(columns)
+    def list_for_find(
+        self,
+        user_id: str,
+        substring: Optional[str],
+        path_prefix: str = "",
+        include_inactive: bool = True,
+    ) -> List[Dict[str, Any]]:
+        """The user's values that can match a find, joined to their category
+        (`category_id`, `category_path`, `category_name`, `category_is_active`).
+        Optionally prefiltered by a case-insensitive substring of label/value,
+        restricted to a category subtree, active-only (value and category)
+        on request. Ordered by label then category path."""
+        scope, params = _find_scope_clause(
+            ["v.label", "v.value"], "c.path", ["v.is_active", "c.is_active"],
+            substring, path_prefix, include_inactive,
+        )
         from src.platform.database.database import db
         with db.get_cursor() as cursor:
             cursor.execute(
                 f"""
                 SELECT v.*, c.path AS category_path, c.name AS category_name,
-                       c.is_active AS category_is_active, {rank} AS relevance
+                       c.is_active AS category_is_active
                 FROM phrasebook_values v
                 JOIN phrasebook_categories c ON v.category_id = c.id
-                WHERE v.user_id = ?
-                  AND (LOWER(v.label) LIKE ? ESCAPE ? OR LOWER(v.value) LIKE ? ESCAPE ?)
-                ORDER BY relevance, v.label, c.path
-                LIMIT ?
+                WHERE v.user_id = ?{scope}
+                ORDER BY LOWER(v.label), c.path
                 """,
-                (
-                    *([exact] * len(columns)),
-                    *([prefix] * len(columns)),
-                    user_id,
-                    substring, escape, substring, escape,
-                    limit,
-                ),
+                (user_id, *params),
             )
-            results = []
-            for row in cursor.fetchall():
-                value_dict = self._row_to_value(row).model_dump()
-                value_dict['category_path'] = row['category_path']
-                value_dict['category_name'] = row['category_name']
-                value_dict['category_is_active'] = bool(row['category_is_active'])
-                results.append(value_dict)
-            return results
+            return [self._hit_from_row(row) for row in cursor.fetchall()]
+
+    def _hit_from_row(self, row) -> Dict[str, Any]:
+        value_dict = self._row_to_value(row).model_dump()
+        value_dict['category_path'] = row['category_path']
+        value_dict['category_name'] = row['category_name']
+        value_dict['category_is_active'] = bool(row['category_is_active'])
+        return value_dict
+
+    def get_many(self, value_ids: List[str], user_id: str) -> List[PhrasebookValue]:
+        """The user's values among `value_ids`, in the order given; ids that
+        aren't the user's are simply absent."""
+        if not value_ids:
+            return []
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            placeholders = ",".join("?" * len(value_ids))
+            cursor.execute(
+                f"SELECT * FROM phrasebook_values WHERE user_id = ? AND id IN ({placeholders})",
+                (user_id, *value_ids),
+            )
+            by_id = {row['id']: self._row_to_value(row) for row in cursor.fetchall()}
+        return [by_id[i] for i in value_ids if i in by_id]
+
+    def max_sort_order(self, category_id: str, user_id: str) -> int:
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                "SELECT MAX(sort_order) AS m FROM phrasebook_values WHERE category_id = ? AND user_id = ?",
+                (category_id, user_id),
+            )
+            row = cursor.fetchone()
+            return row['m'] if row and row['m'] is not None else -1
+
+    @staticmethod
+    def _expect_one_row(cursor, value_id: str) -> None:
+        if cursor.rowcount != 1:
+            raise RuntimeError(f"Value not written: {value_id}")
+
+    def update_texts_bulk(self, user_id: str, rows: List[tuple]) -> None:
+        """Set label/value on each `(id, label, value)` in one transaction;
+        any row that isn't the user's aborts and rolls back the whole batch."""
+        if not rows:
+            return
+        now = datetime.now().isoformat()
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            for value_id, label, text in rows:
+                cursor.execute(
+                    "UPDATE phrasebook_values SET label = ?, value = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+                    (label, text, now, value_id, user_id),
+                )
+                self._expect_one_row(cursor, value_id)
+
+    def update_active_state_bulk(self, value_ids: List[str], user_id: str, is_active: bool) -> None:
+        if not value_ids:
+            return
+        now = datetime.now().isoformat()
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            for value_id in value_ids:
+                cursor.execute(
+                    "UPDATE phrasebook_values SET is_active = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+                    (1 if is_active else 0, now, value_id, user_id),
+                )
+                self._expect_one_row(cursor, value_id)
+
+    def move_bulk(self, user_id: str, moves: List[tuple]) -> None:
+        """Re-parent each `(id, category_id, sort_order)` in one transaction."""
+        if not moves:
+            return
+        now = datetime.now().isoformat()
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            for value_id, category_id, sort_order in moves:
+                cursor.execute(
+                    "UPDATE phrasebook_values SET category_id = ?, sort_order = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+                    (category_id, sort_order, now, value_id, user_id),
+                )
+                self._expect_one_row(cursor, value_id)
+
+    def delete_bulk(self, value_ids: List[str], user_id: str) -> None:
+        if not value_ids:
+            return
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            for value_id in value_ids:
+                cursor.execute(
+                    "DELETE FROM phrasebook_values WHERE id = ? AND user_id = ?",
+                    (value_id, user_id),
+                )
+                self._expect_one_row(cursor, value_id)
 
     def create(self, value: PhrasebookValue) -> bool:
         """Create new phrasebook value."""

@@ -2,7 +2,7 @@
 Phrasebook DTOs for request/response models.
 """
 from enum import Enum
-from typing import Optional, List
+from typing import Any, Dict, List, Literal, Optional
 from datetime import datetime
 from pydantic import BaseModel, Field
 
@@ -14,6 +14,21 @@ class PhrasebookStateFilter(str, Enum):
     ALL = "all"
     ACTIVE = "active"
     INACTIVE = "inactive"
+
+
+class PhrasebookFindMode(str, Enum):
+    CONTAINS = "contains"
+    WORD = "word"
+    REGEX = "regex"
+
+
+class PhrasebookFindScope(str, Enum):
+    ALL = "all"
+    VALUES = "values"
+    CATEGORIES = "categories"
+
+
+PhrasebookValueField = Literal["label", "value"]
 
 
 # ========== Response DTOs ==========
@@ -73,6 +88,15 @@ class PhrasebookSearchRequest(BaseModel):
 class ToggleActiveRequest(BaseModel):
     """Request model for toggling active state."""
     is_active: bool
+
+
+class BatchRequest(BaseModel):
+    """One batch operation over selected values, dispatched by `op` through
+    the phrasebook operation registry; `params` is whatever that operation
+    expects."""
+    op: str
+    value_ids: List[str]
+    params: Dict[str, Any] = Field(default_factory=dict)
 
 
 class GeneratePreviewRequest(BaseModel):

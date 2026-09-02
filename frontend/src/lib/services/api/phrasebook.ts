@@ -3,7 +3,11 @@ import type {
 	APIResponse,
 	PhrasebookCategory,
 	PhrasebookSearchResult,
+	PhrasebookFindParams,
 	PhrasebookFindResult,
+	PhrasebookBatchOp,
+	PhrasebookBatchOutcome,
+	PhrasebookBatchPreview,
 	PhrasebookStateFilter,
 	PhrasebookValue,
 	GeneratePreviewRequest,
@@ -26,12 +30,49 @@ export function createPhrasebookApi(client: AxiosInstance) {
 			return response.data;
 		},
 
-		async findPhrasebook(
-			query: string,
-			limit: number = 50
-		): Promise<APIResponse<PhrasebookFindResult>> {
-			const params = new URLSearchParams({ q: query, limit: limit.toString() });
-			const response = await client.get(`/api/phrasebook/find?${params}`);
+		async findPhrasebook(params: PhrasebookFindParams): Promise<APIResponse<PhrasebookFindResult>> {
+			const query = new URLSearchParams({
+				q: params.q,
+				mode: params.mode,
+				case_sensitive: params.case_sensitive ? 'true' : 'false',
+				scope: params.scope,
+				include_inactive: params.include_inactive ? 'true' : 'false',
+				path_prefix: params.path_prefix,
+				fields: params.fields.join(',')
+			});
+			if (params.limit !== undefined) query.set('limit', String(params.limit));
+			const response = await client.get(`/api/phrasebook/find?${query}`);
+			return response.data;
+		},
+
+		async listPhrasebookBatchOps(): Promise<APIResponse<PhrasebookBatchOp[]>> {
+			const response = await client.get('/api/phrasebook/batch-ops');
+			return response.data;
+		},
+
+		async runPhrasebookBatch(
+			op: string,
+			valueIds: string[],
+			params: Record<string, unknown> = {}
+		): Promise<APIResponse<PhrasebookBatchOutcome>> {
+			const response = await client.post('/api/phrasebook/values/batch', {
+				op,
+				value_ids: valueIds,
+				params
+			});
+			return response.data;
+		},
+
+		async previewPhrasebookBatch(
+			op: string,
+			valueIds: string[],
+			params: Record<string, unknown> = {}
+		): Promise<APIResponse<PhrasebookBatchPreview>> {
+			const response = await client.post('/api/phrasebook/values/batch/preview', {
+				op,
+				value_ids: valueIds,
+				params
+			});
 			return response.data;
 		},
 

@@ -285,6 +285,25 @@ class TestPluginManifestSchema(unittest.TestCase):
             with self.assertRaises(ValidationError):
                 PluginManifestSchema.model_validate(self._minimal(prompt_importers=[entry]))
 
+    def test_phrasebook_op_accepted_with_optional_component(self):
+        schema = PluginManifestSchema.model_validate(self._minimal(phrasebook_ops=[
+            {'id': 'shout', 'label': 'Shout', 'component': 'ShoutModal.svelte', 'backend': 'ops:ShoutOperation'},
+            {'id': 'quiet', 'label': 'Quiet', 'backend': 'ops:QuietOperation'},
+        ]))
+
+        shout, quiet = schema.phrasebook_ops
+        self.assertEqual(shout.component, 'ShoutModal.svelte')
+        self.assertEqual(shout.backend, 'ops:ShoutOperation')
+        self.assertIsNone(quiet.component)
+
+    def test_phrasebook_op_requires_backend_and_forbids_extras(self):
+        for entry in (
+            {'id': 'shout', 'label': 'Shout', 'component': 'Modal.svelte'},
+            {'id': 'shout', 'label': 'Shout', 'backend': 'ops:X', 'unexpected': True},
+        ):
+            with self.assertRaises(ValidationError):
+                PluginManifestSchema.model_validate(self._minimal(phrasebook_ops=[entry]))
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -63,6 +63,7 @@ import from those — the names are identical, so it is purely a matter of taste
 | **Compute** — renting GPU compute for a Remote Native worker | `.compute` | `ComputeProvisioner`, `ComputeProvisionerError`, `ComputeStatus`, `ProvisionRequest`, `ProvisionResult`, `ProvisionProgress`, `ProgressReporter`, `ComputeFieldDescriptorV1`, `ComputeFieldOptionV1`, `COMPUTE_STATES`, `STATE_*`, `STAGE_*`, `COMPUTE_HOOKS` |
 | **Storage** — keeping data | `.storage` | `db`, `generate_ulid`, `Settings`, `SettingRepository`, `PluginRepository` |
 | **Media** | `.media` | `convert_image_to_base64`, `BackgroundMattingModel` |
+| **Phrasebook** — contributing a batch tool to Find & replace | `.phrasebook` | `PhrasebookBatchOperation`, `PhrasebookBatchContext`, `BatchOutcome`, `BatchPreview`, `BatchOperationError` |
 
 Each module's docstring explains what its exports are for; this table is the index.
 
@@ -343,6 +344,91 @@ prompts to `create_prompt_for_user`.
 
 Disabling the plugin removes its importer(s) from `GET /api/prompts/importers`
 immediately; prompts already imported are unaffected.
+
+## Contributing a phrasebook batch tool
+
+The Phrasebook's Find & replace view lets a user select values and run a tool over them.
+Core's tools — replace, activate/deactivate, move, delete — are registered on the same
+registry a plugin uses, so a plugin tool is a first-class peer: it lists in
+`GET /api/phrasebook/batch-ops`, runs through the same endpoint and the same hooks, and
+appears in the selection bar's **More** menu. Declare each tool in `manifest.yml`:
+
+```yaml
+phrasebook_ops:
+  - id: titlecase
+    label: Title-case labels
+    component: TitlecaseModal.svelte   # optional - omit for a no-UI op
+    backend: ops:TitlecaseOperation     # "module.path:ClassName" - a src/plugin_api/phrasebook.py PhrasebookBatchOperation
+```
+
+`backend` is loaded like a `prompt_importers[].backend` and instantiated once when the
+plugin enables. Implement it against `src.plugin_api.phrasebook`:
+
+```python
+from src.plugin_api.phrasebook import (
+    PhrasebookBatchOperation, PhrasebookBatchContext, BatchOutcome, BatchPreview, BatchOperationError,
+)
+
+class TitlecaseOperation(PhrasebookBatchOperation):
+    supports_preview = True
+
+    def _rows(self, ctx: PhrasebookBatchContext, value_ids: list[str]):
+        # ctx.values() returns only the caller's values and raises
+        # BatchOperationError("unknown_values") for any id that isn't theirs.
+        return [(v, v["label"].title()) for v in ctx.values(value_ids)]
+
+    async def preview(self, ctx, value_ids, params) -> BatchPreview:
+        items = [
+            {"id": v["id"], "field": "label", "before": v["label"], "after": after}
+            for v, after in self._rows(ctx, value_ids) if after != v["label"]
+        ]
+        changed = {item["id"] for item in items}
+        return BatchPreview(items=items, changed=len(changed),
+                            unchanged=[i for i in value_ids if i not in changed])
+
+    async def run(self, ctx, value_ids, params) -> BatchOutcome:
+        rows = [(v["id"], after, v["value"]) for v, after in self._rows(ctx, value_ids) if after != v["label"]]
+        ctx.update_value_texts(rows)          # one transaction, all or nothing
+        return BatchOutcome(updated=ctx.values([r[0] for r in rows]) if rows else [],
+                            skipped=[i for i in value_ids if i not in {r[0] for r in rows}],
+                            message=f"Title-cased {len(rows)} labels")
+```
+
+`ctx` is the only way a tool touches the phrasebook: `values(ids)`, `category(id)`,
+`update_value_texts(rows)`, `set_active(ids, is_active)`, `move(ids, category_id)` and
+`delete(ids)` are all scoped to the calling user and each write is one transaction. Raise
+`BatchOperationError(code, message, status=400)` to refuse a request; `code` becomes the
+API error code. `params` is whatever your modal posted, as-is — validate it yourself
+(core's tools raise `invalid_params`).
+
+The endpoints, shared by core and plugin tools:
+
+- `GET /api/phrasebook/batch-ops` → `[{id, label, component, has_preview, source}]`
+- `POST /api/phrasebook/values/batch` with `{op, value_ids, params}` → the `BatchOutcome`
+  as `{updated, skipped, deleted, message}`; 404 `unknown_op`, 400 `empty_selection`,
+  `blocked`, or whatever code the tool raised
+- `POST /api/phrasebook/values/batch/preview` with the same body → the `BatchPreview` as
+  `{items: [{id, field, before, after}], changed, unchanged}`; 400 `no_preview` for a tool
+  without one
+
+Your `component` is mounted in a modal with props `{ valueIds: string[], onClose(),
+onDone(outcome?) }`: it owns its parameter UI, posts to the batch endpoint itself, and calls
+`onDone(outcome)` when finished — the host toasts `outcome.message`, re-runs the search and
+refreshes the tree. A tool declared without a `component` runs straight from the More menu
+with empty `params`. A plugin that only wants a button in the selection bar (no registered
+operation) can contribute to the `phrasebook.selection.actions` extension slot instead —
+a `contributions:` entry with that slot is mounted inside the bar with
+`context = { selectedIds: string[] }`.
+
+Three hooks bracket the path (full payloads in `GET /api/plugins/hooks/catalog`):
+
+- `phrasebook.batch.before` — `{op, value_ids, params, user_id}`; a handler may rewrite
+  `params` or `value_ids`, or set `blocked` / `block_reason` to veto the run (400 `blocked`).
+- `phrasebook.batch.after` — the same plus `outcome`; observe-only.
+- `phrasebook.find.results` — the find parameters plus `categories` / `values` (each value
+  hit carries its `matches` spans); a handler may annotate, drop or append hits.
+
+Disabling the plugin removes its tools from `GET /api/phrasebook/batch-ops` immediately.
 
 ## Contributing modes to an existing preset
 

@@ -12,7 +12,7 @@ Import from the package itself - every name below is available directly:
 
 The capability modules (`src.plugin_api.providers`, `.chat`, `.backends`,
 `.compute`, `.pipes`, `.native`, `.hooks`, `.storage`, `.presets`, `.forms`,
-`.identity`, `.media`) are the same names, grouped, and each one's docstring
+`.identity`, `.media`, `.phrasebook`) are the same names, grouped, and each one's docstring
 explains what it is for. Import from whichever reads better.
 
 If you need something the application can do but this module does not expose,
@@ -159,6 +159,15 @@ from src.plugin_api.media import BackgroundMattingModel, convert_image_to_base64
 # Contributing a prompt import source.
 from src.plugin_api.prompts import PromptImporter, PromptImportOutcome, create_prompt_for_user
 
+# Contributing a phrasebook batch tool.
+from src.plugin_api.phrasebook import (
+    BatchOperationError,
+    BatchOutcome,
+    BatchPreview,
+    PhrasebookBatchContext,
+    PhrasebookBatchOperation,
+)
+
 # Model metadata field identifiers.
 from src.plugin_api.models import WellKnownModelMetadataField
 
@@ -271,6 +280,12 @@ __all__ = [
     "PromptImporter",
     "PromptImportOutcome",
     "create_prompt_for_user",
+    # Phrasebook batch tools
+    "BatchOperationError",
+    "BatchOutcome",
+    "BatchPreview",
+    "PhrasebookBatchContext",
+    "PhrasebookBatchOperation",
     # Model metadata fields
     "WellKnownModelMetadataField",
 ]

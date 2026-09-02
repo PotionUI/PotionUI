@@ -15,8 +15,92 @@
 	import CategoryInfoView from './components/CategoryInfoView.svelte';
 	import CategoryEditForm from './components/CategoryEditForm.svelte';
 	import ValueEditForm from './components/ValueEditForm.svelte';
+	import PhrasebookFindBar from './components/PhrasebookFindBar.svelte';
+	import PhrasebookSearchView from './components/PhrasebookSearchView.svelte';
+	import { api } from '$lib/services/api/index';
+	import { logger } from '$lib/utils/logger';
+	import type { PhrasebookFindResult } from '$lib/types/api';
+	import {
+		apiErrorDetail,
+		buildFindParams,
+		defaultFilters,
+		isSearching,
+		topLevelCategories,
+		type FindFilters
+	} from './phrasebookSearch';
 
 	$: current = $phrasebookStore;
+
+	// Find & replace
+	let filters: FindFilters = defaultFilters();
+	let findResult: PhrasebookFindResult | null = null;
+	let searching = false;
+	let findError: string | null = null;
+	let findSeq = 0;
+	let findTimer: ReturnType<typeof setTimeout> | null = null;
+
+	$: searchActive = isSearching(filters.query);
+	$: topLevel = topLevelCategories(current.allCategories);
+
+	function cancelPendingFind() {
+		if (findTimer) clearTimeout(findTimer);
+		findTimer = null;
+	}
+
+	async function runFind() {
+		cancelPendingFind();
+		const seq = ++findSeq;
+		if (!isSearching(filters.query)) {
+			findResult = null;
+			searching = false;
+			findError = null;
+			return;
+		}
+		searching = true;
+		try {
+			const response = await api.findPhrasebook(buildFindParams(filters));
+			if (seq !== findSeq) return;
+			if (response.success && response.data) {
+				findResult = response.data;
+				findError = null;
+			} else {
+				findError = response.message || response.error || 'Search failed';
+			}
+		} catch (error) {
+			if (seq !== findSeq) return;
+			const detail = apiErrorDetail(error);
+			findError = detail?.message ?? 'Search failed';
+			if (!detail) logger.error('Phrasebook find failed:', error);
+		} finally {
+			if (seq === findSeq) searching = false;
+		}
+	}
+
+	function updateFilters(patch: Partial<FindFilters>) {
+		filters = { ...filters, ...patch };
+		if ('query' in patch) {
+			cancelPendingFind();
+			if (!isSearching(filters.query)) {
+				runFind();
+				return;
+			}
+			findTimer = setTimeout(() => {
+				findTimer = null;
+				runFind();
+			}, 250);
+			return;
+		}
+		if (searchActive) runFind();
+	}
+
+	function clearQuery() {
+		cancelPendingFind();
+		findSeq++;
+		filters = { ...filters, query: '' };
+		findResult = null;
+		searching = false;
+		findError = null;
+	}
 
 	// Panel widths
 	let treeWidth = 280;
@@ -106,6 +190,7 @@
 	});
 
 	onDestroy(() => {
+		cancelPendingFind();
 		previewGenerationStore.disconnect();
 	});
 
@@ -154,47 +239,66 @@
 <div class="h-screen flex flex-col bg-canvas">
 	<PhrasebookToolbar />
 
-	<!-- Main Content - 3 Panes -->
-	<div class="flex-1 min-h-0 flex">
-		<CategoryTreePane width={treeWidth} />
+	<PhrasebookFindBar
+		{filters}
+		{searching}
+		error={findError}
+		{topLevel}
+		onChange={updateFilters}
+		onClear={clearQuery}
+	/>
 
-		<!-- Tree resize handle -->
-		<button
-			type="button"
-			class="w-1 bg-line-strong/50 hover:bg-line-hover transition-colors cursor-col-resize flex-shrink-0"
-			role="separator"
-			aria-orientation="vertical"
-			tabindex="0"
-			aria-label="Resize tree panel"
-			on:mousedown={startResizeTree}
-			on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); } }}
-		></button>
+	{#if searchActive}
+		<PhrasebookSearchView
+			result={findResult}
+			loading={searching}
+			{filters}
+			onClearQuery={clearQuery}
+			onRerun={runFind}
+		/>
+	{:else}
+		<!-- Main Content - 3 Panes -->
+		<div class="flex-1 min-h-0 flex">
+			<CategoryTreePane width={treeWidth} />
 
-		<ValuesListPane width={valuesWidth} />
+			<!-- Tree resize handle -->
+			<button
+				type="button"
+				class="w-1 bg-line-strong/50 hover:bg-line-hover transition-colors cursor-col-resize flex-shrink-0"
+				role="separator"
+				aria-orientation="vertical"
+				tabindex="0"
+				aria-label="Resize tree panel"
+				on:mousedown={startResizeTree}
+				on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); } }}
+			></button>
 
-		<!-- Values resize handle -->
-		<button
-			type="button"
-			class="w-1 bg-line-strong/50 hover:bg-line-hover transition-colors cursor-col-resize flex-shrink-0"
-			role="separator"
-			aria-orientation="vertical"
-			tabindex="0"
-			aria-label="Resize values panel"
-			on:mousedown={startResizeValues}
-			on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); } }}
-		></button>
+			<ValuesListPane width={valuesWidth} />
 
-		<!-- Right Pane: Editor -->
-		<div class="flex-1 min-w-0 flex flex-col bg-canvas">
-			{#if current.editMode === 'none' && !current.selectedCategoryId}
-				<DetailEmptyState message="Select a category to view its values" icon="folder" />
-			{:else if current.editMode === 'none' && current.selectedCategoryId && !current.selectedValueId}
-				<CategoryInfoView />
-			{:else if current.editMode === 'category' || current.editMode === 'new-category'}
-				<CategoryEditForm />
-			{:else if current.editMode === 'value' || current.editMode === 'new-value'}
-				<ValueEditForm />
-			{/if}
+			<!-- Values resize handle -->
+			<button
+				type="button"
+				class="w-1 bg-line-strong/50 hover:bg-line-hover transition-colors cursor-col-resize flex-shrink-0"
+				role="separator"
+				aria-orientation="vertical"
+				tabindex="0"
+				aria-label="Resize values panel"
+				on:mousedown={startResizeValues}
+				on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); } }}
+			></button>
+
+			<!-- Right Pane: Editor -->
+			<div class="flex-1 min-w-0 flex flex-col bg-canvas">
+				{#if current.editMode === 'none' && !current.selectedCategoryId}
+					<DetailEmptyState message="Select a category to view its values" icon="folder" />
+				{:else if current.editMode === 'none' && current.selectedCategoryId && !current.selectedValueId}
+					<CategoryInfoView />
+				{:else if current.editMode === 'category' || current.editMode === 'new-category'}
+					<CategoryEditForm />
+				{:else if current.editMode === 'value' || current.editMode === 'new-value'}
+					<ValueEditForm />
+				{/if}
+			</div>
 		</div>
-	</div>
+	{/if}
 </div>

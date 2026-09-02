@@ -16,6 +16,7 @@ from src.platform.plugins.lifecycle_hooks import PLUGIN_LIFECYCLE_HOOKS
 from src.platform.plugins.router_mounter import PluginRouterMounter
 from src.platform.plugins.field_types import FieldTypeDefinition, FieldTypeRegistry, DuplicateFieldTypeError
 from src.platform.plugins.prompt_importers import PromptImporterRegistry
+from src.platform.plugins.phrasebook_ops import PhrasebookOperationRegistry
 from src.platform.plugins.automation_templates import (
     AutomationTemplateRegistrationError,
     AutomationTemplateRegistry,
@@ -69,6 +70,7 @@ class PluginRegistry:
         automation_node_registry=None,
         automation_template_registry: Optional[AutomationTemplateRegistry] = None,
         prompt_importer_registry: Optional[PromptImporterRegistry] = None,
+        phrasebook_operation_registry: Optional[PhrasebookOperationRegistry] = None,
     ):
         self.loader = PluginLoader(marketplace_dir, local_dir)
         self.hook_chain = HookChain()
@@ -107,6 +109,9 @@ class PluginRegistry:
         # Optional like the others - plugins declaring `prompt_importers:`
         # register into it on enable and are removed (by source) on disable.
         self.prompt_importer_registry = prompt_importer_registry
+        # Phrasebook batch tools contributed by enabled plugins - same
+        # register-on-enable / unregister-by-source-on-disable shape.
+        self.phrasebook_operation_registry = phrasebook_operation_registry
 
         # Plugin storage
         self._plugins: Dict[str, PluginManifest] = {}
@@ -279,6 +284,7 @@ class PluginRegistry:
                     self._register_plugin_automation_nodes,
                     self._register_plugin_automation_templates,
                     self._register_plugin_prompt_importers,
+                    self._register_plugin_phrasebook_ops,
                 ):
                     error_msg = register_step(manifest)
                     if error_msg:
@@ -430,6 +436,59 @@ class PluginRegistry:
 
         return None
 
+    def _register_plugin_phrasebook_ops(self, manifest: PluginManifest) -> Optional[str]:
+        """
+        Load and register a plugin's `phrasebook_ops:` manifest entries onto
+        `self.phrasebook_operation_registry`. Returns an error message on
+        failure, None on success.
+        """
+        skip, error = self._require_registry(
+            manifest.phrasebook_ops, self.phrasebook_operation_registry,
+            "phrasebook_ops", "phrasebook batch operation",
+        )
+        if skip:
+            return error
+
+        from src.platform.plugins.phrasebook_ops import (
+            DuplicatePhrasebookOperationError,
+            PhrasebookBatchOperationDefinition,
+        )
+
+        plugin_id = manifest.id
+
+        for entry in manifest.phrasebook_ops:
+            op_id = entry.get('id')
+            if not op_id:
+                return "phrasebook_ops entry missing 'id'"
+
+            backend_ref = entry.get('backend')
+            if not backend_ref:
+                return f"phrasebook_ops entry '{op_id}' missing 'backend'"
+            backend_cls = self.loader.load_class(manifest, backend_ref)
+            if backend_cls is None:
+                return f"Failed to load phrasebook batch operation backend: {backend_ref}"
+
+            try:
+                backend = backend_cls()
+            except Exception as e:
+                return f"Failed to instantiate phrasebook batch operation backend '{backend_ref}': {e}"
+
+            component = entry.get('component')
+            frontend_component = f"plugin:{plugin_id}:{component}" if component else None
+
+            try:
+                self.phrasebook_operation_registry.register(PhrasebookBatchOperationDefinition(
+                    op_id=op_id,
+                    label=entry.get('label') or op_id,
+                    backend=backend,
+                    frontend_component=frontend_component,
+                    source=plugin_id,
+                ))
+            except DuplicatePhrasebookOperationError as e:
+                return str(e)
+
+        return None
+
     def _rollback_partial_enable(self, plugin_id: str) -> None:
         """Tear down everything a partially-enabled plugin registered so far:
         hooks, field types, and LLM chat extensions (tools/modes/resources)."""
@@ -448,6 +507,8 @@ class PluginRegistry:
             self.automation_template_registry.unregister_source(plugin_template_source(plugin_id))
         if self.prompt_importer_registry is not None:
             self.prompt_importer_registry.unregister_source(plugin_id)
+        if self.phrasebook_operation_registry is not None:
+            self.phrasebook_operation_registry.unregister_source(plugin_id)
 
     def _require_registry(
         self, items, registry, attr_name: str, singular: str

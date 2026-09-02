@@ -12,6 +12,7 @@
 	import { api } from '$lib/services/api';
 	import type { PromptImporter } from '$lib/services/api/prompts';
 	import { resolvePluginComponent } from '$lib/plugin-api/componentResolver';
+	import { parseComponentRef } from '$lib/plugin-api/componentRef';
 	import { logger } from '$lib/utils/logger';
 	import { toasts } from '$lib/stores/toast';
 
@@ -65,13 +66,6 @@
 			logger.error('Failed to load prompt importers:', err);
 		}
 	});
-
-	/** "plugin:<id>:<asset>" -> {pluginId, asset}, or null if malformed. */
-	function parseComponentRef(ref: string): { pluginId: string; asset: string } | null {
-		const parts = ref.split(':');
-		if (parts[0] !== 'plugin' || parts.length < 3) return null;
-		return { pluginId: parts[1], asset: parts.slice(2).join(':') };
-	}
 
 	function openImporter(importer: PromptImporter) {
 		importMenuOpen = false;

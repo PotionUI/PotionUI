@@ -5,6 +5,7 @@ Handles phrasebook categories and values with thin route handlers
 delegating to controller methods. Business logic is in
 `src.features.phrasebook.operations`.
 """
+import dataclasses
 import os
 from typing import Optional, TYPE_CHECKING
 from fastapi import APIRouter, Depends, UploadFile, File
@@ -13,7 +14,10 @@ from fastapi.responses import PlainTextResponse, FileResponse
 from src.platform.http.base_controller import BaseController, APIResponse
 from src.platform.security.current_user import get_current_active_user
 from src.features.phrasebook.dto import (
+    BatchRequest,
     PhrasebookCategoryRequest,
+    PhrasebookFindMode,
+    PhrasebookFindScope,
     PhrasebookValueRequest,
     PhrasebookSearchRequest,
     PhrasebookStateFilter,
@@ -21,12 +25,15 @@ from src.features.phrasebook.dto import (
     GeneratePreviewRequest,
 )
 from src.features.phrasebook import PhrasebookPreviewGenerator, operations
+from src.features.phrasebook.hooks import PHRASEBOOK_HOOKS
 from src.features.phrasebook.import_service import phrasebook_import_service
 from src.features.phrasebook.repository import (
     PhrasebookCategoryRepository,
     PhrasebookValueRepository,
 )
 from src.platform.plugins import PluginRegistry
+from src.platform.plugins.hooks import execute_hook
+from src.platform.plugins.phrasebook_ops import BatchOperationError, PhrasebookOperationRegistry
 from src.platform.security.user import User
 from src.features.generation.orchestrator import GenerationOrchestrator
 
@@ -49,7 +56,8 @@ class PhrasebookController(BaseController):
         value_repository: PhrasebookValueRepository,
         plugin_registry: PluginRegistry,
         preview_generator: PhrasebookPreviewGenerator,
-        generation_orchestrator: GenerationOrchestrator
+        generation_orchestrator: GenerationOrchestrator,
+        operation_registry: PhrasebookOperationRegistry,
     ):
         super().__init__()
         self.categories = category_repository
@@ -57,6 +65,7 @@ class PhrasebookController(BaseController):
         self.plugins = plugin_registry
         self.preview_generator = preview_generator
         self.generation_orchestrator = generation_orchestrator
+        self.operations = operation_registry
 
     # ========== Category Methods ==========
 
@@ -226,13 +235,115 @@ class PhrasebookController(BaseController):
         except Exception as e:
             return self.error_api_response(error="search_failed", message=str(e))
 
-    async def find(self, query: str, limit: int, user: User) -> APIResponse:
-        """Free-text search across categories and values."""
+    async def find(
+        self,
+        user: User,
+        query: str,
+        mode: PhrasebookFindMode = PhrasebookFindMode.CONTAINS,
+        case_sensitive: bool = False,
+        scope: PhrasebookFindScope = PhrasebookFindScope.ALL,
+        include_inactive: bool = True,
+        path_prefix: str = "",
+        fields: Optional[str] = None,
+        limit: int = 200,
+    ) -> APIResponse:
+        """Text search across categories and values with per-field match spans."""
         try:
-            results = operations.find_phrasebook(self.categories, self.values, user.id, query, limit)
-            return self.success_response(data=results)
+            field_names = operations.parse_fields(fields)
+        except operations.InvalidFields as e:
+            self.error_response(error="invalid_fields", message=str(e), status_code=400)
+        try:
+            results = operations.find_phrasebook(
+                self.categories,
+                self.values,
+                user.id,
+                query,
+                mode=mode.value,
+                case_sensitive=case_sensitive,
+                scope=scope.value,
+                include_inactive=include_inactive,
+                path_prefix=path_prefix,
+                fields=field_names,
+                limit=limit,
+            )
+        except operations.InvalidPattern as e:
+            self.error_response(error="invalid_pattern", message=str(e), status_code=400)
         except Exception as e:
             return self.error_api_response(error="find_failed", message=str(e))
+        hook_data, _ = execute_hook(
+            self.plugins,
+            PHRASEBOOK_HOOKS.find_results,
+            {
+                **results,
+                "include_inactive": include_inactive,
+                "path_prefix": path_prefix,
+                "fields": field_names,
+                "limit": limit,
+                "user_id": user.id,
+            },
+        )
+        results = {
+            **results,
+            "categories": hook_data.get("categories", results.get("categories", [])),
+            "values": hook_data.get("values", results.get("values", [])),
+        }
+        return self.success_response(data=results)
+
+    def list_batch_ops(self) -> APIResponse:
+        """Every registered batch operation, core and plugin, for the selection bar."""
+        return self.success_response(data=self.operations.frontend_manifest())
+
+    def _batch_target(self, request: BatchRequest):
+        value_ids = list(dict.fromkeys(request.value_ids))
+        if not value_ids:
+            self.error_response(error="empty_selection", message="No values selected", status_code=400)
+        definition = self.operations.get(request.op)
+        if definition is None:
+            self.error_response(error="unknown_op", message=f"Unknown batch operation: {request.op}", status_code=404)
+        return definition, value_ids
+
+    def _batch_context(self, user: User):
+        return operations.RepositoryBatchContext(self.values, self.categories, user.id, plugins=self.plugins)
+
+    async def batch_values(self, request: BatchRequest, user: User) -> APIResponse:
+        """Run one registered batch operation over the user's selected values,
+        between the `phrasebook.batch.before` / `after` hooks."""
+        definition, value_ids = self._batch_target(request)
+        hook_data, blocked = execute_hook(
+            self.plugins,
+            PHRASEBOOK_HOOKS.batch_before,
+            {"op": request.op, "value_ids": value_ids, "params": dict(request.params), "user_id": user.id},
+        )
+        if blocked:
+            self.error_response(
+                error="blocked", message=hook_data.get("block_reason", "Batch operation blocked"), status_code=400
+            )
+        value_ids = list(hook_data.get("value_ids", value_ids))
+        params = dict(hook_data.get("params", request.params))
+        try:
+            outcome = await definition.backend.run(self._batch_context(user), value_ids, params)
+        except BatchOperationError as e:
+            self.error_response(error=e.code, message=e.message, status_code=e.status)
+        except Exception as e:
+            return self.error_api_response(error="batch_failed", message=str(e))
+        data = dataclasses.asdict(outcome)
+        execute_hook(
+            self.plugins,
+            PHRASEBOOK_HOOKS.batch_after,
+            {"op": request.op, "value_ids": value_ids, "params": params, "user_id": user.id, "outcome": data},
+        )
+        return self.success_response(data=data)
+
+    async def preview_batch(self, request: BatchRequest, user: User) -> APIResponse:
+        """Dry-run a registered batch operation; no hooks, no writes."""
+        definition, value_ids = self._batch_target(request)
+        try:
+            preview = await definition.backend.preview(self._batch_context(user), value_ids, dict(request.params))
+        except BatchOperationError as e:
+            self.error_response(error=e.code, message=e.message, status_code=e.status)
+        except Exception as e:
+            return self.error_api_response(error="batch_failed", message=str(e))
+        return self.success_response(data=dataclasses.asdict(preview))
 
     # ========== Import/Export Methods ==========
 
@@ -444,6 +555,28 @@ def build_router(container: "AppContainer") -> APIRouter:
         """Toggle the active state of an phrasebook value."""
         return await controller.toggle_value_active(value_id, request, current_user)
 
+    @router.get("/batch-ops", response_model=APIResponse, summary="List Batch Operations")
+    async def list_batch_ops(current_user: User = Depends(get_current_active_user)) -> APIResponse:
+        """Registered batch operations (core and plugin) for the Find & replace selection bar."""
+        return controller.list_batch_ops()
+
+    @router.post("/values/batch", response_model=APIResponse, summary="Run Batch Operation")
+    async def batch_values(
+        request: BatchRequest,
+        current_user: User = Depends(get_current_active_user)
+    ) -> APIResponse:
+        """Run the registered operation `op` over `value_ids` with `params`,
+        all-or-nothing, between the phrasebook.batch.before/after hooks."""
+        return await controller.batch_values(request, current_user)
+
+    @router.post("/values/batch/preview", response_model=APIResponse, summary="Preview Batch Operation")
+    async def preview_batch(
+        request: BatchRequest,
+        current_user: User = Depends(get_current_active_user)
+    ) -> APIResponse:
+        """Dry-run `op` over `value_ids`; 400 `no_preview` when the operation has none."""
+        return await controller.preview_batch(request, current_user)
+
     # Search Routes
 
     @router.post("/search", response_model=APIResponse, summary="Search Phrasebook")
@@ -474,11 +607,24 @@ def build_router(container: "AppContainer") -> APIRouter:
     @router.get("/find", response_model=APIResponse, summary="Find Phrasebook Text")
     async def find_phrasebook(
         q: str = "",
-        limit: int = 50,
+        mode: PhrasebookFindMode = PhrasebookFindMode.CONTAINS,
+        case_sensitive: bool = False,
+        scope: PhrasebookFindScope = PhrasebookFindScope.ALL,
+        include_inactive: bool = True,
+        path_prefix: str = "",
+        fields: Optional[str] = None,
+        limit: int = 200,
         current_user: User = Depends(get_current_active_user)
     ) -> APIResponse:
-        """Case-insensitive text search across categories and values, inactive included."""
-        return await controller.find(q, limit, current_user)
+        """Text search across categories and values: contains / whole word /
+        regex, optional case sensitivity, scope, subtree and field limits.
+        Every hit carries `matches` spans per field."""
+        return await controller.find(
+            current_user, q,
+            mode=mode, case_sensitive=case_sensitive, scope=scope,
+            include_inactive=include_inactive, path_prefix=path_prefix,
+            fields=fields, limit=limit,
+        )
 
     # Import/Export Routes
 

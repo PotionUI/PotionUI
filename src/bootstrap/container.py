@@ -57,6 +57,10 @@ from src.platform.plugins.prompt_importers import (
     PromptImporterRegistry,
     prompt_importer_registry as _shared_prompt_importer_registry,
 )
+from src.platform.plugins.phrasebook_ops import (
+    PhrasebookOperationRegistry,
+    phrasebook_operation_registry as _shared_phrasebook_operation_registry,
+)
 from src.features.fields.builtin import register_builtin_fields
 from src.features.models.attributes.repository import AttributeDefinitionRepository
 from src.features.models.attributes.user_repository import UserModelAttributeRepository
@@ -185,6 +189,7 @@ class AppContainer:
     user_model_attribute_repository: "UserModelAttributeRepository"
     model_attributes_manager: "ModelAttributeDefinitionsEditor"
     prompt_importer_registry: PromptImporterRegistry
+    phrasebook_operation_registry: PhrasebookOperationRegistry
     tool_registry: "ToolRegistry"
     tool_executor: "ToolExecutor"
     chat_mode_registry: "ChatModeRegistry"
@@ -534,6 +539,13 @@ def build_container() -> AppContainer:
     # importers, so this starts empty.
     prompt_importer_registry = _shared_prompt_importer_registry
 
+    # Phrasebook batch tools - core's replace/set_active/move/delete register
+    # first so a plugin colliding with one of them fails its enable.
+    from src.features.phrasebook.operations.core_ops import register_core_batch_operations
+
+    phrasebook_operation_registry = _shared_phrasebook_operation_registry
+    register_core_batch_operations(phrasebook_operation_registry)
+
     plugin_router_mounter = PluginRouterMounter()
     plugin_registry = PluginRegistry(
         marketplace_dir="content/plugins/marketplace",
@@ -547,6 +559,7 @@ def build_container() -> AppContainer:
         automation_node_registry=automation_node_type_registry,
         automation_template_registry=automation_template_registry,
         prompt_importer_registry=prompt_importer_registry,
+        phrasebook_operation_registry=phrasebook_operation_registry,
     )
     _rr._global_plugin_registry = plugin_registry  # Set the global reference
 
@@ -1001,7 +1014,8 @@ def build_container() -> AppContainer:
         value_repository=phrasebook_value_repo,
         plugin_registry=plugin_registry,
         preview_generator=phrasebook_preview_generator,
-        generation_orchestrator=generation_orchestrator
+        generation_orchestrator=generation_orchestrator,
+        operation_registry=phrasebook_operation_registry,
     )
 
     # Segment components

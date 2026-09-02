@@ -401,18 +401,89 @@ export interface PhrasebookSearchResult {
 	total_values: number;
 }
 
+export type PhrasebookFindMode = 'contains' | 'word' | 'regex';
+export type PhrasebookFindScope = 'all' | 'values' | 'categories';
+export type PhrasebookValueField = 'label' | 'value';
+
+export interface PhrasebookMatchSpan {
+	field: string;
+	start: number;
+	end: number;
+}
+
+export interface PhrasebookFindCategoryHit extends PhrasebookCategory {
+	matches: PhrasebookMatchSpan[];
+}
+
 export interface PhrasebookFindValueHit extends PhrasebookValue {
 	category_path: string;
 	category_name: string;
 	category_is_active: boolean;
+	matches: PhrasebookMatchSpan[];
+}
+
+export interface PhrasebookFindParams {
+	q: string;
+	mode: PhrasebookFindMode;
+	case_sensitive: boolean;
+	scope: PhrasebookFindScope;
+	include_inactive: boolean;
+	path_prefix: string;
+	fields: PhrasebookValueField[];
+	limit?: number;
 }
 
 export interface PhrasebookFindResult {
 	query: string;
-	categories: PhrasebookCategory[];
+	mode: PhrasebookFindMode;
+	case_sensitive: boolean;
+	scope: PhrasebookFindScope;
+	categories: PhrasebookFindCategoryHit[];
 	values: PhrasebookFindValueHit[];
 	total_categories: number;
 	total_values: number;
+}
+
+export interface PhrasebookBatchOp {
+	id: string;
+	label: string;
+	component: string | null;
+	has_preview: boolean;
+	source: string;
+}
+
+export interface PhrasebookBatchRequest {
+	op: string;
+	value_ids: string[];
+	params: Record<string, unknown>;
+}
+
+export interface PhrasebookBatchOutcome {
+	updated: PhrasebookValue[];
+	skipped: string[];
+	deleted: string[];
+	message: string;
+}
+
+export interface PhrasebookBatchPreviewItem {
+	id: string;
+	field: PhrasebookValueField;
+	before: string;
+	after: string;
+}
+
+export interface PhrasebookBatchPreview {
+	items: PhrasebookBatchPreviewItem[];
+	changed: number;
+	unchanged: string[];
+}
+
+export interface PhrasebookReplaceParams {
+	find: string;
+	replace: string;
+	mode: PhrasebookFindMode;
+	case_sensitive: boolean;
+	fields: PhrasebookValueField[];
 }
 
 export interface GeneratePreviewRequest {

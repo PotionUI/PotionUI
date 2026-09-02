@@ -13,7 +13,8 @@ from tests.features.phrasebook.operations.test_batch import BatchBase
 
 
 def run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    # not get_event_loop(): pytest-asyncio clears the thread's current loop after any async test
+    return asyncio.run(coro)
 
 
 class TestCoreOperations(BatchBase):

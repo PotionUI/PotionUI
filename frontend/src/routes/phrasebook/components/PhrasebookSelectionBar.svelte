@@ -3,7 +3,7 @@
 	import { quartOut } from 'svelte/easing';
 	import Icon from '$lib/components/Icon.svelte';
 	import PluginSlot from '$lib/components/plugins/PluginSlot.svelte';
-	import { Button } from '$lib/components/ui';
+	import { Button, Kbd } from '$lib/components/ui';
 	import type { PhrasebookBatchOp } from '$lib/types/api';
 
 	let {
@@ -62,9 +62,23 @@
 		onMove(moveTarget);
 		closeMove();
 	}
+
+	function handleKeydown(e: KeyboardEvent) {
+		if (!moveOpen) return;
+		if (e.key === 'Escape') {
+			e.preventDefault();
+			closeMove();
+		} else if (e.key === 'Enter' && moveTarget) {
+			e.preventDefault();
+			confirmMove();
+		}
+	}
 </script>
 
-<svelte:window onclick={() => (moveOpen || moreOpen) && closeMenus()} />
+<svelte:window
+	onclick={() => (moveOpen || moreOpen) && closeMenus()}
+	onkeydowncapture={handleKeydown}
+/>
 
 {#if selectedCount > 0}
 	<div class="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-50" data-selection-bar>
@@ -141,9 +155,17 @@
 								{/each}
 							</select>
 							<div class="flex items-center justify-end gap-2">
-								<Button variant="ghost" size="sm" onclick={closeMove}>Cancel</Button>
+								<Button variant="secondary" size="sm" onclick={closeMove}>
+									<span class="inline-flex items-center gap-1.5">
+										Cancel
+										<Kbd keys="Esc" />
+									</span>
+								</Button>
 								<Button variant="primary" size="sm" disabled={!moveTarget} onclick={confirmMove}>
-									Move {selectedCount}
+									<span class="inline-flex items-center gap-1.5">
+										Move {selectedCount}
+										<Kbd keys="Enter" />
+									</span>
 								</Button>
 							</div>
 						</div>

@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
-	import { Badge, Button, Input, Spinner } from '$lib/components/ui';
+	import ConfirmFooter from '$lib/components/modals/ConfirmFooter.svelte';
+	import { createConfirmSettlementGate, getConfirmKeyboardAction, settleIfEligible } from '$lib/components/modals/confirmKeyboard';
+	import { Badge, Input, Spinner } from '$lib/components/ui';
 	import { api } from '$lib/services/api/index';
 	import { logger } from '$lib/utils/logger';
 	import type {
@@ -38,6 +40,8 @@
 
 	let labelsById = $derived(new Map(values.map((v) => [v.id, v.label])));
 	let valueIds = $derived(values.map((v) => v.id));
+
+	const settlementGate = createConfirmSettlementGate();
 
 	function params(): PhrasebookReplaceParams | null {
 		const fields: PhrasebookReplaceParams['fields'] = [];
@@ -99,6 +103,7 @@
 			inValue = filters.inValue;
 			preview = null;
 			error = null;
+			settlementGate.reset();
 			loadPreview();
 		});
 		return () => {
@@ -131,9 +136,34 @@
 
 	let changed = $derived(preview?.changed ?? 0);
 	let unchanged = $derived(preview?.unchanged.length ?? 0);
+
+	function handleCancel() {
+		settlementGate.settle(onClose);
+	}
+
+	function handleConfirm() {
+		settleIfEligible(settlementGate, !previewing && changed > 0 && !applying, apply);
+	}
+
+	function handleKeydown(e: KeyboardEvent) {
+		if (!isOpen || applying) return;
+		const { action, suppress } = getConfirmKeyboardAction(e);
+		if (action === 'cancel') handleCancel();
+		else if (action === 'confirm') handleConfirm();
+		if (suppress) e.preventDefault();
+	}
 </script>
 
-<BaseModal {isOpen} title="Replace in {values.length} value{values.length === 1 ? '' : 's'}" size="lg" on:close={onClose}>
+<svelte:window on:keydown|capture={handleKeydown} />
+
+<BaseModal
+	{isOpen}
+	title="Replace in {values.length} value{values.length === 1 ? '' : 's'}"
+	size="lg"
+	closeable={!applying}
+	handleEscapeKey={false}
+	on:close={handleCancel}
+>
 	<div class="flex flex-col gap-4 p-4 md:p-6" data-replace-modal>
 		<div class="flex items-center gap-2 flex-wrap text-xs text-fg-muted">
 			<span>Find</span>
@@ -151,6 +181,12 @@
 				data-replace-input
 				bind:value={replacement}
 				oninput={schedulePreview}
+				onkeydown={(e: KeyboardEvent) => {
+					if (e.key === 'Enter') {
+						e.preventDefault();
+						handleConfirm();
+					}
+				}}
 				disabled={applying}
 			/>
 			{#if filters.mode === 'regex'}
@@ -205,17 +241,12 @@
 	</div>
 
 	<svelte:fragment slot="footer">
-		<div class="flex items-center justify-end gap-2 w-full">
-			<Button variant="ghost" size="sm" onclick={onClose} disabled={applying}>Cancel</Button>
-			<Button
-				variant="primary"
-				size="sm"
-				loading={applying}
-				disabled={previewing || changed === 0}
-				onclick={apply}
-			>
-				Apply
-			</Button>
-		</div>
+		<ConfirmFooter
+			confirmLabel="Apply"
+			busy={applying}
+			confirmDisabled={previewing || changed === 0}
+			onCancel={handleCancel}
+			onConfirm={handleConfirm}
+		/>
 	</svelte:fragment>
 </BaseModal>

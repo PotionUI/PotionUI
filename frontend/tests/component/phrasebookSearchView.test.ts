@@ -114,8 +114,10 @@ function click(selector: string, root: ParentNode = document) {
 }
 
 function buttonByText(text: string, root: ParentNode = document): HTMLButtonElement {
-	const button = Array.from(root.querySelectorAll<HTMLButtonElement>('button')).find(
-		(b) => b.textContent?.trim() === text
+	// startsWith rather than an exact match: confirm-style footer buttons
+	// (e.g. the replace modal's Apply) append a Kbd shortcut hint after the label.
+	const button = Array.from(root.querySelectorAll<HTMLButtonElement>('button')).find((b) =>
+		b.textContent?.trim().startsWith(text)
 	);
 	if (!button) throw new Error(`missing button ${text}`);
 	return button;

@@ -21,10 +21,24 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: {
-		getMyLLMConfigurations: vi.fn().mockResolvedValue({ success: true, data: { llm_configs: [] } }),
+		// An empty list trips the "no enabled LLM configuration" gate, which
+		// replaces the whole chat surface (messages container included) - this
+		// test is about scroll restore, so it needs one usable config to reach
+		// the normal chat view at all.
+		getMyLLMConfigurations: vi.fn().mockResolvedValue({
+			success: true,
+			data: { llm_configs: [{ id: 'cfg-1', name: 'Test config' }] }
+		}),
 		getChatModes: vi.fn().mockResolvedValue({ success: true, data: { modes: [] } }),
 		listChatTools: vi.fn().mockResolvedValue({ success: true, data: { tools: [] } }),
-		getChatSessions: vi.fn().mockResolvedValue({ success: true, data: { sessions: [] } })
+		getChatSessions: vi.fn().mockResolvedValue({ success: true, data: { sessions: [] } }),
+		getMyToolsetPreferences: vi.fn().mockResolvedValue({ success: false }),
+		listPresets: vi.fn().mockResolvedValue({ success: false }),
+		// UnifiedAIChat imports the authStore singleton (for the paste-to-upload
+		// path), which registers an auth-expiry callback on `api` the moment the
+		// module is first evaluated - not just when a request actually fires.
+		setOnAuthExpired: vi.fn(),
+		clearAuth: vi.fn()
 	}
 }));
 

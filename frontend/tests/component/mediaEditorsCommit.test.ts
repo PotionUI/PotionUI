@@ -43,7 +43,12 @@ function mount(props: Record<string, unknown>) {
 	const target = document.createElement('div');
 	document.body.appendChild(target);
 	createClassComponent({ component: MediaEditors as any, target, props });
-	return target;
+	// Every editor renders through EditorShell -> BaseModal, which portals its
+	// dialog straight onto document.body (src/lib/actions/portal.ts) so a
+	// `position: fixed` overlay stays viewport-relative rather than being
+	// captured by a transformed ancestor. Query from body, not `target`, or
+	// the modal's own content is invisible to every helper below.
+	return document.body;
 }
 
 function buttonByText(target: HTMLElement, text: string): HTMLButtonElement | undefined {

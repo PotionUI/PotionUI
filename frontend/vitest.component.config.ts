@@ -28,6 +28,7 @@ export default defineConfig({
 	},
 	test: {
 		environment: 'jsdom',
-		include: ['tests/component/**/*.{test,spec}.ts']
+		include: ['tests/component/**/*.{test,spec}.ts'],
+		setupFiles: ['tests/component/setup/webAnimations.ts']
 	}
 });

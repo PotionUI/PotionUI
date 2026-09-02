@@ -37,9 +37,14 @@ function mountPage() {
 	return {
 		target,
 		fileInput: () => target.querySelector('input[type="file"]') as HTMLInputElement,
-		text: () => target.textContent ?? '',
+		// LibraryItemModal (and the confirm-delete modal it opens) are
+		// BaseModal-based, which portals its dialog onto document.body
+		// (src/lib/actions/portal.ts) rather than staying inside `target` - so
+		// text/button lookups search the whole body, which `target` is itself
+		// a child of.
+		text: () => document.body.textContent ?? '',
 		buttonWithText: (text: string) =>
-			Array.from(target.querySelectorAll('button')).find((b) => b.textContent?.includes(text)),
+			Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.includes(text)),
 		destroy: () => {
 			component.$destroy();
 			target.remove();

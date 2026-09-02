@@ -394,17 +394,19 @@ describe('multi face', () => {
 
 		peekButton(rendered[0]).click();
 		await tick();
-		let dialog = target.querySelector('[aria-label="Media preview"]');
+		// MediaPreviewModal portals itself onto document.body
+		// (src/lib/actions/portal.ts), so it never appears inside `target`.
+		let dialog = document.body.querySelector('[aria-label="Media preview"]');
 		expect(dialog).toBeTruthy();
 		expect(dialog!.querySelector('img')?.getAttribute('src')).toBe('/api/media/uploads/a.png');
 
 		dialog!.querySelector<HTMLButtonElement>('[aria-label="Close preview"]')!.click();
 		await tick();
-		expect(target.querySelector('[aria-label="Media preview"]')).toBeNull();
+		expect(document.body.querySelector('[aria-label="Media preview"]')).toBeNull();
 
 		peekButton(rendered[1]).click();
 		await tick();
-		dialog = target.querySelector('[aria-label="Media preview"]');
+		dialog = document.body.querySelector('[aria-label="Media preview"]');
 		expect(dialog!.querySelector('video')?.getAttribute('src')).toBe('/api/media/uploads/v.mp4');
 
 		dialog!.querySelector<HTMLButtonElement>('[aria-label="Close preview"]')!.click();
@@ -412,7 +414,7 @@ describe('multi face', () => {
 
 		peekButton(rendered[2]).click();
 		await tick();
-		dialog = target.querySelector('[aria-label="Media preview"]');
+		dialog = document.body.querySelector('[aria-label="Media preview"]');
 		// Audio has no thumbnail to blow up to full size - the modal renders a
 		// playback surface instead, never an <img> or <video>.
 		expect(dialog!.querySelector('img')).toBeNull();
@@ -441,11 +443,11 @@ describe('multi face', () => {
 
 		labelInput!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
 		await tick();
-		expect(target.querySelector('[aria-label="Media preview"]')).toBeNull();
+		expect(document.body.querySelector('[aria-label="Media preview"]')).toBeNull();
 
 		thumbnail!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
 		await tick();
-		const dialog = target.querySelector('[aria-label="Media preview"]');
+		const dialog = document.body.querySelector('[aria-label="Media preview"]');
 		expect(dialog).toBeTruthy();
 		expect(dialog!.querySelector('img')?.getAttribute('src')).toBe('/api/media/uploads/a.png');
 	});

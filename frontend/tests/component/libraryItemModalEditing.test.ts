@@ -44,7 +44,11 @@ function mount(item: Record<string, unknown>) {
 		target,
 		props: { item, onClose: vi.fn(), onDeleteRequest: vi.fn() }
 	});
-	return target;
+	// LibraryItemModal is itself a BaseModal, which portals its whole dialog
+	// onto document.body (src/lib/actions/portal.ts) so a `position: fixed`
+	// overlay stays viewport-relative rather than being captured by a
+	// transformed ancestor. Query from body, not `target`, which stays empty.
+	return document.body;
 }
 
 function buttonByText(target: HTMLElement, text: string): HTMLButtonElement | undefined {

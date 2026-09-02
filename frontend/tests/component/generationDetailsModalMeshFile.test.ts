@@ -54,13 +54,16 @@ function mountModal(generation: ReturnType<typeof baseGeneration>) {
 	return {
 		target,
 		component,
+		// GenerationDetailsModal wraps itself in `<div use:portal>` on top of
+		// BaseModal's own portal (src/lib/actions/portal.ts), so its content
+		// lands on document.body, never inside `target`.
 		// The top-left overlay's file-format badge: uppercase MP4/PNG/mesh-format/audio-format.
 		formatBadge: () =>
-			Array.from(target.querySelectorAll('span.uppercase')).find((el) =>
+			Array.from(document.body.querySelectorAll('span.uppercase')).find((el) =>
 				/^[A-Z0-9]+$/.test(el.textContent?.trim() ?? '')
 			)?.textContent?.trim(),
-		hasImg: () => !!target.querySelector('img'),
-		hasVideo: () => !!target.querySelector('video'),
+		hasImg: () => !!document.body.querySelector('img'),
+		hasVideo: () => !!document.body.querySelector('video'),
 		destroy: () => {
 			component.$destroy();
 			target.remove();

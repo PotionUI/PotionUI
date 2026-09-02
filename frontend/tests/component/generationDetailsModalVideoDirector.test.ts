@@ -55,7 +55,10 @@ function mountModal(generation: ReturnType<typeof baseGeneration>) {
 	return {
 		target,
 		component,
-		text: () => target.textContent ?? '',
+		// GenerationDetailsModal wraps itself in `<div use:portal>` on top of
+		// BaseModal's own portal (src/lib/actions/portal.ts), so its content
+		// lands on document.body, never inside `target`.
+		text: () => document.body.textContent ?? '',
 		destroy: () => {
 			component.$destroy();
 			target.remove();

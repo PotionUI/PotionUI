@@ -3,6 +3,7 @@ import type {
 	APIResponse,
 	PhrasebookCategory,
 	PhrasebookSearchResult,
+	PhrasebookFindResult,
 	PhrasebookStateFilter,
 	PhrasebookValue,
 	GeneratePreviewRequest,
@@ -22,6 +23,15 @@ export function createPhrasebookApi(client: AxiosInstance) {
 				state: state
 			});
 			const response = await client.get(`/api/phrasebook/search?${params}`);
+			return response.data;
+		},
+
+		async findPhrasebook(
+			query: string,
+			limit: number = 50
+		): Promise<APIResponse<PhrasebookFindResult>> {
+			const params = new URLSearchParams({ q: query, limit: limit.toString() });
+			const response = await client.get(`/api/phrasebook/find?${params}`);
 			return response.data;
 		},
 

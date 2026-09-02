@@ -270,6 +270,51 @@ function createPhrasebookStore() {
 			}
 		},
 
+		async selectCategoryFromFind(categoryId: string) {
+			await this.expandPathToCategory(categoryId);
+			this.handleSelectCategory(categoryId);
+		},
+
+		async selectValueFromFind(categoryId: string, valueId: string) {
+			await this.expandPathToCategory(categoryId);
+			update((s) => ({
+				...s,
+				selectedCategoryId: categoryId,
+				selectedValueId: null,
+				editMode: 'none',
+				expandedCategories: new Set([...s.expandedCategories, categoryId])
+			}));
+			if (!state().categoryValues[categoryId]) {
+				await this.loadCategoryValues(categoryId);
+			}
+			this.handleSelectValue(valueId);
+		},
+
+		async updateValueText(
+			target: { id: string; category_id: string; label: string; sort_order: number },
+			text: string
+		): Promise<boolean> {
+			try {
+				const response = await api.updatePhrasebookValue(target.id, {
+					category_id: target.category_id,
+					label: target.label,
+					value: text,
+					sort_order: target.sort_order
+				});
+				if (!response.success) return false;
+			} catch (error) {
+				logger.error('Failed to update value text:', error);
+				return false;
+			}
+			if (state().categoryValues[target.category_id]) {
+				await this.loadCategoryValues(target.category_id);
+			}
+			update((s) =>
+				s.selectedValueId === target.id ? { ...s, valueForm: { ...s.valueForm, value: text } } : s
+			);
+			return true;
+		},
+
 		handleEditCategory() {
 			const s0 = state();
 			const selectedCategory = s0.selectedCategoryId ? s0.categories[s0.selectedCategoryId] : null;

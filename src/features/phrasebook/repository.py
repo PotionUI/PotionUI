@@ -15,6 +15,23 @@ from src.features.phrasebook.dto import (
 logger = logging.getLogger(__name__)
 
 
+def _text_match_patterns(query: str) -> tuple[str, str, str, str]:
+    """Return (exact, prefix, substring, escape) LIKE operands for a
+    case-insensitive text match. `%`/`_`/`\\` in the query are escaped so
+    they match literally."""
+    lowered = query.strip().lower()
+    escaped = lowered.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return lowered, f"{escaped}%", f"%{escaped}%", "\\"
+
+
+def _relevance_case(columns: list[str]) -> str:
+    """SQL CASE ranking a row 0 (exact) / 1 (prefix) / 2 (substring) across
+    `columns`; bind params in order: exact, prefix per column."""
+    exact = " OR ".join(f"LOWER({c}) = ?" for c in columns)
+    prefix = " OR ".join(f"LOWER({c}) LIKE ? ESCAPE '\\'" for c in columns)
+    return f"CASE WHEN {exact} THEN 0 WHEN {prefix} THEN 1 ELSE 2 END"
+
+
 class PhrasebookCategoryRepository:
     """Repository for phrasebook categories."""
 
@@ -106,6 +123,38 @@ class PhrasebookCategoryRepository:
             cursor.execute(
                 "SELECT * FROM phrasebook_categories WHERE path LIKE ? AND user_id = ? ORDER BY path",
                 (f"{path_prefix}%", user_id)
+            )
+            return [self._row_to_category(row) for row in cursor.fetchall()]
+
+    def find_by_text(self, user_id: str, query: str, limit: int = 50) -> List[PhrasebookCategory]:
+        """Case-insensitive substring match on name, path and description,
+        active and inactive alike. Exact matches first, then prefix, then
+        substring, then alphabetical by path."""
+        exact, prefix, substring, escape = _text_match_patterns(query)
+        if not exact:
+            return []
+        columns = ["name", "path", "description"]
+        rank = _relevance_case(columns)
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT *, {rank} AS relevance
+                FROM phrasebook_categories
+                WHERE user_id = ?
+                  AND (LOWER(name) LIKE ? ESCAPE ?
+                       OR LOWER(path) LIKE ? ESCAPE ?
+                       OR LOWER(description) LIKE ? ESCAPE ?)
+                ORDER BY relevance, path
+                LIMIT ?
+                """,
+                (
+                    *([exact] * len(columns)),
+                    *([prefix] * len(columns)),
+                    user_id,
+                    substring, escape, substring, escape, substring, escape,
+                    limit,
+                ),
             )
             return [self._row_to_category(row) for row in cursor.fetchall()]
 
@@ -333,6 +382,46 @@ class PhrasebookValueRepository:
                 value_dict['category_is_active'] = bool(row['category_is_active'])
                 results.append(value_dict)
 
+            return results
+
+    def find_by_text(self, user_id: str, query: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """Case-insensitive substring match on label and value text, joined to
+        the owning category (`category_id`, `category_path`, `category_name`,
+        `category_is_active`). Inactive rows are included with their flag.
+        Exact matches first, then prefix, then substring, then alphabetical."""
+        exact, prefix, substring, escape = _text_match_patterns(query)
+        if not exact:
+            return []
+        columns = ["v.label", "v.value"]
+        rank = _relevance_case(columns)
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT v.*, c.path AS category_path, c.name AS category_name,
+                       c.is_active AS category_is_active, {rank} AS relevance
+                FROM phrasebook_values v
+                JOIN phrasebook_categories c ON v.category_id = c.id
+                WHERE v.user_id = ?
+                  AND (LOWER(v.label) LIKE ? ESCAPE ? OR LOWER(v.value) LIKE ? ESCAPE ?)
+                ORDER BY relevance, v.label, c.path
+                LIMIT ?
+                """,
+                (
+                    *([exact] * len(columns)),
+                    *([prefix] * len(columns)),
+                    user_id,
+                    substring, escape, substring, escape,
+                    limit,
+                ),
+            )
+            results = []
+            for row in cursor.fetchall():
+                value_dict = self._row_to_value(row).model_dump()
+                value_dict['category_path'] = row['category_path']
+                value_dict['category_name'] = row['category_name']
+                value_dict['category_is_active'] = bool(row['category_is_active'])
+                results.append(value_dict)
             return results
 
     def create(self, value: PhrasebookValue) -> bool:

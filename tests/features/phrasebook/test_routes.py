@@ -105,3 +105,24 @@ async def test_get_category_values_read_from_repository(
     assert result.success
     mock_operations.get_category.assert_called_once_with(category_repository, "cat-1", "user-1")
     value_repository.get_by_category.assert_called_once_with("cat-1", "user-1")
+
+
+async def test_find_delegates_to_operation(controller, mock_operations, category_repository, value_repository, user):
+    mock_operations.find_phrasebook.return_value = {
+        "query": "dog", "categories": [], "values": [], "total_categories": 0, "total_values": 0,
+    }
+
+    result = await controller.find("dog", 20, user)
+
+    assert result.success
+    assert result.data["query"] == "dog"
+    mock_operations.find_phrasebook.assert_called_once_with(category_repository, value_repository, "user-1", "dog", 20)
+
+
+async def test_find_reports_failure(controller, mock_operations, user):
+    mock_operations.find_phrasebook.side_effect = RuntimeError("boom")
+
+    result = await controller.find("dog", 20, user)
+
+    assert not result.success
+    assert result.error == "find_failed"

@@ -9,7 +9,7 @@ surface hold the repositories and pass them in; nothing here is stored
 across calls.
 
 Shape rule: one module per concern (`reads`, `categories`, `values`,
-`search`), each re-exported here as the public surface.
+`search`, `find`), each re-exported here as the public surface.
 """
 from src.features.phrasebook.operations.reads import get_category, get_value
 from src.features.phrasebook.operations.categories import (
@@ -26,6 +26,7 @@ from src.features.phrasebook.operations.values import (
     attach_preview_image,
 )
 from src.features.phrasebook.operations.search import search_phrasebook
+from src.features.phrasebook.operations.find import find_phrasebook
 
 __all__ = [
     "get_category",
@@ -40,4 +41,5 @@ __all__ = [
     "toggle_value_active",
     "attach_preview_image",
     "search_phrasebook",
+    "find_phrasebook",
 ]

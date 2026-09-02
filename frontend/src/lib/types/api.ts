@@ -401,6 +401,20 @@ export interface PhrasebookSearchResult {
 	total_values: number;
 }
 
+export interface PhrasebookFindValueHit extends PhrasebookValue {
+	category_path: string;
+	category_name: string;
+	category_is_active: boolean;
+}
+
+export interface PhrasebookFindResult {
+	query: string;
+	categories: PhrasebookCategory[];
+	values: PhrasebookFindValueHit[];
+	total_categories: number;
+	total_values: number;
+}
+
 export interface GeneratePreviewRequest {
 	session_id: string;
 	prompt_template: string;

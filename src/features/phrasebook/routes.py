@@ -226,6 +226,14 @@ class PhrasebookController(BaseController):
         except Exception as e:
             return self.error_api_response(error="search_failed", message=str(e))
 
+    async def find(self, query: str, limit: int, user: User) -> APIResponse:
+        """Free-text search across categories and values."""
+        try:
+            results = operations.find_phrasebook(self.categories, self.values, user.id, query, limit)
+            return self.success_response(data=results)
+        except Exception as e:
+            return self.error_api_response(error="find_failed", message=str(e))
+
     # ========== Import/Export Methods ==========
 
     async def import_yaml(
@@ -462,6 +470,15 @@ def build_router(container: "AppContainer") -> APIRouter:
         Default state is ACTIVE to only return active values for the chip editor.
         """
         return await controller.search(path, limit, current_user, state)
+
+    @router.get("/find", response_model=APIResponse, summary="Find Phrasebook Text")
+    async def find_phrasebook(
+        q: str = "",
+        limit: int = 50,
+        current_user: User = Depends(get_current_active_user)
+    ) -> APIResponse:
+        """Case-insensitive text search across categories and values, inactive included."""
+        return await controller.find(q, limit, current_user)
 
     # Import/Export Routes
 

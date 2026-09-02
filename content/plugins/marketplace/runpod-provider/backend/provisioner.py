@@ -481,6 +481,23 @@ class RunpodComputeProvisioner(ComputeProvisioner):
             await client.aclose()
         return ComputeStatus(state=outcome.state, detail=outcome.detail)
 
+    async def start(self, handle: str, report: ProgressReporter) -> ProvisionResult:
+        settings = self._require_api_key()
+        client = RunPodClient(api_key=settings.api_key)
+        try:
+            result = await self._manager(client).start(handle, report)
+        except RunPodAPIError as exc:
+            raise ComputeProvisionerError(str(exc)) from exc
+        finally:
+            await client.aclose()
+        return ProvisionResult(
+            handle=handle,
+            base_url=result.base_url,
+            worker_token=result.worker_token,
+            ready=result.ready,
+            resource_ref=result.pod_id,
+        )
+
     async def stop(self, handle: str) -> None:
         await self._deprovision(handle, terminate_pod=False)
 

@@ -127,6 +127,17 @@ class ProvisionedComputeRepository:
             )
             return cursor.rowcount > 0
 
+    def clear_progress(self, row_id: str) -> bool:
+        """Empty the timeline so a fresh bring-up (a `start()` of a stopped
+        resource) starts clean instead of appending to the original one."""
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                "UPDATE provisioned_compute SET progress = '[]', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (row_id,),
+            )
+            return cursor.rowcount > 0
+
     def clear_backend_link(self, row_id: str) -> bool:
         from src.platform.database.database import db
         with db.get_cursor() as cursor:

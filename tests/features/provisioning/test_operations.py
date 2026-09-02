@@ -8,9 +8,11 @@ way any other backend is created) rather than minting a new one, and links it
 on the `ProvisionedCompute` row it returns at once as `provisioning`; the
 bring-up itself runs in a `ComputeProvisioningJobs` task that streams
 progress onto the row and over the hub. Stopping disables that backend
-without touching its connection details; terminating clears the connection
-details and disables it, but the row itself survives so it can be provisioned
-into again later.
+without touching its connection details; starting again runs the
+provisioner's `start()` the same way and re-enables the backend with the
+(possibly new) details it returns; terminating clears the connection details
+and disables it, but the row itself survives so it can be provisioned into
+again later.
 """
 
 import asyncio
@@ -33,6 +35,7 @@ from src.features.provisioning.contracts import (
 from src.features.provisioning.operations import (
     BackendAlreadyProvisionedError,
     BackendNotFoundError,
+    ComputeNotStartableError,
     ComputeProvisioningJobs,
     InvalidProvisionValuesError,
     NotARemoteBackendError,
@@ -56,14 +59,22 @@ class FakeProvisioner(ComputeProvisioner):
 
     #: Stages `provision()` reports, in order, before returning.
     stages = ("preparing", "creating", "ready")
+    #: Stages `start()` reports, in order, before returning.
+    start_stages = ("starting", "waiting_worker", "ready")
 
     def __init__(self):
         self.provisioned = []
+        self.started = []
         self.stopped = []
         self.terminated = []
         self.status_state = "running"
         self.status_detail = None
         self.ready = True
+        self.start_ready = True
+        # Deliberately different from provision()'s, so a test can tell that
+        # a start re-wrote the backend's connection details.
+        self.start_base_url = "https://fake-worker-restarted:8100"
+        self.start_worker_token = "tok-restarted"
 
     async def describe_fields(self, values=None):
         values = values or {}
@@ -103,6 +114,18 @@ class FakeProvisioner(ComputeProvisioner):
             base_url="https://fake-worker:8100",
             worker_token="tok-abc123",
             ready=self.ready,
+            resource_ref="res-1",
+        )
+
+    async def start(self, handle: str, report) -> ProvisionResult:
+        self.started.append(handle)
+        for index, stage in enumerate(self.start_stages):
+            await report(ProvisionProgress(stage=stage, message=f"{stage} {handle}", percent=index * 50))
+        return ProvisionResult(
+            handle=handle,
+            base_url=self.start_base_url,
+            worker_token=self.start_worker_token,
+            ready=self.start_ready,
             resource_ref="res-1",
         )
 
@@ -156,6 +179,13 @@ class FakeRepository:
             return False
         row.progress = (row.progress + [entry])[-PROGRESS_CAP:]
         row.status_detail = entry.get("message")
+        return True
+
+    def clear_progress(self, row_id):
+        row = self._rows.get(row_id)
+        if row is None:
+            return False
+        row.progress = []
         return True
 
     def get_by_id(self, row_id):
@@ -389,7 +419,7 @@ async def test_provision_compute_while_still_provisioning_raises():
     with pytest.raises(BackendAlreadyProvisionedError) as excinfo:
         await c.provision()
 
-    assert "already being provisioned" in str(excinfo.value)
+    assert "already being brought up" in str(excinfo.value)
     await c.jobs.wait(first.id)
 
 
@@ -564,6 +594,199 @@ async def test_terminate_compute_failed_row_without_handle_skips_the_provider():
 
     assert c.provisioner.terminated == []
     assert c.repository.get_by_id(row.id) is None
+
+
+class _HangingStartProvisioner(FakeProvisioner):
+    """`start()` never finishes on its own - for tests that need a row to sit
+    in `starting` with a live job behind it."""
+
+    async def start(self, handle, report):
+        await report(ProvisionProgress(stage="starting", message="Resuming pod"))
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+
+class _FailingStartProvisioner(FakeProvisioner):
+    async def start(self, handle, report):
+        await report(ProvisionProgress(stage="starting", message="Resuming pod"))
+        raise ComputeProvisionerError("RunPod API error 500: pod could not be resumed")
+
+
+async def _stopped_row(c: Collaborators):
+    """A row that was provisioned to `running`, then stopped by the operator -
+    the state "Start" is offered from."""
+    await _seed_remote_backend(c.backend_registry, backend_id="remote-1")
+    row = await c.provision_and_wait()
+    await operations.stop_compute(c.registry, c.repository, c.backend_registry, c.hub, row.id)
+    c.hub.messages.clear()
+    row = c.repository.get_by_id(row.id)
+    assert row.status == "stopped"
+    assert c.backend().enabled is False
+    return row
+
+
+async def _start(c: Collaborators, row_id):
+    return await operations.start_compute(
+        c.registry, c.repository, c.backend_registry, c.hub, c.jobs, row_id
+    )
+
+
+async def _start_and_wait(c: Collaborators, row_id):
+    await _start(c, row_id)
+    await c.jobs.wait(row_id)
+    return c.repository.get_by_id(row_id)
+
+
+async def test_start_compute_returns_a_starting_row_with_a_fresh_timeline_at_once():
+    c = Collaborators()
+    row = await _stopped_row(c)
+    assert row.progress != []  # the original bring-up's timeline is still there
+
+    started = await _start(c, row.id)
+
+    assert started.status == "starting"
+    assert started.status_detail == "Starting"
+    assert started.progress == []
+    assert started.handle == "RunPod A100"  # the handle survives - it is what start() is given
+    assert c.jobs.is_running(row.id)
+    assert c.backend().enabled is False  # nothing to route to until the job finishes
+    assert [r["status"] for r in c.hub.rows()] == ["starting"]
+    await c.jobs.wait(row.id)
+
+
+async def test_start_job_streams_progress_then_reconnects_and_enables_the_backend():
+    c = Collaborators()
+    row = await _stopped_row(c)
+
+    fresh = await _start_and_wait(c, row.id)
+
+    assert c.provisioner.started == ["RunPod A100"]
+    assert fresh.status == "running"
+    assert fresh.status_detail == "Worker is up"
+    assert fresh.status_checked_at is not None
+    assert [e["stage"] for e in fresh.progress] == ["starting", "waiting_worker", "ready"]
+
+    backend = c.backend()
+    assert backend.enabled is True  # an explicit operator start re-enables, unlike the monitor
+    assert backend.base_url == "https://fake-worker-restarted:8100"  # re-read from start(), not kept
+    assert backend.worker_token == "tok-restarted"
+
+    statuses = [(r["status"], len(r["progress"])) for r in c.hub.rows()]
+    assert statuses == [("starting", 0), ("starting", 1), ("starting", 2), ("starting", 3), ("running", 3)]
+    assert not c.jobs.is_running(row.id)
+
+
+async def test_start_job_not_ready_lands_as_unreachable_but_still_enables_the_backend():
+    c = Collaborators()
+    c.provisioner.start_ready = False
+    row = await _stopped_row(c)
+
+    fresh = await _start_and_wait(c, row.id)
+
+    assert fresh.status == "unreachable"
+    assert "handshake" in fresh.status_detail
+    assert c.backend().enabled is True
+    assert c.backend().base_url == "https://fake-worker-restarted:8100"
+
+
+async def test_start_job_failure_marks_the_row_failed_and_leaves_the_backend_disabled():
+    c = Collaborators(_FailingStartProvisioner())
+    row = await _stopped_row(c)
+
+    fresh = await _start_and_wait(c, row.id)
+
+    assert fresh.status == "failed"
+    assert fresh.status_detail == "RunPod API error 500: pod could not be resumed"
+    assert fresh.handle == "RunPod A100"  # the resource still exists - terminate can name it
+    assert [e["stage"] for e in fresh.progress] == ["starting"]
+    backend = c.backend()
+    assert backend.enabled is False
+    assert backend.base_url == "https://fake-worker:8100"  # the old details survive, disabled
+    assert [r["status"] for r in c.hub.rows()] == ["starting", "starting", "failed"]
+
+
+@pytest.mark.parametrize("state", ["stopped", "unreachable", "unknown"])
+async def test_start_compute_accepts_every_startable_state(state):
+    c = Collaborators()
+    row = await _stopped_row(c)
+    c.repository.update_status(row.id, state, detail="from the monitor")
+
+    fresh = await _start_and_wait(c, row.id)
+
+    assert fresh.status == "running"
+    assert c.backend().enabled is True
+
+
+@pytest.mark.parametrize("state", ["provisioning", "starting", "running", "missing", "failed"])
+async def test_start_compute_refuses_a_non_startable_state(state):
+    c = Collaborators()
+    row = await _stopped_row(c)
+    c.repository.update_status(row.id, state)
+
+    with pytest.raises(ComputeNotStartableError):
+        await _start(c, row.id)
+
+    assert c.provisioner.started == []
+    assert c.repository.get_by_id(row.id).status == state
+    assert c.hub.rows() == []
+
+
+async def test_start_compute_refuses_a_row_without_a_handle():
+    c = Collaborators()
+    row = c.repository.create(provider_id="fake", handle="", profile_name="p", status="unknown")
+
+    with pytest.raises(ComputeNotStartableError):
+        await _start(c, row.id)
+
+
+async def test_start_compute_unknown_row_raises():
+    c = Collaborators()
+
+    with pytest.raises(ProvisionedComputeNotFoundError):
+        await _start(c, "nope")
+
+
+async def test_refresh_status_leaves_a_starting_row_alone():
+    c = Collaborators(_HangingStartProvisioner())
+    row = await _stopped_row(c)
+    await _start(c, row.id)
+    await asyncio.sleep(0)
+    c.provisioner.status_state = "stopped"
+
+    refreshed = await operations.refresh_status(c.registry, c.repository, c.hub, row.id)
+
+    assert refreshed.status == "starting"
+    assert c.repository.get_by_id(row.id).status == "starting"
+    await c.jobs.cancel(row.id)
+
+
+async def test_terminate_compute_while_starting_cancels_the_job_then_tears_down():
+    c = Collaborators(_HangingStartProvisioner())
+    row = await _stopped_row(c)
+    await _start(c, row.id)
+    await asyncio.sleep(0)
+    assert c.jobs.is_running(row.id)
+
+    await operations.terminate_compute(c.registry, c.repository, c.backend_registry, c.jobs, row.id)
+
+    assert not c.jobs.is_running(row.id)
+    assert c.provisioner.terminated == ["RunPod A100"]
+    assert c.repository.get_by_id(row.id) is None
+    backend = c.backend()
+    assert backend.enabled is False
+    assert backend.base_url == ""
+
+
+async def test_provision_compute_refuses_a_backend_whose_row_is_starting():
+    c = Collaborators(_HangingStartProvisioner())
+    row = await _stopped_row(c)
+    await _start(c, row.id)
+    await asyncio.sleep(0)
+
+    with pytest.raises(BackendAlreadyProvisionedError, match="brought up"):
+        await c.provision()
+
+    await c.jobs.cancel(row.id)
 
 
 async def test_terminate_compute_unknown_row_raises():

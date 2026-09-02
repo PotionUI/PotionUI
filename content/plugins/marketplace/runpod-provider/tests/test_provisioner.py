@@ -59,6 +59,7 @@ class FakeRunPodClient:
         self.api_key = api_key
         self.create_network_volume_calls = []
         self.create_pod_calls = []
+        self.started = []
         self.terminated = []
         FakeRunPodClient.instances.append(self)
 
@@ -94,6 +95,13 @@ class FakeRunPodClient:
     async def stop_pod(self, pod_id):
         return Pod(
             id=pod_id, name="", image="", desired_status="EXITED", public_ip=None,
+            port_mappings={}, ports=[], cost_per_hr=None, network_volume_id=None,
+        )
+
+    async def start_pod(self, pod_id):
+        self.started.append(pod_id)
+        return Pod(
+            id=pod_id, name="", image="", desired_status="RUNNING", public_ip=None,
             port_mappings={}, ports=[], cost_per_hr=None, network_volume_id=None,
         )
 
@@ -771,6 +779,53 @@ async def test_provision_cancelled_mid_bringup_terminates_the_pod_and_reraises(p
 
     assert FakeRunPodClient.instances[-1].terminated == ["pod-1"]
     assert resources.get("prof-1", "pod") is None
+
+
+async def test_start_returns_connection_details_for_the_recorded_pod(provisioner, resources, repo):
+    resources.record("prof-1", "pod", "pod-1", meta={"worker_port": 8100})
+    repo.set_plugin_setting(PLUGIN_ID, "worker_token:prof-1", "tok", is_secret=True)
+
+    result = await provisioner.start("prof-1", _noop_report)
+
+    assert result.handle == "prof-1"
+    assert result.resource_ref == "pod-1"
+    assert result.base_url == "https://pod-1-8100.proxy.runpod.net"
+    assert result.worker_token == "tok"
+    assert result.ready is True
+    # The fake's get_pod says RUNNING already - idempotent, no resume call.
+    assert FakeRunPodClient.instances[-1].started == []
+
+
+async def test_start_resumes_an_exited_pod(provisioner, resources, repo, monkeypatch):
+    resources.record("prof-1", "pod", "pod-1", meta={"worker_port": 8100})
+    repo.set_plugin_setting(PLUGIN_ID, "worker_token:prof-1", "tok", is_secret=True)
+
+    class ExitedUntilStartedClient(FakeRunPodClient):
+        async def get_pod(self, pod_id):
+            status = "RUNNING" if pod_id in self.started else "EXITED"
+            return Pod(
+                id=pod_id, name="", image="", desired_status=status, public_ip=None,
+                port_mappings={}, ports=[], cost_per_hr=None, network_volume_id=None,
+            )
+
+    monkeypatch.setattr(provisioner_module, "RunPodClient", ExitedUntilStartedClient)
+
+    result = await provisioner.start("prof-1", _noop_report)
+
+    assert FakeRunPodClient.instances[-1].started == ["pod-1"]
+    assert result.ready is True
+
+
+async def test_start_without_a_recorded_pod_is_a_provisioner_error(provisioner):
+    with pytest.raises(ComputeProvisionerError, match="No pod recorded"):
+        await provisioner.start("prof-1", _noop_report)
+
+
+async def test_start_without_api_key_raises(provisioner, repo):
+    repo._store.pop((PLUGIN_ID, "api_key"))
+
+    with pytest.raises(ComputeProvisionerError):
+        await provisioner.start("prof-1", _noop_report)
 
 
 async def test_stop_stops_without_terminating(provisioner, resources):

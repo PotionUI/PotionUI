@@ -10,6 +10,7 @@ const STAGE_LABELS: Record<string, string> = {
 
 const STATUS_VARIANTS: Record<string, 'success' | 'warning' | 'danger' | 'neutral' | 'signal'> = {
 	provisioning: 'signal',
+	starting: 'signal',
 	running: 'success',
 	stopped: 'neutral',
 	missing: 'danger',
@@ -20,6 +21,23 @@ const STATUS_VARIANTS: Record<string, 'success' | 'warning' | 'danger' | 'neutra
 
 export function statusVariant(status: string): 'success' | 'warning' | 'danger' | 'neutral' | 'signal' {
 	return STATUS_VARIANTS[status] ?? 'neutral';
+}
+
+/** Rows a background job is driving — rendered as a live timeline. */
+export function isBringingUp(status: string): boolean {
+	return status === 'provisioning' || status === 'starting';
+}
+
+/** Title of the live timeline card — mirrors `operations.STARTABLE_STATES`'s
+ * counterpart: `starting` came from a Start, everything else is a fresh
+ * provision. */
+export function bringUpTitle(status: string): string {
+	return status === 'starting' ? 'Starting' : 'Provisioning';
+}
+
+/** Rows the server accepts at `POST /{row_id}/start` (`STARTABLE_STATES`). */
+export function canStart(status: string): boolean {
+	return status === 'stopped' || status === 'unreachable' || status === 'unknown';
 }
 
 /** `snake_case` -> "Snake case" for any stage the conventional list doesn't name. */

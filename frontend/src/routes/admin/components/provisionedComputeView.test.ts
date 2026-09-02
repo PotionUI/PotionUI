@@ -1,10 +1,20 @@
 import { describe, it, expect } from 'vitest';
-import { statusVariant, stageLabel, formatClockTime, checkedAgo, latestPercent } from './provisionedComputeView';
+import {
+	statusVariant,
+	stageLabel,
+	formatClockTime,
+	checkedAgo,
+	latestPercent,
+	isBringingUp,
+	bringUpTitle,
+	canStart
+} from './provisionedComputeView';
 import type { ProvisionProgressEntry } from '$lib/services/admin-api';
 
 describe('statusVariant', () => {
 	it('maps every known status', () => {
 		expect(statusVariant('provisioning')).toBe('signal');
+		expect(statusVariant('starting')).toBe('signal');
 		expect(statusVariant('running')).toBe('success');
 		expect(statusVariant('stopped')).toBe('neutral');
 		expect(statusVariant('missing')).toBe('danger');
@@ -15,6 +25,37 @@ describe('statusVariant', () => {
 
 	it('falls back to neutral for anything else', () => {
 		expect(statusVariant('some_future_status')).toBe('neutral');
+	});
+});
+
+describe('isBringingUp', () => {
+	it('is true only while a background job drives the row', () => {
+		expect(isBringingUp('provisioning')).toBe(true);
+		expect(isBringingUp('starting')).toBe(true);
+		for (const status of ['running', 'stopped', 'missing', 'unreachable', 'failed', 'unknown']) {
+			expect(isBringingUp(status)).toBe(false);
+		}
+	});
+});
+
+describe('bringUpTitle', () => {
+	it('titles a start as Starting and everything else as Provisioning', () => {
+		expect(bringUpTitle('starting')).toBe('Starting');
+		expect(bringUpTitle('provisioning')).toBe('Provisioning');
+	});
+});
+
+describe('canStart', () => {
+	it('mirrors the server-side startable states', () => {
+		expect(canStart('stopped')).toBe(true);
+		expect(canStart('unreachable')).toBe(true);
+		expect(canStart('unknown')).toBe(true);
+	});
+
+	it('refuses rows that are running, being brought up, gone or failed', () => {
+		for (const status of ['running', 'provisioning', 'starting', 'missing', 'failed']) {
+			expect(canStart(status)).toBe(false);
+		}
 	});
 });
 

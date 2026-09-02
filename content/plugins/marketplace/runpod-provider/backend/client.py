@@ -237,6 +237,12 @@ class RunPodClient:
         data = await self._request("POST", f"/pods/{pod_id}/stop")
         return Pod.from_api(data)
 
+    async def start_pod(self, pod_id: str) -> Pod:
+        """Resume a stopped (EXITED) pod. The pod keeps its id, so its proxy
+        URL is unchanged."""
+        data = await self._request("POST", f"/pods/{pod_id}/start")
+        return Pod.from_api(data)
+
     async def terminate_pod(self, pod_id: str) -> None:
         await self._request("DELETE", f"/pods/{pod_id}")
 

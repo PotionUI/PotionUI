@@ -437,6 +437,24 @@ class VastAiComputeProvisioner(ComputeProvisioner):
             return ComputeStatus(STATE_UNREACHABLE, f"Instance {instance.id} running but the worker did not answer")
         return ComputeStatus(STATE_RUNNING, f"Instance {instance.id} running, worker answered")
 
+    async def start(self, handle: str, report) -> ProvisionResult:
+        instance = await self._client.get_instance(self._lookup(handle))
+        if not instance.running:
+            await report(ProvisionProgress(STAGE_STARTING, f"Resuming {instance.id}", 30))
+            await self._client.start_instance(instance.id)
+            while not instance.running:
+                await report(ProvisionProgress(STAGE_STARTING, f"Waiting for {instance.id} ({elapsed}s)", 50))
+                ...
+        for attempt in range(1, 61):
+            await report(ProvisionProgress(STAGE_WAITING_WORKER, f"Waiting for the worker (attempt {attempt}/60)", 70))
+            if await self._handshake(instance):
+                await report(ProvisionProgress(STAGE_READY, "Worker is up", 100))
+                # base_url re-read: Vast.ai may map a different port after a restart
+                return ProvisionResult(handle=handle, base_url=..., worker_token=..., ready=True,
+                                       resource_ref=instance.id)
+            ...
+        return ProvisionResult(..., ready=False)
+
     async def stop(self, handle: str) -> None: ...
     async def terminate(self, handle: str) -> None: ...
 ```
@@ -465,12 +483,26 @@ at once. The bring-up runs in a background task:
    sees `asyncio.CancelledError` at whatever `await` it is on: tear down what
    you already created (core has no `handle` yet, so it cannot) and re-raise.
 
+Starting again works the same way. `POST /api/admin/provisioning/{row_id}/start`
+takes a `stopped`, `unreachable` or `unknown` row (anything else is a 409),
+resets its timeline, sets it to `starting` and runs `start(handle, report)` in
+the background. Report `starting` while the provider brings the resource back,
+then `waiting_worker`/`ready` exactly as in `provision()`. On return core writes
+the result's `base_url`/`worker_token` onto the backend again — return them
+fresh, since a provider may hand a restarted resource a different port — and
+**enables** the backend (an explicit operator action, unlike the heartbeat's
+rule below). `start()` must be idempotent for a resource that is already
+running: skip the provider's start call and go straight to the worker
+handshake, never raise. Failure lands the row on `failed` with the backend
+left disabled; the heartbeat then moves it on to whatever the provider
+reports.
+
 Stages are free strings; the admin UI has labels for `preparing`, `creating`,
 `starting`, `waiting_worker` and `ready`, and humanizes anything else.
 
 ### The heartbeat
 
-Once a row is out of `provisioning`, the status monitor calls `status(handle)`
+Once a row is out of `provisioning`/`starting`, the status monitor calls `status(handle)`
 every `provisioning.status_interval_seconds` (settings table, default 15,
 minimum 5) with a per-call timeout, and writes `status`, `status_detail` and
 `status_checked_at`. Return one of:
@@ -485,7 +517,9 @@ minimum 5) with a per-call timeout, and writes `status`, `status_detail` and
 | `unknown` | you could not ask (raise `ComputeProvisionerError`; core stores the message as detail) |
 
 `detail` is shown verbatim to the admin — make it the provider's own reason
-("Pod abc123 is EXITED (stopped)").
+("Pod abc123 is EXITED (stopped)"). `provisioning` and `starting` are never
+returned by a provisioner: core sets them while one of its own background
+jobs owns the row, and the heartbeat skips such rows.
 
 On a change core broadcasts the row; when the new state is `stopped`,
 `missing` or `failed` it also disables the linked backend so a paused pod

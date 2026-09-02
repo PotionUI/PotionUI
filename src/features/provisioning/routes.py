@@ -18,6 +18,7 @@ from src.features.provisioning.dto import ProviderFieldsRequest, ProvisionComput
 from src.features.provisioning.operations import (
     BackendAlreadyProvisionedError,
     BackendNotFoundError,
+    ComputeNotStartableError,
     ComputeProvisioningJobs,
     InvalidProvisionValuesError,
     NotARemoteBackendError,
@@ -157,6 +158,19 @@ class ProvisioningController(BaseController):
             return self.error_api_response(error="unknown_provider", message=str(e))
         return self.success_response(data=row.to_dict())
 
+    async def start(self, row_id: str) -> APIResponse:
+        try:
+            row = await operations.start_compute(
+                self.registry, self.repository, self.backend_registry, self.hub, self.jobs, row_id
+            )
+        except ProvisionedComputeNotFoundError as e:
+            return self.error_api_response(error="not_found", message=str(e))
+        except UnknownProviderError as e:
+            return self.error_api_response(error="unknown_provider", message=str(e))
+        except ComputeNotStartableError as e:
+            return self.error_response(error="not_startable", message=str(e), status_code=409)
+        return self.success_response(data=row.to_dict())
+
     async def terminate(self, row_id: str) -> APIResponse:
         try:
             await operations.terminate_compute(
@@ -207,6 +221,10 @@ def build_admin_router(container: "AppContainer") -> APIRouter:
     @router.post("/{row_id}/stop", response_model=APIResponse, summary="Stop Provisioned Compute")
     async def stop(row_id: str) -> APIResponse:
         return await controller.stop(row_id)
+
+    @router.post("/{row_id}/start", response_model=APIResponse, summary="Start Provisioned Compute (background)")
+    async def start(row_id: str) -> APIResponse:
+        return await controller.start(row_id)
 
     @router.post("/{row_id}/terminate", response_model=APIResponse, summary="Terminate Provisioned Compute")
     async def terminate(row_id: str) -> APIResponse:

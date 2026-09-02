@@ -57,6 +57,7 @@ class FakeRunPodClient:
         self.created_volumes = []
         self.created_pods = []
         self.stopped = []
+        self.started = []
         self.terminated = []
         self.deleted_volumes = []
         self.pod_to_return = None  # set by a test to force get_pod()'s answer
@@ -110,6 +111,15 @@ class FakeRunPodClient:
             id=pod_id, name="", image="", desired_status="EXITED", public_ip=None,
             port_mappings={}, ports=[], cost_per_hr=None, network_volume_id=None,
         )
+
+    async def start_pod(self, pod_id):
+        self.started.append(pod_id)
+        pod = Pod(
+            id=pod_id, name="", image="", desired_status="RUNNING", public_ip=None,
+            port_mappings={}, ports=[], cost_per_hr=None, network_volume_id=None,
+        )
+        self._pods_by_id[pod_id] = pod
+        return pod
 
     async def terminate_pod(self, pod_id):
         self.terminated.append(pod_id)
@@ -546,6 +556,154 @@ async def test_provision_pod_disappearing_mid_start_raises(resources, repo):
 
 
 # ---- reconcile ---------------------------------------------------------------
+
+# ---- start ---------------------------------------------------------------------
+
+def _pod(pod_id, status):
+    return Pod(
+        id=pod_id, name="", image="", desired_status=status, public_ip=None,
+        port_mappings={}, ports=[], cost_per_hr=None, network_volume_id=None,
+    )
+
+
+def _record_pod(resources, repo, client, *, status="EXITED", token="tok-stored"):
+    resources.record("prof-1", "pod", "pod-1", meta={"worker_port": 8100})
+    if token is not None:
+        repo.set_plugin_setting(PLUGIN_ID, "worker_token:prof-1", token, is_secret=True)
+    client._pods_by_id["pod-1"] = _pod("pod-1", status)
+
+
+def _start_manager(client, resources, repo, **overrides):
+    kwargs = dict(readiness_probe=_always_ready, sleep=_no_sleep)
+    kwargs.update(overrides)
+    return RunPodProvisioningManager(client, resources, repo, **kwargs)
+
+
+async def test_start_resumes_an_exited_pod_and_reports_starting_to_ready(resources, repo, client):
+    _record_pod(resources, repo, client)
+    report = _recording_report()
+
+    result = await _start_manager(client, resources, repo).start("prof-1", report)
+
+    assert client.started == ["pod-1"]
+    assert result.pod_id == "pod-1"
+    assert result.ready is True
+    assert result.base_url == "https://pod-1-8100.proxy.runpod.net"
+    assert result.worker_token == "tok-stored"  # the stored token, never a new one
+    assert _deduped_stages(report.seen) == [STAGE_STARTING, STAGE_READY]
+    assert report.seen[0].message == "Resuming pod pod-1"
+    assert report.seen[1].message == "Pod pod-1 is RUNNING"
+
+
+async def test_start_of_an_already_running_pod_skips_the_resume_call(resources, repo, client):
+    _record_pod(resources, repo, client, status="RUNNING")
+    report = _recording_report()
+
+    result = await _start_manager(client, resources, repo).start("prof-1", report)
+
+    assert client.started == []
+    assert result.ready is True
+    assert result.base_url == "https://pod-1-8100.proxy.runpod.net"
+    assert _deduped_stages(report.seen) == [STAGE_STARTING, STAGE_READY]
+    assert report.seen[0].message == "Pod pod-1 is RUNNING"
+
+
+async def test_start_polls_until_the_resumed_pod_is_running(resources, repo):
+    class SlowResumeClient(FakeRunPodClient):
+        def __init__(self):
+            super().__init__()
+            self.get_pod_calls = 0
+
+        async def start_pod(self, pod_id):
+            self.started.append(pod_id)
+            return _pod(pod_id, "EXITED")
+
+        async def get_pod(self, pod_id):
+            self.get_pod_calls += 1
+            return _pod(pod_id, "RUNNING" if self.get_pod_calls >= 3 else "EXITED")
+
+    client = SlowResumeClient()
+    _record_pod(resources, repo, client)
+    report = _recording_report()
+
+    result = await _start_manager(client, resources, repo, poll_interval_seconds=5).start("prof-1", report)
+
+    assert result.ready is True
+    waiting = [p for p in report.seen if p.stage == STAGE_STARTING and "Waiting for pod" in p.message]
+    assert len(waiting) >= 2
+    elapsed = [int(re.search(r"\((\d+)s", p.message).group(1)) for p in waiting]
+    assert elapsed == sorted(elapsed)
+    assert elapsed[0] < elapsed[-1]
+
+
+async def test_start_pod_that_never_reaches_running_raises(resources, repo):
+    class StuckClient(FakeRunPodClient):
+        async def start_pod(self, pod_id):
+            return _pod(pod_id, "EXITED")
+
+        async def get_pod(self, pod_id):
+            return _pod(pod_id, "EXITED")
+
+    client = StuckClient()
+    _record_pod(resources, repo, client)
+    manager = _start_manager(client, resources, repo, pod_start_timeout_seconds=10, poll_interval_seconds=5)
+
+    with pytest.raises(RunPodAPIError, match="did not reach RUNNING"):
+        await manager.start("prof-1", _noop_report)
+
+
+async def test_start_returns_not_ready_when_the_worker_never_answers(resources, repo, client):
+    _record_pod(resources, repo, client)
+    report = _recording_report()
+    manager = _start_manager(client, resources, repo, readiness_probe=_never_ready, handshake_attempts=2)
+
+    result = await manager.start("prof-1", report)
+
+    assert result.ready is False
+    assert result.base_url == "https://pod-1-8100.proxy.runpod.net"
+    assert _deduped_stages(report.seen) == [STAGE_STARTING, STAGE_WAITING_WORKER]
+
+
+async def test_start_returns_the_recorded_volume_id(resources, repo, client):
+    _record_pod(resources, repo, client)
+    resources.record("prof-1", "network_volume", "vol-9", meta={"data_center_id": "US-TX-3"})
+
+    result = await _start_manager(client, resources, repo).start("prof-1", _noop_report)
+
+    assert result.volume_id == "vol-9"
+
+
+async def test_start_without_a_recorded_pod_raises(resources, repo, client):
+    with pytest.raises(RunPodAPIError, match="No pod recorded"):
+        await _start_manager(client, resources, repo).start("prof-1", _noop_report)
+
+
+async def test_start_without_a_stored_worker_token_raises(resources, repo, client):
+    _record_pod(resources, repo, client, token=None)
+
+    with pytest.raises(RunPodAPIError, match="Worker token missing"):
+        await _start_manager(client, resources, repo).start("prof-1", _noop_report)
+    assert client.started == []
+
+
+async def test_start_of_a_pod_gone_on_runpod_raises(resources, repo, client):
+    resources.record("prof-1", "pod", "pod-1", meta={"worker_port": 8100})
+    repo.set_plugin_setting(PLUGIN_ID, "worker_token:prof-1", "tok", is_secret=True)
+
+    with pytest.raises(RunPodAPIError, match="no longer exists"):
+        await _start_manager(client, resources, repo).start("prof-1", _noop_report)
+    assert client.started == []
+
+
+async def test_start_of_a_terminated_pod_raises(resources, repo, client):
+    _record_pod(resources, repo, client, status="TERMINATED")
+
+    with pytest.raises(RunPodAPIError, match="TERMINATED"):
+        await _start_manager(client, resources, repo).start("prof-1", _noop_report)
+    assert client.started == []
+
+
+# ---- reconcile -----------------------------------------------------------------
 
 async def test_reconcile_missing_when_nothing_recorded(resources, repo, client):
     manager = RunPodProvisioningManager(client, resources, repo)

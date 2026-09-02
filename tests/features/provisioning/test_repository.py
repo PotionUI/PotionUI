@@ -133,6 +133,24 @@ class TestUpdateAndDelete(ProvisionedComputeRepositoryTestBase):
     def test_append_progress_missing_row_returns_false(self):
         self.assertFalse(self.repo.append_progress("does-not-exist", {"stage": "x", "message": "y"}))
 
+    def test_clear_progress_empties_the_timeline_and_leaves_the_rest_alone(self):
+        row = self.repo.create(provider_id="fake", handle="prof-1", profile_name="prof-1", status="stopped")
+        for message in ("first", "second"):
+            self.repo.append_progress(row.id, {
+                "stage": "starting", "message": message, "percent": None, "at": "2026-09-02T10:00:00+00:00",
+            })
+
+        self.assertTrue(self.repo.clear_progress(row.id))
+
+        fetched = self.repo.get_by_id(row.id)
+        self.assertEqual(fetched.progress, [])
+        self.assertEqual(fetched.status, "stopped")
+        self.assertEqual(fetched.handle, "prof-1")
+        self.assertEqual(fetched.status_detail, "second")
+
+    def test_clear_progress_missing_row_returns_false(self):
+        self.assertFalse(self.repo.clear_progress("does-not-exist"))
+
     def test_delete_removes_the_row(self):
         row = self.repo.create(provider_id="fake", handle="prof-1", profile_name="prof-1", status="running")
 

@@ -1281,6 +1281,14 @@ export async function stopProvisionedCompute(rowId: string): Promise<APIResponse
 	return response.data;
 }
 
+/** Brings a stopped row back: returns at once with the row in `starting`; the
+ * bring-up streams over `compute_status` like provisioning. A row that is not
+ * startable (running, still being brought up, missing) is a real 409. */
+export async function startProvisionedCompute(rowId: string): Promise<APIResponse<ProvisionedCompute>> {
+	const response = await api.getClient().post(`/api/admin/provisioning/${rowId}/start`);
+	return response.data;
+}
+
 export async function terminateProvisionedCompute(rowId: string): Promise<APIResponse<{ terminated: string }>> {
 	const response = await api.getClient().post(`/api/admin/provisioning/${rowId}/terminate`);
 	return response.data;

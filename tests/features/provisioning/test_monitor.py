@@ -15,11 +15,15 @@ from src.features.provisioning.monitor import (
     resolve_interval,
 )
 
+from src.features.provisioning import operations
+
 from tests.features.provisioning.test_operations import (
     Collaborators,
     FakeProvisioner,
     ProvisionProgress,
+    _HangingStartProvisioner,
     _seed_remote_backend,
+    _stopped_row,
 )
 
 
@@ -181,6 +185,40 @@ async def test_rows_with_a_running_job_are_skipped():
     assert c.repository.get_by_id(row.id).status == "provisioning"
     assert c.hub.messages == []
     await c.jobs.cancel(row.id)
+
+
+async def test_starting_rows_with_a_running_job_are_skipped():
+    c = Collaborators(_HangingStartProvisioner())
+    row = await _stopped_row(c)
+    await operations.start_compute(c.registry, c.repository, c.backend_registry, c.hub, c.jobs, row.id)
+    await asyncio.sleep(0)
+    c.hub.messages.clear()
+    c.provisioner.status_state = "stopped"  # what the provider would say mid-resume
+
+    await _monitor(c).tick()
+
+    assert c.repository.get_by_id(row.id).status == "starting"
+    assert c.hub.messages == []
+    await c.jobs.cancel(row.id)
+
+
+async def test_a_starting_row_with_no_job_behind_it_is_asked_about_not_failed():
+    """The process died mid-start: the resource exists, so the provider's
+    answer is the truth - and the backend still is not re-enabled, since only
+    the operator's own start does that."""
+    c = Collaborators()
+    row = await _stopped_row(c)
+    c.repository.update_status(row.id, "starting", detail="Starting")
+    c.provisioner.status_state = "running"
+    c.provisioner.status_detail = "Pod pod-1 RUNNING, worker answered"
+
+    await _monitor(c).tick()
+
+    fresh = c.repository.get_by_id(row.id)
+    assert fresh.status == "running"
+    assert fresh.status_detail == "Pod pod-1 RUNNING, worker answered"
+    assert c.backend().enabled is False
+    assert [r["status"] for r in c.hub.rows()] == ["running"]
 
 
 async def test_a_provisioning_row_with_no_job_behind_it_is_failed():

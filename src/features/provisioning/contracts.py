@@ -5,7 +5,7 @@ A provisioner turns a `ProvisionRequest` into a running Remote Native worker
 and reports/tears down its lifecycle. It never touches a `native.remote`
 backend row - that's core's job (`src.features.provisioning.operations`),
 driven by the `handle` a provisioner hands back from `provision()` and
-expects unchanged in later `status`/`stop`/`terminate` calls. `handle` is
+expects unchanged in later `status`/`start`/`stop`/`terminate` calls. `handle` is
 entirely the provisioner's choice; core only stores and echoes it back.
 """
 
@@ -15,16 +15,20 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, ClassVar, Dict, List, Optional
 
-#: Every state a `ProvisionedCompute` row can be in. `provisioning` and `failed`
-#: are core's own (the background bring-up job sets them); a provisioner's
-#: `status()` reports the rest:
+#: Every state a `ProvisionedCompute` row can be in. `provisioning`, `starting`
+#: and `failed` are core's own (the background bring-up jobs set them); a
+#: provisioner's `status()` reports the rest:
+#:   provisioning - `provision()` is running in the background.
+#:   starting    - `start()` is running in the background (a stopped resource
+#:                 being brought back).
 #:   running     - the provider says the resource is up AND the worker answers.
 #:   stopped     - paused/exited, by the operator or by the provider.
 #:   missing     - the provider no longer knows the handle.
 #:   unreachable - the provider says running but the worker handshake fails.
-#:   failed      - `provision()` raised; the row keeps the message as detail.
+#:   failed      - `provision()`/`start()` raised; the row keeps the message as detail.
 #:   unknown     - the provider could not be asked (an API error, a timeout).
 STATE_PROVISIONING = "provisioning"
+STATE_STARTING = "starting"
 STATE_RUNNING = "running"
 STATE_STOPPED = "stopped"
 STATE_MISSING = "missing"
@@ -32,7 +36,7 @@ STATE_UNREACHABLE = "unreachable"
 STATE_FAILED = "failed"
 STATE_UNKNOWN = "unknown"
 COMPUTE_STATES = (
-    STATE_PROVISIONING, STATE_RUNNING, STATE_STOPPED, STATE_MISSING,
+    STATE_PROVISIONING, STATE_STARTING, STATE_RUNNING, STATE_STOPPED, STATE_MISSING,
     STATE_UNREACHABLE, STATE_FAILED, STATE_UNKNOWN,
 )
 
@@ -91,12 +95,15 @@ class ProvisionRequest:
 
 @dataclass(frozen=True)
 class ProvisionResult:
-    """What a provisioner hands back after a successful `provision()`.
+    """What a provisioner hands back after a successful `provision()` or
+    `start()`.
 
-    `handle` is passed back unchanged to every later `status`/`stop`/
+    `handle` is passed back unchanged to every later `status`/`start`/`stop`/
     `terminate` call - it is the provisioner's own identifier for the
     resource, not anything core invents. `base_url`/`worker_token` are what
-    core needs to create the `native.remote` backend row.
+    core needs to create the `native.remote` backend row; `start()` returns
+    them again because a provider may hand out a different port (and so a
+    different URL) when a stopped resource comes back.
     """
     handle: str
     base_url: str
@@ -187,12 +194,29 @@ class ComputeProvisioner(ABC):
         before re-raising - core cannot, since no `handle` exists yet."""
 
     @abstractmethod
+    async def start(self, handle: str, report: ProgressReporter) -> ProvisionResult:
+        """Bring a stopped resource back and wait for the Remote Native worker
+        on it, reporting progress the same way `provision()` does (`STAGE_STARTING`
+        while the provider brings it up, `STAGE_WAITING_WORKER`, `STAGE_READY`).
+        Raises `ComputeProvisionerError` on failure.
+
+        Returns a fresh `ProvisionResult` with the same `handle`: `base_url`
+        and `worker_token` are re-read because a provider may assign a
+        different port to a restarted resource. Must be idempotent for a
+        resource that is already running - skip the provider's start call and
+        go straight to waiting for the worker, never raise.
+
+        Runs as a background task and may be cancelled (an operator terminating
+        the row mid-start); the resource already exists, so `terminate()` is
+        what cleans up afterwards - nothing to tear down here."""
+
+    @abstractmethod
     async def status(self, handle: str) -> ComputeStatus:
         """Reconcile the resource identified by `handle` against the provider."""
 
     @abstractmethod
     async def stop(self, handle: str) -> None:
-        """Stop the resource without destroying it - it can be started again.
+        """Stop the resource without destroying it - `start()` brings it back.
         A resource that no longer exists on the provider is not an error."""
 
     @abstractmethod

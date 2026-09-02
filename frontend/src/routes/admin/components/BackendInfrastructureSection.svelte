@@ -13,20 +13,32 @@
 		getProvisionedComputeByBackend,
 		provisionCompute,
 		refreshProvisionedComputeStatus,
+		startProvisionedCompute,
 		stopProvisionedCompute,
 		terminateProvisionedCompute
 	} from '$lib/services/admin-api';
 	import type { ComputeField, ComputeProvider, ProvisionedCompute } from '$lib/services/admin-api';
-	import { statusVariant, stageLabel, formatClockTime, checkedAgo, latestPercent } from './provisionedComputeView';
+	import {
+		statusVariant,
+		stageLabel,
+		formatClockTime,
+		checkedAgo,
+		latestPercent,
+		isBringingUp,
+		bringUpTitle,
+		canStart
+	} from './provisionedComputeView';
 
 	/**
 	 * Shown on a backend's detail pane. Three states, discriminated by whether
 	 * `GET by-backend/{id}` finds a linked row and (when it doesn't) whether
 	 * this is an unconfigured `native.remote` backend:
 	 *  - a linked `ProvisionedCompute` row exists → a status card keyed off
-	 *    `row.status` (provisioning/running/stopped/missing/unreachable/failed/unknown),
+	 *    `row.status` (provisioning/starting/running/stopped/missing/unreachable/failed/unknown),
 	 *    kept live by the admin WebSocket's `compute_status` broadcasts, with a
-	 *    30s poll as a fallback if the socket drops.
+	 *    30s poll as a fallback if the socket drops. A stopped row's "Start"
+	 *    (`POST /{id}/start`) flips it to `starting` and streams the same
+	 *    timeline provisioning does.
 	 *  - no row, and the backend is an unconfigured `native.remote` row → the
 	 *    provision form (provider select → dynamic descriptor fields → Provision),
 	 *    which rents compute through a `ComputeProvisioner` plugin and fills this
@@ -68,6 +80,7 @@
 	let row = $state<ProvisionedCompute | null>(null);
 	let pendingAction = $state<'stop' | 'terminate' | null>(null);
 	let acting = $state(false);
+	let starting = $state(false);
 	// Ticks every 5s purely to force the `checkedAgo(row.status_checked_at)`
 	// label to re-render - the label's own computation always reads the clock.
 	let checkedAgoTick = $state(0);
@@ -170,6 +183,24 @@
 		} finally {
 			acting = false;
 			pendingAction = null;
+		}
+	}
+
+	async function startCompute() {
+		if (!row || starting) return;
+		starting = true;
+		try {
+			const response = await startProvisionedCompute(row.id);
+			if (response.success && response.data) {
+				row = response.data;
+				toasts.info(`Starting "${row.profile_name}"…`);
+			} else {
+				toasts.error(response.message || 'Failed to start compute');
+			}
+		} catch (e: unknown) {
+			toasts.error(getApiErrorMessage(e, 'Failed to start compute'));
+		} finally {
+			starting = false;
 		}
 	}
 
@@ -355,8 +386,9 @@
 			<Badge variant={statusVariant(row!.status)} size="sm" dot class="uppercase">{row!.status}</Badge>
 		{/snippet}
 		<div class="space-y-4">
-			{#if row.status === 'provisioning'}
+			{#if isBringingUp(row.status)}
 				{@const percent = latestPercent(row.progress)}
+				<p class="text-sm font-medium text-fg">{bringUpTitle(row.status)}</p>
 				{#if percent !== null}
 					<div class="space-y-1">
 						<div class="h-1 rounded bg-surface-3 overflow-hidden">
@@ -411,16 +443,29 @@
 				{/if}
 
 				<div class="flex items-center justify-end gap-2">
-					<Button
-						variant="secondary"
-						size="sm"
-						icon="pause"
-						disabled={acting || row.status !== 'running'}
-						onclick={requestStop}
-					>
-						Stop
-					</Button>
-					<Button variant="danger" size="sm" icon="trash" disabled={acting} onclick={requestTerminate}>
+					{#if canStart(row.status)}
+						<Button
+							variant="secondary"
+							size="sm"
+							icon="play"
+							loading={starting}
+							disabled={acting || starting}
+							onclick={startCompute}
+						>
+							Start
+						</Button>
+					{:else}
+						<Button
+							variant="secondary"
+							size="sm"
+							icon="pause"
+							disabled={acting || row.status !== 'running'}
+							onclick={requestStop}
+						>
+							Stop
+						</Button>
+					{/if}
+					<Button variant="danger" size="sm" icon="trash" disabled={acting || starting} onclick={requestTerminate}>
 						Terminate
 					</Button>
 				</div>
@@ -434,8 +479,10 @@
 		message={pendingAction === 'terminate'
 			? row.status === 'provisioning'
 				? `Cancel provisioning of "${row.profile_name}"? The half-built pod is torn down and this backend returns to "Not configured".`
-				: `Terminate "${row.profile_name}"? This tears down the pod and clears this backend's connection, returning it to "Not configured". This cannot be undone.`
-			: `Stop "${row.profile_name}"? This backend is disabled until it's re-provisioned. Models on its volume persist.`}
+				: row.status === 'starting'
+					? `Cancel starting "${row.profile_name}"? The pod is torn down and this backend returns to "Not configured".`
+					: `Terminate "${row.profile_name}"? This tears down the pod and clears this backend's connection, returning it to "Not configured". This cannot be undone.`
+			: `Stop "${row.profile_name}"? This backend is disabled until it's started again. Models on its volume persist.`}
 		variant={pendingAction === 'terminate' ? 'danger' : 'warning'}
 		busy={acting}
 		on:confirm={confirmPendingAction}

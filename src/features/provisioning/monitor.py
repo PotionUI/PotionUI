@@ -22,6 +22,7 @@ from src.features.provisioning.contracts import (
     ComputeProvisionerError,
 )
 from src.features.provisioning.operations import (
+    BRING_UP_STATES,
     ComputeProvisioningJobs,
     broadcast_compute_status,
     disable_backend,
@@ -114,11 +115,12 @@ class ComputeStatusMonitor:
                 logger.error("Reconciling provisioned compute %s failed: %s", row.id, exc, exc_info=True)
 
     async def _reconcile(self, row) -> None:
+        if row.status in BRING_UP_STATES and self._jobs is not None and self._jobs.is_running(row.id):
+            return
         if row.status == STATE_PROVISIONING:
-            if self._jobs is not None and self._jobs.is_running(row.id):
-                return
             # A `provisioning` row with no job behind it is one the process
-            # died on - nothing will ever finish it.
+            # died on - nothing will ever finish it. A `starting` row in the
+            # same spot has a handle, so it is simply asked about below.
             state, detail = STATE_FAILED, "Provisioning was interrupted by a server restart"
         elif not row.handle:
             return

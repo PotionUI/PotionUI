@@ -71,6 +71,7 @@ GATED = [
     ),
     ("get", "/api/admin/provisioning/row-1", None),
     ("post", "/api/admin/provisioning/row-1/stop", None),
+    ("post", "/api/admin/provisioning/row-1/start", None),
     ("post", "/api/admin/provisioning/row-1/terminate", None),
 ]
 
@@ -150,6 +151,79 @@ def test_provision_returns_a_provisioning_row_at_once_then_the_job_fills_the_bac
         assert surviving_backend.enabled is False
         assert surviving_backend.base_url == ""
         assert repository.get_by_id(row_id) is None
+
+
+def _wait_until_enabled(backend_registry, backend_id, enabled=True):
+    import time
+
+    for _ in range(50):
+        if backend_registry.backend_config_store.get_backend(backend_id).enabled is enabled:
+            return
+        time.sleep(0.02)
+    raise AssertionError(f"backend {backend_id} never became enabled={enabled}")
+
+
+def test_start_a_stopped_row_returns_starting_then_the_job_enables_the_backend():
+    app, provisioner, repository, backend_registry = _make_client()
+    app.dependency_overrides[get_current_active_user] = lambda: _user(AccountType.ADMIN)
+    _seed_remote_backend_sync(backend_registry, backend_id="remote-1")
+
+    with TestClient(app) as client:
+        row_id = client.post(
+            "/api/admin/provisioning",
+            json={"provider_id": "fake", "backend_id": "remote-1", "values": {"gpu_type_id": "fake-gpu"}},
+        ).json()["data"]["id"]
+        _wait_until_enabled(backend_registry, "remote-1")
+        assert client.post(f"/api/admin/provisioning/{row_id}/stop").json()["data"]["status"] == "stopped"
+        assert backend_registry.backend_config_store.get_backend("remote-1").enabled is False
+
+        response = client.post(f"/api/admin/provisioning/{row_id}/start")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["success"] is True
+        assert body["data"]["status"] == "starting"
+        assert body["data"]["progress"] == []
+
+        _wait_until_enabled(backend_registry, "remote-1")
+        backend = backend_registry.backend_config_store.get_backend("remote-1")
+        assert backend.base_url == "https://fake-worker-restarted:8100"
+        assert provisioner.started == ["RunPod A100"]
+
+        fresh = client.get(f"/api/admin/provisioning/by-backend/remote-1").json()["data"]
+        assert fresh["status"] == "running"
+        assert [e["stage"] for e in fresh["progress"]] == ["starting", "waiting_worker", "ready"]
+
+
+def test_start_a_running_row_is_a_409():
+    app, provisioner, repository, backend_registry = _make_client()
+    app.dependency_overrides[get_current_active_user] = lambda: _user(AccountType.ADMIN)
+    _seed_remote_backend_sync(backend_registry, backend_id="remote-1")
+
+    with TestClient(app) as client:
+        row_id = client.post(
+            "/api/admin/provisioning",
+            json={"provider_id": "fake", "backend_id": "remote-1", "values": {"gpu_type_id": "fake-gpu"}},
+        ).json()["data"]["id"]
+        _wait_until_enabled(backend_registry, "remote-1")
+
+        response = client.post(f"/api/admin/provisioning/{row_id}/start")
+
+        assert response.status_code == 409
+        assert provisioner.started == []
+        assert repository.get_by_id(row_id).status == "running"
+
+
+def test_start_unknown_row_is_a_clean_error_not_a_500():
+    app, *_ = _make_client()
+    app.dependency_overrides[get_current_active_user] = lambda: _user(AccountType.ADMIN)
+    client = TestClient(app)
+
+    response = client.post("/api/admin/provisioning/missing/start")
+
+    assert response.status_code == 200
+    assert response.json()["success"] is False
+    assert response.json()["error"] == "not_found"
 
 
 def test_provision_unknown_backend_is_a_clean_error_not_a_500():

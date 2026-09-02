@@ -1,5 +1,5 @@
-"""Plan / provision / reconcile / deprovision for one RunPod provisioning
-profile.
+"""Plan / provision / reconcile / start / deprovision for one RunPod
+provisioning profile.
 
 Provisions infrastructure only; returns connection details
 `{base_url, worker_token}` for the backend that wires up the worker. RunPod
@@ -274,6 +274,46 @@ class RunPodProvisioningManager:
             90,
         ))
         return False
+
+    async def start(self, profile_name: str, report: ProgressReporter) -> ProvisionResult:
+        """Resume this profile's recorded pod and wait for the worker, with
+        the same polling/handshake reporting as `provision`. A pod already
+        RUNNING skips the resume call and goes straight to the handshake -
+        an operator can start an `unreachable` row to re-wait for the worker."""
+        pod_record = self._resources.get(profile_name, "pod")
+        if pod_record is None:
+            raise RunPodAPIError(0, "No pod recorded for this profile - provision again")
+
+        worker_token = self._read_worker_token(profile_name)
+        if worker_token is None:
+            raise RunPodAPIError(0, "Worker token missing - terminate and provision again")
+
+        try:
+            pod = await self._client.get_pod(pod_record.runpod_id)
+        except RunPodNotFoundError as exc:
+            raise RunPodAPIError(0, f"Pod {pod_record.runpod_id} no longer exists on RunPod") from exc
+
+        if pod.desired_status == "TERMINATED":
+            raise RunPodAPIError(0, f"Pod {pod.id} is TERMINATED - terminate this compute and provision again")
+
+        if pod.desired_status != "RUNNING":
+            await report(ProvisionProgress(STAGE_STARTING, f"Resuming pod {pod.id}", 30))
+            pod = await self._client.start_pod(pod.id)
+
+        pod = await self._wait_for_pod_running(pod, report)
+
+        worker_port = pod_record.meta.get("worker_port", 8100)
+        base_url = _proxy_url(pod.id, worker_port)
+        ready = await self._wait_for_worker(base_url, worker_token, report)
+
+        volume_record = self._resources.get(profile_name, "network_volume")
+        return ProvisionResult(
+            pod_id=pod.id,
+            volume_id=volume_record.runpod_id if volume_record is not None else None,
+            base_url=base_url,
+            worker_token=worker_token,
+            ready=ready,
+        )
 
     async def reconcile(self, profile_name: str) -> ReconcileOutcome:
         pod_record = self._resources.get(profile_name, "pod")

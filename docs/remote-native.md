@@ -446,7 +446,15 @@ providers:
   backend" rather than guessing. `GET /api/admin/provisioning/{row_id}` runs
   the same reconcile on demand. A row left in `provisioning` by a server
   restart is marked `failed` on the first tick, since nothing will finish it.
+- **Start again.** A `stopped` (or `unreachable`/`unknown`) row has a "Start"
+  action: `POST /api/admin/provisioning/{row_id}/start` sets it to `starting`
+  and runs the provisioner's `start(handle)` in the background with the same
+  live timeline (`starting`, `waiting_worker`, `ready`). When the worker
+  answers, the backend gets the (possibly new) connection details and is
+  enabled — this is an explicit operator start, so unlike the heartbeat it
+  does re-enable. A failure lands as `failed` with the provider's message and
+  the backend stays disabled.
 
-State vocabulary: `provisioning | running | stopped | missing | unreachable |
-failed | unknown` — see the "Contributing a compute provisioner" section of
-`docs/plugin-api.md` for what a provisioner returns and when.
+State vocabulary: `provisioning | starting | running | stopped | missing |
+unreachable | failed | unknown` — see the "Contributing a compute provisioner"
+section of `docs/plugin-api.md` for what a provisioner returns and when.

@@ -10,6 +10,7 @@ import {
 	isDefaultSyncFilters,
 	capSyncRows,
 	distinctModelTypes,
+	workerModelPath,
 	DEFAULT_STATUS_FILTER
 } from './backendModelsSync';
 import type { RemoteModelSyncRow, WorkerModelTransfer } from '$lib/services/admin-api';
@@ -89,7 +90,7 @@ function row(overrides: Partial<RemoteModelSyncRow> = {}): RemoteModelSyncRow {
 		model_type: 'checkpoints',
 		size_bytes: 100,
 		status: 'missing',
-		providers_can_fetch: true,
+		relative_path: 'checkpoints/checkpoint.safetensors',
 		...overrides
 	};
 }
@@ -171,6 +172,39 @@ describe('capSyncRows', () => {
 	it('truncates to the cap and reports it', () => {
 		const rows = [1, 2, 3, 4, 5];
 		expect(capSyncRows(rows, 3)).toEqual({ rows: [1, 2, 3], truncated: true });
+	});
+});
+
+describe('workerModelPath', () => {
+	it('joins depot_dir and relative_path', () => {
+		expect(workerModelPath('/models', 'checkpoints/model.safetensors')).toBe(
+			'/models/checkpoints/model.safetensors'
+		);
+	});
+
+	it('tolerates a trailing slash on depot_dir', () => {
+		expect(workerModelPath('/models/', 'checkpoints/model.safetensors')).toBe(
+			'/models/checkpoints/model.safetensors'
+		);
+	});
+
+	it('tolerates a leading slash on relative_path', () => {
+		expect(workerModelPath('/models', '/checkpoints/model.safetensors')).toBe(
+			'/models/checkpoints/model.safetensors'
+		);
+	});
+});
+
+describe('workerModelPath without a depot root', () => {
+	it('falls back to the relative path when the worker reported no depot_dir', () => {
+		expect(workerModelPath(undefined, 'checkpoints/model.safetensors')).toBe(
+			'checkpoints/model.safetensors'
+		);
+		expect(workerModelPath('', 'checkpoints/model.safetensors')).toBe('checkpoints/model.safetensors');
+	});
+
+	it('is empty when the row carries no relative_path', () => {
+		expect(workerModelPath('/models', undefined)).toBe('');
 	});
 });
 

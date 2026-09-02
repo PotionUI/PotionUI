@@ -1,7 +1,6 @@
 """Admin model-sync ops against a REAL worker app (`httpx.ASGITransport`,
-never a real socket) - sync view join, push, and fetch (with a faked
-provider). A `FakeModelRepository` stands in for the database, same idiom as
-`test_model_bundle_staging.py`."""
+never a real socket) - sync view join and push. A `FakeModelRepository`
+stands in for the database, same idiom as `test_model_bundle_staging.py`."""
 
 from __future__ import annotations
 
@@ -11,15 +10,12 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import Dict, List, Optional
-from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 
 from src.bootstrap.worker_app import create_worker_app
 from src.bootstrap.worker_container import WorkerContainer
 from src.features.models.records import Model
-from src.features.models.records import ModelInfo as ModelProviderLink
-from src.features.providers import ProviderCapability, ProviderMetadata, RemoteDownloadRef
 from src.features.remote_execution import ops
 from src.features.remote_execution.transport import WorkerTransport
 from src.features.remote_execution.worker.config import WorkerConfig
@@ -148,32 +144,27 @@ class TestSyncView(OpsTestCase):
         ))
         self._stage_on_worker(role="lora", filename="style.safetensors", content=worker_content)
 
-        rows = self._run(ops.sync_view(self.repo, MagicMock(), self.transport))
-        by_id = {r["model_id"]: r for r in rows}
+        view = self._run(ops.sync_view(self.repo, self.transport))
+        by_id = {r["model_id"]: r for r in view["models"]}
 
         self.assertEqual(by_id["m-missing"]["status"], "missing")
         self.assertEqual(by_id["m-present"]["status"], "on_worker")
         self.assertEqual(by_id["m-stale"]["status"], "digest_mismatch")
+        self.assertEqual(by_id["m-missing"]["relative_path"], _relative_path("checkpoint", "dit.safetensors"))
+        self.assertEqual(by_id["m-present"]["relative_path"], _relative_path("vae", "vae.safetensors"))
 
     def test_directory_layout_models_are_excluded(self):
         self.repo.add(Model(id="m-dir", filename="gemma3", model_type="llm", is_directory=True, providers=[]))
 
-        rows = self._run(ops.sync_view(self.repo, MagicMock(), self.transport))
-        self.assertEqual(rows, [])
+        view = self._run(ops.sync_view(self.repo, self.transport))
+        self.assertEqual(view["models"], [])
 
-    def test_a_linkless_model_can_fetch_when_a_provider_supports_hash_lookup(self):
-        content = b"checkpoint bytes" * 100
-        self.repo.add(_model(
-            model_id="m-linkless", filename="dit.safetensors", role="checkpoint",
-            file_path=str(self._source("dit.safetensors", content)), content=content,
-        ))
+    def test_reports_the_worker_depot_root_and_type_directory_layout(self):
+        view = self._run(ops.sync_view(self.repo, self.transport))
 
-        registry = MagicMock()
-        registry.get_providers_with_capability.return_value = [MagicMock()]
-
-        rows = self._run(ops.sync_view(self.repo, registry, self.transport))
-
-        self.assertTrue(rows[0]["providers_can_fetch"])
+        self.assertEqual(view["depot_dir"], str(self.model_depot.depot_dir.resolve()))
+        self.assertEqual(view["layout"]["checkpoint"], "checkpoints")
+        self.assertEqual(view["layout"], dict(MODEL_TYPE_TO_DIRECTORY))
 
 
 # -- push -----------------------------------------------------------------
@@ -211,65 +202,6 @@ class TestPushModels(OpsTestCase):
         self.assertEqual(by_id["does-not-exist"]["error"], "model not found")
         self.assertIsNone(by_id["does-not-exist"]["transfer_id"])
         self.assertIsNotNone(by_id["m-1"]["transfer_id"])
-
-
-# -- fetch ------------------------------------------------------------------
-
-def _linked_model(*, sha256: str, file_size: int) -> Model:
-    link = ModelProviderLink(model_id="m-fetch", provider="fake-provider", provider_model_id="123")
-    return Model(
-        id="m-fetch", filename="dit.safetensors", model_type="checkpoint", file_path="/host/dit.safetensors",
-        sha256=sha256, file_size=file_size, providers=[link],
-    )
-
-
-class TestFetchModels(OpsTestCase):
-    def _provider_registry(self, provider) -> MagicMock:
-        registry = MagicMock()
-        registry.get_provider.return_value = provider
-        return registry
-
-    def _fake_provider(self, *, ref: RemoteDownloadRef) -> MagicMock:
-        provider = MagicMock()
-        provider.get_metadata.return_value = ProviderMetadata(
-            id="fake-provider", name="Fake", description="", website="",
-            capabilities=[ProviderCapability.REMOTE_DOWNLOAD],
-        )
-        provider.resolve_remote_download = AsyncMock(return_value=ref)
-        return provider
-
-    def test_a_linked_model_is_resolved_and_handed_to_the_worker_to_pull(self):
-        content = b"checkpoint bytes" * 1000
-        digest = hashlib.sha256(content).hexdigest()
-        self.repo.add(_linked_model(sha256=digest, file_size=len(content)))
-
-        ref = RemoteDownloadRef(url="https://cdn.example.invalid/dit.safetensors")
-        provider = self._fake_provider(ref=ref)
-        registry = self._provider_registry(provider)
-
-        results = self._run(ops.fetch_models(
-            ["m-fetch"], model_repository=self.repo, provider_registry=registry, transport=self.transport,
-        ))
-
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["model_id"], "m-fetch")
-        self.assertIsNotNone(results[0]["transfer_id"])
-        provider.resolve_remote_download.assert_awaited_once_with("123", None)
-
-    def test_an_unlinked_model_is_a_typed_per_model_failure_not_a_batch_failure(self):
-        content = b"checkpoint bytes" * 10
-        self.repo.add(_model(
-            model_id="m-unlinked", filename="unlinked.safetensors", role="checkpoint",
-            file_path=str(self._source("unlinked.safetensors", content)), content=content,
-        ))
-
-        results = self._run(ops.fetch_models(
-            ["m-unlinked"], model_repository=self.repo, provider_registry=MagicMock(), transport=self.transport,
-        ))
-
-        self.assertEqual(results[0]["model_id"], "m-unlinked")
-        self.assertIsNone(results[0]["transfer_id"])
-        self.assertIn("error", results[0])
 
 
 if __name__ == "__main__":

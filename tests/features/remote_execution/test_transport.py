@@ -200,6 +200,45 @@ class TestHandshake:
             await bad.handshake()
 
 
+# -- depot listing ------------------------------------------------------------
+
+@pytest.fixture
+def transport_with_depot(container: WorkerContainer, tmp_path: Path) -> WorkerTransport:
+    from src.features.remote_execution.worker.model_depot import ModelDepot
+
+    container.model_depot = ModelDepot(depot_dir=tmp_path / "models")
+    app = create_worker_app(container=container)
+    return WorkerTransport("http://fake-worker", TOKEN, transport=httpx.ASGITransport(app=app))
+
+
+class TestListDepot:
+    @pytest.mark.asyncio
+    async def test_reports_the_worker_depot_root_alongside_its_entries(self, transport_with_depot, container):
+        depot = await transport_with_depot.list_depot()
+
+        assert depot["depot_dir"] == str(container.model_depot.depot_dir.resolve())
+        assert depot["entries"] == []
+
+    @pytest.mark.asyncio
+    async def test_list_models_still_returns_just_the_entries(self, transport_with_depot):
+        assert await transport_with_depot.list_models() == []
+
+    @pytest.mark.asyncio
+    async def test_a_worker_predating_depot_dir_reports_an_unknown_root(self):
+        transport = _mock_transport(200, content_type="application/json", body='{"entries": []}')
+
+        depot = await transport.list_depot()
+
+        assert depot == {"depot_dir": None, "entries": []}
+
+    @pytest.mark.asyncio
+    async def test_a_body_missing_entries_is_a_protocol_error(self):
+        transport = _mock_transport(200, content_type="application/json", body='{"depot_dir": "/models"}')
+
+        with pytest.raises(WorkerProtocolError):
+            await transport.list_depot()
+
+
 # -- gateway-down classification ---------------------------------------------
 #
 # A RunPod (or any) HTTP gateway in front of a stopped/still-starting pod

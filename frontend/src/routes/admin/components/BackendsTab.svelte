@@ -748,14 +748,17 @@
 	<Alert variant="info" density="compact">
 		A Remote Native backend needs a running worker. Paste the URL of a worker you started
 		yourself, or provision one from this backend's Infrastructure tab — its URL and token are
-		filled in for you automatically.
+		filled in for you automatically. Models must live under POTIONUI_WORKER_MODEL_DIR on the
+		worker (default /models) — see the Models tab for exact per-file paths.
 	</Alert>
 {/snippet}
 {#snippet workerUrlCreateHint()}
 	<Alert variant="info" density="compact">
 		A Remote Native backend needs a running worker. Paste the URL of a worker you started
 		yourself, or leave this blank — after creating, open its Infrastructure tab to provision one
-		and its URL and token are filled in for you automatically.
+		and its URL and token are filled in for you automatically. Models must live under
+		POTIONUI_WORKER_MODEL_DIR on the worker (default /models) — see the Models tab for exact
+		per-file paths.
 	</Alert>
 {/snippet}
 
@@ -1028,7 +1031,7 @@
 										<EmptyState
 											icon="cube"
 											title="Worker not connected"
-											description="Set a Worker URL in Overview or provision one in Infrastructure to list this worker's models."
+											description="Set a Worker URL in Overview or provision one in Infrastructure to list this worker's models. Models are looked up under POTIONUI_WORKER_MODEL_DIR on the worker (default /models), one folder per model type — the same layout as this host's models folder."
 											compact
 										>
 											{#snippet actions()}

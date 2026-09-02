@@ -79,3 +79,13 @@ export function capSyncRows<T>(
 export function distinctModelTypes(rows: RemoteModelSyncRow[]): string[] {
 	return [...new Set(rows.map((r) => r.model_type))].sort();
 }
+
+/** The exact path the worker looks for a model file at - `depot_dir` joined
+ * with a row's `relative_path`, tolerating a trailing slash on `depot_dir`. */
+export function workerModelPath(depotDir: string | undefined, relativePath: string | undefined): string {
+	if (!relativePath) return '';
+	const relative = relativePath.startsWith('/') ? relativePath.slice(1) : relativePath;
+	if (!depotDir) return relative;
+	const depot = depotDir.endsWith('/') ? depotDir.slice(0, -1) : depotDir;
+	return `${depot}/${relative}`;
+}

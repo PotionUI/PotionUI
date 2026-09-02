@@ -212,7 +212,10 @@ def build_worker_router(container, *, cuda_probe=probe_cuda) -> APIRouter:
     async def list_models(_=require_token):
         if container.model_depot is None:
             raise HTTPException(503, detail="this worker has no configured model depot")
-        return {"entries": container.model_depot.list_entries()}
+        return {
+            "depot_dir": str(container.model_depot.depot_dir.resolve()),
+            "entries": container.model_depot.list_entries(),
+        }
 
     @router.post("/v1/models/fetch")
     async def fetch_model(request: Request, background_tasks: BackgroundTasks, _=require_token):

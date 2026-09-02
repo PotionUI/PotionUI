@@ -1307,10 +1307,12 @@ export interface RemoteModelSyncRow {
 	model_type: string;
 	size_bytes: number | null;
 	status: RemoteModelSyncStatus;
-	providers_can_fetch: boolean;
+	/** `<directory>/<filename>` - joined with `depot_dir` this is the exact
+	 * path the worker looks for the file at (see `workerModelPath`). */
+	relative_path: string;
 }
 
-/** Per-model outcome of a push/fetch request - `transfer_id` can be `null`
+/** Per-model outcome of a push request - `transfer_id` can be `null`
  * even on success (a push whose upload started before the server's own
  * registration-poll window closed); correlate progress by `relative_path`
  * (see `WorkerModelTransfer`), never by `transfer_id` alone. */
@@ -1334,9 +1336,16 @@ export interface WorkerModelTransfer {
 	error: string | null;
 }
 
-export async function getRemoteModelSyncView(
-	backendId: string
-): Promise<APIResponse<{ models: RemoteModelSyncRow[] }>> {
+export async function getRemoteModelSyncView(backendId: string): Promise<
+	APIResponse<{
+		/** Absolute posix path of the worker's model depot root, as the worker itself reports it. */
+		/** `null` when the worker predates reporting its depot root. */
+		depot_dir: string | null;
+		/** model_type -> directory name under `depot_dir`, e.g. `{ checkpoint: 'checkpoints', lora: 'loras' }`. */
+		layout: Record<string, string>;
+		models: RemoteModelSyncRow[];
+	}>
+> {
 	const response = await api.getClient().get(`/api/admin/remote-models/${backendId}`);
 	return response.data;
 }
@@ -1348,16 +1357,6 @@ export async function pushRemoteModels(
 	const response = await api
 		.getClient()
 		.post(`/api/admin/remote-models/${backendId}/push`, { model_ids: modelIds });
-	return response.data;
-}
-
-export async function fetchRemoteModels(
-	backendId: string,
-	modelIds: string[]
-): Promise<APIResponse<{ transfers: ModelSyncTransferResult[] }>> {
-	const response = await api
-		.getClient()
-		.post(`/api/admin/remote-models/${backendId}/fetch`, { model_ids: modelIds });
 	return response.data;
 }
 

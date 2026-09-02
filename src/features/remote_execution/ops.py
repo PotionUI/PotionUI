@@ -1,11 +1,11 @@
-"""Admin operations for syncing the host's model files onto a `native.remote`
+"""Admin operations for pushing the host's model files onto a `native.remote`
 worker's depot - Admin -> Backends -> <name> -> Models.
 
 Model sync is admin configuration, never a silent side effect of a user's
 generation: `RemoteNativeBackend._dispatch` only ever *checks* worker
 inventory (`model_bundle_staging.find_unstaged_entries`) and fails fast when
-something is missing; pushing or fetching bytes onto a worker's depot happens
-only through the operations here, admin-triggered.
+something is missing; pushing bytes onto a worker's depot happens only
+through the operations here, admin-triggered.
 """
 
 from __future__ import annotations
@@ -20,13 +20,6 @@ from src.features.backends.backend_config import NATIVE_REMOTE_DRIVER, NativeRem
 from src.features.backends.backend_registry import BackendRegistry
 from src.features.models.records import Model
 from src.features.models.repository import ModelRepository
-from src.features.providers.base_provider import ProviderCapability
-from src.features.providers.registry import ProviderRegistry
-from src.features.providers.remote_download import (
-    RemoteDownloadResolutionError,
-    providers_support_hash_lookup,
-    resolve_model_remote_download,
-)
 from src.features.remote_execution.model_bundle_builder import (
     ModelBundleResolutionError,
     build_bundle_manifest,
@@ -35,7 +28,6 @@ from src.features.remote_execution.model_bundle_builder import (
 from src.features.remote_execution.transport import WorkerTransport, WorkerTransportError
 from src.platform.filesystem.model_types import MODEL_TYPE_TO_DIRECTORY
 from src.platform.worker_protocol import ModelBundleEntryV1
-from src.platform.worker_protocol.model_fetch import ModelFetchRequestV1
 
 #: Bound on how long push_models waits to see a just-started upload register
 #: in the worker's own transfer list before reporting no transfer id for it -
@@ -80,19 +72,6 @@ def _relative_path(model: Model) -> str:
     return f"{directory}/{model.filename}"
 
 
-def _can_fetch(model: Model, provider_registry: ProviderRegistry) -> bool:
-    """Cheap capability check only - never resolves a URL. True for a usable
-    provider link, or for any model when some registered provider can
-    resolve a download from a hash alone (most scanned models have no link)."""
-    for link in model.providers:
-        if not link.provider_model_id:
-            continue
-        provider = provider_registry.get_provider(link.provider)
-        if provider and provider.get_metadata().has_capability(ProviderCapability.REMOTE_DOWNLOAD):
-            return True
-    return providers_support_hash_lookup(provider_registry)
-
-
 def _status(model: Model, worker_entry: Optional[dict]) -> str:
     if worker_entry is None:
         return "missing"
@@ -104,26 +83,34 @@ def _status(model: Model, worker_entry: Optional[dict]) -> str:
 
 
 async def sync_view(
-    model_repository: ModelRepository, provider_registry: ProviderRegistry, transport: WorkerTransport,
-) -> List[dict]:
+    model_repository: ModelRepository, transport: WorkerTransport,
+) -> dict:
     """One row per host single-file model, joined against the worker's depot
-    listing. Never hashes - `_status` only compares what's already recorded."""
-    worker_entries = {e["relative_path"]: e for e in await transport.list_models()}
+    listing, alongside the worker's depot root and its type->directory layout
+    - an admin placing a model by hand needs to know exactly where it goes.
+    Never hashes - `_status` only compares what's already recorded."""
+    depot = await transport.list_depot()
+    worker_entries = {e["relative_path"]: e for e in depot["entries"]}
 
     rows = []
     for model in model_repository.get_all(limit=None, include_providers=True, include_tags=False):
         if model.is_directory or not model.file_path:
             continue
-        worker_entry = worker_entries.get(_relative_path(model))
+        relative_path = _relative_path(model)
+        worker_entry = worker_entries.get(relative_path)
         rows.append({
             "model_id": model.id,
             "filename": model.filename,
             "model_type": model.model_type,
             "size_bytes": model.file_size,
             "status": _status(model, worker_entry),
-            "providers_can_fetch": _can_fetch(model, provider_registry),
+            "relative_path": relative_path,
         })
-    return rows
+    return {
+        "depot_dir": depot["depot_dir"],
+        "layout": dict(MODEL_TYPE_TO_DIRECTORY),
+        "models": rows,
+    }
 
 
 async def push_models(
@@ -177,44 +164,6 @@ async def _await_transfer_registration(
                 return transfer["id"]
         await asyncio.sleep(_TRANSFER_REGISTRATION_DELAY_SECONDS)
     return None
-
-
-async def fetch_models(
-    model_ids: List[str], *,
-    model_repository: ModelRepository, provider_registry: ProviderRegistry, transport: WorkerTransport,
-) -> List[dict]:
-    """Resolve each model's linked provider to a credential-free URL and hand
-    it to the worker to pull directly - per-model failures (unlinked model,
-    a provider lacking REMOTE_DOWNLOAD, a failed resolution) are reported in
-    the response rather than failing the whole batch."""
-    results: List[dict] = []
-    for model_id in model_ids:
-        model = model_repository.get_by_id(model_id, include_providers=True)
-        if model is None:
-            results.append({"model_id": model_id, "transfer_id": None, "error": "model not found"})
-            continue
-        try:
-            entry = await asyncio.to_thread(resolve_bundle_entry, model, model_repository)
-        except ModelBundleResolutionError as exc:
-            results.append({"model_id": model_id, "transfer_id": None, "error": str(exc)})
-            continue
-        try:
-            ref = await resolve_model_remote_download(model_repository, provider_registry, model_id)
-        except RemoteDownloadResolutionError as exc:
-            results.append({"model_id": model_id, "transfer_id": None, "error": str(exc)})
-            continue
-
-        request = ModelFetchRequestV1(
-            relative_path=entry.relative_path, expected_digest=entry.digest,
-            expected_size=entry.size_bytes, url=ref.url, headers=ref.headers or None,
-        )
-        try:
-            transfer_id = await transport.fetch_model(request)
-        except WorkerTransportError as exc:
-            results.append({"model_id": model_id, "transfer_id": None, "error": str(exc)})
-            continue
-        results.append({"model_id": model_id, "transfer_id": transfer_id})
-    return results
 
 
 async def list_transfers(transport: WorkerTransport) -> List[dict]:

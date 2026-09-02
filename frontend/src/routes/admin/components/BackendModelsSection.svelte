@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import { Alert, Badge, Button, Input, Spinner, EmptyState } from '$lib/components/ui';
+	import { Alert, Badge, Button, CopyButton, Input, Spinner, EmptyState } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
 	import { getApiErrorMessage } from '$lib/utils/logger';
 	import { toasts } from '$lib/stores/toast';
@@ -8,7 +8,6 @@
 	import {
 		getRemoteModelSyncView,
 		pushRemoteModels,
-		fetchRemoteModels,
 		getRemoteModelTransfers
 	} from '$lib/services/admin-api';
 	import type { RemoteModelSyncRow, RemoteModelSyncStatus, WorkerModelTransfer } from '$lib/services/admin-api';
@@ -23,14 +22,14 @@
 		isDefaultSyncFilters,
 		capSyncRows,
 		distinctModelTypes,
+		workerModelPath,
 		DEFAULT_STATUS_FILTER,
 		MAX_RENDERED_SYNC_ROWS
 	} from './backendModelsSync';
 
 	/**
-	 * Shown on a `native.remote` backend's Models tab - lets an admin sync
-	 * host model files onto the worker's depot (push) or have the worker pull
-	 * them itself through a linked provider (fetch). `GET .../{backendId}`
+	 * Shown on a `native.remote` backend's Models tab - lets an admin push
+	 * host model files onto the worker's depot. `GET .../{backendId}`
 	 * distinguishes four outcomes: `invalid_backend` (not a native.remote
 	 * backend, or missing) -> render nothing, the caller shouldn't have
 	 * mounted this; `worker_not_running` (a gateway answered for a
@@ -41,8 +40,7 @@
 	 * `{#key backendId}` when the selected backend changes.
 	 *
 	 * The list fills the tab: a toolbar (search, type, status, select-all)
-	 * over a scrolling row list with a pinned footer for the push/fetch
-	 * actions.
+	 * over a scrolling row list with a pinned footer for the push action.
 	 */
 	let { backendId, onOpenInfrastructure }: { backendId: string; onOpenInfrastructure?: () => void } = $props();
 
@@ -51,13 +49,15 @@
 
 	let loading = $state(true);
 	let rows = $state<RemoteModelSyncRow[]>([]);
+	let depotDir = $state('');
+	let layout = $state<Record<string, string>>({});
 	let sectionError = $state<{ kind: 'invalid_backend' | 'worker_not_running' | 'worker_unreachable'; message: string } | null>(
 		null
 	);
 	let selected = $state<Set<string>>(new Set());
 	let transfers = $state<WorkerModelTransfer[]>([]);
 	let rowErrors = $state<Record<string, string>>({});
-	let syncing = $state<'push' | 'fetch' | null>(null);
+	let syncing = $state<'push' | null>(null);
 	let wasRunning = false;
 
 	let searchQuery = $state('');
@@ -83,6 +83,7 @@
 		{ id: 'all', label: 'All' }
 	];
 
+	let layoutEntries = $derived(Object.entries(layout));
 	let modelTypes = $derived(distinctModelTypes(rows));
 	// Status excluded here so the pill counts reflect search + type only.
 	let rowsByTypeAndSearch = $derived(filterSyncRows(rows, { search: searchQuery, modelType: typeFilter, status: 'all' }));
@@ -96,16 +97,10 @@
 	);
 
 	let selectedRows = $derived(rows.filter((r) => selected.has(r.model_id)));
-	let canFetchSelected = $derived(selectedRows.length > 0 && selectedRows.every((r) => r.providers_can_fetch));
 	let selectedInFlight = $derived(selectedRows.some((r) => !!activeTransferFor(r.filename)));
 	let selectedBytes = $derived(sumSizeBytes(selectedRows));
 	let allFilteredSelected = $derived(filteredRows.length > 0 && filteredRows.every((r) => selected.has(r.model_id)));
 	let someFilteredSelected = $derived(filteredRows.some((r) => selected.has(r.model_id)));
-	let fetchDisabledTitle = $derived(
-		selectedRows.length > 0 && !canFetchSelected
-			? 'One or more selected models have no provider link or hash for this model'
-			: undefined
-	);
 
 	function activeTransferFor(filename: string): WorkerModelTransfer | undefined {
 		const transfer = findTransferForFilename(transfers, filename);
@@ -151,6 +146,8 @@
 			const response = await getRemoteModelSyncView(backendId);
 			if (response.success && response.data) {
 				rows = response.data.models;
+				depotDir = response.data.depot_dir ?? '';
+				layout = response.data.layout ?? {};
 				selected = new Set([...selected].filter((id) => rows.some((r) => r.model_id === id)));
 			} else if (response.error === 'invalid_backend') {
 				sectionError = { kind: 'invalid_backend', message: response.message ?? '' };
@@ -217,12 +214,12 @@
 
 	onDestroy(stopPolling);
 
-	async function submitSync(kind: 'push' | 'fetch') {
+	async function submitPush() {
 		if (selected.size === 0 || syncing) return;
-		syncing = kind;
+		syncing = 'push';
 		const modelIds = [...selected];
 		try {
-			const response = kind === 'push' ? await pushRemoteModels(backendId, modelIds) : await fetchRemoteModels(backendId, modelIds);
+			const response = await pushRemoteModels(backendId, modelIds);
 			if (response.success && response.data) {
 				const next = { ...rowErrors };
 				for (const result of response.data.transfers) {
@@ -238,10 +235,10 @@
 			} else if (response.error === 'worker_unreachable') {
 				sectionError = { kind: 'worker_unreachable', message: response.message || 'Worker unreachable' };
 			} else {
-				toasts.error(response.message || `Failed to ${kind} models`);
+				toasts.error(response.message || 'Failed to push models');
 			}
 		} catch (e: unknown) {
-			toasts.error(getApiErrorMessage(e, `Failed to ${kind} models`));
+			toasts.error(getApiErrorMessage(e, 'Failed to push models'));
 		} finally {
 			syncing = null;
 		}
@@ -266,7 +263,7 @@
 	<EmptyState
 		icon="pause"
 		title="Worker isn't running"
-		description="It's stopped or still starting. Models will show up here once it's back."
+		description="It's stopped or still starting. Models will show up here once it's back. Models are looked up under POTIONUI_WORKER_MODEL_DIR on the worker (default /models), one folder per model type — the same layout as this host's models folder."
 	>
 		{#snippet actions()}
 			<Button variant="secondary" size="sm" onclick={retry}>Retry</Button>
@@ -279,12 +276,48 @@
 	<Alert variant="danger" density="compact">
 		<p>Couldn't reach the worker.</p>
 		<p class="font-mono text-2xs mt-1">{sectionError.message}</p>
+		<p class="text-2xs mt-1.5">
+			Models are looked up under <span class="font-mono">POTIONUI_WORKER_MODEL_DIR</span> on the worker (default
+			<span class="font-mono">/models</span>), one folder per model type — the same layout as this host's models folder.
+		</p>
 		<div class="mt-2">
 			<Button variant="secondary" size="sm" onclick={retry}>Retry</Button>
 		</div>
 	</Alert>
 {:else if sectionError?.kind !== 'invalid_backend'}
 	<div class="h-full flex flex-col min-h-0 rounded-lg border border-line bg-surface-1 overflow-hidden">
+		{#if depotDir}
+			<div class="px-3 py-2.5 border-b border-line flex-shrink-0 space-y-1.5">
+				<div class="flex items-center gap-2">
+					<span class="font-mono text-2xs uppercase tracking-[0.06em] text-fg-subtle flex-shrink-0">Worker depot</span>
+					<span class="font-mono text-xs text-fg truncate" title={depotDir}>{depotDir}</span>
+					<CopyButton text={depotDir} title="Copy depot path" size="xs" />
+				</div>
+				<p class="text-2xs text-fg-subtle">
+					Looked up as <span class="font-mono">{depotDir}/&lt;type folder&gt;/&lt;filename&gt;</span> — same layout as
+					this host's models folder. Copy files there by hand or use Upload below.
+				</p>
+				{#if layoutEntries.length > 0}
+					<details class="text-2xs">
+						<summary class="cursor-pointer select-none text-fg-subtle hover:text-fg w-fit">Folder per type</summary>
+						<div class="mt-1.5 max-h-40 overflow-y-auto rounded border border-line bg-surface-2 divide-y divide-line">
+							{#each layoutEntries as [type, directory] (type)}
+								<div class="flex items-center justify-between gap-2 px-2 py-1">
+									<span class="font-mono text-fg-subtle">{type}</span>
+									<span class="font-mono text-fg-muted truncate">{depotDir}/{directory}/</span>
+								</div>
+							{/each}
+						</div>
+					</details>
+				{/if}
+			</div>
+		{:else}
+			<p class="px-3 py-2 border-b border-line flex-shrink-0 text-2xs text-fg-subtle">
+				This worker doesn't report its depot root. Models are looked up under
+				<span class="font-mono">POTIONUI_WORKER_MODEL_DIR</span> (default <span class="font-mono">/models</span>),
+				one folder per model type — the same layout as this host's models folder.
+			</p>
+		{/if}
 		{#if rows.length === 0}
 			<p class="px-4 py-6 text-sm text-fg-muted">No models are known on the host yet.</p>
 		{:else}
@@ -366,6 +399,7 @@
 							{@const isSelected = selected.has(row.model_id)}
 							{@const activeTransfer = activeTransferFor(row.filename)}
 							{@const error = !activeTransfer ? rowErrors[row.model_id] : undefined}
+							{@const workerPath = workerModelPath(depotDir, row.relative_path)}
 							<div
 								class="flex items-center gap-3 px-3 py-2 cursor-pointer transition-colors {isSelected
 									? 'bg-signal/10'
@@ -393,15 +427,10 @@
 									<div class="flex items-center gap-2 min-w-0">
 										<span class="truncate font-mono text-xs text-fg" title={row.filename}>{row.filename}</span>
 										<Badge variant="neutral" size="sm" class="flex-shrink-0">{row.model_type}</Badge>
-										{#if !row.providers_can_fetch}
-											<span
-												title="No provider link or hash for this model - fetch via provider is unavailable"
-												class="flex-shrink-0"
-											>
-												<Icon name="information-circle" className="w-3.5 h-3.5 text-fg-subtle" />
-											</span>
-										{/if}
 									</div>
+									{#if workerPath}
+										<span class="block truncate font-mono text-2xs text-fg-subtle" title={workerPath}>{workerPath}</span>
+									{/if}
 									{#if activeTransfer}
 										{@const percent = transferProgressPercent(activeTransfer)}
 										<div class="mt-1 flex items-center gap-2">
@@ -443,20 +472,9 @@
 					icon="upload"
 					loading={syncing === 'push'}
 					disabled={selected.size === 0 || syncing !== null || selectedInFlight}
-					onclick={() => submitSync('push')}
+					onclick={submitPush}
 				>
 					Upload from this machine
-				</Button>
-				<Button
-					variant="secondary"
-					size="sm"
-					icon="download"
-					loading={syncing === 'fetch'}
-					disabled={!canFetchSelected || syncing !== null || selectedInFlight}
-					title={fetchDisabledTitle}
-					onclick={() => submitSync('fetch')}
-				>
-					Fetch via provider
 				</Button>
 			</div>
 		{/if}

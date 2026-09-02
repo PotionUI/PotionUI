@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
 // The Backends -> Remote -> Models tab lists every model file known on the
-// worker's host, filtered by search/type/status, with push/fetch actions on
+// worker's host, filtered by search/type/status, with a push action on
 // the selection. Mounts the real section against a fixture of six rows
 // spanning the three sync statuses and two model types, proving the default
 // view (on_worker), each filter, Clear filters, and select-all -> push all
@@ -12,7 +12,6 @@ import type { RemoteModelSyncRow } from '$lib/services/admin-api';
 vi.mock('$lib/services/admin-api', () => ({
 	getRemoteModelSyncView: vi.fn(),
 	pushRemoteModels: vi.fn(),
-	fetchRemoteModels: vi.fn(),
 	getRemoteModelTransfers: vi.fn()
 }));
 
@@ -23,16 +22,21 @@ const { default: BackendModelsSection } = await import(
 const { createClassComponent } = await import('svelte/legacy');
 
 function row(overrides: Partial<RemoteModelSyncRow> = {}): RemoteModelSyncRow {
+	const filename = overrides.filename ?? 'model.safetensors';
+	const model_type = overrides.model_type ?? 'checkpoints';
 	return {
 		model_id: 'm',
-		filename: 'model.safetensors',
-		model_type: 'checkpoints',
+		filename,
+		model_type,
 		size_bytes: 100,
 		status: 'on_worker',
-		providers_can_fetch: true,
+		relative_path: `${model_type}/${filename}`,
 		...overrides
 	};
 }
+
+const DEPOT_DIR = '/models';
+const LAYOUT = { checkpoints: 'checkpoints', loras: 'loras' };
 
 const ROWS: RemoteModelSyncRow[] = [
 	row({ model_id: 'm1', filename: 'checkpoint-a.safetensors', model_type: 'checkpoints', status: 'on_worker' }),
@@ -81,7 +85,10 @@ afterEach(() => {
 
 describe('BackendModelsSection', () => {
 	it('defaults to showing only on_worker rows', async () => {
-		vi.mocked(adminApi.getRemoteModelSyncView).mockResolvedValue({ success: true, data: { models: ROWS } });
+		vi.mocked(adminApi.getRemoteModelSyncView).mockResolvedValue({
+			success: true,
+			data: { depot_dir: DEPOT_DIR, layout: LAYOUT, models: ROWS }
+		});
 		vi.mocked(adminApi.getRemoteModelTransfers).mockResolvedValue({ success: true, data: { transfers: [] } });
 
 		mounted = mountSection();
@@ -94,8 +101,42 @@ describe('BackendModelsSection', () => {
 		expect(mounted.rows()).toHaveLength(3);
 	});
 
+	it('shows the worker depot path and each row\'s full worker path', async () => {
+		vi.mocked(adminApi.getRemoteModelSyncView).mockResolvedValue({
+			success: true,
+			data: { depot_dir: DEPOT_DIR, layout: LAYOUT, models: ROWS }
+		});
+		vi.mocked(adminApi.getRemoteModelTransfers).mockResolvedValue({ success: true, data: { transfers: [] } });
+
+		mounted = mountSection();
+		await settle();
+
+		expect(mounted.target.textContent).toContain(DEPOT_DIR);
+		const checkpointARow = mounted.rows().find((r) => r.textContent?.includes('checkpoint-a'));
+		expect(checkpointARow?.textContent).toContain('/models/checkpoints/checkpoint-a.safetensors');
+	});
+
+	it('falls back to the static depot hint when the worker reports no depot root', async () => {
+		vi.mocked(adminApi.getRemoteModelSyncView).mockResolvedValue({
+			success: true,
+			data: { depot_dir: null, layout: LAYOUT, models: ROWS }
+		});
+		vi.mocked(adminApi.getRemoteModelTransfers).mockResolvedValue({ success: true, data: { transfers: [] } });
+
+		mounted = mountSection();
+		await settle();
+
+		expect(mounted.target.textContent).toContain('POTIONUI_WORKER_MODEL_DIR');
+		expect(mounted.rows()).toHaveLength(3);
+		const checkpointARow = mounted.rows().find((r) => r.textContent?.includes('checkpoint-a'));
+		expect(checkpointARow?.textContent).toContain('checkpoints/checkpoint-a.safetensors');
+	});
+
 	it('narrows by filename as the admin types', async () => {
-		vi.mocked(adminApi.getRemoteModelSyncView).mockResolvedValue({ success: true, data: { models: ROWS } });
+		vi.mocked(adminApi.getRemoteModelSyncView).mockResolvedValue({
+			success: true,
+			data: { depot_dir: DEPOT_DIR, layout: LAYOUT, models: ROWS }
+		});
 		vi.mocked(adminApi.getRemoteModelTransfers).mockResolvedValue({ success: true, data: { transfers: [] } });
 
 		mounted = mountSection();
@@ -112,7 +153,10 @@ describe('BackendModelsSection', () => {
 	});
 
 	it('narrows by model type when a type is chosen', async () => {
-		vi.mocked(adminApi.getRemoteModelSyncView).mockResolvedValue({ success: true, data: { models: ROWS } });
+		vi.mocked(adminApi.getRemoteModelSyncView).mockResolvedValue({
+			success: true,
+			data: { depot_dir: DEPOT_DIR, layout: LAYOUT, models: ROWS }
+		});
 		vi.mocked(adminApi.getRemoteModelTransfers).mockResolvedValue({ success: true, data: { transfers: [] } });
 
 		mounted = mountSection();
@@ -130,7 +174,10 @@ describe('BackendModelsSection', () => {
 	});
 
 	it('shows only missing rows behind the Missing pill, with correct pill counts', async () => {
-		vi.mocked(adminApi.getRemoteModelSyncView).mockResolvedValue({ success: true, data: { models: ROWS } });
+		vi.mocked(adminApi.getRemoteModelSyncView).mockResolvedValue({
+			success: true,
+			data: { depot_dir: DEPOT_DIR, layout: LAYOUT, models: ROWS }
+		});
 		vi.mocked(adminApi.getRemoteModelTransfers).mockResolvedValue({ success: true, data: { transfers: [] } });
 
 		mounted = mountSection();
@@ -150,7 +197,10 @@ describe('BackendModelsSection', () => {
 	});
 
 	it('returns to the on_worker default on Clear filters', async () => {
-		vi.mocked(adminApi.getRemoteModelSyncView).mockResolvedValue({ success: true, data: { models: ROWS } });
+		vi.mocked(adminApi.getRemoteModelSyncView).mockResolvedValue({
+			success: true,
+			data: { depot_dir: DEPOT_DIR, layout: LAYOUT, models: ROWS }
+		});
 		vi.mocked(adminApi.getRemoteModelTransfers).mockResolvedValue({ success: true, data: { transfers: [] } });
 
 		mounted = mountSection();
@@ -176,7 +226,10 @@ describe('BackendModelsSection', () => {
 	});
 
 	it('selects all filtered rows and pushes exactly that id set', async () => {
-		vi.mocked(adminApi.getRemoteModelSyncView).mockResolvedValue({ success: true, data: { models: ROWS } });
+		vi.mocked(adminApi.getRemoteModelSyncView).mockResolvedValue({
+			success: true,
+			data: { depot_dir: DEPOT_DIR, layout: LAYOUT, models: ROWS }
+		});
 		vi.mocked(adminApi.getRemoteModelTransfers).mockResolvedValue({ success: true, data: { transfers: [] } });
 		vi.mocked(adminApi.pushRemoteModels).mockResolvedValue({ success: true, data: { transfers: [] } });
 

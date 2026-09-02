@@ -258,9 +258,10 @@ class WorkerTransport:
                 f"model {entry.logical_id!r} upload response is missing its transfer_id"
             ) from exc
 
-    async def list_models(self) -> List[dict]:
+    async def list_depot(self) -> dict:
         """The worker depot's own listing (`GET /v1/models`) - plain JSON,
-        not enveloped protocol documents (see `routes.py`'s module docstring)."""
+        not enveloped protocol documents (see `routes.py`'s module docstring).
+        Returns ``{"depot_dir": str, "entries": list}``."""
         try:
             async with self._client(timeout=self._timeout) as client:
                 resp = await client.get(self._url("/v1/models"), headers=self._headers)
@@ -275,9 +276,18 @@ class WorkerTransport:
                 )
             raise WorkerProtocolError(f"model listing failed: HTTP {resp.status_code} {resp.text}")
         try:
-            return resp.json()["entries"]
+            body = resp.json()
+            # None, not an error, when the worker predates depot_dir: a pod
+            # keeps running the image it was provisioned with, and its model
+            # listing is still perfectly usable without the root path.
+            return {"depot_dir": body.get("depot_dir"), "entries": body["entries"]}
         except (json.JSONDecodeError, KeyError) as exc:
             raise WorkerProtocolError(f"model listing returned an unreadable body: {exc}") from exc
+
+    async def list_models(self) -> List[dict]:
+        """The worker depot's entries only (`GET /v1/models`'s `entries`) -
+        see `list_depot` for the depot root path alongside them."""
+        return (await self.list_depot())["entries"]
 
     async def fetch_model(self, request: ModelFetchRequestV1) -> str:
         """Ask the worker to pull *request.url* straight into its depot.

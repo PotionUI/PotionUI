@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, List
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from src.features.providers.registry import ensure_providers_discovered
 from src.features.remote_execution import ops
 from src.features.remote_execution.transport import WorkerTransportError, WorkerUnreachableError
 from src.platform.http.base_controller import APIResponse, BaseController
@@ -47,11 +46,10 @@ class RemoteModelsController(BaseController):
         except ops.RemoteModelsBackendError as e:
             return self.error_api_response(error="invalid_backend", message=str(e))
         try:
-            provider_registry = await ensure_providers_discovered()
-            models = await ops.sync_view(self.container.model_repository, provider_registry, transport)
+            view = await ops.sync_view(self.container.model_repository, transport)
         except WorkerTransportError as e:
             return self._transport_error_response(e)
-        return self.success_response(data={"models": models})
+        return self.success_response(data=view)
 
     async def push(self, backend_id: str, body: ModelIdsRequest) -> APIResponse:
         try:
@@ -61,21 +59,6 @@ class RemoteModelsController(BaseController):
         try:
             transfers = await ops.push_models(
                 body.model_ids, model_repository=self.container.model_repository, transport=transport,
-            )
-        except WorkerTransportError as e:
-            return self._transport_error_response(e)
-        return self.success_response(data={"transfers": transfers})
-
-    async def fetch(self, backend_id: str, body: ModelIdsRequest) -> APIResponse:
-        try:
-            transport = self._transport(backend_id)
-        except ops.RemoteModelsBackendError as e:
-            return self.error_api_response(error="invalid_backend", message=str(e))
-        provider_registry = await ensure_providers_discovered()
-        try:
-            transfers = await ops.fetch_models(
-                body.model_ids, model_repository=self.container.model_repository,
-                provider_registry=provider_registry, transport=transport,
             )
         except WorkerTransportError as e:
             return self._transport_error_response(e)
@@ -108,10 +91,6 @@ def build_admin_router(container: "AppContainer") -> APIRouter:
     @router.post("/{backend_id}/push", response_model=APIResponse, summary="Push Models To Worker")
     async def push(backend_id: str, body: ModelIdsRequest) -> APIResponse:
         return await controller.push(backend_id, body)
-
-    @router.post("/{backend_id}/fetch", response_model=APIResponse, summary="Fetch Models Onto Worker")
-    async def fetch(backend_id: str, body: ModelIdsRequest) -> APIResponse:
-        return await controller.fetch(backend_id, body)
 
     @router.get("/{backend_id}/transfers", response_model=APIResponse, summary="List Worker Model Transfers")
     async def transfers(backend_id: str) -> APIResponse:

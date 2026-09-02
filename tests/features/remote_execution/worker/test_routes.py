@@ -308,10 +308,13 @@ def test_a_pipeline_with_no_model_references_is_unaffected_by_the_depot(client, 
 
 # -- depot listing --------------------------------------------------------
 
-def test_listing_an_empty_depot_returns_no_entries(client):
+def test_listing_an_empty_depot_returns_no_entries(client, container):
     resp = client.get("/v1/models", headers=_auth())
     assert resp.status_code == 200
-    assert resp.json() == {"entries": []}
+    assert resp.json() == {
+        "depot_dir": str(container.model_depot.depot_dir.resolve()),
+        "entries": [],
+    }
 
 
 def test_listing_the_depot_reports_a_staged_entry_with_its_digest(client):

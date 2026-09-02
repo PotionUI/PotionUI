@@ -56,6 +56,7 @@ scaled down to what a worker actually needs.
 | `POTIONUI_WORKER_PORT` | no | `8100` | Bind port. |
 | `POTIONUI_WORKER_DEVICE` / `_DTYPE` / `_VRAM_GB` | no | probed | Override what the worker injects into every pipe's config - see "Device injection" below. |
 | `POTIONUI_BUILD_ID` | no | none | Fed into `compute_build_fingerprint`; absent degrades to a protocol-version-only fingerprint. |
+| `POTIONUI_WORKER_MODEL_DIR` | no | `/models` | Model depot root. Models are looked up at `<root>/<type directory>/<filename>` - the same one-folder-per-type layout as the host's models folder (`src/platform/filesystem/model_types.py`). Files placed there by hand are found as long as the filename matches; a `.digest` sidecar is written on first inventory. |
 
 ## Route table
 
@@ -68,6 +69,7 @@ All routes below require `Authorization: Bearer <POTIONUI_WORKER_TOKEN>`.
 | `POST` | `/v1/executions/{id}/assets/{logical_id}` | Stream-upload one input asset ahead of execution; verified against the package's `input_assets` manifest before it is accepted. See "Input assets" below. |
 | `POST` | `/v1/models/inventory` | Enveloped `ModelBundleManifestV1` in, enveloped `ModelInventoryResponseV1` out - which entries this worker's model depot already has (`present`), is missing, or has a size/digest `mismatch` for. Registers the manifest so a following staging upload can look an entry up by `(bundle_id, logical_id)`. 503 if this worker has no configured model depot. See "Models" below. |
 | `POST` | `/v1/models/{bundle_id}/{logical_id}` | Stream-upload one model file into the depot, verified by size and digest against the entry registered via the inventory call above. `404` if that bundle/logical_id was never inventoried first. A re-upload of already-correct bytes is a safe no-op. |
+| `GET` | `/v1/models` | `{"depot_dir": "<resolved POTIONUI_WORKER_MODEL_DIR>", "entries": [...]}` - the depot's own listing, keyed by `relative_path`. 503 if this worker has no configured model depot. See "Models" below. |
 | `GET` | `/v1/executions/{id}/events?after=N` | SSE stream of enveloped `JobEventV1`s: journaled events with `cursor > N` first, then live events, until a terminal event closes the stream. |
 | `POST` | `/v1/executions/{id}/cancel` | `{"result": "accepted" \| "already_terminal" \| "not_found"}`. Cooperative - a pipe mid-`process()` finishes its current step first. |
 | `GET` | `/v1/artifacts/{artifact_id}` | Streams a produced file from the worker's scoped artifacts directory. `artifact_id` is validated as a bare 32-hex-char id before it ever reaches a path. |
@@ -321,21 +323,34 @@ manifest to `POST /v1/models/inventory` and returns whatever the worker
 reports missing or mismatched. If anything comes back, dispatch fails
 immediately (`error_code="models_not_staged"`, no submit) naming the missing
 filenames and pointing at Admin -> Backends -> `<name>` -> Models; nothing is
-pushed. Pushing/fetching bytes onto a worker's depot happens only through
-that admin surface (`src/features/remote_execution/ops.py`,
-`POST /api/admin/remote-models/{backend_id}/push` and `.../fetch`), which
-reuses the same bundle-entry resolution `build_model_bundle` uses
-(`resolve_bundle_entry` - `ModelRepository.get_by_id`, hashing on demand) and
-streams to `POST /v1/models/{bundle_id}/{logical_id}`
-(`WorkerTransport.upload_model`) or hands the worker a provider-resolved URL
-to pull directly (`POST /v1/models/fetch`). `stage_model_bundle` (the old
-inventory-then-push routine) still exists and backs the push op's upload
-loop; it is simply never called from dispatch anymore. A pipeline referencing
+pushed. Pushing bytes onto a worker's depot happens only through that admin
+surface (`src/features/remote_execution/ops.py`,
+`POST /api/admin/remote-models/{backend_id}/push`), which reuses the same
+bundle-entry resolution `build_model_bundle` uses (`resolve_bundle_entry` -
+`ModelRepository.get_by_id`, hashing on demand) and streams to
+`POST /v1/models/{bundle_id}/{logical_id}` (`WorkerTransport.upload_model`).
+`stage_model_bundle` (the old inventory-then-push routine) still exists and
+backs the push op's upload loop; it is simply never called from dispatch
+anymore. Separately, the Downloads feature can send a download straight to a
+remote destination backend by handing the worker a resolved URL to pull
+(`POST /v1/models/fetch`, `src/features/downloads/worker.py`) - that path is
+unrelated to this admin sync surface. A pipeline referencing
 an HF-layout directory model still cannot dispatch (see below) -
 `build_model_bundle`/`resolve_bundle_entry` refuse it before a manifest is
 ever built, and `RemoteNativeBackend` turns that refusal into a
 `generation_error` naming the preset and the offending model file rather than
 a raw exception/stack trace.
+
+**"Where do I put models on a worker?"** is answered by the sync view itself:
+`GET /api/admin/remote-models/{backend_id}` returns `depot_dir` (the worker's
+resolved `POTIONUI_WORKER_MODEL_DIR`) and `layout` (`MODEL_TYPE_TO_DIRECTORY`)
+alongside `models`, and each row's `relative_path` is that model's exact
+`<depot_dir>/<layout[model_type]>/<filename>` - Admin -> Backends ->
+`<name>` -> Models shows this per file, so an admin copying a checkpoint onto
+rented compute by hand (scp, a mounted volume) knows precisely where it has
+to land. On RunPod, a provisioned network volume is mounted at that same
+default root (`/models`), so files placed on the volume are found without
+any extra configuration.
 
 A pipe's config still carries the *dispatching host's* absolute path
 verbatim (`package_assembly`'s "model paths stay verbatim" design) - staging

@@ -23,10 +23,16 @@ export class APIClient {
 			this.setAuthHeader(this.token);
 		}
 
-		// Add auth header to requests
 		this.client.interceptors.request.use((config) => {
 			if (this.token) {
 				config.headers.Authorization = `Bearer ${this.token}`;
+			}
+			// Under the instance-wide JSON default, axios serialises a FormData
+			// body to JSON instead of sending multipart - the server then sees
+			// no file part at all. Declaring multipart here lets the browser set
+			// the boundary itself.
+			if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
+				config.headers.setContentType('multipart/form-data');
 			}
 			return config;
 		});

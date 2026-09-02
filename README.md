@@ -53,6 +53,7 @@ Floor: 8 GB VRAM + 16 GB RAM (SDXL). Full requirements below.
 - [History, tags, and collections](#history-tags-and-collections)
 - [Video Director](#video-director) · [Music Director](#music-director)
 - [Prompt tooling](#prompt-tooling)
+- [Automations](#automations)
 - [Plugins](#plugins)
 - [Install](#install) — [supported platforms](#supported-platforms),
   [manual setup](#running-backend-and-frontend-separately)
@@ -85,11 +86,7 @@ Floor: 8 GB VRAM + 16 GB RAM (SDXL). Full requirements below.
 
 ## Multi-user, with an admin panel
 
-<!--
-SCREENSHOT SLOT — ADMIN
-Admin area open on the Presets tab: preset list with installed status,
-a preset selected showing the access assignment (users/groups) panel.
--->
+![Admin preset management: the catalog of installed and available presets across engines, with a per-preset overview and access tab](docs/media/potionui_admin_preset_overview.png)
 
 PotionUI is built for more than one person on the same box:
 
@@ -109,11 +106,7 @@ The full tour: [docs/user/admin.md](docs/user/admin.md).
 
 ## AI assistant
 
-<!--
-SCREENSHOT SLOT — CHAT ASSISTANT
-LLM chat panel open beside the generate form, showing a pending tool-approval
-prompt (e.g. a proposed phrasebook edit awaiting your confirmation).
--->
+![The generation assistant reads the active tab and proposes a segment rewrite you apply with one click](docs/media/potionui_phrasebook_assistant_active.png)
 
 - Configure a language model and get an assistant beside generation: it
   brainstorms and rewrites prompts, edits phrasebook values, adjusts form
@@ -140,6 +133,10 @@ and a step progress bar mid-run.
   values — and pull it back up any time.
 
 ## History, tags, and collections
+
+![History with collections, tags, keyword or semantic search, and date-grouped renders](docs/media/potionui_gallery_page.png)
+
+![Generation details: the render with its parameters, seed, segments, and the exact model files it used](docs/media/potionui_gallery_page-details.png)
 
 https://github.com/user-attachments/assets/f46cde26-0288-4e05-ac90-c3be31f0d2dd
 
@@ -175,12 +172,7 @@ with lyrics/tags filled in.
 
 ## Prompt tooling
 
-<!--
-SCREENSHOT SLOT — PROMPTS / PHRASEBOOK
-Either the Prompts workspace (Segments tab with a few saved segments) or a
-prompt editor mid-type with a Phrasebook autocomplete suggestion popup open
-— whichever looks livelier.
--->
+![The phrasebook: reusable phrase categories with per-value preview images generated from a template prompt](docs/media/potionui_phrasebook_category_page.png)
 
 - **Segments** — save a prompt fragment once, drop it into any prompt; group
   related segments into templates.
@@ -188,6 +180,17 @@ prompt editor mid-type with a Phrasebook autocomplete suggestion popup open
   lighting) with per-chip shuffle for quick variation.
 - **Dynamic prompts** — `{a|b}`, weighted choices, `${vars}`.
 - **LLM enhancement** — optional, layered on the same editor.
+
+## Automations
+
+![The automation editor: a Backend Event trigger wired to a Clear VRAM action, with typed outputs and a run history](docs/media/potionui_admin_automations.png)
+
+- Wire **triggers** (schedule, manual, file watcher, GPU VRAM threshold, app
+  events) through **conditions** to **actions** (tag, add to a collection,
+  assign models or users, backend actions, notifications, indexing) on a
+  visual graph.
+- Start from an importable template, export as JSON, and read every run's
+  history and logs in the same editor.
 
 ## Plugins
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { api } from '$lib/services/api';
 	import SegmentedPromptEditor from '$lib/components/SegmentedPromptEditor.svelte';
 	import ModelAssignmentModal from '$lib/components/modals/ModelAssignmentModal.svelte';
@@ -10,7 +10,12 @@
 	import { Badge, Button, Card, EmptyState, IconButton, Input, Spinner } from '$lib/components/ui';
 	import type { Prompt, PromptGenerationItem, PromptUsageHint, Segment } from '$lib/types/segments';
 	import type { GenerationFile } from '$lib/types/history';
-	import { createBlankEditorSegment, toEditorSegment, toRichSegment } from '$lib/utils/richSegments';
+	import {
+		createBlankEditorSegment,
+		hasMeaningfulSegments,
+		toEditorSegment,
+		toRichSegment
+	} from '$lib/utils/richSegments';
 	import { leadIndex } from '$lib/generation/leadFile';
 	import { timeAgo } from '$lib/utils/relativeTime';
 	import { toasts } from '$lib/stores/toast';
@@ -18,7 +23,6 @@
 	import { modelDisplayName } from '$lib/utils/modelDisplay';
 	import { promptsCollectionsStore } from '$lib/stores/collections';
 	import AddToCollectionMenu from '$lib/components/collections/AddToCollectionMenu.svelte';
-	import NewPromptComposerModal from './NewPromptComposerModal.svelte';
 	import PromptModelField from './PromptModelField.svelte';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import {
@@ -50,7 +54,8 @@
 	}> = [];
 	let showModelFilter = false;
 	let selectedModelName = '';
-	let showComposer = false;
+	let creating = false;
+	let previousSelection: Prompt | null = null;
 	let structureExpanded = true;
 	let collectionId: string | undefined = undefined;
 	let addToCollectionOpen = false;
@@ -64,6 +69,8 @@
 	let usageLoading = false;
 	let usageRequestId = 0;
 
+	const NAME_FIELD_ID = 'prompt-workspace-name-field';
+
 	type DuplicateAction = { kind: 'delete' | 'keep'; groupIndex: number; promptId: string };
 
 	let showDuplicatesModal = false;
@@ -76,11 +83,34 @@
 		? selectedModelName || modelDisplayName(models.find((model) => model.id === modelId)) || 'Selected model'
 		: 'All models';
 
+	// A blank draft (the single pristine placeholder segment) discards silently;
+	// anything the user actually typed needs confirmation before it's dropped.
+	async function discardDraftOk(): Promise<boolean> {
+		if (!creating || !hasMeaningfulSegments(editorSegments)) return true;
+		return await confirmDialog({
+			title: 'Discard new prompt?',
+			message: 'This prompt has not been saved yet. Discard it?',
+			variant: 'danger'
+		});
+	}
+
 	// Exposed to the page-level toolbar via bind:this — the models list, the
 	// current model filter and the duplicate-scan state all live here, so the
 	// toolbar triggers these instead of owning parallel copies of them.
-	export function openComposer() {
-		showComposer = true;
+	export async function startNewPrompt() {
+		if (!(await discardDraftOk())) return;
+		previousSelection = selected;
+		selected = null;
+		creating = true;
+		name = '';
+		usageHint = '';
+		editModelId = modelId || null;
+		editModelLabel = modelId ? selectedModelLabel : null;
+		editorSegments = [createBlankEditorSegment()];
+		usageItems = [];
+		usageTotal = 0;
+		await tick();
+		document.getElementById(NAME_FIELD_ID)?.focus();
 	}
 	export function openDuplicatesScan() {
 		openDuplicatesModal();
@@ -160,7 +190,10 @@
 		loadPrompts();
 	}
 
-	function selectPrompt(prompt: Prompt) {
+	async function selectPrompt(prompt: Prompt) {
+		if (!(await discardDraftOk())) return;
+		creating = false;
+		previousSelection = null;
 		selected = prompt;
 		name = prompt.name || '';
 		usageHint = prompt.usage_hint || '';
@@ -192,6 +225,38 @@
 
 	function resetPrompt() {
 		if (selected) selectPrompt(selected);
+	}
+
+	function cancelCreate() {
+		creating = false;
+		const target = previousSelection;
+		previousSelection = null;
+		if (target) selectPrompt(target);
+		else selected = null;
+	}
+
+	async function createDraftPrompt() {
+		if (!hasMeaningfulSegments(editorSegments)) return;
+		saving = true;
+		const payload = {
+			name: name.trim() || null,
+			usage_hint: usageHint || null,
+			model_id: editModelId,
+			segments: editorSegments.map(toRichSegment)
+		};
+		try {
+			const response = await api.createPrompt(payload);
+			if (!response.success || !response.data) throw new Error(response.error || 'Create failed');
+			toasts.success('Prompt created');
+			creating = false;
+			previousSelection = null;
+			await loadPrompts();
+			selectPrompt(response.data);
+		} catch (error) {
+			toasts.error(error instanceof Error ? error.message : 'Failed to create prompt');
+		} finally {
+			saving = false;
+		}
 	}
 
 	async function savePrompt() {
@@ -279,10 +344,6 @@
 		} catch (error) {
 			toasts.error(error instanceof Error ? error.message : 'Failed to duplicate prompt');
 		}
-	}
-
-	function handlePromptCreated(prompt: Prompt) {
-		loadPrompts().then(() => selectPrompt(prompt));
 	}
 
 	async function openDuplicatesModal() {
@@ -456,7 +517,7 @@
 								: 'No prompts yet'}
 						</p>
 						{#if !query.trim() && !modelId && !source && usageFilter === 'all' && !collectionId}
-							<Button class="mt-3" size="xs" variant="ghost" icon="plus" onclick={openComposer}>
+							<Button class="mt-3" size="xs" variant="ghost" icon="plus" onclick={startNewPrompt}>
 								Create your first prompt
 							</Button>
 						{/if}
@@ -495,7 +556,7 @@
 		</svelte:fragment>
 
 		<svelte:fragment slot="detail">
-			{#if !selected}
+			{#if !selected && !creating}
 				<div class="flex h-full items-center justify-center">
 					<EmptyState
 						icon="document"
@@ -503,101 +564,106 @@
 						description="Pick a prompt from the list, or start a new one from the toolbar."
 					>
 						{#snippet actions()}
-							<Button size="sm" variant="primary" icon="plus" onclick={openComposer}>Create a prompt</Button>
+							<Button size="sm" variant="primary" icon="plus" onclick={startNewPrompt}>Create a prompt</Button>
 						{/snippet}
 					</EmptyState>
 				</div>
 			{:else}
 				<DetailPane
-					title="Edit Prompt"
-					showDelete
+					title={creating ? 'New prompt' : 'Edit Prompt'}
+					showDelete={!creating}
 					showCancel
-					saveLabel="Save changes"
+					saveLabel={creating ? 'Create' : 'Save changes'}
+					saveDisabled={creating && !hasMeaningfulSegments(editorSegments)}
 					isLoading={saving}
-					on:save={savePrompt}
-					on:cancel={resetPrompt}
+					on:save={creating ? createDraftPrompt : savePrompt}
+					on:cancel={creating ? cancelCreate : resetPrompt}
 					on:delete={deletePrompt}
 				>
 					{#snippet headerActions()}
-						{#if usageHint}
-							<Badge size="sm" variant={usageHint === 'negative' ? 'danger' : 'success'}>{usageHint}</Badge>
+						{#if !creating}
+							{#if usageHint}
+								<Badge size="sm" variant={usageHint === 'negative' ? 'danger' : 'success'}>{usageHint}</Badge>
+							{/if}
+							<Button size="sm" icon="copy" onclick={duplicatePrompt}>Duplicate</Button>
+							<AddToCollectionMenu
+								collections={promptCollections}
+								open={addToCollectionOpen}
+								placement="down"
+								onToggle={() => (addToCollectionOpen = !addToCollectionOpen)}
+								onClose={() => (addToCollectionOpen = false)}
+								onAdd={handleAddToCollection}
+								onCreateAndAdd={handleCreateAndAddToCollection}
+							/>
 						{/if}
-						<Button size="sm" icon="copy" onclick={duplicatePrompt}>Duplicate</Button>
-						<AddToCollectionMenu
-							collections={promptCollections}
-							open={addToCollectionOpen}
-							placement="down"
-							onToggle={() => (addToCollectionOpen = !addToCollectionOpen)}
-							onClose={() => (addToCollectionOpen = false)}
-							onAdd={handleAddToCollection}
-							onCreateAndAdd={handleCreateAndAddToCollection}
-						/>
 					{/snippet}
 
 					<div class="space-y-4">
-						<Card padding="sm">
-							<div class="mb-3 flex items-center gap-2">
-								<span class="font-mono text-2xs font-semibold uppercase tracking-[0.13em] text-fg-subtle">
-									Used in generations
-								</span>
-								{#if usageTotal > 0}
-									<Badge size="sm" variant="signal">
-										<span class="font-mono tabular-nums">{usageTotal}</span>
-										use{usageTotal === 1 ? '' : 's'}
-									</Badge>
-								{/if}
-								<span class="flex-1"></span>
-								{#if usageItems[0]?.created_at}
-									<span class="font-mono text-2xs tabular-nums text-fg-subtle">
-										Last used {timeAgo(usageItems[0].created_at)}
+						{#if !creating}
+							<Card padding="sm">
+								<div class="mb-3 flex items-center gap-2">
+									<span class="font-mono text-2xs font-semibold uppercase tracking-[0.13em] text-fg-subtle">
+										Used in generations
 									</span>
-								{/if}
-							</div>
-
-							{#if usageLoading}
-								<div class="flex h-16 items-center justify-center">
-									<Spinner size="sm" />
-								</div>
-							{:else if usageItems.length === 0}
-								<p class="text-xs text-fg-subtle">Not used in any generation yet.</p>
-							{:else}
-								<div class="flex gap-2.5 overflow-x-auto pb-1">
-									{#each usageItems as item (item.id)}
-										{@const leadFile = leadFileOf(item)}
-										<div class="w-16 flex-shrink-0">
-											<div
-												class="h-16 w-16 overflow-hidden rounded border border-line-strong bg-surface-2"
-												title="{item.preset_name || item.preset_id || 'Unknown preset'} · {item.created_at
-													? timeAgo(item.created_at)
-													: ''}"
-											>
-												{#if leadFile}
-													<MediaPreview
-														file={leadFile}
-														generationId={item.id}
-														thumbnailSize="small"
-														loadFullOnClick={false}
-													/>
-												{/if}
-											</div>
-											<div class="mt-1 truncate text-center font-mono text-3xs text-fg-subtle">
-												{item.preset_name || item.preset_id || '—'}
-											</div>
-											{#if item.created_at}
-												<div class="text-center font-mono text-3xs tabular-nums text-fg-disabled">
-													{timeAgo(item.created_at)}
-												</div>
-											{/if}
-										</div>
-									{/each}
-									{#if usageTotal > usageItems.length}
-										<div class="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded border border-dashed border-line-strong text-xs font-medium text-fg-subtle">
-											+{usageTotal - usageItems.length}
-										</div>
+									{#if usageTotal > 0}
+										<Badge size="sm" variant="signal">
+											<span class="font-mono tabular-nums">{usageTotal}</span>
+											use{usageTotal === 1 ? '' : 's'}
+										</Badge>
+									{/if}
+									<span class="flex-1"></span>
+									{#if usageItems[0]?.created_at}
+										<span class="font-mono text-2xs tabular-nums text-fg-subtle">
+											Last used {timeAgo(usageItems[0].created_at)}
+										</span>
 									{/if}
 								</div>
-							{/if}
-						</Card>
+
+								{#if usageLoading}
+									<div class="flex h-16 items-center justify-center">
+										<Spinner size="sm" />
+									</div>
+								{:else if usageItems.length === 0}
+									<p class="text-xs text-fg-subtle">Not used in any generation yet.</p>
+								{:else}
+									<div class="flex gap-2.5 overflow-x-auto pb-1">
+										{#each usageItems as item (item.id)}
+											{@const leadFile = leadFileOf(item)}
+											<div class="w-16 flex-shrink-0">
+												<div
+													class="h-16 w-16 overflow-hidden rounded border border-line-strong bg-surface-2"
+													title="{item.preset_name || item.preset_id || 'Unknown preset'} · {item.created_at
+														? timeAgo(item.created_at)
+														: ''}"
+												>
+													{#if leadFile}
+														<MediaPreview
+															file={leadFile}
+															generationId={item.id}
+															thumbnailSize="small"
+															loadFullOnClick={false}
+														/>
+													{/if}
+												</div>
+												<div class="mt-1 truncate text-center font-mono text-3xs text-fg-subtle">
+													{item.preset_name || item.preset_id || '—'}
+												</div>
+												{#if item.created_at}
+													<div class="text-center font-mono text-3xs tabular-nums text-fg-disabled">
+														{timeAgo(item.created_at)}
+													</div>
+												{/if}
+											</div>
+										{/each}
+										{#if usageTotal > usageItems.length}
+											<div class="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded border border-dashed border-line-strong text-xs font-medium text-fg-subtle">
+												+{usageTotal - usageItems.length}
+											</div>
+										{/if}
+									</div>
+								{/if}
+							</Card>
+						{/if}
 
 						<Card padding="sm">
 							<h3 class="label mb-3">Prompt details</h3>
@@ -607,6 +673,7 @@
 										Name <span class="font-normal text-fg-subtle">(optional)</span>
 									</span>
 									<Input
+										id={NAME_FIELD_ID}
 										class="text-sm"
 										bind:value={name}
 										placeholder="Content preview is used when unnamed"
@@ -697,15 +764,6 @@
 		onSelect={selectModelFilter}
 		onClear={() => selectModelFilter(null)}
 		onClose={() => (showModelFilter = false)}
-	/>
-{/if}
-
-{#if showComposer}
-	<NewPromptComposerModal
-		initialModelId={modelId || null}
-		initialModelLabel={modelId ? selectedModelLabel : null}
-		onClose={() => (showComposer = false)}
-		onCreated={handlePromptCreated}
 	/>
 {/if}
 

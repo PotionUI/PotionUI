@@ -3,9 +3,10 @@ import { loginAsOwner, screenshot } from './helpers';
 
 const JOURNEY = 'prompt-manual-create';
 
-// Prompt Library toolbar -> New prompt composer -> paste content, name it,
-// Save: a prompt typed by hand (never imported) must persist and show up in
-// the list, exactly like an imported one does.
+// Prompt Library "New prompt" opens the same detail pane form used for
+// editing, in a create mode - no separate composer modal. A prompt typed by
+// hand (never imported) must persist and show up in the list, exactly like
+// an imported one does.
 
 test('a manually authored prompt saves and appears in the list', async ({ page }) => {
 	test.setTimeout(60000);
@@ -21,9 +22,10 @@ test('a manually authored prompt saves and appears in the list', async ({ page }
 
 	const uniqueName = `E2E manual prompt ${Date.now()}`;
 	await page.getByPlaceholder('Content preview is used when unnamed').fill(uniqueName);
-	await page
-		.getByPlaceholder('Paste anything — a whole prompt, notes, a description...')
-		.fill('a hand-typed manual prompt, not imported');
+	const segmentEditor = page.locator('.inline-chip-editor[role="textbox"]').first();
+	await expect(segmentEditor).toBeVisible({ timeout: 10000 });
+	await segmentEditor.click();
+	await page.keyboard.type('a hand-typed manual prompt, not imported');
 
 	await page.waitForTimeout(300);
 	await screenshot(page, JOURNEY, 'filled-before-save');
@@ -33,9 +35,9 @@ test('a manually authored prompt saves and appears in the list', async ({ page }
 		{ timeout: 15000 }
 	);
 
-	const saveButton = page.getByRole('button', { name: 'Save', exact: true });
-	await expect(saveButton).toBeEnabled();
-	await saveButton.click();
+	const createButton = page.getByRole('button', { name: 'Create', exact: true });
+	await expect(createButton).toBeEnabled();
+	await createButton.click();
 
 	const response = await createResponse;
 	expect(response.ok(), `POST /api/prompts -> ${response.status()}`).toBeTruthy();
@@ -46,7 +48,7 @@ test('a manually authored prompt saves and appears in the list', async ({ page }
 		`saved segment content must carry the typed text: ${JSON.stringify(body.data)}`
 	).toContain('a hand-typed manual prompt, not imported');
 
-	await expect(page.getByText('Prompt saved')).toBeVisible({ timeout: 5000 });
+	await expect(page.getByText('Prompt created')).toBeVisible({ timeout: 5000 });
 	await expect(page.getByText(uniqueName)).toBeVisible({ timeout: 10000 });
 
 	await page.waitForTimeout(300);

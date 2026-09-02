@@ -3,7 +3,7 @@
 // The Prompt Library's collection folder tree lives in a sibling component
 // (PromptsSidebar), not inside PromptWorkspace, so the page wires them
 // together through PromptWorkspace's exported setCollectionFilter - the same
-// bind:this pattern the toolbar already uses for openComposer/openDuplicatesScan.
+// bind:this pattern the toolbar already uses for startNewPrompt/openDuplicatesScan.
 // This proves that call actually reaches api.listPrompts with collection_id,
 // and that it stays out of unfiltered loads.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';

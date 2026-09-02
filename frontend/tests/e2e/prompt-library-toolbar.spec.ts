@@ -6,9 +6,11 @@ const JOURNEY = 'prompt-library-toolbar';
 // Prompt Library v3: the page-level toolbar replaced the old pane "New
 // prompt" button; the four section tabs (Prompts / Segments / Segment
 // Templates / Segment Categories) stay permanently visible in the header.
-// Two things must keep working: (1) the toolbar's composer selects the
-// prompt it just created, and (2) the Segments tab swaps in its workspace
-// and the Prompts tab comes back to the same list.
+// "New prompt" opens the same detail pane form used for editing (no separate
+// composer modal) in a create mode - the pane's own Create button posts the
+// prompt. Two things must keep working: (1) the pane selects the prompt it
+// just created, and (2) the Segments tab swaps in its workspace and the
+// Prompts tab comes back to the same list.
 
 test('toolbar New prompt selects the created prompt, and the section tabs round-trip', async ({ page }) => {
 	test.setTimeout(60000);
@@ -22,20 +24,24 @@ test('toolbar New prompt selects the created prompt, and the section tabs round-
 
 	const uniqueName = `E2E toolbar prompt ${Date.now()}`;
 	await page.getByPlaceholder('Content preview is used when unnamed').fill(uniqueName);
-	await page
-		.getByPlaceholder('Paste anything — a whole prompt, notes, a description...')
-		.fill('toolbar-composed content for the selection check');
+	const segmentEditor = page.locator('.inline-chip-editor[role="textbox"]').first();
+	await expect(segmentEditor).toBeVisible({ timeout: 10000 });
+	await segmentEditor.click();
+	await page.keyboard.type('toolbar-composed content for the selection check');
+
+	const createButton = page.getByRole('button', { name: 'Create', exact: true });
+	await expect(createButton).toBeEnabled({ timeout: 10000 });
 
 	const createResponse = page.waitForResponse(
 		(r) => r.url().includes('/api/prompts') && r.request().method() === 'POST',
 		{ timeout: 15000 }
 	);
-	await page.getByRole('button', { name: 'Save', exact: true }).click();
+	await createButton.click();
 	await createResponse;
 
 	await expect(page.getByRole('heading', { name: 'Edit Prompt' })).toBeVisible({ timeout: 10000 });
 	// Selected: the detail pane's own Name field carries the same value, not
-	// just the list row - proves handlePromptCreated actually selected it
+	// just the list row - proves the create flow actually selected it
 	// rather than merely refreshing the list.
 	await expect(page.getByPlaceholder('Content preview is used when unnamed')).toHaveValue(uniqueName, {
 		timeout: 10000

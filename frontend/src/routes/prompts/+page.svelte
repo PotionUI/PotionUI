@@ -210,7 +210,7 @@
 					Duplicates
 				</Button>
 
-				<Button size="sm" variant="primary" icon="plus" onclick={() => promptWorkspace?.openComposer()}>
+				<Button size="sm" variant="primary" icon="plus" onclick={() => promptWorkspace?.startNewPrompt()}>
 					New prompt
 				</Button>
 			{/if}

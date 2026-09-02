@@ -1,4 +1,4 @@
-# PotionUI
+![PotionUI](docs/media/brand/potionui-banner-dark.png)
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/A3B325D031)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/avR4trp3b8)
@@ -11,10 +11,14 @@ Run Flux, Wan, LTX, Qwen-Image and MiniMax on one box — then give your team,
 your household, or your agents their own logins, presets, and limits. No node
 graphs. No per-model setup. Pick a model, type, watch it render live.
 
-<!-- TODO: record 6–10s GIF: switch model → form changes → live preview fills in. GitHub does not autoplay mp4. -->
-![PotionUI demo](docs/assets/hero.gif)
+![The generate workspace: model tabs, a prompt built from colored segments, and the finished render](docs/media/potionui-generation-page.png)
+
+<details>
+<summary>Watch the 60-second tour (video)</summary>
 
 https://github.com/user-attachments/assets/950415f7-da97-403e-811b-4c9c41d8106f
+
+</details>
 
 **Why PotionUI:**
 

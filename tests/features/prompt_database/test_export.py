@@ -41,6 +41,7 @@ def collaborators(persistence):
         vector_store=MagicMock(),
         embedding_provider=embedding_provider,
         plugin_registry=MagicMock(),
+        model_repository=MagicMock(),
     )
 
 

@@ -12,6 +12,7 @@ dissolution).
 """
 from dataclasses import dataclass
 
+from src.features.models.repository import ModelRepository
 from src.features.prompt_database.embedding import EmbeddingProvider
 from src.features.prompt_database.repository import PromptRepository
 from src.features.prompt_database.vector_store import PromptVectorStore
@@ -24,3 +25,4 @@ class PromptDatabaseCollaborators:
     vector_store: PromptVectorStore
     embedding_provider: EmbeddingProvider
     plugin_registry: PluginRegistry
+    model_repository: ModelRepository

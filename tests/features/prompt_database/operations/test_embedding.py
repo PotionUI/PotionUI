@@ -22,6 +22,7 @@ def dependencies():
         vector_store=vector_store,
         embedding_provider=embedding_provider,
         plugin_registry=plugins,
+        model_repository=MagicMock(),
     )
     return collaborators, repository, vector_store, embedding_provider, plugins
 

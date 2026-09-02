@@ -40,6 +40,8 @@ test('toolbar New prompt selects the created prompt, and the section tabs round-
 	await expect(page.getByPlaceholder('Content preview is used when unnamed')).toHaveValue(uniqueName, {
 		timeout: 10000
 	});
+	// The edit card's Model field renders for a prompt created without one.
+	await expect(page.getByText('No model', { exact: true })).toBeVisible({ timeout: 10000 });
 
 	await screenshot(page, JOURNEY, 'created-and-selected');
 

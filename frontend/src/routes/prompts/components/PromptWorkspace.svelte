@@ -19,6 +19,7 @@
 	import { promptsCollectionsStore } from '$lib/stores/collections';
 	import AddToCollectionMenu from '$lib/components/collections/AddToCollectionMenu.svelte';
 	import NewPromptComposerModal from './NewPromptComposerModal.svelte';
+	import PromptModelField from './PromptModelField.svelte';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import {
 		DUPLICATE_THRESHOLD_PRESETS,
@@ -30,6 +31,8 @@
 	let selected: Prompt | null = null;
 	let name = '';
 	let usageHint: PromptUsageHint | '' = '';
+	let editModelId: string | null = null;
+	let editModelLabel: string | null = null;
 	let editorSegments: Segment[] = [createBlankEditorSegment()];
 	let loading = false;
 	let saving = false;
@@ -161,6 +164,8 @@
 		selected = prompt;
 		name = prompt.name || '';
 		usageHint = prompt.usage_hint || '';
+		editModelId = prompt.model_id ?? null;
+		editModelLabel = prompt.model_name ?? null;
 		editorSegments = prompt.segments.map((segment) => toEditorSegment(segment));
 		if (!editorSegments.length) editorSegments = [createBlankEditorSegment()];
 		loadUsage(prompt.id);
@@ -195,6 +200,7 @@
 		const payload = {
 			name: name.trim() || null,
 			usage_hint: usageHint || null,
+			model_id: editModelId,
 			segments: editorSegments.map(toRichSegment)
 		};
 		try {
@@ -263,6 +269,7 @@
 			const response = await api.createPrompt({
 				name: selected.name ? `${selected.name} copy` : null,
 				usage_hint: selected.usage_hint ?? null,
+				model_id: selected.model_id ?? null,
 				segments: selected.segments
 			});
 			if (!response.success || !response.data) throw new Error(response.error || 'Duplicate failed');
@@ -614,6 +621,17 @@
 									</select>
 								</label>
 							</div>
+							<div class="mt-3">
+								<PromptModelField
+									modelId={editModelId}
+									modelLabel={editModelLabel}
+									disabled={saving}
+									onChange={(model) => {
+										editModelId = model?.id ?? null;
+										editModelLabel = model?.label ?? null;
+									}}
+								/>
+							</div>
 						</Card>
 
 						<Card padding="none" class="overflow-hidden">
@@ -652,7 +670,7 @@
 								<div class="flex items-start gap-2">
 									<Icon name="info" className="mt-0.5 h-4 w-4 flex-shrink-0 text-info" />
 									<p>
-										Browsing metadata: {selected.model_name || selected.base_model || 'unknown model'} ·
+										Browsing metadata: {selected.model_name || selected.base_model || 'no model'} ·
 										{sourceLabel(selected)} ·
 										<a class="text-signal hover:underline" href={selected.source_url} target="_blank" rel="noreferrer">
 											view source
@@ -683,7 +701,12 @@
 {/if}
 
 {#if showComposer}
-	<NewPromptComposerModal onClose={() => (showComposer = false)} onCreated={handlePromptCreated} />
+	<NewPromptComposerModal
+		initialModelId={modelId || null}
+		initialModelLabel={modelId ? selectedModelLabel : null}
+		onClose={() => (showComposer = false)}
+		onCreated={handlePromptCreated}
+	/>
 {/if}
 
 {#if showDuplicatesModal}

@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from src.features.prompt_database.collaborators import PromptDatabaseCollaborators
 from src.features.prompt_database.dto import PromptRequest
 from src.features.prompt_database.importing import PARSERS, ParsedPrompt, detect_format
-from src.features.prompt_database.operations.mutations import create_prompt
+from src.features.prompt_database.operations.mutations import create_prompt, resolve_model_name
 from src.features.prompt_database.records import Prompt
 from src.features.segments.dto import RichSegment
 
@@ -38,7 +38,8 @@ class ImportOutcome:
 
 
 def _request_from(
-    parsed: ParsedPrompt, *, fmt: str, filename: str, model_name: Optional[str], base_model: Optional[str],
+    parsed: ParsedPrompt, *, fmt: str, filename: str,
+    model_id: Optional[str], model_name: Optional[str], base_model: Optional[str],
 ) -> PromptRequest:
     metadata: Dict[str, Any] = dict(parsed.metadata)
     metadata["import_format"] = fmt
@@ -51,6 +52,7 @@ def _request_from(
         segments=[RichSegment(content=parsed.text)],
         source_provider=IMPORT_SOURCE_PROVIDER,
         source_group_id=parsed.group_id,
+        model_id=model_id,
         model_name=parsed.model_name or model_name,
         base_model=parsed.base_model or base_model,
         cfg_scale=parsed.cfg_scale,
@@ -67,8 +69,13 @@ async def import_prompts(
     collaborators: PromptDatabaseCollaborators, user_id: str,
     files: Sequence[Tuple[str, bytes]], *,
     format: Optional[str] = None,
-    model_name: Optional[str] = None, base_model: Optional[str] = None,
+    model_id: Optional[str] = None, base_model: Optional[str] = None,
 ) -> ImportOutcome:
+    """A caller-picked `model_id` lands on every imported prompt; its catalog
+    name only fills `model_name` where the parser found none (an A1111
+    `Model:` line, say, keeps what the file said). An unknown id raises
+    `UnknownModelError` before any file is touched."""
+    model_name = resolve_model_name(collaborators, model_id) if model_id else None
     outcome = ImportOutcome()
     for filename, data in files:
         fmt = format or detect_format(filename, data)
@@ -100,7 +107,10 @@ async def import_prompts(
                 file_summary["skipped"] += 1
                 continue
             try:
-                request = _request_from(parsed, fmt=fmt, filename=filename, model_name=model_name, base_model=base_model)
+                request = _request_from(
+                    parsed, fmt=fmt, filename=filename,
+                    model_id=model_id, model_name=model_name, base_model=base_model,
+                )
                 prompt = await create_prompt(collaborators, user_id, request)
             except Exception as exc:
                 logger.warning("Prompt import save failed for an entry in %s: %s", filename, exc)

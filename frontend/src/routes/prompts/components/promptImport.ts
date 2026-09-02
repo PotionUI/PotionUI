@@ -47,7 +47,7 @@ export interface PromptImportFormInput {
 	files: File[];
 	pastedText: string;
 	format: PromptImportFormatValue;
-	modelName: string;
+	modelId: string | null;
 	baseModel: string;
 }
 
@@ -64,7 +64,7 @@ export function buildPromptImportFormData(input: PromptImportFormInput): FormDat
 	}
 
 	if (input.format) formData.append('format', input.format);
-	if (input.modelName.trim()) formData.append('model_name', input.modelName.trim());
+	if (input.modelId) formData.append('model_id', input.modelId);
 	if (input.baseModel.trim()) formData.append('base_model', input.baseModel.trim());
 
 	return formData;

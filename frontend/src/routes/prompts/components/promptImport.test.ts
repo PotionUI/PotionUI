@@ -65,7 +65,7 @@ describe('buildPromptImportFormData', () => {
 			files: [fileA, fileB],
 			pastedText: '',
 			format: '',
-			modelName: '',
+			modelId: null,
 			baseModel: ''
 		});
 		const files = formData.getAll('files');
@@ -79,7 +79,7 @@ describe('buildPromptImportFormData', () => {
 			files: [],
 			pastedText: 'a masterpiece, best quality',
 			format: '',
-			modelName: '',
+			modelId: null,
 			baseModel: ''
 		});
 		const files = formData.getAll('files');
@@ -94,7 +94,7 @@ describe('buildPromptImportFormData', () => {
 			files: [],
 			pastedText: '   \n  ',
 			format: '',
-			modelName: '',
+			modelId: null,
 			baseModel: ''
 		});
 		expect(formData.getAll('files')).toHaveLength(0);
@@ -105,7 +105,7 @@ describe('buildPromptImportFormData', () => {
 			files: [],
 			pastedText: 'x',
 			format: '',
-			modelName: '',
+			modelId: null,
 			baseModel: ''
 		});
 		expect(formData.has('format')).toBe(false);
@@ -116,31 +116,32 @@ describe('buildPromptImportFormData', () => {
 			files: [],
 			pastedText: 'x',
 			format: 'lines',
-			modelName: '',
+			modelId: null,
 			baseModel: ''
 		});
 		expect(formData.get('format')).toBe('lines');
 	});
 
-	it('trims and includes model_name / base_model only when non-blank', () => {
+	it('includes model_id when a model is picked and a trimmed base_model when non-blank', () => {
 		const withValues = buildPromptImportFormData({
 			files: [],
 			pastedText: 'x',
 			format: '',
-			modelName: '  Illustrious  ',
+			modelId: 'model-1',
 			baseModel: ' SDXL '
 		});
-		expect(withValues.get('model_name')).toBe('Illustrious');
+		expect(withValues.get('model_id')).toBe('model-1');
 		expect(withValues.get('base_model')).toBe('SDXL');
+		expect(withValues.has('model_name')).toBe(false);
 
 		const withoutValues = buildPromptImportFormData({
 			files: [],
 			pastedText: 'x',
 			format: '',
-			modelName: '   ',
+			modelId: null,
 			baseModel: ''
 		});
-		expect(withoutValues.has('model_name')).toBe(false);
+		expect(withoutValues.has('model_id')).toBe(false);
 		expect(withoutValues.has('base_model')).toBe(false);
 	});
 });

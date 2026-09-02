@@ -17,8 +17,11 @@ import pytest
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
 
+from src.features.models.records import Model
+from src.features.models.repository import ModelRepository
 from src.features.prompt_database.collaborators import PromptDatabaseCollaborators
 from src.features.prompt_database.operations.importing import import_prompts
+from src.features.prompt_database.operations.mutations import UnknownModelError
 from src.features.prompt_database.repository import PromptRepository
 from tests.fixtures.persistence_base import PersistenceTestBase
 
@@ -48,7 +51,18 @@ def collaborators(persistence):
         vector_store=MagicMock(),
         embedding_provider=embedding_provider,
         plugin_registry=MagicMock(),
+        model_repository=ModelRepository(),
     )
+
+
+@pytest.fixture
+def catalog_model(collaborators):
+    """A real catalog row: `prompts.model_id` is a foreign key onto `models`,
+    and the name the importer stores is the row's `display_name`."""
+    return collaborators.model_repository.create(Model(
+        filename="Caller Model.safetensors", file_path="/models/Caller Model.safetensors",
+        file_size=1, sha256="a" * 64, model_type="checkpoint",
+    ))
 
 
 def _a1111_png(*, model_name: str = "myModel", seed: int = 1) -> bytes:
@@ -92,25 +106,39 @@ async def test_styles_csv_pair_shares_source_group_id_on_persisted_rows(collabor
     assert stored_positive.source_group_id == stored_negative.source_group_id
 
 
-async def test_caller_model_name_fills_in_only_when_parser_found_none(collaborators, user_id):
+async def test_caller_model_id_lands_on_every_prompt_and_its_catalog_name_fills_the_gap(
+    collaborators, user_id, catalog_model,
+):
     csv_bytes = b'name,prompt,negative_prompt\nA,only positive,\n'
     outcome = await import_prompts(
         collaborators, user_id, [("styles.csv", csv_bytes)],
-        model_name="Caller Model", base_model="SDXL",
+        model_id=catalog_model.id, base_model="SDXL",
     )
 
+    assert outcome.imported == 1
+    assert outcome.items[0]["model_id"] == catalog_model.id
     assert outcome.items[0]["model_name"] == "Caller Model"
     assert outcome.items[0]["base_model"] == "SDXL"
 
 
-async def test_parser_reported_model_name_is_not_overridden_by_caller(collaborators, user_id):
+async def test_parser_reported_model_name_survives_a_caller_model_id(collaborators, user_id, catalog_model):
     outcome = await import_prompts(
         collaborators, user_id, [("shot.png", _a1111_png(model_name="fromImage"))],
-        model_name="CallerModel",
+        model_id=catalog_model.id,
     )
 
     positive = next(item for item in outcome.items if item["usage_hint"] == "positive")
     assert positive["model_name"] == "fromImage"
+    assert positive["model_id"] == catalog_model.id
+
+
+async def test_unknown_caller_model_id_fails_before_any_file_is_read(collaborators, user_id):
+    with pytest.raises(UnknownModelError):
+        await import_prompts(
+            collaborators, user_id, [("styles.csv", b'name,prompt,negative_prompt\nA,x,\n')],
+            model_id="missing",
+        )
+    assert collaborators.repository.count(user_id) == 0
 
 
 async def test_one_bad_file_does_not_sink_the_batch(collaborators, user_id):

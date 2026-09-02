@@ -1252,6 +1252,7 @@ def build_container() -> AppContainer:
         vector_store=prompt_vector_store,
         embedding_provider=embedding_provider,
         plugin_registry=plugin_registry,
+        model_repository=model_repository,
     )
     prompt_database_controller = PromptDatabaseController(prompt_database)
 

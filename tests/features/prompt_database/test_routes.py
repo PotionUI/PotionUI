@@ -19,6 +19,7 @@ from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from src.features.prompt_database import routes as routes_module
+from src.features.prompt_database.operations.mutations import UnknownModelError
 from src.features.prompt_database.routes import (
     PromptDatabaseController,
     build_router,
@@ -473,7 +474,7 @@ def test_import_accepts_multiple_files_and_forwards_form_fields(client, collabor
             ("files", ("a.csv", b"name,prompt,negative_prompt\nA,x,y\n", "text/csv")),
             ("files", ("b.txt", b"a fox\n", "text/plain")),
         ],
-        data={"format": "", "model_name": "Caller Model", "base_model": "SDXL"},
+        data={"format": "", "model_id": "model-1", "base_model": "SDXL"},
     )
 
     assert response.status_code == 200
@@ -488,8 +489,45 @@ def test_import_accepts_multiple_files_and_forwards_form_fields(client, collabor
     assert collab_arg is collaborators
     assert user_id == "user-1"
     assert {name for name, _ in loaded_files} == {"a.csv", "b.txt"}
-    assert call.kwargs["model_name"] == "Caller Model"
+    assert call.kwargs["model_id"] == "model-1"
     assert call.kwargs["base_model"] == "SDXL"
+
+
+def test_import_with_an_unknown_model_id_is_a_400(client, mock_operations):
+    mock_operations.import_prompts = AsyncMock(side_effect=UnknownModelError("Unknown model: nope"))
+
+    response = client.post(
+        "/api/prompts/import",
+        files=[("files", ("a.txt", b"a fox\n", "text/plain"))],
+        data={"model_id": "nope"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "invalid_model"
+
+
+def test_create_with_an_unknown_model_id_is_a_400(client, mock_operations):
+    mock_operations.create_prompt = AsyncMock(side_effect=UnknownModelError("Unknown model: nope"))
+
+    response = client.post(
+        "/api/prompts",
+        json={"segments": [{"type": "content", "content": "a fox"}], "model_id": "nope"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "invalid_model"
+
+
+def test_put_with_an_unknown_model_id_is_a_400(client, mock_operations):
+    mock_operations.replace_prompt = AsyncMock(side_effect=UnknownModelError("Unknown model: nope"))
+
+    response = client.put(
+        "/api/prompts/prompt-1",
+        json={"segments": [{"type": "content", "content": "a fox"}], "model_id": "nope"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "invalid_model"
 
 
 def test_import_pasted_text_arrives_as_an_ordinary_file_part(client, mock_operations):

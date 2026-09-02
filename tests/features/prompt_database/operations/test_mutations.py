@@ -1,6 +1,7 @@
 """Unit coverage for create/replace/delete Prompt aggregate operations."""
 
 from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -8,6 +9,7 @@ import pytest
 from src.features.prompt_database import operations
 from src.features.prompt_database.collaborators import PromptDatabaseCollaborators
 from src.features.prompt_database.dto import PromptRequest
+from src.features.prompt_database.operations.mutations import UnknownModelError
 from src.features.segments.dto import RichSegment
 from src.features.prompt_database.records import Prompt
 from src.features.prompt_database.repository import flatten_segments
@@ -45,6 +47,7 @@ def dependencies():
         vector_store=vector_store,
         embedding_provider=embedding_provider,
         plugin_registry=plugins,
+        model_repository=MagicMock(),
     )
     return collaborators, repository, vector_store, embedding_provider, plugins
 
@@ -110,6 +113,120 @@ async def test_create_with_explicit_source_provider_is_not_overridden(dependenci
     saved = await operations.create_prompt(collaborators, "user-1", request)
 
     assert saved.source_provider == "text_import"
+
+
+@pytest.mark.asyncio
+async def test_create_with_a_model_id_stores_the_catalog_display_name(dependencies):
+    collaborators, repository, *_ = dependencies
+    repository.create.side_effect = persist_with_flattened_text
+    collaborators.model_repository.get_by_id.return_value = SimpleNamespace(display_name="Juggernaut XL")
+    request = PromptRequest(segments=[RichSegment(content="a fox")], model_id="model-1")
+
+    saved = await operations.create_prompt(collaborators, "user-1", request)
+
+    collaborators.model_repository.get_by_id.assert_called_once_with("model-1", include_tags=False)
+    assert saved.model_id == "model-1"
+    assert saved.model_name == "Juggernaut XL"
+
+
+@pytest.mark.asyncio
+async def test_create_keeps_an_explicit_model_name_over_the_catalog_one(dependencies):
+    collaborators, repository, *_ = dependencies
+    repository.create.side_effect = persist_with_flattened_text
+    request = PromptRequest(
+        segments=[RichSegment(content="a fox")], model_id="model-1", model_name="fromImage",
+    )
+
+    saved = await operations.create_prompt(collaborators, "user-1", request)
+
+    collaborators.model_repository.get_by_id.assert_not_called()
+    assert saved.model_name == "fromImage"
+
+
+@pytest.mark.asyncio
+async def test_create_with_an_unknown_model_id_raises(dependencies):
+    collaborators, repository, *_ = dependencies
+    collaborators.model_repository.get_by_id.return_value = None
+    request = PromptRequest(segments=[RichSegment(content="a fox")], model_id="missing")
+
+    with pytest.raises(UnknownModelError):
+        await operations.create_prompt(collaborators, "user-1", request)
+    repository.create.assert_not_called()
+
+
+def _replace_setup(dependencies, existing: Prompt):
+    collaborators, repository, *_ = dependencies
+    repository.get_by_id.return_value = existing
+    repository.update.side_effect = lambda _prompt_id, _user_id, candidate: persist_with_flattened_text(candidate)
+    return collaborators, repository
+
+
+@pytest.mark.asyncio
+async def test_replace_with_a_new_model_id_swaps_in_that_models_catalog_name(dependencies):
+    collaborators, repository = _replace_setup(
+        dependencies, make_prompt("prompt-1", model_id="model-1", model_name="Old Model"),
+    )
+    collaborators.model_repository.get_by_id.return_value = SimpleNamespace(display_name="New Model")
+    request = PromptRequest(segments=[RichSegment(content="a fox")], model_id="model-2")
+
+    saved = await operations.replace_prompt(collaborators, "user-1", "prompt-1", request)
+
+    collaborators.model_repository.get_by_id.assert_called_once_with("model-2", include_tags=False)
+    assert saved.model_id == "model-2"
+    assert saved.model_name == "New Model"
+
+
+@pytest.mark.asyncio
+async def test_replace_with_the_same_model_id_keeps_the_stored_name(dependencies):
+    collaborators, repository = _replace_setup(
+        dependencies, make_prompt("prompt-1", model_id="model-1", model_name="fromImage"),
+    )
+    request = PromptRequest(segments=[RichSegment(content="a fox")], model_id="model-1")
+
+    saved = await operations.replace_prompt(collaborators, "user-1", "prompt-1", request)
+
+    collaborators.model_repository.get_by_id.assert_not_called()
+    assert saved.model_name == "fromImage"
+
+
+@pytest.mark.asyncio
+async def test_replace_with_an_explicit_null_model_id_clears_model_and_name(dependencies):
+    collaborators, repository = _replace_setup(
+        dependencies, make_prompt("prompt-1", model_id="model-1", model_name="Old Model"),
+    )
+    request = PromptRequest(segments=[RichSegment(content="a fox")], model_id=None)
+
+    saved = await operations.replace_prompt(collaborators, "user-1", "prompt-1", request)
+
+    collaborators.model_repository.get_by_id.assert_not_called()
+    assert saved.model_id is None
+    assert saved.model_name is None
+
+
+@pytest.mark.asyncio
+async def test_replace_without_model_id_leaves_model_untouched_even_when_the_catalog_lost_it(dependencies):
+    collaborators, repository = _replace_setup(
+        dependencies, make_prompt("prompt-1", model_id="model-1", model_name="Old Model"),
+    )
+    collaborators.model_repository.get_by_id.return_value = None
+    request = PromptRequest(name="Renamed", segments=[RichSegment(content="a fox")])
+
+    saved = await operations.replace_prompt(collaborators, "user-1", "prompt-1", request)
+
+    collaborators.model_repository.get_by_id.assert_not_called()
+    assert saved.model_id == "model-1"
+    assert saved.model_name == "Old Model"
+
+
+@pytest.mark.asyncio
+async def test_replace_with_an_unknown_model_id_raises_before_persisting(dependencies):
+    collaborators, repository = _replace_setup(dependencies, make_prompt("prompt-1"))
+    collaborators.model_repository.get_by_id.return_value = None
+    request = PromptRequest(segments=[RichSegment(content="a fox")], model_id="missing")
+
+    with pytest.raises(UnknownModelError):
+        await operations.replace_prompt(collaborators, "user-1", "prompt-1", request)
+    repository.update.assert_not_called()
 
 
 @pytest.mark.asyncio

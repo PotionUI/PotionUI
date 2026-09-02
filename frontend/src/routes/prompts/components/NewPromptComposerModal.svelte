@@ -6,6 +6,7 @@
 	import type { Prompt } from '$lib/types/segments';
 	import { toasts } from '$lib/stores/toast';
 	import { splitPlainTextIntoSegments } from '$lib/utils/promptComposer';
+	import PromptModelField from './PromptModelField.svelte';
 
 	// Plain-text-first "New prompt": paste, optionally name it, Save. Structure
 	// ("Split into segments") is opt-in — the default save is one content
@@ -13,9 +14,15 @@
 	// existed (see the old PromptWorkspace.newPrompt()/savePrompt() pair).
 	export let onClose: () => void;
 	export let onCreated: (prompt: Prompt) => void;
+	/** The workspace's active model filter, so a prompt created while filtering defaults to that model. */
+	export let initialModelId: string | null = null;
+	export let initialModelLabel: string | null = null;
 
 	let content = '';
 	let name = '';
+	let modelId: string | null = initialModelId;
+	let modelLabel: string | null = initialModelLabel;
+	let modelPickerOpen = false;
 	let splitIntoSegments = false;
 	let saving = false;
 
@@ -30,6 +37,7 @@
 			const response = await api.createPrompt({
 				name: name.trim() || null,
 				usage_hint: null,
+				model_id: modelId,
 				segments: segmentTexts.map((text) => ({
 					type: 'content',
 					content: text,
@@ -49,7 +57,13 @@
 	}
 </script>
 
-<BaseModal isOpen={true} title="New prompt" sizeClass="md:max-w-lg md:w-full" on:close={onClose}>
+<BaseModal
+	isOpen={true}
+	title="New prompt"
+	sizeClass="md:max-w-lg md:w-full"
+	handleEscapeKey={!modelPickerOpen}
+	on:close={onClose}
+>
 	<svelte:fragment slot="headerIcon">
 		<Icon name="document" className="h-5 w-5 flex-shrink-0 text-fg-muted" />
 	</svelte:fragment>
@@ -61,6 +75,17 @@
 			</span>
 			<Input class="text-sm" bind:value={name} placeholder="Content preview is used when unnamed" />
 		</label>
+
+		<PromptModelField
+			{modelId}
+			{modelLabel}
+			disabled={saving}
+			bind:pickerOpen={modelPickerOpen}
+			onChange={(model) => {
+				modelId = model?.id ?? null;
+				modelLabel = model?.label ?? null;
+			}}
+		/>
 
 		<label>
 			<span class="mb-1.5 block text-xs font-medium text-fg-muted">Content</span>

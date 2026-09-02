@@ -23,6 +23,23 @@ logger = logging.getLogger(__name__)
 MANUAL_SOURCE_PROVIDER = "manual"
 
 
+class UnknownModelError(ValueError):
+    """A request named a `model_id` the models catalog has no row for."""
+
+
+def resolve_model_name(collaborators: PromptDatabaseCollaborators, model_id: str) -> str:
+    """Display name of a catalog model, the same `Model.display_name` the Models UI shows."""
+    model = collaborators.model_repository.get_by_id(model_id, include_tags=False)
+    if model is None:
+        raise UnknownModelError(f"Unknown model: {model_id}")
+    return model.display_name
+
+
+def _fill_model_name(collaborators: PromptDatabaseCollaborators, prompt: Prompt) -> None:
+    if prompt.model_id and not prompt.model_name:
+        prompt.model_name = resolve_model_name(collaborators, prompt.model_id)
+
+
 def _fire_hook(collaborators: PromptDatabaseCollaborators, hook: str, prompt: Prompt, provider_id: Optional[str] = None) -> None:
     context = HookContext(
         hook_name=hook,
@@ -56,6 +73,7 @@ async def create_prompt(collaborators: PromptDatabaseCollaborators, user_id: str
     # sourceLabel()'s badge agree with what actually got persisted.
     if not candidate.source_provider:
         candidate.source_provider = MANUAL_SOURCE_PROVIDER
+    _fill_model_name(collaborators, candidate)
     _fire_hook(collaborators, PROMPT_DATABASE_HOOKS.before_save, candidate, candidate.source_provider)
     saved = collaborators.repository.create(candidate)
     _fire_hook(collaborators, PROMPT_DATABASE_HOOKS.after_save, saved, saved.source_provider)
@@ -75,7 +93,14 @@ async def replace_prompt(
             continue
         if hasattr(existing, field):
             values[field] = getattr(existing, field)
+    # A model change without an explicit name drops the old name so the
+    # catalog name of the new model (or nothing, when cleared) replaces it.
+    model_changed = "model_id" in request.model_fields_set and request.model_id != existing.model_id
+    if model_changed and "model_name" not in request.model_fields_set:
+        values["model_name"] = None
     candidate = _from_request(user_id, PromptRequest(**values), prompt_id)
+    if model_changed:
+        _fill_model_name(collaborators, candidate)
     _fire_hook(collaborators, PROMPT_DATABASE_HOOKS.before_save, candidate, candidate.source_provider)
     saved = collaborators.repository.update(prompt_id, user_id, candidate)
     if saved is None:

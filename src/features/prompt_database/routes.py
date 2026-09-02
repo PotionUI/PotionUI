@@ -16,6 +16,7 @@ from src.features.prompt_database.dto import (
     PromptRequest,
 )
 from src.features.prompt_database.embedding import LocalEmbeddingProvider
+from src.features.prompt_database.operations.mutations import UnknownModelError
 from src.features.generation.repository import generation_repo
 from src.features.presets.name_resolver import PresetNameResolver
 from src.platform.security.user import User
@@ -44,6 +45,8 @@ class PromptDatabaseController(BaseController):
         try:
             prompt = await operations.create_prompt(self.collaborators, _user_id(user), request)
             return self.success_response(prompt.to_dict())
+        except UnknownModelError as exc:
+            return self.error_response("invalid_model", str(exc), 400)
         except ValueError as exc:
             return self.error_response("validation_error", str(exc), 422)
         except Exception as exc:
@@ -55,6 +58,8 @@ class PromptDatabaseController(BaseController):
             if prompt is None:
                 return self.error_response("not_found", "Prompt not found", 404)
             return self.success_response(prompt.to_dict())
+        except UnknownModelError as exc:
+            return self.error_response("invalid_model", str(exc), 400)
         except ValueError as exc:
             return self.error_response("validation_error", str(exc), 422)
         except Exception as exc:
@@ -111,7 +116,7 @@ def build_router(container: "AppContainer") -> APIRouter:
     async def import_prompts_route(
         files: List[UploadFile] = FastAPIFile(...),
         format: Optional[str] = Form(None),
-        model_name: Optional[str] = Form(None),
+        model_id: Optional[str] = Form(None),
         base_model: Optional[str] = Form(None),
         current_user: User = Depends(get_current_active_user),
     ):
@@ -131,10 +136,13 @@ def build_router(container: "AppContainer") -> APIRouter:
                 )
             loaded.append((upload.filename or "upload", content))
 
-        outcome = await operations.import_prompts(
-            controller.collaborators, _user_id(current_user), loaded,
-            format=format, model_name=model_name, base_model=base_model,
-        )
+        try:
+            outcome = await operations.import_prompts(
+                controller.collaborators, _user_id(current_user), loaded,
+                format=format, model_id=model_id or None, base_model=base_model,
+            )
+        except UnknownModelError as exc:
+            return controller.error_response("invalid_model", str(exc), 400)
         data = outcome.to_dict()
         if data["imported"] == 0 and data["files"] and all(f.get("reason") for f in data["files"]):
             return APIResponse(success=False, error="nothing_imported", data=data)

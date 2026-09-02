@@ -16,6 +16,7 @@
 		importSkipReasonCopy,
 		type PromptImportFormatValue
 	} from './promptImport';
+	import PromptModelField from './PromptModelField.svelte';
 
 	export let onClose: () => void;
 	export let onImported: () => void;
@@ -23,7 +24,9 @@
 	let files: File[] = [];
 	let pastedText = '';
 	let format: PromptImportFormatValue = '';
-	let modelName = '';
+	let modelId: string | null = null;
+	let modelLabel: string | null = null;
+	let modelPickerOpen = false;
 	let baseModel = '';
 	let dragging = false;
 	let submitting = false;
@@ -71,7 +74,8 @@
 		files = [];
 		pastedText = '';
 		format = '';
-		modelName = '';
+		modelId = null;
+		modelLabel = null;
 		baseModel = '';
 		result = null;
 		failureFiles = [];
@@ -84,7 +88,7 @@
 		failureFiles = [];
 		failureMessage = '';
 		try {
-			const formData = buildPromptImportFormData({ files, pastedText, format, modelName, baseModel });
+			const formData = buildPromptImportFormData({ files, pastedText, format, modelId, baseModel });
 			const response = await api.importPrompts(formData);
 			if (response.success && response.data) {
 				result = response.data;
@@ -111,7 +115,13 @@
 	}
 </script>
 
-<BaseModal isOpen={true} title="Import prompts" sizeClass="md:max-w-2xl md:w-full" on:close={onClose}>
+<BaseModal
+	isOpen={true}
+	title="Import prompts"
+	sizeClass="md:max-w-2xl md:w-full"
+	handleEscapeKey={!modelPickerOpen}
+	on:close={onClose}
+>
 	<svelte:fragment slot="headerIcon">
 		<Icon name="upload" className="h-5 w-5 flex-shrink-0 text-fg-muted" />
 	</svelte:fragment>
@@ -253,12 +263,16 @@
 			</label>
 
 			<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-				<label>
-					<span class="mb-1.5 block text-xs font-medium text-fg-muted">
-						Model name <span class="font-normal text-fg-subtle">(optional)</span>
-					</span>
-					<Input class="text-sm" bind:value={modelName} placeholder="Fills gaps only" />
-				</label>
+				<PromptModelField
+					{modelId}
+					{modelLabel}
+					disabled={submitting}
+					bind:pickerOpen={modelPickerOpen}
+					onChange={(model) => {
+						modelId = model?.id ?? null;
+						modelLabel = model?.label ?? null;
+					}}
+				/>
 				<label>
 					<span class="mb-1.5 block text-xs font-medium text-fg-muted">
 						Base model <span class="font-normal text-fg-subtle">(optional)</span>
@@ -267,7 +281,7 @@
 				</label>
 			</div>
 			<span class="-mt-2 block text-2xs text-fg-subtle">
-				Only applied to imported prompts that don't already carry a model or base model.
+				The model is assigned to every imported prompt; a model name or base model found in the file is kept.
 			</span>
 		</fieldset>
 	{/if}

@@ -138,7 +138,7 @@ export interface SegmentCategory {
 	user_id?: string;
 }
 
-export type CreatePromptInput = Pick<Prompt, 'name' | 'segments' | 'usage_hint'>;
+export type CreatePromptInput = Pick<Prompt, 'name' | 'segments' | 'usage_hint'> & { model_id?: string | null };
 export type ReplacePromptInput = CreatePromptInput;
 export type CreateSavedSegmentInput = Omit<
 	SavedSegment,

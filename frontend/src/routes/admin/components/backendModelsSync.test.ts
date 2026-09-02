@@ -7,7 +7,10 @@ import {
 	filterSyncRows,
 	countByStatus,
 	sumSizeBytes,
-	toPickerModel
+	isDefaultSyncFilters,
+	capSyncRows,
+	distinctModelTypes,
+	DEFAULT_STATUS_FILTER
 } from './backendModelsSync';
 import type { RemoteModelSyncRow, WorkerModelTransfer } from '$lib/services/admin-api';
 
@@ -143,27 +146,45 @@ describe('sumSizeBytes', () => {
 	});
 });
 
-describe('toPickerModel', () => {
-	it('maps model_id to id and size_bytes to file_size, carrying status fields through', () => {
-		const source = row({
-			model_id: 'm42',
-			filename: 'checkpoint.safetensors',
-			model_type: 'checkpoints',
-			size_bytes: 512,
-			status: 'digest_mismatch',
-			providers_can_fetch: false
-		});
-		expect(toPickerModel(source)).toEqual({
-			id: 'm42',
-			filename: 'checkpoint.safetensors',
-			model_type: 'checkpoints',
-			file_size: 512,
-			status: 'digest_mismatch',
-			providers_can_fetch: false
-		});
+describe('isDefaultSyncFilters', () => {
+	it('is true for an empty search, all types, and the default status', () => {
+		expect(isDefaultSyncFilters({ search: '', modelType: 'all', status: DEFAULT_STATUS_FILTER })).toBe(true);
 	});
 
-	it('preserves a null size', () => {
-		expect(toPickerModel(row({ size_bytes: null })).file_size).toBeNull();
+	it('treats whitespace-only search as empty', () => {
+		expect(isDefaultSyncFilters({ search: '   ', modelType: 'all', status: DEFAULT_STATUS_FILTER })).toBe(true);
+	});
+
+	it('is false when search, type, or status differ from the defaults', () => {
+		expect(isDefaultSyncFilters({ search: 'flux', modelType: 'all', status: DEFAULT_STATUS_FILTER })).toBe(false);
+		expect(isDefaultSyncFilters({ search: '', modelType: 'loras', status: DEFAULT_STATUS_FILTER })).toBe(false);
+		expect(isDefaultSyncFilters({ search: '', modelType: 'all', status: 'missing' })).toBe(false);
+	});
+});
+
+describe('capSyncRows', () => {
+	it('passes rows through untouched when under the cap', () => {
+		const rows = [1, 2, 3];
+		expect(capSyncRows(rows, 5)).toEqual({ rows: [1, 2, 3], truncated: false });
+	});
+
+	it('truncates to the cap and reports it', () => {
+		const rows = [1, 2, 3, 4, 5];
+		expect(capSyncRows(rows, 3)).toEqual({ rows: [1, 2, 3], truncated: true });
+	});
+});
+
+describe('distinctModelTypes', () => {
+	it('returns sorted unique model types', () => {
+		const rows = [
+			row({ model_type: 'loras' }),
+			row({ model_type: 'checkpoints' }),
+			row({ model_type: 'loras' })
+		];
+		expect(distinctModelTypes(rows)).toEqual(['checkpoints', 'loras']);
+	});
+
+	it('is empty for no rows', () => {
+		expect(distinctModelTypes([])).toEqual([]);
 	});
 });

@@ -969,7 +969,7 @@
 									{/key}
 								</DetailBody>
 							{:else if detailTab === 'models' && activeBackend.driver === NATIVE_REMOTE_DRIVER}
-								<DetailBody>
+								<DetailBody fullWidth>
 									{#if !activeBackend.configured}
 										<EmptyState
 											icon="cube"

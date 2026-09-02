@@ -56,24 +56,26 @@ export function sumSizeBytes(rows: RemoteModelSyncRow[]): number {
 	return rows.reduce((total, row) => total + (row.size_bytes ?? 0), 0);
 }
 
-/** Shape `ModelAssignmentPicker`'s card grid expects (`id`/`file_size`) -
- * `status`/`providers_can_fetch` ride along for the sync-specific card extras. */
-export interface RemoteModelPickerModel {
-	id: string;
-	filename: string;
-	model_type: string;
-	file_size: number | null;
-	status: RemoteModelSyncStatus;
-	providers_can_fetch: boolean;
+/** Most workers are dominated by models already synced - defaulting to the
+ * models that still need attention (`missing`/`digest_mismatch`) would bury
+ * that majority; `on_worker` is what an admin opens this tab to confirm. */
+export const DEFAULT_STATUS_FILTER: RemoteModelSyncStatus | 'all' = 'on_worker';
+
+export function isDefaultSyncFilters(filters: RemoteModelSyncFilters): boolean {
+	return filters.search.trim() === '' && filters.modelType === 'all' && filters.status === DEFAULT_STATUS_FILTER;
 }
 
-export function toPickerModel(row: RemoteModelSyncRow): RemoteModelPickerModel {
-	return {
-		id: row.model_id,
-		filename: row.filename,
-		model_type: row.model_type,
-		file_size: row.size_bytes,
-		status: row.status,
-		providers_can_fetch: row.providers_can_fetch
-	};
+export const MAX_RENDERED_SYNC_ROWS = 500;
+
+/** Rendering hundreds of rows is fine; thousands is not worth doing without
+ * pagination this tab doesn't have - cap and tell the admin to narrow instead. */
+export function capSyncRows<T>(
+	rows: T[],
+	max: number = MAX_RENDERED_SYNC_ROWS
+): { rows: T[]; truncated: boolean } {
+	return rows.length > max ? { rows: rows.slice(0, max), truncated: true } : { rows, truncated: false };
+}
+
+export function distinctModelTypes(rows: RemoteModelSyncRow[]): string[] {
+	return [...new Set(rows.map((r) => r.model_type))].sort();
 }

@@ -7,7 +7,8 @@ import {
 	latestPercent,
 	isBringingUp,
 	bringUpTitle,
-	canStart
+	canStart,
+	isNearBottom
 } from './provisionedComputeView';
 import type { ProvisionProgressEntry } from '$lib/services/admin-api';
 
@@ -56,6 +57,24 @@ describe('canStart', () => {
 		for (const status of ['running', 'provisioning', 'starting', 'missing', 'failed']) {
 			expect(canStart(status)).toBe(false);
 		}
+	});
+});
+
+describe('isNearBottom', () => {
+	it('is true when scrolled exactly to the bottom', () => {
+		expect(isNearBottom(200, 100, 300, 24)).toBe(true);
+	});
+
+	it('is true within the threshold of the bottom', () => {
+		expect(isNearBottom(180, 100, 300, 24)).toBe(true);
+	});
+
+	it('is false past the threshold from the bottom', () => {
+		expect(isNearBottom(100, 100, 300, 24)).toBe(false);
+	});
+
+	it('is true when content does not overflow the viewport', () => {
+		expect(isNearBottom(0, 300, 200, 24)).toBe(true);
 	});
 });
 

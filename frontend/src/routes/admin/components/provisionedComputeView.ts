@@ -74,6 +74,18 @@ export function checkedAgo(iso: string | null, now: number = Date.now()): string
 	return `checked ${Math.floor(deltaSeconds / 3600)}h ago`;
 }
 
+/** True when a scrollable element's viewport is at (or within `threshold`px
+ * of) its bottom edge — used to decide whether a freshly-appended timeline
+ * entry should auto-follow or leave a scrolled-up reader where they are. */
+export function isNearBottom(
+	scrollTop: number,
+	clientHeight: number,
+	scrollHeight: number,
+	threshold: number
+): boolean {
+	return scrollHeight - scrollTop - clientHeight <= threshold;
+}
+
 /** Last non-null `percent` in the timeline, clamped to 0-100 — null when the
  * timeline is empty or every entry so far is indeterminate. */
 export function latestPercent(progress: ProvisionProgressEntry[]): number | null {

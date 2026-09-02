@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount, onDestroy, tick } from 'svelte';
 	import { isAxiosError } from 'axios';
 	import { Alert, Badge, Button, Input, Spinner } from '$lib/components/ui';
+	import Icon from '$lib/components/Icon.svelte';
 	import { DetailSection } from '$lib/components/detail';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
 	import { getApiErrorMessage, logger } from '$lib/utils/logger';
@@ -26,7 +27,8 @@
 		latestPercent,
 		isBringingUp,
 		bringUpTitle,
-		canStart
+		canStart,
+		isNearBottom
 	} from './provisionedComputeView';
 
 	/**
@@ -85,6 +87,48 @@
 	// label to re-render - the label's own computation always reads the clock.
 	let checkedAgoTick = $state(0);
 
+	// Timeline scroll cap: only one `timeline` snippet instance is ever mounted
+	// at a time (the surrounding branches are mutually exclusive), so a single
+	// scroll ref/flag pair covers whichever one is showing.
+	const TIMELINE_BOTTOM_THRESHOLD_PX = 24;
+	let timelineEl = $state<HTMLDivElement | null>(null);
+	let timelineAtBottom = $state(true);
+	// Collapsed disclosure over `row.progress` once the row has left a
+	// bring-up state - kept collapsed by default so a long-finished card
+	// doesn't reopen a wall of history every time it's viewed.
+	let bringUpLogExpanded = $state(false);
+
+	function scrollTimelineToBottom() {
+		if (!timelineEl) return;
+		timelineEl.scrollTop = timelineEl.scrollHeight;
+		timelineAtBottom = true;
+	}
+
+	function handleTimelineScroll() {
+		if (!timelineEl) return;
+		timelineAtBottom = isNearBottom(
+			timelineEl.scrollTop,
+			timelineEl.clientHeight,
+			timelineEl.scrollHeight,
+			TIMELINE_BOTTOM_THRESHOLD_PX
+		);
+	}
+
+	/** Pins the freshly-mounted scroll container to its bottom - avoids a
+	 * flash of the top entries before the first auto-follow effect run. */
+	function pinTimelineOnMount(node: HTMLDivElement) {
+		node.scrollTop = node.scrollHeight;
+		timelineAtBottom = true;
+	}
+
+	$effect(() => {
+		void row?.progress.length;
+		if (!timelineEl || !timelineAtBottom) return;
+		tick().then(() => {
+			if (timelineEl && timelineAtBottom) timelineEl.scrollTop = timelineEl.scrollHeight;
+		});
+	});
+
 	async function pollStatus() {
 		if (!row) return;
 		try {
@@ -108,25 +152,9 @@
 	}
 
 	onMount(async () => {
-		try {
-			const response = await getProvisionedComputeByBackend(backendId);
-			if (response.success && response.data) {
-				row = response.data;
-				startPolling();
-			}
-		} catch (e: unknown) {
-			if (!isAxiosError(e) || e.response?.status !== 404) {
-				toasts.error(getApiErrorMessage(e, 'Failed to load infrastructure status'));
-			}
-			row = null;
-		} finally {
-			loading = false;
-		}
-
-		if (!row && backendDriver === NATIVE_REMOTE_DRIVER && !configured) {
-			void loadProviders();
-		}
-
+		// Subscribed before the initial fetch below awaits, so a `compute_status`
+		// broadcast that lands in that gap updates `row` instead of being missed
+		// until the next poll.
 		unsubscribeComputeStatus = adminWebSocket.onComputeStatus(({ row: incoming }) => {
 			if (incoming.backend_id === backendId) row = incoming;
 		});
@@ -134,6 +162,26 @@
 			adminWebSocket.connectAsync().catch((err) => {
 				logger.error('Admin WebSocket unavailable - infrastructure status will not stream live:', err);
 			});
+		}
+
+		try {
+			const response = await getProvisionedComputeByBackend(backendId);
+			// A `compute_status` broadcast may have already set `row` while this
+			// awaited - only apply the fetch if nothing newer has landed.
+			if (response.success && response.data && !row) {
+				row = response.data;
+			}
+			if (row) startPolling();
+		} catch (e: unknown) {
+			if (!isAxiosError(e) || e.response?.status !== 404) {
+				toasts.error(getApiErrorMessage(e, 'Failed to load infrastructure status'));
+			}
+		} finally {
+			loading = false;
+		}
+
+		if (!row && backendDriver === NATIVE_REMOTE_DRIVER && !configured) {
+			void loadProviders();
 		}
 
 		checkedAgoTickHandle = setInterval(() => (checkedAgoTick += 1), 5000);
@@ -344,43 +392,65 @@
 	}
 </script>
 
-{#snippet timeline(entries: ProvisionedCompute['progress'], live: boolean)}
+{#snippet timeline(entries: ProvisionedCompute['progress'], live: boolean, lastDotVariant: 'signal' | 'danger' = 'signal')}
 	{#if entries.length === 0}
 		<div class="flex items-center gap-2 text-sm text-fg-muted">
 			<Spinner size="sm" />
 			<span>Starting…</span>
 		</div>
 	{:else}
-		<div>
-			{#each entries as entry, i (i)}
-				{@const isLast = i === entries.length - 1}
-				<div class="relative flex gap-3 pb-3 last:pb-0">
-					<div class="relative flex-shrink-0 w-4 flex justify-center">
-						{#if !isLast}
-							<span class="absolute top-3 bottom-0 w-px bg-line"></span>
-						{/if}
-						{#if isLast && live}
-							<Spinner size="sm" />
-						{:else if isLast}
-							<span class="mt-1.5 w-1.5 h-1.5 rounded-full bg-danger"></span>
-						{:else}
-							<span class="mt-1.5 w-1.5 h-1.5 rounded-full bg-signal"></span>
-						{/if}
-					</div>
-					<div class="flex-1 min-w-0 flex items-start justify-between gap-3">
-						<div class="min-w-0">
-							<p class="text-sm font-medium text-fg">{stageLabel(entry.stage)}</p>
-							<p class="text-sm text-fg-muted">{entry.message}</p>
+		<div class="relative">
+			<div
+				bind:this={timelineEl}
+				use:pinTimelineOnMount
+				onscroll={handleTimelineScroll}
+				class="max-h-64 overflow-y-auto"
+			>
+				{#each entries as entry, i (i)}
+					{@const isLast = i === entries.length - 1}
+					<div class="relative flex gap-3 pb-3 last:pb-0">
+						<div class="relative flex-shrink-0 w-4 flex justify-center">
+							{#if !isLast}
+								<span class="absolute top-3 bottom-0 w-px bg-line"></span>
+							{/if}
+							{#if isLast && live}
+								<Spinner size="sm" />
+							{:else if isLast && lastDotVariant === 'danger'}
+								<span class="mt-1.5 w-1.5 h-1.5 rounded-full bg-danger"></span>
+							{:else}
+								<span class="mt-1.5 w-1.5 h-1.5 rounded-full bg-signal"></span>
+							{/if}
 						</div>
-						<span class="font-mono tabular-nums text-xs text-fg-subtle flex-shrink-0">{formatClockTime(entry.at)}</span>
+						<div class="flex-1 min-w-0 flex items-start justify-between gap-3">
+							<div class="min-w-0">
+								<p class="text-sm font-medium text-fg">{stageLabel(entry.stage)}</p>
+								<p class="text-sm text-fg-muted">{entry.message}</p>
+							</div>
+							<span class="font-mono tabular-nums text-xs text-fg-subtle flex-shrink-0">{formatClockTime(entry.at)}</span>
+						</div>
 					</div>
-				</div>
-			{/each}
+				{/each}
+			</div>
+			{#if !timelineAtBottom}
+				<Button
+					variant="secondary"
+					size="xs"
+					icon="chevron-down"
+					class="absolute bottom-1 right-1 shadow-floating"
+					onclick={scrollTimelineToBottom}
+				>
+					Latest
+				</Button>
+			{/if}
 		</div>
 	{/if}
 {/snippet}
 
-{#if row && !showProvisionForm}
+{#if loading}
+	<DetailSection label="Infrastructure">
+		<div class="flex items-center justify-center py-6"><Spinner size="md" /></div>
+	</DetailSection>
+{:else if row && !showProvisionForm}
 	<DetailSection label="Infrastructure">
 		{#snippet headerExtra()}
 			<Badge variant={statusVariant(row!.status)} size="sm" dot class="uppercase">{row!.status}</Badge>
@@ -415,7 +485,7 @@
 						</div>
 					{/snippet}
 				</Alert>
-				{@render timeline(row.progress, false)}
+				{@render timeline(row.progress, false, 'danger')}
 			{:else}
 				<dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-sm">
 					<dt class="text-fg-subtle">Pod ID</dt>
@@ -440,6 +510,33 @@
 							<Button variant="secondary" size="sm" onclick={onEnableBackend}>Enable backend</Button>
 						{/snippet}
 					</Alert>
+				{/if}
+
+				{#if row.progress.length > 0}
+					<div class="rounded border border-line">
+						<button
+							type="button"
+							class="flex w-full items-center justify-between px-3 py-2 text-sm text-fg hover:bg-surface-2 transition-colors {bringUpLogExpanded
+								? 'rounded-t border-b border-line'
+								: 'rounded'}"
+							onclick={() => (bringUpLogExpanded = !bringUpLogExpanded)}
+							aria-expanded={bringUpLogExpanded}
+						>
+							<span class="font-medium">Bring-up log</span>
+							<span class="flex items-center gap-2">
+								<span class="font-mono tabular-nums text-xs text-fg-subtle">{row.progress.length}</span>
+								<Icon
+									name="chevron-down"
+									className="w-3.5 h-3.5 text-fg-subtle transition-transform {bringUpLogExpanded ? 'rotate-180' : ''}"
+								/>
+							</span>
+						</button>
+						{#if bringUpLogExpanded}
+							<div class="px-3 py-2">
+								{@render timeline(row.progress, false)}
+							</div>
+						{/if}
+					</div>
 				{/if}
 
 				<div class="flex items-center justify-end gap-2">

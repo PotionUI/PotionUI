@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount } from 'svelte';
 	import { pluginStore, frontendHooks, type PluginHook } from '$lib/stores/plugins';
 	import { api } from '$lib/services/api/index';
 	import { resolvePluginComponent } from '$lib/plugin-api/componentResolver';
@@ -15,8 +15,6 @@
 	let loadedComponents: {
 		hook: PluginHook;
 		component: any;
-		instance?: any;  // For Svelte component instances
-		container?: HTMLElement;  // For component mount containers
 	}[] = [];
 	let loading = true;
 	let error: string | null = null;
@@ -99,9 +97,6 @@
 		loading = true;
 		error = null;
 
-		// Clean up existing Svelte component instances
-		cleanupComponents();
-
 		const newComponents = [];
 
 		for (const hook of relevantHooks) {
@@ -115,25 +110,11 @@
 		loading = false;
 	}
 
-	// Cleanup Svelte component instances
-	function cleanupComponents() {
-		for (const loaded of loadedComponents) {
-			if (loaded.instance && typeof loaded.instance.$destroy === 'function') {
-				try {
-					loaded.instance.$destroy();
-				} catch (e) {
-					logger.error('[PluginSlot] Error destroying component:', e);
-				}
-			}
-		}
-	}
-
 	// Reactive loading when hooks change
 	$: if (relevantHooks.length > 0) {
 		loadAllComponents();
 	} else {
 		loading = false;
-		cleanupComponents();
 		loadedComponents = [];
 	}
 
@@ -144,11 +125,6 @@
 		}
 	});
 
-	onDestroy(() => {
-		// Cleanup all component instances
-		cleanupComponents();
-	});
-
 	// Handle action button click
 	function handleActionClick(component: any, hook: PluginHook) {
 		if (component.onClick) {
@@ -157,60 +133,6 @@
 			} catch (e) {
 				logger.error(`Error executing plugin action for ${hook.plugin_id}:`, e);
 			}
-		}
-	}
-
-	// Svelte action to mount a component
-	function mountSvelteComponent(container: HTMLElement, params: { componentData: any, hook: PluginHook, context: Record<string, any> }) {
-		const { componentData, hook, context: initialContext } = params;
-
-		try {
-			const ComponentClass = componentData.component;
-			// Always the class API, never the host runtime's mount: plugin dists
-			// bundle their OWN copy of the Svelte runtime, and a component can
-			// only be mounted by the runtime it was compiled against. The build
-			// toolchain compiles hook components with componentApi-4
-			// compatibility (scripts/build-plugins.mjs), whose new.target guard
-			// makes `new` self-mount through the dist's bundled runtime; genuine
-			// Svelte 4 dists were always class-constructible. Regression-pinned
-			// by pluginDistMount.test.ts against the real committed dists.
-			const instance = new ComponentClass({
-				target: container,
-				props: {
-					context: initialContext,
-					hookName,
-					pluginId: hook.plugin_id
-				}
-			});
-
-			// Store instance for cleanup
-			const loadedIndex = loadedComponents.findIndex(lc => lc.hook === hook);
-			if (loadedIndex >= 0) {
-				loadedComponents[loadedIndex].instance = instance;
-				loadedComponents[loadedIndex].container = container;
-			}
-
-			// Return update and destroy functions for Svelte action
-			return {
-				update(newParams: { componentData: any, hook: PluginHook, context: Record<string, any> }) {
-					// Update context when it changes
-					if (instance && typeof instance.$set === 'function') {
-						instance.$set({ context: newParams.context });
-					}
-				},
-				destroy() {
-					if (instance && typeof instance.$destroy === 'function') {
-						try {
-							instance.$destroy();
-						} catch (e) {
-							logger.error('[PluginSlot] Error destroying component in action:', e);
-						}
-					}
-				}
-			};
-		} catch (e) {
-			logger.error(`[PluginSlot] Error mounting Svelte component:`, e);
-			return { destroy() {}, update() {} };
 		}
 	}
 </script>
@@ -230,10 +152,9 @@
 			<div class="plugin-component" data-plugin={hook.plugin_id}>
 				<!-- Svelte component (dynamically loaded) -->
 				{#if component.type === 'svelte-component'}
-					<div
-						class="svelte-component-container"
-						use:mountSvelteComponent={{ componentData: component, hook, context }}
-					></div>
+					<div class="svelte-component-container">
+						<svelte:component this={component.component} {context} {hookName} pluginId={hook.plugin_id} />
+					</div>
 				{:else if component.type === 'action-button'}
 					<!-- For action buttons/simple components -->
 					<button

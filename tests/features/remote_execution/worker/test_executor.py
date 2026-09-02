@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
+from src.features.remote_execution.output_codec import decode_output
 from src.features.remote_execution.worker.executor import (
     PipeExecutionError,
     WorkerPipelineExecutor,
@@ -18,11 +19,22 @@ from src.pipelines.contracts import (
 )
 from src.pipelines.outputs import (
     GalleryGenerationOutput,
+    Icon,
     ImageGenerationOutput,
     ProgressGenerationOutput,
     Progress,
+    VideoGenerationOutput,
 )
 from src.platform.worker_protocol import ProcessedPipelineV1, ProcessedPipeV1
+
+
+def _decode(event, *, tmp_path: Path, pipe_index=0, pipe_name=None):
+    """The same reconstruction `RemoteNativeBackend._handle_event` performs:
+    the artifacts an event carries are already local files under
+    `tmp_path` (that's where the executor wrote them), so this just builds
+    the `{artifact_id: path}` map decode_output needs."""
+    artifact_paths = {a.artifact_id: tmp_path / a.filename for a in event.artifacts}
+    return decode_output(event.payload["output"], artifact_paths, pipe_index=pipe_index, pipe_name=pipe_name)
 
 
 class FakeCatalog:
@@ -311,6 +323,71 @@ class TemporaryImagePipe:
         return PipeOutput(output={})
 
 
+class IconProgressPipe:
+    """Emits a Progress output carrying an Icon and a title - the exact
+    fields the old per-kind `pipe_progress` mapping used to lose."""
+
+    name = "icon_progress/fake"
+    description = "fake"
+
+    def __init__(self, config):
+        self.config = config
+
+    @classmethod
+    def get_default_config(cls):
+        return {}
+
+    @classmethod
+    def inputs(cls):
+        return []
+
+    @classmethod
+    def outputs(cls):
+        return []
+
+    @classmethod
+    def configuration(cls):
+        return []
+
+    def process(self, pipe_input, generation_outputs):
+        generation_outputs(ProgressGenerationOutput(
+            state="denoising", icon=Icon(name="bolt", effect="pulse"), title="Denoising",
+            progress=Progress(current=3, max=10),
+        ))
+        return PipeOutput(output={})
+
+
+class MissingVideoFilePipe:
+    """Emits a VideoGenerationOutput whose file was never written - the
+    OutputEncodeError path (a media Path field that doesn't exist on disk)."""
+
+    name = "missing_video/fake"
+    description = "fake"
+
+    def __init__(self, config):
+        self.config = config
+
+    @classmethod
+    def get_default_config(cls):
+        return {}
+
+    @classmethod
+    def inputs(cls):
+        return []
+
+    @classmethod
+    def outputs(cls):
+        return []
+
+    @classmethod
+    def configuration(cls):
+        return []
+
+    def process(self, pipe_input, generation_outputs):
+        generation_outputs(VideoGenerationOutput(video_path=Path("/does/not/exist.mp4"), temporary=False))
+        return PipeOutput(output={})
+
+
 CATALOG = FakeCatalog({
     "loader/fake": LoaderPipe,
     "generator/fake": GeneratorPipe,
@@ -321,6 +398,8 @@ CATALOG = FakeCatalog({
     "cond_array/fake": ArrayCondConsumerPipe,
     "gallery_emit/fake": GalleryEmittingPipe,
     "temp_image/fake": TemporaryImagePipe,
+    "icon_progress/fake": IconProgressPipe,
+    "missing_video/fake": MissingVideoFilePipe,
 })
 
 
@@ -349,7 +428,7 @@ def test_runs_pipes_in_order_wiring_outputs_between_them(tmp_path):
     kinds = [e.kind for e in events]
     assert kinds == [
         "pipe_started", "pipe_progress",
-        "pipe_started", "pipe_progress", "artifact",
+        "pipe_started", "pipe_progress", "output",
     ]
 
 
@@ -385,69 +464,104 @@ def test_an_array_output_feeding_an_array_input_passes_verbatim_unwrapped(tmp_pa
     assert ArrayCondConsumerPipe.received == ["cond-0", "cond-1"]
 
 
-def test_artifact_is_written_to_disk_and_hashed(tmp_path):
+def test_an_image_output_is_written_to_disk_hashed_and_round_trips(tmp_path):
     events = []
     _executor(tmp_path).run(_pipeline(), emit=events.append, is_cancelled=lambda: False)
 
-    artifact_events = [e for e in events if e.kind == "artifact"]
-    assert len(artifact_events) == 1
-    artifact = artifact_events[0].artifacts[0]
+    output_events = [e for e in events if e.kind == "output"]
+    assert len(output_events) == 1
+    artifact = output_events[0].artifacts[0]
     assert artifact.kind == "image"
     written = tmp_path / artifact.filename
     assert written.exists()
     assert written.stat().st_size == artifact.size_bytes
 
+    decoded = _decode(output_events[0], tmp_path=tmp_path, pipe_index=1, pipe_name="generator/fake")
+    assert isinstance(decoded, ImageGenerationOutput)
+    assert decoded.temporary is False
+    assert decoded.pipe_id == 1 and decoded.pipe_name == "generator/fake"
+    assert decoded.image.size == (4, 4)
 
-def test_a_gallery_output_materializes_every_member_into_one_artifact_event(tmp_path):
+
+def test_a_gallery_output_arrives_as_one_output_event_that_decodes_to_one_gallery(tmp_path):
     pipeline = ProcessedPipelineV1(pipes=(
         ProcessedPipeV1(pipe_id="g", pipe_type="gallery_emit/fake", config={}, inputs={}),
     ))
     events = []
     _executor(tmp_path).run(pipeline, emit=events.append, is_cancelled=lambda: False)
 
-    artifact_events = [e for e in events if e.kind == "artifact"]
-    assert len(artifact_events) == 1
-    artifacts = artifact_events[0].artifacts
-    assert len(artifacts) == 2
-    assert [a.role for a in artifacts] == ["gallery", "gallery"]
-    assert sorted(a.seed for a in artifacts) == [111, 222]
-    assert [a.derived for a in sorted(artifacts, key=lambda a: a.seed)] == [False, True]
+    output_events = [e for e in events if e.kind == "output"]
+    assert len(output_events) == 1
+    assert len(output_events[0].artifacts) == 2
+
+    decoded = _decode(output_events[0], tmp_path=tmp_path)
+    assert isinstance(decoded, GalleryGenerationOutput)
+    assert sorted(i.seed for i in decoded.images) == [111, 222]
+    assert [i.derived for i in sorted(decoded.images, key=lambda i: i.seed)] == [False, True]
 
 
-def test_a_temporary_image_produces_a_downscaled_preview_artifact(tmp_path):
+def test_a_temporary_image_produces_a_downscaled_preview_that_decodes_as_temporary(tmp_path):
     pipeline = ProcessedPipelineV1(pipes=(
         ProcessedPipeV1(pipe_id="p", pipe_type="temp_image/fake", config={}, inputs={}),
     ))
     events = []
     _executor(tmp_path).run(pipeline, emit=events.append, is_cancelled=lambda: False)
 
-    artifact_events = [e for e in events if e.kind == "artifact"]
-    assert len(artifact_events) == 1
-    artifact = artifact_events[0].artifacts[0]
-    assert artifact.role == "preview"
+    output_events = [e for e in events if e.kind == "output"]
+    assert len(output_events) == 1
+    artifact = output_events[0].artifacts[0]
     assert artifact.media_type == "image/jpeg"
-    assert artifact.seed == 7
 
     written = tmp_path / artifact.filename
     with Image.open(written) as saved:
         assert max(saved.size) <= 768
 
+    decoded = _decode(output_events[0], tmp_path=tmp_path)
+    assert isinstance(decoded, ImageGenerationOutput)
+    assert decoded.temporary is True
+    assert decoded.seed == 7
 
-def test_a_bare_non_temporary_artifact_carries_no_role(tmp_path):
+
+def test_a_progress_outputs_icon_and_title_survive_onto_the_wire(tmp_path):
+    """The whole point of a per-output payload instead of the old
+    kind/progress/detail-only pipe_progress event: nothing about a
+    ProgressGenerationOutput is lost in transit."""
+    pipeline = ProcessedPipelineV1(pipes=(
+        ProcessedPipeV1(pipe_id="p", pipe_type="icon_progress/fake", config={}, inputs={}),
+    ))
     events = []
-    _executor(tmp_path).run(_pipeline(), emit=events.append, is_cancelled=lambda: False)
+    _executor(tmp_path).run(pipeline, emit=events.append, is_cancelled=lambda: False)
 
-    artifact = [e for e in events if e.kind == "artifact"][0].artifacts[0]
-    assert artifact.role is None
+    progress_events = [e for e in events if e.kind == "pipe_progress"]
+    assert len(progress_events) == 1
+    assert progress_events[0].progress == pytest.approx(0.3)
+    assert progress_events[0].detail == "denoising"
+
+    decoded = _decode(progress_events[0], tmp_path=tmp_path)
+    assert isinstance(decoded, ProgressGenerationOutput)
+    assert decoded.icon.name == "bolt" and decoded.icon.effect == "pulse"
+    assert decoded.title == "Denoising"
+    assert decoded.progress.current == 3 and decoded.progress.max == 10
 
 
-def test_temporary_images_produce_no_artifact(tmp_path):
+def test_a_media_output_whose_file_never_existed_fails_loudly_not_silently(tmp_path):
+    pipeline = ProcessedPipelineV1(pipes=(
+        ProcessedPipeV1(pipe_id="p", pipe_type="missing_video/fake", config={}, inputs={}),
+    ))
+    with pytest.raises(PipeExecutionError) as exc_info:
+        _executor(tmp_path).run(pipeline, emit=lambda e: None, is_cancelled=lambda: False)
+    assert exc_info.value.code == "output_encode_failed"
+    assert exc_info.value.retryable is False
+    assert exc_info.value.pipe_id == "p"
+
+
+def test_temporary_images_produce_no_output_event(tmp_path):
     pipeline = ProcessedPipelineV1(pipes=(
         ProcessedPipeV1(pipe_id="loader", pipe_type="loader/fake", config={}, inputs={}),
     ))
     events = []
     _executor(tmp_path).run(pipeline, emit=events.append, is_cancelled=lambda: False)
-    assert not any(e.kind == "artifact" for e in events)
+    assert not any(e.kind == "output" for e in events)
 
 
 def test_disabled_pipes_are_skipped_entirely(tmp_path):
@@ -517,4 +631,4 @@ def test_cancellation_stops_before_the_next_pipe_starts(tmp_path):
 
     kinds = [e.kind for e in events]
     assert "pipe_started" in kinds
-    assert not any(e.kind == "artifact" for e in events)
+    assert not any(e.kind == "output" for e in events)

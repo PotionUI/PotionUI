@@ -111,7 +111,7 @@ class TestEventMapping:
         "kind",
         [
             JobEventKind.PIPE_PROGRESS.value,
-            JobEventKind.ARTIFACT.value,
+            JobEventKind.OUTPUT.value,
             JobEventKind.LOG.value,
             JobEventKind.HEARTBEAT.value,
             JobEventKind.ACCEPTED.value,

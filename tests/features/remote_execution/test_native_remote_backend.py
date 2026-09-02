@@ -50,6 +50,9 @@ from src.pipelines.outputs import (
     ErrorGenerationOutput,
     GalleryGenerationOutput,
     ImageGenerationOutput,
+    ModelGenerationOutput,
+    ModelsGenerationOutput,
+    ParamGenerationOutput,
     ProgressGenerationOutput,
 )
 from src.platform.database.database import Database
@@ -287,6 +290,41 @@ class RejectedByFingerprintPipe:
         return PipeOutput(output={})
 
 
+class ParamsAndModelsPipe:
+    """Mirrors what a real generator pipe emits alongside its image: the
+    seed/model provenance outputs that only ever reached history/param
+    tables for a LOCAL generation before the wire codec existed - see
+    ParamGenerationOutputHandler."""
+
+    name = "params_and_models/fake"
+
+    def __init__(self, config):
+        self.config = config
+
+    @classmethod
+    def get_default_config(cls):
+        return {}
+
+    @classmethod
+    def inputs(cls):
+        return []
+
+    @classmethod
+    def outputs(cls):
+        return []
+
+    @classmethod
+    def configuration(cls):
+        return []
+
+    def process(self, pipe_input, generation_outputs):
+        generation_outputs(ParamGenerationOutput(name="seed", values=[12345]))
+        generation_outputs(ModelsGenerationOutput(
+            models=[ModelGenerationOutput(name="dit.safetensors", type="checkpoint", weight=1.0)],
+        ))
+        return PipeOutput(output={})
+
+
 _CLASSES = {
     "image/fake": ImagePipe,
     "asset/fake": AssetAwarePipe,
@@ -295,6 +333,7 @@ _CLASSES = {
     "rejected/fake": RejectedByFingerprintPipe,
     "gallery/fake": GalleryPipe,
     "preview/fake": PreviewPipe,
+    "params_and_models/fake": ParamsAndModelsPipe,
 }
 
 
@@ -798,8 +837,8 @@ class TestCorruptedArtifactDownload(NativeRemoteBackendTestCase):
             # corruption / a misbehaving worker, not a fabricated digest.
             for _ in range(200):
                 record = self.worker_container.coordinator.record_for(generation_id)
-                if record and any(e.kind == "artifact" for e in record.events) and not corrupted["done"]:
-                    artifact = next(e.artifacts[0] for e in record.events if e.kind == "artifact")
+                if record and any(e.kind == "output" for e in record.events) and not corrupted["done"]:
+                    artifact = next(e.artifacts[0] for e in record.events if e.kind == "output" and e.artifacts)
                     path = self.worker_container.coordinator.artifact_path(artifact.artifact_id)
                     path.write_bytes(b"corrupted bytes, not the real PNG")
                     corrupted["done"] = True
@@ -1102,6 +1141,36 @@ class TestLegacyArtifactWithoutRole(NativeRemoteBackendTestCase):
         self.assertEqual(len(images), 1)
         self.assertFalse(images[0].temporary)
         self.assertEqual([o for o in outputs if isinstance(o, GalleryGenerationOutput)], [])
+
+
+class TestEveryPipeOutputCrossesTheWire(NativeRemoteBackendTestCase):
+    """The maintainer's own bar: remote must behave exactly like local, with
+    no whitelist of which pipe output types survive the trip. Seed/model
+    provenance outputs never had a worker-side handler before the codec -
+    this is the regression test for that."""
+
+    def test_param_and_models_outputs_arrive_at_emit_unchanged(self):
+        backend = self._backend(self.worker_app)
+        pipeline_data = {
+            "generation_id": "gen-params-models", "preset_id": "preset-1",
+            "pipes": [{"name": "params_and_models/fake", "id": "p1", "enabled": True, "config": {}, "input": []}],
+        }
+
+        generation_id, outputs = self._run_generation(backend, pipeline_data)
+
+        self.assertEqual(self.repo.get_by_id(generation_id).state, S.SUCCEEDED)
+
+        params = [o for o in outputs if isinstance(o, ParamGenerationOutput)]
+        self.assertEqual(len(params), 1)
+        self.assertEqual(params[0].name, "seed")
+        self.assertEqual(params[0].values, [12345])
+
+        models = [o for o in outputs if isinstance(o, ModelsGenerationOutput)]
+        self.assertEqual(len(models), 1)
+        self.assertEqual(len(models[0].models), 1)
+        self.assertEqual(models[0].models[0].name, "dit.safetensors")
+        self.assertEqual(models[0].models[0].type, "checkpoint")
+        self.assertEqual(models[0].models[0].weight, 1.0)
 
 
 class TestModelListing(NativeRemoteBackendTestCase):

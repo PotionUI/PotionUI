@@ -313,7 +313,7 @@ def test_submit_runs_to_succeeded_with_a_downloadable_artifact(client, container
         doc = jsonlib.loads(line[len("data: "):])
         event = read_envelope(doc)
         kinds.append(event.kind)
-        if event.kind == "artifact":
+        if event.kind == "output":
             artifact = event.artifacts[0]
 
     assert kinds[0] == "accepted"

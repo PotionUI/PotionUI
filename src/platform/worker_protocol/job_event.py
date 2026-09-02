@@ -45,7 +45,10 @@ class JobEventKind(str, Enum):
     RUNNING = "running"
     PIPE_STARTED = "pipe_started"
     PIPE_PROGRESS = "pipe_progress"
-    ARTIFACT = "artifact"
+    #: A pipe's `GenerationOutput` (see `output_codec.py`) that isn't itself
+    #: progress - carries the encoded output in `payload["output"]` plus any
+    #: media it references in `artifacts`.
+    OUTPUT = "output"
     LOG = "log"
     HEARTBEAT = "heartbeat"
     SUCCEEDED = "succeeded"

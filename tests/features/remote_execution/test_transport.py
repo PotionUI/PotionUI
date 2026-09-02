@@ -262,7 +262,7 @@ class TestArtifactDownload:
 
         artifact = None
         async for event in transport.stream_events("exec-artifact", after=0):
-            if event.kind == "artifact":
+            if event.kind == "output":
                 artifact = event.artifacts[0]
         assert artifact is not None
 
@@ -281,7 +281,7 @@ class TestArtifactDownload:
 
         artifact = None
         async for event in transport.stream_events("exec-corrupt", after=0):
-            if event.kind == "artifact":
+            if event.kind == "output":
                 artifact = event.artifacts[0]
 
         tampered = artifact.model_copy(update={

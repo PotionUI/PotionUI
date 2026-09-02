@@ -236,19 +236,26 @@ forces eager pipe discovery the first time it runs).
 7. Consume `GET /v1/executions/{id}/events` to completion. Every event goes
    through `RemoteExecutionRepository.apply_job_event` (persist +, if the
    kind implies a state, transition the row) - the one place a worker event
-   becomes row state, shared with the reconciler (below). Progress kinds
-   (`staging`/`running`/`pipe_started`/`pipe_progress`) become a
-   `ProgressGenerationOutput` with the `<<PIPE:name>>` title convention;
-   `artifact` events are downloaded (`WorkerTransport.download_artifact`,
-   sha256 + size verified against the `ArtifactRefV1`, written under
-   `<storage>/remote_imports/<generation_id>/`) and turned into the matching
-   `GenerationOutput` (`src/features/remote_execution/artifact_import.py`
-   mirrors `WorkerPipelineExecutor._materialize_artifact` in reverse: `image`
-   -> `ImageGenerationOutput`, `video`/`audio`/`mesh` likewise) and handed to
-   the same `emit` callback a local pipe would call, so the normal
-   handler pipeline (gallery/video/audio) persists them exactly as it would a
-   local generation's outputs. A failed/rejected event's `JobErrorV1` becomes
-   an `ErrorGenerationOutput`.
+   becomes row state, shared with the reconciler (below). An event carrying
+   `payload["output"]` is a pipe's own `GenerationOutput`, encoded generically
+   by `src/features/remote_execution/output_codec.py` (`encode_output` on the
+   worker, walking the output's dataclass fields via
+   `dataclasses.fields`/`typing.get_type_hints` rather than a per-type
+   whitelist, so nothing a pipe emits - core's output types or a plugin's -
+   needs separate wiring to cross the wire); its `event.artifacts` are
+   downloaded first (`WorkerTransport.download_artifact`, sha256 + size
+   verified against the `ArtifactRefV1`, written under
+   `<storage>/remote_imports/<generation_id>/`), then `decode_output`
+   reconstructs the identical dataclass instance from the payload plus the
+   `{artifact_id: local_path}` map those downloads produced, and it is handed
+   to the same `emit` callback a local pipe would call - so the normal
+   handler pipeline (gallery/video/audio/param/models/...) persists it
+   exactly as it would a local generation's output. `pipe_progress` events are
+   always one of these (a pipe's own `ProgressGenerationOutput`, icon/title
+   included); the worker-lifecycle kinds without a payload
+   (`staging`/`running`/`pipe_started`) are instead synthesized into a
+   `ProgressGenerationOutput` here with the `<<PIPE:name>>` title convention.
+   A failed/rejected event's `JobErrorV1` becomes an `ErrorGenerationOutput`.
 8. Any exception between claiming the row and a terminal event (submit
    failing, an upload failing, an artifact failing digest verification, the
    connection dying) marks the row FAILED (`error_code: dispatch_error`)

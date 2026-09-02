@@ -31,15 +31,12 @@ from src.features.generation.package_assembly import (
     build_processed_pipeline,
 )
 from src.features.generation.pipeline_builder import BuiltPipeline
-from src.features.remote_execution.artifact_import import (
-    output_for_artifact,
-    resolve_import_destination,
-)
 from src.features.remote_execution.model_bundle_builder import (
     ModelBundleResolutionError,
     build_model_bundle,
 )
 from src.features.remote_execution.model_bundle_staging import find_unstaged_entries
+from src.features.remote_execution.output_codec import decode_output, resolve_import_destination
 from src.features.remote_execution.policy import RemoteExecutionPolicy
 from src.features.remote_execution.records import (
     IllegalStateTransition,
@@ -55,15 +52,9 @@ from src.features.remote_execution.transport import (
 )
 from src.pipelines.contracts import resolve_display_title
 from src.pipelines.outputs import (
-    AudioGenerationOutput,
     ErrorGenerationOutput,
-    GalleryGenerationOutput,
     GenerationOutput,
-    ImageGenerationOutput,
-    MeshGenerationOutput,
-    Progress,
     ProgressGenerationOutput,
-    VideoGenerationOutput,
 )
 from src.pipelines.remote_fingerprint import (
     compute_build_fingerprint,
@@ -551,59 +542,33 @@ class RemoteNativeBackend(BaseBackend):
         pipe_type = pipe_type_by_id.get(event.pipe_id) if event.pipe_id else None
         pipe_index = pipe_index_by_id.get(event.pipe_id) if event.pipe_id else None
 
-        gallery_images: list = []
-        gallery_videos: list = []
-        gallery_audios: list = []
-        gallery_meshes: list = []
+        if isinstance(event.payload, dict) and "output" in event.payload:
+            # Every media artifact this output references must download and
+            # verify cleanly before it is decoded - a corrupted or missing
+            # one must fail the generation, not be silently dropped. Left to
+            # propagate out of _consume_events, where _dispatch's catch-all
+            # marks the row FAILED.
+            artifact_paths: Dict[str, Path] = {}
+            for artifact in event.artifacts:
+                dest = resolve_import_destination(imports_dir, artifact)
+                await transport.download_artifact(artifact, dest)
+                artifact_paths[artifact.artifact_id] = dest
 
-        for artifact in event.artifacts:
-            # An artifact that fails integrity verification (or can't be
-            # fetched at all) must fail the generation, not be silently
-            # dropped - a generation that reports success without one of its
-            # declared outputs is a worse failure mode than an honest error.
-            # Left to propagate out of _consume_events, where _dispatch's
-            # catch-all marks the row FAILED.
-            dest = resolve_import_destination(imports_dir, artifact)
-            await transport.download_artifact(artifact, dest)
-            output = output_for_artifact(artifact, dest, pipe_index=pipe_index, pipe_type=pipe_type)
-            if output is None:
-                logger.warning(f"[NATIVE_REMOTE_BACKEND] No local handler for artifact kind {artifact.kind!r}")
-                continue
-
-            # role == "gallery" members of the SAME event are held back and
-            # reassembled into one GalleryGenerationOutput below, so a remote
-            # run's finals reach the same gallery handler (history rows,
-            # gallery_update) a local run's do, rather than surfacing only as
-            # individual leaf outputs. Anything else - role == "preview",
-            # role is None (a worker predating this field), or an
-            # unrecognized role - emits as a standalone leaf, unchanged.
-            if artifact.role == "gallery":
-                if isinstance(output, ImageGenerationOutput):
-                    gallery_images.append(output)
-                elif isinstance(output, VideoGenerationOutput):
-                    gallery_videos.append(output)
-                elif isinstance(output, AudioGenerationOutput):
-                    gallery_audios.append(output)
-                elif isinstance(output, MeshGenerationOutput):
-                    gallery_meshes.append(output)
-                continue
-
+            output = decode_output(
+                event.payload["output"], artifact_paths, pipe_index=pipe_index, pipe_name=pipe_type,
+            )
             emit(output)
+            return
 
-        if gallery_images or gallery_videos or gallery_audios or gallery_meshes:
-            emit(GalleryGenerationOutput(
-                images=gallery_images, videos=gallery_videos,
-                audios=gallery_audios, meshes=gallery_meshes,
-            ))
-
-        if event.kind in ("staging", "running", "pipe_started", "pipe_progress"):
-            progress = None
-            if event.progress is not None:
-                progress = Progress(current=int(round(event.progress * 100)), max=100)
+        # Worker lifecycle, not a pipe output: no GenerationOutput was
+        # emitted worker-side for these, so core synthesizes the same
+        # ProgressGenerationOutput it always has. A genuine pipe's own
+        # ProgressGenerationOutput (kind == "pipe_progress") always carries a
+        # payload and returns above instead, so it never reaches here.
+        if event.kind in ("staging", "running", "pipe_started"):
             emit(ProgressGenerationOutput(
                 state=event.kind,
                 title=f"<<PIPE:{resolve_display_title(pipe_type)}>>" if pipe_type else None,
-                progress=progress,
                 pipe_name=pipe_type,
             ))
             return

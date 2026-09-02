@@ -6,6 +6,8 @@ the translation between `src.plugin_api.compute`'s typed contract and
 only.
 """
 
+import asyncio
+
 import pytest
 
 import backend.provisioner as provisioner_module
@@ -57,6 +59,7 @@ class FakeRunPodClient:
         self.api_key = api_key
         self.create_network_volume_calls = []
         self.create_pod_calls = []
+        self.terminated = []
         FakeRunPodClient.instances.append(self)
 
     async def aclose(self):
@@ -95,7 +98,7 @@ class FakeRunPodClient:
         )
 
     async def terminate_pod(self, pod_id):
-        return None
+        self.terminated.append(pod_id)
 
     async def delete_network_volume(self, volume_id):
         return None
@@ -103,6 +106,10 @@ class FakeRunPodClient:
 
 async def _always_ready(base_url, token):
     return True
+
+
+async def _noop_report(progress):
+    pass
 
 
 @pytest.fixture
@@ -380,7 +387,7 @@ async def test_describe_fields_data_center_pinned_by_selected_existing_volume(pr
 
 async def test_provision_returns_connection_details_with_handle_as_profile_name(provisioner):
     result = await provisioner.provision(
-        ProvisionRequest(profile_name="prof-1", values={"gpu_type_id": "NVIDIA GeForce RTX 4090"})
+        ProvisionRequest(profile_name="prof-1", values={"gpu_type_id": "NVIDIA GeForce RTX 4090"}), _noop_report
     )
 
     assert result.handle == "prof-1"
@@ -395,7 +402,7 @@ async def test_provision_sends_the_chosen_data_center_to_both_volume_and_pod(pro
         ProvisionRequest(
             profile_name="prof-1",
             values={"gpu_type_id": "NVIDIA GeForce RTX 4090", "data_center_id": "EU-NL-1"},
-        )
+        ), _noop_report
     )
 
     client = FakeRunPodClient.instances[-1]
@@ -432,7 +439,7 @@ async def test_provision_auto_picks_the_best_stocked_data_center(provisioner, mo
     _fake_multi_stock_catalog(monkeypatch, [("CA-MTL-1", "Medium"), ("US-TX-3", "High"), ("EU-NL-1", "Low")])
 
     await provisioner.provision(
-        ProvisionRequest(profile_name="prof-1", values={"gpu_type_id": "NVIDIA GeForce RTX 4090"})
+        ProvisionRequest(profile_name="prof-1", values={"gpu_type_id": "NVIDIA GeForce RTX 4090"}), _noop_report
     )
 
     client = FakeRunPodClient.instances[-1]
@@ -444,7 +451,7 @@ async def test_provision_auto_pick_tiebreaks_deterministically_on_equal_stock(pr
     _fake_multi_stock_catalog(monkeypatch, [("US-TX-3", "High"), ("CA-MTL-1", "High")])
 
     await provisioner.provision(
-        ProvisionRequest(profile_name="prof-1", values={"gpu_type_id": "NVIDIA GeForce RTX 4090"})
+        ProvisionRequest(profile_name="prof-1", values={"gpu_type_id": "NVIDIA GeForce RTX 4090"}), _noop_report
     )
 
     client = FakeRunPodClient.instances[-1]
@@ -459,7 +466,7 @@ async def test_provision_auto_pick_respects_an_existing_volumes_data_center(prov
     _fake_multi_stock_catalog(monkeypatch, [("US-TX-3", "High"), ("EU-NL-1", "Low")])
 
     await provisioner.provision(
-        ProvisionRequest(profile_name="prof-1", values={"gpu_type_id": "NVIDIA GeForce RTX 4090"})
+        ProvisionRequest(profile_name="prof-1", values={"gpu_type_id": "NVIDIA GeForce RTX 4090"}), _noop_report
     )
 
     client = FakeRunPodClient.instances[-1]
@@ -479,7 +486,7 @@ async def test_provision_explicit_data_center_mismatching_the_existing_volume_ra
             ProvisionRequest(
                 profile_name="prof-1",
                 values={"gpu_type_id": "NVIDIA GeForce RTX 4090", "data_center_id": "US-TX-3"},
-            )
+            ), _noop_report
         )
 
     assert FakeRunPodClient.instances == []
@@ -495,7 +502,7 @@ async def test_provision_explicit_data_center_matching_the_existing_volume_succe
         ProvisionRequest(
             profile_name="prof-1",
             values={"gpu_type_id": "NVIDIA GeForce RTX 4090", "data_center_id": "EU-NL-1"},
-        )
+        ), _noop_report
     )
 
     assert result.handle == "prof-1"
@@ -508,7 +515,7 @@ async def test_provision_none_mode_skips_the_volume_entirely(provisioner, resour
         ProvisionRequest(
             profile_name="prof-1",
             values={"gpu_type_id": "NVIDIA GeForce RTX 4090", "network_volume": NETWORK_VOLUME_NONE},
-        )
+        ), _noop_report
     )
 
     client = FakeRunPodClient.instances[-1]
@@ -527,7 +534,7 @@ async def test_provision_with_existing_volume_id_pins_dc_and_records_it(provisio
         ProvisionRequest(
             profile_name="prof-1",
             values={"gpu_type_id": "NVIDIA GeForce RTX 4090", "network_volume": "vol-account-1"},
-        )
+        ), _noop_report
     )
 
     client = FakeRunPodClient.instances[-1]
@@ -551,7 +558,7 @@ async def test_provision_with_stale_explicit_volume_id_raises_clean_error_naming
             ProvisionRequest(
                 profile_name="prof-1",
                 values={"gpu_type_id": "NVIDIA GeForce RTX 4090", "network_volume": "vol-gone"},
-            )
+            ), _noop_report
         )
 
 
@@ -566,7 +573,7 @@ async def test_provision_with_existing_volume_id_and_conflicting_data_center_rai
                     "network_volume": "vol-account-1",
                     "data_center_id": "US-TX-3",
                 },
-            )
+            ), _noop_report
         )
 
     assert FakeRunPodClient.instances[-1].create_pod_calls == []
@@ -576,7 +583,7 @@ async def test_provision_falls_back_to_the_region_setting_when_data_center_is_om
     # `repo` fixture seeds region="US-TX-3" - a caller that never mentions
     # data_center_id at all (not the admin form, which always sends it).
     await provisioner.provision(
-        ProvisionRequest(profile_name="prof-1", values={"gpu_type_id": "NVIDIA GeForce RTX 4090"})
+        ProvisionRequest(profile_name="prof-1", values={"gpu_type_id": "NVIDIA GeForce RTX 4090"}), _noop_report
     )
 
     client = FakeRunPodClient.instances[-1]
@@ -589,7 +596,7 @@ async def test_provision_without_data_center_or_region_setting_raises_clean_erro
 
     with pytest.raises(ComputeProvisionerError, match="data_center_id"):
         await provisioner.provision(
-            ProvisionRequest(profile_name="prof-1", values={"gpu_type_id": "NVIDIA GeForce RTX 4090"})
+            ProvisionRequest(profile_name="prof-1", values={"gpu_type_id": "NVIDIA GeForce RTX 4090"}), _noop_report
         )
 
     # Never reaches RunPod at all - not a call made with an empty/invalid value.
@@ -609,7 +616,7 @@ async def test_provision_rejects_an_empty_string_data_center_with_no_region_fall
             ProvisionRequest(
                 profile_name="prof-1",
                 values={"gpu_type_id": "NVIDIA GeForce RTX 4090", "data_center_id": ""},
-            )
+            ), _noop_report
         )
 
     assert FakeRunPodClient.instances == []
@@ -619,7 +626,7 @@ async def test_provision_without_image_ref_or_setting_raises(provisioner, repo):
     repo._store.pop((PLUGIN_ID, "worker_image"))
 
     with pytest.raises(ComputeProvisionerError):
-        await provisioner.provision(ProvisionRequest(profile_name="prof-1", values={}))
+        await provisioner.provision(ProvisionRequest(profile_name="prof-1", values={}), _noop_report)
 
 
 async def test_provision_constrains_host_cuda_to_the_worker_images_floor_by_default(provisioner):
@@ -627,7 +634,7 @@ async def test_provision_constrains_host_cuda_to_the_worker_images_floor_by_defa
     host advertising CUDA 13.0 - the worker image's torch is a cu130 build,
     and an older host driver drops it to CPU without failing the generation."""
     await provisioner.provision(
-        ProvisionRequest(profile_name="prof-1", values={"gpu_type_id": "NVIDIA GeForce RTX 4090"})
+        ProvisionRequest(profile_name="prof-1", values={"gpu_type_id": "NVIDIA GeForce RTX 4090"}), _noop_report
     )
 
     client = FakeRunPodClient.instances[-1]
@@ -640,7 +647,7 @@ async def test_provision_with_the_setting_cleared_constrains_nothing(provisioner
     repo._store[(PLUGIN_ID, "allowed_cuda_versions")] = ""
 
     await provisioner.provision(
-        ProvisionRequest(profile_name="prof-1", values={"gpu_type_id": "NVIDIA GeForce RTX 4090"})
+        ProvisionRequest(profile_name="prof-1", values={"gpu_type_id": "NVIDIA GeForce RTX 4090"}), _noop_report
     )
 
     client = FakeRunPodClient.instances[-1]
@@ -651,7 +658,7 @@ async def test_provision_accepts_several_allowed_cuda_versions(provisioner, repo
     repo._store[(PLUGIN_ID, "allowed_cuda_versions")] = "13.0, 12.9"
 
     await provisioner.provision(
-        ProvisionRequest(profile_name="prof-1", values={"gpu_type_id": "NVIDIA GeForce RTX 4090"})
+        ProvisionRequest(profile_name="prof-1", values={"gpu_type_id": "NVIDIA GeForce RTX 4090"}), _noop_report
     )
 
     client = FakeRunPodClient.instances[-1]
@@ -662,7 +669,7 @@ async def test_provision_without_api_key_raises(provisioner, repo):
     repo._store.pop((PLUGIN_ID, "api_key"))
 
     with pytest.raises(ComputeProvisionerError):
-        await provisioner.provision(ProvisionRequest(profile_name="prof-1", values={}))
+        await provisioner.provision(ProvisionRequest(profile_name="prof-1", values={}), _noop_report)
 
 
 async def test_provision_no_capacity_error_gets_an_actionable_suffix(provisioner, monkeypatch):
@@ -678,7 +685,7 @@ async def test_provision_no_capacity_error_gets_an_actionable_suffix(provisioner
 
     with pytest.raises(ComputeProvisionerError) as excinfo:
         await provisioner.provision(
-            ProvisionRequest(profile_name="prof-1", values={"gpu_type_id": "NVIDIA GeForce RTX 4090"})
+            ProvisionRequest(profile_name="prof-1", values={"gpu_type_id": "NVIDIA GeForce RTX 4090"}), _noop_report
         )
 
     message = str(excinfo.value)
@@ -694,7 +701,7 @@ async def test_provision_unrelated_error_is_not_rewritten(provisioner, monkeypat
 
     with pytest.raises(ComputeProvisionerError) as excinfo:
         await provisioner.provision(
-            ProvisionRequest(profile_name="prof-1", values={"gpu_type_id": "NVIDIA GeForce RTX 4090"})
+            ProvisionRequest(profile_name="prof-1", values={"gpu_type_id": "NVIDIA GeForce RTX 4090"}), _noop_report
         )
 
     message = str(excinfo.value)
@@ -708,6 +715,62 @@ async def test_status_reconciles_through_the_real_manager(provisioner, resources
     status = await provisioner.status("prof-1")
 
     assert status.state == "running"
+    assert status.detail == "Pod pod-1 RUNNING, worker answered"
+
+
+async def test_status_detail_for_exited_pod_names_it(provisioner, resources, monkeypatch):
+    resources.record("prof-1", "pod", "pod-1", meta={"worker_port": 8100})
+
+    class ExitedClient(FakeRunPodClient):
+        async def get_pod(self, pod_id):
+            return Pod(
+                id=pod_id, name="", image="", desired_status="EXITED", public_ip=None,
+                port_mappings={}, ports=[], cost_per_hr=None, network_volume_id=None,
+            )
+
+    monkeypatch.setattr(provisioner_module, "RunPodClient", ExitedClient)
+
+    status = await provisioner.status("prof-1")
+
+    assert status.state == "stopped"
+    assert "EXITED" in status.detail
+
+
+async def test_provision_cancelled_mid_bringup_terminates_the_pod_and_reraises(provisioner, resources, monkeypatch):
+    """An operator terminating the row mid-bring-up cancels the task -
+    `CancelledError` can surface from any await, here from the worker
+    handshake wait. The provisioner must best-effort tear down the pod it
+    already created before letting the cancellation propagate."""
+    import backend.provisioning as provisioning_module
+
+    hang = asyncio.Event()
+
+    async def hanging_probe(base_url, token):
+        await hang.wait()
+        return True
+
+    monkeypatch.setattr(provisioning_module, "default_readiness_probe", hanging_probe)
+
+    task = asyncio.create_task(
+        provisioner.provision(
+            ProvisionRequest(profile_name="prof-1", values={"gpu_type_id": "NVIDIA GeForce RTX 4090"}),
+            _noop_report,
+        )
+    )
+    for _ in range(1000):
+        if resources.get("prof-1", "pod") is not None:
+            break
+        await asyncio.sleep(0)
+    else:
+        raise AssertionError("provision() never reached the pod-created point")
+
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert FakeRunPodClient.instances[-1].terminated == ["pod-1"]
+    assert resources.get("prof-1", "pod") is None
 
 
 async def test_stop_stops_without_terminating(provisioner, resources):

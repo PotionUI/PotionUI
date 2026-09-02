@@ -421,3 +421,32 @@ a reconciliation failure never prevents the app from starting.
 - **`list_models`/model listing** is not implemented for `native.remote`
   (`supports_model_listing()` stays at `BaseBackend`'s default `False`) -
   model availability routing does not yet consider a remote worker's models.
+
+## Liveness
+
+Provisioned compute (a `native.remote` backend filled in through a
+`ComputeProvisioner` plugin) is kept honest by two things, both generic across
+providers:
+
+- **Bring-up feedback.** `POST /api/admin/provisioning` returns at once with the
+  row in `provisioning`; the provisioner runs in a background task and reports
+  each phase it can see (`preparing`, `creating`, `starting`, `waiting_worker`,
+  `ready`). Every report lands on the row's `progress` timeline and goes out
+  on `/ws/admin` as `{"type": "compute_status", "row": {...}}` — the whole row,
+  every time. The Infrastructure tab renders the timeline live; a failure lands
+  as `failed` with the provider's message, and can be provisioned again or
+  terminated.
+- **Heartbeat.** `ComputeStatusMonitor` (started in the app lifespan) asks each
+  provisioner for `status(handle)` every `provisioning.status_interval_seconds`
+  (settings table; default 15, minimum 5). A pod paused or deleted in the
+  provider's own console shows up within one interval as `stopped`/`missing`,
+  its backend is disabled so no generation routes to it, and every open admin
+  page gets the `compute_status` push. When the pod comes back the row returns
+  to `running` but the backend stays disabled — the tab offers "Enable
+  backend" rather than guessing. `GET /api/admin/provisioning/{row_id}` runs
+  the same reconcile on demand. A row left in `provisioning` by a server
+  restart is marked `failed` on the first tick, since nothing will finish it.
+
+State vocabulary: `provisioning | running | stopped | missing | unreachable |
+failed | unknown` — see the "Contributing a compute provisioner" section of
+`docs/plugin-api.md` for what a provisioner returns and when.

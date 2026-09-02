@@ -13,7 +13,37 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Dict, List, Optional
+from typing import Any, Awaitable, Callable, ClassVar, Dict, List, Optional
+
+#: Every state a `ProvisionedCompute` row can be in. `provisioning` and `failed`
+#: are core's own (the background bring-up job sets them); a provisioner's
+#: `status()` reports the rest:
+#:   running     - the provider says the resource is up AND the worker answers.
+#:   stopped     - paused/exited, by the operator or by the provider.
+#:   missing     - the provider no longer knows the handle.
+#:   unreachable - the provider says running but the worker handshake fails.
+#:   failed      - `provision()` raised; the row keeps the message as detail.
+#:   unknown     - the provider could not be asked (an API error, a timeout).
+STATE_PROVISIONING = "provisioning"
+STATE_RUNNING = "running"
+STATE_STOPPED = "stopped"
+STATE_MISSING = "missing"
+STATE_UNREACHABLE = "unreachable"
+STATE_FAILED = "failed"
+STATE_UNKNOWN = "unknown"
+COMPUTE_STATES = (
+    STATE_PROVISIONING, STATE_RUNNING, STATE_STOPPED, STATE_MISSING,
+    STATE_UNREACHABLE, STATE_FAILED, STATE_UNKNOWN,
+)
+
+#: Conventional `ProvisionProgress.stage` values, in the order a bring-up
+#: usually passes through them. A provisioner may report any string; these
+#: are the ones the admin UI has labels for.
+STAGE_PREPARING = "preparing"
+STAGE_CREATING = "creating"
+STAGE_STARTING = "starting"
+STAGE_WAITING_WORKER = "waiting_worker"
+STAGE_READY = "ready"
 
 
 class ComputeProvisionerError(RuntimeError):
@@ -77,8 +107,30 @@ class ProvisionResult:
 
 @dataclass(frozen=True)
 class ComputeStatus:
-    """Reconciled state of a provisioned resource."""
-    state: str  # "running" | "stopped" | "missing" | "unreachable"
+    """Reconciled state of a provisioned resource. `state` is one of
+    `COMPUTE_STATES`; `detail` is the provider-facing reason behind it
+    ("pod EXITED", "handshake failed after 3 attempts"), shown verbatim to
+    the admin."""
+    state: str
+    detail: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class ProvisionProgress:
+    """One step of a bring-up, reported by `provision()` through its
+    `report` callable as soon as the provisioner observes it. `stage` is a
+    free string (see the `STAGE_*` conventions); `message` is what the admin
+    reads; `percent` is optional and only meaningful when the provisioner
+    can estimate it."""
+    stage: str
+    message: str
+    percent: Optional[int] = None
+
+
+#: What core hands `provision()` to stream progress back. Awaiting it never
+#: raises into the provisioner - core swallows its own persistence/broadcast
+#: failures - so a provisioner calls it freely at every phase it can see.
+ProgressReporter = Callable[[ProvisionProgress], Awaitable[None]]
 
 
 class ComputeProvisioner(ABC):
@@ -120,9 +172,19 @@ class ComputeProvisioner(ABC):
         picked). A provisioner with no dependent fields ignores it."""
 
     @abstractmethod
-    async def provision(self, request: ProvisionRequest) -> ProvisionResult:
+    async def provision(self, request: ProvisionRequest, report: ProgressReporter) -> ProvisionResult:
         """Create (or reuse) the underlying compute and start the Remote Native
-        worker on it. Raises `ComputeProvisionerError` on failure."""
+        worker on it. Raises `ComputeProvisionerError` on failure.
+
+        Runs as a background task: the admin request that started it has
+        long returned, so `report` is the only channel back to the operator -
+        call it at every phase the provisioner can observe (see `STAGE_*`),
+        including each poll while waiting on the provider.
+
+        Cancellation: an operator terminating the row mid-bring-up cancels
+        the task, so `asyncio.CancelledError` may surface from any await in
+        here. A provisioner must tear down whatever it has already created
+        before re-raising - core cannot, since no `handle` exists yet."""
 
     @abstractmethod
     async def status(self, handle: str) -> ComputeStatus:

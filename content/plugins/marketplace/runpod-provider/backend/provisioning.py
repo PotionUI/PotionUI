@@ -9,12 +9,23 @@ protocol.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
 
 import httpx
 
-from .client import Pod, RunPodClient, RunPodNotFoundError
+from src.plugin_api.compute import (
+    STAGE_CREATING,
+    STAGE_PREPARING,
+    STAGE_READY,
+    STAGE_STARTING,
+    STAGE_WAITING_WORKER,
+    ProgressReporter,
+    ProvisionProgress,
+)
+
+from .client import Pod, RunPodAPIError, RunPodClient, RunPodNotFoundError
 from .resources import RunPodResourceManager
 from .worker_token import generate_worker_token
 
@@ -80,6 +91,16 @@ class DeprovisionResult:
     volume_deleted: bool
 
 
+@dataclass(frozen=True)
+class ReconcileOutcome:
+    """`reconcile()`'s result: `state` is one of the `STATUS_*` constants;
+    `detail` is the provider-facing reason behind it, shown verbatim to the
+    admin (`RunpodComputeProvisioner.status()` passes it straight through as
+    `ComputeStatus.detail`)."""
+    state: str
+    detail: str
+
+
 def _worker_token_key(profile_name: str) -> str:
     return f"worker_token:{profile_name}"
 
@@ -92,13 +113,23 @@ class RunPodProvisioningManager:
         plugin_repository: Any,
         *,
         readiness_probe: Optional[ReadinessProbe] = None,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        pod_start_timeout_seconds: float = 300,
+        poll_interval_seconds: float = 5,
+        handshake_attempts: int = 90,
+        handshake_interval_seconds: float = 10,
     ):
         self._client = client
         self._resources = resources
         self._repo = plugin_repository
         self._readiness_probe = readiness_probe or default_readiness_probe
+        self._sleep = sleep
+        self._pod_start_timeout_seconds = pod_start_timeout_seconds
+        self._poll_interval_seconds = poll_interval_seconds
+        self._handshake_attempts = handshake_attempts
+        self._handshake_interval_seconds = handshake_interval_seconds
 
-    async def _create_or_reuse_volume(self, profile: ProvisioningProfile) -> str:
+    async def _create_or_reuse_volume(self, profile: ProvisioningProfile, report: ProgressReporter) -> str:
         """Reuses this profile's own recorded volume when there is one. A
         recorded volume can be deleted out-of-band (RunPod console); verify
         before reuse and recreate on 404."""
@@ -106,10 +137,16 @@ class RunPodProvisioningManager:
         if existing is not None:
             try:
                 volume = await self._client.get_network_volume(existing.runpod_id)
+                await report(ProvisionProgress(STAGE_PREPARING, f"Reusing network volume {volume.id}", 10))
                 return volume.id
             except RunPodNotFoundError:
                 self._resources.delete(profile.name, "network_volume")
 
+        await report(ProvisionProgress(
+            STAGE_PREPARING,
+            f"Creating network volume ({profile.volume_size_gb} GB) in {profile.region or 'the default data center'}",
+            10,
+        ))
         volume = await self._client.create_network_volume(
             name=f"potionui-{profile.name}",
             size_gb=profile.volume_size_gb,
@@ -120,11 +157,12 @@ class RunPodProvisioningManager:
         )
         return volume.id
 
-    async def provision(self, profile: ProvisioningProfile) -> ProvisionResult:
+    async def provision(self, profile: ProvisioningProfile, report: ProgressReporter) -> ProvisionResult:
         if profile.network_volume == NETWORK_VOLUME_NONE:
+            await report(ProvisionProgress(STAGE_PREPARING, "No persistent volume", 10))
             volume_id = None
         elif profile.network_volume == NETWORK_VOLUME_CREATE:
-            volume_id = await self._create_or_reuse_volume(profile)
+            volume_id = await self._create_or_reuse_volume(profile, report)
         else:
             # An admin-selected existing volume - the caller already
             # verified it exists and resolved `profile.region` from it.
@@ -132,8 +170,11 @@ class RunPodProvisioningManager:
             self._resources.record(
                 profile.name, "network_volume", volume_id, meta={"data_center_id": profile.region}
             )
+            await report(ProvisionProgress(STAGE_PREPARING, f"Reusing network volume {volume_id}", 10))
 
         worker_token = generate_worker_token()
+        dc_label = profile.region or "any data center"
+        await report(ProvisionProgress(STAGE_CREATING, f"Requesting pod ({profile.gpu_type_id} in {dc_label})", 30))
         create_pod_kwargs: Dict[str, Any] = dict(
             name=f"potionui-{profile.name}",
             image_name=profile.image_ref,
@@ -160,9 +201,12 @@ class RunPodProvisioningManager:
         self._repo.set_plugin_setting(
             PLUGIN_ID, _worker_token_key(profile.name), worker_token, is_secret=True
         )
+        await report(ProvisionProgress(STAGE_CREATING, f"Pod {pod.id} created", 30))
+
+        pod = await self._wait_for_pod_running(pod, report)
 
         base_url = _proxy_url(pod.id, profile.worker_port)
-        ready = await self._readiness_probe(base_url, worker_token)
+        ready = await self._wait_for_worker(base_url, worker_token, report)
 
         return ProvisionResult(
             pod_id=pod.id,
@@ -172,31 +216,92 @@ class RunPodProvisioningManager:
             ready=ready,
         )
 
-    async def reconcile(self, profile_name: str) -> str:
+    async def _wait_for_pod_running(self, pod: Pod, report: ProgressReporter) -> Pod:
+        """Polls `get_pod` until `desired_status == "RUNNING"`. The pod
+        `create_pod` handed back is usually already RUNNING - in that case
+        this reports once and returns immediately."""
+        elapsed = 0.0
+        while True:
+            if pod.desired_status == "RUNNING":
+                await report(ProvisionProgress(STAGE_STARTING, f"Pod {pod.id} is RUNNING", 50))
+                return pod
+
+            await report(ProvisionProgress(
+                STAGE_STARTING,
+                f"Waiting for pod {pod.id} to start ({int(elapsed)}s, status {pod.desired_status})",
+                50,
+            ))
+
+            if elapsed >= self._pod_start_timeout_seconds:
+                raise RunPodAPIError(
+                    0,
+                    f"Pod {pod.id} did not reach RUNNING within {int(self._pod_start_timeout_seconds)}s "
+                    f"(last status: {pod.desired_status})",
+                )
+
+            await self._sleep(self._poll_interval_seconds)
+            elapsed += self._poll_interval_seconds
+
+            try:
+                pod = await self._client.get_pod(pod.id)
+            except RunPodNotFoundError as exc:
+                raise RunPodAPIError(0, f"Pod {pod.id} disappeared while starting") from exc
+
+    async def _wait_for_worker(self, base_url: str, worker_token: str, report: ProgressReporter) -> bool:
+        """Probes the worker handshake up to `_handshake_attempts` times,
+        `_handshake_interval_seconds` apart. Reports every failed attempt; a
+        successful attempt reports `STAGE_READY` instead of one more
+        `STAGE_WAITING_WORKER` report for that same attempt."""
+        for attempt in range(1, self._handshake_attempts + 1):
+            if await self._readiness_probe(base_url, worker_token):
+                await report(ProvisionProgress(STAGE_READY, "Worker is up", 100))
+                return True
+
+            elapsed = int(attempt * self._handshake_interval_seconds)
+            percent = min(90, 70 + round(20 * attempt / self._handshake_attempts))
+            await report(ProvisionProgress(
+                STAGE_WAITING_WORKER,
+                f"Waiting for the worker to answer (attempt {attempt}/{self._handshake_attempts}, {elapsed}s)",
+                percent,
+            ))
+
+            if attempt < self._handshake_attempts:
+                await self._sleep(self._handshake_interval_seconds)
+
+        await report(ProvisionProgress(
+            STAGE_WAITING_WORKER,
+            f"The worker did not answer after {self._handshake_attempts} attempts",
+            90,
+        ))
+        return False
+
+    async def reconcile(self, profile_name: str) -> ReconcileOutcome:
         pod_record = self._resources.get(profile_name, "pod")
         if pod_record is None:
-            return STATUS_MISSING
+            return ReconcileOutcome(STATUS_MISSING, "No pod recorded for this profile")
 
         try:
             pod = await self._client.get_pod(pod_record.runpod_id)
         except RunPodNotFoundError:
-            return STATUS_MISSING
+            return ReconcileOutcome(STATUS_MISSING, f"Pod {pod_record.runpod_id} no longer exists on RunPod")
 
         if pod.desired_status == "TERMINATED":
-            return STATUS_MISSING
+            return ReconcileOutcome(STATUS_MISSING, f"Pod {pod.id} is TERMINATED")
         if pod.desired_status == "EXITED":
-            return STATUS_STOPPED
+            return ReconcileOutcome(STATUS_STOPPED, f"Pod {pod.id} is EXITED (stopped)")
         if pod.desired_status != "RUNNING":
-            return STATUS_UNREACHABLE
+            return ReconcileOutcome(STATUS_UNREACHABLE, f"Pod {pod.id} is {pod.desired_status}")
 
         token = self._read_worker_token(profile_name)
         if token is None:
-            return STATUS_UNREACHABLE
+            return ReconcileOutcome(STATUS_UNREACHABLE, "Worker token missing - re-provision")
 
         worker_port = pod_record.meta.get("worker_port", 8100)
         base_url = _proxy_url(pod.id, worker_port)
         ready = await self._readiness_probe(base_url, token)
-        return STATUS_RUNNING if ready else STATUS_UNREACHABLE
+        if ready:
+            return ReconcileOutcome(STATUS_RUNNING, f"Pod {pod.id} RUNNING, worker answered")
+        return ReconcileOutcome(STATUS_UNREACHABLE, f"Pod {pod.id} RUNNING but the worker handshake failed")
 
     async def deprovision(
         self,

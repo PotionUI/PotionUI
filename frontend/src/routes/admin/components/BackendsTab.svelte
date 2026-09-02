@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { logger, getErrorMessage, getApiErrorMessage } from '$lib/utils/logger';
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { isAxiosError } from 'axios';
 	import type { EngineDescriptor, EngineField, IndexModelsResult, BackendStats } from '$lib/services/admin-api';
 	import {
@@ -17,6 +17,7 @@
 	} from '$lib/services/admin-api';
 	import { toasts } from '$lib/stores/toast';
 	import { confirmDialog } from '$lib/stores/confirm';
+	import { adminWebSocket } from '$lib/services/adminWebsocket';
 	import { timeAgo } from '$lib/utils/relativeTime';
 	import { Button, Badge, Spinner, EmptyState, Input, Switch, Alert } from '$lib/components/ui';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
@@ -269,6 +270,15 @@
 		await loadBackends();
 		await loadBackendsHealth();
 	});
+
+	// `onMount` above is async, so a returned cleanup wouldn't be picked up by
+	// Svelte (it only recognizes a synchronously-returned function) - subscribe
+	// separately, outside the async callback.
+	const unsubscribeComputeStatus = adminWebSocket.onComputeStatus(() => {
+		loadBackends();
+		loadBackendsHealth();
+	});
+	onDestroy(unsubscribeComputeStatus);
 
 	// Load supported backend engines
 	async function loadEngines() {
@@ -959,12 +969,14 @@
 											backendId={activeBackend.id}
 											backendDriver={activeBackend.driver}
 											configured={activeBackend.configured}
+											backendEnabled={activeBackend.enabled}
 											onStopped={() => {
 												loadBackends();
 												loadBackendsHealth();
 											}}
 											onProvisioned={handleInfrastructureProvisioned}
 											onTerminated={handleInfrastructureTerminated}
+											onEnableBackend={() => activeBackend && toggleEnabled(activeBackend)}
 										/>
 									{/key}
 								</DetailBody>

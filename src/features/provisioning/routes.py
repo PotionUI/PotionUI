@@ -18,6 +18,7 @@ from src.features.provisioning.dto import ProviderFieldsRequest, ProvisionComput
 from src.features.provisioning.operations import (
     BackendAlreadyProvisionedError,
     BackendNotFoundError,
+    ComputeProvisioningJobs,
     InvalidProvisionValuesError,
     NotARemoteBackendError,
     ProvisionedComputeNotFoundError,
@@ -52,11 +53,15 @@ class ProvisioningController(BaseController):
         registry: ComputeProvisionerRegistry,
         repository: ProvisionedComputeRepository,
         backend_registry: BackendRegistry,
+        jobs: ComputeProvisioningJobs,
+        hub,
     ):
         super().__init__()
         self.registry = registry
         self.repository = repository
         self.backend_registry = backend_registry
+        self.jobs = jobs
+        self.hub = hub
 
     async def list_providers(self) -> APIResponse:
         providers = operations.list_providers(self.registry)
@@ -101,6 +106,7 @@ class ProvisioningController(BaseController):
                 self.registry,
                 self.repository,
                 self.backend_registry,
+                self.jobs,
                 provider_id=request.provider_id,
                 backend_id=request.backend_id,
                 profile_name=request.name,
@@ -118,10 +124,12 @@ class ProvisioningController(BaseController):
         except InvalidProvisionValuesError as e:
             return self.error_api_response(error="invalid_values", message=str(e))
         except ComputeProvisionerError as e:
-            # Raised by the provisioner itself (a rejected API key, a rate limit, a
-            # gone resource, ...) - its message is provider-facing and safe to show
-            # verbatim, unlike handle_exception's default (which never echoes str(e),
-            # since an arbitrary exception can carry paths or connection strings).
+            # Raised by describe_fields() before the job starts (a rejected API
+            # key, an unreachable catalog, ...) - its message is provider-facing
+            # and safe to show verbatim, unlike handle_exception's default (which
+            # never echoes str(e), since an arbitrary exception can carry paths or
+            # connection strings). Failures inside provision() itself land on the
+            # row as status "failed" instead.
             return self.error_api_response(error="provision_failed", message=str(e))
         except Exception as e:
             self.handle_exception(e, error_code="provision_failed")
@@ -129,16 +137,20 @@ class ProvisioningController(BaseController):
 
     async def refresh_status(self, row_id: str) -> APIResponse:
         try:
-            row = await operations.refresh_status(self.registry, self.repository, row_id)
+            row = await operations.refresh_status(self.registry, self.repository, self.hub, row_id)
         except ProvisionedComputeNotFoundError as e:
             return self.error_api_response(error="not_found", message=str(e))
         except UnknownProviderError as e:
             return self.error_api_response(error="unknown_provider", message=str(e))
+        except ComputeProvisionerError as e:
+            return self.error_api_response(error="provider_unavailable", message=str(e))
         return self.success_response(data=row.to_dict())
 
     async def stop(self, row_id: str) -> APIResponse:
         try:
-            row = await operations.stop_compute(self.registry, self.repository, self.backend_registry, row_id)
+            row = await operations.stop_compute(
+                self.registry, self.repository, self.backend_registry, self.hub, row_id
+            )
         except ProvisionedComputeNotFoundError as e:
             return self.error_api_response(error="not_found", message=str(e))
         except UnknownProviderError as e:
@@ -147,7 +159,9 @@ class ProvisioningController(BaseController):
 
     async def terminate(self, row_id: str) -> APIResponse:
         try:
-            await operations.terminate_compute(self.registry, self.repository, self.backend_registry, row_id)
+            await operations.terminate_compute(
+                self.registry, self.repository, self.backend_registry, self.jobs, row_id
+            )
         except ProvisionedComputeNotFoundError as e:
             return self.error_api_response(error="not_found", message=str(e))
         except UnknownProviderError as e:
@@ -179,7 +193,7 @@ def build_admin_router(container: "AppContainer") -> APIRouter:
     async def get_by_backend(backend_id: str) -> APIResponse:
         return await controller.get_by_backend(backend_id)
 
-    @router.post("", response_model=APIResponse, summary="Provision Compute")
+    @router.post("", response_model=APIResponse, summary="Provision Compute (starts a background bring-up)")
     async def provision(
         request: ProvisionComputeRequest,
         current_user: User = Depends(get_current_admin_user),

@@ -5,20 +5,39 @@ Plain functions over a `ComputeProvisionerRegistry` + `ProvisionedComputeReposit
 an EXISTING `native.remote` backend row (created ahead of time, unconfigured)
 rather than minting a new one - the backend is the durable, user-facing
 object; provisioning just connects it.
+
+The bring-up itself runs in the background: `provision_compute` returns a
+`provisioning` row at once and `ComputeProvisioningJobs` drives the
+provisioner's `provision()` in an asyncio task, streaming every reported
+step onto the row and out over the admin WebSocket as `compute_status`.
 """
 
+import asyncio
+import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from src.features.backends.backend_config import NATIVE_REMOTE_DRIVER
 from src.features.backends.backend_registry import BackendRegistry
 from src.features.provisioning.contracts import (
+    STATE_FAILED,
+    STATE_PROVISIONING,
+    STATE_RUNNING,
+    STATE_UNREACHABLE,
     ComputeFieldDescriptorV1,
     ComputeProvisioner,
+    ProvisionProgress,
     ProvisionRequest,
 )
 from src.features.provisioning.records import ProvisionedCompute
 from src.features.provisioning.registry import ComputeProvisionerRegistry
 from src.features.provisioning.repository import ProvisionedComputeRepository
+
+logger = logging.getLogger(__name__)
+
+#: The one admin WebSocket message this feature emits. `row` is the whole
+#: `ProvisionedCompute.to_dict()` every time - the client replaces, never merges.
+COMPUTE_STATUS_MESSAGE_TYPE = "compute_status"
 
 
 class UnknownProviderError(ValueError):
@@ -46,8 +65,13 @@ class NotARemoteBackendError(ValueError):
 
 class BackendAlreadyProvisionedError(ValueError):
     """Raised when `provision_compute`'s target backend is already linked to a
-    `ProvisionedCompute` row - re-provisioning must go through that row
-    (stop/terminate it first), not create a second link onto the same backend."""
+    live `ProvisionedCompute` row (anything but `failed`) - re-provisioning
+    must go through that row (stop/terminate it first), not create a second
+    link onto the same backend."""
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def _get_provisioner(registry: ComputeProvisionerRegistry, provider_id: str) -> ComputeProvisioner:
@@ -98,6 +122,153 @@ def _validate_values(descriptors: List[ComputeFieldDescriptorV1], values: Dict[s
                 )
 
 
+async def broadcast_compute_status(hub, row: ProvisionedCompute) -> None:
+    """Push the whole row to every admin socket. Never raises: a dead socket
+    must not turn a finished bring-up or a status tick into a failure."""
+    try:
+        await hub.broadcast({"type": COMPUTE_STATUS_MESSAGE_TYPE, "row": row.to_dict()})
+    except Exception as exc:
+        logger.warning("Failed to broadcast %s for row %s: %s", COMPUTE_STATUS_MESSAGE_TYPE, row.id, exc)
+
+
+async def disable_backend(backend_registry: BackendRegistry, backend_id: Optional[str]) -> bool:
+    """Disable (never remove) a linked backend so it stops being selected for
+    new generations - the rule a stopped/paused/vanished pod triggers, whether
+    the operator stopped it here or in the provider's own console."""
+    if not backend_id:
+        return False
+    backend = backend_registry.backend_config_store.get_backend(backend_id)
+    if backend is None or not backend.enabled:
+        return False
+    backend.enabled = False
+    await backend_registry.update_backend(backend_id, backend)
+    return True
+
+
+class ComputeProvisioningJobs:
+    """Owns the background bring-up task per `ProvisionedCompute` row.
+
+    One process singleton (built in the container). `start()` schedules the
+    provisioner's `provision()`; the task writes progress and the outcome
+    onto the row and broadcasts each change. `cancel()` is what terminating
+    a `provisioning` row does - the provisioner sees `CancelledError` and
+    cleans up its own half-built resource.
+    """
+
+    def __init__(
+        self,
+        registry: ComputeProvisionerRegistry,
+        repository: ProvisionedComputeRepository,
+        backend_registry: BackendRegistry,
+        hub,
+    ):
+        self._registry = registry
+        self._repository = repository
+        self._backend_registry = backend_registry
+        self._hub = hub
+        self._tasks: Dict[str, asyncio.Task] = {}
+
+    def is_running(self, row_id: str) -> bool:
+        task = self._tasks.get(row_id)
+        return task is not None and not task.done()
+
+    def start(self, row_id: str, provisioner: ComputeProvisioner, request: ProvisionRequest) -> asyncio.Task:
+        task = asyncio.create_task(self._run(row_id, provisioner, request))
+        self._tasks[row_id] = task
+        task.add_done_callback(lambda done: self._forget(row_id, done))
+        return task
+
+    def _forget(self, row_id: str, task: asyncio.Task) -> None:
+        if self._tasks.get(row_id) is task:
+            del self._tasks[row_id]
+
+    async def cancel(self, row_id: str) -> bool:
+        task = self._tasks.get(row_id)
+        if task is None or task.done():
+            return False
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        except Exception as exc:
+            logger.warning("Provisioning job for row %s raised while being cancelled: %s", row_id, exc)
+        return True
+
+    async def wait(self, row_id: str) -> None:
+        """Block until the row's job has finished - for tests and shutdown."""
+        task = self._tasks.get(row_id)
+        if task is None:
+            return
+        try:
+            await task
+        except asyncio.CancelledError:
+            if not task.cancelled():
+                raise
+
+    async def _report(self, row_id: str, progress: ProvisionProgress) -> None:
+        entry = {
+            "stage": progress.stage,
+            "message": progress.message,
+            "percent": progress.percent,
+            "at": _now().isoformat(),
+        }
+        try:
+            self._repository.append_progress(row_id, entry)
+        except Exception as exc:
+            logger.warning("Failed to record provisioning progress for row %s: %s", row_id, exc)
+            return
+        row = self._repository.get_by_id(row_id)
+        if row is not None:
+            await broadcast_compute_status(self._hub, row)
+
+    async def _run(self, row_id: str, provisioner: ComputeProvisioner, request: ProvisionRequest) -> None:
+        async def report(progress: ProvisionProgress) -> None:
+            await self._report(row_id, progress)
+
+        try:
+            result = await provisioner.provision(request, report)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.error("Provisioning row %s failed: %s", row_id, exc, exc_info=True)
+            await self._finish(row_id, STATE_FAILED, str(exc) or type(exc).__name__)
+            return
+
+        row = self._repository.get_by_id(row_id)
+        if row is None:
+            return
+        self._repository.update_handle(row_id, result.handle, result.resource_ref)
+
+        backend = self._backend_registry.backend_config_store.get_backend(row.backend_id) if row.backend_id else None
+        if backend is None:
+            await self._finish(
+                row_id, STATE_FAILED,
+                "The target backend was deleted while its compute was being provisioned",
+            )
+            return
+
+        backend.base_url = result.base_url
+        backend.worker_token = result.worker_token
+        backend.enabled = True
+        await self._backend_registry.update_backend(row.backend_id, backend)
+
+        if result.ready:
+            await self._finish(row_id, STATE_RUNNING, "Worker is up", checked=True)
+        else:
+            await self._finish(
+                row_id, STATE_UNREACHABLE,
+                "Compute is up but the worker did not answer the handshake yet",
+                checked=True,
+            )
+
+    async def _finish(self, row_id: str, status: str, detail: str, *, checked: bool = False) -> None:
+        self._repository.update_status(row_id, status, detail=detail, checked_at=_now() if checked else None)
+        row = self._repository.get_by_id(row_id)
+        if row is not None:
+            await broadcast_compute_status(self._hub, row)
+
+
 def list_providers(registry: ComputeProvisionerRegistry) -> List[ComputeProvisioner]:
     return registry.list_provisioners()
 
@@ -113,6 +284,7 @@ async def provision_compute(
     registry: ComputeProvisionerRegistry,
     repository: ProvisionedComputeRepository,
     backend_registry: BackendRegistry,
+    jobs: ComputeProvisioningJobs,
     *,
     provider_id: str,
     backend_id: str,
@@ -120,64 +292,80 @@ async def provision_compute(
     profile_name: Optional[str] = None,
     created_by: Optional[str] = None,
 ) -> ProvisionedCompute:
-    """Fill an existing `native.remote` backend (`backend_id`) through
-    `provider_id`: validate `values` against the provider's own field
+    """Start filling an existing `native.remote` backend (`backend_id`)
+    through `provider_id`: validate `values` against the provider's own field
     descriptors - resolved WITH those same `values`, so a dependent field's
-    options are checked against the right set - provision through it, then
-    write the connection details it hands back onto the target backend row
-    (enabling it) and link the two. `profile_name` defaults to the target
-    backend's name.
+    options are checked against the right set - create the row as
+    `provisioning`, link it to the backend, and hand the bring-up to `jobs`.
+    Returns at once; the job writes the connection details onto the backend
+    (enabling it) when the provisioner is done. `profile_name` defaults to
+    the target backend's name.
+
+    A backend whose row is `failed` may be provisioned again: the failed row
+    is replaced (deleted, then recreated) so the timeline starts clean. Any
+    other linked row - `provisioning` included - refuses.
     """
     provisioner = _get_provisioner(registry, provider_id)
     backend = _get_target_backend(backend_registry, backend_id)
-    if repository.get_by_backend_id(backend_id) is not None:
-        raise BackendAlreadyProvisionedError(
-            f"Backend '{backend_id}' is already linked to provisioned compute - "
-            "stop or terminate it before provisioning again"
-        )
+    existing = repository.get_by_backend_id(backend_id)
+    if existing is not None:
+        if existing.status == STATE_PROVISIONING:
+            raise BackendAlreadyProvisionedError(
+                f"Backend '{backend_id}' is already being provisioned - wait for it to finish or terminate it"
+            )
+        if existing.status != STATE_FAILED:
+            raise BackendAlreadyProvisionedError(
+                f"Backend '{backend_id}' is already linked to provisioned compute - "
+                "stop or terminate it before provisioning again"
+            )
 
     descriptors = await provisioner.describe_fields(values)
     _validate_values(descriptors, values)
 
+    if existing is not None:
+        repository.delete(existing.id)
+
     resolved_profile_name = profile_name or backend.name
-    result = await provisioner.provision(
-        ProvisionRequest(profile_name=resolved_profile_name, values=values)
-    )
-
-    backend.base_url = result.base_url
-    backend.worker_token = result.worker_token
-    backend.enabled = True
-    await backend_registry.update_backend(backend_id, backend)
-
-    return repository.create(
+    row = repository.create(
         provider_id=provider_id,
-        handle=result.handle,
+        handle="",
         profile_name=resolved_profile_name,
-        status="running" if result.ready else "unreachable",
+        status=STATE_PROVISIONING,
+        status_detail="Starting",
         backend_id=backend_id,
-        resource_ref=result.resource_ref,
         gpu_type_id=values.get("gpu_type_id"),
         region=values.get("region"),
         created_by=created_by,
     )
+    jobs.start(row.id, provisioner, ProvisionRequest(profile_name=resolved_profile_name, values=values))
+    return row
 
 
 async def refresh_status(
     registry: ComputeProvisionerRegistry,
     repository: ProvisionedComputeRepository,
+    hub,
     row_id: str,
 ) -> ProvisionedCompute:
+    """On-demand reconcile against the provider. A row still `provisioning`
+    (or one that never got a handle) has nothing to ask the provider about
+    and comes back as is."""
     row = _get_row(repository, row_id)
+    if row.status == STATE_PROVISIONING or not row.handle:
+        return row
     provisioner = _get_provisioner(registry, row.provider_id)
     status = await provisioner.status(row.handle)
-    repository.update_status(row_id, status.state)
-    return _get_row(repository, row_id)
+    repository.update_status(row_id, status.state, detail=status.detail, checked_at=_now())
+    row = _get_row(repository, row_id)
+    await broadcast_compute_status(hub, row)
+    return row
 
 
 async def stop_compute(
     registry: ComputeProvisionerRegistry,
     repository: ProvisionedComputeRepository,
     backend_registry: BackendRegistry,
+    hub,
     row_id: str,
 ) -> ProvisionedCompute:
     """Stop the underlying resource and disable (never remove) its linked
@@ -186,21 +374,20 @@ async def stop_compute(
     row = _get_row(repository, row_id)
     provisioner = _get_provisioner(registry, row.provider_id)
     await provisioner.stop(row.handle)
-    repository.update_status(row_id, "stopped")
+    repository.update_status(row_id, "stopped", detail="Stopped by operator", checked_at=_now())
 
-    if row.backend_id:
-        backend = backend_registry.backend_config_store.get_backend(row.backend_id)
-        if backend is not None:
-            backend.enabled = False
-            await backend_registry.update_backend(row.backend_id, backend)
+    await disable_backend(backend_registry, row.backend_id)
 
-    return _get_row(repository, row_id)
+    row = _get_row(repository, row_id)
+    await broadcast_compute_status(hub, row)
+    return row
 
 
 async def terminate_compute(
     registry: ComputeProvisionerRegistry,
     repository: ProvisionedComputeRepository,
     backend_registry: BackendRegistry,
+    jobs: ComputeProvisioningJobs,
     row_id: str,
 ) -> None:
     """Tear the resource down and delete the `ProvisionedCompute` row - the
@@ -208,10 +395,18 @@ async def terminate_compute(
     it is the durable, user-facing object, so terminating only clears its
     connection details (base_url/worker_token) and disables it, returning it
     to "not configured" so the same row can be provisioned into again later.
+
+    Terminating a row still `provisioning` is how a bring-up is cancelled:
+    the job is cancelled first (the provisioner cleans up what it created on
+    `CancelledError`), and a row that never got a handle skips the
+    provider's `terminate` - there is nothing it could name.
     """
     row = _get_row(repository, row_id)
     provisioner = _get_provisioner(registry, row.provider_id)
-    await provisioner.terminate(row.handle)
+    await jobs.cancel(row_id)
+    row = _get_row(repository, row_id)
+    if row.handle:
+        await provisioner.terminate(row.handle)
 
     if row.backend_id:
         backend = backend_registry.backend_config_store.get_backend(row.backend_id)

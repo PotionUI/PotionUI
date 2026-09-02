@@ -378,10 +378,16 @@ def create_app(container: Optional[AppContainer] = None) -> FastAPI:
         except Exception as exc:
             logging.error(f"Remote execution reconciliation failed at startup: {exc}")
 
+        # Heartbeat for rented compute: a pod paused or deleted in the
+        # provider's console is reflected on its row (and its backend
+        # disabled) within one interval, not on the next admin click.
+        container.compute_status_monitor.start()
+
         yield
 
         # Shutdown
         logging.info("Shutting down PotionUI API server...")
+        await container.compute_status_monitor.stop()
         await container.download_queue.stop()
         await automation_runtime.stop_all()
 

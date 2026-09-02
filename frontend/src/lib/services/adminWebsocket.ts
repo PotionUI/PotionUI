@@ -11,6 +11,7 @@ import { api } from '$lib/services/api';
 import { logger } from '$lib/utils/logger';
 import type { BaseWebSocketMessage } from './BaseWebSocket';
 import { StatefulWebSocket, type ConnectionState } from './StatefulWebSocket';
+import type { ProvisionedCompute } from '$lib/services/admin-api';
 
 export type { ConnectionState };
 
@@ -37,9 +38,16 @@ export interface PipeInstallStatus {
 	message: string | null;
 }
 
+// A provisioned-compute row changed - every progress step, every state
+// change, every refresh/stop. Always the whole row; callers replace, never merge.
+export interface ComputeStatusMessage {
+	row: ProvisionedCompute;
+}
+
 // Event callbacks
 type NotificationCallback = (notification: AdminNotification) => void;
 type PipeInstallCallback = (status: PipeInstallStatus) => void;
+type ComputeStatusCallback = (status: ComputeStatusMessage) => void;
 
 class AdminWebSocketService extends StatefulWebSocket {
 	private clientId: string | null = null;
@@ -47,6 +55,7 @@ class AdminWebSocketService extends StatefulWebSocket {
 	// Callbacks
 	private notificationCallbacks: Set<NotificationCallback> = new Set();
 	private pipeInstallCallbacks: Set<PipeInstallCallback> = new Set();
+	private computeStatusCallbacks: Set<ComputeStatusCallback> = new Set();
 
 	constructor() {
 		super(adminConnectionState, 'admin');
@@ -88,6 +97,10 @@ class AdminWebSocketService extends StatefulWebSocket {
 				);
 				break;
 
+			case 'compute_status':
+				this.computeStatusCallbacks.forEach((cb) => cb({ row: message.row as ProvisionedCompute }));
+				break;
+
 			default:
 				logger.debug('Unknown admin message type:', message.type);
 		}
@@ -107,6 +120,11 @@ class AdminWebSocketService extends StatefulWebSocket {
 	onPipeInstallStatus(callback: PipeInstallCallback): () => void {
 		this.pipeInstallCallbacks.add(callback);
 		return () => this.pipeInstallCallbacks.delete(callback);
+	}
+
+	onComputeStatus(callback: ComputeStatusCallback): () => void {
+		this.computeStatusCallbacks.add(callback);
+		return () => this.computeStatusCallbacks.delete(callback);
 	}
 
 	clearNotifications(): void {

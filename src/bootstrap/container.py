@@ -129,6 +129,8 @@ if TYPE_CHECKING:
     from src.features.workspaces.repository import WorkspaceRepository
     from src.features.user_groups.repository import UserGroupRepository
     from src.features.system_monitor.routes import SystemMonitorController
+    from src.features.provisioning.monitor import ComputeStatusMonitor
+    from src.features.provisioning.operations import ComputeProvisioningJobs
     from src.features.provisioning.registry import ComputeProvisionerRegistry
     from src.features.provisioning.repository import ProvisionedComputeRepository
     from src.features.provisioning.routes import ProvisioningController
@@ -207,6 +209,8 @@ class AppContainer:
     # Compute provisioning
     compute_provisioner_registry: "ComputeProvisionerRegistry"
     provisioned_compute_repository: "ProvisionedComputeRepository"
+    compute_provisioning_jobs: "ComputeProvisioningJobs"
+    compute_status_monitor: "ComputeStatusMonitor"
     provisioning_controller: "ProvisioningController"
 
     # LLM
@@ -678,14 +682,32 @@ def build_container() -> AppContainer:
     # see docs/remote-native.md). Provisioners are collected from plugins via
     # the compute.register hook, mirroring BackendRegistry's own plugin-engine
     # discovery, one line above.
+    from src.features.provisioning.monitor import ComputeStatusMonitor
+    from src.features.provisioning.operations import ComputeProvisioningJobs
     from src.features.provisioning.registry import ComputeProvisionerRegistry
     from src.features.provisioning.repository import ProvisionedComputeRepository
     from src.features.provisioning.routes import ProvisioningController
+    from src.platform.websocket.admin_connection_hub import admin_connection_hub
 
     compute_provisioner_registry = ComputeProvisionerRegistry(plugin_registry=plugin_registry)
     provisioned_compute_repository = ProvisionedComputeRepository()
+    compute_provisioning_jobs = ComputeProvisioningJobs(
+        compute_provisioner_registry, provisioned_compute_repository, backend_registry, admin_connection_hub
+    )
+    compute_status_monitor = ComputeStatusMonitor(
+        compute_provisioner_registry,
+        provisioned_compute_repository,
+        backend_registry,
+        admin_connection_hub,
+        compute_provisioning_jobs,
+        settings=settings,
+    )
     provisioning_controller = ProvisioningController(
-        compute_provisioner_registry, provisioned_compute_repository, backend_registry
+        compute_provisioner_registry,
+        provisioned_compute_repository,
+        backend_registry,
+        compute_provisioning_jobs,
+        admin_connection_hub,
     )
 
     # Initialize system monitor manager

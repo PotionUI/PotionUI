@@ -7,16 +7,20 @@ RunPod's own pod id.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 
 from src.plugin_api import PluginRepository
 from src.plugin_api.compute import (
+    STAGE_PREPARING,
     ComputeFieldDescriptorV1,
     ComputeFieldOptionV1,
     ComputeProvisioner,
     ComputeProvisionerError,
     ComputeStatus,
+    ProgressReporter,
+    ProvisionProgress,
     ProvisionRequest,
     ProvisionResult,
 )
@@ -387,7 +391,7 @@ class RunpodComputeProvisioner(ComputeProvisioner):
             ],
         )
 
-    async def provision(self, request: ProvisionRequest) -> ProvisionResult:
+    async def provision(self, request: ProvisionRequest, report: ProgressReporter) -> ProvisionResult:
         settings = self._require_api_key()
 
         image_ref = settings.worker_image
@@ -408,6 +412,8 @@ class RunpodComputeProvisioner(ComputeProvisioner):
         # until data_center_id has resolved cleanly.
         client: Optional[RunPodClient] = None
         try:
+            await report(ProvisionProgress(STAGE_PREPARING, "Resolving data center and network volume", 5))
+
             if network_volume == NETWORK_VOLUME_NONE:
                 pinned = None
             elif network_volume == NETWORK_VOLUME_CREATE:
@@ -439,7 +445,17 @@ class RunpodComputeProvisioner(ComputeProvisioner):
 
             if client is None:
                 client = RunPodClient(api_key=settings.api_key)
-            result = await self._manager(client).provision(profile)
+
+            try:
+                result = await self._manager(client).provision(profile, report)
+            except asyncio.CancelledError:
+                try:
+                    await self._manager(client).deprovision(request.profile_name, terminate_pod=True)
+                except RunPodAPIError as exc:
+                    logger.warning(
+                        "Cleanup after a cancelled provision failed for '%s': %s", request.profile_name, exc
+                    )
+                raise
         except RunPodAPIError as exc:
             raise ComputeProvisionerError(_with_capacity_hint(str(exc))) from exc
         finally:
@@ -458,12 +474,12 @@ class RunpodComputeProvisioner(ComputeProvisioner):
         settings = self._require_api_key()
         client = RunPodClient(api_key=settings.api_key)
         try:
-            state = await self._manager(client).reconcile(handle)
+            outcome = await self._manager(client).reconcile(handle)
         except RunPodAPIError as exc:
             raise ComputeProvisionerError(str(exc)) from exc
         finally:
             await client.aclose()
-        return ComputeStatus(state=state)
+        return ComputeStatus(state=outcome.state, detail=outcome.detail)
 
     async def stop(self, handle: str) -> None:
         await self._deprovision(handle, terminate_pod=False)

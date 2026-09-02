@@ -60,6 +60,7 @@ import from those — the names are identical, so it is purely a matter of taste
 | **Pipes** — contributing a pipeline step | `.pipes` | `BasePipe`, `PipeInput`, `PipeOutput`, `PipeInputSpec`, `PipeOutputSpec`, `PipeConfigSpec`, `IOType`, `GenerationOutput`, `ImageGenerationOutput`, `VideoGenerationOutput`, `MeshGenerationOutput`, `GalleryGenerationOutput`, `ProgressGenerationOutput`, `ComfyUIWorkflowGenerationOutput`, `GenerationExecutionError`, `Icon`, `Progress`, `logger`, `OutputTypeSpec`, `SerializeContext`, `output_type_registry`, `DuplicateOutputTypeError` |
 | **Native engine** — driving generation through the in-process engine directly | `.native` | `Conditioning`, `GeneratorContext`, `GeneratorKrea2Pipe`, `NativeGeneratorHandle`, `ProgressEmitter`, `native_step_hooks` |
 | **Presets** — finding a preset, starting a generation | `.presets` | `PresetCollaborators`, `preset_operations`, `FilePresetRepository`, `GenerationRequest`, `PromptPair` |
+| **Compute** — renting GPU compute for a Remote Native worker | `.compute` | `ComputeProvisioner`, `ComputeProvisionerError`, `ComputeStatus`, `ProvisionRequest`, `ProvisionResult`, `ProvisionProgress`, `ProgressReporter`, `ComputeFieldDescriptorV1`, `ComputeFieldOptionV1`, `COMPUTE_STATES`, `STATE_*`, `STAGE_*`, `COMPUTE_HOOKS` |
 | **Storage** — keeping data | `.storage` | `db`, `generate_ulid`, `Settings`, `SettingRepository`, `PluginRepository` |
 | **Media** | `.media` | `convert_image_to_base64`, `BackgroundMattingModel` |
 
@@ -372,6 +373,126 @@ either. See [Presets](presets.md) "Plugin-contributed modes" for the full contra
 provenance (`source_plugin`) surfaces in `GET /api/presets/{id}/modes` and the mode picker.
 `content/plugins/marketplace/krea2-edit/` is the first shipped example: an `edit` mode contributed onto
 the native Krea-2 preset.
+
+## Contributing a compute provisioner
+
+A compute provisioner teaches core how to rent a GPU on one hosting provider
+(RunPod, Vast.ai, ...) and run the Remote Native worker on it. Core owns the
+`native.remote` backend row, the `provisioned_compute` row, the heartbeat
+that keeps that row honest, and the admin UI; the plugin owns nothing but its
+provider. Register a subclass of `ComputeProvisioner` by class through the
+`compute.register` hook:
+
+```python
+# manifest.yml
+hooks:
+  backend:
+    - hook: "compute.register"
+      handler: "backend.hooks.compute_hooks.register"
+
+# backend/hooks/compute_hooks.py
+def register(context):
+    context.data["provisioners"]["vastai"] = VastAiComputeProvisioner
+    return context
+```
+
+```python
+from src.plugin_api.compute import (
+    ComputeProvisioner, ComputeProvisionerError, ComputeStatus,
+    ProvisionProgress, ProvisionRequest, ProvisionResult,
+    STAGE_CREATING, STAGE_PREPARING, STAGE_READY, STAGE_STARTING, STAGE_WAITING_WORKER,
+    STATE_MISSING, STATE_RUNNING, STATE_STOPPED, STATE_UNREACHABLE,
+)
+
+class VastAiComputeProvisioner(ComputeProvisioner):
+    provider_id = "vastai"
+    label = "Vast.ai"
+
+    async def describe_fields(self, values=None): ...
+
+    async def provision(self, request: ProvisionRequest, report) -> ProvisionResult:
+        await report(ProvisionProgress(STAGE_PREPARING, "Picking an offer"))
+        offer = await self._pick_offer(request.values)
+        await report(ProvisionProgress(STAGE_CREATING, f"Renting instance on offer {offer.id}", 30))
+        instance = await self._client.create_instance(offer)
+        while not instance.running:
+            await report(ProvisionProgress(STAGE_STARTING, f"Waiting for {instance.id} ({elapsed}s)", 50))
+            ...
+        for attempt in range(1, 61):
+            await report(ProvisionProgress(STAGE_WAITING_WORKER, f"Waiting for the worker (attempt {attempt}/60)", 70))
+            if await self._handshake(instance):
+                await report(ProvisionProgress(STAGE_READY, "Worker is up", 100))
+                return ProvisionResult(handle=request.profile_name, base_url=..., worker_token=..., ready=True,
+                                       resource_ref=instance.id)
+            ...
+        return ProvisionResult(..., ready=False)
+
+    async def status(self, handle: str) -> ComputeStatus:
+        instance = await self._client.get_instance(self._lookup(handle))
+        if instance is None:
+            return ComputeStatus(STATE_MISSING, "Instance no longer exists on Vast.ai")
+        if instance.state == "stopped":
+            return ComputeStatus(STATE_STOPPED, f"Instance {instance.id} is stopped")
+        if not await self._handshake(instance):
+            return ComputeStatus(STATE_UNREACHABLE, f"Instance {instance.id} running but the worker did not answer")
+        return ComputeStatus(STATE_RUNNING, f"Instance {instance.id} running, worker answered")
+
+    async def stop(self, handle: str) -> None: ...
+    async def terminate(self, handle: str) -> None: ...
+```
+
+### The lifecycle core drives
+
+`POST /api/admin/provisioning` validates the form against `describe_fields()`,
+creates the row as `provisioning`, links it to the target backend and returns
+at once. The bring-up runs in a background task:
+
+1. `provision(request, report)` is called. Every `await report(...)` appends a
+   `{stage, message, percent, at}` entry to the row's `progress` timeline
+   (newest 50 kept), mirrors the message into `status_detail`, and broadcasts
+   the whole row as a `compute_status` message on `/ws/admin`. `report` never
+   raises into the plugin — call it at every phase you can observe, including
+   each poll while waiting on the provider; that is the only feedback the
+   operator gets while the pod comes up.
+2. On return, core writes `base_url`/`worker_token` onto the backend, enables
+   it, records `handle`/`resource_ref`, and sets the row to `running`
+   (`ready=True`) or `unreachable` (`ready=False`).
+3. On `ComputeProvisionerError` (or any exception) the row becomes `failed`
+   with the message as `status_detail`; the backend stays disabled and
+   unconfigured. A `failed` row can be terminated (cleanup) or provisioned
+   again — a new `POST` for the same backend replaces it.
+4. Terminating a row still `provisioning` cancels the task. Your `provision()`
+   sees `asyncio.CancelledError` at whatever `await` it is on: tear down what
+   you already created (core has no `handle` yet, so it cannot) and re-raise.
+
+Stages are free strings; the admin UI has labels for `preparing`, `creating`,
+`starting`, `waiting_worker` and `ready`, and humanizes anything else.
+
+### The heartbeat
+
+Once a row is out of `provisioning`, the status monitor calls `status(handle)`
+every `provisioning.status_interval_seconds` (settings table, default 15,
+minimum 5) with a per-call timeout, and writes `status`, `status_detail` and
+`status_checked_at`. Return one of:
+
+| state | meaning |
+|---|---|
+| `running` | the provider says up AND the worker handshake answers |
+| `stopped` | paused/exited, by the operator or by the provider |
+| `missing` | the provider no longer knows the handle |
+| `unreachable` | the provider says running but the worker handshake fails |
+| `failed` | the resource is in an error state the provider reports as such |
+| `unknown` | you could not ask (raise `ComputeProvisionerError`; core stores the message as detail) |
+
+`detail` is shown verbatim to the admin — make it the provider's own reason
+("Pod abc123 is EXITED (stopped)").
+
+On a change core broadcasts the row; when the new state is `stopped`,
+`missing` or `failed` it also disables the linked backend so a paused pod
+stops being selected for generations. It never re-enables on a return to
+`running` — that is operator intent, and the UI offers an "Enable backend"
+action instead. `GET /api/admin/provisioning/{row_id}` is the same reconcile
+on demand.
 
 ## Driving native-engine generation directly
 

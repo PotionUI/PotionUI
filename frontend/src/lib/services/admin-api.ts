@@ -1199,6 +1199,14 @@ export interface ComputeField {
 	depends_on: string[];
 }
 
+/** One entry in a `ProvisionedCompute` row's bring-up timeline (newest last, max 50). */
+export interface ProvisionProgressEntry {
+	stage: string;
+	message: string;
+	percent: number | null;
+	at: string;
+}
+
 export interface ProvisionedCompute {
 	id: string;
 	provider_id: string;
@@ -1210,6 +1218,12 @@ export interface ProvisionedCompute {
 	gpu_type_id: string | null;
 	region: string | null;
 	created_by: string | null;
+	/** Reason behind `status`, or the latest bring-up progress message. */
+	status_detail: string | null;
+	/** ISO-8601 UTC — when the provider was last asked about this row. */
+	status_checked_at: string | null;
+	/** Bring-up timeline, newest last, max 50. */
+	progress: ProvisionProgressEntry[];
 	created_at: string | null;
 	updated_at: string | null;
 }

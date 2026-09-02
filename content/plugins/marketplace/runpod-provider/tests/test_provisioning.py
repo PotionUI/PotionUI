@@ -4,6 +4,7 @@ calls a handful of named async methods) and a fake `PluginRepository` (the
 manager's only path to encrypted-at-rest storage for the worker token)."""
 
 import logging
+import re
 
 import pytest
 
@@ -15,6 +16,13 @@ from backend.provisioning import (
     RunPodProvisioningManager,
 )
 from backend.resources import RunPodResourceManager
+from src.plugin_api.compute import (
+    STAGE_CREATING,
+    STAGE_PREPARING,
+    STAGE_READY,
+    STAGE_STARTING,
+    STAGE_WAITING_WORKER,
+)
 
 PLUGIN_ID = "runpod-provider"
 
@@ -51,7 +59,8 @@ class FakeRunPodClient:
         self.stopped = []
         self.terminated = []
         self.deleted_volumes = []
-        self.pod_to_return = None  # set by a test to control get_pod()
+        self.pod_to_return = None  # set by a test to force get_pod()'s answer
+        self._pods_by_id = {}
 
     async def get_network_volume(self, volume_id):
         return NetworkVolume(id=volume_id, name="existing", size_gb=100, data_center_id="US-TX-3")
@@ -77,16 +86,23 @@ class FakeRunPodClient:
             "container_registry_auth_id": container_registry_auth_id,
             "allowed_cuda_versions": allowed_cuda_versions,
         })
-        return Pod(
+        pod = Pod(
             id=pod_id, name=name, image=image_name, desired_status="RUNNING",
             public_ip=None, port_mappings={}, ports=ports, cost_per_hr=None,
             network_volume_id=network_volume_id,
         )
+        self._pods_by_id[pod_id] = pod
+        return pod
 
     async def get_pod(self, pod_id):
-        if self.pod_to_return is None:
-            raise RunPodNotFoundError(404, "not found")
-        return self.pod_to_return
+        # A test that sets `pod_to_return` wants full control (reconcile
+        # tests); absent that, hand back whatever `create_pod` produced for
+        # this id - a real bring-up's poll loop starts from that pod.
+        if self.pod_to_return is not None:
+            return self.pod_to_return
+        if pod_id in self._pods_by_id:
+            return self._pods_by_id[pod_id]
+        raise RunPodNotFoundError(404, "not found")
 
     async def stop_pod(self, pod_id):
         self.stopped.append(pod_id)
@@ -142,12 +158,40 @@ async def _never_ready(base_url, token):
     return False
 
 
+async def _noop_report(progress):
+    pass
+
+
+async def _no_sleep(seconds):
+    pass
+
+
+def _recording_report():
+    """A `ProgressReporter` that records every `ProvisionProgress` it's
+    called with, in order, on `.seen`."""
+    seen = []
+
+    async def report(progress):
+        seen.append(progress)
+
+    report.seen = seen
+    return report
+
+
+def _deduped_stages(progresses):
+    stages = []
+    for p in progresses:
+        if not stages or stages[-1] != p.stage:
+            stages.append(p.stage)
+    return stages
+
+
 # ---- provision: volume reuse ------------------------------------------------
 
 async def test_provision_creates_a_new_volume_when_none_recorded(resources, repo, client):
     manager = RunPodProvisioningManager(client, resources, repo, readiness_probe=_always_ready)
 
-    result = await manager.provision(_profile())
+    result = await manager.provision(_profile(), _noop_report)
 
     assert len(client.created_volumes) == 1
     assert client.created_volumes[0]["size_gb"] == 100
@@ -162,7 +206,7 @@ async def test_provision_records_the_new_volumes_data_center_in_meta(resources, 
     `provisioner.py`'s `_pinned_data_center`."""
     manager = RunPodProvisioningManager(client, resources, repo, readiness_probe=_always_ready)
 
-    await manager.provision(_profile(region="US-TX-3"))
+    await manager.provision(_profile(region="US-TX-3"), _noop_report)
 
     assert resources.get("prof-1", "network_volume").meta["data_center_id"] == "US-TX-3"
 
@@ -171,7 +215,7 @@ async def test_provision_reuses_an_existing_volume_for_the_same_profile(resource
     resources.record("prof-1", "network_volume", "vol-existing")
     manager = RunPodProvisioningManager(client, resources, repo, readiness_probe=_always_ready)
 
-    result = await manager.provision(_profile())
+    result = await manager.provision(_profile(), _noop_report)
 
     assert client.created_volumes == []
     assert result.volume_id == "vol-existing"
@@ -199,12 +243,12 @@ async def test_provision_retry_after_a_failed_pod_create_reuses_the_volume(resou
     manager = RunPodProvisioningManager(failing_client, resources, repo, readiness_probe=_always_ready)
 
     with pytest.raises(RunPodAPIError):
-        await manager.provision(_profile())
+        await manager.provision(_profile(), _noop_report)
 
     assert len(failing_client.created_volumes) == 1
     recorded_volume_id = resources.get("prof-1", "network_volume").runpod_id
 
-    result = await manager.provision(_profile())
+    result = await manager.provision(_profile(), _noop_report)
 
     assert len(failing_client.created_volumes) == 1  # not recreated on retry
     assert result.volume_id == recorded_volume_id
@@ -215,7 +259,7 @@ async def test_provision_retry_after_a_failed_pod_create_reuses_the_volume(resou
 async def test_provision_none_mode_creates_no_volume_and_omits_it_from_the_pod(resources, repo, client):
     manager = RunPodProvisioningManager(client, resources, repo, readiness_probe=_always_ready)
 
-    result = await manager.provision(_profile(network_volume=NETWORK_VOLUME_NONE))
+    result = await manager.provision(_profile(network_volume=NETWORK_VOLUME_NONE), _noop_report)
 
     assert client.created_volumes == []
     assert client.created_pods[0]["network_volume_id"] is None
@@ -227,7 +271,7 @@ async def test_provision_none_mode_creates_no_volume_and_omits_it_from_the_pod(r
 async def test_provision_existing_volume_id_is_used_directly_and_recorded(resources, repo, client):
     manager = RunPodProvisioningManager(client, resources, repo, readiness_probe=_always_ready)
 
-    result = await manager.provision(_profile(network_volume="vol-account-1", region="EU-NL-1"))
+    result = await manager.provision(_profile(network_volume="vol-account-1", region="EU-NL-1"), _noop_report)
 
     assert client.created_volumes == []  # not created, not looked up again - the caller already verified it
     assert result.volume_id == "vol-account-1"
@@ -241,7 +285,7 @@ async def test_provision_existing_volume_id_is_used_directly_and_recorded(resour
 async def test_provision_creates_pod_with_env_and_http_port(resources, repo, client):
     manager = RunPodProvisioningManager(client, resources, repo, readiness_probe=_always_ready)
 
-    await manager.provision(_profile(worker_port=9200))
+    await manager.provision(_profile(worker_port=9200), _noop_report)
 
     pod_call = client.created_pods[0]
     assert pod_call["ports"] == ["9200/http"]
@@ -255,13 +299,16 @@ async def test_provision_creates_pod_with_env_and_http_port(resources, repo, cli
 
 async def test_provision_ready_true_when_probe_succeeds(resources, repo, client):
     manager = RunPodProvisioningManager(client, resources, repo, readiness_probe=_always_ready)
-    result = await manager.provision(_profile())
+    result = await manager.provision(_profile(), _noop_report)
     assert result.ready is True
 
 
 async def test_provision_ready_false_when_probe_fails(resources, repo, client):
-    manager = RunPodProvisioningManager(client, resources, repo, readiness_probe=_never_ready)
-    result = await manager.provision(_profile())
+    manager = RunPodProvisioningManager(
+        client, resources, repo, readiness_probe=_never_ready, sleep=_no_sleep,
+        handshake_attempts=2, handshake_interval_seconds=1,
+    )
+    result = await manager.provision(_profile(), _noop_report)
     assert result.ready is False
 
 
@@ -274,7 +321,7 @@ async def test_readiness_probe_receives_the_runpod_proxy_url_and_the_real_token(
         return True
 
     manager = RunPodProvisioningManager(client, resources, repo, readiness_probe=capturing_probe)
-    result = await manager.provision(_profile(worker_port=8100))
+    result = await manager.provision(_profile(worker_port=8100), _noop_report)
 
     assert seen["base_url"] == f"https://{result.pod_id}-8100.proxy.runpod.net"
     assert seen["token"] == result.worker_token
@@ -284,7 +331,7 @@ async def test_readiness_probe_receives_the_runpod_proxy_url_and_the_real_token(
 
 async def test_worker_token_is_high_entropy_and_stored_encrypted(resources, repo, client):
     manager = RunPodProvisioningManager(client, resources, repo, readiness_probe=_always_ready)
-    result = await manager.provision(_profile())
+    result = await manager.provision(_profile(), _noop_report)
 
     assert len(result.worker_token) >= 32
     assert len(set(repo.set_calls[-1][2])) > 10  # not a constant/degenerate string
@@ -300,16 +347,211 @@ async def test_worker_token_never_appears_in_logs(resources, repo, client, caplo
     caplog.set_level(logging.DEBUG)
     manager = RunPodProvisioningManager(client, resources, repo, readiness_probe=_always_ready)
 
-    result = await manager.provision(_profile())
+    result = await manager.provision(_profile(), _noop_report)
 
     assert result.worker_token not in caplog.text
+
+
+# ---- provision: progress reporting ------------------------------------------
+
+async def test_provision_reports_stage_sequence_preparing_to_ready(resources, repo, client):
+    """The happy-path stage sequence, deduped by consecutive repeats, is
+    preparing -> creating -> starting -> waiting_worker -> ready. The probe
+    fails once so a `waiting_worker` report actually happens before the
+    handshake succeeds."""
+    report = _recording_report()
+    attempts = {"n": 0}
+
+    async def probe(base_url, token):
+        attempts["n"] += 1
+        return attempts["n"] >= 2
+
+    manager = RunPodProvisioningManager(
+        client, resources, repo, readiness_probe=probe, sleep=_no_sleep, handshake_interval_seconds=1,
+    )
+
+    result = await manager.provision(_profile(), report)
+
+    assert result.ready is True
+    assert _deduped_stages(report.seen) == [
+        STAGE_PREPARING, STAGE_CREATING, STAGE_STARTING, STAGE_WAITING_WORKER, STAGE_READY,
+    ]
+    assert report.seen[-1].stage == STAGE_READY
+    assert report.seen[-1].message == "Worker is up"
+
+
+async def test_provision_preparing_report_names_the_created_volume_size_and_dc(resources, repo, client):
+    report = _recording_report()
+    manager = RunPodProvisioningManager(client, resources, repo, readiness_probe=_always_ready)
+
+    await manager.provision(_profile(volume_size_gb=250, region="US-TX-3"), report)
+
+    preparing = [p for p in report.seen if p.stage == STAGE_PREPARING]
+    assert any("250 GB" in p.message and "US-TX-3" in p.message for p in preparing)
+
+
+async def test_provision_preparing_report_names_no_persistent_volume(resources, repo, client):
+    report = _recording_report()
+    manager = RunPodProvisioningManager(client, resources, repo, readiness_probe=_always_ready)
+
+    await manager.provision(_profile(network_volume=NETWORK_VOLUME_NONE), report)
+
+    preparing = [p for p in report.seen if p.stage == STAGE_PREPARING]
+    assert any("No persistent volume" in p.message for p in preparing)
+
+
+async def test_provision_creating_reports_pod_requested_then_created(resources, repo, client):
+    report = _recording_report()
+    manager = RunPodProvisioningManager(client, resources, repo, readiness_probe=_always_ready)
+
+    result = await manager.provision(_profile(), report)
+
+    creating = [p for p in report.seen if p.stage == STAGE_CREATING]
+    assert any("Requesting pod" in p.message and "NVIDIA GeForce RTX 4090" in p.message for p in creating)
+    assert any(f"Pod {result.pod_id} created" == p.message for p in creating)
+
+
+async def test_provision_wait_for_pod_running_polls_with_increasing_elapsed(resources, repo):
+    """A pod that comes back EXITED for two polls, then RUNNING, must
+    produce at least two `starting` reports naming an increasing elapsed
+    time before the manager moves on."""
+
+    class SlowStartClient(FakeRunPodClient):
+        def __init__(self):
+            super().__init__()
+            self.get_pod_calls = 0
+
+        async def create_pod(self, **kwargs):
+            pod = await super().create_pod(**kwargs)
+            exited = Pod(
+                id=pod.id, name=pod.name, image=pod.image, desired_status="EXITED",
+                public_ip=None, port_mappings={}, ports=pod.ports, cost_per_hr=None,
+                network_volume_id=pod.network_volume_id,
+            )
+            self._pods_by_id[pod.id] = exited
+            return exited
+
+        async def get_pod(self, pod_id):
+            self.get_pod_calls += 1
+            if self.get_pod_calls >= 2:
+                running = Pod(
+                    id=pod_id, name="", image="", desired_status="RUNNING", public_ip=None,
+                    port_mappings={}, ports=[], cost_per_hr=None, network_volume_id=None,
+                )
+                self._pods_by_id[pod_id] = running
+            return self._pods_by_id[pod_id]
+
+    client = SlowStartClient()
+    report = _recording_report()
+    manager = RunPodProvisioningManager(
+        client, resources, repo, readiness_probe=_always_ready, sleep=_no_sleep, poll_interval_seconds=5,
+    )
+
+    result = await manager.provision(_profile(), report)
+
+    assert result.ready is True
+    starting = [p for p in report.seen if p.stage == STAGE_STARTING]
+    waiting = [p for p in starting if "Waiting for pod" in p.message]
+    assert len(waiting) >= 2
+    elapsed = [int(re.search(r"\((\d+)s", p.message).group(1)) for p in waiting]
+    assert elapsed == sorted(elapsed)
+    assert elapsed[0] < elapsed[-1]
+    assert starting[-1].message.endswith("is RUNNING")
+
+
+async def test_provision_worker_probe_retries_then_succeeds(resources, repo, client):
+    report = _recording_report()
+    attempts = {"n": 0}
+
+    async def probe(base_url, token):
+        attempts["n"] += 1
+        return attempts["n"] > 3  # fails 3 times, succeeds on the 4th
+
+    manager = RunPodProvisioningManager(
+        client, resources, repo, readiness_probe=probe, sleep=_no_sleep, handshake_interval_seconds=1,
+    )
+
+    result = await manager.provision(_profile(), report)
+
+    assert result.ready is True
+    waiting_worker = [p for p in report.seen if p.stage == STAGE_WAITING_WORKER]
+    assert len(waiting_worker) == 3
+    ready = [p for p in report.seen if p.stage == STAGE_READY]
+    assert len(ready) == 1
+    assert report.seen[-1].stage == STAGE_READY
+
+
+async def test_provision_worker_probe_exhausted_reports_failure_and_is_not_ready(resources, repo, client):
+    report = _recording_report()
+    manager = RunPodProvisioningManager(
+        client, resources, repo, readiness_probe=_never_ready, sleep=_no_sleep,
+        handshake_attempts=3, handshake_interval_seconds=1,
+    )
+
+    result = await manager.provision(_profile(), report)
+
+    assert result.ready is False
+    assert report.seen[-1].stage != STAGE_READY
+    assert report.seen[-1].stage == STAGE_WAITING_WORKER
+    assert "3 attempts" in report.seen[-1].message
+    waiting_worker = [p for p in report.seen if p.stage == STAGE_WAITING_WORKER]
+    assert len(waiting_worker) == 4  # 3 per-attempt reports + the final exhaustion report
+
+
+async def test_provision_pod_start_timeout_raises(resources, repo):
+    class NeverRunningClient(FakeRunPodClient):
+        async def create_pod(self, **kwargs):
+            pod = await super().create_pod(**kwargs)
+            exited = Pod(
+                id=pod.id, name=pod.name, image=pod.image, desired_status="EXITED",
+                public_ip=None, port_mappings={}, ports=pod.ports, cost_per_hr=None,
+                network_volume_id=pod.network_volume_id,
+            )
+            self._pods_by_id[pod.id] = exited
+            return exited
+
+        async def get_pod(self, pod_id):
+            return self._pods_by_id[pod_id]  # stays EXITED forever
+
+    client = NeverRunningClient()
+    manager = RunPodProvisioningManager(
+        client, resources, repo, readiness_probe=_always_ready, sleep=_no_sleep,
+        pod_start_timeout_seconds=10, poll_interval_seconds=5,
+    )
+
+    with pytest.raises(RunPodAPIError):
+        await manager.provision(_profile(), _noop_report)
+
+
+async def test_provision_pod_disappearing_mid_start_raises(resources, repo):
+    class DisappearingClient(FakeRunPodClient):
+        async def create_pod(self, **kwargs):
+            pod = await super().create_pod(**kwargs)
+            exited = Pod(
+                id=pod.id, name=pod.name, image=pod.image, desired_status="EXITED",
+                public_ip=None, port_mappings={}, ports=pod.ports, cost_per_hr=None,
+                network_volume_id=pod.network_volume_id,
+            )
+            self._pods_by_id[pod.id] = exited
+            return exited
+
+        async def get_pod(self, pod_id):
+            raise RunPodNotFoundError(404, f"/pods/{pod_id} not found")
+
+    client = DisappearingClient()
+    manager = RunPodProvisioningManager(client, resources, repo, readiness_probe=_always_ready, sleep=_no_sleep)
+
+    with pytest.raises(RunPodAPIError):
+        await manager.provision(_profile(), _noop_report)
 
 
 # ---- reconcile ---------------------------------------------------------------
 
 async def test_reconcile_missing_when_nothing_recorded(resources, repo, client):
     manager = RunPodProvisioningManager(client, resources, repo)
-    assert await manager.reconcile("never-provisioned") == "missing"
+    outcome = await manager.reconcile("never-provisioned")
+    assert outcome.state == "missing"
+    assert outcome.detail == "No pod recorded for this profile"
 
 
 async def test_reconcile_missing_when_runpod_no_longer_has_the_pod(resources, repo, client):
@@ -317,7 +559,11 @@ async def test_reconcile_missing_when_runpod_no_longer_has_the_pod(resources, re
     client.pod_to_return = None  # get_pod() raises RunPodNotFoundError
     manager = RunPodProvisioningManager(client, resources, repo)
 
-    assert await manager.reconcile("prof-1") == "missing"
+    outcome = await manager.reconcile("prof-1")
+
+    assert outcome.state == "missing"
+    assert "pod-1" in outcome.detail
+    assert "no longer exists" in outcome.detail
 
 
 async def test_reconcile_stopped_when_exited(resources, repo, client):
@@ -328,7 +574,52 @@ async def test_reconcile_stopped_when_exited(resources, repo, client):
     )
     manager = RunPodProvisioningManager(client, resources, repo)
 
-    assert await manager.reconcile("prof-1") == "stopped"
+    outcome = await manager.reconcile("prof-1")
+
+    assert outcome.state == "stopped"
+    assert "EXITED" in outcome.detail
+
+
+async def test_reconcile_missing_when_terminated(resources, repo, client):
+    resources.record("prof-1", "pod", "pod-1", meta={"worker_port": 8100})
+    client.pod_to_return = Pod(
+        id="pod-1", name="", image="", desired_status="TERMINATED", public_ip=None,
+        port_mappings={}, ports=[], cost_per_hr=None, network_volume_id=None,
+    )
+    manager = RunPodProvisioningManager(client, resources, repo)
+
+    outcome = await manager.reconcile("prof-1")
+
+    assert outcome.state == "missing"
+    assert "TERMINATED" in outcome.detail
+
+
+async def test_reconcile_unreachable_for_other_desired_status(resources, repo, client):
+    resources.record("prof-1", "pod", "pod-1", meta={"worker_port": 8100})
+    client.pod_to_return = Pod(
+        id="pod-1", name="", image="", desired_status="RESTARTING", public_ip=None,
+        port_mappings={}, ports=[], cost_per_hr=None, network_volume_id=None,
+    )
+    manager = RunPodProvisioningManager(client, resources, repo)
+
+    outcome = await manager.reconcile("prof-1")
+
+    assert outcome.state == "unreachable"
+    assert outcome.detail == "Pod pod-1 is RESTARTING"
+
+
+async def test_reconcile_unreachable_when_worker_token_missing(resources, repo, client):
+    resources.record("prof-1", "pod", "pod-1", meta={"worker_port": 8100})
+    client.pod_to_return = Pod(
+        id="pod-1", name="", image="", desired_status="RUNNING", public_ip="1.2.3.4",
+        port_mappings={}, ports=[], cost_per_hr=None, network_volume_id=None,
+    )
+    manager = RunPodProvisioningManager(client, resources, repo, readiness_probe=_always_ready)
+
+    outcome = await manager.reconcile("prof-1")
+
+    assert outcome.state == "unreachable"
+    assert "re-provision" in outcome.detail
 
 
 async def test_reconcile_running_when_running_and_handshake_succeeds(resources, repo, client):
@@ -340,7 +631,10 @@ async def test_reconcile_running_when_running_and_handshake_succeeds(resources, 
     )
     manager = RunPodProvisioningManager(client, resources, repo, readiness_probe=_always_ready)
 
-    assert await manager.reconcile("prof-1") == "running"
+    outcome = await manager.reconcile("prof-1")
+
+    assert outcome.state == "running"
+    assert outcome.detail == "Pod pod-1 RUNNING, worker answered"
 
 
 async def test_reconcile_unreachable_when_running_but_handshake_fails(resources, repo, client):
@@ -352,7 +646,10 @@ async def test_reconcile_unreachable_when_running_but_handshake_fails(resources,
     )
     manager = RunPodProvisioningManager(client, resources, repo, readiness_probe=_never_ready)
 
-    assert await manager.reconcile("prof-1") == "unreachable"
+    outcome = await manager.reconcile("prof-1")
+
+    assert outcome.state == "unreachable"
+    assert outcome.detail == "Pod pod-1 RUNNING but the worker handshake failed"
 
 
 # ---- deprovision: keep-volume default (bite-checked) ------------------------
@@ -445,7 +742,7 @@ async def test_provision_passes_the_registry_auth_id_to_create_pod(resources, re
     client = FakeRunPodClient()
     manager = RunPodProvisioningManager(client, resources, repo, readiness_probe=_always_ready)
 
-    await manager.provision(_profile(container_registry_auth_id="cra-1"))
+    await manager.provision(_profile(container_registry_auth_id="cra-1"), _noop_report)
 
     assert client.created_pods[-1]["container_registry_auth_id"] == "cra-1"
 
@@ -454,7 +751,7 @@ async def test_provision_passes_the_allowed_cuda_versions_to_create_pod(resource
     client = FakeRunPodClient()
     manager = RunPodProvisioningManager(client, resources, repo, readiness_probe=_always_ready)
 
-    await manager.provision(_profile(allowed_cuda_versions=("13.0",)))
+    await manager.provision(_profile(allowed_cuda_versions=("13.0",)), _noop_report)
 
     assert client.created_pods[-1]["allowed_cuda_versions"] == ["13.0"]
 
@@ -463,7 +760,7 @@ async def test_provision_with_no_allowed_cuda_versions_constrains_nothing(resour
     client = FakeRunPodClient()
     manager = RunPodProvisioningManager(client, resources, repo, readiness_probe=_always_ready)
 
-    await manager.provision(_profile())
+    await manager.provision(_profile(), _noop_report)
 
     assert client.created_pods[-1]["allowed_cuda_versions"] == []
 
@@ -477,7 +774,7 @@ async def test_provision_recreates_the_volume_when_the_recorded_one_is_gone(reso
     manager = RunPodProvisioningManager(client, resources, repo, readiness_probe=_always_ready)
     resources.record("prof-1", "network_volume", "vol-deleted-in-console")
 
-    result = await manager.provision(_profile())
+    result = await manager.provision(_profile(), _noop_report)
 
     assert result.volume_id != "vol-deleted-in-console"
     assert resources.get("prof-1", "network_volume").runpod_id == result.volume_id

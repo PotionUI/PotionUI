@@ -13,8 +13,11 @@ from src.features.provisioning.routes import ProvisioningController, build_admin
 from src.platform.security.current_user import get_current_active_user
 from src.platform.security.user import AccountType, User
 
+from src.features.provisioning.operations import ComputeProvisioningJobs
+
 from tests.features.provisioning.test_operations import (
     FakeBackendRegistry,
+    FakeHub,
     FakeProvisioner,
     FakeProvisionerRegistry,
     FakeRepository,
@@ -23,11 +26,12 @@ from tests.features.provisioning.test_operations import (
 
 
 class _AuthFailingProvisioner(FakeProvisioner):
-    """Simulates a provider rejecting credentials mid-provision (e.g. the real
-    RunPod plugin's 401 when its API key is wrong) - the shape of failure that
-    used to reach the client as an unhandled 500."""
+    """Simulates a provider rejecting credentials while describing its fields
+    (e.g. the real RunPod plugin's 401 when its API key is wrong) - the shape
+    of failure that used to reach the client as an unhandled 500. A failure
+    inside provision() itself lands on the row instead (see test_operations)."""
 
-    async def provision(self, request):
+    async def describe_fields(self, values=None):
         raise ComputeProvisionerError("RunPod API error 401: RunPod API key was rejected")
 
 
@@ -44,7 +48,9 @@ def _make_client(*, provisioner=None, repository=None, backend_registry=None):
     repository = repository if repository is not None else FakeRepository()
     backend_registry = backend_registry or FakeBackendRegistry()
 
-    controller = ProvisioningController(registry, repository, backend_registry)
+    hub = FakeHub()
+    jobs = ComputeProvisioningJobs(registry, repository, backend_registry, hub)
+    controller = ProvisioningController(registry, repository, backend_registry, jobs, hub)
 
     class _Container:
         provisioning_controller = controller
@@ -93,40 +99,57 @@ def test_every_route_passes_the_admin_gate(method, path, body):
     assert response.status_code != 403
 
 
-def test_provision_fills_the_existing_backend_through_the_real_router():
+def test_provision_returns_a_provisioning_row_at_once_then_the_job_fills_the_backend():
     app, provisioner, repository, backend_registry = _make_client()
     app.dependency_overrides[get_current_active_user] = lambda: _user(AccountType.ADMIN)
     _seed_remote_backend_sync(backend_registry, backend_id="remote-1", name="RunPod A100")
-    client = TestClient(app)
 
-    response = client.post(
-        "/api/admin/provisioning",
-        json={"provider_id": "fake", "backend_id": "remote-1", "values": {"gpu_type_id": "fake-gpu"}},
-    )
+    # `with` so the app's event loop outlives the request and the background
+    # job started inside it can run to completion.
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/admin/provisioning",
+            json={"provider_id": "fake", "backend_id": "remote-1", "values": {"gpu_type_id": "fake-gpu"}},
+        )
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["success"] is True
-    row_id = body["data"]["id"]
-    backend_id = body["data"]["backend_id"]
-    assert backend_id == "remote-1"
-    assert backend_registry.backend_config_store.get_backend(backend_id).enabled is True
+        assert response.status_code == 200
+        body = response.json()
+        assert body["success"] is True
+        row_id = body["data"]["id"]
+        backend_id = body["data"]["backend_id"]
+        assert backend_id == "remote-1"
+        assert body["data"]["status"] == "provisioning"
+        assert body["data"]["progress"] == []
 
-    by_backend_response = client.get(f"/api/admin/provisioning/by-backend/{backend_id}")
-    assert by_backend_response.status_code == 200
-    assert by_backend_response.json()["data"]["id"] == row_id
+        deadline = 50
+        while backend_registry.backend_config_store.get_backend(backend_id).enabled is False and deadline:
+            import time
+            time.sleep(0.02)
+            deadline -= 1
+        assert backend_registry.backend_config_store.get_backend(backend_id).enabled is True
 
-    stop_response = client.post(f"/api/admin/provisioning/{row_id}/stop")
-    assert stop_response.status_code == 200
-    assert backend_registry.backend_config_store.get_backend(backend_id).enabled is False
+        by_backend_response = client.get(f"/api/admin/provisioning/by-backend/{backend_id}")
+        assert by_backend_response.status_code == 200
+        assert by_backend_response.json()["data"]["id"] == row_id
+        assert by_backend_response.json()["data"]["status"] == "running"
+        assert [e["stage"] for e in by_backend_response.json()["data"]["progress"]] == ["preparing", "creating", "ready"]
 
-    terminate_response = client.post(f"/api/admin/provisioning/{row_id}/terminate")
-    assert terminate_response.status_code == 200
-    surviving_backend = backend_registry.backend_config_store.get_backend(backend_id)
-    assert surviving_backend is not None  # the backend row survives termination
-    assert surviving_backend.enabled is False
-    assert surviving_backend.base_url == ""
-    assert repository.get_by_id(row_id) is None
+        refreshed = client.get(f"/api/admin/provisioning/{row_id}")
+        assert refreshed.status_code == 200
+        assert refreshed.json()["data"]["status_checked_at"] is not None
+
+        stop_response = client.post(f"/api/admin/provisioning/{row_id}/stop")
+        assert stop_response.status_code == 200
+        assert stop_response.json()["data"]["status"] == "stopped"
+        assert backend_registry.backend_config_store.get_backend(backend_id).enabled is False
+
+        terminate_response = client.post(f"/api/admin/provisioning/{row_id}/terminate")
+        assert terminate_response.status_code == 200
+        surviving_backend = backend_registry.backend_config_store.get_backend(backend_id)
+        assert surviving_backend is not None  # the backend row survives termination
+        assert surviving_backend.enabled is False
+        assert surviving_backend.base_url == ""
+        assert repository.get_by_id(row_id) is None
 
 
 def test_provision_unknown_backend_is_a_clean_error_not_a_500():

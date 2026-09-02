@@ -4,6 +4,13 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 
+class ProvisionProgressEntry(BaseModel):
+    stage: str
+    message: str
+    percent: Optional[int] = None
+    at: str
+
+
 class ProvisionComputeRequest(BaseModel):
     """Request model for provisioning compute through a registered provider,
     into an EXISTING `native.remote` backend (`backend_id`). `values` holds
@@ -42,6 +49,9 @@ class ProvisionedComputeResponse(BaseModel):
     gpu_type_id: Optional[str]
     region: Optional[str]
     created_by: Optional[str]
+    status_detail: Optional[str]
+    status_checked_at: Optional[str]
+    progress: List[ProvisionProgressEntry]
     created_at: Optional[str]
     updated_at: Optional[str]
 

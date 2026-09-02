@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 //
 // The phrasebook category detail panel (right-hand pane, no value selected)
-// renders Details, then the Preview-images generation section, then
-// Subcategories - in that order - and drives the "Select missing" shortcut
-// and the Generate button off the real Values-pane selection.
+// renders an Overview tab (Details, Subcategories) and a Preview images tab
+// (the generation flow), and drives the "Select missing" shortcut and the
+// Generate button off the real Values-pane selection.
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 import { get } from 'svelte/store';
@@ -18,6 +18,7 @@ vi.mock('$lib/services/api/index', () => ({
 		listPresets: vi.fn(),
 		getSessionsForPreset: vi.fn(),
 		getPresetModes: vi.fn(),
+		generatePreviews: vi.fn(),
 		getFileURL: vi.fn(() => ''),
 		setOnAuthExpired: vi.fn(),
 		getBaseURL: vi.fn(() => ''),
@@ -138,11 +139,28 @@ function buttonByText(text: string): HTMLButtonElement {
 	return button;
 }
 
+function tabButton(label: string): HTMLButtonElement {
+	const button = Array.from(
+		document.querySelectorAll<HTMLButtonElement>('nav[aria-label="Category details"] button')
+	).find((b) => b.textContent?.trim().startsWith(label));
+	if (!button) throw new Error(`missing tab starting with "${label}"`);
+	return button;
+}
+
+async function switchToTab(label: string) {
+	tabButton(label).click();
+	await settle();
+}
+
 describe('CategoryInfoView', () => {
-	it('renders Details, then Preview images, then Subcategories', async () => {
+	it('renders the Overview tab active by default, with Details then Subcategories', async () => {
 		await mountView();
 
-		expect(sectionLabels()).toEqual(['Details', 'Preview images', 'Subcategories']);
+		const overview = tabButton('Overview');
+		const previewImages = tabButton('Preview images');
+		expect(overview.getAttribute('aria-current')).toBe('page');
+		expect(previewImages.getAttribute('aria-current')).toBeNull();
+		expect(sectionLabels()).toEqual(['Details', 'Subcategories']);
 	});
 
 	it('shows the header chips for value/subcategory counts and status', async () => {
@@ -153,9 +171,19 @@ describe('CategoryInfoView', () => {
 		expect(target.textContent).toContain('Active');
 	});
 
+	it('switching to Preview images shows Target/Prompt/Advanced and hides the Overview sections', async () => {
+		await mountView();
+		await switchToTab('Preview images');
+
+		expect(tabButton('Preview images').getAttribute('aria-current')).toBe('page');
+		expect(sectionLabels()).toEqual(['Target', 'Prompt', 'Advanced', 'Existing previews (1)']);
+		expect(target.textContent).not.toContain('Lighting setups for portrait and product shots.');
+	});
+
 	it('reports S of N selected, matching the store selection', async () => {
 		phrasebookStore.selectValueIds(['v2', 'v3']);
 		await mountView();
+		await switchToTab('Preview images');
 
 		expect(target.textContent).toContain('2 of 4');
 	});
@@ -163,6 +191,7 @@ describe('CategoryInfoView', () => {
 	it('"Select missing" selects exactly the previewless active ids', async () => {
 		phrasebookStore.deselectAllValues();
 		await mountView();
+		await switchToTab('Preview images');
 
 		const selectMissing = buttonByText('Select missing');
 		selectMissing.click();
@@ -174,6 +203,7 @@ describe('CategoryInfoView', () => {
 	it('Generate button label follows the selection count and disables at zero', async () => {
 		phrasebookStore.deselectAllValues();
 		await mountView();
+		await switchToTab('Preview images');
 
 		const generateZero = buttonByText('Generate');
 		expect(generateZero.textContent).toContain('Generate');
@@ -186,6 +216,46 @@ describe('CategoryInfoView', () => {
 		const generateTwo = buttonByText('Generate');
 		expect(generateTwo.textContent).toContain('2');
 		expect(generateTwo.disabled).toBe(false);
+	});
+
+	it('Advanced is collapsed by default and shows a mono "seed 42" summary once a fixed seed is set', async () => {
+		await mountView();
+		await switchToTab('Preview images');
+
+		expect(target.querySelector('#preview-negative')).toBeNull();
+		expect(target.textContent).not.toContain('seed 42');
+
+		previewGenerationStore.setUseFixedSeed(true);
+		previewGenerationStore.setFixedSeed(42);
+		await settle();
+
+		expect(target.querySelector('#preview-negative')).toBeNull();
+		expect(target.textContent).toContain('seed 42');
+
+		const toggle = target.querySelector<HTMLButtonElement>('button[aria-label="Expand"]');
+		if (!toggle) throw new Error('missing Advanced expand toggle');
+		toggle.click();
+		await settle();
+
+		expect(target.querySelector('#preview-negative')).not.toBeNull();
+		expect(target.textContent).not.toContain('seed 42');
+	});
+
+	it('shows a live running indicator on the Preview images tab while a batch is in flight', async () => {
+		vi.mocked(api.generatePreviews).mockResolvedValue({
+			success: true,
+			data: { started: 2, generations: [{ generation_id: 'g1' }, { generation_id: 'g2' }] }
+		} as never);
+		phrasebookStore.selectValueIds(['v2', 'v3']);
+		await mountView();
+		await switchToTab('Preview images');
+
+		expect(tabButton('Preview images').textContent).not.toContain('/');
+
+		buttonByText('Generate').click();
+		await settle();
+
+		expect(tabButton('Preview images').textContent).toContain('0/2');
 	});
 
 	it('export action calls the export API', async () => {

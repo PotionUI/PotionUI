@@ -46,6 +46,12 @@ export interface ValueForm {
 
 export type EditMode = 'none' | 'category' | 'value' | 'new-category' | 'new-value';
 
+/** Which tab is open in the category detail panel's right-hand pane. Kept
+ *  here (not per-category, not in the URL) so switching categories doesn't
+ *  reset it - a user working through the Preview images tab across several
+ *  categories in a row shouldn't have to reselect it each time. */
+export type CategoryDetailTab = 'overview' | 'preview-images';
+
 export interface PhrasebookState {
 	categories: Record<string, CategoryWithChildren>;
 	rootCategoryIds: string[];
@@ -62,6 +68,7 @@ export interface PhrasebookState {
 	categoryForm: CategoryForm;
 	valueForm: ValueForm;
 	selectedValueIds: Set<string>;
+	categoryDetailTab: CategoryDetailTab;
 }
 
 const initialState: PhrasebookState = {
@@ -79,7 +86,8 @@ const initialState: PhrasebookState = {
 	editMode: 'none',
 	categoryForm: { name: '', path: '', parent_id: null, description: '' },
 	valueForm: { category_id: '', label: '', value: '', sort_order: 0 },
-	selectedValueIds: new Set()
+	selectedValueIds: new Set(),
+	categoryDetailTab: 'overview'
 };
 
 function createPhrasebookStore() {
@@ -511,6 +519,10 @@ function createPhrasebookStore() {
 
 		setEditMode(mode: EditMode) {
 			update((s) => ({ ...s, editMode: mode }));
+		},
+
+		setCategoryDetailTab(tab: CategoryDetailTab) {
+			update((s) => ({ ...s, categoryDetailTab: tab }));
 		},
 
 		hasChildren(categoryId: string): boolean {

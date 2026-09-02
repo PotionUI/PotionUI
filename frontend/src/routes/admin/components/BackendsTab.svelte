@@ -985,7 +985,10 @@
 										</EmptyState>
 									{:else}
 										{#key activeBackend.id}
-											<BackendModelsSection backendId={activeBackend.id} />
+											<BackendModelsSection
+												backendId={activeBackend.id}
+												onOpenInfrastructure={() => (detailTab = 'infrastructure')}
+											/>
 										{/key}
 									{/if}
 								</DetailBody>

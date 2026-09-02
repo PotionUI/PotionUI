@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from src.features.providers.registry import ensure_providers_discovered
 from src.features.remote_execution import ops
-from src.features.remote_execution.transport import WorkerTransportError
+from src.features.remote_execution.transport import WorkerTransportError, WorkerUnreachableError
 from src.platform.http.base_controller import APIResponse, BaseController
 from src.platform.security.current_user import get_current_admin_user
 
@@ -34,6 +34,13 @@ class RemoteModelsController(BaseController):
         config = ops.resolve_remote_backend_config(self.container.backend_registry, backend_id)
         return ops.transport_for(config)
 
+    def _transport_error_response(self, e: WorkerTransportError) -> APIResponse:
+        if isinstance(e, WorkerUnreachableError) and e.reason == "not_running":
+            return self.error_api_response(
+                error="worker_not_running", message="The worker is stopped or still starting",
+            )
+        return self.error_api_response(error="worker_unreachable", message=str(e))
+
     async def sync_view(self, backend_id: str) -> APIResponse:
         try:
             transport = self._transport(backend_id)
@@ -43,7 +50,7 @@ class RemoteModelsController(BaseController):
             provider_registry = await ensure_providers_discovered()
             models = await ops.sync_view(self.container.model_repository, provider_registry, transport)
         except WorkerTransportError as e:
-            return self.error_api_response(error="worker_unreachable", message=str(e))
+            return self._transport_error_response(e)
         return self.success_response(data={"models": models})
 
     async def push(self, backend_id: str, body: ModelIdsRequest) -> APIResponse:
@@ -56,7 +63,7 @@ class RemoteModelsController(BaseController):
                 body.model_ids, model_repository=self.container.model_repository, transport=transport,
             )
         except WorkerTransportError as e:
-            return self.error_api_response(error="worker_unreachable", message=str(e))
+            return self._transport_error_response(e)
         return self.success_response(data={"transfers": transfers})
 
     async def fetch(self, backend_id: str, body: ModelIdsRequest) -> APIResponse:
@@ -71,7 +78,7 @@ class RemoteModelsController(BaseController):
                 provider_registry=provider_registry, transport=transport,
             )
         except WorkerTransportError as e:
-            return self.error_api_response(error="worker_unreachable", message=str(e))
+            return self._transport_error_response(e)
         return self.success_response(data={"transfers": transfers})
 
     async def transfers(self, backend_id: str) -> APIResponse:
@@ -82,7 +89,7 @@ class RemoteModelsController(BaseController):
         try:
             transfers = await ops.list_transfers(transport)
         except WorkerTransportError as e:
-            return self.error_api_response(error="worker_unreachable", message=str(e))
+            return self._transport_error_response(e)
         return self.success_response(data={"transfers": transfers})
 
 

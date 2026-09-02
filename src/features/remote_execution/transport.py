@@ -48,11 +48,38 @@ class WorkerTransportError(Exception):
 
 
 class WorkerUnreachableError(WorkerTransportError):
-    """The worker could not be reached at all (connect/timeout/DNS)."""
+    """The worker could not be reached at all (connect/timeout/DNS), or an
+    infra gateway answered on the worker's behalf because it isn't running.
+
+    `reason` is `"connect"` (the default, for the httpx-level failures) or
+    `"not_running"` (a gateway answered with an HTTP status a stopped or
+    still-starting worker would produce, see `_gateway_answered_for_a_down_worker`).
+    """
+
+    def __init__(self, message: str, *, reason: str = "connect"):
+        self.reason = reason
+        super().__init__(message)
 
 
 class WorkerProtocolError(WorkerTransportError):
     """The worker answered, but not with a document this build can read."""
+
+
+#: Statuses an infra gateway (load balancer, reverse proxy) commonly answers
+#: with when there's no worker process behind it to forward the request to.
+_GATEWAY_DOWN_STATUS_CODES = frozenset({404, 502, 503, 504})
+
+
+def _gateway_answered_for_a_down_worker(resp: httpx.Response) -> bool:
+    """True when *resp* looks like an infra gateway's own error page rather
+    than something the worker process itself produced. The worker always
+    answers with a JSON body (its FastAPI app, including its own 404s) - a
+    non-JSON body on one of the gateway-shaped statuses means the request
+    never reached it."""
+    if resp.status_code not in _GATEWAY_DOWN_STATUS_CODES:
+        return False
+    content_type = resp.headers.get("content-type", "")
+    return "json" not in content_type.split(";", 1)[0].strip().lower()
 
 
 class ArtifactVerificationError(WorkerTransportError):
@@ -110,6 +137,11 @@ class WorkerTransport:
             raise WorkerUnreachableError(f"could not reach worker at {self._base_url}: {exc}") from exc
 
         if resp.status_code != 200:
+            if _gateway_answered_for_a_down_worker(resp):
+                raise WorkerUnreachableError(
+                    f"worker is not running (gateway answered HTTP {resp.status_code} for /v1/worker)",
+                    reason="not_running",
+                )
             raise WorkerProtocolError(f"handshake failed: HTTP {resp.status_code}")
         try:
             info = read_envelope(resp.json())
@@ -156,6 +188,12 @@ class WorkerTransport:
             ) from exc
 
         if resp.status_code != 200:
+            path = f"/v1/executions/{execution_id}/assets/{logical_id}"
+            if _gateway_answered_for_a_down_worker(resp):
+                raise WorkerUnreachableError(
+                    f"worker is not running (gateway answered HTTP {resp.status_code} for {path})",
+                    reason="not_running",
+                )
             raise WorkerProtocolError(
                 f"asset {logical_id!r} upload rejected: HTTP {resp.status_code} {resp.text}"
             )
@@ -171,6 +209,11 @@ class WorkerTransport:
             raise WorkerUnreachableError(f"could not reach worker at {self._base_url}: {exc}") from exc
 
         if resp.status_code != 200:
+            if _gateway_answered_for_a_down_worker(resp):
+                raise WorkerUnreachableError(
+                    f"worker is not running (gateway answered HTTP {resp.status_code} for /v1/models/inventory)",
+                    reason="not_running",
+                )
             raise WorkerProtocolError(f"model inventory failed: HTTP {resp.status_code} {resp.text}")
         try:
             response = read_envelope(resp.json())
@@ -199,6 +242,12 @@ class WorkerTransport:
             ) from exc
 
         if resp.status_code != 200:
+            path = f"/v1/models/{bundle_id}/{entry.logical_id}"
+            if _gateway_answered_for_a_down_worker(resp):
+                raise WorkerUnreachableError(
+                    f"worker is not running (gateway answered HTTP {resp.status_code} for {path})",
+                    reason="not_running",
+                )
             raise WorkerProtocolError(
                 f"model {entry.logical_id!r} upload rejected: HTTP {resp.status_code} {resp.text}"
             )
@@ -219,6 +268,11 @@ class WorkerTransport:
             raise WorkerUnreachableError(f"could not reach worker at {self._base_url}: {exc}") from exc
 
         if resp.status_code != 200:
+            if _gateway_answered_for_a_down_worker(resp):
+                raise WorkerUnreachableError(
+                    f"worker is not running (gateway answered HTTP {resp.status_code} for /v1/models)",
+                    reason="not_running",
+                )
             raise WorkerProtocolError(f"model listing failed: HTTP {resp.status_code} {resp.text}")
         try:
             return resp.json()["entries"]
@@ -238,6 +292,11 @@ class WorkerTransport:
             raise WorkerUnreachableError(f"could not reach worker at {self._base_url}: {exc}") from exc
 
         if resp.status_code != 202:
+            if _gateway_answered_for_a_down_worker(resp):
+                raise WorkerUnreachableError(
+                    f"worker is not running (gateway answered HTTP {resp.status_code} for /v1/models/fetch)",
+                    reason="not_running",
+                )
             raise WorkerProtocolError(f"model fetch rejected: HTTP {resp.status_code} {resp.text}")
         try:
             return resp.json()["transfer_id"]
@@ -254,6 +313,11 @@ class WorkerTransport:
             raise WorkerUnreachableError(f"could not reach worker at {self._base_url}: {exc}") from exc
 
         if resp.status_code != 200:
+            if _gateway_answered_for_a_down_worker(resp):
+                raise WorkerUnreachableError(
+                    f"worker is not running (gateway answered HTTP {resp.status_code} for /v1/models/transfers)",
+                    reason="not_running",
+                )
             raise WorkerProtocolError(f"transfer listing failed: HTTP {resp.status_code} {resp.text}")
         try:
             return resp.json()["transfers"]
@@ -273,6 +337,12 @@ class WorkerTransport:
                     headers=self._headers,
                 ) as resp:
                     if resp.status_code != 200:
+                        path = f"/v1/executions/{execution_id}/events"
+                        if _gateway_answered_for_a_down_worker(resp):
+                            raise WorkerUnreachableError(
+                                f"worker is not running (gateway answered HTTP {resp.status_code} for {path})",
+                                reason="not_running",
+                            )
                         raise WorkerProtocolError(
                             f"event stream for {execution_id!r} failed: HTTP {resp.status_code}"
                         )
@@ -319,6 +389,11 @@ class WorkerTransport:
                     "GET", self._url(artifact.uri), headers=self._headers,
                 ) as resp:
                     if resp.status_code != 200:
+                        if _gateway_answered_for_a_down_worker(resp):
+                            raise WorkerUnreachableError(
+                                f"worker is not running (gateway answered HTTP {resp.status_code} for {artifact.uri})",
+                                reason="not_running",
+                            )
                         raise WorkerProtocolError(
                             f"artifact {artifact.artifact_id!r} download failed: HTTP {resp.status_code}"
                         )

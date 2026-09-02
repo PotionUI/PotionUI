@@ -43,13 +43,13 @@ const ROWS: RemoteModelSyncRow[] = [
 	row({ model_id: 'm6', filename: 'lora-c.safetensors', model_type: 'loras', status: 'on_worker' })
 ];
 
-function mountSection() {
+function mountSection(props: { backendId?: string; onOpenInfrastructure?: () => void } = {}) {
 	const target = document.createElement('div');
 	document.body.appendChild(target);
 	const component = createClassComponent({
 		component: BackendModelsSection as never,
 		target,
-		props: { backendId: 'backend-1' }
+		props: { backendId: 'backend-1', ...props }
 	});
 	return {
 		target,
@@ -189,5 +189,37 @@ describe('BackendModelsSection', () => {
 		await settle();
 
 		expect(adminApi.pushRemoteModels).toHaveBeenCalledWith('backend-1', ['m1', 'm2', 'm6']);
+	});
+
+	it('shows the not-running empty state with Retry and Open Infrastructure', async () => {
+		vi.mocked(adminApi.getRemoteModelSyncView).mockResolvedValue({
+			success: false,
+			error: 'worker_not_running',
+			message: 'The worker is stopped or still starting'
+		});
+		const onOpenInfrastructure = vi.fn();
+
+		mounted = mountSection({ onOpenInfrastructure });
+		await settle();
+
+		expect(mounted.target.textContent).toContain("Worker isn't running");
+		expect(mounted.button('Retry')).toBeTruthy();
+
+		mounted.button('Open Infrastructure')?.click();
+
+		expect(onOpenInfrastructure).toHaveBeenCalledOnce();
+	});
+
+	it('omits Open Infrastructure when the caller gives no handler', async () => {
+		vi.mocked(adminApi.getRemoteModelSyncView).mockResolvedValue({
+			success: false,
+			error: 'worker_not_running',
+			message: 'The worker is stopped or still starting'
+		});
+
+		mounted = mountSection();
+		await settle();
+
+		expect(mounted.button('Open Infrastructure')).toBeFalsy();
 	});
 });

@@ -171,7 +171,7 @@ class RemoteNativeBackend(BaseBackend):
         try:
             info = await self._transport().handshake()
         except WorkerUnreachableError as exc:
-            return {"status": "offline", "engine": "native", "error": str(exc)}
+            return {"status": "offline", "engine": "native", "error": str(exc), "detail": exc.reason}
         except WorkerProtocolError as exc:
             return {"status": "error", "engine": "native", "error": str(exc)}
 

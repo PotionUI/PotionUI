@@ -200,6 +200,57 @@ class TestHandshake:
             await bad.handshake()
 
 
+# -- gateway-down classification ---------------------------------------------
+#
+# A RunPod (or any) HTTP gateway in front of a stopped/still-starting pod
+# answers these requests itself with a non-JSON body - the worker's own
+# FastAPI app never saw them and always answers with JSON, including its own
+# errors (see `test_a_wrong_token_is_unreachable_not_a_crash` above and
+# `test_uploading_for_an_unknown_execution_raises` below, both real-worker
+# JSON responses that must keep raising `WorkerProtocolError`).
+
+def _mock_transport(status_code: int, *, content_type: str | None, body: str = "gateway error") -> WorkerTransport:
+    def handler(request: httpx.Request) -> httpx.Response:
+        headers = {"content-type": content_type} if content_type is not None else {}
+        return httpx.Response(status_code, headers=headers, text=body)
+
+    return WorkerTransport("http://fake-worker", TOKEN, transport=httpx.MockTransport(handler))
+
+
+class TestGatewayDownClassification:
+    @pytest.mark.asyncio
+    async def test_a_404_with_a_non_json_body_on_model_listing_is_not_running(self):
+        transport = _mock_transport(404, content_type="text/html")
+
+        with pytest.raises(WorkerUnreachableError) as exc_info:
+            await transport.list_models()
+
+        assert exc_info.value.reason == "not_running"
+
+    @pytest.mark.asyncio
+    async def test_a_404_with_a_non_json_body_on_handshake_is_not_running(self):
+        transport = _mock_transport(404, content_type=None)
+
+        with pytest.raises(WorkerUnreachableError) as exc_info:
+            await transport.handshake()
+
+        assert exc_info.value.reason == "not_running"
+
+    @pytest.mark.asyncio
+    async def test_a_404_with_a_json_body_stays_a_protocol_error(self):
+        transport = _mock_transport(404, content_type="application/json", body='{"detail": "not found"}')
+
+        with pytest.raises(WorkerProtocolError):
+            await transport.list_models()
+
+    @pytest.mark.asyncio
+    async def test_a_500_stays_a_protocol_error_even_without_a_json_body(self):
+        transport = _mock_transport(500, content_type="text/plain")
+
+        with pytest.raises(WorkerProtocolError):
+            await transport.list_models()
+
+
 # -- submit + events ----------------------------------------------------------
 
 class TestSubmitAndEvents:

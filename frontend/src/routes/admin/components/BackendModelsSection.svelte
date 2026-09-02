@@ -31,24 +31,29 @@
 	 * Shown on a `native.remote` backend's Models tab - lets an admin sync
 	 * host model files onto the worker's depot (push) or have the worker pull
 	 * them itself through a linked provider (fetch). `GET .../{backendId}`
-	 * distinguishes three outcomes: `invalid_backend` (not a native.remote
+	 * distinguishes four outcomes: `invalid_backend` (not a native.remote
 	 * backend, or missing) -> render nothing, the caller shouldn't have
-	 * mounted this; `worker_unreachable` -> an error card with Retry; success
-	 * -> the row list. The caller re-mounts this with `{#key backendId}` when
-	 * the selected backend changes.
+	 * mounted this; `worker_not_running` (a gateway answered for a
+	 * stopped/still-starting worker) -> an empty state with Retry and,
+	 * optionally, a jump to the Infrastructure tab; `worker_unreachable` (a
+	 * genuine connect failure or a real protocol error) -> a danger alert with
+	 * Retry; success -> the row list. The caller re-mounts this with
+	 * `{#key backendId}` when the selected backend changes.
 	 *
 	 * The list fills the tab: a toolbar (search, type, status, select-all)
 	 * over a scrolling row list with a pinned footer for the push/fetch
 	 * actions.
 	 */
-	let { backendId }: { backendId: string } = $props();
+	let { backendId, onOpenInfrastructure }: { backendId: string; onOpenInfrastructure?: () => void } = $props();
 
 	const POLL_INTERVAL_MS = 2000;
 	let pollHandle: ReturnType<typeof setInterval> | null = null;
 
 	let loading = $state(true);
 	let rows = $state<RemoteModelSyncRow[]>([]);
-	let sectionError = $state<{ kind: 'invalid_backend' | 'worker_unreachable'; message: string } | null>(null);
+	let sectionError = $state<{ kind: 'invalid_backend' | 'worker_not_running' | 'worker_unreachable'; message: string } | null>(
+		null
+	);
 	let selected = $state<Set<string>>(new Set());
 	let transfers = $state<WorkerModelTransfer[]>([]);
 	let rowErrors = $state<Record<string, string>>({});
@@ -149,6 +154,8 @@
 				selected = new Set([...selected].filter((id) => rows.some((r) => r.model_id === id)));
 			} else if (response.error === 'invalid_backend') {
 				sectionError = { kind: 'invalid_backend', message: response.message ?? '' };
+			} else if (response.error === 'worker_not_running') {
+				sectionError = { kind: 'worker_not_running', message: response.message ?? '' };
 			} else if (response.error === 'worker_unreachable') {
 				sectionError = { kind: 'worker_unreachable', message: response.message || 'Worker unreachable' };
 			} else {
@@ -226,6 +233,8 @@
 				selected = new Set();
 				await pollTransfers();
 				if (hasRunningTransfer(transfers)) startPolling();
+			} else if (response.error === 'worker_not_running') {
+				sectionError = { kind: 'worker_not_running', message: response.message ?? '' };
 			} else if (response.error === 'worker_unreachable') {
 				sectionError = { kind: 'worker_unreachable', message: response.message || 'Worker unreachable' };
 			} else {
@@ -253,9 +262,23 @@
 	<div class="h-full flex items-center justify-center">
 		<Spinner size="md" />
 	</div>
+{:else if sectionError?.kind === 'worker_not_running'}
+	<EmptyState
+		icon="pause"
+		title="Worker isn't running"
+		description="It's stopped or still starting. Models will show up here once it's back."
+	>
+		{#snippet actions()}
+			<Button variant="secondary" size="sm" onclick={retry}>Retry</Button>
+			{#if onOpenInfrastructure}
+				<Button variant="secondary" size="sm" onclick={onOpenInfrastructure}>Open Infrastructure</Button>
+			{/if}
+		{/snippet}
+	</EmptyState>
 {:else if sectionError?.kind === 'worker_unreachable'}
 	<Alert variant="danger" density="compact">
-		{sectionError.message}
+		<p>Couldn't reach the worker.</p>
+		<p class="font-mono text-2xs mt-1">{sectionError.message}</p>
 		<div class="mt-2">
 			<Button variant="secondary" size="sm" onclick={retry}>Retry</Button>
 		</div>

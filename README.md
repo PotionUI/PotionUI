@@ -16,7 +16,7 @@ graphs. No per-model setup. Pick a model, type, watch it render live.
 
 https://github.com/user-attachments/assets/950415f7-da97-403e-811b-4c9c41d8106f
 
-**Why this instead of ComfyUI / A1111:**
+**Why PotionUI:**
 
 - **Forms, not wiring** — each model exposes only the controls it actually
   understands.

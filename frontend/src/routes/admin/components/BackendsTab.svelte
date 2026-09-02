@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { logger, getErrorMessage, getApiErrorMessage } from '$lib/utils/logger';
 	import { onMount, onDestroy } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { page } from '$app/stores';
 	import { isAxiosError } from 'axios';
 	import type { EngineDescriptor, EngineField, IndexModelsResult, BackendStats } from '$lib/services/admin-api';
 	import {
@@ -36,6 +38,7 @@
 	import BackendInfrastructureSection from './BackendInfrastructureSection.svelte';
 	import BackendModelsSection from './BackendModelsSection.svelte';
 	import { backendDetailTabsFor, isBackendDetailTab, type BackendDetailTabId } from './backendDetailTabs';
+	import { readBackendsUrlState, writeBackendsUrlState } from './backendsUrlState';
 
 	type DetailTab = BackendDetailTabId;
 
@@ -71,6 +74,11 @@
 	let deleteTarget: Backend | null = null;
 	let detailTab: DetailTab = 'overview';
 	let togglingBackendId: string | null = null;
+	// Set once the mount-time restore from ?backend=/&view= has run (whether
+	// it found a backend or not) - gates the write-effect below so it can't
+	// strip those params from a freshly-loaded URL before restoreFromUrl has
+	// had a chance to read them.
+	let urlRestored = false;
 
 	// Stats tab: how many models this backend has reported and how much disk
 	// space they total - fetched fresh whenever the tab is opened, so
@@ -268,8 +276,42 @@
 	onMount(async () => {
 		await loadEngines();
 		await loadBackends();
+		await restoreFromUrl();
+		urlRestored = true;
 		await loadBackendsHealth();
 	});
+
+	// Select the backend named by ?backend= (if it still exists) and its
+	// ?view= tab (if valid for that backend's driver), so a page reload
+	// doesn't lose the view onto a backend the admin was watching. A stale id
+	// (backend deleted since the link was made) is ignored silently - the
+	// write effect below then clears the params once `urlRestored` flips on.
+	async function restoreFromUrl() {
+		const { backendId, view } = readBackendsUrlState($page.url.searchParams);
+		if (!backendId) return;
+		const backend = backends.find((b) => b.id === backendId);
+		if (!backend) return;
+		await selectBackend(backend.id);
+		if (view && isBackendDetailTab(backend.driver, view)) {
+			detailTab = view as DetailTab;
+		}
+	}
+
+	// Keep ?backend=/&view= in sync with the current selection, using
+	// replaceState so browsing between backends/tabs never piles up history
+	// entries. Held off until the mount-time restore has run, and a no-op
+	// once the URL already matches (comparing the built search string, not
+	// the individual fields, keeps this correct for every case: nothing
+	// selected or an overview tab both collapse to the params being absent).
+	$: if (urlRestored) {
+		const nextUrl = writeBackendsUrlState($page.url, {
+			backendId: selectedBackendId,
+			view: selectedBackendId ? detailTab : null
+		});
+		if (nextUrl.search !== $page.url.search) {
+			void goto(nextUrl, { replaceState: true, keepFocus: true, noScroll: true });
+		}
+	}
 
 	// `onMount` above is async, so a returned cleanup wouldn't be picked up by
 	// Svelte (it only recognizes a synchronously-returned function) - subscribe

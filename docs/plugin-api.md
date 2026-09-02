@@ -291,9 +291,13 @@ it lives with it, alongside the `comfyui` presets it installs.
 
 ## Contributing a prompt importer
 
-Prompt-library import is entirely plugin-contributed — core ships no import source, and
-the Prompt Library's Import button doesn't render at all until at least one plugin
-registers one. Declare each importer in `manifest.yml`:
+Core owns file-based import: `POST /api/prompts/import` accepts `styles.csv`
+(A1111/Forge/SD.Next/InvokeAI), Fooocus style JSON, dynamicprompts wildcard YAML, one
+prompt per line, and images carrying A1111, ComfyUI, InvokeAI or NovelAI metadata, with
+format auto-detection (`src/features/prompt_database/importing/`), and
+`GET /api/prompts/export?format=styles-csv` writes the library back out. A plugin importer
+is for a source that is not a file — a marketplace or a remote service. It appears in the
+Prompt Library's Import menu below the core entry. Declare each importer in `manifest.yml`:
 
 ```yaml
 prompt_importers:

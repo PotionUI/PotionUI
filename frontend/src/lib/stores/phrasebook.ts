@@ -470,6 +470,13 @@ function createPhrasebookStore() {
 			update((s) => ({ ...s, selectedValueIds: new Set() }));
 		},
 
+		selectValuesWithoutPreview() {
+			const s0 = state();
+			const values = s0.selectedCategoryId ? s0.categoryValues[s0.selectedCategoryId] || [] : [];
+			const missingIds = values.filter((v) => v.is_active && !v.preview_file_id).map((v) => v.id);
+			update((s) => ({ ...s, selectedValueIds: new Set(missingIds) }));
+		},
+
 		toggleValueSelection(valueId: string) {
 			update((s) => {
 				const next = new Set(s.selectedValueIds);
@@ -534,6 +541,14 @@ export const selectedValue = derived(
 
 export const allActiveValueIds = derived(selectedCategoryValues, ($values) =>
 	$values.filter((v) => v.is_active).map((v) => v.id)
+);
+
+export const valuesWithoutPreviewIds = derived(selectedCategoryValues, ($values) =>
+	$values.filter((v) => v.is_active && !v.preview_file_id).map((v) => v.id)
+);
+
+export const previewCount = derived(selectedCategoryValues, ($values) =>
+	$values.filter((v) => v.preview_file_id).length
 );
 
 export const selectedCount = derived(phrasebookStore, ($s) => $s.selectedValueIds.size);

@@ -51,6 +51,8 @@ export interface PreviewGenerationState {
 	isGeneratingPreviews: boolean;
 	previewGenerationStatus: string | null;
 	generationConfigInitialized: boolean;
+	/** Values-with-preview vs. selected-at-start, refreshed each poll tick while a batch runs. */
+	previewBatchProgress: { done: number; total: number } | null;
 }
 
 const initialState: PreviewGenerationState = {
@@ -66,7 +68,8 @@ const initialState: PreviewGenerationState = {
 	fixedSeed: 42,
 	isGeneratingPreviews: false,
 	previewGenerationStatus: null,
-	generationConfigInitialized: false
+	generationConfigInitialized: false,
+	previewBatchProgress: null
 };
 
 // Module-scope (non-reactive) generation bookkeeping
@@ -138,6 +141,8 @@ function createPreviewGenerationStore() {
 		const maxPolls = 60;
 		const selectedIdsAtStart = new Set(selectedValueIds);
 
+		update((s) => ({ ...s, previewBatchProgress: { done: 0, total: selectedIdsAtStart.size } }));
+
 		pollingInterval = setInterval(async () => {
 			pollCount++;
 
@@ -149,7 +154,8 @@ function createPreviewGenerationStore() {
 			const totalSelected = selectedIdsAtStart.size;
 			update((s) => ({
 				...s,
-				previewGenerationStatus: `Generating... ${selectedValuesWithPreviews}/${totalSelected} complete`
+				previewGenerationStatus: `Generating... ${selectedValuesWithPreviews}/${totalSelected} complete`,
+				previewBatchProgress: { done: selectedValuesWithPreviews, total: totalSelected }
 			}));
 
 			if (selectedValuesWithPreviews >= totalSelected) {
@@ -157,7 +163,8 @@ function createPreviewGenerationStore() {
 				update((s) => ({
 					...s,
 					isGeneratingPreviews: false,
-					previewGenerationStatus: `Completed ${totalSelected} preview generation${totalSelected > 1 ? 's' : ''}`
+					previewGenerationStatus: `Completed ${totalSelected} preview generation${totalSelected > 1 ? 's' : ''}`,
+					previewBatchProgress: null
 				}));
 				return;
 			}
@@ -167,7 +174,8 @@ function createPreviewGenerationStore() {
 				update((s) => ({
 					...s,
 					isGeneratingPreviews: false,
-					previewGenerationStatus: 'Generation may still be in progress - refresh to check'
+					previewGenerationStatus: 'Generation may still be in progress - refresh to check',
+					previewBatchProgress: null
 				}));
 			}
 		}, 3000);

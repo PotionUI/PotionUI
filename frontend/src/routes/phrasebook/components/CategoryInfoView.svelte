@@ -1,15 +1,32 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
 	import { api } from '$lib/services/api/index';
-	import { Badge, IconButton } from '$lib/components/ui';
+	import { Badge, IconButton, CopyButton, Spinner } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
+	import { DetailHeader, DetailBody, DetailSection, KVGrid, KVItem } from '$lib/components/detail';
 	import { phrasebookStore, selectedCategory, selectedCategoryValues } from '$lib/stores/phrasebook';
-	import PreviewGenerationPanel from './PreviewGenerationPanel.svelte';
+	import PreviewImagesSection from './PreviewImagesSection.svelte';
 
-	// Self-contained: reads/writes phrasebookStore directly. Extracted
-	// verbatim from phrasebook/+page.svelte (category info / stats view).
-	$: current = $phrasebookStore;
-	$: values = $selectedCategoryValues;
+	// Self-contained: reads/writes phrasebookStore directly. Right-hand detail
+	// panel for a selected category (no value selected) - header actions, the
+	// Details/Preview-images/Subcategories sections.
+	let current = $derived($phrasebookStore);
+	let values = $derived($selectedCategoryValues);
+	let category = $derived($selectedCategory);
+	let parentCategory = $derived(
+		category?.parent_id ? current.allCategories.find((c) => c.id === category.parent_id) : null
+	);
+
+	$effect(() => {
+		if (category && !category.childrenLoaded && !current.loadingCategories.has(category.id)) {
+			phrasebookStore.loadCategoryChildren(category.id);
+		}
+	});
+
+	function formatDate(value: string | undefined) {
+		return value ? value.slice(0, 10) : '—';
+	}
 
 	async function handleExport() {
 		if (!current.selectedCategoryId) return;
@@ -19,7 +36,7 @@
 			const url = URL.createObjectURL(blob);
 			const a = document.createElement('a');
 			a.href = url;
-			a.download = `${$selectedCategory?.name || 'export'}.yaml`;
+			a.download = `${category?.name || 'export'}.yaml`;
 			a.click();
 			URL.revokeObjectURL(url);
 		} catch (error) {
@@ -28,61 +45,142 @@
 	}
 </script>
 
-<div class="flex flex-col h-full">
-	<div class="px-6 py-4 border-b border-line flex items-center justify-between">
-		<div>
-			<div class="flex items-center gap-2">
-				<h2 class="text-lg font-semibold text-fg">{$selectedCategory?.name}</h2>
-				{#if !$selectedCategory?.is_active}
-					<Badge size="sm">inactive</Badge>
+{#if category}
+	<div class="flex flex-col h-full">
+		<DetailHeader title={category.name} icon="folder">
+			{#snippet chips()}
+				<Badge size="sm" class="font-mono">{values.length} VALUES</Badge>
+				<Badge size="sm" class="font-mono">{category.children?.length ?? 0} SUBCATEGORIES</Badge>
+				<Badge variant={category.is_active ? 'success' : 'neutral'} size="sm" class="uppercase">
+					{category.is_active ? 'Active' : 'Inactive'}
+				</Badge>
+			{/snippet}
+			{#snippet subtitle()}
+				<span>{category.path} / updated {formatDate(category.updated_at)}</span>
+			{/snippet}
+			{#snippet actions()}
+				<Tooltip text={category.is_active ? 'Deactivate category' : 'Activate category'}>
+					<IconButton
+						icon={category.is_active ? 'check' : 'close'}
+						label={category.is_active ? 'Deactivate category' : 'Activate category'}
+						active={category.is_active}
+						onclick={() => phrasebookStore.handleToggleCategoryActive(category.id)}
+					/>
+				</Tooltip>
+				<Tooltip text="Export as YAML">
+					<IconButton icon="download" label="Export as YAML" onclick={handleExport} />
+				</Tooltip>
+				<Tooltip text="Edit category">
+					<IconButton icon="edit" label="Edit category" onclick={() => phrasebookStore.handleEditCategory()} />
+				</Tooltip>
+				<Tooltip text="Delete category">
+					<IconButton
+						icon="trash"
+						label="Delete category"
+						class="text-danger hover:bg-danger/10"
+						onclick={() => phrasebookStore.handleDeleteCategory()}
+					/>
+				</Tooltip>
+			{/snippet}
+		</DetailHeader>
+
+		<DetailBody>
+			<DetailSection label="Details">
+				<div class="flex flex-col gap-3.5">
+					<p class="text-xs text-fg-muted leading-relaxed">
+						A category is a named bag of interchangeable phrases; insert it into a prompt as
+						<span
+							class="inline-flex items-center gap-1 mx-0.5 rounded bg-signal/10 border border-signal/30 px-1.5 py-0.5 align-middle font-mono text-2xs font-semibold text-signal"
+						>
+							<Icon name="folder" className="w-3 h-3" />#{category.path}
+						</span>
+						<CopyButton text={'#' + category.path} ariaLabel="Copy phrasebook reference" size="xs" />
+						and a value is picked for you &mdash; shuffle, pinned, or per image.
+					</p>
+
+					<KVGrid>
+						<KVItem label="Path" mono>{category.path}</KVItem>
+						<KVItem label="Parent" mono>{parentCategory?.name ?? '—'}</KVItem>
+						<KVItem label="Description" full>
+							{#if category.description}
+								<div class="flex items-baseline gap-2">
+									<span>{category.description}</span>
+									<button
+										type="button"
+										class="text-2xs text-fg-subtle hover:text-fg underline decoration-line-strong hover:decoration-fg-muted flex-shrink-0"
+										onclick={() => phrasebookStore.handleEditCategory()}
+									>
+										Edit
+									</button>
+								</div>
+							{:else}
+								<div class="flex items-baseline gap-2">
+									<span class="italic text-fg-subtle">No description</span>
+									<button
+										type="button"
+										class="text-2xs text-fg-subtle hover:text-fg underline decoration-line-strong hover:decoration-fg-muted flex-shrink-0"
+										onclick={() => phrasebookStore.handleEditCategory()}
+									>
+										Edit
+									</button>
+								</div>
+							{/if}
+						</KVItem>
+						<KVItem label="Status">
+							<Badge variant={category.is_active ? 'success' : 'neutral'} size="sm">
+								{category.is_active ? 'Active' : 'Inactive'}
+							</Badge>
+						</KVItem>
+						<KVItem label="Updated" mono>{formatDate(category.updated_at)}</KVItem>
+					</KVGrid>
+				</div>
+			</DetailSection>
+
+			{#if current.selectedCategoryId}
+				<PreviewImagesSection categoryId={current.selectedCategoryId} />
+			{/if}
+
+			<DetailSection label="Subcategories">
+				{#if !category.childrenLoaded && current.loadingCategories.has(category.id)}
+					<div class="flex items-center justify-center py-6">
+						<Spinner size="sm" />
+					</div>
+				{:else if category.children && category.children.length > 0}
+					<div class="flex flex-col -mx-4 sm:-mx-5">
+						{#each category.children as child (child.id)}
+							<button
+								type="button"
+								class="flex items-center gap-2.5 px-4 sm:px-5 py-2.5 text-left hover:bg-surface-2 transition-colors"
+								onclick={() => phrasebookStore.handleSelectCategory(child.id)}
+							>
+								<span
+									class="flex-shrink-0 flex items-center justify-center w-7 h-7 rounded bg-surface-2 border border-line-strong text-fg-subtle"
+								>
+									<Icon name="folder" className="w-3.5 h-3.5" />
+								</span>
+								<span class="min-w-0 flex-1">
+									<span class="block text-sm text-fg font-medium truncate">{child.name}</span>
+									<span class="block font-mono text-2xs text-fg-subtle truncate">{child.path}</span>
+								</span>
+								<Icon name="chevron-right" className="w-3.5 h-3.5 text-fg-disabled flex-shrink-0" />
+							</button>
+						{/each}
+					</div>
+				{:else}
+					<p class="text-xs text-fg-subtle italic">No subcategories</p>
 				{/if}
-			</div>
-			<p class="text-sm text-fg-muted font-mono">{$selectedCategory?.path}</p>
-		</div>
-		<div class="flex items-center gap-2">
-			<!-- Toggle active button -->
-			<button
-				type="button"
-				class="p-2 rounded-lg transition-colors
-					{$selectedCategory?.is_active ? 'text-success hover:bg-success/10' : 'text-fg-subtle hover:bg-surface-3'}"
-				title="{$selectedCategory?.is_active ? 'Deactivate' : 'Activate'} category"
-				on:click={() => current.selectedCategoryId && phrasebookStore.handleToggleCategoryActive(current.selectedCategoryId)}
-			>
-				<Icon name={$selectedCategory?.is_active ? 'check' : 'close'} className="w-5 h-5" />
-			</button>
-			<IconButton icon="download" label="Export as YAML" onclick={handleExport} />
-			<IconButton icon="edit" label="Edit category" onclick={() => phrasebookStore.handleEditCategory()} />
-			<button
-				type="button"
-				class="p-2 rounded-lg transition-colors text-fg-muted hover:text-danger hover:bg-danger/10"
-				title="Delete category"
-				on:click={() => phrasebookStore.handleDeleteCategory()}
-			>
-				<Icon name="trash" className="w-5 h-5" />
-			</button>
-		</div>
-	</div>
-	<div class="flex-1 p-6">
-		{#if $selectedCategory?.description}
-			<p class="text-sm text-fg-muted">{$selectedCategory.description}</p>
-		{:else}
-			<p class="text-sm text-fg-subtle italic">No description</p>
-		{/if}
 
-		<div class="mt-6 grid grid-cols-2 gap-4 text-sm">
-			<div class="p-3 bg-surface-2 rounded-lg">
-				<span class="text-fg-subtle">Values</span>
-				<p class="text-xl font-semibold text-fg tabular-nums">{values.length}</p>
-			</div>
-			<div class="p-3 bg-surface-2 rounded-lg">
-				<span class="text-fg-subtle">Children</span>
-				<p class="text-xl font-semibold text-fg tabular-nums">{$selectedCategory?.children?.length || 0}</p>
-			</div>
-		</div>
-
-		<!-- Generate Preview Images Section -->
-		{#if values.length > 0 && current.selectedCategoryId}
-			<PreviewGenerationPanel categoryId={current.selectedCategoryId} />
-		{/if}
+				{#snippet footer()}
+					<button
+						type="button"
+						class="flex items-center gap-1.5 text-xs text-fg-subtle hover:text-fg"
+						onclick={() => phrasebookStore.handleNewCategory()}
+					>
+						<Icon name="plus" className="w-3.5 h-3.5" />
+						Add subcategory
+					</button>
+				{/snippet}
+			</DetailSection>
+		</DetailBody>
 	</div>
-</div>
+{/if}

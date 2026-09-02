@@ -14,6 +14,18 @@ This page walks you from opening PotionUI for the first time to your first finis
 
 Either way, once you're signed in the rest of the page — picking a preset, writing a prompt, generating — is the same for everyone.
 
+## Which install?
+
+If nobody has installed PotionUI yet, the `./potionui` CLI offers four install
+presets: **local** (this box has the GPU), **hybrid** (this box has the GPU
+today, with room to add remote workers later), **remote** (no GPU here — a
+VPS or laptop that dispatches to a remote worker; local and hybrid pull the
+full CUDA stack, remote installs CPU-only PyTorch instead), and **worker** (a
+separate GPU box that only serves another PotionUI instance, via `./potionui
+worker doctor`/`worker start`). See the README's [Install](../../README.md#install)
+section for the full table and commands, and [Remote Native](../remote-native.md)
+for how a worker is wired to the instance that dispatches to it.
+
 ## First run: claiming the instance
 
 A freshly installed PotionUI has no accounts at all. The **first** account ever created on it automatically becomes its **owner** — an Administrator account, with no separate setup step. There is no default password to change and nothing to "unlock": you *are* the administrator your instance is waiting for.

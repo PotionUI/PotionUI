@@ -8,15 +8,20 @@ in this module so it can be unit-tested with fakes instead of a live GPU box.
 Subcommands
 -----------
 - ``doctor``       — run every environment check and report pass/fail/warn.
+  ``--profile {local,hybrid,remote}`` selects the install preset (see
+  "Install presets" below); ``--no-gpu`` is a compatibility alias for
+  ``--profile remote``.
 - ``start``        — run doctor's blocking checks, install anything missing,
-  then launch backend + frontend as supervised child processes. ``--no-gpu``
-  installs the CPU-only dependency profile (see below) for hosts without an
-  NVIDIA card that use a remote generation backend.
+  then launch backend + frontend as supervised child processes. Takes the
+  same ``--profile``/``--no-gpu``.
 - ``status``       — report whether a previously-started instance is alive.
 - ``stop``         — stop a previously-started instance (safe no-op if none).
 - ``start-docker`` — preflight + exec the containerized dev/simulation harness
   (``docker compose -f docker/docker-compose.yml up --build``). Requires an
   NVIDIA GPU and nvidia-container-toolkit; see ``docker/README.md``.
+- ``worker doctor`` / ``worker start`` — the ``worker`` install preset: checks
+  and launches a standalone Remote Native worker (``worker.py``) on a GPU box
+  that serves another PotionUI instance. See "Install presets" below.
 
 Doctor check registry
 ----------------------
@@ -35,8 +40,9 @@ NODE                  error     yes       node on PATH, major version >= 18
 NPM                   error     yes       npm on PATH
 FRONTEND_DEPS         warning   no        frontend/node_modules/.bin/vite present
 GPU                   warning   no        nvidia-smi present and reports a GPU
-                                           (info, not warning, once the --no-gpu
-                                           profile is active)
+                                           (info, not warning, once the remote
+                                           profile is active; error+blocking
+                                           under ``worker doctor``)
 DISK                  error     yes       free disk space on the repo's filesystem
 PORT_8005             error     yes       backend port is free to bind
 PORT_3001             error     yes       frontend port is free to bind
@@ -44,21 +50,60 @@ STORAGE               error     yes       ./storage exists and is writable
 ENV_FILE              info      no        ./.env present (purely informational)
 ====================  ========  ========  =========================================
 
+``worker doctor`` runs a different, shorter registry — no NODE/NPM/
+FRONTEND_DEPS/ENV_FILE rows, since a worker ships no frontend:
+
+====================  ========  ========  =========================================
+code                  severity  blocking  what it checks
+====================  ========  ========  =========================================
+PY312                 error     yes       a Python 3.12+ interpreter is on PATH
+VENV                  warning   no        ./venv exists (created by `worker start` if not)
+BACKEND_DEPS          warning   no        fastapi/torch importable from ./venv (GPU profile)
+GPU                   error     yes       nvidia-smi present and reports a GPU — a
+                                           worker with no GPU can't execute anything
+DISK                  error     yes       free disk space on the repo's filesystem
+PORT_8100             error     yes       worker port is free to bind (``--port``)
+WORKER_DIR            error     yes       ``POTIONUI_WORKER_DIR`` (default ./worker_data)
+                                           exists and is writable
+WORKER_TOKEN          error     yes       ``POTIONUI_WORKER_TOKEN`` is set (env or .env)
+====================  ========  ========  =========================================
+
 Each row also carries a concrete ``repair`` command/hint. ``--json`` emits the
 same rows as ``[{"code", "severity", "message", "repair"}, ...]``.
 
-No-GPU dependency profile
---------------------------
-``./potionui start --no-gpu`` is for hosts with no NVIDIA card (e.g. a VPS
-that talks to a remote generation backend) — it is NOT a CPU-generation mode.
-A plain ``pip install -r requirements.txt -c constraints.txt`` drags in the
-full CUDA 13 stack (see ``constraints.txt``'s header); ``--no-gpu`` instead
-installs ``requirements-cpu.txt`` (the same package surface minus
-``xformers``, which has no CPU build) against PyTorch's CPU wheel index, and
-never touches ``constraints.txt`` (its ``nvidia-cu13-*``/``triton`` pins are
-unsatisfiable without CUDA). The choice is persisted at
-``.runtime/no_gpu_profile`` so a later plain ``./potionui start`` reuses the
-CPU profile instead of "upgrading" to CUDA pins.
+Install presets
+----------------
+``./potionui doctor``/``start --profile {local,hybrid,remote}`` (default
+``local``) picks what gets installed:
+
+- ``local``  — today's default: the full CUDA stack
+  (``pip install -r requirements.txt -c constraints.txt``). For a box with
+  its own NVIDIA GPU.
+- ``hybrid`` — identical dependency profile to ``local`` (a remote worker is
+  core code, no extra packages to install); ``start`` prints one line after
+  readiness pointing at Admin -> Backends -> Add backend -> Native (Remote
+  Worker) to add a worker later. Doctor is identical to ``local``.
+- ``remote`` — for hosts with no NVIDIA card (e.g. a VPS or laptop that
+  dispatches to a remote worker) — NOT a CPU-generation mode. A plain
+  ``pip install -r requirements.txt -c constraints.txt`` drags in the full
+  CUDA 13 stack (see ``constraints.txt``'s header); ``remote`` instead
+  installs ``requirements-cpu.txt`` (the same package surface minus
+  ``xformers``, which has no CPU build) against PyTorch's CPU wheel index,
+  and never touches ``constraints.txt`` (its ``nvidia-cu13-*``/``triton``
+  pins are unsatisfiable without CUDA). The GPU doctor row is downgraded to
+  informational under this profile.
+- ``worker`` — not a ``--profile`` value; a separate ``./potionui worker
+  doctor``/``worker start`` preset for the GPU box itself, when it only
+  serves another PotionUI instance as a Remote Native worker (see
+  ``docs/remote-native.md``). Installs the full CUDA stack, no frontend
+  packages, and runs ``python worker.py`` in the foreground.
+
+The chosen ``--profile``/``--no-gpu`` is persisted at
+``.runtime/install_profile`` so a later plain ``./potionui start``/``doctor``
+reuses it instead of drifting back to ``local``. ``--no-gpu`` is kept as a
+compatibility alias for ``--profile remote`` — it is a documented public flag
+of the released 0.0.2 — and a pre-existing ``.runtime/no_gpu_profile`` marker
+from that release is read back as ``remote``.
 """
 from __future__ import annotations
 
@@ -85,10 +130,15 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 RUNTIME_DIR = REPO_ROOT / ".runtime"
 LOG_DIR = RUNTIME_DIR / "logs"
 STATE_FILE = RUNTIME_DIR / "state.json"
-NO_GPU_PROFILE_FILE = RUNTIME_DIR / "no_gpu_profile"
+NO_GPU_PROFILE_FILE = RUNTIME_DIR / "no_gpu_profile"  # legacy 0.0.2 marker, read-only
+INSTALL_PROFILE_FILE = RUNTIME_DIR / "install_profile"
 
 DEFAULT_BACKEND_PORT = 8005
 DEFAULT_FRONTEND_PORT = 3001
+DEFAULT_WORKER_PORT = 8100
+DEFAULT_WORKER_HOST = "127.0.0.1"
+DEFAULT_WORKER_DIR_NAME = "worker_data"
+WORKER_TOKEN_ENV_VAR = "POTIONUI_WORKER_TOKEN"
 CONSTRAINTS_FILE = "constraints.txt"
 NO_GPU_REQUIREMENTS_FILE = "requirements-cpu.txt"
 PYTORCH_CPU_INDEX = "https://download.pytorch.org/whl/cpu"
@@ -98,6 +148,7 @@ MIN_PYTHON = (3, 12)
 GB = 1024 ** 3
 DISK_FAIL_THRESHOLD_GB = 5
 DISK_WARN_THRESHOLD_GB = 25
+INSTALL_PROFILES = ("local", "hybrid", "remote")
 
 # Numeric loopback address, not the DNS name "localhost": a host whose
 # resolver returns ::1 ahead of 127.0.0.1 (common on modern Linux) makes Vite
@@ -363,14 +414,26 @@ def check_frontend_deps(probe, repo_root: Path) -> CheckResult:
     )
 
 
-def check_gpu(probe, no_gpu: bool = False) -> CheckResult:
+def check_gpu(probe, no_gpu: bool = False, required: bool = False) -> CheckResult:
+    """`required=True` is the `worker doctor` variant: a worker with no GPU
+    can't execute anything, so an absent/broken GPU is a blocking error there
+    instead of the core install's non-blocking warning/info."""
     path = probe.which("nvidia-smi")
     if not path:
+        if required:
+            return CheckResult(
+                "GPU",
+                Severity.ERROR,
+                "nvidia-smi not found — no NVIDIA GPU/driver detected. A worker with no "
+                "GPU can't execute anything.",
+                repair="Install NVIDIA drivers on this box; the worker preset needs a real GPU.",
+                blocking=True,
+            )
         if no_gpu:
             return CheckResult(
                 "GPU",
                 Severity.INFO,
-                "No GPU detected — fine for --no-gpu hosting with a remote backend.",
+                "No GPU detected — fine for the remote install profile with a remote worker.",
                 blocking=False,
             )
         return CheckResult(
@@ -380,24 +443,26 @@ def check_gpu(probe, no_gpu: bool = False) -> CheckResult:
             repair=(
                 "CPU-only is fine for setup/testing; for GPU generation install NVIDIA "
                 "drivers (and a CUDA-matching PyTorch build), or run `./potionui start "
-                "--no-gpu` for remote-backend hosting."
+                "--profile remote` for remote-worker hosting."
             ),
             blocking=False,
         )
     try:
         result = probe.run([path, "--query-gpu=name,driver_version", "--format=csv,noheader"], timeout=10.0)
     except Exception as exc:
+        severity = Severity.ERROR if required else Severity.WARNING
         return CheckResult(
-            "GPU", Severity.WARNING, f"nvidia-smi present but failed to run ({exc}).",
-            repair="Check the NVIDIA driver installation (`nvidia-smi`).", blocking=False,
+            "GPU", severity, f"nvidia-smi present but failed to run ({exc}).",
+            repair="Check the NVIDIA driver installation (`nvidia-smi`).", blocking=required,
         )
     if result.returncode != 0 or not result.stdout.strip():
+        severity = Severity.ERROR if required else Severity.WARNING
         return CheckResult(
-            "GPU", Severity.WARNING, "nvidia-smi present but reported no GPU.",
-            repair="Check the NVIDIA driver installation (`nvidia-smi`).", blocking=False,
+            "GPU", severity, "nvidia-smi present but reported no GPU.",
+            repair="Check the NVIDIA driver installation (`nvidia-smi`).", blocking=required,
         )
     line = result.stdout.strip().splitlines()[0]
-    return CheckResult("GPU", Severity.OK, f"GPU detected: {line}.", blocking=False)
+    return CheckResult("GPU", Severity.OK, f"GPU detected: {line}.", blocking=required)
 
 
 def check_port(probe, port: int, code: str, label: str) -> CheckResult:
@@ -456,6 +521,52 @@ def check_storage(probe, repo_root: Path) -> CheckResult:
         Severity.ERROR,
         f"{storage_dir} does not exist or is not writable.",
         repair=f"mkdir -p {storage_dir} && chmod u+w {storage_dir} (or fix ownership if it already exists).",
+        blocking=True,
+    )
+
+
+def check_worker_dir(probe, worker_dir: Path) -> CheckResult:
+    if probe.is_writable_dir(worker_dir):
+        return CheckResult("WORKER_DIR", Severity.OK, f"{worker_dir} is writable.", blocking=True)
+    return CheckResult(
+        "WORKER_DIR",
+        Severity.ERROR,
+        f"{worker_dir} does not exist or is not writable.",
+        repair=f"mkdir -p {worker_dir} && chmod u+w {worker_dir} (or fix ownership if it already exists).",
+        blocking=True,
+    )
+
+
+def _env_file_has_var(env_path: Path, var: str) -> bool:
+    try:
+        text = env_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, _, value = stripped.partition("=")
+        if key.strip() == var and value.strip():
+            return True
+    return False
+
+
+def check_worker_token(repo_root: Path, env: Optional[dict] = None) -> CheckResult:
+    env = env if env is not None else os.environ
+    repair = (
+        f"Generate one — `python -c \"import secrets; print(secrets.token_urlsafe(32))\"` — "
+        f"then export {WORKER_TOKEN_ENV_VAR}=<value> or add it to .env."
+    )
+    if env.get(WORKER_TOKEN_ENV_VAR):
+        return CheckResult("WORKER_TOKEN", Severity.OK, f"{WORKER_TOKEN_ENV_VAR} set in the environment.", blocking=True)
+    if _env_file_has_var(repo_root / ".env", WORKER_TOKEN_ENV_VAR):
+        return CheckResult("WORKER_TOKEN", Severity.OK, f"{WORKER_TOKEN_ENV_VAR} set in .env.", blocking=True)
+    return CheckResult(
+        "WORKER_TOKEN",
+        Severity.ERROR,
+        f"{WORKER_TOKEN_ENV_VAR} is not set — the worker refuses to start without it.",
+        repair=repair,
         blocking=True,
     )
 
@@ -592,6 +703,29 @@ def run_doctor(
         check_port(probe, frontend_port, "PORT_3001", "frontend"),
         check_storage(probe, repo_root),
         check_env_file(probe, repo_root),
+    ]
+
+
+def resolve_worker_dir(repo_root: Path) -> Path:
+    """`POTIONUI_WORKER_DIR` if set (worker.py's own env var, see
+    `src/features/remote_execution/worker/config.py`), else `./worker_data`
+    relative to the repo root — mirrors worker.py's own default exactly, so
+    `worker doctor` checks the directory the worker will actually use."""
+    raw = os.environ.get("POTIONUI_WORKER_DIR", DEFAULT_WORKER_DIR_NAME)
+    path = Path(raw)
+    return path if path.is_absolute() else repo_root / path
+
+
+def run_worker_doctor(probe, repo_root: Path, port: int, worker_dir: Path, env: Optional[dict] = None) -> list[CheckResult]:
+    return [
+        check_python(probe),
+        check_venv(probe, repo_root),
+        check_backend_deps(probe, repo_root, no_gpu=False),
+        check_gpu(probe, required=True),
+        check_disk(probe, repo_root),
+        check_port(probe, port, "PORT_8100", "worker"),
+        check_worker_dir(probe, worker_dir),
+        check_worker_token(repo_root, env=env),
     ]
 
 
@@ -776,18 +910,56 @@ def clear_state(state_file: Path = STATE_FILE) -> None:
         state_file.unlink()
 
 
-def no_gpu_profile_active(marker_file: Path = NO_GPU_PROFILE_FILE) -> bool:
-    """Whether a previous `./potionui start --no-gpu` marked this checkout as
-    CPU-only, so a later plain `start` reuses the CPU profile instead of
-    "upgrading" to CUDA pins."""
-    return marker_file.exists()
+def install_profile_active(
+    marker_file: Path = INSTALL_PROFILE_FILE, legacy_marker_file: Path = NO_GPU_PROFILE_FILE
+) -> Optional[str]:
+    """The install profile a previous explicit `./potionui start --profile ...`
+    (or its `--no-gpu` alias) persisted, so a later plain `start`/`doctor`
+    reuses it instead of drifting back to the `local` default. Falls back to
+    the legacy 0.0.2 `.runtime/no_gpu_profile` marker, which always means
+    `remote`. Returns None when neither marker is present."""
+    if marker_file.exists():
+        try:
+            data = json.loads(marker_file.read_text())
+        except (json.JSONDecodeError, OSError):
+            data = {}
+        profile = data.get("profile")
+        if profile in INSTALL_PROFILES:
+            return profile
+    if legacy_marker_file.exists():
+        return "remote"
+    return None
 
 
-def mark_no_gpu_profile(marker_file: Path = NO_GPU_PROFILE_FILE) -> None:
+def mark_install_profile(profile: str, marker_file: Path = INSTALL_PROFILE_FILE) -> None:
     marker_file.parent.mkdir(parents=True, exist_ok=True)
     marker_file.write_text(
-        json.dumps({"no_gpu": True, "marked_at": datetime.now(timezone.utc).isoformat()}, indent=2)
+        json.dumps({"profile": profile, "marked_at": datetime.now(timezone.utc).isoformat()}, indent=2)
     )
+
+
+def resolve_install_profile(args) -> tuple[str, bool]:
+    """The install profile driving this invocation, and whether it was given
+    explicitly on this invocation (`--profile`, or its `--no-gpu` alias)
+    rather than picked up from a previous run's persisted choice or the
+    `local` default. Callers persist the profile only when the second value
+    is True, so a plain `./potionui start` never overwrites an earlier
+    explicit choice."""
+    explicit_profile = getattr(args, "profile", None)
+    if explicit_profile:
+        return explicit_profile, True
+    if getattr(args, "no_gpu", False):
+        return "remote", True
+    persisted = install_profile_active()
+    if persisted:
+        return persisted, False
+    return "local", False
+
+
+def backend_pip_install_args_for_profile(profile: str, repo_root: Path) -> list[str]:
+    if profile == "remote":
+        return backend_pip_install_args_no_gpu()
+    return backend_pip_install_args(repo_root)
 
 
 # ---------------------------------------------------------------------------
@@ -843,6 +1015,15 @@ def _print_claim_token_hint(repo_root: Path, port: int) -> None:
         )
 
 
+def _print_hybrid_profile_hint(profile: str) -> None:
+    if profile != "hybrid":
+        return
+    print(
+        "\nHybrid profile: add a remote worker any time from Admin -> Backends -> Add "
+        "backend -> Native (Remote Worker) (its Infrastructure tab can provision one for you)."
+    )
+
+
 def frontend_build_is_fresh(repo_root: Path) -> bool:
     """True when `frontend/build/index.html` exists and is at least as new as
     every file under `frontend/src` — i.e. `./potionui build` produced the
@@ -861,7 +1042,8 @@ def frontend_build_is_fresh(repo_root: Path) -> bool:
 
 def cmd_doctor(args) -> int:
     probe = RealProbe()
-    no_gpu = args.no_gpu or no_gpu_profile_active()
+    profile, _explicit = resolve_install_profile(args)
+    no_gpu = profile == "remote"
     results = run_doctor(probe, REPO_ROOT, args.backend_port, args.frontend_port, no_gpu=no_gpu)
     print_doctor_report(results, args.json)
     return 1 if any(r.severity == Severity.ERROR for r in results) else 0
@@ -910,7 +1092,8 @@ def _fail_start(name: str, info: dict, state: dict) -> int:
 
 def cmd_start(args) -> int:
     probe = RealProbe()
-    no_gpu = args.no_gpu or no_gpu_profile_active()
+    profile, explicit_profile = resolve_install_profile(args)
+    no_gpu = profile == "remote"
 
     existing = load_state()
     if existing:
@@ -946,15 +1129,18 @@ def cmd_start(args) -> int:
         print_doctor_report(results, as_json=False)
         return 1
 
-    if no_gpu:
-        if not no_gpu_profile_active():
-            mark_no_gpu_profile()
+    if explicit_profile and install_profile_active() != profile:
+        mark_install_profile(profile)
+
+    if profile == "remote":
         print(
-            "Dependency profile: --no-gpu (CPU-only torch, no xformers) — for hosts without an "
-            "NVIDIA GPU using a remote generation backend."
+            "Install profile: remote (CPU-only torch, no CUDA libraries, no xformers) — "
+            "for hosts with no NVIDIA GPU that dispatch to a remote worker."
         )
+    elif profile == "hybrid":
+        print("Install profile: hybrid (full CUDA stack — local generation, with room to add remote workers).")
     else:
-        print("Dependency profile: GPU (CUDA-pinned via constraints.txt).")
+        print("Install profile: local (full CUDA stack, CUDA-pinned via constraints.txt).")
 
     python_found = probe_python_candidates(probe)
     assert python_found is not None  # doctor already confirmed PY312 passed
@@ -973,10 +1159,7 @@ def cmd_start(args) -> int:
     if not deps_ok:
         print("Installing backend dependencies (this can take a while)...")
         pip_bin = REPO_ROOT / "venv" / "bin" / "pip"
-        if no_gpu:
-            pip_cmd = [str(pip_bin), *backend_pip_install_args_no_gpu()]
-        else:
-            pip_cmd = [str(pip_bin), *backend_pip_install_args(REPO_ROOT)]
+        pip_cmd = [str(pip_bin), *backend_pip_install_args_for_profile(profile, REPO_ROOT)]
         if not run_streamed(pip_cmd, REPO_ROOT, os.environ.copy(), "pip install"):
             print("Backend dependency install failed. Fix the issue above and re-run `./potionui start`.")
             return 1
@@ -1008,6 +1191,7 @@ def cmd_start(args) -> int:
         print("\nPotionUI is up.")
         _print_canonical_url(args.backend_port)
         _print_claim_token_hint(REPO_ROOT, args.backend_port)
+        _print_hybrid_profile_hint(profile)
         return 0
 
     vite_bin = REPO_ROOT / "frontend" / "node_modules" / ".bin" / "vite"
@@ -1048,6 +1232,7 @@ def cmd_start(args) -> int:
     print("\nPotionUI is up.")
     _print_canonical_url(args.frontend_port)
     _print_claim_token_hint(REPO_ROOT, args.frontend_port)
+    _print_hybrid_profile_hint(profile)
     return 0
 
 
@@ -1111,10 +1296,12 @@ def cmd_stop(args) -> int:
     return 0 if ok else 1
 
 
-def run_foreground(cmd: list[str], cwd: Path) -> int:
+def run_foreground(cmd: list[str], cwd: Path, env: Optional[dict] = None) -> int:
     """Run cmd attached to the current terminal (inherited stdio), so a long
-    `docker compose up --build` streams live and Ctrl-C reaches it directly."""
-    return subprocess.call(cmd, cwd=str(cwd))
+    `docker compose up --build` or `python worker.py` streams live and Ctrl-C
+    reaches it directly. `env=None` inherits the current process environment,
+    same as before this parameter existed."""
+    return subprocess.call(cmd, cwd=str(cwd), env=env)
 
 
 def cmd_start_docker(args) -> int:
@@ -1129,6 +1316,73 @@ def cmd_start_docker(args) -> int:
     cmd = ["docker", "compose", "-f", str(compose_file), "up", "--build", *args.compose_args]
     print(f"\n$ {' '.join(cmd)}")
     return run_foreground(cmd, REPO_ROOT)
+
+
+# ---------------------------------------------------------------------------
+# `worker` preset: doctor + start for a standalone Remote Native worker
+# (worker.py) on a GPU box that serves another PotionUI instance.
+# ---------------------------------------------------------------------------
+
+def cmd_worker_doctor(args) -> int:
+    probe = RealProbe()
+    worker_dir = resolve_worker_dir(REPO_ROOT)
+    results = run_worker_doctor(probe, REPO_ROOT, args.port, worker_dir)
+    print_doctor_report(results, args.json)
+    return 1 if any(r.severity == Severity.ERROR for r in results) else 0
+
+
+def cmd_worker_start(args) -> int:
+    probe = RealProbe()
+    worker_dir = resolve_worker_dir(REPO_ROOT)
+    results = run_worker_doctor(probe, REPO_ROOT, args.port, worker_dir)
+    blocking_failures = [r for r in results if r.blocking and r.severity == Severity.ERROR]
+    if blocking_failures:
+        print("Cannot start the worker — blocking issue(s) found:\n")
+        print_doctor_report(results, as_json=False)
+        return 1
+
+    python_found = probe_python_candidates(probe)
+    assert python_found is not None  # doctor already confirmed PY312 passed
+    python_bin, _ = python_found
+
+    venv_python = REPO_ROOT / "venv" / "bin" / "python"
+    if not venv_python.exists():
+        print(f"Creating virtualenv with {python_bin} ...")
+        if not run_streamed([python_bin, "-m", "venv", "venv"], REPO_ROOT, os.environ.copy(), "venv creation"):
+            return 1
+
+    try:
+        deps_ok = probe.run([str(venv_python), "-c", BACKEND_MARKER_IMPORT], timeout=20.0).returncode == 0
+    except Exception:
+        deps_ok = False
+    if not deps_ok:
+        print("Installing worker dependencies (full CUDA stack, this can take a while)...")
+        pip_bin = REPO_ROOT / "venv" / "bin" / "pip"
+        pip_cmd = [str(pip_bin), *backend_pip_install_args(REPO_ROOT)]
+        if not run_streamed(pip_cmd, REPO_ROOT, os.environ.copy(), "pip install"):
+            print("Worker dependency install failed. Fix the issue above and re-run `./potionui worker start`.")
+            return 1
+
+    worker_env = os.environ.copy()
+    worker_env["POTIONUI_WORKER_HOST"] = args.host
+    worker_env["POTIONUI_WORKER_PORT"] = str(args.port)
+
+    worker_cmd = [str(venv_python), "worker.py"]
+    print(f"\nStarting the Remote Native worker on http://{args.host}:{args.port} ...")
+    print(
+        "Put the same POTIONUI_WORKER_TOKEN into the Native (Remote Worker) backend on the "
+        "PotionUI instance that will dispatch to this worker (Admin -> Backends -> Add backend "
+        "-> Native (Remote Worker))."
+    )
+    return run_foreground(worker_cmd, REPO_ROOT, env=worker_env)
+
+
+def cmd_worker(args) -> int:
+    handlers = {"doctor": cmd_worker_doctor, "start": cmd_worker_start}
+    handler = handlers.get(args.worker_command)
+    if handler is None:
+        return 1
+    return handler(args)
 
 
 # ---------------------------------------------------------------------------
@@ -1149,12 +1403,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
+    profile_help = (
+        "Install preset: `local` (full CUDA stack, this box has the GPU), `hybrid` (same "
+        "dependency profile as local, plus a readiness hint for adding a remote worker later), "
+        "or `remote` (CPU-only torch, no CUDA libraries — this box has no GPU and dispatches to "
+        "a remote worker; not a CPU-generation mode). Default: the previously persisted choice, "
+        "or `local`. Persisted at .runtime/install_profile."
+    )
+    no_gpu_help = (
+        "Alias for --profile remote. A documented public flag of the released 0.0.2 — kept for "
+        "compatibility; prefer --profile remote."
+    )
+
     doctor_p = sub.add_parser("doctor", help="Run environment checks.")
     doctor_p.add_argument("--json", action="store_true", help="Emit machine-readable JSON rows.")
-    doctor_p.add_argument(
-        "--no-gpu", action="store_true",
-        help="Report the GPU row for a no-GPU / remote-backend host instead of a generic warning.",
-    )
+    doctor_p.add_argument("--profile", choices=INSTALL_PROFILES, default=None, help=profile_help)
+    doctor_p.add_argument("--no-gpu", action="store_true", help=no_gpu_help)
 
     start_p = sub.add_parser(
         "start",
@@ -1165,14 +1429,8 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     start_p.add_argument("--timeout", type=float, default=DEFAULT_START_TIMEOUT, help="Seconds to wait for readiness.")
-    start_p.add_argument(
-        "--no-gpu", action="store_true",
-        help=(
-            "Install the CPU-only dependency profile (requirements-cpu.txt against PyTorch's CPU "
-            "wheel index) instead of the CUDA stack. For hosts with no NVIDIA GPU that use a remote "
-            "generation backend — not a CPU-generation mode. Persisted for later plain `start` runs."
-        ),
-    )
+    start_p.add_argument("--profile", choices=INSTALL_PROFILES, default=None, help=profile_help)
+    start_p.add_argument("--no-gpu", action="store_true", help=no_gpu_help)
     start_p.add_argument(
         "--dev", action="store_true",
         help="Force the two-process dev flow (backend + Vite dev server) even if frontend/build is up to date.",
@@ -1197,6 +1455,32 @@ def build_parser() -> argparse.ArgumentParser:
         help="Extra arguments passed through to `docker compose up` (e.g. a service: rig-mid, rig-small).",
     )
 
+    worker_p = sub.add_parser(
+        "worker",
+        help=(
+            "The `worker` install preset: doctor/start a standalone Remote Native worker "
+            "(worker.py) on a GPU box that serves another PotionUI instance."
+        ),
+    )
+    worker_sub = worker_p.add_subparsers(dest="worker_command", required=True)
+
+    worker_doctor_p = worker_sub.add_parser("doctor", help="Run environment checks for the worker preset.")
+    worker_doctor_p.add_argument("--json", action="store_true", help="Emit machine-readable JSON rows.")
+    worker_doctor_p.add_argument(
+        "--port", type=int, default=DEFAULT_WORKER_PORT,
+        help=f"Worker port to check for availability (default {DEFAULT_WORKER_PORT}).",
+    )
+
+    worker_start_p = worker_sub.add_parser(
+        "start", help="Run the worker preset's blocking checks, install if needed, then exec `python worker.py`."
+    )
+    worker_start_p.add_argument(
+        "--host", default=DEFAULT_WORKER_HOST, help=f"Bind host (default {DEFAULT_WORKER_HOST})."
+    )
+    worker_start_p.add_argument(
+        "--port", type=int, default=DEFAULT_WORKER_PORT, help=f"Bind port (default {DEFAULT_WORKER_PORT})."
+    )
+
     return parser
 
 
@@ -1210,6 +1494,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         "status": cmd_status,
         "stop": cmd_stop,
         "start-docker": cmd_start_docker,
+        "worker": cmd_worker,
     }
     handler = handlers.get(args.command)
     if handler is None:

@@ -294,7 +294,31 @@ def test_check_gpu_absent_no_gpu_flag_on_is_informational():
     result = cli.check_gpu(probe, no_gpu=True)
     assert result.severity == cli.Severity.INFO
     assert result.blocking is False
-    assert "--no-gpu" in result.message
+
+
+def test_check_gpu_required_absent_is_blocking_error():
+    # Bite-check: this fails if the worker preset's GPU row stops being blocking.
+    probe = FakeProbe()
+    result = cli.check_gpu(probe, required=True)
+    assert result.severity == cli.Severity.ERROR
+    assert result.blocking is True
+
+
+def test_check_gpu_required_present_is_ok_and_blocking():
+    probe = FakeProbe(
+        which={"nvidia-smi": "/usr/bin/nvidia-smi"},
+        run={"/usr/bin/nvidia-smi": cp(stdout="NVIDIA GeForce RTX 5090, 570.00\n")},
+    )
+    result = cli.check_gpu(probe, required=True)
+    assert result.severity == cli.Severity.OK
+    assert result.blocking is True
+
+
+def test_check_gpu_required_present_but_broken_is_blocking_error():
+    probe = FakeProbe(which={"nvidia-smi": "/usr/bin/nvidia-smi"}, run={"/usr/bin/nvidia-smi": cp(returncode=1)})
+    result = cli.check_gpu(probe, required=True)
+    assert result.severity == cli.Severity.ERROR
+    assert result.blocking is True
 
 
 # ---------------------------------------------------------------------------
@@ -380,6 +404,92 @@ def test_check_env_file_absent(tmp_path):
     result = cli.check_env_file(probe, tmp_path)
     assert result.severity == cli.Severity.INFO
     assert result.blocking is False
+
+
+# ---------------------------------------------------------------------------
+# check_worker_dir / check_worker_token / resolve_worker_dir
+# ---------------------------------------------------------------------------
+
+def test_check_worker_dir_writable(tmp_path):
+    worker_dir = tmp_path / "worker_data"
+    probe = FakeProbe(writable={str(worker_dir): True})
+    result = cli.check_worker_dir(probe, worker_dir)
+    assert result.severity == cli.Severity.OK
+    assert result.blocking is True
+
+
+def test_check_worker_dir_not_writable(tmp_path):
+    worker_dir = tmp_path / "worker_data"
+    probe = FakeProbe(writable={str(worker_dir): False})
+    result = cli.check_worker_dir(probe, worker_dir)
+    assert result.severity == cli.Severity.ERROR
+    assert result.blocking is True
+
+
+def test_check_worker_token_absent_is_blocking_error(tmp_path):
+    result = cli.check_worker_token(tmp_path, env={})
+    assert result.severity == cli.Severity.ERROR
+    assert result.blocking is True
+    assert "secrets.token_urlsafe" in result.repair
+
+
+def test_check_worker_token_present_in_env(tmp_path):
+    result = cli.check_worker_token(tmp_path, env={"POTIONUI_WORKER_TOKEN": "abc"})
+    assert result.severity == cli.Severity.OK
+
+
+def test_check_worker_token_present_in_env_file(tmp_path):
+    (tmp_path / ".env").write_text("POTIONUI_WORKER_TOKEN=abc123\n")
+    result = cli.check_worker_token(tmp_path, env={})
+    assert result.severity == cli.Severity.OK
+
+
+def test_check_worker_token_ignores_blank_and_commented_env_lines(tmp_path):
+    (tmp_path / ".env").write_text("# POTIONUI_WORKER_TOKEN=abc123\nPOTIONUI_WORKER_TOKEN=\n\n")
+    result = cli.check_worker_token(tmp_path, env={})
+    assert result.severity == cli.Severity.ERROR
+
+
+def test_resolve_worker_dir_defaults_relative_to_repo_root(tmp_path, monkeypatch):
+    monkeypatch.delenv("POTIONUI_WORKER_DIR", raising=False)
+    assert cli.resolve_worker_dir(tmp_path) == tmp_path / "worker_data"
+
+
+def test_resolve_worker_dir_respects_env_override(tmp_path, monkeypatch):
+    monkeypatch.setenv("POTIONUI_WORKER_DIR", "custom_dir")
+    assert cli.resolve_worker_dir(tmp_path) == tmp_path / "custom_dir"
+
+
+def test_resolve_worker_dir_absolute_env_override_used_as_is(tmp_path, monkeypatch):
+    abs_dir = tmp_path / "abs_worker"
+    monkeypatch.setenv("POTIONUI_WORKER_DIR", str(abs_dir))
+    assert cli.resolve_worker_dir(tmp_path) == abs_dir
+
+
+# ---------------------------------------------------------------------------
+# run_worker_doctor — the worker preset's shorter check registry
+# ---------------------------------------------------------------------------
+
+def test_run_worker_doctor_returns_expected_codes_no_node_npm_frontend(tmp_path):
+    probe = FakeProbe(ports_free={8100: True})
+    results = cli.run_worker_doctor(
+        probe, tmp_path, 8100, tmp_path / "worker_data", env={"POTIONUI_WORKER_TOKEN": "x"}
+    )
+    codes = {r.code for r in results}
+    assert codes == {"PY312", "VENV", "BACKEND_DEPS", "GPU", "DISK", "PORT_8100", "WORKER_DIR", "WORKER_TOKEN"}
+    assert "NODE" not in codes
+    assert "NPM" not in codes
+    assert "FRONTEND_DEPS" not in codes
+    assert "ENV_FILE" not in codes
+
+
+def test_run_worker_doctor_gpu_row_is_required():
+    # Bite-check: fails if run_worker_doctor stops passing required=True through.
+    probe = FakeProbe(ports_free={8100: True})
+    results = cli.run_worker_doctor(probe, Path("."), 8100, Path("worker_data"))
+    gpu_row = next(r for r in results if r.code == "GPU")
+    assert gpu_row.severity == cli.Severity.ERROR
+    assert gpu_row.blocking is True
 
 
 # ---------------------------------------------------------------------------
@@ -507,21 +617,116 @@ def test_load_state_corrupt_json_returns_none(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# no-gpu profile marker (.runtime/no_gpu_profile)
+# install profile marker (.runtime/install_profile), legacy no_gpu_profile
+# fallback, and resolve_install_profile
 # ---------------------------------------------------------------------------
 
-def test_no_gpu_profile_inactive_when_marker_absent(tmp_path):
-    marker = tmp_path / "no_gpu_profile"
-    assert cli.no_gpu_profile_active(marker) is False
+def test_install_profile_inactive_when_no_marker(tmp_path):
+    marker = tmp_path / "install_profile"
+    legacy = tmp_path / "no_gpu_profile"
+    assert cli.install_profile_active(marker, legacy) is None
 
 
-def test_no_gpu_profile_active_after_marking(tmp_path):
-    marker = tmp_path / "no_gpu_profile"
-    cli.mark_no_gpu_profile(marker)
-    assert cli.no_gpu_profile_active(marker) is True
+def test_install_profile_active_after_marking(tmp_path):
+    marker = tmp_path / "install_profile"
+    legacy = tmp_path / "no_gpu_profile"
+    cli.mark_install_profile("hybrid", marker)
+    assert cli.install_profile_active(marker, legacy) == "hybrid"
     data = json.loads(marker.read_text())
-    assert data["no_gpu"] is True
+    assert data["profile"] == "hybrid"
     assert "marked_at" in data
+
+
+def test_install_profile_reads_legacy_no_gpu_marker_as_remote(tmp_path):
+    marker = tmp_path / "install_profile"
+    legacy = tmp_path / "no_gpu_profile"
+    legacy.write_text(json.dumps({"no_gpu": True, "marked_at": "then"}))
+    assert cli.install_profile_active(marker, legacy) == "remote"
+
+
+def test_install_profile_prefers_new_marker_over_legacy(tmp_path):
+    marker = tmp_path / "install_profile"
+    legacy = tmp_path / "no_gpu_profile"
+    legacy.write_text(json.dumps({"no_gpu": True}))
+    cli.mark_install_profile("local", marker)
+    assert cli.install_profile_active(marker, legacy) == "local"
+
+
+def test_install_profile_corrupt_marker_falls_back_to_legacy(tmp_path):
+    marker = tmp_path / "install_profile"
+    marker.write_text("{not valid json")
+    legacy = tmp_path / "no_gpu_profile"
+    legacy.write_text(json.dumps({"no_gpu": True}))
+    assert cli.install_profile_active(marker, legacy) == "remote"
+
+
+def test_resolve_install_profile_explicit_profile_flag(monkeypatch):
+    monkeypatch.setattr(cli, "install_profile_active", lambda: "remote")
+    parser = cli.build_parser()
+    args = parser.parse_args(["start", "--profile", "hybrid"])
+    profile, explicit = cli.resolve_install_profile(args)
+    assert profile == "hybrid"
+    assert explicit is True
+
+
+def test_resolve_install_profile_no_gpu_alias_resolves_to_remote(monkeypatch):
+    # Bite-check: this fails if --no-gpu stops being read as the `remote` alias.
+    monkeypatch.setattr(cli, "install_profile_active", lambda: None)
+    parser = cli.build_parser()
+    args = parser.parse_args(["start", "--no-gpu"])
+    profile, explicit = cli.resolve_install_profile(args)
+    assert profile == "remote"
+    assert explicit is True
+
+
+def test_resolve_install_profile_explicit_profile_flag_wins_over_no_gpu_alias(monkeypatch):
+    monkeypatch.setattr(cli, "install_profile_active", lambda: None)
+    parser = cli.build_parser()
+    args = parser.parse_args(["start", "--profile", "local", "--no-gpu"])
+    profile, explicit = cli.resolve_install_profile(args)
+    assert profile == "local"
+    assert explicit is True
+
+
+def test_resolve_install_profile_falls_back_to_persisted_choice(monkeypatch):
+    monkeypatch.setattr(cli, "install_profile_active", lambda: "hybrid")
+    parser = cli.build_parser()
+    args = parser.parse_args(["start"])
+    profile, explicit = cli.resolve_install_profile(args)
+    assert profile == "hybrid"
+    assert explicit is False
+
+
+def test_resolve_install_profile_defaults_to_local(monkeypatch):
+    monkeypatch.setattr(cli, "install_profile_active", lambda: None)
+    parser = cli.build_parser()
+    args = parser.parse_args(["start"])
+    profile, explicit = cli.resolve_install_profile(args)
+    assert profile == "local"
+    assert explicit is False
+
+
+# ---------------------------------------------------------------------------
+# backend_pip_install_args_for_profile
+# ---------------------------------------------------------------------------
+
+def test_backend_pip_install_args_for_profile_remote_uses_cpu_args(tmp_path):
+    assert cli.backend_pip_install_args_for_profile("remote", tmp_path) == cli.backend_pip_install_args_no_gpu()
+
+
+def test_backend_pip_install_args_for_profile_local_uses_constraints(tmp_path):
+    (tmp_path / "constraints.txt").write_text("torch==2.12.1\n")
+    assert cli.backend_pip_install_args_for_profile("local", tmp_path) == [
+        "install", "-r", "requirements.txt", "-c", "constraints.txt",
+    ]
+
+
+def test_backend_pip_install_args_for_profile_hybrid_uses_constraints(tmp_path):
+    # hybrid has no dependency-set difference from local — same install args.
+    (tmp_path / "constraints.txt").write_text("torch==2.12.1\n")
+    assert cli.backend_pip_install_args_for_profile("hybrid", tmp_path) == [
+        "install", "-r", "requirements.txt", "-c", "constraints.txt",
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -642,6 +847,61 @@ def test_build_parser_doctor_no_gpu_flag():
     parser = cli.build_parser()
     args = parser.parse_args(["doctor", "--no-gpu"])
     assert args.no_gpu is True
+
+
+def test_build_parser_start_profile_defaults_none():
+    parser = cli.build_parser()
+    args = parser.parse_args(["start"])
+    assert args.profile is None
+
+
+def test_build_parser_start_profile_flag():
+    parser = cli.build_parser()
+    args = parser.parse_args(["start", "--profile", "hybrid"])
+    assert args.profile == "hybrid"
+
+
+def test_build_parser_doctor_profile_flag():
+    parser = cli.build_parser()
+    args = parser.parse_args(["doctor", "--profile", "remote"])
+    assert args.profile == "remote"
+
+
+def test_build_parser_profile_rejects_unknown_value():
+    parser = cli.build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["start", "--profile", "bogus"])
+
+
+def test_build_parser_worker_doctor_defaults():
+    parser = cli.build_parser()
+    args = parser.parse_args(["worker", "doctor"])
+    assert args.command == "worker"
+    assert args.worker_command == "doctor"
+    assert args.port == cli.DEFAULT_WORKER_PORT
+    assert args.json is False
+
+
+def test_build_parser_worker_start_defaults():
+    parser = cli.build_parser()
+    args = parser.parse_args(["worker", "start"])
+    assert args.command == "worker"
+    assert args.worker_command == "start"
+    assert args.host == cli.DEFAULT_WORKER_HOST
+    assert args.port == cli.DEFAULT_WORKER_PORT
+
+
+def test_build_parser_worker_start_port_and_host_overrides():
+    parser = cli.build_parser()
+    args = parser.parse_args(["worker", "start", "--host", "0.0.0.0", "--port", "9100"])
+    assert args.host == "0.0.0.0"
+    assert args.port == 9100
+
+
+def test_build_parser_worker_requires_subcommand():
+    parser = cli.build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["worker"])
 
 
 def test_build_parser_start_docker_defaults_no_extra_args():
@@ -870,9 +1130,9 @@ def test_cmd_start_frontend_env_and_probe_url_share_the_same_host(monkeypatch, t
     monkeypatch.setattr(cli, "load_state", lambda state_file=cli.STATE_FILE: None)
     monkeypatch.setattr(cli, "run_doctor", lambda *a, **k: [])
     monkeypatch.setattr(cli, "probe_python_candidates", lambda probe: ("python3.12", (3, 12)))
-    # Isolate from the real .runtime/no_gpu_profile marker (NO_GPU_PROFILE_FILE
+    # Isolate from the real .runtime/install_profile marker (INSTALL_PROFILE_FILE
     # binds against the real REPO_ROOT at import time, not the monkeypatched one).
-    monkeypatch.setattr(cli, "no_gpu_profile_active", lambda marker_file=cli.NO_GPU_PROFILE_FILE: False)
+    monkeypatch.setattr(cli, "install_profile_active", lambda: None)
 
     venv_python = tmp_path / "venv" / "bin" / "python"
     venv_python.parent.mkdir(parents=True)
@@ -931,18 +1191,24 @@ def test_cmd_start_frontend_env_and_probe_url_share_the_same_host(monkeypatch, t
 
 
 # ---------------------------------------------------------------------------
-# cmd_start --no-gpu: installs requirements-cpu.txt against the PyTorch CPU
-# index, never constraints.txt, and persists the profile marker
+# cmd_start install profiles: --profile remote / --no-gpu install
+# requirements-cpu.txt against the PyTorch CPU index, never constraints.txt,
+# and persist the profile marker; hybrid prints the readiness hint.
 # ---------------------------------------------------------------------------
 
-def test_cmd_start_no_gpu_installs_cpu_requirements_and_marks_profile(monkeypatch, tmp_path):
+def _stub_cmd_start_for_profile(monkeypatch, tmp_path, deps_importable=False):
+    """Shared fakes for the cmd_start profile tests below — same idea as
+    _stub_cmd_start_prereqs but returns the pip/mark capture dicts."""
     monkeypatch.setattr(cli, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(cli, "load_state", lambda state_file=cli.STATE_FILE: None)
     monkeypatch.setattr(cli, "run_doctor", lambda *a, **k: [])
     monkeypatch.setattr(cli, "probe_python_candidates", lambda probe: ("python3.12", (3, 12)))
-    monkeypatch.setattr(cli, "no_gpu_profile_active", lambda marker_file=cli.NO_GPU_PROFILE_FILE: False)
+    monkeypatch.setattr(cli, "install_profile_active", lambda: None)
     marked = []
-    monkeypatch.setattr(cli, "mark_no_gpu_profile", lambda marker_file=cli.NO_GPU_PROFILE_FILE: marked.append(True))
+    monkeypatch.setattr(
+        cli, "mark_install_profile",
+        lambda profile, marker_file=cli.INSTALL_PROFILE_FILE: marked.append(profile),
+    )
 
     venv_python = tmp_path / "venv" / "bin" / "python"
     venv_python.parent.mkdir(parents=True)
@@ -951,9 +1217,9 @@ def test_cmd_start_no_gpu_installs_cpu_requirements_and_marks_profile(monkeypatc
     vite_bin.parent.mkdir(parents=True)
     vite_bin.touch()
 
-    # Backend deps NOT importable -> `start` must shell out to pip.
+    returncode = 0 if deps_importable else 1
     monkeypatch.setattr(
-        cli, "RealProbe", lambda: FakeProbe(run={str(venv_python): cp(returncode=1)})
+        cli, "RealProbe", lambda: FakeProbe(run={str(venv_python): cp(returncode=returncode)})
     )
 
     captured = {}
@@ -975,17 +1241,77 @@ def test_cmd_start_no_gpu_installs_cpu_requirements_and_marks_profile(monkeypatc
     monkeypatch.setattr(cli, "wait_for_ready", lambda check, timeout: True)
     monkeypatch.setattr(cli, "http_ok", lambda url, **kwargs: True)
     monkeypatch.setattr(cli, "_print_claim_token_hint", lambda repo_root, port: None)
+    return captured, marked
+
+
+def test_cmd_start_no_gpu_installs_cpu_requirements_and_marks_remote_profile(monkeypatch, tmp_path):
+    captured, marked = _stub_cmd_start_for_profile(monkeypatch, tmp_path)
 
     parser = cli.build_parser()
     args = parser.parse_args(["start", "--no-gpu"])
     code = cli.cmd_start(args)
 
     assert code == 0
-    assert marked == [True]
+    assert marked == ["remote"]
     pip_bin = str(tmp_path / "venv" / "bin" / "pip")
     assert captured["pip_cmd"][0] == pip_bin
     assert captured["pip_cmd"][1:] == cli.backend_pip_install_args_no_gpu()
     assert "constraints.txt" not in captured["pip_cmd"]
+
+
+def test_cmd_start_profile_remote_matches_no_gpu_alias(monkeypatch, tmp_path, capsys):
+    # Bite-check the alias: --profile remote must install exactly what
+    # --no-gpu installs, proving the two are actually the same code path.
+    captured, marked = _stub_cmd_start_for_profile(monkeypatch, tmp_path)
+
+    parser = cli.build_parser()
+    args = parser.parse_args(["start", "--profile", "remote"])
+    code = cli.cmd_start(args)
+
+    assert code == 0
+    assert marked == ["remote"]
+    assert captured["pip_cmd"][1:] == cli.backend_pip_install_args_no_gpu()
+    assert "Install profile: remote" in capsys.readouterr().out
+
+
+def test_cmd_start_local_profile_installs_constraints_and_marks_nothing_by_default(monkeypatch, tmp_path):
+    (tmp_path / "constraints.txt").write_text("torch==2.12.1\n")
+    captured, marked = _stub_cmd_start_for_profile(monkeypatch, tmp_path)
+
+    parser = cli.build_parser()
+    args = parser.parse_args(["start"])
+    code = cli.cmd_start(args)
+
+    assert code == 0
+    assert marked == []  # not explicit -> never persisted
+    assert captured["pip_cmd"][1:] == ["install", "-r", "requirements.txt", "-c", "constraints.txt"]
+
+
+def test_cmd_start_hybrid_profile_installs_constraints_and_prints_readiness_hint(monkeypatch, tmp_path, capsys):
+    (tmp_path / "constraints.txt").write_text("torch==2.12.1\n")
+    captured, marked = _stub_cmd_start_for_profile(monkeypatch, tmp_path)
+
+    parser = cli.build_parser()
+    args = parser.parse_args(["start", "--profile", "hybrid"])
+    code = cli.cmd_start(args)
+
+    assert code == 0
+    assert marked == ["hybrid"]
+    assert captured["pip_cmd"][1:] == ["install", "-r", "requirements.txt", "-c", "constraints.txt"]
+    out = capsys.readouterr().out
+    assert "Hybrid profile" in out
+    assert "Native (Remote Worker)" in out
+
+
+def test_cmd_start_local_profile_does_not_print_hybrid_hint(monkeypatch, tmp_path, capsys):
+    _stub_cmd_start_for_profile(monkeypatch, tmp_path, deps_importable=True)
+
+    parser = cli.build_parser()
+    args = parser.parse_args(["start"])
+    code = cli.cmd_start(args)
+
+    assert code == 0
+    assert "Hybrid profile" not in capsys.readouterr().out
 
 
 # ---------------------------------------------------------------------------
@@ -1081,7 +1407,7 @@ def _stub_cmd_start_prereqs(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "load_state", lambda state_file=cli.STATE_FILE: None)
     monkeypatch.setattr(cli, "run_doctor", lambda *a, **k: [])
     monkeypatch.setattr(cli, "probe_python_candidates", lambda probe: ("python3.12", (3, 12)))
-    monkeypatch.setattr(cli, "no_gpu_profile_active", lambda marker_file=cli.NO_GPU_PROFILE_FILE: False)
+    monkeypatch.setattr(cli, "install_profile_active", lambda: None)
 
     venv_python = tmp_path / "venv" / "bin" / "python"
     venv_python.parent.mkdir(parents=True)
@@ -1204,3 +1530,167 @@ def test_cmd_build_fails_without_npm(monkeypatch, tmp_path, capsys):
 
     assert code == 1
     assert "npm not found" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# run_foreground: env is forwarded to the child process
+# ---------------------------------------------------------------------------
+
+def test_run_foreground_forwards_env(monkeypatch, tmp_path):
+    captured = {}
+
+    def fake_call(cmd, cwd, env):
+        captured["cmd"] = cmd
+        captured["cwd"] = cwd
+        captured["env"] = env
+        return 0
+
+    monkeypatch.setattr(cli.subprocess, "call", fake_call)
+    code = cli.run_foreground(["echo", "hi"], tmp_path, env={"FOO": "bar"})
+    assert code == 0
+    assert captured["env"] == {"FOO": "bar"}
+    assert captured["cwd"] == str(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# cmd_worker_doctor / cmd_worker_start
+# ---------------------------------------------------------------------------
+
+def _worker_ok_probe(port=None, worker_dir=None):
+    port = port if port is not None else cli.DEFAULT_WORKER_PORT
+    return FakeProbe(
+        which={"nvidia-smi": "/usr/bin/nvidia-smi", "python3.12": "/usr/bin/python3.12"},
+        run={
+            "/usr/bin/nvidia-smi": cp(stdout="NVIDIA GeForce RTX 5090, 570.00\n"),
+            "/usr/bin/python3.12": cp(stdout="3.12.2\n"),
+        },
+        ports_free={port: True},
+        writable={str(worker_dir): True} if worker_dir else {},
+    )
+
+
+def test_cmd_worker_doctor_exit_code_reflects_errors(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(cli, "REPO_ROOT", tmp_path)
+    monkeypatch.delenv("POTIONUI_WORKER_TOKEN", raising=False)
+    monkeypatch.setattr(cli, "RealProbe", lambda: FakeProbe())  # nothing present -> errors
+    parser = cli.build_parser()
+    args = parser.parse_args(["worker", "doctor", "--json"])
+    code = cli.cmd_worker_doctor(args)
+    assert code == 1
+    rows = json.loads(capsys.readouterr().out)
+    codes = {r["code"] for r in rows}
+    assert "NODE" not in codes
+    assert "NPM" not in codes
+    assert "FRONTEND_DEPS" not in codes
+    gpu_row = next(r for r in rows if r["code"] == "GPU")
+    assert gpu_row["severity"] == "error"
+    token_row = next(r for r in rows if r["code"] == "WORKER_TOKEN")
+    assert token_row["severity"] == "error"
+
+
+def test_cmd_worker_doctor_passes_when_everything_present(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "REPO_ROOT", tmp_path)
+    monkeypatch.setenv("POTIONUI_WORKER_TOKEN", "shh")
+    worker_dir = tmp_path / "worker_data"
+    monkeypatch.setattr(cli, "RealProbe", lambda: _worker_ok_probe(worker_dir=worker_dir))
+    parser = cli.build_parser()
+    args = parser.parse_args(["worker", "doctor"])
+    code = cli.cmd_worker_doctor(args)
+    assert code == 0
+
+
+def test_cmd_worker_start_blocks_on_missing_token_no_pip_no_venv(monkeypatch, tmp_path, capsys):
+    # Bite-check: a worker without a GPU/token must never reach pip or exec.
+    monkeypatch.setattr(cli, "REPO_ROOT", tmp_path)
+    monkeypatch.delenv("POTIONUI_WORKER_TOKEN", raising=False)
+    monkeypatch.setattr(cli, "RealProbe", lambda: FakeProbe())  # no GPU, no token -> blocking
+    called = []
+    monkeypatch.setattr(cli, "run_streamed", lambda *a, **k: called.append("run_streamed") or True)
+    monkeypatch.setattr(cli, "run_foreground", lambda *a, **k: called.append("run_foreground") or 0)
+
+    parser = cli.build_parser()
+    args = parser.parse_args(["worker", "start"])
+    code = cli.cmd_worker_start(args)
+
+    assert code == 1
+    assert called == []
+    out = capsys.readouterr().out
+    assert "GPU" in out
+    assert "WORKER_TOKEN" in out
+
+
+def test_cmd_worker_start_installs_and_execs_worker_py(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "REPO_ROOT", tmp_path)
+    monkeypatch.setenv("POTIONUI_WORKER_TOKEN", "shh")
+    venv_python = tmp_path / "venv" / "bin" / "python"
+    worker_dir = tmp_path / "worker_data"
+
+    probe = _worker_ok_probe(port=9100, worker_dir=worker_dir)
+    probe._run[str(venv_python)] = cp(returncode=1)  # deps not importable -> pip install
+    monkeypatch.setattr(cli, "RealProbe", lambda: probe)
+    monkeypatch.setattr(cli, "probe_python_candidates", lambda p: ("python3.12", "3.12.2"))
+
+    streamed = []
+
+    def fake_run_streamed(cmd, cwd, env, label):
+        streamed.append((label, cmd))
+        if label == "venv creation":
+            venv_python.parent.mkdir(parents=True, exist_ok=True)
+            venv_python.touch()
+        return True
+
+    monkeypatch.setattr(cli, "run_streamed", fake_run_streamed)
+
+    captured = {}
+
+    def fake_run_foreground(cmd, cwd, env=None):
+        captured["cmd"] = cmd
+        captured["cwd"] = cwd
+        captured["env"] = env
+        return 0
+
+    monkeypatch.setattr(cli, "run_foreground", fake_run_foreground)
+
+    parser = cli.build_parser()
+    args = parser.parse_args(["worker", "start", "--host", "0.0.0.0", "--port", "9100"])
+    code = cli.cmd_worker_start(args)
+
+    assert code == 0
+    labels = [s[0] for s in streamed]
+    assert "venv creation" in labels
+    assert "pip install" in labels
+    pip_call = next(cmd for label, cmd in streamed if label == "pip install")
+    assert pip_call[1:] == cli.backend_pip_install_args(tmp_path)
+    assert captured["cmd"] == [str(venv_python), "worker.py"]
+    assert captured["cwd"] == tmp_path
+    assert captured["env"]["POTIONUI_WORKER_HOST"] == "0.0.0.0"
+    assert captured["env"]["POTIONUI_WORKER_PORT"] == "9100"
+
+
+def test_cmd_worker_start_skips_install_when_deps_already_importable(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "REPO_ROOT", tmp_path)
+    monkeypatch.setenv("POTIONUI_WORKER_TOKEN", "shh")
+    venv_python = tmp_path / "venv" / "bin" / "python"
+    venv_python.parent.mkdir(parents=True)
+    venv_python.touch()
+    worker_dir = tmp_path / "worker_data"
+
+    probe = _worker_ok_probe(worker_dir=worker_dir)
+    probe._run[str(venv_python)] = cp(returncode=0)
+    monkeypatch.setattr(cli, "RealProbe", lambda: probe)
+    monkeypatch.setattr(cli, "probe_python_candidates", lambda p: ("python3.12", "3.12.2"))
+
+    streamed = []
+    monkeypatch.setattr(
+        cli, "run_streamed", lambda cmd, cwd, env, label: streamed.append(label) or True
+    )
+    monkeypatch.setattr(
+        cli, "run_foreground", lambda cmd, cwd, env=None: 0
+    )
+
+    parser = cli.build_parser()
+    args = parser.parse_args(["worker", "start"])
+    code = cli.cmd_worker_start(args)
+
+    assert code == 0
+    assert streamed == []

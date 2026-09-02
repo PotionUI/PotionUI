@@ -1,6 +1,7 @@
-# Backend dependencies for the `./potionui start --no-gpu` profile — hosts
-# with no NVIDIA card that use a remote generation backend, NOT a
-# CPU-generation mode. Install with:
+# Backend dependencies for the `./potionui start --profile remote` install
+# preset (`--no-gpu` is a compatibility alias for the same preset) — hosts
+# with no NVIDIA card that dispatch to a remote worker, NOT a CPU-generation
+# mode. Install with:
 #   pip install -r requirements-cpu.txt --extra-index-url https://download.pytorch.org/whl/cpu
 #
 # This is requirements.txt's full package surface (every direct dependency

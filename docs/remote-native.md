@@ -16,9 +16,24 @@ to run on hardware PotionUI's operator does not otherwise control.
 
 ## Running it
 
+Bare metal, via the `worker` install preset (checks the GPU, the port,
+`POTIONUI_WORKER_DIR`, and `POTIONUI_WORKER_TOKEN`, then execs `python
+worker.py`):
+
+```bash
+./potionui worker doctor   # environment checks for this preset
+./potionui worker start    # create the venv, install the full CUDA stack, launch worker.py
+```
+
+Or run `worker.py` directly:
+
 ```bash
 POTIONUI_WORKER_TOKEN=<shared-secret> python worker.py
 ```
+
+Containerized, via the reference `docker/worker.Dockerfile` image — the path
+a remote-execution provider plugin (e.g. `runpod-provider`) expects; see
+`docker/README.md`'s "RunPod worker image" section.
 
 `worker.py` is a thin wrapper (mirrors `api.py`): it loads `.env` and exposes
 the `app` object `src.bootstrap.worker_app.create_worker_app()` builds. The

@@ -214,13 +214,24 @@ Plugin code imports only from `src/plugin_api/`. Authoring reference:
 > matrix. On Windows, use WSL2 or Docker Desktop (native Windows won't even
 > install yet). Details in [Supported platforms](#supported-platforms).
 
+PotionUI can generate on this machine's GPU, dispatch to a remote worker, or
+both — the `./potionui` CLI has an install preset for each.
+
+**Pick an install:**
+
+| You have                                              | What gets installed                                                 | Command                             |
+| ------------------------------------------------------ | ----------------------------------------------------------------- | -------------------------------------- |
+| A GPU in this machine                                 | Full CUDA stack                                                    | `./potionui start`                     |
+| A GPU here, plus room to add remote workers later      | Full CUDA stack                                                    | `./potionui start --profile hybrid`    |
+| No GPU here (a VPS or laptop) — dispatch to a worker    | CPU-only PyTorch, no CUDA libraries — **not** a CPU-generation mode | `./potionui start --profile remote`    |
+| A GPU box that only serves another PotionUI instance    | Full CUDA stack, no frontend                                       | `./potionui worker start`              |
+
 You need:
 
-- **Python 3.12+** and **Node.js 18+**
-- For GPU generation: a CUDA-capable NVIDIA GPU with a matching PyTorch install
-- Floor: **8 GB VRAM + 16 GB RAM** (runs the SDXL family). Larger families
-  need more, some considerably more — see
-  [Hardware Requirements](docs/user/hardware-requirements.md).
+- **Python 3.12+**, and **Node.js 18+** for every preset except Worker.
+- Floor: **8 GB VRAM + 16 GB RAM** (runs the SDXL family) on any preset that
+  installs the CUDA stack. Larger families need more, some considerably more
+  — see [Hardware Requirements](docs/user/hardware-requirements.md).
 
 ```bash
 git clone https://github.com/PotionUI/PotionUI.git potionui && cd potionui
@@ -232,8 +243,6 @@ git clone https://github.com/PotionUI/PotionUI.git potionui && cd potionui
   or Ctrl-C cleans them up together.
 - `./potionui status` reports whether an instance is up; `./potionui doctor`
   names any problem and its fix.
-- No NVIDIA GPU on the host (e.g. a VPS pointed at a remote generation
-  backend)? `./potionui start --no-gpu` skips the multi-GB CUDA stack.
 
 ### Supported platforms
 

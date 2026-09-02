@@ -111,6 +111,8 @@ def test_router_exposes_only_clean_prompt_resource_prefix(built_router):
     assert "/api/prompts/{prompt_id}" in paths
     assert "/api/prompts/importers" in paths
     assert "/api/prompts/import/{importer_id}" in paths
+    assert "/api/prompts/import" in paths
+    assert "/api/prompts/export" in paths
     assert "/api/prompts/search" in paths
     assert all(not path.startswith("/api/prompt-database") for path in paths)
 
@@ -432,7 +434,7 @@ class TestRouteOrder:
             if isinstance(route, APIRoute) and "GET" in route.methods
         ]
         catch_all = get_paths.index("/api/prompts/{prompt_id}")
-        for static in ("/api/prompts/embedding-status", "/api/prompts/search", "/api/prompts"):
+        for static in ("/api/prompts/embedding-status", "/api/prompts/search", "/api/prompts/export", "/api/prompts"):
             assert get_paths.index(static) < catch_all, (
                 f"{static} is registered after /{{prompt_id}} and can never match"
             )
@@ -443,3 +445,122 @@ class TestRouteOrder:
             if isinstance(route, APIRoute) and "GET" in route.methods
         ]
         assert "/api/prompts/{prompt_id}/generations" in get_paths
+
+
+class _StubOutcome:
+    """Mimics `ImportOutcome.to_dict()` without importing the real dataclass."""
+
+    def __init__(self, data):
+        self._data = data
+
+    def to_dict(self):
+        return self._data
+
+
+def test_import_accepts_multiple_files_and_forwards_form_fields(client, collaborators, mock_operations):
+    mock_operations.import_prompts = AsyncMock(return_value=_StubOutcome({
+        "imported": 3, "skipped": 0, "total": 3,
+        "items": [{"id": "p1"}, {"id": "p2"}, {"id": "p3"}],
+        "files": [
+            {"filename": "a.csv", "format": "styles_csv", "imported": 2, "skipped": 0},
+            {"filename": "b.txt", "format": "lines", "imported": 1, "skipped": 0},
+        ],
+    }))
+
+    response = client.post(
+        "/api/prompts/import",
+        files=[
+            ("files", ("a.csv", b"name,prompt,negative_prompt\nA,x,y\n", "text/csv")),
+            ("files", ("b.txt", b"a fox\n", "text/plain")),
+        ],
+        data={"format": "", "model_name": "Caller Model", "base_model": "SDXL"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["data"]["imported"] == 3
+    assert len(body["data"]["files"]) == 2
+
+    mock_operations.import_prompts.assert_awaited_once()
+    call = mock_operations.import_prompts.await_args
+    collab_arg, user_id, loaded_files = call.args
+    assert collab_arg is collaborators
+    assert user_id == "user-1"
+    assert {name for name, _ in loaded_files} == {"a.csv", "b.txt"}
+    assert call.kwargs["model_name"] == "Caller Model"
+    assert call.kwargs["base_model"] == "SDXL"
+
+
+def test_import_pasted_text_arrives_as_an_ordinary_file_part(client, mock_operations):
+    """Pasted text is uploaded as a file part (conventionally `pasted.txt`) -
+    nothing server-side special-cases the name; it flows through like any
+    other uploaded file."""
+    mock_operations.import_prompts = AsyncMock(return_value=_StubOutcome({
+        "imported": 1, "skipped": 0, "total": 1, "items": [{"id": "p1"}],
+        "files": [{"filename": "pasted.txt", "format": "lines", "imported": 1, "skipped": 0}],
+    }))
+
+    response = client.post(
+        "/api/prompts/import",
+        files=[("files", ("pasted.txt", b"a hand-pasted prompt\n", "text/plain"))],
+    )
+
+    assert response.status_code == 200
+    mock_operations.import_prompts.assert_awaited_once()
+    loaded_files = mock_operations.import_prompts.await_args.args[2]
+    assert loaded_files == [("pasted.txt", b"a hand-pasted prompt\n")]
+
+
+def test_import_rejects_a_file_over_the_20mb_cap_with_413(client, mock_operations):
+    mock_operations.import_prompts = AsyncMock()
+    oversized = b"a" * (20 * 1024 * 1024 + 1)
+
+    response = client.post(
+        "/api/prompts/import",
+        files=[("files", ("huge.txt", oversized, "text/plain"))],
+    )
+
+    assert response.status_code == 413
+    mock_operations.import_prompts.assert_not_awaited()
+
+
+def test_import_reports_nothing_imported_when_every_file_failed_or_was_empty(client, mock_operations):
+    mock_operations.import_prompts = AsyncMock(return_value=_StubOutcome({
+        "imported": 0, "skipped": 0, "total": 0, "items": [],
+        "files": [
+            {"filename": "empty.txt", "format": "lines", "imported": 0, "skipped": 0, "reason": "empty"},
+            {"filename": "broken.json", "format": "style_json", "imported": 0, "skipped": 0, "reason": "Expecting value"},
+        ],
+    }))
+
+    response = client.post(
+        "/api/prompts/import",
+        files=[
+            ("files", ("empty.txt", b"", "text/plain")),
+            ("files", ("broken.json", b"{not json", "application/json")),
+        ],
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is False
+    assert body["error"] == "nothing_imported"
+
+
+def test_export_streams_csv_with_attachment_headers(client, collaborators, mock_operations):
+    mock_operations.export_styles_csv = Mock(return_value="name,prompt,negative_prompt\r\nA,x,y\r\n")
+
+    response = client.get("/api/prompts/export")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert response.headers["content-disposition"] == 'attachment; filename="styles.csv"'
+    assert response.text == "name,prompt,negative_prompt\r\nA,x,y\r\n"
+    mock_operations.export_styles_csv.assert_called_once_with(collaborators, "user-1", collection_id=None)
+
+
+def test_export_rejects_an_unknown_format(client):
+    response = client.get("/api/prompts/export", params={"format": "not-a-real-format"})
+
+    assert response.status_code == 400

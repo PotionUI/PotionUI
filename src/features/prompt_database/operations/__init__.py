@@ -25,6 +25,7 @@ from src.features.prompt_database.operations.mutations import (
 )
 from src.features.prompt_database.operations.embedding import embed_pending, embed_prompt
 from src.features.prompt_database.operations.search import find_duplicates, search
+from src.features.prompt_database.operations.importing import ImportOutcome, export_styles_csv, import_prompts
 
 __all__ = [
     "MANUAL_SOURCE_PROVIDER",
@@ -38,4 +39,7 @@ __all__ = [
     "embed_prompt",
     "find_duplicates",
     "search",
+    "ImportOutcome",
+    "export_styles_csv",
+    "import_prompts",
 ]

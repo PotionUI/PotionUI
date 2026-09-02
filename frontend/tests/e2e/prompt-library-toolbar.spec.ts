@@ -58,17 +58,23 @@ test('toolbar New prompt selects the created prompt, and the section tabs round-
 	console.log(`[${JOURNEY}] toolbar composer selected the new prompt, section tabs round-tripped cleanly`);
 });
 
-// Prompt import is entirely plugin-contributed - core ships no import
-// source. With none registered, the Import button must not render at all
-// (no dead dropdown pointing nowhere).
-test('toolbar has no Import button when no prompt importer plugin is enabled', async ({ page }) => {
+// Core ships its own file/text import source, so the Import button is always
+// visible. With no plugin importer registered, clicking it skips the dropdown
+// (nothing else to list) and opens the core modal directly.
+test('toolbar Import button opens the core file/text importer when no plugin importer is enabled', async ({
+	page
+}) => {
 	test.setTimeout(30000);
 	await loginAsOwner(page);
 
 	await page.goto('/prompts');
 	await expect(page.getByRole('button', { name: 'New prompt' })).toBeVisible({ timeout: 15000 });
 
-	await expect(page.getByRole('button', { name: 'Import', exact: true })).toHaveCount(0);
+	const importButton = page.getByRole('button', { name: 'Import', exact: true });
+	await expect(importButton).toBeVisible();
+	await importButton.click();
 
-	console.log(`[${JOURNEY}] Import button absent with no registered prompt importers`);
+	await expect(page.getByRole('heading', { name: 'Import prompts' })).toBeVisible({ timeout: 10000 });
+
+	console.log(`[${JOURNEY}] Import button opens the core importer with no registered plugin importers`);
 });

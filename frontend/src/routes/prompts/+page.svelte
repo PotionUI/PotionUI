@@ -2,15 +2,18 @@
 	import { onMount } from 'svelte';
 	import PromptWorkspace from './components/PromptWorkspace.svelte';
 	import PromptsSidebar from './components/PromptsSidebar.svelte';
+	import PromptImportModal from './components/PromptImportModal.svelte';
 	import SavedSegmentsWorkspace from './components/SavedSegmentsWorkspace.svelte';
 	import SegmentTemplatesWorkspace from './components/SegmentTemplatesWorkspace.svelte';
 	import SegmentCategoriesWorkspace from './components/SegmentCategoriesWorkspace.svelte';
-	import { Button, PageContainer, PageHeader } from '$lib/components/ui';
+	import { Button, IconButton, PageContainer, PageHeader } from '$lib/components/ui';
 	import Icon from '$lib/components/Icon.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { api } from '$lib/services/api';
 	import type { PromptImporter } from '$lib/services/api/prompts';
 	import { resolvePluginComponent } from '$lib/plugin-api/componentResolver';
 	import { logger } from '$lib/utils/logger';
+	import { toasts } from '$lib/stores/toast';
 
 	type LibraryTab = 'prompts' | 'segments' | 'templates' | 'categories';
 
@@ -18,10 +21,14 @@
 	let importMenuOpen = false;
 	let importMenuEl: HTMLDivElement;
 
-	// The Import menu is entirely plugin-contributed - core ships no import
-	// sources. No importers registered means no Import button at all.
+	// Core ships one import source (file/text upload, in-app modal); plugins
+	// can register more, listed below it in the same menu. With no plugin
+	// importers registered, Import opens the core modal directly - no dropdown
+	// pointing at a single item.
 	let importers: PromptImporter[] = [];
 	let activeImporter: PromptImporter | null = null;
+	let coreImportOpen = false;
+	let exporting = false;
 
 	// PromptWorkspace owns the models list and the composer/duplicate-scan
 	// state — the toolbar just triggers them so there's one copy of that
@@ -82,6 +89,40 @@
 		await promptWorkspace?.reloadPrompts();
 	}
 
+	function openImportMenu() {
+		if (importers.length === 0) {
+			coreImportOpen = true;
+			return;
+		}
+		importMenuOpen = !importMenuOpen;
+	}
+
+	function openCoreImport() {
+		importMenuOpen = false;
+		coreImportOpen = true;
+	}
+
+	function closeCoreImport() {
+		coreImportOpen = false;
+	}
+
+	async function handleCoreImported() {
+		await promptWorkspace?.reloadPrompts();
+	}
+
+	async function handleExport() {
+		if (exporting) return;
+		exporting = true;
+		try {
+			await api.downloadPromptsExport(activeCollectionId ? { collection_id: activeCollectionId } : {});
+		} catch (err) {
+			logger.error('Failed to export prompts:', err);
+			toasts.error('Failed to export prompts');
+		} finally {
+			exporting = false;
+		}
+	}
+
 	function onWindowClick(e: MouseEvent) {
 		if (importMenuOpen && importMenuEl && !importMenuEl.contains(e.target as Node)) importMenuOpen = false;
 	}
@@ -124,39 +165,52 @@
 
 		<div class="flex items-center gap-2">
 			{#if activeTab === 'prompts'}
-				{#if importers.length > 0}
-					<div class="relative" bind:this={importMenuEl}>
-						<button
-							type="button"
-							class="flex items-center gap-1.5 rounded bg-surface-3 px-3 py-1.5 text-xs font-medium text-fg transition-colors hover:bg-line-hover"
-							aria-haspopup="menu"
-							aria-expanded={importMenuOpen}
-							onclick={() => (importMenuOpen = !importMenuOpen)}
-						>
-							<Icon name="upload" className="h-3.5 w-3.5" />
-							Import
+				<Tooltip text="Export as styles.csv" position="bottom">
+					<IconButton icon="download" label="Export as styles.csv" onclick={handleExport} disabled={exporting} />
+				</Tooltip>
+
+				<div class="relative" bind:this={importMenuEl}>
+					<button
+						type="button"
+						class="flex items-center gap-1.5 rounded bg-surface-3 px-3 py-1.5 text-xs font-medium text-fg transition-colors hover:bg-line-hover"
+						aria-haspopup={importers.length > 0 ? 'menu' : undefined}
+						aria-expanded={importers.length > 0 ? importMenuOpen : undefined}
+						onclick={openImportMenu}
+					>
+						<Icon name="upload" className="h-3.5 w-3.5" />
+						Import
+						{#if importers.length > 0}
 							<Icon name="chevron-down" className="h-3 w-3 text-fg-subtle" />
-						</button>
-						{#if importMenuOpen}
-							<div
-								class="absolute right-0 top-[calc(100%+6px)] z-30 min-w-[180px] overflow-hidden rounded-xl border border-line-strong bg-surface-2 shadow-floating"
-								role="menu"
-							>
-								{#each importers as importer (importer.id)}
-									<button
-										type="button"
-										role="menuitem"
-										class="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-fg-muted hover:bg-surface-3 hover:text-fg"
-										onclick={() => openImporter(importer)}
-									>
-										<Icon name="upload" className="h-3.5 w-3.5" />
-										{importer.label}
-									</button>
-								{/each}
-							</div>
 						{/if}
-					</div>
-				{/if}
+					</button>
+					{#if importMenuOpen && importers.length > 0}
+						<div
+							class="absolute right-0 top-[calc(100%+6px)] z-30 min-w-[200px] overflow-hidden rounded-xl border border-line-strong bg-surface-2 shadow-floating"
+							role="menu"
+						>
+							<button
+								type="button"
+								role="menuitem"
+								class="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-fg-muted hover:bg-surface-3 hover:text-fg"
+								onclick={openCoreImport}
+							>
+								<Icon name="upload" className="h-3.5 w-3.5" />
+								From file or text
+							</button>
+							{#each importers as importer (importer.id)}
+								<button
+									type="button"
+									role="menuitem"
+									class="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-fg-muted hover:bg-surface-3 hover:text-fg"
+									onclick={() => openImporter(importer)}
+								>
+									<Icon name="upload" className="h-3.5 w-3.5" />
+									{importer.label}
+								</button>
+							{/each}
+						</div>
+					{/if}
+				</div>
 
 				<Button size="sm" icon="copy" onclick={() => promptWorkspace?.openDuplicatesScan()}>
 					Duplicates
@@ -216,4 +270,8 @@
 			<svelte:component this={Component} onClose={closeImporter} onImported={handleImported} />
 		{/if}
 	{/await}
+{/if}
+
+{#if coreImportOpen}
+	<PromptImportModal onClose={closeCoreImport} onImported={handleCoreImported} />
 {/if}

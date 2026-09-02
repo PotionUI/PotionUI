@@ -1,9 +1,11 @@
 """HTTP boundary for the normalized prompt aggregate API."""
 
 import logging
-from typing import Any, Dict, TYPE_CHECKING, Optional
+from typing import Any, Dict, List, TYPE_CHECKING, Optional, Tuple
 
-from fastapi import APIRouter, Body, Depends, Query
+from fastapi import APIRouter, Body, Depends, Form, Query, UploadFile
+from fastapi import File as FastAPIFile
+from fastapi.responses import PlainTextResponse
 
 from src.platform.http.base_controller import APIResponse, BaseController
 from src.platform.security.current_user import get_current_active_user, get_current_admin_user
@@ -22,6 +24,8 @@ if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
 
 logger = logging.getLogger(__name__)
+
+MAX_IMPORT_FILE_BYTES = 20 * 1024 * 1024
 
 
 def _user_id(user: User) -> str:
@@ -102,6 +106,56 @@ def build_router(container: "AppContainer") -> APIRouter:
             is_loaded and getattr(provider, "model_name", None) == name and is_loaded()
         )
         return APIResponse(success=True, data=data)
+
+    @router.post("/import", response_model=APIResponse, summary="Import prompts from one or more files")
+    async def import_prompts_route(
+        files: List[UploadFile] = FastAPIFile(...),
+        format: Optional[str] = Form(None),
+        model_name: Optional[str] = Form(None),
+        base_model: Optional[str] = Form(None),
+        current_user: User = Depends(get_current_active_user),
+    ):
+        """Auto-detects styles.csv, Fooocus-style JSON, dynamicprompts wildcard
+        YAML, one-prompt-per-line text, or generation metadata embedded in an
+        image, unless `format` overrides detection. Pasted text arrives as an
+        ordinary file part (conventionally named `pasted.txt`) - nothing
+        special-cases it here."""
+        loaded: List[Tuple[str, bytes]] = []
+        for upload in files:
+            content = await upload.read()
+            if len(content) > MAX_IMPORT_FILE_BYTES:
+                return controller.error_response(
+                    "file_too_large",
+                    f"{upload.filename or 'file'} exceeds the {MAX_IMPORT_FILE_BYTES // (1024 * 1024)}MB import limit",
+                    413,
+                )
+            loaded.append((upload.filename or "upload", content))
+
+        outcome = await operations.import_prompts(
+            controller.collaborators, _user_id(current_user), loaded,
+            format=format, model_name=model_name, base_model=base_model,
+        )
+        data = outcome.to_dict()
+        if data["imported"] == 0 and data["files"] and all(f.get("reason") for f in data["files"]):
+            return APIResponse(success=False, error="nothing_imported", data=data)
+        return APIResponse(success=True, data=data)
+
+    @router.get("/export", summary="Export saved prompts")
+    async def export_prompts_route(
+        format: str = Query("styles-csv"),
+        collection_id: Optional[str] = Query(None, description="Only prompts in this 'prompts'-scope collection"),
+        current_user: User = Depends(get_current_active_user),
+    ):
+        if format != "styles-csv":
+            return controller.error_response("unsupported_format", f"Unknown export format: {format}", 400)
+        csv_text = operations.export_styles_csv(
+            controller.collaborators, _user_id(current_user), collection_id=collection_id,
+        )
+        return PlainTextResponse(
+            content=csv_text,
+            media_type="text/csv",
+            headers={"Content-Disposition": 'attachment; filename="styles.csv"'},
+        )
 
     @router.get("/importers", response_model=APIResponse, summary="List available prompt import sources")
     async def list_importers(current_user: User = Depends(get_current_active_user)):

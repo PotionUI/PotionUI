@@ -25,11 +25,61 @@ export interface PromptImporter {
 	component: string;
 }
 
+/** Outcome for one file (or the pasted-text part) of `POST /api/prompts/import`. */
+export interface PromptImportFileOutcome {
+	filename: string;
+	format: string;
+	imported: number;
+	skipped: number;
+	reason?: string;
+}
+
+export interface PromptImportResult {
+	imported: number;
+	skipped: number;
+	total: number;
+	items: Prompt[];
+	files: PromptImportFileOutcome[];
+}
+
+export interface PromptExportParams {
+	collection_id?: string;
+}
+
 export function createPromptsApi(client: AxiosInstance) {
 	return {
 		async listPromptImporters(): Promise<APIResponse<PromptImporter[]>> {
 			const response = await client.get('/api/prompts/importers');
 			return response.data;
+		},
+
+		/** `POST /api/prompts/import` - files and/or pasted text, built by
+		 *  `buildPromptImportFormData`. `success=false, error="nothing_imported"`
+		 *  when nothing usable came in; per-file outcomes are still returned so
+		 *  the modal can show why. */
+		async importPrompts(formData: FormData): Promise<APIResponse<PromptImportResult>> {
+			const response = await client.post('/api/prompts/import', formData);
+			return response.data;
+		},
+
+		/** Downloads `GET /api/prompts/export` as `styles.csv` (A1111 / Forge /
+		 *  SD.Next / InvokeAI compatible). Binary stream, not the JSON envelope -
+		 *  same blob-download pattern as generations export. */
+		async downloadPromptsExport(params: PromptExportParams = {}): Promise<void> {
+			const response = await client.get('/api/prompts/export', {
+				params: { format: 'styles-csv', ...params },
+				responseType: 'blob'
+			});
+
+			const blob = response.data as Blob;
+			const url = URL.createObjectURL(blob);
+			const anchor = document.createElement('a');
+			anchor.href = url;
+			anchor.download = 'styles.csv';
+			document.body.appendChild(anchor);
+			anchor.click();
+			anchor.remove();
+			URL.revokeObjectURL(url);
 		},
 
 		async createPrompt(data: CreatePromptInput): Promise<APIResponse<Prompt>> {

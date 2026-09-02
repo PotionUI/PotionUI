@@ -302,7 +302,17 @@ def test_every_forbidden_module_actually_exposes_db(module_name):
 
     from src.platform.database.database import db as canonical
 
-    module = importlib.import_module(module_name)
+    try:
+        module = importlib.import_module(module_name)
+    except ModuleNotFoundError as exc:
+        if (exc.name or "").startswith("src."):
+            raise
+        # The layering CI job installs dev tooling only; importing the
+        # plugin API drags in app deps (bcrypt via src.platform.security).
+        pytest.skip(
+            f"{module_name} needs {exc.name}, which is not installed here - "
+            "this check runs for real under the full backend suite"
+        )
     assert getattr(module, "db", None) is canonical, (
         f"{module_name}.db no longer resolves to the canonical Database "
         "singleton - this guard's TARGET_MODULES is out of date"

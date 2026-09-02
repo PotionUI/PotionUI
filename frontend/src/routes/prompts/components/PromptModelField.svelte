@@ -12,6 +12,14 @@
 	export let disabled = false;
 	/** Bound by a host modal so it can leave Escape to the picker while it is open. */
 	export let pickerOpen = false;
+	/** For consumers mounted through the plugin host, which cannot `bind:pickerOpen`. */
+	export let onPickerOpenChange: ((open: boolean) => void) | undefined = undefined;
+
+	let lastPickerOpen = pickerOpen;
+	$: if (pickerOpen !== lastPickerOpen) {
+		lastPickerOpen = pickerOpen;
+		onPickerOpenChange?.(pickerOpen);
+	}
 
 	let resolvedFor: string | null = null;
 	let resolvedLabel = '';

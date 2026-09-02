@@ -328,6 +328,13 @@ manual bucket. Your `component` is mounted as a modal with props `{onClose, onIm
 (call `onImported()` once you're done so the library list refreshes and the modal closes);
 it owns its own success/error UI, exactly like any other plugin-hosted component.
 
+To file imported prompts under a catalog model, pass `model_id` to `create_prompt_for_user`
+(an unknown id raises and the route answers 400 `invalid_model`). Your modal should collect
+it with core's picker rather than a free-text input: mount
+`window.__potionui.components.PromptModelField` (`mount(el, {modelId, modelLabel, onChange,
+onPickerOpenChange})`, then `update`/`unmount`) — `onChange` receives `{id, label}` or
+`null`, and `onPickerOpenChange(true)` tells your modal to leave Escape to the picker.
+
 A provider-backed importer (one that calls out to a marketplace provider plugin, e.g. the
 `civitai` provider's `fetch_image_prompts`) registers exactly the same way — `run()` is
 free to call whatever else it needs, including another plugin's provider, before handing

@@ -269,6 +269,23 @@ def test_run_import_dispatches_to_the_registered_importer_backend(client, prompt
     backend.run.assert_awaited_once_with({"content": "a fox"}, "user-1")
 
 
+def test_run_import_with_an_unknown_model_id_is_a_400(client, prompt_importer_registry):
+    backend = MagicMock()
+    backend.run = AsyncMock(side_effect=UnknownModelError("Unknown model: nope"))
+    prompt_importer_registry.register(PromptImporterDefinition(
+        importer_id="fixture-importer",
+        label="Fixture Importer",
+        frontend_component="plugin:fixture-plugin:Importer.js",
+        backend=backend,
+        source="fixture-plugin",
+    ))
+
+    response = client.post("/api/prompts/import/fixture-importer", json={"text": "a fox", "model_id": "nope"})
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"] == "invalid_model"
+
+
 def test_run_import_reports_unknown_importer_as_404(client):
     response = client.post("/api/prompts/import/does-not-exist", json={})
 

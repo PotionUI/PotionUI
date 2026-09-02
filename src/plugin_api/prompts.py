@@ -47,19 +47,23 @@ async def create_prompt_for_user(
     name: Optional[str] = None,
     usage_hint: Optional[str] = None,
     source_provider: str,
+    model_id: Optional[str] = None,
     model_name: Optional[str] = None,
     base_model: Optional[str] = None,
     source_url: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Create one prompt for `user_id`, the same path manual/chat-created
     prompts use. `source_provider` is required - an imported prompt is never
-    filed under the manual bucket.
+    filed under the manual bucket. `model_id` is a catalog model id; an
+    unknown one raises `ValueError`, which the importer route reports as a
+    400 `invalid_model`.
     """
     collaborators = get_container().prompt_database
     prompt = await operations.add_prompt(
         collaborators,
         user_id,
         prompt_text,
+        model_id=model_id,
         name=name,
         usage_hint=usage_hint,
         source_provider=source_provider,

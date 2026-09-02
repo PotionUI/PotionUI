@@ -178,7 +178,10 @@ def build_router(container: "AppContainer") -> APIRouter:
         definition = prompt_importer_registry.get(importer_id)
         if definition is None:
             return controller.error_response("not_found", "Unknown prompt importer", 404)
-        outcome = await definition.backend.run(payload, _user_id(current_user))
+        try:
+            outcome = await definition.backend.run(payload, _user_id(current_user))
+        except UnknownModelError as exc:
+            return controller.error_response("invalid_model", str(exc), 400)
         return APIResponse(success=outcome.error is None, data={
             "imported": outcome.imported, "skipped": outcome.skipped, "total": outcome.total,
             "items": outcome.items, "error": outcome.error,

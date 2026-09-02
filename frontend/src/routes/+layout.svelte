@@ -64,7 +64,8 @@
 			checkboxField,
 			numberInput,
 			mediaLoaderField,
-			modelField
+			modelField,
+			promptModelField
 		] = await Promise.all([
 			import('$lib/components/Sidebar.svelte'),
 			import('$lib/components/MobileTabBar.svelte'),
@@ -78,7 +79,8 @@
 			import('$lib/components/form-fields/CheckboxField.svelte'),
 			import('$lib/components/form-fields/NumberInput.svelte'),
 			import('$lib/components/form-fields/MediaLoaderField.svelte'),
-			import('$lib/components/form-fields/ModelField.svelte')
+			import('$lib/components/form-fields/ModelField.svelte'),
+			import('./prompts/components/PromptModelField.svelte')
 		]);
 
 		SidebarComponent = sidebar.default;
@@ -94,6 +96,7 @@
 		registerComponent('NumberInput', numberInput.default);
 		registerComponent('MediaLoaderField', mediaLoaderField.default);
 		registerComponent('ModelField', modelField.default);
+		registerComponent('PromptModelField', promptModelField.default);
 		initHostApi();
 		builtinFields.registerBuiltinFieldComponents();
 		await Promise.all([initFieldTypes(), initExtensions()]);

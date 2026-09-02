@@ -113,7 +113,7 @@
 	}
 
 	function getInputType(schema: PluginSettingSchema): string {
-		if (schema.format === 'password') return 'password';
+		if (schema.is_secret) return 'password';
 		if (schema.type === 'number') return 'number';
 		return 'text';
 	}

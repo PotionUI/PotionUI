@@ -18,10 +18,10 @@ hooks:
 settings:
   - name: "api_key"
     type: "string"
-    format: "password"
     label: "HuggingFace Access Token"
     description: "Your HuggingFace access token (optional - only needed for gated or private repos; public repos download anonymously)"
     required: false
+    is_secret: true
   - name: "rate_limit_delay"
     type: "number"
     label: "Rate Limit Delay (seconds)"

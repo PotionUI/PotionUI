@@ -18,10 +18,14 @@ plugin manifest, and they are edited in **Admin → Plugins**:
 settings:
   - name: "api_key"
     type: "string"
-    format: "password"
     label: "CivitAI API Key"
     required: false
+    is_secret: true
 ```
+
+`is_secret: true` is the one switch for a credential: the value is encrypted at
+rest, masked in every API response, and rendered as a password field in the admin
+form. There is no separate display hint.
 
 `MarketplaceProviderService` passes those settings to `provider.initialize(settings)` at
 discovery time, and the provider keeps them. Downloads authenticate through

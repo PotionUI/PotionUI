@@ -19,11 +19,11 @@ export interface PluginPage {
 export interface PluginSettingSchema {
 	name: string;
 	type: 'string' | 'number' | 'boolean';
-	format?: 'password' | 'url' | 'email';
 	label: string;
 	description?: string;
 	required?: boolean;
 	default?: unknown;
+	is_secret?: boolean;
 }
 
 export interface Plugin {

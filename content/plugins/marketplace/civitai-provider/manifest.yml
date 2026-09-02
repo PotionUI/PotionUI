@@ -27,10 +27,10 @@ hooks:
 settings:
   - name: "api_key"
     type: "string"
-    format: "password"
     label: "CivitAI API Key"
     description: "Your CivitAI API key (optional but recommended for higher rate limits)"
     required: false
+    is_secret: true
   - name: "rate_limit_delay"
     type: "number"
     label: "Rate Limit Delay (seconds)"

@@ -555,7 +555,7 @@
 			<div
 				bind:this={dropdownRef}
 				use:portal
-				class="fixed z-50 bg-surface-1 border border-line-strong rounded-lg shadow-floating max-h-[340px] overflow-y-auto"
+				class="fixed z-[99999] bg-surface-1 border border-line-strong rounded-lg shadow-floating max-h-[340px] overflow-y-auto"
 				style="left: {dropdownPosition.left}px; min-width: {dropdownPosition.width}px; width: max-content; max-width: {dropdownPosition.maxWidth}px; {dropdownPosition.openUpward
 					? `bottom: ${dropdownPosition.bottom}px`
 					: `top: ${dropdownPosition.top}px`}"

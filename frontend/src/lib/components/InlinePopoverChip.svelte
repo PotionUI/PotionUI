@@ -170,7 +170,7 @@
 		<div
 			bind:this={popoverRef}
 			use:portal
-			class="fixed z-50 w-72 rounded-lg border border-line-strong bg-surface-1 p-2.5 shadow-floating"
+			class="fixed z-[99999] w-72 rounded-lg border border-line-strong bg-surface-1 p-2.5 shadow-floating"
 			style={popoverStyle}
 			role="dialog"
 			aria-label={popoverLabel}

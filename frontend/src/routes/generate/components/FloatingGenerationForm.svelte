@@ -70,8 +70,8 @@
 	transition:fade={{ duration: motionDuration }}
 >
 	<div
-		class="flex h-[85vh] w-full flex-col rounded-t-xl bg-surface-1 shadow-overlay md:h-auto md:max-h-[85vh] md:w-[var(--floating-form-width)] md:rounded-xl"
-		style="--floating-form-width: min({width}px, 92vw)"
+		class="flex h-[85vh] w-full flex-col rounded-t-xl bg-surface-1 shadow-overlay md:h-[85vh] md:w-[var(--floating-form-width)] md:rounded-xl"
+		style="--floating-form-width: calc(min({width}px, 92vw) + 3rem)"
 		role="dialog"
 		aria-modal="true"
 		aria-label="Generation form"
@@ -89,7 +89,7 @@
 				<IconButton icon="close" label="Close floating generation form" onclick={onClose} />
 			</Tooltip>
 		</div>
-		<div class="min-h-0 flex-1 overflow-y-auto">
+		<div class="min-h-0 flex-1 overflow-y-auto px-6 py-5">
 			<GenerationFormPane
 				bind:formRef={dynamicFormRefs[tab.id]}
 				{tab}

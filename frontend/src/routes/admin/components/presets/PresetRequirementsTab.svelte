@@ -7,7 +7,7 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Badge, Button, EmptyState, IconButton, Spinner } from '$lib/components/ui';
-	import type { RequirementResultInfo } from '$lib/types/api';
+	import type { RequirementBackendInfo, RequirementResultInfo } from '$lib/types/api';
 
 	export let presetId: string;
 
@@ -50,11 +50,24 @@
 
 	const EMPTY_SUMMARY = { ok: 0, missing: 0, unknown: 0, optional_missing: 0 };
 
+	// A candidate backend's own chip verdict - the same priority as the hero's
+	// (hard miss > unknown > optional miss > ok), just without the hero's
+	// longer copy.
+	function backendVerdict(backendSummary: RequirementBackendInfo['summary']): { tone: Severity; label: string } {
+		if (backendSummary.missing > 0) return { tone: 'danger', label: `${backendSummary.missing} missing` };
+		if (backendSummary.unknown > 0) return { tone: 'warning', label: `${backendSummary.unknown} unknown` };
+		if (backendSummary.optional_missing > 0) return { tone: 'warning', label: `${backendSummary.optional_missing} optional` };
+		return { tone: 'ok', label: 'ok' };
+	}
+
 	let results: RequirementResultInfo[] = [];
 	let summary = EMPTY_SUMMARY;
+	let backends: RequirementBackendInfo[] = [];
+	let selectedBackendId: string | undefined;
 	let checkedAt: number | null = null;
 	let loading = true;
 	let refreshing = false;
+	let switchingBackend = false;
 	let loadError = '';
 	// Sections a user has manually expanded/collapsed, overriding the default
 	// (a section with any non-ok item starts expanded; an all-ok one starts
@@ -120,20 +133,36 @@
 	}
 
 	onMount(() => {
-		load();
+		load('initial');
 	});
 
-	async function load(refresh = false) {
-		if (refresh) refreshing = true;
+	function selectBackend(id: string) {
+		if (id === selectedBackendId || switchingBackend) return;
+		selectedBackendId = id;
+		void load('switch');
+	}
+
+	async function load(reason: 'initial' | 'refresh' | 'switch' = 'initial') {
+		if (reason === 'refresh') refreshing = true;
+		else if (reason === 'switch') switchingBackend = true;
 		else loading = true;
 		loadError = '';
 		try {
-			const response = await api.getPresetRequirements(presetId, refresh);
+			const response = await api.getPresetRequirements(presetId, {
+				backendId: selectedBackendId,
+				refresh: reason === 'refresh'
+			});
 			if (!response.success || !response.data) {
 				throw new Error(response.message || 'Could not check requirements');
 			}
 			results = response.data.results || [];
 			summary = response.data.summary || EMPTY_SUMMARY;
+			backends = response.data.backends || [];
+			// First load only - a later refresh/switch keeps whatever the user
+			// already picked (or already resolved to).
+			if (!selectedBackendId) {
+				selectedBackendId = backends.find((backend) => backend.is_default)?.id ?? backends[0]?.id;
+			}
 			checkedAt = response.data.checked_at ?? null;
 			manualExpand = {};
 		} catch (error) {
@@ -142,6 +171,7 @@
 		} finally {
 			loading = false;
 			refreshing = false;
+			switchingBackend = false;
 		}
 	}
 
@@ -181,6 +211,41 @@
 	{:else if total === 0}
 		<EmptyState title="No requirements declared" description="This preset declares no requirements." icon="check" compact />
 	{:else}
+		{#if backends.length > 1}
+			<div class="flex flex-wrap gap-1.5 mb-3" role="tablist" aria-label="Backend">
+				{#each backends as backend (backend.id)}
+					{@const chipVerdict = backendVerdict(backend.summary)}
+					{@const isSelected = backend.id === selectedBackendId}
+					<button
+						type="button"
+						role="tab"
+						aria-selected={isSelected}
+						disabled={switchingBackend}
+						class="inline-flex items-center gap-1.5 rounded border px-2.5 py-1.5 disabled:opacity-60 {isSelected
+							? 'border-signal/25 bg-signal/10'
+							: 'border-line bg-surface-1 hover:border-line-hover'}"
+						onclick={() => selectBackend(backend.id)}
+					>
+						<span class="w-1.5 h-1.5 rounded-full flex-shrink-0 {SEVERITY_DOT[chipVerdict.tone === 'ok' ? 'ok' : chipVerdict.tone]}"
+						></span>
+						<span class="text-sm font-medium {isSelected ? 'text-signal' : 'text-fg'}">{backend.name}</span>
+						{#if backend.is_default}
+							<span class="font-mono text-2xs text-fg-subtle">default</span>
+						{/if}
+						<span
+							class="text-xs {chipVerdict.tone === 'danger'
+								? 'text-danger'
+								: chipVerdict.tone === 'warning'
+									? 'text-warning'
+									: 'text-fg-muted'}"
+						>
+							{chipVerdict.label}
+						</span>
+					</button>
+				{/each}
+			</div>
+		{/if}
+
 		<div
 			class="rounded-lg border border-line-strong bg-canvas p-4 sm:p-5 mb-4"
 			data-testid="requirements-hero"
@@ -226,7 +291,7 @@
 						size="sm"
 						disabled={refreshing}
 						class={refreshing ? 'animate-spin' : ''}
-						onclick={() => load(true)}
+						onclick={() => load('refresh')}
 					/>
 				</Tooltip>
 			</div>

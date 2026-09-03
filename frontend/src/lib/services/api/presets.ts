@@ -90,10 +90,13 @@ export function createPresetsApi(client: AxiosInstance) {
 
 		async getPresetRequirements(
 			presetId: string,
-			refresh: boolean = false
+			options: { backendId?: string; refresh?: boolean } = {}
 		): Promise<APIResponse<PresetRequirementsResponse>> {
-			const params = refresh ? '?refresh=1' : '';
-			const response = await client.get(`/api/presets/${presetId}/requirements${params}`);
+			const params = new URLSearchParams();
+			if (options.backendId) params.set('backend_id', options.backendId);
+			if (options.refresh) params.set('refresh', '1');
+			const query = params.toString();
+			const response = await client.get(`/api/presets/${presetId}/requirements${query ? `?${query}` : ''}`);
 			return response.data;
 		}
 	};

@@ -225,11 +225,25 @@ export interface RequirementResultInfo {
 	 *  field pulled from the raw entry) - what to show as this row's name. */
 	name?: string;
 	optional?: boolean;
+	/** Present only on a backend-scoped entry (e.g. `comfyui_node`) - which
+	 *  backend this result was evaluated against. */
+	backend_id?: string;
+}
+
+/** One candidate backend of the preset's engine, with its own fully-scoped
+ *  summary - lets the requirements tab offer a backend selector alongside
+ *  the chosen backend's `results`/`summary`. */
+export interface RequirementBackendInfo {
+	id: string;
+	name: string;
+	is_default: boolean;
+	summary: PresetRequirementsSummary;
 }
 
 export interface PresetRequirementsResponse {
 	results: RequirementResultInfo[];
 	summary: PresetRequirementsSummary;
+	backends: RequirementBackendInfo[];
 	checked_at: number;
 }
 

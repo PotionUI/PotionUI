@@ -7,7 +7,7 @@
 // next to a non-ok row. Also covers the "never declares requirements" quiet
 // empty state and the re-check button forcing `?refresh=1`.
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import type { RequirementResultInfo } from '$lib/types/api';
+import type { RequirementBackendInfo, RequirementResultInfo } from '$lib/types/api';
 
 vi.mock('$lib/services/api/index', () => ({
 	api: { getPresetRequirements: vi.fn() }
@@ -32,13 +32,17 @@ function result(overrides: Partial<RequirementResultInfo> = {}): RequirementResu
 	};
 }
 
-function mockResponse(results: RequirementResultInfo[], checkedAt = 1_735_000_000) {
+function mockResponse(
+	results: RequirementResultInfo[],
+	checkedAt = 1_735_000_000,
+	backends: RequirementBackendInfo[] = []
+) {
 	const summary = { ok: 0, missing: 0, unknown: 0, optional_missing: 0 };
 	for (const r of results) {
 		if (r.status === 'missing' && r.optional) summary.optional_missing += 1;
 		else summary[r.status] += 1;
 	}
-	return { success: true, data: { results, summary, checked_at: checkedAt } };
+	return { success: true, data: { results, summary, checked_at: checkedAt, backends } };
 }
 
 function mount() {
@@ -241,13 +245,87 @@ describe('PresetRequirementsTab', () => {
 		mounted = mount();
 		await settle();
 
-		expect(api.api.getPresetRequirements).toHaveBeenCalledWith('preset-1', false);
+		expect(api.api.getPresetRequirements).toHaveBeenCalledWith('preset-1', {
+			backendId: undefined,
+			refresh: false
+		});
 
 		const recheck = mounted.target.querySelector<HTMLButtonElement>('button[aria-label="Re-check requirements"]');
 		expect(recheck).toBeTruthy();
 		recheck?.click();
 		await settle();
 
-		expect(api.api.getPresetRequirements).toHaveBeenLastCalledWith('preset-1', true);
+		expect(api.api.getPresetRequirements).toHaveBeenLastCalledWith('preset-1', {
+			backendId: undefined,
+			refresh: true
+		});
+	});
+
+	it('shows no backend chip row for a single backend', async () => {
+		vi.mocked(api.api.getPresetRequirements).mockResolvedValue(
+			mockResponse([result({ type: 'binary', name: 'ffmpeg', detail: 'found' })], undefined, [
+				{ id: 'b1', name: 'Local ComfyUI', is_default: true, summary: { ok: 1, missing: 0, unknown: 0, optional_missing: 0 } }
+			])
+		);
+
+		mounted = mount();
+		await settle();
+
+		expect(mounted.target.textContent).not.toContain('Local ComfyUI');
+	});
+
+	it('renders a backend chip per candidate and re-fetches with backend_id on selection, keeping it across re-check', async () => {
+		const backends: RequirementBackendInfo[] = [
+			{ id: 'b1', name: 'Local ComfyUI', is_default: true, summary: { ok: 2, missing: 0, unknown: 0, optional_missing: 0 } },
+			{ id: 'b2', name: 'Remote ComfyUI', is_default: false, summary: { ok: 1, missing: 1, unknown: 0, optional_missing: 0 } }
+		];
+		vi.mocked(api.api.getPresetRequirements).mockResolvedValueOnce(
+			mockResponse([result({ type: 'binary', name: 'ffmpeg', detail: 'found' })], undefined, backends)
+		);
+
+		mounted = mount();
+		await settle();
+
+		expect(mounted.target.textContent).toContain('Local ComfyUI');
+		expect(mounted.target.textContent).toContain('default');
+		expect(mounted.target.textContent).toContain('Remote ComfyUI');
+		expect(mounted.target.textContent).toContain('1 missing');
+
+		const chips = Array.from(mounted.target.querySelectorAll<HTMLButtonElement>('button[role="tab"]'));
+		const localChip = chips.find((b) => b.textContent?.includes('Local ComfyUI'));
+		const remoteChip = chips.find((b) => b.textContent?.includes('Remote ComfyUI'));
+		expect(localChip?.getAttribute('aria-selected')).toBe('true');
+		expect(remoteChip?.getAttribute('aria-selected')).toBe('false');
+
+		vi.mocked(api.api.getPresetRequirements).mockResolvedValueOnce(
+			mockResponse(
+				[result({ type: 'binary', name: 'ffmpeg', detail: 'not found', status: 'missing' })],
+				undefined,
+				backends
+			)
+		);
+		remoteChip?.click();
+		await settle();
+
+		expect(api.api.getPresetRequirements).toHaveBeenLastCalledWith('preset-1', {
+			backendId: 'b2',
+			refresh: false
+		});
+
+		vi.mocked(api.api.getPresetRequirements).mockResolvedValueOnce(
+			mockResponse(
+				[result({ type: 'binary', name: 'ffmpeg', detail: 'not found', status: 'missing' })],
+				undefined,
+				backends
+			)
+		);
+		const recheck = mounted.target.querySelector<HTMLButtonElement>('button[aria-label="Re-check requirements"]');
+		recheck?.click();
+		await settle();
+
+		expect(api.api.getPresetRequirements).toHaveBeenLastCalledWith('preset-1', {
+			backendId: 'b2',
+			refresh: true
+		});
 	});
 });

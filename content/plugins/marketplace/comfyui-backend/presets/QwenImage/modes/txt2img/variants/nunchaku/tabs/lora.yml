@@ -1,0 +1,15 @@
+fields:
+  - name: "loras"
+    type: "lora_picker"
+    default: []
+    label: "LoRAs"
+    configuration:
+      model_type: "lora"
+      placeholder: "Select a LoRA..."
+      allow_info_modal: true
+      strength_min: -2.0
+      strength_max: 2.0
+      strength_step: 0.1
+      strength_default: 1.0
+      max_items: 6
+      filter_tags: "@config:lora_tags"

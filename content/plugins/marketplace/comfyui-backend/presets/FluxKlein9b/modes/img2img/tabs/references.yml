@@ -1,0 +1,10 @@
+fields:
+  - name: "input_image"
+    type: "image"
+    label: "Input Image"
+    description: "Primary reference image (drives the output resolution)"
+
+  - name: "input_image_2"
+    type: "image"
+    label: "Input Image 2 (Optional)"
+    description: "Optional second reference image for multi-image img2img"

@@ -1,0 +1,17 @@
+fields:
+  - type: "markdown"
+    configuration:
+      content: |
+        ## Krea 2 Turbo
+
+        Krea 2 Turbo is a distilled, fast text-to-image model. This preset runs a
+        simple, streamlined pipeline: prompt → optional LoRA stack → sample → decode.
+
+        ### Key Settings
+        - Default Steps: **8** (turbo / distilled)
+        - Default CFG: **1.0** (negative prompt is zeroed out at this scale)
+        - Sampler / Scheduler: **euler / simple**
+
+        ### Notes
+        - The negative prompt has no effect because the model runs at CFG 1.
+        - LoRAs are chained dynamically — only filled slots are inserted into the graph.

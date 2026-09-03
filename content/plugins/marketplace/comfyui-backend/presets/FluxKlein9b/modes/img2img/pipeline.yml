@@ -1,0 +1,215 @@
+pipeline:
+  #############
+  ## Rendered prompts (provenance)
+  ## Surfaces the per-image expanded prompts ({a|b}, ${variables}, autocomplete
+  ## already resolved on the backend - see src/features/prompt/expander.py) as
+  ## pipe artifacts, the prompt counterpart of seed_generator. A single-workflow
+  ## engine runs the whole batch off pairs[0]; the pipe broadcasts it across
+  ## `quantity` so every image reports the prompt it actually ran with.
+  ############
+  - name: "dynamic_prompts_renderer"
+    id: "dynamic_prompts_renderer"
+    enabled: true
+    configuration:
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity | default(1) }}"
+
+  #############
+  ## Seed Generator
+  #############
+  - name: "seed_generator"
+    id: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed | default(-1) }}"
+      quantity: "{{ form.quantity | default(1) }}"
+  #############
+  ## IOType to Value Converter
+  #############
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  #############
+  ## Parameter Emitter
+  #############
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: "{{ form.quantity | default(1) }}"
+      parameters:
+        # Main diffusion model
+        - ["model", "{{ form.diffusion_model | default('') }}"]
+        # CLIP model
+        - ["model", "{{ form.clip | default('') }}"]
+        # VAE model
+        - ["model", "{{ form.vae | default('') }}"]
+
+        # LoRAs (the picker value only contains selected entries)
+        - "@loop":
+            items: "{{ form.loras | default([]) | active_loras }}"
+            template: ["model", "{{ item.model }}"]
+
+        # Prompts (this graph always zeroes out conditioning instead of a
+        # real negative prompt, regardless of Speed profile -- see pipeline
+        # note below)
+        - ["positive_prompt", "{{ generation.prompts.first.positive }}"]
+
+        # Generation parameters
+        - ["cfg", "{{ form.cfg | default(get_speed_profile(form.speed_profile | default('balanced'))['guidance']) }}"]
+        - ["steps", "{{ form.steps | default(get_speed_profile(form.speed_profile | default('balanced'))['steps']) }}"]
+        - ["sampler", "{{ form.sampler_name | default(get_speed_profile(form.speed_profile | default('balanced'))['sampler']) }}"]
+        - ["megapixels", "{{ form.megapixels | default(1.0) }}"]
+
+  #############
+  ## ComfyUI Workflow Executor
+  ## Only ONE graph exists for this mode (ported from the distilled txt2img
+  ## variant's img2img workflow) -- unlike txt2img, there's no base-checkpoint
+  ## img2img graph to switch to, so workflow_file is NOT profile-dependent
+  ## here. Both Speed profiles run this same graph with different
+  ## steps/cfg/checkpoint values (see field_mappings below); the graph's
+  ## zeroed-negative-conditioning design is unaffected by which profile runs.
+  #############
+  - name: "comfyui"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      host: "127.0.0.1"
+      port: 8188
+      workflow_file: "{{ paths.preset }}/modes/img2img/files/workflows/img2img.json"
+      timeout: 300
+      secure: false
+
+      #############
+      ## Node Manipulations
+      ## LoRA chain built from the `loras` picker value ([{model, strength}, ...] -
+      ## only selected entries, may be empty):
+      ## UNETLoader (75:70) -> LoRA 1 -> LoRA 2 -> ... -> CFGGuider (75:63)
+      #############
+      node_manipulations:
+        # Add one LoraLoaderModelOnly node per selected LoRA, chaining each entry
+        # to the previous one (the first connects to the base model 75:70)
+        - "@loop":
+            items: "{{ form.loras | default([]) }}"
+            template:
+              type: "add_node"
+              node_id: "lora_{{ loop.index }}"
+              node_config:
+                inputs:
+                  lora_name: "{{ item.model | replace('models/loras/', '') }}"
+                  strength_model: "{{ item.strength }}"
+                  model: ["{% if loop.first %}75:70{% else %}lora_{{ loop.index0 }}{% endif %}", 0]
+                class_type: "LoraLoaderModelOnly"
+                _meta:
+                  title: "LoRA {{ loop.index }}"
+
+        # Connect CFGGuider (75:63) to the end of the chain: the last generated LoRA
+        # node, or the base model 75:70 (the workflow default) when no LoRAs are selected
+        - type: "update_node_input"
+          node_id: "75:63"
+          input_key: "model"
+          input_value: ["{% set loras = form.loras | default([]) %}{% if loras %}lora_{{ loras | length }}{% else %}75:70{% endif %}", 0]
+
+        #############
+        ## Optional second reference image
+        ## When input_image_2 is NOT provided, remove the image-2 chain:
+        ##   LoadImage(81) -> ImageScaleToTotalPixels(85) -> VAEEncode(86)
+        ##   -> ReferenceLatent positive(87) / negative(88)
+        ## and point CFGGuider(75:63) back to the image-1 reference latents.
+        ## Removals must come BEFORE the guider rewire: remove_node nulls out
+        ## any references to the removed nodes (including 75:63.positive/negative),
+        ## so the update_node_input below restores them to the image-1 refs.
+        #############
+        - type: "remove_node"
+          condition: "{% if form.input_image_2 | default('') %}false{% else %}true{% endif %}"
+          node_id: "87"
+
+        - type: "remove_node"
+          condition: "{% if form.input_image_2 | default('') %}false{% else %}true{% endif %}"
+          node_id: "88"
+
+        - type: "remove_node"
+          condition: "{% if form.input_image_2 | default('') %}false{% else %}true{% endif %}"
+          node_id: "86"
+
+        - type: "remove_node"
+          condition: "{% if form.input_image_2 | default('') %}false{% else %}true{% endif %}"
+          node_id: "85"
+
+        - type: "remove_node"
+          condition: "{% if form.input_image_2 | default('') %}false{% else %}true{% endif %}"
+          node_id: "81"
+
+        - type: "update_node_input"
+          condition: "{% if form.input_image_2 | default('') %}false{% else %}true{% endif %}"
+          node_id: "75:63"
+          input_key: "positive"
+          input_value:
+            - "75:79:77"
+            - 0
+
+        - type: "update_node_input"
+          condition: "{% if form.input_image_2 | default('') %}false{% else %}true{% endif %}"
+          node_id: "75:63"
+          input_key: "negative"
+          input_value:
+            - "75:79:76"
+            - 0
+
+      #############
+      ## Field Mappings
+      #############
+      field_mappings:
+        # Prompt - node 75:74 is CLIPTextEncode (positive prompt)
+        - ["{{ generation.prompts.first.positive }}", "75:74.inputs.text", "str"]
+
+        # Input image 1 (primary, drives output size) - LoadImage node 76
+        - ["{{ form.input_image }}", "76.inputs.image", "image"]
+
+        # Input image 2 (optional reference) - LoadImage node 81
+        # When not provided this resolves to '' and the mapping is skipped (no upload);
+        # the image-2 chain is then removed entirely via node_manipulations below.
+        - ["{{ form.input_image_2 | default('') }}", "81.inputs.image", "image"]
+
+        # Models
+        - ["{{ (form.diffusion_model | default('') or '') | replace('models/diffusion_models/', '') | replace('models/checkpoints/', '') }}", "75:70.inputs.unet_name", "str"]
+        - ["{{ (form.clip | default('') or '') | replace('models/clip/', '') }}", "75:71.inputs.clip_name", "str"]
+        - ["{{ (form.vae | default('') or '') | replace('models/vae/', '') }}", "75:72.inputs.vae_name", "str"]
+
+        # Batch size
+        - ["{{ form.quantity | default(1) }}", "75:66.inputs.batch_size", "int"]
+
+        # Seed
+        - ["@seed", "75:73.inputs.noise_seed", "int"]
+
+        # Steps (affects Flux2Scheduler)
+        - ["{{ form.steps | default(get_speed_profile(form.speed_profile | default('balanced'))['steps']) }}", "75:62.inputs.steps", "int"]
+
+        # CFG
+        - ["{{ form.cfg | default(get_speed_profile(form.speed_profile | default('balanced'))['guidance']) }}", "75:63.inputs.cfg", "float"]
+
+        # Sampler
+        - ["{{ form.sampler_name | default(get_speed_profile(form.speed_profile | default('balanced'))['sampler']) }}", "75:61.inputs.sampler_name", "str"]
+
+        # Megapixels (ImageScaleToTotalPixels) - image 1 and image 2
+        - ["{{ form.megapixels | default(1.0) }}", "75:80.inputs.megapixels", "float"]
+        - ["{{ form.megapixels | default(1.0) }}", "85.inputs.megapixels", "float"]
+
+  #############
+  ## Gallery
+  #############
+  - name: "gallery"
+    enabled: true
+    input:
+      - ["image", "comfyui", "image"]
+    configuration:
+      mode: "save"
+      support_video: false

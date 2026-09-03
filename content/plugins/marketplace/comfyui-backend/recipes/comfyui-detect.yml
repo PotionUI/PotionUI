@@ -1,0 +1,75 @@
+########
+## Setup recipe: detect a running ComfyUI server
+##
+## Declares no artifacts (unlike sdxl-starter.yml): whatever the server
+## already has loaded is what gets used.
+########
+schema_version: 1
+id: "comfyui-detect"
+version: 1
+name: "Detect ComfyUI"
+engine: "comfyui"
+category: "image"
+summary: "Find an already-running ComfyUI server on this machine and wire it up."
+description: >
+  Probes the conventional ComfyUI address (http://127.0.0.1:8188, or wherever
+  you point it) and, if it answers, registers it as a backend, indexes the
+  models it can already load, and assigns a ready-to-use ComfyUI preset - no
+  downloads, since ComfyUI already manages its own model files.
+
+plugins:
+  - id: "comfyui-backend"
+    reason: "Provides the comfyui engine this recipe's backend/preset use."
+
+backend:
+  engine: "comfyui"
+
+artifacts: []
+
+presets:
+  - preset_id: "01K8SDXLILLU0RR4CGBM51ANIM"
+    path_hint: "comfyui/SDXL"
+    assign_to_owner: true
+
+smoke:
+  preset_id: "01K8SDXLILLU0RR4CGBM51ANIM"
+  mode: "txt2img"
+
+steps:
+  - key: "plugins.ensure"
+    kind: "plugins.ensure"
+    title: "Enable the ComfyUI backend plugin"
+    params:
+      plugin_ids: ["comfyui-backend"]
+
+  - key: "backend.detect"
+    kind: "backend.detect"
+    title: "Find your ComfyUI server"
+    params:
+      engine: "comfyui"
+      # No base_url: probes the plugin's own configured default
+      # (127.0.0.1:8188 unless changed in Administration -> Plugins).
+
+  - key: "models.index_backend"
+    kind: "models.index_backend"
+    title: "Index what ComfyUI can already load"
+    params:
+      engine: "comfyui"
+
+  - key: "preset.ensure"
+    kind: "preset.ensure"
+    title: "Install and assign a ComfyUI preset"
+    params:
+      preset_id: "01K8SDXLILLU0RR4CGBM51ANIM"
+
+  - key: "pipeline.render"
+    kind: "pipeline.render"
+    title: "Validate the pipeline (dry run)"
+    params:
+      preset_id: "01K8SDXLILLU0RR4CGBM51ANIM"
+      mode: "txt2img"
+
+  - key: "workspace.activate"
+    kind: "workspace.activate"
+    title: "Finish onboarding"
+    params: {}

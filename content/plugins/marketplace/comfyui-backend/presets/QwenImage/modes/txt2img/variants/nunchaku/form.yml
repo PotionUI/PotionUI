@@ -1,0 +1,34 @@
+name: "nunchaku"
+label: "Nunchaku (FP4)"
+description: "Nunchaku FP4-quantized DiT with the NunchakuQwenImageLoraStackV3 slot-fill LoRA mechanism and configurable CPU offload."
+default: false
+fields:
+  - type: "tabs"
+    children:
+      - type: "tab"
+        label: "Generation"
+        configuration:
+          icon: "model"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/txt2img/variants/nunchaku/tabs/generation.yml"
+
+      - type: "tab"
+        label: "LoRA"
+        configuration:
+          icon: "lora"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/txt2img/variants/nunchaku/tabs/lora.yml"
+
+      - type: "tab"
+        label: "Advanced"
+        configuration:
+          icon: "settings"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/txt2img/variants/nunchaku/tabs/advanced.yml"
+
+      - type: "tab"
+        label: "About"
+        configuration:
+          icon: "information-circle"
+          icon_display: "icon_only"
+        children: "{{ paths.preset }}/modes/txt2img/variants/nunchaku/tabs/about.yml"

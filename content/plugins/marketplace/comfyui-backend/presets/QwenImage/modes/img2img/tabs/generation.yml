@@ -1,0 +1,36 @@
+fields:
+  - name: "seed"
+    type: "seed"
+    label: "Seed"
+    default: -1
+
+  - name: "diffusion_model"
+    type: "model"
+    label: "Diffusion Model (UNET)"
+    required: true
+    configuration:
+      model_type: "diffusion_model"
+      allow_info_modal: true
+      placeholder: "Select diffusion model..."
+      filter_tags: "@config:checkpoint_tags"
+
+  - name: "clip"
+    type: "model"
+    label: "CLIP Model"
+    required: true
+    configuration:
+      model_type: "clip"
+      allow_info_modal: true
+      placeholder: "Select CLIP model..."
+      filter_tags: "@config:clip_tags"
+
+  - name: "vae"
+    type: "model"
+    label: "VAE Model"
+    required: true
+    configuration:
+      model_type: "vae"
+      allow_info_modal: true
+      placeholder: "Select VAE model..."
+      filter_tags: "@config:vae_tags"
+

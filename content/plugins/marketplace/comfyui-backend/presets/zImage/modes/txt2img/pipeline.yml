@@ -1,0 +1,283 @@
+pipeline:
+  #############
+  ## Rendered prompts (provenance)
+  ## Surfaces the per-image expanded prompts ({a|b}, ${variables}, autocomplete
+  ## already resolved on the backend - see src/features/prompt/expander.py) as
+  ## pipe artifacts, the prompt counterpart of seed_generator. A single-workflow
+  ## engine runs the whole batch off pairs[0]; the pipe broadcasts it across
+  ## `quantity` so every image reports the prompt it actually ran with.
+  ############
+  - name: "dynamic_prompts_renderer"
+    id: "dynamic_prompts_renderer"
+    enabled: true
+    configuration:
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity | default(1) }}"
+
+  #############
+  ## Seed Generator
+  #############
+  - name: "seed_generator"
+    id: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed | default(-1) }}"
+      quantity: "{{ form.quantity | default(1) }}"
+  #############
+  ## IOType to Value Converter
+  ## Converts IOType values (like seed) to regular values for param_emitter
+  #############
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  #############
+  ## Parameter Emitter
+  ## Emits generation parameters for tracking and display in UI
+  #############
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: "{{ form.quantity | default(1) }}"
+      parameters:
+        # Main diffusion model
+        - ["model", "{{ form.diffusion_model | default('') }}"]
+        # CLIP model
+        - ["model", "{{ form.clip | default('') }}"]
+        # VAE model
+        - ["model", "{{ form.vae | default('') }}"]
+
+        # LoRAs (the picker value only contains selected entries)
+        - "@loop":
+            items: "{{ form.loras | default([]) | active_loras }}"
+            template: ["model", "{{ item.model }}"]
+
+        # Prompts
+        - ["positive_prompt", "{{ generation.prompts.first.positive }}"]
+        - ["negative_prompt", "{{ generation.prompts.first.negative }}"]
+
+        # Generation parameters
+        - ["cfg", "{{ form.cfg | default(1.0) }}"]
+        - ["steps", "{{ form.steps | default(10) }}"]
+        - ["sampler", "{{ form.sampler_name | default('euler') }}"]
+        - ["scheduler", "{{ form.scheduler | default('simple') }}"]
+        - ["resolution", "{{ form.resolution | default('1024x1024') }}"]
+        - ["denoise", "{{ form.denoise | default(1.0) }}"]
+
+  - name: "comfyui"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      host: "127.0.0.1"
+      port: 8188
+      workflow_file: "{{ paths.preset }}/modes/txt2img/files/workflows/txt2img.json"
+      timeout: 300
+      secure: false
+      node_manipulations:
+        #############
+        # LoRA chain built from the `loras` picker value ([{model, strength}, ...] -
+        # only selected entries, may be empty):
+        # UNETLoader (16) -> LoRA 1 -> LoRA 2 -> ... -> ModelSamplingAuraFlow (25)
+        #############
+
+        # Add one LoraLoaderModelOnly node per selected LoRA, chaining each entry
+        # to the previous one (the first connects to the UNET loader 16)
+        - "@loop":
+            items: "{{ form.loras | default([]) }}"
+            template:
+              type: "add_node"
+              node_id: "lora_{{ loop.index }}"
+              node_config:
+                inputs:
+                  lora_name: "{{ item.model | replace('models/loras/', '') }}"
+                  strength_model: "{{ item.strength }}"
+                  model: ["{% if loop.first %}16{% else %}lora_{{ loop.index0 }}{% endif %}", 0]
+                class_type: "LoraLoaderModelOnly"
+                _meta:
+                  title: "LoRA {{ loop.index }}"
+
+        # Connect ModelSamplingAuraFlow (25) to the end of the chain: the last generated
+        # LoRA node, or the UNET loader 16 (the workflow default) when no LoRAs are selected
+        - type: "update_node_input"
+          node_id: "25"
+          input_key: "model"
+          input_value: ["{% set loras = form.loras | default([]) %}{% if loras %}lora_{{ loras | length }}{% else %}16{% endif %}", 0]
+
+        #############
+        # UPSCALE NODES (conditional, nodes 32-34, 53-54, 56)
+        # Chain: KSampler(3) -> LatentUpscaleBy(32) -> KSampler(33) -> VAEDecode(34) -> ImageUpscaleWithModel(53) -> SaveImage(56)
+        #############
+
+        # Node 54: UpscaleModelLoader
+        - type: "add_node"
+          node_id: "54"
+          condition: "{{ form.upscale_enabled | default(false) == true }}"
+          node_config:
+            inputs:
+              model_name: "{{ form.upscale_model | default('') | replace('models/upscale_models/', '') }}"
+            class_type: "UpscaleModelLoader"
+            _meta:
+              title: "Load Upscale Model"
+
+        # Node 32: LatentUpscaleBy
+        - type: "add_node"
+          node_id: "32"
+          condition: "{{ form.upscale_enabled | default(false) == true }}"
+          node_config:
+            inputs:
+              upscale_method: "{{ form.upscale_method | default('nearest-exact') }}"
+              scale_by: "{{ form.upscale_scale_by | default(1.5) }}"
+              samples:
+                - "3"
+                - 0
+            class_type: "LatentUpscaleBy"
+            _meta:
+              title: "Upscale Latent By"
+
+        # Node 33: KSampler (Refiner) - connects to node 25 (includes LoRA chain)
+        - type: "add_node"
+          node_id: "33"
+          condition: "{{ form.upscale_enabled | default(false) == true }}"
+          node_config:
+            inputs:
+              seed: 0
+              steps: "{{ form.upscale_steps | default(9) }}"
+              cfg: "{{ form.upscale_cfg | default(1.1) }}"
+              sampler_name: "{{ form.upscale_sampler | default('dpmpp_2s_ancestral') }}"
+              scheduler: "{{ form.upscale_scheduler | default('normal') }}"
+              denoise: "{{ form.upscale_denoise | default(0.35) }}"
+              model:
+                - "25"
+                - 0
+              positive:
+                - "6"
+                - 0
+              negative:
+                - "7"
+                - 0
+              latent_image:
+                - "32"
+                - 0
+            class_type: "KSampler"
+            _meta:
+              title: "KSampler (Refiner)"
+
+        # Node 34: VAEDecode (for upscaled latent)
+        - type: "add_node"
+          node_id: "34"
+          condition: "{{ form.upscale_enabled | default(false) == true }}"
+          node_config:
+            inputs:
+              samples:
+                - "33"
+                - 0
+              vae:
+                - "17"
+                - 0
+            class_type: "VAEDecode"
+            _meta:
+              title: "VAE Decode (Upscaled)"
+
+        # Node 53: ImageUpscaleWithModel
+        - type: "add_node"
+          node_id: "53"
+          condition: "{{ form.upscale_enabled | default(false) == true }}"
+          node_config:
+            inputs:
+              upscale_model:
+                - "54"
+                - 0
+              image:
+                - "34"
+                - 0
+            class_type: "ImageUpscaleWithModel"
+            _meta:
+              title: "Upscale Image (using Model)"
+
+        # Node 56: SaveImage (upscaled output)
+        - type: "add_node"
+          node_id: "56"
+          condition: "{{ form.upscale_enabled | default(false) == true }}"
+          node_config:
+            inputs:
+              filename_prefix: "ComfyUI"
+              images:
+                - "53"
+                - 0
+            class_type: "SaveImage"
+            _meta:
+              title: "Save Image (Upscaled)"
+
+        # Remove original SaveImage when upscale is enabled (output comes from node 56)
+        - type: "remove_node"
+          node_id: "9"
+          condition: "{{ form.upscale_enabled | default(false) == true }}"
+
+        #############
+        # UPDATE KSAMPLER MODEL INPUT TO USE ModelSamplingAuraFlow OUTPUT
+        # KSampler always connects to ModelSamplingAuraFlow (node 25)
+        #############
+
+        # KSampler connects to ModelSamplingAuraFlow (always)
+        - type: "update_node_input"
+          node_id: "3"
+          input_key: "model"
+          input_value:
+            - "25"
+            - 0
+
+      field_mappings:
+        # Prompts - node 6 (Positive) and node 7 (Negative)
+        # No llm field on this preset's forms -- always the original prompt
+        - ["{{ generation.prompts.first.positive }}", "6.inputs.text", "str"]
+        - ["{{ generation.prompts.first.negative }}", "7.inputs.text", "str"]
+
+        # Models
+        - ["{{ (form.diffusion_model | default('') or '') | replace('models/diffusion_models/', '') | replace('models/checkpoints/', '') }}", "16.inputs.unet_name", "str"]
+        - ["{{ (form.clip | default('') or '') | replace('models/clip/', '') }}", "18.inputs.clip_name", "str"]
+        - ["{{ (form.vae | default('') or '') | replace('models/vae/', '') }}", "17.inputs.vae_name", "str"]
+
+        # Resolution - parse width and height from resolution string (e.g., "1024x1024")
+        - ["{{ (form.resolution | default('1024x1024')).split('x')[0] }}", "13.inputs.width", "int"]
+        - ["{{ (form.resolution | default('1024x1024')).split('x')[1] }}", "13.inputs.height", "int"]
+
+        # Batch size
+        - ["{{ form.quantity | default(1) }}", "13.inputs.batch_size", "int"]
+
+        # KSampler (node 3) - seed, steps, cfg, sampler, scheduler, denoise
+        - ["@seed", "3.inputs.seed", "int"]
+        - ["{{ form.steps | default(10) }}", "3.inputs.steps", "int"]
+        - ["{{ form.cfg | default(1.0) }}", "3.inputs.cfg", "float"]
+        - ["{{ form.sampler_name | default('euler') }}", "3.inputs.sampler_name", "str"]
+        - ["{{ form.scheduler | default('simple') }}", "3.inputs.scheduler", "str"]
+        - ["{{ form.denoise | default(1.0) }}", "3.inputs.denoise", "float"]
+
+        # ModelSamplingAuraFlow (node 25) - shift value
+        - ["{{ form.shift | default(1.73) }}", "25.inputs.shift", "float"]
+
+  # Output skipper - no skipping needed
+  - name: "output_skipper"
+    enabled: true
+    input:
+      - ["image", "comfyui", "image"]
+    configuration:
+      rules: []
+
+  #############
+  ## Gallery - Collect all outputs
+  #############
+  - name: "gallery"
+    enabled: true
+    input:
+      - ["image", "output_skipper", "image"]
+    configuration:
+      mode: "save"
+      support_video: false

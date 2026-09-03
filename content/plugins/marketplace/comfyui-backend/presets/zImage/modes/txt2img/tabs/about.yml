@@ -1,0 +1,7 @@
+fields:
+  - type: "markdown"
+    configuration:
+      content: |
+        ## zImage
+
+        zImage is a fast, high-quality image generation model. It features a turbo mode for rapid generation while maintaining excellent image quality.

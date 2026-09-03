@@ -1,0 +1,1 @@
+Turn a text prompt into anime and illustration-style artwork. Built for Illustrious, a popular SDXL-based model specialised in anime characters, with a large library of community styles. Runs on your own ComfyUI server.

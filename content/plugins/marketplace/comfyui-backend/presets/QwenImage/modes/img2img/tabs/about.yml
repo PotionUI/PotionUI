@@ -1,0 +1,7 @@
+fields:
+  - type: "markdown"
+    configuration:
+      content: |
+        ## QwenImage
+
+        QwenImage is a transformer-based (MMDiT) image generation model developed by Alibaba's Qwen team. It excels at generating high-quality images with excellent text rendering capabilities, particularly for Chinese characters.

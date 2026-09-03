@@ -1,0 +1,209 @@
+pipeline:
+  #############
+  ## Rendered prompts (provenance)
+  ## Surfaces the per-image expanded prompts ({a|b}, ${variables}, autocomplete
+  ## already resolved on the backend - see src/features/prompt/expander.py) as
+  ## pipe artifacts, the prompt counterpart of seed_generator. A single-workflow
+  ## engine runs the whole batch off pairs[0]; the pipe broadcasts it across
+  ## `quantity` so every image reports the prompt it actually ran with.
+  ############
+  - name: "dynamic_prompts_renderer"
+    id: "dynamic_prompts_renderer"
+    enabled: true
+    configuration:
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity | default(1) }}"
+
+  #############
+  ## Seed Generator
+  #############
+  - name: "seed_generator"
+    id: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed | default(-1) }}"
+      quantity: "{{ form.quantity | default(1) }}"
+  #############
+  ## IOType to Value Converter
+  ## Converts IOType values (like seed) to regular values for param_emitter
+  #############
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  #############
+  ## Parameter Emitter
+  ## Emits generation parameters for tracking and display in UI
+  #############
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: "{{ form.quantity | default(1) }}"
+      parameters:
+        # Main diffusion model
+        - ["model", "{{ form.diffusion_model | default('') }}"]
+        # CLIP model
+        - ["model", "{{ form.clip | default('') }}"]
+        # VAE model
+        - ["model", "{{ form.vae | default('') }}"]
+
+        # LoRAs (the picker value only contains selected entries)
+        - "@loop":
+            items: "{{ form.loras | default([]) | active_loras }}"
+            template: ["model", "{{ item.model }}"]
+
+        # Prompts
+        - ["positive_prompt", "{{ generation.prompts.first.positive }}"]
+        - ["negative_prompt", "{{ generation.prompts.first.negative }}"]
+
+        # Generation parameters
+        - ["cfg", "{{ form.cfg | default(1.0) }}"]
+        - ["steps", "{{ form.steps | default(4) }}"]
+        - ["sampler", "{{ form.sampler_name | default('euler') }}"]
+        - ["scheduler", "{{ form.scheduler | default('simple') }}"]
+        - ["denoise", "{{ form.denoise | default(1.0) }}"]
+
+  - name: "comfyui"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      host: "127.0.0.1"
+      port: 8188
+      workflow_file: "{{ paths.preset }}/files/workflows/qwen_image_edit_2511_img2img.json"
+      timeout: 300
+      secure: false
+
+      node_manipulations:
+        # Remove LoadImage node 42 when ref_image_2 is NOT provided
+        - type: "remove_node"
+          node_id: "42"
+          condition: "{{ form.ref_image_2 | default('') == '' }}"
+
+        # Remove image2 connection from TextEncode+ positive (91:68) when ref_image_2 is NOT provided
+        - type: "remove_node_input"
+          condition: "{{ form.ref_image_2 | default('') == '' }}"
+          node_id: "91:68"
+          input_key: "image2"
+
+        # Remove image2 connection from TextEncode+ negative (91:69) when ref_image_2 is NOT provided
+        - type: "remove_node_input"
+          condition: "{{ form.ref_image_2 | default('') == '' }}"
+          node_id: "91:69"
+          input_key: "image2"
+
+        # Remove LoadImage node 43 when ref_image_3 is NOT provided
+        - type: "remove_node"
+          node_id: "43"
+          condition: "{{ form.ref_image_3 | default('') == '' }}"
+
+        # Remove image3 connection from TextEncode+ positive (91:68) when ref_image_3 is NOT provided
+        - type: "remove_node_input"
+          condition: "{{ form.ref_image_3 | default('') == '' }}"
+          node_id: "91:68"
+          input_key: "image3"
+
+        # Remove image3 connection from TextEncode+ negative (91:69) when ref_image_3 is NOT provided
+        - type: "remove_node_input"
+          condition: "{{ form.ref_image_3 | default('') == '' }}"
+          node_id: "91:69"
+          input_key: "image3"
+
+        # LoRA Chain Management - replace the baked-in Power Lora Loader (91:89) with a
+        # LoraLoaderModelOnly chain built from the `loras` picker value
+        # ([{model, strength}, ...] - only selected entries, may be empty):
+        # Model (91:12) → LoRA 1 → LoRA 2 → ... → ModelSamplingAuraFlow (91:67)
+
+        # Remove the Power Lora Loader - the chain is recreated from form data below
+        - type: "remove_node"
+          node_id: "91:89"
+
+        # Add one LoraLoaderModelOnly node per selected LoRA (node ids lora_1, lora_2, ...),
+        # chaining each entry to the previous one (the first connects to the diffusion model 91:12)
+        - "@loop":
+            items: "{{ form.loras | default([]) }}"
+            template:
+              type: "add_node"
+              node_id: "lora_{{ loop.index }}"
+              node_config:
+                inputs:
+                  lora_name: "{{ item.model | replace('models/loras/', '') }}"
+                  strength_model: "{{ item.strength }}"
+                  model: ["{% if loop.first %}91:12{% else %}lora_{{ loop.index0 }}{% endif %}", 0]
+                class_type: "LoraLoaderModelOnly"
+                _meta:
+                  title: "LoRA {{ loop.index }}"
+
+        # Reconnect ModelSamplingAuraFlow (91:67) to the end of the chain:
+        # the last generated LoRA node, or the diffusion model 91:12 when no LoRAs are selected
+        # (needed unconditionally because node 91:89 is always removed above)
+        - type: "update_node_input"
+          node_id: "91:67"
+          input_key: "model"
+          input_value: ["{% set loras = form.loras | default([]) %}{% if loras %}lora_{{ loras | length }}{% else %}91:12{% endif %}", 0]
+
+      field_mappings:
+        # Prompts - TextEncodeQwenImageEditPlus nodes
+        # No llm field on this preset's forms -- always the original prompt
+        - ["{{ generation.prompts.first.positive }}", "91:68.inputs.prompt", "str"]
+        - ["{{ generation.prompts.first.negative }}", "91:69.inputs.prompt", "str"]
+
+        # Models
+        - ["{{ (form.diffusion_model | default('') or '') | replace('models/diffusion_models/', '') | replace('models/checkpoints/', '') }}", "91:12.inputs.unet_name", "str"]
+        - ["{{ (form.clip | default('') or '') | replace('models/clip/', '') }}", "91:61.inputs.clip_name", "str"]
+        - ["{{ (form.vae | default('') or '') | replace('models/vae/', '') }}", "91:10.inputs.vae_name", "str"]
+
+        # Source Image - node 41 (LoadImage)
+        # Check: not absolute path AND not already starting with storage directory
+        - ["{{ form.source_image }}", "41.inputs.image", "image"]
+
+        # Reference Image 2 - node 42 (removed if not provided via node_manipulations)
+        # Check: not absolute path AND not already starting with storage directory
+        - ["{{ form.ref_image_2 | default('') }}", "42.inputs.image", "image"]
+
+        # Reference Image 3 - node 43 (removed if not provided via node_manipulations)
+        # Check: not absolute path AND not already starting with storage directory
+        - ["{{ form.ref_image_3 | default('') }}", "43.inputs.image", "image"]
+
+        # KSampler - node 91:65
+        - ["@seed", "91:65.inputs.seed", "int"]
+        - ["{{ form.steps | default(4) }}", "91:65.inputs.steps", "int"]
+        - ["{{ form.cfg | default(1.0) }}", "91:65.inputs.cfg", "float"]
+        - ["{{ form.sampler_name | default('euler') }}", "91:65.inputs.sampler_name", "str"]
+        - ["{{ form.scheduler | default('simple') }}", "91:65.inputs.scheduler", "str"]
+        - ["{{ form.denoise | default(1.0) }}", "91:65.inputs.denoise", "float"]
+
+        # ModelSamplingAuraFlow - node 91:67
+        - ["{{ form.shift | default(3.1) }}", "91:67.inputs.shift", "float"]
+
+        # CFGNorm - node 91:64
+        - ["{{ form.cfg_norm_strength | default(1.0) }}", "91:64.inputs.strength", "float"]
+
+        # NOTE: LoRA values are set via node_manipulations above (the Power Lora Loader
+        # is replaced by a LoraLoaderModelOnly chain built from the `loras` picker)
+
+  # Output skipper - no skipping needed
+  - name: "output_skipper"
+    enabled: true
+    input:
+      - ["image", "comfyui", "image"]
+    configuration:
+      rules: []
+
+  #############
+  ## Gallery - Collect all outputs
+  #############
+  - name: "gallery"
+    enabled: true
+    input:
+      - ["image", "output_skipper", "image"]
+    configuration:
+      mode: "save"
+      support_video: false

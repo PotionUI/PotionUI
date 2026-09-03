@@ -1,0 +1,30 @@
+fields:
+  - type: "markdown"
+    name: "about_info"
+    label: "Qwen-Image Nunchaku Information"
+    configuration:
+      content: |
+        ## Qwen-Image with Nunchaku FP4 Quantization
+
+        This preset uses the Qwen-Image model with Nunchaku FP4 quantization for efficient VRAM usage while maintaining high quality output.
+
+        ### Key Features:
+        - **FP4 Quantized**: Significantly reduced VRAM usage compared to full precision
+        - **LoRA Stack V3**: Supports up to 6 LoRAs with automatic compatibility fixes
+        - **High Resolution**: Default 1920x1088 for cinematic outputs
+
+        ### Recommended Model Components:
+        Select these from the pickers above (no model is preselected):
+        - **DiT Model**: `nunchaku_qwen_image_2512_best_quality_fp4.safetensors`
+        - **CLIP**: `qwen_2.5_vl_7b_fp8_scaled.safetensors` (Qwen 2.5 VL)
+        - **VAE**: `qwen_image_vae.safetensors`
+
+        ### VRAM Optimization:
+        The Nunchaku loader supports CPU offloading and configurable GPU block count for systems with limited VRAM.
+
+        ### Recommended Settings:
+        - **Steps**: 4
+        - **CFG**: 1.0
+        - **Sampler**: euler
+        - **Scheduler**: simple
+        - **Shift**: 1.23

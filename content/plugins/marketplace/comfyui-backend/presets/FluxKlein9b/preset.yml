@@ -1,0 +1,84 @@
+########
+## FLUX 2 Klein 9B Preset Configuration
+##
+## Merges the former official/ and
+## distilled/ variant presets into one, selected via a `speed_profile` form
+## field (docs/presets.md "Speed profiles") -- same pattern as Wan/LTX-2/
+## Krea2. "balanced" is the full base checkpoint (20 steps, CFG 5.0, no
+## negative-conditioning zero-out); "fast" is the distilled checkpoint
+## (4 steps, CFG 1.0, zeroed negative conditioning baked into the graph).
+##
+## Unlike Wan/LTX-2/Krea2, the CHECKPOINT ITSELF also changes between
+## profiles here -- "fast" is not a LoRA on top of "balanced", it's a
+## separately-trained distilled checkpoint. No filename ships as a default
+## here (models are chosen in the app UI); pick the checkpoint that matches
+## the selected Speed profile via the `diffusion_model` field.
+##
+## The two variants also ship their own ComfyUI workflow graphs (different
+## node-id namespaces: the balanced graph is prefixed `75:`, the fast graph
+## `77:`) -- `preset.vars.node_prefix` below looks up the right prefix for
+## whichever profile is selected, so pipeline.yml doesn't repeat the ternary
+## at every field mapping.
+########
+schema: 1
+id: "01KFXKLEIN9BTXT2IMG001"
+name: "FLUX Klein 9B"
+category: "image"
+version: "1.0.1"
+engine: "comfyui"
+
+speed_profiles:
+  balanced:
+    steps: 20
+    guidance: 5.0
+    sampler: "euler"
+  fast:
+    steps: 4
+    guidance: 1.0
+    sampler: "euler"
+
+vars:
+  # ComfyUI node-id namespace for each graph (see the module comment above).
+  # Looked up as `preset.vars.node_prefix[form.speed_profile | default('balanced')]`
+  # everywhere a field_mapping/node_manipulation needs to address a node
+  # that exists (at a different id) in both txt2img graphs.
+  node_prefix:
+    balanced: "75"
+    fast: "77"
+
+# Admin-set values (Admin -> Presets -> Configuration). Model pickers reference
+# these via `filter_tags: "@config:<key>"`; unset = no filtering (all models shown).
+#
+# checkpoint_tags / checkpoint_tags_fast: the Diffusion Model field's `reactions:`
+# (modes/*/tabs/generation.yml) switch between these two by Speed profile -
+# Balanced needs the base checkpoint, Fast needs the separately-trained distilled
+# one, and the two are never interchangeable (see about.yml). Tag the base
+# checkpoint file with whatever you list under checkpoint_tags and the distilled
+# one with checkpoint_tags_fast; leave either unset to show all checkpoints for
+# that profile (no filtering, same backward-compat rule as every other
+# filter_tags key here).
+configuration:
+  checkpoint_tags:
+    type: "model_tags"
+    label: "Checkpoint tags (Balanced)"
+    description: "Only models with any of these tags appear in the Diffusion Model picker while Speed is set to Balanced (the base checkpoint)."
+  checkpoint_tags_fast:
+    type: "model_tags"
+    label: "Checkpoint tags (Fast)"
+    description: "Only models with any of these tags appear in the Diffusion Model picker while Speed is set to Fast (the distilled checkpoint) - it is a different trained model, not interchangeable with the base checkpoint."
+  clip_tags:
+    type: "model_tags"
+    label: "Text encoder tags"
+    description: "Only models with any of these tags appear in the Text Encoder picker."
+  vae_tags:
+    type: "model_tags"
+    label: "VAE tags"
+    description: "Only models with any of these tags appear in the VAE picker."
+  lora_tags:
+    type: "model_tags"
+    label: "LoRA tags"
+    description: "Only LoRAs with any of these tags appear in the LoRA picker."
+
+modes:
+  - txt2img
+  - img2img

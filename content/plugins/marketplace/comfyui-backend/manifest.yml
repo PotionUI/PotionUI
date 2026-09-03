@@ -1,0 +1,75 @@
+id: "comfyui-backend"
+name: "ComfyUI Backend"
+version: "1.0.0"
+description: "Backend for connecting to ComfyUI servers for remote generation"
+author: "PotionUI Team"
+type: "backend-only"
+category: "generation"
+
+capabilities:
+  - "backend-provider"
+  - "comfyui-integration"
+  - "remote-generation"
+  - "pipe-provider"
+
+# Pipes provided by this plugin
+# register_as allows registering without the plugin prefix
+pipes:
+  - path: "backend/pipes/comfyui"
+    register_as: "comfyui"
+
+api:
+  module: "backend/api.py"
+
+# Presets that target this backend. Useless without the plugin installed, so
+# they ship with it. Scanned recursively for preset.yml like the core tree.
+presets:
+  - path: "presets"
+
+# Setup recipes that target this backend. Scanned for *.yml like the core
+# content/recipes/ tree.
+recipes:
+  - path: "recipes"
+
+hooks:
+  backend:
+    - hook: "backend.register"
+      handler: "hooks.backend_hooks.register_backend"
+
+quick_actions:
+  - id: "clear-vram"
+    label: "Clear VRAM"
+    icon: "M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+    endpoint: "/api/plugins/comfyui-backend/actions/clear-vram"
+    method: "POST"
+    confirm: "Clear VRAM? This will unload all loaded models from ComfyUI."
+
+settings:
+  - name: "default_host"
+    type: "string"
+    label: "Default ComfyUI Host"
+    description: "Default hostname for ComfyUI servers"
+    default: "127.0.0.1"
+    required: false
+  - name: "default_port"
+    type: "number"
+    label: "Default ComfyUI Port"
+    description: "Default port for ComfyUI servers"
+    default: 8188
+    min: 1
+    max: 65535
+    required: false
+  - name: "connection_timeout"
+    type: "number"
+    label: "Connection Timeout (seconds)"
+    description: "Timeout for connecting to ComfyUI servers"
+    default: 10
+    min: 1
+    max: 60
+    required: false
+  - name: "show_quick_actions"
+    type: "boolean"
+    label: "Show Quick Actions in Sidebar"
+    description: "Display ComfyUI quick action buttons in the sidebar"
+    default: true
+    required: false

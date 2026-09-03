@@ -1,0 +1,22 @@
+fields:
+  - type: "markdown"
+    configuration:
+      content: |
+        ## SDXL Illustrious
+
+        Illustrious is a family of SDXL-based checkpoints fine-tuned for high-quality anime and illustration generation (Hassaku, NoobAI, Animagine, etc.). This preset runs them through ComfyUI using a standard SDXL pipeline: a single `CheckpointLoaderSimple` providing model, CLIP and VAE, then optional LoRA stacking before the `KSampler`.
+
+        ### What to use
+        - **Checkpoint**: any SDXL/Illustrious-style anime checkpoint; select one from the picker, none is preselected
+        - **LoRAs**: up to 6 stacked LoRAs with per-slot strength
+        - **Resolutions**: SDXL-native aspect ratios (832x1216, 1216x832, 1024x1024, etc.)
+
+        ### Recommended settings
+        - **Steps**: 25–30 (default 27)
+        - **CFG**: 3.5–5.5 (default 4.0)
+        - **Sampler / Scheduler**: `euler` + `normal` works well; `dpmpp_2m` + `karras` is a solid alternative
+        - **Denoise**: 1.0 for txt2img
+
+        ### Prompting tips
+        - Illustrious models respond strongly to Danbooru-style tags (e.g. `1girl, solo, ...`)
+        - Use the negative prompt to filter quality issues (e.g. `bad quality, worst quality, low quality, sketch, ...`)

@@ -1,0 +1,51 @@
+fields:
+  - type: "row"
+    children:
+      - name: "steps"
+        type: "slider"
+        label: "Steps"
+        default: 20
+        configuration:
+          min: 1
+          max: 50
+          step: 1
+        reactions:
+          - when: { field: "speed_profile", equals: "balanced" }
+            then: { set_value: 20, set_disabled: false }
+          - when: { field: "speed_profile", equals: "fast" }
+            then: { set_value: 4, set_disabled: false }
+
+      - name: "cfg"
+        type: "slider"
+        label: "CFG Scale"
+        default: 5.0
+        configuration:
+          min: 1.0
+          max: 20.0
+          step: 0.1
+        reactions:
+          - when: { field: "speed_profile", equals: "balanced" }
+            then: { set_value: 5.0, set_disabled: false }
+          - when: { field: "speed_profile", equals: "fast" }
+            then: { set_value: 1.0, set_disabled: false }
+
+  - type: "row"
+    children:
+      - name: "sampler_name"
+        type: "select"
+        label: "Sampler"
+        default: "euler"
+        configuration:
+          file: { path: "{{ paths._shared }}/comfyui/form/samplers/all.yml" }
+        reactions:
+          - when: { field: "speed_profile", equals: "balanced" }
+            then: { set_value: "euler", set_disabled: false }
+          - when: { field: "speed_profile", equals: "fast" }
+            then: { set_value: "euler", set_disabled: false }
+
+      - name: "scheduler"
+        type: "select"
+        label: "Scheduler"
+        configuration:
+          file: { path: "{{ paths._shared }}/comfyui/form/schedulers/all.yml" }
+        default: "normal"

@@ -1,0 +1,47 @@
+########
+## zImage Text-to-Image Preset Configuration
+########
+schema: 1
+id: "01K4TDMABXKD1RR4CGBM51ZIMG"
+name: "zImage"
+category: "image"
+version: "1.0.1"
+engine: "comfyui"
+
+# Admin-set values (Admin -> Presets -> Configuration). Model pickers reference
+# these via `filter_tags: "@config:<key>"`; unset = no filtering (all models shown).
+configuration:
+  checkpoint_tags:
+    type: "model_tags"
+    label: "Checkpoint tags"
+    description: "Only models with any of these tags appear in the Checkpoint picker."
+  clip_tags:
+    type: "model_tags"
+    label: "Text encoder tags"
+    description: "Only models with any of these tags appear in the Text Encoder picker."
+  vae_tags:
+    type: "model_tags"
+    label: "VAE tags"
+    description: "Only models with any of these tags appear in the VAE picker."
+  lora_tags:
+    type: "model_tags"
+    label: "LoRA tags"
+    description: "Only LoRAs with any of these tags appear in the LoRA picker."
+  upscaler_tags:
+    type: "model_tags"
+    label: "Upscaler tags"
+    description: "Only models with any of these tags appear in the Upscaler picker."
+
+# zImage-specific variables
+vars:
+  # Model configuration
+  model_base: "TRANSFORMER"
+
+  # Generation defaults
+  default_steps: 10
+  default_cfg: 1.0
+  default_sampler: "euler"
+  default_scheduler: "simple"
+
+modes:
+  - txt2img

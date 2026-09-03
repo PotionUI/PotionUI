@@ -1,0 +1,16 @@
+fields:
+  - name: "source_image"
+    type: "image"
+    label: "Source Image"
+    required: true
+    description: "The main image to edit (required)"
+
+  - name: "ref_image_2"
+    type: "image"
+    label: "Reference Image 2 (Optional)"
+    description: "Additional reference image for conditioning"
+
+  - name: "ref_image_3"
+    type: "image"
+    label: "Reference Image 3 (Optional)"
+    description: "Additional reference image for conditioning"

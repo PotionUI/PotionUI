@@ -1,0 +1,74 @@
+fields:
+  - type: "group"
+    label: "Sampler Settings"
+    children:
+      - type: "row"
+        children:
+          - name: "steps"
+            type: "slider"
+            label: "Steps"
+            configuration:
+              min: 1
+              max: 50
+              step: 1
+            default: 8
+
+          - name: "cfg"
+            type: "slider"
+            label: "CFG Scale"
+            configuration:
+              min: 1.0
+              max: 10.0
+              step: 0.1
+            default: 1.0
+
+      - type: "row"
+        children:
+          - name: "sampler_name"
+            type: "select"
+            label: "Sampler"
+            configuration:
+              file: { path: "{{ paths._shared }}/comfyui/form/samplers/all.yml" }
+            default: "euler"
+
+          - name: "scheduler"
+            type: "select"
+            label: "Scheduler"
+            configuration:
+              file: { path: "{{ paths._shared }}/comfyui/form/schedulers/all.yml" }
+            default: "simple"
+
+  #############
+  ## Krea2T Enhancer — optional model patch (node 300).
+  ## Requires the ComfyUI-Krea2T-Enhancer custom node on the ComfyUI server:
+  ## https://github.com/capitan01R/ComfyUI-Krea2T-Enhancer
+  #############
+  - type: "group"
+    label: "Krea2T Enhancer"
+    children:
+      - name: "krea_enhancer"
+        type: "checkbox"
+        label: "Enable Krea2T Enhancer"
+        default: false
+
+      - name: "krea_enhancer_strength"
+        type: "slider"
+        label: "Strength"
+        visible: false
+        configuration:
+          min: 0.0
+          max: 2.0
+          step: 0.05
+          tooltip: "0 = neutral, 1 = default enhancement, 2 = maximum."
+        default: 1.0
+        reactions:
+          - when:
+              field: "krea_enhancer"
+              equals: true
+            then:
+              set_visibility: true
+          - when:
+              field: "krea_enhancer"
+              equals: false
+            then:
+              set_visibility: false

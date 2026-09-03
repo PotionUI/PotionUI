@@ -198,7 +198,9 @@ Nearly every subsystem is an extension point — even alternate inference
 backends are plugins, not core code:
 
 - **Providers** — credentialed connections to model marketplaces (e.g. CivitAI)
-- **Backends** — configured instances of an inference engine (e.g. a ComfyUI server)
+- **Backends** — configured instances of an inference engine (e.g. a ComfyUI
+  server via the `comfyui-backend` plugin, which also ships image presets for
+  SDXL, Qwen-Image, Z-Image, Krea-2, and Flux Klein 9B)
 - **Pipes** — the individual steps a generation pipeline is built from
 - **Field types, chat modes, frontend pages** — all pluggable
 

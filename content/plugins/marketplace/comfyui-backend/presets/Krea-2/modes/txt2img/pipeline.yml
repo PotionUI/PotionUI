@@ -1,0 +1,175 @@
+pipeline:
+  #############
+  ## Rendered prompts (provenance)
+  ## Surfaces the per-image expanded prompts ({a|b}, ${variables}, autocomplete
+  ## already resolved on the backend - see src/features/prompt/expander.py) as
+  ## pipe artifacts, the prompt counterpart of seed_generator. A single-workflow
+  ## engine runs the whole batch off pairs[0]; the pipe broadcasts it across
+  ## `quantity` so every image reports the prompt it actually ran with.
+  ############
+  - name: "dynamic_prompts_renderer"
+    id: "dynamic_prompts_renderer"
+    enabled: true
+    configuration:
+      pairs: "{{ generation.prompts.pairs }}"
+      quantity: "{{ form.quantity | default(1) }}"
+
+  #############
+  ## Seed Generator
+  #############
+  - name: "seed_generator"
+    id: "seed_generator"
+    enabled: true
+    configuration:
+      seed: "{{ form.seed | default(-1) }}"
+      quantity: "{{ form.quantity | default(1) }}"
+
+  #############
+  ## IOType to Value Converter (seed -> plain value for param_emitter)
+  #############
+  - name: "from_iotype"
+    id: "from_iotype"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      from: "seed"
+
+  #############
+  ## Parameter Emitter (UI tracking: models, seed, prompts, settings)
+  #############
+  - name: "param_emitter"
+    id: "param_emitter"
+    enabled: true
+    input:
+      - ["seed", "from_iotype", "seed"]
+    configuration:
+      quantity: "{{ form.quantity | default(1) }}"
+      parameters:
+        # Models
+        - ["model", "{{ form.diffusion_model | default('') }}"]
+        - ["model", "{{ form.clip | default('') }}"]
+        - ["model", "{{ form.vae | default('') }}"]
+
+        # LoRAs (the picker value only contains selected entries)
+        - "@loop":
+            items: "{{ form.loras | default([]) | active_loras }}"
+            template: ["model", "{{ item.model }}"]
+
+        # Prompts
+        - ["positive_prompt", "{{ generation.prompts.first.positive }}"]
+        - ["negative_prompt", "{{ generation.prompts.first.negative }}"]
+
+        # Generation parameters
+        - ["cfg", "{{ form.cfg | default(1.0) }}"]
+        - ["steps", "{{ form.steps | default(8) }}"]
+        - ["sampler", "{{ form.sampler_name | default('euler') }}"]
+        - ["scheduler", "{{ form.scheduler | default('simple') }}"]
+        - ["resolution", "{{ form.resolution | default('1024x1024') }}"]
+        - ["denoise", "{{ form.denoise | default(1.0) }}"]
+
+  #############
+  ## ComfyUI Workflow Executor
+  #############
+  - name: "comfyui"
+    enabled: true
+    input:
+      - ["seed", "seed_generator", "seed"]
+    configuration:
+      workflow_file: "{{ paths.preset }}/modes/txt2img/files/workflows/txt2img.json"
+      timeout: 300
+      secure: false
+      node_manipulations:
+        #############
+        # LoRA chain built from the `loras` picker value ([{model, strength}, ...] -
+        # only selected entries, may be empty):
+        # UNETLoader (37) -> LoRA 1 -> LoRA 2 -> ... -> KSampler (3)
+        #############
+
+        # Add one LoraLoaderModelOnly node per selected LoRA, chaining each entry
+        # to the previous one (the first connects to the UNET loader 37)
+        - "@loop":
+            items: "{{ form.loras | default([]) }}"
+            template:
+              type: "add_node"
+              node_id: "lora_{{ loop.index }}"
+              node_config:
+                inputs:
+                  lora_name: "{{ item.model | replace('models/loras/', '') }}"
+                  strength_model: "{{ item.strength }}"
+                  model: ["{% if loop.first %}37{% else %}lora_{{ loop.index0 }}{% endif %}", 0]
+                class_type: "LoraLoaderModelOnly"
+                _meta:
+                  title: "LoRA {{ loop.index }}"
+
+        # Connect KSampler (3) to the end of the chain: the last generated LoRA node,
+        # or the UNET loader 37 (the workflow default) when no LoRAs are selected
+        - type: "update_node_input"
+          node_id: "3"
+          input_key: "model"
+          input_value: ["{% set loras = form.loras | default([]) %}{% if loras %}lora_{{ loras | length }}{% else %}37{% endif %}", 0]
+
+        #############
+        # KREA2T ENHANCER (node 300) — optional model patch
+        # https://github.com/capitan01R/ComfyUI-Krea2T-Enhancer
+        # Sits at the END of the model chain: UNET(37) -> LoRAs (lora_1..lora_N) ->
+        # Enhancer(300) -> KSampler(3). Added only when the form toggle is on;
+        # these entries run AFTER the LoRA chain above, so the final
+        # 3.model override wins. NOTE: strength lives here (not in
+        # field_mappings) — mapping onto a conditionally-absent node would
+        # create a malformed stub.
+        #############
+        - type: "add_node"
+          node_id: "300"
+          condition: "{{ form.krea_enhancer | default(false) in [true, 'true', 'True', 1] }}"
+          node_config:
+            inputs:
+              model:
+                - "{% set loras = form.loras | default([]) %}{% if loras %}lora_{{ loras | length }}{% else %}37{% endif %}"
+                - 0
+              enabled: true
+              strength: "{{ form.krea_enhancer_strength | default(1.0) | float }}"
+              debug: false
+            class_type: "ComfyUI-Krea2T-Enhancer"
+            _meta:
+              title: "Krea2T Enhancer"
+
+        - type: "update_node_input"
+          condition: "{{ form.krea_enhancer | default(false) in [true, 'true', 'True', 1] }}"
+          node_id: "3"
+          input_key: "model"
+          input_value: ["300", 0]
+
+      field_mappings:
+        # Positive prompt -> CLIPTextEncode (node 6). Negative is zeroed out
+        # (node 7 = ConditioningZeroOut) since Krea 2 Turbo runs at cfg 1.
+        - ["{{ generation.prompts.first.positive }}", "6.inputs.text", "str"]
+
+        # Models
+        - ["{{ (form.diffusion_model | default('') or '') | replace('models/diffusion_models/', '') | replace('models/checkpoints/', '') }}", "37.inputs.unet_name", "str"]
+        - ["{{ (form.clip | default('') or '') | replace('models/clip/', '') }}", "38.inputs.clip_name", "str"]
+        - ["{{ (form.vae | default('') or '') | replace('models/vae/', '') }}", "39.inputs.vae_name", "str"]
+
+        # Resolution (parsed from "WxH")
+        - ["{{ (form.resolution | default('1024x1024')).split('x')[0] }}", "58.inputs.width", "int"]
+        - ["{{ (form.resolution | default('1024x1024')).split('x')[1] }}", "58.inputs.height", "int"]
+        - ["{{ form.quantity | default(1) }}", "58.inputs.batch_size", "int"]
+
+        # KSampler (node 3)
+        - ["@seed", "3.inputs.seed", "int"]
+        - ["{{ form.steps | default(8) }}", "3.inputs.steps", "int"]
+        - ["{{ form.cfg | default(1.0) }}", "3.inputs.cfg", "float"]
+        - ["{{ form.sampler_name | default('euler') }}", "3.inputs.sampler_name", "str"]
+        - ["{{ form.scheduler | default('simple') }}", "3.inputs.scheduler", "str"]
+        - ["{{ form.denoise | default(1.0) }}", "3.inputs.denoise", "float"]
+
+  #############
+  ## Gallery - Collect outputs
+  #############
+  - name: "gallery"
+    enabled: true
+    input:
+      - ["image", "comfyui", "image"]
+    configuration:
+      mode: "save"
+      support_video: false

@@ -1,0 +1,36 @@
+########
+## SDXL Illustrious (Anime) Text-to-Image Preset Configuration
+########
+schema: 1
+id: "01K8SDXLILLU0RR4CGBM51ANIM"
+name: "SDXL Illustrious"
+category: "image"
+version: "1.0.1"
+engine: "comfyui"
+
+# Admin-set values (Admin -> Presets -> Configuration). Model pickers reference
+# these via `filter_tags: "@config:<key>"`; unset = no filtering (all models shown).
+configuration:
+  checkpoint_tags:
+    type: "model_tags"
+    label: "Checkpoint tags"
+    description: "Only models with any of these tags appear in the Checkpoint picker."
+  lora_tags:
+    type: "model_tags"
+    label: "LoRA tags"
+    description: "Only LoRAs with any of these tags appear in the LoRA picker."
+
+# SDXL Illustrious-specific variables
+vars:
+  # Model configuration
+  model_base: "SDXL"
+
+  # Generation defaults (extracted from workflow)
+  default_steps: 27
+  default_cfg: 4.0
+  default_sampler: "euler"
+  default_scheduler: "normal"
+  default_resolution: "832x1216"
+
+modes:
+  - txt2img

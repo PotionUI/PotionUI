@@ -1,0 +1,51 @@
+fields:
+  - type: "markdown"
+    name: "about_info"
+    label: "FLUX 2 Klein 9B - Image to Image Information"
+    configuration:
+      content: |
+        ## FLUX 2 Klein 9B - Image to Image
+
+        Uses one or two reference images as input and generates a new image based on the prompt
+        while preserving the structure of the input.
+
+        ### How It Works
+        - Upload a primary reference image (this one drives the output resolution)
+        - Optionally upload a second reference image for multi-image conditioning
+        - Each image is encoded to latent space via VAE
+        - ReferenceLatent nodes inject every image's structure into both positive and negative conditioning
+        - The model generates a new image guided by your prompt and the reference image(s)
+
+        ### Speed profiles
+        This mode has only ONE ComfyUI graph (ported from the distilled txt2img variant): it always
+        zeroes out conditioning in place of a real negative prompt, no matter which profile is
+        selected.
+
+        - **Fast** (4 steps, CFG 1.0, distilled checkpoint) is the combination this graph was
+          originally built and tested against.
+        - **Balanced** (20 steps, CFG 5.0, base checkpoint) runs the *same* zeroed-negative graph
+          with the full checkpoint instead -- this pairing has not been GPU-validated yet, unlike
+          Balanced txt2img (which has a real negative-prompt path). Try it, but Fast is the known-good
+          recipe for this mode today.
+
+        ### Performance
+        Ideal for:
+        - Style transfer
+        - Background replacement
+        - Image variations
+        - Quick creative iterations
+
+  - type: "alert"
+    configuration:
+      variant: "warning"
+      content: |
+        **Fast profile**: keep CFG between 1.0-2.0 for the distilled checkpoint. Higher values
+        fight the distillation and degrade quality.
+
+  - type: "alert"
+    configuration:
+      variant: "default"
+      content: |
+        This preset requires ComfyUI with the following custom nodes:
+        - **ComfyUI-FLUX** (for Flux2Scheduler, EmptyFlux2LatentImage, ReferenceLatent)
+        - **ImageScaleToTotalPixels** node

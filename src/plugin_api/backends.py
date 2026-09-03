@@ -10,7 +10,9 @@ admin UI renders its fields, so what you declare is what the admin can set.
 
 If the engine can enumerate the models it holds, return `BackendModel` entries
 and run them through `deduplicate`; raise `ModelListingNotSupported` if it
-cannot, which is a fact about the engine, not a failure.
+cannot, which is a fact about the engine, not a failure. `BackendModel.confidence`
+derives from what you set on `size`/`sha256` - it's one of `CONFIDENCE_VERIFIED`,
+`CONFIDENCE_REPORTED` or `CONFIDENCE_NAME_ONLY`.
 
 See docs/backends.md.
 """
@@ -23,6 +25,10 @@ from src.features.backends.backend_config import (
 from src.features.backends.in_process_backend import InProcessBackend
 from src.features.backends.model_listing import (
     BackendModel,
+    CONFIDENCE_CONFLICT,
+    CONFIDENCE_NAME_ONLY,
+    CONFIDENCE_REPORTED,
+    CONFIDENCE_VERIFIED,
     ModelListingNotSupported,
     deduplicate,
 )
@@ -32,6 +38,10 @@ __all__ = [
     "BackendModel",
     "BackendStatus",
     "BaseBackendConfig",
+    "CONFIDENCE_CONFLICT",
+    "CONFIDENCE_NAME_ONLY",
+    "CONFIDENCE_REPORTED",
+    "CONFIDENCE_VERIFIED",
     "InProcessBackend",
     "ModelListingNotSupported",
     "deduplicate",

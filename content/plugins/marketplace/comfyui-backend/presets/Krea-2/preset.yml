@@ -1,0 +1,40 @@
+########
+## Krea 2 Turbo Text-to-Image Preset Configuration
+########
+schema: 1
+id: "01KX7ANTPP51ZWH2GDXN1ZTQH9"
+name: "Krea 2"
+category: "image"
+version: "1.0.1"
+engine: "comfyui"
+
+# Krea 2 Turbo-specific variables
+vars:
+  # Generation defaults (distilled turbo: low steps, cfg 1)
+  default_steps: 8
+  default_cfg: 1.0
+  default_sampler: "euler"
+  default_scheduler: "simple"
+
+# Admin-set values (Admin -> Presets -> Configuration). Model pickers reference
+# these via `filter_tags: "@config:<key>"`; unset = no filtering (all models shown).
+configuration:
+  checkpoint_tags:
+    type: "model_tags"
+    label: "Checkpoint tags"
+    description: "Only models with any of these tags appear in the Checkpoint picker."
+  clip_tags:
+    type: "model_tags"
+    label: "Text encoder tags"
+    description: "Only models with any of these tags appear in the Text Encoder picker."
+  vae_tags:
+    type: "model_tags"
+    label: "VAE tags"
+    description: "Only models with any of these tags appear in the VAE picker."
+  lora_tags:
+    type: "model_tags"
+    label: "LoRA tags"
+    description: "Only LoRAs with any of these tags appear in the LoRA picker."
+
+modes:
+  - txt2img

@@ -1,0 +1,173 @@
+{
+  "1": {
+    "inputs": {
+      "vae_name": ""
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "2": {
+    "inputs": {
+      "samples": [
+        "12",
+        0
+      ],
+      "vae": [
+        "1",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "3": {
+    "inputs": {
+      "filename_prefix": "ComfyUI",
+      "images": [
+        "2",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  },
+  "4": {
+    "inputs": {
+      "width": 1920,
+      "height": 1088,
+      "batch_size": 1
+    },
+    "class_type": "EmptySD3LatentImage",
+    "_meta": {
+      "title": "EmptySD3LatentImage"
+    }
+  },
+  "5": {
+    "inputs": {
+      "text": "",
+      "clip": [
+        "7",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Negative Prompt)"
+    }
+  },
+  "7": {
+    "inputs": {
+      "clip_name": "",
+      "type": "qwen_image",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP"
+    }
+  },
+  "8": {
+    "inputs": {
+      "shift": 1.23
+    },
+    "class_type": "ModelSamplingAuraFlow",
+    "_meta": {
+      "title": "ModelSamplingAuraFlow"
+    }
+  },
+  "9": {
+    "inputs": {
+      "text": "",
+      "clip": [
+        "7",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  },
+  "12": {
+    "inputs": {
+      "seed": 597381612027098,
+      "steps": 4,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "20",
+        0
+      ],
+      "positive": [
+        "9",
+        0
+      ],
+      "negative": [
+        "5",
+        0
+      ],
+      "latent_image": [
+        "4",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "13": {
+    "inputs": {
+      "model_name": "",
+      "cpu_offload": "auto",
+      "num_blocks_on_gpu": 60,
+      "use_pin_memory": "disable"
+    },
+    "class_type": "NunchakuQwenImageDiTLoader",
+    "_meta": {
+      "title": "Nunchaku Qwen-Image DiT Loader"
+    }
+  },
+  "20": {
+    "inputs": {
+      "🔢 LoRA Count": "6",
+      "lora_count": 6,
+      "toggle_all": true,
+      "cpu_offload": "disable",
+      "enabled_1": true,
+      "lora_name_1": "None",
+      "lora_strength_1": 1,
+      "enabled_2": true,
+      "lora_name_2": "None",
+      "lora_strength_2": 1,
+      "enabled_3": true,
+      "lora_name_3": "None",
+      "lora_strength_3": 1,
+      "enabled_4": true,
+      "lora_name_4": "None",
+      "lora_strength_4": 1,
+      "enabled_5": true,
+      "lora_name_5": "None",
+      "lora_strength_5": 1,
+      "enabled_6": true,
+      "lora_name_6": "None",
+      "lora_strength_6": 1,
+      "model": [
+        "13",
+        0
+      ]
+    },
+    "class_type": "NunchakuQwenImageLoraStackV3",
+    "_meta": {
+      "title": "Nunchaku Qwen Image LoRA Stack V3"
+    }
+  }
+}

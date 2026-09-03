@@ -41,6 +41,34 @@ class TestFindNearMiss:
         )
         assert rescue.find_near_miss_invocations(content, REGISTERED) == []
 
+    def test_tool_action_tag_with_json_object_body_is_rescued(self):
+        # A model that writes the payload as the tag's inner text rather than
+        # an attribute: <tool_action> with no argument-carrying attributes
+        # and a JSON object between the tags.
+        content = (
+            '<tool_action type="propose_form_changes">\n'
+            '{"ops": [{"op": "add_field", "tab": "main", "field_type": "int", '
+            '"field_name": "steps", "label": "Steps", "mappings": []}]}\n'
+            "</tool_action>"
+        )
+        registered = REGISTERED | {"propose_form_changes"}
+        near = rescue.find_near_miss_invocations(content, registered)
+        assert len(near) == 1
+        nm = near[0]
+        assert nm.tool_name == "propose_form_changes"
+        assert nm.original_format == "tool_action_tag"
+        assert nm.problem is None
+        assert nm.arguments == {
+            "ops": [{
+                "op": "add_field", "tab": "main", "field_type": "int",
+                "field_name": "steps", "label": "Steps", "mappings": [],
+            }]
+        }
+        # The whole tag, body, and closing tag are claimed -- none of it may
+        # survive `strip_spans`.
+        cleaned = rescue.strip_spans(content, [nm.span for nm in near])
+        assert cleaned == ""
+
     def test_tool_call_fence(self):
         content = '```tool_call\n{"name": "echo", "arguments": {"message": "hi"}}\n```'
         near = rescue.find_near_miss_invocations(content, REGISTERED)

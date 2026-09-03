@@ -36,6 +36,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 # `<|"|>` is admitted inside the attribute region because a local tokenizer
 # emits quotes that way, and its `>` would otherwise end the region early.
 _TOOL_ACTION_RE = re.compile(r"<tool_action\b((?:<\|[^|>]*\|>|[^>])*)>?", re.DOTALL | re.IGNORECASE)
+_TOOL_ACTION_CLOSE_RE = re.compile(r"</tool_action\s*>", re.IGNORECASE)
 _ATTR_NAME_RE = re.compile(r"(\w[\w-]*)\s*=\s*")
 _BARE_VALUE_RE = re.compile(r"\S*")
 # A quote character the model wrapped in special-token delimiters.
@@ -317,8 +318,28 @@ def _detect_tool_action(content: str, registered: Set[str], out: List[NearMiss])
         type_name, attrs, problems = _parse_attributes(demangle_quote_tokens(m.group(1)))
         if type_name not in registered:
             continue
+        span = m.span()
+        arguments = attrs or None
+        # No attribute carried the arguments -- some models write the
+        # payload as the tag's inner text instead, e.g.
+        # `<tool_action type="x">{"ops": [...]}</tool_action>`. A closing tag
+        # found after this one is claimed regardless of what its body turns
+        # out to be, so the whole span (including the body and close tag) is
+        # what gets stripped -- never just the opening tag with the payload
+        # left dangling in the cleaned content.
+        if not attrs:
+            close = _TOOL_ACTION_CLOSE_RE.search(content, m.end())
+            if close:
+                span = (m.start(), close.end())
+                body = content[m.end():close.start()].strip()
+                if body:
+                    value, problem = decode_payload(body)
+                    if problem is None and isinstance(value, dict):
+                        arguments = value
+                    elif problem:
+                        problems = [*problems, problem]
         out.append(NearMiss(
-            type_name, attrs or None, "tool_action_tag", m.span(), "; ".join(problems) or None
+            type_name, arguments, "tool_action_tag", span, "; ".join(problems) or None
         ))
 
 

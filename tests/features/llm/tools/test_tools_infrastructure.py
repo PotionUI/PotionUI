@@ -2664,6 +2664,66 @@ class TestToolExecutorRescue:
         ]
 
     @pytest.mark.asyncio
+    async def test_repairs_tool_action_tag_with_json_object_body(self):
+        """A model writes the payload as the tag's inner text (no
+        argument-carrying attributes) instead of a real tool call. Must be
+        dispatched, not surfaced to the user as markup."""
+
+        class ProposeFormChangesTool(BaseTool):
+            @property
+            def name(self) -> str:
+                return "propose_form_changes"
+
+            @property
+            def description(self) -> str:
+                return "Propose form changes."
+
+            @property
+            def parameters(self) -> Dict[str, Any]:
+                return {
+                    "type": "object",
+                    "properties": {"ops": {"type": "array"}},
+                    "required": ["ops"],
+                }
+
+            async def execute(self, context: ToolContext, **kwargs) -> ToolResult:
+                return ToolResult(success=True, data=f"{len(kwargs['ops'])} ops applied")
+
+        raw_block = (
+            '<tool_action type="propose_form_changes">\n'
+            '{"ops": [\n'
+            ' {"op": "add_field", "tab_id": "main", "field": {"id": "model", "label": "Model", '
+            '"type": "model", "default_value": "v1-5-pruned-emaonly.safetensors", "mapping": '
+            '[{"node_id": "4", "input_name": "ckpt_name", "transform": "strip_model_prefix"}]}},\n'
+            ' {"op": "add_field", "tab_id": "main", "field": {"id": "seed", "label": "Seed", '
+            '"type": "seed", "default_value": 0, "mapping": [{"node_id": "3", "input_name": '
+            '"seed"}]}}\n'
+            "]}\n"
+            "</tool_action>"
+        )
+        executor, llm_service = self._make_executor(ProposeFormChangesTool())
+        llm_service.generate_with_tools.side_effect = [
+            make_llm_response(raw_block, tool_calls=[]),
+            make_llm_response("Added the fields."),
+        ]
+
+        response, executions = await executor.execute_with_tools(
+            messages=[{"role": "user", "content": "import this workflow"}],
+            llm_id="model-1",
+            system_message="sys",
+            tool_context=make_context(),
+            allowed_tools=["propose_form_changes"],
+        )
+
+        assert response.content == "Added the fields."
+        assert [te.tool_name for te in executions] == ["propose_form_changes"]
+        assert len(executions[0].arguments["ops"]) == 2
+        assert "tool_action" not in response.content
+        assert response.rescues == [
+            {"tool_name": "propose_form_changes", "repaired": True, "original_format": "tool_action_tag"}
+        ]
+
+    @pytest.mark.asyncio
     async def test_ambiguous_near_miss_retries_with_nudge_then_succeeds(self):
         executor, llm_service = self._make_executor(EchoTool())
         # First reply names echo but omits the required 'message' → ambiguous.

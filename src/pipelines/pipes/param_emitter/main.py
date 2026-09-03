@@ -45,8 +45,11 @@ class ParamEmitterPipe(BasePipe):
         # Flatten parameters list (handle nested lists from @loop expansion)
         flat_parameters = []
         for item in parameters:
-            if isinstance(item, list) and len(item) > 0:
-                # Check if this is a nested list from @loop
+            if isinstance(item, list):
+                if len(item) == 0:
+                    # An @loop with a false `when` or an empty items list expands
+                    # to [] - a legitimate "nothing to emit" here, not malformed input.
+                    continue
                 if isinstance(item[0], list):
                     # Flatten: [[param1], [param2]] -> [param1, param2]
                     flat_parameters.extend(item)

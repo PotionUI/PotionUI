@@ -83,6 +83,19 @@ def test_mismatched_array_length_is_still_left_alone():
     assert params["positive_prompt"] == ["a", "b", "c"]
 
 
+def test_empty_loop_expansion_is_silently_skipped(caplog):
+    """An `@loop` whose `when` is false or whose items list is empty expands to
+    `[]` in the rendered `parameters` list - a legitimate "nothing to emit"
+    (an unselected LoRA slot, a gated enhance-only row), not malformed input."""
+    params = _emit({
+        "quantity": 1,
+        "parameters": [["steps", 8], [], []],
+    })
+
+    assert params["steps"] == [8]
+    assert "Invalid parameter format" not in caplog.text
+
+
 def test_multiple_values_for_one_name_are_untouched_by_passes():
     """Model rows are a list of distinct models, not per-index values."""
     params = _emit({

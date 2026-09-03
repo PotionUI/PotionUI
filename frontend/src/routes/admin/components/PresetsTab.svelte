@@ -7,6 +7,7 @@
 	import { logger } from '$lib/utils/logger';
 	import { availablePresetEngines, filterPresets } from '$lib/utils/presetFilter';
 	import { hasPresetMedia } from '$lib/utils/presetMedia';
+	import { presetRequirementsBadge } from '$lib/utils/presetRequirementsBadge';
 	import { processMarkdown } from '$lib/utils/markdown';
 	import Icon from '$lib/components/Icon.svelte';
 	import PluginSlot from '$lib/components/plugins/PluginSlot.svelte';
@@ -19,6 +20,7 @@
 	import { createPresetAssignmentAdapter } from '$lib/components/assignment/presetAssignmentAdapter';
 	import PresetConfigurationTab from './PresetConfigurationTab.svelte';
 	import PresetFormOverridesTab from './PresetFormOverridesTab.svelte';
+	import PresetRequirementsTab from './presets/PresetRequirementsTab.svelte';
 	import PresetDetailSubHeader from './PresetDetailSubHeader.svelte';
 	import AdminTabShell from './AdminTabShell.svelte';
 	import AdminFilterBar from './AdminFilterBar.svelte';
@@ -26,7 +28,8 @@
 	import type { PresetInfo, PresetConfigurationEntry } from '$lib/types/api';
 
 	type InstallFilter = 'all' | 'installed' | 'not-installed';
-	type DetailTab = 'overview' | 'access' | 'configuration' | 'form';
+	type RequirementsFilter = 'all' | 'missing' | 'unknown';
+	type DetailTab = 'overview' | 'access' | 'configuration' | 'form' | 'requirements';
 
 	let presets: PresetInfo[] = [];
 	let loading = true;
@@ -36,6 +39,7 @@
 	let selectedCategory: string | null = null;
 	let selectedEngine: string | null = null;
 	let installFilter: InstallFilter = 'all';
+	let requirementsFilter: RequirementsFilter = 'all';
 	let selectedPresetId = '';
 	let detailTab: DetailTab = 'overview';
 	let presetDetail: PresetInfo | null = null;
@@ -69,6 +73,8 @@
 		if (selectedCategory && preset.category !== selectedCategory) return false;
 		if (installFilter === 'installed' && !preset.installed) return false;
 		if (installFilter === 'not-installed' && preset.installed) return false;
+		if (requirementsFilter === 'missing' && !(preset.requirements_summary?.missing ?? 0)) return false;
+		if (requirementsFilter === 'unknown' && !(preset.requirements_summary?.unknown ?? 0)) return false;
 		return true;
 	});
 	$: groupedPresets = groupByCategory(filteredPresets);
@@ -89,7 +95,12 @@
 			: selectedPreset;
 	$: descriptionHtml = activePreset?.description ? processMarkdown(activePreset.description) : '';
 	$: gallery = activePreset?.media?.gallery || [];
-	$: activeFilterCount = Number(!!query.trim()) + Number(!!selectedCategory) + Number(!!selectedEngine) + Number(installFilter !== 'all');
+	$: activeFilterCount =
+		Number(!!query.trim()) +
+		Number(!!selectedCategory) +
+		Number(!!selectedEngine) +
+		Number(installFilter !== 'all') +
+		Number(requirementsFilter !== 'all');
 
 	$: if (!loading && !filteredPresets.some((preset) => preset.id === selectedPresetId)) {
 		const nextId = filteredPresets[0]?.id || '';
@@ -205,6 +216,7 @@
 		selectedCategory = null;
 		selectedEngine = null;
 		installFilter = 'all';
+		requirementsFilter = 'all';
 	}
 
 	async function handleInstall(preset: PresetInfo) {
@@ -329,6 +341,15 @@
 				<option value="not-installed">Not installed ({uninstalledCount})</option>
 			</select>
 		</div>
+
+		<div class="flex items-center gap-2">
+			<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">Requirements</span>
+			<select class="input w-44" bind:value={requirementsFilter} aria-label="Filter by requirements">
+				<option value="all">All</option>
+				<option value="missing">Missing requirements</option>
+				<option value="unknown">Unknown requirements</option>
+			</select>
+		</div>
 	{/snippet}
 	{#snippet presetFiltersTrailing()}
 		<span class="text-sm text-fg-muted whitespace-nowrap font-mono tabular-nums">{filteredPresets.length} {filteredPresets.length === 1 ? 'preset' : 'presets'}</span>
@@ -402,7 +423,13 @@
 										{/if}
 									{/snippet}
 									{#snippet presetTrailing()}
-										<Badge variant={preset.installed ? 'success' : 'neutral'} size="sm" dot={!!preset.installed}>{preset.installed ? 'installed' : 'available'}</Badge>
+										{@const requirementsBadge = presetRequirementsBadge(preset.requirements_summary)}
+										<div class="flex flex-col items-end gap-1">
+											<Badge variant={preset.installed ? 'success' : 'neutral'} size="sm" dot={!!preset.installed}>{preset.installed ? 'installed' : 'available'}</Badge>
+											{#if requirementsBadge}
+												<Badge variant={requirementsBadge.variant} size="sm">{requirementsBadge.label}</Badge>
+											{/if}
+										</div>
 									{/snippet}
 									<PaneRow
 										selected={selectedPresetId === preset.id}
@@ -455,6 +482,17 @@
 										aria-current={detailTab === 'form' ? 'page' : undefined}
 									><Icon name="document" className="w-3.5 h-3.5" />Form</button>
 								{/if}
+								<button
+									type="button"
+									class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors {detailTab === 'requirements' ? 'bg-signal/10 text-signal' : 'text-fg-muted hover:bg-surface-2 hover:text-fg'}"
+									on:click={() => (detailTab = 'requirements')}
+									aria-current={detailTab === 'requirements' ? 'page' : undefined}
+								>
+									<Icon name="check" className="w-3.5 h-3.5" />Requirements
+									{#if (activePreset.requirements_summary?.missing ?? 0) > 0}
+										<span class="w-1.5 h-1.5 rounded-full bg-danger" aria-hidden="true"></span>
+									{/if}
+								</button>
 							</nav>
 
 							<div class="ml-auto flex items-center gap-2">
@@ -581,6 +619,17 @@
 									/>
 								{#key activePreset.id}
 									<PresetFormOverridesTab presetId={activePreset.id} />
+								{/key}
+								</div>
+							{:else if detailTab === 'requirements'}
+								<div class="p-5 sm:p-7">
+									<PresetDetailSubHeader
+										icon="check"
+										title="Requirements for {activePreset.name}"
+										description="Typed, live-checked requirements this preset declares against this instance."
+									/>
+								{#key activePreset.id}
+									<PresetRequirementsTab presetId={activePreset.id} />
 								{/key}
 								</div>
 							{:else}

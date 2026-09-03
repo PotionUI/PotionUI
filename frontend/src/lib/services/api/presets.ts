@@ -5,7 +5,8 @@ import type {
 	PresetModeInfo,
 	PresetConfigurationResponse,
 	PresetFormOverridePatch,
-	PresetFormOverridesResponse
+	PresetFormOverridesResponse,
+	PresetRequirementsResponse
 } from '$lib/types/api';
 
 export function createPresetsApi(client: AxiosInstance) {
@@ -84,6 +85,15 @@ export function createPresetsApi(client: AxiosInstance) {
 			overrides: Record<string, PresetFormOverridePatch | null>
 		): Promise<APIResponse<PresetFormOverridesResponse>> {
 			const response = await client.put(`/api/presets/${presetId}/form-overrides`, { mode, overrides });
+			return response.data;
+		},
+
+		async getPresetRequirements(
+			presetId: string,
+			refresh: boolean = false
+		): Promise<APIResponse<PresetRequirementsResponse>> {
+			const params = refresh ? '?refresh=1' : '';
+			const response = await client.get(`/api/presets/${presetId}/requirements${params}`);
 			return response.data;
 		}
 	};

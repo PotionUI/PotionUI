@@ -172,6 +172,15 @@ export interface PresetRequirements {
 	min_ram_gb?: number;
 }
 
+/** Last-evaluated counts from `GET /api/presets/{id}/requirements` - `null` until that
+ *  endpoint has run at least once for this preset+backend. Never computed by the list/detail
+ *  endpoints themselves. See docs/presets.md "Requirements". */
+export interface PresetRequirementsSummary {
+	ok: number;
+	missing: number;
+	unknown: number;
+}
+
 export interface PresetInfo {
 	id: string;
 	name: string;
@@ -183,12 +192,42 @@ export interface PresetInfo {
 	engine?: string;
 	media?: PresetMedia;
 	requires?: PresetRequirements;
+	requirements_summary?: PresetRequirementsSummary | null;
 	// Admin-only fields (present when `listPresets(includeUninstalled = true)` is called).
 	installed?: boolean;
 	/** Database relationship ID for the installed preset (admin list only). */
 	preset_db_id?: string;
 	assignment_count?: number;
 	group_count?: number;
+}
+
+// ── Preset requirements (typed, live-checked entries - distinct from the static
+//    `requires:` VRAM/RAM guidance above). See docs/presets.md "Requirements". ──
+export type RequirementStatus = 'ok' | 'missing' | 'unknown';
+
+export interface RequirementAction {
+	kind: 'open_downloader' | 'open_backends' | 'open_url';
+	payload: Record<string, unknown>;
+}
+
+export interface RequirementResultInfo {
+	status: RequirementStatus;
+	detail: string;
+	hint?: string | null;
+	action?: RequirementAction | null;
+	/** The `requirements:` entry's own `type:` (`binary`, `python_package`, `model`,
+	 *  `vram_min_gb`, `platform`, or an engine-specific type a plugin registered). */
+	type?: string;
+	/** The entry's most identifying string (a checker's `describe()`, or a fallback
+	 *  field pulled from the raw entry) - what to show as this row's name. */
+	name?: string;
+	optional?: boolean;
+}
+
+export interface PresetRequirementsResponse {
+	results: RequirementResultInfo[];
+	summary: PresetRequirementsSummary;
+	checked_at: number;
 }
 
 // ── Per-preset configuration (admin-authored, distinct from the user-facing form) ──

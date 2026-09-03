@@ -359,8 +359,7 @@
 		<div class="body">
 			{#if !reviewing}
 				<p class="hint">
-					Paste an <strong>Export (API)</strong> ComfyUI workflow, or drop the JSON file. Use ComfyUI's
-					"Export (API)" menu item, not the regular workflow export.
+					Paste or drop a ComfyUI workflow — the plain workflow JSON or Export (API).
 				</p>
 
 				<div
@@ -400,6 +399,11 @@
 					<span class="badge">{analysis.mode}</span>
 					<span class="dim">·</span>
 					<span class="mono">{analysis.node_count} nodes</span>
+					<span class="dim">·</span>
+					<span class="badge mono" data-import-format>{analysis.format}</span>
+					{#if analysis.object_info_used}
+						<span class="dim" data-import-object-info-used>ranges + options from your ComfyUI</span>
+					{/if}
 					{#if analysis.lora_chain}
 						<span class="dim">·</span>
 						<span class="badge badge-info">LoRA chain found</span>

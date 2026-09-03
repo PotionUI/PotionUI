@@ -22,6 +22,8 @@ const ANALYZE_RESULT = {
 	node_count: 7,
 	sampler_node_id: '3',
 	lora_chain: null,
+	format: 'api',
+	object_info_used: false,
 	candidates: [
 		{
 			node_id: '3',
@@ -217,6 +219,8 @@ describe('ImportWorkflowAction (real compiled dist)', () => {
 
 		expect(dialog!.querySelector('[data-import-detected]')?.textContent).toContain('text2img');
 		expect(dialog!.querySelector('[data-import-detected]')?.textContent).toContain('7 nodes');
+		expect(dialog!.querySelector('[data-import-format]')?.textContent).toBe('api');
+		expect(dialog!.querySelector('[data-import-object-info-used]')).toBeNull();
 
 		// Obvious rows (seed, steps, and width+height merged into one
 		// resolution row) visible and pre-ticked; sampler_name collapsed
@@ -270,13 +274,16 @@ describe('ImportWorkflowAction (real compiled dist)', () => {
 		unmount(instance);
 	});
 
-	it('shows the backend message when the pasted JSON is the UI-format export', async () => {
+	it('shows the backend message verbatim when a UI-format workflow needs a reachable ComfyUI backend', async () => {
 		const fetchMock = vi.fn(async (url: string) => {
 			if (url === '/api/fields/types') return jsonResponse({ success: true, data: [] });
 			if (url === '/api/plugins/comfyui-backend/presets/families') return jsonResponse({ families: [] });
 			if (url === '/api/plugins/comfyui-backend/presets/import/analyze') {
 				return jsonResponse(
-					{ detail: 'This looks like the UI workflow export - use "Export (API)" in ComfyUI instead.' },
+					{
+						detail:
+							'A reachable ComfyUI backend is needed to import UI-format workflows; use Export (API) or configure the backend'
+					},
 					false,
 					400
 				);
@@ -302,9 +309,45 @@ describe('ImportWorkflowAction (real compiled dist)', () => {
 		await settle();
 
 		const error = dialog.querySelector('[data-import-analyze-error]');
-		expect(error?.textContent).toContain('Export (API)');
+		expect(error?.textContent).toBe(
+			'A reachable ComfyUI backend is needed to import UI-format workflows; use Export (API) or configure the backend'
+		);
 		// Still on the paste step - no candidate list rendered.
 		expect(dialog.querySelector('[data-import-candidates]')).toBeNull();
+
+		unmount(instance);
+	});
+
+	it('shows the UI-format chip and the object-info microlabel when the backend converted a UI-format workflow', async () => {
+		const uiAnalyzeResult = { ...ANALYZE_RESULT, format: 'ui', object_info_used: true };
+		const fetchMock = vi.fn(async (url: string) => {
+			if (url === '/api/fields/types') return jsonResponse({ success: true, data: [] });
+			if (url === '/api/plugins/comfyui-backend/presets/families') return jsonResponse({ families: [] });
+			if (url === '/api/plugins/comfyui-backend/presets/import/analyze') return jsonResponse(uiAnalyzeResult);
+			throw new Error(`Unexpected fetch: ${url}`);
+		});
+		vi.stubGlobal('fetch', fetchMock);
+
+		const el = target();
+		const instance = mount(ImportWorkflowAction, { target: el, props: { context: {} } });
+		await settle();
+
+		el.querySelector<HTMLButtonElement>('button[aria-label="Import ComfyUI workflow"]')!.click();
+		await settle();
+
+		const dialog = document.querySelector('[role="dialog"][aria-label="Import ComfyUI workflow"]')!;
+		const textarea = dialog.querySelector<HTMLTextAreaElement>('textarea[data-import-json-input]')!;
+		textarea.value = JSON.stringify({ nodes: [], links: [] });
+		textarea.dispatchEvent(new Event('input', { bubbles: true }));
+		await settle();
+
+		dialog.querySelector<HTMLButtonElement>('button[data-import-analyze]')!.click();
+		await settle();
+
+		expect(dialog.querySelector('[data-import-format]')?.textContent).toBe('ui');
+		expect(dialog.querySelector('[data-import-object-info-used]')?.textContent).toContain(
+			'ranges + options from your ComfyUI'
+		);
 
 		unmount(instance);
 	});

@@ -6280,26 +6280,23 @@ function get_custom_elements_slots(element2) {
 var root = from_html(`<option> </option>`);
 var root_1 = from_html(`<label class="candidate-row svelte-i6qxfw"><input type="checkbox" class="svelte-i6qxfw"/> <div class="candidate-node svelte-i6qxfw"><span class="candidate-title svelte-i6qxfw"> </span> <span class="candidate-input mono svelte-i6qxfw"> </span></div> <span class="candidate-value mono svelte-i6qxfw"> </span> <select class="candidate-type svelte-i6qxfw"></select> <input class="candidate-label svelte-i6qxfw" type="text"/></label>`);
 var root_2 = from_html(`<p class="message message-error svelte-i6qxfw" data-import-analyze-error=""> </p>`);
-var root_3 = from_html(
-  `<p class="hint svelte-i6qxfw">Paste an <strong>Export (API)</strong> ComfyUI workflow, or drop the JSON file. Use ComfyUI's
-					"Export (API)" menu item, not the regular workflow export.</p> <div role="group" aria-label="Workflow JSON"><textarea rows="12" data-import-json-input="" class="svelte-i6qxfw"></textarea> <div class="dropzone-footer svelte-i6qxfw"><span class="dim svelte-i6qxfw">or</span> <button type="button" class="link-btn svelte-i6qxfw">choose a .json file</button> <input type="file" accept=".json,application/json" class="file-input-hidden svelte-i6qxfw"/></div></div> <!>`,
-  1
-);
-var root_4 = from_html(`<span class="dim svelte-i6qxfw">\xB7</span> <span class="badge badge-info svelte-i6qxfw">LoRA chain found</span>`, 1);
-var root_5 = from_html(`<button type="button" class="more-toggle svelte-i6qxfw"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 6l6 6-6 6"></path></svg> </button> <!>`, 1);
-var root_6 = from_html(`<option></option>`);
-var root_7 = from_html(`<p class="message message-error svelte-i6qxfw" data-import-create-error=""> </p>`);
-var root_8 = from_html(`<div class="candidate-list svelte-i6qxfw" data-import-candidates=""><!> <!></div> <div class="name-grid svelte-i6qxfw"><div class="field svelte-i6qxfw"><label for="import-model-family" class="svelte-i6qxfw">Model family</label> <input id="import-model-family" type="text" list="import-model-family-list" placeholder="e.g. SDXL" class="svelte-i6qxfw"/> <datalist id="import-model-family-list"></datalist></div> <div class="field svelte-i6qxfw"><label for="import-variant" class="svelte-i6qxfw">Variant</label> <input id="import-variant" type="text" placeholder="imported" class="svelte-i6qxfw"/></div> <div class="field svelte-i6qxfw"><label for="import-display-name" class="svelte-i6qxfw">Display name</label> <input id="import-display-name" type="text" placeholder="e.g. SDXL - My workflow" class="svelte-i6qxfw"/></div></div> <!>`, 1);
-var root_9 = from_html(`<li> </li>`);
-var root_10 = from_html(`<div class="message message-error svelte-i6qxfw"><p class="message-title svelte-i6qxfw">Lint errors</p> <ul class="svelte-i6qxfw"></ul></div>`);
-var root_11 = from_html(`<div class="message message-info svelte-i6qxfw"><p class="message-title svelte-i6qxfw">Lint warnings</p> <ul class="svelte-i6qxfw"></ul></div>`);
-var root_12 = from_html(`<p class="message message-success svelte-i6qxfw">Lint clean - no issues found.</p>`);
-var root_13 = from_html(`<div class="lint-result svelte-i6qxfw" data-import-lint=""><p class="lint-heading svelte-i6qxfw">Preset created at <code class="mono svelte-i6qxfw"> </code></p> <!> <!> <!></div>`);
-var root_14 = from_html(`<div class="detected-strip svelte-i6qxfw" data-import-detected=""><span class="badge svelte-i6qxfw"> </span> <span class="dim svelte-i6qxfw">\xB7</span> <span class="mono svelte-i6qxfw"> </span> <!> <button type="button" class="link-btn strip-end svelte-i6qxfw">Change workflow</button></div> <!>`, 1);
-var root_15 = from_html(`<button type="button" class="btn btn-secondary svelte-i6qxfw">Close</button> <button type="button" class="btn btn-primary svelte-i6qxfw" data-import-open-preset="">Open in Presets</button>`, 1);
-var root_16 = from_html(`<button type="button" class="btn btn-secondary svelte-i6qxfw">Cancel</button> <button type="button" class="btn btn-primary svelte-i6qxfw" data-import-analyze=""> </button>`, 1);
-var root_17 = from_html(`<button type="button" class="btn btn-secondary svelte-i6qxfw">Cancel</button> <button type="button" class="btn btn-primary svelte-i6qxfw" data-import-create=""> </button>`, 1);
-var root_18 = from_html(`<div class="overlay svelte-i6qxfw" role="button" tabindex="-1" aria-label="Close modal"><div class="dialog svelte-i6qxfw" role="dialog" aria-modal="true" aria-label="Import ComfyUI workflow"><div class="header svelte-i6qxfw"><div class="header-title svelte-i6qxfw"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v12m0 0l-4-4m4 4l4-4M5 17v2a2 2 0 002 2h10a2 2 0 002-2v-2"></path></svg> <h2 class="svelte-i6qxfw">Import ComfyUI workflow</h2></div> <button type="button" class="close-btn svelte-i6qxfw" aria-label="Close modal"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M18 6L6 18M6 6l12 12"></path></svg></button></div> <div class="body svelte-i6qxfw"><!></div> <div class="footer svelte-i6qxfw"><!></div></div></div>`);
+var root_3 = from_html(`<p class="hint svelte-i6qxfw">Paste or drop a ComfyUI workflow \u2014 the plain workflow JSON or Export (API).</p> <div role="group" aria-label="Workflow JSON"><textarea rows="12" data-import-json-input="" class="svelte-i6qxfw"></textarea> <div class="dropzone-footer svelte-i6qxfw"><span class="dim svelte-i6qxfw">or</span> <button type="button" class="link-btn svelte-i6qxfw">choose a .json file</button> <input type="file" accept=".json,application/json" class="file-input-hidden svelte-i6qxfw"/></div></div> <!>`, 1);
+var root_4 = from_html(`<span class="dim svelte-i6qxfw" data-import-object-info-used="">ranges + options from your ComfyUI</span>`);
+var root_5 = from_html(`<span class="dim svelte-i6qxfw">\xB7</span> <span class="badge badge-info svelte-i6qxfw">LoRA chain found</span>`, 1);
+var root_6 = from_html(`<button type="button" class="more-toggle svelte-i6qxfw"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 6l6 6-6 6"></path></svg> </button> <!>`, 1);
+var root_7 = from_html(`<option></option>`);
+var root_8 = from_html(`<p class="message message-error svelte-i6qxfw" data-import-create-error=""> </p>`);
+var root_9 = from_html(`<div class="candidate-list svelte-i6qxfw" data-import-candidates=""><!> <!></div> <div class="name-grid svelte-i6qxfw"><div class="field svelte-i6qxfw"><label for="import-model-family" class="svelte-i6qxfw">Model family</label> <input id="import-model-family" type="text" list="import-model-family-list" placeholder="e.g. SDXL" class="svelte-i6qxfw"/> <datalist id="import-model-family-list"></datalist></div> <div class="field svelte-i6qxfw"><label for="import-variant" class="svelte-i6qxfw">Variant</label> <input id="import-variant" type="text" placeholder="imported" class="svelte-i6qxfw"/></div> <div class="field svelte-i6qxfw"><label for="import-display-name" class="svelte-i6qxfw">Display name</label> <input id="import-display-name" type="text" placeholder="e.g. SDXL - My workflow" class="svelte-i6qxfw"/></div></div> <!>`, 1);
+var root_10 = from_html(`<li> </li>`);
+var root_11 = from_html(`<div class="message message-error svelte-i6qxfw"><p class="message-title svelte-i6qxfw">Lint errors</p> <ul class="svelte-i6qxfw"></ul></div>`);
+var root_12 = from_html(`<div class="message message-info svelte-i6qxfw"><p class="message-title svelte-i6qxfw">Lint warnings</p> <ul class="svelte-i6qxfw"></ul></div>`);
+var root_13 = from_html(`<p class="message message-success svelte-i6qxfw">Lint clean - no issues found.</p>`);
+var root_14 = from_html(`<div class="lint-result svelte-i6qxfw" data-import-lint=""><p class="lint-heading svelte-i6qxfw">Preset created at <code class="mono svelte-i6qxfw"> </code></p> <!> <!> <!></div>`);
+var root_15 = from_html(`<div class="detected-strip svelte-i6qxfw" data-import-detected=""><span class="badge svelte-i6qxfw"> </span> <span class="dim svelte-i6qxfw">\xB7</span> <span class="mono svelte-i6qxfw"> </span> <span class="dim svelte-i6qxfw">\xB7</span> <span class="badge mono svelte-i6qxfw" data-import-format=""> </span> <!> <!> <button type="button" class="link-btn strip-end svelte-i6qxfw">Change workflow</button></div> <!>`, 1);
+var root_16 = from_html(`<button type="button" class="btn btn-secondary svelte-i6qxfw">Close</button> <button type="button" class="btn btn-primary svelte-i6qxfw" data-import-open-preset="">Open in Presets</button>`, 1);
+var root_17 = from_html(`<button type="button" class="btn btn-secondary svelte-i6qxfw">Cancel</button> <button type="button" class="btn btn-primary svelte-i6qxfw" data-import-analyze=""> </button>`, 1);
+var root_18 = from_html(`<button type="button" class="btn btn-secondary svelte-i6qxfw">Cancel</button> <button type="button" class="btn btn-primary svelte-i6qxfw" data-import-create=""> </button>`, 1);
+var root_19 = from_html(`<div class="overlay svelte-i6qxfw" role="button" tabindex="-1" aria-label="Close modal"><div class="dialog svelte-i6qxfw" role="dialog" aria-modal="true" aria-label="Import ComfyUI workflow"><div class="header svelte-i6qxfw"><div class="header-title svelte-i6qxfw"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v12m0 0l-4-4m4 4l4-4M5 17v2a2 2 0 002 2h10a2 2 0 002-2v-2"></path></svg> <h2 class="svelte-i6qxfw">Import ComfyUI workflow</h2></div> <button type="button" class="close-btn svelte-i6qxfw" aria-label="Close modal"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M18 6L6 18M6 6l12 12"></path></svg></button></div> <div class="body svelte-i6qxfw"><!></div> <div class="footer svelte-i6qxfw"><!></div></div></div>`);
 var $$css = {
   hash: "svelte-i6qxfw",
   code: ".overlay.svelte-i6qxfw {position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgb(0 0 0 / 0.6);backdrop-filter:blur(4px);}.dialog.svelte-i6qxfw {display:flex;flex-direction:column;width:min(760px, calc(100vw - 32px));max-height:90vh;background:rgb(var(--surface-1, 22 24 28));border-radius:10px;box-shadow:0 16px 48px rgb(0 0 0 / 0.6);}.header.svelte-i6qxfw {display:flex;align-items:center;justify-content:space-between;flex-shrink:0;padding:16px 24px;border-bottom:1px solid rgb(var(--line, 36 38 44));}.header-title.svelte-i6qxfw {display:flex;align-items:center;gap:12px;color:rgb(var(--fg-muted, 169 174 184));}.header-title.svelte-i6qxfw h2:where(.svelte-i6qxfw) {margin:0;color:rgb(var(--fg, 232 234 237));font-size:16px;font-weight:600;}.close-btn.svelte-i6qxfw {display:grid;place-items:center;width:32px;height:32px;padding:0;color:rgb(var(--fg-muted, 169 174 184));background:transparent;border:none;border-radius:4px;cursor:pointer;}.close-btn.svelte-i6qxfw:hover:not(:disabled) {color:rgb(var(--fg, 232 234 237));background:rgb(var(--surface-2, 31 33 38));}.close-btn.svelte-i6qxfw:disabled {opacity:0.5;cursor:default;}.body.svelte-i6qxfw {display:flex;flex-direction:column;gap:16px;padding:24px;overflow-y:auto;}.hint.svelte-i6qxfw {margin:0;color:rgb(var(--fg-muted, 169 174 184));font-size:12px;line-height:1.5;}.dropzone.svelte-i6qxfw {display:flex;flex-direction:column;border:1px dashed rgb(var(--line-strong, 43 46 53));border-radius:6px;background:rgb(var(--surface-2, 31 33 38) / 0.4);transition:border-color 0.1s ease, background-color 0.1s ease;}.dropzone.dragover.svelte-i6qxfw {border-color:rgb(var(--signal, 91 157 255));background:rgb(var(--signal, 91 157 255) / 0.06);}.dropzone.svelte-i6qxfw textarea:where(.svelte-i6qxfw) {width:100%;box-sizing:border-box;padding:10px 12px;color:rgb(var(--fg, 232 234 237));background:transparent;border:none;resize:vertical;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;font-size:12px;line-height:1.6;}.dropzone.svelte-i6qxfw textarea:where(.svelte-i6qxfw):focus {outline:none;}.dropzone-footer.svelte-i6qxfw {display:flex;align-items:center;gap:6px;padding:8px 12px;border-top:1px solid rgb(var(--line, 36 38 44));font-size:12px;}.file-input-hidden.svelte-i6qxfw {display:none;}.dim.svelte-i6qxfw {color:rgb(var(--fg-subtle, 122 128 144));}.mono.svelte-i6qxfw {font-family:ui-monospace, SFMono-Regular, Menlo, monospace;font-variant-numeric:tabular-nums;}.link-btn.svelte-i6qxfw {padding:0;border:none;background:transparent;color:rgb(var(--signal, 91 157 255));font-size:12px;cursor:pointer;}.link-btn.svelte-i6qxfw:hover {text-decoration:underline;}.link-btn.svelte-i6qxfw:disabled {opacity:0.5;cursor:default;text-decoration:none;}.detected-strip.svelte-i6qxfw {display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:10px 12px;background:rgb(var(--signal, 91 157 255) / 0.06);border:1px solid rgb(var(--signal, 91 157 255) / 0.2);border-radius:6px;font-size:12px;}.strip-end.svelte-i6qxfw {margin-left:auto;}.badge.svelte-i6qxfw {display:inline-flex;align-items:center;padding:1px 7px;border-radius:4px;background:rgb(var(--surface-3, 39 42 49));color:rgb(var(--fg, 232 234 237));font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;}.badge-info.svelte-i6qxfw {background:rgb(var(--info, 91 157 255) / 0.15);color:rgb(var(--info, 91 157 255));}.candidate-list.svelte-i6qxfw {display:flex;flex-direction:column;border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;overflow:hidden;}.candidate-row.svelte-i6qxfw {display:grid;grid-template-columns:20px minmax(0, 1.4fr) minmax(0, 1fr) 130px minmax(0, 1fr);align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid rgb(var(--line, 36 38 44));cursor:pointer;}.candidate-row.svelte-i6qxfw:last-child {border-bottom:none;}.candidate-row.svelte-i6qxfw:hover {background:rgb(var(--surface-2, 31 33 38) / 0.6);}.candidate-row.svelte-i6qxfw input[type='checkbox']:where(.svelte-i6qxfw) {accent-color:rgb(var(--signal, 91 157 255));}.candidate-node.svelte-i6qxfw {display:flex;flex-direction:column;gap:1px;min-width:0;}.candidate-title.svelte-i6qxfw {color:rgb(var(--fg, 232 234 237));font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}.candidate-input.svelte-i6qxfw {color:rgb(var(--fg-subtle, 122 128 144));font-size:11px;}.candidate-value.svelte-i6qxfw {color:rgb(var(--fg-muted, 169 174 184));font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}.candidate-type.svelte-i6qxfw,\n	.candidate-label.svelte-i6qxfw {box-sizing:border-box;width:100%;padding:5px 8px;color:rgb(var(--fg, 232 234 237));background:rgb(var(--field-bg, 31 33 38));border:1px solid rgb(var(--field-border, 43 46 53));border-radius:4px;font-size:11px;}.candidate-type.svelte-i6qxfw:focus,\n	.candidate-label.svelte-i6qxfw:focus {outline:none;border-color:rgb(var(--signal, 91 157 255));}.more-toggle.svelte-i6qxfw {display:flex;align-items:center;gap:6px;padding:8px 12px;border:none;border-top:1px solid rgb(var(--line, 36 38 44));background:rgb(var(--surface-2, 31 33 38) / 0.4);color:rgb(var(--fg-muted, 169 174 184));font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;cursor:pointer;}.more-toggle.svelte-i6qxfw:hover {color:rgb(var(--fg, 232 234 237));}.chevron.svelte-i6qxfw {transition:transform 0.1s ease;}.chevron.open.svelte-i6qxfw {transform:rotate(90deg);}.name-grid.svelte-i6qxfw {display:grid;grid-template-columns:repeat(3, 1fr);gap:12px;}.field.svelte-i6qxfw {display:flex;flex-direction:column;gap:6px;min-width:0;}.field.svelte-i6qxfw label:where(.svelte-i6qxfw) {color:rgb(var(--fg-muted, 169 174 184));font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;}.field.svelte-i6qxfw input[type='text']:where(.svelte-i6qxfw) {box-sizing:border-box;width:100%;padding:8px 10px;color:rgb(var(--fg, 232 234 237));background:rgb(var(--field-bg, 31 33 38));border:1px solid rgb(var(--field-border, 43 46 53));border-radius:4px;font-size:12px;font-family:inherit;}.field.svelte-i6qxfw input[type='text']:where(.svelte-i6qxfw):focus {outline:none;border-color:rgb(var(--signal, 91 157 255));}.lint-result.svelte-i6qxfw {display:flex;flex-direction:column;gap:10px;}.lint-heading.svelte-i6qxfw {margin:0;color:rgb(var(--fg-muted, 169 174 184));font-size:12px;}.message.svelte-i6qxfw {padding:10px 14px;border-radius:6px;font-size:12px;}.message.svelte-i6qxfw ul:where(.svelte-i6qxfw) {margin:4px 0 0;padding-left:18px;}.message-error.svelte-i6qxfw {margin:0;color:rgb(var(--danger, 255 138 138));background:rgb(var(--danger, 255 138 138) / 0.1);border:1px solid rgb(var(--danger, 255 138 138) / 0.25);}.message-info.svelte-i6qxfw {color:rgb(var(--info, 91 157 255));background:rgb(var(--info, 91 157 255) / 0.1);border:1px solid rgb(var(--info, 91 157 255) / 0.25);}.message-success.svelte-i6qxfw {margin:0;color:rgb(var(--success, 61 214 140));background:rgb(var(--success, 61 214 140) / 0.1);border:1px solid rgb(var(--success, 61 214 140) / 0.25);}.message-title.svelte-i6qxfw {margin:0 0 4px;font-weight:600;}.footer.svelte-i6qxfw {display:flex;justify-content:flex-end;flex-shrink:0;gap:12px;padding:16px 24px;border-top:1px solid rgb(var(--line, 36 38 44));}.btn.svelte-i6qxfw {padding:8px 16px;border:none;border-radius:4px;font-size:13px;font-weight:500;cursor:pointer;}.btn.svelte-i6qxfw:disabled {opacity:0.5;cursor:default;}.btn-secondary.svelte-i6qxfw {color:rgb(var(--fg, 232 234 237));background:rgb(var(--surface-2, 31 33 38));border:1px solid rgb(var(--line-strong, 43 46 53));}.btn-secondary.svelte-i6qxfw:hover:not(:disabled) {background:rgb(var(--surface-3, 39 42 49));}.btn-primary.svelte-i6qxfw {color:rgb(var(--accent-contrast, 22 22 22));background:rgb(var(--accent, 255 255 255));}.btn-primary.svelte-i6qxfw:hover:not(:disabled) {background:rgb(var(--accent-hover, 230 230 230));}"
@@ -6687,7 +6684,7 @@ function ImportWorkflowModal($$anchor, $$props) {
     $set: update_legacy_props,
     $on: ($$event_name, $$event_cb) => add_legacy_event_listener($$props, $$event_name, $$event_cb)
   };
-  var div_1 = root_18();
+  var div_1 = root_19();
   event("keydown", $window, handleKeydown);
   var div_2 = child(div_1);
   var div_3 = child(div_2);
@@ -6734,7 +6731,7 @@ function ImportWorkflowModal($$anchor, $$props) {
       append($$anchor2, fragment);
     };
     var alternate_1 = ($$anchor2) => {
-      var fragment_1 = root_14();
+      var fragment_1 = root_15();
       var div_7 = first_child(fragment_1);
       var span_3 = child(div_7);
       var text_5 = child(span_3, true);
@@ -6742,64 +6739,78 @@ function ImportWorkflowModal($$anchor, $$props) {
       var span_4 = sibling(span_3, 4);
       var text_6 = child(span_4);
       reset(span_4);
-      var node_2 = sibling(span_4, 2);
+      var span_5 = sibling(span_4, 4);
+      var text_7 = child(span_5, true);
+      reset(span_5);
+      var node_2 = sibling(span_5, 2);
       {
         var consequent_2 = ($$anchor3) => {
-          var fragment_2 = root_4();
-          next(2);
-          append($$anchor3, fragment_2);
+          var span_6 = root_4();
+          append($$anchor3, span_6);
         };
         if_block(node_2, ($$render) => {
-          if (get(analysis).lora_chain)
+          if (get(analysis).object_info_used)
             $$render(consequent_2);
         });
       }
-      var button_2 = sibling(node_2, 2);
-      reset(div_7);
-      var node_3 = sibling(div_7, 2);
+      var node_3 = sibling(node_2, 2);
       {
-        var consequent_6 = ($$anchor3) => {
-          var fragment_3 = root_8();
+        var consequent_3 = ($$anchor3) => {
+          var fragment_2 = root_5();
+          next(2);
+          append($$anchor3, fragment_2);
+        };
+        if_block(node_3, ($$render) => {
+          if (get(analysis).lora_chain)
+            $$render(consequent_3);
+        });
+      }
+      var button_2 = sibling(node_3, 2);
+      reset(div_7);
+      var node_4 = sibling(div_7, 2);
+      {
+        var consequent_7 = ($$anchor3) => {
+          var fragment_3 = root_9();
           var div_8 = first_child(fragment_3);
-          var node_4 = child(div_8);
-          each(node_4, 17, () => get(obviousRows), (row) => row.key, ($$anchor4, row) => {
+          var node_5 = child(div_8);
+          each(node_5, 17, () => get(obviousRows), (row) => row.key, ($$anchor4, row) => {
             candidateRow($$anchor4, () => get(row));
           });
-          var node_5 = sibling(node_4, 2);
+          var node_6 = sibling(node_5, 2);
           {
-            var consequent_4 = ($$anchor4) => {
-              var fragment_5 = root_5();
+            var consequent_5 = ($$anchor4) => {
+              var fragment_5 = root_6();
               var button_3 = first_child(fragment_5);
               var svg = child(button_3);
               let classes_1;
-              var text_7 = sibling(svg);
+              var text_8 = sibling(svg);
               reset(button_3);
-              var node_6 = sibling(button_3, 2);
+              var node_7 = sibling(button_3, 2);
               {
-                var consequent_3 = ($$anchor5) => {
+                var consequent_4 = ($$anchor5) => {
                   var fragment_6 = comment();
-                  var node_7 = first_child(fragment_6);
-                  each(node_7, 17, () => get(moreRows), (row) => row.key, ($$anchor6, row) => {
+                  var node_8 = first_child(fragment_6);
+                  each(node_8, 17, () => get(moreRows), (row) => row.key, ($$anchor6, row) => {
                     candidateRow($$anchor6, () => get(row));
                   });
                   append($$anchor5, fragment_6);
                 };
-                if_block(node_6, ($$render) => {
+                if_block(node_7, ($$render) => {
                   if (get(moreOpen))
-                    $$render(consequent_3);
+                    $$render(consequent_4);
                 });
               }
               template_effect(() => {
                 set_attribute2(button_3, "aria-expanded", get(moreOpen));
                 classes_1 = set_class(svg, 0, "chevron svelte-i6qxfw", null, classes_1, { open: get(moreOpen) });
-                set_text(text_7, ` More inputs (${get(moreRows).length ?? ""})`);
+                set_text(text_8, ` More inputs (${get(moreRows).length ?? ""})`);
               });
               delegated("click", button_3, () => set(moreOpen, !get(moreOpen)));
               append($$anchor4, fragment_5);
             };
-            if_block(node_5, ($$render) => {
+            if_block(node_6, ($$render) => {
               if (get(moreRows).length > 0)
-                $$render(consequent_4);
+                $$render(consequent_5);
             });
           }
           reset(div_8);
@@ -6809,7 +6820,7 @@ function ImportWorkflowModal($$anchor, $$props) {
           remove_input_defaults(input_3);
           var datalist = sibling(input_3, 2);
           each(datalist, 21, () => get(families), index, ($$anchor4, f) => {
-            var option_1 = root_6();
+            var option_1 = root_7();
             var option_1_value = {};
             template_effect(() => {
               if (option_1_value !== (option_1_value = get(f))) {
@@ -6829,18 +6840,18 @@ function ImportWorkflowModal($$anchor, $$props) {
           remove_input_defaults(input_5);
           reset(div_12);
           reset(div_9);
-          var node_8 = sibling(div_9, 2);
+          var node_9 = sibling(div_9, 2);
           {
-            var consequent_5 = ($$anchor4) => {
-              var p_1 = root_7();
-              var text_8 = child(p_1, true);
+            var consequent_6 = ($$anchor4) => {
+              var p_1 = root_8();
+              var text_9 = child(p_1, true);
               reset(p_1);
-              template_effect(() => set_text(text_8, get(createError)));
+              template_effect(() => set_text(text_9, get(createError)));
               append($$anchor4, p_1);
             };
-            if_block(node_8, ($$render) => {
+            if_block(node_9, ($$render) => {
               if (get(createError))
-                $$render(consequent_5);
+                $$render(consequent_6);
             });
           }
           bind_value(input_3, () => get(modelFamily), ($$value) => set(modelFamily, $$value));
@@ -6849,72 +6860,72 @@ function ImportWorkflowModal($$anchor, $$props) {
           append($$anchor3, fragment_3);
         };
         var alternate = ($$anchor3) => {
-          var div_13 = root_13();
+          var div_13 = root_14();
           var p_2 = child(div_13);
           var code = sibling(child(p_2));
-          var text_9 = child(code, true);
+          var text_10 = child(code, true);
           reset(code);
           reset(p_2);
-          var node_9 = sibling(p_2, 2);
+          var node_10 = sibling(p_2, 2);
           {
-            var consequent_7 = ($$anchor4) => {
-              var div_14 = root_10();
+            var consequent_8 = ($$anchor4) => {
+              var div_14 = root_11();
               var ul = sibling(child(div_14), 2);
               each(ul, 21, () => get(createResult).lint.errors, index, ($$anchor5, err) => {
-                var li = root_9();
-                var text_10 = child(li, true);
+                var li = root_10();
+                var text_11 = child(li, true);
                 reset(li);
-                template_effect(() => set_text(text_10, get(err)));
+                template_effect(() => set_text(text_11, get(err)));
                 append($$anchor5, li);
               });
               reset(ul);
               reset(div_14);
               append($$anchor4, div_14);
             };
-            if_block(node_9, ($$render) => {
-              if (get(createResult).lint.errors.length > 0)
-                $$render(consequent_7);
-            });
-          }
-          var node_10 = sibling(node_9, 2);
-          {
-            var consequent_8 = ($$anchor4) => {
-              var div_15 = root_11();
-              var ul_1 = sibling(child(div_15), 2);
-              each(ul_1, 21, () => get(createResult).lint.warnings, index, ($$anchor5, warn) => {
-                var li_1 = root_9();
-                var text_11 = child(li_1, true);
-                reset(li_1);
-                template_effect(() => set_text(text_11, get(warn)));
-                append($$anchor5, li_1);
-              });
-              reset(ul_1);
-              reset(div_15);
-              append($$anchor4, div_15);
-            };
             if_block(node_10, ($$render) => {
-              if (get(createResult).lint.warnings.length > 0)
+              if (get(createResult).lint.errors.length > 0)
                 $$render(consequent_8);
             });
           }
           var node_11 = sibling(node_10, 2);
           {
             var consequent_9 = ($$anchor4) => {
-              var p_3 = root_12();
-              append($$anchor4, p_3);
+              var div_15 = root_12();
+              var ul_1 = sibling(child(div_15), 2);
+              each(ul_1, 21, () => get(createResult).lint.warnings, index, ($$anchor5, warn) => {
+                var li_1 = root_10();
+                var text_12 = child(li_1, true);
+                reset(li_1);
+                template_effect(() => set_text(text_12, get(warn)));
+                append($$anchor5, li_1);
+              });
+              reset(ul_1);
+              reset(div_15);
+              append($$anchor4, div_15);
             };
             if_block(node_11, ($$render) => {
-              if (get(createResult).lint.errors.length === 0 && get(createResult).lint.warnings.length === 0)
+              if (get(createResult).lint.warnings.length > 0)
                 $$render(consequent_9);
             });
           }
+          var node_12 = sibling(node_11, 2);
+          {
+            var consequent_10 = ($$anchor4) => {
+              var p_3 = root_13();
+              append($$anchor4, p_3);
+            };
+            if_block(node_12, ($$render) => {
+              if (get(createResult).lint.errors.length === 0 && get(createResult).lint.warnings.length === 0)
+                $$render(consequent_10);
+            });
+          }
           reset(div_13);
-          template_effect(() => set_text(text_9, get(createResult).path));
+          template_effect(() => set_text(text_10, get(createResult).path));
           append($$anchor3, div_13);
         };
-        if_block(node_3, ($$render) => {
+        if_block(node_4, ($$render) => {
           if (!get(createResult))
-            $$render(consequent_6);
+            $$render(consequent_7);
           else
             $$render(alternate, -1);
         });
@@ -6922,6 +6933,7 @@ function ImportWorkflowModal($$anchor, $$props) {
       template_effect(() => {
         set_text(text_5, get(analysis).mode);
         set_text(text_6, `${get(analysis).node_count ?? ""} nodes`);
+        set_text(text_7, get(analysis).format);
         button_2.disabled = get(creating);
       });
       delegated("click", button_2, resetToPaste);
@@ -6936,10 +6948,10 @@ function ImportWorkflowModal($$anchor, $$props) {
   }
   reset(div_4);
   var div_16 = sibling(div_4, 2);
-  var node_12 = child(div_16);
+  var node_13 = child(div_16);
   {
-    var consequent_10 = ($$anchor2) => {
-      var fragment_8 = root_15();
+    var consequent_11 = ($$anchor2) => {
+      var fragment_8 = root_16();
       var button_4 = first_child(fragment_8);
       var button_5 = sibling(button_4, 2);
       delegated("click", button_4, function(...$$args) {
@@ -6948,16 +6960,16 @@ function ImportWorkflowModal($$anchor, $$props) {
       delegated("click", button_5, openInPresets);
       append($$anchor2, fragment_8);
     };
-    var consequent_11 = ($$anchor2) => {
-      var fragment_9 = root_16();
+    var consequent_12 = ($$anchor2) => {
+      var fragment_9 = root_17();
       var button_6 = first_child(fragment_9);
       var button_7 = sibling(button_6, 2);
-      var text_12 = child(button_7, true);
+      var text_13 = child(button_7, true);
       reset(button_7);
       template_effect(
         ($0) => {
           button_7.disabled = $0;
-          set_text(text_12, get(analyzing) ? "Analyzing\u2026" : "Analyze");
+          set_text(text_13, get(analyzing) ? "Analyzing\u2026" : "Analyze");
         },
         [() => get(analyzing) || !get(rawText).trim()]
       );
@@ -6968,15 +6980,15 @@ function ImportWorkflowModal($$anchor, $$props) {
       append($$anchor2, fragment_9);
     };
     var alternate_2 = ($$anchor2) => {
-      var fragment_10 = root_17();
+      var fragment_10 = root_18();
       var button_8 = first_child(fragment_10);
       var button_9 = sibling(button_8, 2);
-      var text_13 = child(button_9, true);
+      var text_14 = child(button_9, true);
       reset(button_9);
       template_effect(() => {
         button_8.disabled = get(creating);
         button_9.disabled = !get(canCreate);
-        set_text(text_13, get(creating) ? "Creating\u2026" : "Create preset");
+        set_text(text_14, get(creating) ? "Creating\u2026" : "Create preset");
       });
       delegated("click", button_8, function(...$$args) {
         onClose()?.apply(this, $$args);
@@ -6984,11 +6996,11 @@ function ImportWorkflowModal($$anchor, $$props) {
       delegated("click", button_9, runCreate);
       append($$anchor2, fragment_10);
     };
-    if_block(node_12, ($$render) => {
+    if_block(node_13, ($$render) => {
       if (get(createResult))
-        $$render(consequent_10);
+        $$render(consequent_11);
       else if (!get(reviewing))
-        $$render(consequent_11, 1);
+        $$render(consequent_12, 1);
       else
         $$render(alternate_2, -1);
     });

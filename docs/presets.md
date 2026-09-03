@@ -1618,9 +1618,9 @@ If you already have a working ComfyUI graph, don't hand-write the preset — imp
    `field_mappings` below expect — the SDXL preset's
    `modes/txt2img/files/workflows/txt2img.json` is one, unedited.
 
-2. **Analyze it.** The `comfyui-backend` plugin exposes two admin-only import endpoints (no Admin
-   UI button yet — see "Importing it as a preset" in the user-facing
-   [Bringing Your Own ComfyUI Workflows](user/comfyui-presets.md) page for the current status).
+2. **Analyze it.** The `comfyui-backend` plugin exposes two admin-only import endpoints (also
+   accessible via the **Import workflow** button in Administration → Presets — see
+   "Importing it as a preset" in the user-facing [Bringing Your Own ComfyUI Workflows](user/comfyui-presets.md) page).
    `POST /api/plugins/comfyui-backend/presets/import/analyze` takes the exported JSON and returns a
    list of `candidates` — one per detected input, each with its `node_id`, `class_type`,
    `node_title`, `input_name`, `current_value`, `value_type`, a `suggested_field_type` /

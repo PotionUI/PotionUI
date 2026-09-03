@@ -38,18 +38,9 @@ noticeably different and won't import.
 
 ## Importing it as a preset
 
-An **Import workflow** button in Administration → Presets is coming in a future release. It will
-take the exported `.json` file, look through the graph for the parts a form usually exposes — the
-prompt boxes, the checkpoint or model being loaded, steps, guidance strength, image size, any LoRA
-slots, and an input image if the workflow edits one instead of creating from scratch — and build a
-starting preset from what it finds, letting you pick which parts become form fields before it's
-saved.
+An **Import workflow** button in **Administration → Presets** (icon-only header action) opens a modal: paste or drop your exported ComfyUI JSON. The modal detects the workflow's mode, node count, and LoRA chain; select which inputs become form fields (checkpoint, steps, and other obvious ones are pre-ticked, more are available under "More inputs"), set model family / variant / display name, then create. Lint results appear inline; "Open in Presets" opens the generated preset for tweaking.
 
-Until that button ships, an administrator can do the same import today by calling the underlying
-endpoints directly (analyze the workflow, then choose fields and import) — see "The two-minute
-path: import a workflow" in the developer [Preset Authoring Guide](../presets.md#comfyui-presets)
-for the exact calls. If that's more than you want to deal with, the manual path in that same guide,
-or asking your administrator, both get you a working preset in the meantime.
+For scripting, the raw endpoints remain available — see "The two-minute path: import a workflow" in the developer [Preset Authoring Guide](../presets.md#comfyui-presets) for the exact calls.
 
 Imported presets are saved as **your own**, separate from anything your administrator ships or
 manages centrally, so importing one never changes what other people on the instance see.

@@ -49,6 +49,19 @@ CUDA-specific transitive closure. This is separate from
 dependencies and runs the architecture/setup-feature suites, not the full
 test tree.
 
+A third `plugins` shard covers marketplace plugins' own `tests/` directories
+(`content/plugins/marketplace/*/tests`, outside `pytest.ini`'s `testpaths`),
+via `scripts/test_plugin_suites.py`. It runs each plugin's suite in its own
+pytest subprocess rather than one shared invocation — plugins that use the
+`api: module: "backend/api.py"` convention claim a top-level `backend` module
+name at conftest collection time, and pooling two such plugins' tests into
+one pytest call leaves the second plugin's `backend` module shadowing the
+first's for the whole session. Locally:
+
+```
+PYTHONPATH=./venv/lib/python3.12/site-packages:. python scripts/test_plugin_suites.py -q --no-cov
+```
+
 ## Backend: known environment noise
 
 These are container/environment artefacts, not regressions caused by your change.

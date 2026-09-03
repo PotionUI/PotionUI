@@ -262,6 +262,194 @@ class TestWorkflowLevelValidation:
 
 
 # ----------------------------------------------------------------------
+# Prompts are never a choosable form field, even with no sampler to find
+# them structurally through (maintainer: "of course the positive/negative
+# prompt should come from the Prompts section, not the dynamic form").
+# ----------------------------------------------------------------------
+
+
+class TestPromptsAreNeverFormFields:
+    @pytest.fixture()
+    def dest_root(self, tmp_path):
+        return tmp_path / "presets"
+
+    def _krea2_workflow_and_object_info(self):
+        object_info = _load("object_info_krea2_real.json")
+        workflow = parse_workflow(_load("ui_krea2_real.json"), object_info=object_info)
+        return workflow, object_info
+
+    def test_krea2_prompt_input_is_caught_by_the_name_based_fallback(self):
+        """No KSampler on this all-in-one node for structural detection to
+        key off - `prompt` must still come back with a prompt role, not
+        `literal`, so the wizard's left pane locks it."""
+        workflow, object_info = self._krea2_workflow_and_object_info()
+        analysis = suggest_fields(workflow, object_info=object_info)
+        assert analysis.sampler_node_id is None
+        prompt_candidate = next(c for c in analysis.candidates if c.node_id == "1" and c.input_name == "prompt")
+        assert prompt_candidate.role == "prompt_positive"
+        assert prompt_candidate.obvious is True
+
+    def test_structural_detection_still_wins_when_a_real_sampler_exists(self):
+        """Bite check the other way: a workflow WITH a KSampler must keep
+        using the structural (conditioning-link) detection, never the
+        name-based fallback - confirms the fallback only ever fires when
+        structural detection found nothing at all."""
+        workflow = _sdxl_workflow()
+        analysis = suggest_fields(workflow)
+        assert analysis.sampler_node_id is not None
+        positive = next(c for c in analysis.candidates if c.role == "prompt_positive")
+        assert positive.node_id == "6"  # the CLIPTextEncode wired to KSampler's "positive"
+
+    def test_krea2_prompt_never_lands_in_default_form_or_history(self):
+        workflow, object_info = self._krea2_workflow_and_object_info()
+        analysis = suggest_fields(workflow, object_info=object_info)
+        form = build_default_form(analysis)
+        history = build_default_history(form)
+
+        all_field_names = {f.field_name for tab in form.tabs for f in tab.items if f.kind == "field"}
+        assert "prompt" not in all_field_names
+        assert form.tabs == [FormTab(id="generation", label="Generation", items=[])]
+        assert history == []
+
+    def test_ltx25_real_export_also_has_no_prompt_role_field_in_default_form(self):
+        object_info = _load("object_info_ltx25_img2img_real.json")
+        ui = _load("ui_ltx25_img2img_real.json")
+        workflow = parse_workflow(ui, object_info=object_info)
+        node_groups = extract_node_groups(ui)
+        analysis = suggest_fields(workflow, object_info=object_info, node_groups=node_groups)
+        form = build_default_form(analysis)
+
+        prompt_role_node_inputs = {
+            (c.node_id, c.input_name) for c in analysis.candidates if c.role in ("prompt_positive", "prompt_negative")
+        }
+        for tab in form.tabs:
+            for item in tab.items:
+                if item.kind != "field":
+                    continue
+                for mapping in item.mappings:
+                    assert (mapping.node_id, mapping.input_name) not in prompt_role_node_inputs
+
+    def test_mapping_a_field_to_the_fallback_prompt_input_is_rejected(self):
+        workflow, object_info = self._krea2_workflow_and_object_info()
+        form = ImportForm(
+            tabs=[
+                FormTab(
+                    id="generation", label="Generation",
+                    items=[
+                        FieldItem(
+                            field_name="sneaky_prompt", field_type="textbox", label="Sneaky",
+                            mappings=[FieldMapping(node_id="1", input_name="prompt")],
+                        )
+                    ],
+                )
+            ]
+        )
+        with pytest.raises(PresetEmitError, match="prompts come from the Prompts section"):
+            validate_against_workflow(form, [], workflow, object_info=object_info)
+
+    def test_mapping_to_a_structurally_detected_prompt_is_also_rejected(self):
+        """The same rule applies to a normal KSampler-based workflow, not
+        just the fallback path - either way an admin cannot bypass the
+        Prompts section by mapping some other field onto the prompt node."""
+        workflow = _sdxl_workflow()
+        form = ImportForm(
+            tabs=[
+                FormTab(
+                    id="generation", label="Generation",
+                    items=[
+                        FieldItem(
+                            field_name="sneaky_prompt", field_type="textbox", label="Sneaky",
+                            mappings=[FieldMapping(node_id="6", input_name="text")],
+                        )
+                    ],
+                )
+            ]
+        )
+        with pytest.raises(PresetEmitError, match="prompts come from the Prompts section"):
+            validate_against_workflow(form, [], workflow)
+
+    def test_prompt_rejection_is_reported_alongside_other_problems(self):
+        workflow = _sdxl_workflow()
+        form = ImportForm(
+            tabs=[
+                FormTab(
+                    id="generation", label="Generation",
+                    items=[
+                        FieldItem(
+                            field_name="sneaky_prompt", field_type="textbox", label="Sneaky",
+                            mappings=[FieldMapping(node_id="6", input_name="text")],
+                        ),
+                        FieldItem(field_name="empty", field_type="textbox", label="Empty", mappings=[]),
+                    ],
+                )
+            ]
+        )
+        with pytest.raises(PresetEmitError) as exc_info:
+            validate_against_workflow(form, [], workflow)
+        assert "prompts come from the Prompts section" in str(exc_info.value)
+        assert "no mappings" in str(exc_info.value)
+
+    def test_emitted_krea2_preset_still_binds_the_prompt_from_generation_prompts(self, dest_root):
+        """Even with zero form fields at all, the foundational prompt wiring
+        (from suggest_fields' fallback-detected candidate) still binds
+        `1.inputs.prompt` to `generation.prompts.first.positive` - prompts
+        are never opt-in."""
+        workflow, object_info = self._krea2_workflow_and_object_info()
+        analysis = suggest_fields(workflow, object_info=object_info)
+        form = build_default_form(analysis)
+        history = build_default_history(form)
+
+        result = emit_preset(
+            workflow, form, history, model_family="Krea2PromptWiring", variant="v1", display_name="X",
+            dest_root=dest_root, object_info=object_info, ui_workflow=_load("ui_krea2_real.json"),
+        )
+        pipeline = yaml.safe_load((result.preset_dir / "modes" / result.mode / "pipeline.yml").read_text())
+        comfyui_pipe = next(p for p in pipeline["pipeline"] if p["name"] == "comfyui")
+        field_mappings = comfyui_pipe["configuration"]["field_mappings"]
+        assert field_mappings == [["{{ generation.prompts.first.positive }}", "1.inputs.prompt", "str"]]
+
+    def test_text_input_promotes_to_positive_when_paired_with_a_negative_sibling(self):
+        """The "text" fallback name is ambiguous on its own (a select/combo
+        can also be a string) - paired with a sibling "negative*" input, or
+        being the only string input at all, is what disambiguates it."""
+        workflow = parse_api_workflow(
+            {
+                "1": {
+                    "class_type": "SomeAllInOneNode",
+                    "inputs": {"text": "a positive prompt", "negative_text": "ugly", "seed": 1},
+                }
+            }
+        )
+        analysis = suggest_fields(workflow)
+        by_input = {c.input_name: c.role for c in analysis.candidates if c.node_id == "1"}
+        assert by_input["text"] == "prompt_positive"
+
+    def test_text_input_promotes_when_it_is_the_only_string_input(self):
+        workflow = parse_api_workflow(
+            {"1": {"class_type": "SomeAllInOneNode", "inputs": {"text": "a positive prompt", "seed": 1}}}
+        )
+        analysis = suggest_fields(workflow)
+        by_input = {c.input_name: c.role for c in analysis.candidates if c.node_id == "1"}
+        assert by_input["text"] == "prompt_positive"
+
+    def test_bite_check_text_input_does_not_promote_alongside_an_unrelated_string(self):
+        """Confirms the disambiguation actually matters: with no negative
+        sibling AND a second unrelated string input (a model-name combo,
+        say), "text" is genuinely ambiguous and stays a plain literal."""
+        workflow = parse_api_workflow(
+            {
+                "1": {
+                    "class_type": "SomeAllInOneNode",
+                    "inputs": {"text": "a positive prompt", "model_name": "some-model", "seed": 1},
+                }
+            }
+        )
+        analysis = suggest_fields(workflow)
+        by_input = {c.input_name: c.role for c in analysis.candidates if c.node_id == "1"}
+        assert by_input["text"] == "literal"
+
+
+# ----------------------------------------------------------------------
 # Container round-trips
 # ----------------------------------------------------------------------
 

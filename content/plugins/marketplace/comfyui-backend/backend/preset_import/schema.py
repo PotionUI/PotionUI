@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field, model_validator
 from typing_extensions import Annotated
 
 from .parser import Workflow
-from .suggest import _find_input_spec  # noqa: F401  (package-internal reuse, not a plugin_api boundary)
+from .suggest import suggest_fields  # package-internal reuse, not a plugin_api boundary
 
 # Field types whose wiring is structural (a node-graph rewrite keyed off the
 # workflow's own detected LoRA chain - see emit.emit_lora_manipulations)
@@ -36,6 +36,14 @@ GRAPH_WIRED_FIELD_TYPES = frozenset({"lora_picker"})
 # that a `history` entry may still legitimately name - see the module
 # docstring on foundational fields in emit.py.
 FOUNDATIONAL_FIELD_NAMES = frozenset({"seed", "quantity"})
+
+# suggest.InputCandidate roles that mean "this input is a prompt" - whether
+# found structurally (a sampler's own conditioning links) or by
+# suggest._fallback_prompt_roles's name-based fallback for an all-in-one
+# node with no separate sampler. Never a valid `mappings` target: prompts
+# come from the Prompts section, never the dynamic form (see emit.py's
+# module docstring on foundational fields).
+_PROMPT_ROLES = frozenset({"prompt_positive", "prompt_negative"})
 
 
 class PresetEmitError(ValueError):
@@ -159,6 +167,17 @@ def _known_input_names(node_id: str, workflow: Workflow, object_info: Optional[D
     return None  # unknown class - fall back to the node's own recorded inputs
 
 
+def _prompt_role_targets(workflow: Workflow, object_info: Optional[Dict[str, Any]]) -> Set[Tuple[str, str]]:
+    """`{(node_id, input_name)}` for every input `suggest_fields` identifies
+    as a prompt - structurally, or via its name-based fallback for a
+    workflow with no separate sampler to follow a conditioning link from
+    (see `suggest._fallback_prompt_roles`). Recomputed here rather than
+    threaded through as a parameter so this rule can never be skipped by a
+    caller that forgot to pass it."""
+    analysis = suggest_fields(workflow, object_info=object_info)
+    return {(c.node_id, c.input_name) for c in analysis.candidates if c.role in _PROMPT_ROLES}
+
+
 def validate_against_workflow(
     form: ImportForm,
     history: List[HistoryEntry],
@@ -168,9 +187,12 @@ def validate_against_workflow(
     """Raise `PresetEmitError` (aggregating every problem found, not just the
     first) for a `form`/`history` that pydantic's shape-only checks can't
     catch: a field with no mappings, a mapping targeting a node/input this
-    workflow doesn't have, or a history entry naming a field nothing defines."""
+    workflow doesn't have, a mapping targeting a prompt input (prompts come
+    from the Prompts section, never a form field), or a history entry
+    naming a field nothing defines."""
     problems: List[str] = []
     field_names: Set[str] = set(FOUNDATIONAL_FIELD_NAMES)
+    prompt_targets = _prompt_role_targets(workflow, object_info)
 
     for field in all_field_items(form):
         field_names.add(field.field_name)
@@ -178,6 +200,12 @@ def validate_against_workflow(
             problems.append(f"field '{field.field_name}': has no mappings")
             continue
         for mapping in field.mappings:
+            if (mapping.node_id, mapping.input_name) in prompt_targets:
+                problems.append(
+                    f"field '{field.field_name}': maps to {mapping.node_id}.inputs.{mapping.input_name}, "
+                    "a prompt input - prompts come from the Prompts section, not a form field"
+                )
+                continue
             node = workflow.node(mapping.node_id)
             if node is None:
                 problems.append(

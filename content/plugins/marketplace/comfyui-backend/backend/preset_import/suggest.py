@@ -38,6 +38,13 @@ _PROMPT_TEXT_INPUT_NAMES = ("text", "prompt")
 
 _SEED_INPUT_NAMES = ("seed", "noise_seed")
 
+# Fallback (name-based) prompt detection - see `_fallback_prompt_roles`'s
+# docstring for why this is the one deliberate exception to this module's
+# "structural, not name-based" rule.
+_FALLBACK_POSITIVE_INPUT_NAMES = ("prompt", "positive", "positive_prompt")
+_FALLBACK_NEGATIVE_INPUT_NAMES = ("negative", "negative_prompt")
+_IMAGE_OR_VIDEO_OUTPUT_TYPES = frozenset({"IMAGE", "VIDEO"})
+
 
 @dataclass
 class InputCandidate:
@@ -240,6 +247,87 @@ def _enrich_with_object_info(
             candidate.suggested_config = {**candidate.suggested_config, "multiline": True}
 
 
+def _produces_image_or_video(node: WorkflowNode, object_info: Optional[Dict[str, Any]]) -> bool:
+    """Whether the live server's own `/object_info` says this node's class
+    outputs an IMAGE or VIDEO - `None`/unknown-class safe (`False`, never a
+    crash), since a plain Export (API) import has no `object_info` to ask
+    at all."""
+    if not object_info:
+        return False
+    class_info = object_info.get(node.class_type)
+    if not isinstance(class_info, dict):
+        return False
+    outputs = class_info.get("output") or []
+    return any(o in _IMAGE_OR_VIDEO_OUTPUT_TYPES for o in outputs)
+
+
+def _fallback_prompt_roles(
+    workflow: Workflow, object_info: Optional[Dict[str, Any]], claimed: set
+) -> List["InputCandidate"]:
+    """Prompt detection by input name, used only when the structural
+    (sampler-conditioning) detection above found no positive/negative at
+    all - an all-in-one node with its own baked-in sampling (Krea2ImageNode,
+    no separate KSampler to follow a conditioning link from) still has a
+    real prompt input, and it must never be offered as a choosable form
+    field: prompts always come from the Prompts section, never the dynamic
+    form (see emit.py's module docstring on foundational fields).
+
+    This is the one deliberate exception to this module's "structural, not
+    name-based" rule (see the module docstring) - it only ever runs as a
+    fallback, never instead of the structural detection above.
+
+    Prefers nodes the live server's `/object_info` says produce an IMAGE or
+    VIDEO output; falls back to every node in the workflow when that can't
+    be determined (no `object_info`, or nothing qualifies) - missing a real
+    prompt input is worse than checking a few extra nodes."""
+    candidates: List[InputCandidate] = []
+    scope = [n for n in workflow.nodes.values() if _produces_image_or_video(n, object_info)]
+    if not scope:
+        scope = list(workflow.nodes.values())
+
+    for node in scope:
+        if node.class_type in SKIP_NODE_CLASSES:
+            continue
+        literals = node.literals()
+        string_input_names = [name for name, value in literals.items() if isinstance(value, str)]
+
+        negative_name = next((n for n in _FALLBACK_NEGATIVE_INPUT_NAMES if n in literals), None)
+
+        positive_name = next((n for n in _FALLBACK_POSITIVE_INPUT_NAMES if n in literals), None)
+        if positive_name is None and "text" in literals:
+            has_negative_sibling = negative_name is not None or any(
+                name.startswith("negative") for name in literals
+            )
+            is_only_text_input = len(string_input_names) == 1
+            if has_negative_sibling or is_only_text_input:
+                positive_name = "text"
+
+        for role, name, field_name, label in (
+            ("prompt_positive", positive_name, "positive_prompt", "Positive Prompt"),
+            ("prompt_negative", negative_name, "negative_prompt", "Negative Prompt"),
+        ):
+            if name is None or (node.id, name) in claimed:
+                continue
+            claimed.add((node.id, name))
+            candidates.append(
+                InputCandidate(
+                    node_id=node.id,
+                    class_type=node.class_type,
+                    node_title=node.title,
+                    input_name=name,
+                    current_value=literals[name],
+                    value_type="str",
+                    suggested_field_type="textbox",
+                    suggested_field_name=field_name,
+                    suggested_label=label,
+                    role=role,
+                    obvious=True,
+                )
+            )
+
+    return candidates
+
+
 def suggest_fields(
     workflow: Workflow,
     *,
@@ -338,6 +426,9 @@ def suggest_fields(
                     obvious=True,
                 )
             )
+
+    if not any(c.role in ("prompt_positive", "prompt_negative") for c in candidates):
+        candidates.extend(_fallback_prompt_roles(workflow, object_info, claimed))
 
     # Resolution + batch size
     for node in workflow.find_by_class(*LATENT_IMAGE_CLASSES):

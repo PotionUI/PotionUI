@@ -394,17 +394,21 @@ class TestRealKrea2Export:
         (mis-valued) fields by the time suggest_fields ever saw it - fixing
         the conversion is what gives the wizard something to offer, even
         though this all-in-one node has no KSampler for suggest_fields'
-        structural prompt/seed/sampler detection to key off (see the module
-        docstring of suggest.py) - every field here surfaces through its
-        generic "everything else literal" fallback instead, at role
-        "literal" rather than "prompt"/"seed"."""
+        structural seed/sampler detection to key off (see the module
+        docstring of suggest.py) - every field but `prompt` surfaces through
+        its generic "everything else literal" fallback, at role "literal"
+        rather than "seed". `prompt` is still caught, by the name-based
+        fallback (`_fallback_prompt_roles`) that fires when structural
+        prompt detection finds nothing at all - prompts must never be a
+        choosable form field regardless of whether a sampler exists."""
         converted = graph_to_prompt(ui, object_info)
         workflow = parse_api_workflow(converted)
         analysis = suggest_fields(workflow, object_info=object_info)
         assert analysis.sampler_node_id is None
-        names = {c.input_name for c in analysis.candidates if c.node_id == "1"}
-        assert {"prompt", "model", "seed"} <= names
-        assert all(c.role == "literal" for c in analysis.candidates if c.node_id == "1")
+        by_input = {c.input_name: c for c in analysis.candidates if c.node_id == "1"}
+        assert {"prompt", "model", "seed"} <= set(by_input)
+        assert by_input["prompt"].role == "prompt_positive"
+        assert all(c.role == "literal" for name, c in by_input.items() if name != "prompt")
 
 
 class TestExtractNodeGroups:

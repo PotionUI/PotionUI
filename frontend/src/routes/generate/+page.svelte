@@ -120,6 +120,12 @@
 	// The generation bar's session cluster needs the same version-drift check
 	// PresetHeader/SessionPill get per-tab below.
 	$: currentTabPresetVersion = presets.find((p: any) => p.id === currentTab.selectedPreset)?.version;
+	$: currentTabPresetEngine = presets.find((p: any) => p.id === currentTab.selectedPreset)?.engine;
+	// Set by BackendPicker (inside the settings drawer) once it knows whether
+	// the current preset's engine has more than one enabled backend - gates
+	// the generation bar's "Runs on <backend> — <reason>" pre-flight line,
+	// which would otherwise be noise when there's no real choice to explain.
+	let currentTabHasMultipleBackends = false;
 	$: generatingTabName = $generatingTab?.name;
 	$: generation = currentTab.generation;
 	$: isGenerating = generation.isGenerating;
@@ -1135,6 +1141,7 @@
 					isGenerating: false,
 					currentGeneration: null,
 					currentProgress: null,
+					routingBackend: null,
 					pipeTimers: {},
 					startedAt: null,
 					totalTime: null,
@@ -1216,7 +1223,7 @@
 			const response = await api.startGeneration(request);
 
 			if (response.success && response.data) {
-				const { generation_id, status, queue_position } = response.data;
+				const { generation_id, status, queue_position, backend } = response.data;
 				const isQueued = queue_position !== null && queue_position !== undefined;
 
 				// Update tab with generation started (or queued)
@@ -1227,6 +1234,7 @@
 						isGenerating: true,
 						startedAt: Date.now(),
 						totalTime: null,
+						routingBackend: backend ?? null,
 						currentGeneration: {
 							...status,
 							id: generation_id,
@@ -1688,17 +1696,21 @@
 			tabId={currentTab.id}
 			presetVersion={currentTabPresetVersion}
 			availableModes={activeTabModes}
+			multiBackend={currentTabHasMultipleBackends}
 			on:generationcomplete={() => lastGenerationsRefreshSignal++}
 		>
 			<GenerationSettingsPanel
 				slot="settings"
 				tabId={currentTab.id}
 				presetId={currentTab.selectedPreset ?? undefined}
+				presetEngine={currentTabPresetEngine}
 				mode={currentTab.selectedMode ?? undefined}
 				bind:autoTagIds={currentTab.autoTagIds}
 				bind:autoCollectionIds={currentTab.autoCollectionIds}
 				soundOnComplete={currentTab.soundOnComplete}
 				soundOnError={currentTab.soundOnError}
+				selectedBackendId={currentTab.selectedBackendId ?? null}
+				onBackendEligibilityChange={(visible) => (currentTabHasMultipleBackends = visible)}
 			/>
 			<LastGenerationsDrawer
 				slot="lastGenerations"

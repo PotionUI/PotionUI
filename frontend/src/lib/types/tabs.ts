@@ -196,6 +196,14 @@ export interface GenerationState {
 	 * artifact card falls back to plain rendering in that case.
 	 */
 	submittedPromptTemplate: { positive: string; negative: string } | null;
+	/**
+	 * The backend the Generation Router picked for the current/last generation
+	 * from this tab - from the start-generation response, re-confirmed by the
+	 * first `generation_status` WebSocket message (see
+	 * `GenerationRoutingBackend`). Reset to `null` each time a new generation
+	 * is submitted, before the response arrives.
+	 */
+	routingBackend?: import('$lib/types/api').GenerationRoutingBackend | null;
 }
 
 export interface PromptTabData {

@@ -51,6 +51,11 @@
 	export let tabId: string = '';
 	export let presetVersion: string | undefined = undefined;
 	export let availableModes: Array<{ id: string; variants?: PresetModeVariant[] }> = [];
+	// Whether the current preset's engine has more than one enabled backend -
+	// gates the "Runs on <backend> — <reason>" pre-flight line below, set by
+	// the page from the settings drawer's BackendPicker. A single-backend
+	// engine has no real routing decision to explain.
+	export let multiBackend: boolean = false;
 
 	// Backend generation queue: everything this tab has enqueued (pending or running).
 	$: queueEntries = generation.queue || [];
@@ -415,6 +420,9 @@
 						{#each progressMeta as marker (marker.type + marker.value)}
 							<span class="hidden truncate xl:inline">{marker.value}</span>
 						{/each}
+						{#if multiBackend && generation.routingBackend}
+							<span class="hidden truncate normal-case tracking-normal text-fg-subtle xl:inline">Runs on <span class="font-mono lowercase text-fg-muted">{generation.routingBackend.name}</span>{generation.routingBackend.routing_reason ? ` — ${generation.routingBackend.routing_reason}` : ''}</span>
+						{/if}
 						{#if $stopAfterCurrentRequested}
 							<span class="text-warning normal-case tracking-normal">stopping after this one</span>
 						{:else if $generationMode === "forever"}

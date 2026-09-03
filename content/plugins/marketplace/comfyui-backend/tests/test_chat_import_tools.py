@@ -281,3 +281,69 @@ def test_execute_confirmed_returns_apply_payload_with_defaulted_transform():
 
     add_field_op = next(o for o in payload["ops"] if o["op"] == "add_field")
     assert add_field_op["mappings"] == [{"node_id": "3", "input_name": "cfg", "transform": "none"}]
+
+
+# --- ProposeFormChangesTool: lora_picker op --------------------------------
+
+
+def _wiz_with_lora_chain(**overrides):
+    return _wiz(
+        lora_chain={
+            "nodes": [
+                {"node_id": "101", "class_type": "LoraLoaderModelOnly", "lora_name": "style_a.safetensors", "strength_model": 0.8},
+                {"node_id": "102", "class_type": "LoraLoaderModelOnly", "lora_name": "style_b.safetensors", "strength_model": 0.6},
+            ],
+            "replaced": [],
+            "kept": [],
+        },
+        **overrides,
+    )
+
+
+def test_lora_picker_op_converts_the_whole_chain_by_default():
+    tool = ProposeFormChangesTool()
+    ops = [{"op": "lora_picker", "tab": "generation"}]
+    result = run(tool.execute(_context(_wiz_with_lora_chain()), ops=ops))
+    assert result.success is True, result.error
+    assert "+ LoRA picker (2 LoRAs seeded)" in result.preview.items[0]
+
+    confirmed = run(tool.execute_confirmed(_context(_wiz_with_lora_chain()), ops=ops))
+    payload = json.loads(confirmed.data)
+    op = payload["ops"][0]
+    assert op == {"op": "lora_picker", "tab": "generation", "field_name": "loras", "keep_fixed": []}
+
+
+def test_lora_picker_op_with_keep_fixed_reports_kept_node_in_preview():
+    tool = ProposeFormChangesTool()
+    ops = [{"op": "lora_picker", "tab": "generation", "keep_fixed": ["101"]}]
+    result = run(tool.execute(_context(_wiz_with_lora_chain()), ops=ops))
+    assert result.success is True, result.error
+    assert "+ LoRA picker (1 LoRAs seeded, node 101 kept fixed)" in result.preview.items[0]
+
+
+def test_lora_picker_op_without_a_detected_chain_is_rejected():
+    tool = ProposeFormChangesTool()
+    ops = [{"op": "lora_picker", "tab": "generation"}]
+    result = run(tool.execute(_context(_wiz()), ops=ops))  # no lora_chain in this wizard state
+    assert result.success is False
+    assert "no LoRA chain detected" in result.error
+
+
+def test_lora_picker_op_refuses_a_second_picker():
+    tool = ProposeFormChangesTool()
+    wiz = _wiz_with_lora_chain()
+    wiz["form"]["tabs"][0]["items"].append(
+        {"kind": "field", "field_name": "loras", "field_type": "lora_picker", "label": "LoRAs", "mappings": []}
+    )
+    ops = [{"op": "lora_picker", "tab": "generation"}]
+    result = run(tool.execute(_context(wiz), ops=ops))
+    assert result.success is False
+    assert "already exists" in result.error
+
+
+def test_lora_picker_op_rejects_an_unknown_keep_fixed_node():
+    tool = ProposeFormChangesTool()
+    ops = [{"op": "lora_picker", "tab": "generation", "keep_fixed": ["999"]}]
+    result = run(tool.execute(_context(_wiz_with_lora_chain()), ops=ops))
+    assert result.success is False
+    assert "not in the detected chain" in result.error

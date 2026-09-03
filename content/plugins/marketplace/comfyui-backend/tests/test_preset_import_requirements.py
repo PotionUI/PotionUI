@@ -64,6 +64,26 @@ class TestModelRequirementsFromModelLoaders:
         workflow = parse_api_workflow({"1": {"class_type": "SaveImage", "inputs": {}}})
         assert _by_type(_infer_requirements(workflow), "comfyui_model") == []
 
+    def test_replaced_lora_node_ids_marks_that_lora_optional(self):
+        """A LoRA the wizard's "Convert to LoRA picker" replaced with the
+        picker's node-graph rewrite is a seeded default the admin can
+        remove, not something the preset can't run without."""
+        workflow = parse_api_workflow(_load("lora_chain_img2img_api.json"))
+        requirements = _infer_requirements(workflow, replaced_lora_node_ids={"102"})
+
+        by_name = {r["name"]: r for r in _by_type(requirements, "comfyui_model") if r["folder"] == "loras"}
+        assert by_name["style_b.safetensors"].get("optional") is True
+        assert "optional" not in by_name["style_a.safetensors"]
+
+    def test_bite_check_without_replaced_ids_every_lora_is_a_hard_requirement(self):
+        """Confirms the assertion above can fail: with no selection at all
+        (the default), every chain LoRA is a plain, non-optional
+        requirement - exactly today's behavior."""
+        workflow = parse_api_workflow(_load("lora_chain_img2img_api.json"))
+        requirements = _infer_requirements(workflow)
+        loras = _by_type(requirements, "comfyui_model")
+        assert all("optional" not in r for r in loras if r["folder"] == "loras")
+
 
 class TestNodeRequirementsFromNonCoreClasses:
     """No `object_info` given: falls back to the hand-kept

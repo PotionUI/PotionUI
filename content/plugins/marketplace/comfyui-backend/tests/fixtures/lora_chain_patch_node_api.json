@@ -1,0 +1,77 @@
+{
+  "1": {
+    "inputs": {"unet_name": "qwen_image_edit.safetensors", "weight_dtype": "default"},
+    "class_type": "UNETLoader",
+    "_meta": {"title": "Load Diffusion Model"}
+  },
+  "2": {
+    "inputs": {"clip_name": "qwen_2.5_vl_7b.safetensors", "type": "qwen_image"},
+    "class_type": "CLIPLoader",
+    "_meta": {"title": "Load CLIP"}
+  },
+  "12": {
+    "inputs": {"vae_name": "qwen_vae.safetensors"},
+    "class_type": "VAELoader",
+    "_meta": {"title": "Load VAE"}
+  },
+  "20": {
+    "inputs": {
+      "lora_name": "Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors",
+      "strength_model": 1.0,
+      "model": ["1", 0]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {"title": "LoraLoaderModelOnly"}
+  },
+  "21": {
+    "inputs": {"model": ["20", 0], "shift": 3.1},
+    "class_type": "ModelSamplingAuraFlow",
+    "_meta": {"title": "ModelSamplingAuraFlow"}
+  },
+  "22": {
+    "inputs": {"model": ["21", 0]},
+    "class_type": "CFGNorm",
+    "_meta": {"title": "CFGNorm"}
+  },
+  "5": {
+    "inputs": {"width": 1024, "height": 1024, "batch_size": 1},
+    "class_type": "EmptyLatentImage",
+    "_meta": {"title": "Empty Latent Image"}
+  },
+  "6": {
+    "inputs": {"text": "a cat", "clip": ["2", 0]},
+    "class_type": "CLIPTextEncode",
+    "_meta": {"title": "CLIP Text Encode (Positive)"}
+  },
+  "7": {
+    "inputs": {"text": "blurry", "clip": ["2", 0]},
+    "class_type": "CLIPTextEncode",
+    "_meta": {"title": "CLIP Text Encode (Negative)"}
+  },
+  "3": {
+    "inputs": {
+      "seed": 1,
+      "steps": 4,
+      "cfg": 1.0,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1.0,
+      "model": ["22", 0],
+      "positive": ["6", 0],
+      "negative": ["7", 0],
+      "latent_image": ["5", 0]
+    },
+    "class_type": "KSampler",
+    "_meta": {"title": "KSampler"}
+  },
+  "8": {
+    "inputs": {"samples": ["3", 0], "vae": ["12", 0]},
+    "class_type": "VAEDecode",
+    "_meta": {"title": "VAE Decode"}
+  },
+  "9": {
+    "inputs": {"images": ["8", 0], "filename_prefix": "ComfyUI"},
+    "class_type": "SaveImage",
+    "_meta": {"title": "Save Image"}
+  }
+}

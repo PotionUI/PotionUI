@@ -1,0 +1,69 @@
+{
+  "4": {
+    "inputs": {"ckpt_name": "sdxlBase_v10.safetensors"},
+    "class_type": "CheckpointLoaderSimple",
+    "_meta": {"title": "Load Checkpoint"}
+  },
+  "101": {
+    "inputs": {
+      "lora_name": "style_a.safetensors",
+      "strength_model": 0.8,
+      "strength_clip": 0.7,
+      "model": ["4", 0],
+      "clip": ["4", 1]
+    },
+    "class_type": "LoraLoader",
+    "_meta": {"title": "LoRA 1 (model + clip)"}
+  },
+  "150": {
+    "inputs": {"model": ["101", 0]},
+    "class_type": "ModelSamplingAuraFlow",
+    "_meta": {"title": "ModelSamplingAuraFlow"}
+  },
+  "102": {
+    "inputs": {"lora_name": "style_b.safetensors", "strength_model": 0.6, "model": ["150", 0]},
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {"title": "LoRA 2 (behind a patch node)"}
+  },
+  "6": {
+    "inputs": {"text": "anime style", "clip": ["101", 1]},
+    "class_type": "CLIPTextEncode",
+    "_meta": {"title": "CLIP Text Encode (Positive)"}
+  },
+  "7": {
+    "inputs": {"text": "bad quality", "clip": ["101", 1]},
+    "class_type": "CLIPTextEncode",
+    "_meta": {"title": "CLIP Text Encode (Negative)"}
+  },
+  "5": {
+    "inputs": {"width": 832, "height": 1216, "batch_size": 1},
+    "class_type": "EmptyLatentImage",
+    "_meta": {"title": "Empty Latent Image"}
+  },
+  "3": {
+    "inputs": {
+      "seed": 1,
+      "steps": 20,
+      "cfg": 6.0,
+      "sampler_name": "dpmpp_2m",
+      "scheduler": "karras",
+      "denoise": 1.0,
+      "model": ["102", 0],
+      "positive": ["6", 0],
+      "negative": ["7", 0],
+      "latent_image": ["5", 0]
+    },
+    "class_type": "KSampler",
+    "_meta": {"title": "KSampler"}
+  },
+  "8": {
+    "inputs": {"samples": ["3", 0], "vae": ["4", 2]},
+    "class_type": "VAEDecode",
+    "_meta": {"title": "VAE Decode"}
+  },
+  "9": {
+    "inputs": {"images": ["8", 0], "filename_prefix": "ComfyUI"},
+    "class_type": "SaveImage",
+    "_meta": {"title": "Save Image"}
+  }
+}

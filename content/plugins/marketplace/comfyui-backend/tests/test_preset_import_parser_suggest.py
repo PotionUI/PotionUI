@@ -131,22 +131,106 @@ class TestSuggestFields:
         assert "prompt_positive" not in roles
         assert "prompt_negative" in roles  # negative link untouched, still detected
 
-    def test_bite_check_lora_chain_breaks_when_class_type_changed(self):
+    def test_renaming_a_chain_node_drops_it_from_collection_but_the_walk_continues_through_it(self):
+        """The walk backward from the sampler follows the `model` connection
+        structurally regardless of class_type - only *collecting* a node as
+        a LoRA still depends on its class_type starting with `LoraLoader`
+        (see `suggest._detect_lora_chain`'s docstring on walking through
+        pass-through patcher nodes). Node 101 is the bottom of the chain
+        (closest to the checkpoint loader); un-marking it as a LoRA loader
+        removes it from `lora_node_ids`, but the walk still passes through
+        it structurally to find the real loader node "4"."""
         workflow = parse_api_workflow(_load("lora_chain_img2img_api.json"))
-        # Node 101 is the bottom of the chain (closest to the checkpoint
-        # loader); un-marking it as a LoRA loader truncates the backward walk
-        # from the sampler to just node 102, with 101 now treated as the
-        # (wrong) source loader - proving the walk is actually driven by
-        # class_type, not just position.
         workflow.node("101").class_type = "SomethingElse"
         analysis = suggest_fields(workflow)
         assert analysis.lora_chain.lora_node_ids == ["102"]
-        assert analysis.lora_chain.source_node_id == "101"
+        assert analysis.lora_chain.source_node_id == "4"
 
-    def test_bite_check_lora_chain_none_when_top_of_chain_renamed(self):
+    def test_renaming_the_node_closest_to_the_sampler_still_finds_the_rest_of_the_chain(self):
+        """Node 102 is what the sampler's `model` input connects to
+        directly. Renaming it away from a LoRA class no longer defeats
+        detection entirely (the pre-patch-node-walk behavior): it's just
+        walked through structurally like any other pass-through node, and
+        node 101 further back is still found and collected."""
         workflow = parse_api_workflow(_load("lora_chain_img2img_api.json"))
-        # Node 102 is what the sampler's `model` input connects to directly;
-        # renaming it means the backward walk never enters the chain at all.
         workflow.node("102").class_type = "SomethingElse"
         analysis = suggest_fields(workflow)
+        assert analysis.lora_chain is not None
+        assert analysis.lora_chain.lora_node_ids == ["101"]
+        assert analysis.lora_chain.source_node_id == "4"
+        assert analysis.lora_chain.target_node_id == "3"
+
+    def test_bite_check_lora_chain_none_when_the_model_link_itself_is_broken(self):
+        """Confirms detection can still fail outright: breaking the
+        sampler's own `model` connection (not just renaming a downstream
+        node's class) means there is nothing to walk at all."""
+        workflow = parse_api_workflow(_load("lora_chain_img2img_api.json"))
+        workflow.node("3").inputs["model"] = "not-a-connection"
+        analysis = suggest_fields(workflow)
         assert analysis.lora_chain is None
+
+    def test_lora_behind_pass_through_patch_nodes_is_detected(self):
+        """UNETLoader -> LoraLoaderModelOnly -> ModelSamplingAuraFlow ->
+        CFGNorm -> KSampler: the maintainer's actual case (a template's own
+        LoRA node sits behind pass-through patcher nodes the old sampler-
+        adjacency-only walk never looked past)."""
+        workflow = parse_api_workflow(_load("lora_chain_patch_node_api.json"))
+        analysis = suggest_fields(workflow)
+        chain = analysis.lora_chain
+        assert chain is not None
+        assert chain.lora_node_ids == ["20"]
+        assert chain.source_node_id == "1"
+        assert chain.target_node_id == "3"
+        assert chain.has_clip_path is False
+
+        node = chain.nodes[0]
+        assert node.node_id == "20"
+        assert node.class_type == "LoraLoaderModelOnly"
+        assert node.lora_name == "Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors"
+        assert node.strength_model == 1.0
+        assert node.strength_clip is None
+        assert node.model_source == ("1", 0)
+        # The consumer is the first pass-through node, NOT the sampler -
+        # splicing must rewire node 21, the actual thing that read node 20's
+        # MODEL output, not jump straight to the sampler.
+        assert node.model_consumer == ("21", "model")
+
+    def test_bite_check_patch_node_walk_breaks_if_it_stops_at_the_first_non_lora_node(self):
+        """Confirms the assertion above can fail: with the walk stopping as
+        soon as it meets a non-LoRA class (the pre-fix behavior), nothing
+        behind CFGNorm/ModelSamplingAuraFlow would ever be found."""
+        workflow = parse_api_workflow(_load("lora_chain_patch_node_api.json"))
+        sampler = workflow.node("3")
+        conn = sampler.connection_source("model")
+        current = workflow.resolve(conn)
+        assert not current.class_type.startswith("LoraLoader")  # CFGNorm - the old walk would stop right here
+
+    def test_lora_chain_with_clip_path_and_a_lora_behind_a_patch_node(self):
+        """LoraLoader (model+clip) -> ModelSamplingAuraFlow -> LoraLoaderModelOnly
+        -> KSampler, with both CLIPTextEncode nodes reading CLIP from the
+        LoraLoader directly (fan-out to positive AND negative)."""
+        workflow = parse_api_workflow(_load("lora_chain_clip_patch_api.json"))
+        analysis = suggest_fields(workflow)
+        chain = analysis.lora_chain
+        assert chain is not None
+        assert chain.lora_node_ids == ["101", "102"]
+        assert chain.source_node_id == "4"
+        assert chain.target_node_id == "3"
+        assert chain.has_clip_path is True
+
+        by_id = {n.node_id: n for n in chain.nodes}
+        lora_loader = by_id["101"]
+        assert lora_loader.class_type == "LoraLoader"
+        assert lora_loader.strength_clip == 0.7
+        assert lora_loader.model_source == ("4", 0)
+        assert lora_loader.model_consumer == ("150", "model")  # the patch node, not node 102 directly
+        assert lora_loader.clip_source == ("4", 1)
+        assert set(lora_loader.clip_consumers) == {("6", "clip"), ("7", "clip")}
+
+        model_only = by_id["102"]
+        assert model_only.class_type == "LoraLoaderModelOnly"
+        assert model_only.strength_clip is None
+        assert model_only.model_source == ("150", 0)
+        assert model_only.model_consumer == ("3", "model")
+        assert model_only.clip_source is None
+        assert model_only.clip_consumers == []

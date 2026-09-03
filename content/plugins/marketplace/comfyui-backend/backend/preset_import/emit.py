@@ -230,14 +230,25 @@ def _pipe(
 
 
 def _infer_requirements(
-    workflow: Workflow, object_info: Optional[Dict[str, Any]] = None
+    workflow: Workflow,
+    object_info: Optional[Dict[str, Any]] = None,
+    *,
+    replaced_lora_node_ids: Optional[Set[str]] = None,
 ) -> List[Dict[str, Any]]:
     """`requirements:` entries for this workflow, independent of `form`: one
     `comfyui_node` per non-core node class (see `_is_core_node_class`), and
     one `comfyui_model` per checkpoint/UNET/CLIP/VAE/LoRA file it
     references. A loader the admin didn't turn into a field still needs its
     file present to run, so this reads the whole graph rather than
-    `form`'s field list."""
+    `form`'s field list.
+
+    `replaced_lora_node_ids` marks the LoRA nodes a `lora_picker` field's
+    graph rewrite excludes from the baked workflow (see
+    `emit_preset`/`schema.LoraChainSelection`) - their LoRA is a seeded
+    default the admin can remove at will, not something the preset can't run
+    without, so its `comfyui_model` entry is `optional: true`. A kept
+    (non-replaced) chain node, or any LoRA node when no selection was made
+    at all, still gets a hard requirement exactly as before."""
     requirements: List[Dict[str, Any]] = []
 
     node_classes = sorted({n.class_type for n in workflow.nodes.values()})
@@ -247,11 +258,14 @@ def _infer_requirements(
 
     seen: set = set()
 
-    def _add_model(folder: str, name: Any) -> None:
+    def _add_model(folder: str, name: Any, *, optional: bool = False) -> None:
         if not isinstance(name, str) or not name or (folder, name) in seen:
             return
         seen.add((folder, name))
-        requirements.append({"type": "comfyui_model", "folder": folder, "name": name})
+        entry: Dict[str, Any] = {"type": "comfyui_model", "folder": folder, "name": name}
+        if optional:
+            entry["optional"] = True
+        requirements.append(entry)
 
     for classes, folder, input_names in _MODEL_LOADER_FOLDERS:
         for node in workflow.find_by_class(*classes):
@@ -260,7 +274,8 @@ def _infer_requirements(
                 _add_model(folder, literals.get(input_name))
 
     for node in workflow.find_by_class_prefix(LORA_CLASS_PREFIX):
-        _add_model("loras", node.literals().get("lora_name"))
+        is_replaced = replaced_lora_node_ids is not None and node.id in replaced_lora_node_ids
+        _add_model("loras", node.literals().get("lora_name"), optional=is_replaced)
 
     return requirements
 
@@ -405,15 +420,121 @@ def _history_param_entry(entry: HistoryEntry) -> List[Any]:
     return [field, value]
 
 
-def _lora_node_manipulations(lora_field: FieldItem, lora_chain) -> List[Any]:
+# output index -> the input name that same output kind would come in on -
+# `LoraLoader`'s RETURN_TYPES is `("MODEL", "CLIP")`, so a MODEL connection
+# is always `[node_id, 0]` and a CLIP one `[node_id, 1]`. Used only by
+# `_resolve_bypass_source` to walk backward through a removed node.
+_OUTPUT_INDEX_TO_INPUT_NAME = {0: "model", 1: "clip"}
+
+
+def _resolve_bypass_source(
+    workflow: Workflow, connection: Tuple[str, int], replaced_node_ids: Set[str]
+) -> Tuple[str, int]:
+    """Follow `connection` back through any run of replaced nodes (see
+    `schema.LoraChainSelection`) to the nearest real (non-replaced)
+    source - one hop per replaced node in the way, so several replaced nodes
+    back to back (or a kept/pass-through node sandwiched between two
+    replaced ones, whose OWN wiring is fixed up the same way by
+    `_bypass_replaced_lora_nodes`) all collapse to a single real connection.
+    Returns `connection` itself unchanged once it reaches a non-replaced
+    node, an unresolvable output index, or a dangling node id."""
+    node_id, output_index = connection
+    visited: Set[str] = set()
+    while node_id in replaced_node_ids and node_id not in visited:
+        visited.add(node_id)
+        node = workflow.node(node_id)
+        input_name = _OUTPUT_INDEX_TO_INPUT_NAME.get(output_index)
+        if node is None or input_name is None:
+            break
+        next_connection = node.connection_source(input_name)
+        if next_connection is None:
+            break
+        node_id, output_index = next_connection
+    return node_id, output_index
+
+
+def _bypass_replaced_lora_nodes(
+    workflow_out: Dict[str, Any], workflow: Workflow, replaced_node_ids: Set[str]
+) -> None:
+    """Rewire every connection left in `workflow_out` (every node NOT itself
+    replaced - see `emit_preset`) that still targets a removed node's
+    output, to the nearest real source instead (`_resolve_bypass_source`).
+    Runs over the whole graph, not just the chain's own source/target
+    boundary: a kept LoRA or an unrelated pass-through node (a
+    `ModelSamplingAuraFlow`/`CFGNorm` patcher) can sit anywhere relative to
+    the replaced nodes, including between two of them, and would otherwise
+    point at a node id that no longer exists in `workflow_out`."""
+    for node_data in workflow_out.values():
+        inputs = node_data.get("inputs", {})
+        for input_name, value in list(inputs.items()):
+            if not (isinstance(value, list) and len(value) == 2):
+                continue
+            source_id, source_index = value
+            if not isinstance(source_id, str) or source_id not in replaced_node_ids:
+                continue
+            inputs[input_name] = list(
+                _resolve_bypass_source(workflow, (source_id, source_index), replaced_node_ids)
+            )
+
+
+def _lora_chain_clip_boundary(
+    chain, replaced_node_ids: Set[str]
+) -> Tuple[Optional[str], Optional[List[Tuple[str, str]]]]:
+    """`(clip_source_node_id, clip_consumers)` for the replaced span, or
+    `(None, None)` if no replaced node carries a CLIP path (see
+    `suggest.LoraChainNode`) - i.e. every replaced node is a
+    `LoraLoaderModelOnly`, or nothing downstream actually reads its CLIP
+    output. Only ever non-`None` for a chain with a real `LoraLoader` among
+    the replaced nodes."""
+    ordered = [n for n in chain.nodes if n.node_id in replaced_node_ids]
+    clip_entry = next((n for n in ordered if n.clip_source is not None), None)
+    clip_exit = next((n for n in reversed(ordered) if n.clip_consumers), None)
+    if clip_entry is None or clip_exit is None:
+        return None, None
+    return clip_entry.clip_source[0], clip_exit.clip_consumers
+
+
+def _lora_node_manipulations(lora_field: FieldItem, chain, replaced_node_ids: Set[str]) -> List[Any]:
     """The `@loop` rewrite that turns `form.<lora_field>` into a fresh chain
-    of `LoraLoaderModelOnly` nodes spliced between the chain's real source
-    and target - unchanged from the pre-form-designer importer, just keyed
-    off the admin-chosen field name instead of a hardcoded "loras"."""
+    of LoRA nodes spliced between the replaced span's real source and
+    target: the FIRST replaced node's own source becomes the loop's source,
+    and whoever consumed the LAST replaced node's MODEL output reads the
+    loop's tail instead. A kept node (see `schema.LoraChainSelection`) is
+    left out of `replaced_node_ids` entirely and keeps its original wiring
+    untouched - it never appears here.
+
+    If any replaced node is a `LoraLoader` (carries a CLIP path, unlike
+    `LoraLoaderModelOnly`), the loop emits `LoraLoader` nodes instead so
+    CLIP keeps flowing through it too, each with `strength_clip` falling
+    back to the entry's own `strength` (the `lora_picker` field's value
+    shape has no separate clip-strength key - see
+    `src.platform.templating.dict_utils.active_loras`)."""
+    ordered = [n for n in chain.nodes if n.node_id in replaced_node_ids]
+    first, last = ordered[0], ordered[-1]
     loras_field = lora_field.field_name
-    source_id = lora_chain.source_node_id
-    target_id = lora_chain.target_node_id
-    return [
+    source_id = first.model_source[0]
+    target_id, target_input = last.model_consumer
+
+    clip_source_id, clip_consumers = _lora_chain_clip_boundary(chain, replaced_node_ids)
+    has_clip = clip_source_id is not None
+    node_class = "LoraLoader" if has_clip else "LoraLoaderModelOnly"
+
+    node_inputs: Dict[str, Any] = {
+        "lora_name": "{{ item.model | replace('models/loras/', '') }}",
+        "strength_model": "{{ item.strength }}",
+        "model": [
+            "{% if loop.first %}" + source_id + "{% else %}lora_{{ loop.index0 }}{% endif %}",
+            0,
+        ],
+    }
+    if has_clip:
+        node_inputs["strength_clip"] = "{{ item.strength_clip | default(item.strength) }}"
+        node_inputs["clip"] = [
+            "{% if loop.first %}" + clip_source_id + "{% else %}lora_{{ loop.index0 }}{% endif %}",
+            1,
+        ]
+
+    manipulations: List[Any] = [
         {
             "@loop": {
                 "items": "{{ form." + loras_field + " | default([]) | active_loras }}",
@@ -421,15 +542,8 @@ def _lora_node_manipulations(lora_field: FieldItem, lora_chain) -> List[Any]:
                     "type": "add_node",
                     "node_id": "lora_{{ loop.index }}",
                     "node_config": {
-                        "inputs": {
-                            "lora_name": "{{ item.model | replace('models/loras/', '') }}",
-                            "strength_model": "{{ item.strength }}",
-                            "model": [
-                                "{% if loop.first %}" + source_id + "{% else %}lora_{{ loop.index0 }}{% endif %}",
-                                0,
-                            ],
-                        },
-                        "class_type": "LoraLoaderModelOnly",
+                        "inputs": node_inputs,
+                        "class_type": node_class,
                         "_meta": {"title": "LoRA {{ loop.index }}"},
                     },
                 },
@@ -438,7 +552,7 @@ def _lora_node_manipulations(lora_field: FieldItem, lora_chain) -> List[Any]:
         {
             "type": "update_node_input",
             "node_id": target_id,
-            "input_key": "model",
+            "input_key": target_input,
             "input_value": [
                 "{% set loras = form."
                 + loras_field
@@ -449,6 +563,26 @@ def _lora_node_manipulations(lora_field: FieldItem, lora_chain) -> List[Any]:
             ],
         },
     ]
+
+    if has_clip:
+        for clip_target_id, clip_target_input in clip_consumers:
+            manipulations.append(
+                {
+                    "type": "update_node_input",
+                    "node_id": clip_target_id,
+                    "input_key": clip_target_input,
+                    "input_value": [
+                        "{% set loras = form."
+                        + loras_field
+                        + " | default([]) | active_loras %}{% if loras %}lora_{{ loras | length }}{% else %}"
+                        + clip_source_id
+                        + "{% endif %}",
+                        1,
+                    ],
+                }
+            )
+
+    return manipulations
 
 
 def emit_preset(
@@ -508,6 +642,17 @@ def emit_preset(
 
     lora_field = next((f for f in all_field_items(form) if f.field_type == "lora_picker"), None)
 
+    # `form.lora_chain` is optional (see `schema.LoraChainSelection`): a
+    # hand-built form, or a preset imported before this selection existed,
+    # has none, and gets its pre-existing behavior back - the WHOLE detected
+    # chain is replaced by the picker's rewrite, same as always.
+    replaced_lora_node_ids: Set[str] = set()
+    if lora_field is not None and analysis.lora_chain is not None:
+        if form.lora_chain is not None:
+            replaced_lora_node_ids = set(form.lora_chain.replaced_node_ids)
+        else:
+            replaced_lora_node_ids = set(analysis.lora_chain.lora_node_ids)
+
     # ------------------------------------------------------------------
     # Forms
     # ------------------------------------------------------------------
@@ -562,9 +707,11 @@ def emit_preset(
 
     node_manipulations: List[Any] = []
     excluded_node_ids: Set[str] = set()
-    if lora_field is not None and analysis.lora_chain is not None:
-        excluded_node_ids.update(analysis.lora_chain.lora_node_ids)
-        node_manipulations.extend(_lora_node_manipulations(lora_field, analysis.lora_chain))
+    if lora_field is not None and analysis.lora_chain is not None and replaced_lora_node_ids:
+        excluded_node_ids.update(replaced_lora_node_ids)
+        node_manipulations.extend(
+            _lora_node_manipulations(lora_field, analysis.lora_chain, replaced_lora_node_ids)
+        )
 
     workflow_filename = f"{mode}.json"
     comfyui_configuration: Dict[str, Any] = {
@@ -644,7 +791,9 @@ def emit_preset(
         "engine": "comfyui",
         "modes": [mode],
     }
-    requirements_block = _infer_requirements(workflow, object_info=object_info)
+    requirements_block = _infer_requirements(
+        workflow, object_info=object_info, replaced_lora_node_ids=replaced_lora_node_ids
+    )
     if requirements_block:
         preset_yml["requirements"] = requirements_block
 
@@ -660,10 +809,8 @@ def emit_preset(
             entry["_meta"] = {"title": node.title}
         workflow_out[node_id] = entry
 
-    if lora_field is not None and analysis.lora_chain is not None:
-        target_node = workflow_out.get(analysis.lora_chain.target_node_id)
-        if target_node is not None:
-            target_node["inputs"]["model"] = [analysis.lora_chain.source_node_id, 0]
+    if lora_field is not None and analysis.lora_chain is not None and replaced_lora_node_ids:
+        _bypass_replaced_lora_nodes(workflow_out, workflow, replaced_lora_node_ids)
 
     # ------------------------------------------------------------------
     # Sidecar (import.json) - this importer's own record of what it was

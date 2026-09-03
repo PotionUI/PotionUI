@@ -2,6 +2,8 @@ import sys
 import os
 import importlib
 
+import pytest
+
 # Add the comfyui-backend plugin directory to sys.path so `from backend.xxx`
 # resolves to this plugin's backend package.
 #
@@ -28,3 +30,39 @@ sys.path.insert(0, plugin_dir)
 # Invalidate import caches and pre-import backend to claim the namespace
 importlib.invalidate_caches()
 import backend  # noqa: F401 - ensures backend resolves to our plugin
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "uses_object_info_mock: opts out of the object-info network-isolation "
+        "autouse fixture below - the test mocks backend.api._fetch_object_info/"
+        "_get_comfyui_base_url itself instead of hitting a real server.",
+    )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_object_info_from_the_network(request, monkeypatch):
+    """No test in this suite may depend on a real ComfyUI server answering
+    `/object_info` - `backend.api.analyze_workflow`/`.get_imported_preset_source`
+    make a best-effort LIVE fetch when a backend is configured (see api.py's
+    `_try_object_info`), and something on this machine answers on the
+    plugin's default host/port (127.0.0.1:8188) whether or not that's
+    intentional. Every test gets `_try_object_info` stubbed to always return
+    `None` (the "no backend reachable" case, exercised elsewhere without any
+    network dependency); a test that exercises the enrichment path itself
+    opts out with `@pytest.mark.uses_object_info_mock` and mocks the fetch
+    at a lower level instead (see test_import_object_info_enrichment.py) -
+    never a live server, in this test or any other.
+    """
+    if request.node.get_closest_marker("uses_object_info_mock"):
+        return
+    try:
+        import backend.api as api_module
+    except Exception:
+        return
+
+    async def _no_object_info():
+        return None
+
+    monkeypatch.setattr(api_module, "_try_object_info", _no_object_info, raising=False)

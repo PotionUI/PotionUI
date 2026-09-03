@@ -108,8 +108,30 @@ class FormTab(BaseModel):
     items: List[Item] = Field(default_factory=list)
 
 
+class LoraChainSelection(BaseModel):
+    """Which of the workflow's detected LoRA chain nodes (see
+    `suggest.LoraChainInfo`) the wizard's "Convert to LoRA picker" action
+    replaced with the `lora_picker` field's node-graph rewrite versus left
+    wired exactly as the source workflow had them - a sibling of `tabs` on
+    `ImportForm` rather than a key on the `lora_picker` `FieldItem` itself,
+    since it describes a workflow-level decision (which nodes the emitter
+    excludes) rather than anything about the field's own shape. Round-trips
+    through `import.json` (`emit.emit_preset`'s sidecar) unchanged, exactly
+    like `tabs`.
+
+    Every id in `replaced_node_ids`/`kept_node_ids` must be a node the
+    current analysis's `lora_chain` actually detected, and together they
+    must account for every one of them exactly once - enforced by
+    `validate_against_workflow`, not by pydantic (which can't see the
+    workflow to check against)."""
+
+    replaced_node_ids: List[str] = Field(default_factory=list)
+    kept_node_ids: List[str] = Field(default_factory=list)
+
+
 class ImportForm(BaseModel):
     tabs: List[FormTab] = Field(default_factory=list)
+    lora_chain: Optional[LoraChainSelection] = None
 
 
 class HistoryEntry(BaseModel):
@@ -178,6 +200,47 @@ def _prompt_role_targets(workflow: Workflow, object_info: Optional[Dict[str, Any
     return {(c.node_id, c.input_name) for c in analysis.candidates if c.role in _PROMPT_ROLES}
 
 
+def _validate_lora_chain_selection(
+    form: ImportForm, workflow: Workflow, object_info: Optional[Dict[str, Any]]
+) -> List[str]:
+    """`form.lora_chain` is optional - a form with no selection at all (a
+    hand-built form, or a preset imported before this selection existed)
+    means "replace the whole detected chain", exactly `emit.emit_preset`'s
+    pre-existing behavior, so nothing is checked here in that case. Once a
+    selection IS given, though, it must be internally consistent:
+    `replaced_node_ids`/`kept_node_ids` together must name every node the
+    current analysis's `lora_chain` detects, each exactly once - a stale
+    selection left over from editing the workflow (a node id the chain no
+    longer has, or a chain node neither list mentions) is caught here
+    rather than silently mis-splicing the emitted graph."""
+    selection = form.lora_chain
+    if selection is None:
+        return []
+
+    analysis = suggest_fields(workflow, object_info=object_info)
+    chain = analysis.lora_chain
+    if chain is None:
+        return ["lora_chain: a selection was given but this workflow has no detected LoRA chain"]
+
+    problems: List[str] = []
+    chain_ids = set(chain.lora_node_ids)
+    replaced = list(selection.replaced_node_ids)
+    kept = list(selection.kept_node_ids)
+    overlap = set(replaced) & set(kept)
+    if overlap:
+        problems.append(f"lora_chain: node(s) {sorted(overlap)} listed as both replaced and kept")
+
+    union = set(replaced) | set(kept)
+    missing = chain_ids - union
+    if missing:
+        problems.append(f"lora_chain: missing chain node(s) from replaced/kept: {sorted(missing)}")
+    extra = union - chain_ids
+    if extra:
+        problems.append(f"lora_chain: replaced/kept name node(s) not in the detected chain: {sorted(extra)}")
+
+    return problems
+
+
 def validate_against_workflow(
     form: ImportForm,
     history: List[HistoryEntry],
@@ -193,6 +256,7 @@ def validate_against_workflow(
     problems: List[str] = []
     field_names: Set[str] = set(FOUNDATIONAL_FIELD_NAMES)
     prompt_targets = _prompt_role_targets(workflow, object_info)
+    problems.extend(_validate_lora_chain_selection(form, workflow, object_info))
 
     for field in all_field_items(form):
         field_names.add(field.field_name)

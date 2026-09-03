@@ -26,6 +26,7 @@ from backend.preset_import.schema import (
     HeaderItem,
     HistoryEntry,
     ImportForm,
+    LoraChainSelection,
     RowItem,
     SectionItem,
     parse_form,
@@ -258,6 +259,77 @@ class TestWorkflowLevelValidation:
             validate_against_workflow(form, history, workflow)
         assert "no mappings" in str(exc_info.value)
         assert "no such form field" in str(exc_info.value)
+
+
+# ----------------------------------------------------------------------
+# LoraChainSelection (replaced/kept partition of a detected LoRA chain).
+# ----------------------------------------------------------------------
+
+
+class TestLoraChainSelectionValidation:
+    def _lora_chain_form(self, lora_chain=None):
+        return ImportForm(
+            tabs=[
+                FormTab(
+                    id="t", label="T",
+                    items=[FieldItem(field_name="loras", field_type="lora_picker", label="LoRAs", mappings=[])],
+                )
+            ],
+            lora_chain=lora_chain,
+        )
+
+    def test_no_selection_at_all_is_accepted(self):
+        """A hand-built form (or a preset imported before this selection
+        existed) simply never sets `lora_chain` - the emitter's own fallback
+        treats that as "replace everything", so validation has nothing to
+        check here."""
+        workflow = parse_api_workflow(_load("lora_chain_img2img_api.json"))
+        form = self._lora_chain_form(lora_chain=None)
+        validate_against_workflow(form, [], workflow)  # must not raise
+
+    def test_full_partition_is_accepted(self):
+
+        workflow = parse_api_workflow(_load("lora_chain_img2img_api.json"))
+        form = self._lora_chain_form(
+            LoraChainSelection(replaced_node_ids=["102"], kept_node_ids=["101"])
+        )
+        validate_against_workflow(form, [], workflow)  # must not raise
+
+    def test_a_node_missing_from_both_lists_is_rejected(self):
+
+        workflow = parse_api_workflow(_load("lora_chain_img2img_api.json"))
+        form = self._lora_chain_form(
+            LoraChainSelection(replaced_node_ids=["102"], kept_node_ids=[])
+        )
+        with pytest.raises(PresetEmitError, match="missing chain node"):
+            validate_against_workflow(form, [], workflow)
+
+    def test_a_node_in_both_lists_is_rejected(self):
+
+        workflow = parse_api_workflow(_load("lora_chain_img2img_api.json"))
+        form = self._lora_chain_form(
+            LoraChainSelection(replaced_node_ids=["101", "102"], kept_node_ids=["102"])
+        )
+        with pytest.raises(PresetEmitError, match="both replaced and kept"):
+            validate_against_workflow(form, [], workflow)
+
+    def test_an_unknown_node_id_is_rejected(self):
+
+        workflow = parse_api_workflow(_load("lora_chain_img2img_api.json"))
+        form = self._lora_chain_form(
+            LoraChainSelection(replaced_node_ids=["101", "102", "999"], kept_node_ids=[])
+        )
+        with pytest.raises(PresetEmitError, match="not in the detected chain"):
+            validate_against_workflow(form, [], workflow)
+
+    def test_selection_given_but_no_chain_detected_is_rejected(self):
+
+        workflow = _sdxl_workflow()
+        form = self._lora_chain_form(
+            LoraChainSelection(replaced_node_ids=["1"], kept_node_ids=[])
+        )
+        with pytest.raises(PresetEmitError, match="no detected LoRA chain"):
+            validate_against_workflow(form, [], workflow)
 
 
 # ----------------------------------------------------------------------

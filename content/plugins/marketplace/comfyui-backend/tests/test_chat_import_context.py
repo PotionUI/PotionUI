@@ -104,6 +104,30 @@ def test_unmapped_candidates_grouped_by_node_excludes_locked_and_mapped():
     assert "sampler_name=euler" not in block
 
 
+def test_lora_chain_reports_replaced_and_kept_nodes():
+    wiz = _wiz(
+        lora_chain={
+            "nodes": [
+                {"node_id": "101", "class_type": "LoraLoaderModelOnly", "lora_name": "style_a.safetensors", "strength_model": 0.8},
+                {"node_id": "102", "class_type": "LoraLoaderModelOnly", "lora_name": "style_b.safetensors", "strength_model": 0.6},
+            ],
+            "replaced": ["102"],
+            "kept": ["101"],
+        },
+    )
+    block = build_import_context({"comfyui_import": wiz}, session=None, user_id="u1")
+
+    assert "LoRA chain detected:" in block
+    assert "101 LoraLoaderModelOnly lora_name='style_a.safetensors' strength=0.8 (kept fixed)" in block
+    assert "102 LoraLoaderModelOnly lora_name='style_b.safetensors' strength=0.6 (replaced by picker)" in block
+
+
+def test_no_lora_chain_key_omits_the_section():
+    wiz = _wiz()
+    block = build_import_context({"comfyui_import": wiz}, session=None, user_id="u1")
+    assert "LoRA chain" not in block
+
+
 def test_unmapped_section_is_capped_and_budget_bounded():
     candidates = [
         {

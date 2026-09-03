@@ -33,7 +33,7 @@ from .preset_import.emit import (
 from .preset_import.parser import Workflow, WorkflowFormatError, parse_api_workflow
 from .preset_import.schema import HistoryEntry, ImportForm, parse_form, parse_history
 from .preset_import.suggest import suggest_fields
-from .requirements import ComfyUIModelChecker, ComfyUINodeChecker
+from .requirements import ComfyUIModelChecker, ComfyUINodeChecker, _fetch_object_info
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +114,36 @@ _REQUIREMENT_PREVIEW_CHECKERS = {
     "comfyui_node": ComfyUINodeChecker(),
     "comfyui_model": ComfyUIModelChecker(),
 }
+
+# `backend.requirements`'s checkers key their single-flight `/object_info`
+# cache by resolved backend id; there is no real `Backend` at analyze/source
+# time (see `_ConfiguredBackend`), so this plugin's own settings stand in
+# under a fixed id - shared with `preview_workflow_requirements` below so the
+# two steps never fetch the same multi-MB listing twice.
+_CONFIGURED_BACKEND_ID = "comfyui-backend:configured"
+
+# Best-effort budget for analyze/source's enrichment fetch - short enough
+# that an unreachable/slow ComfyUI server never meaningfully delays opening
+# the wizard (it just imports without enrichment, same as no backend at all).
+_ANALYZE_OBJECT_INFO_TIMEOUT_SECONDS = 5.0
+
+
+async def _try_object_info() -> Optional[Dict[str, Any]]:
+    """Best-effort live `/object_info` for `/presets/import/analyze` and
+    `.../presets/imported/{id}/source`'s enrichment pass (real min/max/step,
+    live combo options, a resolved node's actual output types - see
+    `suggest._enrich_with_object_info`) - `None` on any failure (unreachable
+    backend, timeout), never raised: importing a plain Export (API) workflow
+    with no ComfyUI backend configured at all must still work exactly as
+    before."""
+    base_url = _get_comfyui_base_url()
+    try:
+        return await asyncio.wait_for(
+            _fetch_object_info(_CONFIGURED_BACKEND_ID, base_url),
+            timeout=_ANALYZE_OBJECT_INFO_TIMEOUT_SECONDS,
+        )
+    except Exception:
+        return None
 
 
 def _requirement_preview_name(checker: Any, entry: Dict[str, Any]) -> str:
@@ -220,7 +250,7 @@ async def analyze_workflow(
     ones become preset form fields."""
     workflow = _parse_workflow(body.workflow)
 
-    object_info: Optional[Dict[str, Any]] = None
+    object_info = await _try_object_info()
     analysis = suggest_fields(workflow, object_info=object_info)
     default_form = build_default_form(analysis)
     default_history = build_default_history(default_form)
@@ -251,7 +281,7 @@ async def preview_workflow_requirements(
         gpu_available=False,
         gpu_total_vram_gb=None,
         backend=_ConfiguredBackend(
-            id="comfyui-backend:configured",
+            id=_CONFIGURED_BACKEND_ID,
             engine="comfyui",
             config=_ConfiguredBackendConfig(base_url=_get_comfyui_base_url()),
         ),
@@ -477,7 +507,7 @@ async def get_imported_preset_source(preset_id: str, current_user=Depends(get_cu
     raw_workflow = _read_stored_workflow(entry)
     workflow = _parse_workflow(raw_workflow)
 
-    object_info: Optional[Dict[str, Any]] = None
+    object_info = await _try_object_info()
     analysis = suggest_fields(workflow, object_info=object_info)
 
     stored_form = entry.sidecar.get("form") if entry.sidecar else None

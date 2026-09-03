@@ -70,10 +70,20 @@
 	}
 
 	function emptyForm() {
-		return { tabs: [{ id: 'generation', label: 'Generation', icon: null, items: [] }] };
+		return { tabs: [{ id: 'generation', label: 'Generation', icon: null, items: [] }], lora_chain: null };
 	}
 
 	let form = $state(emptyForm());
+	// The LoRA chain field this session's "Convert to LoRA picker" created
+	// (or hydrated from an existing preset's `form.lora_chain`) - tracked by
+	// name, not object reference, so it survives hydrate/dehydrate round
+	// trips. Cleared (and `form.lora_chain` with it) the moment that field is
+	// removed from the form - see the $effect below.
+	let loraPickerFieldName = $state(null);
+	// Pre-conversion only: which chain node ids the "Keep fixed" toggle has
+	// marked, read by `convertLoraChainToPicker` at conversion time. Once
+	// converted, kept/replaced live on `form.lora_chain` instead.
+	let loraKeepFixed = $state(new Set());
 	let activeTabId = $state('generation');
 	let fieldTypeOptions = $state([]);
 	let families = $state([]);
@@ -110,8 +120,19 @@
 	let mappedFieldByKey = $derived(
 		new Map(allFields.flatMap((f) => f.mappings.map((m) => [`${m.node_id}:${m.input_name}`, f])))
 	);
-	let leftGroups = $derived(buildLeftGroups(analysis?.candidates || [], leftSearch));
-	let mappableCandidates = $derived((analysis?.candidates || []).filter((c) => !isLockedCandidate(c)));
+	let loraChainNodes = $derived(analysis?.lora_chain?.nodes || []);
+	let loraReplacedIds = $derived(new Set(form.lora_chain?.replaced_node_ids || []));
+	let loraKeptIds = $derived(new Set(form.lora_chain?.kept_node_ids || []));
+	let loraConverted = $derived(
+		!!form.lora_chain && !!loraPickerFieldName && allFields.some((f) => f.field_name === loraPickerFieldName && f.field_type === 'lora_picker')
+	);
+	let leftGroups = $derived(
+		buildLeftGroups(
+			(analysis?.candidates || []).filter((c) => !loraReplacedIds.has(c.node_id)),
+			leftSearch
+		)
+	);
+	let mappableCandidates = $derived((analysis?.candidates || []).filter((c) => !isLockedCandidate(c) && !loraReplacedIds.has(c.node_id)));
 	let formFieldCount = $derived(allFields.length);
 	let canContinueForm = $derived(!!modelFamily.trim() && !!displayName.trim());
 	let enabledHistoryCount = $derived(historyRows.filter((r) => r.enabled).length);
@@ -207,7 +228,13 @@
 
 	function hydrateForm(raw) {
 		const tabs = raw?.tabs?.length ? raw.tabs.map(hydrateTab) : emptyForm().tabs;
-		return { tabs };
+		const lora_chain = raw?.lora_chain
+			? {
+					replaced_node_ids: [...(raw.lora_chain.replaced_node_ids || [])],
+					kept_node_ids: [...(raw.lora_chain.kept_node_ids || [])]
+				}
+			: null;
+		return { tabs, lora_chain };
 	}
 
 	function dehydrateItem(it) {
@@ -227,7 +254,12 @@
 	}
 
 	function dehydrateForm() {
-		return { tabs: form.tabs.map((t) => ({ id: t.id, label: t.label, icon: t.icon ?? null, items: t.items.map(dehydrateItem) })) };
+		return {
+			tabs: form.tabs.map((t) => ({ id: t.id, label: t.label, icon: t.icon ?? null, items: t.items.map(dehydrateItem) })),
+			lora_chain: form.lora_chain
+				? { replaced_node_ids: [...form.lora_chain.replaced_node_ids], kept_node_ids: [...form.lora_chain.kept_node_ids] }
+				: null
+		};
 	}
 
 	function collectFieldsFromItems(items, acc) {
@@ -250,6 +282,16 @@
 		initialHistoryDefault = payload.history || payload.default_history || [];
 		historyRows = [];
 		historyBuilt = false;
+
+		if (form.lora_chain) {
+			const pickerField = collectFields(form).find((f) => f.field_type === 'lora_picker');
+			loraPickerFieldName = pickerField ? pickerField.field_name : null;
+			loraKeepFixed = new Set(form.lora_chain.kept_node_ids || []);
+			if (!loraPickerFieldName) form.lora_chain = null; // stale/incomplete sidecar - start clean
+		} else {
+			loraPickerFieldName = null;
+			loraKeepFixed = new Set();
+		}
 	}
 
 	function uniqueFieldName(base) {
@@ -301,6 +343,72 @@
 		if (c.suggested_field_type === 'resolution') field._wh = { [c.input_name]: c.current_value };
 		tab.items.push(field);
 	}
+
+	// ---- LoRA chain -> lora_picker conversion ----
+	function toggleLoraKeepFixed(nodeId) {
+		if (loraConverted) return;
+		const next = new Set(loraKeepFixed);
+		if (next.has(nodeId)) next.delete(nodeId);
+		else next.add(nodeId);
+		loraKeepFixed = next;
+	}
+
+	// Shared by the wizard's own "Convert to LoRA picker" button and the
+	// assistant's `lora_picker` tool op (see applyImportFormChanges) - the
+	// only difference between the two call sites is where `keepFixedIds`
+	// comes from.
+	function applyLoraPickerConversion(tab, keepFixedIds, fieldNameHint) {
+		const nodes = loraChainNodes;
+		if (!tab || !nodes.length || loraConverted) return false;
+		const replaced = nodes.filter((n) => !keepFixedIds.has(n.node_id));
+		const kept = nodes.filter((n) => keepFixedIds.has(n.node_id));
+		const fieldName = uniqueFieldName(fieldNameHint || 'loras');
+		const field = {
+			_id: uid('item'),
+			kind: 'field',
+			field_name: fieldName,
+			field_type: 'lora_picker',
+			label: 'LoRAs',
+			default: replaced.map((n) => ({
+				model: `models/loras/${n.lora_name || ''}`,
+				strength: typeof n.strength_model === 'number' ? n.strength_model : 1
+			})),
+			config: {
+				model_type: 'lora',
+				placeholder: 'Select a LoRA...',
+				allow_info_modal: true,
+				strength_min: -2.0,
+				strength_max: 2.0,
+				strength_step: 0.1,
+				strength_default: 1.0,
+				max_items: 6
+			},
+			mappings: []
+		};
+		tab.items.push(field);
+		form.lora_chain = {
+			replaced_node_ids: replaced.map((n) => n.node_id),
+			kept_node_ids: kept.map((n) => n.node_id)
+		};
+		loraPickerFieldName = fieldName;
+		return true;
+	}
+
+	function convertLoraChainToPicker() {
+		applyLoraPickerConversion(activeTab || form.tabs[0], loraKeepFixed, 'loras');
+	}
+
+	// A field removed by any path (the field card's Remove button, deleting
+	// its tab, ...) that happened to be the chain's picker un-marks every
+	// row - the chain goes back to "not yet converted", not a dangling
+	// selection pointing at a field that no longer exists.
+	$effect(() => {
+		if (loraPickerFieldName && !allFields.some((f) => f.field_name === loraPickerFieldName)) {
+			form.lora_chain = null;
+			loraPickerFieldName = null;
+			loraKeepFixed = new Set();
+		}
+	});
 
 	function addTab() {
 		let n = form.tabs.length + 1;
@@ -426,7 +534,19 @@
 			form: { tabs: form.tabs.map((tab) => ({ id: tab.id, label: tab.label, items: tab.items.map(serializeImportItem) })) },
 			mapped: allFields.flatMap((f) =>
 				f.mappings.map((m) => ({ field_name: f.field_name, node_id: m.node_id, input_name: m.input_name, transform: m.transform || 'none' }))
-			)
+			),
+			lora_chain: loraChainNodes.length
+				? {
+						nodes: loraChainNodes.map((n) => ({
+							node_id: n.node_id,
+							class_type: n.class_type,
+							lora_name: n.lora_name,
+							strength_model: n.strength_model
+						})),
+						replaced: [...loraReplacedIds],
+						kept: [...loraKeptIds]
+					}
+				: null
 		};
 	}
 
@@ -519,6 +639,19 @@
 				applyImportMapping(field, op.node_id, op.input_name, op.transform);
 				lastTabId = tabIdForField(field) || lastTabId;
 				applied += 1;
+			} else if (op.op === 'lora_picker') {
+				const tab = findImportTab(op.tab) || activeTab || form.tabs[0];
+				if (!tab) {
+					console.warn('propose_form_changes: lora_picker has no target tab', op);
+					continue;
+				}
+				const keepFixed = new Set(Array.isArray(op.keep_fixed) ? op.keep_fixed : []);
+				if (applyLoraPickerConversion(tab, keepFixed, op.field_name || 'loras')) {
+					lastTabId = tab.id;
+					applied += 1;
+				} else {
+					console.warn('propose_form_changes: lora_picker could not be applied (no chain, or already converted)', op);
+				}
 			} else {
 				console.warn('propose_form_changes: unknown op', op);
 			}
@@ -1228,6 +1361,47 @@
 				<div class="designer">
 					<div class="di-left" data-import-form-inputs>
 						<div class="di-left-title">Workflow inputs</div>
+						{#if loraChainNodes.length}
+							<div class="lora-chain-card" data-import-lora-chain>
+								<div class="di-group-h">LoRA chain</div>
+								{#each loraChainNodes as n (n.node_id)}
+									{@const isKept = loraConverted ? loraKeptIds.has(n.node_id) : loraKeepFixed.has(n.node_id)}
+									{@const isReplaced = loraConverted && loraReplacedIds.has(n.node_id)}
+									<div class="di-row" data-lora-chain-node={n.node_id}>
+										<span class="di-row-name mono">{n.node_id}</span>
+										<span class="di-row-value mono">{n.lora_name}</span>
+										<span class="dim mono">{n.strength_model}</span>
+										{#if isReplaced}
+											<span class="chip chip-info">→ picker</span>
+										{/if}
+										<div class="di-row-trail">
+											<button
+												type="button"
+												class="iconbtn"
+												class:active={isKept}
+												title={isKept ? 'Keep fixed (won’t become part of the picker)' : 'Keep fixed'}
+												disabled={loraConverted}
+												onclick={() => toggleLoraKeepFixed(n.node_id)}
+												data-action="lora-keep-fixed"
+											>
+												{@render icon('lock', 13)}
+											</button>
+										</div>
+									</div>
+								{/each}
+								<div class="lora-chain-actions">
+									<button
+										type="button"
+										class="link-btn"
+										onclick={convertLoraChainToPicker}
+										disabled={loraConverted}
+										data-action="convert-lora-picker"
+									>
+										{loraConverted ? 'Converted to LoRA picker' : 'Convert to LoRA picker'}
+									</button>
+								</div>
+							</div>
+						{/if}
 						<div class="di-search"><input type="text" placeholder="Search inputs…" bind:value={leftSearch} /></div>
 						{#each leftGroups as g (g.node_id)}
 							<div class="di-group-h">{g.node_title} <span class="cls mono">{g.class_type}</span></div>
@@ -2081,6 +2255,13 @@
 	}
 	.di-add-arrow {
 		color: rgb(var(--signal, 91 157 255));
+	}
+	.lora-chain-card {
+		border-bottom: 1px solid rgb(var(--line, 36 38 44));
+	}
+	.lora-chain-actions {
+		padding: 8px 12px;
+		border-top: 1px solid rgb(var(--line, 36 38 44) / 0.5);
 	}
 	.lock-badge {
 		display: inline-flex;

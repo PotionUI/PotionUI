@@ -14,7 +14,14 @@ them fresh on every message. Wire contract (sent by the frontend wizard)::
                        "role", "locked"}],
       "form": {"tabs": [{"id", "label", "items": [...schema.Item dicts]}]},
       "mapped": [{"field_name", "node_id", "input_name", "transform"}],
+      "lora_chain": {"nodes": [{"node_id", "class_type", "lora_name",
+                                 "strength_model"}], "replaced": [node_id, ...],
+                      "kept": [node_id, ...]} | None,
     }
+
+``lora_chain`` mirrors the wizard's own `suggest.LoraChainInfo.nodes` plus
+its current keep-fixed/replaced split (`schema.LoraChainSelection`) - absent
+or `None` when the workflow has no detected LoRA chain.
 
 ``form`` mirrors `backend.preset_import.schema.ImportForm` exactly (as plain
 dicts, not parsed models - the wizard's form is a work in progress and may be
@@ -323,8 +330,57 @@ def _validate_ops(
                 "_preview": f"+ field {field_name} ({field_type}) ← {targets}",
             })
 
+        elif op == "lora_picker":
+            chain_nodes = ((wiz.get("lora_chain") or {}).get("nodes")) or []
+            chain_node_ids = {n.get("node_id") for n in chain_nodes if n.get("node_id")}
+            if not chain_node_ids:
+                errors.append(f"op {i} (lora_picker): no LoRA chain detected in this workflow")
+                continue
+            if any(ftype == "lora_picker" for ftype in known_fields.values()):
+                errors.append(f"op {i} (lora_picker): a LoRA picker field already exists")
+                continue
+
+            tab = raw.get("tab") or (tabs[0].get("id") if tabs else None)
+            if not tab or tab not in known_tab_ids:
+                errors.append(f"op {i} (lora_picker): unknown tab '{tab}'")
+                continue
+
+            keep_fixed = raw.get("keep_fixed") or []
+            if not isinstance(keep_fixed, list):
+                errors.append(f"op {i} (lora_picker): 'keep_fixed' must be a list of node ids")
+                continue
+            keep_fixed_set = set(keep_fixed)
+            unknown_ids = keep_fixed_set - chain_node_ids
+            if unknown_ids:
+                errors.append(
+                    f"op {i} (lora_picker): 'keep_fixed' has node(s) not in the detected chain: "
+                    f"{sorted(unknown_ids)}"
+                )
+                continue
+
+            field_name = "loras"
+            suffix = 2
+            while field_name in known_fields:
+                field_name = f"loras_{suffix}"
+                suffix += 1
+            known_fields[field_name] = "lora_picker"
+
+            replaced_count = len(chain_node_ids - keep_fixed_set)
+            kept_desc = (
+                f", node {sorted(keep_fixed_set)[0]} kept fixed" if len(keep_fixed_set) == 1
+                else f", {len(keep_fixed_set)} nodes kept fixed" if keep_fixed_set
+                else ""
+            )
+            validated.append({
+                "_clean": {
+                    "op": "lora_picker", "tab": tab, "field_name": field_name,
+                    "keep_fixed": sorted(keep_fixed_set),
+                },
+                "_preview": f"+ LoRA picker ({replaced_count} LoRAs seeded{kept_desc})",
+            })
+
         else:
-            errors.append(f"op {i}: unknown op '{op}'. Must be one of add_field, map, add_tab")
+            errors.append(f"op {i}: unknown op '{op}'. Must be one of add_field, map, add_tab, lora_picker")
 
     return validated, errors
 
@@ -449,16 +505,21 @@ class ProposeFormChangesTool(BaseTool):
     def hint(self) -> str:
         return (
             "Use this to apply mapping/field/tab changes to the form - never describe them in "
-            "prose. Never map a prompt input; prompts come from the Prompts section, not here."
+            "prose. Never map a prompt input; prompts come from the Prompts section, not here. "
+            "When the workflow has a detected LoRA chain (see the context block), use lora_picker "
+            "to convert it to a LoRA picker field rather than mapping its lora_name/strength "
+            "inputs one at a time."
         )
 
     @property
     def description(self) -> str:
         return (
             "Propose changes to the import wizard's form: add_field (a new field with its "
-            "mappings), map (map an existing field to a candidate input), add_tab (a new tab). "
-            "All-or-nothing: if any op is invalid the whole call is rejected and nothing is "
-            "applied. The user must approve before anything is applied."
+            "mappings), map (map an existing field to a candidate input), add_tab (a new tab), "
+            "lora_picker (convert the workflow's detected LoRA chain into a lora_picker field, "
+            "optionally keeping some chain nodes fixed via keep_fixed). All-or-nothing: if any op "
+            "is invalid the whole call is rejected and nothing is applied. The user must approve "
+            "before anything is applied."
         )
 
     @property
@@ -472,11 +533,17 @@ class ProposeFormChangesTool(BaseTool):
                     "items": {
                         "type": "object",
                         "properties": {
-                            "op": {"type": "string", "enum": ["add_field", "map", "add_tab"]},
-                            "tab": {"type": "string", "description": "add_field: target tab id"},
+                            "op": {"type": "string", "enum": ["add_field", "map", "add_tab", "lora_picker"]},
+                            "tab": {"type": "string", "description": "add_field, lora_picker: target tab id"},
                             "field_type": {"type": "string", "description": "add_field only"},
                             "field_name": {"type": "string", "description": "add_field, map"},
                             "label": {"type": "string", "description": "add_field, add_tab"},
+                            "keep_fixed": {
+                                "type": "array",
+                                "description": "lora_picker only: chain node ids to leave wired as-is "
+                                               "instead of replacing with the picker",
+                                "items": {"type": "string"},
+                            },
                             "mappings": {
                                 "type": "array",
                                 "description": "add_field only",

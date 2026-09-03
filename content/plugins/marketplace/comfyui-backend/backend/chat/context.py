@@ -68,6 +68,27 @@ def _mapped_keys(mapped: List[Dict[str, Any]]) -> set:
     return {(m.get("node_id"), m.get("input_name")) for m in mapped or []}
 
 
+def _render_lora_chain(chain: Optional[Dict[str, Any]]) -> List[str]:
+    """One line per detected LoRA chain node, plus whether it's replaced
+    (owned by a `lora_picker` field's node-graph rewrite) or kept fixed -
+    see `backend.chat.tools.ProposeFormChangesTool`'s `lora_picker` op and
+    `schema.LoraChainSelection`."""
+    nodes = (chain or {}).get("nodes") or []
+    if not nodes:
+        return []
+    replaced = set((chain or {}).get("replaced") or [])
+    kept = set((chain or {}).get("kept") or [])
+    lines = ["", "LoRA chain detected:"]
+    for n in nodes:
+        node_id = n.get("node_id", "?")
+        status = "replaced by picker" if node_id in replaced else "kept fixed" if node_id in kept else "not yet converted"
+        lines.append(
+            f"  {node_id} {n.get('class_type', '?')} lora_name={n.get('lora_name')!r} "
+            f"strength={n.get('strength_model')} ({status})"
+        )
+    return lines
+
+
 def _render_unmapped(candidates: List[Dict[str, Any]], mapped_keys: set) -> List[str]:
     groups: Dict[str, List[Dict[str, Any]]] = {}
     order: List[str] = []
@@ -132,5 +153,6 @@ def build_import_context(
     lines.append("")
     lines.append("Unmapped workflow inputs (excluding locked prompt inputs):")
     lines.extend(_render_unmapped(candidates, _mapped_keys(mapped)) or ["  (none)"])
+    lines.extend(_render_lora_chain(wiz.get("lora_chain")))
 
     return _cap("\n".join(lines), _MAX_BLOCK_CHARS)

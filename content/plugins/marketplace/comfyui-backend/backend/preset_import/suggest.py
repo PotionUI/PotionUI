@@ -84,10 +84,38 @@ class InputCandidate:
 
 
 @dataclass
+class LoraChainNode:
+    """One LoRA node found while walking backward from the sampler's `model`
+    input - see `_detect_lora_chain`. `model_source`/`model_consumer` are the
+    connection either side of this node along that walk (needed to splice a
+    subset of the chain back together when only some nodes are replaced by a
+    `lora_picker` field - see `emit._lora_node_manipulations`).
+
+    `strength_clip`/`clip_source`/`clip_consumers` are only ever populated
+    for a `LoraLoader` (the class that actually carries a CLIP path);
+    `LoraLoaderModelOnly` leaves them at their defaults. `clip_consumers` is
+    a list, not a single pair, because a CLIP output routinely fans out to
+    both the positive and negative `CLIPTextEncode` nodes.
+    """
+
+    node_id: str
+    class_type: str
+    lora_name: Optional[str]
+    strength_model: Optional[float]
+    strength_clip: Optional[float]
+    model_source: Tuple[str, int]
+    model_consumer: Tuple[str, str]
+    clip_source: Optional[Tuple[str, int]] = None
+    clip_consumers: List[Tuple[str, str]] = field(default_factory=list)
+
+
+@dataclass
 class LoraChainInfo:
     source_node_id: str
     target_node_id: str
     lora_node_ids: List[str]  # source -> target order
+    nodes: List[LoraChainNode] = field(default_factory=list)  # source -> target order
+    has_clip_path: bool = False
 
 
 @dataclass
@@ -108,6 +136,17 @@ class AnalyzeResult:
                     "source_node_id": self.lora_chain.source_node_id,
                     "target_node_id": self.lora_chain.target_node_id,
                     "lora_node_ids": self.lora_chain.lora_node_ids,
+                    "has_clip_path": self.lora_chain.has_clip_path,
+                    "nodes": [
+                        {
+                            "node_id": n.node_id,
+                            "class_type": n.class_type,
+                            "lora_name": n.lora_name,
+                            "strength_model": n.strength_model,
+                            "strength_clip": n.strength_clip,
+                        }
+                        for n in self.lora_chain.nodes
+                    ],
                 }
                 if self.lora_chain
                 else None
@@ -159,26 +198,73 @@ def _prompt_text_input(node: WorkflowNode) -> Optional[str]:
     return None
 
 
+def _find_clip_consumers(workflow: Workflow, node_id: str) -> List[Tuple[str, str]]:
+    """`[(consumer_node_id, input_name), ...]` for every input in the whole
+    workflow wired to `node_id`'s CLIP output (index 1 - `LoraLoader`'s
+    `RETURN_TYPES` is `("MODEL", "CLIP")`). Usually two: the positive and
+    negative `CLIPTextEncode` nodes."""
+    consumers: List[Tuple[str, str]] = []
+    for other in workflow.nodes.values():
+        for input_name, (src_id, src_index) in other.connections().items():
+            if src_id == node_id and src_index == 1:
+                consumers.append((other.id, input_name))
+    return consumers
+
+
 def _detect_lora_chain(workflow: Workflow, sampler: WorkflowNode) -> Optional[LoraChainInfo]:
+    """Walk backward from the sampler's `model` input, collecting every LoRA
+    node (`LoraLoader`/`LoraLoaderModelOnly`) found along the way - through
+    any number of pass-through patcher nodes (`ModelSamplingAuraFlow`,
+    `CFGNorm`, `FreeU`, ...: anything whose own `model` input is itself a
+    connection), not just an unbroken run of LoRA nodes back to back. The
+    walk stops at the first node with no connected `model` input at all -
+    the loader (`CheckpointLoaderSimple`/`UNETLoader`/...). Contiguity among
+    the LoRA nodes themselves is not required."""
     conn = sampler.connection_source("model")
     if conn is None:
         return None
 
-    chain: List[WorkflowNode] = []  # target -> source order while walking
+    nodes: List[LoraChainNode] = []  # target -> source order while walking
+    consumer: Tuple[str, str] = (sampler.id, "model")
+    last_source_conn = conn
     current = workflow.resolve(conn)
-    while current is not None and current.class_type.startswith(LORA_CLASS_PREFIX):
-        chain.append(current)
-        next_conn = current.connection_source("model")
-        current = workflow.resolve(next_conn) if next_conn else None
 
-    if not chain:
+    while current is not None:
+        own_source = current.connection_source("model")
+        if current.class_type.startswith(LORA_CLASS_PREFIX):
+            is_lora_loader = current.class_type == "LoraLoader"
+            literals = current.literals()
+            nodes.append(
+                LoraChainNode(
+                    node_id=current.id,
+                    class_type=current.class_type,
+                    lora_name=literals.get("lora_name"),
+                    strength_model=literals.get("strength_model"),
+                    strength_clip=literals.get("strength_clip") if is_lora_loader else None,
+                    model_source=own_source if own_source is not None else last_source_conn,
+                    model_consumer=consumer,
+                    clip_source=current.connection_source("clip") if is_lora_loader else None,
+                    clip_consumers=_find_clip_consumers(workflow, current.id) if is_lora_loader else [],
+                )
+            )
+        if own_source is None:
+            break  # current has no connected `model` input - it's the loader
+        consumer = (current.id, "model")
+        last_source_conn = own_source
+        current = workflow.resolve(own_source)
+
+    if not nodes:
         return None
 
-    source_node_id = current.id if current is not None else conn[0]
+    nodes.reverse()  # source -> target order
+    source_node_id = current.id if current is not None else last_source_conn[0]
+    has_clip_path = any(n.class_type == "LoraLoader" for n in nodes)
     return LoraChainInfo(
         source_node_id=source_node_id,
         target_node_id=sampler.id,
-        lora_node_ids=[n.id for n in reversed(chain)],  # source -> target order
+        lora_node_ids=[n.node_id for n in nodes],
+        nodes=nodes,
+        has_clip_path=has_clip_path,
     )
 
 

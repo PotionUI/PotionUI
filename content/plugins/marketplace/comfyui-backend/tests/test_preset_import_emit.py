@@ -19,8 +19,10 @@ from pathlib import Path
 import pytest
 import yaml
 
+from backend.preset_import.defaults import _lora_item
 from backend.preset_import.emit import EmittedPreset, PresetEmitError, emit_preset
 from backend.preset_import.parser import parse_api_workflow
+from backend.preset_import.schema import FormTab, ImportForm, LoraChainSelection
 from backend.preset_import.suggest import suggest_fields
 
 from ._form_helpers import form_from_roles
@@ -166,6 +168,208 @@ class TestLoraChainEmission:
         workflow = parse_api_workflow(_load("lora_chain_img2img_api.json"))
         analysis = suggest_fields(workflow)
         assert {c.node_id for c in analysis.candidates if c.role == "lora_slot"} == {"101", "102"}
+
+
+class TestLoraChainKeepFixedSplicing:
+    def _form_with_picker(self, analysis, roles, lora_chain=None):
+        form = form_from_roles(analysis, roles)
+        form.tabs[0].items.append(_lora_item())
+        form.lora_chain = lora_chain
+        return form
+
+    def test_keeping_the_source_node_fixed_replaces_only_the_target_node(self, dest_root):
+        """101 (closest to the checkpoint) is kept fixed; only 102 (closest
+        to the sampler) becomes the picker. The sampler's fallback source
+        must become node 101 - the kept node's own output - not the
+        checkpoint loader, and 101 itself must survive untouched."""
+        workflow = parse_api_workflow(_load("lora_chain_img2img_api.json"))
+        analysis = suggest_fields(workflow)
+        form = self._form_with_picker(
+            analysis, {"checkpoint", "image", "steps", "cfg"},
+            LoraChainSelection(replaced_node_ids=["102"], kept_node_ids=["101"]),
+        )
+
+        result = emit_preset(
+            workflow, form, [], model_family="LoraKeepFixedTest", variant="v1",
+            display_name="LoRA Keep Fixed Test", dest_root=dest_root,
+        )
+
+        workflow_json = json.loads(
+            (result.preset_dir / "modes" / "img2img" / "files" / "workflows" / "img2img.json").read_text()
+        )
+        assert "101" in workflow_json
+        assert workflow_json["101"]["inputs"]["model"] == ["4", 0]  # kept node's own wiring untouched
+        assert "102" not in workflow_json
+        assert workflow_json["3"]["inputs"]["model"] == ["101", 0]  # falls back to the kept node
+
+        pipeline = yaml.safe_load(
+            (result.preset_dir / "modes" / "img2img" / "pipeline.yml").read_text()
+        )
+        comfyui_pipe = next(p for p in pipeline["pipeline"] if p["name"] == "comfyui")
+        manipulations = comfyui_pipe["configuration"]["node_manipulations"]
+        update_input = next(m for m in manipulations if m.get("type") == "update_node_input")
+        assert update_input["node_id"] == "3"
+        assert "101" in update_input["input_value"][0]
+
+        requirements = yaml.safe_load((result.preset_dir / "preset.yml").read_text())["requirements"]
+        lora_reqs = {r["name"]: r for r in requirements if r.get("folder") == "loras"}
+        assert "optional" not in lora_reqs["style_a.safetensors"]  # kept - still hard
+        assert lora_reqs["style_b.safetensors"].get("optional") is True  # replaced
+
+    def test_bite_check_keep_fixed_breaks_without_a_selection(self, dest_root):
+        """Confirms the previous test's survival of node 101 actually
+        depends on the selection: with no `form.lora_chain` at all, the
+        WHOLE chain is replaced (the pre-existing fallback), so 101 would
+        NOT survive."""
+        workflow = parse_api_workflow(_load("lora_chain_img2img_api.json"))
+        analysis = suggest_fields(workflow)
+        form = self._form_with_picker(analysis, {"checkpoint", "image", "steps", "cfg"}, lora_chain=None)
+
+        result = emit_preset(
+            workflow, form, [], model_family="LoraKeepFixedBite", variant="v1",
+            display_name="X", dest_root=dest_root,
+        )
+        workflow_json = json.loads(
+            (result.preset_dir / "modes" / "img2img" / "files" / "workflows" / "img2img.json").read_text()
+        )
+        assert "101" not in workflow_json
+
+    def test_lora_behind_patch_nodes_splices_at_the_first_patch_node(self, dest_root):
+        """UNETLoader -> LoraLoaderModelOnly -> ModelSamplingAuraFlow ->
+        CFGNorm -> KSampler: converting the single LoRA node must rewire
+        node 21 (the first pass-through consumer), not the sampler
+        directly, and node 22 (further downstream) is left untouched."""
+        workflow = parse_api_workflow(_load("lora_chain_patch_node_api.json"))
+        analysis = suggest_fields(workflow)
+        form = self._form_with_picker(
+            analysis, {"diffusion_model", "clip", "vae", "steps", "cfg", "sampler", "scheduler", "denoise"},
+            LoraChainSelection(replaced_node_ids=["20"], kept_node_ids=[]),
+        )
+
+        result = emit_preset(
+            workflow, form, [], model_family="LoraPatchNodeTest", variant="v1",
+            display_name="LoRA Patch Node Test", dest_root=dest_root,
+        )
+        assert result.mode == "txt2img"
+
+        workflow_json = json.loads(
+            (result.preset_dir / "modes" / "txt2img" / "files" / "workflows" / "txt2img.json").read_text()
+        )
+        assert "20" not in workflow_json
+        assert workflow_json["21"]["inputs"]["model"] == ["1", 0]  # falls back to the UNETLoader
+        assert workflow_json["22"]["inputs"]["model"] == ["21", 0]  # untouched - still points at 21
+
+    def test_clip_path_reroutes_both_positive_and_negative_text_encode_nodes(self, dest_root):
+        """A LoraLoader (model+clip) followed by a LoraLoaderModelOnly, with
+        a ModelSamplingAuraFlow patch node AFTER the whole chain: converting
+        both nodes must reroute the patch node's model input, fan the loop's
+        CLIP output out to both CLIPTextEncode nodes, and emit LoraLoader
+        (not LoraLoaderModelOnly) nodes in the loop since CLIP is in play."""
+        workflow = parse_api_workflow(_load("lora_chain_clip_then_patch_api.json"))
+        analysis = suggest_fields(workflow)
+        assert analysis.lora_chain.has_clip_path is True
+        form = self._form_with_picker(
+            analysis, {"checkpoint", "steps", "cfg", "sampler", "scheduler", "denoise"},
+            LoraChainSelection(replaced_node_ids=["101", "102"], kept_node_ids=[]),
+        )
+
+        result = emit_preset(
+            workflow, form, [], model_family="LoraClipPatchTest", variant="v1",
+            display_name="LoRA Clip Patch Test", dest_root=dest_root,
+        )
+        assert result.mode == "txt2img"
+
+        workflow_json = json.loads(
+            (result.preset_dir / "modes" / "txt2img" / "files" / "workflows" / "txt2img.json").read_text()
+        )
+        assert "101" not in workflow_json
+        assert "102" not in workflow_json
+        assert workflow_json["150"]["inputs"]["model"] == ["4", 0]  # patch node falls back to the checkpoint
+        assert workflow_json["6"]["inputs"]["clip"] == ["4", 1]
+        assert workflow_json["7"]["inputs"]["clip"] == ["4", 1]
+
+        pipeline = yaml.safe_load(
+            (result.preset_dir / "modes" / "txt2img" / "pipeline.yml").read_text()
+        )
+        comfyui_pipe = next(p for p in pipeline["pipeline"] if p["name"] == "comfyui")
+        manipulations = comfyui_pipe["configuration"]["node_manipulations"]
+
+        loop_manip = next(m for m in manipulations if "@loop" in m)["@loop"]
+        assert loop_manip["template"]["node_config"]["class_type"] == "LoraLoader"
+        assert "clip" in loop_manip["template"]["node_config"]["inputs"]
+
+        update_inputs = [m for m in manipulations if m.get("type") == "update_node_input"]
+        model_update = next(m for m in update_inputs if m["node_id"] == "150")
+        assert model_update["input_key"] == "model"
+        clip_updates = {m["node_id"]: m for m in update_inputs if m["input_key"] == "clip"}
+        assert set(clip_updates) == {"6", "7"}
+
+    def test_a_patch_node_interleaved_between_two_replaced_lora_nodes_stays_wired(self, dest_root):
+        """LoraLoader(101, model+clip) -> ModelSamplingAuraFlow(150) ->
+        LoraLoaderModelOnly(102) -> KSampler: the patch node sits BETWEEN
+        the two replaced LoRA nodes, not at either end of the chain.
+        Replacing the whole chain must bypass every dangling reference this
+        creates - node 150's own `model` input pointed at the now-removed
+        101, and the sampler's `model` input pointed at the now-removed 102
+        - rather than only patching the two outermost boundary connections."""
+        workflow = parse_api_workflow(_load("lora_chain_clip_patch_api.json"))
+        analysis = suggest_fields(workflow)
+        assert analysis.lora_chain.lora_node_ids == ["101", "102"]
+        form = self._form_with_picker(
+            analysis, {"checkpoint", "image", "steps", "cfg"},
+            LoraChainSelection(replaced_node_ids=["101", "102"], kept_node_ids=[]),
+        )
+
+        result = emit_preset(
+            workflow, form, [], model_family="LoraInterleavedPatchTest", variant="v1",
+            display_name="LoRA Interleaved Patch Test", dest_root=dest_root,
+        )
+
+        workflow_json = json.loads(
+            (result.preset_dir / "modes" / result.mode / "files" / "workflows" / f"{result.mode}.json").read_text()
+        )
+        assert "101" not in workflow_json
+        assert "102" not in workflow_json
+        # Nothing in the baked graph points at a removed node id.
+        for node in workflow_json.values():
+            for value in node["inputs"].values():
+                if isinstance(value, list) and len(value) == 2:
+                    assert value[0] not in ("101", "102")
+        # The patch node survives, rewired past the removed 101 to the real
+        # checkpoint loader...
+        assert workflow_json["150"]["inputs"]["model"] == ["4", 0]
+        # ...and the sampler, which used to read 102 directly, now correctly
+        # routes back through the surviving patch node - not straight to the
+        # checkpoint, which would silently drop node 150's transform.
+        assert workflow_json["3"]["inputs"]["model"] == ["150", 0]
+        assert workflow_json["6"]["inputs"]["clip"] == ["4", 1]
+        assert workflow_json["7"]["inputs"]["clip"] == ["4", 1]
+
+    def test_bite_check_interleaved_patch_node_dangles_without_the_generic_bypass(self, dest_root, monkeypatch):
+        """Confirms the assertions above depend on the generic bypass, not
+        just the old first/last boundary patch: stubbing it out to a no-op
+        leaves node 150 pointing at the removed node 101.
+
+        Patches `emit_preset`'s own `__globals__` rather than a freshly
+        `import`-ed module object - see `TestPathTraversalGuard
+        .test_bite_check_guard_breaks_if_validation_disabled`'s docstring
+        for why (another test in this suite reloads `backend.*` mid-run)."""
+        monkeypatch.setitem(emit_preset.__globals__, "_bypass_replaced_lora_nodes", lambda *a, **k: None)
+
+        workflow = parse_api_workflow(_load("lora_chain_clip_patch_api.json"))
+        analysis = suggest_fields(workflow)
+        form = self._form_with_picker(
+            analysis, {"checkpoint", "image", "steps", "cfg"},
+            LoraChainSelection(replaced_node_ids=["101", "102"], kept_node_ids=[]),
+        )
+        result = emit_preset(
+            workflow, form, [], model_family="LoraInterleavedPatchBite", variant="v1",
+            display_name="X", dest_root=dest_root,
+        )
+        workflow_json = json.loads(
+            (result.preset_dir / "modes" / result.mode / "files" / "workflows" / f"{result.mode}.json").read_text()
+        )
+        assert workflow_json["150"]["inputs"]["model"] == ["101", 0]  # dangling - 101 no longer exists
 
 
 class TestSubgraphIdsSurvive:

@@ -11,7 +11,7 @@ regardless of what the admin's form contains.
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from .schema import FieldItem, FieldMapping, FormTab, GroupItem, ImportForm, HistoryEntry, Item
 from .suggest import AnalyzeResult, InputCandidate
@@ -129,9 +129,15 @@ def build_default_form(analysis: AnalyzeResult) -> ImportForm:
     """One tab per distinct `suggested_tab` an obvious candidate carries
     (falling back to "Generation" for a candidate with none, or when the
     workflow has no ComfyUI groups at all), each holding that tab's obvious
-    fields - resolution merged into one field, model loaders grouped, and a
-    single LoRA-chain field placed in whichever tab its first node belongs to."""
-    obvious = [c for c in analysis.candidates if c.obvious and c.role not in _FOUNDATIONAL_ROLES]
+    fields - resolution merged into one field, model loaders grouped.
+
+    A detected LoRA chain (`analysis.lora_chain`) never becomes a field here:
+    turning it into a `lora_picker` is now the wizard's explicit "Convert to
+    LoRA picker" action (or the assistant's `lora_picker` op) - see
+    `schema.LoraChainSelection` - since only that step knows which nodes the
+    admin wants kept fixed. The default form leaves every chain node as an
+    individually mappable "obvious" candidate instead."""
+    obvious = [c for c in analysis.candidates if c.obvious and c.role not in _FOUNDATIONAL_ROLES and c.role != "lora_slot"]
 
     tab_order: List[str] = []
     by_tab: Dict[str, List[InputCandidate]] = {}
@@ -145,15 +151,9 @@ def build_default_form(analysis: AnalyzeResult) -> ImportForm:
         tab_order = ["Generation"]
         by_tab["Generation"] = []
 
-    lora_candidates = [c for c in obvious if c.role == "lora_slot"]
-    lora_tab_label: Optional[str] = (lora_candidates[0].suggested_tab or "Generation") if lora_candidates else None
-
     tabs: List[FormTab] = []
     for label in tab_order:
-        tab_candidates = [c for c in by_tab[label] if c.role != "lora_slot"]
-        items = _build_tab_items(tab_candidates)
-        if label == lora_tab_label:
-            items.append(_lora_item())
+        items = _build_tab_items(by_tab[label])
         tabs.append(FormTab(id=_tab_id(label), label=label, items=items))
 
     return ImportForm(tabs=tabs)

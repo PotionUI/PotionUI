@@ -1,19 +1,20 @@
 {
-  "last_node_id": 2,
+  "last_node_id": 92,
   "last_link_id": 0,
   "nodes": [
     {
-      "id": 1,
+      "id": 92,
       "type": "d8f2c6a0-9b3e-4e2a-8f1a-6c7a2b9e4d10",
-      "title": "My Subgraph",
-      "pos": [200, 200],
+      "title": "Flux Sampler",
+      "pos": [400, 200],
       "size": [210, 100],
       "flags": {},
       "order": 0,
       "mode": 0,
       "inputs": [],
       "outputs": [],
-      "properties": {}
+      "properties": {},
+      "widgets_values": []
     }
   ],
   "links": [],
@@ -22,9 +23,78 @@
     "subgraphs": [
       {
         "id": "d8f2c6a0-9b3e-4e2a-8f1a-6c7a2b9e4d10",
-        "name": "My Subgraph",
-        "nodes": [],
-        "links": []
+        "name": "Flux Sampler",
+        "inputs": [],
+        "outputs": [],
+        "nodes": [
+          {
+            "id": 10, "type": "VAELoader", "title": "Load VAE", "pos": [0, 0],
+            "mode": 0, "inputs": [], "outputs": [{"name": "VAE", "type": "VAE", "links": [8]}],
+            "widgets_values": ["ae.safetensors"]
+          },
+          {
+            "id": 11, "type": "UNETLoader", "title": "Load Diffusion Model", "pos": [0, 100],
+            "mode": 0, "inputs": [], "outputs": [{"name": "MODEL", "type": "MODEL", "links": [3]}],
+            "widgets_values": ["flux1-dev.safetensors", "default"]
+          },
+          {
+            "id": 12, "type": "CLIPLoader", "title": "Load CLIP", "pos": [0, 200],
+            "mode": 0, "inputs": [], "outputs": [{"name": "CLIP", "type": "CLIP", "links": [1, 2]}],
+            "widgets_values": ["t5xxl_fp16.safetensors", "flux"]
+          },
+          {
+            "id": 20, "type": "CLIPTextEncode", "title": "CLIP Text Encode (Positive)", "pos": [300, 0],
+            "mode": 0, "inputs": [{"name": "clip", "type": "CLIP", "link": 1}],
+            "outputs": [{"name": "CONDITIONING", "type": "CONDITIONING", "links": [4]}],
+            "widgets_values": ["a photo of a robot"]
+          },
+          {
+            "id": 21, "type": "CLIPTextEncode", "title": "CLIP Text Encode (Negative)", "pos": [300, 150],
+            "mode": 0, "inputs": [{"name": "clip", "type": "CLIP", "link": 2}],
+            "outputs": [{"name": "CONDITIONING", "type": "CONDITIONING", "links": [5]}],
+            "widgets_values": [""]
+          },
+          {
+            "id": 30, "type": "EmptyLatentImage", "title": "Empty Latent Image", "pos": [300, 300],
+            "mode": 0, "inputs": [], "outputs": [{"name": "LATENT", "type": "LATENT", "links": [6]}],
+            "widgets_values": [1024, 1024, 1]
+          },
+          {
+            "id": 40, "type": "KSampler", "title": "KSampler", "pos": [600, 100],
+            "mode": 0,
+            "inputs": [
+              {"name": "model", "type": "MODEL", "link": 3},
+              {"name": "positive", "type": "CONDITIONING", "link": 4},
+              {"name": "negative", "type": "CONDITIONING", "link": 5},
+              {"name": "latent_image", "type": "LATENT", "link": 6}
+            ],
+            "outputs": [{"name": "LATENT", "type": "LATENT", "links": [7]}],
+            "widgets_values": [42, "randomize", 20, 1.0, "euler", "simple", 1.0]
+          },
+          {
+            "id": 50, "type": "VAEDecode", "title": "VAE Decode", "pos": [900, 100],
+            "mode": 0,
+            "inputs": [{"name": "samples", "type": "LATENT", "link": 7}, {"name": "vae", "type": "VAE", "link": 8}],
+            "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [9]}],
+            "widgets_values": []
+          },
+          {
+            "id": 60, "type": "SaveImage", "title": "Save Image", "pos": [1150, 100],
+            "mode": 0, "inputs": [{"name": "images", "type": "IMAGE", "link": 9}], "outputs": [],
+            "widgets_values": ["Flux"]
+          }
+        ],
+        "links": [
+          [1, 12, 0, 20, 0, "CLIP"],
+          [2, 12, 0, 21, 0, "CLIP"],
+          [3, 11, 0, 40, 0, "MODEL"],
+          [4, 20, 0, 40, 1, "CONDITIONING"],
+          [5, 21, 0, 40, 2, "CONDITIONING"],
+          [6, 30, 0, 40, 3, "LATENT"],
+          [7, 40, 0, 50, 0, "LATENT"],
+          [8, 10, 0, 50, 1, "VAE"],
+          [9, 50, 0, 60, 0, "IMAGE"]
+        ]
       }
     ]
   },

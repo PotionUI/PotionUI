@@ -1704,9 +1704,11 @@ If you already have a working ComfyUI graph, don't hand-write the preset — imp
    server's own `GET /object_info` which `widgets_values` slot is which named input, since the UI
    export never records that itself. Import fails with a clear message if the resolved backend isn't
    reachable at that moment — export with **Export (API)** instead, or fix the backend connection
-   first. Either export also fails if the workflow uses ComfyUI **subgraphs** (the node collapses
-   into a UUID `definitions.subgraphs` reference this importer doesn't inline) — export with
-   **Export (API)** for those.
+   first. A UI-format workflow that uses ComfyUI **subgraphs** works too — `convert.py` flattens
+   each subgraph instance into the underlying nodes (`<instance_id>:<inner_id>` ids, chaining for a
+   subgraph nested inside another) the same way ComfyUI's own frontend does before running it. A
+   subgraph containing an instance of itself is the one case that still fails, with a message
+   saying so.
 
 2. **Analyze it.** The `comfyui-backend` plugin exposes two admin-only import endpoints (also
    accessible via the **Import workflow** button in Administration → Presets — see

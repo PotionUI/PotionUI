@@ -11,8 +11,14 @@ Fixtures live in tests/fixtures/*.json:
   non-core FaceDetailer node (also declared in object_info_sdxl.json).
 - ui_converted_reroute.json - KSampler's `seed` widget converted to a
   socket, fed through a Reroute from a PrimitiveNode.
-- ui_subgraph.json - the newest export shape (`definitions.subgraphs`),
-  which this importer refuses rather than converts.
+- ui_subgraph.json - the newest export shape (`definitions.subgraphs`): a
+  single Flux-style subgraph instance, flattened to match flux_subgraph_api.json.
+- ui_two_subgraph_instances.json - two instances of one "Prompt Encoder"
+  subgraph (boundary input+output crossing, a promoted widget overriding
+  the inner node's own default, per instance).
+- ui_nested_subgraph.json - a subgraph instance whose own body contains an
+  instance of another subgraph (`<outer>:<inner>:<node>` id chaining).
+- ui_subgraph_cycle.json - a subgraph containing an instance of itself.
 """
 
 import json
@@ -100,10 +106,6 @@ class TestGraphToPrompt:
         assert converted["20"]["inputs"]["enabled"] is True
         assert converted["20"]["inputs"]["image"] == ["8", 0]
 
-    def test_subgraph_workflow_raises(self, object_info):
-        with pytest.raises(WorkflowFormatError, match="subgraphs"):
-            graph_to_prompt(_load("ui_subgraph.json"), object_info)
-
     def test_unknown_node_class_raises(self, object_info):
         ui = _load("ui_sdxl_basic.json")
         ui["nodes"][0]["type"] = "SomeUninstalledCustomSampler"
@@ -141,6 +143,69 @@ class TestGraphToPrompt:
         converted = graph_to_prompt(ui, no_control)
         assert converted["3"]["inputs"]["seed"] == 619589674328597
         assert converted["3"]["inputs"]["steps"] == "randomize"  # wrong: proves the skip matters
+
+
+class TestSubgraphFlattening:
+    def test_flux_subgraph_matches_the_flux_fixture_modulo_meta(self, object_info):
+        converted = graph_to_prompt(_load("ui_subgraph.json"), object_info)
+        expected = _load("flux_subgraph_api.json")
+
+        assert set(converted) == set(expected)
+        for node_id, exp in expected.items():
+            actual = dict(converted[node_id])
+            actual.pop("_meta", None)
+            exp = dict(exp)
+            exp.pop("_meta", None)
+            assert actual == exp
+
+    def test_flattened_ids_are_instance_colon_inner(self, object_info):
+        converted = graph_to_prompt(_load("ui_subgraph.json"), object_info)
+        assert converted["92:40"]["class_type"] == "KSampler"
+        assert converted["92:40"]["inputs"]["model"] == ["92:11", 0]
+
+    def test_two_instances_of_one_subgraph_stay_independent(self, object_info):
+        converted = graph_to_prompt(_load("ui_two_subgraph_instances.json"), object_info)
+
+        # Boundary input crossing: each instance's own "clip" socket resolves
+        # straight through to the checkpoint loader outside the subgraph.
+        assert converted["200:100"]["inputs"]["clip"] == ["4", 1]
+        assert converted["201:100"]["inputs"]["clip"] == ["4", 1]
+        # Promoted widgets: each instance's own widgets_values overrode the
+        # inner CLIPTextEncode's shared default ("placeholder default text"),
+        # independently per instance.
+        assert converted["200:100"]["inputs"]["text"] == "masterpiece, best quality"
+        assert converted["201:100"]["inputs"]["text"] == "worst quality, low quality"
+        # Boundary output crossing: KSampler's positive/negative pull from
+        # each instance's own inner node, not from the instance id itself.
+        assert converted["3"]["inputs"]["positive"] == ["200:100", 0]
+        assert converted["3"]["inputs"]["negative"] == ["201:100", 0]
+        assert not any(node_id in ("200", "201") for node_id in converted)
+
+    def test_bite_check_link_rewiring_breaks_if_boundary_input_ignored(self, object_info):
+        """Confirms the boundary-crossing assertions above can fail: if the
+        instance's own input link were ignored (e.g. resolved as if slot 0
+        had no link at all), the inner CLIPTextEncode would have no `clip`
+        input, not a wrong-but-present one - so this checks resolution
+        really depends on the instance's own `inputs[0].link`."""
+        ui = _load("ui_two_subgraph_instances.json")
+        for node in ui["nodes"]:
+            if node["id"] == 200:
+                node["inputs"][0]["link"] = None  # sever the boundary crossing
+        converted = graph_to_prompt(ui, object_info)
+        assert "clip" not in converted["200:100"]["inputs"]
+
+    def test_nested_subgraph_chains_ids_and_resolves_across_two_levels(self, object_info):
+        converted = graph_to_prompt(_load("ui_nested_subgraph.json"), object_info)
+        assert converted["500:2:100"]["class_type"] == "CLIPTextEncode"
+        assert converted["500:2:100"]["inputs"]["text"] == "a nested prompt"
+        assert converted["500:2:100"]["inputs"]["clip"] == ["500:1", 1]
+        assert converted["500:4"]["inputs"]["positive"] == ["500:2:100", 0]
+        assert converted["500:4"]["inputs"]["negative"] == ["500:2:100", 0]
+        assert not any(node_id in ("500:2",) for node_id in converted)
+
+    def test_self_referencing_subgraph_raises(self, object_info):
+        with pytest.raises(WorkflowFormatError, match="instance of itself"):
+            graph_to_prompt(_load("ui_subgraph_cycle.json"), object_info)
 
 
 class TestExtractNodeGroups:

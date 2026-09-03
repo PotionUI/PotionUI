@@ -35,8 +35,10 @@ handing it to PotionUI:
    the backend connection or re-export with **Export (API)**, which never needs that.
 3. This downloads a `.json` file. That file is what you hand to PotionUI in the next step.
 
-A workflow built from ComfyUI **subgraphs** always needs **Export (API)** — the plain export/save
-of a subgraph workflow isn't something PotionUI can convert.
+A workflow built from ComfyUI **subgraphs** works fine with either export option — PotionUI expands
+each subgraph automatically. The only workflow that can't be imported this way is one containing a
+subgraph that (directly or indirectly) contains an instance of itself; that's a rare mistake in how
+the workflow was built, not something to fix by re-exporting.
 
 ## Importing it as a preset
 

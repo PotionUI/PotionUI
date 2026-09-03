@@ -87,6 +87,44 @@
     "display_name": "Save Image",
     "category": "image"
   },
+  "VAELoader": {
+    "input": {
+      "required": {
+        "vae_name": [["ae.safetensors", "otherVae.safetensors"], {}]
+      }
+    },
+    "output": ["VAE"],
+    "output_name": ["VAE"],
+    "name": "VAELoader",
+    "display_name": "Load VAE",
+    "category": "loaders"
+  },
+  "UNETLoader": {
+    "input": {
+      "required": {
+        "unet_name": [["flux1-dev.safetensors", "otherUnet.safetensors"], {}],
+        "weight_dtype": [["default", "fp8_e4m3fn", "fp8_e5m2"], {}]
+      }
+    },
+    "output": ["MODEL"],
+    "output_name": ["MODEL"],
+    "name": "UNETLoader",
+    "display_name": "Load Diffusion Model",
+    "category": "loaders"
+  },
+  "CLIPLoader": {
+    "input": {
+      "required": {
+        "clip_name": [["t5xxl_fp16.safetensors", "otherClip.safetensors"], {}],
+        "type": [["stable_diffusion", "flux", "sd3"], {}]
+      }
+    },
+    "output": ["CLIP"],
+    "output_name": ["CLIP"],
+    "name": "CLIPLoader",
+    "display_name": "Load CLIP",
+    "category": "loaders"
+  },
   "FaceDetailer": {
     "input": {
       "required": {

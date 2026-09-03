@@ -1,0 +1,102 @@
+{
+  "last_node_id": 500,
+  "last_link_id": 0,
+  "nodes": [
+    {
+      "id": 500, "type": "c9d8e7f6-5555-6666-7777-888899990000", "title": "Wrapper",
+      "pos": [400, 200], "mode": 0, "inputs": [], "outputs": [], "widgets_values": []
+    }
+  ],
+  "links": [],
+  "groups": [],
+  "definitions": {
+    "subgraphs": [
+      {
+        "id": "b1a2c3d4-1111-2222-3333-444455556666",
+        "name": "Prompt Encoder",
+        "inputs": [{"id": "clip_in", "name": "clip", "type": "CLIP"}],
+        "outputs": [{"id": "cond_out", "name": "CONDITIONING", "type": "CONDITIONING"}],
+        "widgets": [{"node_id": 100, "name": "text"}],
+        "nodes": [
+          {"id": -10, "type": "SubgraphInputNode", "pos": [0, 0], "mode": 0, "inputs": [], "outputs": []},
+          {
+            "id": 100, "type": "CLIPTextEncode", "title": "Prompt", "pos": [200, 0], "mode": 0,
+            "inputs": [{"name": "clip", "type": "CLIP", "link": 101}],
+            "outputs": [{"name": "CONDITIONING", "type": "CONDITIONING", "links": [102]}],
+            "widgets_values": ["placeholder default text"]
+          },
+          {"id": -20, "type": "SubgraphOutputNode", "pos": [400, 0], "mode": 0, "inputs": [], "outputs": []}
+        ],
+        "links": [
+          [101, -10, 0, 100, 0, "CLIP"],
+          [102, 100, 0, -20, 0, "CONDITIONING"]
+        ]
+      },
+      {
+        "id": "c9d8e7f6-5555-6666-7777-888899990000",
+        "name": "Wrapper",
+        "inputs": [],
+        "outputs": [],
+        "nodes": [
+          {
+            "id": 1, "type": "CheckpointLoaderSimple", "title": "Load Checkpoint", "pos": [0, 0], "mode": 0,
+            "inputs": [],
+            "outputs": [
+              {"name": "MODEL", "type": "MODEL", "links": [4]},
+              {"name": "CLIP", "type": "CLIP", "links": [1]},
+              {"name": "VAE", "type": "VAE", "links": [7]}
+            ],
+            "widgets_values": ["sdxlBase_v10.safetensors"]
+          },
+          {
+            "id": 2, "type": "b1a2c3d4-1111-2222-3333-444455556666", "title": "Nested Prompt Encoder",
+            "pos": [300, 0], "mode": 0,
+            "inputs": [{"name": "clip", "type": "CLIP", "link": 1}],
+            "outputs": [{"name": "CONDITIONING", "type": "CONDITIONING", "links": [2, 3]}],
+            "widgets_values": ["a nested prompt"]
+          },
+          {
+            "id": 3, "type": "EmptyLatentImage", "title": "Empty Latent Image", "pos": [300, 300], "mode": 0,
+            "inputs": [], "outputs": [{"name": "LATENT", "type": "LATENT", "links": [5]}],
+            "widgets_values": [832, 1216, 1]
+          },
+          {
+            "id": 4, "type": "KSampler", "title": "KSampler", "pos": [600, 100], "mode": 0,
+            "inputs": [
+              {"name": "model", "type": "MODEL", "link": 4},
+              {"name": "positive", "type": "CONDITIONING", "link": 2},
+              {"name": "negative", "type": "CONDITIONING", "link": 3},
+              {"name": "latent_image", "type": "LATENT", "link": 5}
+            ],
+            "outputs": [{"name": "LATENT", "type": "LATENT", "links": [6]}],
+            "widgets_values": [619589674328597, "randomize", 27, 4.0, "euler", "normal", 1.0]
+          },
+          {
+            "id": 5, "type": "VAEDecode", "title": "VAE Decode", "pos": [900, 100], "mode": 0,
+            "inputs": [{"name": "samples", "type": "LATENT", "link": 6}, {"name": "vae", "type": "VAE", "link": 7}],
+            "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [8]}],
+            "widgets_values": []
+          },
+          {
+            "id": 6, "type": "SaveImage", "title": "Save Image", "pos": [1150, 100], "mode": 0,
+            "inputs": [{"name": "images", "type": "IMAGE", "link": 8}], "outputs": [],
+            "widgets_values": ["ComfyUI"]
+          }
+        ],
+        "links": [
+          [1, 1, 1, 2, 0, "CLIP"],
+          [2, 2, 0, 4, 1, "CONDITIONING"],
+          [3, 2, 0, 4, 2, "CONDITIONING"],
+          [4, 1, 0, 4, 0, "MODEL"],
+          [5, 3, 0, 4, 3, "LATENT"],
+          [6, 4, 0, 5, 0, "LATENT"],
+          [7, 1, 2, 5, 1, "VAE"],
+          [8, 5, 0, 6, 0, "IMAGE"]
+        ]
+      }
+    ]
+  },
+  "config": {},
+  "extra": {},
+  "version": 0.4
+}

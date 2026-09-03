@@ -2,7 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { pluginStore, plugins, frontendHooks, loading, error, pendingPluginIds, type Plugin, type PluginSettingSchema } from '$lib/stores/plugins';
 	import { authStore } from '$lib/stores/auth';
-	import { Button, Badge, Spinner, Input, Kbd, EmptyState, Switch, Alert } from '$lib/components/ui';
+	import { Button, Badge, Spinner, Input, Kbd, EmptyState, Switch, Alert, IconButton } from '$lib/components/ui';
 	import { MasterDetailLayout, DetailEmptyState } from '$lib/components/master-detail';
 	import { Pane, PaneRow, PaneGroupHeader } from '$lib/components/pane';
 	import { DetailHeader, DetailTabs, DetailBody, DetailSection, DetailFooter, KVGrid, KVItem } from '$lib/components/detail';
@@ -181,7 +181,42 @@
 		return 'bg-fg-subtle';
 	}
 
-	const MAX_CAPABILITY_BADGES = 3;
+	// Per-row clamp state for the list description (keyed by plugin id, not
+	// persisted). `overflowingDescriptions` only flips true once the element
+	// actually overflows one line - measured, never guessed from string length.
+	let expandedDescriptions: Record<string, boolean> = {};
+	let overflowingDescriptions: Record<string, boolean> = {};
+
+	function toggleDescription(id: string) {
+		expandedDescriptions = { ...expandedDescriptions, [id]: !expandedDescriptions[id] };
+	}
+
+	function measureDescriptionOverflow(node: HTMLElement, id: string) {
+		function measure() {
+			const isOverflowing = node.scrollHeight > node.clientHeight + 1;
+			if (!!overflowingDescriptions[id] !== isOverflowing) {
+				overflowingDescriptions = { ...overflowingDescriptions, [id]: isOverflowing };
+			}
+		}
+		measure();
+		let observer: ResizeObserver | null = null;
+		if (typeof ResizeObserver !== 'undefined') {
+			observer = new ResizeObserver(measure);
+			observer.observe(node);
+		}
+		// Line-clamp keeps the box height fixed while the wrap width changes
+		// (e.g. the master-detail pane is resized), which a ResizeObserver on
+		// the clamped element itself won't catch - a window resize re-measure
+		// covers that case too.
+		window.addEventListener('resize', measure);
+		return {
+			destroy() {
+				observer?.disconnect();
+				window.removeEventListener('resize', measure);
+			}
+		};
+	}
+
 	$: enabledPluginsCount = $plugins.filter((p) => p.enabled).length;
 	$: activeFilterCount = Number(!!searchQuery.trim()) + Number(stateFilter !== 'all');
 
@@ -330,46 +365,35 @@
 									{/snippet}
 									{#snippet pluginBody()}
 										<div class="flex items-baseline gap-2">
-											<span class="text-[13px] font-medium text-fg truncate">{plugin.name}</span>
+											<span class="text-[13px] font-medium {plugin.enabled ? 'text-fg' : 'text-fg-muted'} truncate">{plugin.name}</span>
 											<span class="text-xs font-mono tabular-nums text-fg-subtle flex-shrink-0">v{plugin.version}</span>
 										</div>
-										<p class="text-xs text-fg-muted truncate mt-0.5">
+										<p
+											use:measureDescriptionOverflow={plugin.id}
+											class="text-xs text-fg-muted mt-0.5 {expandedDescriptions[plugin.id] ? '' : 'line-clamp-1'}"
+										>
 											{plugin.description || 'No description available'}
 										</p>
-										{#if plugin.state === 'error' && plugin.error}
-											<p class="text-xs text-danger mt-1 break-words">{plugin.error}</p>
+									{/snippet}
+									{#snippet pluginTrailing()}
+										{#if overflowingDescriptions[plugin.id]}
+											<IconButton
+												icon={expandedDescriptions[plugin.id] ? 'chevron-up' : 'chevron-down'}
+												label={expandedDescriptions[plugin.id] ? 'Show less' : 'Show more'}
+												size="sm"
+												onclick={(e) => {
+													e.stopPropagation();
+													toggleDescription(plugin.id);
+												}}
+											/>
 										{/if}
-										<div class="flex flex-wrap items-center gap-1.5 mt-1.5">
-											{#if plugin.source}
-												<Badge variant="neutral" size="sm" class="font-mono uppercase">{plugin.source}</Badge>
-											{/if}
-											{#if plugin.shadows}
-												<Tooltip text="Shadows marketplace copy at {plugin.shadows}">
-													<Badge variant="warning" size="sm">SHADOWS MARKETPLACE COPY</Badge>
-												</Tooltip>
-											{/if}
-											<Badge variant="neutral" size="sm" class="font-mono uppercase">{plugin.type}</Badge>
-											{#each (plugin.capabilities ?? []).slice(0, MAX_CAPABILITY_BADGES) as cap}
-												<Badge variant="info" size="sm">{cap}</Badge>
-											{/each}
-											{#if (plugin.capabilities ?? []).length > MAX_CAPABILITY_BADGES}
-												<span class="text-2xs font-mono tabular-nums text-fg-subtle">
-													+{(plugin.capabilities ?? []).length - MAX_CAPABILITY_BADGES}
-												</span>
-											{/if}
-											{#if (plugin.hook_count ?? 0) > 0}
-												<Badge variant="neutral" size="sm" class="font-mono tabular-nums">{plugin.hook_count} HOOKS</Badge>
-											{/if}
-											{#if (plugin.settings_count ?? 0) > 0}
-												<Badge variant="neutral" size="sm" class="font-mono tabular-nums">{plugin.settings_count} SETTINGS</Badge>
-											{/if}
-										</div>
 									{/snippet}
 									<PaneRow
 										selected={selectedPluginId === plugin.id}
 										onclick={() => selectPlugin(plugin.id)}
 										leading={pluginLeading}
 										children={pluginBody}
+										trailing={pluginTrailing}
 									/>
 								{/each}
 							{/each}
@@ -392,6 +416,11 @@
 								{/if}
 								{#if liveSelected.state === 'error'}
 									<Badge variant="danger" size="sm" dot class="uppercase">Error</Badge>
+								{/if}
+								{#if liveSelected.shadows}
+									<Tooltip text="Shadows marketplace copy at {liveSelected.shadows}">
+										<Badge variant="warning" size="sm">SHADOWS MARKETPLACE COPY</Badge>
+									</Tooltip>
 								{/if}
 							{/snippet}
 							{#snippet actions()}
@@ -430,6 +459,14 @@
 											<div class="flex flex-wrap gap-1.5">
 												{#each liveSelected.tags as tag}
 													<Badge variant="neutral" size="sm">{tag}</Badge>
+												{/each}
+											</div>
+										{/if}
+
+										{#if liveSelected.capabilities && liveSelected.capabilities.length > 0}
+											<div class="flex flex-wrap gap-1.5">
+												{#each liveSelected.capabilities as cap}
+													<Badge variant="info" size="sm">{cap}</Badge>
 												{/each}
 											</div>
 										{/if}

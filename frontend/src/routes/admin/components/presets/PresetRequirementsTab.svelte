@@ -48,8 +48,10 @@
 		return item.optional ? 'warning' : 'danger';
 	}
 
+	const EMPTY_SUMMARY = { ok: 0, missing: 0, unknown: 0, optional_missing: 0 };
+
 	let results: RequirementResultInfo[] = [];
-	let summary = { ok: 0, missing: 0, unknown: 0 };
+	let summary = EMPTY_SUMMARY;
 	let checkedAt: number | null = null;
 	let loading = true;
 	let refreshing = false;
@@ -59,7 +61,11 @@
 	// collapsed to its one-line header).
 	let manualExpand: Partial<Record<SectionName, boolean>> = {};
 
-	$: total = summary.ok + summary.missing + summary.unknown;
+	$: total = summary.ok + summary.missing + summary.unknown + summary.optional_missing;
+	// Priority: a hard miss always blocks (danger); short of that, an optional
+	// miss or an unchecked requirement is a soft warning, never a hard failure -
+	// `missing` here already excludes optional entries (the backend's own
+	// `summary.missing` does too, see docs/presets.md "Requirements").
 	$: verdict =
 		summary.missing > 0
 			? {
@@ -67,17 +73,23 @@
 					label: "Can't run here",
 					text: `This preset can't run here: ${summary.missing} missing.`
 				}
-			: summary.unknown > 0
+			: summary.optional_missing > 0
 				? {
 						tone: 'warning' as const,
-						label: `${summary.unknown} unknown`,
-						text: `Can't confirm this preset can run here — ${summary.unknown} requirement${summary.unknown === 1 ? '' : 's'} unchecked.`
+						label: `${summary.optional_missing} optional missing`,
+						text: `Runs here; ${summary.optional_missing} optional requirement${summary.optional_missing === 1 ? '' : 's'} missing.`
 					}
-				: {
-						tone: 'success' as const,
-						label: 'Ready',
-						text: 'This preset is ready to run.'
-					};
+				: summary.unknown > 0
+					? {
+							tone: 'warning' as const,
+							label: `${summary.unknown} unknown`,
+							text: `${summary.unknown} check${summary.unknown === 1 ? '' : 's'} could not run.`
+						}
+					: {
+							tone: 'success' as const,
+							label: 'Ready',
+							text: 'This preset is ready to run.'
+						};
 
 	$: sections = SECTION_ORDER.map((name) => {
 		const items = results.filter((result) => (SECTION_BY_TYPE[result.type || ''] || 'Other') === name);
@@ -121,7 +133,7 @@
 				throw new Error(response.message || 'Could not check requirements');
 			}
 			results = response.data.results || [];
-			summary = response.data.summary || { ok: 0, missing: 0, unknown: 0 };
+			summary = response.data.summary || EMPTY_SUMMARY;
 			checkedAt = response.data.checked_at ?? null;
 			manualExpand = {};
 		} catch (error) {
@@ -183,10 +195,11 @@
 
 			<div class="flex gap-[3px] mt-3" role="img" aria-label="{summary.ok} of {total} requirements satisfied">
 				{#each results as result}
+					{@const resultSeverity = severity(result)}
 					<div
-						class="flex-1 h-1.5 rounded-sm {result.status === 'ok'
+						class="flex-1 h-1.5 rounded-sm {resultSeverity === 'ok'
 							? 'bg-success'
-							: result.status === 'missing'
+							: resultSeverity === 'danger'
 								? 'bg-transparent border border-danger'
 								: 'bg-transparent border border-dashed border-warning'}"
 					></div>

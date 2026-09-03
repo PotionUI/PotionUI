@@ -33,8 +33,11 @@ function result(overrides: Partial<RequirementResultInfo> = {}): RequirementResu
 }
 
 function mockResponse(results: RequirementResultInfo[], checkedAt = 1_735_000_000) {
-	const summary = { ok: 0, missing: 0, unknown: 0 };
-	for (const r of results) summary[r.status] += 1;
+	const summary = { ok: 0, missing: 0, unknown: 0, optional_missing: 0 };
+	for (const r of results) {
+		if (r.status === 'missing' && r.optional) summary.optional_missing += 1;
+		else summary[r.status] += 1;
+	}
 	return { success: true, data: { results, summary, checked_at: checkedAt } };
 }
 
@@ -170,6 +173,10 @@ describe('PresetRequirementsTab', () => {
 		mounted = mount();
 		await settle();
 
+		// A missing-but-optional entry runs the preset here - it's a soft
+		// warning verdict, never the danger "can't run here" one.
+		expect(mounted.target.textContent).toContain('Runs here; 1 optional requirement missing.');
+		expect(mounted.target.textContent).not.toContain("can't run here");
 		expect(mounted.target.textContent).toContain('optional');
 		const dot = mounted.target.querySelector('.bg-warning.rounded-full');
 		expect(dot).toBeTruthy();
@@ -179,6 +186,21 @@ describe('PresetRequirementsTab', () => {
 		);
 		expect(hint?.className).toContain('text-warning');
 		expect(hint?.className).not.toContain('text-danger');
+	});
+
+	it('prioritizes the hard-missing danger verdict over an optional miss present in the same check', async () => {
+		vi.mocked(api.api.getPresetRequirements).mockResolvedValue(
+			mockResponse([
+				result({ type: 'python_package', name: 'xformers>=0.0.28', status: 'missing', optional: true }),
+				result({ type: 'binary', name: 'definitely-not-installed-xyz', status: 'missing' })
+			])
+		);
+
+		mounted = mount();
+		await settle();
+
+		expect(mounted.target.textContent).toContain("This preset can't run here: 1 missing.");
+		expect(mounted.target.textContent).not.toContain('Runs here');
 	});
 
 	it('shows the unknown verdict when nothing is missing but something could not be checked', async () => {
@@ -199,7 +221,7 @@ describe('PresetRequirementsTab', () => {
 		await settle();
 
 		expect(mounted.target.textContent).toContain('1 unknown');
-		expect(mounted.target.textContent).toContain("Can't confirm this preset can run here");
+		expect(mounted.target.textContent).toContain('1 check could not run.');
 	});
 
 	it('shows a quiet empty state when the preset declares no requirements', async () => {

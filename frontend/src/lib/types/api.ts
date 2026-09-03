@@ -177,8 +177,11 @@ export interface PresetRequirements {
  *  endpoints themselves. See docs/presets.md "Requirements". */
 export interface PresetRequirementsSummary {
 	ok: number;
+	/** Hard misses only - a `missing` entry with `optional: true` is counted under
+	 * `optional_missing` instead, never here. */
 	missing: number;
 	unknown: number;
+	optional_missing: number;
 }
 
 export interface PresetInfo {

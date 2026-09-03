@@ -6527,49 +6527,50 @@ var root_29 = from_html(`<p class="desc svelte-10v1sym">Paste or drop a ComfyUI 
 var root_30 = from_html(`<h3 class="svelte-10v1sym">Choose a workflow</h3> <!>`, 1);
 var root_31 = from_html(`<span class="dim svelte-10v1sym">\xB7</span> <span class="dim svelte-10v1sym" data-import-object-info-used="">ranges + options from your ComfyUI</span>`, 1);
 var root_32 = from_html(`<span class="dim svelte-10v1sym">\xB7</span> <span class="chip chip-info svelte-10v1sym">LoRA chain found</span>`, 1);
-var root_33 = from_html(`<span class="lock-badge svelte-10v1sym"><!>always wired</span>`);
-var root_34 = from_html(`<span class="di-row-value svelte-10v1sym"> </span>`);
-var root_35 = from_html(`<span class="di-row-value mono svelte-10v1sym"> </span> <span class="chip chip-info svelte-10v1sym"> </span>`, 1);
-var root_36 = from_html(`<button type="button" class="iconbtn di-add-arrow svelte-10v1sym" title="Add to form" data-action="add-input"><!></button>`);
-var root_37 = from_html(`<div><span class="di-row-name mono svelte-10v1sym"> </span> <!> <div class="di-row-trail svelte-10v1sym"><!></div></div>`);
-var root_38 = from_html(`<div class="di-group-h svelte-10v1sym"> <span class="cls mono svelte-10v1sym"> </span></div> <!>`, 1);
-var root_39 = from_html(`<input class="di-tab-rename svelte-10v1sym" type="text"/>`);
-var root_40 = from_html(`<div class="tab-popover svelte-10v1sym"><button type="button" data-action="rename-tab" class="svelte-10v1sym"><!>Rename</button> <button type="button" data-action="move-tab-left" class="svelte-10v1sym"><!>Move left</button> <button type="button" data-action="move-tab-right" class="svelte-10v1sym"><!>Move right</button> <hr class="svelte-10v1sym"/> <button type="button" class="danger svelte-10v1sym" data-action="delete-tab"><!>Delete tab</button></div>`);
-var root_41 = from_html(`<span role="tab" tabindex="0"><!> <span class="kb svelte-10v1sym" role="button" tabindex="0" title="Tab options" data-action="tab-menu"><!></span> <!></span>`);
-var root_42 = from_html(`<div class="di-empty svelte-10v1sym"><!> <div class="di-empty-text svelte-10v1sym">Drop inputs here or click Add on the left</div></div>`);
-var root_43 = from_html(`<option></option>`);
-var root_44 = from_html(`<h3 class="svelte-10v1sym">Design the form</h3> <p class="desc svelte-10v1sym">Pick which workflow inputs become fields, then arrange them into tabs. Anything left unmapped keeps the value baked into the workflow.</p> <div class="detected-strip svelte-10v1sym" data-import-detected=""><span class="chip chip-info svelte-10v1sym" data-import-format=""> </span> <span class="dim svelte-10v1sym">\xB7</span> <span class="mono svelte-10v1sym"> </span> <!> <!> <button type="button" class="link-btn strip-end svelte-10v1sym">Change workflow</button></div> <div class="designer svelte-10v1sym"><div class="di-left svelte-10v1sym" data-import-form-inputs=""><div class="di-left-title svelte-10v1sym">Workflow inputs</div> <div class="di-search svelte-10v1sym"><input type="text" placeholder="Search inputs\u2026" class="svelte-10v1sym"/></div> <!></div> <div class="di-right svelte-10v1sym"><div class="di-tabs svelte-10v1sym" data-import-form-tabs=""><!> <span class="di-tab-add svelte-10v1sym" role="button" tabindex="0" data-action="add-tab"><!>Add tab</span></div> <div class="di-field-list svelte-10v1sym" data-import-form-items=""><!> <!> <!></div></div></div> <div class="name-grid svelte-10v1sym"><div class="field svelte-10v1sym"><label for="import-model-family" class="svelte-10v1sym">Model family</label> <input id="import-model-family" type="text" list="import-model-family-list" placeholder="e.g. SDXL" class="svelte-10v1sym"/> <datalist id="import-model-family-list"></datalist></div> <div class="field svelte-10v1sym"><label for="import-variant" class="svelte-10v1sym">Variant</label> <input id="import-variant" type="text" placeholder="imported" class="svelte-10v1sym"/></div> <div class="field svelte-10v1sym"><label for="import-display-name" class="svelte-10v1sym">Display name</label> <input id="import-display-name" type="text" placeholder="e.g. SDXL - My workflow" class="svelte-10v1sym"/></div></div>`, 1);
-var root_45 = from_html(`<div class="hist-jinja-row svelte-10v1sym"><span class="lbl svelte-10v1sym">Template</span> <input class="hist-jinja-input mono svelte-10v1sym" type="text"/> <span class="hist-jinja-out svelte-10v1sym">\u2192 <span class="v mono svelte-10v1sym"> </span></span></div>`);
-var root_46 = from_html(`<div><div class="hist-reorder svelte-10v1sym"><button type="button" class="iconbtn svelte-10v1sym" title="Move up" data-action="move-up"><!></button> <button type="button" class="iconbtn svelte-10v1sym" title="Move down" data-action="move-down"><!></button></div> <input type="checkbox" data-action="toggle-emit" class="svelte-10v1sym"/> <div class="hist-field svelte-10v1sym"><span class="hist-field-label svelte-10v1sym"> </span> <span class="hist-field-name mono svelte-10v1sym"> </span></div> <input class="hist-label-input svelte-10v1sym" type="text"/> <select class="hist-value-select svelte-10v1sym"></select> <!></div>`);
-var root_47 = from_html(`<span class="chip chip-info svelte-10v1sym"> </span>`);
-var root_48 = from_html(`<div class="preview-cell span2 svelte-10v1sym"><div class="preview-k svelte-10v1sym"> </div> <div class="preview-chips svelte-10v1sym"></div></div>`);
-var root_49 = from_html(`<div class="preview-cell svelte-10v1sym"><div class="preview-k svelte-10v1sym"> </div><div class="preview-v tabular svelte-10v1sym"> </div></div>`);
-var root_50 = from_html(`<div class="preview-empty svelte-10v1sym"><!> <div class="preview-empty-text svelte-10v1sym">Nothing extra will be recorded \u2014 prompt, seed and quantity always are.</div></div>`);
-var root_51 = from_html(`<h3 class="svelte-10v1sym">What shows in history</h3> <p class="desc svelte-10v1sym">Pick the form fields whose values are recorded on every generation, and how they read in the history card.</p> <div class="hist-designer svelte-10v1sym"><div class="hist-left svelte-10v1sym"><div class="pane-title svelte-10v1sym">Recorded fields <span class="n svelte-10v1sym"> </span></div> <div class="hist-table svelte-10v1sym" data-history-table=""><div class="hist-head svelte-10v1sym"><span></span><span></span><span>Field</span><span>Label in history</span><span>Value</span></div> <div class="hist-row locked svelte-10v1sym"><span></span><span></span><div class="hist-field svelte-10v1sym"><span class="hist-field-label svelte-10v1sym">Prompt</span></div><input class="hist-label-input svelte-10v1sym" type="text" value="Prompt" disabled=""/><span class="lock-badge svelte-10v1sym"><!>always recorded</span></div> <div class="hist-row locked svelte-10v1sym"><span></span><span></span><div class="hist-field svelte-10v1sym"><span class="hist-field-label svelte-10v1sym">Negative prompt</span></div><input class="hist-label-input svelte-10v1sym" type="text" value="Negative prompt" disabled=""/><span class="lock-badge svelte-10v1sym"><!>always recorded</span></div> <div class="hist-row locked svelte-10v1sym"><span></span><span></span><div class="hist-field svelte-10v1sym"><span class="hist-field-label svelte-10v1sym">Seed</span></div><input class="hist-label-input svelte-10v1sym" type="text" value="Seed" disabled=""/><span class="lock-badge svelte-10v1sym"><!>always recorded</span></div> <div class="hist-row locked svelte-10v1sym"><span></span><span></span><div class="hist-field svelte-10v1sym"><span class="hist-field-label svelte-10v1sym">Quantity</span></div><input class="hist-label-input svelte-10v1sym" type="text" value="Quantity" disabled=""/><span class="lock-badge svelte-10v1sym"><!>always recorded</span></div> <!></div></div> <div class="hist-right svelte-10v1sym"><div class="pane-title svelte-10v1sym">History card preview</div> <div class="preview-card svelte-10v1sym" data-history-preview=""><div class="preview-head svelte-10v1sym"><div class="t svelte-10v1sym"><!>Parameters</div> <span class="chip chip-mute svelte-10v1sym">#1</span></div> <div class="preview-grid svelte-10v1sym"><div class="preview-cell span2 svelte-10v1sym"><div class="preview-k svelte-10v1sym">Prompt</div><div class="preview-v wrap svelte-10v1sym">cinematic wide shot of a lighthouse at dusk</div></div> <div class="preview-cell span2 svelte-10v1sym"><div class="preview-k svelte-10v1sym">Negative prompt</div><div class="preview-v wrap svelte-10v1sym">blurry, low quality</div></div> <div class="preview-cell svelte-10v1sym"><div class="preview-k svelte-10v1sym">Seed</div><div class="preview-v tabular svelte-10v1sym">429218</div></div> <div class="preview-cell svelte-10v1sym"><div class="preview-k svelte-10v1sym">Quantity</div><div class="preview-v tabular svelte-10v1sym">4</div></div> <!></div> <!></div></div></div>`, 1);
-var root_52 = from_html(`<div class="req-loading svelte-10v1sym"><span class="spinner svelte-10v1sym" aria-hidden="true"></span>Checking requirements\u2026</div>`);
-var root_53 = from_html(`<p class="message message-error svelte-10v1sym"> </p>`);
-var root_54 = from_html(`<div class="req-empty svelte-10v1sym">This workflow needs nothing beyond ComfyUI's own built-in nodes.</div>`);
-var root_55 = from_html(`<div class="req-hint svelte-10v1sym"> </div>`);
-var root_56 = from_html(`<div class="req-row svelte-10v1sym"><div></div> <div><div class="req-name mono svelte-10v1sym"> </div> <div class="req-detail svelte-10v1sym"> </div> <!></div></div>`);
-var root_57 = from_html(`<div class="req-list svelte-10v1sym" data-import-requirements=""></div>`);
-var root_58 = from_html(`<p class="message message-error svelte-10v1sym" data-import-create-error=""> </p>`);
-var root_59 = from_html(`<h3 class="svelte-10v1sym">Requirements</h3> <p class="desc svelte-10v1sym">What this preset will need to run, detected from the workflow's nodes and models.</p> <div class="well svelte-10v1sym"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:rgb(var(--info, 91 157 255));margin-top:1px" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="11" x2="12" y2="16.5"></line><circle cx="12" cy="7.5" r="0.75" fill="currentColor" stroke="none"></circle></svg> <span>You can still create the preset \u2014 it won't run until these are installed.</span></div> <!> <!>`, 1);
-var root_60 = from_html(`<li> </li>`);
-var root_61 = from_html(`<div class="message message-error svelte-10v1sym"><p class="message-title svelte-10v1sym">Lint errors</p> <ul class="svelte-10v1sym"></ul></div>`);
-var root_62 = from_html(`<div class="lint-warn svelte-10v1sym"><div class="lint-warn-title svelte-10v1sym">Lint warnings</div> <div class="lint-warn-body svelte-10v1sym"> </div></div>`);
-var root_63 = from_html(`<p class="message message-success svelte-10v1sym">Lint clean - no issues found.</p>`);
-var root_64 = from_html(`<h3 class="svelte-10v1sym">Preset created</h3> <p class="desc svelte-10v1sym"> </p> <div class="lint-block svelte-10v1sym" data-import-lint=""><p class="lint-path svelte-10v1sym">Preset created at <span class="mono svelte-10v1sym"> </span></p> <!> <!> <!></div>`, 1);
-var root_65 = from_html(`<button type="button" class="btn btn-secondary svelte-10v1sym">Import another</button> <div class="footer-spacer svelte-10v1sym"></div> <a class="btn btn-primary svelte-10v1sym" data-import-open-preset="">Open in Presets</a>`, 1);
-var root_66 = from_html(`<button type="button" class="btn btn-secondary svelte-10v1sym">Back</button>`);
-var root_67 = from_html(`<button type="button" class="btn btn-primary svelte-10v1sym" data-import-analyze=""> </button>`);
-var root_68 = from_html(`<button type="button" class="btn btn-primary svelte-10v1sym" data-import-continue-form="">Continue</button>`);
-var root_69 = from_html(`<button type="button" class="btn btn-primary svelte-10v1sym" data-import-continue-history="">Continue</button>`);
-var root_70 = from_html(`<button type="button" class="btn btn-primary svelte-10v1sym" data-import-create=""> </button>`);
-var root_71 = from_html(`<!> <div class="footer-spacer svelte-10v1sym"></div> <!>`, 1);
-var root_72 = from_html(`<svg style="display:none" aria-hidden="true"><defs><symbol id="i-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline></symbol><symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4" fill="none" stroke="currentColor" stroke-width="2"></path></symbol><symbol id="i-arrow-right" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><polyline points="12 5 19 12 12 19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline></symbol><symbol id="i-arrow-left" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><polyline points="12 19 5 12 12 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline></symbol><symbol id="i-grip" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.4" fill="currentColor"></circle><circle cx="9" cy="12" r="1.4" fill="currentColor"></circle><circle cx="9" cy="18" r="1.4" fill="currentColor"></circle><circle cx="15" cy="6" r="1.4" fill="currentColor"></circle><circle cx="15" cy="12" r="1.4" fill="currentColor"></circle><circle cx="15" cy="18" r="1.4" fill="currentColor"></circle></symbol><symbol id="i-chevron-up" viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline></symbol><symbol id="i-chevron-down" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline></symbol><symbol id="i-x" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line></symbol><symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6" fill="currentColor"></circle><circle cx="12" cy="12" r="1.6" fill="currentColor"></circle><circle cx="19" cy="12" r="1.6" fill="currentColor"></circle></symbol><symbol id="i-plus" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line></symbol><symbol id="i-pencil" viewBox="0 0 24 24"><path d="M12 20h9" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="i-columns" viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="16" rx="1" fill="none" stroke="currentColor" stroke-width="2"></rect><rect x="14" y="4" width="7" height="16" rx="1" fill="none" stroke="currentColor" stroke-width="2"></rect></symbol><symbol id="i-folder" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path></symbol><symbol id="i-layers" viewBox="0 0 24 24"><polygon points="12 2 2 7 12 12 22 7 12 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></polygon><polyline points="2 17 12 22 22 17" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></polyline><polyline points="2 12 12 17 22 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></polyline></symbol><symbol id="i-heading" viewBox="0 0 24 24"><path d="M6 4v16M18 4v16M6 12h12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></symbol><symbol id="i-inbox" viewBox="0 0 24 24"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></polyline><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path></symbol><symbol id="i-sliders" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="4" y1="10" x2="4" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="12" y1="21" x2="12" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="12" y1="8" x2="12" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="20" y1="21" x2="20" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="20" y1="12" x2="20" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="1" y1="14" x2="7" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="9" y1="8" x2="15" y2="8" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="17" y1="16" x2="23" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line></symbol></defs></svg> <div class="wizard svelte-10v1sym" data-import-wizard=""><div class="wiz-rail svelte-10v1sym"><div data-wiz-step="source"><div class="wiz-num svelte-10v1sym"><!></div> <div class="wiz-text svelte-10v1sym"><div class="wiz-label svelte-10v1sym">Source</div> <!></div></div> <div data-wiz-step="form"><div class="wiz-num svelte-10v1sym"><!></div> <div class="wiz-text svelte-10v1sym"><div class="wiz-label svelte-10v1sym">Form</div> <div class="wiz-sub svelte-10v1sym"> </div></div></div> <div data-wiz-step="history"><div class="wiz-num svelte-10v1sym"><!></div> <div class="wiz-text svelte-10v1sym"><div class="wiz-label svelte-10v1sym">History</div> <!></div></div> <div data-wiz-step="requirements"><div class="wiz-num svelte-10v1sym"><!></div> <div class="wiz-text svelte-10v1sym"><div class="wiz-label svelte-10v1sym">Requirements</div> <!></div></div> <div data-wiz-step="done"><div class="wiz-num svelte-10v1sym"><!></div> <div class="wiz-text svelte-10v1sym"><div class="wiz-label svelte-10v1sym">Done</div></div></div></div> <div class="wiz-body svelte-10v1sym"><div class="wiz-content svelte-10v1sym"><!> <!></div> <div class="wiz-footer svelte-10v1sym"><!></div></div></div>`, 1);
+var root_33 = from_html(`<span class="dim svelte-10v1sym" data-import-chat-hint="">Ask the assistant to map inputs</span>`);
+var root_34 = from_html(`<span class="lock-badge svelte-10v1sym"><!>always wired</span>`);
+var root_35 = from_html(`<span class="di-row-value svelte-10v1sym"> </span>`);
+var root_36 = from_html(`<span class="di-row-value mono svelte-10v1sym"> </span> <span class="chip chip-info svelte-10v1sym"> </span>`, 1);
+var root_37 = from_html(`<button type="button" class="iconbtn di-add-arrow svelte-10v1sym" title="Add to form" data-action="add-input"><!></button>`);
+var root_38 = from_html(`<div><span class="di-row-name mono svelte-10v1sym"> </span> <!> <div class="di-row-trail svelte-10v1sym"><!></div></div>`);
+var root_39 = from_html(`<div class="di-group-h svelte-10v1sym"> <span class="cls mono svelte-10v1sym"> </span></div> <!>`, 1);
+var root_40 = from_html(`<input class="di-tab-rename svelte-10v1sym" type="text"/>`);
+var root_41 = from_html(`<div class="tab-popover svelte-10v1sym"><button type="button" data-action="rename-tab" class="svelte-10v1sym"><!>Rename</button> <button type="button" data-action="move-tab-left" class="svelte-10v1sym"><!>Move left</button> <button type="button" data-action="move-tab-right" class="svelte-10v1sym"><!>Move right</button> <hr class="svelte-10v1sym"/> <button type="button" class="danger svelte-10v1sym" data-action="delete-tab"><!>Delete tab</button></div>`);
+var root_42 = from_html(`<span role="tab" tabindex="0"><!> <span class="kb svelte-10v1sym" role="button" tabindex="0" title="Tab options" data-action="tab-menu"><!></span> <!></span>`);
+var root_43 = from_html(`<div class="di-empty svelte-10v1sym"><!> <div class="di-empty-text svelte-10v1sym">Drop inputs here or click Add on the left</div></div>`);
+var root_44 = from_html(`<option></option>`);
+var root_45 = from_html(`<h3 class="svelte-10v1sym">Design the form</h3> <p class="desc svelte-10v1sym">Pick which workflow inputs become fields, then arrange them into tabs. Anything left unmapped keeps the value baked into the workflow.</p> <div class="detected-strip svelte-10v1sym" data-import-detected=""><span class="chip chip-info svelte-10v1sym" data-import-format=""> </span> <span class="dim svelte-10v1sym">\xB7</span> <span class="mono svelte-10v1sym"> </span> <!> <!> <span class="strip-end chat-hint-group svelte-10v1sym"><!> <button type="button" class="link-btn svelte-10v1sym">Change workflow</button></span></div> <div class="designer svelte-10v1sym"><div class="di-left svelte-10v1sym" data-import-form-inputs=""><div class="di-left-title svelte-10v1sym">Workflow inputs</div> <div class="di-search svelte-10v1sym"><input type="text" placeholder="Search inputs\u2026" class="svelte-10v1sym"/></div> <!></div> <div class="di-right svelte-10v1sym"><div class="di-tabs svelte-10v1sym" data-import-form-tabs=""><!> <span class="di-tab-add svelte-10v1sym" role="button" tabindex="0" data-action="add-tab"><!>Add tab</span></div> <div class="di-field-list svelte-10v1sym" data-import-form-items=""><!> <!> <!></div></div></div> <div class="name-grid svelte-10v1sym"><div class="field svelte-10v1sym"><label for="import-model-family" class="svelte-10v1sym">Model family</label> <input id="import-model-family" type="text" list="import-model-family-list" placeholder="e.g. SDXL" class="svelte-10v1sym"/> <datalist id="import-model-family-list"></datalist></div> <div class="field svelte-10v1sym"><label for="import-variant" class="svelte-10v1sym">Variant</label> <input id="import-variant" type="text" placeholder="imported" class="svelte-10v1sym"/></div> <div class="field svelte-10v1sym"><label for="import-display-name" class="svelte-10v1sym">Display name</label> <input id="import-display-name" type="text" placeholder="e.g. SDXL - My workflow" class="svelte-10v1sym"/></div></div>`, 1);
+var root_46 = from_html(`<div class="hist-jinja-row svelte-10v1sym"><span class="lbl svelte-10v1sym">Template</span> <input class="hist-jinja-input mono svelte-10v1sym" type="text"/> <span class="hist-jinja-out svelte-10v1sym">\u2192 <span class="v mono svelte-10v1sym"> </span></span></div>`);
+var root_47 = from_html(`<div><div class="hist-reorder svelte-10v1sym"><button type="button" class="iconbtn svelte-10v1sym" title="Move up" data-action="move-up"><!></button> <button type="button" class="iconbtn svelte-10v1sym" title="Move down" data-action="move-down"><!></button></div> <input type="checkbox" data-action="toggle-emit" class="svelte-10v1sym"/> <div class="hist-field svelte-10v1sym"><span class="hist-field-label svelte-10v1sym"> </span> <span class="hist-field-name mono svelte-10v1sym"> </span></div> <input class="hist-label-input svelte-10v1sym" type="text"/> <select class="hist-value-select svelte-10v1sym"></select> <!></div>`);
+var root_48 = from_html(`<span class="chip chip-info svelte-10v1sym"> </span>`);
+var root_49 = from_html(`<div class="preview-cell span2 svelte-10v1sym"><div class="preview-k svelte-10v1sym"> </div> <div class="preview-chips svelte-10v1sym"></div></div>`);
+var root_50 = from_html(`<div class="preview-cell svelte-10v1sym"><div class="preview-k svelte-10v1sym"> </div><div class="preview-v tabular svelte-10v1sym"> </div></div>`);
+var root_51 = from_html(`<div class="preview-empty svelte-10v1sym"><!> <div class="preview-empty-text svelte-10v1sym">Nothing extra will be recorded \u2014 prompt, seed and quantity always are.</div></div>`);
+var root_52 = from_html(`<h3 class="svelte-10v1sym">What shows in history</h3> <p class="desc svelte-10v1sym">Pick the form fields whose values are recorded on every generation, and how they read in the history card.</p> <div class="hist-designer svelte-10v1sym"><div class="hist-left svelte-10v1sym"><div class="pane-title svelte-10v1sym">Recorded fields <span class="n svelte-10v1sym"> </span></div> <div class="hist-table svelte-10v1sym" data-history-table=""><div class="hist-head svelte-10v1sym"><span></span><span></span><span>Field</span><span>Label in history</span><span>Value</span></div> <div class="hist-row locked svelte-10v1sym"><span></span><span></span><div class="hist-field svelte-10v1sym"><span class="hist-field-label svelte-10v1sym">Prompt</span></div><input class="hist-label-input svelte-10v1sym" type="text" value="Prompt" disabled=""/><span class="lock-badge svelte-10v1sym"><!>always recorded</span></div> <div class="hist-row locked svelte-10v1sym"><span></span><span></span><div class="hist-field svelte-10v1sym"><span class="hist-field-label svelte-10v1sym">Negative prompt</span></div><input class="hist-label-input svelte-10v1sym" type="text" value="Negative prompt" disabled=""/><span class="lock-badge svelte-10v1sym"><!>always recorded</span></div> <div class="hist-row locked svelte-10v1sym"><span></span><span></span><div class="hist-field svelte-10v1sym"><span class="hist-field-label svelte-10v1sym">Seed</span></div><input class="hist-label-input svelte-10v1sym" type="text" value="Seed" disabled=""/><span class="lock-badge svelte-10v1sym"><!>always recorded</span></div> <div class="hist-row locked svelte-10v1sym"><span></span><span></span><div class="hist-field svelte-10v1sym"><span class="hist-field-label svelte-10v1sym">Quantity</span></div><input class="hist-label-input svelte-10v1sym" type="text" value="Quantity" disabled=""/><span class="lock-badge svelte-10v1sym"><!>always recorded</span></div> <!></div></div> <div class="hist-right svelte-10v1sym"><div class="pane-title svelte-10v1sym">History card preview</div> <div class="preview-card svelte-10v1sym" data-history-preview=""><div class="preview-head svelte-10v1sym"><div class="t svelte-10v1sym"><!>Parameters</div> <span class="chip chip-mute svelte-10v1sym">#1</span></div> <div class="preview-grid svelte-10v1sym"><div class="preview-cell span2 svelte-10v1sym"><div class="preview-k svelte-10v1sym">Prompt</div><div class="preview-v wrap svelte-10v1sym">cinematic wide shot of a lighthouse at dusk</div></div> <div class="preview-cell span2 svelte-10v1sym"><div class="preview-k svelte-10v1sym">Negative prompt</div><div class="preview-v wrap svelte-10v1sym">blurry, low quality</div></div> <div class="preview-cell svelte-10v1sym"><div class="preview-k svelte-10v1sym">Seed</div><div class="preview-v tabular svelte-10v1sym">429218</div></div> <div class="preview-cell svelte-10v1sym"><div class="preview-k svelte-10v1sym">Quantity</div><div class="preview-v tabular svelte-10v1sym">4</div></div> <!></div> <!></div></div></div>`, 1);
+var root_53 = from_html(`<div class="req-loading svelte-10v1sym"><span class="spinner svelte-10v1sym" aria-hidden="true"></span>Checking requirements\u2026</div>`);
+var root_54 = from_html(`<p class="message message-error svelte-10v1sym"> </p>`);
+var root_55 = from_html(`<div class="req-empty svelte-10v1sym">This workflow needs nothing beyond ComfyUI's own built-in nodes.</div>`);
+var root_56 = from_html(`<div class="req-hint svelte-10v1sym"> </div>`);
+var root_57 = from_html(`<div class="req-row svelte-10v1sym"><div></div> <div><div class="req-name mono svelte-10v1sym"> </div> <div class="req-detail svelte-10v1sym"> </div> <!></div></div>`);
+var root_58 = from_html(`<div class="req-list svelte-10v1sym" data-import-requirements=""></div>`);
+var root_59 = from_html(`<p class="message message-error svelte-10v1sym" data-import-create-error=""> </p>`);
+var root_60 = from_html(`<h3 class="svelte-10v1sym">Requirements</h3> <p class="desc svelte-10v1sym">What this preset will need to run, detected from the workflow's nodes and models.</p> <div class="well svelte-10v1sym"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:rgb(var(--info, 91 157 255));margin-top:1px" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="11" x2="12" y2="16.5"></line><circle cx="12" cy="7.5" r="0.75" fill="currentColor" stroke="none"></circle></svg> <span>You can still create the preset \u2014 it won't run until these are installed.</span></div> <!> <!>`, 1);
+var root_61 = from_html(`<li> </li>`);
+var root_62 = from_html(`<div class="message message-error svelte-10v1sym"><p class="message-title svelte-10v1sym">Lint errors</p> <ul class="svelte-10v1sym"></ul></div>`);
+var root_63 = from_html(`<div class="lint-warn svelte-10v1sym"><div class="lint-warn-title svelte-10v1sym">Lint warnings</div> <div class="lint-warn-body svelte-10v1sym"> </div></div>`);
+var root_64 = from_html(`<p class="message message-success svelte-10v1sym">Lint clean - no issues found.</p>`);
+var root_65 = from_html(`<h3 class="svelte-10v1sym">Preset created</h3> <p class="desc svelte-10v1sym"> </p> <div class="lint-block svelte-10v1sym" data-import-lint=""><p class="lint-path svelte-10v1sym">Preset created at <span class="mono svelte-10v1sym"> </span></p> <!> <!> <!></div>`, 1);
+var root_66 = from_html(`<button type="button" class="btn btn-secondary svelte-10v1sym">Import another</button> <div class="footer-spacer svelte-10v1sym"></div> <a class="btn btn-primary svelte-10v1sym" data-import-open-preset="">Open in Presets</a>`, 1);
+var root_67 = from_html(`<button type="button" class="btn btn-secondary svelte-10v1sym">Back</button>`);
+var root_68 = from_html(`<button type="button" class="btn btn-primary svelte-10v1sym" data-import-analyze=""> </button>`);
+var root_69 = from_html(`<button type="button" class="btn btn-primary svelte-10v1sym" data-import-continue-form="">Continue</button>`);
+var root_70 = from_html(`<button type="button" class="btn btn-primary svelte-10v1sym" data-import-continue-history="">Continue</button>`);
+var root_71 = from_html(`<button type="button" class="btn btn-primary svelte-10v1sym" data-import-create=""> </button>`);
+var root_72 = from_html(`<!> <div class="footer-spacer svelte-10v1sym"></div> <!>`, 1);
+var root_73 = from_html(`<svg style="display:none" aria-hidden="true"><defs><symbol id="i-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline></symbol><symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4" fill="none" stroke="currentColor" stroke-width="2"></path></symbol><symbol id="i-arrow-right" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><polyline points="12 5 19 12 12 19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline></symbol><symbol id="i-arrow-left" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><polyline points="12 19 5 12 12 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline></symbol><symbol id="i-grip" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.4" fill="currentColor"></circle><circle cx="9" cy="12" r="1.4" fill="currentColor"></circle><circle cx="9" cy="18" r="1.4" fill="currentColor"></circle><circle cx="15" cy="6" r="1.4" fill="currentColor"></circle><circle cx="15" cy="12" r="1.4" fill="currentColor"></circle><circle cx="15" cy="18" r="1.4" fill="currentColor"></circle></symbol><symbol id="i-chevron-up" viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline></symbol><symbol id="i-chevron-down" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline></symbol><symbol id="i-x" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line></symbol><symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6" fill="currentColor"></circle><circle cx="12" cy="12" r="1.6" fill="currentColor"></circle><circle cx="19" cy="12" r="1.6" fill="currentColor"></circle></symbol><symbol id="i-plus" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line></symbol><symbol id="i-pencil" viewBox="0 0 24 24"><path d="M12 20h9" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="i-columns" viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="16" rx="1" fill="none" stroke="currentColor" stroke-width="2"></rect><rect x="14" y="4" width="7" height="16" rx="1" fill="none" stroke="currentColor" stroke-width="2"></rect></symbol><symbol id="i-folder" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path></symbol><symbol id="i-layers" viewBox="0 0 24 24"><polygon points="12 2 2 7 12 12 22 7 12 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></polygon><polyline points="2 17 12 22 22 17" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></polyline><polyline points="2 12 12 17 22 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></polyline></symbol><symbol id="i-heading" viewBox="0 0 24 24"><path d="M6 4v16M18 4v16M6 12h12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></symbol><symbol id="i-inbox" viewBox="0 0 24 24"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></polyline><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path></symbol><symbol id="i-sliders" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="4" y1="10" x2="4" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="12" y1="21" x2="12" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="12" y1="8" x2="12" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="20" y1="21" x2="20" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="20" y1="12" x2="20" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="1" y1="14" x2="7" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="9" y1="8" x2="15" y2="8" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="17" y1="16" x2="23" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line></symbol></defs></svg> <div class="wizard svelte-10v1sym" data-import-wizard=""><div class="wiz-rail svelte-10v1sym"><div data-wiz-step="source"><div class="wiz-num svelte-10v1sym"><!></div> <div class="wiz-text svelte-10v1sym"><div class="wiz-label svelte-10v1sym">Source</div> <!></div></div> <div data-wiz-step="form"><div class="wiz-num svelte-10v1sym"><!></div> <div class="wiz-text svelte-10v1sym"><div class="wiz-label svelte-10v1sym">Form</div> <div class="wiz-sub svelte-10v1sym"> </div></div></div> <div data-wiz-step="history"><div class="wiz-num svelte-10v1sym"><!></div> <div class="wiz-text svelte-10v1sym"><div class="wiz-label svelte-10v1sym">History</div> <!></div></div> <div data-wiz-step="requirements"><div class="wiz-num svelte-10v1sym"><!></div> <div class="wiz-text svelte-10v1sym"><div class="wiz-label svelte-10v1sym">Requirements</div> <!></div></div> <div data-wiz-step="done"><div class="wiz-num svelte-10v1sym"><!></div> <div class="wiz-text svelte-10v1sym"><div class="wiz-label svelte-10v1sym">Done</div></div></div></div> <div class="wiz-body svelte-10v1sym"><div class="wiz-content svelte-10v1sym"><!> <!></div> <div class="wiz-footer svelte-10v1sym"><!></div></div></div>`, 1);
 var $$css = {
   hash: "svelte-10v1sym",
-  code: ".dim.svelte-10v1sym {color:rgb(var(--fg-subtle, 122 128 144));}.mono.svelte-10v1sym {font-family:ui-monospace, SFMono-Regular, Menlo, monospace;font-variant-numeric:tabular-nums;}.link-btn.svelte-10v1sym {padding:0;border:none;background:transparent;color:rgb(var(--signal, 91 157 255));font-size:12px;cursor:pointer;}.link-btn.svelte-10v1sym:hover {text-decoration:underline;}.wizard.svelte-10v1sym {display:flex;width:100%;max-width:none;border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--surface-1, 22 24 28));min-height:480px;}.wiz-rail.svelte-10v1sym {width:190px;flex-shrink:0;border-right:1px solid rgb(var(--line, 36 38 44));padding:24px 18px;}.wiz-step.svelte-10v1sym {display:flex;align-items:flex-start;gap:10px;position:relative;padding-bottom:26px;}.wiz-step.svelte-10v1sym:last-child {padding-bottom:0;}.wiz-step.svelte-10v1sym:not(:last-child)::after {content:'';position:absolute;left:10px;top:24px;bottom:4px;width:1px;background:rgb(var(--line-strong, 43 46 53));}.wiz-num.svelte-10v1sym {width:21px;height:21px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:700;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;}.wiz-step.done.svelte-10v1sym .wiz-num:where(.svelte-10v1sym) {background:rgb(var(--success, 61 214 140));color:rgb(var(--canvas, 12 13 15));}.wiz-step.current.svelte-10v1sym .wiz-num:where(.svelte-10v1sym) {border:2px solid rgb(var(--signal, 91 157 255));color:rgb(var(--signal, 91 157 255));}.wiz-step.upcoming.svelte-10v1sym .wiz-num:where(.svelte-10v1sym) {border:1px solid rgb(var(--line-strong, 43 46 53));color:rgb(var(--fg-subtle, 122 128 144));}.wiz-text.svelte-10v1sym {padding-top:1px;min-width:0;}.wiz-label.svelte-10v1sym {font-size:12.5px;font-weight:600;color:rgb(var(--fg, 232 234 237));}.wiz-step.upcoming.svelte-10v1sym .wiz-label:where(.svelte-10v1sym) {color:rgb(var(--fg-subtle, 122 128 144));font-weight:500;}.wiz-sub.svelte-10v1sym {font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));margin-top:2px;}.wiz-body.svelte-10v1sym {flex:1;min-width:0;display:flex;flex-direction:column;}.wiz-content.svelte-10v1sym {flex:1;padding:24px 28px;overflow-y:auto;}.wiz-content.svelte-10v1sym h3:where(.svelte-10v1sym) {font-size:15px;font-weight:600;margin:0 0 4px;color:rgb(var(--fg, 232 234 237));}.wiz-content.svelte-10v1sym .desc:where(.svelte-10v1sym) {font-size:12px;color:rgb(var(--fg-subtle, 122 128 144));margin:0 0 16px;max-width:640px;}.edit-banner.svelte-10v1sym {padding:8px 12px;margin-bottom:16px;border-radius:6px;background:rgb(var(--signal, 91 157 255) / 0.08);border:1px solid rgb(var(--signal, 91 157 255) / 0.25);color:rgb(var(--fg-muted, 169 174 184));font-size:12px;}.edit-banner.svelte-10v1sym strong:where(.svelte-10v1sym) {color:rgb(var(--fg, 232 234 237));font-weight:600;}.wiz-footer.svelte-10v1sym {border-top:1px solid rgb(var(--line, 36 38 44));padding:12px 20px;display:flex;align-items:center;gap:10px;}.footer-spacer.svelte-10v1sym {flex:1;}.dropzone.svelte-10v1sym {display:flex;flex-direction:column;border:1px dashed rgb(var(--line-strong, 43 46 53));border-radius:6px;background:rgb(var(--surface-2, 31 33 38) / 0.4);transition:border-color 0.1s ease, background-color 0.1s ease;}.dropzone.dragover.svelte-10v1sym {border-color:rgb(var(--signal, 91 157 255));background:rgb(var(--signal, 91 157 255) / 0.06);}.dropzone.svelte-10v1sym textarea:where(.svelte-10v1sym) {width:100%;box-sizing:border-box;padding:10px 12px;color:rgb(var(--fg, 232 234 237));background:transparent;border:none;resize:vertical;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;font-size:12px;line-height:1.6;}.dropzone.svelte-10v1sym textarea:where(.svelte-10v1sym):focus {outline:none;}.dropzone-footer.svelte-10v1sym {display:flex;align-items:center;gap:6px;padding:8px 12px;border-top:1px solid rgb(var(--line, 36 38 44));font-size:12px;}.file-input-hidden.svelte-10v1sym {display:none;}.detected-strip.svelte-10v1sym {display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 12px;border-radius:6px;background:rgb(var(--canvas, 12 13 15));border:1px solid rgb(var(--line, 36 38 44));margin-bottom:14px;font-size:12px;color:rgb(var(--fg-muted, 169 174 184));}.strip-end.svelte-10v1sym {margin-left:auto;}.chip.svelte-10v1sym {font-size:9.5px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;padding:2px 6px;border-radius:3px;display:inline-flex;align-items:center;gap:4px;white-space:nowrap;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;flex-shrink:0;}.chip-info.svelte-10v1sym {background:rgb(var(--info, 91 157 255) / 0.13);color:rgb(var(--info, 91 157 255));}.chip-mute.svelte-10v1sym {background:rgb(var(--surface-3, 39 42 49));color:rgb(var(--fg-subtle, 122 128 144));}.chip-warn.svelte-10v1sym {background:rgb(var(--warning, 255 197 61) / 0.13);color:rgb(var(--warning, 255 197 61));}.chip-violet.svelte-10v1sym {background:rgb(var(--violet, 144 133 233) / 0.16);color:rgb(var(--violet, 144 133 233));}.well.svelte-10v1sym {background:rgb(var(--surface-2, 31 33 38));border-radius:6px;padding:12px 14px;display:flex;gap:10px;align-items:flex-start;font-size:12px;color:rgb(var(--fg-muted, 169 174 184));margin-bottom:14px;}.req-list.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--canvas, 12 13 15));overflow:hidden;}.req-row.svelte-10v1sym {display:flex;align-items:flex-start;gap:10px;padding:10px 12px;}.req-row.svelte-10v1sym + .req-row:where(.svelte-10v1sym) {border-top:1px solid rgb(var(--line, 36 38 44));}.req-dot.svelte-10v1sym {width:8px;height:8px;border-radius:50%;margin-top:5px;flex-shrink:0;}.req-dot.ok.svelte-10v1sym {background:rgb(var(--success, 61 214 140));}.req-dot.missing.svelte-10v1sym {background:rgb(var(--danger, 255 138 138));}.req-name.svelte-10v1sym {font-size:12.5px;font-weight:600;color:rgb(var(--fg, 232 234 237));}.req-detail.svelte-10v1sym {font-size:12px;color:rgb(var(--fg-muted, 169 174 184));}.req-hint.svelte-10v1sym {font-size:11.5px;color:rgb(var(--fg-subtle, 122 128 144));margin-top:2px;}.req-empty.svelte-10v1sym {padding:12px 14px;border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;color:rgb(var(--fg-subtle, 122 128 144));font-size:12px;}.req-loading.svelte-10v1sym {display:flex;align-items:center;gap:8px;padding:12px 0;color:rgb(var(--fg-muted, 169 174 184));font-size:12px;}.spinner.svelte-10v1sym {width:13px;height:13px;border-radius:50%;border:2px solid rgb(var(--line-strong, 43 46 53));border-top-color:rgb(var(--signal, 91 157 255));\n		animation: svelte-10v1sym-spin 0.7s linear infinite;}\n	@keyframes svelte-10v1sym-spin {\n		to {\n			transform: rotate(360deg);\n		}\n	}.lint-block.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--canvas, 12 13 15));padding:14px 16px;}.lint-path.svelte-10v1sym {font-size:12px;color:rgb(var(--fg-muted, 169 174 184));margin:0 0 12px;}.lint-warn.svelte-10v1sym {border-left:2px solid rgb(var(--warning, 255 197 61));padding-left:10px;margin-bottom:8px;}.lint-warn.svelte-10v1sym:last-child {margin-bottom:0;}.lint-warn-title.svelte-10v1sym {font-size:11.5px;font-weight:600;color:rgb(var(--warning, 255 197 61));margin-bottom:2px;}.lint-warn-body.svelte-10v1sym {font-size:12px;color:rgb(var(--fg-muted, 169 174 184));}.message.svelte-10v1sym {padding:10px 14px;border-radius:6px;font-size:12px;}.message.svelte-10v1sym ul:where(.svelte-10v1sym) {margin:4px 0 0;padding-left:18px;}.message-error.svelte-10v1sym {margin:0 0 12px;color:rgb(var(--danger, 255 138 138));background:rgb(var(--danger, 255 138 138) / 0.1);border:1px solid rgb(var(--danger, 255 138 138) / 0.25);}.message-success.svelte-10v1sym {margin:0;color:rgb(var(--success, 61 214 140));background:rgb(var(--success, 61 214 140) / 0.1);border:1px solid rgb(var(--success, 61 214 140) / 0.25);}.message-title.svelte-10v1sym {margin:0 0 4px;font-weight:600;}.btn.svelte-10v1sym {height:30px;padding:0 14px;border-radius:4px;font-size:12.5px;font-weight:600;display:inline-flex;align-items:center;gap:6px;border:1px solid transparent;cursor:pointer;white-space:nowrap;font-family:inherit;text-decoration:none;}.btn[disabled].svelte-10v1sym {opacity:0.45;cursor:not-allowed;}.btn-primary.svelte-10v1sym {background:rgb(var(--accent, 255 255 255));color:rgb(var(--accent-contrast, 22 22 22));}.btn-primary.svelte-10v1sym:hover:not([disabled]) {background:rgb(var(--accent-hover, 230 230 230));}.btn-secondary.svelte-10v1sym {background:rgb(var(--surface-1, 22 24 28));border-color:rgb(var(--line-strong, 43 46 53));color:rgb(var(--fg-muted, 169 174 184));}.btn-secondary.svelte-10v1sym:hover:not([disabled]) {color:rgb(var(--fg, 232 234 237));background:rgb(var(--surface-2, 31 33 38));}.iconbtn.svelte-10v1sym {width:22px;height:22px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;color:rgb(var(--fg-subtle, 122 128 144));background:transparent;border:1px solid transparent;cursor:pointer;flex-shrink:0;}.iconbtn.svelte-10v1sym:hover,\n	.iconbtn.active.svelte-10v1sym {color:rgb(var(--fg, 232 234 237));background:rgb(var(--surface-2, 31 33 38));}.iconbtn.svelte-10v1sym:disabled {opacity:0.4;cursor:not-allowed;}.name-grid.svelte-10v1sym {display:grid;grid-template-columns:repeat(3, 1fr);gap:12px;margin-top:16px;}.field.svelte-10v1sym label:where(.svelte-10v1sym) {display:block;font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));margin-bottom:5px;}.field.svelte-10v1sym input[type='text']:where(.svelte-10v1sym) {box-sizing:border-box;width:100%;height:30px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:12.5px;padding:0 9px;font-family:inherit;}.field.svelte-10v1sym input[type='text']:where(.svelte-10v1sym):focus {outline:none;border-color:rgb(var(--signal, 91 157 255));}\n\n	/* ---- Form designer: two panes ---- */.designer.svelte-10v1sym {display:flex;gap:14px;align-items:flex-start;}.di-left.svelte-10v1sym {width:40%;flex-shrink:0;border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--canvas, 12 13 15));overflow:hidden;}.di-left-title.svelte-10v1sym {padding:10px 12px 8px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;color:rgb(var(--fg-muted, 169 174 184));}.di-search.svelte-10v1sym {padding:0 10px 10px;}.di-search.svelte-10v1sym input:where(.svelte-10v1sym) {width:100%;box-sizing:border-box;height:28px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:12px;padding:0 9px;}.di-group-h.svelte-10v1sym {padding:7px 12px;background:rgb(var(--surface-1, 22 24 28));border-top:1px solid rgb(var(--line, 36 38 44));border-bottom:1px solid rgb(var(--line, 36 38 44));font-size:11.5px;font-weight:600;color:rgb(var(--fg, 232 234 237));}.di-group-h.svelte-10v1sym .cls:where(.svelte-10v1sym) {font-size:10px;font-weight:400;color:rgb(var(--fg-subtle, 122 128 144));margin-left:4px;}.di-row.svelte-10v1sym {display:flex;align-items:center;gap:8px;padding:7px 12px;}.di-row.svelte-10v1sym + .di-row:where(.svelte-10v1sym) {border-top:1px solid rgb(var(--line, 36 38 44) / 0.5);}.di-row-name.svelte-10v1sym {font-size:11px;color:rgb(var(--fg, 232 234 237));flex-shrink:0;width:76px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}.di-row-value.svelte-10v1sym {font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}.di-row.mapped.svelte-10v1sym .di-row-name:where(.svelte-10v1sym),\n	.di-row.mapped.svelte-10v1sym .di-row-value:where(.svelte-10v1sym) {color:rgb(var(--fg-disabled, 92 98 112));}.di-row-trail.svelte-10v1sym {flex-shrink:0;width:22px;display:flex;align-items:center;justify-content:center;}.di-add-arrow.svelte-10v1sym {color:rgb(var(--signal, 91 157 255));}.lock-badge.svelte-10v1sym {display:inline-flex;align-items:center;gap:4px;font-size:9px;text-transform:uppercase;letter-spacing:0.05em;color:rgb(var(--fg-disabled, 92 98 112));flex-shrink:0;white-space:nowrap;}.di-right.svelte-10v1sym {flex:1;min-width:0;border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--surface-1, 22 24 28));overflow:hidden;display:flex;flex-direction:column;}.di-tabs.svelte-10v1sym {display:flex;align-items:center;gap:2px;padding:8px 10px 0;border-bottom:1px solid rgb(var(--line, 36 38 44));flex-wrap:wrap;}.di-tab.svelte-10v1sym {display:flex;align-items:center;gap:6px;padding:7px 10px;border-radius:4px 4px 0 0;font-size:12px;font-weight:500;color:rgb(var(--fg-muted, 169 174 184));cursor:pointer;position:relative;}.di-tab.active.svelte-10v1sym {background:rgb(var(--signal, 91 157 255) / 0.1);color:rgb(var(--signal, 91 157 255));}.di-tab.svelte-10v1sym .kb:where(.svelte-10v1sym) {width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;color:rgb(var(--fg-subtle, 122 128 144));border-radius:3px;}.di-tab.svelte-10v1sym .kb:where(.svelte-10v1sym):hover {background:rgb(var(--surface-3, 39 42 49));color:rgb(var(--fg, 232 234 237));}.di-tab-rename.svelte-10v1sym {height:20px;width:90px;border-radius:3px;border:1px solid rgb(var(--signal, 91 157 255) / 0.4);background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:12px;padding:0 6px;}.di-tab-add.svelte-10v1sym {padding:7px 10px;color:rgb(var(--fg-subtle, 122 128 144));font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;}.di-tab-add.svelte-10v1sym:hover {color:rgb(var(--fg, 232 234 237));}.di-field-list.svelte-10v1sym {padding:12px;display:flex;flex-direction:column;gap:8px;flex:1;}.di-field-card.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--canvas, 12 13 15));padding:9px 10px;}.di-field-top.svelte-10v1sym {display:flex;align-items:center;gap:8px;flex-wrap:wrap;row-gap:6px;}.di-field-label.svelte-10v1sym {width:110px;flex-shrink:0;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:12px;font-weight:500;padding:0 8px;}.di-field-type.svelte-10v1sym {width:100px;flex-shrink:0;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg-muted, 169 174 184));font-size:11px;padding:0 6px;}.di-field-default.svelte-10v1sym {flex:1 1 90px;min-width:90px;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:11.5px;padding:0 8px;}.di-field-actions.svelte-10v1sym {display:flex;align-items:center;gap:1px;flex-shrink:0;}.di-mapping.svelte-10v1sym {margin-top:6px;padding-left:24px;}.di-mapping.svelte-10v1sym .line:where(.svelte-10v1sym) {font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));}.di-mapping.svelte-10v1sym .arrow:where(.svelte-10v1sym) {color:rgb(var(--fg-disabled, 92 98 112));margin-right:3px;}.di-suggest.svelte-10v1sym {display:flex;align-items:flex-start;gap:8px;margin-top:6px;padding:6px 8px 6px 24px;}.di-suggest-rows.svelte-10v1sym {display:flex;flex-direction:column;gap:4px;flex:1;min-width:0;}.di-suggest-row.svelte-10v1sym {display:flex;align-items:center;gap:8px;flex-wrap:wrap;}.di-suggest-text.svelte-10v1sym {font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));}.di-suggest-map.svelte-10v1sym {flex-shrink:0;height:20px;padding:0 8px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:10.5px;font-weight:600;cursor:pointer;}.di-suggest-map.svelte-10v1sym:hover {border-color:rgb(var(--line-hover, 58 62 70));background:rgb(var(--surface-3, 39 42 49));}.di-suggest-dismiss.svelte-10v1sym {flex-shrink:0;width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;border-radius:4px;color:rgb(var(--fg-disabled, 92 98 112));background:none;border:none;cursor:pointer;}.di-suggest-dismiss.svelte-10v1sym:hover {color:rgb(var(--fg-muted, 169 174 184));background:rgb(var(--surface-3, 39 42 49));}.di-add-wrap.svelte-10v1sym {position:relative;}.di-add-field.svelte-10v1sym {display:flex;align-items:center;justify-content:center;gap:6px;height:34px;width:100%;border:1px dashed rgb(var(--line-strong, 43 46 53));border-radius:6px;font-size:11.5px;color:rgb(var(--fg-muted, 169 174 184));background:none;cursor:pointer;}.di-add-field.svelte-10v1sym:hover {color:rgb(var(--fg, 232 234 237));}.di-add-menu.svelte-10v1sym {\n		/* Positioned by the `floating` action (position: fixed, inline top/left) -\n		   these are just its pre-mount fallback. */position:absolute;top:calc(100% + 4px);left:0;width:168px;border:1px solid rgb(var(--line-strong, 43 46 53));border-radius:8px;padding:4px;background:rgb(var(--surface-1, 22 24 28));box-shadow:var(--shadow-floating, 0 4px 16px rgb(0 0 0 / 0.5));z-index:1000;}.di-add-menu.svelte-10v1sym button:where(.svelte-10v1sym) {display:flex;width:100%;align-items:center;gap:8px;border-radius:5px;padding:6px 8px;font-size:12px;color:rgb(var(--fg-muted, 169 174 184));background:none;border:none;text-align:left;cursor:pointer;}.di-add-menu.svelte-10v1sym button:where(.svelte-10v1sym):hover {color:rgb(var(--fg, 232 234 237));background:rgb(var(--surface-3, 39 42 49));}.di-add-menu.svelte-10v1sym .type-tag:where(.svelte-10v1sym) {margin-left:auto;font-size:8.5px;color:rgb(var(--fg-disabled, 92 98 112));font-family:ui-monospace, SFMono-Regular, Menlo, monospace;}.di-container.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--surface-2, 31 33 38) / 0.4);}.di-container-head.svelte-10v1sym {display:flex;align-items:center;gap:8px;padding:8px 10px;flex-wrap:wrap;}.di-container-title.svelte-10v1sym {flex-shrink:0;width:130px;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:12px;font-weight:600;padding:0 8px;}.di-container-spacer.svelte-10v1sym {flex:1;}.di-container-actions.svelte-10v1sym {display:flex;align-items:center;gap:1px;flex-shrink:0;}.di-container-body.svelte-10v1sym {padding:0 10px 10px;display:flex;flex-direction:column;gap:8px;}.di-container.collapsed.svelte-10v1sym .di-container-body:where(.svelte-10v1sym) {display:none;}.di-chevron.svelte-10v1sym {display:inline-flex;transition:transform 0.12s;}.di-chevron.collapsed.svelte-10v1sym {transform:rotate(-90deg);}.di-row-cols.svelte-10v1sym {display:grid;gap:8px;min-width:0;}.di-row-cols.svelte-10v1sym > * {min-width:0;}.di-row-cols.svelte-10v1sym .di-field-card {overflow:hidden;}.di-row-cols.svelte-10v1sym .di-field-top {flex-wrap:wrap;}.di-col-control.svelte-10v1sym {display:flex;align-items:center;gap:5px;}.di-col-control.svelte-10v1sym .lbl:where(.svelte-10v1sym) {font-size:10px;color:rgb(var(--fg-subtle, 122 128 144));margin-right:2px;}.di-col-btn.svelte-10v1sym {width:22px;height:22px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg-muted, 169 174 184));font-size:11px;font-weight:600;cursor:pointer;}.di-col-btn.active.svelte-10v1sym {background:rgb(var(--signal, 91 157 255) / 0.15);color:rgb(var(--signal, 91 157 255));border-color:rgb(var(--signal, 91 157 255) / 0.4);}.di-header-card.svelte-10v1sym {display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--surface-2, 31 33 38) / 0.4);}.di-header-input.svelte-10v1sym {flex:1;min-width:0;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:12.5px;font-weight:600;padding:0 8px;}.di-empty.svelte-10v1sym {flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:40px 20px;text-align:center;}.di-empty.svelte-10v1sym .icon {color:rgb(var(--fg-disabled, 92 98 112));}.di-empty-text.svelte-10v1sym {font-size:12px;color:rgb(var(--fg-subtle, 122 128 144));}.di-mapedit.svelte-10v1sym {margin-top:8px;padding-top:10px;border-top:1px dashed rgb(var(--line, 36 38 44));}.di-mapedit-label.svelte-10v1sym {font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));margin-bottom:6px;}.di-mapedit-list.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:4px;overflow:hidden;}.di-mapedit-row.svelte-10v1sym {display:flex;align-items:center;gap:8px;padding:6px 9px;font-size:11px;flex-wrap:wrap;}.di-mapedit-node.svelte-10v1sym,\n	.di-mapedit-input.svelte-10v1sym {white-space:nowrap;}.di-mapedit-row.svelte-10v1sym + .di-mapedit-row:where(.svelte-10v1sym) {border-top:1px solid rgb(var(--line, 36 38 44));}.di-mapedit-row.selected.svelte-10v1sym {background:rgb(var(--signal, 91 157 255) / 0.08);}.di-mapedit-row.svelte-10v1sym input[type='checkbox']:where(.svelte-10v1sym) {accent-color:rgb(var(--signal, 91 157 255));}.di-mapedit-node.svelte-10v1sym {color:rgb(var(--fg-subtle, 122 128 144));}.di-mapedit-input.svelte-10v1sym {color:rgb(var(--fg, 232 234 237));}.di-mapedit-taken.svelte-10v1sym {margin-left:auto;font-size:10px;color:rgb(var(--fg-disabled, 92 98 112));}.di-mapedit-transform.svelte-10v1sym {margin-left:auto;flex:1 1 100%;}.di-mapedit-transform.svelte-10v1sym select:where(.svelte-10v1sym) {box-sizing:border-box;width:100%;height:24px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:11px;padding:0 6px;}.tab-popover.svelte-10v1sym {\n		/* Positioned by the `floating` action (position: fixed, inline top/left) -\n		   these are just its pre-mount fallback. */position:absolute;top:calc(100% + 4px);left:0;width:150px;border:1px solid rgb(var(--line-strong, 43 46 53));border-radius:8px;padding:4px;background:rgb(var(--surface-1, 22 24 28));box-shadow:var(--shadow-floating, 0 4px 16px rgb(0 0 0 / 0.5));z-index:1000;}.tab-popover.svelte-10v1sym button:where(.svelte-10v1sym) {display:flex;width:100%;align-items:center;gap:8px;border-radius:5px;padding:6px 8px;font-size:12px;color:rgb(var(--fg-muted, 169 174 184));background:none;border:none;text-align:left;cursor:pointer;}.tab-popover.svelte-10v1sym button:where(.svelte-10v1sym):hover:not(:disabled) {color:rgb(var(--fg, 232 234 237));background:rgb(var(--surface-3, 39 42 49));}.tab-popover.svelte-10v1sym button:where(.svelte-10v1sym):disabled {opacity:0.4;cursor:not-allowed;}.tab-popover.svelte-10v1sym hr:where(.svelte-10v1sym) {border:none;border-top:1px solid rgb(var(--line, 36 38 44));margin:4px 2px;}.tab-popover.svelte-10v1sym button.danger:where(.svelte-10v1sym) {color:rgb(var(--danger, 255 138 138));}\n\n	/* ---- History step ---- */.hist-designer.svelte-10v1sym {display:flex;gap:14px;align-items:flex-start;}.hist-left.svelte-10v1sym {width:58%;flex-shrink:0;}.hist-right.svelte-10v1sym {flex:1;min-width:0;}.pane-title.svelte-10v1sym {padding:0 0 8px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;color:rgb(var(--fg-muted, 169 174 184));display:flex;align-items:center;gap:8px;}.pane-title.svelte-10v1sym .n:where(.svelte-10v1sym) {font-weight:400;color:rgb(var(--fg-disabled, 92 98 112));text-transform:none;letter-spacing:0;}.hist-table.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--canvas, 12 13 15));overflow:hidden;}.hist-head.svelte-10v1sym {display:grid;grid-template-columns:40px 18px 1.3fr 1.05fr 1.05fr;align-items:center;gap:10px;padding:7px 12px;background:rgb(var(--surface-1, 22 24 28));border-bottom:1px solid rgb(var(--line, 36 38 44));font-size:9.5px;text-transform:uppercase;letter-spacing:0.06em;color:rgb(var(--fg-subtle, 122 128 144));}.hist-row.svelte-10v1sym {display:grid;grid-template-columns:40px 18px 1.3fr 1.05fr 1.05fr;align-items:center;gap:10px;padding:8px 12px;}.hist-row.svelte-10v1sym + .hist-row:where(.svelte-10v1sym) {border-top:1px solid rgb(var(--line, 36 38 44) / 0.6);}.hist-row.locked.svelte-10v1sym {background:rgb(var(--surface-1, 22 24 28) / 0.5);}.hist-reorder.svelte-10v1sym {display:flex;gap:2px;}.hist-row.svelte-10v1sym input[type='checkbox']:where(.svelte-10v1sym) {accent-color:rgb(var(--signal, 91 157 255));width:14px;height:14px;}.hist-field.svelte-10v1sym {min-width:0;display:flex;flex-direction:column;gap:1px;}.hist-field-label.svelte-10v1sym {font-size:12px;font-weight:500;color:rgb(var(--fg, 232 234 237));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}.hist-row.off.svelte-10v1sym .hist-field-label:where(.svelte-10v1sym) {color:rgb(var(--fg-subtle, 122 128 144));}.hist-field-name.svelte-10v1sym {font-size:9.5px;color:rgb(var(--fg-subtle, 122 128 144));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}.hist-label-input.svelte-10v1sym {width:100%;box-sizing:border-box;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:11.5px;padding:0 8px;}.hist-label-input.svelte-10v1sym:disabled {background:transparent;border-color:transparent;color:rgb(var(--fg-disabled, 92 98 112));padding-left:0;}.hist-value-select.svelte-10v1sym {width:100%;box-sizing:border-box;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg-muted, 169 174 184));font-size:11px;padding:0 6px;}.hist-value-select.svelte-10v1sym:disabled {opacity:0.5;}.hist-jinja-row.svelte-10v1sym {grid-column:1 / -1;margin:2px 0 0 58px;display:flex;align-items:center;gap:8px;}.hist-jinja-row.svelte-10v1sym .lbl:where(.svelte-10v1sym) {font-size:10px;color:rgb(var(--fg-subtle, 122 128 144));flex-shrink:0;}.hist-jinja-input.svelte-10v1sym {flex:1;box-sizing:border-box;height:26px;border-radius:4px;border:1px solid rgb(var(--signal, 91 157 255) / 0.4);background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:11px;padding:0 8px;}.hist-jinja-out.svelte-10v1sym {font-size:10px;color:rgb(var(--fg-subtle, 122 128 144));flex-shrink:0;}.hist-jinja-out.svelte-10v1sym .v:where(.svelte-10v1sym) {color:rgb(var(--success, 61 214 140));}.preview-card.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--surface-2, 31 33 38));overflow:hidden;box-shadow:var(--shadow-raised, inset 0 1px 0 rgb(255 255 255 / 0.04));}.preview-head.svelte-10v1sym {display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid rgb(var(--line, 36 38 44));}.preview-head.svelte-10v1sym .t:where(.svelte-10v1sym) {display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:rgb(var(--fg, 232 234 237));}.preview-head.svelte-10v1sym .t:where(.svelte-10v1sym) .icon {color:rgb(var(--success, 61 214 140));}.preview-grid.svelte-10v1sym {display:grid;grid-template-columns:1fr 1fr;gap:1px;background:rgb(var(--line, 36 38 44));}.preview-cell.svelte-10v1sym {background:rgb(var(--surface-2, 31 33 38));padding:10px;min-width:0;}.preview-cell.span2.svelte-10v1sym {grid-column:1 / -1;}.preview-k.svelte-10v1sym {font-size:9.5px;text-transform:uppercase;letter-spacing:0.06em;color:rgb(var(--fg-disabled, 92 98 112));margin-bottom:4px;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;}.preview-v.svelte-10v1sym {font-size:11.5px;font-weight:600;color:rgb(var(--fg, 232 234 237));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;}.preview-v.wrap.svelte-10v1sym {white-space:normal;overflow:visible;text-overflow:clip;}.preview-chips.svelte-10v1sym {display:flex;flex-wrap:wrap;gap:4px;margin-top:2px;}.preview-empty.svelte-10v1sym {padding:20px 16px;text-align:center;}.preview-empty.svelte-10v1sym .icon {color:rgb(var(--fg-disabled, 92 98 112));margin:0 auto 8px;}.preview-empty-text.svelte-10v1sym {font-size:11.5px;color:rgb(var(--fg-subtle, 122 128 144));max-width:260px;margin:0 auto;}.icon {stroke:currentColor;fill:none;flex:none;display:block;}"
+  code: ".dim.svelte-10v1sym {color:rgb(var(--fg-subtle, 122 128 144));}.mono.svelte-10v1sym {font-family:ui-monospace, SFMono-Regular, Menlo, monospace;font-variant-numeric:tabular-nums;}.link-btn.svelte-10v1sym {padding:0;border:none;background:transparent;color:rgb(var(--signal, 91 157 255));font-size:12px;cursor:pointer;}.link-btn.svelte-10v1sym:hover {text-decoration:underline;}.wizard.svelte-10v1sym {display:flex;width:100%;max-width:none;border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--surface-1, 22 24 28));min-height:480px;}.wiz-rail.svelte-10v1sym {width:190px;flex-shrink:0;border-right:1px solid rgb(var(--line, 36 38 44));padding:24px 18px;}.wiz-step.svelte-10v1sym {display:flex;align-items:flex-start;gap:10px;position:relative;padding-bottom:26px;}.wiz-step.svelte-10v1sym:last-child {padding-bottom:0;}.wiz-step.svelte-10v1sym:not(:last-child)::after {content:'';position:absolute;left:10px;top:24px;bottom:4px;width:1px;background:rgb(var(--line-strong, 43 46 53));}.wiz-num.svelte-10v1sym {width:21px;height:21px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:700;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;}.wiz-step.done.svelte-10v1sym .wiz-num:where(.svelte-10v1sym) {background:rgb(var(--success, 61 214 140));color:rgb(var(--canvas, 12 13 15));}.wiz-step.current.svelte-10v1sym .wiz-num:where(.svelte-10v1sym) {border:2px solid rgb(var(--signal, 91 157 255));color:rgb(var(--signal, 91 157 255));}.wiz-step.upcoming.svelte-10v1sym .wiz-num:where(.svelte-10v1sym) {border:1px solid rgb(var(--line-strong, 43 46 53));color:rgb(var(--fg-subtle, 122 128 144));}.wiz-text.svelte-10v1sym {padding-top:1px;min-width:0;}.wiz-label.svelte-10v1sym {font-size:12.5px;font-weight:600;color:rgb(var(--fg, 232 234 237));}.wiz-step.upcoming.svelte-10v1sym .wiz-label:where(.svelte-10v1sym) {color:rgb(var(--fg-subtle, 122 128 144));font-weight:500;}.wiz-sub.svelte-10v1sym {font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));margin-top:2px;}.wiz-body.svelte-10v1sym {flex:1;min-width:0;display:flex;flex-direction:column;}.wiz-content.svelte-10v1sym {flex:1;padding:24px 28px;overflow-y:auto;}.wiz-content.svelte-10v1sym h3:where(.svelte-10v1sym) {font-size:15px;font-weight:600;margin:0 0 4px;color:rgb(var(--fg, 232 234 237));}.wiz-content.svelte-10v1sym .desc:where(.svelte-10v1sym) {font-size:12px;color:rgb(var(--fg-subtle, 122 128 144));margin:0 0 16px;max-width:640px;}.edit-banner.svelte-10v1sym {padding:8px 12px;margin-bottom:16px;border-radius:6px;background:rgb(var(--signal, 91 157 255) / 0.08);border:1px solid rgb(var(--signal, 91 157 255) / 0.25);color:rgb(var(--fg-muted, 169 174 184));font-size:12px;}.edit-banner.svelte-10v1sym strong:where(.svelte-10v1sym) {color:rgb(var(--fg, 232 234 237));font-weight:600;}.wiz-footer.svelte-10v1sym {border-top:1px solid rgb(var(--line, 36 38 44));padding:12px 20px;display:flex;align-items:center;gap:10px;}.footer-spacer.svelte-10v1sym {flex:1;}.dropzone.svelte-10v1sym {display:flex;flex-direction:column;border:1px dashed rgb(var(--line-strong, 43 46 53));border-radius:6px;background:rgb(var(--surface-2, 31 33 38) / 0.4);transition:border-color 0.1s ease, background-color 0.1s ease;}.dropzone.dragover.svelte-10v1sym {border-color:rgb(var(--signal, 91 157 255));background:rgb(var(--signal, 91 157 255) / 0.06);}.dropzone.svelte-10v1sym textarea:where(.svelte-10v1sym) {width:100%;box-sizing:border-box;padding:10px 12px;color:rgb(var(--fg, 232 234 237));background:transparent;border:none;resize:vertical;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;font-size:12px;line-height:1.6;}.dropzone.svelte-10v1sym textarea:where(.svelte-10v1sym):focus {outline:none;}.dropzone-footer.svelte-10v1sym {display:flex;align-items:center;gap:6px;padding:8px 12px;border-top:1px solid rgb(var(--line, 36 38 44));font-size:12px;}.file-input-hidden.svelte-10v1sym {display:none;}.detected-strip.svelte-10v1sym {display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 12px;border-radius:6px;background:rgb(var(--canvas, 12 13 15));border:1px solid rgb(var(--line, 36 38 44));margin-bottom:14px;font-size:12px;color:rgb(var(--fg-muted, 169 174 184));}.strip-end.svelte-10v1sym {margin-left:auto;}.chat-hint-group.svelte-10v1sym {display:flex;align-items:center;gap:8px;}.chip.svelte-10v1sym {font-size:9.5px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;padding:2px 6px;border-radius:3px;display:inline-flex;align-items:center;gap:4px;white-space:nowrap;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;flex-shrink:0;}.chip-info.svelte-10v1sym {background:rgb(var(--info, 91 157 255) / 0.13);color:rgb(var(--info, 91 157 255));}.chip-mute.svelte-10v1sym {background:rgb(var(--surface-3, 39 42 49));color:rgb(var(--fg-subtle, 122 128 144));}.chip-warn.svelte-10v1sym {background:rgb(var(--warning, 255 197 61) / 0.13);color:rgb(var(--warning, 255 197 61));}.chip-violet.svelte-10v1sym {background:rgb(var(--violet, 144 133 233) / 0.16);color:rgb(var(--violet, 144 133 233));}.well.svelte-10v1sym {background:rgb(var(--surface-2, 31 33 38));border-radius:6px;padding:12px 14px;display:flex;gap:10px;align-items:flex-start;font-size:12px;color:rgb(var(--fg-muted, 169 174 184));margin-bottom:14px;}.req-list.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--canvas, 12 13 15));overflow:hidden;}.req-row.svelte-10v1sym {display:flex;align-items:flex-start;gap:10px;padding:10px 12px;}.req-row.svelte-10v1sym + .req-row:where(.svelte-10v1sym) {border-top:1px solid rgb(var(--line, 36 38 44));}.req-dot.svelte-10v1sym {width:8px;height:8px;border-radius:50%;margin-top:5px;flex-shrink:0;}.req-dot.ok.svelte-10v1sym {background:rgb(var(--success, 61 214 140));}.req-dot.missing.svelte-10v1sym {background:rgb(var(--danger, 255 138 138));}.req-name.svelte-10v1sym {font-size:12.5px;font-weight:600;color:rgb(var(--fg, 232 234 237));}.req-detail.svelte-10v1sym {font-size:12px;color:rgb(var(--fg-muted, 169 174 184));}.req-hint.svelte-10v1sym {font-size:11.5px;color:rgb(var(--fg-subtle, 122 128 144));margin-top:2px;}.req-empty.svelte-10v1sym {padding:12px 14px;border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;color:rgb(var(--fg-subtle, 122 128 144));font-size:12px;}.req-loading.svelte-10v1sym {display:flex;align-items:center;gap:8px;padding:12px 0;color:rgb(var(--fg-muted, 169 174 184));font-size:12px;}.spinner.svelte-10v1sym {width:13px;height:13px;border-radius:50%;border:2px solid rgb(var(--line-strong, 43 46 53));border-top-color:rgb(var(--signal, 91 157 255));\n		animation: svelte-10v1sym-spin 0.7s linear infinite;}\n	@keyframes svelte-10v1sym-spin {\n		to {\n			transform: rotate(360deg);\n		}\n	}.lint-block.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--canvas, 12 13 15));padding:14px 16px;}.lint-path.svelte-10v1sym {font-size:12px;color:rgb(var(--fg-muted, 169 174 184));margin:0 0 12px;}.lint-warn.svelte-10v1sym {border-left:2px solid rgb(var(--warning, 255 197 61));padding-left:10px;margin-bottom:8px;}.lint-warn.svelte-10v1sym:last-child {margin-bottom:0;}.lint-warn-title.svelte-10v1sym {font-size:11.5px;font-weight:600;color:rgb(var(--warning, 255 197 61));margin-bottom:2px;}.lint-warn-body.svelte-10v1sym {font-size:12px;color:rgb(var(--fg-muted, 169 174 184));}.message.svelte-10v1sym {padding:10px 14px;border-radius:6px;font-size:12px;}.message.svelte-10v1sym ul:where(.svelte-10v1sym) {margin:4px 0 0;padding-left:18px;}.message-error.svelte-10v1sym {margin:0 0 12px;color:rgb(var(--danger, 255 138 138));background:rgb(var(--danger, 255 138 138) / 0.1);border:1px solid rgb(var(--danger, 255 138 138) / 0.25);}.message-success.svelte-10v1sym {margin:0;color:rgb(var(--success, 61 214 140));background:rgb(var(--success, 61 214 140) / 0.1);border:1px solid rgb(var(--success, 61 214 140) / 0.25);}.message-title.svelte-10v1sym {margin:0 0 4px;font-weight:600;}.btn.svelte-10v1sym {height:30px;padding:0 14px;border-radius:4px;font-size:12.5px;font-weight:600;display:inline-flex;align-items:center;gap:6px;border:1px solid transparent;cursor:pointer;white-space:nowrap;font-family:inherit;text-decoration:none;}.btn[disabled].svelte-10v1sym {opacity:0.45;cursor:not-allowed;}.btn-primary.svelte-10v1sym {background:rgb(var(--accent, 255 255 255));color:rgb(var(--accent-contrast, 22 22 22));}.btn-primary.svelte-10v1sym:hover:not([disabled]) {background:rgb(var(--accent-hover, 230 230 230));}.btn-secondary.svelte-10v1sym {background:rgb(var(--surface-1, 22 24 28));border-color:rgb(var(--line-strong, 43 46 53));color:rgb(var(--fg-muted, 169 174 184));}.btn-secondary.svelte-10v1sym:hover:not([disabled]) {color:rgb(var(--fg, 232 234 237));background:rgb(var(--surface-2, 31 33 38));}.iconbtn.svelte-10v1sym {width:22px;height:22px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;color:rgb(var(--fg-subtle, 122 128 144));background:transparent;border:1px solid transparent;cursor:pointer;flex-shrink:0;}.iconbtn.svelte-10v1sym:hover,\n	.iconbtn.active.svelte-10v1sym {color:rgb(var(--fg, 232 234 237));background:rgb(var(--surface-2, 31 33 38));}.iconbtn.svelte-10v1sym:disabled {opacity:0.4;cursor:not-allowed;}.name-grid.svelte-10v1sym {display:grid;grid-template-columns:repeat(3, 1fr);gap:12px;margin-top:16px;}.field.svelte-10v1sym label:where(.svelte-10v1sym) {display:block;font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));margin-bottom:5px;}.field.svelte-10v1sym input[type='text']:where(.svelte-10v1sym) {box-sizing:border-box;width:100%;height:30px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:12.5px;padding:0 9px;font-family:inherit;}.field.svelte-10v1sym input[type='text']:where(.svelte-10v1sym):focus {outline:none;border-color:rgb(var(--signal, 91 157 255));}\n\n	/* ---- Form designer: two panes ---- */.designer.svelte-10v1sym {display:flex;gap:14px;align-items:flex-start;}.di-left.svelte-10v1sym {width:40%;flex-shrink:0;border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--canvas, 12 13 15));overflow:hidden;}.di-left-title.svelte-10v1sym {padding:10px 12px 8px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;color:rgb(var(--fg-muted, 169 174 184));}.di-search.svelte-10v1sym {padding:0 10px 10px;}.di-search.svelte-10v1sym input:where(.svelte-10v1sym) {width:100%;box-sizing:border-box;height:28px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:12px;padding:0 9px;}.di-group-h.svelte-10v1sym {padding:7px 12px;background:rgb(var(--surface-1, 22 24 28));border-top:1px solid rgb(var(--line, 36 38 44));border-bottom:1px solid rgb(var(--line, 36 38 44));font-size:11.5px;font-weight:600;color:rgb(var(--fg, 232 234 237));}.di-group-h.svelte-10v1sym .cls:where(.svelte-10v1sym) {font-size:10px;font-weight:400;color:rgb(var(--fg-subtle, 122 128 144));margin-left:4px;}.di-row.svelte-10v1sym {display:flex;align-items:center;gap:8px;padding:7px 12px;}.di-row.svelte-10v1sym + .di-row:where(.svelte-10v1sym) {border-top:1px solid rgb(var(--line, 36 38 44) / 0.5);}.di-row-name.svelte-10v1sym {font-size:11px;color:rgb(var(--fg, 232 234 237));flex-shrink:0;width:76px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}.di-row-value.svelte-10v1sym {font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}.di-row.mapped.svelte-10v1sym .di-row-name:where(.svelte-10v1sym),\n	.di-row.mapped.svelte-10v1sym .di-row-value:where(.svelte-10v1sym) {color:rgb(var(--fg-disabled, 92 98 112));}.di-row-trail.svelte-10v1sym {flex-shrink:0;width:22px;display:flex;align-items:center;justify-content:center;}.di-add-arrow.svelte-10v1sym {color:rgb(var(--signal, 91 157 255));}.lock-badge.svelte-10v1sym {display:inline-flex;align-items:center;gap:4px;font-size:9px;text-transform:uppercase;letter-spacing:0.05em;color:rgb(var(--fg-disabled, 92 98 112));flex-shrink:0;white-space:nowrap;}.di-right.svelte-10v1sym {flex:1;min-width:0;border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--surface-1, 22 24 28));overflow:hidden;display:flex;flex-direction:column;}.di-tabs.svelte-10v1sym {display:flex;align-items:center;gap:2px;padding:8px 10px 0;border-bottom:1px solid rgb(var(--line, 36 38 44));flex-wrap:wrap;}.di-tab.svelte-10v1sym {display:flex;align-items:center;gap:6px;padding:7px 10px;border-radius:4px 4px 0 0;font-size:12px;font-weight:500;color:rgb(var(--fg-muted, 169 174 184));cursor:pointer;position:relative;}.di-tab.active.svelte-10v1sym {background:rgb(var(--signal, 91 157 255) / 0.1);color:rgb(var(--signal, 91 157 255));}.di-tab.svelte-10v1sym .kb:where(.svelte-10v1sym) {width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;color:rgb(var(--fg-subtle, 122 128 144));border-radius:3px;}.di-tab.svelte-10v1sym .kb:where(.svelte-10v1sym):hover {background:rgb(var(--surface-3, 39 42 49));color:rgb(var(--fg, 232 234 237));}.di-tab-rename.svelte-10v1sym {height:20px;width:90px;border-radius:3px;border:1px solid rgb(var(--signal, 91 157 255) / 0.4);background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:12px;padding:0 6px;}.di-tab-add.svelte-10v1sym {padding:7px 10px;color:rgb(var(--fg-subtle, 122 128 144));font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;}.di-tab-add.svelte-10v1sym:hover {color:rgb(var(--fg, 232 234 237));}.di-field-list.svelte-10v1sym {padding:12px;display:flex;flex-direction:column;gap:8px;flex:1;}.di-field-card.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--canvas, 12 13 15));padding:9px 10px;}.di-field-top.svelte-10v1sym {display:flex;align-items:center;gap:8px;flex-wrap:wrap;row-gap:6px;}.di-field-label.svelte-10v1sym {width:110px;flex-shrink:0;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:12px;font-weight:500;padding:0 8px;}.di-field-type.svelte-10v1sym {width:100px;flex-shrink:0;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg-muted, 169 174 184));font-size:11px;padding:0 6px;}.di-field-default.svelte-10v1sym {flex:1 1 90px;min-width:90px;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:11.5px;padding:0 8px;}.di-field-actions.svelte-10v1sym {display:flex;align-items:center;gap:1px;flex-shrink:0;}.di-mapping.svelte-10v1sym {margin-top:6px;padding-left:24px;}.di-mapping.svelte-10v1sym .line:where(.svelte-10v1sym) {font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));}.di-mapping.svelte-10v1sym .arrow:where(.svelte-10v1sym) {color:rgb(var(--fg-disabled, 92 98 112));margin-right:3px;}.di-suggest.svelte-10v1sym {display:flex;align-items:flex-start;gap:8px;margin-top:6px;padding:6px 8px 6px 24px;}.di-suggest-rows.svelte-10v1sym {display:flex;flex-direction:column;gap:4px;flex:1;min-width:0;}.di-suggest-row.svelte-10v1sym {display:flex;align-items:center;gap:8px;flex-wrap:wrap;}.di-suggest-text.svelte-10v1sym {font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));}.di-suggest-map.svelte-10v1sym {flex-shrink:0;height:20px;padding:0 8px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:10.5px;font-weight:600;cursor:pointer;}.di-suggest-map.svelte-10v1sym:hover {border-color:rgb(var(--line-hover, 58 62 70));background:rgb(var(--surface-3, 39 42 49));}.di-suggest-dismiss.svelte-10v1sym {flex-shrink:0;width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;border-radius:4px;color:rgb(var(--fg-disabled, 92 98 112));background:none;border:none;cursor:pointer;}.di-suggest-dismiss.svelte-10v1sym:hover {color:rgb(var(--fg-muted, 169 174 184));background:rgb(var(--surface-3, 39 42 49));}.di-add-wrap.svelte-10v1sym {position:relative;}.di-add-field.svelte-10v1sym {display:flex;align-items:center;justify-content:center;gap:6px;height:34px;width:100%;border:1px dashed rgb(var(--line-strong, 43 46 53));border-radius:6px;font-size:11.5px;color:rgb(var(--fg-muted, 169 174 184));background:none;cursor:pointer;}.di-add-field.svelte-10v1sym:hover {color:rgb(var(--fg, 232 234 237));}.di-add-menu.svelte-10v1sym {\n		/* Positioned by the `floating` action (position: fixed, inline top/left) -\n		   these are just its pre-mount fallback. */position:absolute;top:calc(100% + 4px);left:0;width:168px;border:1px solid rgb(var(--line-strong, 43 46 53));border-radius:8px;padding:4px;background:rgb(var(--surface-1, 22 24 28));box-shadow:var(--shadow-floating, 0 4px 16px rgb(0 0 0 / 0.5));z-index:1000;}.di-add-menu.svelte-10v1sym button:where(.svelte-10v1sym) {display:flex;width:100%;align-items:center;gap:8px;border-radius:5px;padding:6px 8px;font-size:12px;color:rgb(var(--fg-muted, 169 174 184));background:none;border:none;text-align:left;cursor:pointer;}.di-add-menu.svelte-10v1sym button:where(.svelte-10v1sym):hover {color:rgb(var(--fg, 232 234 237));background:rgb(var(--surface-3, 39 42 49));}.di-add-menu.svelte-10v1sym .type-tag:where(.svelte-10v1sym) {margin-left:auto;font-size:8.5px;color:rgb(var(--fg-disabled, 92 98 112));font-family:ui-monospace, SFMono-Regular, Menlo, monospace;}.di-container.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--surface-2, 31 33 38) / 0.4);}.di-container-head.svelte-10v1sym {display:flex;align-items:center;gap:8px;padding:8px 10px;flex-wrap:wrap;}.di-container-title.svelte-10v1sym {flex-shrink:0;width:130px;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:12px;font-weight:600;padding:0 8px;}.di-container-spacer.svelte-10v1sym {flex:1;}.di-container-actions.svelte-10v1sym {display:flex;align-items:center;gap:1px;flex-shrink:0;}.di-container-body.svelte-10v1sym {padding:0 10px 10px;display:flex;flex-direction:column;gap:8px;}.di-container.collapsed.svelte-10v1sym .di-container-body:where(.svelte-10v1sym) {display:none;}.di-chevron.svelte-10v1sym {display:inline-flex;transition:transform 0.12s;}.di-chevron.collapsed.svelte-10v1sym {transform:rotate(-90deg);}.di-row-cols.svelte-10v1sym {display:grid;gap:8px;min-width:0;}.di-row-cols.svelte-10v1sym > * {min-width:0;}.di-row-cols.svelte-10v1sym .di-field-card {overflow:hidden;}.di-row-cols.svelte-10v1sym .di-field-top {flex-wrap:wrap;}.di-col-control.svelte-10v1sym {display:flex;align-items:center;gap:5px;}.di-col-control.svelte-10v1sym .lbl:where(.svelte-10v1sym) {font-size:10px;color:rgb(var(--fg-subtle, 122 128 144));margin-right:2px;}.di-col-btn.svelte-10v1sym {width:22px;height:22px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg-muted, 169 174 184));font-size:11px;font-weight:600;cursor:pointer;}.di-col-btn.active.svelte-10v1sym {background:rgb(var(--signal, 91 157 255) / 0.15);color:rgb(var(--signal, 91 157 255));border-color:rgb(var(--signal, 91 157 255) / 0.4);}.di-header-card.svelte-10v1sym {display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--surface-2, 31 33 38) / 0.4);}.di-header-input.svelte-10v1sym {flex:1;min-width:0;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:12.5px;font-weight:600;padding:0 8px;}.di-empty.svelte-10v1sym {flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:40px 20px;text-align:center;}.di-empty.svelte-10v1sym .icon {color:rgb(var(--fg-disabled, 92 98 112));}.di-empty-text.svelte-10v1sym {font-size:12px;color:rgb(var(--fg-subtle, 122 128 144));}.di-mapedit.svelte-10v1sym {margin-top:8px;padding-top:10px;border-top:1px dashed rgb(var(--line, 36 38 44));}.di-mapedit-label.svelte-10v1sym {font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));margin-bottom:6px;}.di-mapedit-list.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:4px;overflow:hidden;}.di-mapedit-row.svelte-10v1sym {display:flex;align-items:center;gap:8px;padding:6px 9px;font-size:11px;flex-wrap:wrap;}.di-mapedit-node.svelte-10v1sym,\n	.di-mapedit-input.svelte-10v1sym {white-space:nowrap;}.di-mapedit-row.svelte-10v1sym + .di-mapedit-row:where(.svelte-10v1sym) {border-top:1px solid rgb(var(--line, 36 38 44));}.di-mapedit-row.selected.svelte-10v1sym {background:rgb(var(--signal, 91 157 255) / 0.08);}.di-mapedit-row.svelte-10v1sym input[type='checkbox']:where(.svelte-10v1sym) {accent-color:rgb(var(--signal, 91 157 255));}.di-mapedit-node.svelte-10v1sym {color:rgb(var(--fg-subtle, 122 128 144));}.di-mapedit-input.svelte-10v1sym {color:rgb(var(--fg, 232 234 237));}.di-mapedit-taken.svelte-10v1sym {margin-left:auto;font-size:10px;color:rgb(var(--fg-disabled, 92 98 112));}.di-mapedit-transform.svelte-10v1sym {margin-left:auto;flex:1 1 100%;}.di-mapedit-transform.svelte-10v1sym select:where(.svelte-10v1sym) {box-sizing:border-box;width:100%;height:24px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:11px;padding:0 6px;}.tab-popover.svelte-10v1sym {\n		/* Positioned by the `floating` action (position: fixed, inline top/left) -\n		   these are just its pre-mount fallback. */position:absolute;top:calc(100% + 4px);left:0;width:150px;border:1px solid rgb(var(--line-strong, 43 46 53));border-radius:8px;padding:4px;background:rgb(var(--surface-1, 22 24 28));box-shadow:var(--shadow-floating, 0 4px 16px rgb(0 0 0 / 0.5));z-index:1000;}.tab-popover.svelte-10v1sym button:where(.svelte-10v1sym) {display:flex;width:100%;align-items:center;gap:8px;border-radius:5px;padding:6px 8px;font-size:12px;color:rgb(var(--fg-muted, 169 174 184));background:none;border:none;text-align:left;cursor:pointer;}.tab-popover.svelte-10v1sym button:where(.svelte-10v1sym):hover:not(:disabled) {color:rgb(var(--fg, 232 234 237));background:rgb(var(--surface-3, 39 42 49));}.tab-popover.svelte-10v1sym button:where(.svelte-10v1sym):disabled {opacity:0.4;cursor:not-allowed;}.tab-popover.svelte-10v1sym hr:where(.svelte-10v1sym) {border:none;border-top:1px solid rgb(var(--line, 36 38 44));margin:4px 2px;}.tab-popover.svelte-10v1sym button.danger:where(.svelte-10v1sym) {color:rgb(var(--danger, 255 138 138));}\n\n	/* ---- History step ---- */.hist-designer.svelte-10v1sym {display:flex;gap:14px;align-items:flex-start;}.hist-left.svelte-10v1sym {width:58%;flex-shrink:0;}.hist-right.svelte-10v1sym {flex:1;min-width:0;}.pane-title.svelte-10v1sym {padding:0 0 8px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;color:rgb(var(--fg-muted, 169 174 184));display:flex;align-items:center;gap:8px;}.pane-title.svelte-10v1sym .n:where(.svelte-10v1sym) {font-weight:400;color:rgb(var(--fg-disabled, 92 98 112));text-transform:none;letter-spacing:0;}.hist-table.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--canvas, 12 13 15));overflow:hidden;}.hist-head.svelte-10v1sym {display:grid;grid-template-columns:40px 18px 1.3fr 1.05fr 1.05fr;align-items:center;gap:10px;padding:7px 12px;background:rgb(var(--surface-1, 22 24 28));border-bottom:1px solid rgb(var(--line, 36 38 44));font-size:9.5px;text-transform:uppercase;letter-spacing:0.06em;color:rgb(var(--fg-subtle, 122 128 144));}.hist-row.svelte-10v1sym {display:grid;grid-template-columns:40px 18px 1.3fr 1.05fr 1.05fr;align-items:center;gap:10px;padding:8px 12px;}.hist-row.svelte-10v1sym + .hist-row:where(.svelte-10v1sym) {border-top:1px solid rgb(var(--line, 36 38 44) / 0.6);}.hist-row.locked.svelte-10v1sym {background:rgb(var(--surface-1, 22 24 28) / 0.5);}.hist-reorder.svelte-10v1sym {display:flex;gap:2px;}.hist-row.svelte-10v1sym input[type='checkbox']:where(.svelte-10v1sym) {accent-color:rgb(var(--signal, 91 157 255));width:14px;height:14px;}.hist-field.svelte-10v1sym {min-width:0;display:flex;flex-direction:column;gap:1px;}.hist-field-label.svelte-10v1sym {font-size:12px;font-weight:500;color:rgb(var(--fg, 232 234 237));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}.hist-row.off.svelte-10v1sym .hist-field-label:where(.svelte-10v1sym) {color:rgb(var(--fg-subtle, 122 128 144));}.hist-field-name.svelte-10v1sym {font-size:9.5px;color:rgb(var(--fg-subtle, 122 128 144));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}.hist-label-input.svelte-10v1sym {width:100%;box-sizing:border-box;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:11.5px;padding:0 8px;}.hist-label-input.svelte-10v1sym:disabled {background:transparent;border-color:transparent;color:rgb(var(--fg-disabled, 92 98 112));padding-left:0;}.hist-value-select.svelte-10v1sym {width:100%;box-sizing:border-box;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg-muted, 169 174 184));font-size:11px;padding:0 6px;}.hist-value-select.svelte-10v1sym:disabled {opacity:0.5;}.hist-jinja-row.svelte-10v1sym {grid-column:1 / -1;margin:2px 0 0 58px;display:flex;align-items:center;gap:8px;}.hist-jinja-row.svelte-10v1sym .lbl:where(.svelte-10v1sym) {font-size:10px;color:rgb(var(--fg-subtle, 122 128 144));flex-shrink:0;}.hist-jinja-input.svelte-10v1sym {flex:1;box-sizing:border-box;height:26px;border-radius:4px;border:1px solid rgb(var(--signal, 91 157 255) / 0.4);background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:11px;padding:0 8px;}.hist-jinja-out.svelte-10v1sym {font-size:10px;color:rgb(var(--fg-subtle, 122 128 144));flex-shrink:0;}.hist-jinja-out.svelte-10v1sym .v:where(.svelte-10v1sym) {color:rgb(var(--success, 61 214 140));}.preview-card.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--surface-2, 31 33 38));overflow:hidden;box-shadow:var(--shadow-raised, inset 0 1px 0 rgb(255 255 255 / 0.04));}.preview-head.svelte-10v1sym {display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid rgb(var(--line, 36 38 44));}.preview-head.svelte-10v1sym .t:where(.svelte-10v1sym) {display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:rgb(var(--fg, 232 234 237));}.preview-head.svelte-10v1sym .t:where(.svelte-10v1sym) .icon {color:rgb(var(--success, 61 214 140));}.preview-grid.svelte-10v1sym {display:grid;grid-template-columns:1fr 1fr;gap:1px;background:rgb(var(--line, 36 38 44));}.preview-cell.svelte-10v1sym {background:rgb(var(--surface-2, 31 33 38));padding:10px;min-width:0;}.preview-cell.span2.svelte-10v1sym {grid-column:1 / -1;}.preview-k.svelte-10v1sym {font-size:9.5px;text-transform:uppercase;letter-spacing:0.06em;color:rgb(var(--fg-disabled, 92 98 112));margin-bottom:4px;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;}.preview-v.svelte-10v1sym {font-size:11.5px;font-weight:600;color:rgb(var(--fg, 232 234 237));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;}.preview-v.wrap.svelte-10v1sym {white-space:normal;overflow:visible;text-overflow:clip;}.preview-chips.svelte-10v1sym {display:flex;flex-wrap:wrap;gap:4px;margin-top:2px;}.preview-empty.svelte-10v1sym {padding:20px 16px;text-align:center;}.preview-empty.svelte-10v1sym .icon {color:rgb(var(--fg-disabled, 92 98 112));margin:0 auto 8px;}.preview-empty-text.svelte-10v1sym {font-size:11.5px;color:rgb(var(--fg-subtle, 122 128 144));max-width:260px;margin:0 auto;}.icon {stroke:currentColor;fill:none;flex:none;display:block;}"
 };
 function ImportWorkflowTab($$anchor, $$props) {
   if (new.target) return createClassComponent({ component: ImportWorkflowTab, ...$$anchor });
@@ -7461,6 +7462,159 @@ function ImportWorkflowTab($$anchor, $$props) {
     const m = field.mappings.find((m2) => m2.node_id === c.node_id && m2.input_name === c.input_name);
     if (m) m.transform = value;
   }
+  function serializeImportItem(it) {
+    if (it.kind === "field") {
+      return {
+        kind: "field",
+        field_name: it.field_name,
+        label: it.label,
+        field_type: it.field_type,
+        mappings: (it.mappings || []).map((m) => ({
+          node_id: m.node_id,
+          input_name: m.input_name,
+          transform: m.transform || "none"
+        }))
+      };
+    }
+    if (it.kind === "header") return { kind: "header", text: it.text };
+    return {
+      kind: it.kind,
+      label: it.title ?? null,
+      items: (it.items || []).map(serializeImportItem)
+    };
+  }
+  function buildImportChatContext() {
+    if (!get(analysis)) return null;
+    return {
+      workflow_name: get(displayName) || "",
+      format: get(analysis).format,
+      node_count: get(analysis).node_count,
+      candidates: (get(analysis).candidates || []).map((c) => ({
+        node_id: c.node_id,
+        class_type: c.class_type,
+        node_title: c.node_title,
+        input_name: c.input_name,
+        current_value: c.current_value,
+        value_type: c.value_type,
+        suggested_field_type: c.suggested_field_type,
+        role: c.role,
+        locked: isLockedCandidate(c)
+      })),
+      form: {
+        tabs: get(form).tabs.map((tab) => ({
+          id: tab.id,
+          label: tab.label,
+          items: tab.items.map(serializeImportItem)
+        }))
+      },
+      mapped: get(allFields).flatMap((f) => f.mappings.map((m) => ({
+        field_name: f.field_name,
+        node_id: m.node_id,
+        input_name: m.input_name,
+        transform: m.transform || "none"
+      })))
+    };
+  }
+  function slugifyImportTabId(label) {
+    const slug = (label || "").replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "").toLowerCase();
+    return slug || "tab";
+  }
+  function findImportTab(ref) {
+    if (!ref) return null;
+    return get(form).tabs.find((t) => t.id === ref) || get(form).tabs.find((t) => (t.label || "").toLowerCase() === String(ref).toLowerCase()) || null;
+  }
+  function tabIdForField(field) {
+    for (const t of get(form).tabs) {
+      if (collectFieldsFromItems(t.items, []).includes(field)) return t.id;
+    }
+    return null;
+  }
+  function applyImportMapping(field, nodeId, inputName, transform) {
+    if (!nodeId || !inputName) {
+      console.warn("propose_form_changes: mapping missing node_id/input_name", { field: field?.field_name, nodeId, inputName });
+      return;
+    }
+    const candidate = (get(analysis)?.candidates || []).find((c) => c.node_id === nodeId && c.input_name === inputName);
+    if (!candidate) {
+      console.warn(`propose_form_changes: no such candidate ${nodeId}.${inputName}`);
+      return;
+    }
+    if (isLockedCandidate(candidate)) {
+      console.warn(`propose_form_changes: skipping locked candidate ${nodeId}.${inputName}`);
+      return;
+    }
+    const owner = get(mappedFieldByKey).get(candidateKey(candidate));
+    if (owner && owner !== field) {
+      console.warn(`propose_form_changes: ${nodeId}.${inputName} is already mapped to '${owner.field_name}'`);
+      return;
+    }
+    toggleMapping(field, candidate, true);
+    if (transform && transform !== "none") setMappingTransform(field, candidate, transform);
+  }
+  function applyImportFormChanges(result) {
+    const ops = result?.ops;
+    if (!Array.isArray(ops) || ops.length === 0) return;
+    let lastTabId = null;
+    let applied = 0;
+    for (const op of ops) {
+      if (!op || typeof op !== "object") continue;
+      if (op.op === "add_tab") {
+        const label = op.label || "Tab";
+        const baseId = op.id || slugifyImportTabId(label);
+        let id = baseId;
+        let n = 2;
+        while (get(form).tabs.some((t) => t.id === id)) {
+          id = `${baseId}_${n}`;
+          n += 1;
+        }
+        get(form).tabs.push({ id, label, icon: null, items: [] });
+        lastTabId = id;
+        applied += 1;
+      } else if (op.op === "add_field") {
+        const tab = findImportTab(op.tab) || get(activeTab) || get(form).tabs[0];
+        if (!tab) {
+          console.warn("propose_form_changes: add_field has no target tab", op);
+          continue;
+        }
+        addItemToContainer(tab.items, "field");
+        const created = tab.items[tab.items.length - 1];
+        created.field_name = op.field_name && !get(allFields).some((f) => f !== created && f.field_name === op.field_name) ? op.field_name : uniqueFieldName(op.field_name || "field");
+        created.field_type = op.field_type || "text";
+        created.label = op.label || created.field_name;
+        if ("default" in op) created.default = op.default ?? null;
+        for (const m of op.mappings || []) applyImportMapping(created, m.node_id, m.input_name, m.transform);
+        lastTabId = tab.id;
+        applied += 1;
+      } else if (op.op === "map") {
+        const field = findFieldByName(op.field_name);
+        if (!field) {
+          console.warn(`propose_form_changes: map references unknown field '${op.field_name}'`, op);
+          continue;
+        }
+        applyImportMapping(field, op.node_id, op.input_name, op.transform);
+        lastTabId = tabIdForField(field) || lastTabId;
+        applied += 1;
+      } else {
+        console.warn("propose_form_changes: unknown op", op);
+      }
+    }
+    if (applied === 0) return;
+    if (get(step) < 2) set(step, 2);
+    if (lastTabId) set(activeTabId, lastTabId, true);
+    window.__potionui?.notifications?.toast?.("success", `Applied ${applied} change${applied === 1 ? "" : "s"} from the assistant`);
+  }
+  user_effect(() => {
+    const chat = window.__potionui?.chat;
+    if (!chat || get(step) < 2 || !get(analysis)) return;
+    const unregisterContext = chat.provideContext("comfyui_import", buildImportChatContext);
+    const unregisterMode = chat.declareMode("comfyui-import");
+    const unregisterTool = chat.onToolApplied("propose_form_changes", applyImportFormChanges);
+    return () => {
+      unregisterContext();
+      unregisterMode();
+      unregisterTool();
+    };
+  });
   function fieldTypeOptionsFor(current) {
     return [.../* @__PURE__ */ new Set([current, ...get(fieldTypeOptions)])].filter(Boolean);
   }
@@ -7827,7 +7981,7 @@ function ImportWorkflowTab($$anchor, $$props) {
     $set: update_legacy_props,
     $on: ($$event_name, $$event_cb) => add_legacy_event_listener($$props, $$event_name, $$event_cb)
   };
-  var fragment_14 = root_72();
+  var fragment_14 = root_73();
   var div_21 = sibling(first_child(fragment_14), 2);
   var div_22 = child(div_21);
   var div_23 = child(div_22);
@@ -8020,8 +8174,8 @@ function ImportWorkflowTab($$anchor, $$props) {
       }
       append($$anchor2, fragment_15);
     };
-    var consequent_38 = ($$anchor2) => {
-      var fragment_18 = root_44();
+    var consequent_39 = ($$anchor2) => {
+      var fragment_18 = root_45();
       var div_49 = sibling(first_child(fragment_18), 4);
       var span_11 = child(div_49);
       var text_20 = child(span_11, true);
@@ -8051,7 +8205,19 @@ function ImportWorkflowTab($$anchor, $$props) {
           if (get(analysis).lora_chain) $$render(consequent_30);
         });
       }
-      var button_23 = sibling(node_53, 2);
+      var span_13 = sibling(node_53, 2);
+      var node_54 = child(span_13);
+      {
+        var consequent_31 = ($$anchor3) => {
+          var span_14 = root_33();
+          append($$anchor3, span_14);
+        };
+        if_block(node_54, ($$render) => {
+          if (typeof window !== "undefined" && window.__potionui?.chat) $$render(consequent_31);
+        });
+      }
+      var button_23 = sibling(node_54, 2);
+      reset(span_13);
       reset(div_49);
       var div_50 = sibling(div_49, 2);
       var div_51 = child(div_50);
@@ -8059,50 +8225,50 @@ function ImportWorkflowTab($$anchor, $$props) {
       var input_6 = child(div_52);
       remove_input_defaults(input_6);
       reset(div_52);
-      var node_54 = sibling(div_52, 2);
-      each(node_54, 17, () => get(leftGroups), (g) => g.node_id, ($$anchor3, g) => {
-        var fragment_21 = root_38();
+      var node_55 = sibling(div_52, 2);
+      each(node_55, 17, () => get(leftGroups), (g) => g.node_id, ($$anchor3, g) => {
+        var fragment_21 = root_39();
         var div_53 = first_child(fragment_21);
         var text_22 = child(div_53);
-        var span_13 = sibling(text_22);
-        var text_23 = child(span_13, true);
-        reset(span_13);
+        var span_15 = sibling(text_22);
+        var text_23 = child(span_15, true);
+        reset(span_15);
         reset(div_53);
-        var node_55 = sibling(div_53, 2);
-        each(node_55, 17, () => get(g).rows, (c) => candidateKey(c), ($$anchor4, c) => {
+        var node_56 = sibling(div_53, 2);
+        each(node_56, 17, () => get(g).rows, (c) => candidateKey(c), ($$anchor4, c) => {
           const key2 = user_derived(() => candidateKey(get(c)));
           const locked = user_derived(() => isLockedCandidate(get(c)));
           const mappedField = user_derived(() => get(mappedFieldByKey).get(get(key2)));
-          var div_54 = root_37();
+          var div_54 = root_38();
           let classes_6;
-          var span_14 = child(div_54);
-          var text_24 = child(span_14, true);
-          reset(span_14);
-          var node_56 = sibling(span_14, 2);
+          var span_16 = child(div_54);
+          var text_24 = child(span_16, true);
+          reset(span_16);
+          var node_57 = sibling(span_16, 2);
           {
-            var consequent_31 = ($$anchor5) => {
-              var span_15 = root_33();
-              var node_57 = child(span_15);
-              icon(node_57, () => "lock", () => 10);
-              next();
-              reset(span_15);
-              append($$anchor5, span_15);
-            };
             var consequent_32 = ($$anchor5) => {
-              var span_16 = root_34();
-              var text_25 = child(span_16, true);
-              reset(span_16);
+              var span_17 = root_34();
+              var node_58 = child(span_17);
+              icon(node_58, () => "lock", () => 10);
+              next();
+              reset(span_17);
+              append($$anchor5, span_17);
+            };
+            var consequent_33 = ($$anchor5) => {
+              var span_18 = root_35();
+              var text_25 = child(span_18, true);
+              reset(span_18);
               template_effect(() => set_text(text_25, get(mappedField).label));
-              append($$anchor5, span_16);
+              append($$anchor5, span_18);
             };
             var alternate_3 = ($$anchor5) => {
-              var fragment_22 = root_35();
-              var span_17 = first_child(fragment_22);
-              var text_26 = child(span_17, true);
-              reset(span_17);
-              var span_18 = sibling(span_17, 2);
-              var text_27 = child(span_18, true);
-              reset(span_18);
+              var fragment_22 = root_36();
+              var span_19 = first_child(fragment_22);
+              var text_26 = child(span_19, true);
+              reset(span_19);
+              var span_20 = sibling(span_19, 2);
+              var text_27 = child(span_20, true);
+              reset(span_20);
               template_effect(
                 ($0, $1) => {
                   set_text(text_26, $0);
@@ -8115,29 +8281,29 @@ function ImportWorkflowTab($$anchor, $$props) {
               );
               append($$anchor5, fragment_22);
             };
-            if_block(node_56, ($$render) => {
-              if (get(locked)) $$render(consequent_31);
-              else if (get(mappedField)) $$render(consequent_32, 1);
+            if_block(node_57, ($$render) => {
+              if (get(locked)) $$render(consequent_32);
+              else if (get(mappedField)) $$render(consequent_33, 1);
               else $$render(alternate_3, -1);
             });
           }
-          var div_55 = sibling(node_56, 2);
-          var node_58 = child(div_55);
+          var div_55 = sibling(node_57, 2);
+          var node_59 = child(div_55);
           {
-            var consequent_33 = ($$anchor5) => {
+            var consequent_34 = ($$anchor5) => {
               icon($$anchor5, () => "check", () => 13);
             };
-            var consequent_34 = ($$anchor5) => {
-              var button_24 = root_36();
-              var node_59 = child(button_24);
-              icon(node_59, () => "arrow-right", () => 13);
+            var consequent_35 = ($$anchor5) => {
+              var button_24 = root_37();
+              var node_60 = child(button_24);
+              icon(node_60, () => "arrow-right", () => 13);
               reset(button_24);
               delegated("click", button_24, () => addCandidateToForm(get(c)));
               append($$anchor5, button_24);
             };
-            if_block(node_58, ($$render) => {
-              if (get(mappedField)) $$render(consequent_33);
-              else if (!get(locked)) $$render(consequent_34, 1);
+            if_block(node_59, ($$render) => {
+              if (get(mappedField)) $$render(consequent_34);
+              else if (!get(locked)) $$render(consequent_35, 1);
             });
           }
           reset(div_55);
@@ -8158,14 +8324,14 @@ function ImportWorkflowTab($$anchor, $$props) {
       reset(div_51);
       var div_56 = sibling(div_51, 2);
       var div_57 = child(div_56);
-      var node_60 = child(div_57);
-      each(node_60, 19, () => get(form).tabs, (tab) => tab.id, ($$anchor3, tab, ti) => {
-        var span_19 = root_41();
+      var node_61 = child(div_57);
+      each(node_61, 19, () => get(form).tabs, (tab) => tab.id, ($$anchor3, tab, ti) => {
+        var span_21 = root_42();
         let classes_7;
-        var node_61 = child(span_19);
+        var node_62 = child(span_21);
         {
-          var consequent_35 = ($$anchor4) => {
-            var input_7 = root_39();
+          var consequent_36 = ($$anchor4) => {
+            var input_7 = root_40();
             remove_input_defaults(input_7);
             template_effect(() => set_value(input_7, get(tab).label));
             delegated("click", input_7, (e) => e.stopPropagation());
@@ -8184,37 +8350,37 @@ function ImportWorkflowTab($$anchor, $$props) {
             template_effect(() => set_text(text_28, get(tab).label));
             append($$anchor4, text_28);
           };
-          if_block(node_61, ($$render) => {
-            if (get(renamingTabId) === get(tab).id) $$render(consequent_35);
+          if_block(node_62, ($$render) => {
+            if (get(renamingTabId) === get(tab).id) $$render(consequent_36);
             else $$render(alternate_4, -1);
           });
         }
-        var span_20 = sibling(node_61, 2);
-        var node_62 = child(span_20);
-        icon(node_62, () => "more", () => 11);
-        reset(span_20);
-        var node_63 = sibling(span_20, 2);
+        var span_22 = sibling(node_62, 2);
+        var node_63 = child(span_22);
+        icon(node_63, () => "more", () => 11);
+        reset(span_22);
+        var node_64 = sibling(span_22, 2);
         {
-          var consequent_36 = ($$anchor4) => {
-            var div_58 = root_40();
+          var consequent_37 = ($$anchor4) => {
+            var div_58 = root_41();
             var button_25 = child(div_58);
-            var node_64 = child(button_25);
-            icon(node_64, () => "pencil");
+            var node_65 = child(button_25);
+            icon(node_65, () => "pencil");
             next();
             reset(button_25);
             var button_26 = sibling(button_25, 2);
-            var node_65 = child(button_26);
-            icon(node_65, () => "arrow-left");
+            var node_66 = child(button_26);
+            icon(node_66, () => "arrow-left");
             next();
             reset(button_26);
             var button_27 = sibling(button_26, 2);
-            var node_66 = child(button_27);
-            icon(node_66, () => "arrow-right");
+            var node_67 = child(button_27);
+            icon(node_67, () => "arrow-right");
             next();
             reset(button_27);
             var button_28 = sibling(button_27, 4);
-            var node_67 = child(button_28);
-            icon(node_67, () => "x");
+            var node_68 = child(button_28);
+            icon(node_68, () => "x");
             next();
             reset(button_28);
             reset(div_58);
@@ -8247,63 +8413,63 @@ function ImportWorkflowTab($$anchor, $$props) {
             });
             append($$anchor4, div_58);
           };
-          if_block(node_63, ($$render) => {
-            if (get(tabPopoverId) === get(tab).id) $$render(consequent_36);
+          if_block(node_64, ($$render) => {
+            if (get(tabPopoverId) === get(tab).id) $$render(consequent_37);
           });
         }
-        reset(span_19);
+        reset(span_21);
         template_effect(() => {
-          classes_7 = set_class(span_19, 1, "di-tab svelte-10v1sym", null, classes_7, { active: get(tab).id === get(activeTabId) });
-          set_attribute2(span_19, "aria-selected", get(tab).id === get(activeTabId));
-          set_attribute2(span_19, "data-tab-id", get(tab).id);
+          classes_7 = set_class(span_21, 1, "di-tab svelte-10v1sym", null, classes_7, { active: get(tab).id === get(activeTabId) });
+          set_attribute2(span_21, "aria-selected", get(tab).id === get(activeTabId));
+          set_attribute2(span_21, "data-tab-id", get(tab).id);
         });
-        delegated("click", span_19, () => set(activeTabId, get(tab).id, true));
-        delegated("keydown", span_19, (e) => {
+        delegated("click", span_21, () => set(activeTabId, get(tab).id, true));
+        delegated("keydown", span_21, (e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
             set(activeTabId, get(tab).id, true);
           }
         });
-        delegated("click", span_20, (e) => {
+        delegated("click", span_22, (e) => {
           e.stopPropagation();
           toggleTabPopover(get(tab).id, e.currentTarget);
         });
-        delegated("keydown", span_20, (e) => {
+        delegated("keydown", span_22, (e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
             e.stopPropagation();
             toggleTabPopover(get(tab).id, e.currentTarget);
           }
         });
-        append($$anchor3, span_19);
+        append($$anchor3, span_21);
       });
-      var span_21 = sibling(node_60, 2);
-      var node_68 = child(span_21);
-      icon(node_68, () => "plus", () => 11);
+      var span_23 = sibling(node_61, 2);
+      var node_69 = child(span_23);
+      icon(node_69, () => "plus", () => 11);
       next();
-      reset(span_21);
+      reset(span_23);
       reset(div_57);
       var div_59 = sibling(div_57, 2);
-      var node_69 = child(div_59);
+      var node_70 = child(div_59);
       {
-        var consequent_37 = ($$anchor3) => {
-          var div_60 = root_42();
-          var node_70 = child(div_60);
-          icon(node_70, () => "inbox", () => 24);
+        var consequent_38 = ($$anchor3) => {
+          var div_60 = root_43();
+          var node_71 = child(div_60);
+          icon(node_71, () => "inbox", () => 24);
           next(2);
           reset(div_60);
           append($$anchor3, div_60);
         };
-        if_block(node_69, ($$render) => {
-          if (get(activeTab).items.length === 0) $$render(consequent_37);
+        if_block(node_70, ($$render) => {
+          if (get(activeTab).items.length === 0) $$render(consequent_38);
         });
       }
-      var node_71 = sibling(node_69, 2);
-      each(node_71, 19, () => get(activeTab).items, (it) => it._id, ($$anchor3, it, index2) => {
+      var node_72 = sibling(node_70, 2);
+      each(node_72, 19, () => get(activeTab).items, (it) => it._id, ($$anchor3, it, index2) => {
         anyItem($$anchor3, () => get(it), () => get(activeTab).items, () => get(index2));
       });
-      var node_72 = sibling(node_71, 2);
-      addMenu(node_72, () => get(activeTab).items, () => true);
+      var node_73 = sibling(node_72, 2);
+      addMenu(node_73, () => get(activeTab).items, () => true);
       reset(div_59);
       reset(div_56);
       reset(div_50);
@@ -8313,7 +8479,7 @@ function ImportWorkflowTab($$anchor, $$props) {
       remove_input_defaults(input_8);
       var datalist = sibling(input_8, 2);
       each(datalist, 21, () => get(families), index, ($$anchor3, f) => {
-        var option_2 = root_43();
+        var option_2 = root_44();
         var option_2_value = {};
         template_effect(() => {
           if (option_2_value !== (option_2_value = get(f))) {
@@ -8339,8 +8505,8 @@ function ImportWorkflowTab($$anchor, $$props) {
       });
       delegated("click", button_23, changeWorkflow);
       bind_value(input_6, () => get(leftSearch), ($$value) => set(leftSearch, $$value));
-      delegated("click", span_21, addTab);
-      delegated("keydown", span_21, (e) => {
+      delegated("click", span_23, addTab);
+      delegated("keydown", span_23, (e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           addTab();
@@ -8351,72 +8517,72 @@ function ImportWorkflowTab($$anchor, $$props) {
       bind_value(input_10, () => get(displayName), ($$value) => set(displayName, $$value));
       append($$anchor2, fragment_18);
     };
-    var consequent_42 = ($$anchor2) => {
-      var fragment_26 = root_51();
+    var consequent_43 = ($$anchor2) => {
+      var fragment_26 = root_52();
       var div_65 = sibling(first_child(fragment_26), 4);
       var div_66 = child(div_65);
       var div_67 = child(div_66);
-      var span_22 = sibling(child(div_67));
-      var text_29 = child(span_22, true);
-      reset(span_22);
+      var span_24 = sibling(child(div_67));
+      var text_29 = child(span_24, true);
+      reset(span_24);
       reset(div_67);
       var div_68 = sibling(div_67, 2);
       var div_69 = sibling(child(div_68), 2);
       var input_11 = sibling(child(div_69), 3);
-      var span_23 = sibling(input_11);
-      var node_73 = child(span_23);
-      icon(node_73, () => "lock", () => 10);
+      var span_25 = sibling(input_11);
+      var node_74 = child(span_25);
+      icon(node_74, () => "lock", () => 10);
       next();
-      reset(span_23);
+      reset(span_25);
       reset(div_69);
       var div_70 = sibling(div_69, 2);
       var input_12 = sibling(child(div_70), 3);
-      var span_24 = sibling(input_12);
-      var node_74 = child(span_24);
-      icon(node_74, () => "lock", () => 10);
+      var span_26 = sibling(input_12);
+      var node_75 = child(span_26);
+      icon(node_75, () => "lock", () => 10);
       next();
-      reset(span_24);
+      reset(span_26);
       reset(div_70);
       var div_71 = sibling(div_70, 2);
       var input_13 = sibling(child(div_71), 3);
-      var span_25 = sibling(input_13);
-      var node_75 = child(span_25);
-      icon(node_75, () => "lock", () => 10);
+      var span_27 = sibling(input_13);
+      var node_76 = child(span_27);
+      icon(node_76, () => "lock", () => 10);
       next();
-      reset(span_25);
+      reset(span_27);
       reset(div_71);
       var div_72 = sibling(div_71, 2);
       var input_14 = sibling(child(div_72), 3);
-      var span_26 = sibling(input_14);
-      var node_76 = child(span_26);
-      icon(node_76, () => "lock", () => 10);
+      var span_28 = sibling(input_14);
+      var node_77 = child(span_28);
+      icon(node_77, () => "lock", () => 10);
       next();
-      reset(span_26);
+      reset(span_28);
       reset(div_72);
-      var node_77 = sibling(div_72, 2);
-      each(node_77, 19, () => get(historyRows), (row) => row.field_name, ($$anchor3, row, index2) => {
+      var node_78 = sibling(div_72, 2);
+      each(node_78, 19, () => get(historyRows), (row) => row.field_name, ($$anchor3, row, index2) => {
         const f = user_derived(() => fieldForRow(get(row)));
-        var div_73 = root_46();
+        var div_73 = root_47();
         let classes_8;
         var div_74 = child(div_73);
         var button_29 = child(div_74);
-        var node_78 = child(button_29);
-        icon(node_78, () => "chevron-up", () => 10);
+        var node_79 = child(button_29);
+        icon(node_79, () => "chevron-up", () => 10);
         reset(button_29);
         var button_30 = sibling(button_29, 2);
-        var node_79 = child(button_30);
-        icon(node_79, () => "chevron-down", () => 10);
+        var node_80 = child(button_30);
+        icon(node_80, () => "chevron-down", () => 10);
         reset(button_30);
         reset(div_74);
         var input_15 = sibling(div_74, 2);
         remove_input_defaults(input_15);
         var div_75 = sibling(input_15, 2);
-        var span_27 = child(div_75);
-        var text_30 = child(span_27, true);
-        reset(span_27);
-        var span_28 = sibling(span_27, 2);
-        var text_31 = child(span_28, true);
-        reset(span_28);
+        var span_29 = child(div_75);
+        var text_30 = child(span_29, true);
+        reset(span_29);
+        var span_30 = sibling(span_29, 2);
+        var text_31 = child(span_30, true);
+        reset(span_30);
         reset(div_75);
         var input_16 = sibling(div_75, 2);
         remove_input_defaults(input_16);
@@ -8437,17 +8603,17 @@ function ImportWorkflowTab($$anchor, $$props) {
         reset(select_2);
         var select_2_value;
         init_select(select_2);
-        var node_80 = sibling(select_2, 2);
+        var node_81 = sibling(select_2, 2);
         {
-          var consequent_39 = ($$anchor4) => {
-            var div_76 = root_45();
+          var consequent_40 = ($$anchor4) => {
+            var div_76 = root_46();
             var input_17 = sibling(child(div_76), 2);
             remove_input_defaults(input_17);
-            var span_29 = sibling(input_17, 2);
-            var span_30 = sibling(child(span_29));
-            var text_33 = child(span_30, true);
-            reset(span_30);
-            reset(span_29);
+            var span_31 = sibling(input_17, 2);
+            var span_32 = sibling(child(span_31));
+            var text_33 = child(span_32, true);
+            reset(span_32);
+            reset(span_31);
             reset(div_76);
             template_effect(($0) => set_text(text_33, $0), [
               () => get(f) ? formatPreviewValue(get(f), "jinja", get(row).template) : ""
@@ -8455,8 +8621,8 @@ function ImportWorkflowTab($$anchor, $$props) {
             bind_value(input_17, () => get(row).template, ($$value) => get(row).template = $$value);
             append($$anchor4, div_76);
           };
-          if_block(node_80, ($$render) => {
-            if (get(row).enabled && get(row).format === "jinja") $$render(consequent_39);
+          if_block(node_81, ($$render) => {
+            if (get(row).enabled && get(row).format === "jinja") $$render(consequent_40);
           });
         }
         reset(div_73);
@@ -8489,33 +8655,33 @@ function ImportWorkflowTab($$anchor, $$props) {
       var div_78 = sibling(child(div_77), 2);
       var div_79 = child(div_78);
       var div_80 = child(div_79);
-      var node_81 = child(div_80);
-      icon(node_81, () => "sliders", () => 14);
+      var node_82 = child(div_80);
+      icon(node_82, () => "sliders", () => 14);
       next();
       reset(div_80);
       next(2);
       reset(div_79);
       var div_81 = sibling(div_79, 2);
-      var node_82 = sibling(child(div_81), 8);
-      each(node_82, 17, () => get(historyRows).filter((r) => r.enabled), (row) => row.field_name, ($$anchor3, row) => {
+      var node_83 = sibling(child(div_81), 8);
+      each(node_83, 17, () => get(historyRows).filter((r) => r.enabled), (row) => row.field_name, ($$anchor3, row) => {
         const f = user_derived(() => fieldForRow(get(row)));
         var fragment_27 = comment();
-        var node_83 = first_child(fragment_27);
+        var node_84 = first_child(fragment_27);
         {
-          var consequent_40 = ($$anchor4) => {
-            var div_82 = root_48();
+          var consequent_41 = ($$anchor4) => {
+            var div_82 = root_49();
             var div_83 = child(div_82);
             var text_34 = child(div_83, true);
             reset(div_83);
             var div_84 = sibling(div_83, 2);
             each(div_84, 21, () => get(f).default, index, ($$anchor5, chipItem) => {
-              var span_31 = root_47();
-              var text_35 = child(span_31, true);
-              reset(span_31);
+              var span_33 = root_48();
+              var text_35 = child(span_33, true);
+              reset(span_33);
               template_effect(($0) => set_text(text_35, $0), [
                 () => typeof get(chipItem) === "object" ? get(chipItem)?.name || JSON.stringify(get(chipItem)) : get(chipItem)
               ]);
-              append($$anchor5, span_31);
+              append($$anchor5, span_33);
             });
             reset(div_84);
             reset(div_82);
@@ -8524,7 +8690,7 @@ function ImportWorkflowTab($$anchor, $$props) {
           };
           var d_2 = user_derived(() => get(row).format === "list" && get(f) && Array.isArray(get(f).default));
           var alternate_5 = ($$anchor4) => {
-            var div_85 = root_49();
+            var div_85 = root_50();
             var div_86 = child(div_85);
             var text_36 = child(div_86, true);
             reset(div_86);
@@ -8543,27 +8709,27 @@ function ImportWorkflowTab($$anchor, $$props) {
             );
             append($$anchor4, div_85);
           };
-          if_block(node_83, ($$render) => {
-            if (get(d_2)) $$render(consequent_40);
+          if_block(node_84, ($$render) => {
+            if (get(d_2)) $$render(consequent_41);
             else $$render(alternate_5, -1);
           });
         }
         append($$anchor3, fragment_27);
       });
       reset(div_81);
-      var node_84 = sibling(div_81, 2);
+      var node_85 = sibling(div_81, 2);
       {
-        var consequent_41 = ($$anchor3) => {
-          var div_88 = root_50();
-          var node_85 = child(div_88);
-          icon(node_85, () => "inbox", () => 20);
+        var consequent_42 = ($$anchor3) => {
+          var div_88 = root_51();
+          var node_86 = child(div_88);
+          icon(node_86, () => "inbox", () => 20);
           next(2);
           reset(div_88);
           append($$anchor3, div_88);
         };
         var d_3 = user_derived(() => get(historyRows).filter((r) => r.enabled).length === 0);
-        if_block(node_84, ($$render) => {
-          if (get(d_3)) $$render(consequent_41);
+        if_block(node_85, ($$render) => {
+          if (get(d_3)) $$render(consequent_42);
         });
       }
       reset(div_78);
@@ -8572,33 +8738,33 @@ function ImportWorkflowTab($$anchor, $$props) {
       template_effect(() => set_text(text_29, get(historyRows).length + 4));
       append($$anchor2, fragment_26);
     };
-    var consequent_49 = ($$anchor2) => {
-      var fragment_28 = root_59();
-      var node_86 = sibling(first_child(fragment_28), 6);
+    var consequent_50 = ($$anchor2) => {
+      var fragment_28 = root_60();
+      var node_87 = sibling(first_child(fragment_28), 6);
       {
-        var consequent_43 = ($$anchor3) => {
-          var div_89 = root_52();
+        var consequent_44 = ($$anchor3) => {
+          var div_89 = root_53();
           append($$anchor3, div_89);
         };
-        var consequent_44 = ($$anchor3) => {
-          var p_2 = root_53();
+        var consequent_45 = ($$anchor3) => {
+          var p_2 = root_54();
           var text_38 = child(p_2, true);
           reset(p_2);
           template_effect(() => set_text(text_38, get(requirementsError)));
           append($$anchor3, p_2);
         };
-        var consequent_47 = ($$anchor3) => {
+        var consequent_48 = ($$anchor3) => {
           var fragment_29 = comment();
-          var node_87 = first_child(fragment_29);
+          var node_88 = first_child(fragment_29);
           {
-            var consequent_45 = ($$anchor4) => {
-              var div_90 = root_54();
+            var consequent_46 = ($$anchor4) => {
+              var div_90 = root_55();
               append($$anchor4, div_90);
             };
             var alternate_6 = ($$anchor4) => {
-              var div_91 = root_57();
+              var div_91 = root_58();
               each(div_91, 21, () => get(requirementsResults), index, ($$anchor5, r) => {
-                var div_92 = root_56();
+                var div_92 = root_57();
                 var div_93 = child(div_92);
                 var div_94 = sibling(div_93, 2);
                 var div_95 = child(div_94);
@@ -8607,17 +8773,17 @@ function ImportWorkflowTab($$anchor, $$props) {
                 var div_96 = sibling(div_95, 2);
                 var text_40 = child(div_96, true);
                 reset(div_96);
-                var node_88 = sibling(div_96, 2);
+                var node_89 = sibling(div_96, 2);
                 {
-                  var consequent_46 = ($$anchor6) => {
-                    var div_97 = root_55();
+                  var consequent_47 = ($$anchor6) => {
+                    var div_97 = root_56();
                     var text_41 = child(div_97, true);
                     reset(div_97);
                     template_effect(() => set_text(text_41, get(r).hint));
                     append($$anchor6, div_97);
                   };
-                  if_block(node_88, ($$render) => {
-                    if (get(r).status !== "ok" && get(r).hint) $$render(consequent_46);
+                  if_block(node_89, ($$render) => {
+                    if (get(r).status !== "ok" && get(r).hint) $$render(consequent_47);
                   });
                 }
                 reset(div_94);
@@ -8632,52 +8798,52 @@ function ImportWorkflowTab($$anchor, $$props) {
               reset(div_91);
               append($$anchor4, div_91);
             };
-            if_block(node_87, ($$render) => {
-              if (get(requirementsResults).length === 0) $$render(consequent_45);
+            if_block(node_88, ($$render) => {
+              if (get(requirementsResults).length === 0) $$render(consequent_46);
               else $$render(alternate_6, -1);
             });
           }
           append($$anchor3, fragment_29);
         };
-        if_block(node_86, ($$render) => {
-          if (get(requirementsLoading)) $$render(consequent_43);
-          else if (get(requirementsError)) $$render(consequent_44, 1);
-          else if (get(requirementsResults)) $$render(consequent_47, 2);
+        if_block(node_87, ($$render) => {
+          if (get(requirementsLoading)) $$render(consequent_44);
+          else if (get(requirementsError)) $$render(consequent_45, 1);
+          else if (get(requirementsResults)) $$render(consequent_48, 2);
         });
       }
-      var node_89 = sibling(node_86, 2);
+      var node_90 = sibling(node_87, 2);
       {
-        var consequent_48 = ($$anchor3) => {
-          var p_3 = root_58();
+        var consequent_49 = ($$anchor3) => {
+          var p_3 = root_59();
           var text_42 = child(p_3, true);
           reset(p_3);
           template_effect(() => set_text(text_42, get(createError)));
           append($$anchor3, p_3);
         };
-        if_block(node_89, ($$render) => {
-          if (get(createError)) $$render(consequent_48);
+        if_block(node_90, ($$render) => {
+          if (get(createError)) $$render(consequent_49);
         });
       }
       append($$anchor2, fragment_28);
     };
-    var consequent_53 = ($$anchor2) => {
-      var fragment_30 = root_64();
+    var consequent_54 = ($$anchor2) => {
+      var fragment_30 = root_65();
       var p_4 = sibling(first_child(fragment_30), 2);
       var text_43 = child(p_4);
       reset(p_4);
       var div_98 = sibling(p_4, 2);
       var p_5 = child(div_98);
-      var span_32 = sibling(child(p_5));
-      var text_44 = child(span_32, true);
-      reset(span_32);
+      var span_34 = sibling(child(p_5));
+      var text_44 = child(span_34, true);
+      reset(span_34);
       reset(p_5);
-      var node_90 = sibling(p_5, 2);
+      var node_91 = sibling(p_5, 2);
       {
-        var consequent_50 = ($$anchor3) => {
-          var div_99 = root_61();
+        var consequent_51 = ($$anchor3) => {
+          var div_99 = root_62();
           var ul = sibling(child(div_99), 2);
           each(ul, 21, () => get(createResult).lint.errors, index, ($$anchor4, err) => {
-            var li = root_60();
+            var li = root_61();
             var text_45 = child(li, true);
             reset(li);
             template_effect(() => set_text(text_45, get(err)));
@@ -8687,17 +8853,17 @@ function ImportWorkflowTab($$anchor, $$props) {
           reset(div_99);
           append($$anchor3, div_99);
         };
-        if_block(node_90, ($$render) => {
-          if (get(createResult).lint.errors.length > 0) $$render(consequent_50);
+        if_block(node_91, ($$render) => {
+          if (get(createResult).lint.errors.length > 0) $$render(consequent_51);
         });
       }
-      var node_91 = sibling(node_90, 2);
+      var node_92 = sibling(node_91, 2);
       {
-        var consequent_51 = ($$anchor3) => {
+        var consequent_52 = ($$anchor3) => {
           var fragment_31 = comment();
-          var node_92 = first_child(fragment_31);
-          each(node_92, 17, () => get(createResult).lint.warnings, index, ($$anchor4, warn) => {
-            var div_100 = root_62();
+          var node_93 = first_child(fragment_31);
+          each(node_93, 17, () => get(createResult).lint.warnings, index, ($$anchor4, warn) => {
+            var div_100 = root_63();
             var div_101 = sibling(child(div_100), 2);
             var text_46 = child(div_101, true);
             reset(div_101);
@@ -8707,18 +8873,18 @@ function ImportWorkflowTab($$anchor, $$props) {
           });
           append($$anchor3, fragment_31);
         };
-        if_block(node_91, ($$render) => {
-          if (get(createResult).lint.warnings.length > 0) $$render(consequent_51);
+        if_block(node_92, ($$render) => {
+          if (get(createResult).lint.warnings.length > 0) $$render(consequent_52);
         });
       }
-      var node_93 = sibling(node_91, 2);
+      var node_94 = sibling(node_92, 2);
       {
-        var consequent_52 = ($$anchor3) => {
-          var p_6 = root_63();
+        var consequent_53 = ($$anchor3) => {
+          var p_6 = root_64();
           append($$anchor3, p_6);
         };
-        if_block(node_93, ($$render) => {
-          if (get(createResult).lint.errors.length === 0 && get(createResult).lint.warnings.length === 0) $$render(consequent_52);
+        if_block(node_94, ($$render) => {
+          if (get(createResult).lint.errors.length === 0 && get(createResult).lint.warnings.length === 0) $$render(consequent_53);
         });
       }
       reset(div_98);
@@ -8730,18 +8896,18 @@ function ImportWorkflowTab($$anchor, $$props) {
     };
     if_block(node_48, ($$render) => {
       if (get(step) === 1) $$render(consequent_28);
-      else if (get(step) === 2) $$render(consequent_38, 1);
-      else if (get(step) === 3) $$render(consequent_42, 2);
-      else if (get(step) === 4) $$render(consequent_49, 3);
-      else if (get(step) === 5 && get(createResult)) $$render(consequent_53, 4);
+      else if (get(step) === 2) $$render(consequent_39, 1);
+      else if (get(step) === 3) $$render(consequent_43, 2);
+      else if (get(step) === 4) $$render(consequent_50, 3);
+      else if (get(step) === 5 && get(createResult)) $$render(consequent_54, 4);
     });
   }
   reset(div_43);
   var div_102 = sibling(div_43, 2);
-  var node_94 = child(div_102);
+  var node_95 = child(div_102);
   {
-    var consequent_54 = ($$anchor2) => {
-      var fragment_32 = root_65();
+    var consequent_55 = ($$anchor2) => {
+      var fragment_32 = root_66();
       var button_31 = first_child(fragment_32);
       var a_1 = sibling(button_31, 4);
       template_effect(() => set_attribute2(a_1, "href", `/admin?tab=presets&preset=${get(createResult)?.preset_id ?? ""}`));
@@ -8749,23 +8915,23 @@ function ImportWorkflowTab($$anchor, $$props) {
       append($$anchor2, fragment_32);
     };
     var alternate_7 = ($$anchor2) => {
-      var fragment_33 = root_71();
-      var node_95 = first_child(fragment_33);
+      var fragment_33 = root_72();
+      var node_96 = first_child(fragment_33);
       {
-        var consequent_55 = ($$anchor3) => {
-          var button_32 = root_66();
+        var consequent_56 = ($$anchor3) => {
+          var button_32 = root_67();
           template_effect(() => button_32.disabled = get(analyzing) || get(creating));
           delegated("click", button_32, goBack);
           append($$anchor3, button_32);
         };
-        if_block(node_95, ($$render) => {
-          if (get(step) > 1) $$render(consequent_55);
+        if_block(node_96, ($$render) => {
+          if (get(step) > 1) $$render(consequent_56);
         });
       }
-      var node_96 = sibling(node_95, 4);
+      var node_97 = sibling(node_96, 4);
       {
-        var consequent_56 = ($$anchor3) => {
-          var button_33 = root_67();
+        var consequent_57 = ($$anchor3) => {
+          var button_33 = root_68();
           var text_47 = child(button_33, true);
           reset(button_33);
           template_effect(
@@ -8780,19 +8946,19 @@ function ImportWorkflowTab($$anchor, $$props) {
           delegated("click", button_33, handleSourceContinue);
           append($$anchor3, button_33);
         };
-        var consequent_57 = ($$anchor3) => {
-          var button_34 = root_68();
+        var consequent_58 = ($$anchor3) => {
+          var button_34 = root_69();
           template_effect(() => button_34.disabled = !get(canContinueForm));
           delegated("click", button_34, goToHistory);
           append($$anchor3, button_34);
         };
-        var consequent_58 = ($$anchor3) => {
-          var button_35 = root_69();
+        var consequent_59 = ($$anchor3) => {
+          var button_35 = root_70();
           delegated("click", button_35, goToRequirementsStep);
           append($$anchor3, button_35);
         };
-        var consequent_59 = ($$anchor3) => {
-          var button_36 = root_70();
+        var consequent_60 = ($$anchor3) => {
+          var button_36 = root_71();
           var text_48 = child(button_36, true);
           reset(button_36);
           template_effect(() => {
@@ -8802,17 +8968,17 @@ function ImportWorkflowTab($$anchor, $$props) {
           delegated("click", button_36, runCreate);
           append($$anchor3, button_36);
         };
-        if_block(node_96, ($$render) => {
-          if (get(step) === 1) $$render(consequent_56);
-          else if (get(step) === 2) $$render(consequent_57, 1);
-          else if (get(step) === 3) $$render(consequent_58, 2);
-          else if (get(step) === 4) $$render(consequent_59, 3);
+        if_block(node_97, ($$render) => {
+          if (get(step) === 1) $$render(consequent_57);
+          else if (get(step) === 2) $$render(consequent_58, 1);
+          else if (get(step) === 3) $$render(consequent_59, 2);
+          else if (get(step) === 4) $$render(consequent_60, 3);
         });
       }
       append($$anchor2, fragment_33);
     };
-    if_block(node_94, ($$render) => {
-      if (get(step) === 5) $$render(consequent_54);
+    if_block(node_95, ($$render) => {
+      if (get(step) === 5) $$render(consequent_55);
       else $$render(alternate_7, -1);
     });
   }

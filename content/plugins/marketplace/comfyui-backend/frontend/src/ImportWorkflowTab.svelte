@@ -387,6 +387,162 @@
 		if (m) m.transform = value;
 	}
 
+	// ---- Chat assistant bridge: "comfyui-import" mode ----
+	// `window.__potionui.chat` is absent on an older host build - every entry
+	// point here no-ops rather than throwing when it's missing. Wire contract
+	// (context payload shape, op shapes) is documented on the plugin's
+	// `backend.chat.tools` module - keep this in sync with it.
+	function serializeImportItem(it) {
+		if (it.kind === 'field') {
+			return {
+				kind: 'field',
+				field_name: it.field_name,
+				label: it.label,
+				field_type: it.field_type,
+				mappings: (it.mappings || []).map((m) => ({ node_id: m.node_id, input_name: m.input_name, transform: m.transform || 'none' }))
+			};
+		}
+		if (it.kind === 'header') return { kind: 'header', text: it.text };
+		return { kind: it.kind, label: it.title ?? null, items: (it.items || []).map(serializeImportItem) };
+	}
+
+	function buildImportChatContext() {
+		if (!analysis) return null;
+		return {
+			workflow_name: displayName || '',
+			format: analysis.format,
+			node_count: analysis.node_count,
+			candidates: (analysis.candidates || []).map((c) => ({
+				node_id: c.node_id,
+				class_type: c.class_type,
+				node_title: c.node_title,
+				input_name: c.input_name,
+				current_value: c.current_value,
+				value_type: c.value_type,
+				suggested_field_type: c.suggested_field_type,
+				role: c.role,
+				locked: isLockedCandidate(c)
+			})),
+			form: { tabs: form.tabs.map((tab) => ({ id: tab.id, label: tab.label, items: tab.items.map(serializeImportItem) })) },
+			mapped: allFields.flatMap((f) =>
+				f.mappings.map((m) => ({ field_name: f.field_name, node_id: m.node_id, input_name: m.input_name, transform: m.transform || 'none' }))
+			)
+		};
+	}
+
+	function slugifyImportTabId(label) {
+		const slug = (label || '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '').toLowerCase();
+		return slug || 'tab';
+	}
+
+	function findImportTab(ref) {
+		if (!ref) return null;
+		return form.tabs.find((t) => t.id === ref) || form.tabs.find((t) => (t.label || '').toLowerCase() === String(ref).toLowerCase()) || null;
+	}
+
+	function tabIdForField(field) {
+		for (const t of form.tabs) {
+			if (collectFieldsFromItems(t.items, []).includes(field)) return t.id;
+		}
+		return null;
+	}
+
+	function applyImportMapping(field, nodeId, inputName, transform) {
+		if (!nodeId || !inputName) {
+			console.warn('propose_form_changes: mapping missing node_id/input_name', { field: field?.field_name, nodeId, inputName });
+			return;
+		}
+		const candidate = (analysis?.candidates || []).find((c) => c.node_id === nodeId && c.input_name === inputName);
+		if (!candidate) {
+			console.warn(`propose_form_changes: no such candidate ${nodeId}.${inputName}`);
+			return;
+		}
+		if (isLockedCandidate(candidate)) {
+			console.warn(`propose_form_changes: skipping locked candidate ${nodeId}.${inputName}`);
+			return;
+		}
+		const owner = mappedFieldByKey.get(candidateKey(candidate));
+		if (owner && owner !== field) {
+			console.warn(`propose_form_changes: ${nodeId}.${inputName} is already mapped to '${owner.field_name}'`);
+			return;
+		}
+		toggleMapping(field, candidate, true);
+		if (transform && transform !== 'none') setMappingTransform(field, candidate, transform);
+	}
+
+	function applyImportFormChanges(result) {
+		const ops = result?.ops;
+		if (!Array.isArray(ops) || ops.length === 0) return;
+
+		let lastTabId = null;
+		let applied = 0;
+
+		for (const op of ops) {
+			if (!op || typeof op !== 'object') continue;
+
+			if (op.op === 'add_tab') {
+				const label = op.label || 'Tab';
+				const baseId = op.id || slugifyImportTabId(label);
+				let id = baseId;
+				let n = 2;
+				while (form.tabs.some((t) => t.id === id)) {
+					id = `${baseId}_${n}`;
+					n += 1;
+				}
+				form.tabs.push({ id, label, icon: null, items: [] });
+				lastTabId = id;
+				applied += 1;
+			} else if (op.op === 'add_field') {
+				const tab = findImportTab(op.tab) || activeTab || form.tabs[0];
+				if (!tab) {
+					console.warn('propose_form_changes: add_field has no target tab', op);
+					continue;
+				}
+				addItemToContainer(tab.items, 'field');
+				const created = tab.items[tab.items.length - 1];
+				created.field_name =
+					op.field_name && !allFields.some((f) => f !== created && f.field_name === op.field_name)
+						? op.field_name
+						: uniqueFieldName(op.field_name || 'field');
+				created.field_type = op.field_type || 'text';
+				created.label = op.label || created.field_name;
+				if ('default' in op) created.default = op.default ?? null;
+				for (const m of op.mappings || []) applyImportMapping(created, m.node_id, m.input_name, m.transform);
+				lastTabId = tab.id;
+				applied += 1;
+			} else if (op.op === 'map') {
+				const field = findFieldByName(op.field_name);
+				if (!field) {
+					console.warn(`propose_form_changes: map references unknown field '${op.field_name}'`, op);
+					continue;
+				}
+				applyImportMapping(field, op.node_id, op.input_name, op.transform);
+				lastTabId = tabIdForField(field) || lastTabId;
+				applied += 1;
+			} else {
+				console.warn('propose_form_changes: unknown op', op);
+			}
+		}
+
+		if (applied === 0) return;
+		if (step < 2) step = 2;
+		if (lastTabId) activeTabId = lastTabId;
+		window.__potionui?.notifications?.toast?.('success', `Applied ${applied} change${applied === 1 ? '' : 's'} from the assistant`);
+	}
+
+	$effect(() => {
+		const chat = window.__potionui?.chat;
+		if (!chat || step < 2 || !analysis) return;
+		const unregisterContext = chat.provideContext('comfyui_import', buildImportChatContext);
+		const unregisterMode = chat.declareMode('comfyui-import');
+		const unregisterTool = chat.onToolApplied('propose_form_changes', applyImportFormChanges);
+		return () => {
+			unregisterContext();
+			unregisterMode();
+			unregisterTool();
+		};
+	});
+
 	function fieldTypeOptionsFor(current) {
 		return [...new Set([current, ...fieldTypeOptions])].filter(Boolean);
 	}
@@ -1061,7 +1217,12 @@
 						<span class="dim">·</span>
 						<span class="chip chip-info">LoRA chain found</span>
 					{/if}
-					<button type="button" class="link-btn strip-end" onclick={changeWorkflow}>Change workflow</button>
+					<span class="strip-end chat-hint-group">
+						{#if typeof window !== 'undefined' && window.__potionui?.chat}
+							<span class="dim" data-import-chat-hint>Ask the assistant to map inputs</span>
+						{/if}
+						<button type="button" class="link-btn" onclick={changeWorkflow}>Change workflow</button>
+					</span>
 				</div>
 
 				<div class="designer">
@@ -1565,6 +1726,11 @@
 	}
 	.strip-end {
 		margin-left: auto;
+	}
+	.chat-hint-group {
+		display: flex;
+		align-items: center;
+		gap: 8px;
 	}
 	.chip {
 		font-size: 9.5px;

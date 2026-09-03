@@ -11,8 +11,9 @@ test still runs; requests with no token exercise the real 401 path.
 Run from a PotionUI checkout with this plugin linked into
 content/plugins/local/ (see this repo's README.md).
 """
-import importlib.util
+import importlib
 import os
+import sys
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -23,10 +24,22 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", 
 
 
 def _load_plugin_router(module_alias: str, plugin_id: str):
-    path = os.path.join(REPO_ROOT, "content", "plugins", "marketplace", plugin_id, "backend", "api.py")
-    spec = importlib.util.spec_from_file_location(module_alias, path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    """Load `<plugin_id>/backend/api.py` as the real `backend` package (not a
+    disconnected `spec_from_file_location` module) so a relative import
+    inside it - e.g. `from .preset_import.emit import ...` - resolves the
+    same way it does under the real plugin loader
+    (src/platform/plugins/loader.py, which also gives the module a proper
+    `__package__`). `module_alias` is unused now but kept so existing callers
+    don't need updating.
+    """
+    plugin_dir = os.path.join(REPO_ROOT, "content", "plugins", "marketplace", plugin_id)
+    if plugin_dir not in sys.path:
+        sys.path.insert(0, plugin_dir)
+    for key in list(sys.modules):
+        if key == "backend" or key.startswith("backend."):
+            del sys.modules[key]
+    importlib.invalidate_caches()
+    module = importlib.import_module("backend.api")
     return module.router
 
 

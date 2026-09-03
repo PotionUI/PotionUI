@@ -134,6 +134,7 @@ from src.plugin_api.presets import (
     FilePresetRepository,
     GenerationRequest,
     PresetCollaborators,
+    lint_preset_dir,
     preset_operations,
     PromptPair,
 )
@@ -261,6 +262,7 @@ __all__ = [
     "FilePresetRepository",
     "GenerationRequest",
     "PresetCollaborators",
+    "lint_preset_dir",
     "preset_operations",
     "PromptPair",
     # Storage

@@ -1,0 +1,58 @@
+{
+  "92:10": {
+    "inputs": {"vae_name": "ae.safetensors"},
+    "class_type": "VAELoader",
+    "_meta": {"title": "Load VAE"}
+  },
+  "92:11": {
+    "inputs": {"unet_name": "flux1-dev.safetensors", "weight_dtype": "default"},
+    "class_type": "UNETLoader",
+    "_meta": {"title": "Load Diffusion Model"}
+  },
+  "92:12": {
+    "inputs": {"clip_name": "t5xxl_fp16.safetensors", "type": "flux"},
+    "class_type": "CLIPLoader",
+    "_meta": {"title": "Load CLIP"}
+  },
+  "92:20": {
+    "inputs": {"text": "a photo of a robot", "clip": ["92:12", 0]},
+    "class_type": "CLIPTextEncode",
+    "_meta": {"title": "CLIP Text Encode (Positive)"}
+  },
+  "92:21": {
+    "inputs": {"text": "", "clip": ["92:12", 0]},
+    "class_type": "CLIPTextEncode",
+    "_meta": {"title": "CLIP Text Encode (Negative)"}
+  },
+  "92:30": {
+    "inputs": {"width": 1024, "height": 1024, "batch_size": 1},
+    "class_type": "EmptyLatentImage",
+    "_meta": {"title": "Empty Latent Image"}
+  },
+  "92:40": {
+    "inputs": {
+      "seed": 42,
+      "steps": 20,
+      "cfg": 1.0,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1.0,
+      "model": ["92:11", 0],
+      "positive": ["92:20", 0],
+      "negative": ["92:21", 0],
+      "latent_image": ["92:30", 0]
+    },
+    "class_type": "KSampler",
+    "_meta": {"title": "KSampler"}
+  },
+  "92:50": {
+    "inputs": {"samples": ["92:40", 0], "vae": ["92:10", 0]},
+    "class_type": "VAEDecode",
+    "_meta": {"title": "VAE Decode"}
+  },
+  "92:60": {
+    "inputs": {"images": ["92:50", 0], "filename_prefix": "Flux"},
+    "class_type": "SaveImage",
+    "_meta": {"title": "Save Image"}
+  }
+}

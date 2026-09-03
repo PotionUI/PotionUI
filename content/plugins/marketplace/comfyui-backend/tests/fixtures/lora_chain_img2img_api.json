@@ -1,0 +1,63 @@
+{
+  "4": {
+    "inputs": {"ckpt_name": "sdxlBase_v10.safetensors"},
+    "class_type": "CheckpointLoaderSimple",
+    "_meta": {"title": "Load Checkpoint"}
+  },
+  "10": {
+    "inputs": {"image": "input.png"},
+    "class_type": "LoadImage",
+    "_meta": {"title": "Load Image"}
+  },
+  "11": {
+    "inputs": {"pixels": ["10", 0], "vae": ["4", 2]},
+    "class_type": "VAEEncode",
+    "_meta": {"title": "VAE Encode"}
+  },
+  "101": {
+    "inputs": {"lora_name": "style_a.safetensors", "strength_model": 0.8, "model": ["4", 0]},
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {"title": "LoRA 1"}
+  },
+  "102": {
+    "inputs": {"lora_name": "style_b.safetensors", "strength_model": 0.6, "model": ["101", 0]},
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {"title": "LoRA 2"}
+  },
+  "6": {
+    "inputs": {"text": "anime style", "clip": ["4", 1]},
+    "class_type": "CLIPTextEncode",
+    "_meta": {"title": "CLIP Text Encode (Positive)"}
+  },
+  "7": {
+    "inputs": {"text": "bad quality", "clip": ["4", 1]},
+    "class_type": "CLIPTextEncode",
+    "_meta": {"title": "CLIP Text Encode (Negative)"}
+  },
+  "3": {
+    "inputs": {
+      "seed": 123,
+      "steps": 20,
+      "cfg": 6.0,
+      "sampler_name": "dpmpp_2m",
+      "scheduler": "karras",
+      "denoise": 0.55,
+      "model": ["102", 0],
+      "positive": ["6", 0],
+      "negative": ["7", 0],
+      "latent_image": ["11", 0]
+    },
+    "class_type": "KSampler",
+    "_meta": {"title": "KSampler"}
+  },
+  "8": {
+    "inputs": {"samples": ["3", 0], "vae": ["4", 2]},
+    "class_type": "VAEDecode",
+    "_meta": {"title": "VAE Decode"}
+  },
+  "9": {
+    "inputs": {"images": ["8", 0], "filename_prefix": "img2img"},
+    "class_type": "SaveImage",
+    "_meta": {"title": "Save Image"}
+  }
+}

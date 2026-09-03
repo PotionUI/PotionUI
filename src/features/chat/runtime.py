@@ -270,6 +270,7 @@ class ChatRuntime:
         image_data: Optional[str] = None,
         context_metadata: Optional[Dict[str, Any]] = None,
         resources: Optional[List[str]] = None,
+        is_admin: bool = False,
     ) -> SendMessageResponse:
         return await self._conversation.send_message(
             session_id=session_id,
@@ -278,6 +279,7 @@ class ChatRuntime:
             image_data=image_data,
             context_metadata=context_metadata,
             resources=resources,
+            is_admin=is_admin,
         )
 
     def send_message_stream(
@@ -288,6 +290,7 @@ class ChatRuntime:
         image_data: Optional[str] = None,
         context_metadata: Optional[Dict[str, Any]] = None,
         resources: Optional[List[str]] = None,
+        is_admin: bool = False,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         return self._conversation.send_message_stream(
             session_id=session_id,
@@ -296,6 +299,7 @@ class ChatRuntime:
             image_data=image_data,
             context_metadata=context_metadata,
             resources=resources,
+            is_admin=is_admin,
         )
 
     async def record_prompt_feedback(

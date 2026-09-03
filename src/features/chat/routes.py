@@ -37,10 +37,10 @@ from src.features.chat import (
     SessionCreationFailedException,
 )
 from src.features.chat.context_builder import MEMORY_MAX_CONTENT_LEN, MEMORY_MAX_NOTES_PER_GROUP
-from src.features.chat.exceptions import UnknownChatModeException
+from src.features.chat.exceptions import AdminOnlyModeException, UnknownChatModeException
 from src.features.chat.turns import ChatTurn, ChatTurnRegistry, TurnAlreadyRunningError
 from src.features.llm_memory import operations as memory_operations
-from src.platform.security.user import User
+from src.platform.security.user import AccountType, User
 
 if TYPE_CHECKING:
     from src.bootstrap.container import AppContainer
@@ -61,9 +61,23 @@ class ChatController(BaseController):
 
     # --- Endpoints ---
 
+    def _require_mode_access(self, mode_id: str, user: User) -> None:
+        """Raise AdminOnlyModeException if `mode_id` is admin_only and `user` isn't an admin.
+
+        Reused by both session creation and the send path so a non-admin can
+        neither create nor message a session in an admin-only mode. An unknown
+        mode id is left to the caller's own validation (create_session raises
+        UnknownChatModeException; an already-existing session always has a
+        real mode).
+        """
+        mode = self.chat_runtime.chat_mode_registry.get(mode_id)
+        if mode is not None and mode.admin_only and user.account_type != AccountType.ADMIN:
+            raise AdminOnlyModeException(f"Chat mode '{mode_id}' is restricted to administrators")
+
     def create_session(self, request: CreateSessionRequest, user: User) -> APIResponse:
         """Create a new chat session."""
         try:
+            self._require_mode_access(request.mode, user)
             session = self.chat_runtime.create_session(
                 user_id=user.id,
                 original_text=request.original_text,
@@ -77,6 +91,8 @@ class ChatController(BaseController):
                 data=session.model_dump(),
                 message="Session created successfully"
             )
+        except AdminOnlyModeException as e:
+            return self.error_response(error="admin_only_mode", message=str(e), status_code=403)
         except UnknownChatModeException as e:
             return self.error_api_response(
                 error="unknown_mode",
@@ -126,10 +142,13 @@ class ChatController(BaseController):
                 message=f"Failed to get sessions: {str(e)}"
             )
 
-    def get_modes(self) -> APIResponse:
-        """List all registered chat modes."""
+    def get_modes(self, user: User) -> APIResponse:
+        """List all registered chat modes, omitting admin_only modes for non-admins."""
+        is_admin = user.account_type == AccountType.ADMIN
         modes = []
         for mode in self.chat_runtime.chat_mode_registry.get_all():
+            if mode.admin_only and not is_admin:
+                continue
             modes.append({
                 "id": mode.id,
                 "name": mode.name,
@@ -139,6 +158,7 @@ class ChatController(BaseController):
                 "tools": [t.name for t in self._tools_for_mode(mode)],
                 "resource_namespaces": mode.resource_namespaces,
                 "source": mode.source,
+                "admin_only": mode.admin_only,
             })
         return self.success_response(data={"modes": modes})
 
@@ -186,6 +206,8 @@ class ChatController(BaseController):
     ) -> APIResponse:
         """Send a message and get AI response."""
         try:
+            session = self.chat_runtime.get_session(session_id, user.id)
+            self._require_mode_access(session.mode, user)
             result = await self.chat_runtime.send_message(
                 session_id=session_id,
                 user_id=user.id,
@@ -193,10 +215,13 @@ class ChatController(BaseController):
                 image_data=request.image_data,
                 context_metadata=request.context_metadata,
                 resources=[r.uri for r in request.resources] if request.resources else None,
+                is_admin=user.account_type == AccountType.ADMIN,
             )
             return self.success_response(
                 data=result.model_dump()
             )
+        except AdminOnlyModeException as e:
+            return self.error_response(error="admin_only_mode", message=str(e), status_code=403)
         except SessionNotFoundException:
             return self.error_api_response(
                 error="session_not_found",
@@ -256,8 +281,11 @@ class ChatController(BaseController):
                         image_data=request.image_data,
                         context_metadata=request.context_metadata,
                         resources=[r.uri for r in request.resources] if request.resources else None,
+                        is_admin=user.account_type == AccountType.ADMIN,
                     ):
                         yield event
+                except AdminOnlyModeException as e:
+                    yield {"event": "error", "data": {"error": "admin_only_mode", "message": str(e)}}
                 except SessionNotFoundException:
                     yield {"event": "error", "data": {"error": "session_not_found", "message": "Session not found"}}
                 except AccessDeniedException:
@@ -780,7 +808,7 @@ def build_router(container: "AppContainer") -> APIRouter:
         current_user: User = Depends(get_current_active_user)
     ):
         """List all registered chat modes."""
-        return controller.get_modes()
+        return controller.get_modes(current_user)
 
     @router.get("/sessions/{session_id}", response_model=APIResponse, summary="Get a chat session")
     async def get_session(

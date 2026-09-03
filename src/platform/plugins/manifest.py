@@ -389,6 +389,7 @@ class ChatModeSpec(BaseModel):
     context_contributor: Optional[str] = None  # "module.function" handler ref
     llm_options: Dict[str, Any] = Field(default_factory=dict)
     structured_reply: bool = True
+    admin_only: bool = False
 
     @model_validator(mode="after")
     def _validate_prompt_source(self) -> "ChatModeSpec":

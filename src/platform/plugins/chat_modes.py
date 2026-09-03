@@ -55,6 +55,9 @@ class ChatMode:
             own prompt already enforces a strict output document should set
             this False rather than risk the two contracts colliding.
         source: "builtin" or the registering plugin's id.
+        admin_only: Whether the mode is visible and usable only to
+            administrators (GET /api/chat/modes omits it for other users,
+            and creating or messaging a session in it is rejected).
     """
 
     id: str
@@ -69,6 +72,7 @@ class ChatMode:
     llm_options: Dict[str, Any] = field(default_factory=dict)
     structured_reply: bool = True
     source: str = "builtin"
+    admin_only: bool = False
 
     def resolve_prompt_template(self) -> str:
         """Return the prompt template, invoking it when it is a callable."""

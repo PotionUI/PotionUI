@@ -146,6 +146,25 @@ class TestPluginChatExtensionRegistration(unittest.TestCase):
         self.assertIsNotNone(provider)
         self.assertEqual(provider.modes, ['dataset'])
 
+    def test_admin_only_flag_round_trips(self):
+        sections = self._full_sections(mode_id='admin-dataset')
+        sections['chat_modes'][0]['admin_only'] = True
+        self._create_plugin('admin-chat-plugin', **sections)
+
+        self.assertTrue(self.registry.enable_plugin('admin-chat-plugin'))
+
+        mode = self.chat_mode_registry.get('admin-dataset')
+        self.assertIsNotNone(mode)
+        self.assertTrue(mode.admin_only)
+
+    def test_admin_only_defaults_false(self):
+        self._create_plugin('non-admin-chat-plugin', **self._full_sections(mode_id='open-dataset'))
+
+        self.assertTrue(self.registry.enable_plugin('non-admin-chat-plugin'))
+
+        mode = self.chat_mode_registry.get('open-dataset')
+        self.assertFalse(mode.admin_only)
+
     def test_disable_unregisters_all_chat_extensions(self):
         self._create_plugin('chat-plugin-2', **self._full_sections(mode_id='dataset2'))
 

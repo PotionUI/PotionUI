@@ -17,8 +17,9 @@ from src.features.chat.dto import (
     CreateSessionRequest, SendMessageRequest, UpdateSessionRequest,
     SessionResponse, MessageResponse, SendMessageResponse
 )
-from src.platform.security.user import User
+from src.platform.security.user import AccountType, User
 from src.features.chat.exceptions import (
+    AdminOnlyModeException,
     SessionNotFoundException,
     AccessDeniedException,
     SessionClosedException,
@@ -28,13 +29,24 @@ from src.features.chat.exceptions import (
 )
 
 
+def _user(account_type: AccountType = AccountType.USER, uid: str = "user-1") -> User:
+    return User(username="u", email="u@example.com", password_hash="x", account_type=account_type, id=uid)
+
+
 class TestChatController:
     """Tests for ChatController"""
 
     @pytest.fixture
     def mock_chat_manager(self):
-        """Mock ChatRuntime"""
-        return Mock()
+        """Mock ChatRuntime.
+
+        `chat_mode_registry.get` defaults to None (no mode found) so the
+        admin_only gate stays a no-op unless a test explicitly configures a
+        mode to check it against.
+        """
+        manager = Mock()
+        manager.chat_mode_registry.get.return_value = None
+        return manager
 
     @pytest.fixture
     def controller(self, mock_chat_manager):
@@ -164,6 +176,45 @@ class TestChatController:
 
         assert result.success is False
         assert "Database error" in result.message
+
+    def test_create_session_admin_only_mode_rejected_for_non_admin(
+        self, controller, mock_chat_manager, sample_user
+    ):
+        """Non-admin creating a session in an admin_only mode gets a 403."""
+        from fastapi import HTTPException
+        from src.platform.plugins.chat_modes import ChatMode
+
+        mock_chat_manager.chat_mode_registry.get.return_value = ChatMode(
+            id="admin-mode", name="Admin Mode", admin_only=True
+        )
+        request = CreateSessionRequest(mode="admin-mode")
+
+        with pytest.raises(HTTPException) as exc_info:
+            controller.create_session(request, sample_user)
+
+        assert exc_info.value.status_code == 403
+        mock_chat_manager.create_session.assert_not_called()
+
+    def test_create_session_admin_only_mode_allowed_for_admin(
+        self, controller, mock_chat_manager, sample_session_response
+    ):
+        """An admin can create a session in an admin_only mode."""
+        from src.platform.plugins.chat_modes import ChatMode
+
+        mock_chat_manager.chat_mode_registry.get.return_value = ChatMode(
+            id="admin-mode", name="Admin Mode", admin_only=True
+        )
+        mock_chat_manager.create_session.return_value = sample_session_response
+        admin_user = User(
+            id="admin-1", username="admin", email="admin@example.com",
+            password_hash="hash", account_type=AccountType.ADMIN,
+        )
+        request = CreateSessionRequest(mode="admin-mode")
+
+        result = controller.create_session(request, admin_user)
+
+        assert result.success is True
+        mock_chat_manager.create_session.assert_called_once()
 
     # Get sessions tests
     def test_get_sessions_success(
@@ -348,6 +399,60 @@ class TestChatController:
 
         assert result.success is False
         assert "llm_error" in result.error
+
+    @pytest.mark.asyncio
+    async def test_send_message_admin_only_mode_rejected_for_non_admin(
+        self, controller, mock_chat_manager, sample_send_request, sample_user, sample_session_response
+    ):
+        """Non-admin sending a message into an admin_only-mode session gets a 403."""
+        from fastapi import HTTPException
+        from src.platform.plugins.chat_modes import ChatMode
+
+        admin_only_session = sample_session_response.model_copy(update={"mode": "admin-mode"})
+        mock_chat_manager.get_session.return_value = admin_only_session
+        mock_chat_manager.chat_mode_registry.get.return_value = ChatMode(
+            id="admin-mode", name="Admin Mode", admin_only=True
+        )
+        mock_chat_manager.send_message = AsyncMock()
+
+        with pytest.raises(HTTPException) as exc_info:
+            await controller.send_message("session-123", sample_send_request, sample_user)
+
+        assert exc_info.value.status_code == 403
+        mock_chat_manager.send_message.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_send_message_admin_only_mode_allowed_for_admin(
+        self, controller, mock_chat_manager, sample_send_request, sample_session_response
+    ):
+        """An admin can send a message into an admin_only-mode session."""
+        from src.platform.plugins.chat_modes import ChatMode
+
+        admin_only_session = sample_session_response.model_copy(update={"mode": "admin-mode"})
+        mock_chat_manager.get_session.return_value = admin_only_session
+        mock_chat_manager.chat_mode_registry.get.return_value = ChatMode(
+            id="admin-mode", name="Admin Mode", admin_only=True
+        )
+        user_msg = MessageResponse(
+            id="user-msg", session_id="session-123", role="user", content="Hi",
+            created_at=datetime.now().isoformat()
+        )
+        assistant_msg = MessageResponse(
+            id="assistant-msg", session_id="session-123", role="assistant", content="Hello",
+            created_at=datetime.now().isoformat()
+        )
+        mock_chat_manager.send_message = AsyncMock(return_value=SendMessageResponse(
+            user_message=user_msg, assistant_message=assistant_msg
+        ))
+        admin_user = User(
+            id="admin-1", username="admin", email="admin@example.com",
+            password_hash="hash", account_type=AccountType.ADMIN,
+        )
+
+        result = await controller.send_message("session-123", sample_send_request, admin_user)
+
+        assert result.success is True
+        mock_chat_manager.send_message.assert_called_once()
 
     # Accept session tests
     def test_accept_session_success(
@@ -636,7 +741,32 @@ class TestChatController:
             image_data=None,
             context_metadata=None,
             resources=None,
+            is_admin=False,
         )
+
+    @pytest.mark.asyncio
+    async def test_send_message_stream_admin_only_mode_error_event(
+        self, controller, mock_chat_manager, sample_send_request, sample_user
+    ):
+        """Test that AdminOnlyModeException yields an SSE error event"""
+        async def mock_error_stream():
+            raise AdminOnlyModeException("Chat mode 'admin-mode' is restricted to administrators")
+            yield  # Make it a generator
+
+        mock_chat_manager.send_message_stream = Mock(return_value=mock_error_stream())
+
+        response = await controller.send_message_stream("session-123", sample_send_request, sample_user)
+
+        chunks = []
+        async for chunk in response.body_iterator:
+            chunks.append(chunk)
+
+        full_output = "".join(chunks)
+        assert "event: error" in full_output
+
+        data_line = [l for l in full_output.split("\n") if l.startswith("data: ")][0]
+        data = json.loads(data_line[len("data: "):])
+        assert data["error"] == "admin_only_mode"
 
     @pytest.mark.asyncio
     async def test_send_message_stream_session_not_found_error_event(
@@ -828,7 +958,7 @@ class TestChatModesEndpoints:
         return ChatController(chat_runtime=manager, turn_registry=ChatTurnRegistry())
 
     def test_get_modes(self, real_manager_controller):
-        result = real_manager_controller.get_modes()
+        result = real_manager_controller.get_modes(_user())
 
         assert result.success is True
         modes = result.data["modes"]
@@ -837,8 +967,35 @@ class TestChatModesEndpoints:
         assert gen["id"] == "generation"
         assert gen["source"] == "builtin"
         assert gen["default_route_prefixes"]
+        assert gen["admin_only"] is False
         assert "get_form_state" in gen["tools"]
         assert "write_memory" in gen["tools"]  # global tools included
+
+    def test_get_modes_omits_admin_only_mode_for_non_admin(self, real_manager_controller):
+        from src.platform.plugins.chat_modes import ChatMode
+
+        real_manager_controller.chat_runtime.chat_mode_registry.register(
+            ChatMode(id="admin-mode", name="Admin Mode", admin_only=True)
+        )
+
+        result = real_manager_controller.get_modes(_user(AccountType.USER))
+
+        ids = [m["id"] for m in result.data["modes"]]
+        assert "admin-mode" not in ids
+        assert "generation" in ids
+
+    def test_get_modes_includes_admin_only_mode_for_admin(self, real_manager_controller):
+        from src.platform.plugins.chat_modes import ChatMode
+
+        real_manager_controller.chat_runtime.chat_mode_registry.register(
+            ChatMode(id="admin-mode", name="Admin Mode", admin_only=True)
+        )
+
+        result = real_manager_controller.get_modes(_user(AccountType.ADMIN))
+
+        modes = {m["id"]: m for m in result.data["modes"]}
+        assert "admin-mode" in modes
+        assert modes["admin-mode"]["admin_only"] is True
 
     def test_list_tools_unfiltered_includes_metadata(self, real_manager_controller):
         result = real_manager_controller.list_tools()

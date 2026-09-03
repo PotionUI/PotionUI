@@ -790,6 +790,7 @@ class PluginRegistry:
                 llm_options=dict(spec.get('llm_options') or {}),
                 structured_reply=spec.get('structured_reply', True),
                 source=plugin_id,
+                admin_only=spec.get('admin_only', False),
             )
 
             try:

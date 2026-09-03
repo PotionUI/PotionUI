@@ -11,11 +11,12 @@ something in front of the user first (a choice to make, a resource to pick).
 """
 
 from src.features.chat.pre_chat_actions import PreChatAction
-from src.features.llm.tools.base import BaseTool, ToolContext, ToolResult, ToolSource
+from src.features.llm.tools.base import BaseTool, ToolApprovalPreview, ToolContext, ToolResult, ToolSource
 
 __all__ = [
     "BaseTool",
     "PreChatAction",
+    "ToolApprovalPreview",
     "ToolContext",
     "ToolResult",
     "ToolSource",

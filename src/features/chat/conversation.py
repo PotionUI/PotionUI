@@ -21,6 +21,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from src.features.chat.dto import SessionResponse, SendMessageResponse
 from src.features.chat.exceptions import (
+    AdminOnlyModeException,
     InvalidLLMConfigException,
     MessageCreationFailedException,
     PreChatActionError,
@@ -53,6 +54,16 @@ class ConversationRunner:
     def __init__(self, manager):
         self._m = manager
 
+    def _verify_mode_access(self, session: SessionResponse, is_admin: bool) -> None:
+        """Reject a non-admin using a session whose mode is admin_only.
+
+        Shared by both the buffered and streaming send paths, run right after
+        ownership/active checks and before anything is persisted.
+        """
+        mode = self._m.chat_mode_registry.get(session.mode)
+        if mode is not None and mode.admin_only and not is_admin:
+            raise AdminOnlyModeException(f"Chat mode '{session.mode}' is restricted to administrators")
+
     async def send_message(
         self,
         session_id: str,
@@ -61,6 +72,7 @@ class ConversationRunner:
         image_data: Optional[str] = None,
         context_metadata: Optional[Dict[str, Any]] = None,
         resources: Optional[List[str]] = None,
+        is_admin: bool = False,
     ) -> SendMessageResponse:
         """Send a message and get AI response.
 
@@ -91,6 +103,7 @@ class ConversationRunner:
         session = self._m._get_session_or_raise(session_id)
         self._m._verify_ownership(session, user_id)
         self._m._verify_active(session)
+        self._verify_mode_access(session, is_admin)
 
         if not session.llm_config_id:
             raise InvalidLLMConfigException("Session has no LLM configuration")
@@ -226,6 +239,7 @@ class ConversationRunner:
             tool_context = ToolContext(
                 user_id=user_id,
                 mode_id=mode.id,
+                is_admin=is_admin,
                 session_metadata=context_metadata or {},
                 segment_category_repository=self._m.segment_category_repository,
                 saved_segment_repository=self._m.saved_segment_repository,
@@ -383,6 +397,7 @@ class ConversationRunner:
         image_data: Optional[str] = None,
         context_metadata: Optional[Dict[str, Any]] = None,
         resources: Optional[List[str]] = None,
+        is_admin: bool = False,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """Send a message and stream the AI response as an async generator.
 
@@ -411,6 +426,7 @@ class ConversationRunner:
         session = self._m._get_session_or_raise(session_id)
         self._m._verify_ownership(session, user_id)
         self._m._verify_active(session)
+        self._verify_mode_access(session, is_admin)
 
         if not session.llm_config_id:
             raise InvalidLLMConfigException("Session has no LLM configuration")
@@ -598,6 +614,7 @@ class ConversationRunner:
                 tool_context = ToolContext(
                     user_id=user_id,
                     mode_id=mode.id,
+                    is_admin=is_admin,
                     session_metadata=context_metadata or {},
                     segment_category_repository=self._m.segment_category_repository,
                 saved_segment_repository=self._m.saved_segment_repository,

@@ -50,3 +50,8 @@ class PreChatActionError(ChatException):
 class UnknownChatModeException(ChatException):
     """The requested chat mode is not registered."""
     pass
+
+
+class AdminOnlyModeException(ChatException):
+    """The session's mode is restricted to administrators."""
+    pass

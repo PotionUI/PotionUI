@@ -186,6 +186,29 @@ class TestSendMessageStreamValidation(BaseStreamingTest):
                 pass
 
     @pytest.mark.asyncio
+    async def test_raises_admin_only_mode_for_non_admin(self):
+        """AdminOnlyModeException raised before first yield for a non-admin."""
+        from src.platform.plugins.chat_modes import ChatMode
+        from src.features.chat.exceptions import AdminOnlyModeException
+
+        self.manager.chat_mode_registry.register(
+            ChatMode(id="admin-mode", name="Admin Mode", admin_only=True)
+        )
+        session = self._make_active_session(mode="admin-mode")
+        self.mock_repo.get_session.return_value = session
+
+        gen = self.manager.send_message_stream(
+            session_id="session-123",
+            user_id="user-123",
+            content="hello",
+            is_admin=False,
+        )
+
+        with pytest.raises(AdminOnlyModeException):
+            async for _ in gen:
+                pass
+
+    @pytest.mark.asyncio
     async def test_raises_when_hook_blocks_message(self):
         """MessageCreationFailedException raised when before_send hook blocks."""
         session = self._make_active_session()

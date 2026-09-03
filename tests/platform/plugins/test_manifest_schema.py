@@ -201,10 +201,21 @@ class TestPluginManifestSchema(unittest.TestCase):
         schema = PluginManifestSchema.model_validate(data)
         self.assertEqual(schema.chat_modes[0].id, 'dataset')
         self.assertEqual(schema.chat_modes[0].llm_options, {'think': False})
+        self.assertFalse(schema.chat_modes[0].admin_only)
         self.assertEqual(schema.tools[0].tool_class, 'tools.mod:MyTool')
         self.assertEqual(schema.tools[0].model_dump(by_alias=True)['class'], 'tools.mod:MyTool')
         self.assertIsNone(schema.resources[0].modes)
         self.assertEqual(schema.resources[0].namespace, 'datasets')
+
+    def test_chat_mode_admin_only_accepted(self):
+        data = self._minimal(chat_modes=[{
+            'id': 'importer',
+            'name': 'Importer Mode',
+            'system_prompt': 'Admin-only workflow import assistant.',
+            'admin_only': True,
+        }])
+        schema = PluginManifestSchema.model_validate(data)
+        self.assertTrue(schema.chat_modes[0].admin_only)
 
     def test_chat_mode_requires_exactly_one_prompt_source(self):
         # neither prompt source

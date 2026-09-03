@@ -488,6 +488,73 @@ class TestSendMessage:
             )
 
     @pytest.mark.asyncio
+    async def test_send_message_admin_only_mode_rejected_for_non_admin(self):
+        """Should raise AdminOnlyModeException for a non-admin in an admin_only mode."""
+        from src.platform.plugins.chat_modes import ChatMode
+        from src.features.chat.exceptions import AdminOnlyModeException
+
+        self.manager.chat_mode_registry.register(
+            ChatMode(id="admin-mode", name="Admin Mode", admin_only=True)
+        )
+        mock_session = Mock()
+        mock_session.user_id = "user-123"
+        mock_session.status = "active"
+        mock_session.llm_config_id = "llm-123"
+        mock_session.mode = "admin-mode"
+        self.mock_repo.get_session.return_value = mock_session
+
+        with pytest.raises(AdminOnlyModeException):
+            await self.manager.send_message(
+                session_id="session-123",
+                user_id="user-123",
+                content="Hello",
+                is_admin=False,
+            )
+
+    @pytest.mark.asyncio
+    async def test_send_message_admin_only_mode_allowed_for_admin(self):
+        """Should not raise for an admin in an admin_only mode."""
+        from src.features.chat.dto import MessageResponse
+        from src.platform.plugins.chat_modes import ChatMode
+
+        self.manager.chat_mode_registry.register(
+            ChatMode(id="admin-mode", name="Admin Mode", admin_only=True)
+        )
+        mock_session = Mock()
+        mock_session.user_id = "user-123"
+        mock_session.status = "active"
+        mock_session.llm_config_id = "llm-123"
+        mock_session.mode = "admin-mode"
+        mock_session.metadata = None
+        self.mock_repo.get_session.return_value = mock_session
+        self.mock_repo.get_conversation_history.return_value = []
+
+        user_msg = MessageResponse(id="msg-1", session_id="session-123", role="user", content="Hello")
+        assistant_msg = MessageResponse(
+            id="msg-2", session_id="session-123", role="assistant",
+            content="Cleaned response", parsed_content={"raw": "Cleaned response"},
+        )
+        self.mock_repo.add_message.side_effect = [user_msg, assistant_msg]
+
+        mock_llm_response = Mock()
+        mock_llm_response.content = "AI response"
+        mock_llm_response.model = "test-model"
+        mock_llm_response.tokens_used = 100
+        mock_llm_response.prompt_tokens = 50
+        mock_llm_response.completion_tokens = 50
+        self.mock_llm.generate_with_history.return_value = mock_llm_response
+        self.mock_processor.process.return_value = ("Cleaned response", {"raw": "Cleaned response"})
+
+        result = await self.manager.send_message(
+            session_id="session-123",
+            user_id="user-123",
+            content="Hello",
+            is_admin=True,
+        )
+
+        assert result.user_message.id == "msg-1"
+
+    @pytest.mark.asyncio
     async def test_send_message_blocked_by_hook(self):
         """Should raise if hook blocks message."""
         mock_session = Mock()

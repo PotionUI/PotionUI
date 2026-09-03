@@ -18,6 +18,21 @@ import UI can surface it as "this node isn't installed, its fields are
 best-effort - re-import once it is" instead of refusing outright. The whole
 point of importing is to see what's missing.
 
+A *known* class's declared `required`/`optional` widgets aren't always the
+classic inline-options shape either - a COMBO can be declared with its type as
+the bare string `"COMBO"` or as a dict (`{"type": "COMBO", "options": [...]}`,
+the shape a dynamically-populated combo reports), which `_widget_input_order`
+recognizes alongside the inline list so such a widget isn't mistaken for a
+socket-only type and silently excluded (excluding a real widget doesn't just
+lose that one field - every widget declared after it shifts onto the wrong
+`widgets_values` slot, since the positional mapping has no way to know a slot
+was skipped). Some real nodes still add widgets `object_info` has no way to
+describe at all (a combo whose choice reveals extra, undeclared sub-fields) -
+for those, this converter can't recover the *name*, but the raw value is never
+dropped: any `widgets_values` entry left over once every declared name is
+consumed gets a positional `widget_N` name instead of vanishing (see the
+bottom of `emit`'s widget loop).
+
 Subgraphs (`definitions.subgraphs`, the newest export shape - a node's
 `type` names a subgraph's UUID instead of a class_type) are flattened
 in-place rather than rejected: every inner node is emitted with a
@@ -101,7 +116,10 @@ def _widget_input_order(class_info: Dict[str, Any]) -> List[Tuple[str, Dict[str,
                 continue
             type_spec = spec[0]
             config = spec[1] if len(spec) > 1 and isinstance(spec[1], dict) else {}
-            if isinstance(type_spec, list) or type_spec in _WIDGET_SCALAR_TYPES:
+            if (
+                isinstance(type_spec, (list, dict))
+                or (isinstance(type_spec, str) and (type_spec in _WIDGET_SCALAR_TYPES or type_spec == "COMBO"))
+            ):
                 ordered.append((name, config))
     return ordered
 
@@ -427,6 +445,15 @@ def convert_graph(ui_workflow: Dict[str, Any], object_info: Dict[str, Any]) -> C
                     idx += 1
                     if name in control_after_generate:
                         idx += 1  # the paired "randomize"/"fixed" selector - never a real input
+                # A *known* class can still have fewer declared widget names
+                # than real `widgets_values` slots - a combo whose choice
+                # reveals extra widgets object_info has no way to describe,
+                # for instance. Rather than silently dropping whatever's left
+                # (irrecoverable data loss), surface it under a positional
+                # name - exactly the fallback an unrecognized class already
+                # gets - so nothing vanishes without a trace.
+                for leftover_idx in range(idx, len(values)):
+                    inputs[f"widget_{leftover_idx}"] = values[leftover_idx]
 
             for (override_node_id, override_name), override_value in scope.widget_overrides.items():
                 if override_node_id == local_id:

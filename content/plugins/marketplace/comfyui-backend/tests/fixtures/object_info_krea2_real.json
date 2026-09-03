@@ -1,0 +1,33 @@
+{
+  "Krea2ImageNode": {
+    "input": {
+      "required": {
+        "prompt": ["STRING", {"multiline": true}],
+        "model": ["COMBO", {"options": ["krea 2 medium turbo", "krea 2 medium", "krea 2 large"]}],
+        "seed": ["INT", {"default": 0, "min": 0, "max": 2147483647, "control_after_generate": true}]
+      }
+    },
+    "output": ["IMAGE"],
+    "output_name": ["IMAGE"],
+    "name": "Krea2ImageNode",
+    "display_name": "Krea 2 Image",
+    "category": "api node/image/krea",
+    "python_module": "comfy_api_nodes.nodes_krea"
+  },
+  "SaveImage": {
+    "input": {
+      "required": {
+        "images": ["IMAGE", {}]
+      },
+      "optional": {
+        "filename_prefix": ["STRING", {"default": "ComfyUI"}]
+      }
+    },
+    "output": [],
+    "output_name": [],
+    "name": "SaveImage",
+    "display_name": "Save Image",
+    "category": "image",
+    "python_module": "nodes"
+  }
+}

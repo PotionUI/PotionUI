@@ -39,7 +39,12 @@ import pytest
 import yaml
 
 from backend import api
-from backend.preset_import.convert import convert_graph, extract_node_groups, graph_to_prompt
+from backend.preset_import.convert import (
+    _widget_input_order,
+    convert_graph,
+    extract_node_groups,
+    graph_to_prompt,
+)
 from backend.preset_import.emit import FieldChoice, emit_preset
 from backend.preset_import.parser import WorkflowFormatError, is_ui_format, parse_api_workflow, parse_workflow
 from backend.preset_import.suggest import suggest_fields
@@ -272,6 +277,134 @@ class TestUnknownNodeDegradesInsteadOfFailing:
         assert any("LTXFloatToInt" in w for w in result["lint"]["warnings"])
         preset_yml = yaml.safe_load((Path(result["path"]) / "preset.yml").read_text())
         assert {"type": "comfyui_node", "class_type": "LTXFloatToInt"} in preset_yml["requirements"]
+
+
+class TestComboWidgetTypeShapes:
+    """A COMBO widget's declared type isn't always the classic inline options
+    list - a dynamically-populated or bundled dropdown can report its type as
+    the bare string `"COMBO"` or as a dict (`{"type": "COMBO", "options":
+    [...]}`). Either shape must still be recognized as a widget: excluding it
+    doesn't just lose that one field, it shifts every widget declared after
+    it onto the wrong `widgets_values` slot (see convert.py's module
+    docstring and the real-export regression in TestRealKrea2Export below)."""
+
+    def test_inline_options_list_is_recognized(self):
+        class_info = {"input": {"required": {"model": [["a", "b"], {}]}}}
+        assert _widget_input_order(class_info) == [("model", {})]
+
+    def test_bare_combo_string_type_is_recognized(self):
+        class_info = {"input": {"required": {"model": ["COMBO", {"options": ["a", "b"]}]}}}
+        assert _widget_input_order(class_info) == [("model", {"options": ["a", "b"]})]
+
+    def test_dict_shaped_combo_type_is_recognized(self):
+        class_info = {"input": {"required": {"model": [{"type": "COMBO", "options": ["a", "b"]}, {}]}}}
+        assert _widget_input_order(class_info) == [("model", {})]
+
+    def test_a_real_socket_type_is_still_excluded(self):
+        """Confirms the widened recognition isn't just "accept everything":
+        a genuine link-only type (never a widget) must stay excluded."""
+        class_info = {"input": {"required": {"model": ["MODEL", {}]}}}
+        assert _widget_input_order(class_info) == []
+
+    def test_dict_shaped_type_does_not_crash_on_the_scalar_membership_check(self):
+        """Bite check: before recognizing a dict as a widget type outright,
+        `type_spec in _WIDGET_SCALAR_TYPES` would run on it - a dict is
+        unhashable, so this would raise TypeError rather than exclude it."""
+        class_info = {"input": {"required": {"model": [{"type": "COMBO"}, {}]}}}
+        _widget_input_order(class_info)  # must not raise
+
+
+class TestRealKrea2Export:
+    """The exact shape a maintainer's real UI-format import produced: a
+    single all-in-one `Krea2ImageNode` (a real, bundled ComfyUI node - not a
+    custom/unknown class) whose `model` COMBO is declared with type `"COMBO"`
+    (not the classic inline options list). The old converter silently
+    excluded `model` from the widget-name order, which didn't just drop
+    `model` - it shifted `seed` onto `model`'s own raw value and dropped
+    every widgets_values slot after that without a trace, collapsing an
+    8-field node down to two, one of them wrong."""
+
+    @pytest.fixture()
+    def object_info(self) -> dict:
+        return _load("object_info_krea2_real.json")
+
+    @pytest.fixture()
+    def ui(self) -> dict:
+        return _load("ui_krea2_real.json")
+
+    def test_node_count_matches_the_export(self, ui, object_info):
+        # Both export nodes are live (mode 0, no Note/MarkdownNote, no
+        # subgraph instances) - none should vanish during conversion.
+        converted = graph_to_prompt(ui, object_info)
+        assert len(converted) == len(ui["nodes"]) == 2
+
+    def test_every_export_link_resolves_to_an_input_reference(self, ui, object_info):
+        converted = graph_to_prompt(ui, object_info)
+        for link_id, origin_id, origin_slot, target_id, target_slot, *_rest in ui["links"]:
+            target_node = next(n for n in ui["nodes"] if n["id"] == target_id)
+            input_name = target_node["inputs"][target_slot]["name"]
+            assert converted[str(target_id)]["inputs"][input_name] == [str(origin_id), origin_slot]
+
+    def test_combo_widget_is_no_longer_silently_dropped(self, ui, object_info):
+        converted = graph_to_prompt(ui, object_info)
+        inputs = converted["1"]["inputs"]
+        assert inputs["prompt"].startswith("high fashion editorial")
+        assert inputs["model"] == "Krea 2 Medium"
+
+    def test_no_class_is_reported_unknown(self, ui, object_info):
+        """Krea2ImageNode and SaveImage are both real, recognized classes -
+        this isn't a missing/uninstalled custom node problem."""
+        result = convert_graph(ui, object_info)
+        assert result.unknown_nodes == []
+
+    def test_bite_check_an_unrecognized_type_shape_still_drops_the_field(self, ui):
+        """Confirms the fixture actually exercises a real risk, not a
+        non-issue: a `model` type this converter genuinely can't identify as
+        a widget (an arbitrary custom socket-shaped string) is still
+        excluded, same as before the fix - proving `object_info_krea2_real
+        .json`'s bare `"COMBO"` string is what needed the widened
+        recognition, not something the converter always handled."""
+        object_info = json.loads(json.dumps(_load("object_info_krea2_real.json")))
+        object_info["Krea2ImageNode"]["input"]["required"]["model"] = ["KREA2_MODEL_SOCKET", {}]
+        converted = graph_to_prompt(ui, object_info)
+        assert "model" not in converted["1"]["inputs"]
+
+    def test_trailing_widgets_values_are_no_longer_silently_lost(self, ui, object_info):
+        """Before the fix, `model` being dropped from the widget-name order
+        shifted `seed` onto `model`'s own raw value and then simply stopped -
+        every widgets_values slot past that (quality, negative_prompt,
+        denoise, the real seed, the randomize marker) never appeared in the
+        emitted prompt at all. They still can't be positioned correctly
+        (`/object_info` has no way to describe the sub-fields a real
+        `model` choice bundles - see the module docstring), but they're no
+        longer thrown away: every one of them shows up under a positional
+        `widget_N` name, including the real seed value."""
+        converted = graph_to_prompt(ui, object_info)
+        inputs = converted["1"]["inputs"]
+        raw_values = ui["nodes"][0]["widgets_values"]
+        assert inputs["widget_4"] == raw_values[4] == "medium"
+        assert inputs["widget_5"] == raw_values[5] == ""
+        assert inputs["widget_6"] == raw_values[6] == 0.35
+        assert inputs["widget_7"] == raw_values[7] == 1981045336  # the real seed
+        assert inputs["widget_8"] == raw_values[8] == "randomize"
+
+    def test_candidates_are_no_longer_empty(self, ui, object_info):
+        """Item #3 of the bug report: import.json's `choices` came out empty
+        because convert.py's own output was already collapsed to two
+        (mis-valued) fields by the time suggest_fields ever saw it - fixing
+        the conversion is what gives the wizard something to offer, even
+        though this all-in-one node has no KSampler for suggest_fields'
+        structural prompt/seed/sampler detection to key off (see the module
+        docstring of suggest.py) - every field here surfaces through its
+        generic "everything else literal" fallback instead, at role
+        "literal" rather than "prompt"/"seed"."""
+        converted = graph_to_prompt(ui, object_info)
+        workflow = parse_api_workflow(converted)
+        analysis = suggest_fields(workflow, object_info=object_info)
+        assert analysis.sampler_node_id is None
+        names = {c.input_name for c in analysis.candidates if c.node_id == "1"}
+        assert {"prompt", "model", "seed"} <= names
+        assert all(c.role == "literal" for c in analysis.candidates if c.node_id == "1")
 
 
 class TestExtractNodeGroups:

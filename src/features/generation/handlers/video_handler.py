@@ -23,6 +23,9 @@ pipeline, with database updates occurring when thumbnails are ready.
 
 import logging
 import os
+import subprocess
+import tempfile
+from pathlib import Path
 from typing import Dict, Any, Optional
 from PIL import Image
 
@@ -37,6 +40,43 @@ from src.platform.filesystem.storage_driver import FileStorageDriver, local_copy
 from src.platform.settings.settings import Settings
 
 logger = logging.getLogger(__name__)
+
+
+def render_poster_frame(video_path: str, width: int, timeout: int = 10) -> Optional[bytes]:
+    """Extract a video's first frame as a JPEG scaled to `width`, as bytes.
+
+    Same ffmpeg invocation `generate_video_thumbnails`'s static thumbnails use
+    below, factored out for a caller with no `files` row to hang a stored
+    thumbnail off - preset media, which stays on disk under
+    `content/presets/...` and needs the frame back as bytes to write into its
+    own on-disk render cache rather than through a `storage_driver` key.
+    Returns None on any failure (missing ffmpeg binary, corrupt video,
+    timeout) - callers treat that as "no poster available", not an error.
+    """
+    with tempfile.NamedTemporaryFile(suffix=".jpg") as tmp:
+        command = [
+            'ffmpeg', '-y', '-nostdin',
+            '-i', video_path,
+            '-vf', f'scale={width}:-1',
+            '-vframes', '1',
+            '-q:v', '8',
+            '-an',
+            tmp.name,
+        ]
+        try:
+            result = subprocess.run(command, capture_output=True, timeout=timeout)
+        except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+            logger.warning(f"Poster frame extraction failed for {video_path}: {e}")
+            return None
+
+        if result.returncode != 0:
+            logger.warning(
+                f"Poster frame extraction failed for {video_path}: "
+                f"{result.stderr.decode(errors='replace')}"
+            )
+            return None
+
+        return Path(tmp.name).read_bytes()
 
 
 def generate_video_thumbnails(

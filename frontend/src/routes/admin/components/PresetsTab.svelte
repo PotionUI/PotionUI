@@ -546,7 +546,7 @@
 											on:click={() => hasPresetMedia(activePreset) && (mediaModalOpen = true)}
 											aria-label={hasPresetMedia(activePreset) ? `View ${activePreset.name} media` : `${activePreset.name} has no media`}
 										>
-											<PresetThumbnail presetId={activePreset.id} presetName={activePreset.name} cover={activePreset.media?.cover} category={activePreset.category} size="w-40 h-40 sm:w-48 sm:h-48" variant="large" />
+											<PresetThumbnail presetId={activePreset.id} presetName={activePreset.name} cover={activePreset.media?.cover} category={activePreset.category} size="w-40 h-40 sm:w-48 sm:h-48" variant="medium" />
 										</button>
 
 										<div class="min-w-0 flex-1 pt-1">

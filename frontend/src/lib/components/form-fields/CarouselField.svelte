@@ -75,7 +75,9 @@
 
 	function getImageUrl(imagePath: string): string {
 		if (!imagePath) return '';
-		return api.getPresetAssetURL(presetId, imagePath);
+		// Tiles are `item_width`/`item_height` px (default 150) - never the full
+		// original.
+		return api.getPresetAssetURL(presetId, imagePath, 'small');
 	}
 
 	function handleImageError(itemValue: string) {

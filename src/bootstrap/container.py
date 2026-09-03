@@ -1202,6 +1202,17 @@ def build_container() -> AppContainer:
     )
     media_controller = MediaController(media_store)
 
+    # Pre-render preset media thumbnails ("install" - see docs/presets.md)
+    # off the request path: wired as the loader's change callback so every
+    # future rescan (admin reload, plugin enable/disable) schedules renders
+    # too, then run once now for whatever the loader already holds (empty if
+    # nothing has forced a load yet - the callback covers that first load).
+    from src.features.media.preset_prerender import PresetMediaPrerenderQueue
+
+    preset_media_prerender_queue = PresetMediaPrerenderQueue(media_store)
+    preset_template_loader.on_presets_changed = preset_media_prerender_queue.schedule_scan
+    preset_media_prerender_queue.schedule_scan(preset_template_loader.presets)
+
     from src.features.media.editing.editor import MediaEditor
     from src.features.media.editing.routes import MediaEditController
 

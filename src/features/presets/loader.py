@@ -26,7 +26,7 @@ import re
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import yaml
 
@@ -194,6 +194,14 @@ class PresetTemplateLoader:
         self.load_errors: Dict[str, List[str]] = {}
         self._loaded = False
         self._lock = threading.Lock()
+        # Set post-construction by bootstrap once a collaborator that cares
+        # about catalogue changes exists (e.g. `PresetMediaPrerenderQueue`
+        # scheduling renders for new/changed preset media). Fired at the end
+        # of every `_do_load_presets()` - the one choke point behind the
+        # initial lazy load, `load_presets()`, and `reload()` alike - with the
+        # freshly-swapped-in `self.presets`. Best-effort: a callback failure
+        # is logged, never allowed to break a preset load.
+        self.on_presets_changed: Optional[Callable[[List[PresetTemplate]], None]] = None
 
     def all_preset_roots(self) -> List[Path]:
         """The core preset paths plus enabled-plugin preset roots.
@@ -531,6 +539,11 @@ class PresetTemplateLoader:
         logger.info("Starting preset loading...")
         presets, errors = self._scan_presets()
         self.presets, self.load_errors = presets, errors
+        if self.on_presets_changed is not None:
+            try:
+                self.on_presets_changed(self.presets)
+            except Exception:
+                logger.exception("on_presets_changed callback failed")
 
     def _apply_preset_mode_contributions(
         self, presets: List[PresetTemplate], errors: Dict[str, List[str]]

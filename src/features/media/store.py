@@ -29,7 +29,7 @@ from src.features.generation.file_repository import FileRepository
 from src.features.generation.repository import GenerationRepository
 from src.features.generation import media_probe
 from src.features.generation.handlers.image_handler import generate_thumbnails
-from src.features.generation.handlers.video_handler import generate_video_thumbnails
+from src.features.generation.handlers.video_handler import generate_video_thumbnails, render_poster_frame
 from src.platform.filesystem.file_store import FileStore
 from src.platform.filesystem.storage_driver import (
     FileStorageDriver,
@@ -64,6 +64,11 @@ PRESET_THUMBNAIL_WIDTHS = {
     "medium": 768,
     "large": 1024,
 }
+
+# A rendered preset video's poster frame is always a JPEG, regardless of the
+# source container (.mp4/.webm/...) - so its cache entry needs its own fixed
+# suffix rather than the source file's.
+PRESET_VIDEO_POSTER_SUFFIX = ".jpg"
 
 
 class UnsupportedSizeError(ValueError):
@@ -988,6 +993,37 @@ class MediaStore:
             shutil.rmtree(cache_dir, ignore_errors=True)
             logger.debug(f"Purged preset thumbnail cache for {preset_id}")
 
+    def preset_render_is_current(self, preset_id: str, file_path: str, size: str) -> bool:
+        """True if a fresh `size` render for this preset media file is already
+        cached - never renders anything itself.
+
+        Used by the background pre-render scan (`PresetMediaPrerenderQueue`) to
+        skip work `get_preset_file` would find already cached, without paying
+        for a render just to check. A file type with no render concept (.gif,
+        an unresolvable path, a missing size) counts as "current" - there is
+        nothing pending for it.
+        """
+        if size not in PRESET_THUMBNAIL_WIDTHS:
+            return False
+        try:
+            full_file_path = self.file_resolver.resolve_preset_file(preset_id, file_path)
+        except ValueError:
+            return False
+        if not full_file_path.exists():
+            return False
+
+        suffix = full_file_path.suffix
+        if self.media_types.is_resizable(suffix):
+            render_suffix = suffix
+        elif self.media_types.is_video(suffix):
+            render_suffix = PRESET_VIDEO_POSTER_SUFFIX
+        else:
+            return True
+
+        mtime_ns = full_file_path.stat().st_mtime_ns
+        cache_path = self._preset_thumbnail_cache_path(preset_id, file_path, size, mtime_ns, render_suffix)
+        return cache_path.exists()
+
     def get_preset_file(
         self,
         preset_id: str,
@@ -1021,7 +1057,6 @@ class MediaStore:
         media_type = self.media_types.get_media_type(full_file_path.suffix)
         mtime_ns = full_file_path.stat().st_mtime_ns
 
-        # Videos and .gif are not resizable; they fall through and stream as-is.
         if size and self.media_types.is_resizable(full_file_path.suffix):
             cache_path = self._preset_thumbnail_cache_path(
                 preset_id, file_path, size, mtime_ns, full_file_path.suffix
@@ -1046,6 +1081,35 @@ class MediaStore:
                 )
             except Exception as e:
                 logger.warning(f"Failed to generate thumbnail: {str(e)}, serving original")
+        elif size and self.media_types.is_video(full_file_path.suffix):
+            # A poster frame, not a scaled copy of the video itself - always a
+            # JPEG regardless of the source container, so the cache key's
+            # suffix diverges from `full_file_path.suffix` here.
+            cache_path = self._preset_thumbnail_cache_path(
+                preset_id, file_path, size, mtime_ns, PRESET_VIDEO_POSTER_SUFFIX
+            )
+            try:
+                if not cache_path.exists():
+                    content = render_poster_frame(
+                        str(full_file_path), width=PRESET_THUMBNAIL_WIDTHS[size]
+                    )
+                    if content is None:
+                        raise ValueError("poster frame extraction failed")
+                    cache_path.parent.mkdir(parents=True, exist_ok=True)
+                    tmp_path = cache_path.with_suffix(cache_path.suffix + ".tmp")
+                    tmp_path.write_bytes(content)
+                    tmp_path.replace(cache_path)
+                    self._prune_stale_thumbnails(cache_path)
+
+                return MediaResult(
+                    file_path=str(cache_path),
+                    media_type=self.media_types.get_media_type(PRESET_VIDEO_POSTER_SUFFIX),
+                    headers=self._preset_headers(preset_id, file_path, size, mtime_ns),
+                    use_streaming=True
+                )
+            except Exception as e:
+                logger.warning(f"Failed to generate poster frame: {str(e)}, serving original")
+        # .gif falls through here too - not resizable, no poster concept, streams as-is.
 
         headers = self._preset_headers(preset_id, file_path, None, mtime_ns)
         headers.update({

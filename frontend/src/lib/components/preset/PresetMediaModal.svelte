@@ -47,7 +47,7 @@
 	}
 
 	$: coverUrl = preset?.media?.cover
-		? api.getPresetAssetURL(preset.id, preset.media.cover, 'large')
+		? api.getPresetAssetURL(preset.id, preset.media.cover, 'medium')
 		: null;
 	$: fallbackIcon = fallbackIconForCategory(preset?.category);
 	$: descriptionHtml = preset?.description ? processMarkdown(preset.description) : '';

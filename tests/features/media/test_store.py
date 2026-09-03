@@ -969,6 +969,114 @@ class TestMediaStore:
 
         assert before != after
 
+    # ========== Preset video poster frames ==========
+    # `render_poster_frame` itself needs ffmpeg (covered separately, further
+    # down) - these mock it, the same way the image branch's tests mock
+    # `image_processor.generate_thumbnail`, to test MediaStore's caching
+    # behaviour independent of ffmpeg's availability in the test environment.
+
+    def test_get_preset_file_video_size_renders_poster(
+        self, manager, mock_file_resolver, mock_media_types, temp_dir
+    ):
+        """A sized request for a video serves a cached JPEG poster frame, not the video."""
+        preset_file = temp_dir / "clip.mp4"
+        preset_file.write_bytes(b"not a real video, only cache plumbing is under test")
+        mock_file_resolver.resolve_preset_file.return_value = preset_file
+        mock_file_resolver.get_storage_directory.return_value = str(temp_dir / "storage")
+        mock_media_types.is_resizable.return_value = False
+        mock_media_types.is_video.return_value = True
+        mock_media_types.get_media_type.side_effect = (
+            lambda suffix: "image/jpeg" if suffix == ".jpg" else "video/mp4"
+        )
+
+        with patch(
+            "src.features.media.store.render_poster_frame", return_value=b"jpeg-bytes"
+        ) as mock_render:
+            result = manager.get_preset_file("preset123", "public/clip.mp4", size="small")
+
+        mock_render.assert_called_once()
+        assert mock_render.call_args.kwargs["width"] == 480
+        assert result.file_path.endswith(".jpg")
+        assert Path(result.file_path).read_bytes() == b"jpeg-bytes"
+        assert result.media_type == "image/jpeg"
+
+    def test_get_preset_file_video_poster_cache_reused(
+        self, manager, mock_file_resolver, mock_media_types, temp_dir
+    ):
+        """A second request for the same video+size renders no poster frame."""
+        preset_file = temp_dir / "clip.mp4"
+        preset_file.write_bytes(b"stand-in video bytes")
+        mock_file_resolver.resolve_preset_file.return_value = preset_file
+        mock_file_resolver.get_storage_directory.return_value = str(temp_dir / "storage")
+        mock_media_types.is_resizable.return_value = False
+        mock_media_types.is_video.return_value = True
+
+        with patch(
+            "src.features.media.store.render_poster_frame", return_value=b"jpeg-bytes"
+        ) as mock_render:
+            first = manager.get_preset_file("preset123", "public/clip.mp4", size="small")
+            second = manager.get_preset_file("preset123", "public/clip.mp4", size="small")
+
+        assert mock_render.call_count == 1
+        assert first.file_path == second.file_path
+
+    def test_get_preset_file_video_falls_back_when_poster_extraction_fails(
+        self, manager, mock_file_resolver, mock_media_types, temp_dir
+    ):
+        """`render_poster_frame` returning None (no ffmpeg, corrupt video) must
+        fall back to serving the original video, not raise."""
+        preset_file = temp_dir / "clip.mp4"
+        preset_file.write_bytes(b"stand-in video bytes")
+        mock_file_resolver.resolve_preset_file.return_value = preset_file
+        mock_media_types.is_resizable.return_value = False
+        mock_media_types.is_video.return_value = True
+        mock_media_types.get_media_type.return_value = "video/mp4"
+
+        with patch("src.features.media.store.render_poster_frame", return_value=None):
+            result = manager.get_preset_file("preset123", "public/clip.mp4", size="small")
+
+        assert result.file_path == str(preset_file)
+        assert result.media_type == "video/mp4"
+
+    def test_preset_render_is_current_false_when_not_cached(
+        self, manager, mock_file_resolver, mock_media_types, temp_dir
+    ):
+        preset_file = temp_dir / "clip.mp4"
+        preset_file.write_bytes(b"stand-in video bytes")
+        mock_file_resolver.resolve_preset_file.return_value = preset_file
+        mock_file_resolver.get_storage_directory.return_value = str(temp_dir / "storage")
+        mock_media_types.is_resizable.return_value = False
+        mock_media_types.is_video.return_value = True
+
+        assert manager.preset_render_is_current("preset123", "public/clip.mp4", "small") is False
+
+    def test_preset_render_is_current_true_after_render(
+        self, manager, mock_file_resolver, mock_media_types, temp_dir
+    ):
+        preset_file = temp_dir / "clip.mp4"
+        preset_file.write_bytes(b"stand-in video bytes")
+        mock_file_resolver.resolve_preset_file.return_value = preset_file
+        mock_file_resolver.get_storage_directory.return_value = str(temp_dir / "storage")
+        mock_media_types.is_resizable.return_value = False
+        mock_media_types.is_video.return_value = True
+
+        with patch("src.features.media.store.render_poster_frame", return_value=b"jpeg-bytes"):
+            manager.get_preset_file("preset123", "public/clip.mp4", size="small")
+
+        assert manager.preset_render_is_current("preset123", "public/clip.mp4", "small") is True
+
+    def test_preset_render_is_current_true_for_unresolvable_type(
+        self, manager, mock_file_resolver, mock_media_types, temp_dir
+    ):
+        """A .gif has no render concept - nothing pending for it, ever."""
+        preset_file = temp_dir / "anim.gif"
+        preset_file.write_bytes(b"gif bytes")
+        mock_file_resolver.resolve_preset_file.return_value = preset_file
+        mock_media_types.is_resizable.return_value = False
+        mock_media_types.is_video.return_value = False
+
+        assert manager.preset_render_is_current("preset123", "public/anim.gif", "small") is True
+
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

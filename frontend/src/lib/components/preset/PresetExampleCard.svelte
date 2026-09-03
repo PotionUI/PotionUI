@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Card, Badge, IconButton } from '$lib/components/ui';
+	import Icon from '$lib/components/Icon.svelte';
 	import { api } from '$lib/services/api/index';
 	import type { PresetGalleryItem } from '$lib/types/api';
 	import { exampleAltText, isVideoExample } from '$lib/utils/presetMedia';
@@ -22,28 +23,28 @@
 		}
 	}
 
-	$: mediaUrl = api.getPresetAssetURL(presetId, item.src, 'medium');
+	// A grid tile is a thumbnail, never a full render - 'small' is plenty for
+	// the fixed aspect-square box below. A video item gets its poster frame
+	// (same size, rendered server-side) rather than the video itself; there is
+	// no in-grid playback, so the real file is never fetched here.
+	$: mediaUrl = api.getPresetAssetURL(presetId, item.src, 'small');
 	$: isVideo = isVideoExample(item);
 </script>
 
 <Card padding="none" interactive={!!onSelect} onclick={onSelect} class="overflow-hidden flex flex-col">
-	<div class="w-full aspect-square bg-surface-2">
+	<div class="relative w-full aspect-square bg-surface-2">
+		<img
+			src={mediaUrl}
+			alt={exampleAltText(presetName, item.caption)}
+			class="w-full h-full object-cover"
+			loading="lazy"
+		/>
 		{#if isVideo}
-			<!-- svelte-ignore a11y-media-has-caption -->
-			<video
-				src={mediaUrl}
-				class="w-full h-full object-cover"
-				preload="metadata"
-				muted
-				playsinline
-			/>
-		{:else}
-			<img
-				src={mediaUrl}
-				alt={exampleAltText(presetName, item.caption)}
-				class="w-full h-full object-cover"
-				loading="lazy"
-			/>
+			<div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+				<div class="w-9 h-9 rounded-full bg-surface-1/80 flex items-center justify-center text-fg shadow-raised">
+					<Icon name="play" className="w-4 h-4" strokeWidth={2} />
+				</div>
+			</div>
 		{/if}
 	</div>
 

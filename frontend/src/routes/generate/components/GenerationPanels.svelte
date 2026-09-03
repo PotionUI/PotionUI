@@ -285,6 +285,7 @@
 		{videoDirectorActive}
 		{dynamicFormRefs}
 		{onFormDataChange}
+		width={leftPanelWidth}
 		onClose={closeFloatingGenerationForm}
 		closeShortcut={$shortcutLabels['toggle_floating_form']}
 	/>

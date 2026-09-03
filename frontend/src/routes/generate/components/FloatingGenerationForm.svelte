@@ -20,6 +20,7 @@
 		dynamicFormRefs,
 		onFormDataChange,
 		onClose,
+		width,
 		closeShortcut = undefined
 	}: {
 		tab: Tab;
@@ -28,6 +29,8 @@
 		dynamicFormRefs: Record<string, DynamicForm>;
 		onFormDataChange: (data: Record<string, unknown>) => void;
 		onClose: () => void;
+		/** The inline form pane's width — the form is designed for it, so the overlay keeps it. */
+		width: number;
 		closeShortcut?: string;
 	} = $props();
 
@@ -67,7 +70,8 @@
 	transition:fade={{ duration: motionDuration }}
 >
 	<div
-		class="flex h-[85vh] w-full flex-col rounded-t-xl bg-surface-1 shadow-overlay md:h-auto md:max-h-[85vh] md:w-[min(880px,92vw)] md:rounded-xl"
+		class="flex h-[85vh] w-full flex-col rounded-t-xl bg-surface-1 shadow-overlay md:h-auto md:max-h-[85vh] md:w-[var(--floating-form-width)] md:rounded-xl"
+		style="--floating-form-width: min({width}px, 92vw)"
 		role="dialog"
 		aria-modal="true"
 		aria-label="Generation form"
@@ -85,7 +89,7 @@
 				<IconButton icon="close" label="Close floating generation form" onclick={onClose} />
 			</Tooltip>
 		</div>
-		<div class="min-h-0 flex-1 overflow-y-auto p-4">
+		<div class="min-h-0 flex-1 overflow-y-auto">
 			<GenerationFormPane
 				bind:formRef={dynamicFormRefs[tab.id]}
 				{tab}

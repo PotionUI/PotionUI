@@ -42,7 +42,24 @@ the workflow was built, not something to fix by re-exporting.
 
 ## Importing it as a preset
 
-An **Import workflow** button in **Administration → Presets** (icon-only header action) opens a modal: paste or drop your exported ComfyUI JSON. The modal detects the workflow's mode, node count, and LoRA chain; select which inputs become form fields (checkpoint, steps, and other obvious ones are pre-ticked, more are available under "More inputs"), set model family / variant / display name, then create. Lint results appear inline; "Open in Presets" opens the generated preset for tweaking.
+An **Import workflow** button in **Administration → Presets** (icon-only header action) opens a
+wizard that walks through five steps:
+
+1. **Paste or drop your exported ComfyUI JSON.** The wizard detects the workflow's mode, node
+   count, and any LoRA chain, and reads it into the steps that follow.
+2. **Design the form.** A starting layout is pre-built for you — the obvious inputs (checkpoint,
+   steps, resolution, a detected LoRA chain, and more) already turned into fields and arranged into
+   tabs, grouped where that makes sense (all the model pickers together, for instance). Add, remove,
+   rename, or rearrange fields — into rows, groups, or collapsible sections — and add tabs of your
+   own; anything you leave out keeps the value it had in the original workflow.
+3. **Choose what shows up in generation history.** Pick which of your fields (steps, cfg, the
+   model, ...) get recorded against each generation, so you can see what settings produced a given
+   image later. An image field is never offered here — there's nothing meaningful to log for it.
+4. **Review requirements.** A checklist of the custom node packs and model files this workflow
+   needs, checked live against your configured ComfyUI backend, so a missing install surfaces now
+   instead of mid-generation.
+5. **Name it and create.** Set the model family, variant, and display name, then create the
+   preset. Lint results appear inline; "Open in Presets" opens the generated preset for tweaking.
 
 If your workflow uses a custom node your backend doesn't have installed yet, the import still goes through — you'll see a warning naming it, and its fields are still available to pick (best-effort, since PotionUI can't ask that node what its inputs are called). Install the node pack and re-import once you can, but you don't have to stop and do that first.
 

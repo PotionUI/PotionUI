@@ -13,9 +13,11 @@ import pytest
 import yaml
 
 from backend import api
-from backend.preset_import.emit import FieldChoice, emit_preset
+from backend.preset_import.emit import emit_preset
 from backend.preset_import.parser import parse_api_workflow
 from backend.preset_import.suggest import suggest_fields
+
+from ._form_helpers import form_from_roles
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -25,19 +27,29 @@ def _load(name: str) -> dict:
         return json.load(f)
 
 
-def _checkpoint_choice(analysis):
-    return [
-        FieldChoice(node_id=c.node_id, input_name=c.input_name)
-        for c in analysis.candidates
-        if c.role == "checkpoint"
-    ]
+def _all_mappings(form_dict: dict) -> list:
+    """Every field mapping in a `form` dict, walking rows/groups/sections
+    (whose fields nest under their own "items") as well as top-level ones."""
+    mappings = []
+
+    def _walk(items):
+        for item in items:
+            if item["kind"] == "field":
+                mappings.extend(item.get("mappings", []))
+            elif "items" in item:
+                _walk(item["items"])
+
+    for tab in form_dict["tabs"]:
+        _walk(tab["items"])
+    return mappings
 
 
 def _import_fixture(dest_root, *, model_family, variant="imported", with_sidecar=True):
     workflow = parse_api_workflow(_load("sdxl_basic_api.json"))
     analysis = suggest_fields(workflow)
+    form = form_from_roles(analysis, {"checkpoint"})
     result = emit_preset(
-        workflow, _checkpoint_choice(analysis), model_family=model_family, variant=variant,
+        workflow, form, [], model_family=model_family, variant=variant,
         display_name=f"{model_family} display", dest_root=dest_root,
     )
     if not with_sidecar:
@@ -75,16 +87,18 @@ class TestGetImportedPresetSource:
         assert response["variant"] == "imported"
         assert response["display_name"] == "SourceTest display"
         assert any(c["role"] == "checkpoint" for c in response["candidates"])
-        assert response["sidecar_choices"] is not None
-        assert any(c["input_name"] == "ckpt_name" for c in response["sidecar_choices"])
+        assert any(m["input_name"] == "ckpt_name" for m in _all_mappings(response["form"]))
+        assert response["history"] == []
 
     @pytest.mark.asyncio
-    async def test_sidecar_choices_is_none_without_a_sidecar(self, _imported_root):
+    async def test_falls_back_to_default_form_without_a_sidecar(self, _imported_root):
         result = _import_fixture(_imported_root, model_family="NoSidecarSource", with_sidecar=False)
 
         response = await api.get_imported_preset_source(result.preset_id, current_user=None)
 
-        assert response["sidecar_choices"] is None
+        # No sidecar to reproduce: the same "obvious fields" default_form a
+        # brand-new analyze would offer - the checkpoint loader is obvious.
+        assert any(m["input_name"] == "ckpt_name" for m in _all_mappings(response["form"]))
 
 
 class TestReloadImportedPreset:
@@ -105,25 +119,31 @@ class TestReloadImportedPreset:
         assert "errors" in response["lint"] and "warnings" in response["lint"]
 
     @pytest.mark.asyncio
-    async def test_reload_reproduces_the_sidecars_field_choices(self, _imported_root):
+    async def test_reload_reproduces_the_sidecars_form(self, _imported_root):
         result = _import_fixture(_imported_root, model_family="ReloadFieldsTest")
+        generation_before = (
+            (result.preset_dir / "modes" / result.mode / "tabs" / "generation.yml").read_text()
+        )
         preset_yml_before = yaml.safe_load((result.preset_dir / "preset.yml").read_text())
 
         await api.reload_imported_preset(result.preset_id, current_user=None)
 
+        generation_after = (
+            (result.preset_dir / "modes" / result.mode / "tabs" / "generation.yml").read_text()
+        )
         preset_yml_after = yaml.safe_load((result.preset_dir / "preset.yml").read_text())
-        # Same configuration block (model_tags for the checkpoint field) -
-        # proof the checkpoint candidate was chosen again, not dropped.
-        assert preset_yml_after.get("configuration") == preset_yml_before.get("configuration")
+        # Same tab body (the checkpoint field, from the sidecar's stored
+        # form) - proof it was reproduced, not dropped for the defaults.
+        assert generation_after == generation_before
         assert preset_yml_after["id"] == preset_yml_before["id"]
 
     @pytest.mark.asyncio
-    async def test_reload_without_a_sidecar_falls_back_to_default_choices_with_a_warning(self, _imported_root):
+    async def test_reload_without_a_sidecar_falls_back_to_default_form_with_a_warning(self, _imported_root):
         result = _import_fixture(_imported_root, model_family="ReloadNoSidecar", with_sidecar=False)
 
         response = await api.reload_imported_preset(result.preset_id, current_user=None)
 
-        assert "re-imported with default field choices" in response["lint"]["warnings"]
+        assert "re-imported with the default form/history" in response["lint"]["warnings"]
         assert (result.preset_dir / "import.json").exists()  # reload writes a fresh sidecar going forward
 
     @pytest.mark.asyncio
@@ -149,7 +169,25 @@ class TestModifyViaImportWorkflowOverwrite:
 
         body = api.ImportWorkflowRequest(
             workflow=_load("sdxl_basic_api.json"),
-            fields=[api.ImportFieldChoice(node_id="4", input_name="ckpt_name")],
+            form={
+                "tabs": [
+                    {
+                        "id": "generation",
+                        "label": "Generation",
+                        "items": [
+                            {
+                                "kind": "field",
+                                "field_name": "checkpoint",
+                                "field_type": "model",
+                                "label": "Checkpoint",
+                                "mappings": [
+                                    {"node_id": "4", "input_name": "ckpt_name", "transform": "strip_model_prefix"}
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            },
             model_family="ModifyTest",
             variant="imported",
             display_name="ModifyTest renamed",
@@ -170,7 +208,6 @@ class TestModifyViaImportWorkflowOverwrite:
 
         body = api.ImportWorkflowRequest(
             workflow=_load("sdxl_basic_api.json"),
-            fields=[],
             model_family="NoOverwriteApi",
             variant="imported",
             display_name="X",

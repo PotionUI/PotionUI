@@ -23,15 +23,16 @@ from src.plugin_api import (
 from src.plugin_api.presets import RequirementContext
 
 from .preset_import.convert import extract_node_groups
+from .preset_import.defaults import build_default_form, build_default_history
 from .preset_import.emit import (
     IMPORT_PROVENANCE_PREFIX,
     IMPORT_SIDECAR_FILENAME,
-    FieldChoice,
     PresetEmitError,
     _infer_requirements,
     emit_preset,
 )
 from .preset_import.parser import WorkflowFormatError, is_ui_format, parse_workflow
+from .preset_import.schema import HistoryEntry, ImportForm, parse_form, parse_history
 from .preset_import.suggest import suggest_fields
 from .requirements import ComfyUIModelChecker, ComfyUINodeChecker
 
@@ -231,17 +232,14 @@ class AnalyzeWorkflowRequest(BaseModel):
     workflow: Dict[str, Any]
 
 
-class ImportFieldChoice(BaseModel):
-    node_id: str
-    input_name: str
-    field_name: Optional[str] = None
-    field_type: Optional[str] = None
-    label: Optional[str] = None
-
-
 class ImportWorkflowRequest(BaseModel):
     workflow: Dict[str, Any]
-    fields: List[ImportFieldChoice] = []
+    # Raw dicts, not typed as ImportForm/List[HistoryEntry] directly: a bad
+    # shape here is turned into a 400 with a clear message by
+    # `schema.parse_form`/`parse_history` (see the module's own
+    # PresetEmitError), not FastAPI's generic 422.
+    form: Optional[Dict[str, Any]] = None
+    history: List[Dict[str, Any]] = []
     model_family: str
     variant: str = "imported"
     display_name: str
@@ -283,12 +281,16 @@ async def analyze_workflow(
 
     node_groups = extract_node_groups(body.workflow) if workflow_format == "ui" else None
     analysis = suggest_fields(workflow, object_info=object_info, node_groups=node_groups)
+    default_form = build_default_form(analysis)
+    default_history = build_default_history(default_form)
     return {
         **analysis.to_dict(),
         "format": workflow_format,
         "object_info_used": object_info is not None,
         "unknown_nodes": workflow.unknown_nodes,
         "warnings": _unknown_node_warnings(workflow.unknown_nodes),
+        "default_form": default_form.model_dump(mode="json"),
+        "default_history": [entry.model_dump(mode="json") for entry in default_history],
     }
 
 
@@ -345,20 +347,22 @@ async def import_workflow(
     body: ImportWorkflowRequest, current_user=Depends(get_current_admin_user)
 ):
     """Write a lint-clean preset directory under content/presets/local from a
-    ComfyUI workflow - Export (API) or UI format - plus the admin's field
-    choices (see /presets/import/analyze)."""
+    ComfyUI workflow - Export (API) or UI format - plus the admin's `form`/
+    `history` (see /presets/import/analyze's default_form/default_history)."""
     try:
         workflow, workflow_format, object_info = await _parse_incoming_workflow(body.workflow)
     except WorkflowFormatError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    choices = [FieldChoice(**choice.model_dump()) for choice in body.fields]
     ui_workflow = body.workflow if workflow_format == "ui" else None
 
     try:
+        form = parse_form(body.form)
+        history = parse_history(body.history)
         result = emit_preset(
             workflow,
-            choices,
+            form,
+            history,
             model_family=body.model_family,
             variant=body.variant,
             display_name=body.display_name,
@@ -504,17 +508,6 @@ def _read_stored_workflow(entry: _ImportedPresetEntry) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail=f"Could not read the stored workflow: {e}")
 
 
-def _default_choices_from_analysis(analysis) -> List[FieldChoice]:
-    """The same "obvious fields pre-ticked, suggested type/label" default the
-    wizard applies to a brand-new analyze - used to reload a preset that has
-    no sidecar (imported before import.json existed)."""
-    return [
-        FieldChoice(node_id=c.node_id, input_name=c.input_name)
-        for c in analysis.candidates
-        if c.obvious
-    ]
-
-
 @router.get("/presets/imported")
 async def list_imported_presets(current_user=Depends(get_current_admin_user)):
     """Presets under content/presets/local this plugin created - identified by
@@ -542,8 +535,11 @@ async def list_imported_presets(current_user=Depends(get_current_admin_user)):
 async def get_imported_preset_source(preset_id: str, current_user=Depends(get_current_admin_user)):
     """The stored workflow plus a fresh analysis of it (same envelope as
     `/presets/import/analyze`), enriched with this preset's own identity and
-    sidecar field choices - what the wizard's "edit" entry point needs to
-    reopen an imported preset exactly as it was built, in one round trip."""
+    its sidecar's `form`/`history` - what the wizard's "edit" entry point
+    needs to reopen an imported preset exactly as it was built, in one round
+    trip. A preset imported before the sidecar existed (or before it carried
+    `form`/`history`) falls back to `default_form`/`default_history`, same as
+    a brand-new analyze."""
     entry = _find_imported_preset(preset_id)
     if entry is None:
         raise HTTPException(status_code=404, detail="Imported preset not found.")
@@ -557,6 +553,15 @@ async def get_imported_preset_source(preset_id: str, current_user=Depends(get_cu
     node_groups = extract_node_groups(raw_workflow) if workflow_format == "ui" else None
     analysis = suggest_fields(workflow, object_info=object_info, node_groups=node_groups)
 
+    stored_form = entry.sidecar.get("form") if entry.sidecar else None
+    stored_history = entry.sidecar.get("history") if entry.sidecar else None
+    form = ImportForm.model_validate(stored_form) if stored_form else build_default_form(analysis)
+    history = (
+        [HistoryEntry.model_validate(e) for e in stored_history]
+        if stored_history is not None
+        else build_default_history(form)
+    )
+
     return {
         "workflow": raw_workflow,
         **analysis.to_dict(),
@@ -567,18 +572,19 @@ async def get_imported_preset_source(preset_id: str, current_user=Depends(get_cu
         "model_family": entry.family,
         "variant": entry.variant,
         "display_name": entry.preset_yml.get("name", entry.variant),
-        "sidecar_choices": entry.sidecar.get("choices") if entry.sidecar else None,
+        "form": form.model_dump(mode="json"),
+        "history": [e.model_dump(mode="json") for e in history],
     }
 
 
 @router.post("/presets/imported/{preset_id}/reload")
 async def reload_imported_preset(preset_id: str, current_user=Depends(get_current_admin_user)):
     """Re-parse this preset's stored source workflow and re-emit it into the
-    SAME directory under the SAME id, using its sidecar's exact field
-    choices when it has one - "pick up a workflow/importer change without
-    re-picking every field". A preset imported before the sidecar existed
-    falls back to the default (obvious) choices and says so in `warnings`,
-    same as a brand-new import would produce today."""
+    SAME directory under the SAME id, using its sidecar's exact `form`/
+    `history` when it has one - "pick up a workflow/importer change without
+    re-designing the form". A preset imported before the sidecar carried
+    `form`/`history` falls back to the default form/history and says so in
+    `warnings`, same as a brand-new import would produce today."""
     entry = _find_imported_preset(preset_id)
     if entry is None:
         raise HTTPException(status_code=404, detail="Imported preset not found.")
@@ -590,29 +596,25 @@ async def reload_imported_preset(preset_id: str, current_user=Depends(get_curren
         raise HTTPException(status_code=400, detail=str(e))
 
     extra_warnings: List[str] = []
-    if entry.sidecar:
-        choices = [
-            FieldChoice(
-                node_id=c["node_id"],
-                input_name=c["input_name"],
-                field_name=c.get("field_name"),
-                field_type=c.get("field_type"),
-                label=c.get("label"),
-            )
-            for c in entry.sidecar.get("choices", [])
-        ]
+    stored_form = entry.sidecar.get("form") if entry.sidecar else None
+    stored_history = entry.sidecar.get("history") if entry.sidecar else None
+    if stored_form is not None:
+        form = ImportForm.model_validate(stored_form)
+        history = [HistoryEntry.model_validate(e) for e in (stored_history or [])]
     else:
         node_groups = extract_node_groups(raw_workflow) if workflow_format == "ui" else None
         analysis = suggest_fields(workflow, object_info=object_info, node_groups=node_groups)
-        choices = _default_choices_from_analysis(analysis)
-        extra_warnings.append("re-imported with default field choices")
+        form = build_default_form(analysis)
+        history = build_default_history(form)
+        extra_warnings.append("re-imported with the default form/history")
 
     ui_workflow = raw_workflow if workflow_format == "ui" else None
 
     try:
         result = emit_preset(
             workflow,
-            choices,
+            form,
+            history,
             model_family=entry.family,
             variant=entry.variant,
             display_name=entry.preset_yml.get("name", entry.variant),

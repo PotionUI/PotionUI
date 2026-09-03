@@ -1772,35 +1772,74 @@ If you already have a working ComfyUI graph, don't hand-write the preset — imp
    still appear (widget names taken from the export when it recorded them, best-effort otherwise) so
    you can see and import around it, then re-import once the node pack is installed.
 
+   The response also carries `default_form`/`default_history` — a ready-to-submit `form`/`history`
+   (see step 3) built from the `obvious` candidates: resolution as one field with two mappings,
+   each model loader field grouped under a "Models" group, a detected LoRA chain collapsed into one
+   `lora_picker` field, and — when the source workflow had ComfyUI groups drawn on it — one tab per
+   group instead of a single "Generation" tab. This is the wizard's starting point, not a
+   requirement: submit it back verbatim for the importer's best guess, or design a different
+   `form`/`history` entirely.
+
    ```bash
    curl -s -X POST http://localhost:7680/api/plugins/comfyui-backend/presets/import/analyze \
      -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
      -d "{\"workflow\": $(cat txt2img.json)}"
    ```
 
-3. **Import it.** Pick which candidates to keep and call
-   `POST /api/plugins/comfyui-backend/presets/import` with the original `workflow`, a `fields` list
-   (each entry a `node_id` + `input_name`, optionally overriding `field_name`/`field_type`/`label`),
-   and `model_family`/`variant`/`display_name`. Fields you always want are prompt (positive and
-   negative, found by following the sampler node's own conditioning links), seed (bound to `@seed`),
-   and batch size (bound to `quantity`) — those wire in automatically regardless of what else you
-   choose. Everything else — steps/cfg/sampler/scheduler/denoise, resolution (pick both width and
-   height together), each model loader, a detected LoRA chain (its loader nodes are stripped from
-   the baked-in workflow and rebuilt as the `@loop` chain below), and any `LoadImage` node (which
-   also switches the generated mode to `img2img`) — is opt-in per field; anything you don't include
-   keeps its literal baked-in value from the copied workflow JSON. The call writes
-   `content/presets/local/<model_family>/<variant>/` — never into a plugin directory, and never
-   overwriting an existing preset — lints it immediately, and reloads the running preset catalogue,
-   so the result shows up without a restart.
+3. **Import it.** Call `POST /api/plugins/comfyui-backend/presets/import` with the original
+   `workflow`, a `form`, a `history`, and `model_family`/`variant`/`display_name`. `form` is
+   `{tabs: [{id, label, icon?, items: [Item, ...]}, ...]}` — the preset's tab layout, exactly as an
+   admin arranges it. An `Item` is one of:
+
+   - `{kind: "field", field_name, field_type, label, default?, config?, mappings}` — a real form
+     field. `mappings` is a list of `{node_id, input_name, transform}` (a field can map several
+     inputs — resolution maps one field to both a width and a height input); `transform` is one of
+     `"none"`, `"strip_model_prefix"` (strips the model picker's storage prefix, the
+     `MODEL_TYPE_STRIP_PREFIXES` idiom below), `"split_wh_width"` / `"split_wh_height"` (the
+     `.split('x')[0|1]` idiom below), or `"seed"` (wires the literal `"@seed"` sentinel regardless
+     of the field's own value). A field needs at least one mapping, with one exception:
+     `field_type: "lora_picker"` is graph-wired (see the `@loop` recipe below), never a single
+     mapped value.
+   - `{kind: "row", columns: 2|3|4, items}`, `{kind: "group", title, items}`,
+     `{kind: "section", title, collapsed, items}` (a collapsible group), `{kind: "header", text}` —
+     layout containers, nestable, mapping onto the real `row`/`group`/`accordion`/`header` field
+     types this chapter documents elsewhere.
+
+   `history` is `[{field, label, format, template?}, ...]`, in display order — which fields get
+   recorded to a generation's `param_emitter` (see "Configure the `comfyui` pipe" below) and how:
+   `format` is `"as_is"`/`"number"`/`"wxh"` (the field's own value, verbatim), `"model_name"` (the
+   bare filename, path stripped), `"list"` (a LoRA-list field's active count and names), or
+   `"jinja"` (a `template` you write yourself, used verbatim as the emitted value).
+
+   Prompt (positive and negative, found by following the sampler node's own conditioning links),
+   seed, and batch size are never `Item`s — the wizard shows them locked, and they wire in
+   automatically (bound to `@seed`/`form.quantity`) regardless of what `form` contains. Any input
+   left out of every field's `mappings` keeps its literal baked-in value from the copied workflow
+   JSON; a `LoadImage` node needing a real field (not a baked-in placeholder) is enforced for you —
+   a workflow with an image input but no `image`-typed field in `form` is rejected with a clear 400.
+   The call writes `content/presets/local/<model_family>/<variant>/` — never into a plugin
+   directory, and never overwriting an existing preset — lints it immediately, and reloads the
+   running preset catalogue, so the result shows up without a restart.
 
    ```bash
    curl -s -X POST http://localhost:7680/api/plugins/comfyui-backend/presets/import \
      -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
      -d '{
        "workflow": '"$(cat txt2img.json)"',
-       "fields": [
-         {"node_id": "4", "input_name": "ckpt_name", "field_name": "checkpoint", "field_type": "model", "label": "Checkpoint"},
-         {"node_id": "3", "input_name": "steps", "field_name": "steps", "field_type": "slider", "label": "Steps"}
+       "form": {
+         "tabs": [
+           {"id": "generation", "label": "Generation", "items": [
+             {"kind": "field", "field_name": "checkpoint", "field_type": "model", "label": "Checkpoint",
+              "config": {"model_type": "checkpoint"},
+              "mappings": [{"node_id": "4", "input_name": "ckpt_name", "transform": "strip_model_prefix"}]},
+             {"kind": "field", "field_name": "steps", "field_type": "slider", "label": "Steps", "default": 20,
+              "mappings": [{"node_id": "3", "input_name": "steps"}]}
+           ]}
+         ]
+       },
+       "history": [
+         {"field": "checkpoint", "label": "Checkpoint", "format": "model_name"},
+         {"field": "steps", "label": "Steps", "format": "number"}
        ],
        "model_family": "MyModel",
        "variant": "standard",
@@ -1812,7 +1851,7 @@ If you already have a working ComfyUI graph, don't hand-write the preset — imp
    assuming the import is clean.
 
    The written `preset.yml` also gets a `requirements:` block (see "Requirements" above),
-   inferred from the whole workflow graph regardless of which candidates you picked as fields: one
+   inferred from the whole workflow graph regardless of which inputs you mapped into fields: one
    `comfyui_node` entry for every node class outside a small built-in allowlist (a custom node pack
    the target server may not have installed), and one `comfyui_model` entry for every checkpoint/
    UNET/CLIP/VAE/LoRA file a loader node references. Both types are registered by this plugin
@@ -1822,9 +1861,9 @@ If you already have a working ComfyUI graph, don't hand-write the preset — imp
 
    Importing a UI-format workflow also writes the original export as
    `modes/<mode>/files/workflows/<mode>.ui.json`, kept alongside the converted `<mode>.json` for
-   reference, and — if the source workflow had ComfyUI groups drawn on it — gives each group its
-   own tab (named after the group) instead of dumping every non-foundational field into one
-   "Advanced" tab.
+   reference. `GET /presets/imported/{id}/source` returns the stored `form`/`history` (from the
+   preset's `import.json` sidecar, or `default_form`/`default_history` for a preset imported before
+   the sidecar carried them) so the wizard can reopen an imported preset exactly as it was built.
 
 4. **Tweak the generated YAML.** The importer gets you a working skeleton, not a finished preset:
    check which fields you picked up (a "Power Lora Loader"-style single multi-LoRA node, or a

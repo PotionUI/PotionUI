@@ -19,6 +19,7 @@ import yaml
 
 from backend.preset_import.emit import _infer_requirements, emit_preset
 from backend.preset_import.parser import WorkflowNode, parse_api_workflow
+from backend.preset_import.schema import ImportForm
 from backend.requirements import ComfyUIModelRequirementSchema, ComfyUINodeRequirementSchema
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -173,7 +174,7 @@ class TestEmittedRequirementsAreSchemaValid:
         checks the schemas directly instead of shelling out)."""
         workflow = parse_api_workflow(_load("sdxl_basic_api.json"))
         result = emit_preset(
-            workflow, [], model_family="ReqSchemaTest", variant="v1",
+            workflow, ImportForm(tabs=[]), [], model_family="ReqSchemaTest", variant="v1",
             display_name="Requirements Schema Test", dest_root=dest_root,
         )
 

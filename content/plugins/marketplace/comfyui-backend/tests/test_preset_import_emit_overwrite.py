@@ -1,6 +1,6 @@
 """`emit_preset`'s overwrite/preset_id path (reload/modify) and its
 `import.json` sidecar - the record reload/modify reads back to reproduce an
-import's exact field choices instead of falling back to "obvious" defaults.
+import's exact `form`/`history` instead of falling back to "obvious" defaults.
 """
 
 import json
@@ -12,11 +12,13 @@ import yaml
 from backend.preset_import.emit import (
     IMPORT_SIDECAR_FILENAME,
     IMPORTER_VERSION,
-    FieldChoice,
     PresetEmitError,
     emit_preset,
 )
 from backend.preset_import.parser import parse_api_workflow
+from backend.preset_import.schema import FieldItem, FieldMapping, FormTab, ImportForm
+
+from ._form_helpers import form_from_roles
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -26,12 +28,8 @@ def _load(name: str) -> dict:
         return json.load(f)
 
 
-def _checkpoint_choice(analysis) -> list:
-    return [
-        FieldChoice(node_id=c.node_id, input_name=c.input_name)
-        for c in analysis.candidates
-        if c.role == "checkpoint"
-    ]
+def _checkpoint_form(analysis) -> ImportForm:
+    return form_from_roles(analysis, {"checkpoint"})
 
 
 class TestSidecarWritten:
@@ -44,10 +42,10 @@ class TestSidecarWritten:
         from backend.preset_import.suggest import suggest_fields
 
         analysis = suggest_fields(workflow)
-        choices = _checkpoint_choice(analysis)
+        form = _checkpoint_form(analysis)
 
         result = emit_preset(
-            workflow, choices, model_family="SidecarTest", variant="v1",
+            workflow, form, [], model_family="SidecarTest", variant="v1",
             display_name="Sidecar Test", dest_root=dest_root,
         )
 
@@ -63,39 +61,48 @@ class TestSidecarWritten:
         assert isinstance(sidecar["created_at"], int)
         assert sidecar["source_file"] == f"modes/{result.mode}/files/workflows/{result.mode}.json"
 
-    def test_sidecar_choices_carry_resolved_field_name_type_label(self, dest_root):
+    def test_sidecar_carries_the_exact_form_and_history_submitted(self, dest_root):
         workflow = parse_api_workflow(_load("sdxl_basic_api.json"))
         from backend.preset_import.suggest import suggest_fields
 
         analysis = suggest_fields(workflow)
         checkpoint_candidate = next(c for c in analysis.candidates if c.role == "checkpoint")
-        choices = [
-            FieldChoice(
-                node_id=checkpoint_candidate.node_id,
-                input_name=checkpoint_candidate.input_name,
-                field_name="my_checkpoint",
-                field_type="model",
-                label="My Checkpoint",
-            )
-        ]
+        form = ImportForm(
+            tabs=[
+                FormTab(
+                    id="generation",
+                    label="Generation",
+                    items=[
+                        FieldItem(
+                            field_name="my_checkpoint",
+                            field_type="model",
+                            label="My Checkpoint",
+                            mappings=[
+                                FieldMapping(
+                                    node_id=checkpoint_candidate.node_id,
+                                    input_name=checkpoint_candidate.input_name,
+                                    transform="strip_model_prefix",
+                                )
+                            ],
+                        )
+                    ],
+                )
+            ]
+        )
 
         result = emit_preset(
-            workflow, choices, model_family="SidecarTest2", variant="v1",
+            workflow, form, [], model_family="SidecarTest2", variant="v1",
             display_name="Sidecar Test 2", dest_root=dest_root,
         )
 
         sidecar = json.loads((result.preset_dir / IMPORT_SIDECAR_FILENAME).read_text())
-        entry = next(
-            c for c in sidecar["choices"]
-            if c["node_id"] == checkpoint_candidate.node_id and c["input_name"] == checkpoint_candidate.input_name
-        )
-        assert entry == {
-            "node_id": checkpoint_candidate.node_id,
-            "input_name": checkpoint_candidate.input_name,
-            "field_name": "my_checkpoint",
-            "field_type": "model",
-            "label": "My Checkpoint",
-        }
+        stored_field = sidecar["form"]["tabs"][0]["items"][0]
+        assert stored_field["field_name"] == "my_checkpoint"
+        assert stored_field["field_type"] == "model"
+        assert stored_field["label"] == "My Checkpoint"
+        assert stored_field["mappings"][0]["node_id"] == checkpoint_candidate.node_id
+        assert stored_field["mappings"][0]["input_name"] == checkpoint_candidate.input_name
+        assert sidecar["history"] == []
 
     def test_ui_format_sidecar_points_at_the_ui_json_source_file(self, dest_root):
         from backend.preset_import.parser import parse_workflow
@@ -105,10 +112,10 @@ class TestSidecarWritten:
         ui = _load("ui_sdxl_basic.json")
         workflow = parse_workflow(ui, object_info=object_info)
         analysis = suggest_fields(workflow, object_info=object_info)
-        choices = _checkpoint_choice(analysis)
+        form = _checkpoint_form(analysis)
 
         result = emit_preset(
-            workflow, choices, model_family="SidecarUiTest", variant="v1",
+            workflow, form, [], model_family="SidecarUiTest", variant="v1",
             display_name="Sidecar UI Test", dest_root=dest_root,
             object_info=object_info, ui_workflow=ui,
         )
@@ -128,9 +135,9 @@ class TestOverwrite:
         from backend.preset_import.suggest import suggest_fields
 
         analysis = suggest_fields(workflow)
-        choices = _checkpoint_choice(analysis)
+        form = _checkpoint_form(analysis)
         return emit_preset(
-            workflow, choices, model_family=model_family, variant=variant,
+            workflow, form, [], model_family=model_family, variant=variant,
             display_name="Overwrite Test", dest_root=dest_root,
         )
 
@@ -138,7 +145,7 @@ class TestOverwrite:
         workflow = parse_api_workflow(_load("sdxl_basic_api.json"))
         with pytest.raises(PresetEmitError, match="requires preset_id"):
             emit_preset(
-                workflow, [], model_family="X", variant="v1", display_name="X",
+                workflow, ImportForm(tabs=[]), [], model_family="X", variant="v1", display_name="X",
                 dest_root=dest_root, overwrite=True,
             )
 
@@ -146,7 +153,7 @@ class TestOverwrite:
         workflow = parse_api_workflow(_load("sdxl_basic_api.json"))
         with pytest.raises(PresetEmitError, match="no preset exists"):
             emit_preset(
-                workflow, [], model_family="NeverImported", variant="v1", display_name="X",
+                workflow, ImportForm(tabs=[]), [], model_family="NeverImported", variant="v1", display_name="X",
                 dest_root=dest_root, overwrite=True, preset_id="some-id",
             )
 
@@ -158,7 +165,7 @@ class TestOverwrite:
 
         analysis = suggest_fields(workflow)
         second = emit_preset(
-            workflow, _checkpoint_choice(analysis), model_family="OverwriteTest", variant="v1",
+            workflow, _checkpoint_form(analysis), [], model_family="OverwriteTest", variant="v1",
             display_name="Overwrite Test Renamed", dest_root=dest_root,
             overwrite=True, preset_id=first.preset_id,
         )
@@ -170,28 +177,29 @@ class TestOverwrite:
         assert preset_yml["name"] == "Overwrite Test Renamed"
 
     def test_overwrite_drops_stale_files_from_a_previous_shape(self, dest_root):
-        """A field dropped between the original import and a reload/modify
+        """A tab dropped between the original import and a reload/modify
         must not leave its old tab file behind."""
         from backend.preset_import.suggest import suggest_fields
 
         workflow = parse_api_workflow(_load("sdxl_basic_api.json"))
         analysis = suggest_fields(workflow)
-        advanced_choices = [
-            FieldChoice(node_id=c.node_id, input_name=c.input_name)
-            for c in analysis.candidates
-            if c.role in ("checkpoint", "steps", "cfg", "sampler", "scheduler", "denoise")
-        ]
+        generation_form = form_from_roles(analysis, {"checkpoint"})
+        advanced_form = form_from_roles(
+            analysis, {"steps", "cfg", "sampler", "scheduler", "denoise"},
+            tab_id="advanced", tab_label="Advanced",
+        )
+        two_tab_form = ImportForm(tabs=[generation_form.tabs[0], advanced_form.tabs[0]])
         first = emit_preset(
-            workflow, advanced_choices, model_family="DropStale", variant="v1",
+            workflow, two_tab_form, [], model_family="DropStale", variant="v1",
             display_name="Drop Stale", dest_root=dest_root,
         )
         tabs_dir = first.preset_dir / "modes" / first.mode / "tabs"
         assert (tabs_dir / "advanced.yml").exists()
 
         workflow2 = parse_api_workflow(_load("sdxl_basic_api.json"))
-        checkpoint_only = _checkpoint_choice(suggest_fields(workflow2))
+        checkpoint_only = _checkpoint_form(suggest_fields(workflow2))
         second = emit_preset(
-            workflow2, checkpoint_only, model_family="DropStale", variant="v1",
+            workflow2, checkpoint_only, [], model_family="DropStale", variant="v1",
             display_name="Drop Stale", dest_root=dest_root,
             overwrite=True, preset_id=first.preset_id,
         )
@@ -206,6 +214,6 @@ class TestOverwrite:
         analysis = suggest_fields(workflow)
         with pytest.raises(PresetEmitError, match="already exists"):
             emit_preset(
-                workflow, _checkpoint_choice(analysis), model_family="NoOverwrite", variant="v1",
+                workflow, _checkpoint_form(analysis), [], model_family="NoOverwrite", variant="v1",
                 display_name="X", dest_root=dest_root,
             )

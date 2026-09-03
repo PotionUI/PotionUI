@@ -19,9 +19,11 @@ from pathlib import Path
 import pytest
 import yaml
 
-from backend.preset_import.emit import EmittedPreset, FieldChoice, PresetEmitError, emit_preset
+from backend.preset_import.emit import EmittedPreset, PresetEmitError, emit_preset
 from backend.preset_import.parser import parse_api_workflow
 from backend.preset_import.suggest import suggest_fields
+
+from ._form_helpers import form_from_roles
 
 FIXTURES = Path(__file__).parent / "fixtures"
 REPO_ROOT = Path(__file__).resolve().parents[5]
@@ -30,14 +32,6 @@ REPO_ROOT = Path(__file__).resolve().parents[5]
 def _load(name: str) -> dict:
     with open(FIXTURES / name) as f:
         return json.load(f)
-
-
-def _choices_for_roles(analysis, roles) -> list:
-    return [
-        FieldChoice(node_id=c.node_id, input_name=c.input_name)
-        for c in analysis.candidates
-        if c.role in roles
-    ]
 
 
 @pytest.fixture()
@@ -60,11 +54,11 @@ class TestPathTraversalGuard:
     def test_unsafe_segments_rejected(self, dest_root, model_family, variant):
         workflow = parse_api_workflow(_load("sdxl_basic_api.json"))
         analysis = suggest_fields(workflow)
-        choices = _choices_for_roles(analysis, {"checkpoint"})
+        form = form_from_roles(analysis, {"checkpoint"})
 
         with pytest.raises(PresetEmitError):
             emit_preset(
-                workflow, choices, model_family=model_family, variant=variant,
+                workflow, form, [], model_family=model_family, variant=variant,
                 display_name="Escape Test", dest_root=dest_root,
             )
         # Nothing was written outside (or even inside) dest_root
@@ -73,10 +67,10 @@ class TestPathTraversalGuard:
     def test_normal_segment_names_still_work(self, dest_root):
         workflow = parse_api_workflow(_load("sdxl_basic_api.json"))
         analysis = suggest_fields(workflow)
-        choices = _choices_for_roles(analysis, {"checkpoint"})
+        form = form_from_roles(analysis, {"checkpoint"})
 
         result = emit_preset(
-            workflow, choices, model_family="SDXL Test-1", variant="v1.0",
+            workflow, form, [], model_family="SDXL Test-1", variant="v1.0",
             display_name="Normal Test", dest_root=dest_root,
         )
         assert result.preset_dir == dest_root / "SDXL Test-1" / "v1.0"
@@ -97,12 +91,12 @@ class TestPathTraversalGuard:
         monkeypatch.setitem(emit_preset.__globals__, "_validate_path_segment", lambda value, label: None)
         workflow = parse_api_workflow(_load("sdxl_basic_api.json"))
         analysis = suggest_fields(workflow)
-        choices = _choices_for_roles(analysis, {"checkpoint"})
+        form = form_from_roles(analysis, {"checkpoint"})
 
         # The resolved-path containment check (belt and braces) still catches it.
         with pytest.raises(PresetEmitError, match="escapes"):
             emit_preset(
-                workflow, choices, model_family="../escape", variant="v1",
+                workflow, form, [], model_family="../escape", variant="v1",
                 display_name="Escape Test", dest_root=dest_root,
             )
 
@@ -111,15 +105,15 @@ class TestNoOverwrite:
     def test_emitting_twice_into_same_dir_raises(self, dest_root):
         workflow = parse_api_workflow(_load("sdxl_basic_api.json"))
         analysis = suggest_fields(workflow)
-        choices = _choices_for_roles(analysis, {"checkpoint"})
+        form = form_from_roles(analysis, {"checkpoint"})
 
         emit_preset(
-            workflow, choices, model_family="SDXLTest", variant="v1",
+            workflow, form, [], model_family="SDXLTest", variant="v1",
             display_name="SDXL Test", dest_root=dest_root,
         )
         with pytest.raises(PresetEmitError, match="already exists"):
             emit_preset(
-                workflow, choices, model_family="SDXLTest", variant="v1",
+                workflow, form, [], model_family="SDXLTest", variant="v1",
                 display_name="SDXL Test", dest_root=dest_root,
             )
 
@@ -128,12 +122,12 @@ class TestLoraChainEmission:
     def test_lora_nodes_stripped_and_manipulations_written(self, dest_root):
         workflow = parse_api_workflow(_load("lora_chain_img2img_api.json"))
         analysis = suggest_fields(workflow)
-        choices = _choices_for_roles(
+        form = form_from_roles(
             analysis, {"checkpoint", "lora_slot", "image", "steps", "cfg"}
         )
 
         result = emit_preset(
-            workflow, choices, model_family="LoraChainTest", variant="v1",
+            workflow, form, [], model_family="LoraChainTest", variant="v1",
             display_name="LoRA Chain Test", dest_root=dest_root,
         )
         assert result.mode == "img2img"
@@ -160,9 +154,11 @@ class TestLoraChainEmission:
         loop_manip = next(m for m in manipulations if "@loop" in m)["@loop"]
         assert "4" in loop_manip["template"]["node_config"]["inputs"]["model"][0]
 
-        lora_form = yaml.safe_load((result.preset_dir / "modes" / "img2img" / "tabs" / "lora.yml").read_text())
-        assert lora_form["fields"][0]["name"] == "loras"
-        assert lora_form["fields"][0]["type"] == "lora_picker"
+        generation_form = yaml.safe_load(
+            (result.preset_dir / "modes" / "img2img" / "tabs" / "generation.yml").read_text()
+        )
+        lora_field = next(f for f in generation_form["fields"] if f.get("name") == "loras")
+        assert lora_field["type"] == "lora_picker"
 
     def test_bite_check_lora_stripping_breaks_if_disabled(self, dest_root):
         """Confirms the assertion above can fail: without the exclusion set,
@@ -176,12 +172,12 @@ class TestSubgraphIdsSurvive:
     def test_field_mappings_target_subgraph_node_ids(self, dest_root):
         workflow = parse_api_workflow(_load("flux_subgraph_api.json"))
         analysis = suggest_fields(workflow)
-        choices = _choices_for_roles(
+        form = form_from_roles(
             analysis, {"diffusion_model", "clip", "vae", "steps", "cfg", "sampler", "scheduler", "denoise"}
         )
 
         result = emit_preset(
-            workflow, choices, model_family="FluxSubgraphTest", variant="v1",
+            workflow, form, [], model_family="FluxSubgraphTest", variant="v1",
             display_name="Flux Subgraph Test", dest_root=dest_root,
         )
 
@@ -205,11 +201,11 @@ class TestImageModeRequiresImageChoice:
     def test_img2img_workflow_without_image_choice_raises(self, dest_root):
         workflow = parse_api_workflow(_load("lora_chain_img2img_api.json"))
         analysis = suggest_fields(workflow)
-        choices = _choices_for_roles(analysis, {"checkpoint"})  # image role deliberately omitted
+        form = form_from_roles(analysis, {"checkpoint"})  # image role deliberately omitted
 
         with pytest.raises(PresetEmitError, match="input image"):
             emit_preset(
-                workflow, choices, model_family="NoImageTest", variant="v1",
+                workflow, form, [], model_family="NoImageTest", variant="v1",
                 display_name="No Image Test", dest_root=dest_root,
             )
 
@@ -222,13 +218,13 @@ class TestEndToEndRenderAndLint:
         try:
             workflow = parse_api_workflow(_load("sdxl_basic_api.json"))
             analysis = suggest_fields(workflow)
-            choices = _choices_for_roles(
+            form = form_from_roles(
                 analysis,
                 {"checkpoint", "steps", "cfg", "sampler", "scheduler", "denoise"},
             )
 
             result: EmittedPreset = emit_preset(
-                workflow, choices, model_family=marker, variant="v1",
+                workflow, form, [], model_family=marker, variant="v1",
                 display_name="Workflow Importer E2E Test", dest_root=local_root,
             )
             assert result.preset_dir == preset_family_dir / "v1"

@@ -45,9 +45,12 @@ from backend.preset_import.convert import (
     extract_node_groups,
     graph_to_prompt,
 )
-from backend.preset_import.emit import FieldChoice, emit_preset
+from backend.preset_import.emit import emit_preset
 from backend.preset_import.parser import WorkflowFormatError, is_ui_format, parse_api_workflow, parse_workflow
+from backend.preset_import.schema import ImportForm
 from backend.preset_import.suggest import suggest_fields
+
+from ._form_helpers import form_from_roles, raw_form_dict_for_roles
 
 FIXTURES = Path(__file__).parent / "fixtures"
 REPO_ROOT = Path(__file__).resolve().parents[5]
@@ -264,12 +267,9 @@ class TestUnknownNodeDegradesInsteadOfFailing:
         ]
         assert any("LTXFloatToInt" in w for w in analysis["warnings"])
 
-        fields = [
-            api.ImportFieldChoice(node_id=c["node_id"], input_name=c["input_name"])
-            for c in analysis["candidates"] if c["role"] == "checkpoint"
-        ]
+        form = raw_form_dict_for_roles(analysis, {"checkpoint"})
         import_body = api.ImportWorkflowRequest(
-            workflow=ui, fields=fields, model_family="UnknownNodeTest", variant="v1",
+            workflow=ui, form=form, model_family="UnknownNodeTest", variant="v1",
             display_name="Unknown Node Test",
         )
         result = await api.import_workflow(import_body, current_user=None)
@@ -493,13 +493,10 @@ class TestEmitFromUiFormat:
         ui = _load("ui_sdxl_basic.json")
         workflow = parse_workflow(ui, object_info=object_info)
         analysis = suggest_fields(workflow, object_info=object_info)
-        choices = [
-            FieldChoice(node_id=c.node_id, input_name=c.input_name)
-            for c in analysis.candidates if c.role == "checkpoint"
-        ]
+        form = form_from_roles(analysis, {"checkpoint"})
 
         result = emit_preset(
-            workflow, choices, model_family="UiFormatTest", variant="v1",
+            workflow, form, [], model_family="UiFormatTest", variant="v1",
             display_name="UI Format Test", dest_root=dest_root,
             object_info=object_info, ui_workflow=ui,
         )
@@ -511,20 +508,26 @@ class TestEmitFromUiFormat:
         assert json.loads(ui_json_path.read_text()) == ui
         assert "UI-format export" in (result.preset_dir / "description.md").read_text()
 
-    def test_group_titles_become_one_tab_each(self, object_info, dest_root):
+    def test_a_dedicated_tab_gets_its_own_file(self, object_info, dest_root):
+        """The form designer's tabs are admin-authored (not auto-grouped by
+        the emitter any more - see `defaults.build_default_form` for the
+        "one tab per ComfyUI group" *suggestion* this replaces): a form with
+        a "Sampling" tab writes exactly one `sampling.yml` referenced from
+        form.yml, alongside the Generation tab's own file."""
         ui = _load("ui_group_custom_node.json")
         converted = graph_to_prompt(ui, object_info)
         workflow = parse_api_workflow(converted)
         node_groups = extract_node_groups(ui)
         analysis = suggest_fields(workflow, object_info=object_info, node_groups=node_groups)
-        choices = [
-            FieldChoice(node_id=c.node_id, input_name=c.input_name)
-            for c in analysis.candidates
-            if c.role in ("checkpoint", "steps", "cfg", "sampler", "scheduler", "denoise")
-        ]
+        generation_form = form_from_roles(analysis, {"checkpoint"})
+        sampling_form = form_from_roles(
+            analysis, {"steps", "cfg", "sampler", "scheduler", "denoise"},
+            tab_id="sampling", tab_label="Sampling",
+        )
+        form = ImportForm(tabs=[generation_form.tabs[0], sampling_form.tabs[0]])
 
         result = emit_preset(
-            workflow, choices, model_family="UiGroupTabsTest", variant="v1",
+            workflow, form, [], model_family="UiGroupTabsTest", variant="v1",
             display_name="UI Group Tabs Test", dest_root=dest_root,
             object_info=object_info, ui_workflow=ui,
         )
@@ -537,24 +540,28 @@ class TestEmitFromUiFormat:
         tab_labels = [t["label"] for t in form_yml["fields"][0]["children"]]
         assert "Sampling" in tab_labels
 
-    def test_bite_check_no_groups_falls_back_to_one_advanced_tab(self, object_info, dest_root):
+    def test_default_form_puts_everything_in_one_generation_tab_when_no_groups(self, object_info, dest_root):
+        """`defaults.build_default_form` falls back to one "Generation" tab
+        for a workflow with no ComfyUI groups drawn (see the module
+        docstring of `defaults.py`) - no per-role tab split any more."""
+        from backend.preset_import.defaults import build_default_form, build_default_history
+
         ui = _load("ui_sdxl_basic.json")  # no groups
         workflow = parse_workflow(ui, object_info=object_info)
         analysis = suggest_fields(workflow, object_info=object_info)
-        choices = [
-            FieldChoice(node_id=c.node_id, input_name=c.input_name)
-            for c in analysis.candidates if c.role in ("checkpoint", "steps", "cfg")
-        ]
+        form = build_default_form(analysis)
+        history = build_default_history(form)
+        assert [t.id for t in form.tabs] == ["generation"]
 
         result = emit_preset(
-            workflow, choices, model_family="UiNoGroupsTest", variant="v1",
+            workflow, form, history, model_family="UiNoGroupsTest", variant="v1",
             display_name="UI No Groups Test", dest_root=dest_root,
             object_info=object_info, ui_workflow=ui,
         )
 
         tabs_dir = result.preset_dir / "modes" / result.mode / "tabs"
-        assert (tabs_dir / "advanced.yml").exists()
-        assert not (tabs_dir / "sampling.yml").exists()
+        assert (tabs_dir / "generation.yml").exists()
+        assert len(list(tabs_dir.glob("*.yml"))) == 1
 
     def test_emitted_ui_format_preset_renders_and_lints_clean(self):
         """End-to-end proof that a UI-format import produces a working
@@ -564,18 +571,14 @@ class TestEmitFromUiFormat:
         ui = _load("ui_sdxl_basic.json")
         workflow = parse_workflow(ui, object_info=object_info_data)
         analysis = suggest_fields(workflow, object_info=object_info_data)
-        choices = [
-            FieldChoice(node_id=c.node_id, input_name=c.input_name)
-            for c in analysis.candidates
-            if c.role in ("checkpoint", "steps", "cfg", "sampler", "scheduler", "denoise")
-        ]
+        form = form_from_roles(analysis, {"checkpoint", "steps", "cfg", "sampler", "scheduler", "denoise"})
 
         local_root = REPO_ROOT / "content" / "presets" / "local"
         marker = f"UiFormatImporterTest{uuid.uuid4().hex[:12]}"
         preset_family_dir = local_root / marker
         try:
             result = emit_preset(
-                workflow, choices, model_family=marker, variant="v1",
+                workflow, form, [], model_family=marker, variant="v1",
                 display_name="UI Format Importer E2E Test", dest_root=local_root,
                 object_info=object_info_data, ui_workflow=ui,
             )
@@ -670,13 +673,10 @@ class TestApiRoutesAcceptUiFormat:
 
         analyze_body = api.AnalyzeWorkflowRequest(workflow=_load("ui_sdxl_basic.json"))
         analysis = await api.analyze_workflow(analyze_body, current_user=None)
-        fields = [
-            api.ImportFieldChoice(node_id=c["node_id"], input_name=c["input_name"])
-            for c in analysis["candidates"] if c["role"] == "checkpoint"
-        ]
+        form = raw_form_dict_for_roles(analysis, {"checkpoint"})
 
         import_body = api.ImportWorkflowRequest(
-            workflow=_load("ui_sdxl_basic.json"), fields=fields,
+            workflow=_load("ui_sdxl_basic.json"), form=form,
             model_family="RouteUiTest", variant="v1", display_name="Route UI Test",
         )
         result = await api.import_workflow(import_body, current_user=None)
@@ -713,14 +713,10 @@ class TestEmittedTabsAreAllReferenced:
         workflow = parse_api_workflow(converted)
         node_groups = extract_node_groups(ui)
         analysis = suggest_fields(workflow, object_info=object_info, node_groups=node_groups)
-        choices = [
-            FieldChoice(node_id=c.node_id, input_name=c.input_name)
-            for c in analysis.candidates
-            if c.role in ("checkpoint", "steps", "cfg", "sampler", "scheduler", "denoise")
-        ]
+        form = form_from_roles(analysis, {"checkpoint", "steps", "cfg", "sampler", "scheduler", "denoise"})
 
         result = emit_preset(
-            workflow, choices, model_family="TabReferenceTest", variant="v1",
+            workflow, form, [], model_family="TabReferenceTest", variant="v1",
             display_name="Tab Reference Test", dest_root=tmp_path / "presets",
             object_info=object_info, ui_workflow=ui,
         )
@@ -747,18 +743,15 @@ class TestEmittedTabsAreAllReferenced:
         object_info_data = _load("object_info_ltx25_img2img_real.json")
         workflow = parse_workflow(ui, object_info=object_info_data)
         analysis = suggest_fields(workflow, object_info=object_info_data)
-        choices = [
-            FieldChoice(node_id=c.node_id, input_name=c.input_name)
-            for c in analysis.candidates if c.role == "image"
-        ]
-        assert choices, "the real export's LoadImage no longer resolves to an image candidate"
+        form = form_from_roles(analysis, {"image"})
+        assert form.tabs[0].items, "the real export's LoadImage no longer resolves to an image candidate"
 
         local_root = REPO_ROOT / "content" / "presets" / "local"
         marker = f"LtxRealImportTest{uuid.uuid4().hex[:12]}"
         preset_family_dir = local_root / marker
         try:
             result = emit_preset(
-                workflow, choices, model_family=marker, variant="v1",
+                workflow, form, [], model_family=marker, variant="v1",
                 display_name="LTX Real Import Test", dest_root=local_root,
                 object_info=object_info_data, ui_workflow=ui,
             )

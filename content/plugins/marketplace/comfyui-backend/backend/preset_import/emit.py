@@ -1,21 +1,21 @@
 """Writing a lint-clean preset directory from a parsed workflow plus the
-admin's field choices (see `suggest.suggest_fields` for the candidate list
-choices are drawn from).
+admin's `form`/`history` (see `schema.py` for the wire contract, `defaults.py`
+for the "obvious fields" starting point `/presets/import/analyze` offers).
 
 Wiring is split into two tiers:
 
-- Foundational (always wired, never gated by a choice): the sampler's seed,
-  the positive/negative prompt text nodes, and the latent image's batch
-  size. A comfyui image preset that doesn't wire these isn't useful, so they
-  are not something an admin opts out of - they simply aren't form fields at
-  all (seed/quantity are the two standard fields every mode gets; prompts
-  come from `generation.prompts`, never a form field).
-- Choice-gated: steps/cfg/sampler/scheduler/denoise, resolution
-  (width+height together), each model loader, the LoRA chain, input images,
-  and any other literal input become a form field, and therefore a
-  `field_mappings` entry, only when the caller includes them in `choices`.
-  Anything left out keeps the literal value baked into the copied workflow
-  JSON exactly as the source workflow had it.
+- Foundational (always wired, never an `Item` the admin arranges): the
+  sampler's seed, the positive/negative prompt text nodes, and the latent
+  image's batch size. A comfyui image preset that doesn't wire these isn't
+  useful, so they are not something an admin opts out of - the wizard shows
+  them locked, and this module wires them from the workflow's own structure
+  (`suggest.suggest_fields`), independent of whatever `form` was submitted.
+- Form-driven: every `FieldItem` in `form` becomes a real field (in the tab
+  it was placed under) and, via its `mappings`, a `field_mappings` entry per
+  mapped node input - each with its own `transform` (see
+  `_field_mapping_entry`). A `lora_picker` field is the one exception: its
+  wiring is a node-graph rewrite keyed off the workflow's own detected LoRA
+  chain (`_lora_node_manipulations`), not a single mapped value.
 """
 
 from __future__ import annotations
@@ -26,21 +26,23 @@ import shutil
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import yaml
 
 from .convert import extract_node_groups
 from .parser import Workflow
-from .suggest import (
-    CHECKPOINT_CLASSES,
-    CLIP_CLASSES,
-    DIFFUSION_MODEL_CLASSES,
-    LORA_CLASS_PREFIX,
-    VAE_CLASSES,
-    InputCandidate,
-    suggest_fields,
+from .schema import (
+    FieldItem,
+    HistoryEntry,
+    ImportForm,
+    Item,
+    PresetEmitError,
+    all_field_items,
+    validate_against_workflow,
 )
+from .suggest import CHECKPOINT_CLASSES, CLIP_CLASSES, DIFFUSION_MODEL_CLASSES, LORA_CLASS_PREFIX, VAE_CLASSES
+from .suggest import _infer_value_type, suggest_fields
 
 # `description.md`'s opening line for every preset this module emits - the
 # provenance marker `GET /api/plugins/comfyui-backend/presets/imported`
@@ -54,7 +56,7 @@ IMPORT_PROVENANCE_PREFIX = "Imported from a ComfyUI workflow"
 # endpoints; a preset imported before this sidecar existed simply has none
 # (`GET .../presets/imported`'s `has_sidecar: false`), which is a supported,
 # non-error state - see api.py's reload fallback.
-IMPORTER_VERSION = 1
+IMPORTER_VERSION = 2
 
 # The sidecar file name written alongside preset.yml/description.md - not
 # read by PresetLinter/the preset engine, purely this importer's own record
@@ -62,12 +64,20 @@ IMPORTER_VERSION = 1
 # instead of re-analyzing with only the "obvious" defaults.
 IMPORT_SIDECAR_FILENAME = "import.json"
 
+# `strip_model_prefix`'s per-model-type root - a field's own `config.model_type`
+# (set on a "model" field by the wizard/defaults.py) selects which of these
+# applies; a field with no recognizable model_type falls back to stripping
+# every one of them in a chain (see `_ALL_MODEL_PREFIXES`).
 MODEL_TYPE_STRIP_PREFIXES = {
     "checkpoint": ("models/checkpoints/",),
     "diffusion_model": ("models/diffusion_models/", "models/checkpoints/"),
     "clip": ("models/clip/",),
     "vae": ("models/vae/",),
+    "lora": ("models/loras/",),
 }
+_ALL_MODEL_PREFIXES: Tuple[str, ...] = tuple(
+    dict.fromkeys(prefix for prefixes in MODEL_TYPE_STRIP_PREFIXES.values() for prefix in prefixes)
+)
 
 # ComfyUI built-ins the `comfyui_node` requirement never needs to name - a
 # node class outside this set is assumed to come from a custom node pack
@@ -123,19 +133,17 @@ _MODEL_LOADER_FOLDERS = (
     (VAE_CLASSES, "vae", ("vae_name",)),
 )
 
-_ADVANCED_NAMED_ROLES = ("steps", "cfg", "sampler", "scheduler", "denoise")
-_MODEL_ROLES = ("checkpoint", "diffusion_model", "clip", "vae")
-
 # One path segment: no "/", "\", "..", and no leading dot (so it can't be
 # hidden or resolve as a relative-parent trick on any OS).
 _SAFE_PATH_SEGMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ -]{0,63}$")
 
 
 def _tab_slug(label: str) -> str:
-    """A safe tabs/<slug>.yml filename stem for a ComfyUI group title (or
-    the "Advanced" fallback) - non-alphanumeric runs collapse to one "_"."""
+    """A safe tabs/<slug>.yml filename stem for a tab id/label - never used
+    verbatim, since a `form.tabs[].id` comes straight from the request body:
+    non-alphanumeric runs collapse to one "_"."""
     slug = re.sub(r"[^A-Za-z0-9]+", "_", label).strip("_").lower()
-    return slug or "advanced"
+    return slug or "tab"
 
 
 def _validate_path_segment(value: str, field_label: str) -> None:
@@ -151,24 +159,11 @@ def _validate_path_segment(value: str, field_label: str) -> None:
 
 
 @dataclass
-class FieldChoice:
-    node_id: str
-    input_name: str
-    field_name: Optional[str] = None
-    field_type: Optional[str] = None
-    label: Optional[str] = None
-
-
-@dataclass
 class EmittedPreset:
     preset_id: str
     preset_dir: Path
     mode: str
     paths: List[str]
-
-
-class PresetEmitError(ValueError):
-    """The requested emission can't be carried out as asked."""
 
 
 def _yaml_value(value: Any) -> Any:
@@ -235,37 +230,15 @@ def _pipe(
     return d
 
 
-def _resolve_choices(
-    candidates_by_key: Dict[tuple, InputCandidate], choices: List[FieldChoice]
-) -> Dict[tuple, Dict[str, Any]]:
-    resolved: Dict[tuple, Dict[str, Any]] = {}
-    for choice in choices:
-        key = (choice.node_id, choice.input_name)
-        candidate = candidates_by_key.get(key)
-        if candidate is None:
-            raise PresetEmitError(
-                f"No such candidate node_id={choice.node_id!r} input_name={choice.input_name!r}. "
-                "Run /presets/import/analyze on this exact workflow first."
-            )
-        resolved[key] = {
-            "candidate": candidate,
-            "field_name": choice.field_name or candidate.suggested_field_name,
-            "field_type": choice.field_type or candidate.suggested_field_type,
-            "label": choice.label or candidate.suggested_label,
-        }
-    return resolved
-
-
 def _infer_requirements(
     workflow: Workflow, object_info: Optional[Dict[str, Any]] = None
 ) -> List[Dict[str, Any]]:
-    """`requirements:` entries for this workflow, independent of which
-    inputs the admin chose as form fields: one `comfyui_node` per non-core
-    node class (see `_is_core_node_class`), and one `comfyui_model` per
-    checkpoint/UNET/CLIP/VAE/LoRA file it references. An unchosen model
-    loader still needs its file present to run, so this reads the whole
-    graph rather than the choice-gated candidate list `emit_preset`'s
-    form-building uses."""
+    """`requirements:` entries for this workflow, independent of `form`: one
+    `comfyui_node` per non-core node class (see `_is_core_node_class`), and
+    one `comfyui_model` per checkpoint/UNET/CLIP/VAE/LoRA file it
+    references. A loader the admin didn't turn into a field still needs its
+    file present to run, so this reads the whole graph rather than
+    `form`'s field list."""
     requirements: List[Dict[str, Any]] = []
 
     node_classes = sorted({n.class_type for n in workflow.nodes.values()})
@@ -293,9 +266,196 @@ def _infer_requirements(
     return requirements
 
 
+# ----------------------------------------------------------------------
+# form -> YAML
+# ----------------------------------------------------------------------
+
+
+def _item_to_field_yaml(item: Item) -> Dict[str, Any]:
+    """Dispatches on `item.kind` rather than `isinstance` - see
+    `schema.iter_field_items`'s docstring for why."""
+    if item.kind == "field":
+        field: Dict[str, Any] = {"name": item.field_name, "type": item.field_type, "label": item.label}
+        if item.default is not None:
+            field["default"] = _yaml_value(item.default)
+        if item.config:
+            field["configuration"] = dict(item.config)
+        return field
+    if item.kind == "row":
+        return {
+            "type": "row",
+            "configuration": {"columns": item.columns},
+            "children": [_item_to_field_yaml(child) for child in item.items],
+        }
+    if item.kind == "group":
+        return {"type": "group", "label": item.title, "children": [_item_to_field_yaml(child) for child in item.items]}
+    if item.kind == "section":
+        return {
+            "type": "accordion",
+            "label": item.title,
+            "configuration": {"collapsed": item.collapsed},
+            "children": [_item_to_field_yaml(child) for child in item.items],
+        }
+    if item.kind == "header":
+        return {"type": "header", "label": item.text}
+    raise PresetEmitError(f"Unsupported form item: {item!r}")  # pragma: no cover - pydantic already discriminates
+
+
+_FOUNDATIONAL_GENERATION_FIELDS: List[Dict[str, Any]] = [
+    {"name": "seed", "type": "seed", "label": "Seed", "default": -1},
+    {
+        "name": "quantity",
+        "type": "slider",
+        "label": "Batch Size",
+        "configuration": {"min": 1, "max": 8, "step": 1},
+        "default": 1,
+    },
+]
+
+
+def _build_form_files(form: ImportForm, mode: str) -> Tuple[Dict[str, Dict[str, Any]], List[Dict[str, Any]]]:
+    """`(tab_files, tabs_yaml)` - `tab_files["<slug>.yml"]` is that tab's
+    `{"fields": [...]}` body, `tabs_yaml` is the `tabs:` container's own
+    `children` list pointing at each. The seed/quantity foundational fields
+    (see the module docstring) are always prepended to the first tab -
+    every emitted preset needs them to be usable, regardless of what the
+    admin's own tabs contain."""
+    tab_files: Dict[str, Dict[str, Any]] = {}
+    tabs_yaml: List[Dict[str, Any]] = []
+    used_slugs: Set[str] = set()
+
+    for tab_index, tab in enumerate(form.tabs):
+        slug = _tab_slug(tab.id)
+        base_slug = slug
+        n = 2
+        while slug in used_slugs:
+            slug = f"{base_slug}_{n}"
+            n += 1
+        used_slugs.add(slug)
+        filename = f"{slug}.yml"
+
+        fields = [_item_to_field_yaml(item) for item in tab.items]
+        if tab_index == 0:
+            fields = list(_FOUNDATIONAL_GENERATION_FIELDS) + fields
+
+        tab_files[filename] = {"fields": fields}
+        tab_config: Dict[str, Any] = {"icon_display": "icon_only"}
+        if tab.icon:
+            tab_config["icon"] = tab.icon
+        tabs_yaml.append(
+            {
+                "type": "tab",
+                "label": tab.label,
+                "configuration": tab_config,
+                "children": _tab_children_path(mode, filename),
+            }
+        )
+
+    return tab_files, tabs_yaml
+
+
+# ----------------------------------------------------------------------
+# form -> pipeline (field_mappings / param_emitter)
+# ----------------------------------------------------------------------
+
+
+def _field_mapping_entry(field: FieldItem, mapping) -> List[Any]:
+    """One `field_mappings` triple (`[value_template, "<node>.inputs.<input>", cast]`)
+    for one of `field`'s mappings, per its `transform`."""
+    if mapping.transform == "seed":
+        return ["@seed", f"{mapping.node_id}.inputs.{mapping.input_name}", "int"]
+
+    if mapping.transform in ("split_wh_width", "split_wh_height"):
+        default = field.default if isinstance(field.default, str) else ""
+        index = "0" if mapping.transform == "split_wh_width" else "1"
+        value = "{{ (form." + field.field_name + " | default(" + json.dumps(default) + ")).split('x')[" + index + "] }}"
+        return [value, f"{mapping.node_id}.inputs.{mapping.input_name}", "int"]
+
+    if mapping.transform == "strip_model_prefix":
+        model_type = (field.config or {}).get("model_type")
+        prefixes = MODEL_TYPE_STRIP_PREFIXES.get(model_type, _ALL_MODEL_PREFIXES)
+        value = "{{ (form." + field.field_name + " | default('') or '')"
+        for prefix in prefixes:
+            value += " | replace('" + prefix + "', '')"
+        value += " }}"
+        return [value, f"{mapping.node_id}.inputs.{mapping.input_name}", "str"]
+
+    # "none" - a plain literal value, cast from the field's own shape.
+    cast = "image" if field.field_type == "image" else _cast_name(_infer_value_type(field.default))
+    value = "{{ form." + field.field_name + " | default(" + json.dumps(_yaml_value(field.default)) + ") }}"
+    return [value, f"{mapping.node_id}.inputs.{mapping.input_name}", cast]
+
+
+def _history_param_entry(entry: HistoryEntry) -> List[Any]:
+    """One `param_emitter.parameters` pair for one `history` entry, per its
+    `format` - see the contract's value-template table in `schema.py`'s
+    module docstring / `docs/presets.md`."""
+    field = entry.field
+    if entry.format == "jinja":
+        value = entry.template
+    elif entry.format == "model_name":
+        value = "{{ (form." + field + " | default('')).split('/')[-1] }}"
+    elif entry.format == "list":
+        value = (
+            "{{ form." + field + " | default([]) | active_loras | length }}x "
+            "{{ form." + field + " | default([]) | active_loras | map(attribute='model', default='') "
+            "| map('replace', 'models/loras/', '') | select('string') | join(', ') }}"
+        )
+    else:  # as_is, number, wxh - the field's own value, verbatim
+        value = "{{ form." + field + " }}"
+    return [field, value]
+
+
+def _lora_node_manipulations(lora_field: FieldItem, lora_chain) -> List[Any]:
+    """The `@loop` rewrite that turns `form.<lora_field>` into a fresh chain
+    of `LoraLoaderModelOnly` nodes spliced between the chain's real source
+    and target - unchanged from the pre-form-designer importer, just keyed
+    off the admin-chosen field name instead of a hardcoded "loras"."""
+    loras_field = lora_field.field_name
+    source_id = lora_chain.source_node_id
+    target_id = lora_chain.target_node_id
+    return [
+        {
+            "@loop": {
+                "items": "{{ form." + loras_field + " | default([]) | active_loras }}",
+                "template": {
+                    "type": "add_node",
+                    "node_id": "lora_{{ loop.index }}",
+                    "node_config": {
+                        "inputs": {
+                            "lora_name": "{{ item.model | replace('models/loras/', '') }}",
+                            "strength_model": "{{ item.strength }}",
+                            "model": [
+                                "{% if loop.first %}" + source_id + "{% else %}lora_{{ loop.index0 }}{% endif %}",
+                                0,
+                            ],
+                        },
+                        "class_type": "LoraLoaderModelOnly",
+                        "_meta": {"title": "LoRA {{ loop.index }}"},
+                    },
+                },
+            }
+        },
+        {
+            "type": "update_node_input",
+            "node_id": target_id,
+            "input_key": "model",
+            "input_value": [
+                "{% set loras = form."
+                + loras_field
+                + " | default([]) | active_loras %}{% if loras %}lora_{{ loras | length }}{% else %}"
+                + source_id
+                + "{% endif %}",
+                0,
+            ],
+        },
+    ]
+
+
 def emit_preset(
     workflow: Workflow,
-    choices: List[FieldChoice],
+    form: ImportForm,
+    history: List[HistoryEntry],
     *,
     model_family: str,
     variant: str,
@@ -321,10 +481,11 @@ def emit_preset(
     if overwrite and not preset_id:
         raise PresetEmitError("overwrite=True requires preset_id.")
 
+    validate_against_workflow(form, history, workflow, object_info=object_info)
+
     # `object_info`/`ui_workflow` mirror what /presets/import/analyze was
-    # given for this exact workflow, so a UI-format import's candidates -
-    # richer suggested_config, a suggested_tab per ComfyUI group - come out
-    # identical here to what the admin already picked fields from.
+    # given for this exact workflow - the same structural facts (sampler,
+    # prompts, mode, LoRA chain) analyze/defaults.py used to seed the wizard.
     node_groups = extract_node_groups(ui_workflow) if ui_workflow else None
     analysis = suggest_fields(workflow, object_info=object_info, node_groups=node_groups)
     mode = analysis.mode
@@ -341,179 +502,25 @@ def emit_preset(
     if overwrite and not dir_exists:
         raise PresetEmitError(f"overwrite=True but no preset exists at {preset_dir}")
 
-    candidates_by_key = {c.key(): c for c in analysis.candidates}
-    resolved = _resolve_choices(candidates_by_key, choices)
-
-    by_role: Dict[str, List[Dict[str, Any]]] = {}
-    for entry in resolved.values():
-        by_role.setdefault(entry["candidate"].role, []).append(entry)
-
-    resolution_entries = by_role.get("resolution_width", []) + by_role.get("resolution_height", [])
-    if resolution_entries and (
-        "resolution_width" not in by_role or "resolution_height" not in by_role
-    ):
-        raise PresetEmitError("resolution requires both the width and height candidates to be chosen together.")
-
-    model_entries = [e for role in _MODEL_ROLES for e in by_role.get(role, [])]
-    lora_entries = by_role.get("lora_slot", [])
-    image_entries = by_role.get("image", [])
-    if mode == "img2img" and not image_entries:
+    image_fields = [f for f in all_field_items(form) if f.field_type == "image"]
+    if mode == "img2img" and not image_fields:
         raise PresetEmitError(
-            "This workflow reads an input image (LoadImage) but no image candidate was chosen; "
-            "the workflow can't run without one. Include its candidate in `fields`."
+            "This workflow reads an input image (LoadImage) but the form has no 'image' field; "
+            "the workflow can't run without one."
         )
-    advanced_named_entries = [e for role in _ADVANCED_NAMED_ROLES for e in by_role.get(role, [])]
-    literal_entries = by_role.get("literal", [])
 
-    if lora_entries:
-        field_names = {e["field_name"] for e in lora_entries}
-        if len(field_names) > 1:
-            raise PresetEmitError(f"All LoRA slot choices must share one field_name, got: {sorted(field_names)}")
+    lora_field = next((f for f in all_field_items(form) if f.field_type == "lora_picker"), None)
 
     # ------------------------------------------------------------------
     # Forms
     # ------------------------------------------------------------------
-    generation_fields: List[Dict[str, Any]] = [
-        {"name": "seed", "type": "seed", "label": "Seed", "default": -1},
-        {
-            "name": "quantity",
-            "type": "slider",
-            "label": "Batch Size",
-            "configuration": {"min": 1, "max": 8, "step": 1},
-            "default": 1,
-        },
-    ]
-
-    if resolution_entries:
-        width_candidate = by_role["resolution_width"][0]["candidate"]
-        height_candidate = by_role["resolution_height"][0]["candidate"]
-        default_resolution = f"{width_candidate.current_value}x{height_candidate.current_value}"
-        generation_fields.append(
-            {
-                "name": "resolution",
-                "type": "resolution",
-                "label": "Image Resolution",
-                "configuration": {"options": [default_resolution]},
-                "default": default_resolution,
-            }
-        )
-
-    if model_entries:
-        model_children = []
-        for entry in model_entries:
-            candidate = entry["candidate"]
-            config = dict(candidate.suggested_config)
-            config.setdefault("placeholder", f"Select {entry['label']}...")
-            model_children.append(
-                {
-                    "name": entry["field_name"],
-                    "type": "model",
-                    "label": entry["label"],
-                    "required": True,
-                    "configuration": config,
-                }
-            )
-        generation_fields.append({"type": "group", "label": "Models", "children": model_children})
-
-    form_files: Dict[str, Dict[str, Any]] = {"generation.yml": {"fields": generation_fields}}
-
-    tabs: List[Dict[str, Any]] = [
-        {
-            "type": "tab",
-            "label": "Generation",
-            "configuration": {"icon": "model", "icon_display": "icon_only"},
-            "children": _tab_children_path(mode, "generation.yml"),
-        }
-    ]
-
-    if image_entries:
-        image_fields = []
-        for entry in image_entries:
-            candidate = entry["candidate"]
-            image_fields.append(
-                {
-                    "name": entry["field_name"],
-                    "type": "image",
-                    "label": entry["label"],
-                    "required": candidate.role == "image" and entry["field_name"] == "source_image",
-                    "configuration": dict(candidate.suggested_config),
-                }
-            )
-        form_files["image.yml"] = {"fields": image_fields}
-        tabs.append(
-            {
-                "type": "tab",
-                "label": "Source Image",
-                "configuration": {"icon": "image", "icon_display": "icon_only"},
-                "children": _tab_children_path(mode, "image.yml"),
-            }
-        )
-
-    if lora_entries:
-        form_files["lora.yml"] = {
-            "fields": [
-                {
-                    "name": lora_entries[0]["field_name"],
-                    "type": "lora_picker",
-                    "label": "LoRAs",
-                    "default": [],
-                    "configuration": {
-                        "model_type": "lora",
-                        "placeholder": "Select a LoRA...",
-                        "allow_info_modal": True,
-                        "strength_min": -2.0,
-                        "strength_max": 2.0,
-                        "strength_step": 0.1,
-                        "strength_default": 1.0,
-                        "max_items": 6,
-                    },
-                }
-            ]
-        }
-        tabs.append(
-            {
-                "type": "tab",
-                "label": "LoRA",
-                "configuration": {"icon": "lora", "icon_display": "icon_only"},
-                "children": _tab_children_path(mode, "lora.yml"),
-            }
-        )
-
-    # steps/cfg/sampler/scheduler/denoise and any other chosen literal input
-    # get one tab per ComfyUI group they belonged to in a UI-format import
-    # (candidate.suggested_tab, see suggest.suggest_fields' node_groups
-    # parameter), falling back to a single "Advanced" tab exactly as before
-    # when the source workflow carried no group info (an API-format import,
-    # or a UI-format one with no groups drawn).
-    advanced_fields_by_tab: Dict[str, List[Dict[str, Any]]] = {}
-    for entry in advanced_named_entries + literal_entries:
-        candidate = entry["candidate"]
-        field: Dict[str, Any] = {
-            "name": entry["field_name"],
-            "type": entry["field_type"],
-            "label": entry["label"],
-            "default": _yaml_value(candidate.current_value),
-        }
-        if candidate.suggested_config:
-            field["configuration"] = dict(candidate.suggested_config)
-        advanced_fields_by_tab.setdefault(candidate.suggested_tab or "Advanced", []).append(field)
-
-    for tab_label, fields in advanced_fields_by_tab.items():
-        filename = f"{_tab_slug(tab_label)}.yml"
-        form_files[filename] = {"fields": fields}
-        tabs.append(
-            {
-                "type": "tab",
-                "label": tab_label,
-                "configuration": {"icon": "settings", "icon_display": "icon_only"},
-                "children": _tab_children_path(mode, filename),
-            }
-        )
+    form_files, tabs_yaml = _build_form_files(form, mode)
+    form_yml = {"name": "custom", "fields": [{"type": "tabs", "children": tabs_yaml}]}
 
     description_md = (
         f"{IMPORT_PROVENANCE_PREFIX} ({analysis.node_count} nodes). "
         "This preset runs the copied workflow file through the `comfyui` pipe; "
-        "form fields drive only the node inputs picked at import time - everything "
+        "form fields drive only the node inputs the admin mapped at import time - everything "
         "else keeps the value it had in the source workflow.\n"
     )
     if ui_workflow is not None:
@@ -522,160 +529,50 @@ def emit_preset(
             f"alongside the converted `{mode}.json` for reference.\n"
         )
 
-    form_yml = {"name": "custom", "fields": [{"type": "tabs", "children": tabs}]}
-
     # ------------------------------------------------------------------
     # Pipeline
     # ------------------------------------------------------------------
     field_mappings: List[List[Any]] = []
-    param_emitter_parameters: List[Any] = []
+    param_emitter_parameters: List[Any] = [
+        ["positive_prompt", "{{ generation.prompts.first.positive }}"],
+        ["negative_prompt", "{{ generation.prompts.first.negative }}"],
+    ]
 
-    for entry in model_entries:
-        candidate = entry["candidate"]
-        model_type = candidate.role
-        strip_value = "{{ (form." + entry["field_name"] + " | default('') or '') "
-        for prefix in MODEL_TYPE_STRIP_PREFIXES.get(model_type, ()):
-            strip_value += f" | replace('{prefix}', '')"
-        strip_value += " }}"
-        field_mappings.append([strip_value, f"{candidate.node_id}.inputs.{candidate.input_name}", "str"])
-        param_emitter_parameters.append(["model", "{{ form." + entry["field_name"] + " | default('') }}"])
-
-    if lora_entries:
-        loras_field = lora_entries[0]["field_name"]
-        param_emitter_parameters.append(
-            {
-                "@loop": {
-                    "items": "{{ form." + loras_field + " | default([]) | active_loras }}",
-                    "template": ["model", "{{ item.model }}"],
-                }
-            }
+    for prompt_role in ("prompt_positive", "prompt_negative"):
+        candidate = next((c for c in analysis.candidates if c.role == prompt_role), None)
+        if candidate is None:
+            continue
+        template_source = (
+            "{{ generation.prompts.first.positive }}"
+            if prompt_role == "prompt_positive"
+            else "{{ generation.prompts.first.negative }}"
         )
+        field_mappings.append([template_source, f"{candidate.node_id}.inputs.{candidate.input_name}", "str"])
 
-    param_emitter_parameters.append(["positive_prompt", "{{ generation.prompts.first.positive }}"])
-    param_emitter_parameters.append(["negative_prompt", "{{ generation.prompts.first.negative }}"])
+    seed_candidate = next((c for c in analysis.candidates if c.role == "seed"), None)
+    if seed_candidate is not None:
+        field_mappings.append(["@seed", f"{seed_candidate.node_id}.inputs.{seed_candidate.input_name}", "int"])
 
-    for prompt_role, sampler_input in (("prompt_positive", "positive"), ("prompt_negative", "negative")):
-        for candidate in candidates_by_key.values():
-            if candidate.role == prompt_role:
-                template_source = (
-                    "{{ generation.prompts.first.positive }}"
-                    if prompt_role == "prompt_positive"
-                    else "{{ generation.prompts.first.negative }}"
-                )
-                field_mappings.append(
-                    [template_source, f"{candidate.node_id}.inputs.{candidate.input_name}", "str"]
-                )
-
-    for candidate in candidates_by_key.values():
-        if candidate.role == "seed":
-            field_mappings.append(["@seed", f"{candidate.node_id}.inputs.{candidate.input_name}", "int"])
-        if candidate.role == "batch_size":
-            field_mappings.append(
-                [
-                    "{{ form.quantity | default(1) }}",
-                    f"{candidate.node_id}.inputs.{candidate.input_name}",
-                    "int",
-                ]
-            )
-
-    if resolution_entries:
-        width_candidate = by_role["resolution_width"][0]["candidate"]
-        height_candidate = by_role["resolution_height"][0]["candidate"]
-        default_resolution = f"{width_candidate.current_value}x{height_candidate.current_value}"
+    batch_candidate = next((c for c in analysis.candidates if c.role == "batch_size"), None)
+    if batch_candidate is not None:
         field_mappings.append(
-            [
-                "{{ (form.resolution | default('" + default_resolution + "')).split('x')[0] }}",
-                f"{width_candidate.node_id}.inputs.{width_candidate.input_name}",
-                "int",
-            ]
-        )
-        field_mappings.append(
-            [
-                "{{ (form.resolution | default('" + default_resolution + "')).split('x')[1] }}",
-                f"{height_candidate.node_id}.inputs.{height_candidate.input_name}",
-                "int",
-            ]
-        )
-        param_emitter_parameters.append(
-            ["resolution", "{{ form.resolution | default('" + default_resolution + "') }}"]
+            ["{{ form.quantity | default(1) }}", f"{batch_candidate.node_id}.inputs.{batch_candidate.input_name}", "int"]
         )
 
-    for entry in advanced_named_entries:
-        candidate = entry["candidate"]
-        default_literal = json.dumps(_yaml_value(candidate.current_value))
-        field_mappings.append(
-            [
-                "{{ form." + entry["field_name"] + " | default(" + default_literal + ") }}",
-                f"{candidate.node_id}.inputs.{candidate.input_name}",
-                _cast_name(candidate.value_type),
-            ]
-        )
-        param_emitter_parameters.append(
-            [candidate.role, "{{ form." + entry["field_name"] + " | default(" + default_literal + ") }}"]
-        )
+    for field in all_field_items(form):
+        if field is lora_field:
+            continue
+        for mapping in field.mappings:
+            field_mappings.append(_field_mapping_entry(field, mapping))
 
-    for entry in image_entries:
-        candidate = entry["candidate"]
-        field_mappings.append(
-            ["{{ form." + entry["field_name"] + " }}", f"{candidate.node_id}.inputs.{candidate.input_name}", "image"]
-        )
-
-    for entry in literal_entries:
-        candidate = entry["candidate"]
-        default_literal = json.dumps(_yaml_value(candidate.current_value))
-        field_mappings.append(
-            [
-                "{{ form." + entry["field_name"] + " | default(" + default_literal + ") }}",
-                f"{candidate.node_id}.inputs.{candidate.input_name}",
-                _cast_name(candidate.value_type),
-            ]
-        )
+    for entry in history:
+        param_emitter_parameters.append(_history_param_entry(entry))
 
     node_manipulations: List[Any] = []
-    excluded_node_ids: set = set()
-    if lora_entries and analysis.lora_chain is not None:
-        loras_field = lora_entries[0]["field_name"]
-        source_id = analysis.lora_chain.source_node_id
-        target_id = analysis.lora_chain.target_node_id
+    excluded_node_ids: Set[str] = set()
+    if lora_field is not None and analysis.lora_chain is not None:
         excluded_node_ids.update(analysis.lora_chain.lora_node_ids)
-        node_manipulations.append(
-            {
-                "@loop": {
-                    "items": "{{ form." + loras_field + " | default([]) }}",
-                    "template": {
-                        "type": "add_node",
-                        "node_id": "lora_{{ loop.index }}",
-                        "node_config": {
-                            "inputs": {
-                                "lora_name": "{{ item.model | replace('models/loras/', '') }}",
-                                "strength_model": "{{ item.strength }}",
-                                "model": [
-                                    "{% if loop.first %}" + source_id + "{% else %}lora_{{ loop.index0 }}{% endif %}",
-                                    0,
-                                ],
-                            },
-                            "class_type": "LoraLoaderModelOnly",
-                            "_meta": {"title": "LoRA {{ loop.index }}"},
-                        },
-                    },
-                }
-            }
-        )
-        node_manipulations.append(
-            {
-                "type": "update_node_input",
-                "node_id": target_id,
-                "input_key": "model",
-                "input_value": [
-                    "{% set loras = form."
-                    + loras_field
-                    + " | default([]) %}{% if loras %}lora_{{ loras | length }}{% else %}"
-                    + source_id
-                    + "{% endif %}",
-                    0,
-                ],
-            }
-        )
+        node_manipulations.extend(_lora_node_manipulations(lora_field, analysis.lora_chain))
 
     workflow_filename = f"{mode}.json"
     comfyui_configuration: Dict[str, Any] = {
@@ -745,24 +642,6 @@ def emit_preset(
     from src.plugin_api.storage import generate_ulid  # local import: only needed at emit time
 
     preset_id = preset_id or generate_ulid()
-    vars_block: Dict[str, Any] = {}
-    for entry in advanced_named_entries:
-        candidate = entry["candidate"]
-        vars_block[f"default_{candidate.role}"] = _yaml_value(candidate.current_value)
-
-    configuration_block: Dict[str, Any] = {}
-    for entry in model_entries:
-        configuration_block[f"{entry['candidate'].role}_tags"] = {
-            "type": "model_tags",
-            "label": f"{entry['label']} tags",
-            "description": f"Only models with any of these tags appear in the {entry['label']} picker.",
-        }
-    if lora_entries:
-        configuration_block["lora_tags"] = {
-            "type": "model_tags",
-            "label": "LoRA tags",
-            "description": "Only LoRAs with any of these tags appear in the LoRA picker.",
-        }
 
     preset_yml: Dict[str, Any] = {
         "schema": 1,
@@ -773,10 +652,6 @@ def emit_preset(
         "engine": "comfyui",
         "modes": [mode],
     }
-    if configuration_block:
-        preset_yml["configuration"] = configuration_block
-    if vars_block:
-        preset_yml["vars"] = vars_block
     requirements_block = _infer_requirements(workflow, object_info=object_info)
     if requirements_block:
         preset_yml["requirements"] = requirements_block
@@ -793,7 +668,7 @@ def emit_preset(
             entry["_meta"] = {"title": node.title}
         workflow_out[node_id] = entry
 
-    if lora_entries and analysis.lora_chain is not None:
+    if lora_field is not None and analysis.lora_chain is not None:
         target_node = workflow_out.get(analysis.lora_chain.target_node_id)
         if target_node is not None:
             target_node["inputs"]["model"] = [analysis.lora_chain.source_node_id, 0]
@@ -809,16 +684,8 @@ def emit_preset(
         "importer_version": IMPORTER_VERSION,
         "format": "ui" if ui_workflow is not None else "api",
         "source_file": f"modes/{mode}/files/workflows/{source_filename}",
-        "choices": [
-            {
-                "node_id": node_id,
-                "input_name": input_name,
-                "field_name": entry["field_name"],
-                "field_type": entry["field_type"],
-                "label": entry["label"],
-            }
-            for (node_id, input_name), entry in resolved.items()
-        ],
+        "form": form.model_dump(mode="json"),
+        "history": [entry.model_dump(mode="json") for entry in history],
         "model_family": model_family,
         "variant": variant,
         "display_name": display_name,

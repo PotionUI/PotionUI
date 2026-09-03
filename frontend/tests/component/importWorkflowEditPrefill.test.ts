@@ -4,13 +4,13 @@
 // point: a pending preset id in sessionStorage (as ImportedPresetsTab's edit
 // action leaves it) makes the wizard fetch .../source on mount, land on step
 // 1 already showing the loaded workflow, prefill family/variant/display
-// name and the sidecar's exact field choices, and send `overwrite_preset_id`
-// on submit instead of creating a new preset.
+// name plus the stored form/history exactly as the preset was designed, and
+// send `overwrite_preset_id` on submit instead of creating a new preset.
 import { describe, expect, it, vi, beforeAll, afterEach } from 'vitest';
 import { mkdirSync, copyFileSync, existsSync } from 'node:fs';
-import { basename, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { mount, unmount, flushSync } from 'svelte';
+import { mount, unmount } from 'svelte';
 import { _wrapPluginDistComponent } from '$lib/plugin-api/componentResolver';
 
 const REPO_ROOT = resolve(__dirname, '../../..');
@@ -28,37 +28,14 @@ const SOURCE_RESPONSE = {
 	model_family: 'SDXL',
 	variant: 'imported',
 	display_name: 'SDXL — My workflow',
-	sidecar_choices: [{ node_id: '3', input_name: 'seed', field_name: 'seed', field_type: 'seed', label: 'Custom Seed' }],
 	candidates: [
-		{
-			node_id: '3',
-			class_type: 'KSampler',
-			node_title: 'KSampler',
-			input_name: 'seed',
-			current_value: 619589674328597,
-			value_type: 'int',
-			suggested_field_type: 'seed',
-			suggested_field_name: 'seed',
-			suggested_label: 'Seed',
-			suggested_config: {},
-			role: 'seed',
-			obvious: true
-		},
-		{
-			node_id: '3',
-			class_type: 'KSampler',
-			node_title: 'KSampler',
-			input_name: 'steps',
-			current_value: 20,
-			value_type: 'int',
-			suggested_field_type: 'slider',
-			suggested_field_name: 'steps',
-			suggested_label: 'Steps',
-			suggested_config: {},
-			role: 'steps',
-			obvious: false
-		}
-	]
+		{ node_id: '3', class_type: 'KSampler', node_title: 'KSampler', input_name: 'seed', current_value: 619589674328597, value_type: 'int', suggested_field_type: 'seed', suggested_field_name: 'seed', suggested_label: 'Seed', suggested_config: {}, role: 'seed' },
+		{ node_id: '3', class_type: 'KSampler', node_title: 'KSampler', input_name: 'steps', current_value: 20, value_type: 'int', suggested_field_type: 'slider', suggested_field_name: 'steps', suggested_label: 'Steps', suggested_config: {}, role: 'steps' }
+	],
+	form: {
+		tabs: [{ id: 'generation', label: 'Generation', icon: null, items: [{ kind: 'field', field_name: 'steps', field_type: 'slider', label: 'Custom Steps', default: 20, config: null, mappings: [{ node_id: '3', input_name: 'steps', transform: 'none' }] }] }]
+	},
+	history: [{ field: 'steps', label: 'Steps (custom)', format: 'number', template: null }]
 };
 
 const UPDATE_RESULT = {
@@ -70,7 +47,7 @@ const UPDATE_RESULT = {
 
 async function loadDist(): Promise<any> {
 	mkdirSync(STAGE_DIR, { recursive: true });
-	const staged = resolve(STAGE_DIR, basename(DIST_PATH));
+	const staged = resolve(STAGE_DIR, `import-workflow-tab-edit-${Math.random().toString(36).slice(2)}.mjs`);
 	copyFileSync(resolve(REPO_ROOT, DIST_PATH), staged);
 	const mod = await import(/* @vite-ignore */ pathToFileURL(staged).href);
 	return mod.default;
@@ -108,23 +85,21 @@ afterEach(() => {
 });
 
 describe('ImportWorkflowTab edit prefill (real compiled dist)', () => {
-	it('loads the source on mount, prefills identity + sidecar choices, and updates in place on submit', async () => {
+	it('loads the source on mount, prefills identity + the stored form/history, and updates in place on submit', async () => {
 		sessionStorage.setItem('comfyui-import-edit-preset-id', 'EXISTING-ID');
 
 		const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
 			if (url === '/api/fields/types') return jsonResponse({ success: true, data: [] });
 			if (url === '/api/plugins/comfyui-backend/presets/families') return jsonResponse({ families: [] });
-			if (url === '/api/plugins/comfyui-backend/presets/imported/EXISTING-ID/source') {
-				return jsonResponse(SOURCE_RESPONSE);
-			}
-			if (url === '/api/plugins/comfyui-backend/presets/import/requirements') {
-				return jsonResponse({ results: [] });
-			}
+			if (url === '/api/plugins/comfyui-backend/presets/imported/EXISTING-ID/source') return jsonResponse(SOURCE_RESPONSE);
+			if (url === '/api/plugins/comfyui-backend/presets/import/requirements') return jsonResponse({ results: [] });
 			if (url === '/api/plugins/comfyui-backend/presets/import') {
 				const body = JSON.parse(String(init?.body));
 				expect(body.overwrite_preset_id).toBe('EXISTING-ID');
 				expect(body.model_family).toBe('SDXL');
 				expect(body.display_name).toBe('SDXL — My workflow');
+				expect(body.form.tabs[0].items[0]).toMatchObject({ kind: 'field', field_name: 'steps', label: 'Custom Steps' });
+				expect(body.history).toEqual([{ field: 'steps', label: 'Steps (custom)', format: 'number', template: null }]);
 				return jsonResponse(UPDATE_RESULT);
 			}
 			throw new Error(`Unexpected fetch: ${url}`);
@@ -149,17 +124,24 @@ describe('ImportWorkflowTab edit prefill (real compiled dist)', () => {
 		continueBtn.click();
 		await settle();
 
-		// Step 2: the sidecar's seed choice is ticked with its stored label,
-		// even though the candidate itself isn't "obvious" by default.
-		const rows = el.querySelectorAll('[data-import-candidates] .candidate-row');
-		const seedRow = Array.from(rows).find((r) => r.textContent?.includes('seed'))!;
-		expect(seedRow.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true);
-		expect(seedRow.querySelector<HTMLInputElement>('.candidate-label')!.value).toBe('Custom Seed');
+		// Step 2: the stored field card is already there with its stored label.
+		const stepsCard = el.querySelector('[data-field-name="steps"]')!;
+		expect(stepsCard).toBeTruthy();
+		expect(stepsCard.querySelector<HTMLInputElement>('.di-field-label')!.value).toBe('Custom Steps');
+		expect(el.querySelector('[data-input-key="3:steps"]')?.className).toContain('mapped');
 
 		expect(el.querySelector<HTMLInputElement>('#import-model-family')!.value).toBe('SDXL');
 		expect(el.querySelector<HTMLInputElement>('#import-display-name')!.value).toBe('SDXL — My workflow');
 
-		el.querySelector<HTMLButtonElement>('button[data-import-continue-inputs]')!.click();
+		el.querySelector<HTMLButtonElement>('button[data-import-continue-form]')!.click();
+		await settle();
+
+		// Step 3: the stored history entry's custom label carries over.
+		const stepsHistRow = el.querySelector('[data-history-row="steps"]')!;
+		expect(stepsHistRow.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true);
+		expect(stepsHistRow.querySelector<HTMLInputElement>('.hist-label-input')!.value).toBe('Steps (custom)');
+
+		el.querySelector<HTMLButtonElement>('button[data-import-continue-history]')!.click();
 		await settle();
 
 		const updateBtn = el.querySelector<HTMLButtonElement>('button[data-import-create]')!;

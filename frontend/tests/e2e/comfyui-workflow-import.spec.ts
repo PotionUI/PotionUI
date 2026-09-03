@@ -6,13 +6,14 @@ import { loginAsOwner, ownerToken, screenshot } from './helpers';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// Admin -> Plugins -> ComfyUI Backend -> "Import workflow": the 4-step
-// wizard (Source -> Inputs -> Requirements -> Done), paste the Export (API)
-// fixture, walk every step, land on the created preset via "Open in
-// Presets". The throwaway backend runs with cwd = the real repo checkout
-// (see tests/e2e/harness/e2e_harness.py), so emit_preset writes into the
-// real, .gitignored content/presets/local/ - the unique family name plus
-// the cleanup below keep this journey from leaving anything behind.
+// Admin -> Plugins -> ComfyUI Backend -> "Import workflow": the 5-step
+// wizard (Source -> Form -> History -> Requirements -> Done), paste the
+// Export (API) fixture, walk every step, land on the created preset via
+// "Open in Presets". The throwaway backend runs with cwd = the real repo
+// checkout (see tests/e2e/harness/e2e_harness.py), so emit_preset writes
+// into the real, .gitignored content/presets/local/ - the unique family
+// name plus the cleanup below keep this journey from leaving anything
+// behind.
 test.use({ viewport: { width: 1440, height: 900 } });
 
 const JOURNEY = 'comfyui-workflow-import';
@@ -109,22 +110,30 @@ test('Admin > Plugins > ComfyUI Backend - import a workflow through the wizard i
 		await wizard.locator('textarea[data-import-json-input]').fill(workflowJson);
 		await wizard.locator('button[data-import-analyze]').click();
 
-		// Step 2: Inputs.
-		await expect(wizard.locator('[data-import-detected]')).toBeVisible({ timeout: 10000 });
-		await screenshot(page, JOURNEY, '03-wizard-inputs');
+		// Step 2: Form - the default_form designer (left: workflow inputs,
+		// right: tabs/field cards).
+		await expect(wizard.locator('[data-import-form-inputs]')).toBeVisible({ timeout: 10000 });
+		await screenshot(page, JOURNEY, '03-wizard-form');
 		await wizard.locator('#import-model-family').fill(familyId);
 		await wizard.locator('#import-display-name').fill('E2E imported SDXL');
-		await wizard.locator('button[data-import-continue-inputs]').click();
+		await wizard.locator('button[data-import-continue-form]').click();
 
-		// Step 3: Requirements (non-blocking - Continue works regardless of
+		// Step 3: History - default_history pre-populates the table; the live
+		// preview mirrors it.
+		await expect(wizard.locator('[data-wiz-step="history"].current')).toBeVisible({ timeout: 10000 });
+		await expect(wizard.locator('[data-history-preview]')).toBeVisible();
+		await screenshot(page, JOURNEY, '04-wizard-history');
+		await wizard.locator('button[data-import-continue-history]').click();
+
+		// Step 4: Requirements (non-blocking - Continue works regardless of
 		// what the checkers found against this backend-less throwaway instance).
 		await expect(wizard.locator('[data-wiz-step="requirements"].current')).toBeVisible({ timeout: 10000 });
-		await screenshot(page, JOURNEY, '04-wizard-requirements');
+		await screenshot(page, JOURNEY, '05-wizard-requirements');
 		await wizard.locator('button[data-import-create]').click();
 
-		// Step 4: Done.
+		// Step 5: Done.
 		await expect(wizard.locator('[data-import-lint]')).toBeVisible({ timeout: 15000 });
-		await screenshot(page, JOURNEY, '05-wizard-done');
+		await screenshot(page, JOURNEY, '06-wizard-done');
 		await expect(wizard.locator('[data-import-lint]')).toContainText('imported');
 
 		const openLink = wizard.locator('a[data-import-open-preset]');
@@ -133,7 +142,7 @@ test('Admin > Plugins > ComfyUI Backend - import a workflow through the wizard i
 
 		await expect(page).toHaveURL(/tab=presets/);
 		await page.waitForTimeout(500);
-		await screenshot(page, JOURNEY, '06-opened-in-presets');
+		await screenshot(page, JOURNEY, '07-opened-in-presets');
 		await expect(page.getByText('E2E imported SDXL', { exact: false }).first()).toBeVisible({ timeout: 10000 });
 
 		// The "Imported presets" tab lists the same preset back on the plugin page.
@@ -147,7 +156,7 @@ test('Admin > Plugins > ComfyUI Backend - import a workflow through the wizard i
 		// id) rather than the whole table.
 		const importedTable = page.locator('[data-imported-presets]');
 		await expect(importedTable).toBeVisible({ timeout: 10000 });
-		await screenshot(page, JOURNEY, '07-imported-presets-tab');
+		await screenshot(page, JOURNEY, '08-imported-presets-tab');
 		await expect(page.getByText('E2E imported SDXL', { exact: false }).first()).toBeVisible();
 		const myRow = importedTable.locator('.ip-row').filter({ hasText: familyId });
 		await expect(myRow).toHaveCount(1);
@@ -156,26 +165,28 @@ test('Admin > Plugins > ComfyUI Backend - import a workflow through the wizard i
 		// inline lint-result chip.
 		await myRow.locator('button[aria-label="Reload from source"]').click();
 		await expect(myRow.locator('.ip-reload-result')).toBeVisible({ timeout: 10000 });
-		await screenshot(page, JOURNEY, '08-reload-result');
+		await screenshot(page, JOURNEY, '09-reload-result');
 
 		// Modify: edit hands off to the "Import workflow" tab, prefilled from
-		// this preset's stored source + sidecar field choices.
+		// this preset's stored source + its sidecar's `form`/`history`.
 		await myRow.locator('button[aria-label="Edit"]').click();
 		await expect(wizard).toBeVisible();
 		await expect(wizard.locator('[data-import-editing]')).toBeVisible({ timeout: 10000 });
-		await screenshot(page, JOURNEY, '09-wizard-edit-prefill');
+		await screenshot(page, JOURNEY, '10-wizard-edit-prefill');
 
 		await wizard.locator('button[data-import-analyze]').click();
-		await expect(wizard.locator('[data-wiz-step="inputs"].current')).toBeVisible();
+		await expect(wizard.locator('[data-wiz-step="form"].current')).toBeVisible();
 		await wizard.locator('#import-display-name').fill('E2E imported SDXL (updated)');
-		await wizard.locator('button[data-import-continue-inputs]').click();
+		await wizard.locator('button[data-import-continue-form]').click();
+		await expect(wizard.locator('[data-wiz-step="history"].current')).toBeVisible({ timeout: 10000 });
+		await wizard.locator('button[data-import-continue-history]').click();
 		await expect(wizard.locator('[data-wiz-step="requirements"].current')).toBeVisible({ timeout: 10000 });
 
 		const updateBtn = wizard.locator('button[data-import-create]');
 		await expect(updateBtn).toContainText('Update preset');
 		await updateBtn.click();
 		await expect(wizard.locator('[data-import-lint]')).toBeVisible({ timeout: 15000 });
-		await screenshot(page, JOURNEY, '10-wizard-updated');
+		await screenshot(page, JOURNEY, '11-wizard-updated');
 
 		// Back on Imported presets: the rename stuck (same preset, same id),
 		// then delete it.
@@ -187,10 +198,10 @@ test('Admin > Plugins > ComfyUI Backend - import a workflow through the wizard i
 		await myRowAfterUpdate.locator('button[aria-label="Delete"]').click();
 		const confirmDialog = page.locator('[role="dialog"][aria-label="Delete imported preset"]');
 		await expect(confirmDialog).toBeVisible();
-		await screenshot(page, JOURNEY, '11-delete-confirm');
+		await screenshot(page, JOURNEY, '12-delete-confirm');
 		await confirmDialog.getByRole('button', { name: 'Delete', exact: true }).click();
 		await expect(importedTable.locator('.ip-row').filter({ hasText: familyId })).toHaveCount(0, { timeout: 10000 });
-		await screenshot(page, JOURNEY, '12-deleted');
+		await screenshot(page, JOURNEY, '13-deleted');
 	} finally {
 		rmSync(createdPresetDir, { recursive: true, force: true });
 	}

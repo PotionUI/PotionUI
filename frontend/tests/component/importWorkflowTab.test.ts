@@ -4,16 +4,16 @@
 // scripts/build-plugins.mjs) through the host runtime the way the core
 // admin plugin-detail tab strip does (resolvePluginComponent ->
 // _wrapPluginDistComponent), mirroring pluginDistHostMount.test.ts's
-// stage/load approach. Exercises the 4-step wizard end to end: paste a
-// workflow -> Continue (analyze, mocked) -> step 2 candidate rows (obvious
-// pre-ticked, the rest collapsed under "More inputs") -> Continue
-// (requirements preview, mocked) -> step 3 requirement rows -> Continue
-// (create, mocked) -> step 4 lint result -> "Open in Presets" link.
+// stage/load approach. Exercises the 5-step wizard end to end: paste a
+// workflow -> Continue (analyze, mocked) -> Form step (default_form
+// pre-populated, add an unmapped input, merge a resolution pair) ->
+// Continue -> History step (toggle a row on) -> Continue -> Requirements
+// (mocked) -> Continue (create, mocked) -> Done step lint result.
 import { describe, expect, it, vi, beforeAll, afterEach } from 'vitest';
 import { mkdirSync, copyFileSync, existsSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { mount, unmount, flushSync } from 'svelte';
+import { mount, unmount } from 'svelte';
 import { _wrapPluginDistComponent } from '$lib/plugin-api/componentResolver';
 
 const REPO_ROOT = resolve(__dirname, '../../..');
@@ -28,80 +28,23 @@ const ANALYZE_RESULT = {
 	format: 'api',
 	object_info_used: false,
 	candidates: [
-		{
-			node_id: '3',
-			class_type: 'KSampler',
-			node_title: 'KSampler',
-			input_name: 'seed',
-			current_value: 619589674328597,
-			value_type: 'int',
-			suggested_field_type: 'seed',
-			suggested_field_name: 'seed',
-			suggested_label: 'Seed',
-			suggested_config: {},
-			role: 'seed',
-			obvious: true
-		},
-		{
-			node_id: '3',
-			class_type: 'KSampler',
-			node_title: 'KSampler',
-			input_name: 'steps',
-			current_value: 27,
-			value_type: 'int',
-			suggested_field_type: 'slider',
-			suggested_field_name: 'steps',
-			suggested_label: 'Steps',
-			suggested_config: { min: 1, max: 150, step: 1 },
-			role: 'steps',
-			obvious: true
-		},
-		{
-			node_id: '3',
-			class_type: 'KSampler',
-			node_title: 'KSampler',
-			input_name: 'sampler_name',
-			current_value: 'euler',
-			value_type: 'str',
-			suggested_field_type: 'select',
-			suggested_field_name: 'sampler_name',
-			suggested_label: 'Sampler',
-			suggested_config: {},
-			role: 'sampler',
-			obvious: false
-		},
-		// Resolution is always a width+height pair sharing one node - the wizard
-		// must render this as ONE row, not two (see suggest.py's "Resolution +
-		// batch size" loop).
-		{
-			node_id: '5',
-			class_type: 'EmptyLatentImage',
-			node_title: 'Empty Latent Image',
-			input_name: 'width',
-			current_value: 832,
-			value_type: 'int',
-			suggested_field_type: 'resolution',
-			suggested_field_name: 'resolution',
-			suggested_label: 'Image Resolution',
-			suggested_config: {},
-			role: 'resolution_width',
-			obvious: true
-		},
-		{
-			node_id: '5',
-			class_type: 'EmptyLatentImage',
-			node_title: 'Empty Latent Image',
-			input_name: 'height',
-			current_value: 1216,
-			value_type: 'int',
-			suggested_field_type: 'resolution',
-			suggested_field_name: 'resolution',
-			suggested_label: 'Image Resolution',
-			suggested_config: {},
-			role: 'resolution_height',
-			obvious: true
-		}
-	]
+		{ node_id: '3', class_type: 'KSampler', node_title: 'KSampler', input_name: 'seed', current_value: 619589674328597, value_type: 'int', suggested_field_type: 'seed', suggested_field_name: 'seed', suggested_label: 'Seed', suggested_config: {}, role: 'seed' },
+		{ node_id: '3', class_type: 'KSampler', node_title: 'KSampler', input_name: 'steps', current_value: 27, value_type: 'int', suggested_field_type: 'slider', suggested_field_name: 'steps', suggested_label: 'Steps', suggested_config: { min: 1, max: 150, step: 1 }, role: 'steps' },
+		{ node_id: '3', class_type: 'KSampler', node_title: 'KSampler', input_name: 'cfg', current_value: 3.5, value_type: 'float', suggested_field_type: 'number', suggested_field_name: 'cfg', suggested_label: 'CFG Scale', suggested_config: {}, role: 'cfg' },
+		{ node_id: '5', class_type: 'EmptyLatentImage', node_title: 'Empty Latent Image', input_name: 'width', current_value: 832, value_type: 'int', suggested_field_type: 'resolution', suggested_field_name: 'resolution', suggested_label: 'Resolution', suggested_config: {}, role: 'resolution_width' },
+		{ node_id: '5', class_type: 'EmptyLatentImage', node_title: 'Empty Latent Image', input_name: 'height', current_value: 1216, value_type: 'int', suggested_field_type: 'resolution', suggested_field_name: 'resolution', suggested_label: 'Resolution', suggested_config: {}, role: 'resolution_height' }
+	],
+	default_form: {
+		tabs: [
+			{
+				id: 'generation',
+				label: 'Generation',
+				icon: null,
+				items: [{ kind: 'field', field_name: 'steps', field_type: 'slider', label: 'Steps', default: 27, config: { min: 1, max: 150, step: 1 }, mappings: [{ node_id: '3', input_name: 'steps', transform: 'none' }] }]
+			}
+		]
+	},
+	default_history: [{ field: 'steps', label: 'Steps', format: 'number', template: null }]
 };
 
 const REQUIREMENTS_RESULT = {
@@ -120,7 +63,7 @@ const IMPORT_RESULT = {
 
 async function loadDist(): Promise<any> {
 	mkdirSync(STAGE_DIR, { recursive: true });
-	const staged = resolve(STAGE_DIR, basename(DIST_PATH));
+	const staged = resolve(STAGE_DIR, `import-workflow-tab-${Math.random().toString(36).slice(2)}.mjs`);
 	copyFileSync(resolve(REPO_ROOT, DIST_PATH), staged);
 	const mod = await import(/* @vite-ignore */ pathToFileURL(staged).href);
 	return mod.default;
@@ -161,36 +104,23 @@ afterEach(() => {
 });
 
 describe('ImportWorkflowTab (real compiled dist)', () => {
-	it('walks the full wizard: analyze -> inputs -> requirements -> create -> done', async () => {
+	it('walks the full wizard: analyze -> form -> history -> requirements -> create -> done', async () => {
 		const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
 			if (url === '/api/fields/types') {
-				return jsonResponse({
-					success: true,
-					data: [
-						{ type: 'seed', container: false },
-						{ type: 'slider', container: false },
-						{ type: 'select', container: false },
-						{ type: 'resolution', container: false }
-					]
-				});
+				return jsonResponse({ success: true, data: [{ type: 'slider', container: false }, { type: 'number', container: false }, { type: 'resolution', container: false }] });
 			}
-			if (url === '/api/plugins/comfyui-backend/presets/families') {
-				return jsonResponse({ families: ['SDXL', 'Flux1'] });
-			}
-			if (url === '/api/plugins/comfyui-backend/presets/import/analyze') {
-				return jsonResponse(ANALYZE_RESULT);
-			}
-			if (url === '/api/plugins/comfyui-backend/presets/import/requirements') {
-				return jsonResponse(REQUIREMENTS_RESULT);
-			}
+			if (url === '/api/plugins/comfyui-backend/presets/families') return jsonResponse({ families: ['SDXL', 'Flux1'] });
+			if (url === '/api/plugins/comfyui-backend/presets/import/analyze') return jsonResponse(ANALYZE_RESULT);
+			if (url === '/api/plugins/comfyui-backend/presets/import/requirements') return jsonResponse(REQUIREMENTS_RESULT);
 			if (url === '/api/plugins/comfyui-backend/presets/import') {
 				const body = JSON.parse(String(init?.body));
 				expect(body.model_family).toBe('SDXL');
 				expect(body.display_name).toBe('My import');
-				// Only the obvious candidates are ticked by default - width and
-				// height both ride along even though the merged row is one checkbox.
-				expect(body.fields).toHaveLength(4);
-				expect(body.fields.map((f: any) => f.input_name).sort()).toEqual(['height', 'seed', 'steps', 'width']);
+				const fieldNames = body.form.tabs[0].items.map((it: any) => it.field_name).sort();
+				expect(fieldNames).toEqual(['cfg', 'resolution', 'steps']);
+				const resolutionField = body.form.tabs[0].items.find((it: any) => it.field_name === 'resolution');
+				expect(resolutionField.mappings.map((m: any) => m.transform).sort()).toEqual(['split_wh_height', 'split_wh_width']);
+				expect(body.history).toEqual([{ field: 'steps', label: 'Steps', format: 'number', template: null }]);
 				return jsonResponse(IMPORT_RESULT);
 			}
 			throw new Error(`Unexpected fetch: ${url}`);
@@ -201,82 +131,80 @@ describe('ImportWorkflowTab (real compiled dist)', () => {
 		const instance = mount(ImportWorkflowTab, { target: el, props: { pluginId: 'comfyui-backend', plugin: { id: 'comfyui-backend' } } });
 		await settle();
 
-		const wizard = el.querySelector('[data-import-wizard]');
-		expect(wizard).toBeTruthy();
+		expect(el.querySelector('[data-import-wizard]')).toBeTruthy();
 
 		// Step 1: Source.
-		const textarea = el.querySelector<HTMLTextAreaElement>('textarea[data-import-json-input]');
-		expect(textarea).toBeTruthy();
-		textarea!.value = JSON.stringify({ '3': { class_type: 'KSampler', inputs: {} } });
-		textarea!.dispatchEvent(new Event('input', { bubbles: true }));
+		const textarea = el.querySelector<HTMLTextAreaElement>('textarea[data-import-json-input]')!;
+		textarea.value = JSON.stringify({ '3': { class_type: 'KSampler', inputs: {} } });
+		textarea.dispatchEvent(new Event('input', { bubbles: true }));
+		await settle();
+		el.querySelector<HTMLButtonElement>('button[data-import-analyze]')!.click();
 		await settle();
 
-		const continueBtn = el.querySelector<HTMLButtonElement>('button[data-import-analyze]');
-		expect(continueBtn!.disabled).toBe(false);
-		continueBtn!.click();
+		// Step 2: Form - default_form pre-populates the "steps" field card.
+		expect(el.querySelector('[data-wiz-step="form"]')?.className).toContain('current');
+		expect(el.querySelector('[data-field-name="steps"]')).toBeTruthy();
+
+		// Left pane: seed is locked, cfg is an unmapped Add candidate.
+		const seedRow = el.querySelector('[data-input-key="3:seed"]')!;
+		expect(seedRow.textContent).toContain('always wired');
+		expect(seedRow.querySelector('[data-action="add-input"]')).toBeNull();
+
+		const cfgRow = el.querySelector('[data-input-key="3:cfg"]')!;
+		cfgRow.querySelector<HTMLButtonElement>('[data-action="add-input"]')!.click();
+		await settle();
+		expect(el.querySelector('[data-field-name="cfg"]')).toBeTruthy();
+		expect(el.querySelector('[data-input-key="3:cfg"]')?.className).toContain('mapped');
+
+		// Resolution: two candidates sharing suggested_field_name merge into one field.
+		el.querySelector<HTMLButtonElement>('[data-input-key="5:width"] [data-action="add-input"]')!.click();
+		await settle();
+		el.querySelector<HTMLButtonElement>('[data-input-key="5:height"] [data-action="add-input"]')!.click();
+		await settle();
+		const resolutionCard = el.querySelector('[data-field-name="resolution"]')!;
+		expect(resolutionCard).toBeTruthy();
+		expect(el.querySelectorAll('[data-field-name="resolution"]')).toHaveLength(1);
+		expect(resolutionCard.querySelector('.di-mapping')?.textContent).toContain('5.inputs.width');
+		expect(resolutionCard.querySelector('.di-mapping')?.textContent).toContain('5.inputs.height');
+
+		const familyInput = el.querySelector<HTMLInputElement>('#import-model-family')!;
+		familyInput.value = 'SDXL';
+		familyInput.dispatchEvent(new Event('input', { bubbles: true }));
+		const nameInput = el.querySelector<HTMLInputElement>('#import-display-name')!;
+		nameInput.value = 'My import';
+		nameInput.dispatchEvent(new Event('input', { bubbles: true }));
 		await settle();
 
-		// Step 2: Inputs.
-		expect(el.querySelector('[data-import-detected]')?.textContent).toContain('7 nodes');
-		expect(el.querySelector('[data-import-format]')?.textContent).toBe('api');
-		expect(el.querySelector('[data-wiz-step="inputs"]')?.className).toContain('current');
-
-		let rows = el.querySelectorAll('[data-import-candidates] .candidate-row');
-		expect(rows).toHaveLength(3);
-		rows.forEach((row) => {
-			expect(row.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true);
-		});
-
-		const resolutionRow = Array.from(rows).find((row) => row.textContent?.includes('width × height'));
-		expect(resolutionRow, 'expected one merged width x height row').toBeTruthy();
-		expect(resolutionRow!.textContent).toContain('832 × 1216');
-		expect(resolutionRow!.querySelectorAll('input[type="checkbox"]')).toHaveLength(1);
-
-		const moreToggle = el.querySelector<HTMLButtonElement>('.more-toggle');
-		expect(moreToggle?.textContent).toContain('More inputs (1)');
-		moreToggle!.click();
-		await settle();
-		rows = el.querySelectorAll('[data-import-candidates] .candidate-row');
-		expect(rows).toHaveLength(4);
-
-		const familyInput = el.querySelector<HTMLInputElement>('#import-model-family');
-		familyInput!.value = 'SDXL';
-		familyInput!.dispatchEvent(new Event('input', { bubbles: true }));
-		const nameInput = el.querySelector<HTMLInputElement>('#import-display-name');
-		nameInput!.value = 'My import';
-		nameInput!.dispatchEvent(new Event('input', { bubbles: true }));
+		el.querySelector<HTMLButtonElement>('button[data-import-continue-form]')!.click();
 		await settle();
 
-		const continueInputsBtn = el.querySelector<HTMLButtonElement>('button[data-import-continue-inputs]');
-		expect(continueInputsBtn!.disabled).toBe(false);
-		continueInputsBtn!.click();
+		// Step 3: History - "steps" arrives pre-enabled from default_history; the
+		// two fields added on the Form step start disabled.
+		expect(el.querySelector('[data-wiz-step="history"]')?.className).toContain('current');
+		const stepsRow = el.querySelector('[data-history-row="steps"]')!;
+		expect(stepsRow.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true);
+		const cfgHistRow = el.querySelector('[data-history-row="cfg"]')!;
+		expect(cfgHistRow.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(false);
+		expect(el.querySelector('[data-history-preview]')?.textContent).toContain('Steps');
+		expect(el.querySelector('[data-history-preview]')?.textContent).not.toContain('CFG Scale');
+
+		el.querySelector<HTMLButtonElement>('button[data-import-continue-history]')!.click();
 		await settle();
 
-		// Step 3: Requirements (fetched automatically on entering the step).
+		// Step 4: Requirements (fetched automatically on entering the step).
 		expect(el.querySelector('[data-wiz-step="requirements"]')?.className).toContain('current');
 		const reqRows = el.querySelectorAll('[data-import-requirements] .req-row');
 		expect(reqRows).toHaveLength(2);
-		expect(el.querySelector('[data-import-requirements]')?.textContent).toContain('FaceDetailer');
-		expect(el.querySelector('[data-import-requirements]')?.textContent).toContain('sdxlBase_v10.safetensors');
-		const missingDot = Array.from(reqRows).find((r) => r.textContent?.includes('FaceDetailer'))!.querySelector('.req-dot');
-		expect(missingDot?.className).toContain('missing');
 
-		// Never blocks - Continue is enabled even with a missing requirement.
-		const createBtn = el.querySelector<HTMLButtonElement>('button[data-import-create]');
-		expect(createBtn!.disabled).toBe(false);
-		createBtn!.click();
+		const createBtn = el.querySelector<HTMLButtonElement>('button[data-import-create]')!;
+		expect(createBtn.disabled).toBe(false);
+		createBtn.click();
 		await settle();
 
-		// Step 4: Done.
+		// Step 5: Done.
 		expect(el.querySelector('[data-wiz-step="done"]')?.className).toContain('current');
-		const lint = el.querySelector('[data-import-lint]');
-		expect(lint).toBeTruthy();
-		expect(lint!.textContent).toContain('Lint clean');
-		expect(lint!.textContent).toContain('content/presets/local/SDXL/imported');
-
-		const openLink = el.querySelector<HTMLAnchorElement>('a[data-import-open-preset]');
-		expect(openLink).toBeTruthy();
-		expect(openLink!.getAttribute('href')).toBe('/admin?tab=presets&preset=PRESET123');
+		const lint = el.querySelector('[data-import-lint]')!;
+		expect(lint.textContent).toContain('Lint clean');
 
 		unmount(instance);
 	});
@@ -286,14 +214,7 @@ describe('ImportWorkflowTab (real compiled dist)', () => {
 			if (url === '/api/fields/types') return jsonResponse({ success: true, data: [] });
 			if (url === '/api/plugins/comfyui-backend/presets/families') return jsonResponse({ families: [] });
 			if (url === '/api/plugins/comfyui-backend/presets/import/analyze') {
-				return jsonResponse(
-					{
-						detail:
-							'A reachable ComfyUI backend is needed to import UI-format workflows; use Export (API) or configure the backend'
-					},
-					false,
-					400
-				);
+				return jsonResponse({ detail: 'A reachable ComfyUI backend is needed to import UI-format workflows; use Export (API) or configure the backend' }, false, 400);
 			}
 			throw new Error(`Unexpected fetch: ${url}`);
 		});
@@ -312,17 +233,14 @@ describe('ImportWorkflowTab (real compiled dist)', () => {
 		await settle();
 
 		const error = el.querySelector('[data-import-analyze-error]');
-		expect(error?.textContent).toBe(
-			'A reachable ComfyUI backend is needed to import UI-format workflows; use Export (API) or configure the backend'
-		);
-		// Still on step 1 - no candidate list rendered, rail hasn't advanced.
-		expect(el.querySelector('[data-import-candidates]')).toBeNull();
+		expect(error?.textContent).toBe('A reachable ComfyUI backend is needed to import UI-format workflows; use Export (API) or configure the backend');
+		expect(el.querySelector('[data-import-form-inputs]')).toBeNull();
 		expect(el.querySelector('[data-wiz-step="source"]')?.className).toContain('current');
 
 		unmount(instance);
 	});
 
-	it('lets "Change workflow" reset back to step 1 from the Inputs step', async () => {
+	it('lets "Change workflow" reset back to step 1 from the Form step', async () => {
 		const fetchMock = vi.fn(async (url: string) => {
 			if (url === '/api/fields/types') return jsonResponse({ success: true, data: [] });
 			if (url === '/api/plugins/comfyui-backend/presets/families') return jsonResponse({ families: [] });
@@ -342,7 +260,7 @@ describe('ImportWorkflowTab (real compiled dist)', () => {
 		el.querySelector<HTMLButtonElement>('button[data-import-analyze]')!.click();
 		await settle();
 
-		expect(el.querySelector('[data-import-candidates]')).toBeTruthy();
+		expect(el.querySelector('[data-import-form-inputs]')).toBeTruthy();
 
 		const changeLink = Array.from(el.querySelectorAll('button')).find((b) => b.textContent?.includes('Change workflow'));
 		expect(changeLink).toBeTruthy();

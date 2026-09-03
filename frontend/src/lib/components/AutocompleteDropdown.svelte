@@ -151,7 +151,7 @@
 		? `bottom: ${dropdownPosition.bottom}px;`
 		: `top: ${dropdownPosition.top}px;`} left: {dropdownPosition.left}px; width: {dropdownPosition.width}px;"
 >
-	<div class="bg-surface-1 shadow-floating border border-line-strong rounded-lg overflow-hidden">
+	<div class="bg-surface-2 shadow-overlay border border-line-strong rounded-xl overflow-hidden">
 		{#if isLoading}
 			<div class="px-3 py-2 text-sm text-fg-subtle">
 				Loading suggestions...
@@ -160,7 +160,7 @@
 			<div bind:this={dropdownRef} class="max-h-[300px] overflow-y-auto" role="listbox">
 				<!-- Command Palette Header -->
 				{#if currentPath || categories.length > 0 || suggestions.length > 0}
-					<div class="px-3 py-2 text-sm font-medium text-fg-muted border-b border-line bg-surface-2/50 sticky top-0 z-10 flex items-center justify-between gap-2">
+					<div class="px-3 py-2 text-sm font-medium text-fg-muted border-b border-line bg-surface-2 sticky top-0 z-10 flex items-center justify-between gap-2">
 						<div class="flex items-center gap-2 flex-1 min-w-0">
 							{#if canNavigateUp && onNavigateUp}
 								<button
@@ -200,7 +200,7 @@
 						{@const canAttach = onAttachCategory !== undefined && resolveMentionRowAction({ hasChildren: true, attachable: category.attachable }) === 'attach-category'}
 						<div
 							use:trackSelectedItem={isSelected}
-							class="px-3 py-2 cursor-pointer transition-colors duration-100 {isSelected ? 'bg-signal/10 text-signal' : 'text-fg hover:bg-surface-2'}"
+							class="px-3 py-2 cursor-pointer transition-colors duration-100 {isSelected ? 'bg-signal/10 text-signal' : 'text-fg hover:bg-surface-3'}"
 							on:click={() => (canAttach ? onAttachCategory?.(category) : onSelectCategory(category))}
 							on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); canAttach ? onAttachCategory?.(category) : onSelectCategory(category); } }}
 							role="option"
@@ -261,7 +261,7 @@
 						{@const isSelected = actualIndex === selectedIndex}
 						<div
 							use:trackSelectedItem={isSelected}
-							class="px-3 py-2 cursor-pointer transition-colors duration-100 {isSelected ? 'bg-signal/10 text-signal' : 'text-fg hover:bg-surface-2'}"
+							class="px-3 py-2 cursor-pointer transition-colors duration-100 {isSelected ? 'bg-signal/10 text-signal' : 'text-fg hover:bg-surface-3'}"
 							on:click={() => onSelectValue(suggestion)}
 							on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelectValue(suggestion); } }}
 							role="option"

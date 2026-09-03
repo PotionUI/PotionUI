@@ -252,6 +252,18 @@
 			<span class="break-pill font-mono">BREAK</span>
 			<span class="break-rule" aria-hidden="true"></span>
 
+			<Tooltip text={total <= 1 ? 'Every prompt needs at least one segment' : 'Remove segment'} position="top">
+				<button
+					type="button"
+					class="icon-btn delete"
+					aria-label="Remove segment"
+					disabled={total <= 1}
+					on:click={() => dispatch('remove')}
+				>
+					<Icon name="trash" className="h-3.5 w-3.5" />
+				</button>
+			</Tooltip>
+
 			<Tooltip text="Drag to reorder" position="top">
 				<button
 					type="button"
@@ -374,6 +386,18 @@
 							</Tooltip>
 						{/each}
 					{/if}
+
+					<Tooltip text={total <= 1 ? 'Every prompt needs at least one segment' : 'Remove segment'} position="top">
+						<button
+							type="button"
+							class="icon-btn delete"
+							aria-label="Remove segment"
+							disabled={total <= 1}
+							on:click={() => dispatch('remove')}
+						>
+							<Icon name="trash" className="h-3.5 w-3.5" />
+						</button>
+					</Tooltip>
 
 					<Tooltip text="Drag to reorder" position="top">
 						<button
@@ -708,6 +732,19 @@
 	.icon-btn.active {
 		color: rgb(var(--fg));
 		background-color: rgb(var(--surface-2));
+	}
+
+	.icon-btn:disabled {
+		color: rgb(var(--fg-disabled));
+		cursor: not-allowed;
+	}
+
+	/* Danger reads on hover only, as a colour change on the same neutral
+	   button — never a solid/red-filled button, which would read as a
+	   standing warning rather than an ordinary reachable action. */
+	.icon-btn.delete:hover:not(:disabled),
+	.icon-btn.delete:focus-visible:not(:disabled) {
+		color: rgb(var(--danger));
 	}
 
 	/* Below ~21.25rem (340px) the cluster has no room for six icon buttons

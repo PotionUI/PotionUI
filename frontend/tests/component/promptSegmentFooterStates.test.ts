@@ -5,7 +5,7 @@
 // as its aria-label (and tooltip). These mount the real card and ask what a
 // user can actually see and click in each state, the same way the old footer
 // tests did.
-import { describe, it, expect, afterEach, beforeEach } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 
 // jsdom has no ResizeObserver. PromptSegment falls back to its widest,
 // most-expanded shape without one — most of these tests rely on exactly
@@ -91,6 +91,38 @@ describe('the header action cluster', () => {
 		expect(card.byLabel('Duplicate')).toBeTruthy();
 		expect(card.byLabel('Details')).toBeTruthy();
 		expect(card.byLabel('Save')).toBeTruthy();
+	});
+
+	it('always shows a seventh icon for Remove segment, alongside drag and more', () => {
+		const card = mount();
+		expect(card.target.querySelectorAll('.icon-btn')).toHaveLength(7);
+		expect(card.byLabel('Remove segment')).toBeTruthy();
+	});
+
+	it('calls the remove handler when Remove segment is clicked', () => {
+		const card = mount();
+		const onRemove = vi.fn();
+		(card.component as unknown as { $on: (event: string, cb: () => void) => void }).$on(
+			'remove',
+			onRemove
+		);
+
+		card.byLabel('Remove segment')?.click();
+
+		expect(onRemove).toHaveBeenCalledTimes(1);
+	});
+
+	it('disables Remove segment when it is the only segment left', () => {
+		const card = mount({ total: 1 });
+		expect(card.byLabel('Remove segment')?.disabled).toBe(true);
+	});
+
+	it('keeps Remove segment visible once the header collapses to its narrow width', () => {
+		const card = mount();
+		FakeResizeObserver.instances.at(-1)?.trigger(300);
+		return Promise.resolve().then(() => {
+			expect(card.byLabel('Remove segment')).toBeTruthy();
+		});
 	});
 
 	it('offers Enable instead of Disable once the segment is disabled', () => {
@@ -239,6 +271,20 @@ describe('the break row', () => {
 		expect(row.byLabel('Duplicate')).toBeUndefined();
 		expect(row.byLabel('Details')).toBeUndefined();
 		expect(row.byLabel('Save')).toBeUndefined();
+	});
+
+	it('also gets an always-visible Remove segment icon, wired to the same remove event', () => {
+		const row = mount({ segment: segment({ type: 'break', content: '' }) });
+		const onRemove = vi.fn();
+		(row.component as unknown as { $on: (event: string, cb: () => void) => void }).$on(
+			'remove',
+			onRemove
+		);
+
+		expect(row.byLabel('Remove segment')).toBeTruthy();
+		row.byLabel('Remove segment')?.click();
+
+		expect(onRemove).toHaveBeenCalledTimes(1);
 	});
 
 	it('still reaches every action through its overflow menu', async () => {

@@ -40,6 +40,13 @@ from .suggest import (
     suggest_fields,
 )
 
+# `description.md`'s opening line for every preset this module emits - the
+# provenance marker `GET /api/plugins/comfyui-backend/presets/imported`
+# (backend/api.py) keys its listing on, since nothing else records that a
+# preset under content/presets/local came from this importer rather than
+# being hand-authored there.
+IMPORT_PROVENANCE_PREFIX = "Imported from a ComfyUI workflow"
+
 MODEL_TYPE_STRIP_PREFIXES = {
     "checkpoint": ("models/checkpoints/",),
     "diffusion_model": ("models/diffusion_models/", "models/checkpoints/"),
@@ -451,7 +458,7 @@ def emit_preset(
         )
 
     description_md = (
-        f"Imported from a ComfyUI workflow ({analysis.node_count} nodes). "
+        f"{IMPORT_PROVENANCE_PREFIX} ({analysis.node_count} nodes). "
         "This preset runs the copied workflow file through the `comfyui` pipe; "
         "form fields drive only the node inputs picked at import time - everything "
         "else keeps the value it had in the source workflow.\n"

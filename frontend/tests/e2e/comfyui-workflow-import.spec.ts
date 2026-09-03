@@ -6,12 +6,13 @@ import { loginAsOwner, ownerToken, screenshot } from './helpers';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// Admin -> Presets -> "Import ComfyUI workflow": paste the Export (API)
-// fixture, analyze, create, see the lint result, open the new preset. The
-// throwaway backend runs with cwd = the real repo checkout (see
-// tests/e2e/harness/e2e_harness.py), so emit_preset writes into the real,
-// .gitignored content/presets/local/ - the unique family name plus the
-// cleanup below keep this journey from leaving anything behind.
+// Admin -> Plugins -> ComfyUI Backend -> "Import workflow": the 4-step
+// wizard (Source -> Inputs -> Requirements -> Done), paste the Export (API)
+// fixture, walk every step, land on the created preset via "Open in
+// Presets". The throwaway backend runs with cwd = the real repo checkout
+// (see tests/e2e/harness/e2e_harness.py), so emit_preset writes into the
+// real, .gitignored content/presets/local/ - the unique family name plus
+// the cleanup below keep this journey from leaving anything behind.
 const JOURNEY = 'comfyui-workflow-import';
 const PLUGIN_ID = 'comfyui-backend';
 const REPO_ROOT = resolve(__dirname, '../../..');
@@ -35,7 +36,9 @@ async function apiPost(page: Page, url: string, token: string, data?: unknown) {
 	return res.json();
 }
 
-test('Admin > Presets - import a ComfyUI workflow into a lint-clean preset', async ({ page }) => {
+test('Admin > Plugins > ComfyUI Backend - import a workflow through the wizard into a lint-clean preset', async ({
+	page
+}) => {
 	const familyId = `e2e-import-${Date.now()}`;
 	const createdPresetDir = resolve(REPO_ROOT, 'content/presets/local', familyId);
 
@@ -43,10 +46,9 @@ test('Admin > Presets - import a ComfyUI workflow into a lint-clean preset', asy
 		await loginAsOwner(page);
 		const token = await ownerToken(page);
 
-		// Discover + enable the plugin through the real admin API, matching the
-		// fe90-mode-row-krea2 journey's approach - new plugins start disabled
-		// (src/features/plugins/operations/scan.py), so a fresh throwaway
-		// instance never shows the import action until this runs.
+		// New plugins start disabled (src/features/plugins/operations/scan.py),
+		// so a fresh throwaway instance never shows this plugin's tabs until
+		// this runs.
 		await apiPost(page, '/api/plugins/scan', token);
 		const pluginsList = await apiGet(page, '/api/plugins', token);
 		const pluginRow = (pluginsList.data || []).find((p: any) => p.id === PLUGIN_ID);
@@ -58,47 +60,74 @@ test('Admin > Presets - import a ComfyUI workflow into a lint-clean preset', asy
 			await apiPost(page, `/api/plugins/${PLUGIN_ID}/enable`, token);
 		}
 
-		await page.goto('/admin?tab=presets');
+		await page.goto('/admin?tab=plugins');
 		await page.waitForTimeout(500);
 
-		const importTrigger = page.getByRole('button', { name: 'Import ComfyUI workflow' });
-		if ((await importTrigger.count()) === 0) {
+		const pluginListRow = page.getByText('ComfyUI Backend', { exact: false }).first();
+		if ((await pluginListRow.count()) === 0) {
 			test.skip(
 				true,
-				"'Import ComfyUI workflow' action not present - the plugin frontend isn't mounted on this build " +
+				"'ComfyUI Backend' is not present in the plugin list - the plugin frontend isn't mounted on this build " +
 					'(content/plugins/local/comfyui-backend, if present, ships without a frontend and shadows the marketplace copy).'
 			);
 			return;
 		}
-		await screenshot(page, JOURNEY, '01-presets-tab');
+		await pluginListRow.click();
+		await screenshot(page, JOURNEY, '01-plugin-selected');
 
-		await importTrigger.click();
-		const dialog = page.getByRole('dialog', { name: 'Import ComfyUI workflow' });
-		await expect(dialog).toBeVisible();
+		const tabNav = page.locator('nav[aria-label="Plugin details"]');
+		await expect(tabNav).toBeVisible();
+		const importTab = tabNav.getByText('Import workflow', { exact: false });
+		if ((await importTab.count()) === 0) {
+			test.skip(true, "'Import workflow' tab not present - the admin_tabs hook wasn't picked up on this build.");
+			return;
+		}
+		await importTab.click();
 
+		const wizard = page.locator('[data-import-wizard]');
+		await expect(wizard).toBeVisible();
+		await screenshot(page, JOURNEY, '02-wizard-source');
+
+		// Step 1: Source.
 		const workflowJson = readFileSync(FIXTURE_PATH, 'utf-8');
-		await dialog.locator('textarea[data-import-json-input]').fill(workflowJson);
-		await screenshot(page, JOURNEY, '02-pasted');
+		await wizard.locator('textarea[data-import-json-input]').fill(workflowJson);
+		await wizard.locator('button[data-import-analyze]').click();
 
-		await dialog.getByRole('button', { name: 'Analyze' }).click();
-		await expect(dialog.locator('[data-import-detected]')).toBeVisible({ timeout: 10000 });
-		await screenshot(page, JOURNEY, '03-analyzed');
+		// Step 2: Inputs.
+		await expect(wizard.locator('[data-import-detected]')).toBeVisible({ timeout: 10000 });
+		await screenshot(page, JOURNEY, '03-wizard-inputs');
+		await wizard.locator('#import-model-family').fill(familyId);
+		await wizard.locator('#import-display-name').fill('E2E imported SDXL');
+		await wizard.locator('button[data-import-continue-inputs]').click();
 
-		await dialog.locator('#import-model-family').fill(familyId);
-		await dialog.locator('#import-display-name').fill('E2E imported SDXL');
+		// Step 3: Requirements (non-blocking - Continue works regardless of
+		// what the checkers found against this backend-less throwaway instance).
+		await expect(wizard.locator('[data-wiz-step="requirements"].current')).toBeVisible({ timeout: 10000 });
+		await screenshot(page, JOURNEY, '04-wizard-requirements');
+		await wizard.locator('button[data-import-create]').click();
 
-		await dialog.getByRole('button', { name: 'Create preset' }).click();
-		await expect(dialog.locator('[data-import-lint]')).toBeVisible({ timeout: 15000 });
-		await screenshot(page, JOURNEY, '04-lint-result');
-		await expect(dialog.locator('[data-import-lint]')).toContainText('imported');
+		// Step 4: Done.
+		await expect(wizard.locator('[data-import-lint]')).toBeVisible({ timeout: 15000 });
+		await screenshot(page, JOURNEY, '05-wizard-done');
+		await expect(wizard.locator('[data-import-lint]')).toContainText('imported');
 
-		const openBtn = dialog.getByRole('button', { name: 'Open in Presets' });
-		await expect(openBtn).toBeVisible();
-		await openBtn.click();
-		await expect(dialog).toBeHidden();
+		const openLink = wizard.locator('a[data-import-open-preset]');
+		await expect(openLink).toBeVisible();
+		await openLink.click();
+
+		await expect(page).toHaveURL(/tab=presets/);
 		await page.waitForTimeout(500);
-		await screenshot(page, JOURNEY, '05-opened-in-presets');
+		await screenshot(page, JOURNEY, '06-opened-in-presets');
 		await expect(page.getByText('E2E imported SDXL', { exact: false }).first()).toBeVisible({ timeout: 10000 });
+
+		// The "Imported presets" tab lists the same preset back on the plugin page.
+		await page.goto('/admin?tab=plugins');
+		await page.waitForTimeout(500);
+		await pluginListRow.click();
+		await tabNav.getByText('Imported presets', { exact: false }).click();
+		await expect(page.locator('[data-imported-presets]')).toBeVisible({ timeout: 10000 });
+		await screenshot(page, JOURNEY, '07-imported-presets-tab');
+		await expect(page.getByText('E2E imported SDXL', { exact: false }).first()).toBeVisible();
 	} finally {
 		rmSync(createdPresetDir, { recursive: true, force: true });
 	}

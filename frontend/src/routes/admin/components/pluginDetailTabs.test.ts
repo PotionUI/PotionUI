@@ -78,7 +78,7 @@ describe('pluginDetailTabsFor', () => {
 
 describe('isPluginDetailTab', () => {
 	it('is true for overview and settings when applicable', () => {
-		const plugin = { id: 'p', settings_schema: [{ name: 'x', type: 'string', label: 'X' }] };
+		const plugin = { id: 'p', settings_schema: [{ name: 'x', type: 'string' as const, label: 'X' }] };
 		expect(isPluginDetailTab(plugin, [], 'overview')).toBe(true);
 		expect(isPluginDetailTab(plugin, [], 'settings')).toBe(true);
 	});

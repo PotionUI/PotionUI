@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { page } from '$app/stores';
+	import { goto } from '$app/navigation';
 	import { api } from '$lib/services/api/index';
 	import * as adminApi from '$lib/services/admin-api';
 	import { toasts } from '$lib/stores/toast';
@@ -110,8 +112,19 @@
 		Number(installFilter !== 'all') +
 		Number(requirementsFilter !== 'all');
 
-	onMount(() => {
-		loadPresets();
+	onMount(async () => {
+		await loadPresets();
+		// A cross-tab deep link (e.g. the ComfyUI import wizard's "Open in
+		// Presets", or any other plugin admin tab wanting to hand off to a
+		// specific preset) - `?preset=<id>&tab=presets`, consumed once and
+		// then stripped so it doesn't linger across a later reload/share.
+		const presetIdParam = $page.url.searchParams.get('preset');
+		if (presetIdParam && presets.some((preset) => preset.id === presetIdParam)) {
+			selectPreset(presetIdParam);
+			const url = new URL($page.url);
+			url.searchParams.delete('preset');
+			void goto(url, { replaceState: true, keepFocus: true, noScroll: true });
+		}
 	});
 
 	function categoryLabel(category: string) {

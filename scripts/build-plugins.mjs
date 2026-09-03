@@ -20,9 +20,9 @@
  *
  *   2. "Component" plugins (no `index.js`): every top-level `.svelte` file
  *      under `frontend/src` referenced by the plugin's manifest (field
- *      types, renderers, contributions, hooks.frontend, sidebar_widgets) is
- *      compiled standalone to `frontend/dist/<Name>.js` with a default
- *      export, for direct dynamic `import()` (componentResolver.ts).
+ *      types, renderers, contributions, hooks.frontend, sidebar_widgets,
+ *      admin_tabs) is compiled standalone to `frontend/dist/<Name>.js` with
+ *      a default export, for direct dynamic `import()` (componentResolver.ts).
  *
  * Usage: node scripts/build-plugins.mjs [pluginId ...]
  *   With no args, builds every discovered plugin. Exits non-zero if any
@@ -89,6 +89,7 @@ function referencedComponents(manifest) {
 		manifest.renderers,
 		manifest.contributions,
 		manifest.prompt_importers,
+		manifest.admin_tabs,
 		manifest.hooks?.frontend
 	];
 	for (const section of sections) {

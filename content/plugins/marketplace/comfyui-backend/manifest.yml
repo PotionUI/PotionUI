@@ -43,10 +43,19 @@ hooks:
   backend:
     - hook: "backend.register"
       handler: "hooks.backend_hooks.register_backend"
-  frontend:
-    - hook: "admin.presets.header-actions"
-      component: "ImportWorkflowAction.js"
-      order: 100
+
+# Tabs on this plugin's own Admin -> Plugins detail panel (Overview/Settings
+# are core; these are added after them - see
+# frontend/src/routes/admin/components/pluginDetailTabs.ts).
+admin_tabs:
+  - id: "import-workflow"
+    label: "Import workflow"
+    component: "ImportWorkflowTab.js"
+    order: 10
+  - id: "imported-presets"
+    label: "Imported presets"
+    component: "ImportedPresetsTab.js"
+    order: 20
 
 quick_actions:
   - id: "clear-vram"

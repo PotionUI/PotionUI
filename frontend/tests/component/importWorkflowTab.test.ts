@@ -1,11 +1,14 @@
 // @vitest-environment jsdom
 //
 // Drives the REAL compiled comfyui-backend plugin dist (built by
-// scripts/build-plugins.mjs) through the host runtime the way `PluginSlot`
-// does, mirroring `pluginDistHostMount.test.ts`'s stage/load approach: paste
-// a workflow -> analyze (mocked) -> obvious candidates pre-ticked, the rest
-// collapsed under "More inputs" -> create (mocked) -> lint result shown ->
-// "Open in Presets" calls back into the host's `selectPreset`/`refreshPresets`.
+// scripts/build-plugins.mjs) through the host runtime the way the core
+// admin plugin-detail tab strip does (resolvePluginComponent ->
+// _wrapPluginDistComponent), mirroring pluginDistHostMount.test.ts's
+// stage/load approach. Exercises the 4-step wizard end to end: paste a
+// workflow -> Continue (analyze, mocked) -> step 2 candidate rows (obvious
+// pre-ticked, the rest collapsed under "More inputs") -> Continue
+// (requirements preview, mocked) -> step 3 requirement rows -> Continue
+// (create, mocked) -> step 4 lint result -> "Open in Presets" link.
 import { describe, expect, it, vi, beforeAll, afterEach } from 'vitest';
 import { mkdirSync, copyFileSync, existsSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
@@ -14,7 +17,7 @@ import { mount, unmount, flushSync } from 'svelte';
 import { _wrapPluginDistComponent } from '$lib/plugin-api/componentResolver';
 
 const REPO_ROOT = resolve(__dirname, '../../..');
-const DIST_PATH = 'content/plugins/marketplace/comfyui-backend/frontend/dist/ImportWorkflowAction.js';
+const DIST_PATH = 'content/plugins/marketplace/comfyui-backend/frontend/dist/ImportWorkflowTab.js';
 const STAGE_DIR = resolve(__dirname, '../../node_modules/.plugin-dist-under-test');
 
 const ANALYZE_RESULT = {
@@ -67,9 +70,9 @@ const ANALYZE_RESULT = {
 			role: 'sampler',
 			obvious: false
 		},
-		// Resolution is always a width+height pair sharing one node - the
-		// modal must render this as ONE row, not two (see suggest.py's
-		// "Resolution + batch size" loop).
+		// Resolution is always a width+height pair sharing one node - the wizard
+		// must render this as ONE row, not two (see suggest.py's "Resolution +
+		// batch size" loop).
 		{
 			node_id: '5',
 			class_type: 'EmptyLatentImage',
@@ -98,6 +101,13 @@ const ANALYZE_RESULT = {
 			role: 'resolution_height',
 			obvious: true
 		}
+	]
+};
+
+const REQUIREMENTS_RESULT = {
+	results: [
+		{ type: 'comfyui_node', name: 'FaceDetailer', status: 'missing', detail: 'not installed', hint: 'install the pack' },
+		{ type: 'comfyui_model', name: 'sdxlBase_v10.safetensors', status: 'ok', detail: 'present', hint: null }
 	]
 };
 
@@ -135,16 +145,14 @@ function jsonResponse(body: unknown, ok = true, status = ok ? 200 : 400) {
 	return { ok, status, json: async () => body } as Response;
 }
 
-let ImportWorkflowAction: any;
+let ImportWorkflowTab: any;
 
 beforeAll(async () => {
 	if (!existsSync(resolve(REPO_ROOT, DIST_PATH))) {
-		throw new Error(
-			`${DIST_PATH} is missing - run \`node scripts/build-plugins.mjs comfyui-backend\` first.`
-		);
+		throw new Error(`${DIST_PATH} is missing - run \`node scripts/build-plugins.mjs comfyui-backend\` first.`);
 	}
 	const raw = await loadDist();
-	ImportWorkflowAction = _wrapPluginDistComponent(raw);
+	ImportWorkflowTab = _wrapPluginDistComponent(raw);
 });
 
 afterEach(() => {
@@ -152,11 +160,8 @@ afterEach(() => {
 	document.body.innerHTML = '';
 });
 
-describe('ImportWorkflowAction (real compiled dist)', () => {
-	it('analyzes a pasted workflow, pre-ticks obvious candidates, creates the preset and opens it', async () => {
-		const selectPreset = vi.fn();
-		const refreshPresets = vi.fn().mockResolvedValue(undefined);
-
+describe('ImportWorkflowTab (real compiled dist)', () => {
+	it('walks the full wizard: analyze -> inputs -> requirements -> create -> done', async () => {
 		const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
 			if (url === '/api/fields/types') {
 				return jsonResponse({
@@ -165,8 +170,7 @@ describe('ImportWorkflowAction (real compiled dist)', () => {
 						{ type: 'seed', container: false },
 						{ type: 'slider', container: false },
 						{ type: 'select', container: false },
-						{ type: 'resolution', container: false },
-						{ type: 'textbox', container: false }
+						{ type: 'resolution', container: false }
 					]
 				});
 			}
@@ -176,13 +180,15 @@ describe('ImportWorkflowAction (real compiled dist)', () => {
 			if (url === '/api/plugins/comfyui-backend/presets/import/analyze') {
 				return jsonResponse(ANALYZE_RESULT);
 			}
+			if (url === '/api/plugins/comfyui-backend/presets/import/requirements') {
+				return jsonResponse(REQUIREMENTS_RESULT);
+			}
 			if (url === '/api/plugins/comfyui-backend/presets/import') {
 				const body = JSON.parse(String(init?.body));
 				expect(body.model_family).toBe('SDXL');
 				expect(body.display_name).toBe('My import');
 				// Only the obvious candidates are ticked by default - width and
-				// height both ride along even though the merged row is one
-				// checkbox.
+				// height both ride along even though the merged row is one checkbox.
 				expect(body.fields).toHaveLength(4);
 				expect(body.fields.map((f: any) => f.input_name).sort()).toEqual(['height', 'seed', 'steps', 'width']);
 				return jsonResponse(IMPORT_RESULT);
@@ -192,40 +198,30 @@ describe('ImportWorkflowAction (real compiled dist)', () => {
 		vi.stubGlobal('fetch', fetchMock);
 
 		const el = target();
-		const instance = mount(ImportWorkflowAction, {
-			target: el,
-			props: { context: { selectPreset, refreshPresets } }
-		});
+		const instance = mount(ImportWorkflowTab, { target: el, props: { pluginId: 'comfyui-backend', plugin: { id: 'comfyui-backend' } } });
 		await settle();
 
-		const trigger = el.querySelector<HTMLButtonElement>('button[aria-label="Import ComfyUI workflow"]');
-		expect(trigger).toBeTruthy();
-		trigger!.click();
-		await settle();
+		const wizard = el.querySelector('[data-import-wizard]');
+		expect(wizard).toBeTruthy();
 
-		const dialog = document.querySelector('[role="dialog"][aria-label="Import ComfyUI workflow"]');
-		expect(dialog).toBeTruthy();
-
-		const textarea = dialog!.querySelector<HTMLTextAreaElement>('textarea[data-import-json-input]');
+		// Step 1: Source.
+		const textarea = el.querySelector<HTMLTextAreaElement>('textarea[data-import-json-input]');
 		expect(textarea).toBeTruthy();
 		textarea!.value = JSON.stringify({ '3': { class_type: 'KSampler', inputs: {} } });
 		textarea!.dispatchEvent(new Event('input', { bubbles: true }));
 		await settle();
 
-		const analyzeBtn = dialog!.querySelector<HTMLButtonElement>('button[data-import-analyze]');
-		expect(analyzeBtn!.disabled).toBe(false);
-		analyzeBtn!.click();
+		const continueBtn = el.querySelector<HTMLButtonElement>('button[data-import-analyze]');
+		expect(continueBtn!.disabled).toBe(false);
+		continueBtn!.click();
 		await settle();
 
-		expect(dialog!.querySelector('[data-import-detected]')?.textContent).toContain('text2img');
-		expect(dialog!.querySelector('[data-import-detected]')?.textContent).toContain('7 nodes');
-		expect(dialog!.querySelector('[data-import-format]')?.textContent).toBe('api');
-		expect(dialog!.querySelector('[data-import-object-info-used]')).toBeNull();
+		// Step 2: Inputs.
+		expect(el.querySelector('[data-import-detected]')?.textContent).toContain('7 nodes');
+		expect(el.querySelector('[data-import-format]')?.textContent).toBe('api');
+		expect(el.querySelector('[data-wiz-step="inputs"]')?.className).toContain('current');
 
-		// Obvious rows (seed, steps, and width+height merged into one
-		// resolution row) visible and pre-ticked; sampler_name collapsed
-		// under "More inputs".
-		let rows = dialog!.querySelectorAll('[data-import-candidates] .candidate-row');
+		let rows = el.querySelectorAll('[data-import-candidates] .candidate-row');
 		expect(rows).toHaveLength(3);
 		rows.forEach((row) => {
 			expect(row.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true);
@@ -236,40 +232,51 @@ describe('ImportWorkflowAction (real compiled dist)', () => {
 		expect(resolutionRow!.textContent).toContain('832 × 1216');
 		expect(resolutionRow!.querySelectorAll('input[type="checkbox"]')).toHaveLength(1);
 
-		const moreToggle = dialog!.querySelector<HTMLButtonElement>('.more-toggle');
+		const moreToggle = el.querySelector<HTMLButtonElement>('.more-toggle');
 		expect(moreToggle?.textContent).toContain('More inputs (1)');
 		moreToggle!.click();
 		await settle();
-		rows = dialog!.querySelectorAll('[data-import-candidates] .candidate-row');
+		rows = el.querySelectorAll('[data-import-candidates] .candidate-row');
 		expect(rows).toHaveLength(4);
 
-		const familyInput = dialog!.querySelector<HTMLInputElement>('#import-model-family');
+		const familyInput = el.querySelector<HTMLInputElement>('#import-model-family');
 		familyInput!.value = 'SDXL';
 		familyInput!.dispatchEvent(new Event('input', { bubbles: true }));
-		const nameInput = dialog!.querySelector<HTMLInputElement>('#import-display-name');
+		const nameInput = el.querySelector<HTMLInputElement>('#import-display-name');
 		nameInput!.value = 'My import';
 		nameInput!.dispatchEvent(new Event('input', { bubbles: true }));
 		await settle();
 
-		const createBtn = dialog!.querySelector<HTMLButtonElement>('button[data-import-create]');
+		const continueInputsBtn = el.querySelector<HTMLButtonElement>('button[data-import-continue-inputs]');
+		expect(continueInputsBtn!.disabled).toBe(false);
+		continueInputsBtn!.click();
+		await settle();
+
+		// Step 3: Requirements (fetched automatically on entering the step).
+		expect(el.querySelector('[data-wiz-step="requirements"]')?.className).toContain('current');
+		const reqRows = el.querySelectorAll('[data-import-requirements] .req-row');
+		expect(reqRows).toHaveLength(2);
+		expect(el.querySelector('[data-import-requirements]')?.textContent).toContain('FaceDetailer');
+		expect(el.querySelector('[data-import-requirements]')?.textContent).toContain('sdxlBase_v10.safetensors');
+		const missingDot = Array.from(reqRows).find((r) => r.textContent?.includes('FaceDetailer'))!.querySelector('.req-dot');
+		expect(missingDot?.className).toContain('missing');
+
+		// Never blocks - Continue is enabled even with a missing requirement.
+		const createBtn = el.querySelector<HTMLButtonElement>('button[data-import-create]');
 		expect(createBtn!.disabled).toBe(false);
 		createBtn!.click();
 		await settle();
 
-		const lint = dialog!.querySelector('[data-import-lint]');
+		// Step 4: Done.
+		expect(el.querySelector('[data-wiz-step="done"]')?.className).toContain('current');
+		const lint = el.querySelector('[data-import-lint]');
 		expect(lint).toBeTruthy();
 		expect(lint!.textContent).toContain('Lint clean');
 		expect(lint!.textContent).toContain('content/presets/local/SDXL/imported');
 
-		const openBtn = dialog!.querySelector<HTMLButtonElement>('button[data-import-open-preset]');
-		expect(openBtn).toBeTruthy();
-		openBtn!.click();
-		await settle();
-
-		expect(refreshPresets).toHaveBeenCalledTimes(1);
-		expect(selectPreset).toHaveBeenCalledWith('PRESET123');
-		// The modal closes itself after handing off to the host.
-		expect(document.querySelector('[role="dialog"][aria-label="Import ComfyUI workflow"]')).toBeNull();
+		const openLink = el.querySelector<HTMLAnchorElement>('a[data-import-open-preset]');
+		expect(openLink).toBeTruthy();
+		expect(openLink!.getAttribute('href')).toBe('/admin?tab=presets&preset=PRESET123');
 
 		unmount(instance);
 	});
@@ -293,61 +300,57 @@ describe('ImportWorkflowAction (real compiled dist)', () => {
 		vi.stubGlobal('fetch', fetchMock);
 
 		const el = target();
-		const instance = mount(ImportWorkflowAction, { target: el, props: { context: {} } });
+		const instance = mount(ImportWorkflowTab, { target: el, props: { pluginId: 'comfyui-backend' } });
 		await settle();
 
-		el.querySelector<HTMLButtonElement>('button[aria-label="Import ComfyUI workflow"]')!.click();
-		await settle();
-
-		const dialog = document.querySelector('[role="dialog"][aria-label="Import ComfyUI workflow"]')!;
-		const textarea = dialog.querySelector<HTMLTextAreaElement>('textarea[data-import-json-input]')!;
+		const textarea = el.querySelector<HTMLTextAreaElement>('textarea[data-import-json-input]')!;
 		textarea.value = JSON.stringify({ nodes: [], links: [] });
 		textarea.dispatchEvent(new Event('input', { bubbles: true }));
 		await settle();
 
-		dialog.querySelector<HTMLButtonElement>('button[data-import-analyze]')!.click();
+		el.querySelector<HTMLButtonElement>('button[data-import-analyze]')!.click();
 		await settle();
 
-		const error = dialog.querySelector('[data-import-analyze-error]');
+		const error = el.querySelector('[data-import-analyze-error]');
 		expect(error?.textContent).toBe(
 			'A reachable ComfyUI backend is needed to import UI-format workflows; use Export (API) or configure the backend'
 		);
-		// Still on the paste step - no candidate list rendered.
-		expect(dialog.querySelector('[data-import-candidates]')).toBeNull();
+		// Still on step 1 - no candidate list rendered, rail hasn't advanced.
+		expect(el.querySelector('[data-import-candidates]')).toBeNull();
+		expect(el.querySelector('[data-wiz-step="source"]')?.className).toContain('current');
 
 		unmount(instance);
 	});
 
-	it('shows the UI-format chip and the object-info microlabel when the backend converted a UI-format workflow', async () => {
-		const uiAnalyzeResult = { ...ANALYZE_RESULT, format: 'ui', object_info_used: true };
+	it('lets "Change workflow" reset back to step 1 from the Inputs step', async () => {
 		const fetchMock = vi.fn(async (url: string) => {
 			if (url === '/api/fields/types') return jsonResponse({ success: true, data: [] });
 			if (url === '/api/plugins/comfyui-backend/presets/families') return jsonResponse({ families: [] });
-			if (url === '/api/plugins/comfyui-backend/presets/import/analyze') return jsonResponse(uiAnalyzeResult);
+			if (url === '/api/plugins/comfyui-backend/presets/import/analyze') return jsonResponse(ANALYZE_RESULT);
 			throw new Error(`Unexpected fetch: ${url}`);
 		});
 		vi.stubGlobal('fetch', fetchMock);
 
 		const el = target();
-		const instance = mount(ImportWorkflowAction, { target: el, props: { context: {} } });
+		const instance = mount(ImportWorkflowTab, { target: el, props: { pluginId: 'comfyui-backend' } });
 		await settle();
 
-		el.querySelector<HTMLButtonElement>('button[aria-label="Import ComfyUI workflow"]')!.click();
-		await settle();
-
-		const dialog = document.querySelector('[role="dialog"][aria-label="Import ComfyUI workflow"]')!;
-		const textarea = dialog.querySelector<HTMLTextAreaElement>('textarea[data-import-json-input]')!;
-		textarea.value = JSON.stringify({ nodes: [], links: [] });
+		const textarea = el.querySelector<HTMLTextAreaElement>('textarea[data-import-json-input]')!;
+		textarea.value = JSON.stringify({ '3': { class_type: 'KSampler', inputs: {} } });
 		textarea.dispatchEvent(new Event('input', { bubbles: true }));
 		await settle();
-
-		dialog.querySelector<HTMLButtonElement>('button[data-import-analyze]')!.click();
+		el.querySelector<HTMLButtonElement>('button[data-import-analyze]')!.click();
 		await settle();
 
-		expect(dialog.querySelector('[data-import-format]')?.textContent).toBe('ui');
-		expect(dialog.querySelector('[data-import-object-info-used]')?.textContent).toContain(
-			'ranges + options from your ComfyUI'
-		);
+		expect(el.querySelector('[data-import-candidates]')).toBeTruthy();
+
+		const changeLink = Array.from(el.querySelectorAll('button')).find((b) => b.textContent?.includes('Change workflow'));
+		expect(changeLink).toBeTruthy();
+		changeLink!.click();
+		await settle();
+
+		expect(el.querySelector('[data-wiz-step="source"]')?.className).toContain('current');
+		expect(el.querySelector('textarea[data-import-json-input]')).toBeTruthy();
 
 		unmount(instance);
 	});

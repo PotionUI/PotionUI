@@ -2,10 +2,13 @@
 
 import asyncio
 import logging
+import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import aiohttp
+import yaml
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -15,11 +18,19 @@ from src.plugin_api import (
     get_current_admin_user,
     lint_preset_dir,
 )
+from src.plugin_api.presets import RequirementContext
 
 from .preset_import.convert import extract_node_groups
-from .preset_import.emit import FieldChoice, PresetEmitError, emit_preset
+from .preset_import.emit import (
+    IMPORT_PROVENANCE_PREFIX,
+    FieldChoice,
+    PresetEmitError,
+    _infer_requirements,
+    emit_preset,
+)
 from .preset_import.parser import WorkflowFormatError, is_ui_format, parse_workflow
 from .preset_import.suggest import suggest_fields
+from .requirements import ComfyUIModelChecker, ComfyUINodeChecker
 
 # How long to wait for a UI-format import's /object_info fetch - the same
 # per-request timeout backend/requirements.py's requirement checkers use for
@@ -94,6 +105,73 @@ async def _parse_incoming_workflow(raw_workflow: Dict[str, Any]) -> Tuple[Any, s
 
     workflow = parse_workflow(raw_workflow, object_info=object_info)
     return workflow, ("ui" if ui_format else "api"), object_info
+
+
+@dataclass
+class _ConfiguredBackendConfig:
+    """Duck-types the `.config.get_base_url()` shape `backend.requirements`'s
+    checkers read off `RequirementContext.backend` - built straight from this
+    plugin's own settings (see `_get_comfyui_base_url`), not a registered
+    core `Backend`, so the import wizard's Requirements step can preview
+    checks before any preset (and therefore any backend resolution) exists."""
+
+    base_url: str
+
+    def get_base_url(self) -> str:
+        return self.base_url
+
+
+@dataclass
+class _ConfiguredBackend:
+    """Duck-types `RequirementBackendInfo` (`src.features.presets.requirements
+    .contracts` - not re-exported through `src.plugin_api.presets`, so this
+    plugin defines its own minimal shape rather than reach past the plugin
+    API surface)."""
+
+    id: str
+    engine: str
+    config: _ConfiguredBackendConfig
+
+
+# How long the Requirements-preview step budgets for ALL of a workflow's
+# inferred requirements together (they run concurrently) before any still
+# pending resolve to "unknown" - matches `backend.requirements`'s own
+# `_CHECK_TIMEOUT_SECONDS` per-entry ceiling for a big /object_info fetch.
+_REQUIREMENTS_PREVIEW_BUDGET_SECONDS = 20.0
+
+_REQUIREMENT_PREVIEW_CHECKERS = {
+    "comfyui_node": ComfyUINodeChecker(),
+    "comfyui_model": ComfyUIModelChecker(),
+}
+
+
+def _requirement_preview_name(checker: Any, entry: Dict[str, Any]) -> str:
+    describe = getattr(checker, "describe", None) if checker else None
+    if describe is not None:
+        try:
+            return describe(entry)
+        except Exception:
+            pass
+    return entry.get("type", "requirement")
+
+
+async def _check_one_requirement(entry: Dict[str, Any], ctx: RequirementContext) -> Dict[str, Any]:
+    """One `_infer_requirements` entry, evaluated by the checker class this
+    plugin itself registers for its `type:` (`comfyui_node`/`comfyui_model`) -
+    reused directly rather than going through the generic preset-requirements
+    evaluator, since a freshly-parsed workflow has no preset/backend
+    resolution to route through yet."""
+    req_type = entry.get("type", "")
+    name = _requirement_preview_name(_REQUIREMENT_PREVIEW_CHECKERS.get(req_type), entry)
+    checker = _REQUIREMENT_PREVIEW_CHECKERS.get(req_type)
+    if checker is None:
+        return {"type": req_type, "name": name, "status": "unknown", "detail": "No checker registered for this requirement type.", "hint": None}
+    try:
+        result = await checker.check(entry, ctx)
+    except Exception as e:
+        logger.exception("Requirement preview check failed for %s", entry)
+        return {"type": req_type, "name": name, "status": "unknown", "detail": str(e), "hint": None}
+    return {"type": req_type, "name": name, "status": result.status, "detail": result.detail, "hint": result.hint}
 
 
 def _unknown_node_warnings(unknown_nodes: List[Dict[str, Any]]) -> List[str]:
@@ -207,6 +285,54 @@ async def analyze_workflow(
     }
 
 
+@router.post("/presets/import/requirements")
+async def preview_workflow_requirements(
+    body: AnalyzeWorkflowRequest, current_user=Depends(get_current_admin_user)
+):
+    """Preview the `requirements:` entries this workflow would get on import
+    (see `preset_import.emit._infer_requirements`) and check each against
+    this plugin's configured ComfyUI backend, independent of which inputs
+    the admin has chosen as form fields - the import wizard's Requirements
+    step, run before the preset itself exists so there is nothing yet for
+    the core preset-requirements evaluator to check against."""
+    try:
+        workflow, _workflow_format, object_info = await _parse_incoming_workflow(body.workflow)
+    except WorkflowFormatError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    entries = _infer_requirements(workflow, object_info=object_info)
+    ctx = RequirementContext(
+        models=None,
+        gpu_available=False,
+        gpu_total_vram_gb=None,
+        backend=_ConfiguredBackend(
+            id="comfyui-backend:configured",
+            engine="comfyui",
+            config=_ConfiguredBackendConfig(base_url=_get_comfyui_base_url()),
+        ),
+        platform=sys.platform,
+    )
+
+    try:
+        results = await asyncio.wait_for(
+            asyncio.gather(*(_check_one_requirement(entry, ctx) for entry in entries)),
+            timeout=_REQUIREMENTS_PREVIEW_BUDGET_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        results = [
+            {
+                "type": entry.get("type", ""),
+                "name": _requirement_preview_name(_REQUIREMENT_PREVIEW_CHECKERS.get(entry.get("type", "")), entry),
+                "status": "unknown",
+                "detail": "Timed out checking this requirement.",
+                "hint": None,
+            }
+            for entry in entries
+        ]
+
+    return {"results": results}
+
+
 @router.post("/presets/import")
 async def import_workflow(
     body: ImportWorkflowRequest, current_user=Depends(get_current_admin_user)
@@ -250,3 +376,62 @@ async def import_workflow(
         "mode": result.mode,
         "lint": {"errors": errors, "warnings": warnings},
     }
+
+
+async def _peek_requirements_summary(preset_id: str) -> Optional[Dict[str, int]]:
+    """The preset's last-evaluated `requirements_summary`, straight from the
+    same controller `GET /api/presets/{id}` calls - never a live check (see
+    `src.features.presets.operations.query._peek_requirements_summary`)."""
+    try:
+        response = await get_container().preset_controller.get_preset(preset_id)
+    except Exception:
+        return None
+    if not response.success or not response.data:
+        return None
+    return response.data.get("requirements_summary")
+
+
+@router.get("/presets/imported")
+async def list_imported_presets(current_user=Depends(get_current_admin_user)):
+    """Presets under content/presets/local this plugin created - identified by
+    `description.md`'s opening line (see `preset_import.emit.emit_preset`),
+    the only provenance marker an imported preset carries."""
+    presets: List[Dict[str, Any]] = []
+
+    if _IMPORTED_PRESETS_ROOT.is_dir():
+        for family_dir in sorted(p for p in _IMPORTED_PRESETS_ROOT.iterdir() if p.is_dir()):
+            for variant_dir in sorted(p for p in family_dir.iterdir() if p.is_dir()):
+                preset_yml_path = variant_dir / "preset.yml"
+                description_path = variant_dir / "description.md"
+                if not preset_yml_path.is_file() or not description_path.is_file():
+                    continue
+                try:
+                    if not description_path.read_text(encoding="utf-8").startswith(IMPORT_PROVENANCE_PREFIX):
+                        continue
+                    preset_yml = yaml.safe_load(preset_yml_path.read_text(encoding="utf-8")) or {}
+                except (OSError, yaml.YAMLError):
+                    continue
+
+                preset_id = preset_yml.get("id")
+                modes = preset_yml.get("modes") or []
+                mode = modes[0] if modes else None
+                workflow_format = "unknown"
+                if mode:
+                    workflows_dir = variant_dir / "modes" / mode / "files" / "workflows"
+                    if (workflows_dir / f"{mode}.ui.json").is_file():
+                        workflow_format = "ui"
+                    elif (workflows_dir / f"{mode}.json").is_file():
+                        workflow_format = "api"
+
+                presets.append({
+                    "preset_id": preset_id,
+                    "name": preset_yml.get("name", variant_dir.name),
+                    "family": family_dir.name,
+                    "variant": variant_dir.name,
+                    "format": workflow_format,
+                    "requirements_summary": await _peek_requirements_summary(preset_id) if preset_id else None,
+                    "created_at": preset_yml_path.stat().st_mtime,
+                })
+
+    presets.sort(key=lambda p: p["created_at"], reverse=True)
+    return {"presets": presets}

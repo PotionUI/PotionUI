@@ -319,7 +319,7 @@ def suggest_fields(workflow: Workflow) -> AnalyzeResult:
             "diffusion_model",
             ("unet_name",),
         ),
-        (CLIP_CLASSES, "clip", "clip", "CLIP Model", "clip", ("clip_name", "clip_name1", "clip_name2")),
+        (CLIP_CLASSES, "clip", "clip", "CLIP Model", "text_encoder", ("clip_name", "clip_name1", "clip_name2")),
         (VAE_CLASSES, "vae", "vae", "VAE Model", "vae", ("vae_name",)),
     ):
         for node in workflow.find_by_class(*classes):

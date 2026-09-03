@@ -39,7 +39,7 @@ fields:
     label: "CLIP Model"
     required: true
     configuration:
-      model_type: "clip"
+      model_type: "text_encoder"
       allow_info_modal: true
       placeholder: "Select CLIP model..."
       filter_tags: "@config:clip_tags"

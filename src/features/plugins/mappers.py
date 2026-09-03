@@ -98,6 +98,8 @@ def hook_to_response(hook: PluginHook, plugin: Optional[Plugin] = None) -> Plugi
         component_path=hook.component_path,
         position=hook.position,
         sort_order=hook.sort_order,
+        label=hook.label,
+        require_role=hook.require_role,
         plugin_name=plugin.name if plugin else None,
         plugin_version=plugin.version if plugin else None
     )

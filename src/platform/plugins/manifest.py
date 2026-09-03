@@ -144,6 +144,25 @@ class PresetModeContributionSpec(BaseModel):
     modes_root: str
 
 
+class AdminTabSpec(BaseModel):
+    """A plugin-contributed tab on its own Admin -> Plugins detail panel:
+    `admin_tabs[]`.
+
+    Delivered through the same `hooks.frontend` pipeline as any other
+    frontend hook (`hook_name = "admin.plugin.tabs"`, `position = id`) - see
+    `src/features/plugins/operations/scan.py`. `require_role` gates the tab
+    the same way `SidebarItemSpec.require_role` gates a sidebar entry.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    label: str
+    component: str
+    order: int = 100
+    require_role: Optional[str] = None
+
+
 class PageSpec(BaseModel):
     """A page registration: `pages[]`."""
 
@@ -489,6 +508,9 @@ class PluginManifestSchema(BaseModel):
     frontend: Optional[str] = None  # Path to a frontend entry point, if any
     pages: List[PageSpec] = Field(default_factory=list)
     sidebar: List[SidebarItemSpec] = Field(default_factory=list)
+    # Tabs this plugin contributes to its own Admin -> Plugins detail panel,
+    # alongside the core Overview/Settings tabs - see AdminTabSpec.
+    admin_tabs: List[AdminTabSpec] = Field(default_factory=list)
     quick_actions: List[QuickActionSpec] = Field(default_factory=list)
     sidebar_widgets: List[SidebarWidgetSpec] = Field(default_factory=list)
     settings: List[SettingSpec] = Field(default_factory=list)

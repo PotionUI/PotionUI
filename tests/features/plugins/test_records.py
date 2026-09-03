@@ -381,7 +381,9 @@ class TestPluginHookModel(unittest.TestCase):
             'handler_path': '/handlers/before_save.py',
             'component_path': None,
             'position': None,
-            'sort_order': 20
+            'sort_order': 20,
+            'label': None,
+            'require_role': None
         }
 
         self.assertEqual(result, expected)

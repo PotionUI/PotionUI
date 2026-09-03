@@ -1,17 +1,21 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import { pluginStore, plugins, loading, error, pendingPluginIds, type Plugin, type PluginSettingSchema } from '$lib/stores/plugins';
+	import { pluginStore, plugins, frontendHooks, loading, error, pendingPluginIds, type Plugin, type PluginSettingSchema } from '$lib/stores/plugins';
+	import { authStore } from '$lib/stores/auth';
 	import { Button, Badge, Spinner, Input, Kbd, EmptyState, Switch, Alert } from '$lib/components/ui';
 	import { MasterDetailLayout, DetailEmptyState } from '$lib/components/master-detail';
 	import { Pane, PaneRow, PaneGroupHeader } from '$lib/components/pane';
-	import { DetailHeader, DetailBody, DetailSection, DetailFooter, KVGrid, KVItem } from '$lib/components/detail';
+	import { DetailHeader, DetailTabs, DetailBody, DetailSection, DetailFooter, KVGrid, KVItem } from '$lib/components/detail';
 	import AdminTabShell from './AdminTabShell.svelte';
 	import AdminFilterBar from './AdminFilterBar.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { pluginCategories, resolveCategory } from '$lib/plugins/categories';
+	import { resolvePluginComponent } from '$lib/plugin-api/componentResolver';
+	import { pluginDetailTabsFor, isPluginDetailTab, hasHiddenAdminTabs, ADMIN_PLUGIN_TABS_HOOK, type PluginDetailTabId } from './pluginDetailTabs';
 
 	let selectedPluginId: string | null = null;
+	let detailTab: PluginDetailTabId = 'overview';
 	// Raw fetch from GET /api/plugins/{id} - the only source for hooks,
 	// settings_schema, tags, author, and the other fields the list endpoint
 	// doesn't return. `enabled`/`state`/`error` are read from the live
@@ -37,7 +41,7 @@
 	];
 
 	onMount(async () => {
-		await pluginStore.loadPlugins();
+		await Promise.all([pluginStore.loadPlugins(), pluginStore.loadFrontendHooks()]);
 		window.addEventListener('keydown', handleGlobalKeydown);
 	});
 
@@ -77,6 +81,7 @@
 	// schema/values, hooks) the list endpoint doesn't include.
 	async function selectPlugin(pluginId: string) {
 		selectedPluginId = pluginId;
+		detailTab = 'overview';
 		detailLoading = true;
 		const pluginDetails = await pluginStore.getPluginDetails(pluginId);
 		detailLoading = false;
@@ -177,6 +182,23 @@
 				error: listMatch?.error ?? selectedPlugin.error
 			}
 		: null;
+
+	// Contributed tabs come from `admin.plugin.tabs` frontend hooks, which the
+	// backend only ever populates for an ENABLED plugin - see pluginDetailTabs.ts.
+	$: adminTabHooks = $frontendHooks[ADMIN_PLUGIN_TABS_HOOK] ?? [];
+	$: detailTabs = liveSelected ? pluginDetailTabsFor(liveSelected, adminTabHooks, $authStore.user?.account_type) : [];
+	$: showHiddenAdminTabsHint = liveSelected ? hasHiddenAdminTabs(liveSelected.hooks, liveSelected.enabled) : false;
+	// Fall back to Overview when the selected plugin's tab set no longer
+	// includes the open tab (toggled disabled, or a different plugin selected
+	// whose own contributed/settings tabs differ).
+	$: if (liveSelected && !isPluginDetailTab(liveSelected, adminTabHooks, detailTab, $authStore.user?.account_type)) {
+		detailTab = 'overview';
+	}
+	$: activeContributedTab = detailTabs.find((t) => t.id === detailTab && t.componentPath);
+	$: activeTabComponentPromise =
+		activeContributedTab && liveSelected
+			? resolvePluginComponent(liveSelected.id, activeContributedTab.componentPath as string)
+			: null;
 </script>
 
 <div class="flex h-[calc(100dvh-var(--header-h)-2rem)] min-h-[36rem] flex-col gap-4 sm:h-[calc(100dvh-var(--header-h)-3rem)]">
@@ -369,6 +391,15 @@
 							{/snippet}
 						</DetailHeader>
 
+						{#if showHiddenAdminTabsHint}
+							<div class="px-4 sm:px-5 pt-3">
+								<Alert variant="info" icon density="compact">Enable this plugin to see its additional tabs.</Alert>
+							</div>
+						{/if}
+
+						<DetailTabs tabs={detailTabs} active={detailTab} onSelect={(id) => (detailTab = id)} ariaLabel="Plugin details" />
+
+						{#if detailTab === 'overview'}
 							<DetailBody>
 								{#if liveSelected.state === 'error' && liveSelected.error}
 									<Alert variant="danger" icon title="Invalid manifest">{liveSelected.error}</Alert>
@@ -438,48 +469,67 @@
 										</div>
 									</DetailSection>
 								{/if}
-
-								<DetailSection label="Settings">
-									{#if liveSelected.settings_schema && liveSelected.settings_schema.length > 0}
-										<form id="plugin-settings-form" on:submit|preventDefault={saveSettings} class="space-y-4">
-											{#each liveSelected.settings_schema as schema}
-												<div>
-													<label for={schema.name} class="block text-sm font-medium text-fg-muted mb-1">
-														{schema.label}
-														{#if schema.required}
-															<span class="text-danger">*</span>
-														{/if}
-													</label>
-													{#if schema.description}
-														<p class="text-xs text-fg-subtle mb-1">{schema.description}</p>
-													{/if}
-													{#if schema.type === 'boolean'}
-														<Switch
-															checked={!!settingsValues[schema.name]}
-															onchange={(v) => (settingsValues[schema.name] = v)}
-															label={schema.label}
-															id={schema.name}
-														/>
-													{:else}
-														<Input
-															id={schema.name}
-															type={getInputType(schema)}
-															bind:value={settingsValues[schema.name]}
-															placeholder={schema.default !== undefined ? `Default: ${schema.default}` : 'Enter value...'}
-														/>
-													{/if}
-												</div>
-											{/each}
-										</form>
-									{:else}
-										<div class="bg-surface-2 rounded-lg p-4 text-center text-sm text-fg-subtle">
-											This plugin has no configurable settings
-										</div>
-									{/if}
-								</DetailSection>
 							</DetailBody>
+						{:else if detailTab === 'settings'}
+							<DetailBody>
+								{#if liveSelected.settings_schema && liveSelected.settings_schema.length > 0}
+									<form id="plugin-settings-form" on:submit|preventDefault={saveSettings} class="space-y-4">
+										{#each liveSelected.settings_schema as schema}
+											<div>
+												<label for={schema.name} class="block text-sm font-medium text-fg-muted mb-1">
+													{schema.label}
+													{#if schema.required}
+														<span class="text-danger">*</span>
+													{/if}
+												</label>
+												{#if schema.description}
+													<p class="text-xs text-fg-subtle mb-1">{schema.description}</p>
+												{/if}
+												{#if schema.type === 'boolean'}
+													<Switch
+														checked={!!settingsValues[schema.name]}
+														onchange={(v) => (settingsValues[schema.name] = v)}
+														label={schema.label}
+														id={schema.name}
+													/>
+												{:else}
+													<Input
+														id={schema.name}
+														type={getInputType(schema)}
+														bind:value={settingsValues[schema.name]}
+														placeholder={schema.default !== undefined ? `Default: ${schema.default}` : 'Enter value...'}
+													/>
+												{/if}
+											</div>
+										{/each}
+									</form>
+								{:else}
+									<div class="bg-surface-2 rounded-lg p-4 text-center text-sm text-fg-subtle">
+										This plugin has no configurable settings
+									</div>
+								{/if}
+							</DetailBody>
+						{:else if activeContributedTab && activeTabComponentPromise}
+							<DetailBody>
+								{#await activeTabComponentPromise}
+									<div class="flex items-center justify-center py-10">
+										<Spinner size="lg" />
+									</div>
+								{:then Component}
+									{#if Component}
+										<svelte:component this={Component} pluginId={liveSelected.id} plugin={liveSelected} />
+									{:else}
+										<Alert variant="danger" icon title="Failed to load tab">
+											Could not load the "{activeContributedTab.label}" component ({activeContributedTab.componentPath}).
+										</Alert>
+									{/if}
+								{:catch err}
+									<Alert variant="danger" icon title="Failed to load tab">{err?.message || 'Unknown error'}</Alert>
+								{/await}
+							</DetailBody>
+						{/if}
 
-						{#if liveSelected.settings_schema && liveSelected.settings_schema.length > 0}
+						{#if detailTab === 'settings' && liveSelected.settings_schema && liveSelected.settings_schema.length > 0}
 							<DetailFooter>
 								<Button type="button" variant="ghost" size="sm" onclick={resetSettings}>Reset</Button>
 								<Button type="button" variant="primary" size="sm" loading={saving} onclick={saveSettings}>

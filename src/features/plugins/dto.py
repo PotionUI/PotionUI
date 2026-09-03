@@ -50,6 +50,8 @@ class PluginHookResponse(BaseModel):
     component_path: Optional[str] = None
     position: Optional[str] = None
     sort_order: int = 0
+    label: Optional[str] = None
+    require_role: Optional[str] = None
     plugin_name: Optional[str] = None  # Enriched field
     plugin_version: Optional[str] = None  # Enriched field
 

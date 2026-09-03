@@ -49,6 +49,25 @@ def _register_plugin_hooks(repo: PluginRepository, manifest) -> None:
         )
         repo.register_hook(hook)
 
+    # Register admin-detail tabs from manifest as `admin.plugin.tabs`
+    # frontend hooks - `position` carries the tab's own `id` (what the
+    # frontend keys tab selection on), `label`/`require_role` ride along on
+    # the columns those add for exactly this purpose.
+    for tab_def in manifest.admin_tabs:
+        hook = PluginHook(
+            id=None,
+            plugin_id=manifest.id,
+            hook_name="admin.plugin.tabs",
+            hook_type="frontend",
+            handler_path=None,
+            component_path=tab_def.get('component'),
+            position=tab_def.get('id'),
+            sort_order=tab_def.get('order', 100),
+            label=tab_def.get('label'),
+            require_role=tab_def.get('require_role')
+        )
+        repo.register_hook(hook)
+
     # Register pages from manifest
     for page_def in manifest.pages:
         route = page_def.get('route', '')

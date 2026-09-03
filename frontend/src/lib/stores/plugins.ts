@@ -75,6 +75,8 @@ export interface PluginHook {
 	component_path?: string;
 	position?: string;
 	sort_order: number;
+	label?: string;
+	require_role?: string;
 }
 
 export interface FrontendHooks {

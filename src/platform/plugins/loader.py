@@ -80,6 +80,9 @@ class PluginManifest:
     pages: List[Dict[str, Any]] = field(default_factory=list)
     api_routes: List[Dict[str, Any]] = field(default_factory=list)
     sidebar_items: List[Dict[str, Any]] = field(default_factory=list)
+    # Tabs contributed to this plugin's own Admin -> Plugins detail panel:
+    # [{id, label, component, order, require_role}]
+    admin_tabs: List[Dict[str, Any]] = field(default_factory=list)
 
     # Quick actions and sidebar widgets
     quick_actions: List[Dict[str, Any]] = field(default_factory=list)
@@ -392,6 +395,7 @@ class PluginLoader:
             pages=[p.model_dump() for p in schema.pages],
             api_routes={"module": schema.api.module} if schema.api else {},
             sidebar_items=[s.model_dump() for s in schema.sidebar],
+            admin_tabs=[t.model_dump() for t in schema.admin_tabs],
             quick_actions=[q.model_dump() for q in schema.quick_actions],
             sidebar_widgets=[w.model_dump() for w in schema.sidebar_widgets],
             settings=[s.model_dump() for s in schema.settings],

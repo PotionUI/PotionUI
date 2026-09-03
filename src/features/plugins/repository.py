@@ -386,9 +386,9 @@ class PluginRepository:
             cursor.execute("""
                 INSERT INTO plugin_hooks (
                     plugin_id, hook_name, hook_type, handler_path,
-                    component_path, position, sort_order
+                    component_path, position, sort_order, label, require_role
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 hook.plugin_id,
                 hook.hook_name,
@@ -396,7 +396,9 @@ class PluginRepository:
                 hook.handler_path,
                 hook.component_path,
                 hook.position,
-                hook.sort_order
+                hook.sort_order,
+                hook.label,
+                hook.require_role
             ))
             hook.id = cursor.lastrowid
         return hook
@@ -408,7 +410,7 @@ class PluginRepository:
             cursor.execute("""
                 UPDATE plugin_hooks
                 SET plugin_id = ?, hook_name = ?, hook_type = ?, handler_path = ?,
-                    component_path = ?, position = ?, sort_order = ?
+                    component_path = ?, position = ?, sort_order = ?, label = ?, require_role = ?
                 WHERE id = ?
             """, (
                 hook.plugin_id,
@@ -418,6 +420,8 @@ class PluginRepository:
                 hook.component_path,
                 hook.position,
                 hook.sort_order,
+                hook.label,
+                hook.require_role,
                 hook_id
             ))
 

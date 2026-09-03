@@ -149,6 +149,11 @@ class PluginHook:
     component_path: Optional[str] = None
     position: Optional[str] = None
     sort_order: int = 0
+    # Display label and role gate for a hook rendered as a UI entry (e.g. an
+    # `admin.plugin.tabs` tab) rather than mounted anonymously into a slot.
+    # Unused by a plain action/slot hook.
+    label: Optional[str] = None
+    require_role: Optional[str] = None
 
     @classmethod
     def from_row(cls, row) -> 'PluginHook':
@@ -161,7 +166,9 @@ class PluginHook:
             handler_path=row['handler_path'],
             component_path=row['component_path'],
             position=row['position'],
-            sort_order=int(row['sort_order']) if row['sort_order'] is not None else 0
+            sort_order=int(row['sort_order']) if row['sort_order'] is not None else 0,
+            label=row['label'] if 'label' in row.keys() else None,
+            require_role=row['require_role'] if 'require_role' in row.keys() else None
         )
 
     def to_dict(self) -> dict:
@@ -174,7 +181,9 @@ class PluginHook:
             'handler_path': self.handler_path,
             'component_path': self.component_path,
             'position': self.position,
-            'sort_order': self.sort_order
+            'sort_order': self.sort_order,
+            'label': self.label,
+            'require_role': self.require_role
         }
 
 

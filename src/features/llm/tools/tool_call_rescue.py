@@ -343,6 +343,34 @@ def _detect_tool_action(content: str, registered: Set[str], out: List[NearMiss])
         ))
 
 
+def match_tool_action_open(buf: str) -> Optional["re.Match[str]"]:
+    """A `<tool_action ...>` open tag anchored at the start of *buf*, once its
+    own closing `>` has actually arrived.
+
+    For the executor's live token stream, which sees *buf* grow one chunk at
+    a time: `_TOOL_ACTION_RE` itself matches a truncated tag too (its `>` is
+    optional, so the whole-string near-miss scan still catches a cut-off
+    one), but a caller deciding whether to keep withholding tokens needs to
+    tell "still arriving" apart from "never going to close" -- so this
+    returns ``None`` until the match's own text actually ends in `>`.
+    """
+    match = _TOOL_ACTION_RE.match(buf)
+    if match is None or not match.group(0).endswith(">"):
+        return None
+    return match
+
+
+def tool_action_type(open_tag_match: "re.Match[str]") -> Optional[str]:
+    """The `type` attribute of an already-matched `<tool_action ...>` open tag."""
+    type_name, _attrs, _problems = _parse_attributes(demangle_quote_tokens(open_tag_match.group(1)))
+    return type_name
+
+
+def find_tool_action_close(buf: str) -> Optional["re.Match[str]"]:
+    """The `</tool_action>` close tag anywhere in *buf*, or ``None``."""
+    return _TOOL_ACTION_CLOSE_RE.search(buf)
+
+
 # A CLOSED `<tool_call>...</tool_call>` -- unlike `find_truncated_tool_call`,
 # every open here has a matching close, so what's inside is a complete
 # payload that simply failed to parse as JSON.

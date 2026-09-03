@@ -92,42 +92,74 @@ def _bound_tool_result_content(content: str) -> str:
 
 
 class _StreamToolCallFilter:
-    """Withholds `<tool_call>...</tool_call>` spans from a live token stream.
+    """Withholds `<tool_call>...</tool_call>` spans, and a `<tool_action ...>`
+    span whose `type` names a registered tool, from a live token stream.
 
     Suppress-at-source for `execute_with_tools_stream`'s native per-token
     loop: nothing inside a tool call belongs in the visible reply, complete
-    or not, so ordinary text is forwarded as it arrives and the moment
-    `<tool_call>` opens, everything is buffered instead — never yielded —
-    until the matching `</tool_call>` closes, at which point the whole block
-    is handed back to the caller to parse and dispatch immediately, without
-    waiting for the rest of that turn's generation to finish.
+    or not, so ordinary text is forwarded as it arrives.
+
+    A `<tool_call>` span is this module's own invocation syntax: the moment
+    it opens, everything is buffered instead — never yielded — until the
+    matching `</tool_call>` closes, at which point the whole block is handed
+    back to the caller to parse and dispatch immediately, without waiting
+    for the rest of that turn's generation to finish.
+
+    A `<tool_action ...>` span is a near-miss a model reaches for instead
+    (see `tool_call_rescue`'s module docstring) — but the same tag is also a
+    real frontend convention (`update_segment`/`update_director_segment`)
+    that must stream normally. So on `<tool_action` its own opening tag is
+    buffered (not yet forwarded) until its closing `>` arrives; only once
+    `type` is known to name a *registered_tool_names* entry does suppression
+    continue through `</tool_action>`. A non-registered `type` (or one that
+    never resolves before the tag's own `>` — plain prose that happens to
+    contain the substring) flushes the buffered open tag as text and resumes
+    normal streaming. Unlike `<tool_call>`, a suppressed `<tool_action>` span
+    is never dispatched inline here — it stays in the iteration's
+    independently-accumulated `full_iter_content` for
+    `ToolExecutor._rescue_final_content` to detect, repair, and dispatch once
+    the iteration ends, exactly as it already does for a buffered response.
     """
 
     _OPEN = "<tool_call>"
     _CLOSE = "</tool_call>"
+    _ACTION_PREFIX = "<tool_action"
 
-    def __init__(self) -> None:
+    def __init__(self, registered_tool_names: Optional[set] = None) -> None:
         self._buf = ""
-        self.suppressing = False
+        self._registered = set(registered_tool_names or ())
+        # "idle" | "peek_action" (saw `<tool_action`, its own `>` hasn't
+        # arrived yet, so it isn't known whether `type` names a registered
+        # tool) | "suppress_call" | "suppress_action"
+        self._state = "idle"
+
+    @property
+    def suppressing(self) -> bool:
+        return self._state != "idle"
 
     @staticmethod
     def _partial_open_suffix_len(buf: str) -> int:
         """Length of the longest suffix of *buf* that is also a proper prefix
-        of the opening tag — 0 when the buffer's tail couldn't possibly be the
-        start of one. A real, complete match is found separately via `find`;
-        this only catches a tag split across two token chunks, so ordinary
-        text is never held back waiting for a match that will never come."""
-        max_len = min(len(buf), len(_StreamToolCallFilter._OPEN) - 1)
+        of one of the two opening markers — 0 when the buffer's tail couldn't
+        possibly be the start of either. A real, complete match is found
+        separately via `find`; this only catches a tag split across two token
+        chunks, so ordinary text is never held back waiting for a match that
+        will never come."""
+        prefixes = (_StreamToolCallFilter._OPEN, _StreamToolCallFilter._ACTION_PREFIX)
+        max_len = min(len(buf), max(len(p) for p in prefixes) - 1)
         for length in range(max_len, 0, -1):
-            if buf.endswith(_StreamToolCallFilter._OPEN[:length]):
+            suffix = buf[-length:]
+            if any(prefix.startswith(suffix) for prefix in prefixes):
                 return length
         return 0
 
     def feed(self, text: str) -> List[Tuple[str, str]]:
         """Returns an ordered list of ``("text", chunk)`` / ``("block", raw)``
         pairs for *text*, in the exact order they occur — a "text" chunk is
-        safe to forward as a token now, a "block" is a complete `<tool_call>`
-        span (open tag through close tag). Preserving order (rather than
+        safe to forward as a token now, a "block" is a complete suppressed
+        span (open tag through close tag; the caller drops a `<tool_action>`
+        block on the floor since `_parse_xml_tool_calls` finds nothing in it,
+        and dispatches a `<tool_call>` block). Preserving order (rather than
         collecting text and blocks into two separate lists) matters: it lets
         a caller stop partway through — e.g. once a dispatched block turns
         out to need approval — without forwarding or dispatching anything
@@ -135,34 +167,61 @@ class _StreamToolCallFilter:
         self._buf += text
         segments: List[Tuple[str, str]] = []
         while True:
-            if not self.suppressing:
-                idx = self._buf.find(self._OPEN)
-                if idx == -1:
+            if self._state == "idle":
+                idx_call = self._buf.find(self._OPEN)
+                idx_action = self._buf.find(self._ACTION_PREFIX)
+                candidates = [i for i in (idx_call, idx_action) if i != -1]
+                if not candidates:
                     keep = self._partial_open_suffix_len(self._buf)
                     if len(self._buf) > keep:
                         cut = len(self._buf) - keep
                         segments.append(("text", self._buf[:cut]))
                         self._buf = self._buf[cut:]
                     break
+                idx = min(candidates)
                 if idx:
                     segments.append(("text", self._buf[:idx]))
                 self._buf = self._buf[idx:]
-                self.suppressing = True
+                self._state = "suppress_call" if self._buf.startswith(self._OPEN) else "peek_action"
                 continue
-            idx = self._buf.find(self._CLOSE)
-            if idx == -1:
+
+            if self._state == "peek_action":
+                match = tool_call_rescue.match_tool_action_open(self._buf)
+                if match is None:
+                    break
+                if tool_call_rescue.tool_action_type(match) in self._registered:
+                    self._state = "suppress_action"
+                    continue
+                segments.append(("text", match.group(0)))
+                self._buf = self._buf[match.end():]
+                self._state = "idle"
+                continue
+
+            if self._state == "suppress_call":
+                idx = self._buf.find(self._CLOSE)
+                if idx == -1:
+                    break
+                end = idx + len(self._CLOSE)
+                segments.append(("block", self._buf[:end]))
+                self._buf = self._buf[end:]
+                self._state = "idle"
+                continue
+
+            # suppress_action
+            close = tool_call_rescue.find_tool_action_close(self._buf)
+            if close is None:
                 break
-            end = idx + len(self._CLOSE)
-            segments.append(("block", self._buf[:end]))
-            self._buf = self._buf[end:]
-            self.suppressing = False
+            segments.append(("block", self._buf[:close.end()]))
+            self._buf = self._buf[close.end():]
+            self._state = "idle"
         return segments
 
     def flush(self) -> str:
-        """Remaining safe text once the stream ends. Returns "" while
-        `suppressing` — that text belongs to an unclosed block and must stay
-        hidden; the truncation path takes it from there."""
-        if self.suppressing:
+        """Remaining safe text once the stream ends. Returns "" while a span
+        is open or being peeked — that text belongs to an unresolved tag and
+        must stay hidden; the truncation/near-miss handling takes it from
+        there."""
+        if self._state != "idle":
             return ""
         text, self._buf = self._buf, ""
         return text
@@ -844,17 +903,22 @@ class ToolExecutor:
         the same behavior this method used before it streamed natively.
 
         Every other config still streams tokens live, but a `<tool_call>` a
-        client embeds in content (see `_parse_xml_tool_calls`'s docstring) is
-        suppressed at the source rather than forwarded and cleaned up after
-        the fact: `_StreamToolCallFilter` withholds everything from the open
-        tag through the close tag, and the moment a block closes it is parsed
-        and dispatched immediately — through the SAME `_run_tool_calls_stream`
-        event surface a structured `tool_calls` response uses — without
-        waiting for the rest of that iteration's generation to finish. A
-        block that never closes falls through to the truncation/near-miss
-        handling below exactly as before, since the accumulated
-        `full_iter_content` still contains everything regardless of what was
-        or wasn't forwarded live.
+        client embeds in content (see `_parse_xml_tool_calls`'s docstring), or
+        a `<tool_action ...>` naming a registered tool (a near-miss format —
+        see `tool_call_rescue`'s module docstring), is suppressed at the
+        source rather than forwarded and cleaned up after the fact:
+        `_StreamToolCallFilter` withholds everything from the open tag through
+        the close tag. A closed `<tool_call>` block is parsed and dispatched
+        immediately — through the SAME `_run_tool_calls_stream` event surface
+        a structured `tool_calls` response uses — without waiting for the
+        rest of that iteration's generation to finish. A `<tool_action>`
+        block is not dispatched inline; it stays hidden from the live stream
+        and is picked up, along with any other near-miss format, by the
+        near-miss handling below once the iteration's `full_iter_content` is
+        complete. A block that never closes falls through to the
+        truncation/near-miss handling below exactly as before, since the
+        accumulated `full_iter_content` still contains everything regardless
+        of what was or wasn't forwarded live.
         """
         if await self._force_prompt_tools_for(llm_id):
             async for event in self._execute_with_tools_stream_legacy(
@@ -874,6 +938,7 @@ class ToolExecutor:
             return
 
         tool_schemas = self.tool_registry.get_schemas(allowed_tools)
+        registered = self._registered_allowed(allowed_tools)
         tool_executions: List[ToolExecution] = []
         working_messages = list(messages)
         rescue_records: List[Dict[str, Any]] = []
@@ -881,10 +946,11 @@ class ToolExecutor:
         # See `execute_with_tools`'s `iteration_nudge` docstring: True once
         # this turn has completed at least one tool round.
         any_tool_round_completed = False
-        # Now that a <tool_call> span is suppressed at the source (see
-        # _StreamToolCallFilter) instead of already having reached the user
-        # live, a truncated or malformed one is exactly as safe to retry here
-        # as it is on the buffered paths — same counter, same bound.
+        # Now that a <tool_call> or registered-tool <tool_action> span is
+        # suppressed at the source (see _StreamToolCallFilter) instead of
+        # already having reached the user live, a truncated or malformed one
+        # is exactly as safe to retry here as it is on the buffered paths —
+        # same counter, same bound.
         rescue_retries = 0
         # See the precedence note in execute_with_tools: the user's image
         # persists across the whole turn; a tool-returned image is a one-shot
@@ -933,7 +999,7 @@ class ToolExecutor:
                 assistant_msg = None
                 control = {"pending": False, "tool_image_data": None}
                 draining = False
-                stream_filter = _StreamToolCallFilter()
+                stream_filter = _StreamToolCallFilter(registered)
 
                 async for event in self.llm_service.stream_with_tools(
                     messages=call_messages,

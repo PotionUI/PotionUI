@@ -2393,6 +2393,43 @@ class TestStreamToolCallFilter:
         # text to arrive, but none of it is an actual prefix of "<tool_call>".
         assert f.feed("compare a < b here") == [("text", "compare a < b here")]
 
+    def test_tool_action_naming_a_registered_tool_is_suppressed_as_a_block(self):
+        from src.features.llm.tools.executor import _StreamToolCallFilter
+        f = _StreamToolCallFilter({"propose_form_changes"})
+        block = '<tool_action type="propose_form_changes">\n{"ops": []}\n</tool_action>'
+        segments = f.feed(f"before {block} after")
+        assert segments == [("text", "before "), ("block", block), ("text", " after")]
+        assert not f.suppressing
+
+    def test_tool_action_for_an_unregistered_type_is_forwarded_as_text(self):
+        # update_segment/update_director_segment are real frontend
+        # conventions, never registered tools -- their tag must stream
+        # through untouched rather than being held back.
+        from src.features.llm.tools.executor import _StreamToolCallFilter
+        f = _StreamToolCallFilter({"propose_form_changes"})
+        block = '<tool_action type="update_segment" segment_index="0">a lone hiker</tool_action>'
+        assert f.feed(block) == [("text", '<tool_action type="update_segment" segment_index="0">'), ("text", "a lone hiker</tool_action>")]
+        assert not f.suppressing
+
+    def test_tool_action_open_tag_split_across_chunks_is_held_back_until_type_known(self):
+        from src.features.llm.tools.executor import _StreamToolCallFilter
+        f = _StreamToolCallFilter({"propose_form_changes"})
+        first = f.feed('before <tool_action type="prop')
+        assert first == [("text", "before ")]
+        second = f.feed('ose_form_changes">{"ops": []}</tool_action> after')
+        assert second == [
+            ("block", '<tool_action type="propose_form_changes">{"ops": []}</tool_action>'),
+            ("text", " after"),
+        ]
+
+    def test_unclosed_tool_action_open_tag_stays_hidden(self):
+        from src.features.llm.tools.executor import _StreamToolCallFilter
+        f = _StreamToolCallFilter({"propose_form_changes"})
+        segments = f.feed('before <tool_action type="propose_form_changes"')
+        assert segments == [("text", "before ")]
+        assert f.suppressing is True
+        assert f.flush() == ""
+
 
 class TestExecuteWithToolsStreamSuppression:
     """execute_with_tools_stream (the true native per-token path): a
@@ -2624,6 +2661,61 @@ class TestExecuteWithToolsStreamSuppression:
         assert [e["data"]["content"] for e in events if e["type"] == "token"] == ["Hel", "lo!"]
         done = next(e for e in events if e["type"] == "done")
         assert done["data"]["full_content"] == "Hello!"
+
+    @pytest.mark.asyncio
+    async def test_tool_action_naming_a_registered_tool_never_leaks_a_token(self):
+        """A live incident: a model wrote its payload as a <tool_action>
+        tag's inner text (a near-miss format, not this module's own
+        <tool_call> syntax) instead of a real tool call. On the native
+        per-token stream this must never reach a token event, and the turn
+        must still end with the tool dispatched and repaired."""
+        executor, llm_service = self._make_executor(EchoTool())
+        block = '<tool_action type="echo">\n{"message": "hi"}\n</tool_action>'
+        chunks = [block[i:i + 6] for i in range(0, len(block), 6)]
+        llm_service.stream_with_tools = make_multi_call_event_stream([
+            [{"type": "token", "content": c} for c in chunks],
+            [{"type": "token", "content": "done echoing"}],
+        ])
+
+        events = await collect_stream_events(executor.execute_with_tools_stream(
+            messages=[{"role": "user", "content": "echo hi"}],
+            llm_id="model-1",
+            system_message="sys",
+            tool_context=make_context(),
+            allowed_tools=["echo"],
+        ))
+
+        token_events = [e for e in events if e["type"] == "token"]
+        assert all("tool_action" not in e["data"]["content"] for e in token_events)
+        assert [e["data"]["tool_name"] for e in events if e["type"] == "tool_start"] == ["echo"]
+        done = next(e for e in events if e["type"] == "done")
+        assert done["data"]["full_content"] == "done echoing"
+        assert done["data"]["rescues"] == [
+            {"tool_name": "echo", "repaired": True, "original_format": "tool_action_tag"}
+        ]
+
+    @pytest.mark.asyncio
+    async def test_tool_action_for_an_unregistered_type_streams_normally(self):
+        """update_segment/update_director_segment are real frontend
+        conventions, not registered tools -- they must keep streaming live
+        like any other text, never held back as if they were a tool call."""
+        executor, llm_service = self._make_executor(EchoTool())
+        block = '<tool_action type="update_segment" segment_index="0">a lone hiker</tool_action>'
+        chunks = [block[i:i + 6] for i in range(0, len(block), 6)]
+        llm_service.stream_with_tools = make_multi_call_event_stream([
+            [{"type": "token", "content": c} for c in chunks],
+        ])
+
+        events = await collect_stream_events(executor.execute_with_tools_stream(
+            messages=[{"role": "user", "content": "propose a rewrite"}],
+            llm_id="model-1",
+            system_message="sys",
+            tool_context=make_context(),
+            allowed_tools=["echo"],
+        ))
+
+        done = next(e for e in events if e["type"] == "done")
+        assert done["data"]["full_content"] == block
 
 
 # ---------------------------------------------------------------------------

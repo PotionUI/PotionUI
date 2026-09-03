@@ -9,9 +9,20 @@ import pytest
 from src.features.presets import operations
 from src.features.presets.collaborators import PresetCollaborators
 from src.features.presets.exceptions import PresetNotFoundException
+from src.features.presets.requirements.builtin import register_builtin_requirement_checkers
 from src.features.presets.requirements.contracts import RequirementResult
 from src.features.presets.requirements.evaluator import RequirementsCache
 from src.features.presets.templates import PresetTemplate
+from src.platform.plugins.requirement_checkers import requirement_checker_registry
+
+
+def setup_module(module):
+    # This module's assertions rely on the shared `requirement_checker_registry`
+    # singleton carrying the core checkers - lazily seed it if some earlier
+    # test module hasn't already (mirrors `PresetLinter._requirement_checker_registry`'s
+    # guard), so this file's results don't depend on collection order.
+    if not requirement_checker_registry.all():
+        register_builtin_requirement_checkers(requirement_checker_registry)
 
 
 def _preset(preset_id="preset-1", requirements=None):
@@ -65,6 +76,62 @@ class TestGetPresetRequirements:
         assert len(data["results"]) == 1
         assert data["results"][0]["status"] == "ok"
         assert "checked_at" in data
+
+    @pytest.mark.asyncio
+    async def test_result_carries_type_name_and_optional(self):
+        preset = _preset(requirements=[
+            {"type": "platform", "os": ["linux"], "optional": True},
+        ])
+        collaborators = _collaborators(
+            file_repo=MagicMock(find_preset_by_id=MagicMock(return_value=preset)),
+            requirements_cache=RequirementsCache(),
+        )
+
+        data = await operations.get_preset_requirements(collaborators, preset.id)
+
+        item = data["results"][0]
+        assert item["type"] == "platform"
+        assert item["name"] == "linux"  # PlatformRequirementChecker.describe()
+        assert item["optional"] is True
+
+    @pytest.mark.asyncio
+    async def test_optional_defaults_to_false(self):
+        preset = _preset(requirements=[{"type": "platform", "os": ["linux"]}])
+        collaborators = _collaborators(
+            file_repo=MagicMock(find_preset_by_id=MagicMock(return_value=preset)),
+            requirements_cache=RequirementsCache(),
+        )
+
+        data = await operations.get_preset_requirements(collaborators, preset.id)
+
+        assert data["results"][0]["optional"] is False
+
+    @pytest.mark.asyncio
+    async def test_unregistered_type_falls_back_to_first_string_field(self):
+        preset = _preset(requirements=[{"type": "custom_check", "node": "MyCustomNode"}])
+        collaborators = _collaborators(
+            file_repo=MagicMock(find_preset_by_id=MagicMock(return_value=preset)),
+            requirements_cache=RequirementsCache(),
+        )
+
+        data = await operations.get_preset_requirements(collaborators, preset.id)
+
+        item = data["results"][0]
+        assert item["type"] == "custom_check"
+        assert item["name"] == "MyCustomNode"
+        assert item["status"] == "unknown"
+
+    @pytest.mark.asyncio
+    async def test_unregistered_type_with_no_string_field_falls_back_to_type(self):
+        preset = _preset(requirements=[{"type": "custom_check", "count": 3}])
+        collaborators = _collaborators(
+            file_repo=MagicMock(find_preset_by_id=MagicMock(return_value=preset)),
+            requirements_cache=RequirementsCache(),
+        )
+
+        data = await operations.get_preset_requirements(collaborators, preset.id)
+
+        assert data["results"][0]["name"] == "custom_check"
 
     @pytest.mark.asyncio
     async def test_no_cache_still_evaluates(self):

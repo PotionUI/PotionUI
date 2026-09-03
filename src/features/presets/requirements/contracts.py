@@ -96,7 +96,16 @@ class RequirementContext:
 class RequirementChecker(Protocol):
     """One requirement `type:`'s evaluator. Pure Python - no subprocess, no
     shell, no network I/O beyond what a plugin's own checker chooses to do
-    (and accepts the evaluator's timeout for)."""
+    (and accepts the evaluator's timeout for).
+
+    A checker may additionally implement `describe(spec) -> str` (not a
+    formal Protocol member - purely duck-typed, so an existing checker that
+    doesn't define it keeps working unchanged): a short, human name for one
+    entry, used by `GET /api/presets/{preset_id}/requirements` to label a
+    result (e.g. a filename, a tag, "16 GB"). Without it, the endpoint falls
+    back to the entry's first string-valued field besides `type`/`hint`/
+    `optional`, else the type name itself.
+    """
 
     # The `requirements:` entry `type:` name this checker evaluates.
     type: str

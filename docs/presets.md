@@ -433,6 +433,35 @@ evaluation. The preset list/detail endpoints expose the last-evaluated counts as
 `requirements_summary` (`{ok, missing, unknown}`, `null` until first checked) without ever running
 a check themselves.
 
+`GET /api/presets/{preset_id}/requirements` responds with one item per `requirements:` entry, each
+labeled with its own `type`/`name`/`optional` alongside the check outcome:
+
+```json
+{
+  "results": [
+    {
+      "type": "binary", "name": "ffmpeg", "optional": false,
+      "status": "ok", "detail": "'ffmpeg' found on PATH (/usr/bin/ffmpeg)",
+      "hint": null, "action": null
+    },
+    {
+      "type": "model", "name": "flux-klein-9b", "optional": false,
+      "status": "missing", "detail": "no available model tagged 'flux-klein-9b' found in the depot",
+      "hint": null, "action": {"kind": "open_downloader", "payload": {"tag": "flux-klein-9b"}}
+    }
+  ],
+  "summary": {"ok": 1, "missing": 1, "unknown": 0},
+  "checked_at": 1735689600.0
+}
+```
+
+`name` is a short, human label for the entry: each core checker derives its own (a binary's
+`name`/first of `names`, `"<package><specifier>"`, a model's `tag`/short hash, `"<gb> GB"`, the
+joined `os:` list). A plugin checker can supply one too by implementing `describe(spec) -> str`
+(see `src.plugin_api.presets.RequirementChecker`); without it - or for a `type:` no checker is
+registered for - the endpoint falls back to the entry's first string-valued field besides
+`type`/`hint`/`optional`, else the type name itself.
+
 ## LLM context
 
 `llm:` is an optional top-level `preset.yml` mapping that shapes what the **chat** LLM is told

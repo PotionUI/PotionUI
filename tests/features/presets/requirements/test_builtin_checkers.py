@@ -69,6 +69,14 @@ class TestBinaryRequirementChecker:
         with pytest.raises(ValidationError):
             BinaryRequirementChecker.schema.model_validate({"type": "binary"})
 
+    def test_describe_prefers_name(self):
+        checker = BinaryRequirementChecker()
+        assert checker.describe({"type": "binary", "name": "ffmpeg"}) == "ffmpeg"
+
+    def test_describe_falls_back_to_first_of_names(self):
+        checker = BinaryRequirementChecker()
+        assert checker.describe({"type": "binary", "names": ["ffmpeg", "ffmpeg.exe"]}) == "ffmpeg"
+
 
 # ---------------------------------------------------------------------------
 # python_package
@@ -127,6 +135,14 @@ class TestPythonPackageRequirementChecker:
         )
 
         assert result.status == "unknown"
+
+    def test_describe_with_version(self):
+        checker = PythonPackageRequirementChecker()
+        assert checker.describe({"type": "python_package", "name": "xformers", "version": ">=0.0.28"}) == "xformers>=0.0.28"
+
+    def test_describe_without_version(self):
+        checker = PythonPackageRequirementChecker()
+        assert checker.describe({"type": "python_package", "name": "xformers"}) == "xformers"
 
 
 # ---------------------------------------------------------------------------
@@ -204,6 +220,14 @@ class TestModelRequirementChecker:
         with pytest.raises(ValidationError):
             ModelRequirementChecker.schema.model_validate({"type": "model"})
 
+    def test_describe_prefers_tag(self):
+        checker = ModelRequirementChecker()
+        assert checker.describe({"type": "model", "tag": "flux-klein-9b"}) == "flux-klein-9b"
+
+    def test_describe_falls_back_to_short_hash(self):
+        checker = ModelRequirementChecker()
+        assert checker.describe({"type": "model", "hash": "abcdef1234567890"}) == "abcdef123456"
+
 
 # ---------------------------------------------------------------------------
 # vram_min_gb
@@ -234,6 +258,10 @@ class TestVramMinGbRequirementChecker:
 
         assert result.status == "unknown"
 
+    def test_describe(self):
+        checker = VramMinGbRequirementChecker()
+        assert checker.describe({"type": "vram_min_gb", "gb": 16}) == "16 GB"
+
 
 # ---------------------------------------------------------------------------
 # platform
@@ -263,3 +291,7 @@ class TestPlatformRequirementChecker:
         result = await checker.check({"type": "platform", "os": ["windows"]}, _ctx(platform="win32"))
 
         assert result.status == "ok"
+
+    def test_describe_joins_os_list(self):
+        checker = PlatformRequirementChecker()
+        assert checker.describe({"type": "platform", "os": ["linux", "darwin"]}) == "linux, darwin"

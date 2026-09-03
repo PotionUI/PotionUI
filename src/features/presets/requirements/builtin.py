@@ -82,6 +82,13 @@ class BinaryRequirementChecker:
             hint=parsed.hint,
         )
 
+    def describe(self, spec: Dict[str, Any]) -> str:
+        name = spec.get("name")
+        if name:
+            return name
+        names = spec.get("names") or []
+        return names[0] if names else "binary"
+
 
 # ---------------------------------------------------------------------------
 # python_package
@@ -131,6 +138,11 @@ class PythonPackageRequirementChecker:
                 )
 
         return RequirementResult(status="ok", detail=f"'{parsed.name}' {installed} installed")
+
+    def describe(self, spec: Dict[str, Any]) -> str:
+        name = spec.get("name") or "python_package"
+        version = spec.get("version")
+        return f"{name}{version}" if version else name
 
 
 # ---------------------------------------------------------------------------
@@ -205,6 +217,15 @@ class ModelRequirementChecker:
             action=RequirementAction(kind="open_downloader", payload={"tag": parsed.tag}),
         )
 
+    def describe(self, spec: Dict[str, Any]) -> str:
+        tag = spec.get("tag")
+        if tag:
+            return tag
+        model_hash = spec.get("hash")
+        if model_hash:
+            return model_hash[:12]
+        return "model"
+
 
 # ---------------------------------------------------------------------------
 # vram_min_gb
@@ -245,6 +266,13 @@ class VramMinGbRequirementChecker:
             hint=parsed.hint,
         )
 
+    def describe(self, spec: Dict[str, Any]) -> str:
+        gb = spec.get("gb")
+        try:
+            return f"{float(gb):g} GB"
+        except (TypeError, ValueError):
+            return "vram_min_gb"
+
 
 # ---------------------------------------------------------------------------
 # platform
@@ -283,6 +311,10 @@ class PlatformRequirementChecker:
             detail=f"running on '{ctx.platform}', preset requires one of {parsed.os}",
             hint=parsed.hint,
         )
+
+    def describe(self, spec: Dict[str, Any]) -> str:
+        os_list = spec.get("os") or []
+        return ", ".join(os_list) if os_list else "platform"
 
 
 def register_builtin_requirement_checkers(registry: RequirementCheckerRegistry) -> None:

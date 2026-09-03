@@ -116,13 +116,35 @@ class TestEvaluatePresetRequirements:
 
 class TestSummarize:
     def test_counts_by_status(self):
+        specs = [{"type": "a"}, {"type": "b"}, {"type": "c"}, {"type": "d"}]
         results = [
             RequirementResult(status="ok", detail=""),
             RequirementResult(status="ok", detail=""),
             RequirementResult(status="missing", detail=""),
             RequirementResult(status="unknown", detail=""),
         ]
-        assert summarize(results) == {"ok": 2, "missing": 1, "unknown": 1}
+        assert summarize(specs, results) == {"ok": 2, "missing": 1, "unknown": 1, "optional_missing": 0}
+
+    def test_optional_miss_counts_separately_from_missing(self):
+        specs = [
+            {"type": "a", "optional": False},
+            {"type": "b", "optional": True},
+            {"type": "c", "optional": True},
+        ]
+        results = [
+            RequirementResult(status="missing", detail=""),
+            RequirementResult(status="missing", detail=""),
+            RequirementResult(status="ok", detail=""),
+        ]
+        assert summarize(specs, results) == {"ok": 1, "missing": 1, "unknown": 0, "optional_missing": 1}
+
+    def test_optional_ok_and_unknown_are_not_reclassified(self):
+        specs = [{"type": "a", "optional": True}, {"type": "b", "optional": True}]
+        results = [
+            RequirementResult(status="ok", detail=""),
+            RequirementResult(status="unknown", detail=""),
+        ]
+        assert summarize(specs, results) == {"ok": 1, "missing": 0, "unknown": 1, "optional_missing": 0}
 
 
 class TestPresetRequirementsFingerprint:
@@ -165,7 +187,9 @@ class TestRequirementsCache:
 
         assert calls["n"] == 1
         assert checked_at1 == checked_at2
-        assert cache.peek_summary(preset) == {"summary": summarize(results1), "checked_at": checked_at1}
+        assert cache.peek_summary(preset) == {
+            "summary": summarize(preset.requirements, results1), "checked_at": checked_at1,
+        }
 
     @pytest.mark.asyncio
     async def test_refresh_forces_reevaluation(self):

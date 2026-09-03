@@ -81,10 +81,24 @@ async def evaluate_preset_requirements(
     return list(await asyncio.gather(*(_evaluate_one(registry, spec, ctx) for spec in specs)))
 
 
-def summarize(results: List[RequirementResult]) -> Dict[str, int]:
-    summary = {"ok": 0, "missing": 0, "unknown": 0}
-    for result in results:
-        summary[result.status] = summary.get(result.status, 0) + 1
+def summarize(specs: List[Dict[str, Any]], results: List[RequirementResult]) -> Dict[str, int]:
+    """Tally `results` by status - `{ok, missing, unknown, optional_missing}`.
+
+    A "missing" entry marked `optional: true` counts toward
+    `optional_missing` instead of `missing` (docs/presets.md "Requirements":
+    an optional requirement's absence is advisory, never a hard failure, so
+    it must not read as one in the summary a preset's "can I run this here"
+    badge is built from). `ok`/`unknown` are unaffected by `optional` - only
+    a miss changes bucket.
+
+    `specs` and `results` must be the same length, in the same order
+    `evaluate_preset_requirements` produced them (one spec per result)."""
+    summary = {"ok": 0, "missing": 0, "unknown": 0, "optional_missing": 0}
+    for spec, result in zip(specs, results):
+        if result.status == "missing" and spec.get("optional", False):
+            summary["optional_missing"] += 1
+        else:
+            summary[result.status] = summary.get(result.status, 0) + 1
     return summary
 
 
@@ -119,7 +133,7 @@ class RequirementsCache:
             entry = self._by_key.get(self._key(preset, backend_id))
         if entry is None:
             return None
-        return {"summary": summarize(entry.results), "checked_at": entry.checked_at}
+        return {"summary": summarize(preset.requirements or [], entry.results), "checked_at": entry.checked_at}
 
     async def get_or_evaluate(
         self,

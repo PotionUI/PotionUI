@@ -78,6 +78,25 @@ class TestGetPresetRequirements:
         assert "checked_at" in data
 
     @pytest.mark.asyncio
+    async def test_optional_miss_counts_as_optional_missing_not_missing(self):
+        preset = _preset(requirements=[
+            {"type": "platform", "os": ["linux"]},  # ok on this host
+            {"type": "python_package", "name": "definitely-not-a-real-package-xyz", "optional": True},
+            {"type": "python_package", "name": "also-not-a-real-package-xyz"},  # non-optional miss
+        ])
+        collaborators = _collaborators(
+            file_repo=MagicMock(find_preset_by_id=MagicMock(return_value=preset)),
+            requirements_cache=RequirementsCache(),
+        )
+
+        data = await operations.get_preset_requirements(collaborators, preset.id)
+
+        assert data["summary"] == {"ok": 1, "missing": 1, "unknown": 0, "optional_missing": 1}
+        optional_item = data["results"][1]
+        assert optional_item["optional"] is True
+        assert optional_item["status"] == "missing"
+
+    @pytest.mark.asyncio
     async def test_result_carries_type_name_and_optional(self):
         preset = _preset(requirements=[
             {"type": "platform", "os": ["linux"], "optional": True},
@@ -194,4 +213,4 @@ class TestRequirementsSummaryPeek:
         await operations.get_preset_requirements(collaborators, preset.id)
         data = operations.get_preset(collaborators, preset.id)
 
-        assert data["requirements_summary"] == {"ok": 1, "missing": 0, "unknown": 0}
+        assert data["requirements_summary"] == {"ok": 1, "missing": 0, "unknown": 0, "optional_missing": 0}

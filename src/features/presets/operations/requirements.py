@@ -82,6 +82,6 @@ async def get_preset_requirements(
 
     return {
         "results": items,
-        "summary": summarize(results),
+        "summary": summarize(preset.requirements or [], results),
         "checked_at": checked_at,
     }

@@ -26,7 +26,7 @@ class _FakeAPIResponse:
 
 
 def _write_preset(
-    root, family, variant, *, preset_id, name, mode="txt2img", imported=True, ui_format=False
+    root, family, variant, *, preset_id, name, mode="txt2img", imported=True, ui_format=False, with_sidecar=False
 ):
     variant_dir = root / family / variant
     workflows_dir = variant_dir / "modes" / mode / "files" / "workflows"
@@ -45,6 +45,10 @@ def _write_preset(
     (workflows_dir / f"{mode}.json").write_text("{}")
     if ui_format:
         (workflows_dir / f"{mode}.ui.json").write_text("{}")
+    if with_sidecar:
+        import json as _json
+
+        (variant_dir / "import.json").write_text(_json.dumps({"importer_version": 1, "choices": []}))
 
     return variant_dir
 
@@ -78,6 +82,24 @@ def _container(monkeypatch, summaries=None):
 
 
 class TestListImportedPresets:
+    @pytest.mark.asyncio
+    async def test_has_sidecar_true_when_import_json_present(self, tmp_path, monkeypatch):
+        _write_preset(tmp_path, "SDXL", "with-sidecar", preset_id="P1", name="With sidecar", with_sidecar=True)
+        monkeypatch.setattr(api, "_IMPORTED_PRESETS_ROOT", tmp_path)
+        _container(monkeypatch)
+
+        result = await api.list_imported_presets(current_user=None)
+        assert result["presets"][0]["has_sidecar"] is True
+
+    @pytest.mark.asyncio
+    async def test_has_sidecar_false_without_import_json(self, tmp_path, monkeypatch):
+        _write_preset(tmp_path, "SDXL", "no-sidecar", preset_id="P1", name="No sidecar", with_sidecar=False)
+        monkeypatch.setattr(api, "_IMPORTED_PRESETS_ROOT", tmp_path)
+        _container(monkeypatch)
+
+        result = await api.list_imported_presets(current_user=None)
+        assert result["presets"][0]["has_sidecar"] is False
+
     @pytest.mark.asyncio
     async def test_empty_root_returns_no_presets(self, tmp_path, monkeypatch):
         monkeypatch.setattr(api, "_IMPORTED_PRESETS_ROOT", tmp_path / "does-not-exist")

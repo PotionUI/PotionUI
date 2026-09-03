@@ -43,13 +43,28 @@
 	onMount(async () => {
 		await Promise.all([pluginStore.loadPlugins(), pluginStore.loadFrontendHooks()]);
 		window.addEventListener('keydown', handleGlobalKeydown);
+		window.addEventListener('potionui:switch-plugin-tab', handleSwitchPluginTab as EventListener);
 	});
 
 	onDestroy(() => {
 		if (typeof window !== 'undefined') {
 			window.removeEventListener('keydown', handleGlobalKeydown);
+			window.removeEventListener('potionui:switch-plugin-tab', handleSwitchPluginTab as EventListener);
 		}
 	});
+
+	// Generic cross-tab bridge: a plugin-contributed tab component (a
+	// separately-mounted dist bundle - no shared module state with a sibling
+	// tab) can ask to switch to one of its own OTHER tabs by dispatching this
+	// on `window`. Not plugin-specific: any admin_tabs contributor can use
+	// it. Ignored when it doesn't target the currently selected plugin, or
+	// names a tab that plugin doesn't have.
+	function handleSwitchPluginTab(e: CustomEvent<{ pluginId?: string; tabId?: string }>) {
+		const { pluginId, tabId } = e.detail || {};
+		if (!liveSelected || !tabId || pluginId !== liveSelected.id) return;
+		if (!isPluginDetailTab(liveSelected, adminTabHooks, tabId, $authStore.user?.account_type)) return;
+		detailTab = tabId;
+	}
 
 	function handleGlobalKeydown(e: KeyboardEvent) {
 		if (e.key !== '/') return;

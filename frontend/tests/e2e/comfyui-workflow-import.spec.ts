@@ -41,6 +41,9 @@ async function apiPost(page: Page, url: string, token: string, data?: unknown) {
 test('Admin > Plugins > ComfyUI Backend - import a workflow through the wizard into a lint-clean preset', async ({
 	page
 }) => {
+	// Import + reload + modify (edit -> update) + delete, ~12 screenshots and
+	// several wizard round trips - comfortably over the 30s default.
+	test.setTimeout(90_000);
 	const familyId = `e2e-import-${Date.now()}`;
 	const createdPresetDir = resolve(REPO_ROOT, 'content/presets/local', familyId);
 
@@ -138,9 +141,56 @@ test('Admin > Plugins > ComfyUI Backend - import a workflow through the wizard i
 		await page.waitForTimeout(500);
 		await pluginListRow.click();
 		await tabNav.getByText('Imported presets', { exact: false }).click();
-		await expect(page.locator('[data-imported-presets]')).toBeVisible({ timeout: 10000 });
+		// Other leftover imported presets may already exist in this checkout's
+		// content/presets/local/ (a prior run's cleanup, or a hand-imported
+		// one) - scope every row action to THIS run's own row (unique family
+		// id) rather than the whole table.
+		const importedTable = page.locator('[data-imported-presets]');
+		await expect(importedTable).toBeVisible({ timeout: 10000 });
 		await screenshot(page, JOURNEY, '07-imported-presets-tab');
 		await expect(page.getByText('E2E imported SDXL', { exact: false }).first()).toBeVisible();
+		const myRow = importedTable.locator('.ip-row').filter({ hasText: familyId });
+		await expect(myRow).toHaveCount(1);
+
+		// Reload: re-emits from the stored source under the same id, shows an
+		// inline lint-result chip.
+		await myRow.locator('button[aria-label="Reload from source"]').click();
+		await expect(myRow.locator('.ip-reload-result')).toBeVisible({ timeout: 10000 });
+		await screenshot(page, JOURNEY, '08-reload-result');
+
+		// Modify: edit hands off to the "Import workflow" tab, prefilled from
+		// this preset's stored source + sidecar field choices.
+		await myRow.locator('button[aria-label="Edit"]').click();
+		await expect(wizard).toBeVisible();
+		await expect(wizard.locator('[data-import-editing]')).toBeVisible({ timeout: 10000 });
+		await screenshot(page, JOURNEY, '09-wizard-edit-prefill');
+
+		await wizard.locator('button[data-import-analyze]').click();
+		await expect(wizard.locator('[data-wiz-step="inputs"].current')).toBeVisible();
+		await wizard.locator('#import-display-name').fill('E2E imported SDXL (updated)');
+		await wizard.locator('button[data-import-continue-inputs]').click();
+		await expect(wizard.locator('[data-wiz-step="requirements"].current')).toBeVisible({ timeout: 10000 });
+
+		const updateBtn = wizard.locator('button[data-import-create]');
+		await expect(updateBtn).toContainText('Update preset');
+		await updateBtn.click();
+		await expect(wizard.locator('[data-import-lint]')).toBeVisible({ timeout: 15000 });
+		await screenshot(page, JOURNEY, '10-wizard-updated');
+
+		// Back on Imported presets: the rename stuck (same preset, same id),
+		// then delete it.
+		await tabNav.getByText('Imported presets', { exact: false }).click();
+		await expect(page.getByText('E2E imported SDXL (updated)', { exact: false })).toBeVisible({ timeout: 10000 });
+		const myRowAfterUpdate = importedTable.locator('.ip-row').filter({ hasText: familyId });
+		await expect(myRowAfterUpdate).toHaveCount(1);
+
+		await myRowAfterUpdate.locator('button[aria-label="Delete"]').click();
+		const confirmDialog = page.locator('[role="dialog"][aria-label="Delete imported preset"]');
+		await expect(confirmDialog).toBeVisible();
+		await screenshot(page, JOURNEY, '11-delete-confirm');
+		await confirmDialog.getByRole('button', { name: 'Delete', exact: true }).click();
+		await expect(importedTable.locator('.ip-row').filter({ hasText: familyId })).toHaveCount(0, { timeout: 10000 });
+		await screenshot(page, JOURNEY, '12-deleted');
 	} finally {
 		rmSync(createdPresetDir, { recursive: true, force: true });
 	}

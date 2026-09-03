@@ -13,14 +13,25 @@
 	// core Svelte components or $lib - every control below reproduces the
 	// Instrument tokens directly (see tokens.css), the same approach the old
 	// modal used.
+	//
+	// Edit entry point: the "Imported presets" tab's edit action (a
+	// SEPARATELY mounted plugin dist bundle) stashes a preset id under this
+	// same sessionStorage key and asks the host to switch here - see that
+	// component's own header comment for why sessionStorage/a window event
+	// rather than shared module state.
 	import { onMount } from 'svelte';
 
 	let { pluginId = 'comfyui-backend', plugin = null } = $props();
 
 	const API_BASE = `/api/plugins/${pluginId}`;
+	const EDIT_STORAGE_KEY = 'comfyui-import-edit-preset-id';
 
 	/** @type {1 | 2 | 3 | 4} */
 	let step = $state(1);
+
+	// ---- Editing an existing imported preset (null = a brand-new import) ----
+	let editPresetId = $state(null);
+	let editLoading = $state(false);
 
 	// ---- Step 1: Source ----
 	let rawText = $state('');
@@ -149,7 +160,71 @@
 				// Best-effort - the datalist is just a convenience.
 			}
 		})();
+
+		let pendingEditId = null;
+		try {
+			pendingEditId = sessionStorage.getItem(EDIT_STORAGE_KEY);
+			if (pendingEditId) sessionStorage.removeItem(EDIT_STORAGE_KEY);
+		} catch (e) {
+			// Private-window sessionStorage failure - just opens on a blank Source step.
+		}
+		if (pendingEditId) startEdit(pendingEditId);
 	});
+
+	async function startEdit(presetId) {
+		editPresetId = presetId;
+		editLoading = true;
+		analyzeError = '';
+		try {
+			const res = await fetch(`${API_BASE}/presets/imported/${presetId}/source`, {
+				credentials: 'include',
+				headers: authHeaders()
+			});
+			const payload = await res.json().catch(() => null);
+			if (!res.ok) {
+				analyzeError = payload?.detail || payload?.message || `Could not load this preset (${res.status})`;
+				editPresetId = null;
+				return;
+			}
+			workflowJson = payload.workflow;
+			analysis = payload;
+			modelFamily = payload.model_family || '';
+			variant = payload.variant || 'imported';
+			displayName = payload.display_name || '';
+
+			const rows = groupRows(payload.candidates);
+			const sidecarByKey = new Map((payload.sidecar_choices || []).map((c) => [`${c.node_id}:${c.input_name}`, c]));
+			const hasSidecar = !!payload.sidecar_choices;
+			const nextSelected = new Set();
+			const nextTypes = {};
+			const nextLabels = {};
+			for (const row of rows) {
+				nextTypes[row.key] = row.suggestedFieldType;
+				nextLabels[row.key] = row.suggestedLabel;
+				let sidecarHit = false;
+				for (const c of row.candidates) {
+					const sc = sidecarByKey.get(candidateKey(c));
+					if (!sc) continue;
+					sidecarHit = true;
+					nextSelected.add(candidateKey(c));
+					if (sc.field_type) nextTypes[row.key] = sc.field_type;
+					if (sc.label) nextLabels[row.key] = sc.label;
+				}
+				if (!hasSidecar && row.obvious) {
+					for (const c of row.candidates) nextSelected.add(candidateKey(c));
+				}
+			}
+			selectedKeys = nextSelected;
+			fieldTypeByKey = nextTypes;
+			labelByKey = nextLabels;
+			step = 1;
+		} catch (e) {
+			analyzeError = 'Could not reach the server.';
+			editPresetId = null;
+		} finally {
+			editLoading = false;
+		}
+	}
 
 	function readFile(file) {
 		const reader = new FileReader();
@@ -179,6 +254,18 @@
 
 	function handleDragLeave() {
 		dragOver = false;
+	}
+
+	// Step 1's Continue: when a workflow is already analyzed (edit mode's
+	// prefetched source, or simply returning to step 1 via Back without
+	// touching "Change workflow"), just advance - no need to re-hit
+	// /analyze for a workflow already in hand.
+	function handleSourceContinue() {
+		if (analysis && workflowJson) {
+			step = 2;
+			return;
+		}
+		runAnalyze();
 	}
 
 	async function runAnalyze() {
@@ -305,7 +392,8 @@
 					fields: currentFields(),
 					model_family: modelFamily.trim(),
 					variant: variant.trim() || 'imported',
-					display_name: displayName.trim()
+					display_name: displayName.trim(),
+					overwrite_preset_id: editPresetId || undefined
 				})
 			});
 			const payload = await res.json().catch(() => null);
@@ -328,6 +416,8 @@
 
 	function importAnother() {
 		step = 1;
+		editPresetId = null;
+		editLoading = false;
 		rawText = '';
 		analyzeError = '';
 		analysis = null;
@@ -431,41 +521,63 @@
 
 	<div class="wiz-body">
 		<div class="wiz-content">
+			{#if editPresetId}
+				<div class="edit-banner" data-import-editing>
+					Editing <strong>{displayName || 'this preset'}</strong> — Continue updates it in place, it won't become a new preset.
+				</div>
+			{/if}
 			{#if step === 1}
 				<h3>Choose a workflow</h3>
-				<p class="desc">Paste or drop a ComfyUI workflow — the plain workflow JSON or Export (API).</p>
-
-				<div
-					class="dropzone"
-					class:dragover={dragOver}
-					ondrop={handleDrop}
-					ondragover={handleDragOver}
-					ondragleave={handleDragLeave}
-					role="group"
-					aria-label="Workflow JSON"
-				>
-					<textarea
-						rows="12"
-						placeholder={'{\n  "3": { "class_type": "KSampler", "inputs": { ... } },\n  ...\n}'}
-						bind:value={rawText}
-						oninput={() => (analyzeError = '')}
-						data-import-json-input
-					></textarea>
-					<div class="dropzone-footer">
-						<span class="dim">or</span>
-						<button type="button" class="link-btn" onclick={() => fileInputEl?.click()}>choose a .json file</button>
-						<input
-							bind:this={fileInputEl}
-							type="file"
-							accept=".json,application/json"
-							class="file-input-hidden"
-							onchange={handleFileInput}
-						/>
+				{#if editLoading}
+					<div class="req-loading"><span class="spinner" aria-hidden="true"></span>Loading the preset's source workflow…</div>
+				{:else if editPresetId && analysis}
+					<p class="desc">This preset's stored workflow is already loaded - Continue to keep it, or load a different one.</p>
+					<div class="detected-strip" data-import-detected>
+						<span class="chip chip-info" data-import-format>{analysis.format}</span>
+						<span class="dim">·</span>
+						<span class="mono">{analysis.node_count} nodes</span>
+						<span class="dim">·</span>
+						<span>Loaded from the existing preset</span>
+						<button type="button" class="link-btn strip-end" onclick={changeWorkflow}>Change workflow</button>
 					</div>
-				</div>
+					{#if analyzeError}
+						<p class="message message-error" data-import-analyze-error>{analyzeError}</p>
+					{/if}
+				{:else}
+					<p class="desc">Paste or drop a ComfyUI workflow — the plain workflow JSON or Export (API).</p>
 
-				{#if analyzeError}
-					<p class="message message-error" data-import-analyze-error>{analyzeError}</p>
+					<div
+						class="dropzone"
+						class:dragover={dragOver}
+						ondrop={handleDrop}
+						ondragover={handleDragOver}
+						ondragleave={handleDragLeave}
+						role="group"
+						aria-label="Workflow JSON"
+					>
+						<textarea
+							rows="12"
+							placeholder={'{\n  "3": { "class_type": "KSampler", "inputs": { ... } },\n  ...\n}'}
+							bind:value={rawText}
+							oninput={() => (analyzeError = '')}
+							data-import-json-input
+						></textarea>
+						<div class="dropzone-footer">
+							<span class="dim">or</span>
+							<button type="button" class="link-btn" onclick={() => fileInputEl?.click()}>choose a .json file</button>
+							<input
+								bind:this={fileInputEl}
+								type="file"
+								accept=".json,application/json"
+								class="file-input-hidden"
+								onchange={handleFileInput}
+							/>
+						</div>
+					</div>
+
+					{#if analyzeError}
+						<p class="message message-error" data-import-analyze-error>{analyzeError}</p>
+					{/if}
 				{/if}
 			{:else if step === 2}
 				<h3>Choose the fields to expose</h3>
@@ -615,7 +727,13 @@
 				{/if}
 				<div class="footer-spacer"></div>
 				{#if step === 1}
-					<button type="button" class="btn btn-primary" disabled={analyzing || !rawText.trim()} onclick={runAnalyze} data-import-analyze>
+					<button
+						type="button"
+						class="btn btn-primary"
+						disabled={analyzing || editLoading || (!(analysis && workflowJson) && !rawText.trim())}
+						onclick={handleSourceContinue}
+						data-import-analyze
+					>
 						{analyzing ? 'Analyzing…' : 'Continue'}
 					</button>
 				{:else if step === 2}
@@ -624,7 +742,7 @@
 					</button>
 				{:else if step === 3}
 					<button type="button" class="btn btn-primary" disabled={creating} onclick={runCreate} data-import-create>
-						{creating ? 'Creating…' : 'Continue'}
+						{creating ? (editPresetId ? 'Updating…' : 'Creating…') : editPresetId ? 'Update preset' : 'Continue'}
 					</button>
 				{/if}
 			{/if}
@@ -750,6 +868,19 @@
 		font-size: 12px;
 		color: rgb(var(--fg-subtle, 122 128 144));
 		margin: 0 0 16px;
+	}
+	.edit-banner {
+		padding: 8px 12px;
+		margin-bottom: 16px;
+		border-radius: 6px;
+		background: rgb(var(--signal, 91 157 255) / 0.08);
+		border: 1px solid rgb(var(--signal, 91 157 255) / 0.25);
+		color: rgb(var(--fg-muted, 169 174 184));
+		font-size: 12px;
+	}
+	.edit-banner strong {
+		color: rgb(var(--fg, 232 234 237));
+		font-weight: 600;
 	}
 	.wiz-footer {
 		border-top: 1px solid rgb(var(--line, 36 38 44));

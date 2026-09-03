@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -46,6 +48,19 @@ from .suggest import (
 # preset under content/presets/local came from this importer rather than
 # being hand-authored there.
 IMPORT_PROVENANCE_PREFIX = "Imported from a ComfyUI workflow"
+
+# `import.json`'s schema version - bump if its shape changes in a way an
+# older sidecar wouldn't have. Read by backend/api.py's reload/source
+# endpoints; a preset imported before this sidecar existed simply has none
+# (`GET .../presets/imported`'s `has_sidecar: false`), which is a supported,
+# non-error state - see api.py's reload fallback.
+IMPORTER_VERSION = 1
+
+# The sidecar file name written alongside preset.yml/description.md - not
+# read by PresetLinter/the preset engine, purely this importer's own record
+# of what it was told to build, so reload/modify can reproduce it exactly
+# instead of re-analyzing with only the "obvious" defaults.
+IMPORT_SIDECAR_FILENAME = "import.json"
 
 MODEL_TYPE_STRIP_PREFIXES = {
     "checkpoint": ("models/checkpoints/",),
@@ -288,11 +303,23 @@ def emit_preset(
     dest_root: Path,
     object_info: Optional[Dict[str, Any]] = None,
     ui_workflow: Optional[Dict[str, Any]] = None,
+    overwrite: bool = False,
+    preset_id: Optional[str] = None,
 ) -> EmittedPreset:
+    """`overwrite`/`preset_id` back the reload/modify flow
+    (`POST .../presets/imported/{id}/reload`, `overwrite_preset_id` on
+    `POST .../presets/import`): re-emitting into the SAME directory under
+    the SAME id rather than a fresh one. Without `overwrite=True` an
+    existing directory is always refused, exactly as before; `overwrite=True`
+    requires `preset_id` (there is nothing to keep the identity of
+    otherwise) and refuses a directory that doesn't already exist - it is
+    "replace this", never "create or replace"."""
     if not model_family or not variant:
         raise PresetEmitError("model_family and variant are both required.")
     _validate_path_segment(model_family, "model_family")
     _validate_path_segment(variant, "variant")
+    if overwrite and not preset_id:
+        raise PresetEmitError("overwrite=True requires preset_id.")
 
     # `object_info`/`ui_workflow` mirror what /presets/import/analyze was
     # given for this exact workflow, so a UI-format import's candidates -
@@ -308,8 +335,11 @@ def emit_preset(
     # must actually land inside dest_root once symlinks/".." are resolved.
     if dest_root_resolved not in preset_dir.resolve().parents:
         raise PresetEmitError(f"Resolved preset directory escapes {dest_root_resolved}: {preset_dir}")
-    if preset_dir.exists():
+    dir_exists = preset_dir.exists()
+    if dir_exists and not overwrite:
         raise PresetEmitError(f"Preset directory already exists: {preset_dir}")
+    if overwrite and not dir_exists:
+        raise PresetEmitError(f"overwrite=True but no preset exists at {preset_dir}")
 
     candidates_by_key = {c.key(): c for c in analysis.candidates}
     resolved = _resolve_choices(candidates_by_key, choices)
@@ -714,7 +744,7 @@ def emit_preset(
     # ------------------------------------------------------------------
     from src.plugin_api.storage import generate_ulid  # local import: only needed at emit time
 
-    preset_id = generate_ulid()
+    preset_id = preset_id or generate_ulid()
     vars_block: Dict[str, Any] = {}
     for entry in advanced_named_entries:
         candidate = entry["candidate"]
@@ -769,8 +799,42 @@ def emit_preset(
             target_node["inputs"]["model"] = [analysis.lora_chain.source_node_id, 0]
 
     # ------------------------------------------------------------------
-    # Write everything
+    # Sidecar (import.json) - this importer's own record of what it was
+    # asked to build, so reload/modify can reproduce it exactly instead of
+    # re-analyzing with only the "obvious" defaults. Never read by
+    # PresetLinter or the preset engine itself.
     # ------------------------------------------------------------------
+    source_filename = f"{mode}.ui.json" if ui_workflow is not None else workflow_filename
+    sidecar = {
+        "importer_version": IMPORTER_VERSION,
+        "format": "ui" if ui_workflow is not None else "api",
+        "source_file": f"modes/{mode}/files/workflows/{source_filename}",
+        "choices": [
+            {
+                "node_id": node_id,
+                "input_name": input_name,
+                "field_name": entry["field_name"],
+                "field_type": entry["field_type"],
+                "label": entry["label"],
+            }
+            for (node_id, input_name), entry in resolved.items()
+        ],
+        "model_family": model_family,
+        "variant": variant,
+        "display_name": display_name,
+        "mode": mode,
+        "created_at": int(time.time()),
+    }
+
+    # ------------------------------------------------------------------
+    # Write everything - overwrite drops the whole directory first (after
+    # every validation above has already passed) so a reload/modify never
+    # leaves a stale tab/file behind from a previous shape (e.g. the mode
+    # name, or which tabs exist, changed between the original import and now).
+    # ------------------------------------------------------------------
+    if overwrite:
+        shutil.rmtree(preset_dir)
+
     mode_dir = preset_dir / "modes" / mode
     tabs_dir = mode_dir / "tabs"
     workflows_dir = mode_dir / "files" / "workflows"
@@ -785,6 +849,7 @@ def emit_preset(
 
     write(preset_dir / "preset.yml", _dump_yaml(preset_yml))
     write(preset_dir / "description.md", description_md)
+    write(preset_dir / IMPORT_SIDECAR_FILENAME, json.dumps(sidecar, indent=2) + "\n")
     write(mode_dir / "form.yml", _dump_yaml(form_yml))
     write(mode_dir / "pipeline.yml", _dump_yaml(pipeline_yml))
     for filename, data in form_files.items():

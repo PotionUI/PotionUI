@@ -1,7 +1,9 @@
 """ComfyUI Backend plugin API routes."""
 
 import asyncio
+import json
 import logging
+import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,6 +25,7 @@ from src.plugin_api.presets import RequirementContext
 from .preset_import.convert import extract_node_groups
 from .preset_import.emit import (
     IMPORT_PROVENANCE_PREFIX,
+    IMPORT_SIDECAR_FILENAME,
     FieldChoice,
     PresetEmitError,
     _infer_requirements,
@@ -242,6 +245,10 @@ class ImportWorkflowRequest(BaseModel):
     model_family: str
     variant: str = "imported"
     display_name: str
+    # Set by the wizard's "Update preset" (edit) path: re-emit into the same
+    # directory under this same id instead of refusing an existing one - see
+    # emit_preset's overwrite/preset_id.
+    overwrite_preset_id: Optional[str] = None
 
 
 @router.get("/presets/families")
@@ -358,6 +365,8 @@ async def import_workflow(
             dest_root=_IMPORTED_PRESETS_ROOT,
             object_info=object_info,
             ui_workflow=ui_workflow,
+            overwrite=bool(body.overwrite_preset_id),
+            preset_id=body.overwrite_preset_id,
         )
     except PresetEmitError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -391,47 +400,269 @@ async def _peek_requirements_summary(preset_id: str) -> Optional[Dict[str, int]]
     return response.data.get("requirements_summary")
 
 
+@dataclass
+class _ImportedPresetEntry:
+    """One directory under content/presets/local this importer created,
+    resolved once by `_scan_imported_presets` and reused by the list,
+    source, reload, and delete endpoints below - the single place that
+    walks the tree, reads preset.yml/description.md/import.json, and
+    decides "did this importer make this" so the four endpoints can never
+    disagree about it."""
+
+    dir: Path
+    family: str
+    variant: str
+    preset_id: Optional[str]
+    preset_yml: Dict[str, Any]
+    mode: Optional[str]
+    workflow_format: str
+    sidecar: Optional[Dict[str, Any]]
+    mtime: float
+
+    @property
+    def has_sidecar(self) -> bool:
+        return self.sidecar is not None
+
+
+def _scan_imported_presets():
+    """Yields `_ImportedPresetEntry` for every content/presets/local
+    directory carrying this importer's provenance marker - a preset is
+    "imported" by that marker alone (see `IMPORT_PROVENANCE_PREFIX`), the
+    sidecar is an optional enrichment on top (presets imported before it
+    existed simply have `sidecar=None`)."""
+    if not _IMPORTED_PRESETS_ROOT.is_dir():
+        return
+
+    for family_dir in sorted(p for p in _IMPORTED_PRESETS_ROOT.iterdir() if p.is_dir()):
+        for variant_dir in sorted(p for p in family_dir.iterdir() if p.is_dir()):
+            preset_yml_path = variant_dir / "preset.yml"
+            description_path = variant_dir / "description.md"
+            if not preset_yml_path.is_file() or not description_path.is_file():
+                continue
+            try:
+                if not description_path.read_text(encoding="utf-8").startswith(IMPORT_PROVENANCE_PREFIX):
+                    continue
+                preset_yml = yaml.safe_load(preset_yml_path.read_text(encoding="utf-8")) or {}
+            except (OSError, yaml.YAMLError):
+                continue
+
+            modes = preset_yml.get("modes") or []
+            mode = modes[0] if modes else None
+            workflow_format = "unknown"
+            if mode:
+                workflows_dir = variant_dir / "modes" / mode / "files" / "workflows"
+                if (workflows_dir / f"{mode}.ui.json").is_file():
+                    workflow_format = "ui"
+                elif (workflows_dir / f"{mode}.json").is_file():
+                    workflow_format = "api"
+
+            sidecar = None
+            sidecar_path = variant_dir / IMPORT_SIDECAR_FILENAME
+            if sidecar_path.is_file():
+                try:
+                    sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    sidecar = None
+
+            yield _ImportedPresetEntry(
+                dir=variant_dir,
+                family=family_dir.name,
+                variant=variant_dir.name,
+                preset_id=preset_yml.get("id"),
+                preset_yml=preset_yml,
+                mode=mode,
+                workflow_format=workflow_format,
+                sidecar=sidecar,
+                mtime=preset_yml_path.stat().st_mtime,
+            )
+
+
+def _find_imported_preset(preset_id: str) -> Optional[_ImportedPresetEntry]:
+    for entry in _scan_imported_presets():
+        if entry.preset_id == preset_id:
+            return entry
+    return None
+
+
+def _read_stored_workflow(entry: _ImportedPresetEntry) -> Dict[str, Any]:
+    """The raw workflow JSON this preset was built from - the UI-format
+    export if one was kept alongside the converted API-format copy
+    (`emit_preset` writes both when the source was UI-format), else the
+    API-format copy itself. `_parse_incoming_workflow` detects which shape
+    it got the same way either way."""
+    if entry.mode is None:
+        raise HTTPException(status_code=400, detail="This preset has no recorded mode to reload from.")
+    workflows_dir = entry.dir / "modes" / entry.mode / "files" / "workflows"
+    ui_path = workflows_dir / f"{entry.mode}.ui.json"
+    api_path = workflows_dir / f"{entry.mode}.json"
+    source_path = ui_path if ui_path.is_file() else api_path
+    if not source_path.is_file():
+        raise HTTPException(status_code=404, detail="This preset's source workflow file is missing.")
+    try:
+        return json.loads(source_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        raise HTTPException(status_code=400, detail=f"Could not read the stored workflow: {e}")
+
+
+def _default_choices_from_analysis(analysis) -> List[FieldChoice]:
+    """The same "obvious fields pre-ticked, suggested type/label" default the
+    wizard applies to a brand-new analyze - used to reload a preset that has
+    no sidecar (imported before import.json existed)."""
+    return [
+        FieldChoice(node_id=c.node_id, input_name=c.input_name)
+        for c in analysis.candidates
+        if c.obvious
+    ]
+
+
 @router.get("/presets/imported")
 async def list_imported_presets(current_user=Depends(get_current_admin_user)):
     """Presets under content/presets/local this plugin created - identified by
     `description.md`'s opening line (see `preset_import.emit.emit_preset`),
     the only provenance marker an imported preset carries."""
-    presets: List[Dict[str, Any]] = []
-
-    if _IMPORTED_PRESETS_ROOT.is_dir():
-        for family_dir in sorted(p for p in _IMPORTED_PRESETS_ROOT.iterdir() if p.is_dir()):
-            for variant_dir in sorted(p for p in family_dir.iterdir() if p.is_dir()):
-                preset_yml_path = variant_dir / "preset.yml"
-                description_path = variant_dir / "description.md"
-                if not preset_yml_path.is_file() or not description_path.is_file():
-                    continue
-                try:
-                    if not description_path.read_text(encoding="utf-8").startswith(IMPORT_PROVENANCE_PREFIX):
-                        continue
-                    preset_yml = yaml.safe_load(preset_yml_path.read_text(encoding="utf-8")) or {}
-                except (OSError, yaml.YAMLError):
-                    continue
-
-                preset_id = preset_yml.get("id")
-                modes = preset_yml.get("modes") or []
-                mode = modes[0] if modes else None
-                workflow_format = "unknown"
-                if mode:
-                    workflows_dir = variant_dir / "modes" / mode / "files" / "workflows"
-                    if (workflows_dir / f"{mode}.ui.json").is_file():
-                        workflow_format = "ui"
-                    elif (workflows_dir / f"{mode}.json").is_file():
-                        workflow_format = "api"
-
-                presets.append({
-                    "preset_id": preset_id,
-                    "name": preset_yml.get("name", variant_dir.name),
-                    "family": family_dir.name,
-                    "variant": variant_dir.name,
-                    "format": workflow_format,
-                    "requirements_summary": await _peek_requirements_summary(preset_id) if preset_id else None,
-                    "created_at": preset_yml_path.stat().st_mtime,
-                })
-
+    entries = list(_scan_imported_presets())
+    presets = [
+        {
+            "preset_id": entry.preset_id,
+            "name": entry.preset_yml.get("name", entry.variant),
+            "family": entry.family,
+            "variant": entry.variant,
+            "format": entry.workflow_format,
+            "has_sidecar": entry.has_sidecar,
+            "requirements_summary": await _peek_requirements_summary(entry.preset_id) if entry.preset_id else None,
+            "created_at": entry.mtime,
+        }
+        for entry in entries
+    ]
     presets.sort(key=lambda p: p["created_at"], reverse=True)
     return {"presets": presets}
+
+
+@router.get("/presets/imported/{preset_id}/source")
+async def get_imported_preset_source(preset_id: str, current_user=Depends(get_current_admin_user)):
+    """The stored workflow plus a fresh analysis of it (same envelope as
+    `/presets/import/analyze`), enriched with this preset's own identity and
+    sidecar field choices - what the wizard's "edit" entry point needs to
+    reopen an imported preset exactly as it was built, in one round trip."""
+    entry = _find_imported_preset(preset_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Imported preset not found.")
+
+    raw_workflow = _read_stored_workflow(entry)
+    try:
+        workflow, workflow_format, object_info = await _parse_incoming_workflow(raw_workflow)
+    except WorkflowFormatError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    node_groups = extract_node_groups(raw_workflow) if workflow_format == "ui" else None
+    analysis = suggest_fields(workflow, object_info=object_info, node_groups=node_groups)
+
+    return {
+        "workflow": raw_workflow,
+        **analysis.to_dict(),
+        "format": workflow_format,
+        "object_info_used": object_info is not None,
+        "unknown_nodes": workflow.unknown_nodes,
+        "warnings": _unknown_node_warnings(workflow.unknown_nodes),
+        "model_family": entry.family,
+        "variant": entry.variant,
+        "display_name": entry.preset_yml.get("name", entry.variant),
+        "sidecar_choices": entry.sidecar.get("choices") if entry.sidecar else None,
+    }
+
+
+@router.post("/presets/imported/{preset_id}/reload")
+async def reload_imported_preset(preset_id: str, current_user=Depends(get_current_admin_user)):
+    """Re-parse this preset's stored source workflow and re-emit it into the
+    SAME directory under the SAME id, using its sidecar's exact field
+    choices when it has one - "pick up a workflow/importer change without
+    re-picking every field". A preset imported before the sidecar existed
+    falls back to the default (obvious) choices and says so in `warnings`,
+    same as a brand-new import would produce today."""
+    entry = _find_imported_preset(preset_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Imported preset not found.")
+
+    raw_workflow = _read_stored_workflow(entry)
+    try:
+        workflow, workflow_format, object_info = await _parse_incoming_workflow(raw_workflow)
+    except WorkflowFormatError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    extra_warnings: List[str] = []
+    if entry.sidecar:
+        choices = [
+            FieldChoice(
+                node_id=c["node_id"],
+                input_name=c["input_name"],
+                field_name=c.get("field_name"),
+                field_type=c.get("field_type"),
+                label=c.get("label"),
+            )
+            for c in entry.sidecar.get("choices", [])
+        ]
+    else:
+        node_groups = extract_node_groups(raw_workflow) if workflow_format == "ui" else None
+        analysis = suggest_fields(workflow, object_info=object_info, node_groups=node_groups)
+        choices = _default_choices_from_analysis(analysis)
+        extra_warnings.append("re-imported with default field choices")
+
+    ui_workflow = raw_workflow if workflow_format == "ui" else None
+
+    try:
+        result = emit_preset(
+            workflow,
+            choices,
+            model_family=entry.family,
+            variant=entry.variant,
+            display_name=entry.preset_yml.get("name", entry.variant),
+            dest_root=_IMPORTED_PRESETS_ROOT,
+            object_info=object_info,
+            ui_workflow=ui_workflow,
+            overwrite=True,
+            preset_id=preset_id,
+        )
+    except PresetEmitError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    errors, warnings = lint_preset_dir(str(result.preset_dir))
+    warnings = [*warnings, *_unknown_node_warnings(workflow.unknown_nodes), *extra_warnings]
+
+    try:
+        get_container().preset_template_loader.reload()
+    except Exception:
+        logger.exception("Failed to reload the preset catalogue after reloading %s", preset_id)
+
+    return {
+        "preset_id": result.preset_id,
+        "path": str(result.preset_dir),
+        "mode": result.mode,
+        "lint": {"errors": errors, "warnings": warnings},
+    }
+
+
+@router.delete("/presets/imported/{preset_id}")
+async def delete_imported_preset(preset_id: str, current_user=Depends(get_current_admin_user)):
+    """Remove an imported preset's directory entirely. Only ever a preset
+    `_scan_imported_presets` itself found (this importer's own provenance
+    marker, under content/presets/local) - `preset_id` never builds a path
+    directly, so there is no traversal surface from it, but the resolved
+    directory is still asserted inside the imported-presets root before
+    deleting it, matching emit_preset's own belt-and-braces check."""
+    entry = _find_imported_preset(preset_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Imported preset not found.")
+
+    root_resolved = _IMPORTED_PRESETS_ROOT.resolve()
+    dir_resolved = entry.dir.resolve()
+    if root_resolved not in dir_resolved.parents:
+        raise HTTPException(status_code=400, detail="Refusing to delete a directory outside the imported presets root.")
+
+    shutil.rmtree(dir_resolved)
+
+    try:
+        get_container().preset_template_loader.reload()
+    except Exception:
+        logger.exception("Failed to reload the preset catalogue after deleting %s", preset_id)
+
+    return {"deleted": True, "preset_id": preset_id}

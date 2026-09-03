@@ -1062,6 +1062,27 @@ function child(node, is_text) {
   set_hydrate_node(child2);
   return child2;
 }
+function first_child(node, is_text = false) {
+  if (!hydrating) {
+    var first = /* @__PURE__ */ get_first_child(node);
+    if (first instanceof Comment && first.data === "")
+      return /* @__PURE__ */ get_next_sibling(first);
+    return first;
+  }
+  if (is_text) {
+    if (hydrate_node?.nodeType !== TEXT_NODE) {
+      var text2 = create_text();
+      hydrate_node?.before(text2);
+      set_hydrate_node(text2);
+      return text2;
+    }
+    merge_text_nodes(
+      /** @type {Text} */
+      hydrate_node
+    );
+  }
+  return hydrate_node;
+}
 function sibling(node, count = 1, is_text = false) {
   let next_sibling = hydrating ? hydrate_node : node;
   var last_sibling;
@@ -4024,6 +4045,49 @@ function move_effect(effect2, fragment) {
 var event_symbol = Symbol("events");
 var all_registered_events = /* @__PURE__ */ new Set();
 var root_event_handles = /* @__PURE__ */ new Set();
+function create_event(event_name, dom, handler, options = {}) {
+  function target_handler(event2) {
+    if (!options.capture) {
+      handle_event_propagation.call(dom, event2);
+    }
+    if (!event2.cancelBubble) {
+      return without_reactive_context(() => {
+        return handler?.call(this, event2);
+      });
+    }
+  }
+  if (event_name.startsWith("pointer") || event_name.startsWith("touch") || event_name === "wheel") {
+    queue_micro_task(() => {
+      dom.addEventListener(event_name, target_handler, options);
+    });
+  } else {
+    dom.addEventListener(event_name, target_handler, options);
+  }
+  return target_handler;
+}
+function event(event_name, dom, handler, capture2, passive2) {
+  var options = { capture: capture2, passive: passive2 };
+  var target_handler = create_event(event_name, dom, handler, options);
+  if (dom === document.body || // @ts-ignore
+  dom === window || // @ts-ignore
+  dom === document || // Firefox has quirky behavior, it can happen that we still get "canplay" events when the element is already removed
+  dom instanceof HTMLMediaElement) {
+    teardown(() => {
+      dom.removeEventListener(event_name, target_handler, options);
+    });
+  }
+}
+function delegated(event_name, element2, handler) {
+  (element2[event_symbol] ?? (element2[event_symbol] = {}))[event_name] = handler;
+}
+function delegate(events) {
+  for (var i = 0; i < events.length; i++) {
+    all_registered_events.add(events[i]);
+  }
+  for (var fn of root_event_handles) {
+    fn(events);
+  }
+}
 var last_propagated_event = null;
 function handle_event_propagation(event2) {
   var handler_element = this;
@@ -4182,6 +4246,63 @@ function from_html(content, flags2) {
     }
     return clone;
   };
+}
+// @__NO_SIDE_EFFECTS__
+function from_namespace(content, flags2, ns = "svg") {
+  var has_start = !content.startsWith("<!>");
+  var is_fragment = (flags2 & TEMPLATE_FRAGMENT) !== 0;
+  var wrapped = `<${ns}>${has_start ? content : "<!>" + content}</${ns}>`;
+  var node;
+  return () => {
+    if (hydrating) {
+      assign_nodes(hydrate_node, null);
+      return hydrate_node;
+    }
+    if (!node) {
+      var fragment = (
+        /** @type {DocumentFragment} */
+        create_fragment_from_html(wrapped)
+      );
+      var root2 = (
+        /** @type {Element} */
+        get_first_child(fragment)
+      );
+      if (is_fragment) {
+        node = document.createDocumentFragment();
+        while (get_first_child(root2)) {
+          node.appendChild(
+            /** @type {TemplateNode} */
+            get_first_child(root2)
+          );
+        }
+      } else {
+        node = /** @type {Element} */
+        get_first_child(root2);
+      }
+    }
+    var clone = (
+      /** @type {TemplateNode} */
+      node.cloneNode(true)
+    );
+    if (is_fragment) {
+      var start = (
+        /** @type {TemplateNode} */
+        get_first_child(clone)
+      );
+      var end = (
+        /** @type {TemplateNode} */
+        clone.lastChild
+      );
+      assign_nodes(start, end);
+    } else {
+      assign_nodes(clone, clone);
+    }
+    return clone;
+  };
+}
+// @__NO_SIDE_EFFECTS__
+function from_svg(content, flags2) {
+  return /* @__PURE__ */ from_namespace(content, flags2, "svg");
 }
 function append(anchor, dom) {
   if (hydrating) {
@@ -5903,12 +6024,17 @@ function get_custom_elements_slots(element2) {
 var root = from_html(`<div class="ip-loading svelte-flsl90"><span class="spinner svelte-flsl90" aria-hidden="true"></span>Loading imported presets\u2026</div>`);
 var root_1 = from_html(`<p class="message message-error svelte-flsl90"> </p>`);
 var root_2 = from_html(`<div class="ip-empty svelte-flsl90">No presets have been imported yet. Use the <strong>Import workflow</strong> tab to bring one in from ComfyUI.</div>`);
-var root_3 = from_html(`<div class="ip-row svelte-flsl90"><span class="ip-name svelte-flsl90"> </span> <span class="ip-fam mono svelte-flsl90"> </span> <span class="chip chip-mute svelte-flsl90"> </span> <span> </span> <span class="ip-created mono svelte-flsl90"> </span> <a class="btn btn-secondary svelte-flsl90">Open in Presets</a></div>`);
-var root_4 = from_html(`<div class="ip-table svelte-flsl90" data-imported-presets=""><div class="ip-row ip-head svelte-flsl90"><span>Name</span> <span>Family / variant</span> <span>Format</span> <span>Requirements</span> <span>Created</span> <span></span></div> <!></div>`);
-var root_5 = from_html(`<div class="ip-wrap svelte-flsl90"><!></div>`);
+var root_3 = from_html(`<span class="spinner svelte-flsl90" aria-hidden="true"></span>`);
+var root_4 = from_svg(`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>`);
+var root_5 = from_html(`<div> </div>`);
+var root_6 = from_html(`<div class="ip-row svelte-flsl90"><span class="ip-name svelte-flsl90"> </span> <span class="ip-fam mono svelte-flsl90"> </span> <span class="chip chip-mute svelte-flsl90"> </span> <span> </span> <span class="ip-created mono svelte-flsl90"> </span> <div class="ip-actions svelte-flsl90"><button type="button" class="iconbtn svelte-flsl90" data-tip="Reload from source" aria-label="Reload from source"><!></button> <button type="button" class="iconbtn svelte-flsl90" data-tip="Edit" aria-label="Edit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button> <button type="button" class="iconbtn iconbtn-danger svelte-flsl90" data-tip="Delete" aria-label="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path></svg></button> <a class="iconbtn svelte-flsl90" data-tip="Open in Presets" aria-label="Open in Presets"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg></a></div> <!></div>`);
+var root_7 = from_html(`<div class="ip-table svelte-flsl90" data-imported-presets=""><div class="ip-row ip-head svelte-flsl90"><span>Name</span> <span>Family / variant</span> <span>Format</span> <span>Requirements</span> <span>Created</span> <span></span></div> <!></div>`);
+var root_8 = from_html(`<div class="overlay svelte-flsl90" role="button" tabindex="-1" aria-label="Close dialog"><div class="dialog svelte-flsl90" role="dialog" aria-modal="true" aria-label="Delete imported preset"><h2 class="svelte-flsl90"> </h2> <p class="dialog-body svelte-flsl90">This removes <span class="mono svelte-flsl90"> </span> from content/presets/local
+				permanently. This can't be undone.</p> <!> <div class="dialog-footer svelte-flsl90"><button type="button" class="btn btn-secondary svelte-flsl90">Cancel</button> <button type="button" class="btn btn-danger svelte-flsl90"> </button></div></div></div>`);
+var root_9 = from_html(`<div class="ip-wrap svelte-flsl90"><!></div> <!>`, 1);
 var $$css = {
   hash: "svelte-flsl90",
-  code: ".ip-wrap.svelte-flsl90 {width:100%;max-width:none;padding:4px 0;}.mono.svelte-flsl90 {font-family:ui-monospace, SFMono-Regular, Menlo, monospace;font-variant-numeric:tabular-nums;}.ip-loading.svelte-flsl90 {display:flex;align-items:center;gap:8px;padding:20px 0;color:rgb(var(--fg-muted, 169 174 184));font-size:12px;}.spinner.svelte-flsl90 {width:13px;height:13px;border-radius:50%;border:2px solid rgb(var(--line-strong, 43 46 53));border-top-color:rgb(var(--signal, 91 157 255));\n		animation: svelte-flsl90-spin 0.7s linear infinite;}\n	@keyframes svelte-flsl90-spin {\n		to {\n			transform: rotate(360deg);\n		}\n	}.ip-empty.svelte-flsl90 {padding:20px;border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--surface-2, 31 33 38) / 0.4);color:rgb(var(--fg-subtle, 122 128 144));font-size:12.5px;text-align:center;}.message.svelte-flsl90 {padding:10px 14px;border-radius:6px;font-size:12px;}.message-error.svelte-flsl90 {color:rgb(var(--danger, 255 138 138));background:rgb(var(--danger, 255 138 138) / 0.1);border:1px solid rgb(var(--danger, 255 138 138) / 0.25);}.ip-table.svelte-flsl90 {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--surface-1, 22 24 28));overflow:hidden;}.ip-row.svelte-flsl90 {display:grid;grid-template-columns:2fr 1fr 90px 90px 100px 130px;align-items:center;gap:14px;padding:12px 16px;}.ip-row.svelte-flsl90 + .ip-row:where(.svelte-flsl90) {border-top:1px solid rgb(var(--line, 36 38 44));}.ip-head.svelte-flsl90 {background:rgb(var(--canvas, 12 13 15));font-family:ui-monospace, SFMono-Regular, Menlo, monospace;font-size:9.5px;text-transform:uppercase;letter-spacing:0.06em;color:rgb(var(--fg-subtle, 122 128 144));padding-top:8px;padding-bottom:8px;}.ip-name.svelte-flsl90 {font-size:12.5px;font-weight:500;color:rgb(var(--fg, 232 234 237));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}.ip-fam.svelte-flsl90 {font-size:11.5px;color:rgb(var(--fg-muted, 169 174 184));}.ip-created.svelte-flsl90 {font-size:11px;color:rgb(var(--fg-subtle, 122 128 144));}.chip.svelte-flsl90 {display:inline-flex;align-items:center;width:fit-content;font-size:9.5px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;padding:2px 6px;border-radius:3px;}.chip-mute.svelte-flsl90 {background:rgb(var(--surface-3, 39 42 49));color:rgb(var(--fg-subtle, 122 128 144));}.chip-ok.svelte-flsl90 {background:rgb(var(--success, 61 214 140) / 0.13);color:rgb(var(--success, 61 214 140));}.chip-warn.svelte-flsl90 {background:rgb(var(--warning, 255 197 61) / 0.13);color:rgb(var(--warning, 255 197 61));}.chip-danger.svelte-flsl90 {background:rgb(var(--danger, 255 138 138) / 0.13);color:rgb(var(--danger, 255 138 138));}.btn.svelte-flsl90 {height:26px;padding:0 10px;border-radius:4px;font-size:11.5px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-1, 22 24 28));color:rgb(var(--fg-muted, 169 174 184));text-decoration:none;cursor:pointer;white-space:nowrap;}.btn.svelte-flsl90:hover {color:rgb(var(--fg, 232 234 237));background:rgb(var(--surface-2, 31 33 38));}"
+  code: ".ip-wrap.svelte-flsl90 {width:100%;max-width:none;padding:4px 0;}.mono.svelte-flsl90 {font-family:ui-monospace, SFMono-Regular, Menlo, monospace;font-variant-numeric:tabular-nums;}.ip-loading.svelte-flsl90 {display:flex;align-items:center;gap:8px;padding:20px 0;color:rgb(var(--fg-muted, 169 174 184));font-size:12px;}.spinner.svelte-flsl90 {width:13px;height:13px;border-radius:50%;border:2px solid rgb(var(--line-strong, 43 46 53));border-top-color:rgb(var(--signal, 91 157 255));\n		animation: svelte-flsl90-spin 0.7s linear infinite;flex-shrink:0;}\n	@keyframes svelte-flsl90-spin {\n		to {\n			transform: rotate(360deg);\n		}\n	}.ip-empty.svelte-flsl90 {padding:20px;border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--surface-2, 31 33 38) / 0.4);color:rgb(var(--fg-subtle, 122 128 144));font-size:12.5px;text-align:center;}.message.svelte-flsl90 {padding:10px 14px;border-radius:6px;font-size:12px;}.message-error.svelte-flsl90 {color:rgb(var(--danger, 255 138 138));background:rgb(var(--danger, 255 138 138) / 0.1);border:1px solid rgb(var(--danger, 255 138 138) / 0.25);}.ip-table.svelte-flsl90 {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--surface-1, 22 24 28));overflow:hidden;}.ip-row.svelte-flsl90 {display:grid;grid-template-columns:2fr 1fr 90px 90px 100px 128px;align-items:center;gap:14px;padding:12px 16px;}.ip-row.svelte-flsl90 + .ip-row:where(.svelte-flsl90) {border-top:1px solid rgb(var(--line, 36 38 44));}.ip-head.svelte-flsl90 {background:rgb(var(--canvas, 12 13 15));font-family:ui-monospace, SFMono-Regular, Menlo, monospace;font-size:9.5px;text-transform:uppercase;letter-spacing:0.06em;color:rgb(var(--fg-subtle, 122 128 144));padding-top:8px;padding-bottom:8px;}.ip-name.svelte-flsl90 {font-size:12.5px;font-weight:500;color:rgb(var(--fg, 232 234 237));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}.ip-fam.svelte-flsl90 {font-size:11.5px;color:rgb(var(--fg-muted, 169 174 184));}.ip-created.svelte-flsl90 {font-size:11px;color:rgb(var(--fg-subtle, 122 128 144));}.ip-reload-result.svelte-flsl90 {grid-column:1 / -1;margin-top:8px;padding:6px 10px;border-radius:4px;font-size:11.5px;width:fit-content;}.ip-reload-ok.svelte-flsl90 {background:rgb(var(--success, 61 214 140) / 0.1);color:rgb(var(--success, 61 214 140));}.ip-reload-warn.svelte-flsl90 {background:rgb(var(--warning, 255 197 61) / 0.1);color:rgb(var(--warning, 255 197 61));}.ip-reload-danger.svelte-flsl90 {background:rgb(var(--danger, 255 138 138) / 0.1);color:rgb(var(--danger, 255 138 138));}.chip.svelte-flsl90 {display:inline-flex;align-items:center;width:fit-content;font-size:9.5px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;padding:2px 6px;border-radius:3px;}.chip-mute.svelte-flsl90 {background:rgb(var(--surface-3, 39 42 49));color:rgb(var(--fg-subtle, 122 128 144));}.chip-ok.svelte-flsl90 {background:rgb(var(--success, 61 214 140) / 0.13);color:rgb(var(--success, 61 214 140));}.chip-warn.svelte-flsl90 {background:rgb(var(--warning, 255 197 61) / 0.13);color:rgb(var(--warning, 255 197 61));}.chip-danger.svelte-flsl90 {background:rgb(var(--danger, 255 138 138) / 0.13);color:rgb(var(--danger, 255 138 138));}.ip-actions.svelte-flsl90 {display:flex;align-items:center;gap:4px;justify-content:flex-end;}[data-tip].svelte-flsl90 {position:relative;}[data-tip].svelte-flsl90::after {content:attr(data-tip);position:absolute;bottom:calc(100% + 7px);left:50%;transform:translateX(-50%);background:rgb(var(--surface-3, 39 42 49));color:rgb(var(--fg, 232 234 237));font-size:11px;padding:4px 7px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));white-space:nowrap;opacity:0;pointer-events:none;transition:opacity 0.1s;z-index:30;}[data-tip].svelte-flsl90:hover::after {opacity:1;}.iconbtn.svelte-flsl90 {width:26px;height:26px;flex-shrink:0;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;color:rgb(var(--fg-subtle, 122 128 144));background:transparent;border:1px solid transparent;cursor:pointer;text-decoration:none;}.iconbtn.svelte-flsl90:hover {color:rgb(var(--fg, 232 234 237));background:rgb(var(--surface-2, 31 33 38));}.iconbtn.svelte-flsl90:disabled {opacity:0.5;cursor:not-allowed;}.iconbtn-danger.svelte-flsl90:hover {color:rgb(var(--danger, 255 138 138));background:rgb(var(--danger, 255 138 138) / 0.1);}.overlay.svelte-flsl90 {position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgb(0 0 0 / 0.6);backdrop-filter:blur(4px);}.dialog.svelte-flsl90 {width:min(420px, calc(100vw - 32px));padding:20px;background:rgb(var(--surface-1, 22 24 28));border-radius:10px;box-shadow:0 16px 48px rgb(0 0 0 / 0.6);}.dialog.svelte-flsl90 h2:where(.svelte-flsl90) {margin:0 0 8px;color:rgb(var(--fg, 232 234 237));font-size:15px;font-weight:600;}.dialog-body.svelte-flsl90 {margin:0 0 16px;color:rgb(var(--fg-muted, 169 174 184));font-size:12.5px;line-height:1.5;}.dialog-footer.svelte-flsl90 {display:flex;justify-content:flex-end;gap:10px;}.btn.svelte-flsl90 {height:30px;padding:0 14px;border-radius:4px;font-size:12.5px;font-weight:600;display:inline-flex;align-items:center;border:1px solid transparent;cursor:pointer;}.btn.svelte-flsl90:disabled {opacity:0.5;cursor:not-allowed;}.btn-secondary.svelte-flsl90 {color:rgb(var(--fg, 232 234 237));background:rgb(var(--surface-2, 31 33 38));border-color:rgb(var(--line-strong, 43 46 53));}.btn-secondary.svelte-flsl90:hover:not(:disabled) {background:rgb(var(--surface-3, 39 42 49));}.btn-danger.svelte-flsl90 {color:rgb(var(--accent-contrast, 22 22 22));background:rgb(var(--danger, 255 138 138));}.btn-danger.svelte-flsl90:hover:not(:disabled) {opacity:0.9;}"
 };
 function ImportedPresetsTab($$anchor, $$props) {
   if (new.target)
@@ -5917,9 +6043,15 @@ function ImportedPresetsTab($$anchor, $$props) {
   append_styles($$anchor, $$css);
   let pluginId = prop($$props, "pluginId", 7, "comfyui-backend"), plugin = prop($$props, "plugin", 7, null);
   const API_BASE = `/api/plugins/${pluginId()}`;
+  const EDIT_STORAGE_KEY = "comfyui-import-edit-preset-id";
   let loading = state(true);
   let loadError = state("");
   let presets = state(proxy([]));
+  let reloadingId = state(null);
+  let reloadResultById = state(proxy({}));
+  let deletingId = state(null);
+  let deleteError = state("");
+  let confirmDeleteTarget = state(null);
   function authHeaders() {
     const token = typeof localStorage !== "undefined" ? localStorage.getItem("auth_token") : null;
     return token ? { Authorization: `Bearer ${token}` } : {};
@@ -5967,6 +6099,100 @@ function ImportedPresetsTab($$anchor, $$props) {
       return `${Math.floor(deltaMs / day)}d ago`;
     return new Date(unixSeconds * 1e3).toLocaleDateString();
   }
+  async function reloadPreset(p) {
+    if (get(reloadingId))
+      return;
+    set(reloadingId, p.preset_id, true);
+    set(reloadResultById, { ...get(reloadResultById), [p.preset_id]: null }, true);
+    try {
+      const res = await fetch(`${API_BASE}/presets/imported/${p.preset_id}/reload`, {
+        method: "POST",
+        credentials: "include",
+        headers: authHeaders()
+      });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        set(
+          reloadResultById,
+          {
+            ...get(reloadResultById),
+            [p.preset_id]: {
+              tone: "danger",
+              text: payload?.detail || payload?.message || `Reload failed (${res.status})`
+            }
+          },
+          true
+        );
+        return;
+      }
+      const errCount = payload.lint.errors.length;
+      const warnCount = payload.lint.warnings.length;
+      const tone = errCount > 0 ? "danger" : warnCount > 0 ? "warn" : "ok";
+      const text2 = errCount > 0 ? `${errCount} lint error${errCount === 1 ? "" : "s"}` : warnCount > 0 ? `Reloaded \u2014 ${warnCount} warning${warnCount === 1 ? "" : "s"}` : "Reloaded \u2014 lint clean";
+      set(reloadResultById, { ...get(reloadResultById), [p.preset_id]: { tone, text: text2 } }, true);
+      await load();
+    } catch (e) {
+      set(
+        reloadResultById,
+        {
+          ...get(reloadResultById),
+          [p.preset_id]: { tone: "danger", text: "Could not reach the server." }
+        },
+        true
+      );
+    } finally {
+      set(reloadingId, null);
+    }
+  }
+  function editPreset(p) {
+    try {
+      sessionStorage.setItem(EDIT_STORAGE_KEY, p.preset_id);
+    } catch (e) {
+    }
+    window.dispatchEvent(new CustomEvent("potionui:switch-plugin-tab", { detail: { pluginId: pluginId(), tabId: "import-workflow" } }));
+  }
+  function askDelete(p) {
+    set(confirmDeleteTarget, p, true);
+    set(deleteError, "");
+  }
+  function cancelDelete() {
+    set(confirmDeleteTarget, null);
+    set(deleteError, "");
+  }
+  async function confirmDelete() {
+    if (!get(confirmDeleteTarget) || get(deletingId))
+      return;
+    const target = get(confirmDeleteTarget);
+    set(deletingId, target.preset_id, true);
+    set(deleteError, "");
+    try {
+      const res = await fetch(`${API_BASE}/presets/imported/${target.preset_id}`, {
+        method: "DELETE",
+        credentials: "include",
+        headers: authHeaders()
+      });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        set(deleteError, payload?.detail || payload?.message || `Delete failed (${res.status})`, true);
+        return;
+      }
+      set(presets, get(presets).filter((p) => p.preset_id !== target.preset_id), true);
+      set(confirmDeleteTarget, null);
+    } catch (e) {
+      set(deleteError, "Could not reach the server.");
+    } finally {
+      set(deletingId, null);
+    }
+  }
+  function handleModalKeydown(e) {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      cancelDelete();
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      confirmDelete();
+    }
+  }
   var $$exports = {
     get pluginId() {
       return pluginId();
@@ -5985,7 +6211,11 @@ function ImportedPresetsTab($$anchor, $$props) {
     $set: update_legacy_props,
     $on: ($$event_name, $$event_cb) => add_legacy_event_listener($$props, $$event_name, $$event_cb)
   };
-  var div = root_5();
+  var fragment = root_9();
+  event("keydown", $window, function(...$$args) {
+    (get(confirmDeleteTarget) ? handleModalKeydown : void 0)?.apply(this, $$args);
+  });
+  var div = first_child(fragment);
   var node = child(div);
   {
     var consequent = ($$anchor2) => {
@@ -5994,50 +6224,95 @@ function ImportedPresetsTab($$anchor, $$props) {
     };
     var consequent_1 = ($$anchor2) => {
       var p_1 = root_1();
-      var text2 = child(p_1, true);
+      var text_1 = child(p_1, true);
       reset(p_1);
-      template_effect(() => set_text(text2, get(loadError)));
+      template_effect(() => set_text(text_1, get(loadError)));
       append($$anchor2, p_1);
     };
     var consequent_2 = ($$anchor2) => {
       var div_2 = root_2();
       append($$anchor2, div_2);
     };
-    var alternate = ($$anchor2) => {
-      var div_3 = root_4();
+    var alternate_1 = ($$anchor2) => {
+      var div_3 = root_7();
       var node_1 = sibling(child(div_3), 2);
       each(node_1, 17, () => get(presets), (p) => p.preset_id, ($$anchor3, p) => {
         const chip = user_derived(() => requirementsChip(get(p).requirements_summary));
-        var div_4 = root_3();
+        const reloadResult = user_derived(() => get(reloadResultById)[get(p).preset_id]);
+        var div_4 = root_6();
         var span = child(div_4);
-        var text_1 = child(span, true);
+        var text_2 = child(span, true);
         reset(span);
         var span_1 = sibling(span, 2);
-        var text_2 = child(span_1);
+        var text_3 = child(span_1);
         reset(span_1);
         var span_2 = sibling(span_1, 2);
-        var text_3 = child(span_2, true);
+        var text_4 = child(span_2, true);
         reset(span_2);
         var span_3 = sibling(span_2, 2);
-        var text_4 = child(span_3, true);
+        var text_5 = child(span_3, true);
         reset(span_3);
         var span_4 = sibling(span_3, 2);
-        var text_5 = child(span_4, true);
+        var text_6 = child(span_4, true);
         reset(span_4);
-        var a = sibling(span_4, 2);
+        var div_5 = sibling(span_4, 2);
+        var button = child(div_5);
+        var node_2 = child(button);
+        {
+          var consequent_3 = ($$anchor4) => {
+            var span_5 = root_3();
+            append($$anchor4, span_5);
+          };
+          var alternate = ($$anchor4) => {
+            var svg = root_4();
+            append($$anchor4, svg);
+          };
+          if_block(node_2, ($$render) => {
+            if (get(reloadingId) === get(p).preset_id)
+              $$render(consequent_3);
+            else
+              $$render(alternate, -1);
+          });
+        }
+        reset(button);
+        var button_1 = sibling(button, 2);
+        var button_2 = sibling(button_1, 2);
+        var a = sibling(button_2, 2);
+        reset(div_5);
+        var node_3 = sibling(div_5, 2);
+        {
+          var consequent_4 = ($$anchor4) => {
+            var div_6 = root_5();
+            var text_7 = child(div_6, true);
+            reset(div_6);
+            template_effect(() => {
+              set_class(div_6, 1, `ip-reload-result ip-reload-${get(reloadResult).tone ?? ""}`, "svelte-flsl90");
+              set_text(text_7, get(reloadResult).text);
+            });
+            append($$anchor4, div_6);
+          };
+          if_block(node_3, ($$render) => {
+            if (get(reloadResult))
+              $$render(consequent_4);
+          });
+        }
         reset(div_4);
         template_effect(
           ($0) => {
-            set_text(text_1, get(p).name);
-            set_text(text_2, `${get(p).family ?? ""} \xB7 ${get(p).variant ?? ""}`);
-            set_text(text_3, get(p).format);
+            set_text(text_2, get(p).name);
+            set_text(text_3, `${get(p).family ?? ""} \xB7 ${get(p).variant ?? ""}`);
+            set_text(text_4, get(p).format);
             set_class(span_3, 1, `chip ${get(chip).className ?? ""} mono`, "svelte-flsl90");
-            set_text(text_4, get(chip).text);
-            set_text(text_5, $0);
+            set_text(text_5, get(chip).text);
+            set_text(text_6, $0);
+            button.disabled = get(reloadingId) === get(p).preset_id;
             set_attribute2(a, "href", `/admin?tab=presets&preset=${get(p).preset_id}`);
           },
           [() => relativeTime(get(p).created_at)]
         );
+        delegated("click", button, () => reloadPreset(get(p)));
+        delegated("click", button_1, () => editPreset(get(p)));
+        delegated("click", button_2, () => askDelete(get(p)));
         append($$anchor3, div_4);
       });
       reset(div_3);
@@ -6051,13 +6326,69 @@ function ImportedPresetsTab($$anchor, $$props) {
       else if (get(presets).length === 0)
         $$render(consequent_2, 2);
       else
-        $$render(alternate, -1);
+        $$render(alternate_1, -1);
     });
   }
   reset(div);
-  append($$anchor, div);
+  var node_4 = sibling(div, 2);
+  {
+    var consequent_6 = ($$anchor2) => {
+      var div_7 = root_8();
+      var div_8 = child(div_7);
+      var h2 = child(div_8);
+      var text_8 = child(h2);
+      reset(h2);
+      var p_2 = sibling(h2, 2);
+      var span_6 = sibling(child(p_2));
+      var text_9 = child(span_6);
+      reset(span_6);
+      next();
+      reset(p_2);
+      var node_5 = sibling(p_2, 2);
+      {
+        var consequent_5 = ($$anchor3) => {
+          var p_3 = root_1();
+          var text_10 = child(p_3, true);
+          reset(p_3);
+          template_effect(() => set_text(text_10, get(deleteError)));
+          append($$anchor3, p_3);
+        };
+        if_block(node_5, ($$render) => {
+          if (get(deleteError))
+            $$render(consequent_5);
+        });
+      }
+      var div_9 = sibling(node_5, 2);
+      var button_3 = child(div_9);
+      var button_4 = sibling(button_3, 2);
+      var text_11 = child(button_4, true);
+      reset(button_4);
+      reset(div_9);
+      reset(div_8);
+      reset(div_7);
+      template_effect(() => {
+        set_text(text_8, `Delete "${get(confirmDeleteTarget).name ?? ""}"?`);
+        set_text(text_9, `${get(confirmDeleteTarget).family ?? ""}/${get(confirmDeleteTarget).variant ?? ""}`);
+        button_3.disabled = !!get(deletingId);
+        button_4.disabled = !!get(deletingId);
+        set_text(text_11, get(deletingId) ? "Deleting\u2026" : "Delete");
+      });
+      delegated("click", div_7, (e) => e.target === e.currentTarget && cancelDelete());
+      delegated("keydown", div_7, () => {
+      });
+      delegated("click", button_3, cancelDelete);
+      delegated("click", button_4, confirmDelete);
+      append($$anchor2, div_7);
+    };
+    if_block(node_4, ($$render) => {
+      if (get(confirmDeleteTarget))
+        $$render(consequent_6);
+    });
+  }
+  append($$anchor, fragment);
   return pop($$exports);
 }
+delegate(["click", "keydown"]);
 export {
   ImportedPresetsTab as default
 };

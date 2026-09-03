@@ -224,3 +224,47 @@ NOT caused by the 2026-08-28 approval-dock rework. Separately, the spec's
 selectors assert the pre-rework dock anatomy (`div.border-warning\/35`,
 "from reply") and need updating to the compact-row dock once the underlying
 failure is fixed.
+
+
+## Install matrix (`./potionui start`, local-only — not a CI gate)
+
+`tests/install/run.py` proves `./potionui start` actually works for each
+install profile (`local`, `hybrid`, `remote`) plus the `worker` preset, on a
+throwaway checkout — never the maintainer's working tree, venv, or ports
+3001/8005. `tests/install/test_run.py` covers its pure logic (directory
+exclusion, port picking, the phase-stop-on-failure state machine, report
+shape) and runs as part of the normal suite:
+
+```bash
+PYTHONPATH=./venv/lib/python3.12/site-packages:. python -m pytest tests/install -q --no-cov
+```
+
+The real end-to-end run is maintainer-triggered only, and defaults to
+`--profiles remote` (CPU-only torch, no CUDA download) so it's safe to run
+without a GPU:
+
+```bash
+PYTHONPATH=./venv/lib/python3.12/site-packages:. python tests/install/run.py --profiles remote --json report.json
+```
+
+Per profile it materializes a checkout (`git archive` from `--from-git`,
+default `HEAD`; or a filtered copy of a directory via `--from-dir`), runs
+`doctor --json`, runs `start`, then probes `/health`, the unclaimed-instance
+claim-token file, owner registration + a presets listing (proving the setup
+flow and the preset catalog both work on a fresh install), `status`, and
+`stop` — confirming the process tree is actually gone afterward. `worker`
+follows the same shape through `worker doctor`/`worker start`, and stops
+there without installing anything if the box has no GPU (`worker start`
+re-runs the same blocking doctor check before touching the network). A
+failure at any phase is cleaned up regardless: an unconditional safety-net
+`stop` (or worker-process kill) runs even when the phase that failed came
+*after* a successful `start` — otherwise a failed run leaves an orphaned
+backend/frontend on the box.
+
+`--reuse-venv PATH` symlinks an existing venv into the checkout so `start`
+skips its own pip install (confirmed live: a from-scratch `remote` run took
+~103s including the CPU-torch install; the same run with `--reuse-venv`
+pointed at that install's venv took ~13s). Local/hybrid pull the full CUDA
+stack (multi-GB) and `worker` needs a real GPU — exercise those yourself with
+`--profiles local,hybrid,worker` when you have the hardware and bandwidth for
+it; don't run them on a shared box.

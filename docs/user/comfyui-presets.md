@@ -44,6 +44,8 @@ the workflow was built, not something to fix by re-exporting.
 
 An **Import workflow** button in **Administration → Presets** (icon-only header action) opens a modal: paste or drop your exported ComfyUI JSON. The modal detects the workflow's mode, node count, and LoRA chain; select which inputs become form fields (checkpoint, steps, and other obvious ones are pre-ticked, more are available under "More inputs"), set model family / variant / display name, then create. Lint results appear inline; "Open in Presets" opens the generated preset for tweaking.
 
+If your workflow uses a custom node your backend doesn't have installed yet, the import still goes through — you'll see a warning naming it, and its fields are still available to pick (best-effort, since PotionUI can't ask that node what its inputs are called). Install the node pack and re-import once you can, but you don't have to stop and do that first.
+
 For scripting, the raw endpoints remain available — see "The two-minute path: import a workflow" in the developer [Preset Authoring Guide](../presets.md#comfyui-presets) for the exact calls.
 
 Imported presets are saved as **your own**, separate from anything your administrator ships or

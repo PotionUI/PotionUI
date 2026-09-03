@@ -60,7 +60,7 @@ def _get_comfyui_base_url() -> str:
 
 async def _fetch_object_info(base_url: str) -> Dict[str, Any]:
     """A live ComfyUI server's `GET /object_info`, needed to convert a
-    UI-format workflow (see backend.preset_import.convert.graph_to_prompt)
+    UI-format workflow (see backend.preset_import.convert.convert_graph)
     and to enrich its field suggestions (backend.preset_import.suggest)."""
     timeout = aiohttp.ClientTimeout(total=_OBJECT_INFO_TIMEOUT_SECONDS)
     async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -94,6 +94,26 @@ async def _parse_incoming_workflow(raw_workflow: Dict[str, Any]) -> Tuple[Any, s
 
     workflow = parse_workflow(raw_workflow, object_info=object_info)
     return workflow, ("ui" if ui_format else "api"), object_info
+
+
+def _unknown_node_warnings(unknown_nodes: List[Dict[str, Any]]) -> List[str]:
+    """One warning per distinct class in `Workflow.unknown_nodes` - a class
+    /object_info didn't recognize still converts and imports (see
+    backend.preset_import.convert's module docstring), this just tells the
+    admin its fields are a best-effort guess until the node pack is
+    installed and the workflow is re-imported."""
+    seen: set = set()
+    warnings: List[str] = []
+    for entry in unknown_nodes:
+        class_type = entry.get("class_type")
+        if not class_type or class_type in seen:
+            continue
+        seen.add(class_type)
+        warnings.append(
+            f"Node '{class_type}' is not installed on the backend: its widget names were taken "
+            "from the export / guessed — re-import after installing the pack"
+        )
+    return warnings
 
 
 @router.post("/actions/clear-vram")
@@ -178,7 +198,13 @@ async def analyze_workflow(
 
     node_groups = extract_node_groups(body.workflow) if workflow_format == "ui" else None
     analysis = suggest_fields(workflow, object_info=object_info, node_groups=node_groups)
-    return {**analysis.to_dict(), "format": workflow_format, "object_info_used": object_info is not None}
+    return {
+        **analysis.to_dict(),
+        "format": workflow_format,
+        "object_info_used": object_info is not None,
+        "unknown_nodes": workflow.unknown_nodes,
+        "warnings": _unknown_node_warnings(workflow.unknown_nodes),
+    }
 
 
 @router.post("/presets/import")
@@ -211,6 +237,7 @@ async def import_workflow(
         raise HTTPException(status_code=400, detail=str(e))
 
     errors, warnings = lint_preset_dir(str(result.preset_dir))
+    warnings = [*warnings, *_unknown_node_warnings(workflow.unknown_nodes)]
 
     try:
         get_container().preset_template_loader.reload()

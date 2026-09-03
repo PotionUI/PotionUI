@@ -4,11 +4,19 @@ editor saves) into the same Export (API) shape `parser.parse_api_workflow`
 already understands, mirroring what the ComfyUI frontend itself does when it
 serializes a graph to send for execution.
 
-This only works with a live server's `GET /object_info` in hand: a UI-format
-node's `widgets_values` is a bare positional array with no input names
-attached, so the only way to know which value belongs to which of a node
-class's inputs is to ask the server what that class's inputs are declared
-as, in order.
+This only works with a live server's `GET /object_info` in hand, mainly to
+enrich suggestions and to tell a genuinely unrecognized node class from a
+known one - widget *names*, when mapping `widgets_values` to input names,
+come from the export itself when a recent-enough ComfyUI frontend recorded
+them (`_exported_widget_names`), object_info's declared order otherwise. A
+node class that's in neither - an uninstalled custom node pack, or a server
+that doesn't match what the workflow was built against - is never a reason
+to fail the whole import: it converts best-effort (its link inputs resolve
+normally; its widget inputs get positional `widget_N` names if nothing else
+named them) and is listed in the result's `unknown_nodes`, so the analyze/
+import UI can surface it as "this node isn't installed, its fields are
+best-effort - re-import once it is" instead of refusing outright. The whole
+point of importing is to see what's missing.
 
 Subgraphs (`definitions.subgraphs`, the newest export shape - a node's
 `type` names a subgraph's UUID instead of a class_type) are flattened
@@ -38,6 +46,7 @@ than this first cut takes on.
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from .parser import WorkflowFormatError
@@ -53,6 +62,14 @@ _WIDGET_SCALAR_TYPES = frozenset({"INT", "FLOAT", "STRING", "BOOLEAN"})
 _SKIPPED_MODES = frozenset({2, 4})
 
 _PASSTHROUGH_TYPES = frozenset({"Reroute", "PrimitiveNode"})
+
+# Named widgets ComfyUI pairs with an invisible "randomize"/"fixed" control
+# widget, consuming an extra `widgets_values` slot right after the value
+# itself. Used only as a last-resort guess for a node class /object_info
+# doesn't know at all (see `_resolve_widget_names`) - a known class's own
+# `control_after_generate` flag (in its /object_info entry) is always used
+# instead when available.
+_SEED_LIKE_WIDGET_NAMES = frozenset({"seed", "noise_seed"})
 
 # A subgraph definition's own inner node list may carry literal placeholder
 # entries at these ids marking where the boundary sits (ComfyUI's subgraph
@@ -92,15 +109,68 @@ def _widget_input_order(class_info: Dict[str, Any]) -> List[Tuple[str, Dict[str,
 def _converted_widget_names(node: Dict[str, Any]) -> Set[str]:
     """Names of widgets this node converted to a socket input in the UI -
     these no longer consume a `widgets_values` slot; their value comes from
-    the connection instead (see `_resolve_source`)."""
+    the connection instead (see `_resolve_source`). A recent ComfyUI export
+    lists *every* widget in `inputs[]` with a `widget: {name}` marker, not
+    only converted ones - `link` is what tells the two apart: a converted
+    widget carries a real link id, a plain (unconverted) one carries `None`
+    (see `_exported_widget_names`, which reads exactly those)."""
     names: Set[str] = set()
     for socket in node.get("inputs") or []:
         if not isinstance(socket, dict):
             continue
         widget = socket.get("widget")
-        if isinstance(widget, dict) and widget.get("name"):
+        if isinstance(widget, dict) and widget.get("name") and socket.get("link") is not None:
             names.add(widget["name"])
     return names
+
+
+def _exported_widget_names(node: Dict[str, Any]) -> List[str]:
+    """The node's own widget names, in `widgets_values` order, as recorded
+    directly in its `inputs[]` list by a recent ComfyUI frontend - every
+    plain (unconverted, `link: null`) entry carrying a `widget: {name}`
+    marker. Empty for an older export that never recorded this, in which
+    case `/object_info` is the only source left (see `_resolve_widget_names`)."""
+    names: List[str] = []
+    for socket in node.get("inputs") or []:
+        if not isinstance(socket, dict):
+            continue
+        widget = socket.get("widget")
+        if isinstance(widget, dict) and widget.get("name") and socket.get("link") is None:
+            names.append(widget["name"])
+    return names
+
+
+def _resolve_widget_names(
+    node: Dict[str, Any], class_info: Optional[Dict[str, Any]]
+) -> Tuple[List[str], Set[str]]:
+    """`(names, control_after_generate_names)` for mapping this node's
+    `widgets_values` to input names - preferring the names the export
+    itself recorded (most reliable: exactly what built this graph) over
+    re-deriving them from `/object_info`'s declared order, and falling back
+    to positional `widget_N` placeholders when neither source has anything
+    (an older export of a class `/object_info` also doesn't know)."""
+    names = _exported_widget_names(node)
+    if not names and class_info is not None:
+        names = [name for name, _config in _widget_input_order(class_info)]
+
+    control_after_generate: Set[str] = set()
+    if class_info is not None:
+        control_after_generate = {
+            name for name, config in _widget_input_order(class_info) if config.get("control_after_generate")
+        }
+    elif names:
+        # No /object_info entry to consult at all - the only signal left for
+        # "this widget has a paired randomize/fixed control" is its name.
+        control_after_generate = {name for name in names if name in _SEED_LIKE_WIDGET_NAMES}
+
+    if not names:
+        widgets_values = node.get("widgets_values")
+        if isinstance(widgets_values, list):
+            names = [f"widget_{i}" for i in range(len(widgets_values))]
+        elif isinstance(widgets_values, dict):
+            names = list(widgets_values.keys())
+
+    return names, control_after_generate
 
 
 def _socket_link(sockets: Any, slot: Optional[int]) -> Optional[Any]:
@@ -184,17 +254,29 @@ def _link_to_output_boundary(scope: _Scope, output_slot: int) -> Optional[Any]:
     return None
 
 
-def graph_to_prompt(ui_workflow: Dict[str, Any], object_info: Dict[str, Any]) -> Dict[str, Any]:
+@dataclass
+class ConvertedGraph:
+    """The result of converting a UI-format workflow: `prompt` is the
+    Export (API)-shaped dict `parser.parse_api_workflow` expects;
+    `unknown_nodes` lists every node (post subgraph-flattening, so ids
+    already match `prompt`'s keys) whose class wasn't found in the
+    `object_info` this conversion was given - see the module docstring."""
+
+    prompt: Dict[str, Any]
+    unknown_nodes: List[Dict[str, Any]] = field(default_factory=list)
+
+
+def convert_graph(ui_workflow: Dict[str, Any], object_info: Dict[str, Any]) -> ConvertedGraph:
     """Convert a UI-format ComfyUI workflow into the Export (API) shape
     `parser.parse_api_workflow` expects, using `object_info` (a live
     server's `GET /object_info`) to know, per node class, which
     `widgets_values` slot is which input. Subgraphs are flattened, not
     rejected - see the module docstring.
 
-    Raises `WorkflowFormatError` for a subgraph cycle, or a node class this
-    `object_info` doesn't know about (an uninstalled custom node, or a
-    server that doesn't match what the workflow was built against).
-    """
+    Raises `WorkflowFormatError` only for a subgraph cycle, or a workflow
+    with no usable nodes at all - a node class `object_info` doesn't
+    recognize converts best-effort instead of failing (see
+    `ConvertedGraph.unknown_nodes`)."""
     raw_nodes = ui_workflow.get("nodes")
     if not isinstance(raw_nodes, list) or not raw_nodes:
         raise WorkflowFormatError("No nodes found in this UI-format ComfyUI workflow.")
@@ -284,6 +366,7 @@ def graph_to_prompt(ui_workflow: Dict[str, Any], object_info: Dict[str, Any]) ->
         return {"kind": "node", "node_id": scope.full_id(origin_id), "slot": origin_slot}
 
     prompt: Dict[str, Any] = {}
+    unknown_nodes: List[Dict[str, Any]] = []
 
     def emit(scope: _Scope) -> None:
         for local_id, node in scope.nodes_by_id.items():
@@ -300,14 +383,14 @@ def graph_to_prompt(ui_workflow: Dict[str, Any], object_info: Dict[str, Any]) ->
             if node_type in _PASSTHROUGH_TYPES:
                 continue
 
+            node_id = scope.full_id(local_id)
             class_info = object_info.get(node_type)
             if not isinstance(class_info, dict):
-                raise WorkflowFormatError(
-                    f"Node class '{node_type}' was not found on this ComfyUI server's /object_info; "
-                    "install the node pack that provides it, or export with Export (API) instead."
+                class_info = None
+                unknown_nodes.append(
+                    {"node_id": node_id, "class_type": node_type, "title": node.get("title")}
                 )
 
-            node_id = scope.full_id(local_id)
             inputs: Dict[str, Any] = {}
             converted = _converted_widget_names(node)
 
@@ -325,23 +408,24 @@ def graph_to_prompt(ui_workflow: Dict[str, Any], object_info: Dict[str, Any]) ->
                 else:
                     inputs[name] = [resolved["node_id"], resolved["slot"]]
 
+            names, control_after_generate = _resolve_widget_names(node, class_info)
             widgets_values = node.get("widgets_values")
             if isinstance(widgets_values, dict):
-                for name, _config in _widget_input_order(class_info):
+                for name in names:
                     if name in converted or name not in widgets_values:
                         continue
                     inputs[name] = widgets_values[name]
             else:
                 values = list(widgets_values) if isinstance(widgets_values, list) else []
                 idx = 0
-                for name, config in _widget_input_order(class_info):
+                for name in names:
                     if name in converted:
                         continue
                     if idx >= len(values):
                         break
                     inputs[name] = values[idx]
                     idx += 1
-                    if config.get("control_after_generate"):
+                    if name in control_after_generate:
                         idx += 1  # the paired "randomize"/"fixed" selector - never a real input
 
             for (override_node_id, override_name), override_value in scope.widget_overrides.items():
@@ -359,7 +443,13 @@ def graph_to_prompt(ui_workflow: Dict[str, Any], object_info: Dict[str, Any]) ->
     if not prompt:
         raise WorkflowFormatError("No usable nodes found after converting this UI-format workflow.")
 
-    return prompt
+    return ConvertedGraph(prompt=prompt, unknown_nodes=unknown_nodes)
+
+
+def graph_to_prompt(ui_workflow: Dict[str, Any], object_info: Dict[str, Any]) -> Dict[str, Any]:
+    """Convenience wrapper over `convert_graph` for a caller that only wants
+    the converted prompt, not the `unknown_nodes` report."""
+    return convert_graph(ui_workflow, object_info).prompt
 
 
 def extract_node_groups(ui_workflow: Dict[str, Any]) -> Dict[str, str]:

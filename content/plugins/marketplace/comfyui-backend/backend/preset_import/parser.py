@@ -60,9 +60,17 @@ class WorkflowNode:
 @dataclass
 class Workflow:
     """A parsed Export (API) workflow. `nodes` preserves the source JSON's
-    key order (node ids as authored, including subgraph ids like "91:65")."""
+    key order (node ids as authored, including subgraph ids like "91:65").
+
+    `unknown_nodes` - only ever non-empty for a workflow that came in as a
+    UI-format import (see `convert.convert_graph`) - lists every node whose
+    class wasn't found in the resolved backend's `/object_info`: the node
+    itself is still fully present in `nodes` (link inputs resolved as
+    normal, widget inputs under best-effort names), this is purely a
+    surfacing list for the analyze/import responses to warn with."""
 
     nodes: Dict[str, WorkflowNode]
+    unknown_nodes: List[Dict[str, Any]] = field(default_factory=list)
 
     def node(self, node_id: str) -> Optional[WorkflowNode]:
         return self.nodes.get(node_id)
@@ -134,12 +142,15 @@ def parse_workflow(data: Dict[str, Any], object_info: Optional[Dict[str, Any]] =
     An API-format workflow parses exactly as `parse_api_workflow` always
     has, `object_info` unused either way. A UI-format workflow (`Workflow ->
     Export`) is converted to the API shape first via
-    `backend.preset_import.convert.graph_to_prompt`, which needs
-    `object_info` (a live server's `GET /object_info`) to map each node's
-    positional `widgets_values` back onto its input names - so a UI-format
-    workflow with no `object_info` given raises the same rejection message
+    `backend.preset_import.convert.convert_graph`, which uses `object_info`
+    (a live server's `GET /object_info`) to map each node's positional
+    `widgets_values` back onto its input names - so a UI-format workflow
+    with no `object_info` given raises the same rejection message
     `parse_api_workflow` always has, rather than attempting a conversion
-    that can't be done correctly without it.
+    that can't be done correctly without a backend to ask at all. A node
+    class `object_info` doesn't recognize (an uninstalled custom node pack)
+    is not the same failure - that node still converts, best-effort, and is
+    listed in the returned `Workflow.unknown_nodes` instead.
     """
     if not isinstance(data, dict) or not data:
         raise WorkflowFormatError("Expected a non-empty ComfyUI workflow JSON object.")
@@ -150,8 +161,11 @@ def parse_workflow(data: Dict[str, Any], object_info: Optional[Dict[str, Any]] =
                 "This is the UI export; use Workflow -> Export (API) in ComfyUI and upload that "
                 "file instead."
             )
-        from .convert import graph_to_prompt  # local import: avoids a module-load cycle
+        from .convert import convert_graph  # local import: avoids a module-load cycle
 
-        return parse_api_workflow(graph_to_prompt(data, object_info))
+        converted = convert_graph(data, object_info)
+        workflow = parse_api_workflow(converted.prompt)
+        workflow.unknown_nodes = converted.unknown_nodes
+        return workflow
 
     return parse_api_workflow(data)

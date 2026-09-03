@@ -19,6 +19,11 @@ Fixtures live in tests/fixtures/*.json:
 - ui_nested_subgraph.json - a subgraph instance whose own body contains an
   instance of another subgraph (`<outer>:<inner>:<node>` id chaining).
 - ui_subgraph_cycle.json - a subgraph containing an instance of itself.
+- ui_unknown_node_named_widgets.json - ui_sdxl_basic.json plus one node
+  (`LTXFloatToInt`) absent from object_info_sdxl.json, with its widget
+  named directly in `inputs[]` (a recent-frontend export).
+- ui_unknown_node_positional_widgets.json - same extra node, but with no
+  widget metadata in `inputs[]` at all (an older export).
 """
 
 import json
@@ -32,7 +37,7 @@ import pytest
 import yaml
 
 from backend import api
-from backend.preset_import.convert import extract_node_groups, graph_to_prompt
+from backend.preset_import.convert import convert_graph, extract_node_groups, graph_to_prompt
 from backend.preset_import.emit import FieldChoice, emit_preset
 from backend.preset_import.parser import WorkflowFormatError, is_ui_format, parse_api_workflow, parse_workflow
 from backend.preset_import.suggest import suggest_fields
@@ -105,12 +110,6 @@ class TestGraphToPrompt:
         assert converted["20"]["inputs"]["guide_size"] == 384.0
         assert converted["20"]["inputs"]["enabled"] is True
         assert converted["20"]["inputs"]["image"] == ["8", 0]
-
-    def test_unknown_node_class_raises(self, object_info):
-        ui = _load("ui_sdxl_basic.json")
-        ui["nodes"][0]["type"] = "SomeUninstalledCustomSampler"
-        with pytest.raises(WorkflowFormatError, match="object_info"):
-            graph_to_prompt(ui, object_info)
 
     def test_bite_check_widget_order_breaks_when_object_info_order_is_shuffled(self, object_info):
         """Confirms the widget-mapping assertions above can actually fail:
@@ -206,6 +205,71 @@ class TestSubgraphFlattening:
     def test_self_referencing_subgraph_raises(self, object_info):
         with pytest.raises(WorkflowFormatError, match="instance of itself"):
             graph_to_prompt(_load("ui_subgraph_cycle.json"), object_info)
+
+
+class TestUnknownNodeDegradesInsteadOfFailing:
+    """A node class absent from /object_info (an uninstalled custom node
+    pack, or a workflow built against a different server) must never fail
+    the whole import - see convert.py's module docstring: the whole point
+    of importing is to see what's missing."""
+
+    def test_named_widgets_from_the_export_are_used_directly(self, object_info):
+        result = convert_graph(_load("ui_unknown_node_named_widgets.json"), object_info)
+        assert result.prompt["99"]["class_type"] == "LTXFloatToInt"
+        assert result.prompt["99"]["inputs"] == {"value": 3.5}
+        assert result.unknown_nodes == [
+            {"node_id": "99", "class_type": "LTXFloatToInt", "title": "Float To Int"}
+        ]
+        # The rest of the graph converts normally around it.
+        assert result.prompt["3"]["class_type"] == "KSampler"
+
+    def test_no_widget_names_at_all_falls_back_to_positional(self, object_info):
+        result = convert_graph(_load("ui_unknown_node_positional_widgets.json"), object_info)
+        assert result.prompt["99"]["inputs"] == {"widget_0": 3.5}
+        assert result.unknown_nodes[0]["class_type"] == "LTXFloatToInt"
+
+    def test_bite_check_named_widgets_are_not_accidentally_positional(self, object_info):
+        """Confirms the first assertion can fail: without reading the
+        export's own widget names, the unknown class's single FLOAT widget
+        would come out under a synthetic name, not its real one."""
+        result = convert_graph(_load("ui_unknown_node_named_widgets.json"), object_info)
+        assert "widget_0" not in result.prompt["99"]["inputs"]
+
+    def test_a_known_class_is_never_listed_as_unknown(self, object_info):
+        result = convert_graph(_load("ui_sdxl_basic.json"), object_info)
+        assert result.unknown_nodes == []
+
+    @pytest.mark.asyncio
+    async def test_import_succeeds_with_a_comfyui_node_requirement_and_a_warning(
+        self, monkeypatch, tmp_path, object_info
+    ):
+        async def _fake_fetch(base_url):
+            return object_info
+
+        monkeypatch.setattr(api, "_fetch_object_info", _fake_fetch)
+        monkeypatch.setattr(api, "_IMPORTED_PRESETS_ROOT", tmp_path)
+
+        ui = _load("ui_unknown_node_named_widgets.json")
+        analyze_body = api.AnalyzeWorkflowRequest(workflow=ui)
+        analysis = await api.analyze_workflow(analyze_body, current_user=None)
+        assert analysis["unknown_nodes"] == [
+            {"node_id": "99", "class_type": "LTXFloatToInt", "title": "Float To Int"}
+        ]
+        assert any("LTXFloatToInt" in w for w in analysis["warnings"])
+
+        fields = [
+            api.ImportFieldChoice(node_id=c["node_id"], input_name=c["input_name"])
+            for c in analysis["candidates"] if c["role"] == "checkpoint"
+        ]
+        import_body = api.ImportWorkflowRequest(
+            workflow=ui, fields=fields, model_family="UnknownNodeTest", variant="v1",
+            display_name="Unknown Node Test",
+        )
+        result = await api.import_workflow(import_body, current_user=None)
+
+        assert any("LTXFloatToInt" in w for w in result["lint"]["warnings"])
+        preset_yml = yaml.safe_load((Path(result["path"]) / "preset.yml").read_text())
+        assert {"type": "comfyui_node", "class_type": "LTXFloatToInt"} in preset_yml["requirements"]
 
 
 class TestExtractNodeGroups:

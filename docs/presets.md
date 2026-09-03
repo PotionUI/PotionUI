@@ -1721,7 +1721,11 @@ If you already have a working ComfyUI graph, don't hand-write the preset — imp
    min/max/step, the actual combo option list, a `suggested_tab` per ComfyUI group the node sat
    in), a `role` (e.g. `prompt`, `sampler_param`, `model`), and whether it's `obvious` enough to
    pre-select — plus the detected `mode`, `node_count`, `sampler_node_id`, any detected
-   `lora_chain`, `format` (`"ui"` or `"api"`), and `object_info_used`.
+   `lora_chain`, `format` (`"ui"` or `"api"`), and `object_info_used`. A node class the resolved
+   backend doesn't recognize (an uninstalled custom node pack) never fails the analysis — it's
+   listed in `unknown_nodes` and echoed as a plain-language entry in `warnings`, and its candidates
+   still appear (widget names taken from the export when it recorded them, best-effort otherwise) so
+   you can see and import around it, then re-import once the node pack is installed.
 
    ```bash
    curl -s -X POST http://localhost:7680/api/plugins/comfyui-backend/presets/import/analyze \

@@ -3,6 +3,7 @@
 	import type { GenerationFile, GenerationHistoryItem } from '$lib/types/history';
 	import MediaPreview from './MediaPreview.svelte';
 	import Icon from './Icon.svelte';
+	import Tooltip from './Tooltip.svelte';
 	import { placeholderTint } from '$lib/utils/placeholderTint';
 	import { resolveMeshFormat } from '$lib/components/workbench/renderers/meshUrl';
 	import StarRating from './StarRating.svelte';
@@ -44,6 +45,9 @@
 	 * an index resolve to the wrong file.
 	 */
 	export let onSelect: ((generation: GenerationHistoryItem, file: GenerationFile | null) => void) | null = null;
+	/** Opt-in "reuse this generation's settings" action, tile mode only (see
+	 *  the reuse block below) — omitted callers get no button at all. */
+	export let onReuse: ((generation: GenerationHistoryItem) => void) | null = null;
 	/**
 	 * Justified-gallery mode: explicit media box in px (native aspect ratio) plus
 	 * a bottom info bar whose chrome scales with tile width (`generationCardChrome.ts`).
@@ -195,6 +199,12 @@
 		e.stopPropagation();
 		e.preventDefault();
 		dispatch('deleteClick', generation);
+	}
+
+	function handleReuseClick(e: Event) {
+		e.stopPropagation();
+		e.preventDefault();
+		onReuse?.(generation);
 	}
 
 	function handleDownloadClick(e: Event) {
@@ -452,6 +462,23 @@
 						{/if}
 					</div>
 				{/if}
+			{/if}
+
+			<!-- Reuse - independent of `showActions` (favorite/view/download/delete):
+			     opt-in per caller via `onReuse`, tile mode only. Top-left, since the
+			     showActions box above already owns top-right. -->
+			{#if tile && onReuse}
+				<div class="absolute top-2 left-2 z-30 opacity-0 group-hover:opacity-100 transition-opacity duration-100">
+					<Tooltip text="Reuse in this tab" position="bottom" delay={150}>
+						<button
+							class="bg-black/70 hover:bg-black/80 text-white rounded-md p-1 backdrop-blur-sm ring-1 ring-inset ring-white/10 transition-colors duration-100"
+							on:click={handleReuseClick}
+							aria-label="Reuse in this tab"
+						>
+							<Icon name="refresh" className="h-3.5 w-3.5" />
+						</button>
+					</Tooltip>
+				</div>
 			{/if}
 
 			<!-- Media type only; the carousel already communicates the file count as 1/N

@@ -1,6 +1,7 @@
 import type { GenerationHistoryItem, ImportBundleReuse } from '$lib/types/history';
 import type { Tab } from '$lib/types/tabs';
 import type { Backend } from '$lib/services/admin-api';
+import { clearedModeStateByMode } from '$lib/utils/modeState';
 
 export interface HistoryReuseResult {
 	/** Partial tab data to hand to `tabsStore.addTabWithData`. */
@@ -87,4 +88,44 @@ export function buildHistoryReuseTabData(
  *  falls back to its normal default-backend resolution. */
 export function buildImportBundleTabData(reuse: ImportBundleReuse): HistoryReuseResult {
 	return buildReuseTabData(reuse, []);
+}
+
+export interface ActiveTabReuseResult extends HistoryReuseResult {
+	/** True when the reused generation's preset differs from the tab's
+	 *  current one — callers drop their own per-tab mode-manifest cache on
+	 *  this so a stale mode list doesn't flash before the new preset's
+	 *  modes load. */
+	presetChanged: boolean;
+}
+
+/** Builds the `Partial<Tab>` patch to reuse a past generation IN PLACE on an
+ *  already-open tab (the generate page's "last generations" drawer), as
+ *  opposed to `buildHistoryReuseTabData`'s new-tab flow. Restores the same
+ *  fields, plus the cross-preset reset `handlePresetChange` applies when a
+ *  user picks a different preset by hand (stale session/segment-collapse/
+ *  per-mode state must not survive onto the reused settings) — applied
+ *  unconditionally, since a reuse is a full state replacement regardless of
+ *  whether the preset itself changed. Applying the result via a single
+ *  `tabsStore.updateTab` call lets the page's existing per-tab mode-manifest
+ *  effect (the one that already validates a freshly-created tab's restored
+ *  mode/variant) pick up a preset change here the same way. */
+export function buildActiveTabReuseUpdate(
+	generation: GenerationHistoryItem,
+	currentTab: Pick<Tab, 'selectedPreset'>,
+	availableBackends: Backend[]
+): ActiveTabReuseResult {
+	const { tabData, backendUnavailable } = buildHistoryReuseTabData(generation, availableBackends);
+	const presetChanged = (tabData.selectedPreset ?? null) !== (currentTab.selectedPreset ?? null);
+
+	const resetFields: Partial<Tab> = {
+		selectedSessionId: null,
+		savedSessionSignature: null,
+		sessionBaselineAwaitingFormNormalization: false,
+		sourcePromptId: null,
+		positiveSegmentsCollapsed: undefined,
+		negativeSegmentsCollapsed: undefined,
+		modeStateByMode: clearedModeStateByMode()
+	};
+
+	return { tabData: { ...resetFields, ...tabData }, backendUnavailable, presetChanged };
 }

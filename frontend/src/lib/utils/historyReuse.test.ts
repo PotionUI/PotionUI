@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { buildHistoryReuseTabData, buildImportBundleTabData } from './historyReuse';
+import {
+	buildHistoryReuseTabData,
+	buildImportBundleTabData,
+	buildActiveTabReuseUpdate
+} from './historyReuse';
 import type { GenerationHistoryItem, ImportBundleReuse } from '$lib/types/history';
 import type { Backend } from '$lib/services/admin-api';
 
@@ -158,5 +162,64 @@ describe('buildImportBundleTabData', () => {
 		const { tabData, backendUnavailable } = buildImportBundleTabData(makeImportReuse());
 		expect(tabData.selectedBackendId).toBeUndefined();
 		expect(backendUnavailable).toBe(false);
+	});
+});
+
+describe('buildActiveTabReuseUpdate', () => {
+	it('mirrors buildHistoryReuseTabData\'s preset/mode/formData/prompt/seed fields', () => {
+		const generation = makeGeneration({ seed: 12345, form_data: { seed: 12345, steps: 30 } });
+		const fresh = buildHistoryReuseTabData(generation, []);
+		const { tabData } = buildActiveTabReuseUpdate(generation, { selectedPreset: null }, []);
+
+		expect(tabData.selectedPreset).toBe(fresh.tabData.selectedPreset);
+		expect(tabData.selectedMode).toBe(fresh.tabData.selectedMode);
+		expect(tabData.selectedVariant).toBe(fresh.tabData.selectedVariant);
+		expect(tabData.formData).toEqual(fresh.tabData.formData);
+		expect(tabData.seed).toBe(fresh.tabData.seed);
+		expect((tabData as any).prompt).toBe((fresh.tabData as any).prompt);
+	});
+
+	it('flags presetChanged when the generation preset differs from the tab', () => {
+		const generation = makeGeneration({ preset_id: 'sdxl/example/base' });
+		const { presetChanged } = buildActiveTabReuseUpdate(
+			generation,
+			{ selectedPreset: 'flux/other/variant' },
+			[]
+		);
+		expect(presetChanged).toBe(true);
+	});
+
+	it('does not flag presetChanged when the tab is already on that preset', () => {
+		const generation = makeGeneration({ preset_id: 'sdxl/example/base' });
+		const { presetChanged } = buildActiveTabReuseUpdate(
+			generation,
+			{ selectedPreset: 'sdxl/example/base' },
+			[]
+		);
+		expect(presetChanged).toBe(false);
+	});
+
+	it('resets cross-preset tab state (session, source prompt, per-mode cache, segment collapse)', () => {
+		const generation = makeGeneration();
+		const { tabData } = buildActiveTabReuseUpdate(generation, { selectedPreset: null }, []);
+
+		expect(tabData.selectedSessionId).toBeNull();
+		expect(tabData.savedSessionSignature).toBeNull();
+		expect(tabData.sessionBaselineAwaitingFormNormalization).toBe(false);
+		expect(tabData.sourcePromptId).toBeNull();
+		expect(tabData.positiveSegmentsCollapsed).toBeUndefined();
+		expect(tabData.negativeSegmentsCollapsed).toBeUndefined();
+		expect(tabData.modeStateByMode).toEqual({});
+	});
+
+	it('preserves backendUnavailable signalling from the underlying reuse builder', () => {
+		const generation = makeGeneration({ backend_id: 'backend-deleted' });
+		const { tabData, backendUnavailable } = buildActiveTabReuseUpdate(
+			generation,
+			{ selectedPreset: null },
+			[makeBackend('backend-1')]
+		);
+		expect(backendUnavailable).toBe(true);
+		expect(tabData.selectedBackendId).toBeUndefined();
 	});
 });

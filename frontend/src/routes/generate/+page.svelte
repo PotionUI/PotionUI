@@ -43,6 +43,10 @@
 	import { resolveVariant } from '$lib/utils/variants';
 	import { isPromptlessMode } from '$lib/utils/promptlessMode';
 	import { toasts } from '$lib/stores/toast';
+	import { getBackends, type Backend } from '$lib/services/admin-api';
+	import { buildActiveTabReuseUpdate } from '$lib/utils/historyReuse';
+	import type { GenerationHistoryItem } from '$lib/types/history';
+	import { timeAgo } from '$lib/utils/relativeTime';
 	import { formValidationStore } from '$lib/stores/formValidation';
 	import { classifyGenerationStartError } from '$lib/utils/formValidationErrors';
 	import { resolveDefaultModeSelection } from '$lib/utils/modeAutoSelect';
@@ -778,6 +782,56 @@
 	// presets, `comma` for every existing image/video preset).
 	function segmentJoinForPreset(presetId: string | null | undefined): SegmentJoin {
 		return presetVars[presetId || '']?.prompt?.segment_join === 'paragraph' ? 'paragraph' : 'comma';
+	}
+
+	// Lazily fetched + cached on first reuse click — only needed to resolve
+	// whether a generation's original backend is still around (mirrors the
+	// history page's own loadAvailableBackends).
+	let availableBackends: Backend[] | null = null;
+	async function loadAvailableBackends(): Promise<Backend[]> {
+		if (availableBackends) return availableBackends;
+		try {
+			const response = await getBackends();
+			availableBackends = response.data ?? [];
+		} catch (error) {
+			console.error('Failed to load backends for generation reuse:', error);
+			availableBackends = [];
+		}
+		return availableBackends;
+	}
+
+	// "Reuse in this tab" from the last-generations drawer — applies a past
+	// generation's preset/mode/form/prompt/seed onto the ACTIVE tab in place
+	// (as opposed to the history page's reuse, which opens a new tab). A
+	// preset switch included in the same `updateTab` call is picked up by the
+	// per-tab mode-manifest effect above exactly as it is for a freshly
+	// created tab, so the form re-renders against the new preset's schema.
+	async function handleReuseInActiveTab(generation: GenerationHistoryItem) {
+		if (!generation.preset_id) return;
+		const tab = currentTab;
+		const backends = await loadAvailableBackends();
+		const { tabData, backendUnavailable, presetChanged } = buildActiveTabReuseUpdate(
+			generation,
+			tab,
+			backends
+		);
+
+		if (presetChanged) {
+			// Drop the stale mode manifest so the mode dropdown doesn't flash the
+			// old preset's modes while the new preset's load — same cleanup
+			// handlePresetChange does on a manual preset pick.
+			delete modesPerTab[tab.id];
+			delete modesPresetPerTab[tab.id];
+			modesPerTab = { ...modesPerTab };
+			modesPresetPerTab = { ...modesPresetPerTab };
+		}
+
+		tabsStore.updateTab(tab.id, tabData);
+
+		if (backendUnavailable) {
+			toasts.info('Original backend is no longer available — using the default backend.');
+		}
+		toasts.success(`Reused generation from ${timeAgo(generation.created_at)}`);
 	}
 
 	function createTabHandlers(tabId: string) {
@@ -1722,6 +1776,7 @@
 				presetId={currentTab.selectedPreset}
 				presetName={presets.find((p: any) => p.id === currentTab.selectedPreset)?.name}
 				refreshSignal={lastGenerationsRefreshSignal}
+				on:reuse={(e) => handleReuseInActiveTab(e.detail)}
 			/>
 		</GenerationPanel>
 		{/key}

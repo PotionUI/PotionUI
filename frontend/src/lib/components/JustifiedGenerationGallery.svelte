@@ -10,6 +10,7 @@
 	export let generations: GenerationHistoryItem[] = [];
 	export let onOpen: (generation: GenerationHistoryItem, fileIndex: number) => void;
 	export let showActions: boolean = false;
+	export let onReuse: ((generation: GenerationHistoryItem) => void) | null = null;
 
 	const GAP = 12;
 	let width = 0;
@@ -53,6 +54,7 @@
 							generation={box.item}
 							tile={{ width: box.width, height: box.height }}
 							{showActions}
+							{onReuse}
 							on:imageClick={handleImageClick}
 							on:viewClick={handleViewClick}
 						/>

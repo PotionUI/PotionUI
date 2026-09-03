@@ -65,6 +65,9 @@ const ANALYZE_RESULT = {
 			role: 'sampler',
 			obvious: false
 		},
+		// Resolution is always a width+height pair sharing one node - the
+		// modal must render this as ONE row, not two (see suggest.py's
+		// "Resolution + batch size" loop).
 		{
 			node_id: '5',
 			class_type: 'EmptyLatentImage',
@@ -73,11 +76,25 @@ const ANALYZE_RESULT = {
 			current_value: 832,
 			value_type: 'int',
 			suggested_field_type: 'resolution',
-			suggested_field_name: 'width',
-			suggested_label: 'Resolution',
+			suggested_field_name: 'resolution',
+			suggested_label: 'Image Resolution',
 			suggested_config: {},
-			role: 'resolution',
-			obvious: false
+			role: 'resolution_width',
+			obvious: true
+		},
+		{
+			node_id: '5',
+			class_type: 'EmptyLatentImage',
+			node_title: 'Empty Latent Image',
+			input_name: 'height',
+			current_value: 1216,
+			value_type: 'int',
+			suggested_field_type: 'resolution',
+			suggested_field_name: 'resolution',
+			suggested_label: 'Image Resolution',
+			suggested_config: {},
+			role: 'resolution_height',
+			obvious: true
 		}
 	]
 };
@@ -161,9 +178,11 @@ describe('ImportWorkflowAction (real compiled dist)', () => {
 				const body = JSON.parse(String(init?.body));
 				expect(body.model_family).toBe('SDXL');
 				expect(body.display_name).toBe('My import');
-				// Only the two obvious candidates are ticked by default.
-				expect(body.fields).toHaveLength(2);
-				expect(body.fields.map((f: any) => f.input_name).sort()).toEqual(['seed', 'steps']);
+				// Only the obvious candidates are ticked by default - width and
+				// height both ride along even though the merged row is one
+				// checkbox.
+				expect(body.fields).toHaveLength(4);
+				expect(body.fields.map((f: any) => f.input_name).sort()).toEqual(['height', 'seed', 'steps', 'width']);
 				return jsonResponse(IMPORT_RESULT);
 			}
 			throw new Error(`Unexpected fetch: ${url}`);
@@ -199,16 +218,22 @@ describe('ImportWorkflowAction (real compiled dist)', () => {
 		expect(dialog!.querySelector('[data-import-detected]')?.textContent).toContain('text2img');
 		expect(dialog!.querySelector('[data-import-detected]')?.textContent).toContain('7 nodes');
 
-		// Obvious candidates (seed, steps) visible and pre-ticked; the other two
-		// collapsed under "More inputs".
+		// Obvious rows (seed, steps, and width+height merged into one
+		// resolution row) visible and pre-ticked; sampler_name collapsed
+		// under "More inputs".
 		let rows = dialog!.querySelectorAll('[data-import-candidates] .candidate-row');
-		expect(rows).toHaveLength(2);
+		expect(rows).toHaveLength(3);
 		rows.forEach((row) => {
 			expect(row.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true);
 		});
 
+		const resolutionRow = Array.from(rows).find((row) => row.textContent?.includes('width × height'));
+		expect(resolutionRow, 'expected one merged width x height row').toBeTruthy();
+		expect(resolutionRow!.textContent).toContain('832 × 1216');
+		expect(resolutionRow!.querySelectorAll('input[type="checkbox"]')).toHaveLength(1);
+
 		const moreToggle = dialog!.querySelector<HTMLButtonElement>('.more-toggle');
-		expect(moreToggle?.textContent).toContain('More inputs (2)');
+		expect(moreToggle?.textContent).toContain('More inputs (1)');
 		moreToggle!.click();
 		await settle();
 		rows = dialog!.querySelectorAll('[data-import-candidates] .candidate-row');

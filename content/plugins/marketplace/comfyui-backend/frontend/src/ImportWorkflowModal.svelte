@@ -35,12 +35,71 @@
 	let createResult = $state(null);
 
 	let reviewing = $derived(analysis !== null);
-	let obviousCandidates = $derived(analysis ? analysis.candidates.filter((c) => c.obvious) : []);
-	let moreCandidates = $derived(analysis ? analysis.candidates.filter((c) => !c.obvious) : []);
+	let allRows = $derived(analysis ? groupRows(analysis.candidates) : []);
+	let obviousRows = $derived(allRows.filter((r) => r.obvious));
+	let moreRows = $derived(allRows.filter((r) => !r.obvious));
 	let canCreate = $derived(!!modelFamily.trim() && !!displayName.trim() && !creating);
 
 	function candidateKey(c) {
 		return `${c.node_id}:${c.input_name}`;
+	}
+
+	// A resolution candidate never appears alone (suggest.py's Resolution +
+	// batch size loop always emits width and height together for the same
+	// node) - shown as one row: one checkbox, one label, one field-type
+	// select. The request to /presets/import still lists both underlying
+	// {node_id, input_name} entries.
+	function groupKeyForCandidate(c) {
+		return c.suggested_field_type === 'resolution' ? `${c.node_id}:resolution` : candidateKey(c);
+	}
+
+	function groupRows(candidates) {
+		const rows = [];
+		const consumed = new Set();
+		for (const c of candidates) {
+			const key = candidateKey(c);
+			if (consumed.has(key)) continue;
+			if (c.suggested_field_type === 'resolution') {
+				const partner = candidates.find(
+					(o) =>
+						o !== c &&
+						o.node_id === c.node_id &&
+						o.suggested_field_type === 'resolution' &&
+						!consumed.has(candidateKey(o))
+				);
+				if (partner) {
+					consumed.add(key);
+					consumed.add(candidateKey(partner));
+					const width = c.input_name === 'width' ? c : partner;
+					const height = c.input_name === 'height' ? c : partner;
+					rows.push({
+						key: groupKeyForCandidate(c),
+						candidates: [width, height],
+						node_title: c.node_title,
+						class_type: c.class_type,
+						obvious: c.obvious,
+						displayInput: 'width × height',
+						displayValue: `${width.current_value} × ${height.current_value}`,
+						suggestedFieldType: c.suggested_field_type,
+						suggestedLabel: c.suggested_label
+					});
+					continue;
+				}
+			}
+			consumed.add(key);
+			rows.push({
+				key: groupKeyForCandidate(c),
+				candidates: [c],
+				node_title: c.node_title,
+				class_type: c.class_type,
+				obvious: c.obvious,
+				displayInput: c.input_name,
+				displayValue: String(c.current_value),
+				suggestedFieldType: c.suggested_field_type,
+				suggestedLabel: c.suggested_label
+			});
+		}
+		return rows;
 	}
 
 	function authHeaders() {
@@ -130,14 +189,16 @@
 			}
 			workflowJson = parsed;
 			analysis = payload;
+			const rows = groupRows(payload.candidates);
 			const nextSelected = new Set();
 			const nextTypes = {};
 			const nextLabels = {};
-			for (const c of payload.candidates) {
-				const key = candidateKey(c);
-				nextTypes[key] = c.suggested_field_type;
-				nextLabels[key] = c.suggested_label;
-				if (c.obvious) nextSelected.add(key);
+			for (const row of rows) {
+				nextTypes[row.key] = row.suggestedFieldType;
+				nextLabels[row.key] = row.suggestedLabel;
+				if (row.obvious) {
+					for (const c of row.candidates) nextSelected.add(candidateKey(c));
+				}
 			}
 			selectedKeys = nextSelected;
 			fieldTypeByKey = nextTypes;
@@ -156,10 +217,13 @@
 		createError = '';
 	}
 
-	function toggleSelected(key) {
+	function toggleRow(row) {
+		const allChecked = row.candidates.every((c) => selectedKeys.has(candidateKey(c)));
 		const next = new Set(selectedKeys);
-		if (next.has(key)) next.delete(key);
-		else next.add(key);
+		for (const c of row.candidates) {
+			if (allChecked) next.delete(candidateKey(c));
+			else next.add(candidateKey(c));
+		}
 		selectedKeys = next;
 	}
 
@@ -171,7 +235,7 @@
 			const fields = analysis.candidates
 				.filter((c) => selectedKeys.has(candidateKey(c)))
 				.map((c) => {
-					const key = candidateKey(c);
+					const key = groupKeyForCandidate(c);
 					return {
 						node_id: c.node_id,
 						input_name: c.input_name,
@@ -245,20 +309,16 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
-{#snippet candidateRow(c)}
-	{@const key = candidateKey(c)}
+{#snippet candidateRow(row)}
+	{@const key = row.key}
+	{@const checked = row.candidates.every((c) => selectedKeys.has(candidateKey(c)))}
 	<label class="candidate-row" for={`import-cb-${key}`}>
-		<input
-			id={`import-cb-${key}`}
-			type="checkbox"
-			checked={selectedKeys.has(key)}
-			onchange={() => toggleSelected(key)}
-		/>
+		<input id={`import-cb-${key}`} type="checkbox" {checked} onchange={() => toggleRow(row)} />
 		<div class="candidate-node">
-			<span class="candidate-title">{c.node_title || c.class_type}</span>
-			<span class="candidate-input mono">{c.input_name}</span>
+			<span class="candidate-title">{row.node_title || row.class_type}</span>
+			<span class="candidate-input mono">{row.displayInput}</span>
 		</div>
-		<span class="candidate-value mono" title={String(c.current_value)}>{String(c.current_value)}</span>
+		<span class="candidate-value mono" title={row.displayValue}>{row.displayValue}</span>
 		<select
 			class="candidate-type"
 			value={fieldTypeByKey[key]}
@@ -349,11 +409,11 @@
 
 				{#if !createResult}
 					<div class="candidate-list" data-import-candidates>
-						{#each obviousCandidates as c (candidateKey(c))}
-							{@render candidateRow(c)}
+						{#each obviousRows as row (row.key)}
+							{@render candidateRow(row)}
 						{/each}
 
-						{#if moreCandidates.length > 0}
+						{#if moreRows.length > 0}
 							<button
 								type="button"
 								class="more-toggle"
@@ -373,11 +433,11 @@
 								>
 									<path stroke-linecap="round" stroke-linejoin="round" d="M9 6l6 6-6 6" />
 								</svg>
-								More inputs ({moreCandidates.length})
+								More inputs ({moreRows.length})
 							</button>
 							{#if moreOpen}
-								{#each moreCandidates as c (candidateKey(c))}
-									{@render candidateRow(c)}
+								{#each moreRows as row (row.key)}
+									{@render candidateRow(row)}
 								{/each}
 							{/if}
 						{/if}

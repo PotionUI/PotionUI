@@ -6309,8 +6309,9 @@ function ImportWorkflowModal($$anchor, $$props) {
     return createClassComponent({ component: ImportWorkflowModal, ...$$anchor });
   push($$props, true);
   append_styles($$anchor, $$css);
-  const candidateRow = ($$anchor2, c = noop) => {
-    const key2 = user_derived(() => candidateKey(c()));
+  const candidateRow = ($$anchor2, row = noop) => {
+    const key2 = user_derived(() => row().key);
+    const checked = user_derived(() => row().candidates.every((c) => get(selectedKeys).has(candidateKey(c))));
     var label = root_1();
     var input = child(label);
     remove_input_defaults(input);
@@ -6356,27 +6357,20 @@ function ImportWorkflowModal($$anchor, $$props) {
     var input_1 = sibling(select, 2);
     remove_input_defaults(input_1);
     reset(label);
-    template_effect(
-      ($0, $1, $2) => {
-        set_attribute2(label, "for", `import-cb-${get(key2)}`);
-        set_attribute2(input, "id", `import-cb-${get(key2)}`);
-        set_checked(input, $0);
-        set_text(text2, c().node_title || c().class_type);
-        set_text(text_1, c().input_name);
-        set_attribute2(span_2, "title", $1);
-        set_text(text_2, $2);
-        if (select_value !== (select_value = get(fieldTypeByKey)[get(key2)])) {
-          select.value = (select.__value = get(fieldTypeByKey)[get(key2)]) ?? "", select_option(select, get(fieldTypeByKey)[get(key2)]);
-        }
-        set_value(input_1, get(labelByKey)[get(key2)]);
-      },
-      [
-        () => get(selectedKeys).has(get(key2)),
-        () => String(c().current_value),
-        () => String(c().current_value)
-      ]
-    );
-    delegated("change", input, () => toggleSelected(get(key2)));
+    template_effect(() => {
+      set_attribute2(label, "for", `import-cb-${get(key2)}`);
+      set_attribute2(input, "id", `import-cb-${get(key2)}`);
+      set_checked(input, get(checked));
+      set_text(text2, row().node_title || row().class_type);
+      set_text(text_1, row().displayInput);
+      set_attribute2(span_2, "title", row().displayValue);
+      set_text(text_2, row().displayValue);
+      if (select_value !== (select_value = get(fieldTypeByKey)[get(key2)])) {
+        select.value = (select.__value = get(fieldTypeByKey)[get(key2)]) ?? "", select_option(select, get(fieldTypeByKey)[get(key2)]);
+      }
+      set_value(input_1, get(labelByKey)[get(key2)]);
+    });
+    delegated("change", input, () => toggleRow(row()));
     delegated("change", select, (e) => set(
       fieldTypeByKey,
       {
@@ -6412,11 +6406,58 @@ function ImportWorkflowModal($$anchor, $$props) {
   let createError = state("");
   let createResult = state(null);
   let reviewing = user_derived(() => get(analysis) !== null);
-  let obviousCandidates = user_derived(() => get(analysis) ? get(analysis).candidates.filter((c) => c.obvious) : []);
-  let moreCandidates = user_derived(() => get(analysis) ? get(analysis).candidates.filter((c) => !c.obvious) : []);
+  let allRows = user_derived(() => get(analysis) ? groupRows(get(analysis).candidates) : []);
+  let obviousRows = user_derived(() => get(allRows).filter((r) => r.obvious));
+  let moreRows = user_derived(() => get(allRows).filter((r) => !r.obvious));
   let canCreate = user_derived(() => !!get(modelFamily).trim() && !!get(displayName).trim() && !get(creating));
   function candidateKey(c) {
     return `${c.node_id}:${c.input_name}`;
+  }
+  function groupKeyForCandidate(c) {
+    return c.suggested_field_type === "resolution" ? `${c.node_id}:resolution` : candidateKey(c);
+  }
+  function groupRows(candidates) {
+    const rows = [];
+    const consumed = /* @__PURE__ */ new Set();
+    for (const c of candidates) {
+      const key2 = candidateKey(c);
+      if (consumed.has(key2))
+        continue;
+      if (c.suggested_field_type === "resolution") {
+        const partner = candidates.find((o) => o !== c && o.node_id === c.node_id && o.suggested_field_type === "resolution" && !consumed.has(candidateKey(o)));
+        if (partner) {
+          consumed.add(key2);
+          consumed.add(candidateKey(partner));
+          const width = c.input_name === "width" ? c : partner;
+          const height = c.input_name === "height" ? c : partner;
+          rows.push({
+            key: groupKeyForCandidate(c),
+            candidates: [width, height],
+            node_title: c.node_title,
+            class_type: c.class_type,
+            obvious: c.obvious,
+            displayInput: "width \xD7 height",
+            displayValue: `${width.current_value} \xD7 ${height.current_value}`,
+            suggestedFieldType: c.suggested_field_type,
+            suggestedLabel: c.suggested_label
+          });
+          continue;
+        }
+      }
+      consumed.add(key2);
+      rows.push({
+        key: groupKeyForCandidate(c),
+        candidates: [c],
+        node_title: c.node_title,
+        class_type: c.class_type,
+        obvious: c.obvious,
+        displayInput: c.input_name,
+        displayValue: String(c.current_value),
+        suggestedFieldType: c.suggested_field_type,
+        suggestedLabel: c.suggested_label
+      });
+    }
+    return rows;
   }
   function authHeaders() {
     const token = typeof localStorage !== "undefined" ? localStorage.getItem("auth_token") : null;
@@ -6502,15 +6543,17 @@ function ImportWorkflowModal($$anchor, $$props) {
       }
       set(workflowJson, parsed, true);
       set(analysis, payload, true);
+      const rows = groupRows(payload.candidates);
       const nextSelected = /* @__PURE__ */ new Set();
       const nextTypes = {};
       const nextLabels = {};
-      for (const c of payload.candidates) {
-        const key2 = candidateKey(c);
-        nextTypes[key2] = c.suggested_field_type;
-        nextLabels[key2] = c.suggested_label;
-        if (c.obvious)
-          nextSelected.add(key2);
+      for (const row of rows) {
+        nextTypes[row.key] = row.suggestedFieldType;
+        nextLabels[row.key] = row.suggestedLabel;
+        if (row.obvious) {
+          for (const c of row.candidates)
+            nextSelected.add(candidateKey(c));
+        }
       }
       set(selectedKeys, nextSelected, true);
       set(fieldTypeByKey, nextTypes, true);
@@ -6527,12 +6570,15 @@ function ImportWorkflowModal($$anchor, $$props) {
     set(createResult, null);
     set(createError, "");
   }
-  function toggleSelected(key2) {
+  function toggleRow(row) {
+    const allChecked = row.candidates.every((c) => get(selectedKeys).has(candidateKey(c)));
     const next2 = new Set(get(selectedKeys));
-    if (next2.has(key2))
-      next2.delete(key2);
-    else
-      next2.add(key2);
+    for (const c of row.candidates) {
+      if (allChecked)
+        next2.delete(candidateKey(c));
+      else
+        next2.add(candidateKey(c));
+    }
     set(selectedKeys, next2, true);
   }
   async function runCreate() {
@@ -6542,7 +6588,7 @@ function ImportWorkflowModal($$anchor, $$props) {
     set(creating, true);
     try {
       const fields = get(analysis).candidates.filter((c) => get(selectedKeys).has(candidateKey(c))).map((c) => {
-        const key2 = candidateKey(c);
+        const key2 = groupKeyForCandidate(c);
         return {
           node_id: c.node_id,
           input_name: c.input_name,
@@ -6716,8 +6762,8 @@ function ImportWorkflowModal($$anchor, $$props) {
           var fragment_3 = root_8();
           var div_8 = first_child(fragment_3);
           var node_4 = child(div_8);
-          each(node_4, 17, () => get(obviousCandidates), (c) => candidateKey(c), ($$anchor4, c) => {
-            candidateRow($$anchor4, () => get(c));
+          each(node_4, 17, () => get(obviousRows), (row) => row.key, ($$anchor4, row) => {
+            candidateRow($$anchor4, () => get(row));
           });
           var node_5 = sibling(node_4, 2);
           {
@@ -6733,8 +6779,8 @@ function ImportWorkflowModal($$anchor, $$props) {
                 var consequent_3 = ($$anchor5) => {
                   var fragment_6 = comment();
                   var node_7 = first_child(fragment_6);
-                  each(node_7, 17, () => get(moreCandidates), (c) => candidateKey(c), ($$anchor6, c) => {
-                    candidateRow($$anchor6, () => get(c));
+                  each(node_7, 17, () => get(moreRows), (row) => row.key, ($$anchor6, row) => {
+                    candidateRow($$anchor6, () => get(row));
                   });
                   append($$anchor5, fragment_6);
                 };
@@ -6746,13 +6792,13 @@ function ImportWorkflowModal($$anchor, $$props) {
               template_effect(() => {
                 set_attribute2(button_3, "aria-expanded", get(moreOpen));
                 classes_1 = set_class(svg, 0, "chevron svelte-i6qxfw", null, classes_1, { open: get(moreOpen) });
-                set_text(text_7, ` More inputs (${get(moreCandidates).length ?? ""})`);
+                set_text(text_7, ` More inputs (${get(moreRows).length ?? ""})`);
               });
               delegated("click", button_3, () => set(moreOpen, !get(moreOpen)));
               append($$anchor4, fragment_5);
             };
             if_block(node_5, ($$render) => {
-              if (get(moreCandidates).length > 0)
+              if (get(moreRows).length > 0)
                 $$render(consequent_4);
             });
           }

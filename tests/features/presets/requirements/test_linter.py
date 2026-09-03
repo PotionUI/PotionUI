@@ -3,9 +3,14 @@ validation - see `PresetLinter._lint_requirements`.
 """
 
 import yaml
+from pydantic import BaseModel, ConfigDict
 
 from src.features.presets.linter import PresetLinter
 from src.platform.plugins.loader import PluginLoader
+from src.platform.plugins.requirement_checkers import (
+    RequirementCheckerRegistration,
+    RequirementCheckerRegistry,
+)
 
 
 def _write_preset(tmp_path, preset_id, requirements_yaml):
@@ -165,3 +170,52 @@ class TestLintRequirementsPluginCheckers:
         warnings = [i for i in issues if i.level == "warning" and "fixture-checker-plugin-3" in i.preset_path]
         assert len(warnings) == 1
         assert "could not import checker backend" in warnings[0].message
+
+
+class _InjectedFixtureSchema(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    type: str
+
+
+class _InjectedFixtureChecker:
+    type = "injected_fixture_check"
+    schema = _InjectedFixtureSchema
+
+    async def check(self, spec, ctx):
+        raise NotImplementedError
+
+
+class TestLintRequirementsInjectedRegistry:
+    """An explicitly-passed `requirement_checker_registry` (the live,
+    process-wide one when linting inside a running app) must be used as-is,
+    taking precedence over building a registry from `plugin_manifests` - the
+    gap that made `lint_preset_dir` report a live-enabled plugin's checker
+    type as unknown."""
+
+    def test_type_registered_only_on_injected_registry_lints_clean(self, tmp_path):
+        registry = RequirementCheckerRegistry()
+        registry.register(RequirementCheckerRegistration(
+            type_name="injected_fixture_check",
+            checker=_InjectedFixtureChecker(),
+            source="fixture-plugin",
+        ))
+        _write_preset(
+            tmp_path, "01JJJJJJJJJJJJJJJJJJJJJJJJJ",
+            "  - type: injected_fixture_check\n",
+        )
+
+        issues = PresetLinter([str(tmp_path)], requirement_checker_registry=registry).lint()
+
+        assert not any("requirements[" in i.message for i in issues)
+
+    def test_type_unknown_to_injected_registry_is_still_an_error(self, tmp_path):
+        registry = RequirementCheckerRegistry()
+        _write_preset(
+            tmp_path, "01KKKKKKKKKKKKKKKKKKKKKKKKK",
+            "  - type: injected_fixture_check\n",
+        )
+
+        issues = PresetLinter([str(tmp_path)], requirement_checker_registry=registry).lint()
+
+        matches = [i for i in issues if i.level == "error" and "unknown type" in i.message]
+        assert len(matches) == 1

@@ -153,13 +153,26 @@ class PresetLinter:
     - duplicate preset ids across the scanned tree
     """
 
-    def __init__(self, paths: List[str], plugin_manifests: Optional[List[Any]] = None):
+    def __init__(
+        self,
+        paths: List[str],
+        plugin_manifests: Optional[List[Any]] = None,
+        requirement_checker_registry: Optional[Any] = None,
+    ):
         """`plugin_manifests`: discovered `PluginManifest`s (see
         `scripts/preset_lint.py`), used only to cross-check `preset_modes:`
         contributions against the presets found under `paths` - a
         plugin outside `paths` can still target a preset inside them. `None`/
         empty skips that cross-check entirely (mirrors how an explicit
-        `paths` invocation already skips plugin-owned `presets:` roots)."""
+        `paths` invocation already skips plugin-owned `presets:` roots).
+
+        `requirement_checker_registry`: an already-built
+        `RequirementCheckerRegistry` to validate `requirements:` entries
+        against - pass the live one (`get_container().requirement_checker_registry`)
+        when linting inside a running app, so a plugin enabled at runtime (not
+        just at boot) is seen. Takes precedence over `plugin_manifests` for
+        that purpose; `None` falls back to building one from
+        `plugin_manifests` (the standalone-script path)."""
         self.paths = [Path(p) for p in paths]
         self.plugin_manifests = plugin_manifests or []
         self._image_processor = ImageProcessor()
@@ -169,8 +182,9 @@ class PresetLinter:
         self._config_spec_cache: Dict[str, Optional[set]] = {}
         # Built lazily by `_requirement_checker_registry`, memoized per linter
         # run - `_req_checker_warnings` is folded into `lint()`'s result once
-        # the registry has been built.
-        self._req_checker_registry = None
+        # the registry has been built. Pre-set here when the caller passed
+        # one in explicitly.
+        self._req_checker_registry = requirement_checker_registry
         self._req_checker_warnings: List[LintIssue] = []
 
     def lint(self) -> List[LintIssue]:
@@ -1290,10 +1304,12 @@ class PresetLinter:
 
     def _requirement_checker_registry(self):
         """The `RequirementCheckerRegistry` to validate `requirements:`
-        entries against - built once per linter run (memoized on `self`,
-        never the process-wide `requirement_checker_registry` singleton, so
-        one lint pass can't leak checkers into another or into whatever else
-        shares that singleton).
+        entries against. If `__init__` was given one explicitly, that is
+        returned as-is (see its docstring - this is how an in-app caller
+        wires in the live process-wide registry). Otherwise built once per
+        linter run and memoized on `self`, never the process-wide
+        `requirement_checker_registry` singleton, so one lint pass can't leak
+        checkers into another or into whatever else shares that singleton.
 
         Unlike `_field_type_registry` (an unknown field type is skipped, not
         an error - see `_lint_field_config_keys`), an unregistered

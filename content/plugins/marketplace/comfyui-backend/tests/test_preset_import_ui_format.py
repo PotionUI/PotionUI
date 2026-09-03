@@ -27,6 +27,8 @@ Fixtures live in tests/fixtures/*.json:
 """
 
 import json
+import os
+import re
 import shutil
 import subprocess
 import sys
@@ -451,7 +453,7 @@ class TestEmitFromUiFormat:
             )
             lint_output = lint_proc.stdout + lint_proc.stderr
             error_lines = [line for line in lint_output.splitlines() if line.startswith("[ERROR]")]
-            assert not error_lines or all("unknown type 'comfyui_" in line for line in error_lines), lint_output
+            assert not error_lines, lint_output
 
             fixture_form = {
                 "seed": 7, "quantity": 1,
@@ -548,3 +550,103 @@ class TestApiRoutesAcceptUiFormat:
 
         preset_dir = Path(result["path"])
         assert (preset_dir / "modes" / "txt2img" / "files" / "workflows" / "txt2img.ui.json").exists()
+
+
+class TestEmittedTabsAreAllReferenced:
+    """Regression for the emitted `children:` Jinja path picking PyYAML's
+    default single-quote style: `tests/features/presets/test_references_tab_layout.py::
+    test_no_tab_body_file_is_orphaned` finds which `tabs/*.yml` a form.yml
+    composes by regexing for a DOUBLE-quoted `children: "..."` value (the
+    hand-authored convention every other preset uses), so a single-quoted
+    emission made every tab file this importer writes look orphaned - it
+    still lints and renders clean, since the YAML parses to the same string
+    either way; only the guard's own text-based scan cared about the quote
+    character."""
+
+    @staticmethod
+    def _assert_all_tabs_referenced(preset_dir: Path) -> None:
+        composed = set()
+        for form in preset_dir.glob("modes/*/form.yml"):
+            for ref in re.findall(r'children:\s*"([^"]+)"', form.read_text()):
+                composed.add(os.path.normpath(ref.replace("{{ paths.preset }}", str(preset_dir))))
+        tab_files = list(preset_dir.glob("modes/*/tabs/*.yml"))
+        assert tab_files, "no tab bodies were emitted - fixture no longer exercises the bug"
+        orphans = [f for f in tab_files if os.path.normpath(str(f)) not in composed]
+        assert orphans == [], f"tab bodies no form.yml composes: {orphans}"
+
+    def test_group_tabs_all_referenced_and_preset_lints_clean(self, object_info, tmp_path):
+        ui = _load("ui_group_custom_node.json")
+        converted = graph_to_prompt(ui, object_info)
+        workflow = parse_api_workflow(converted)
+        node_groups = extract_node_groups(ui)
+        analysis = suggest_fields(workflow, object_info=object_info, node_groups=node_groups)
+        choices = [
+            FieldChoice(node_id=c.node_id, input_name=c.input_name)
+            for c in analysis.candidates
+            if c.role in ("checkpoint", "steps", "cfg", "sampler", "scheduler", "denoise")
+        ]
+
+        result = emit_preset(
+            workflow, choices, model_family="TabReferenceTest", variant="v1",
+            display_name="Tab Reference Test", dest_root=tmp_path / "presets",
+            object_info=object_info, ui_workflow=ui,
+        )
+
+        self._assert_all_tabs_referenced(result.preset_dir)
+
+        lint_proc = subprocess.run(
+            [sys.executable, "scripts/preset_lint.py", str(result.preset_dir)],
+            cwd=REPO_ROOT, capture_output=True, text=True, timeout=120,
+        )
+        lint_output = lint_proc.stdout + lint_proc.stderr
+        error_lines = [line for line in lint_output.splitlines() if line.startswith("[ERROR]")]
+        assert not error_lines or all("unknown type 'comfyui_" in line for line in error_lines), lint_output
+
+    def test_real_ltx25_img2img_export_tabs_all_referenced_lints_and_renders(self):
+        """The exact shape a maintainer's real UI-format import produced:
+        five nested `definitions.subgraphs` instances, two ComfyUI groups,
+        and a `LoadImage` whose widget name comes from `object_info` alone
+        (no `inputs[]` widget markers recorded in this export). Placed under
+        `content/presets/local` (cleaned up after) because `preset_render.py`
+        resolves a preset by id through the normal loader, same as
+        `test_emitted_ui_format_preset_renders_and_lints_clean` above."""
+        ui = _load("ui_ltx25_img2img_real.json")
+        object_info_data = _load("object_info_ltx25_img2img_real.json")
+        workflow = parse_workflow(ui, object_info=object_info_data)
+        analysis = suggest_fields(workflow, object_info=object_info_data)
+        choices = [
+            FieldChoice(node_id=c.node_id, input_name=c.input_name)
+            for c in analysis.candidates if c.role == "image"
+        ]
+        assert choices, "the real export's LoadImage no longer resolves to an image candidate"
+
+        local_root = REPO_ROOT / "content" / "presets" / "local"
+        marker = f"LtxRealImportTest{uuid.uuid4().hex[:12]}"
+        preset_family_dir = local_root / marker
+        try:
+            result = emit_preset(
+                workflow, choices, model_family=marker, variant="v1",
+                display_name="LTX Real Import Test", dest_root=local_root,
+                object_info=object_info_data, ui_workflow=ui,
+            )
+
+            self._assert_all_tabs_referenced(result.preset_dir)
+
+            lint_proc = subprocess.run(
+                [sys.executable, "scripts/preset_lint.py", str(result.preset_dir)],
+                cwd=REPO_ROOT, capture_output=True, text=True, timeout=120,
+            )
+            lint_output = lint_proc.stdout + lint_proc.stderr
+            error_lines = [line for line in lint_output.splitlines() if line.startswith("[ERROR]")]
+            assert not error_lines or all("unknown type 'comfyui_" in line for line in error_lines), lint_output
+
+            render_proc = subprocess.run(
+                [sys.executable, "scripts/preset_render.py", result.preset_id, result.mode, "--json"],
+                cwd=REPO_ROOT, capture_output=True, text=True, timeout=120,
+            )
+            assert render_proc.returncode == 0, render_proc.stdout + render_proc.stderr
+            json_text = render_proc.stdout[render_proc.stdout.index("{"):]
+            record = json.loads(json_text)
+            assert "error" not in record, record
+        finally:
+            shutil.rmtree(preset_family_dir, ignore_errors=True)

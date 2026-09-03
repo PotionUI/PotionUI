@@ -51,6 +51,7 @@ from src.features.presets.requirements.contracts import (
     RequirementContext,
     RequirementResult,
 )
+from src.platform.plugins.runtime_registries import get_container
 
 __all__ = [
     "FilePresetRepository",
@@ -72,8 +73,18 @@ def lint_preset_dir(path: str) -> Tuple[List[str], List[str]]:
     Returns `(errors, warnings)` as formatted strings, exactly like the issues
     `scripts/preset_lint.py` prints and `GET /api/developer/presets/lint`
     returns. Errors mean the preset will fail to load.
+
+    Validates `requirements:` against the live, process-wide requirement
+    checker registry when the app is running - a plugin enabled at runtime
+    (not just at boot) registers its checkers there. Falls back to no
+    registry override (core checkers only) when called before the container
+    exists, e.g. a plugin's own unit tests calling this without booting the app.
     """
-    issues = PresetLinter([str(path)]).lint()
+    try:
+        registry = get_container().requirement_checker_registry
+    except RuntimeError:
+        registry = None
+    issues = PresetLinter([str(path)], requirement_checker_registry=registry).lint()
     errors = [str(issue) for issue in issues if issue.level == "error"]
     warnings = [str(issue) for issue in issues if issue.level == "warning"]
     return errors, warnings

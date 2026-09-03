@@ -1,0 +1,104 @@
+{
+  "KSampler": {
+    "input": {
+      "required": {
+        "model": ["MODEL", {}],
+        "seed": ["INT", {"default": 0, "min": 0, "max": 18446744073709551615, "control_after_generate": true}],
+        "steps": ["INT", {"default": 20, "min": 1, "max": 10000}],
+        "cfg": ["FLOAT", {"default": 8.0, "min": 0.0, "max": 100.0, "step": 0.1, "round": 0.01}],
+        "sampler_name": [["euler", "euler_ancestral", "heun", "dpm_2", "dpm_2_ancestral", "lms", "dpmpp_2m"], {}],
+        "scheduler": [["normal", "karras", "exponential", "simple", "ddim_uniform"], {}],
+        "positive": ["CONDITIONING", {}],
+        "negative": ["CONDITIONING", {}],
+        "latent_image": ["LATENT", {}],
+        "denoise": ["FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}]
+      }
+    },
+    "output": ["LATENT"],
+    "output_name": ["LATENT"],
+    "name": "KSampler",
+    "display_name": "KSampler",
+    "category": "sampling"
+  },
+  "CheckpointLoaderSimple": {
+    "input": {
+      "required": {
+        "ckpt_name": [["sdxlBase_v10.safetensors", "otherCheckpoint.safetensors"], {}]
+      }
+    },
+    "output": ["MODEL", "CLIP", "VAE"],
+    "output_name": ["MODEL", "CLIP", "VAE"],
+    "name": "CheckpointLoaderSimple",
+    "display_name": "Load Checkpoint",
+    "category": "loaders"
+  },
+  "EmptyLatentImage": {
+    "input": {
+      "required": {
+        "width": ["INT", {"default": 512, "min": 16, "max": 8192, "step": 8}],
+        "height": ["INT", {"default": 512, "min": 16, "max": 8192, "step": 8}],
+        "batch_size": ["INT", {"default": 1, "min": 1, "max": 4096}]
+      }
+    },
+    "output": ["LATENT"],
+    "output_name": ["LATENT"],
+    "name": "EmptyLatentImage",
+    "display_name": "Empty Latent Image",
+    "category": "latent"
+  },
+  "CLIPTextEncode": {
+    "input": {
+      "required": {
+        "text": ["STRING", {"multiline": true, "dynamicPrompts": true}],
+        "clip": ["CLIP", {}]
+      }
+    },
+    "output": ["CONDITIONING"],
+    "output_name": ["CONDITIONING"],
+    "name": "CLIPTextEncode",
+    "display_name": "CLIP Text Encode (Prompt)",
+    "category": "conditioning"
+  },
+  "VAEDecode": {
+    "input": {
+      "required": {
+        "samples": ["LATENT", {}],
+        "vae": ["VAE", {}]
+      }
+    },
+    "output": ["IMAGE"],
+    "output_name": ["IMAGE"],
+    "name": "VAEDecode",
+    "display_name": "VAE Decode",
+    "category": "latent"
+  },
+  "SaveImage": {
+    "input": {
+      "required": {
+        "images": ["IMAGE", {}]
+      },
+      "optional": {
+        "filename_prefix": ["STRING", {"default": "ComfyUI"}]
+      }
+    },
+    "output": [],
+    "output_name": [],
+    "name": "SaveImage",
+    "display_name": "Save Image",
+    "category": "image"
+  },
+  "FaceDetailer": {
+    "input": {
+      "required": {
+        "image": ["IMAGE", {}],
+        "guide_size": ["FLOAT", {"default": 256.0, "min": 64.0, "max": 4096.0, "step": 8.0}],
+        "enabled": ["BOOLEAN", {"default": true}]
+      }
+    },
+    "output": ["IMAGE"],
+    "output_name": ["IMAGE"],
+    "name": "FaceDetailer",
+    "display_name": "Face Detailer",
+    "category": "custom_node/detailer"
+  }
+}

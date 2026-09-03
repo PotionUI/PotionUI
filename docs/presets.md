@@ -430,8 +430,10 @@ check couldn't be evaluated here (a 5s per-check timeout, no local GPU reading, 
 registered in this process) and is never treated as `missing`. Results are cached per
 (preset, requirements-block content, resolved backend); pass `?refresh=1` to force a fresh
 evaluation. The preset list/detail endpoints expose the last-evaluated counts as
-`requirements_summary` (`{ok, missing, unknown}`, `null` until first checked) without ever running
-a check themselves.
+`requirements_summary` (`{ok, missing, unknown, optional_missing}`, `null` until first checked)
+without ever running a check themselves. A `missing` entry marked `optional: true` is tallied under
+`optional_missing`, not `missing` - an optional requirement's absence is advisory (see the
+`optional:` field above), so it must not read as a hard failure in a "can I run this here" summary.
 
 `GET /api/presets/{preset_id}/requirements` responds with one item per `requirements:` entry, each
 labeled with its own `type`/`name`/`optional` alongside the check outcome:
@@ -448,9 +450,14 @@ labeled with its own `type`/`name`/`optional` alongside the check outcome:
       "type": "model", "name": "flux-klein-9b", "optional": false,
       "status": "missing", "detail": "no available model tagged 'flux-klein-9b' found in the depot",
       "hint": null, "action": {"kind": "open_downloader", "payload": {"tag": "flux-klein-9b"}}
+    },
+    {
+      "type": "python_package", "name": "xformers>=0.0.28", "optional": true,
+      "status": "missing", "detail": "'xformers' is not installed",
+      "hint": null, "action": null
     }
   ],
-  "summary": {"ok": 1, "missing": 1, "unknown": 0},
+  "summary": {"ok": 1, "missing": 1, "unknown": 0, "optional_missing": 1},
   "checked_at": 1735689600.0
 }
 ```
@@ -1684,25 +1691,35 @@ chapter. `content/plugins/marketplace/comfyui-backend/presets/QwenImage/` adds a
 
 If you already have a working ComfyUI graph, don't hand-write the preset — import it.
 
-1. **Export the right JSON.** In the ComfyUI UI, use **Workflow → Export (API)**, not the plain
-   **Export** / **Save** option. The plain export saves the *UI* graph (node positions, a
-   `links` array of `[id, from, from_slot, to, to_slot, type]` tuples, `widgets_values` arrays with
-   no input names). The API export saves the graph the ComfyUI server actually executes: a flat
-   `{"<node_id>": {"class_type": ..., "inputs": {...}}}` mapping keyed by node id, values addressed
-   by name (`4.inputs.ckpt_name`). That second shape is exactly what `workflow_file` and
-   `field_mappings` below expect — the SDXL preset's
-   `modes/txt2img/files/workflows/txt2img.json` is one, unedited.
+1. **Export the workflow.** In the ComfyUI UI, either **Workflow → Export (API)** or the plain
+   **Export** / **Save** work now. The API export is the graph the ComfyUI server actually
+   executes: a flat `{"<node_id>": {"class_type": ..., "inputs": {...}}}` mapping keyed by node id,
+   values addressed by name (`4.inputs.ckpt_name`) — exactly what `workflow_file` and
+   `field_mappings` below expect, and what the SDXL preset's
+   `modes/txt2img/files/workflows/txt2img.json` is, unedited. The plain export/save is the *UI*
+   graph instead (node positions, a `links` array of `[id, from, from_slot, to, to_slot, type]`
+   tuples, `widgets_values` arrays with no input names) — `backend/preset_import/convert.py`
+   converts this to the API shape before parsing, the same way ComfyUI's own frontend does, but it
+   needs a **reachable ComfyUI backend** to do it: converting a UI-format workflow means asking the
+   server's own `GET /object_info` which `widgets_values` slot is which named input, since the UI
+   export never records that itself. Import fails with a clear message if the resolved backend isn't
+   reachable at that moment — export with **Export (API)** instead, or fix the backend connection
+   first. Either export also fails if the workflow uses ComfyUI **subgraphs** (the node collapses
+   into a UUID `definitions.subgraphs` reference this importer doesn't inline) — export with
+   **Export (API)** for those.
 
 2. **Analyze it.** The `comfyui-backend` plugin exposes two admin-only import endpoints (also
    accessible via the **Import workflow** button in Administration → Presets — see
    "Importing it as a preset" in the user-facing [Bringing Your Own ComfyUI Workflows](user/comfyui-presets.md) page).
-   `POST /api/plugins/comfyui-backend/presets/import/analyze` takes the exported JSON and returns a
-   list of `candidates` — one per detected input, each with its `node_id`, `class_type`,
-   `node_title`, `input_name`, `current_value`, `value_type`, a `suggested_field_type` /
-   `suggested_field_name` / `suggested_label` / `suggested_config`, a `role` (e.g. `prompt`,
-   `sampler_param`, `model`), and whether it's `obvious` enough to pre-select — plus the detected
-   `mode`, `node_count`, `sampler_node_id`, and any detected `lora_chain`. Rejects a plain UI export
-   with a message saying so, rather than trying to import it.
+   `POST /api/plugins/comfyui-backend/presets/import/analyze` takes the exported JSON — either
+   format — and returns a list of `candidates` — one per detected input, each with its `node_id`,
+   `class_type`, `node_title`, `input_name`, `current_value`, `value_type`, a
+   `suggested_field_type` / `suggested_field_name` / `suggested_label` / `suggested_config`
+   (a UI-format workflow's suggestions are enriched from the server's `/object_info` — real
+   min/max/step, the actual combo option list, a `suggested_tab` per ComfyUI group the node sat
+   in), a `role` (e.g. `prompt`, `sampler_param`, `model`), and whether it's `obvious` enough to
+   pre-select — plus the detected `mode`, `node_count`, `sampler_node_id`, any detected
+   `lora_chain`, `format` (`"ui"` or `"api"`), and `object_info_used`.
 
    ```bash
    curl -s -X POST http://localhost:7680/api/plugins/comfyui-backend/presets/import/analyze \
@@ -1751,6 +1768,12 @@ If you already have a working ComfyUI graph, don't hand-write the preset — imp
    (`backend/requirements.py`) — they check the resolved backend's `GET /object_info` and
    `GET /models/{folder}` live, so a missing custom node or model file surfaces on the preset's
    Requirements panel instead of as a mid-generation pipeline error.
+
+   Importing a UI-format workflow also writes the original export as
+   `modes/<mode>/files/workflows/<mode>.ui.json`, kept alongside the converted `<mode>.json` for
+   reference, and — if the source workflow had ComfyUI groups drawn on it — gives each group its
+   own tab (named after the group) instead of dumping every non-foundational field into one
+   "Advanced" tab.
 
 4. **Tweak the generated YAML.** The importer gets you a working skeleton, not a finished preset:
    check which fields you picked up (a "Power Lora Loader"-style single multi-LoRA node, or a

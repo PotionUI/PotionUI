@@ -22,19 +22,21 @@ the first thing to ask your administrator about.
 
 ## Exporting a workflow from ComfyUI
 
-If you built or edited the workflow yourself in ComfyUI's own web interface, you need to export it
-in the right format before PotionUI can use it:
+If you built or edited the workflow yourself in ComfyUI's own web interface, export it before
+handing it to PotionUI:
 
 1. Open the workflow in ComfyUI.
-2. Use the **Workflow** menu, then **Export (API)** — not the plain **Export** option, and not
-   **Save**. Those save the version ComfyUI's editor uses to draw the graph on screen, which PotionUI
-   can't read. **Export (API)** saves the version the ComfyUI *server* actually runs, which is what
-   the import needs.
+2. Use the **Workflow** menu, then either **Export (API)** or the plain **Export** / **Save** —
+   both work. **Export (API)** saves the version the ComfyUI server actually runs; the plain
+   export/save saves the version the editor uses to draw the graph on screen instead, which
+   PotionUI converts for you automatically — but doing that conversion needs your instance's
+   ComfyUI backend to be reachable at import time, since it asks the server what each node's inputs
+   are. If the backend isn't reachable when you import, you'll get an error saying so; either fix
+   the backend connection or re-export with **Export (API)**, which never needs that.
 3. This downloads a `.json` file. That file is what you hand to PotionUI in the next step.
 
-If someone already gave you a workflow `.json` file, check with them (or open it in a text editor
-and look for a `class_type` key on each entry) that it's the API-exported kind — a UI export looks
-noticeably different and won't import.
+A workflow built from ComfyUI **subgraphs** always needs **Export (API)** — the plain export/save
+of a subgraph workflow isn't something PotionUI can convert.
 
 ## Importing it as a preset
 

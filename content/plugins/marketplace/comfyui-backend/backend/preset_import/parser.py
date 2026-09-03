@@ -78,7 +78,7 @@ class Workflow:
         return self.nodes.get(connection[0])
 
 
-def _looks_like_ui_format(data: Dict[str, Any]) -> bool:
+def is_ui_format(data: Dict[str, Any]) -> bool:
     """The ComfyUI UI export (`Workflow > Export`, not `Export (API)`) is a
     single object with top-level `nodes`/`links` arrays, not a node-id keyed
     mapping. `groups`, `last_node_id`, etc. may also be present but nodes/
@@ -98,7 +98,7 @@ def parse_api_workflow(data: Dict[str, Any]) -> Workflow:
     if not isinstance(data, dict) or not data:
         raise WorkflowFormatError("Expected a non-empty ComfyUI workflow JSON object.")
 
-    if _looks_like_ui_format(data):
+    if is_ui_format(data):
         raise WorkflowFormatError(
             "This is the UI export; use Workflow -> Export (API) in ComfyUI and upload that file instead."
         )
@@ -126,3 +126,32 @@ def parse_api_workflow(data: Dict[str, Any]) -> Workflow:
         )
 
     return Workflow(nodes=nodes)
+
+
+def parse_workflow(data: Dict[str, Any], object_info: Optional[Dict[str, Any]] = None) -> Workflow:
+    """Parse either workflow shape a ComfyUI export can be in.
+
+    An API-format workflow parses exactly as `parse_api_workflow` always
+    has, `object_info` unused either way. A UI-format workflow (`Workflow ->
+    Export`) is converted to the API shape first via
+    `backend.preset_import.convert.graph_to_prompt`, which needs
+    `object_info` (a live server's `GET /object_info`) to map each node's
+    positional `widgets_values` back onto its input names - so a UI-format
+    workflow with no `object_info` given raises the same rejection message
+    `parse_api_workflow` always has, rather than attempting a conversion
+    that can't be done correctly without it.
+    """
+    if not isinstance(data, dict) or not data:
+        raise WorkflowFormatError("Expected a non-empty ComfyUI workflow JSON object.")
+
+    if is_ui_format(data):
+        if object_info is None:
+            raise WorkflowFormatError(
+                "This is the UI export; use Workflow -> Export (API) in ComfyUI and upload that "
+                "file instead."
+            )
+        from .convert import graph_to_prompt  # local import: avoids a module-load cycle
+
+        return parse_api_workflow(graph_to_prompt(data, object_info))
+
+    return parse_api_workflow(data)

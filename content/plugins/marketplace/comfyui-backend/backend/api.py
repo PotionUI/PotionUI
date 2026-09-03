@@ -1,8 +1,9 @@
 """ComfyUI Backend plugin API routes."""
 
+import asyncio
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import aiohttp
 from fastapi import APIRouter, Depends, HTTPException
@@ -15,9 +16,15 @@ from src.plugin_api import (
     lint_preset_dir,
 )
 
+from .preset_import.convert import extract_node_groups
 from .preset_import.emit import FieldChoice, PresetEmitError, emit_preset
-from .preset_import.parser import WorkflowFormatError, parse_api_workflow
+from .preset_import.parser import WorkflowFormatError, is_ui_format, parse_workflow
 from .preset_import.suggest import suggest_fields
+
+# How long to wait for a UI-format import's /object_info fetch - the same
+# per-request timeout backend/requirements.py's requirement checkers use for
+# calls to this same server.
+_OBJECT_INFO_TIMEOUT_SECONDS = 5.0
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +56,44 @@ def _get_comfyui_base_url() -> str:
 
     protocol = "https" if secure else "http"
     return f"{protocol}://{host}:{port}"
+
+
+async def _fetch_object_info(base_url: str) -> Dict[str, Any]:
+    """A live ComfyUI server's `GET /object_info`, needed to convert a
+    UI-format workflow (see backend.preset_import.convert.graph_to_prompt)
+    and to enrich its field suggestions (backend.preset_import.suggest)."""
+    timeout = aiohttp.ClientTimeout(total=_OBJECT_INFO_TIMEOUT_SECONDS)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with session.get(f"{base_url}/object_info") as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+async def _parse_incoming_workflow(raw_workflow: Dict[str, Any]) -> Tuple[Any, str, Optional[Dict[str, Any]]]:
+    """Parse either workflow shape the import endpoints accept, returning
+    `(workflow, format, object_info)` - `object_info` is the server response
+    used to convert/enrich a UI-format workflow (`None` for an API-format
+    one), so a caller needing it again (to enrich suggestions, or to record
+    `object_info_used`) doesn't have to refetch it.
+
+    A UI-format workflow needs a reachable ComfyUI backend to convert -
+    unlike `parse_workflow`'s own "no object_info given" rejection (meant
+    for a caller that never tries to fetch one), this is the "we tried and
+    the backend wasn't there" case, so it gets its own message pointing at
+    the two ways to unblock it."""
+    ui_format = is_ui_format(raw_workflow)
+    object_info: Optional[Dict[str, Any]] = None
+    if ui_format:
+        try:
+            object_info = await _fetch_object_info(_get_comfyui_base_url())
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            raise WorkflowFormatError(
+                "A reachable ComfyUI backend is needed to import UI-format workflows; "
+                "use Export (API) or configure the backend"
+            ) from e
+
+    workflow = parse_workflow(raw_workflow, object_info=object_info)
+    return workflow, ("ui" if ui_format else "api"), object_info
 
 
 @router.post("/actions/clear-vram")
@@ -120,31 +165,36 @@ async def list_preset_families(current_user=Depends(get_current_admin_user)):
 async def analyze_workflow(
     body: AnalyzeWorkflowRequest, current_user=Depends(get_current_admin_user)
 ):
-    """Parse an Export (API) ComfyUI workflow and suggest form fields for its
-    configurable node inputs, for the import UI to let an admin tick which
-    ones become preset form fields."""
+    """Parse a ComfyUI workflow - Export (API) or the UI's own Export/Save
+    format - and suggest form fields for its configurable node inputs, for
+    the import UI to let an admin tick which ones become preset form
+    fields. A UI-format workflow additionally needs a reachable ComfyUI
+    backend (fetched here, not cached) to map its widget values and enrich
+    suggestions from the server's own /object_info."""
     try:
-        workflow = parse_api_workflow(body.workflow)
+        workflow, workflow_format, object_info = await _parse_incoming_workflow(body.workflow)
     except WorkflowFormatError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    analysis = suggest_fields(workflow)
-    return analysis.to_dict()
+    node_groups = extract_node_groups(body.workflow) if workflow_format == "ui" else None
+    analysis = suggest_fields(workflow, object_info=object_info, node_groups=node_groups)
+    return {**analysis.to_dict(), "format": workflow_format, "object_info_used": object_info is not None}
 
 
 @router.post("/presets/import")
 async def import_workflow(
     body: ImportWorkflowRequest, current_user=Depends(get_current_admin_user)
 ):
-    """Write a lint-clean preset directory under content/presets/local from an
-    Export (API) ComfyUI workflow plus the admin's field choices (see
-    /presets/import/analyze)."""
+    """Write a lint-clean preset directory under content/presets/local from a
+    ComfyUI workflow - Export (API) or UI format - plus the admin's field
+    choices (see /presets/import/analyze)."""
     try:
-        workflow = parse_api_workflow(body.workflow)
+        workflow, workflow_format, object_info = await _parse_incoming_workflow(body.workflow)
     except WorkflowFormatError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
     choices = [FieldChoice(**choice.model_dump()) for choice in body.fields]
+    ui_workflow = body.workflow if workflow_format == "ui" else None
 
     try:
         result = emit_preset(
@@ -154,6 +204,8 @@ async def import_workflow(
             variant=body.variant,
             display_name=body.display_name,
             dest_root=_IMPORTED_PRESETS_ROOT,
+            object_info=object_info,
+            ui_workflow=ui_workflow,
         )
     except PresetEmitError as e:
         raise HTTPException(status_code=400, detail=str(e))

@@ -28,6 +28,7 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
+from .convert import extract_node_groups
 from .parser import Workflow
 from .suggest import (
     CHECKPOINT_CLASSES,
@@ -75,6 +76,13 @@ _MODEL_ROLES = ("checkpoint", "diffusion_model", "clip", "vae")
 # One path segment: no "/", "\", "..", and no leading dot (so it can't be
 # hidden or resolve as a relative-parent trick on any OS).
 _SAFE_PATH_SEGMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ -]{0,63}$")
+
+
+def _tab_slug(label: str) -> str:
+    """A safe tabs/<slug>.yml filename stem for a ComfyUI group title (or
+    the "Advanced" fallback) - non-alphanumeric runs collapse to one "_"."""
+    slug = re.sub(r"[^A-Za-z0-9]+", "_", label).strip("_").lower()
+    return slug or "advanced"
 
 
 def _validate_path_segment(value: str, field_label: str) -> None:
@@ -212,13 +220,20 @@ def emit_preset(
     variant: str,
     display_name: str,
     dest_root: Path,
+    object_info: Optional[Dict[str, Any]] = None,
+    ui_workflow: Optional[Dict[str, Any]] = None,
 ) -> EmittedPreset:
     if not model_family or not variant:
         raise PresetEmitError("model_family and variant are both required.")
     _validate_path_segment(model_family, "model_family")
     _validate_path_segment(variant, "variant")
 
-    analysis = suggest_fields(workflow)
+    # `object_info`/`ui_workflow` mirror what /presets/import/analyze was
+    # given for this exact workflow, so a UI-format import's candidates -
+    # richer suggested_config, a suggested_tab per ComfyUI group - come out
+    # identical here to what the admin already picked fields from.
+    node_groups = extract_node_groups(ui_workflow) if ui_workflow else None
+    analysis = suggest_fields(workflow, object_info=object_info, node_groups=node_groups)
     mode = analysis.mode
 
     dest_root_resolved = Path(dest_root).resolve()
@@ -368,8 +383,14 @@ def emit_preset(
             }
         )
 
-    advanced_fields: List[Dict[str, Any]] = []
-    for entry in advanced_named_entries:
+    # steps/cfg/sampler/scheduler/denoise and any other chosen literal input
+    # get one tab per ComfyUI group they belonged to in a UI-format import
+    # (candidate.suggested_tab, see suggest.suggest_fields' node_groups
+    # parameter), falling back to a single "Advanced" tab exactly as before
+    # when the source workflow carried no group info (an API-format import,
+    # or a UI-format one with no groups drawn).
+    advanced_fields_by_tab: Dict[str, List[Dict[str, Any]]] = {}
+    for entry in advanced_named_entries + literal_entries:
         candidate = entry["candidate"]
         field: Dict[str, Any] = {
             "name": entry["field_name"],
@@ -379,25 +400,17 @@ def emit_preset(
         }
         if candidate.suggested_config:
             field["configuration"] = dict(candidate.suggested_config)
-        advanced_fields.append(field)
-    for entry in literal_entries:
-        candidate = entry["candidate"]
-        field = {
-            "name": entry["field_name"],
-            "type": entry["field_type"],
-            "label": entry["label"],
-            "default": _yaml_value(candidate.current_value),
-        }
-        advanced_fields.append(field)
+        advanced_fields_by_tab.setdefault(candidate.suggested_tab or "Advanced", []).append(field)
 
-    if advanced_fields:
-        form_files["advanced.yml"] = {"fields": advanced_fields}
+    for tab_label, fields in advanced_fields_by_tab.items():
+        filename = f"{_tab_slug(tab_label)}.yml"
+        form_files[filename] = {"fields": fields}
         tabs.append(
             {
                 "type": "tab",
-                "label": "Advanced",
+                "label": tab_label,
                 "configuration": {"icon": "settings", "icon_display": "icon_only"},
-                "children": "{{ paths.preset }}/modes/" + mode + "/tabs/advanced.yml",
+                "children": "{{ paths.preset }}/modes/" + mode + "/tabs/" + filename,
             }
         )
 
@@ -407,6 +420,11 @@ def emit_preset(
         "form fields drive only the node inputs picked at import time - everything "
         "else keeps the value it had in the source workflow.\n"
     )
+    if ui_workflow is not None:
+        description_md += (
+            f"Imported from a UI-format export; the original `{mode}.ui.json` is kept "
+            f"alongside the converted `{mode}.json` for reference.\n"
+        )
 
     form_yml = {"name": "custom", "fields": [{"type": "tabs", "children": tabs}]}
 
@@ -706,6 +724,8 @@ def emit_preset(
     for filename, data in form_files.items():
         write(tabs_dir / filename, _dump_yaml(data))
     write(workflows_dir / workflow_filename, json.dumps(workflow_out, indent=2) + "\n")
+    if ui_workflow is not None:
+        write(workflows_dir / f"{mode}.ui.json", json.dumps(ui_workflow, indent=2) + "\n")
 
     return EmittedPreset(
         preset_id=preset_id,

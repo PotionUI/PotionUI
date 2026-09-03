@@ -10,7 +10,7 @@ positive/negative prompt is whatever is wired into the sampler's `positive`/
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from .parser import Workflow, WorkflowNode
 
@@ -53,6 +53,7 @@ class InputCandidate:
     suggested_config: Dict[str, Any] = field(default_factory=dict)
     role: str = "literal"
     obvious: bool = False
+    suggested_tab: Optional[str] = None
 
     def key(self) -> tuple:
         return (self.node_id, self.input_name)
@@ -71,6 +72,7 @@ class InputCandidate:
             "suggested_config": self.suggested_config,
             "role": self.role,
             "obvious": self.obvious,
+            "suggested_tab": self.suggested_tab,
         }
 
 
@@ -173,7 +175,77 @@ def _detect_lora_chain(workflow: Workflow, sampler: WorkflowNode) -> Optional[Lo
     )
 
 
-def suggest_fields(workflow: Workflow) -> AnalyzeResult:
+def _find_input_spec(class_info: Dict[str, Any], input_name: str) -> Optional[Tuple[Any, Dict[str, Any]]]:
+    """`(type_spec, config)` for `input_name` in one `/object_info` entry's
+    `input.required`/`input.optional`, or `None` if that entry doesn't
+    declare it (an unrecognized custom-node class, or an input this
+    importer's own structural detection added that the class doesn't
+    actually have - neither should ever crash the enrichment pass)."""
+    input_defs = class_info.get("input") if isinstance(class_info, dict) else None
+    if not isinstance(input_defs, dict):
+        return None
+    for section in ("required", "optional"):
+        section_defs = input_defs.get(section)
+        if not isinstance(section_defs, dict) or input_name not in section_defs:
+            continue
+        spec = section_defs[input_name]
+        if not isinstance(spec, (list, tuple)) or not spec:
+            return None
+        type_spec = spec[0]
+        config = spec[1] if len(spec) > 1 and isinstance(spec[1], dict) else {}
+        return type_spec, config
+    return None
+
+
+def _enrich_with_object_info(
+    candidates: List[InputCandidate], workflow: Workflow, object_info: Dict[str, Any]
+) -> None:
+    """Sharpen each candidate's suggested field using the live server's own
+    declared input schema: real min/max/step for a slider, the actual
+    option list for a combo (rather than this importer's generic
+    `select`/`model` guess), a checkbox for a boolean, and multiline for a
+    text area - independent of which structural role (if any) the candidate
+    already has."""
+    for candidate in candidates:
+        node = workflow.node(candidate.node_id)
+        if node is None:
+            continue
+        class_info = object_info.get(node.class_type)
+        if not isinstance(class_info, dict):
+            continue
+        spec = _find_input_spec(class_info, candidate.input_name)
+        if spec is None:
+            continue
+        type_spec, config = spec
+
+        if isinstance(type_spec, list):
+            if candidate.suggested_field_type not in ("model", "lora_picker"):
+                # The real option list replaces a generic "select" guess's
+                # config outright - a static `file:` pointer and a live
+                # `options:` list would otherwise both be present at once.
+                candidate.suggested_field_type = "select"
+                candidate.suggested_config = {"options": list(type_spec)}
+        elif type_spec in ("INT", "FLOAT"):
+            numeric_config = {k: config[k] for k in ("min", "max", "step") if k in config}
+            if numeric_config:
+                # The server's own bounds are authoritative over this
+                # importer's generic slider guess.
+                candidate.suggested_config = {**candidate.suggested_config, **numeric_config}
+                if candidate.suggested_field_type == "number":
+                    candidate.suggested_field_type = "slider"
+        elif type_spec == "BOOLEAN":
+            candidate.suggested_field_type = "checkbox"
+        elif type_spec == "STRING" and config.get("multiline"):
+            candidate.suggested_field_type = "textbox"
+            candidate.suggested_config = {**candidate.suggested_config, "multiline": True}
+
+
+def suggest_fields(
+    workflow: Workflow,
+    *,
+    object_info: Optional[Dict[str, Any]] = None,
+    node_groups: Optional[Dict[str, str]] = None,
+) -> AnalyzeResult:
     candidates: List[InputCandidate] = []
     claimed: set = set()  # (node_id, input_name) already covered by a structural role
 
@@ -437,6 +509,13 @@ def suggest_fields(workflow: Workflow) -> AnalyzeResult:
                     obvious=False,
                 )
             )
+
+    if object_info:
+        _enrich_with_object_info(candidates, workflow, object_info)
+
+    if node_groups:
+        for candidate in candidates:
+            candidate.suggested_tab = node_groups.get(candidate.node_id)
 
     return AnalyzeResult(
         candidates=candidates,

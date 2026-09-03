@@ -156,22 +156,42 @@ class ModelLoaderQwenPipe(BaseModelLoaderPipe):
 
         models = pipe_input.input.get("MODELS", None)
         progress = ComponentProgress(generation_outputs, models, self.progress_message(), total=3)
+
+        # TE acquisition is deferred to `te_loader`, run at most once by
+        # `QwenClipTextEncoder.encoder` -- the first time `prompt_encoder`
+        # actually misses the prompt-embed cache. See model_loader/krea2's
+        # identical deferral for the full rationale.
+        def te_loader() -> Any:
+            if models is not None:
+                progress.advance("text encoder", f"native/te/{te_path}")
+                return models.acquire(
+                    key=f"native/te/{te_path}", fingerprint=te_fp, loader=load_te,
+                    estimated_vram_gb=file_size_gb(te_path),
+                ).module
+            return load_te().module
+
         if models is not None:
-            progress.advance("text encoder", f"native/te/{te_path}")
-            te_model = models.acquire(key=f"native/te/{te_path}", fingerprint=te_fp, loader=load_te, estimated_vram_gb=file_size_gb(te_path))
             progress.advance("VAE", f"native/vae/{vae_path}")
             vae_model = models.acquire(key=f"native/vae/{vae_path}", fingerprint=vae_fp, loader=load_vae, estimated_vram_gb=file_size_gb(vae_path))
             progress.advance("DiT", f"native/dit/{dit_path}")
             dit_model = models.acquire(key=f"native/dit/{dit_path}", fingerprint=dit_fp, loader=load_dit, estimated_vram_gb=file_size_gb(dit_path))
         else:
+            # No lifecycle service to defer through (isolated pipe use, e.g.
+            # tests) -- load everything up front exactly as before.
             progress.advance("text encoder", f"native/te/{te_path}")
             progress.advance("VAE", f"native/vae/{vae_path}")
             progress.advance("DiT", f"native/dit/{dit_path}")
             te_model, vae_model, dit_model = load_te(), load_vae(), load_dit()
+            return PipeOutput(output={
+                "model": QwenModelBundle(dit=dit_model, te=te_model, vae=vae_model, te_cache_key=f"native/te/{te_path}"),
+                "text_encoder": QwenClipTextEncoder(
+                    te_model.module, device=device, model_fingerprint=f"{te_fp}|{dit_fp}",
+                ),
+            })
 
-        bundle = QwenModelBundle(dit=dit_model, te=te_model, vae=vae_model, te_cache_key=f"native/te/{te_path}")
+        bundle = QwenModelBundle(dit=dit_model, te=None, vae=vae_model, te_cache_key=f"native/te/{te_path}")
         clip = QwenClipTextEncoder(
-            te_model.module, device=device, model_fingerprint=f"{te_fp}|{dit_fp}"
+            device=device, model_fingerprint=f"{te_fp}|{dit_fp}", te_loader=te_loader,
         )
         return PipeOutput(output={"model": bundle, "text_encoder": clip})
 

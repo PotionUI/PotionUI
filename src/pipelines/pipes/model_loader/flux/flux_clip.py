@@ -22,6 +22,13 @@ prompt text are passed through verbatim to the tokenizer.
 — every request that misses the prompt-embed cache is encoded under ONE shared
 GPU-resident window instead of one window per request. See that class's
 docstring for the full rationale.
+
+Deferred TE acquisition: ``model_loader/flux/main.py`` hands this adapter a
+``te_loader`` thunk instead of an already-resolved module (mirroring
+``Krea2ClipTextEncoder``) -- the multi-GB T5-XXL/Qwen3 checkpoint is only
+loaded/acquired the first time ``self.encoder`` is actually read, i.e. the
+first request in a batch that misses the prompt-embed cache. A batch served
+entirely from that cache never touches ``MODELS.acquire()`` for the TE.
 """
 
 from __future__ import annotations
@@ -43,18 +50,35 @@ class FluxClipTextEncoder(SequentialWindowClipTextEncoder):
     ``model_fingerprint`` is surfaced as ``_model_fingerprint`` so the
     ``prompt_encoder`` pipe folds the encoder identity (checkpoint + LoRA set)
     into its conditioning cache key — matching how SDXL's loader tags its clip.
+
+    Pass ``encoder=None`` together with ``te_loader`` to defer the underlying
+    ``MODELS.acquire()`` -- see the module docstring's "Deferred TE
+    acquisition".
     """
 
     def __init__(
         self,
-        encoder: NativeTextEncoder,
+        encoder: Optional[NativeTextEncoder] = None,
         *,
         device: str = "cuda",
         model_fingerprint: Optional[str] = None,
+        te_loader: Optional[Callable[[], NativeTextEncoder]] = None,
     ) -> None:
-        self.encoder = encoder
+        self._encoder = encoder
+        self._te_loader = te_loader
         self.device = device
         self._model_fingerprint = model_fingerprint
+
+    @property
+    def encoder(self) -> NativeTextEncoder:
+        if self._encoder is None and self._te_loader is not None:
+            self._encoder = self._te_loader()
+            self._te_loader = None
+        return self._encoder
+
+    @encoder.setter
+    def encoder(self, value: NativeTextEncoder) -> None:
+        self._encoder = value
 
     def _encode_fn_and_key(self, request: Dict[str, Any]) -> Tuple[Callable[[], Any], Optional[str]]:
         """Build the encode closure + cache key for one request.
@@ -88,8 +112,12 @@ class FluxClipTextEncoder(SequentialWindowClipTextEncoder):
                 neg: Dict[str, Any] = {}
             return pos, neg
 
+        # A static tag, not `self.encoder.role`: reading the live encoder here
+        # would force the deferred `te_loader` to resolve on EVERY request,
+        # hit or miss. `self._model_fingerprint` already encodes the checkpoint
+        # path(s) + dtype that determine the detected variant.
         cache_key = prompt_embed_key(
-            self._model_fingerprint, getattr(self.encoder, "role", None),
+            self._model_fingerprint, "flux_te",
             prompt, negative_prompt, do_classifier_free_guidance,
         )
         return _encode, cache_key

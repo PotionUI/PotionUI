@@ -44,6 +44,10 @@ class WanModelBundle:
     low_dit: Optional[NativeModel] = field(default=WeakModelRef())
     loras_high: List[Dict[str, Any]] = field(default_factory=list)
     loras_low: List[Dict[str, Any]] = field(default_factory=list)
+    # The MODELS cache key `te` was acquired under -- a plain str lookup key,
+    # not a MODELS-cached object (mirrors `FluxModelBundle`/`QwenModelBundle`).
+    # `None` for a bundle built without the MODELS cache (isolated pipe tests).
+    te_cache_key: Optional[str] = None
 
     @property
     def spec(self):

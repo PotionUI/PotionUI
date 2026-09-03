@@ -64,20 +64,44 @@ def test_no_clip_l_in_config():
 
 # -- three-component acquire ----------------------------------------------
 
-def test_three_distinct_acquire_keys():
+def test_process_eagerly_acquires_only_vae_and_dit():
+    """The TE's acquire() is deferred (see QwenClipTextEncoder) -- process()
+    itself must only ever touch VAE + DiT, never the TE."""
     models, out = _run(ModelLoaderQwenPipe(config=_config()))
     keys = [k for k, _ in models.calls]
-    assert len(keys) == 3
-    assert len(set(keys)) == 3
-    assert keys[0] == "native/te//m/te.safetensors"
-    assert keys[1] == "native/vae//m/vae.safetensors"
-    assert keys[2] == "native/dit//m/dit.safetensors"
+    assert len(keys) == 2 and len(set(keys)) == 2
+    assert keys[0] == "native/vae//m/vae.safetensors"
+    assert keys[1] == "native/dit//m/dit.safetensors"
+
+
+def test_te_acquire_deferred_until_encoder_is_read():
+    models, out = _run(ModelLoaderQwenPipe(config=_config()))
+    assert [k for k, _ in models.calls] == [
+        "native/vae//m/vae.safetensors", "native/dit//m/dit.safetensors",
+    ]
+    clip = out.output["text_encoder"]
+    _ = clip.encoder
+    _ = clip.encoder  # a second read must not re-acquire
+    te_calls = [k for k, _ in models.calls if k == "native/te//m/te.safetensors"]
+    assert len(te_calls) == 1
+
+
+def test_te_never_acquired_when_encoder_is_never_read():
+    models, out = _run(ModelLoaderQwenPipe(config=_config()))
+    assert not any(k == "native/te//m/te.safetensors" for k, _ in models.calls)
+    _ = out.output["text_encoder"].encoder
+    assert any(k == "native/te//m/te.safetensors" for k, _ in models.calls)
 
 
 def test_outputs_are_bundle_and_clip():
     _models, out = _run(ModelLoaderQwenPipe(config=_config()))
     assert isinstance(out.output["model"], QwenModelBundle)
     assert isinstance(out.output["text_encoder"], QwenClipTextEncoder)
+
+
+def test_bundle_unload_tolerates_a_never_acquired_te():
+    _models, out = _run(ModelLoaderQwenPipe(config=_config()))
+    out.output["model"].unload()
 
 
 def test_bundle_carries_the_te_cache_key(monkeypatch):
@@ -99,7 +123,8 @@ def test_missing_file_paths_raise():
 # -- fingerprints ----------------------------------------------------------
 
 def _fps(loras):
-    models, _ = _run(ModelLoaderQwenPipe(config=_config(loras=loras)))
+    models, out = _run(ModelLoaderQwenPipe(config=_config(loras=loras)))
+    _ = out.output["text_encoder"].encoder  # force the deferred TE acquire
     return dict(zip([k for k, _ in models.calls], [f for _, f in models.calls]))
 
 
@@ -136,9 +161,11 @@ def test_zero_weight_lora_ignored():
 def test_vision_defaults_off_and_absent_from_fingerprint_is_still_distinguishable():
     # Default (vision unset) and explicit vision=False must fold to the SAME
     # fingerprint -- both mean "no vision tower loaded".
-    models, _ = _run(ModelLoaderQwenPipe(config=_config()))
+    models, out = _run(ModelLoaderQwenPipe(config=_config()))
+    _ = out.output["text_encoder"].encoder
     te_fp_default = dict(models.calls)["native/te//m/te.safetensors"]
-    models2, _ = _run(ModelLoaderQwenPipe(config=_config(vision=False)))
+    models2, out2 = _run(ModelLoaderQwenPipe(config=_config(vision=False)))
+    _ = out2.output["text_encoder"].encoder
     te_fp_explicit_false = dict(models2.calls)["native/te//m/te.safetensors"]
     assert te_fp_default == te_fp_explicit_false
 
@@ -148,7 +175,8 @@ def test_vision_true_changes_only_the_te_fingerprint():
     the SAME text-encoder path must NOT alias to the same model-lifecycle
     cache entry (a stale wrong-variant module would otherwise come back)."""
     no_vision = _fps([])
-    models, _ = _run(ModelLoaderQwenPipe(config=_config(vision=True)))
+    models, out = _run(ModelLoaderQwenPipe(config=_config(vision=True)))
+    _ = out.output["text_encoder"].encoder
     with_vision = dict(models.calls)
 
     te_key = "native/te//m/te.safetensors"

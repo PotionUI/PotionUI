@@ -43,13 +43,14 @@ def test_name_and_outputs():
     assert out["model"] == IOType.MODEL and out["text_encoder"] == IOType.TEXT_ENCODER
 
 
-def test_dual_expert_four_acquires():
+def test_dual_expert_three_eager_acquires():
+    """The TE's acquire() is deferred (see WanClipTextEncoder) -- process()
+    itself must only ever touch high DiT / low DiT / VAE eagerly, never the TE."""
     models, out = _run(_config(dual=True))
     keys = [k for k, _ in models.calls]
     assert keys == [
         "native/dit//m/wan_high.safetensors",
         "native/dit//m/wan_low.safetensors",
-        "native/te//m/umt5.safetensors",
         "native/vae//m/wan_vae.safetensors",
     ]
     bundle = out.output["model"]
@@ -58,12 +59,39 @@ def test_dual_expert_four_acquires():
     assert isinstance(out.output["text_encoder"], WanClipTextEncoder)
 
 
-def test_single_expert_three_acquires():
+def test_single_expert_two_eager_acquires():
     models, out = _run(_config(dual=False))
     keys = [k for k, _ in models.calls]
-    assert len(keys) == 3
+    assert len(keys) == 2
     assert "native/dit//m/wan_low.safetensors" not in keys
+    assert not any(k.startswith("native/te/") for k in keys)
     assert out.output["model"].is_dual_expert is False
+
+
+def test_te_acquire_deferred_until_encoder_is_read():
+    models, out = _run(_config(dual=True))
+    clip = out.output["text_encoder"]
+    _ = clip.encoder
+    _ = clip.encoder  # a second read must not re-acquire
+    te_calls = [k for k, _ in models.calls if k == "native/te//m/umt5.safetensors"]
+    assert len(te_calls) == 1
+
+
+def test_te_never_acquired_when_encoder_is_never_read():
+    models, out = _run(_config(dual=True))
+    assert not any(k == "native/te//m/umt5.safetensors" for k, _ in models.calls)
+    _ = out.output["text_encoder"].encoder
+    assert any(k == "native/te//m/umt5.safetensors" for k, _ in models.calls)
+
+
+def test_bundle_unload_tolerates_a_never_acquired_te():
+    _models, out = _run(_config(dual=True))
+    out.output["model"].unload()
+
+
+def test_bundle_carries_the_te_cache_key():
+    _models, out = _run(_config(dual=True))
+    assert out.output["model"].te_cache_key == "native/te//m/umt5.safetensors"
 
 
 def test_per_expert_loras_bust_only_their_dit():
@@ -73,7 +101,8 @@ def test_per_expert_loras_bust_only_their_dit():
         cfg = _config(dual=True)
         cfg["loras_high"] = loras_high
         cfg["loras_low"] = loras_low
-        models, _ = _run(cfg)
+        models, out = _run(cfg)
+        _ = out.output["text_encoder"].encoder  # force the deferred TE acquire
         return dict(models.calls)
 
     high = "native/dit//m/wan_high.safetensors"
@@ -121,10 +150,12 @@ def test_bundle_lora_stacks_default_empty():
 
 def test_shared_te_vae_keys_are_path_derived():
     # A different DiT but the same TE/VAE path -> same TE/VAE cache keys (reuse).
-    m1, _ = _run(_config(dual=False))
+    m1, out1 = _run(_config(dual=False))
+    _ = out1.output["text_encoder"].encoder
     cfg2 = _config(dual=False)
     cfg2["high_noise_model"] = {"file_path": "/m/other_high.safetensors", "name": "other"}
-    m2, _ = _run(cfg2)
+    m2, out2 = _run(cfg2)
+    _ = out2.output["text_encoder"].encoder
     te1 = next(k for k, _ in m1.calls if k.startswith("native/te/"))
     te2 = next(k for k, _ in m2.calls if k.startswith("native/te/"))
     assert te1 == te2  # shared UMT5 reused across Wan presets

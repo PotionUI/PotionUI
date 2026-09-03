@@ -58,20 +58,42 @@ def test_single_text_encoder_no_clip_l():
     assert {"diffusion_model", "text_encoder", "vae", "loras"} <= names
 
 
-def test_three_distinct_acquire_keys():
+def test_process_eagerly_acquires_only_vae_and_dit():
+    """The TE's acquire() is deferred (see ZImageClipTextEncoder) -- process()
+    itself must only ever touch VAE + DiT, never the TE."""
     models, _ = _run(ModelLoaderZImagePipe(config=_config()))
     keys = [k for k, _ in models.calls]
     assert keys == [
-        "native/te//m/qwen3_4b.safetensors|zimage",
         "native/vae//m/z_image_vae.safetensors",
         "native/dit//m/z_image.safetensors",
     ]
+
+
+def test_te_acquire_deferred_until_encoder_is_read():
+    models, out = _run(ModelLoaderZImagePipe(config=_config()))
+    clip = out.output["text_encoder"]
+    _ = clip.encoder
+    _ = clip.encoder  # a second read must not re-acquire
+    te_calls = [k for k, _ in models.calls if k == "native/te//m/qwen3_4b.safetensors|zimage"]
+    assert len(te_calls) == 1
+
+
+def test_te_never_acquired_when_encoder_is_never_read():
+    models, out = _run(ModelLoaderZImagePipe(config=_config()))
+    assert not any(k == "native/te//m/qwen3_4b.safetensors|zimage" for k, _ in models.calls)
+    _ = out.output["text_encoder"].encoder
+    assert any(k == "native/te//m/qwen3_4b.safetensors|zimage" for k, _ in models.calls)
 
 
 def test_outputs_are_bundle_and_clip():
     _models, out = _run(ModelLoaderZImagePipe(config=_config()))
     assert isinstance(out.output["model"], ZImageModelBundle)
     assert isinstance(out.output["text_encoder"], ZImageClipTextEncoder)
+
+
+def test_bundle_unload_tolerates_a_never_acquired_te():
+    _models, out = _run(ModelLoaderZImagePipe(config=_config()))
+    out.output["model"].unload()
 
 
 def test_bundle_carries_the_te_cache_key():
@@ -90,7 +112,8 @@ def test_missing_file_paths_raise():
 
 
 def _fps(loras):
-    models, _ = _run(ModelLoaderZImagePipe(config=_config(loras=loras)))
+    models, out = _run(ModelLoaderZImagePipe(config=_config(loras=loras)))
+    _ = out.output["text_encoder"].encoder  # force the deferred TE acquire
     return dict(zip([k for k, _ in models.calls], [f for _, f in models.calls]))
 
 

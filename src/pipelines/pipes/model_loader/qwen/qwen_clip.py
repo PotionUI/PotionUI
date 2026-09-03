@@ -26,6 +26,13 @@ the prompt text alone would silently alias two different source images.
 — every request that misses the prompt-embed cache is encoded under ONE shared
 GPU-resident window instead of one window per request. See that class's
 docstring for the full rationale.
+
+Deferred TE acquisition: ``model_loader/qwen/main.py`` hands this adapter a
+``te_loader`` thunk instead of an already-resolved module (mirroring
+``Krea2ClipTextEncoder``) -- the multi-GB Qwen2.5-VL checkpoint is only
+loaded/acquired the first time ``self.encoder`` is actually read, i.e. the
+first request in a batch that misses the prompt-embed cache. A batch served
+entirely from that cache never touches ``MODELS.acquire()`` for the TE.
 """
 
 from __future__ import annotations
@@ -80,14 +87,27 @@ class QwenClipTextEncoder(SequentialWindowClipTextEncoder):
 
     def __init__(
         self,
-        encoder: NativeTextEncoder,
+        encoder: Optional[NativeTextEncoder] = None,
         *,
         device: str = "cuda",
         model_fingerprint: Optional[str] = None,
+        te_loader: Optional[Callable[[], NativeTextEncoder]] = None,
     ) -> None:
-        self.encoder = encoder
+        self._encoder = encoder
+        self._te_loader = te_loader
         self.device = device
         self._model_fingerprint = model_fingerprint
+
+    @property
+    def encoder(self) -> NativeTextEncoder:
+        if self._encoder is None and self._te_loader is not None:
+            self._encoder = self._te_loader()
+            self._te_loader = None
+        return self._encoder
+
+    @encoder.setter
+    def encoder(self, value: NativeTextEncoder) -> None:
+        self._encoder = value
 
     def _encode_fn_and_key(self, request: Dict[str, Any]) -> Tuple[Callable[[], Any], Optional[str]]:
         """Build the encode closure + cache key for one request.
@@ -140,9 +160,11 @@ class QwenClipTextEncoder(SequentialWindowClipTextEncoder):
             # alias to the same cached embedding — see embed_cache.py's
             # image_content_fingerprint docstring for the full hazard.
             key_parts.extend(image_content_fingerprint(img) for img in image_tensors)
-        cache_key = prompt_embed_key(
-            self._model_fingerprint, getattr(self.encoder, "role", None), *key_parts,
-        )
+        # A static tag, not `self.encoder.role`: reading the live encoder here
+        # would force the deferred `te_loader` to resolve on EVERY request,
+        # hit or miss. `self._model_fingerprint` already encodes the
+        # checkpoint path + dtype + vision flag.
+        cache_key = prompt_embed_key(self._model_fingerprint, "qwen_te", *key_parts)
         return _encode, cache_key
 
     def _pack(self, request: Dict[str, Any], result: Any) -> ConditioningModel:

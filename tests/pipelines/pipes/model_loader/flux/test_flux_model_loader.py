@@ -114,14 +114,37 @@ def test_name_and_outputs():
 
 # -- three-component acquire ----------------------------------------------
 
-def test_three_distinct_acquire_keys():
+def test_process_eagerly_acquires_only_vae_and_dit():
+    """The TE's acquire() is deferred (see FluxClipTextEncoder) -- process()
+    itself must only ever touch VAE + DiT, never the TE, so a generation whose
+    whole prompt batch hits the embed cache never loads/acquires it at all."""
     models, _ = _run(ModelLoaderFluxPipe(config=_config()))
     keys = [k for k, _ in models.calls]
-    assert len(keys) == 3
-    assert len(set(keys)) == 3
-    assert keys[0].startswith("native/te/")
-    assert keys[1] == "native/vae//m/vae.safetensors"
-    assert keys[2] == "native/dit//m/dit.safetensors"
+    assert len(keys) == 2 and len(set(keys)) == 2
+    assert keys[0] == "native/vae//m/vae.safetensors"
+    assert keys[1] == "native/dit//m/dit.safetensors"
+
+
+def test_te_acquire_deferred_until_encoder_is_read():
+    models, out = _run(ModelLoaderFluxPipe(config=_config()))
+    assert [k for k, _ in models.calls] == [
+        "native/vae//m/vae.safetensors", "native/dit//m/dit.safetensors",
+    ]
+    clip = out.output["text_encoder"]
+    _ = clip.encoder
+    _ = clip.encoder  # a second read must not re-acquire
+    te_calls = [k for k, _ in models.calls if k.startswith("native/te/")]
+    assert len(te_calls) == 1
+
+
+def test_te_never_acquired_when_encoder_is_never_read():
+    """The direct regression guard for this fix: a batch that never needs the
+    TE (every request served from the embed cache) must never call
+    MODELS.acquire() for it at all."""
+    models, out = _run(ModelLoaderFluxPipe(config=_config()))
+    assert not any(k.startswith("native/te/") for k, _ in models.calls)
+    _ = out.output["text_encoder"].encoder
+    assert any(k.startswith("native/te/") for k, _ in models.calls)
 
 
 def test_outputs_are_bundle_and_clip():
@@ -130,9 +153,15 @@ def test_outputs_are_bundle_and_clip():
     assert isinstance(out.output["text_encoder"], FluxClipTextEncoder)
 
 
+def test_bundle_unload_tolerates_a_never_acquired_te():
+    _models, out = _run(ModelLoaderFluxPipe(config=_config()))
+    out.output["model"].unload()
+
+
 def test_te_key_includes_clip_l_for_flux1():
-    models, _ = _run(ModelLoaderFluxPipe(config=_config()))
-    te_key = models.calls[0][0]
+    models, out = _run(ModelLoaderFluxPipe(config=_config()))
+    _ = out.output["text_encoder"].encoder  # force the deferred acquire
+    te_key = next(k for k, _ in models.calls if k.startswith("native/te/"))
     assert "/m/te.safetensors" in te_key and "/m/clip_l.safetensors" in te_key
 
 
@@ -140,8 +169,9 @@ def test_klein_single_te_no_clip_l():
     # No clip_l -> Klein/Flux2 path; te key still formed, clip_l portion empty.
     cfg = _config()
     cfg["clip_l"] = None
-    models, _ = _run(ModelLoaderFluxPipe(config=cfg))
-    te_key = models.calls[0][0]
+    models, out = _run(ModelLoaderFluxPipe(config=cfg))
+    _ = out.output["text_encoder"].encoder
+    te_key = next(k for k, _ in models.calls if k.startswith("native/te/"))
     assert te_key == "native/te//m/te.safetensors|"
 
 
@@ -150,7 +180,8 @@ def test_bundle_carries_the_te_cache_key():
     match the exact key the TE was acquire()'d under, or evict_dead_weight
     would target the wrong (or no) cache entry."""
     models, out = _run(ModelLoaderFluxPipe(config=_config()))
-    te_key = models.calls[0][0]
+    _ = out.output["text_encoder"].encoder
+    te_key = next(k for k, _ in models.calls if k.startswith("native/te/"))
     assert out.output["model"].te_cache_key == te_key
 
 
@@ -164,7 +195,8 @@ def test_missing_component_raises():
 # -- fingerprints ------------------------------------------------------------
 
 def _fps(loras):
-    models, _ = _run(ModelLoaderFluxPipe(config=_config(loras=loras)))
+    models, out = _run(ModelLoaderFluxPipe(config=_config(loras=loras)))
+    _ = out.output["text_encoder"].encoder  # force the deferred TE acquire
     return dict(zip([k for k, _ in models.calls], [f for _, f in models.calls]))
 
 

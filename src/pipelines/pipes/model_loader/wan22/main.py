@@ -138,17 +138,44 @@ class ModelLoaderWan22Pipe(BaseModelLoaderPipe):
         if low_path:
             progress.advance("low-noise DiT", f"native/dit/{low_path}")
             low_dit = acquire_wan_dit(models, loader, low_path, dtype, loras_low, log_tag="MODEL LOADER WAN")
-        progress.advance("text encoder", f"native/te/{te_path}")
-        te_model = acquire(f"native/te/{te_path}", f"{te_path}|{dtype}", "text_encoder", te_path)
         progress.advance("VAE", f"native/vae/{vae_path}")
         vae_model = acquire(f"native/vae/{vae_path}", f"{vae_path}|{dtype}", "vae", vae_path)
 
+        te_key = f"native/te/{te_path}"
+        te_fp = f"{te_path}|{dtype}"
+        model_fingerprint = f"{te_path}|{high_path}|{low_path or ''}"
+
+        # TE acquisition is deferred to `te_loader`, run at most once by
+        # `WanClipTextEncoder.encoder` -- the first time `prompt_encoder`
+        # actually misses the prompt-embed cache. See model_loader/krea2's
+        # identical deferral for the full rationale.
+        def te_loader() -> Any:
+            if models is not None:
+                progress.advance("text encoder", te_key)
+                return acquire(te_key, te_fp, "text_encoder", te_path).module
+            return loader.load(te_path, "text_encoder").module
+
+        if models is None:
+            # No lifecycle service to defer through (isolated pipe use, e.g.
+            # tests) -- load everything up front exactly as before.
+            progress.advance("text encoder", te_key)
+            te_model = acquire(te_key, te_fp, "text_encoder", te_path)
+            return PipeOutput(output={
+                "model": WanModelBundle(
+                    high_dit=high_dit, te=te_model, vae=vae_model, low_dit=low_dit,
+                    loras_high=loras_high, loras_low=loras_low, te_cache_key=te_key,
+                ),
+                "text_encoder": WanClipTextEncoder(
+                    te_model.module, device=device, model_fingerprint=model_fingerprint,
+                ),
+            })
+
         bundle = WanModelBundle(
-            high_dit=high_dit, te=te_model, vae=vae_model, low_dit=low_dit,
-            loras_high=loras_high, loras_low=loras_low,
+            high_dit=high_dit, te=None, vae=vae_model, low_dit=low_dit,
+            loras_high=loras_high, loras_low=loras_low, te_cache_key=te_key,
         )
         clip = WanClipTextEncoder(
-            te_model.module, device=device, model_fingerprint=f"{te_path}|{high_path}|{low_path or ''}"
+            device=device, model_fingerprint=model_fingerprint, te_loader=te_loader,
         )
         return PipeOutput(output={"model": bundle, "text_encoder": clip})
 

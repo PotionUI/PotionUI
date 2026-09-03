@@ -189,3 +189,66 @@ def test_different_prompt_does_not_hit_the_cache():
     enc.encode_prompt("a dog", "blurry")
 
     assert len(fake.calls) == 4  # both prompts actually encoded
+
+
+# --- deferred TE acquisition (te_loader) ---------------------------------
+
+
+class _CountingLoader:
+    def __init__(self, encoder):
+        self._encoder = encoder
+        self.calls = 0
+
+    def __call__(self):
+        self.calls += 1
+        return self._encoder
+
+
+def test_lazy_encoder_never_resolved_on_a_full_embed_cache_hit():
+    get_prompt_embed_cache().clear()
+    fake = _FakeEncoder()
+    warm_loader = _CountingLoader(fake)
+    ZImageClipTextEncoder(device="cpu", model_fingerprint="fp-hit", te_loader=warm_loader).encode_prompt(
+        "a fox", "", do_classifier_free_guidance=False
+    )
+    assert warm_loader.calls == 1
+
+    cold_loader = _CountingLoader(fake)
+    cond = ZImageClipTextEncoder(device="cpu", model_fingerprint="fp-hit", te_loader=cold_loader).encode_prompt(
+        "a fox", "", do_classifier_free_guidance=False
+    )
+    assert cold_loader.calls == 0
+    assert isinstance(cond, ConditioningModel)
+
+
+def test_lazy_encoder_resolved_once_for_a_batch_of_misses():
+    get_prompt_embed_cache().clear()
+    fake = _FakeEncoder()
+    loader = _CountingLoader(fake)
+    enc = ZImageClipTextEncoder(device="cpu", model_fingerprint="fp-batch", te_loader=loader)
+
+    enc.encode_prompts([
+        {"prompt": "a", "negative_prompt": "", "do_classifier_free_guidance": False},
+        {"prompt": "b", "negative_prompt": "", "do_classifier_free_guidance": False},
+        {"prompt": "c", "negative_prompt": "", "do_classifier_free_guidance": False},
+    ])
+    assert loader.calls == 1
+
+
+def test_lazy_encoder_property_caches_after_first_resolve():
+    fake = _FakeEncoder()
+    loader = _CountingLoader(fake)
+    enc = ZImageClipTextEncoder(device="cpu", te_loader=loader)
+    assert enc.encoder is fake
+    assert enc.encoder is fake
+    assert loader.calls == 1
+
+
+def test_eager_encoder_bypasses_te_loader_entirely():
+    fake = _FakeEncoder()
+
+    def _must_not_run():
+        raise AssertionError("te_loader must not run when encoder is already resolved")
+
+    enc = ZImageClipTextEncoder(fake, device="cpu", te_loader=_must_not_run)
+    assert enc.encoder is fake

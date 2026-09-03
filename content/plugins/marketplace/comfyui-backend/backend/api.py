@@ -7,7 +7,7 @@ import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import aiohttp
 import yaml
@@ -22,7 +22,6 @@ from src.plugin_api import (
 )
 from src.plugin_api.presets import RequirementContext
 
-from .preset_import.convert import extract_node_groups
 from .preset_import.defaults import build_default_form, build_default_history
 from .preset_import.emit import (
     IMPORT_PROVENANCE_PREFIX,
@@ -31,15 +30,10 @@ from .preset_import.emit import (
     _infer_requirements,
     emit_preset,
 )
-from .preset_import.parser import WorkflowFormatError, is_ui_format, parse_workflow
+from .preset_import.parser import Workflow, WorkflowFormatError, parse_api_workflow
 from .preset_import.schema import HistoryEntry, ImportForm, parse_form, parse_history
 from .preset_import.suggest import suggest_fields
 from .requirements import ComfyUIModelChecker, ComfyUINodeChecker
-
-# How long to wait for a UI-format import's /object_info fetch - the same
-# per-request timeout backend/requirements.py's requirement checkers use for
-# calls to this same server.
-_OBJECT_INFO_TIMEOUT_SECONDS = 5.0
 
 logger = logging.getLogger(__name__)
 
@@ -73,42 +67,15 @@ def _get_comfyui_base_url() -> str:
     return f"{protocol}://{host}:{port}"
 
 
-async def _fetch_object_info(base_url: str) -> Dict[str, Any]:
-    """A live ComfyUI server's `GET /object_info`, needed to convert a
-    UI-format workflow (see backend.preset_import.convert.convert_graph)
-    and to enrich its field suggestions (backend.preset_import.suggest)."""
-    timeout = aiohttp.ClientTimeout(total=_OBJECT_INFO_TIMEOUT_SECONDS)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.get(f"{base_url}/object_info") as resp:
-            resp.raise_for_status()
-            return await resp.json()
-
-
-async def _parse_incoming_workflow(raw_workflow: Dict[str, Any]) -> Tuple[Any, str, Optional[Dict[str, Any]]]:
-    """Parse either workflow shape the import endpoints accept, returning
-    `(workflow, format, object_info)` - `object_info` is the server response
-    used to convert/enrich a UI-format workflow (`None` for an API-format
-    one), so a caller needing it again (to enrich suggestions, or to record
-    `object_info_used`) doesn't have to refetch it.
-
-    A UI-format workflow needs a reachable ComfyUI backend to convert -
-    unlike `parse_workflow`'s own "no object_info given" rejection (meant
-    for a caller that never tries to fetch one), this is the "we tried and
-    the backend wasn't there" case, so it gets its own message pointing at
-    the two ways to unblock it."""
-    ui_format = is_ui_format(raw_workflow)
-    object_info: Optional[Dict[str, Any]] = None
-    if ui_format:
-        try:
-            object_info = await _fetch_object_info(_get_comfyui_base_url())
-        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-            raise WorkflowFormatError(
-                "A reachable ComfyUI backend is needed to import UI-format workflows; "
-                "use Export (API) or configure the backend"
-            ) from e
-
-    workflow = parse_workflow(raw_workflow, object_info=object_info)
-    return workflow, ("ui" if ui_format else "api"), object_info
+def _parse_workflow(raw_workflow: Dict[str, Any]) -> Workflow:
+    """Parse a ComfyUI Export (API) workflow for the import endpoints below,
+    raising an HTTP 400 with a teaching message for the ComfyUI UI export
+    (or anything else that isn't a recognizable ComfyUI workflow) - see
+    `parser.parse_api_workflow`."""
+    try:
+        return parse_api_workflow(raw_workflow)
+    except WorkflowFormatError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @dataclass
@@ -176,26 +143,6 @@ async def _check_one_requirement(entry: Dict[str, Any], ctx: RequirementContext)
         logger.exception("Requirement preview check failed for %s", entry)
         return {"type": req_type, "name": name, "status": "unknown", "detail": str(e), "hint": None}
     return {"type": req_type, "name": name, "status": result.status, "detail": result.detail, "hint": result.hint}
-
-
-def _unknown_node_warnings(unknown_nodes: List[Dict[str, Any]]) -> List[str]:
-    """One warning per distinct class in `Workflow.unknown_nodes` - a class
-    /object_info didn't recognize still converts and imports (see
-    backend.preset_import.convert's module docstring), this just tells the
-    admin its fields are a best-effort guess until the node pack is
-    installed and the workflow is re-imported."""
-    seen: set = set()
-    warnings: List[str] = []
-    for entry in unknown_nodes:
-        class_type = entry.get("class_type")
-        if not class_type or class_type in seen:
-            continue
-        seen.add(class_type)
-        warnings.append(
-            f"Node '{class_type}' is not installed on the backend: its widget names were taken "
-            "from the export / guessed — re-import after installing the pack"
-        )
-    return warnings
 
 
 @router.post("/actions/clear-vram")
@@ -268,27 +215,19 @@ async def list_preset_families(current_user=Depends(get_current_admin_user)):
 async def analyze_workflow(
     body: AnalyzeWorkflowRequest, current_user=Depends(get_current_admin_user)
 ):
-    """Parse a ComfyUI workflow - Export (API) or the UI's own Export/Save
-    format - and suggest form fields for its configurable node inputs, for
-    the import UI to let an admin tick which ones become preset form
-    fields. A UI-format workflow additionally needs a reachable ComfyUI
-    backend (fetched here, not cached) to map its widget values and enrich
-    suggestions from the server's own /object_info."""
-    try:
-        workflow, workflow_format, object_info = await _parse_incoming_workflow(body.workflow)
-    except WorkflowFormatError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    """Parse a ComfyUI Export (API) workflow and suggest form fields for its
+    configurable node inputs, for the import UI to let an admin tick which
+    ones become preset form fields."""
+    workflow = _parse_workflow(body.workflow)
 
-    node_groups = extract_node_groups(body.workflow) if workflow_format == "ui" else None
-    analysis = suggest_fields(workflow, object_info=object_info, node_groups=node_groups)
+    object_info: Optional[Dict[str, Any]] = None
+    analysis = suggest_fields(workflow, object_info=object_info)
     default_form = build_default_form(analysis)
     default_history = build_default_history(default_form)
     return {
         **analysis.to_dict(),
-        "format": workflow_format,
+        "format": "api",
         "object_info_used": object_info is not None,
-        "unknown_nodes": workflow.unknown_nodes,
-        "warnings": _unknown_node_warnings(workflow.unknown_nodes),
         "default_form": default_form.model_dump(mode="json"),
         "default_history": [entry.model_dump(mode="json") for entry in default_history],
     }
@@ -304,12 +243,9 @@ async def preview_workflow_requirements(
     the admin has chosen as form fields - the import wizard's Requirements
     step, run before the preset itself exists so there is nothing yet for
     the core preset-requirements evaluator to check against."""
-    try:
-        workflow, _workflow_format, object_info = await _parse_incoming_workflow(body.workflow)
-    except WorkflowFormatError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    workflow = _parse_workflow(body.workflow)
 
-    entries = _infer_requirements(workflow, object_info=object_info)
+    entries = _infer_requirements(workflow)
     ctx = RequirementContext(
         models=None,
         gpu_available=False,
@@ -347,14 +283,9 @@ async def import_workflow(
     body: ImportWorkflowRequest, current_user=Depends(get_current_admin_user)
 ):
     """Write a lint-clean preset directory under content/presets/local from a
-    ComfyUI workflow - Export (API) or UI format - plus the admin's `form`/
-    `history` (see /presets/import/analyze's default_form/default_history)."""
-    try:
-        workflow, workflow_format, object_info = await _parse_incoming_workflow(body.workflow)
-    except WorkflowFormatError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-    ui_workflow = body.workflow if workflow_format == "ui" else None
+    ComfyUI Export (API) workflow plus the admin's `form`/`history` (see
+    /presets/import/analyze's default_form/default_history)."""
+    workflow = _parse_workflow(body.workflow)
 
     try:
         form = parse_form(body.form)
@@ -367,8 +298,6 @@ async def import_workflow(
             variant=body.variant,
             display_name=body.display_name,
             dest_root=_IMPORTED_PRESETS_ROOT,
-            object_info=object_info,
-            ui_workflow=ui_workflow,
             overwrite=bool(body.overwrite_preset_id),
             preset_id=body.overwrite_preset_id,
         )
@@ -376,7 +305,6 @@ async def import_workflow(
         raise HTTPException(status_code=400, detail=str(e))
 
     errors, warnings = lint_preset_dir(str(result.preset_dir))
-    warnings = [*warnings, *_unknown_node_warnings(workflow.unknown_nodes)]
 
     try:
         get_container().preset_template_loader.reload()
@@ -489,11 +417,13 @@ def _find_imported_preset(preset_id: str) -> Optional[_ImportedPresetEntry]:
 
 
 def _read_stored_workflow(entry: _ImportedPresetEntry) -> Dict[str, Any]:
-    """The raw workflow JSON this preset was built from - the UI-format
-    export if one was kept alongside the converted API-format copy
-    (`emit_preset` writes both when the source was UI-format), else the
-    API-format copy itself. `_parse_incoming_workflow` detects which shape
-    it got the same way either way."""
+    """The raw workflow JSON this preset was built from. A preset imported
+    before this importer dropped UI-format support may still have a kept
+    `<mode>.ui.json` alongside the converted `<mode>.json` - that file is
+    still preferred here (same historical source the preset was built from),
+    but `_parse_workflow` now rejects it with the same teaching error a
+    fresh UI-format upload gets, since there is no conversion path left to
+    run it through."""
     if entry.mode is None:
         raise HTTPException(status_code=400, detail="This preset has no recorded mode to reload from.")
     workflows_dir = entry.dir / "modes" / entry.mode / "files" / "workflows"
@@ -545,13 +475,10 @@ async def get_imported_preset_source(preset_id: str, current_user=Depends(get_cu
         raise HTTPException(status_code=404, detail="Imported preset not found.")
 
     raw_workflow = _read_stored_workflow(entry)
-    try:
-        workflow, workflow_format, object_info = await _parse_incoming_workflow(raw_workflow)
-    except WorkflowFormatError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    workflow = _parse_workflow(raw_workflow)
 
-    node_groups = extract_node_groups(raw_workflow) if workflow_format == "ui" else None
-    analysis = suggest_fields(workflow, object_info=object_info, node_groups=node_groups)
+    object_info: Optional[Dict[str, Any]] = None
+    analysis = suggest_fields(workflow, object_info=object_info)
 
     stored_form = entry.sidecar.get("form") if entry.sidecar else None
     stored_history = entry.sidecar.get("history") if entry.sidecar else None
@@ -565,10 +492,8 @@ async def get_imported_preset_source(preset_id: str, current_user=Depends(get_cu
     return {
         "workflow": raw_workflow,
         **analysis.to_dict(),
-        "format": workflow_format,
+        "format": "api",
         "object_info_used": object_info is not None,
-        "unknown_nodes": workflow.unknown_nodes,
-        "warnings": _unknown_node_warnings(workflow.unknown_nodes),
         "model_family": entry.family,
         "variant": entry.variant,
         "display_name": entry.preset_yml.get("name", entry.variant),
@@ -590,10 +515,7 @@ async def reload_imported_preset(preset_id: str, current_user=Depends(get_curren
         raise HTTPException(status_code=404, detail="Imported preset not found.")
 
     raw_workflow = _read_stored_workflow(entry)
-    try:
-        workflow, workflow_format, object_info = await _parse_incoming_workflow(raw_workflow)
-    except WorkflowFormatError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    workflow = _parse_workflow(raw_workflow)
 
     extra_warnings: List[str] = []
     stored_form = entry.sidecar.get("form") if entry.sidecar else None
@@ -602,13 +524,10 @@ async def reload_imported_preset(preset_id: str, current_user=Depends(get_curren
         form = ImportForm.model_validate(stored_form)
         history = [HistoryEntry.model_validate(e) for e in (stored_history or [])]
     else:
-        node_groups = extract_node_groups(raw_workflow) if workflow_format == "ui" else None
-        analysis = suggest_fields(workflow, object_info=object_info, node_groups=node_groups)
+        analysis = suggest_fields(workflow)
         form = build_default_form(analysis)
         history = build_default_history(form)
         extra_warnings.append("re-imported with the default form/history")
-
-    ui_workflow = raw_workflow if workflow_format == "ui" else None
 
     try:
         result = emit_preset(
@@ -619,8 +538,6 @@ async def reload_imported_preset(preset_id: str, current_user=Depends(get_curren
             variant=entry.variant,
             display_name=entry.preset_yml.get("name", entry.variant),
             dest_root=_IMPORTED_PRESETS_ROOT,
-            object_info=object_info,
-            ui_workflow=ui_workflow,
             overwrite=True,
             preset_id=preset_id,
         )
@@ -628,7 +545,7 @@ async def reload_imported_preset(preset_id: str, current_user=Depends(get_curren
         raise HTTPException(status_code=400, detail=str(e))
 
     errors, warnings = lint_preset_dir(str(result.preset_dir))
-    warnings = [*warnings, *_unknown_node_warnings(workflow.unknown_nodes), *extra_warnings]
+    warnings = [*warnings, *extra_warnings]
 
     try:
         get_container().preset_template_loader.reload()

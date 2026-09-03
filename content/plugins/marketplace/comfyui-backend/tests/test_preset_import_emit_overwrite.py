@@ -53,7 +53,6 @@ class TestSidecarWritten:
         assert sidecar_path.exists()
         sidecar = json.loads(sidecar_path.read_text())
         assert sidecar["importer_version"] == IMPORTER_VERSION
-        assert sidecar["format"] == "api"
         assert sidecar["model_family"] == "SidecarTest"
         assert sidecar["variant"] == "v1"
         assert sidecar["display_name"] == "Sidecar Test"
@@ -103,26 +102,6 @@ class TestSidecarWritten:
         assert stored_field["mappings"][0]["node_id"] == checkpoint_candidate.node_id
         assert stored_field["mappings"][0]["input_name"] == checkpoint_candidate.input_name
         assert sidecar["history"] == []
-
-    def test_ui_format_sidecar_points_at_the_ui_json_source_file(self, dest_root):
-        from backend.preset_import.parser import parse_workflow
-        from backend.preset_import.suggest import suggest_fields
-
-        object_info = json.loads((FIXTURES / "object_info_sdxl.json").read_text())
-        ui = _load("ui_sdxl_basic.json")
-        workflow = parse_workflow(ui, object_info=object_info)
-        analysis = suggest_fields(workflow, object_info=object_info)
-        form = _checkpoint_form(analysis)
-
-        result = emit_preset(
-            workflow, form, [], model_family="SidecarUiTest", variant="v1",
-            display_name="Sidecar UI Test", dest_root=dest_root,
-            object_info=object_info, ui_workflow=ui,
-        )
-
-        sidecar = json.loads((result.preset_dir / IMPORT_SIDECAR_FILENAME).read_text())
-        assert sidecar["format"] == "ui"
-        assert sidecar["source_file"] == f"modes/{result.mode}/files/workflows/{result.mode}.ui.json"
 
 
 class TestOverwrite:

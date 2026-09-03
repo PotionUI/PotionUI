@@ -332,7 +332,6 @@ def suggest_fields(
     workflow: Workflow,
     *,
     object_info: Optional[Dict[str, Any]] = None,
-    node_groups: Optional[Dict[str, str]] = None,
 ) -> AnalyzeResult:
     candidates: List[InputCandidate] = []
     claimed: set = set()  # (node_id, input_name) already covered by a structural role
@@ -603,10 +602,6 @@ def suggest_fields(
 
     if object_info:
         _enrich_with_object_info(candidates, workflow, object_info)
-
-    if node_groups:
-        for candidate in candidates:
-            candidate.suggested_tab = node_groups.get(candidate.node_id)
 
     return AnalyzeResult(
         candidates=candidates,

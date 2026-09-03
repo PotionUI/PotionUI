@@ -10,16 +10,27 @@ float, bool, or a list value the node treats as an option, e.g. an image
 batch list) and a connection, which is always a 2-element `[source_node_id,
 output_index]` list where the first element is a string and the second an
 int. `WorkflowNode.connections()` / `literals()` split the two apart.
+
+This importer only ever accepts the Export (API) format. `is_ui_format`
+exists purely so a caller can reject the ComfyUI UI export (`Workflow ->
+Export`, not `Export (API)`) early, with a teaching message pointing at the
+fix, instead of failing deeper with a confusing "no ComfyUI nodes found".
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 
 class WorkflowFormatError(ValueError):
     """The given JSON isn't an Export (API) format ComfyUI workflow."""
+
+
+UI_FORMAT_MESSAGE = (
+    "This is the ComfyUI UI export. Enable Dev mode options in ComfyUI settings and use "
+    "Workflow → Export (API), then import that file."
+)
 
 
 def _is_connection(value: Any) -> bool:
@@ -60,26 +71,18 @@ class WorkflowNode:
 @dataclass
 class Workflow:
     """A parsed Export (API) workflow. `nodes` preserves the source JSON's
-    key order (node ids as authored, including subgraph ids like "91:65").
-
-    `unknown_nodes` - only ever non-empty for a workflow that came in as a
-    UI-format import (see `convert.convert_graph`) - lists every node whose
-    class wasn't found in the resolved backend's `/object_info`: the node
-    itself is still fully present in `nodes` (link inputs resolved as
-    normal, widget inputs under best-effort names), this is purely a
-    surfacing list for the analyze/import responses to warn with."""
+    key order (node ids as authored, including subgraph ids like "91:65")."""
 
     nodes: Dict[str, WorkflowNode]
-    unknown_nodes: List[Dict[str, Any]] = field(default_factory=list)
 
     def node(self, node_id: str) -> Optional[WorkflowNode]:
         return self.nodes.get(node_id)
 
-    def find_by_class(self, *class_types: str) -> List[WorkflowNode]:
+    def find_by_class(self, *class_types: str):
         wanted = set(class_types)
         return [n for n in self.nodes.values() if n.class_type in wanted]
 
-    def find_by_class_prefix(self, prefix: str) -> List[WorkflowNode]:
+    def find_by_class_prefix(self, prefix: str):
         return [n for n in self.nodes.values() if n.class_type.startswith(prefix)]
 
     def resolve(self, connection: Tuple[str, int]) -> Optional[WorkflowNode]:
@@ -107,9 +110,7 @@ def parse_api_workflow(data: Dict[str, Any]) -> Workflow:
         raise WorkflowFormatError("Expected a non-empty ComfyUI workflow JSON object.")
 
     if is_ui_format(data):
-        raise WorkflowFormatError(
-            "This is the UI export; use Workflow -> Export (API) in ComfyUI and upload that file instead."
-        )
+        raise WorkflowFormatError(UI_FORMAT_MESSAGE)
 
     nodes: Dict[str, WorkflowNode] = {}
     for node_id, node_data in data.items():
@@ -134,38 +135,3 @@ def parse_api_workflow(data: Dict[str, Any]) -> Workflow:
         )
 
     return Workflow(nodes=nodes)
-
-
-def parse_workflow(data: Dict[str, Any], object_info: Optional[Dict[str, Any]] = None) -> Workflow:
-    """Parse either workflow shape a ComfyUI export can be in.
-
-    An API-format workflow parses exactly as `parse_api_workflow` always
-    has, `object_info` unused either way. A UI-format workflow (`Workflow ->
-    Export`) is converted to the API shape first via
-    `backend.preset_import.convert.convert_graph`, which uses `object_info`
-    (a live server's `GET /object_info`) to map each node's positional
-    `widgets_values` back onto its input names - so a UI-format workflow
-    with no `object_info` given raises the same rejection message
-    `parse_api_workflow` always has, rather than attempting a conversion
-    that can't be done correctly without a backend to ask at all. A node
-    class `object_info` doesn't recognize (an uninstalled custom node pack)
-    is not the same failure - that node still converts, best-effort, and is
-    listed in the returned `Workflow.unknown_nodes` instead.
-    """
-    if not isinstance(data, dict) or not data:
-        raise WorkflowFormatError("Expected a non-empty ComfyUI workflow JSON object.")
-
-    if is_ui_format(data):
-        if object_info is None:
-            raise WorkflowFormatError(
-                "This is the UI export; use Workflow -> Export (API) in ComfyUI and upload that "
-                "file instead."
-            )
-        from .convert import convert_graph  # local import: avoids a module-load cycle
-
-        converted = convert_graph(data, object_info)
-        workflow = parse_api_workflow(converted.prompt)
-        workflow.unknown_nodes = converted.unknown_nodes
-        return workflow
-
-    return parse_api_workflow(data)

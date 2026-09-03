@@ -209,12 +209,19 @@ describe('ImportWorkflowTab (real compiled dist)', () => {
 		unmount(instance);
 	});
 
-	it('shows the backend message verbatim when a UI-format workflow needs a reachable ComfyUI backend', async () => {
+	it('shows the backend message verbatim, inline, when a ComfyUI UI export is uploaded', async () => {
 		const fetchMock = vi.fn(async (url: string) => {
 			if (url === '/api/fields/types') return jsonResponse({ success: true, data: [] });
 			if (url === '/api/plugins/comfyui-backend/presets/families') return jsonResponse({ families: [] });
 			if (url === '/api/plugins/comfyui-backend/presets/import/analyze') {
-				return jsonResponse({ detail: 'A reachable ComfyUI backend is needed to import UI-format workflows; use Export (API) or configure the backend' }, false, 400);
+				return jsonResponse(
+					{
+						detail:
+							'This is the ComfyUI UI export. Enable Dev mode options in ComfyUI settings and use Workflow → Export (API), then import that file.'
+					},
+					false,
+					400
+				);
 			}
 			throw new Error(`Unexpected fetch: ${url}`);
 		});
@@ -233,7 +240,9 @@ describe('ImportWorkflowTab (real compiled dist)', () => {
 		await settle();
 
 		const error = el.querySelector('[data-import-analyze-error]');
-		expect(error?.textContent).toBe('A reachable ComfyUI backend is needed to import UI-format workflows; use Export (API) or configure the backend');
+		expect(error?.textContent).toBe(
+			'This is the ComfyUI UI export. Enable Dev mode options in ComfyUI settings and use Workflow → Export (API), then import that file.'
+		);
 		expect(el.querySelector('[data-import-form-inputs]')).toBeNull();
 		expect(el.querySelector('[data-wiz-step="source"]')?.className).toContain('current');
 

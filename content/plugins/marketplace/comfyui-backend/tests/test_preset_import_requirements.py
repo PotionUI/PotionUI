@@ -6,9 +6,8 @@ loader still needs its file present to run.
 Every workflow fixture under tests/fixtures/ is built entirely from
 ComfyUI's own built-in node classes, so the `comfyui_node` (custom node)
 tests below inject a synthetic non-core node rather than relying on one -
-except where they use `object_info_sdxl.json` (shared with
-test_preset_import_ui_format.py), whose `FaceDetailer` entry is declared
-non-core there already.
+except where they use `object_info_sdxl.json`, whose `FaceDetailer` entry
+is declared non-core there already.
 """
 
 import json
@@ -93,10 +92,10 @@ class TestNodeRequirementsFromNonCoreClasses:
 
 
 class TestNodeRequirementsFromObjectInfo:
-    """When `object_info` is available at import time (a UI-format import
-    always fetches one), `python_module` per class is authoritative instead
-    of the static allowlist - this is how a core node the allowlist hasn't
-    caught up with yet (e.g. `CFGGuider`) is correctly recognized as core."""
+    """When `object_info` is available, `python_module` per class is
+    authoritative instead of the static allowlist - this is how a core node
+    the allowlist hasn't caught up with yet (e.g. `CFGGuider`) is correctly
+    recognized as core."""
 
     def test_nodes_python_module_is_core(self):
         object_info = {"CFGGuider": {"python_module": "nodes"}}
@@ -145,8 +144,7 @@ class TestNodeRequirementsFromObjectInfo:
         ]
 
     def test_shared_fixture_flags_only_the_custom_node(self):
-        """tests/fixtures/object_info_sdxl.json (also used by
-        test_preset_import_ui_format.py) declares its core classes'
+        """tests/fixtures/object_info_sdxl.json declares its core classes'
         `python_module` as `nodes`/`comfy_extras.*` and FaceDetailer's as
         `custom_nodes.ComfyUI-Impact-Pack` - only FaceDetailer should turn
         into a requirement."""

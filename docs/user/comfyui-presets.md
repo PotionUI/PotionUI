@@ -26,19 +26,16 @@ If you built or edited the workflow yourself in ComfyUI's own web interface, exp
 handing it to PotionUI:
 
 1. Open the workflow in ComfyUI.
-2. Use the **Workflow** menu, then either **Export (API)** or the plain **Export** / **Save** —
-   both work. **Export (API)** saves the version the ComfyUI server actually runs; the plain
-   export/save saves the version the editor uses to draw the graph on screen instead, which
-   PotionUI converts for you automatically — but doing that conversion needs your instance's
-   ComfyUI backend to be reachable at import time, since it asks the server what each node's inputs
-   are. If the backend isn't reachable when you import, you'll get an error saying so; either fix
-   the backend connection or re-export with **Export (API)**, which never needs that.
-3. This downloads a `.json` file. That file is what you hand to PotionUI in the next step.
+2. If you don't see an **Export (API)** option in the **Workflow** menu, turn on **Dev mode
+   options** in ComfyUI's settings first — it's off by default.
+3. Use the **Workflow** menu, then **Export (API)**. This is the version the ComfyUI server
+   actually runs, which is what PotionUI needs; the plain **Export** / **Save** option saves the
+   version the editor uses to draw the graph on screen instead, and PotionUI can't import that —
+   if you upload it, you'll get a message telling you to use **Export (API)** instead.
+4. This downloads a `.json` file. That file is what you hand to PotionUI in the next step.
 
-A workflow built from ComfyUI **subgraphs** works fine with either export option — PotionUI expands
-each subgraph automatically. The only workflow that can't be imported this way is one containing a
-subgraph that (directly or indirectly) contains an instance of itself; that's a rare mistake in how
-the workflow was built, not something to fix by re-exporting.
+A workflow built from ComfyUI **subgraphs** works fine — subgraph node ids come through as-is in an
+Export (API) file, and PotionUI handles them automatically.
 
 ## Importing it as a preset
 

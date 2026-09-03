@@ -103,15 +103,3 @@ class TestPreviewRequirementsInference:
         await api.preview_workflow_requirements(body, current_user=None)
 
         assert seen == {"engine": "comfyui", "base_url": "http://example-comfyui:9999"}
-
-    @pytest.mark.asyncio
-    async def test_ui_format_without_reachable_backend_raises_the_shared_message(self, monkeypatch):
-        async def boom(base_url):
-            raise TimeoutError("no route to host")
-
-        monkeypatch.setattr(api, "_fetch_object_info", boom)
-        body = api.AnalyzeWorkflowRequest(workflow={"nodes": [], "links": []})
-
-        with pytest.raises(Exception) as exc_info:
-            await api.preview_workflow_requirements(body, current_user=None)
-        assert "A reachable ComfyUI backend" in str(exc_info.value.detail)

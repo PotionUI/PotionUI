@@ -30,7 +30,6 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 import yaml
 
-from .convert import extract_node_groups
 from .parser import Workflow
 from .schema import (
     FieldItem,
@@ -56,7 +55,7 @@ IMPORT_PROVENANCE_PREFIX = "Imported from a ComfyUI workflow"
 # endpoints; a preset imported before this sidecar existed simply has none
 # (`GET .../presets/imported`'s `has_sidecar: false`), which is a supported,
 # non-error state - see api.py's reload fallback.
-IMPORTER_VERSION = 2
+IMPORTER_VERSION = 3
 
 # The sidecar file name written alongside preset.yml/description.md - not
 # read by PresetLinter/the preset engine, purely this importer's own record
@@ -462,7 +461,6 @@ def emit_preset(
     display_name: str,
     dest_root: Path,
     object_info: Optional[Dict[str, Any]] = None,
-    ui_workflow: Optional[Dict[str, Any]] = None,
     overwrite: bool = False,
     preset_id: Optional[str] = None,
 ) -> EmittedPreset:
@@ -483,11 +481,10 @@ def emit_preset(
 
     validate_against_workflow(form, history, workflow, object_info=object_info)
 
-    # `object_info`/`ui_workflow` mirror what /presets/import/analyze was
-    # given for this exact workflow - the same structural facts (sampler,
-    # prompts, mode, LoRA chain) analyze/defaults.py used to seed the wizard.
-    node_groups = extract_node_groups(ui_workflow) if ui_workflow else None
-    analysis = suggest_fields(workflow, object_info=object_info, node_groups=node_groups)
+    # `object_info` mirrors what /presets/import/analyze was given for this
+    # exact workflow - the same structural facts (sampler, prompts, mode,
+    # LoRA chain) analyze/defaults.py used to seed the wizard.
+    analysis = suggest_fields(workflow, object_info=object_info)
     mode = analysis.mode
 
     dest_root_resolved = Path(dest_root).resolve()
@@ -523,11 +520,6 @@ def emit_preset(
         "form fields drive only the node inputs the admin mapped at import time - everything "
         "else keeps the value it had in the source workflow.\n"
     )
-    if ui_workflow is not None:
-        description_md += (
-            f"Imported from a UI-format export; the original `{mode}.ui.json` is kept "
-            f"alongside the converted `{mode}.json` for reference.\n"
-        )
 
     # ------------------------------------------------------------------
     # Pipeline
@@ -679,11 +671,9 @@ def emit_preset(
     # re-analyzing with only the "obvious" defaults. Never read by
     # PresetLinter or the preset engine itself.
     # ------------------------------------------------------------------
-    source_filename = f"{mode}.ui.json" if ui_workflow is not None else workflow_filename
     sidecar = {
         "importer_version": IMPORTER_VERSION,
-        "format": "ui" if ui_workflow is not None else "api",
-        "source_file": f"modes/{mode}/files/workflows/{source_filename}",
+        "source_file": f"modes/{mode}/files/workflows/{workflow_filename}",
         "form": form.model_dump(mode="json"),
         "history": [entry.model_dump(mode="json") for entry in history],
         "model_family": model_family,
@@ -722,8 +712,6 @@ def emit_preset(
     for filename, data in form_files.items():
         write(tabs_dir / filename, _dump_yaml(data))
     write(workflows_dir / workflow_filename, json.dumps(workflow_out, indent=2) + "\n")
-    if ui_workflow is not None:
-        write(workflows_dir / f"{mode}.ui.json", json.dumps(ui_workflow, indent=2) + "\n")
 
     return EmittedPreset(
         preset_id=preset_id,

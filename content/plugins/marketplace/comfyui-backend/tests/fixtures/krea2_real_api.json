@@ -1,0 +1,31 @@
+{
+  "1": {
+    "class_type": "Krea2ImageNode",
+    "inputs": {
+      "prompt": "high fashion editorial close-up portrait, tight crop framing from the chest up, low-angle upward shot, a woman with straight bangs, wearing round thin metal sunglasses and large black hoop earrings, wearing a form-fitting opaque black turtleneck sweater, dramatic silhouette lighting, only the face lit by warm red-orange light, body in deep clean black silhouette, head tilted slightly upward, background is a bold deep red to bright orange gradient with a large soft circular sunset light directly behind her, vibrant saturated warm tones, high contrast, cinematic mood, sharp focus on facial features, retro-futuristic vibe, hyperrealistic, fashion photography aesthetic, dramatic shadows, no extra objects, no hands visible, no full body shot",
+      "model": "Krea 2 Medium",
+      "seed": "1:1",
+      "widget_4": "medium",
+      "widget_5": "",
+      "widget_6": 0.35,
+      "widget_7": 1981045336,
+      "widget_8": "randomize"
+    },
+    "_meta": {
+      "title": "Krea2ImageNode"
+    }
+  },
+  "2": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "1",
+        0
+      ],
+      "filename_prefix": "Krea2"
+    },
+    "_meta": {
+      "title": "SaveImage"
+    }
+  }
+}

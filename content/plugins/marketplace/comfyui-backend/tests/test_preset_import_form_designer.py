@@ -15,10 +15,9 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from backend.preset_import.convert import extract_node_groups, graph_to_prompt
 from backend.preset_import.defaults import build_default_form, build_default_history
 from backend.preset_import.emit import PresetEmitError, emit_preset
-from backend.preset_import.parser import parse_api_workflow, parse_workflow
+from backend.preset_import.parser import parse_api_workflow
 from backend.preset_import.schema import (
     FieldItem,
     FieldMapping,
@@ -275,7 +274,7 @@ class TestPromptsAreNeverFormFields:
 
     def _krea2_workflow_and_object_info(self):
         object_info = _load("object_info_krea2_real.json")
-        workflow = parse_workflow(_load("ui_krea2_real.json"), object_info=object_info)
+        workflow = parse_api_workflow(_load("krea2_real_api.json"))
         return workflow, object_info
 
     def test_krea2_prompt_input_is_caught_by_the_name_based_fallback(self):
@@ -313,10 +312,8 @@ class TestPromptsAreNeverFormFields:
 
     def test_ltx25_real_export_also_has_no_prompt_role_field_in_default_form(self):
         object_info = _load("object_info_ltx25_img2img_real.json")
-        ui = _load("ui_ltx25_img2img_real.json")
-        workflow = parse_workflow(ui, object_info=object_info)
-        node_groups = extract_node_groups(ui)
-        analysis = suggest_fields(workflow, object_info=object_info, node_groups=node_groups)
+        workflow = parse_api_workflow(_load("ltx25_img2img_real_api.json"))
+        analysis = suggest_fields(workflow, object_info=object_info)
         form = build_default_form(analysis)
 
         prompt_role_node_inputs = {
@@ -401,7 +398,7 @@ class TestPromptsAreNeverFormFields:
 
         result = emit_preset(
             workflow, form, history, model_family="Krea2PromptWiring", variant="v1", display_name="X",
-            dest_root=dest_root, object_info=object_info, ui_workflow=_load("ui_krea2_real.json"),
+            dest_root=dest_root, object_info=object_info,
         )
         pipeline = yaml.safe_load((result.preset_dir / "modes" / result.mode / "pipeline.yml").read_text())
         comfyui_pipe = next(p for p in pipeline["pipeline"] if p["name"] == "comfyui")
@@ -740,8 +737,7 @@ class TestDefaultFormAndHistory:
         surfaces as a non-obvious "literal" candidate, so default_form is an
         empty Generation tab and default_history is empty too."""
         object_info = _load("object_info_krea2_real.json")
-        ui = _load("ui_krea2_real.json")
-        workflow = parse_workflow(ui, object_info=object_info)
+        workflow = parse_api_workflow(_load("krea2_real_api.json"))
         analysis = suggest_fields(workflow, object_info=object_info)
         form = build_default_form(analysis)
         history = build_default_history(form)
@@ -749,41 +745,6 @@ class TestDefaultFormAndHistory:
         assert [t.id for t in form.tabs] == ["generation"]
         assert form.tabs[0].items == []
         assert history == []
-
-    def test_ltx25_real_export_groups_obvious_fields_by_comfyui_group(self):
-        object_info = _load("object_info_ltx25_img2img_real.json")
-        ui = _load("ui_ltx25_img2img_real.json")
-        workflow = parse_workflow(ui, object_info=object_info)
-        node_groups = extract_node_groups(ui)
-        analysis = suggest_fields(workflow, object_info=object_info, node_groups=node_groups)
-        form = build_default_form(analysis)
-        history = build_default_history(form)
-
-        # The real export's two ComfyUI groups ("Inputs", "Generate") -
-        # only "Inputs" carries an obvious field (the LoadImage), same as
-        # test_preset_import_ui_format.py's TestRealKrea2Export-style checks.
-        tab = next(t for t in form.tabs if t.id == "inputs")
-        assert any(i.kind == "field" and i.field_type == "image" for i in tab.items)
-        # Image fields are never recorded to history ("image inputs off").
-        assert all(h.field != next(i.field_name for i in tab.items if i.kind == "field") for h in history)
-
-    def test_group_titles_produce_one_tab_per_group_with_obvious_fields_split_across_them(self):
-        object_info = _load("object_info_sdxl.json")
-        ui = _load("ui_group_custom_node.json")
-        converted = graph_to_prompt(ui, object_info)
-        workflow = parse_api_workflow(converted)
-        node_groups = extract_node_groups(ui)
-        analysis = suggest_fields(workflow, object_info=object_info, node_groups=node_groups)
-        form = build_default_form(analysis)
-
-        tab_ids = [t.id for t in form.tabs]
-        assert "sampling" in tab_ids
-        assert "generation" in tab_ids
-        sampling_tab = next(t for t in form.tabs if t.id == "sampling")
-        assert {i.field_name for i in sampling_tab.items if i.kind == "field"} == {"steps", "cfg"}
-        generation_tab = next(t for t in form.tabs if t.id == "generation")
-        models_group = next(i for i in generation_tab.items if i.kind == "group")
-        assert "checkpoint" in {f.field_name for f in models_group.items}
 
 
 # ----------------------------------------------------------------------

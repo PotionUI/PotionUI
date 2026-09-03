@@ -6523,7 +6523,7 @@ var root_25 = from_html(`<div class="edit-banner svelte-10v1sym" data-import-edi
 var root_26 = from_html(`<div class="req-loading svelte-10v1sym"><span class="spinner svelte-10v1sym" aria-hidden="true"></span>Loading the preset's source workflow\u2026</div>`);
 var root_27 = from_html(`<p class="message message-error svelte-10v1sym" data-import-analyze-error=""> </p>`);
 var root_28 = from_html(`<p class="desc svelte-10v1sym">This preset's stored workflow is already loaded - Continue to keep it, or load a different one.</p> <div class="detected-strip svelte-10v1sym" data-import-detected=""><span class="chip chip-info svelte-10v1sym" data-import-format=""> </span> <span class="dim svelte-10v1sym">\xB7</span> <span class="mono svelte-10v1sym"> </span> <span class="dim svelte-10v1sym">\xB7</span> <span>Loaded from the existing preset</span> <button type="button" class="link-btn strip-end svelte-10v1sym">Change workflow</button></div> <!>`, 1);
-var root_29 = from_html(`<p class="desc svelte-10v1sym">Paste or drop a ComfyUI workflow \u2014 the plain workflow JSON or Export (API).</p> <div role="group" aria-label="Workflow JSON"><textarea rows="12" data-import-json-input="" class="svelte-10v1sym"></textarea> <div class="dropzone-footer svelte-10v1sym"><span class="dim svelte-10v1sym">or</span> <button type="button" class="link-btn svelte-10v1sym">choose a .json file</button> <input type="file" accept=".json,application/json" class="file-input-hidden svelte-10v1sym"/></div></div> <!>`, 1);
+var root_29 = from_html(`<p class="desc svelte-10v1sym">Paste or drop a ComfyUI Export (API) workflow JSON. In ComfyUI, enable Dev mode options in settings, then use Workflow \u2192 Export (API).</p> <div role="group" aria-label="Workflow JSON"><textarea rows="12" data-import-json-input="" class="svelte-10v1sym"></textarea> <div class="dropzone-footer svelte-10v1sym"><span class="dim svelte-10v1sym">or</span> <button type="button" class="link-btn svelte-10v1sym">choose a .json file</button> <input type="file" accept=".json,application/json" class="file-input-hidden svelte-10v1sym"/></div></div> <!>`, 1);
 var root_30 = from_html(`<h3 class="svelte-10v1sym">Choose a workflow</h3> <!>`, 1);
 var root_31 = from_html(`<span class="dim svelte-10v1sym">\xB7</span> <span class="dim svelte-10v1sym" data-import-object-info-used="">ranges + options from your ComfyUI</span>`, 1);
 var root_32 = from_html(`<span class="dim svelte-10v1sym">\xB7</span> <span class="chip chip-info svelte-10v1sym">LoRA chain found</span>`, 1);
@@ -7996,7 +7996,7 @@ function ImportWorkflowTab($$anchor, $$props) {
       var div_26 = root_23();
       var text_11 = child(div_26);
       reset(div_26);
-      template_effect(() => set_text(text_11, `${get(analysis).format === "ui" ? "export (ui)" : "export (api)"} \xB7 ${get(analysis).node_count ?? ""} nodes`));
+      template_effect(() => set_text(text_11, `export (api) \xB7 ${get(analysis).node_count ?? ""} nodes`));
       append($$anchor2, div_26);
     };
     if_block(node_40, ($$render) => {

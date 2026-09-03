@@ -1118,7 +1118,7 @@
 			<div class="wiz-text">
 				<div class="wiz-label">Source</div>
 				{#if analysis}
-					<div class="wiz-sub mono">{analysis.format === 'ui' ? 'export (ui)' : 'export (api)'} · {analysis.node_count} nodes</div>
+					<div class="wiz-sub mono">export (api) · {analysis.node_count} nodes</div>
 				{/if}
 			</div>
 		</div>
@@ -1180,7 +1180,7 @@
 						<p class="message message-error" data-import-analyze-error>{analyzeError}</p>
 					{/if}
 				{:else}
-					<p class="desc">Paste or drop a ComfyUI workflow — the plain workflow JSON or Export (API).</p>
+					<p class="desc">Paste or drop a ComfyUI Export (API) workflow JSON. In ComfyUI, enable Dev mode options in settings, then use Workflow → Export (API).</p>
 
 					<div class="dropzone" class:dragover={dragOver} ondrop={handleDrop} ondragover={handleDragOver} ondragleave={handleDragLeave} role="group" aria-label="Workflow JSON">
 						<textarea

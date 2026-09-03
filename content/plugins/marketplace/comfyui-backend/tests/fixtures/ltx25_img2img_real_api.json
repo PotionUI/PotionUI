@@ -1,0 +1,519 @@
+{
+  "5514:3336": {
+    "class_type": "LTXVPreprocess",
+    "inputs": {
+      "widget_0": 18
+    },
+    "_meta": {
+      "title": "LTXVPreprocess"
+    }
+  },
+  "5514:3059": {
+    "class_type": "EmptyLTXVLatentVideo",
+    "inputs": {
+      "widget_0": 960,
+      "widget_1": 544,
+      "widget_2": 121,
+      "widget_3": 1
+    },
+    "_meta": {
+      "title": "EmptyLTXVLatentVideo"
+    }
+  },
+  "5514:5000": {
+    "class_type": "LTXFloatToInt",
+    "inputs": {
+      "widget_0": 0
+    },
+    "_meta": {
+      "title": "LTXFloatToInt"
+    }
+  },
+  "5514:3980": {
+    "class_type": "LTXVEmptyLatentAudio",
+    "inputs": {
+      "widget_0": 121,
+      "widget_1": 25,
+      "widget_2": 1
+    },
+    "_meta": {
+      "title": "LTXVEmptyLatentAudio"
+    }
+  },
+  "5514:3159": {
+    "class_type": "LTXVImgToVideoInplace",
+    "inputs": {
+      "widget_0": 0.7,
+      "widget_1": false
+    },
+    "_meta": {
+      "title": "LTXVImgToVideoInplace"
+    }
+  },
+  "5514:4528": {
+    "class_type": "LTXVConcatAVLatent",
+    "inputs": {},
+    "_meta": {
+      "title": "LTXVConcatAVLatent"
+    }
+  },
+  "5532": {
+    "class_type": "MarkdownNote",
+    "inputs": {
+      "widget_0": "## Save video\n\nThis is you output preview \ud83c\udf89\ud83e\udd73"
+    },
+    "_meta": {
+      "title": "Save video"
+    }
+  },
+  "5527": {
+    "class_type": "MarkdownNote",
+    "inputs": {
+      "widget_0": "## Inputs\n\nEverything here is optional.\n\n### Prompt\n\nEnter a positive prompt. To rewrite it into a fuller description first, enable\n**enhance positive prompt** on the Input Parameters node below. The negative\nprompt is used as written and is never enhanced.\n\nSupplying an **LTX API key** encodes and enhances the prompt through the API\ninstead of locally, which saves memory. The workflow switches over on its own\nwhenever a key is present - there is nothing to un-bypass.\n\nSee the [prompting guide](https://docs.ltx.io/open-source-model/usage-guides/prompting-guide).\n\n### Image input\n\nCondition the video to open on a still by loading an image and enabling\n**use image input** on the Input Parameters node.\n\n### Frame rate and duration\n\nSet both below. The frame count has to be 1 + a multiple of 8, so the duration\nactually used is worked out from the fps and the duration you ask for, and may\ncome out slightly different."
+    },
+    "_meta": {
+      "title": "Inputs"
+    }
+  },
+  "5528": {
+    "class_type": "MarkdownNote",
+    "inputs": {
+      "widget_0": "## Preprocess\n\n**Video dimensions**\n\nadjust video width and video height to determine the output dimensions.\n\n\n**Image conditioning**\n\nAdjust img_strength and img_compression to change the strength of the input image in case you provided one. "
+    },
+    "_meta": {
+      "title": "Preprocess"
+    }
+  },
+  "5529": {
+    "class_type": "MarkdownNote",
+    "inputs": {
+      "widget_0": "## Generate\n\n**Sampler - Distilled (8 steps)**\n\nThis takes the distilled ltx-2.5 model and runs the diffusion in 8 steps. You can change the noise seed, the guider cfg (used for both video and audio) and select the sampler. "
+    },
+    "_meta": {
+      "title": "Generate"
+    }
+  },
+  "5516:4832": {
+    "class_type": "RandomNoise",
+    "inputs": {
+      "widget_0": 43,
+      "widget_1": "fixed"
+    },
+    "_meta": {
+      "title": "RandomNoise"
+    }
+  },
+  "5516:4828": {
+    "class_type": "CFGGuider",
+    "inputs": {
+      "widget_0": 1
+    },
+    "_meta": {
+      "title": "CFGGuider"
+    }
+  },
+  "5516:4831": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "widget_0": "euler_ancestral"
+    },
+    "_meta": {
+      "title": "KSamplerSelect"
+    }
+  },
+  "5516:4984": {
+    "class_type": "ManualSigmas",
+    "inputs": {
+      "widget_0": "1.0, 0.99375, 0.9875, 0.98125, 0.975, 0.909375, 0.725, 0.421875, 0.0"
+    },
+    "_meta": {
+      "title": "ManualSigmas"
+    }
+  },
+  "5516:4999": {
+    "class_type": "Note",
+    "inputs": {
+      "widget_0": "Do explore various samplers and cfg values (although we advise them to be kept close to 1)"
+    },
+    "_meta": {
+      "title": "Note"
+    }
+  },
+  "5516:4829": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {},
+    "_meta": {
+      "title": "SamplerCustomAdvanced"
+    }
+  },
+  "5516:4845": {
+    "class_type": "LTXVSeparateAVLatent",
+    "inputs": {},
+    "_meta": {
+      "title": "LTXVSeparateAVLatent"
+    }
+  },
+  "5531": {
+    "class_type": "MarkdownNote",
+    "inputs": {
+      "widget_0": "## Decode\n\nMake sure to adjust the number of tiles and overlap to fit your hardware.\n(fewer tiles will result in faster execution, but will require more memory).\n\n### Recommended settings\n\n| node settings (pixels)                     | resolved latent geometry        |\n| ------------------------------------------ | ------------------------------- |\n| `512 / 64 / 128 / 32`                      | 16\u00d716, ov 2 | 16f, ov 4         |\n| `768 / 192 / 128 / 32`                     | 24\u00d724, ov 6 | 16f, ov 4         |\n| `1024 / 256 / 128 / 48`                    | 32\u00d732, ov 8 | 16f, ov 6         |\n| `1536 / 384 / 192 / 48`                    | 48\u00d748, ov 12 | 24f, ov 6        |\n| `768 / 192 / spatial-only`                 | 24\u00d724, ov 6 | no temporal split |"
+    },
+    "_meta": {
+      "title": "Decode"
+    }
+  },
+  "5518:4848": {
+    "class_type": "LTXVAudioVAEDecode",
+    "inputs": {},
+    "_meta": {
+      "title": "LTXVAudioVAEDecode"
+    }
+  },
+  "5518:4849": {
+    "class_type": "CreateVideo",
+    "inputs": {
+      "widget_0": 30,
+      "widget_1": 8
+    },
+    "_meta": {
+      "title": "CreateVideo"
+    }
+  },
+  "5518:5538": {
+    "class_type": "VAEDecodeTiled",
+    "inputs": {
+      "widget_0": 512,
+      "widget_1": 64,
+      "widget_2": 64,
+      "widget_3": 8
+    },
+    "_meta": {
+      "title": "VAEDecodeTiled"
+    }
+  },
+  "5509": {
+    "class_type": "PrimitiveStringMultiline",
+    "inputs": {
+      "widget_0": ""
+    },
+    "_meta": {
+      "title": "Prompt (negative)"
+    }
+  },
+  "5512": {
+    "class_type": "PrimitiveFloat",
+    "inputs": {
+      "widget_0": 5
+    },
+    "_meta": {
+      "title": "duration in seconds (determines frames #)"
+    }
+  },
+  "4852": {
+    "class_type": "SaveVideo",
+    "inputs": {
+      "widget_0": "output",
+      "widget_1": "auto",
+      "widget_2": "auto"
+    },
+    "_meta": {
+      "title": "SaveVideo"
+    }
+  },
+  "5511": {
+    "class_type": "PrimitiveFloat",
+    "inputs": {
+      "widget_0": 24
+    },
+    "_meta": {
+      "title": "fps (frames per second)"
+    }
+  },
+  "5544": {
+    "class_type": "PreviewAny",
+    "inputs": {},
+    "_meta": {
+      "title": "Effective positive prompt (enhanced if enabled)"
+    }
+  },
+  "5014:4990": {
+    "class_type": "ResizeImageMaskNode",
+    "inputs": {
+      "widget_0": "scale longer dimension",
+      "widget_1": 1536,
+      "widget_2": "lanczos"
+    },
+    "_meta": {
+      "title": "ResizeImageMaskNode"
+    }
+  },
+  "5014:5019": {
+    "class_type": "ComfyNotNode",
+    "inputs": {},
+    "_meta": {
+      "title": "Not (use image > bypass_i2v)"
+    }
+  },
+  "5014:2612": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "widget_0": ""
+    },
+    "_meta": {
+      "title": "CLIP Text Encode (Negative Prompt)"
+    }
+  },
+  "5014:5506": {
+    "class_type": "PrimitiveBoolean",
+    "inputs": {
+      "widget_0": false
+    },
+    "_meta": {
+      "title": "PrimitiveBoolean"
+    }
+  },
+  "5014:5549": {
+    "class_type": "TextGenerateLTX2Prompt",
+    "inputs": {
+      "widget_0": "",
+      "widget_1": 600,
+      "widget_2": "on",
+      "widget_3": 0.01,
+      "widget_4": 0,
+      "widget_5": 1,
+      "widget_6": 0,
+      "widget_7": 1.15,
+      "widget_8": 0,
+      "widget_9": 0,
+      "widget_10": false,
+      "widget_11": true
+    },
+    "_meta": {
+      "title": "Positive prompt (t2v) enhancer - TextGenerateLTX2Prompt"
+    }
+  },
+  "5014:5546": {
+    "class_type": "TextGenerateLTX2Prompt",
+    "inputs": {
+      "widget_0": "",
+      "widget_1": 600,
+      "widget_2": "on",
+      "widget_3": 0.01,
+      "widget_4": 0,
+      "widget_5": 1,
+      "widget_6": 0,
+      "widget_7": 1.15,
+      "widget_8": 0,
+      "widget_9": 0,
+      "widget_10": false,
+      "widget_11": true
+    },
+    "_meta": {
+      "title": "Positive prompt + image enhancer - TextGenerateLTX2Prompt"
+    }
+  },
+  "5014:5555": {
+    "class_type": "ComfySwitchNode",
+    "inputs": {
+      "widget_0": false
+    },
+    "_meta": {
+      "title": "ComfySwitchNode"
+    }
+  },
+  "5014:2483": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "widget_0": ""
+    },
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  },
+  "5014:5557": {
+    "class_type": "StringContains",
+    "inputs": {
+      "widget_0": "",
+      "widget_1": "ltxv_",
+      "widget_2": true
+    },
+    "_meta": {
+      "title": "has ltxv api key?"
+    }
+  },
+  "5014:1241": {
+    "class_type": "LTXVConditioning",
+    "inputs": {
+      "widget_0": 24
+    },
+    "_meta": {
+      "title": "LTXVConditioning"
+    }
+  },
+  "5014:5560": {
+    "class_type": "ComfySwitchNode",
+    "inputs": {
+      "widget_0": false
+    },
+    "_meta": {
+      "title": "negative conditioning source - If/Else Switch"
+    }
+  },
+  "5014:5558": {
+    "class_type": "ComfySwitchNode",
+    "inputs": {
+      "widget_0": false
+    },
+    "_meta": {
+      "title": "positive conditioning source - If/Else Switch"
+    }
+  },
+  "5014:5556": {
+    "class_type": "ComfySwitchNode",
+    "inputs": {
+      "widget_0": false
+    },
+    "_meta": {
+      "title": "ComfySwitchNode"
+    }
+  },
+  "5014:5017": {
+    "class_type": "PrimitiveFloat",
+    "inputs": {
+      "widget_0": 24
+    },
+    "_meta": {
+      "title": "fps"
+    }
+  },
+  "5014:5507": {
+    "class_type": "PrimitiveFloat",
+    "inputs": {
+      "widget_0": 5
+    },
+    "_meta": {
+      "title": "Duration in seconds - Float"
+    }
+  },
+  "5014:5561": {
+    "class_type": "ComfyMathExpression",
+    "inputs": {
+      "widget_0": "1 + floor(a*b/8)*8"
+    },
+    "_meta": {
+      "title": "calculate frames count - Math Expression"
+    }
+  },
+  "5014:4988": {
+    "class_type": "PrimitiveInt",
+    "inputs": {
+      "widget_0": 193,
+      "widget_1": "fixed"
+    },
+    "_meta": {
+      "title": "number of frames"
+    }
+  },
+  "5014:5504": {
+    "class_type": "GemmaAPITextEncode",
+    "inputs": {
+      "widget_0": "",
+      "widget_1": "",
+      "widget_2": "ltx-2.3-22b-dev.safetensors",
+      "widget_3": "ltx-2.3-22b-dev.safetensors"
+    },
+    "_meta": {
+      "title": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 Gemma API Text Encode - POSITIVE"
+    }
+  },
+  "5014:5505": {
+    "class_type": "GemmaAPITextEncode",
+    "inputs": {
+      "widget_0": "",
+      "widget_1": "",
+      "widget_2": false,
+      "widget_3": "ltx-2.3-22b-dev.safetensors"
+    },
+    "_meta": {
+      "title": "\ud83c\udd5b\ud83c\udd63\ud83c\udd67 Gemma API Text Encode - NEGATIVE"
+    }
+  },
+  "5508": {
+    "class_type": "PrimitiveStringMultiline",
+    "inputs": {
+      "widget_0": ""
+    },
+    "_meta": {
+      "title": "Prompt (positive)"
+    }
+  },
+  "2004": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "",
+      "widget_1": "image"
+    },
+    "_meta": {
+      "title": "LoadImage"
+    }
+  },
+  "5526": {
+    "class_type": "MarkdownNote",
+    "inputs": {
+      "widget_0": "## Model Links\n\n**LTX-2.5 Model Weights**\n\nMake sure to click the \"Agree and Access\" button the first time you download.\n\n- [ Distilled model - ltx-2.5-22b-distilled-transformer-bf16.safetensors ](https://huggingface.co/Lightricks/LTX-2.5/blob/main/diffusion_models/ltx-2.5-22b-distilled-transformer-bf16.safetensors)\n\n- [ Audio VAE - ltx-2.5-audio-vae-bf16.safetensors ](https://huggingface.co/Lightricks/LTX-2.5/blob/main/vae/ltx-2.5-audio-vae-bf16.safetensors)\n\n- Video VAE - one of these:\n  - [ Diffusion decoder ltx-2.5-video-vae-bf16.safetensors ](https://huggingface.co/Lightricks/LTX-2.5/blob/main/vae/ltx-2.5-video-vae-bf16.safetensors) - Best quality\n  - [ Convolutional decoder - ltx-2.5-video-vae-conv-bf16.safetensors ](https://huggingface.co/Lightricks/LTX-2.5/blob/main/vae/ltx-2.5-video-vae-conv-bf16.safetensors) - Lower memory & faster\n\n\n**Text Encoder - finetuned for LTX-2.5**\n- [gemma4-12b-with-proj-ltx-2.5-bf16.safetensors](https://huggingface.co/Lightricks/LTX-2.5/blob/main/text_encoders/gemma4-12b-with-proj-ltx-2.5-bf16.safetensors)\n\n**Text Enhancer**\n- [Google Gemma 4 E2B IT](https://huggingface.co/Comfy-Org/gemma-4/blob/main/text_encoders/gemma4_e2b_it_bf16.safetensors)\n\n\n**Model Storage Location**\n\n```\n\ud83d\udcc2 ComfyUI/\n\u251c\u2500\u2500 \ud83d\udcc2 models/\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 text_encoders/\n\u2502   \u2502      \u251c\u2500\u2500 gemma4-12b-with-proj-ltx-2.5-bf16.safetensors\n\u2502   \u2502      \u2514\u2500\u2500 gemma4_e2b_it_bf16.safetensors\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 diffusion_models/\n\u2502   \u2502      \u2514\u2500\u2500 ltx-2.5-22b-distilled-transformer-bf16.safetensors\n\u2502   \u251c\u2500\u2500 \ud83d\udcc2 vae/\n\u2502   \u2502      \u2514\u2500\u2500 ltx-2.5-audio-vae-bf16.safetensors\n\u2502   \u2502      \u2514\u2500\u2500 ltx-2.5-video-vae-conv-bf16.safetensors / ltx-2.5-video-vae-bf16.safetensors\n```\n\n## Report Issues\nTo report any issues when running this workflow, [go to GitHub](https://github.com/Lightricks/ComfyUI-LTXVideo/issues)\n"
+    },
+    "_meta": {
+      "title": "Model Links"
+    }
+  },
+  "5004:5570": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "widget_0": "ltx-2.5-audio-vae-bf16.safetensors"
+    },
+    "_meta": {
+      "title": "Load VAE - Audio"
+    }
+  },
+  "5004:5571": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "widget_0": "ltx-2.5-video-vae-bf16.safetensors"
+    },
+    "_meta": {
+      "title": "Load VAE - Video"
+    }
+  },
+  "5004:5569": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "widget_0": "ltx-2.5-22b-distilled-transformer-bf16.safetensors",
+      "widget_1": "default"
+    },
+    "_meta": {
+      "title": "UNETLoader"
+    }
+  },
+  "5004:5545": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "widget_0": "gemma4_e2b_it_bf16.safetensors",
+      "widget_1": "ltxv",
+      "widget_2": "default"
+    },
+    "_meta": {
+      "title": "Load CLIP - Text Enhancer"
+    }
+  },
+  "5004:5572": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "widget_0": "gemma4-12b-with-proj-ltx-2.5-bf16.safetensors",
+      "widget_1": "ltxv",
+      "widget_2": "default"
+    },
+    "_meta": {
+      "title": "Load CLIP - Text Encoder"
+    }
+  }
+}

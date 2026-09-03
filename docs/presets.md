@@ -1736,49 +1736,35 @@ chapter. `content/plugins/marketplace/comfyui-backend/presets/QwenImage/` adds a
 
 If you already have a working ComfyUI graph, don't hand-write the preset — import it.
 
-1. **Export the workflow.** In the ComfyUI UI, either **Workflow → Export (API)** or the plain
-   **Export** / **Save** work now. The API export is the graph the ComfyUI server actually
-   executes: a flat `{"<node_id>": {"class_type": ..., "inputs": {...}}}` mapping keyed by node id,
-   values addressed by name (`4.inputs.ckpt_name`) — exactly what `workflow_file` and
-   `field_mappings` below expect, and what the SDXL preset's
-   `modes/txt2img/files/workflows/txt2img.json` is, unedited. The plain export/save is the *UI*
-   graph instead (node positions, a `links` array of `[id, from, from_slot, to, to_slot, type]`
-   tuples, `widgets_values` arrays with no input names) — `backend/preset_import/convert.py`
-   converts this to the API shape before parsing, the same way ComfyUI's own frontend does, but it
-   needs a **reachable ComfyUI backend** to do it: converting a UI-format workflow means asking the
-   server's own `GET /object_info` which `widgets_values` slot is which named input, since the UI
-   export never records that itself. Import fails with a clear message if the resolved backend isn't
-   reachable at that moment — export with **Export (API)** instead, or fix the backend connection
-   first. A UI-format workflow that uses ComfyUI **subgraphs** works too — `convert.py` flattens
-   each subgraph instance into the underlying nodes (`<instance_id>:<inner_id>` ids, chaining for a
-   subgraph nested inside another) the same way ComfyUI's own frontend does before running it. A
-   subgraph containing an instance of itself is the one case that still fails, with a message
-   saying so.
+1. **Export the workflow.** In the ComfyUI UI, use **Workflow → Export (API)** — if you don't see
+   it, turn on **Dev mode options** in ComfyUI's settings first. This is the graph the ComfyUI
+   server actually executes: a flat `{"<node_id>": {"class_type": ..., "inputs": {...}}}` mapping
+   keyed by node id, values addressed by name (`4.inputs.ckpt_name`) — exactly what `workflow_file`
+   and `field_mappings` below expect, and what the SDXL preset's
+   `modes/txt2img/files/workflows/txt2img.json` is, unedited. The plain **Export** / **Save**
+   option saves the *UI* graph instead (node positions, a `links` array of
+   `[id, from, from_slot, to, to_slot, type]` tuples, `widgets_values` arrays with no input names) —
+   this importer only ever accepts the API shape, and rejects a UI export immediately with
+   "This is the ComfyUI UI export. Enable Dev mode options in ComfyUI settings and use Workflow →
+   Export (API), then import that file." A workflow that uses ComfyUI **subgraphs** works fine —
+   subgraph node ids (`<instance_id>:<inner_id>`) come through as-is in the API export.
 
 2. **Analyze it.** The `comfyui-backend` plugin exposes two admin-only import endpoints (also
    accessible via the **Import workflow** button in Administration → Presets — see
    "Importing it as a preset" in the user-facing [Bringing Your Own ComfyUI Workflows](user/comfyui-presets.md) page).
-   `POST /api/plugins/comfyui-backend/presets/import/analyze` takes the exported JSON — either
-   format — and returns a list of `candidates` — one per detected input, each with its `node_id`,
+   `POST /api/plugins/comfyui-backend/presets/import/analyze` takes the exported (API-format) JSON
+   and returns a list of `candidates` — one per detected input, each with its `node_id`,
    `class_type`, `node_title`, `input_name`, `current_value`, `value_type`, a
-   `suggested_field_type` / `suggested_field_name` / `suggested_label` / `suggested_config`
-   (a UI-format workflow's suggestions are enriched from the server's `/object_info` — real
-   min/max/step, the actual combo option list, a `suggested_tab` per ComfyUI group the node sat
-   in), a `role` (e.g. `prompt`, `sampler_param`, `model`), and whether it's `obvious` enough to
+   `suggested_field_type` / `suggested_field_name` / `suggested_label` / `suggested_config`, a
+   `role` (e.g. `prompt`, `sampler_param`, `model`), and whether it's `obvious` enough to
    pre-select — plus the detected `mode`, `node_count`, `sampler_node_id`, any detected
-   `lora_chain`, `format` (`"ui"` or `"api"`), and `object_info_used`. A node class the resolved
-   backend doesn't recognize (an uninstalled custom node pack) never fails the analysis — it's
-   listed in `unknown_nodes` and echoed as a plain-language entry in `warnings`, and its candidates
-   still appear (widget names taken from the export when it recorded them, best-effort otherwise) so
-   you can see and import around it, then re-import once the node pack is installed.
+   `lora_chain`, and `format` (always `"api"`).
 
    The response also carries `default_form`/`default_history` — a ready-to-submit `form`/`history`
-   (see step 3) built from the `obvious` candidates: resolution as one field with two mappings,
-   each model loader field grouped under a "Models" group, a detected LoRA chain collapsed into one
-   `lora_picker` field, and — when the source workflow had ComfyUI groups drawn on it — one tab per
-   group instead of a single "Generation" tab. This is the wizard's starting point, not a
-   requirement: submit it back verbatim for the importer's best guess, or design a different
-   `form`/`history` entirely.
+   (see step 3) built from the `obvious` candidates: resolution as one field with two mappings, each
+   model loader field grouped under a "Models" group, and a detected LoRA chain collapsed into one
+   `lora_picker` field. This is the wizard's starting point, not a requirement: submit it back
+   verbatim for the importer's best guess, or design a different `form`/`history` entirely.
 
    ```bash
    curl -s -X POST http://localhost:7680/api/plugins/comfyui-backend/presets/import/analyze \
@@ -1859,9 +1845,7 @@ If you already have a working ComfyUI graph, don't hand-write the preset — imp
    `GET /models/{folder}` live, so a missing custom node or model file surfaces on the preset's
    Requirements panel instead of as a mid-generation pipeline error.
 
-   Importing a UI-format workflow also writes the original export as
-   `modes/<mode>/files/workflows/<mode>.ui.json`, kept alongside the converted `<mode>.json` for
-   reference. `GET /presets/imported/{id}/source` returns the stored `form`/`history` (from the
+   `GET /presets/imported/{id}/source` returns the stored `form`/`history` (from the
    preset's `import.json` sidecar, or `default_form`/`default_history` for a preset imported before
    the sidecar carried them) so the wizard can reopen an imported preset exactly as it was built.
 

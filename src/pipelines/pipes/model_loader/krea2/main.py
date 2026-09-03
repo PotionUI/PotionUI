@@ -6,6 +6,15 @@ so a shared TE/VAE is reused across presets. The Krea-2 DiT is a mixed-dtype
 bf16/f32 checkpoint — the engine's loader selects ``manual_cast`` for it via the
 mixed-precision rule (verified: ``NativeEngineLoader._ops_for`` handles Krea-2).
 
+The TE is the one exception to "acquire here": VAE and DiT are acquired
+eagerly in ``process()`` as before, but the TE's ``MODELS.acquire()`` is
+handed to ``Krea2ClipTextEncoder`` as a deferred ``te_loader`` thunk (see that
+module) — it only runs if ``prompt_encoder`` actually needs to encode
+something the prompt-embed cache doesn't already have. Acquiring it
+unconditionally here meant every generation loaded/cache-hit a multi-GB TE
+that ``generator/krea2``'s ``_release_idle_te`` then evicted moments later,
+whether or not `prompt_encoder` ever touched it.
+
 LoRA uses the Krea-2 dialect map (``lora/key_mapping.build_krea2_lora_key_map``,
 selected by ``map_lora_keys`` from the arch class): kohya-underscore + bare-dotted
 over the native split-attention names.
@@ -195,25 +204,63 @@ class ModelLoaderKrea2Pipe(BaseModelLoaderPipe):
 
         models = pipe_input.input.get("MODELS", None)
         progress = ComponentProgress(generation_outputs, models, self.progress_message(), total=3)
+
+        # The TE's own `MODELS.acquire()` is deferred to `te_loader` below,
+        # run at most once and only by `Krea2ClipTextEncoder.encoder` — the
+        # first time `prompt_encoder` actually needs it, i.e. the first
+        # request in the batch that MISSES the (cheaper, model-free)
+        # prompt-embed cache. Acquiring it here unconditionally is exactly
+        # the churn this loader used to pay for nothing: a warm embed-cache
+        # hit never touches the TE again after the batch it was first
+        # encoded for, yet every later generation re-acquired (and
+        # `generator/krea2` immediately re-evicted) it regardless. See
+        # `krea2_clip.py`'s module docstring.
+        def te_loader() -> Any:
+            if models is not None:
+                progress.advance("text encoder", f"native/te/{te_path}")
+                return models.acquire(
+                    key=f"native/te/{te_path}", fingerprint=te_fp, loader=load_te,
+                    estimated_vram_gb=file_size_gb(te_path),
+                ).module
+            return load_te().module
+
         if models is not None:
-            progress.advance("text encoder", f"native/te/{te_path}")
-            te_model = models.acquire(key=f"native/te/{te_path}", fingerprint=te_fp, loader=load_te, estimated_vram_gb=file_size_gb(te_path))
             progress.advance("VAE", f"native/vae/{vae_path}")
             vae_model = models.acquire(key=f"native/vae/{vae_path}", fingerprint=vae_fp, loader=load_vae, estimated_vram_gb=file_size_gb(vae_path))
             progress.advance("DiT", f"native/dit/{dit_path}")
             dit_model = models.acquire(key=f"native/dit/{dit_path}", fingerprint=dit_fp, loader=load_dit, estimated_vram_gb=file_size_gb(dit_path))
             self._sync_loras(dit_model, loras, lora_fp)
         else:
+            # No lifecycle service to defer through (isolated pipe use, e.g.
+            # tests) -- nothing to gain from laziness, so load everything
+            # up front exactly as before.
             progress.advance("text encoder", f"native/te/{te_path}")
             progress.advance("VAE", f"native/vae/{vae_path}")
             progress.advance("DiT", f"native/dit/{dit_path}")
             te_model, vae_model, dit_model = load_te(), load_vae(), load_dit()
+            return PipeOutput(output={
+                "model": Krea2ModelBundle(
+                    dit=dit_model, te=te_model, vae=vae_model, te_cache_key=f"native/te/{te_path}",
+                    windowed_loras=tuple(windowed_loras),
+                ),
+                "text_encoder": Krea2ClipTextEncoder(
+                    te_model.module, device=device, model_fingerprint=f"{te_fp}|{dit_fp}",
+                ),
+            })
 
         bundle = Krea2ModelBundle(
-            dit=dit_model, te=te_model, vae=vae_model, te_cache_key=f"native/te/{te_path}",
+            # `te` stays unset (never acquired) unless/until `te_loader` above
+            # actually runs -- `bundle.te_cache_key` (a plain string) is what
+            # `generator/krea2`'s `_release_idle_te` evicts by, independent of
+            # whether this bundle ever saw a real `NativeModel` for it, and
+            # `evict_dead_weight` on an absent key is already a documented
+            # no-op (see ModelLifecycle.evict_dead_weight).
+            dit=dit_model, te=None, vae=vae_model, te_cache_key=f"native/te/{te_path}",
             windowed_loras=tuple(windowed_loras),
         )
-        clip = Krea2ClipTextEncoder(te_model.module, device=device, model_fingerprint=f"{te_fp}|{dit_fp}")
+        clip = Krea2ClipTextEncoder(
+            device=device, model_fingerprint=f"{te_fp}|{dit_fp}", te_loader=te_loader,
+        )
         return PipeOutput(output={"model": bundle, "text_encoder": clip})
 
     def _vram_budget(self, pipe_input: PipeInput) -> Optional[float]:

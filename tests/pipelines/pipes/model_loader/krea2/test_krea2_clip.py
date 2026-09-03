@@ -208,3 +208,104 @@ def test_image_cache_key_none_without_model_fingerprint():
     # disabled (prompt_embed_key returns None), matching the no-image path.
     cond = enc.encode_prompt("edit it", "", images=[torch.rand(4, 4, 3)], do_classifier_free_guidance=False)
     assert isinstance(cond, ConditioningModel)
+
+
+# --- deferred TE acquisition (te_loader) ---------------------------------
+
+
+def _fresh_embed_cache():
+    from src.platform.runtime.native.text_encoders.embed_cache import get_prompt_embed_cache
+
+    cache = get_prompt_embed_cache()
+    cache.clear()
+    return cache
+
+
+class _CountingLoader:
+    """A ``te_loader`` thunk stand-in that counts how many times it actually
+    ran (should be at most once, and only on an embed-cache miss)."""
+
+    def __init__(self, encoder):
+        self._encoder = encoder
+        self.calls = 0
+
+    def __call__(self):
+        self.calls += 1
+        return self._encoder
+
+
+def test_lazy_encoder_never_resolved_on_a_full_embed_cache_hit():
+    """The direct regression guard for this fix: a batch entirely served by
+    the (model-free) prompt-embed cache must never resolve ``te_loader`` --
+    the whole point of deferring model_loader/krea2's MODELS.acquire()."""
+    _fresh_embed_cache()
+    fake = _FakeQwen3VL()
+    warm_loader = _CountingLoader(fake)
+    Krea2ClipTextEncoder(device="cpu", model_fingerprint="fp-hit", te_loader=warm_loader).encode_prompt(
+        "a fox", "", do_classifier_free_guidance=False
+    )
+    assert warm_loader.calls == 1  # cold: the first encode still needs the TE
+
+    # A brand-new adapter (as model_loader constructs one per generation),
+    # with its OWN un-resolved loader, must reuse the warm cache entry
+    # without ever calling that loader.
+    cold_loader = _CountingLoader(fake)
+    cond = Krea2ClipTextEncoder(device="cpu", model_fingerprint="fp-hit", te_loader=cold_loader).encode_prompt(
+        "a fox", "", do_classifier_free_guidance=False
+    )
+    assert cold_loader.calls == 0
+    assert isinstance(cond, ConditioningModel)
+
+
+def test_lazy_encoder_resolved_once_for_a_batch_of_misses():
+    _fresh_embed_cache()
+    fake = _FakeQwen3VL()
+    loader = _CountingLoader(fake)
+    enc = Krea2ClipTextEncoder(device="cpu", model_fingerprint="fp-batch", te_loader=loader)
+
+    enc.encode_prompts([
+        {"prompt": "a", "negative_prompt": "", "do_classifier_free_guidance": False},
+        {"prompt": "b", "negative_prompt": "", "do_classifier_free_guidance": False},
+        {"prompt": "c", "negative_prompt": "", "do_classifier_free_guidance": False},
+    ])
+    assert loader.calls == 1
+
+
+def test_lazy_encoder_resolved_once_for_a_mixed_hit_miss_batch():
+    _fresh_embed_cache()
+    fake = _FakeQwen3VL()
+    warm_loader = _CountingLoader(fake)
+    Krea2ClipTextEncoder(device="cpu", model_fingerprint="fp-mixed", te_loader=warm_loader).encode_prompt(
+        "warm", "", do_classifier_free_guidance=False
+    )
+    assert warm_loader.calls == 1
+
+    loader = _CountingLoader(fake)
+    enc = Krea2ClipTextEncoder(device="cpu", model_fingerprint="fp-mixed", te_loader=loader)
+    enc.encode_prompts([
+        {"prompt": "warm", "negative_prompt": "", "do_classifier_free_guidance": False},  # embed-cache hit
+        {"prompt": "cold", "negative_prompt": "", "do_classifier_free_guidance": False},  # embed-cache miss
+    ])
+    assert loader.calls == 1
+
+
+def test_lazy_encoder_property_caches_after_first_resolve():
+    fake = _FakeQwen3VL()
+    loader = _CountingLoader(fake)
+    enc = Krea2ClipTextEncoder(device="cpu", te_loader=loader)
+    assert enc.encoder is fake
+    assert enc.encoder is fake
+    assert loader.calls == 1
+
+
+def test_eager_encoder_bypasses_te_loader_entirely():
+    """Passing an already-resolved encoder (every family besides Krea-2's
+    deferred path) must never touch te_loader, even if one were given."""
+    fake = _FakeQwen3VL()
+    loader = _CountingLoader(fake)
+
+    def _must_not_run():
+        raise AssertionError("te_loader must not run when encoder is already resolved")
+
+    enc = Krea2ClipTextEncoder(fake, device="cpu", te_loader=_must_not_run)
+    assert enc.encoder is fake

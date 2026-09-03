@@ -100,5 +100,17 @@ class SequentialWindowClipTextEncoder(ClipTextEncoder):
             encode_fns.append(encode_fn)
             cache_keys.append(cache_key)
 
-        results = run_text_encode_batch(self.encoder, self.device, encode_fns, cache_keys=cache_keys)
+        # `self.encoder` is read through a thunk, not passed directly: a
+        # subclass whose encoder is a deferred MODELS-cache acquisition (see
+        # ``Krea2ClipTextEncoder``) must not be forced to resolve it just to
+        # build this call's argument list — `run_text_encode_batch` only
+        # invokes the thunk once it already knows at least one request misses
+        # the embed cache. A subclass with an already-resolved `self.encoder`
+        # (every other family, today) pays nothing extra: the thunk is a
+        # cheap attribute read, called at the exact same point `self.encoder`
+        # used to be evaluated.
+        results = run_text_encode_batch(
+            None, self.device, encode_fns, cache_keys=cache_keys,
+            encoder_provider=lambda: self.encoder,
+        )
         return [self._pack(request, result) for request, result in zip(requests, results)]

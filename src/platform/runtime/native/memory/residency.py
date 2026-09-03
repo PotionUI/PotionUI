@@ -685,6 +685,7 @@ def run_text_encode_batch(
     *,
     reserve_gb: float | None = None,
     cache_keys: "list[str | None] | None" = None,
+    encoder_provider: "Callable[[], Any] | None" = None,
 ) -> list:
     """Run N independent ``encode_fns`` under at most ONE GPU-resident window.
 
@@ -707,6 +708,15 @@ def run_text_encode_batch(
 
     ``cache_keys=None`` (the default) treats every item as uncacheable, mirroring
     ``run_text_encode(cache_key=None)``.
+
+    ``encoder_provider``, when given, is a zero-arg callable resolving the real
+    encoder — called AT MOST once, and only once at least one item actually
+    misses the embed cache. ``encoder`` itself is then ignored (may be
+    ``None``). This lets a caller whose encoder is a deferred acquisition
+    (e.g. a MODELS-cache load kept behind a thunk so an all-hit batch never
+    triggers it) pass that thunk through here instead of resolving eagerly
+    just to build this call's argument list. ``encoder_provider=None`` (the
+    default) is byte-identical to today: ``encoder`` is used as-is.
     """
     from src.platform.runtime.native.text_encoders.embed_cache import get_prompt_embed_cache
     from src.platform.observability.profiling import get_profiler
@@ -731,6 +741,9 @@ def run_text_encode_batch(
         if n:
             get_profiler().mark("te.encode", device=str(device), path="embed-cache-hit", count=n)
         return results
+
+    if encoder_provider is not None:
+        encoder = encoder_provider()
 
     def _run_misses() -> list:
         return [encode_fns[i]() for i in miss_indices]

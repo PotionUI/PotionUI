@@ -128,16 +128,22 @@ def test_routes_through_run_text_encode(monkeypatch):
     calls = []
     real_run_text_encode_batch = clip_batch_module.run_text_encode_batch
 
-    def spy(encoder, device, encode_fns, *, reserve_gb=None, cache_keys=None):
-        calls.append({"encoder": encoder, "device": device, "cache_keys": cache_keys})
-        return real_run_text_encode_batch(encoder, device, encode_fns, reserve_gb=reserve_gb, cache_keys=cache_keys)
+    def spy(encoder, device, encode_fns, *, reserve_gb=None, cache_keys=None, encoder_provider=None):
+        calls.append({"encoder_provider": encoder_provider, "device": device, "cache_keys": cache_keys})
+        return real_run_text_encode_batch(
+            encoder, device, encode_fns, reserve_gb=reserve_gb, cache_keys=cache_keys,
+            encoder_provider=encoder_provider,
+        )
 
     monkeypatch.setattr(clip_batch_module, "run_text_encode_batch", spy)
 
     enc.encode_prompt("a cat", "blurry")
 
     assert len(calls) == 1
-    assert calls[0]["encoder"] is fake
+    # `self.encoder` is already resolved for this adapter (no deferred
+    # te_loader), so the thunk resolves straight to it -- see
+    # Krea2ClipTextEncoder for the family that actually defers.
+    assert calls[0]["encoder_provider"]() is fake
     assert calls[0]["device"] == "cpu"
     assert calls[0]["cache_keys"][0] is not None  # fingerprint was supplied
 
@@ -151,9 +157,12 @@ def test_no_fingerprint_means_no_cache_key(monkeypatch):
     calls = []
     real_run_text_encode_batch = clip_batch_module.run_text_encode_batch
 
-    def spy(encoder, device, encode_fns, *, reserve_gb=None, cache_keys=None):
+    def spy(encoder, device, encode_fns, *, reserve_gb=None, cache_keys=None, encoder_provider=None):
         calls.append(cache_keys)
-        return real_run_text_encode_batch(encoder, device, encode_fns, reserve_gb=reserve_gb, cache_keys=cache_keys)
+        return real_run_text_encode_batch(
+            encoder, device, encode_fns, reserve_gb=reserve_gb, cache_keys=cache_keys,
+            encoder_provider=encoder_provider,
+        )
 
     monkeypatch.setattr(clip_batch_module, "run_text_encode_batch", spy)
 

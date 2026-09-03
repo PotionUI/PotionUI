@@ -36,6 +36,16 @@ different source images (or two different caps on the same image).
 — every request that misses the prompt-embed cache is encoded under ONE shared
 GPU-resident window instead of one window per request. See that class's
 docstring for the full rationale.
+
+Deferred TE acquisition: ``model_loader/krea2/main.py`` no longer acquires the
+TE from ``MODELS`` eagerly — it hands this adapter a ``te_loader`` thunk
+instead of an already-resolved module, so the multi-GB Qwen3-VL checkpoint is
+only loaded/acquired the first time ``self.encoder`` is actually read (see the
+``encoder`` property below and ``clip_batch.py``'s ``encoder_provider``). A
+generation whose whole batch is served from the prompt-embed cache never
+touches ``MODELS.acquire()`` for the TE at all — previously it was acquired
+unconditionally in ``model_loader`` and then unloaded, unused, by
+``generator/krea2``'s ``_release_idle_te``.
 """
 
 from __future__ import annotations
@@ -70,18 +80,42 @@ def _to_image_tensor(image: Any) -> torch.Tensor:
 
 
 class Krea2ClipTextEncoder(SequentialWindowClipTextEncoder):
-    """Adapt the native Krea-2 Qwen3-VL text encoder to ``ClipTextEncoder``."""
+    """Adapt the native Krea-2 Qwen3-VL text encoder to ``ClipTextEncoder``.
+
+    ``encoder`` is normally the already-resolved TE module, exactly as
+    before. Pass ``encoder=None`` together with ``te_loader`` instead to defer
+    the underlying ``MODELS.acquire()`` (see ``model_loader/krea2/main.py``):
+    the loader runs at most once, the first time ``self.encoder`` is actually
+    read — which ``SequentialWindowClipTextEncoder.encode_prompts`` only does
+    once it already knows a request in the batch misses the prompt-embed
+    cache (``clip_batch.py``'s ``encoder_provider``). A batch that's all
+    embed-cache hits never resolves it at all, so the multi-GB Qwen3-VL TE is
+    never loaded/acquired for a run that never needed it on the GPU.
+    """
 
     def __init__(
         self,
-        encoder: NativeTextEncoder,
+        encoder: Optional[NativeTextEncoder] = None,
         *,
         device: str = "cuda",
         model_fingerprint: Optional[str] = None,
+        te_loader: Optional[Callable[[], NativeTextEncoder]] = None,
     ) -> None:
-        self.encoder = encoder
+        self._encoder = encoder
+        self._te_loader = te_loader
         self.device = device
         self._model_fingerprint = model_fingerprint
+
+    @property
+    def encoder(self) -> NativeTextEncoder:
+        if self._encoder is None and self._te_loader is not None:
+            self._encoder = self._te_loader()
+            self._te_loader = None
+        return self._encoder
+
+    @encoder.setter
+    def encoder(self, value: NativeTextEncoder) -> None:
+        self._encoder = value
 
     def _encode_fn_and_key(self, request: Dict[str, Any]) -> Tuple[Callable[[], Any], Optional[str]]:
         prompt = request["prompt"]
@@ -128,9 +162,16 @@ class Krea2ClipTextEncoder(SequentialWindowClipTextEncoder):
             key_parts.append(grounding_px)
             key_parts.append(system_prompt or "")
             key_parts.extend(image_content_fingerprint(img) for img in image_tensors)
-        cache_key = prompt_embed_key(
-            self._model_fingerprint, getattr(self.encoder, "role", None), *key_parts,
-        )
+        # A static tag, not `self.encoder.role`: reading the live encoder's
+        # `.role` here would force the deferred `te_loader` to resolve on
+        # EVERY request, hit or miss, defeating the whole point of the
+        # `encoder` property above. `role` only ever namespaces this key
+        # against a different encoder TYPE sharing the same fingerprint
+        # string by coincidence — `self._model_fingerprint` already encodes
+        # this encoder's own checkpoint path + dtype + vision flag, which is
+        # what actually determines the checkpoint's detected variant, so a
+        # fixed per-adapter tag is exactly as collision-safe.
+        cache_key = prompt_embed_key(self._model_fingerprint, "krea2_te", *key_parts)
         return _encode, cache_key
 
     def _pack(self, request: Dict[str, Any], result: Any) -> ConditioningModel:

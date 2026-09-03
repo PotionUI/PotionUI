@@ -113,19 +113,60 @@ def test_name_and_outputs():
     assert out_names["text_encoder"] == IOType.TEXT_ENCODER
 
 
-def test_three_distinct_acquire_keys():
+def test_process_eagerly_acquires_only_vae_and_dit():
+    """The TE's acquire() is deferred (see Krea2ClipTextEncoder) -- process()
+    itself must only ever touch VAE + DiT, never the TE, so a generation whose
+    whole prompt batch hits the embed cache never loads/acquires it at all."""
     models, _ = _run(ModelLoaderKrea2Pipe(config=_config()))
     keys = [k for k, _ in models.calls]
-    assert len(keys) == 3 and len(set(keys)) == 3
-    assert keys[0] == "native/te//m/qwen3vl.safetensors"
-    assert keys[1] == "native/vae//m/qwen_vae.safetensors"
-    assert keys[2] == "native/dit//m/krea2_dit.safetensors"
+    assert len(keys) == 2 and len(set(keys)) == 2
+    assert keys[0] == "native/vae//m/qwen_vae.safetensors"
+    assert keys[1] == "native/dit//m/krea2_dit.safetensors"
+
+
+def test_te_acquire_deferred_until_encoder_is_read():
+    """The TE is acquired the first time (and only the first time) something
+    reads ``Krea2ClipTextEncoder.encoder`` -- the stand-in for prompt_encoder
+    actually needing it on an embed-cache miss."""
+    models, out = _run(ModelLoaderKrea2Pipe(config=_config()))
+    assert [k for k, _ in models.calls] == [
+        "native/vae//m/qwen_vae.safetensors", "native/dit//m/krea2_dit.safetensors",
+    ]
+
+    clip = out.output["text_encoder"]
+    _ = clip.encoder
+    _ = clip.encoder  # a second read must not re-acquire
+
+    te_calls = [(k, fp) for k, fp in models.calls if k == "native/te//m/qwen3vl.safetensors"]
+    assert len(te_calls) == 1
+    assert te_calls[0][1] == "/m/qwen3vl.safetensors|bfloat16|vision=False"
+
+
+def test_te_never_acquired_when_encoder_is_never_read():
+    """The direct regression guard for this fix: a batch that never needs the
+    TE (every request served from the embed cache) must never call
+    MODELS.acquire() for it at all -- not "acquired then evicted", not
+    acquired at all."""
+    models, out = _run(ModelLoaderKrea2Pipe(config=_config()))
+    assert not any(k == "native/te//m/qwen3vl.safetensors" for k, _ in models.calls)
+    # Bite check: the assertion actually distinguishes the fixed behaviour --
+    # forcing a read flips it (proves the assertion isn't vacuous).
+    _ = out.output["text_encoder"].encoder
+    assert any(k == "native/te//m/qwen3vl.safetensors" for k, _ in models.calls)
 
 
 def test_outputs_are_bundle_and_clip():
     _models, out = _run(ModelLoaderKrea2Pipe(config=_config()))
     assert isinstance(out.output["model"], Krea2ModelBundle)
     assert isinstance(out.output["text_encoder"], Krea2ClipTextEncoder)
+
+
+def test_bundle_unload_tolerates_a_never_acquired_te():
+    """bundle.te stays unset when the TE's acquire() was deferred and never
+    triggered -- unload() (the "Clear VRAM" / teardown path) must not raise
+    over a component it never got."""
+    _models, out = _run(ModelLoaderKrea2Pipe(config=_config()))
+    out.output["model"].unload()
 
 
 def test_bundle_carries_the_te_cache_key():
@@ -149,7 +190,8 @@ def test_missing_component_raises():
 
 
 def _fps(loras):
-    models, _ = _run(ModelLoaderKrea2Pipe(config=_config(loras=loras)))
+    models, out = _run(ModelLoaderKrea2Pipe(config=_config(loras=loras)))
+    _ = out.output["text_encoder"].encoder  # force the deferred TE acquire
     return dict(zip([k for k, _ in models.calls], [f for _, f in models.calls]))
 
 

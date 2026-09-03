@@ -27,6 +27,7 @@ from pathlib import Path
 import pytest
 
 from scripts.preset_render import (
+    ROOT,
     build_form_serializer,
     build_processor,
     golden_filename,
@@ -41,8 +42,13 @@ def _load_all_records():
     # include_plugins=False: goldens are a repo artifact, and neither
     # plugin-shipped presets nor plugin-contributed modes are repo-tracked --
     # a local plugin on this machine must not change the set this guard
-    # demands (or flags as stale).
-    presets, _load_errors = load_all_presets(include_plugins=False)
+    # demands (or flags as stale). presets_root points at marketplace/ only:
+    # content/presets/local/ is .gitignored per-user data (e.g. workflows the
+    # admin imported through the wizard) with no golden snapshot to compare
+    # against and no business being a repo-tracked contract.
+    presets, _load_errors = load_all_presets(
+        presets_root=ROOT / "content" / "presets" / "marketplace", include_plugins=False
+    )
     processor = build_processor()
     form_serializer = build_form_serializer()
 

@@ -174,6 +174,29 @@ def _cast_name(value_type: str) -> str:
     return {"bool": "bool", "int": "int", "float": "float", "str": "str"}.get(value_type, "str")
 
 
+class _DoubleQuoted(str):
+    """A YAML scalar forced to double-quote style on dump.
+
+    Hand-authored presets write `children:` Jinja paths as `"{{ paths.preset }}/..."`
+    (double-quoted); `tests/features/presets/test_references_tab_layout.py::test_no_tab_body_file_is_orphaned`
+    finds which tab files a form.yml composes by regexing for that exact
+    quoting, so plain `yaml.safe_dump` picking single quotes for these
+    strings (PyYAML's default style choice for a scalar starting with `{`)
+    makes every emitted tab file look orphaned.
+    """
+
+
+def _double_quoted_representer(dumper: yaml.Dumper, data: str):
+    return dumper.represent_scalar("tag:yaml.org,2002:str", str(data), style='"')
+
+
+yaml.SafeDumper.add_representer(_DoubleQuoted, _double_quoted_representer)
+
+
+def _tab_children_path(mode: str, *parts: str) -> _DoubleQuoted:
+    return _DoubleQuoted("/".join(["{{ paths.preset }}/modes/" + mode, "tabs", *parts]))
+
+
 def _dump_yaml(data: Dict[str, Any]) -> str:
     return yaml.safe_dump(data, sort_keys=False, default_flow_style=False, allow_unicode=True)
 
@@ -369,7 +392,7 @@ def emit_preset(
             "type": "tab",
             "label": "Generation",
             "configuration": {"icon": "model", "icon_display": "icon_only"},
-            "children": "{{ paths.preset }}/modes/" + mode + "/tabs/generation.yml",
+            "children": _tab_children_path(mode, "generation.yml"),
         }
     ]
 
@@ -392,7 +415,7 @@ def emit_preset(
                 "type": "tab",
                 "label": "Source Image",
                 "configuration": {"icon": "image", "icon_display": "icon_only"},
-                "children": "{{ paths.preset }}/modes/" + mode + "/tabs/image.yml",
+                "children": _tab_children_path(mode, "image.yml"),
             }
         )
 
@@ -422,7 +445,7 @@ def emit_preset(
                 "type": "tab",
                 "label": "LoRA",
                 "configuration": {"icon": "lora", "icon_display": "icon_only"},
-                "children": "{{ paths.preset }}/modes/" + mode + "/tabs/lora.yml",
+                "children": _tab_children_path(mode, "lora.yml"),
             }
         )
 
@@ -453,7 +476,7 @@ def emit_preset(
                 "type": "tab",
                 "label": tab_label,
                 "configuration": {"icon": "settings", "icon_display": "icon_only"},
-                "children": "{{ paths.preset }}/modes/" + mode + "/tabs/" + filename,
+                "children": _tab_children_path(mode, filename),
             }
         )
 

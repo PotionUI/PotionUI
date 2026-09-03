@@ -1,0 +1,15 @@
+{
+  "LoadImage": {
+    "input": {
+      "required": {
+        "image": [["placeholder.png"], {"image_upload": true}]
+      }
+    },
+    "output": ["IMAGE", "MASK"],
+    "output_name": ["IMAGE", "MASK"],
+    "name": "LoadImage",
+    "display_name": "Load Image",
+    "category": "image",
+    "python_module": "nodes"
+  }
+}

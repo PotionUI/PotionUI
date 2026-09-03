@@ -13,7 +13,10 @@ from src.features.presets.requirements.builtin import register_builtin_requireme
 from src.features.presets.requirements.contracts import RequirementResult
 from src.features.presets.requirements.evaluator import RequirementsCache
 from src.features.presets.templates import PresetTemplate
-from src.platform.plugins.requirement_checkers import requirement_checker_registry
+from src.platform.plugins.requirement_checkers import (
+    RequirementCheckerRegistration,
+    requirement_checker_registry,
+)
 
 
 def setup_module(module):
@@ -214,3 +217,135 @@ class TestRequirementsSummaryPeek:
         data = operations.get_preset(collaborators, preset.id)
 
         assert data["requirements_summary"] == {"ok": 1, "missing": 0, "unknown": 0, "optional_missing": 0}
+
+
+class _FixtureBackendChecker:
+    """A "backend"-scoped fixture checker: "ok" for `ok_backend_id`,
+    "missing" for any other backend."""
+
+    type = "fixture_backend_check"
+    schema = None
+    scope = "backend"
+
+    def __init__(self, ok_backend_id: str):
+        self.ok_backend_id = ok_backend_id
+
+    async def check(self, spec, ctx):
+        backend_id = ctx.backend.id if ctx.backend else None
+        if backend_id == self.ok_backend_id:
+            return RequirementResult(status="ok", detail=f"present on {backend_id}")
+        return RequirementResult(status="missing", detail=f"absent on {backend_id}")
+
+
+class _FakeBackendConfig:
+    def __init__(self, id, name, engine, driver=None):
+        self.id = id
+        self.name = name
+        self.engine = engine
+        self.driver = driver or engine
+
+
+class _FakeBackend:
+    def __init__(self, config):
+        self.config = config
+        self.backend_id = config.id
+        self.name = config.name
+        self.engine = config.engine
+
+
+class _FakeBackendConfigStore:
+    def __init__(self, configs_by_id, default_id=None):
+        self._configs_by_id = configs_by_id
+        self.default_id = default_id
+
+    def get_default_backend(self, engine):
+        if self.default_id is None:
+            return None
+        config = self._configs_by_id.get(self.default_id)
+        return config if config and config.engine == engine else None
+
+
+class _FakeBackendRegistry:
+    def __init__(self, backends, default_id=None):
+        self._backends = backends
+        self.backend_config_store = _FakeBackendConfigStore(
+            {b.config.id: b.config for b in backends}, default_id=default_id
+        )
+
+    def get_backends_for_engine(self, engine):
+        return [b for b in self._backends if b.engine == engine]
+
+
+def _two_comfyui_backends():
+    return [
+        _FakeBackend(_FakeBackendConfig("comfy-a", "Comfy A", "comfyui")),
+        _FakeBackend(_FakeBackendConfig("comfy-b", "Comfy B", "comfyui")),
+    ]
+
+
+class TestGetPresetRequirementsMultiBackend:
+    """`fixture_backend_check` is "ok" on `comfy-a`, "missing" on `comfy-b` -
+    exercises per-backend evaluation, the chosen-backend resolution order
+    (requested > default > best-scoring), and the `backends` listing."""
+
+    def setup_method(self):
+        requirement_checker_registry.register(RequirementCheckerRegistration(
+            type_name="fixture_backend_check", checker=_FixtureBackendChecker("comfy-a"), source="test-multi-backend",
+        ))
+
+    def teardown_method(self):
+        requirement_checker_registry.unregister_source("test-multi-backend")
+
+    def _preset_and_collaborators(self, default_id=None):
+        preset = PresetTemplate(
+            id="comfy-preset", name="Preset", version="1.0.0", path="/tmp/preset", modes={},
+            engine="comfyui", requirements=[{"type": "fixture_backend_check"}],
+        )
+        collaborators = _collaborators(
+            file_repo=MagicMock(find_preset_by_id=MagicMock(return_value=preset)),
+            backend_registry=_FakeBackendRegistry(_two_comfyui_backends(), default_id=default_id),
+            requirements_cache=RequirementsCache(),
+        )
+        return preset, collaborators
+
+    @pytest.mark.asyncio
+    async def test_no_default_chooses_the_best_scoring_backend(self):
+        _, collaborators = self._preset_and_collaborators(default_id=None)
+
+        data = await operations.get_preset_requirements(collaborators, "comfy-preset")
+
+        assert data["summary"] == {"ok": 1, "missing": 0, "unknown": 0, "optional_missing": 0}
+        assert data["results"][0]["backend_id"] == "comfy-a"
+        assert {b["id"] for b in data["backends"]} == {"comfy-a", "comfy-b"}
+        by_id = {b["id"]: b for b in data["backends"]}
+        assert by_id["comfy-a"]["summary"]["ok"] == 1
+        assert by_id["comfy-b"]["summary"]["missing"] == 1
+
+    @pytest.mark.asyncio
+    async def test_default_backend_wins_over_best_scoring(self):
+        _, collaborators = self._preset_and_collaborators(default_id="comfy-b")
+
+        data = await operations.get_preset_requirements(collaborators, "comfy-preset")
+
+        assert data["summary"] == {"ok": 0, "missing": 1, "unknown": 0, "optional_missing": 0}
+        assert data["results"][0]["backend_id"] == "comfy-b"
+        by_id = {b["id"]: b for b in data["backends"]}
+        assert by_id["comfy-b"]["is_default"] is True
+        assert by_id["comfy-a"]["is_default"] is False
+
+    @pytest.mark.asyncio
+    async def test_requested_backend_id_wins_over_default(self):
+        _, collaborators = self._preset_and_collaborators(default_id="comfy-b")
+
+        data = await operations.get_preset_requirements(collaborators, "comfy-preset", backend_id="comfy-a")
+
+        assert data["summary"]["ok"] == 1
+        assert data["results"][0]["backend_id"] == "comfy-a"
+
+    @pytest.mark.asyncio
+    async def test_unknown_requested_backend_id_falls_back_to_default(self):
+        _, collaborators = self._preset_and_collaborators(default_id="comfy-b")
+
+        data = await operations.get_preset_requirements(collaborators, "comfy-preset", backend_id="does-not-exist")
+
+        assert data["results"][0]["backend_id"] == "comfy-b"

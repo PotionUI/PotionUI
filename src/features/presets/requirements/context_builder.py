@@ -5,7 +5,7 @@ container.
 """
 
 import sys
-from typing import Optional
+from typing import List, Optional
 
 from src.features.backends.backend_registry import BackendRegistry
 from src.features.models.collaborators import ModelIndexCollaborators
@@ -36,19 +36,42 @@ def _resolve_backend(backend_registry: Optional[BackendRegistry], engine: str) -
         engine=config.engine,
         driver=config.driver or config.engine,
         config=config,
+        name=config.name,
     )
 
 
-def build_requirement_context(
+def backend_infos_for_engine(backend_registry: Optional[BackendRegistry], engine: str) -> List[RequirementBackendInfo]:
+    """Every enabled, available backend providing `engine`, highest priority
+    first - exactly `BackendRegistry.get_backends_for_engine`'s candidate
+    set, so a preset's per-backend requirements evaluation always covers the
+    backends generation routing could actually pick between. Empty when
+    `backend_registry` is `None` (a test/tooling context that never wired
+    one up) or no backend of this engine is enabled."""
+    if backend_registry is None:
+        return []
+    return [
+        RequirementBackendInfo(
+            id=backend.backend_id,
+            engine=backend.engine,
+            driver=backend.config.driver or backend.engine,
+            config=backend.config,
+            name=backend.name,
+        )
+        for backend in backend_registry.get_backends_for_engine(engine)
+    ]
+
+
+def build_requirement_context_for_backend(
     preset: PresetTemplate,
     models: Optional[ModelIndexCollaborators],
     gpu_monitor: Optional[GpuMonitor],
-    backend_registry: Optional[BackendRegistry],
+    backend: Optional[RequirementBackendInfo],
 ) -> RequirementContext:
-    """Gather everything `evaluate_preset_requirements` needs to check
-    `preset.requirements` against this instance, once per evaluation."""
-    backend = _resolve_backend(backend_registry, preset.engine)
-
+    """Same as `build_requirement_context`, but against an already-resolved
+    `backend` (or `None` for a pure host context) rather than looking up the
+    engine's default - the building block
+    `evaluate_preset_requirements_for_backends` uses to check a preset
+    against one specific backend of its engine."""
     gpu_available = bool(gpu_monitor is not None and gpu_monitor.available)
     # No local VRAM reading for a remote backend - the GPU this process can
     # see (if any) isn't the one the preset would actually run on.
@@ -64,3 +87,20 @@ def build_requirement_context(
         backend=backend,
         platform=sys.platform,
     )
+
+
+def build_requirement_context(
+    preset: PresetTemplate,
+    models: Optional[ModelIndexCollaborators],
+    gpu_monitor: Optional[GpuMonitor],
+    backend_registry: Optional[BackendRegistry],
+) -> RequirementContext:
+    """Gather everything `evaluate_preset_requirements` needs to check
+    `preset.requirements` against this instance, once per evaluation -
+    against the preset's engine's DEFAULT backend (or no backend at all, if
+    none is configured). Host-scoped checkers (the only ones this context is
+    meant for outside of `evaluate_preset_requirements_for_backends`) never
+    read `ctx.backend` for anything but the VRAM-reading's remote-backend
+    guard above."""
+    backend = _resolve_backend(backend_registry, preset.engine)
+    return build_requirement_context_for_backend(preset, models, gpu_monitor, backend)

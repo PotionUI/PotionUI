@@ -425,18 +425,34 @@ a marketplace-specific id), `vram_min_gb` (this host's total VRAM), and `platfor
 Engine-specific checks (a ComfyUI custom node or model) are not core — a plugin registers its own
 under a `requirement_checkers:` manifest root (see `src.plugin_api.presets.RequirementChecker`).
 
+### Host-scoped vs backend-scoped checkers
+
+A checker declares a `scope` of `"host"` (the default — every core checker) or `"backend"`. A
+`"host"` entry answers something true of this *process* no matter which backend of the preset's
+engine ends up executing it (a binary on `PATH`, this host's VRAM, an installed Python package) and
+is evaluated **once** per preset. A `"backend"` entry's answer depends on *which* backend of the
+engine is asked — `comfyui-backend`'s `comfyui_node`/`comfyui_model` checkers are `"backend"`-scoped,
+since one ComfyUI server can have a custom node or model another doesn't — and is evaluated **once
+per enabled backend** of that engine. A plugin engine with several interchangeable backends should
+mark its engine-specific checkers `"backend"`.
+
 Every check resolves to one of three statuses: `ok`, `missing`, or `unknown` — `unknown` means the
 check couldn't be evaluated here (a 5s per-check timeout, no local GPU reading, a checker type not
-registered in this process) and is never treated as `missing`. Results are cached per
-(preset, requirements-block content, resolved backend); pass `?refresh=1` to force a fresh
-evaluation. The preset list/detail endpoints expose the last-evaluated counts as
-`requirements_summary` (`{ok, missing, unknown, optional_missing}`, `null` until first checked)
+registered in this process, no backend of the engine to check a `"backend"`-scoped entry against)
+and is never treated as `missing`. Results are cached per (preset, requirements-block content[,
+backend]) — a host-scoped entry shares one cache slot across every backend, a backend-scoped entry
+gets its own slot per backend; pass `?refresh=1` to force a fresh evaluation of all of them. The
+preset list/detail endpoints expose the last-evaluated counts as `requirements_summary` (`{ok,
+missing, unknown, optional_missing}`, `null` until first checked) for the engine's default backend
+(or the preset's host-scoped entries alone, if the engine has no backend configured)
 without ever running a check themselves. A `missing` entry marked `optional: true` is tallied under
 `optional_missing`, not `missing` - an optional requirement's absence is advisory (see the
 `optional:` field above), so it must not read as a hard failure in a "can I run this here" summary.
 
-`GET /api/presets/{preset_id}/requirements` responds with one item per `requirements:` entry, each
-labeled with its own `type`/`name`/`optional` alongside the check outcome:
+`GET /api/presets/{preset_id}/requirements[?backend_id=<id>][&refresh=1]` responds with one item per
+`requirements:` entry, each labeled with its own `type`/`name`/`optional` alongside the check
+outcome, plus a `backends` listing (one entry per enabled backend of the preset's engine, with its
+own summary) so a UI can offer a per-backend selector:
 
 ```json
 {
@@ -455,12 +471,28 @@ labeled with its own `type`/`name`/`optional` alongside the check outcome:
       "type": "python_package", "name": "xformers>=0.0.28", "optional": true,
       "status": "missing", "detail": "'xformers' is not installed",
       "hint": null, "action": null
+    },
+    {
+      "type": "comfyui_node", "name": "FaceDetailer", "optional": false, "backend_id": "comfy-a",
+      "status": "ok", "detail": "node 'FaceDetailer' is installed",
+      "hint": null, "action": null
     }
   ],
-  "summary": {"ok": 1, "missing": 1, "unknown": 0, "optional_missing": 1},
+  "summary": {"ok": 2, "missing": 1, "unknown": 0, "optional_missing": 1},
+  "backends": [
+    {"id": "comfy-a", "name": "Comfy A", "is_default": true, "summary": {"ok": 2, "missing": 1, "unknown": 0, "optional_missing": 1}},
+    {"id": "comfy-b", "name": "Comfy B", "is_default": false, "summary": {"ok": 1, "missing": 2, "unknown": 0, "optional_missing": 1}}
+  ],
   "checked_at": 1735689600.0
 }
 ```
+
+`results`/`summary` are the preset's host-scoped entries plus one chosen backend's own — the
+requested `?backend_id=`, if it's an enabled backend of the preset's engine; otherwise the engine's
+default backend; otherwise the enabled backend with the fewest hard misses. A `"backend"`-scoped
+result item carries a `backend_id` field naming which backend it was checked against; a
+`"host"`-scoped one never does. `backends` is empty when the preset's engine has no enabled backend
+at all, in which case `results`/`summary` are the host-scoped entries alone.
 
 `name` is a short, human label for the entry: each core checker derives its own (a binary's
 `name`/first of `names`, `"<package><specifier>"`, a model's `tag`/short hash, `"<gb> GB"`, the
@@ -468,6 +500,19 @@ joined `os:` list). A plugin checker can supply one too by implementing `describ
 (see `src.plugin_api.presets.RequirementChecker`); without it - or for a `type:` no checker is
 registered for - the endpoint falls back to the entry's first string-valued field besides
 `type`/`hint`/`optional`, else the type name itself.
+
+### Requirements and generation routing
+
+A backend whose last-checked requirements verdict has a hard (non-optional) `missing` entry is
+excluded from generation routing for that preset: `GenerationOrchestrator` narrows its backend
+candidates to those with no such cached miss (intersected with the existing model-availability
+narrowing — see docs/models.md), the same way it narrows to backends holding every selected model.
+A backend never checked yet counts as **unknown**, not missing — it stays a routing candidate, and a
+background refresh is scheduled for it so a later generation benefits from a real verdict. Host-scoped
+misses never narrow routing (they are evaluated once, so excluding on one would exclude every
+backend) — surfacing those is the requirements panel's job, not routing's. If every enabled backend
+of the engine has a hard miss, generation fails fast with an error naming each backend and its
+missing requirements, rather than falling through to a backend that cannot actually run the preset.
 
 ## LLM context
 

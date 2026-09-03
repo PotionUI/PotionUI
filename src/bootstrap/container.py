@@ -80,6 +80,8 @@ from src.features.system_monitor import SystemMonitorCoordinator
 from src.features.fields.field_factory import FieldFactory
 from src.platform.filesystem import FileStore
 from src.features.generation.orchestrator import GenerationOrchestrator
+from src.features.generation.routing.registry import build_routing_rules
+from src.features.generation.routing.router import GenerationRouter
 from src.features.generation.output_processor import OutputProcessor
 from src.features.generation.pipeline_builder import PipelineBuilder
 from src.features.generation.status_tracker import GenerationStatusTracker
@@ -1019,6 +1021,7 @@ def build_container() -> AppContainer:
         generation_stats_repository=generation_stats_repository,
         media_indexer=media_indexer,
         gpu_monitor=gpu_monitor,
+        router=None,  # Will be set after model_index_manager is created - see docs/generation-routing.md
     )
 
     # Initialize generation history manager
@@ -1330,6 +1333,13 @@ def build_container() -> AppContainer:
     chat_runtime.segment_template_repository = segment_template_repo
     chat_runtime.model_index_manager = model_index_manager
     chat_runtime.preset_manager = preset_manager
+    generation_orchestrator.router = GenerationRouter(
+        build_routing_rules(plugin_registry),
+        backend_registry=backend_registry,
+        requirements_cache=requirements_cache,
+        model_index=model_index_manager,
+        gpu_monitor=gpu_monitor,
+    )
     chat_runtime.prompt_database = prompt_database
     chat_runtime.generation_orchestrator = generation_orchestrator
     chat_runtime.llm_memory_repository = llm_memory_repository

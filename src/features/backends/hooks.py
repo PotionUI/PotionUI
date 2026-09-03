@@ -5,6 +5,7 @@ from src.platform.plugins.hooks import hooks_registry
 BACKEND_HOOKS = hooks_registry.declare(
     "backend", "backend",
     "register",  # Plugins register backend types
+    "register_routing_rules",  # Plugins insert generation-routing rules
     "before_create", "after_create",
     "before_update", "after_update",
     "before_delete", "after_delete",
@@ -29,6 +30,34 @@ BACKEND_HOOKS = hooks_registry.declare(
                 "def register_backend(context: HookContext) -> HookContext:\n"
                 "    context.data[\"backend_types\"][\"comfyui\"] = ComfyUIBackend\n"
                 "    context.data[\"config_types\"][\"comfyui\"] = ComfyUIBackendConfig\n"
+                "    return context\n"
+            ),
+        },
+        "register_routing_rules": {
+            "description": "Fired once, at generation-router build time, to let plugins insert extra backend-selection rules into the routing chain (docs/generation-routing.md).",
+            "payload": {
+                "rules": {"type": "List[dict]", "description": "List of {'rule': RoutingRule instance, 'position': str|None} to append, seeded empty. `position` is 'before:<rule name>' / 'after:<rule name>' / omitted to append at the end - see src.plugin_api.backends.register_routing_rule."},
+            },
+            "mutable": ["rules"],
+            "use_when": [
+                "Add a custom backend-selection rule (cost-based routing, a region pin, an external health check) to the generation router",
+            ],
+            "example": (
+                "# manifest.yml\n"
+                "hooks:\n"
+                "  backend:\n"
+                "    - hook: \"backend.register_routing_rules\"\n"
+                "      handler: \"hooks.routing_hooks.register_rules\"\n\n"
+                "# hooks/routing_hooks.py\n"
+                "from src.plugin_api.backends import register_routing_rule\n\n"
+                "class PreferCheapestBackend:\n"
+                "    name = \"prefer_cheapest\"\n\n"
+                "    async def apply(self, candidates, request, ctx):\n"
+                "        for c in candidates:\n"
+                "            c.annotate(\"considered for cost\")\n"
+                "        return candidates\n\n"
+                "def register_rules(context: HookContext) -> HookContext:\n"
+                "    register_routing_rule(context, PreferCheapestBackend(), position=\"after:preference\")\n"
                 "    return context\n"
             ),
         },

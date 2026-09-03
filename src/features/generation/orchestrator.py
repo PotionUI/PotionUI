@@ -44,6 +44,7 @@ if TYPE_CHECKING:
     from src.features.media_index.indexer import MediaIndexer
     from src.platform.runtime.gpu import GpuMonitor
     from src.features.generation.records import File
+    from src.features.generation.routing.router import GenerationRouter
 
 from src.platform.util.ids import generate_ulid
 from src.features.media_index.mesh_thumbnails import render_and_store_mesh_thumbnail
@@ -60,6 +61,7 @@ from src.features.generation.status_tracker import (
     TERMINAL_STATES,
 )
 from src.features.backends.backend_registry import BackendRegistry
+from src.features.generation.routing.contracts import RoutingRequest
 from src.features.models.form_refs import collect_model_ids, resolve_form_model_refs
 from src.features.models.exceptions import ModelAccessDeniedException
 from src.pipelines.outputs import ErrorGenerationOutput, GenerationOutput, ProgressGenerationOutput
@@ -81,9 +83,6 @@ from src.features.music_director import (
 from src.features.forms.binding import bind_form, FormBindingError
 
 logger = logging.getLogger(__name__)
-
-# Fires once per unindexed engine rather than on every generation submission.
-_warned_unindexed_engine: set = set()
 
 # Loaded weights run a little over their on-disk size (allocator slack, dtype
 # staging). The resolution-scaled activation spike is priced separately below,
@@ -363,6 +362,7 @@ class GenerationOrchestrator:
         generation_stats_repository: Optional['GenerationStatsRepository'] = None,
         media_indexer: Optional['MediaIndexer'] = None,
         gpu_monitor: Optional['GpuMonitor'] = None,
+        router: Optional['GenerationRouter'] = None,
     ):
         """
         Initialize the generation orchestrator.
@@ -398,6 +398,15 @@ class GenerationOrchestrator:
             media_indexer: Queues a completed generation's final files
                 for system tagging (best-effort; never breaks completion
                 handling). `None` skips the enqueue entirely.
+            router: Decides which enabled backend of the preset's engine
+                executes the generation - see
+                `src.features.generation.routing.router.GenerationRouter`
+                and docs/generation-routing.md. `None` (most existing tests,
+                and any deployment that hasn't wired one) skips routing
+                entirely: `start_generation` falls back to
+                `backend_registry.select_backend_for_generation` with no
+                narrowing, exactly as if the engine had only ever had one
+                backend.
         """
         self.pipeline_builder = pipeline_builder
         self.preset_template_loader = preset_template_loader
@@ -416,6 +425,7 @@ class GenerationOrchestrator:
         self.notification_manager = notification_manager
         self.database_preset_repository = database_preset_repository
         self.model_access_policy = model_access_policy
+        self.router = router
         self.user_repository = user_repository
         self.gpu_monitor = gpu_monitor
 
@@ -464,46 +474,6 @@ class GenerationOrchestrator:
         except Exception:
             logger.debug("before_start: VRAM read failed", exc_info=True)
             return None, None
-
-    def _narrow_backends_by_availability(self, engine: str, form_data: Dict[str, Any]):
-        """Restrict candidate backends to those holding every selected model.
-
-        Returns None (meaning "do not narrow") when the form carries no model references,
-        which is the case for legacy form data and for presets whose model fields still
-        store plain paths.
-
-        Narrowing is skipped entirely when no backend of this engine has been indexed.
-        A configured-but-unindexed backend genuinely holds models; it has simply never
-        been asked. Enforcing availability against an empty index would fail every
-        generation on that engine rather than degrade to the previous behaviour.
-        """
-        from src.features.models.availability import require_candidate_backends
-        from src.features.models.availability_repository import (
-            model_availability_repo,
-        )
-
-        model_ids = collect_model_ids(form_data)
-        if not model_ids:
-            return None
-
-        engine_backend_ids = [
-            b.backend_id for b in self.backend_registry.get_backends_for_engine(engine)
-        ]
-        if not model_availability_repo.any_indexed(engine_backend_ids):
-            if engine not in _warned_unindexed_engine:
-                logger.warning(
-                    f"No backend for engine '{engine}' has been indexed; skipping "
-                    f"availability narrowing. Index the backend to enable model-aware routing."
-                )
-                _warned_unindexed_engine.add(engine)
-            return None
-
-        allowed = require_candidate_backends(engine, model_ids, self.backend_registry)
-        logger.debug(
-            f"Availability narrowed '{engine}' backends to {allowed} "
-            f"for {len(model_ids)} selected model(s)"
-        )
-        return allowed
 
     def _enforce_model_access(self, bound, user_id: str) -> None:
         """Verify every `model:<id>` reference in `bound.values` is one
@@ -714,17 +684,29 @@ class GenerationOrchestrator:
             if generation_origins:
                 _validate_generation_origins(generation_origins, user_id)
 
-            # Select backend for this generation. When the form carries `model:<id>`
-            # references, only backends holding every one of them can run it.
+            # Select backend for this generation - see
+            # `src.features.generation.routing` and docs/generation-routing.md.
+            # `self.router` is `None` in most existing tests and any
+            # deployment that hasn't wired one: fall back to the plain,
+            # unnarrowed pick (exactly `select_backend_for_generation`'s own
+            # behavior always was) rather than skip backend selection.
             backend_id = getattr(request, 'backend_id', None)
-            allowed_backend_ids = self._narrow_backends_by_availability(
-                engine, request.form_data or {}
-            )
-            backend = self.backend_registry.select_backend_for_generation(
-                engine=engine,
-                backend_id=backend_id,
-                allowed_backend_ids=allowed_backend_ids,
-            )
+            router = getattr(self, "router", None)
+            if router is not None:
+                decision = await router.route(RoutingRequest(
+                    engine=engine,
+                    preset=preset_template,
+                    form_data=request.form_data or {},
+                    requested_backend_id=backend_id,
+                    user_id=user_id,
+                ))
+                backend = decision.chosen
+                routing_summary = decision.summary()
+            else:
+                backend = self.backend_registry.select_backend_for_generation(
+                    engine=engine, backend_id=backend_id,
+                )
+                routing_summary = None
 
             logger.debug(f"Selected backend: {backend.name} (engine={backend.engine})")
 
@@ -923,7 +905,11 @@ class GenerationOrchestrator:
                 'backend': {
                     'id': backend.backend_id,
                     'name': backend.name,
-                    'engine': backend.engine
+                    'engine': backend.engine,
+                    # One-line "why this backend" from the router (e.g.
+                    # "default backend for this engine") - `None` when
+                    # `self.router` isn't wired. See docs/generation-routing.md.
+                    'routing_reason': routing_summary['reason'] if routing_summary else None,
                 }
             }
 

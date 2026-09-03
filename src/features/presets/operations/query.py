@@ -15,9 +15,10 @@ from src.features.presets.exceptions import (
     NoModesAvailableException,
     PresetNotFoundException,
 )
-from src.features.presets.requirements.context_builder import resolve_backend_id
+from src.features.presets.requirements.context_builder import backend_infos_for_engine, resolve_backend_id
 from src.features.presets.templates import ModeTemplate, GenerationMode, sorted_forms, default_form_name
 from src.pipelines.graph import build_graph, PipelineGraph
+from src.platform.plugins.requirement_checkers import requirement_checker_registry
 from src.platform.security.user import User, AccountType
 
 logger = logging.getLogger(__name__)
@@ -78,14 +79,29 @@ def list_presets(
 def _peek_requirements_summary(collaborators: PresetCollaborators, preset_id: str) -> Optional[Dict[str, int]]:
     """The last-evaluated `requirements_summary` for a preset, or `None` if it
     has never been checked (or a reload/backend change invalidated the
-    cache). Never runs a check - see `RequirementsCache.peek_summary`."""
+    cache). Never runs a check.
+
+    Tries, in order: the engine's default backend's cached verdict; failing
+    that (backends exist but none is marked default, or the default's cache
+    was never warmed), any other enabled backend of the engine that HAS been
+    checked; failing that, the preset's host-scoped entries alone (the only
+    thing there is to check when the engine has no backend configured at
+    all). See `RequirementsCache.peek_summary`/`peek_host_summary`."""
     if collaborators.requirements_cache is None:
         return None
     preset_template = collaborators.file_repo.find_preset_by_id(preset_id)
     if preset_template is None:
         return None
-    backend_id = resolve_backend_id(collaborators.backend_registry, preset_template.engine)
-    peek = collaborators.requirements_cache.peek_summary(preset_template, backend_id)
+
+    default_backend_id = resolve_backend_id(collaborators.backend_registry, preset_template.engine)
+    peek = collaborators.requirements_cache.peek_summary(preset_template, default_backend_id)
+    if peek is None:
+        for info in backend_infos_for_engine(collaborators.backend_registry, preset_template.engine):
+            peek = collaborators.requirements_cache.peek_summary(preset_template, info.id)
+            if peek is not None:
+                break
+    if peek is None:
+        peek = collaborators.requirements_cache.peek_host_summary(requirement_checker_registry, preset_template)
     return peek['summary'] if peek else None
 
 

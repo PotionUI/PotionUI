@@ -68,6 +68,10 @@ class RequirementBackendInfo:
     engine: str
     driver: str
     config: Any = None
+    # The backend's admin-set display name, e.g. "My ComfyUI Server" - not
+    # read by any core checker, only surfaced to the `requirements` API/UI
+    # so a per-backend result can be labeled without a second lookup.
+    name: str = ""
 
 
 @dataclass(frozen=True)
@@ -115,6 +119,20 @@ class RequirementChecker(Protocol):
     ComfyUI custom-node/model check fetching a big `/object_info`) should set
     a longer one rather than let a slow-but-live server always read as
     "unknown".
+
+    A checker may also declare a `scope: Literal["host", "backend"] = "host"`
+    class/instance attribute (same duck-typing - absent means "host"):
+    "host" (every core checker) means the entry answers something true of
+    this process regardless of which backend of the preset's engine ends up
+    executing it (a binary on PATH, this host's VRAM, ...), and is evaluated
+    once per preset. "backend" (e.g. a ComfyUI custom-node/model check) means
+    the entry's answer depends on which specific backend of the engine is
+    asked, and is evaluated once per enabled backend of that engine (see
+    `evaluator.evaluate_preset_requirements_for_backends`). A plugin engine
+    with several interchangeable backends (several ComfyUI servers, say)
+    should mark its engine-specific checkers "backend" so routing
+    (`GenerationOrchestrator`) and the admin requirements panel can tell
+    which backends actually satisfy a preset.
     """
 
     # The `requirements:` entry `type:` name this checker evaluates.

@@ -188,6 +188,10 @@ class ComfyUINodeChecker:
     type = "comfyui_node"
     schema = ComfyUINodeRequirementSchema
     timeout_s = _CHECK_TIMEOUT_SECONDS
+    # This checker's answer depends on which ComfyUI server is asked - see
+    # `RequirementChecker`'s docstring - so it is evaluated once per enabled
+    # `comfyui` backend, not once for the whole preset.
+    scope = "backend"
 
     async def check(self, spec: Dict[str, Any], ctx: RequirementContext) -> RequirementResult:
         parsed = self.schema.model_validate(spec)
@@ -219,6 +223,8 @@ class ComfyUIModelChecker:
     type = "comfyui_model"
     schema = ComfyUIModelRequirementSchema
     timeout_s = _CHECK_TIMEOUT_SECONDS
+    # Same reasoning as `ComfyUINodeChecker.scope`.
+    scope = "backend"
 
     async def check(self, spec: Dict[str, Any], ctx: RequirementContext) -> RequirementResult:
         parsed = self.schema.model_validate(spec)

@@ -267,7 +267,12 @@ only `POST /api/backends/{id}/set-default` moves it.
 
 ## Backend selection
 
-When a generation starts, `src/features/generation/orchestrator.py` calls
+When a generation starts, `src/features/generation/orchestrator.py` asks its
+**`GenerationRouter`** which backend should run it — a chain of composable rules that narrows the
+engine's enabled backends down to the eligible ones (does it hold every selected model? does it meet
+the preset's requirements?) before picking among them. See
+**[Generation Routing](generation-routing.md)** for the full picture — this section covers only the
+final pick the router (and any other caller) delegates to:
 
 ```python
 BackendRegistry.select_backend_for_generation(engine: str, backend_id: str | None = None) -> BaseBackend
@@ -462,5 +467,7 @@ the plugin, or delete the orphaned backend.
 
 ## See also
 
+- [Generation Routing](generation-routing.md) — the rule chain that decides WHICH backend a
+  generation runs on, above the plain algorithm this document covers.
 - [Preset Authoring Guide](presets.md) — `preset.yml`, pipelines, forms.
 - Hooks Catalog (developer docs, live) — every hook and its payload, including `backend.*`.

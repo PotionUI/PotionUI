@@ -1,76 +1,19 @@
-"""Availability narrowing and model-ref resolution at generation start.
+"""Model-ref resolution at generation start.
 
 The backend is selected before the row is created, so by the time form data is rewritten
 we know exactly which engine instance will run it. See docs/models.md.
+
+Availability-based backend narrowing itself now lives in
+`src.features.generation.routing.rules.ModelAvailability` (see
+`tests/features/generation/routing/test_model_availability_rule.py`) rather
+than a private orchestrator method - this file keeps only
+`BackendRegistry.select_backend_for_generation`'s own empty-candidate-set
+behavior, which the routing rule delegates to for its final pick (see
+docs/generation-routing.md).
 """
 
 import pytest
-from unittest.mock import Mock, patch
-
-from src.features.generation import orchestrator as orch
-from src.features.models.form_refs import make_model_ref
-
-
-class TestNarrowBackendsByAvailability:
-    """`_narrow_backends_by_availability` decides whether to constrain selection."""
-
-    def _orchestrator(self, engine_backend_ids):
-        instance = object.__new__(orch.GenerationOrchestrator)
-        registry = Mock()
-        registry.get_backends_for_engine.return_value = [
-            Mock(backend_id=bid) for bid in engine_backend_ids
-        ]
-        instance.backend_registry = registry
-        return instance
-
-    def test_form_without_model_refs_does_not_narrow(self):
-        """Legacy path values carry no identity, so nothing can be constrained."""
-        instance = self._orchestrator(["comfy_a"])
-        form = {"checkpoint": "models/checkpoints/a.safetensors"}
-
-        assert instance._narrow_backends_by_availability("comfyui", form) is None
-
-    @patch("src.features.models.availability_repository.model_availability_repo")
-    def test_unindexed_engine_skips_narrowing_rather_than_failing_everything(self, repo):
-        """A configured-but-unindexed backend holds models; it has never been asked.
-
-        Enforcing availability against an empty index would fail every generation on
-        that engine instead of degrading to the previous behaviour.
-        """
-        repo.any_indexed.return_value = False
-        instance = self._orchestrator(["comfy_a"])
-        form = {"checkpoint": make_model_ref("m1")}
-
-        assert instance._narrow_backends_by_availability("comfyui", form) is None
-
-    @patch("src.features.models.availability.require_candidate_backends")
-    @patch("src.features.models.availability_repository.model_availability_repo")
-    def test_indexed_engine_narrows_to_backends_holding_every_model(self, repo, candidates):
-        repo.any_indexed.return_value = True
-        candidates.return_value = ["comfy_b"]
-        instance = self._orchestrator(["comfy_a", "comfy_b"])
-        form = {"checkpoint": make_model_ref("m1"), "loras": [{"model": make_model_ref("m2")}]}
-
-        allowed = instance._narrow_backends_by_availability("comfyui", form)
-
-        assert allowed == ["comfy_b"]
-        assert candidates.call_args[0][1] == ["m1", "m2"]
-
-    @patch("src.features.models.availability.require_candidate_backends")
-    @patch("src.features.models.availability_repository.model_availability_repo")
-    def test_no_backend_holds_everything_raises_the_detailed_error(self, repo, candidates):
-        """The detailed explanation (which model blocks, where it lives) must reach the
-        user, not the registry's generic one-liner."""
-        from src.features.models.availability import NoBackendHoldsAllModelsError
-
-        repo.any_indexed.return_value = True
-        candidates.side_effect = NoBackendHoldsAllModelsError("'a.safetensors' is on Remote One")
-        instance = self._orchestrator(["comfy_a"])
-
-        with pytest.raises(NoBackendHoldsAllModelsError, match="Remote One"):
-            instance._narrow_backends_by_availability(
-                "comfyui", {"checkpoint": make_model_ref("m1")}
-            )
+from unittest.mock import Mock
 
 
 class TestSelectionRejectsEmptyCandidateSet:

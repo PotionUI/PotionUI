@@ -17,6 +17,8 @@ derives from what you set on `size`/`sha256` - it's one of `CONFIDENCE_VERIFIED`
 See docs/backends.md.
 """
 
+from typing import Optional
+
 from src.features.backends.backend_config import (
     BaseBackendConfig,
     BackendHealth,
@@ -32,17 +34,34 @@ from src.features.backends.model_listing import (
     ModelListingNotSupported,
     deduplicate,
 )
+from src.features.generation.routing.contracts import Candidate, RoutingRequest, RoutingRule
+from src.platform.plugins.hooks import HookContext
+
+
+def register_routing_rule(context: HookContext, rule: RoutingRule, position: Optional[str] = None) -> None:
+    """Call from a `backend.register_routing_rules` hook handler to insert
+    `rule` into the generation router's chain. `position` is
+    `"before:<rule name>"` / `"after:<rule name>"` (an anchor that doesn't
+    match any built-in or earlier-registered rule falls back to appending,
+    logged) or omitted to append at the end. See docs/generation-routing.md
+    "Adding a rule from a plugin"."""
+    context.data.setdefault("rules", []).append({"rule": rule, "position": position})
+
 
 __all__ = [
     "BackendHealth",
     "BackendModel",
     "BackendStatus",
     "BaseBackendConfig",
+    "Candidate",
     "CONFIDENCE_CONFLICT",
     "CONFIDENCE_NAME_ONLY",
     "CONFIDENCE_REPORTED",
     "CONFIDENCE_VERIFIED",
     "InProcessBackend",
     "ModelListingNotSupported",
+    "RoutingRequest",
+    "RoutingRule",
     "deduplicate",
+    "register_routing_rule",
 ]

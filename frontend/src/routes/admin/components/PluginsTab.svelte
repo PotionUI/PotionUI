@@ -8,6 +8,7 @@
 	import AdminTabShell from './AdminTabShell.svelte';
 	import AdminFilterBar from './AdminFilterBar.svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { pluginCategories, resolveCategory } from '$lib/plugins/categories';
 
 	let selectedPluginId: string | null = null;
@@ -304,6 +305,11 @@
 										<div class="flex flex-wrap items-center gap-1.5 mt-1.5">
 											{#if plugin.source}
 												<Badge variant="neutral" size="sm" class="font-mono uppercase">{plugin.source}</Badge>
+											{/if}
+											{#if plugin.shadows}
+												<Tooltip text="Shadows marketplace copy at {plugin.shadows}">
+													<Badge variant="warning" size="sm">SHADOWS MARKETPLACE COPY</Badge>
+												</Tooltip>
 											{/if}
 											<Badge variant="neutral" size="sm" class="font-mono uppercase">{plugin.type}</Badge>
 											{#each (plugin.capabilities ?? []).slice(0, MAX_CAPABILITY_BADGES) as cap}

@@ -33,6 +33,7 @@ class PluginResponse(BaseModel):
     tags: List[str] = Field(default_factory=list)
     capabilities: List[str] = Field(default_factory=list)
     source: str = "local"  # "marketplace" | "local"
+    shadows: Optional[str] = None  # marketplace path this plugin's id shadows, if any
     homepage: Optional[str] = None
     repository: Optional[str] = None
     hook_count: int = 0

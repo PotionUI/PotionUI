@@ -65,6 +65,9 @@ class PluginManifest:
 
     # Source information
     source: str = "local"  # "marketplace" or "local"
+    # Set when this id also exists in the marketplace tree and this (local)
+    # manifest won the shadowing - the marketplace plugin_dir it shadows.
+    shadows: Optional[Path] = None
 
     # Additional metadata
     homepage: Optional[str] = None
@@ -163,8 +166,34 @@ class PluginLoader:
             plugins.extend(local_plugins)
             logger.info(f"Found {len(local_plugins)} local plugins")
 
+        self._mark_shadowed(plugins)
+
         logger.info(f"Total plugins discovered: {len(plugins)}")
         return plugins
+
+    def _mark_shadowed(self, plugins: List[PluginManifest]) -> None:
+        """
+        Warn about, and tag, plugin ids present in both roots.
+
+        `local/` wins (it's the dev workflow), matching the registry's
+        discovery order (marketplace inserted first, local second, same id
+        overwrites). The winning (local) manifest gets `shadows` set to the
+        marketplace plugin_dir it hides.
+        """
+        by_id: Dict[str, PluginManifest] = {}
+        for manifest in plugins:
+            if manifest.source == "marketplace":
+                by_id.setdefault(manifest.id, manifest)
+
+        for manifest in plugins:
+            if manifest.source == "local" and manifest.id in by_id:
+                shadowed = by_id[manifest.id]
+                manifest.shadows = shadowed.plugin_dir
+                logger.warning(
+                    f"Plugin id '{manifest.id}' is defined in both "
+                    f"{shadowed.plugin_dir} (marketplace) and {manifest.plugin_dir} "
+                    f"(local) - local wins"
+                )
 
     def _scan_directory(self, directory: Path, source: str) -> List[PluginManifest]:
         """

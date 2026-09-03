@@ -49,6 +49,8 @@ export interface Plugin {
 	tags?: string[];
 	capabilities?: string[];
 	source?: 'marketplace' | 'local';
+	/** Marketplace plugin_dir this plugin's id shadows, if any (local wins) */
+	shadows?: string | null;
 	homepage?: string;
 	repository?: string;
 	hook_count?: number;

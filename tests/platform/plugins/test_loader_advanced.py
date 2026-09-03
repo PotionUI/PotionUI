@@ -487,6 +487,43 @@ def handle(context):
         sources = {p.source for p in plugins}
         self.assertEqual(sources, {'marketplace', 'local'})
 
+    def test_discover_plugins_warns_and_tags_shadowed_marketplace_copy(self):
+        """A local plugin id also present in marketplace: local wins, is tagged, and warns"""
+        manifest_data = {
+            'id': 'duplicate-plugin',
+            'name': 'Duplicate Plugin',
+            'version': '1.0.0',
+            'description': 'Plugin in marketplace',
+            'author': 'Author',
+            'type': 'full-stack'
+        }
+
+        marketplace_plugin_dir = self._create_test_plugin(
+            self.marketplace_dir,
+            'duplicate-plugin',
+            manifest_data
+        )
+
+        local_manifest = manifest_data.copy()
+        local_manifest['version'] = '2.0.0'
+        local_plugin_dir = self._create_test_plugin(
+            self.local_dir,
+            'duplicate-plugin',
+            local_manifest
+        )
+
+        with self.assertLogs('src.platform.plugins.loader', level='WARNING') as cm:
+            plugins = self.loader.discover_plugins()
+
+        warning_text = ' '.join(cm.output)
+        self.assertIn('duplicate-plugin', warning_text)
+        self.assertIn(str(marketplace_plugin_dir), warning_text)
+        self.assertIn(str(local_plugin_dir), warning_text)
+
+        by_source = {p.source: p for p in plugins}
+        self.assertIsNone(by_source['marketplace'].shadows)
+        self.assertEqual(by_source['local'].shadows, marketplace_plugin_dir)
+        self.assertEqual(by_source['local'].version, '2.0.0')
 
 
 if __name__ == '__main__':

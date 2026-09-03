@@ -37,6 +37,7 @@ def plugin_to_response(plugin: Plugin, registry: PluginRegistry) -> PluginRespon
         tags = manifest.tags
         capabilities = manifest.capabilities
         source = manifest.source
+        shadows = str(manifest.shadows) if manifest.shadows else None
         homepage = manifest.homepage
         repository = manifest.repository
         hook_count = len(manifest.hooks) + len(manifest.frontend_hooks)
@@ -46,6 +47,7 @@ def plugin_to_response(plugin: Plugin, registry: PluginRegistry) -> PluginRespon
         tags = []
         capabilities = []
         source = "local"
+        shadows = None
         homepage = None
         repository = None
         hook_count = 0
@@ -68,6 +70,7 @@ def plugin_to_response(plugin: Plugin, registry: PluginRegistry) -> PluginRespon
         tags=tags,
         capabilities=capabilities,
         source=source,
+        shadows=shadows,
         homepage=homepage,
         repository=repository,
         hook_count=hook_count,

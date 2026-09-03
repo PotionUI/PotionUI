@@ -20,6 +20,7 @@
 	// component's own header comment for why sessionStorage/a window event
 	// rather than shared module state.
 	import { onMount } from 'svelte';
+	import { floating } from './floating.js';
 
 	let { pluginId = 'comfyui-backend', plugin = null } = $props();
 
@@ -82,8 +83,11 @@
 	let leftSearch = $state('');
 	let renamingTabId = $state(null);
 	let tabPopoverId = $state(null);
+	let tabPopoverAnchorEl = $state(null);
 	let addMenuOpenFor = $state(null);
+	let addMenuAnchorEl = $state(null);
 	let expandedFieldId = $state(null);
+	let dismissedSuggestionIds = $state({});
 
 	// ---- Step 3: History ----
 	let initialHistoryDefault = $state([]);
@@ -123,6 +127,27 @@
 
 	function isLockedCandidate(c) {
 		return LOCKED_ROLES.has(c.role);
+	}
+
+	// Name-based mapping suggestions: "seed" (a workflow input) suggests
+	// itself for a field also named "seed" - a nudge, not an auto-apply.
+	function normalizeMatchName(s) {
+		return (s || '').toString().trim().toLowerCase().replace(/[-\s]+/g, '_');
+	}
+
+	function candidateNameMatchesField(c, field) {
+		if (mappedKeySet.has(candidateKey(c))) return false;
+		const normInput = normalizeMatchName(c.input_name);
+		return normInput === normalizeMatchName(field.field_name) || normInput === normalizeMatchName(field.label);
+	}
+
+	function nameMatchSuggestionsFor(field) {
+		if (field.mappings.length > 0) return [];
+		return mappableCandidates.filter((c) => candidateNameMatchesField(c, field)).slice(0, 3);
+	}
+
+	function dismissSuggestion(fieldId) {
+		dismissedSuggestionIds = { ...dismissedSuggestionIds, [fieldId]: true };
 	}
 
 	function buildLeftGroups(candidates, search) {
@@ -301,6 +326,15 @@
 		if (activeTabId === removed.id) activeTabId = form.tabs[Math.max(0, index - 1)].id;
 	}
 
+	function toggleTabPopover(tabId, anchorEl) {
+		if (tabPopoverId === tabId) {
+			tabPopoverId = null;
+		} else {
+			tabPopoverId = tabId;
+			tabPopoverAnchorEl = anchorEl;
+		}
+	}
+
 	function moveItemAt(items, index, dir) {
 		const j = index + dir;
 		if (j < 0 || j >= items.length) return;
@@ -319,6 +353,15 @@
 		else if (kind === 'section') items.push({ _id: uid('item'), kind: 'section', title: 'Section', collapsed: false, items: [] });
 		else if (kind === 'header') items.push({ _id: uid('item'), kind: 'header', text: 'Header' });
 		addMenuOpenFor = null;
+	}
+
+	function toggleAddMenu(items, anchorEl) {
+		if (addMenuOpenFor === items) {
+			addMenuOpenFor = null;
+		} else {
+			addMenuOpenFor = items;
+			addMenuAnchorEl = anchorEl;
+		}
 	}
 
 	function convertContainer(item) {
@@ -718,11 +761,11 @@
 
 {#snippet addMenu(items, isRoot = false)}
 	<div class="di-add-wrap" data-add-root={isRoot ? 'true' : undefined}>
-		<button type="button" class="di-add-field" onclick={() => (addMenuOpenFor = addMenuOpenFor === items ? null : items)} data-action="open-add-menu">
+		<button type="button" class="di-add-field" onclick={(e) => toggleAddMenu(items, e.currentTarget)} data-action="open-add-menu">
 			{@render icon('plus')} Add
 		</button>
 		{#if addMenuOpenFor === items}
-			<div class="di-add-menu">
+			<div class="di-add-menu" use:floating={{ anchor: addMenuAnchorEl, onOutsideClick: () => (addMenuOpenFor = null) }}>
 				<button type="button" onclick={() => addItemToContainer(items, 'field')} data-add-kind="field">{@render icon('arrow-right')}Field<span class="type-tag">input</span></button>
 				<button type="button" onclick={() => addItemToContainer(items, 'row')} data-add-kind="row">{@render icon('columns')}Row<span class="type-tag">layout</span></button>
 				<button type="button" onclick={() => addItemToContainer(items, 'group')} data-add-kind="group">{@render icon('folder')}Group<span class="type-tag">layout</span></button>
@@ -761,18 +804,36 @@
 		</div>
 		{#if item.mappings.length > 0}
 			<div class="di-mapping"><span class="line mono"><span class="arrow">→</span>{item.mappings.map((m) => `${m.node_id}.inputs.${m.input_name}`).join(' · ')}</span></div>
+		{:else if !dismissedSuggestionIds[item._id]}
+			{@const suggestions = nameMatchSuggestionsFor(item)}
+			{#if suggestions.length > 0}
+				<div class="di-suggest" data-name-suggestions>
+					<div class="di-suggest-rows">
+						{#each suggestions as c (candidateKey(c))}
+							<div class="di-suggest-row">
+								<span class="di-suggest-text">Matches workflow input <span class="mono">{c.node_id}.inputs.{c.input_name}</span></span>
+								<button type="button" class="di-suggest-map" onclick={() => toggleMapping(item, c, true)} data-action="apply-name-match">Map</button>
+							</div>
+						{/each}
+					</div>
+					<button type="button" class="di-suggest-dismiss" onclick={() => dismissSuggestion(item._id)} aria-label="Dismiss suggestion" data-action="dismiss-name-match">{@render icon('x', 10)}</button>
+				</div>
+			{/if}
 		{/if}
 		{#if expandedFieldId === item._id}
+			{@const sortedMapCandidates = [...mappableCandidates].sort((a, b) => Number(candidateNameMatchesField(b, item)) - Number(candidateNameMatchesField(a, item)))}
 			<div class="di-mapedit" data-mapping-editor>
 				<div class="di-mapedit-label">Mapped workflow inputs</div>
 				<div class="di-mapedit-list">
-					{#each mappableCandidates as c (candidateKey(c))}
+					{#each sortedMapCandidates as c (candidateKey(c))}
 						{@const checked = item.mappings.some((m) => m.node_id === c.node_id && m.input_name === c.input_name)}
 						{@const mappedElsewhere = mappedFieldByKey.get(candidateKey(c)) && mappedFieldByKey.get(candidateKey(c)) !== item}
+						{@const isNameMatch = candidateNameMatchesField(c, item)}
 						<div class="di-mapedit-row" class:selected={checked} data-mapedit-key={candidateKey(c)}>
 							<input type="checkbox" {checked} disabled={mappedElsewhere} onchange={(e) => toggleMapping(item, c, e.currentTarget.checked)} />
 							<span class="di-mapedit-node mono">{c.node_id} · {c.class_type}</span>
 							<span class="di-mapedit-input mono">{c.input_name}</span>
+							{#if isNameMatch}<span class="chip chip-info" data-name-match-chip>name match</span>{/if}
 							{#if mappedElsewhere}
 								<span class="di-mapedit-taken">mapped to {mappedFieldByKey.get(candidateKey(c)).label}</span>
 							{:else if checked}
@@ -1073,14 +1134,19 @@
 										role="button"
 										tabindex="0"
 										title="Tab options"
-										onclick={(e) => { e.stopPropagation(); tabPopoverId = tabPopoverId === tab.id ? null : tab.id; }}
-										onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); tabPopoverId = tabPopoverId === tab.id ? null : tab.id; } }}
+										onclick={(e) => { e.stopPropagation(); toggleTabPopover(tab.id, e.currentTarget); }}
+										onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); toggleTabPopover(tab.id, e.currentTarget); } }}
 										data-action="tab-menu"
 									>
 										{@render icon('more', 11)}
 									</span>
 									{#if tabPopoverId === tab.id}
-										<div class="tab-popover" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
+										<div
+											class="tab-popover"
+											use:floating={{ anchor: tabPopoverAnchorEl, onOutsideClick: () => (tabPopoverId = null) }}
+											onclick={(e) => e.stopPropagation()}
+											onkeydown={(e) => e.stopPropagation()}
+										>
 											<button type="button" onclick={() => { renamingTabId = tab.id; tabPopoverId = null; }} data-action="rename-tab">{@render icon('pencil')}Rename</button>
 											<button type="button" disabled={ti === 0} onclick={() => { moveTab(ti, -1); tabPopoverId = null; }} data-action="move-tab-left">{@render icon('arrow-left')}Move left</button>
 											<button type="button" disabled={ti === form.tabs.length - 1} onclick={() => { moveTab(ti, 1); tabPopoverId = null; }} data-action="move-tab-right">{@render icon('arrow-right')}Move right</button>
@@ -2005,6 +2071,64 @@
 		margin-right: 3px;
 	}
 
+	.di-suggest {
+		display: flex;
+		align-items: flex-start;
+		gap: 8px;
+		margin-top: 6px;
+		padding: 6px 8px 6px 24px;
+	}
+	.di-suggest-rows {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		flex: 1;
+		min-width: 0;
+	}
+	.di-suggest-row {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		flex-wrap: wrap;
+	}
+	.di-suggest-text {
+		font-size: 10.5px;
+		color: rgb(var(--fg-subtle, 122 128 144));
+	}
+	.di-suggest-map {
+		flex-shrink: 0;
+		height: 20px;
+		padding: 0 8px;
+		border-radius: 4px;
+		border: 1px solid rgb(var(--line-strong, 43 46 53));
+		background: rgb(var(--surface-2, 31 33 38));
+		color: rgb(var(--fg, 232 234 237));
+		font-size: 10.5px;
+		font-weight: 600;
+		cursor: pointer;
+	}
+	.di-suggest-map:hover {
+		border-color: rgb(var(--line-hover, 58 62 70));
+		background: rgb(var(--surface-3, 39 42 49));
+	}
+	.di-suggest-dismiss {
+		flex-shrink: 0;
+		width: 18px;
+		height: 18px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 4px;
+		color: rgb(var(--fg-disabled, 92 98 112));
+		background: none;
+		border: none;
+		cursor: pointer;
+	}
+	.di-suggest-dismiss:hover {
+		color: rgb(var(--fg-muted, 169 174 184));
+		background: rgb(var(--surface-3, 39 42 49));
+	}
+
 	.di-add-wrap {
 		position: relative;
 	}
@@ -2026,6 +2150,8 @@
 		color: rgb(var(--fg, 232 234 237));
 	}
 	.di-add-menu {
+		/* Positioned by the `floating` action (position: fixed, inline top/left) -
+		   these are just its pre-mount fallback. */
 		position: absolute;
 		top: calc(100% + 4px);
 		left: 0;
@@ -2035,7 +2161,7 @@
 		padding: 4px;
 		background: rgb(var(--surface-1, 22 24 28));
 		box-shadow: var(--shadow-floating, 0 4px 16px rgb(0 0 0 / 0.5));
-		z-index: 20;
+		z-index: 1000;
 	}
 	.di-add-menu button {
 		display: flex;
@@ -2255,6 +2381,8 @@
 	}
 
 	.tab-popover {
+		/* Positioned by the `floating` action (position: fixed, inline top/left) -
+		   these are just its pre-mount fallback. */
 		position: absolute;
 		top: calc(100% + 4px);
 		left: 0;
@@ -2264,7 +2392,7 @@
 		padding: 4px;
 		background: rgb(var(--surface-1, 22 24 28));
 		box-shadow: var(--shadow-floating, 0 4px 16px rgb(0 0 0 / 0.5));
-		z-index: 20;
+		z-index: 1000;
 	}
 	.tab-popover button {
 		display: flex;

@@ -343,7 +343,8 @@
 		border: 1px solid rgb(var(--line, 36 38 44));
 		border-radius: 6px;
 		background: rgb(var(--surface-1, 22 24 28));
-		overflow: hidden;
+		/* Not `overflow: hidden` - that clipped the [data-tip] tooltips on the
+		   first/last row. .ip-head carries its own corner radius instead. */
 	}
 	.ip-row {
 		display: grid;
@@ -356,6 +357,7 @@
 		border-top: 1px solid rgb(var(--line, 36 38 44));
 	}
 	.ip-head {
+		border-radius: 6px 6px 0 0;
 		background: rgb(var(--canvas, 12 13 15));
 		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 		font-size: 9.5px;

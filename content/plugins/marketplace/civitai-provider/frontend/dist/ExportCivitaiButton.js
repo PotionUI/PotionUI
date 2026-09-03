@@ -1,33 +1,16 @@
 var __defProp = Object.defineProperty;
+var __typeError = (msg) => {
+  throw TypeError(msg);
+};
 var __defNormalProp = (obj, key2, value) => key2 in obj ? __defProp(obj, key2, { enumerable: true, configurable: true, writable: true, value }) : obj[key2] = value;
-var __publicField = (obj, key2, value) => {
-  __defNormalProp(obj, typeof key2 !== "symbol" ? key2 + "" : key2, value);
-  return value;
-};
-var __accessCheck = (obj, member, msg) => {
-  if (!member.has(obj))
-    throw TypeError("Cannot " + msg);
-};
-var __privateGet = (obj, member, getter) => {
-  __accessCheck(obj, member, "read from private field");
-  return getter ? getter.call(obj) : member.get(obj);
-};
-var __privateAdd = (obj, member, value) => {
-  if (member.has(obj))
-    throw TypeError("Cannot add the same private member more than once");
-  member instanceof WeakSet ? member.add(obj) : member.set(obj, value);
-};
-var __privateSet = (obj, member, value, setter) => {
-  __accessCheck(obj, member, "write to private field");
-  setter ? setter.call(obj, value) : member.set(obj, value);
-  return value;
-};
-var __privateMethod = (obj, member, method) => {
-  __accessCheck(obj, member, "access private method");
-  return method;
-};
+var __publicField = (obj, key2, value) => __defNormalProp(obj, typeof key2 !== "symbol" ? key2 + "" : key2, value);
+var __accessCheck = (obj, member, msg) => member.has(obj) || __typeError("Cannot " + msg);
+var __privateGet = (obj, member, getter) => (__accessCheck(obj, member, "read from private field"), getter ? getter.call(obj) : member.get(obj));
+var __privateAdd = (obj, member, value) => member.has(obj) ? __typeError("Cannot add the same private member more than once") : member instanceof WeakSet ? member.add(obj) : member.set(obj, value);
+var __privateSet = (obj, member, value, setter) => (__accessCheck(obj, member, "write to private field"), setter ? setter.call(obj, value) : member.set(obj, value), value);
+var __privateMethod = (obj, member, method) => (__accessCheck(obj, member, "access private method"), method);
 
-// node_modules/svelte/src/internal/client/constants.js
+// content/plugins/node_modules/svelte/src/internal/client/constants.js
 var DERIVED = 1 << 1;
 var EFFECT = 1 << 2;
 var RENDER_EFFECT = 1 << 3;
@@ -54,16 +37,14 @@ var WAS_MARKED = 1 << 16;
 var REACTION_IS_UPDATING = 1 << 21;
 var ASYNC = 1 << 22;
 var ERROR_VALUE = 1 << 23;
-var STATE_SYMBOL = Symbol("$state");
-var LEGACY_PROPS = Symbol("legacy props");
-var LOADING_ATTR_SYMBOL = Symbol("");
-var PROXY_PATH_SYMBOL = Symbol("proxy path");
-var ATTRIBUTES_CACHE = Symbol("attributes");
-var CLASS_CACHE = Symbol("class");
-var STYLE_CACHE = Symbol("style");
-var TEXT_CACHE = Symbol("text");
-var FORM_RESET_HANDLER = Symbol("form reset");
-var HMR_ANCHOR = Symbol("hmr anchor");
+var STATE_SYMBOL = /* @__PURE__ */ Symbol("$state");
+var LEGACY_PROPS = /* @__PURE__ */ Symbol("legacy props");
+var PROXY_PATH_SYMBOL = /* @__PURE__ */ Symbol("proxy path");
+var ATTRIBUTES_CACHE = /* @__PURE__ */ Symbol("attributes");
+var CLASS_CACHE = /* @__PURE__ */ Symbol("class");
+var STYLE_CACHE = /* @__PURE__ */ Symbol("style");
+var TEXT_CACHE = /* @__PURE__ */ Symbol("text");
+var HMR_ANCHOR = /* @__PURE__ */ Symbol("hmr anchor");
 var STALE_REACTION = new class StaleReactionError extends Error {
   constructor() {
     super(...arguments);
@@ -78,11 +59,11 @@ var IS_XHTML = (
 var TEXT_NODE = 3;
 var COMMENT_NODE = 8;
 
-// node_modules/esm-env/dev-fallback.js
+// content/plugins/node_modules/esm-env/dev-fallback.js
 var node_env = globalThis.process?.env?.NODE_ENV;
 var dev_fallback_default = node_env && !node_env.toLowerCase().startsWith("prod");
 
-// node_modules/svelte/src/internal/shared/utils.js
+// content/plugins/node_modules/svelte/src/internal/shared/utils.js
 var is_array = Array.isArray;
 var index_of = Array.prototype.indexOf;
 var includes = Array.prototype.includes;
@@ -115,7 +96,7 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-// node_modules/svelte/src/internal/client/reactivity/equality.js
+// content/plugins/node_modules/svelte/src/internal/client/reactivity/equality.js
 function equals(value) {
   return value === this.v;
 }
@@ -126,7 +107,7 @@ function safe_equals(value) {
   return !safe_not_equal(value, this.v);
 }
 
-// node_modules/svelte/src/internal/shared/errors.js
+// content/plugins/node_modules/svelte/src/internal/shared/errors.js
 function invariant_violation(message) {
   if (dev_fallback_default) {
     const error = new Error(`invariant_violation
@@ -139,7 +120,7 @@ https://svelte.dev/e/invariant_violation`);
   }
 }
 
-// node_modules/svelte/src/internal/client/errors.js
+// content/plugins/node_modules/svelte/src/internal/client/errors.js
 function async_derived_orphan() {
   if (dev_fallback_default) {
     const error = new Error(`async_derived_orphan
@@ -284,7 +265,7 @@ https://svelte.dev/e/svelte_boundary_reset_onerror`);
   }
 }
 
-// node_modules/svelte/src/internal/flags/index.js
+// content/plugins/node_modules/svelte/src/internal/flags/index.js
 var async_mode_flag = false;
 var legacy_mode_flag = false;
 var tracing_mode_flag = false;
@@ -292,7 +273,7 @@ function enable_legacy_mode_flag() {
   legacy_mode_flag = true;
 }
 
-// node_modules/svelte/src/constants.js
+// content/plugins/node_modules/svelte/src/constants.js
 var EACH_INDEX_REACTIVE = 1 << 1;
 var EACH_IS_CONTROLLED = 1 << 2;
 var EACH_IS_ANIMATED = 1 << 3;
@@ -315,12 +296,11 @@ var HYDRATION_END = "]";
 var HYDRATION_ERROR = {};
 var ELEMENT_PRESERVE_ATTRIBUTE_CASE = 1 << 1;
 var ELEMENT_IS_INPUT = 1 << 2;
-var UNINITIALIZED = Symbol("uninitialized");
-var FILENAME = Symbol("filename");
-var HMR = Symbol("hmr");
+var UNINITIALIZED = /* @__PURE__ */ Symbol("uninitialized");
+var FILENAME = /* @__PURE__ */ Symbol("filename");
 var NAMESPACE_HTML = "http://www.w3.org/1999/xhtml";
 
-// node_modules/svelte/src/internal/client/dev/tracing.js
+// content/plugins/node_modules/svelte/src/internal/client/dev/tracing.js
 var tracing_expressions = null;
 function tag(source2, label) {
   source2.label = label;
@@ -332,7 +312,7 @@ function tag_proxy(value, label) {
   return value;
 }
 
-// node_modules/svelte/src/internal/shared/dev.js
+// content/plugins/node_modules/svelte/src/internal/shared/dev.js
 function get_error(label) {
   const error = new Error();
   const stack2 = get_stack();
@@ -356,8 +336,7 @@ function get_stack() {
   Error.stackTraceLimit = Infinity;
   const stack2 = new Error().stack;
   Error.stackTraceLimit = limit;
-  if (!stack2)
-    return [];
+  if (!stack2) return [];
   const lines = stack2.split("\n");
   const new_lines = [];
   for (let i = 0; i < lines.length; i++) {
@@ -380,11 +359,10 @@ function invariant(condition, message) {
   if (!dev_fallback_default) {
     throw new Error("invariant(...) was not guarded by if (DEV)");
   }
-  if (!condition)
-    invariant_violation(message);
+  if (!condition) invariant_violation(message);
 }
 
-// node_modules/svelte/src/internal/client/context.js
+// content/plugins/node_modules/svelte/src/internal/client/context.js
 var component_context = null;
 function set_component_context(context) {
   component_context = context;
@@ -443,7 +421,7 @@ function is_runes() {
   return !legacy_mode_flag || component_context !== null && component_context.l === null;
 }
 
-// node_modules/svelte/src/internal/client/dom/task.js
+// content/plugins/node_modules/svelte/src/internal/client/dom/task.js
 var micro_tasks = [];
 function run_micro_tasks() {
   var tasks = micro_tasks;
@@ -454,8 +432,7 @@ function queue_micro_task(fn) {
   if (micro_tasks.length === 0 && !is_flushing_sync) {
     var tasks = micro_tasks;
     queueMicrotask(() => {
-      if (tasks === micro_tasks)
-        run_micro_tasks();
+      if (tasks === micro_tasks) run_micro_tasks();
     });
   }
   micro_tasks.push(fn);
@@ -466,7 +443,7 @@ function flush_tasks() {
   }
 }
 
-// node_modules/svelte/src/internal/client/warnings.js
+// content/plugins/node_modules/svelte/src/internal/client/warnings.js
 var bold = "font-weight: bold";
 var normal = "font-weight: normal";
 function await_reactivity_loss(name) {
@@ -546,7 +523,7 @@ https://svelte.dev/e/svelte_boundary_reset_noop`, bold, normal);
   }
 }
 
-// node_modules/svelte/src/internal/client/dom/hydration.js
+// content/plugins/node_modules/svelte/src/internal/client/dom/hydration.js
 var hydrating = false;
 function set_hydrating(value) {
   hydrating = value;
@@ -583,8 +560,7 @@ function skip_nodes(remove = true) {
         node.data
       );
       if (data === HYDRATION_END) {
-        if (depth === 0)
-          return node;
+        if (depth === 0) return node;
         depth -= 1;
       } else if (data === HYDRATION_START || data === HYDRATION_START_ELSE || // "[1", "[2", etc. for if blocks
       data[0] === "[" && !isNaN(Number(data.slice(1)))) {
@@ -595,8 +571,7 @@ function skip_nodes(remove = true) {
       /** @type {TemplateNode} */
       get_next_sibling(node)
     );
-    if (remove)
-      node.remove();
+    if (remove) node.remove();
     node = next2;
   }
 }
@@ -611,7 +586,7 @@ function read_hydration_instruction(node) {
   );
 }
 
-// node_modules/svelte/src/internal/client/proxy.js
+// content/plugins/node_modules/svelte/src/internal/client/proxy.js
 var regex_is_valid_identifier = /^[a-zA-Z_$][a-zA-Z_$0-9]*$/;
 function proxy(value) {
   if (typeof value !== "object" || value === null || STATE_SYMBOL in value) {
@@ -656,8 +631,7 @@ function proxy(value) {
   var path = "";
   let updating = false;
   function update_path(new_path) {
-    if (updating)
-      return;
+    if (updating) return;
     updating = true;
     path = new_path;
     tag(version, `${path} version`);
@@ -736,8 +710,7 @@ function proxy(value) {
         var descriptor = Reflect.getOwnPropertyDescriptor(target, prop2);
         if (descriptor && "value" in descriptor) {
           var s = sources.get(prop2);
-          if (s)
-            descriptor.value = get(s);
+          if (s) descriptor.value = get(s);
         } else if (descriptor === void 0) {
           var source2 = sources.get(prop2);
           var value2 = source2?.v;
@@ -848,10 +821,8 @@ function proxy(value) {
   );
 }
 function get_label(path, prop2) {
-  if (typeof prop2 === "symbol")
-    return `${path}[Symbol(${prop2.description ?? ""})]`;
-  if (regex_is_valid_identifier.test(prop2))
-    return `${path}.${prop2}`;
+  if (typeof prop2 === "symbol") return `${path}[Symbol(${prop2.description ?? ""})]`;
+  if (regex_is_valid_identifier.test(prop2)) return `${path}.${prop2}`;
   return /^\d+$/.test(prop2) ? `${path}[${prop2}]` : `${path}['${prop2}']`;
 }
 function get_proxied_value(value) {
@@ -894,7 +865,7 @@ function inspectable_array(array) {
   });
 }
 
-// node_modules/svelte/src/internal/client/dev/equality.js
+// content/plugins/node_modules/svelte/src/internal/client/dev/equality.js
 function init_array_prototype_warnings() {
   const array_prototype2 = Array.prototype;
   const cleanup = Array.__svelte_cleanup;
@@ -945,7 +916,7 @@ function init_array_prototype_warnings() {
   };
 }
 
-// node_modules/svelte/src/internal/client/dom/operations.js
+// content/plugins/node_modules/svelte/src/internal/client/dom/operations.js
 var $window;
 var $document;
 var is_firefox;
@@ -997,8 +968,7 @@ function get_next_sibling(node) {
 function first_child(node, is_text = false) {
   if (!hydrating) {
     var first = /* @__PURE__ */ get_first_child(node);
-    if (first instanceof Comment && first.data === "")
-      return /* @__PURE__ */ get_next_sibling(first);
+    if (first instanceof Comment && first.data === "") return /* @__PURE__ */ get_next_sibling(first);
     return first;
   }
   if (is_text) {
@@ -1019,10 +989,8 @@ function clear_text_content(node) {
   node.textContent = "";
 }
 function should_defer_append() {
-  if (!async_mode_flag)
-    return false;
-  if (eager_block_effects !== null)
-    return false;
+  if (!async_mode_flag) return false;
+  if (eager_block_effects !== null) return false;
   var flags2 = (
     /** @type {Effect} */
     active_effect.f
@@ -1057,7 +1025,7 @@ function merge_text_nodes(text2) {
   }
 }
 
-// node_modules/svelte/src/internal/client/error-handling.js
+// content/plugins/node_modules/svelte/src/internal/client/error-handling.js
 var adjustments = /* @__PURE__ */ new WeakMap();
 function handle_error(error) {
   var effect2 = active_effect;
@@ -1101,8 +1069,7 @@ function invoke_error_boundary(error, effect2) {
 }
 function get_adjustments(error, effect2) {
   const message_descriptor = get_descriptor(error, "message");
-  if (message_descriptor && !message_descriptor.configurable)
-    return;
+  if (message_descriptor && !message_descriptor.configurable) return;
   var indent = is_firefox ? "  " : "	";
   var component_stack = `
 ${indent}in ${effect2.fn?.name || "<unknown>"}`;
@@ -1131,7 +1098,7 @@ function apply_adjustments(error) {
   }
 }
 
-// node_modules/svelte/src/internal/client/reactivity/status.js
+// content/plugins/node_modules/svelte/src/internal/client/reactivity/status.js
 var STATUS_MASK = ~(DIRTY | MAYBE_DIRTY | CLEAN);
 function set_signal_status(signal, status) {
   signal.f = signal.f & STATUS_MASK | status;
@@ -1144,10 +1111,9 @@ function update_derived_status(derived2) {
   }
 }
 
-// node_modules/svelte/src/internal/client/reactivity/utils.js
+// content/plugins/node_modules/svelte/src/internal/client/reactivity/utils.js
 function clear_marked(deps) {
-  if (deps === null)
-    return;
+  if (deps === null) return;
   for (const dep of deps) {
     if ((dep.f & DERIVED) === 0 || (dep.f & WAS_MARKED) === 0) {
       continue;
@@ -1169,10 +1135,9 @@ function defer_effect(effect2, dirty_effects, maybe_dirty_effects) {
   set_signal_status(effect2, CLEAN);
 }
 
-// node_modules/svelte/src/internal/client/reactivity/store.js
+// content/plugins/node_modules/svelte/src/internal/client/reactivity/store.js
 var legacy_is_updating_store = false;
 var is_store_binding = false;
-var IS_UNMOUNTED = Symbol("unmounted");
 function capture_store_binding(fn) {
   var previous_is_store_binding = is_store_binding;
   try {
@@ -1183,7 +1148,7 @@ function capture_store_binding(fn) {
   }
 }
 
-// node_modules/svelte/src/reactivity/create-subscriber.js
+// content/plugins/node_modules/svelte/src/reactivity/create-subscriber.js
 function createSubscriber(start) {
   let subscribers = 0;
   let version = source(0);
@@ -1214,12 +1179,12 @@ function createSubscriber(start) {
   };
 }
 
-// node_modules/svelte/src/internal/client/dom/blocks/boundary.js
+// content/plugins/node_modules/svelte/src/internal/client/dom/blocks/boundary.js
 var flags = EFFECT_TRANSPARENT | EFFECT_PRESERVED;
 function boundary(node, props, children, transform_error) {
   new Boundary(node, props, children, transform_error);
 }
-var _anchor, _hydrate_open, _props, _children, _effect, _main_effect, _pending_effect, _failed_effect, _offscreen_fragment, _local_pending_count, _pending_count, _pending_count_update_queued, _dirty_effects, _maybe_dirty_effects, _effect_pending, _effect_pending_subscriber, _hydrate_resolved_content, hydrate_resolved_content_fn, _hydrate_failed_content, hydrate_failed_content_fn, _hydrate_pending_content, hydrate_pending_content_fn, _render, render_fn, _resolve, resolve_fn, _run, run_fn, _update_pending_count, update_pending_count_fn, _handle_error, handle_error_fn;
+var _anchor, _hydrate_open, _props, _children, _effect, _main_effect, _pending_effect, _failed_effect, _offscreen_fragment, _local_pending_count, _pending_count, _pending_count_update_queued, _dirty_effects, _maybe_dirty_effects, _effect_pending, _effect_pending_subscriber, _Boundary_instances, hydrate_resolved_content_fn, hydrate_failed_content_fn, hydrate_pending_content_fn, render_fn, resolve_fn, run_fn, update_pending_count_fn, handle_error_fn;
 var Boundary = class {
   /**
    * @param {TemplateNode} node
@@ -1228,33 +1193,7 @@ var Boundary = class {
    * @param {((error: unknown) => unknown) | undefined} [transform_error]
    */
   constructor(node, props, children, transform_error) {
-    __privateAdd(this, _hydrate_resolved_content);
-    /**
-     * @param {unknown} error The deserialized error from the server's hydration comment
-     */
-    __privateAdd(this, _hydrate_failed_content);
-    __privateAdd(this, _hydrate_pending_content);
-    __privateAdd(this, _render);
-    /**
-     * @param {Batch} batch
-     */
-    __privateAdd(this, _resolve);
-    /**
-     * @template T
-     * @param {() => T} fn
-     */
-    __privateAdd(this, _run);
-    /**
-     * Updates the pending count associated with the currently visible pending snippet,
-     * if any, such that we can replace the snippet with content once work is done
-     * @param {1 | -1} d
-     * @param {Batch} batch
-     */
-    __privateAdd(this, _update_pending_count);
-    /**
-     * @param {unknown} error
-     */
-    __privateAdd(this, _handle_error);
+    __privateAdd(this, _Boundary_instances);
     /** @type {Boundary | null} */
     __publicField(this, "parent");
     __publicField(this, "is_pending", false);
@@ -1265,15 +1204,15 @@ var Boundary = class {
      */
     __publicField(this, "transform_error");
     /** @type {TemplateNode} */
-    __privateAdd(this, _anchor, void 0);
+    __privateAdd(this, _anchor);
     /** @type {TemplateNode | null} */
     __privateAdd(this, _hydrate_open, hydrating ? hydrate_node : null);
     /** @type {BoundaryProps} */
-    __privateAdd(this, _props, void 0);
+    __privateAdd(this, _props);
     /** @type {((anchor: Node) => void)} */
-    __privateAdd(this, _children, void 0);
+    __privateAdd(this, _children);
     /** @type {Effect} */
-    __privateAdd(this, _effect, void 0);
+    __privateAdd(this, _effect);
     /** @type {Effect | null} */
     __privateAdd(this, _main_effect, null);
     /** @type {Effect | null} */
@@ -1331,14 +1270,14 @@ var Boundary = class {
         const server_rendered_failed = comment2.data.startsWith(HYDRATION_START_FAILED);
         if (server_rendered_failed) {
           const serialized_error = JSON.parse(comment2.data.slice(HYDRATION_START_FAILED.length));
-          __privateMethod(this, _hydrate_failed_content, hydrate_failed_content_fn).call(this, serialized_error);
+          __privateMethod(this, _Boundary_instances, hydrate_failed_content_fn).call(this, serialized_error);
         } else if (server_rendered_pending) {
-          __privateMethod(this, _hydrate_pending_content, hydrate_pending_content_fn).call(this);
+          __privateMethod(this, _Boundary_instances, hydrate_pending_content_fn).call(this);
         } else {
-          __privateMethod(this, _hydrate_resolved_content, hydrate_resolved_content_fn).call(this);
+          __privateMethod(this, _Boundary_instances, hydrate_resolved_content_fn).call(this);
         }
       } else {
-        __privateMethod(this, _render, render_fn).call(this);
+        __privateMethod(this, _Boundary_instances, render_fn).call(this);
       }
     }, flags));
     if (hydrating) {
@@ -1370,10 +1309,9 @@ var Boundary = class {
    * @param {Batch} batch
    */
   update_pending_count(d, batch) {
-    __privateMethod(this, _update_pending_count, update_pending_count_fn).call(this, d, batch);
+    __privateMethod(this, _Boundary_instances, update_pending_count_fn).call(this, d, batch);
     __privateSet(this, _local_pending_count, __privateGet(this, _local_pending_count) + d);
-    if (!__privateGet(this, _effect_pending) || __privateGet(this, _pending_count_update_queued))
-      return;
+    if (!__privateGet(this, _effect_pending) || __privateGet(this, _pending_count_update_queued)) return;
     __privateSet(this, _pending_count_update_queued, true);
     queue_micro_task(() => {
       __privateSet(this, _pending_count_update_queued, false);
@@ -1395,17 +1333,14 @@ var Boundary = class {
       throw error;
     }
     if (current_batch?.is_fork) {
-      if (__privateGet(this, _main_effect))
-        current_batch.skip_effect(__privateGet(this, _main_effect));
-      if (__privateGet(this, _pending_effect))
-        current_batch.skip_effect(__privateGet(this, _pending_effect));
-      if (__privateGet(this, _failed_effect))
-        current_batch.skip_effect(__privateGet(this, _failed_effect));
+      if (__privateGet(this, _main_effect)) current_batch.skip_effect(__privateGet(this, _main_effect));
+      if (__privateGet(this, _pending_effect)) current_batch.skip_effect(__privateGet(this, _pending_effect));
+      if (__privateGet(this, _failed_effect)) current_batch.skip_effect(__privateGet(this, _failed_effect));
       current_batch.oncommit(() => {
-        __privateMethod(this, _handle_error, handle_error_fn).call(this, error);
+        __privateMethod(this, _Boundary_instances, handle_error_fn).call(this, error);
       });
     } else {
-      __privateMethod(this, _handle_error, handle_error_fn).call(this, error);
+      __privateMethod(this, _Boundary_instances, handle_error_fn).call(this, error);
     }
   }
 };
@@ -1425,7 +1360,7 @@ _dirty_effects = new WeakMap();
 _maybe_dirty_effects = new WeakMap();
 _effect_pending = new WeakMap();
 _effect_pending_subscriber = new WeakMap();
-_hydrate_resolved_content = new WeakSet();
+_Boundary_instances = new WeakSet();
 hydrate_resolved_content_fn = function() {
   try {
     __privateSet(this, _main_effect, branch(() => __privateGet(this, _children).call(this, __privateGet(this, _anchor))));
@@ -1433,11 +1368,12 @@ hydrate_resolved_content_fn = function() {
     this.error(error);
   }
 };
-_hydrate_failed_content = new WeakSet();
+/**
+ * @param {unknown} error The deserialized error from the server's hydration comment
+ */
 hydrate_failed_content_fn = function(error) {
   const failed = __privateGet(this, _props).failed;
-  if (!failed)
-    return;
+  if (!failed) return;
   __privateSet(this, _failed_effect, branch(() => {
     failed(
       __privateGet(this, _anchor),
@@ -1447,18 +1383,16 @@ hydrate_failed_content_fn = function(error) {
     );
   }));
 };
-_hydrate_pending_content = new WeakSet();
 hydrate_pending_content_fn = function() {
   const pending2 = __privateGet(this, _props).pending;
-  if (!pending2)
-    return;
+  if (!pending2) return;
   this.is_pending = true;
   __privateSet(this, _pending_effect, branch(() => pending2(__privateGet(this, _anchor))));
   queue_micro_task(() => {
     var fragment = __privateSet(this, _offscreen_fragment, document.createDocumentFragment());
     var anchor = create_text();
     fragment.append(anchor);
-    __privateSet(this, _main_effect, __privateMethod(this, _run, run_fn).call(this, () => {
+    __privateSet(this, _main_effect, __privateMethod(this, _Boundary_instances, run_fn).call(this, () => {
       return branch(() => __privateGet(this, _children).call(this, anchor));
     }));
     if (__privateGet(this, _pending_count) === 0) {
@@ -1471,7 +1405,7 @@ hydrate_pending_content_fn = function() {
           __privateSet(this, _pending_effect, null);
         }
       );
-      __privateMethod(this, _resolve, resolve_fn).call(
+      __privateMethod(this, _Boundary_instances, resolve_fn).call(
         this,
         /** @type {Batch} */
         current_batch
@@ -1479,7 +1413,6 @@ hydrate_pending_content_fn = function() {
     }
   });
 };
-_render = new WeakSet();
 render_fn = function() {
   try {
     this.is_pending = this.has_pending_snippet();
@@ -1497,7 +1430,7 @@ render_fn = function() {
       );
       __privateSet(this, _pending_effect, branch(() => pending2(__privateGet(this, _anchor))));
     } else {
-      __privateMethod(this, _resolve, resolve_fn).call(
+      __privateMethod(this, _Boundary_instances, resolve_fn).call(
         this,
         /** @type {Batch} */
         current_batch
@@ -1507,12 +1440,17 @@ render_fn = function() {
     this.error(error);
   }
 };
-_resolve = new WeakSet();
+/**
+ * @param {Batch} batch
+ */
 resolve_fn = function(batch) {
   this.is_pending = false;
   batch.transfer_effects(__privateGet(this, _dirty_effects), __privateGet(this, _maybe_dirty_effects));
 };
-_run = new WeakSet();
+/**
+ * @template T
+ * @param {() => T} fn
+ */
 run_fn = function(fn) {
   var previous_effect = active_effect;
   var previous_reaction = active_reaction;
@@ -1532,18 +1470,23 @@ run_fn = function(fn) {
     set_component_context(previous_ctx);
   }
 };
-_update_pending_count = new WeakSet();
+/**
+ * Updates the pending count associated with the currently visible pending snippet,
+ * if any, such that we can replace the snippet with content once work is done
+ * @param {1 | -1} d
+ * @param {Batch} batch
+ */
 update_pending_count_fn = function(d, batch) {
   var _a2;
   if (!this.has_pending_snippet()) {
     if (this.parent) {
-      __privateMethod(_a2 = this.parent, _update_pending_count, update_pending_count_fn).call(_a2, d, batch);
+      __privateMethod(_a2 = this.parent, _Boundary_instances, update_pending_count_fn).call(_a2, d, batch);
     }
     return;
   }
   __privateSet(this, _pending_count, __privateGet(this, _pending_count) + d);
   if (__privateGet(this, _pending_count) === 0) {
-    __privateMethod(this, _resolve, resolve_fn).call(this, batch);
+    __privateMethod(this, _Boundary_instances, resolve_fn).call(this, batch);
     if (__privateGet(this, _pending_effect)) {
       pause_effect(__privateGet(this, _pending_effect), () => {
         __privateSet(this, _pending_effect, null);
@@ -1555,7 +1498,9 @@ update_pending_count_fn = function(d, batch) {
     }
   }
 };
-_handle_error = new WeakSet();
+/**
+ * @param {unknown} error
+ */
 handle_error_fn = function(error) {
   if (__privateGet(this, _main_effect)) {
     destroy_effect(__privateGet(this, _main_effect));
@@ -1595,8 +1540,8 @@ handle_error_fn = function(error) {
         __privateSet(this, _failed_effect, null);
       });
     }
-    __privateMethod(this, _run, run_fn).call(this, () => {
-      __privateMethod(this, _render, render_fn).call(this);
+    __privateMethod(this, _Boundary_instances, run_fn).call(this, () => {
+      __privateMethod(this, _Boundary_instances, render_fn).call(this);
     });
   };
   const handle_error_result = (transformed_error) => {
@@ -1608,7 +1553,7 @@ handle_error_fn = function(error) {
       invoke_error_boundary(error2, __privateGet(this, _effect) && __privateGet(this, _effect).parent);
     }
     if (failed) {
-      __privateSet(this, _failed_effect, __privateMethod(this, _run, run_fn).call(this, () => {
+      __privateSet(this, _failed_effect, __privateMethod(this, _Boundary_instances, run_fn).call(this, () => {
         try {
           return branch(() => {
             var effect2 = (
@@ -1655,7 +1600,7 @@ handle_error_fn = function(error) {
   });
 };
 
-// node_modules/svelte/src/internal/client/reactivity/async.js
+// content/plugins/node_modules/svelte/src/internal/client/reactivity/async.js
 function flatten(blockers, sync, async2, fn) {
   const d = is_runes() ? derived : derived_safe_equal;
   var pending2 = blockers.filter((b) => !b.settled);
@@ -1737,8 +1682,7 @@ function unset_context(deactivate_batch = true) {
   set_active_effect(null);
   set_active_reaction(null);
   set_component_context(null);
-  if (deactivate_batch)
-    current_batch?.deactivate();
+  if (deactivate_batch) current_batch?.deactivate();
   if (dev_fallback_default) {
     set_reactivity_loss_tracker(null);
     set_dev_stack(null);
@@ -1763,7 +1707,7 @@ function increment_pending() {
   };
 }
 
-// node_modules/svelte/src/internal/client/reactivity/deriveds.js
+// content/plugins/node_modules/svelte/src/internal/client/reactivity/deriveds.js
 var reactivity_loss_tracker = null;
 function set_reactivity_loss_tracker(v) {
   reactivity_loss_tracker = v;
@@ -1797,7 +1741,7 @@ function derived(fn) {
   }
   return signal;
 }
-var OBSOLETE = Symbol("obsolete");
+var OBSOLETE = /* @__PURE__ */ Symbol("obsolete");
 // @__NO_SIDE_EFFECTS__
 function async_derived(fn, label, location) {
   let parent = (
@@ -1816,8 +1760,7 @@ function async_derived(fn, label, location) {
     /** @type {V} */
     UNINITIALIZED
   );
-  if (dev_fallback_default)
-    signal.label = label ?? fn.toString();
+  if (dev_fallback_default) signal.label = label ?? fn.toString();
   var should_suspend = !active_reaction;
   var deferreds = /* @__PURE__ */ new Set();
   async_effect(() => {
@@ -1832,8 +1775,7 @@ function async_derived(fn, label, location) {
     promise = d.promise;
     try {
       Promise.resolve(fn()).then(d.resolve, (e) => {
-        if (e !== STALE_REACTION)
-          d.reject(e);
+        if (e !== STALE_REACTION) d.reject(e);
       }).finally(unset_context);
     } catch (error) {
       d.reject(error);
@@ -1881,8 +1823,7 @@ function async_derived(fn, label, location) {
       }
       decrement_pending?.();
       deferreds.delete(d);
-      if (error === OBSOLETE)
-        return;
+      if (error === OBSOLETE) return;
       batch.activate();
       if (error) {
         signal.f |= ERROR_VALUE;
@@ -2017,14 +1958,12 @@ function update_derived(derived2) {
   }
 }
 function freeze_derived_effects(derived2) {
-  if (derived2.effects === null)
-    return;
+  if (derived2.effects === null) return;
   for (const e of derived2.effects) {
     if (e.teardown || e.ac) {
       e.teardown?.();
       e.ac?.abort(STALE_REACTION);
-      if (e.fn !== null)
-        e.teardown = noop;
+      if (e.fn !== null) e.teardown = noop;
       e.ac = null;
       remove_reactions(e, 0);
       destroy_effect_children(e);
@@ -2032,8 +1971,7 @@ function freeze_derived_effects(derived2) {
   }
 }
 function unfreeze_derived_effects(derived2) {
-  if (derived2.effects === null)
-    return;
+  if (derived2.effects === null) return;
   for (const e of derived2.effects) {
     if (e.teardown && e.fn !== null) {
       update_effect(e);
@@ -2041,7 +1979,7 @@ function unfreeze_derived_effects(derived2) {
   }
 }
 
-// node_modules/svelte/src/internal/client/reactivity/batch.js
+// content/plugins/node_modules/svelte/src/internal/client/reactivity/batch.js
 var first_batch = null;
 var last_batch = null;
 var current_batch = null;
@@ -2055,30 +1993,10 @@ var legacy_updates = null;
 var flush_count = 0;
 var source_stacks = /* @__PURE__ */ new Set();
 var uid = 1;
-var _started, _prev, _next, _commit_callbacks, _discard_callbacks, _pending, _blocking_pending, _deferred, _roots, _new_effects, _dirty_effects2, _maybe_dirty_effects2, _skipped_branches, _unskipped_branches, _decrement_queued, _is_deferred, is_deferred_fn, _process, process_fn, _traverse, traverse_fn, _find_earlier_batch, find_earlier_batch_fn, _merge, merge_fn, _defer_effects, defer_effects_fn, _commit, commit_fn, _unlink, unlink_fn;
+var _started, _prev, _next, _commit_callbacks, _discard_callbacks, _pending, _blocking_pending, _deferred, _roots, _new_effects, _dirty_effects2, _maybe_dirty_effects2, _skipped_branches, _unskipped_branches, _decrement_queued, _Batch_instances, is_deferred_fn, process_fn, traverse_fn, find_earlier_batch_fn, merge_fn, defer_effects_fn, commit_fn, unlink_fn;
 var _Batch = class _Batch {
   constructor() {
-    __privateAdd(this, _is_deferred);
-    __privateAdd(this, _process);
-    /**
-     * Traverse the effect tree, executing effects or stashing
-     * them for later execution as appropriate
-     * @param {Effect} root
-     * @param {Effect[]} effects
-     * @param {Effect[]} render_effects
-     */
-    __privateAdd(this, _traverse);
-    __privateAdd(this, _find_earlier_batch);
-    /**
-     * @param {Batch} batch
-     */
-    __privateAdd(this, _merge);
-    /**
-     * @param {Effect[]} effects
-     */
-    __privateAdd(this, _defer_effects);
-    __privateAdd(this, _commit);
-    __privateAdd(this, _unlink);
+    __privateAdd(this, _Batch_instances);
     __publicField(this, "id", uid++);
     /** True as soon as `#process` was called */
     __privateAdd(this, _started, false);
@@ -2235,7 +2153,7 @@ var _Batch = class _Batch {
       }
       is_processing = true;
       current_batch = this;
-      __privateMethod(this, _process, process_fn).call(this);
+      __privateMethod(this, _Batch_instances, process_fn).call(this);
     } finally {
       flush_count = 0;
       last_scheduled_effect = null;
@@ -2253,13 +2171,12 @@ var _Batch = class _Batch {
     }
   }
   discard() {
-    for (const fn of __privateGet(this, _discard_callbacks))
-      fn(this);
+    for (const fn of __privateGet(this, _discard_callbacks)) fn(this);
     __privateGet(this, _discard_callbacks).clear();
     for (const deferred2 of this.async_deriveds.values()) {
       deferred2.reject(OBSOLETE);
     }
-    __privateMethod(this, _unlink, unlink_fn).call(this);
+    __privateMethod(this, _Batch_instances, unlink_fn).call(this);
     __privateGet(this, _deferred)?.resolve();
   }
   /**
@@ -2293,8 +2210,7 @@ var _Batch = class _Batch {
         __privateGet(this, _blocking_pending).set(effect2, blocking_pending_count - 1);
       }
     }
-    if (__privateGet(this, _decrement_queued))
-      return;
+    if (__privateGet(this, _decrement_queued)) return;
     __privateSet(this, _decrement_queued, true);
     queue_micro_task(() => {
       __privateSet(this, _decrement_queued, false);
@@ -2351,13 +2267,11 @@ var _Batch = class _Batch {
       batch_values.set(source2, value);
     }
     for (let batch = first_batch; batch !== null; batch = __privateGet(batch, _next)) {
-      if (batch === this || batch.is_fork)
-        continue;
+      if (batch === this || batch.is_fork) continue;
       var intersects = false;
       if (batch.id < this.id) {
         for (const [source2, [, is_derived]] of batch.current) {
-          if (is_derived)
-            continue;
+          if (is_derived) continue;
           if (this.current.has(source2)) {
             intersects = true;
             break;
@@ -2388,8 +2302,7 @@ var _Batch = class _Batch {
       e = e.parent;
       var flags2 = e.f;
       if (collected_effects !== null && e === active_effect) {
-        if (async_mode_flag)
-          return;
+        if (async_mode_flag) return;
         if ((active_reaction === null || (active_reaction.f & DERIVED) === 0) && !legacy_is_updating_store) {
           return;
         }
@@ -2419,10 +2332,9 @@ _maybe_dirty_effects2 = new WeakMap();
 _skipped_branches = new WeakMap();
 _unskipped_branches = new WeakMap();
 _decrement_queued = new WeakMap();
-_is_deferred = new WeakSet();
+_Batch_instances = new WeakSet();
 is_deferred_fn = function() {
-  if (this.is_fork)
-    return true;
+  if (this.is_fork) return true;
   for (const effect2 of __privateGet(this, _blocking_pending).keys()) {
     var e = effect2;
     var skipped = false;
@@ -2439,12 +2351,11 @@ is_deferred_fn = function() {
   }
   return false;
 };
-_process = new WeakSet();
 process_fn = function() {
   var _a2, _b, _c;
   __privateSet(this, _started, true);
   if (flush_count++ > 1e3) {
-    __privateMethod(this, _unlink, unlink_fn).call(this);
+    __privateMethod(this, _Batch_instances, unlink_fn).call(this);
     infinite_loop_guard();
   }
   if (dev_fallback_default) {
@@ -2469,11 +2380,10 @@ process_fn = function() {
   var updates = legacy_updates = [];
   for (const root2 of roots) {
     try {
-      __privateMethod(this, _traverse, traverse_fn).call(this, root2, effects, render_effects);
+      __privateMethod(this, _Batch_instances, traverse_fn).call(this, root2, effects, render_effects);
     } catch (e) {
       reset_all(root2);
-      if (!__privateMethod(this, _is_deferred, is_deferred_fn).call(this))
-        this.discard();
+      if (!__privateMethod(this, _Batch_instances, is_deferred_fn).call(this)) this.discard();
       throw e;
     }
   }
@@ -2486,29 +2396,28 @@ process_fn = function() {
   }
   collected_effects = null;
   legacy_updates = null;
-  if (__privateMethod(this, _is_deferred, is_deferred_fn).call(this)) {
-    __privateMethod(this, _defer_effects, defer_effects_fn).call(this, render_effects);
-    __privateMethod(this, _defer_effects, defer_effects_fn).call(this, effects);
+  if (__privateMethod(this, _Batch_instances, is_deferred_fn).call(this)) {
+    __privateMethod(this, _Batch_instances, defer_effects_fn).call(this, render_effects);
+    __privateMethod(this, _Batch_instances, defer_effects_fn).call(this, effects);
     for (const [e, t] of __privateGet(this, _skipped_branches)) {
       reset_branch(e, t);
     }
     if (updates.length > 0) {
       /** @type {unknown} */
-      __privateMethod(_a2 = current_batch, _process, process_fn).call(_a2);
+      __privateMethod(_a2 = current_batch, _Batch_instances, process_fn).call(_a2);
     }
     return;
   }
-  const earlier_batch = __privateMethod(this, _find_earlier_batch, find_earlier_batch_fn).call(this);
+  const earlier_batch = __privateMethod(this, _Batch_instances, find_earlier_batch_fn).call(this);
   if (earlier_batch) {
-    __privateMethod(this, _defer_effects, defer_effects_fn).call(this, render_effects);
-    __privateMethod(this, _defer_effects, defer_effects_fn).call(this, effects);
-    __privateMethod(_b = earlier_batch, _merge, merge_fn).call(_b, this);
+    __privateMethod(this, _Batch_instances, defer_effects_fn).call(this, render_effects);
+    __privateMethod(this, _Batch_instances, defer_effects_fn).call(this, effects);
+    __privateMethod(_b = earlier_batch, _Batch_instances, merge_fn).call(_b, this);
     return;
   }
   __privateGet(this, _dirty_effects2).clear();
   __privateGet(this, _maybe_dirty_effects2).clear();
-  for (const fn of __privateGet(this, _commit_callbacks))
-    fn(this);
+  for (const fn of __privateGet(this, _commit_callbacks)) fn(this);
   __privateGet(this, _commit_callbacks).clear();
   previous_batch = this;
   flush_queued_effects(render_effects);
@@ -2521,9 +2430,9 @@ process_fn = function() {
     current_batch
   );
   if (__privateGet(this, _pending) === 0 && (__privateGet(this, _roots).length === 0 || next_batch !== null)) {
-    __privateMethod(this, _unlink, unlink_fn).call(this);
+    __privateMethod(this, _Batch_instances, unlink_fn).call(this);
     if (async_mode_flag) {
-      __privateMethod(this, _commit, commit_fn).call(this);
+      __privateMethod(this, _Batch_instances, commit_fn).call(this);
       current_batch = next_batch;
     }
   }
@@ -2536,10 +2445,16 @@ process_fn = function() {
     }
   }
   if (next_batch !== null) {
-    __privateMethod(_c = next_batch, _process, process_fn).call(_c);
+    __privateMethod(_c = next_batch, _Batch_instances, process_fn).call(_c);
   }
 };
-_traverse = new WeakSet();
+/**
+ * Traverse the effect tree, executing effects or stashing
+ * them for later execution as appropriate
+ * @param {Effect} root
+ * @param {Effect[]} effects
+ * @param {Effect[]} render_effects
+ */
 traverse_fn = function(root2, effects, render_effects) {
   root2.f ^= CLEAN;
   var effect2 = root2.first;
@@ -2556,8 +2471,7 @@ traverse_fn = function(root2, effects, render_effects) {
       } else if (async_mode_flag && (flags2 & (RENDER_EFFECT | MANAGED_EFFECT)) !== 0) {
         render_effects.push(effect2);
       } else if (is_dirty(effect2)) {
-        if ((flags2 & BLOCK_EFFECT) !== 0)
-          __privateGet(this, _maybe_dirty_effects2).add(effect2);
+        if ((flags2 & BLOCK_EFFECT) !== 0) __privateGet(this, _maybe_dirty_effects2).add(effect2);
         update_effect(effect2);
       }
       var child2 = effect2.first;
@@ -2576,7 +2490,6 @@ traverse_fn = function(root2, effects, render_effects) {
     }
   }
 };
-_find_earlier_batch = new WeakSet();
 find_earlier_batch_fn = function() {
   var batch = __privateGet(this, _prev);
   while (batch !== null) {
@@ -2591,7 +2504,9 @@ find_earlier_batch_fn = function() {
   }
   return null;
 };
-_merge = new WeakSet();
+/**
+ * @param {Batch} batch
+ */
 merge_fn = function(batch) {
   var _a2;
   for (const [source2, value] of batch.current) {
@@ -2602,15 +2517,13 @@ merge_fn = function(batch) {
   }
   for (const [effect2, deferred2] of batch.async_deriveds) {
     const d = this.async_deriveds.get(effect2);
-    if (d)
-      deferred2.promise.then(d.resolve).catch(d.reject);
+    if (d) deferred2.promise.then(d.resolve).catch(d.reject);
   }
   batch.async_deriveds.clear();
   this.transfer_effects(__privateGet(batch, _dirty_effects2), __privateGet(batch, _maybe_dirty_effects2));
   const mark = (value) => {
     var reactions = value.reactions;
-    if (reactions === null)
-      return;
+    if (reactions === null) return;
     for (const reaction of reactions) {
       var flags2 = reaction.f;
       if ((flags2 & DERIVED) !== 0) {
@@ -2635,17 +2548,18 @@ merge_fn = function(batch) {
     mark(source2);
   }
   this.oncommit(() => batch.discard());
-  __privateMethod(_a2 = batch, _unlink, unlink_fn).call(_a2);
+  __privateMethod(_a2 = batch, _Batch_instances, unlink_fn).call(_a2);
   current_batch = this;
-  __privateMethod(this, _process, process_fn).call(this);
+  __privateMethod(this, _Batch_instances, process_fn).call(this);
 };
-_defer_effects = new WeakSet();
+/**
+ * @param {Effect[]} effects
+ */
 defer_effects_fn = function(effects) {
   for (var i = 0; i < effects.length; i += 1) {
     defer_effect(effects[i], __privateGet(this, _dirty_effects2), __privateGet(this, _maybe_dirty_effects2));
   }
 };
-_commit = new WeakSet();
 commit_fn = function() {
   var _a2;
   for (let batch = first_batch; batch !== null; batch = __privateGet(batch, _next)) {
@@ -2668,16 +2582,14 @@ commit_fn = function() {
     if (is_earlier) {
       for (const [effect2, deferred2] of this.async_deriveds) {
         const d = batch.async_deriveds.get(effect2);
-        if (d)
-          deferred2.promise.then(d.resolve).catch(d.reject);
+        if (d) deferred2.promise.then(d.resolve).catch(d.reject);
       }
     }
     var current = [...batch.current.keys()].filter(
       (source3) => !/** @type {[any, boolean]} */
       batch.current.get(source3)[1]
     );
-    if (!__privateGet(batch, _started) || current.length === 0)
-      continue;
+    if (!__privateGet(batch, _started) || current.length === 0) continue;
     var others = current.filter((source3) => !this.current.has(source3));
     if (others.length === 0) {
       if (is_earlier) {
@@ -2694,7 +2606,7 @@ commit_fn = function() {
             if ((e.f & (BLOCK_EFFECT | ASYNC)) !== 0) {
               batch.schedule(e);
             } else {
-              __privateMethod(_a3 = batch, _defer_effects, defer_effects_fn).call(_a3, [e]);
+              __privateMethod(_a3 = batch, _Batch_instances, defer_effects_fn).call(_a3, [e]);
             }
           });
         }
@@ -2708,8 +2620,7 @@ commit_fn = function() {
       checked = /* @__PURE__ */ new Map();
       var current_unequal = [...batch.current].filter(([c, v1]) => {
         const v2 = this.current.get(c);
-        if (!v2)
-          return true;
+        if (!v2) return true;
         return v2[0] !== v1[0] || v2[1] !== v1[1];
       }).map(([c]) => c);
       if (current_unequal.length > 0) {
@@ -2727,7 +2638,7 @@ commit_fn = function() {
       if (__privateGet(batch, _roots).length > 0 && !__privateGet(batch, _decrement_queued)) {
         batch.apply();
         for (var root2 of __privateGet(batch, _roots)) {
-          __privateMethod(_a2 = batch, _traverse, traverse_fn).call(_a2, root2, [], []);
+          __privateMethod(_a2 = batch, _Batch_instances, traverse_fn).call(_a2, root2, [], []);
         }
         __privateSet(batch, _roots, []);
       }
@@ -2735,10 +2646,8 @@ commit_fn = function() {
     }
   }
 };
-_unlink = new WeakSet();
 unlink_fn = function() {
-  if (!this.linked)
-    return;
+  if (!this.linked) return;
   var prev = __privateGet(this, _prev);
   var next2 = __privateGet(this, _next);
   if (prev === null) {
@@ -2814,8 +2723,7 @@ function infinite_loop_guard() {
 var eager_block_effects = null;
 function flush_queued_effects(effects) {
   var length = effects.length;
-  if (length === 0)
-    return;
+  if (length === 0) return;
   var i = 0;
   while (i < length) {
     var effect2 = effects[i++];
@@ -2828,8 +2736,7 @@ function flush_queued_effects(effects) {
       if (eager_block_effects?.size > 0) {
         old_values.clear();
         for (const e of eager_block_effects) {
-          if ((e.f & (DESTROYED | INERT)) !== 0)
-            continue;
+          if ((e.f & (DESTROYED | INERT)) !== 0) continue;
           const ordered_effects = [e];
           let ancestor = e.parent;
           while (ancestor !== null) {
@@ -2841,8 +2748,7 @@ function flush_queued_effects(effects) {
           }
           for (let j = ordered_effects.length - 1; j >= 0; j--) {
             const e2 = ordered_effects[j];
-            if ((e2.f & (DESTROYED | INERT)) !== 0)
-              continue;
+            if ((e2.f & (DESTROYED | INERT)) !== 0) continue;
             update_effect(e2);
           }
         }
@@ -2853,8 +2759,7 @@ function flush_queued_effects(effects) {
   eager_block_effects = null;
 }
 function mark_effects(value, sources, marked, checked) {
-  if (marked.has(value))
-    return;
+  if (marked.has(value)) return;
   marked.add(value);
   if (value.reactions !== null) {
     for (const reaction of value.reactions) {
@@ -2879,8 +2784,7 @@ function mark_effects(value, sources, marked, checked) {
 }
 function depends_on(reaction, sources, checked) {
   const depends = checked.get(reaction);
-  if (depends !== void 0)
-    return depends;
+  if (depends !== void 0) return depends;
   if (reaction.deps !== null) {
     for (const dep of reaction.deps) {
       if (includes.call(sources, dep)) {
@@ -2932,7 +2836,7 @@ function reset_all(effect2) {
   }
 }
 
-// node_modules/svelte/src/internal/client/reactivity/sources.js
+// content/plugins/node_modules/svelte/src/internal/client/reactivity/sources.js
 var eager_effects = /* @__PURE__ */ new Set();
 var old_values = /* @__PURE__ */ new Map();
 function set_eager_effects(v) {
@@ -3073,15 +2977,13 @@ function increment(source2) {
 }
 function mark_reactions(signal, status, updated_during_traversal) {
   var reactions = signal.reactions;
-  if (reactions === null)
-    return;
+  if (reactions === null) return;
   var runes = is_runes();
   var length = reactions.length;
   for (var i = 0; i < length; i++) {
     var reaction = reactions[i];
     var flags2 = reaction.f;
-    if (!runes && reaction === active_effect)
-      continue;
+    if (!runes && reaction === active_effect) continue;
     var not_dirty = (flags2 & DIRTY) === 0;
     if (not_dirty) {
       set_signal_status(reaction, status);
@@ -3120,10 +3022,10 @@ function mark_reactions(signal, status, updated_during_traversal) {
   }
 }
 
-// node_modules/svelte/src/internal/client/legacy.js
+// content/plugins/node_modules/svelte/src/internal/client/legacy.js
 var captured_signals = null;
 
-// node_modules/svelte/src/internal/client/dom/elements/bindings/shared.js
+// content/plugins/node_modules/svelte/src/internal/client/dom/elements/bindings/shared.js
 function without_reactive_context(fn) {
   var previous_reaction = active_reaction;
   var previous_effect = active_effect;
@@ -3137,7 +3039,7 @@ function without_reactive_context(fn) {
   }
 }
 
-// node_modules/svelte/src/internal/client/runtime.js
+// content/plugins/node_modules/svelte/src/internal/client/runtime.js
 var is_updating_effect = false;
 var is_destroying_effect = false;
 function set_is_destroying_effect(value) {
@@ -3212,8 +3114,7 @@ function is_dirty(reaction) {
 }
 function schedule_possible_effect_self_invalidation(signal, effect2, root2 = true) {
   var reactions = signal.reactions;
-  if (reactions === null)
-    return;
+  if (reactions === null) return;
   if (!async_mode_flag && current_sources !== null && current_sources.has(signal)) {
     return;
   }
@@ -3381,8 +3282,7 @@ function remove_reaction(signal, dependency) {
 }
 function remove_reactions(signal, start_index) {
   var dependencies = signal.deps;
-  if (dependencies === null)
-    return;
+  if (dependencies === null) return;
   for (var i = start_index; i < dependencies.length; i++) {
     remove_reaction(signal, dependencies[i]);
   }
@@ -3477,8 +3377,7 @@ function get(signal) {
         signal.label
       );
       var trace2 = get_error("traced at");
-      if (trace2)
-        console.warn(trace2);
+      if (trace2) console.warn(trace2);
     }
     recent_async_deriveds.delete(signal);
     if (tracing_mode_flag && !untracking && tracing_expressions !== null && active_reaction !== null && tracing_expressions.reaction === active_reaction) {
@@ -3539,8 +3438,7 @@ function get(signal) {
 }
 function reconnect(derived2) {
   derived2.f |= CONNECTED;
-  if (derived2.deps === null)
-    return;
+  if (derived2.deps === null) return;
   for (const dep of derived2.deps) {
     (dep.reactions ?? (dep.reactions = [])).push(derived2);
     if ((dep.f & DERIVED) !== 0 && (dep.f & CONNECTED) === 0) {
@@ -3556,10 +3454,8 @@ function reconnect(derived2) {
   }
 }
 function depends_on_old_values(derived2) {
-  if (derived2.v === UNINITIALIZED)
-    return true;
-  if (derived2.deps === null)
-    return false;
+  if (derived2.v === UNINITIALIZED) return true;
+  if (derived2.deps === null) return false;
   for (const dep of derived2.deps) {
     if (old_values.has(dep)) {
       return true;
@@ -3626,7 +3522,7 @@ function deep_read(value, visited = /* @__PURE__ */ new Set()) {
   }
 }
 
-// node_modules/svelte/src/internal/client/reactivity/effects.js
+// content/plugins/node_modules/svelte/src/internal/client/reactivity/effects.js
 function validate_effect(rune) {
   if (active_effect === null) {
     if (active_reaction === null) {
@@ -3791,8 +3687,7 @@ function legacy_pre_effect(deps, fn) {
   context.l.$.push(token);
   token.effect = render_effect(() => {
     deps();
-    if (token.ran)
-      return;
+    if (token.ran) return;
     token.ran = true;
     var effect2 = (
       /** @type {Effect} */
@@ -3934,25 +3829,19 @@ function unlink_effect(effect2) {
   var parent = effect2.parent;
   var prev = effect2.prev;
   var next2 = effect2.next;
-  if (prev !== null)
-    prev.next = next2;
-  if (next2 !== null)
-    next2.prev = prev;
+  if (prev !== null) prev.next = next2;
+  if (next2 !== null) next2.prev = prev;
   if (parent !== null) {
-    if (parent.first === effect2)
-      parent.first = next2;
-    if (parent.last === effect2)
-      parent.last = prev;
+    if (parent.first === effect2) parent.first = next2;
+    if (parent.last === effect2) parent.last = prev;
   }
 }
 function pause_effect(effect2, callback, destroy = true) {
   var transitions = [];
   pause_children(effect2, transitions, true);
   var fn = () => {
-    if (destroy)
-      destroy_effect(effect2);
-    if (callback)
-      callback();
+    if (destroy) destroy_effect(effect2);
+    if (callback) callback();
   };
   var remaining = transitions.length;
   if (remaining > 0) {
@@ -3965,8 +3854,7 @@ function pause_effect(effect2, callback, destroy = true) {
   }
 }
 function pause_children(effect2, transitions, local) {
-  if ((effect2.f & INERT) !== 0)
-    return;
+  if ((effect2.f & INERT) !== 0) return;
   effect2.f ^= INERT;
   var t = effect2.nodes && effect2.nodes.t;
   if (t !== null) {
@@ -3993,8 +3881,7 @@ function resume_effect(effect2) {
   resume_children(effect2, true);
 }
 function resume_children(effect2, local) {
-  if ((effect2.f & INERT) === 0)
-    return;
+  if ((effect2.f & INERT) === 0) return;
   effect2.f ^= INERT;
   if ((effect2.f & CLEAN) === 0) {
     set_signal_status(effect2, DIRTY);
@@ -4017,8 +3904,7 @@ function resume_children(effect2, local) {
   }
 }
 function move_effect(effect2, fragment) {
-  if (!effect2.nodes)
-    return;
+  if (!effect2.nodes) return;
   var node = effect2.nodes.start;
   var end = effect2.nodes.end;
   while (node !== null) {
@@ -4028,8 +3914,8 @@ function move_effect(effect2, fragment) {
   }
 }
 
-// node_modules/svelte/src/internal/client/dom/elements/events.js
-var event_symbol = Symbol("events");
+// content/plugins/node_modules/svelte/src/internal/client/dom/elements/events.js
+var event_symbol = /* @__PURE__ */ Symbol("events");
 var all_registered_events = /* @__PURE__ */ new Set();
 var root_event_handles = /* @__PURE__ */ new Set();
 function create_event(event_name, dom, handler, options = {}) {
@@ -4097,8 +3983,7 @@ function handle_event_propagation(event2) {
   }
   current_target = /** @type {Element} */
   path[path_idx] || event2.target;
-  if (current_target === handler_element)
-    return;
+  if (current_target === handler_element) return;
   define_property(event2, "currentTarget", {
     configurable: true,
     get() {
@@ -4113,8 +3998,7 @@ function handle_event_propagation(event2) {
     var throw_error;
     var other_errors = [];
     while (current_target !== null) {
-      if (current_target === handler_element)
-        break;
+      if (current_target === handler_element) break;
       try {
         var delegated2 = current_target[event_symbol]?.[event_name];
         if (delegated2 != null && (!/** @type {any} */
@@ -4130,8 +4014,7 @@ function handle_event_propagation(event2) {
           throw_error = error;
         }
       }
-      if (event2.cancelBubble)
-        break;
+      if (event2.cancelBubble) break;
       path_idx++;
       current_target = path_idx < path.length ? (
         /** @type {Element} */
@@ -4154,7 +4037,7 @@ function handle_event_propagation(event2) {
   }
 }
 
-// node_modules/svelte/src/internal/client/dom/reconciler.js
+// content/plugins/node_modules/svelte/src/internal/client/dom/reconciler.js
 var policy = (
   // We gotta write it like this because after downleveling the pure comment may end up in the wrong location
   globalThis?.window?.trustedTypes && /* @__PURE__ */ globalThis.window.trustedTypes.createPolicy("svelte-trusted-html", {
@@ -4176,7 +4059,7 @@ function create_fragment_from_html(html2) {
   return elem.content;
 }
 
-// node_modules/svelte/src/internal/client/dom/template.js
+// content/plugins/node_modules/svelte/src/internal/client/dom/template.js
 function assign_nodes(start, end) {
   var effect2 = (
     /** @type {Effect} */
@@ -4199,9 +4082,8 @@ function from_html(content, flags2) {
     }
     if (node === void 0) {
       node = create_fragment_from_html(has_start ? content : "<!>" + content);
-      if (!is_fragment)
-        node = /** @type {TemplateNode} */
-        get_first_child(node);
+      if (!is_fragment) node = /** @type {TemplateNode} */
+      get_first_child(node);
     }
     var clone = (
       /** @type {TemplateNode} */
@@ -4256,7 +4138,7 @@ function append(anchor, dom) {
   );
 }
 
-// node_modules/svelte/src/utils.js
+// content/plugins/node_modules/svelte/src/utils.js
 var DOM_BOOLEAN_ATTRIBUTES = [
   "allowfullscreen",
   "async",
@@ -4338,7 +4220,7 @@ var RUNES = (
   ]
 );
 
-// node_modules/svelte/src/internal/client/render.js
+// content/plugins/node_modules/svelte/src/internal/client/render.js
 var should_intro = true;
 function mount(component2, options) {
   return _mount(component2, options);
@@ -4407,8 +4289,7 @@ function _mount(Component, { target, anchor, props = {}, events, context, intro 
           /** @type {ComponentContext} */
           component_context
         );
-        if (context)
-          ctx.c = context;
+        if (context) ctx.c = context;
         if (events) {
           props.$$events = events;
         }
@@ -4438,8 +4319,7 @@ function _mount(Component, { target, anchor, props = {}, events, context, intro 
     var event_handle = (events2) => {
       for (var i = 0; i < events2.length; i++) {
         var event_name = events2[i];
-        if (registered_events.has(event_name))
-          continue;
+        if (registered_events.has(event_name)) continue;
         registered_events.add(event_name);
         var passive2 = is_passive_event(event_name);
         for (const node of [target, document]) {
@@ -4508,7 +4388,7 @@ function unmount(component2, options) {
   return Promise.resolve();
 }
 
-// node_modules/svelte/src/legacy/legacy-client.js
+// content/plugins/node_modules/svelte/src/legacy/legacy-client.js
 function createClassComponent(options) {
   return new Svelte4Component(options);
 }
@@ -4521,9 +4401,9 @@ var Svelte4Component = class {
    */
   constructor(options) {
     /** @type {any} */
-    __privateAdd(this, _events, void 0);
+    __privateAdd(this, _events);
     /** @type {Record<string, any>} */
-    __privateAdd(this, _instance, void 0);
+    __privateAdd(this, _instance);
     var sources = /* @__PURE__ */ new Map();
     var add_source = (key2, value) => {
       var s = mutable_source(value, false, false);
@@ -4537,8 +4417,7 @@ var Svelte4Component = class {
           return get(sources.get(prop2) ?? add_source(prop2, Reflect.get(target, prop2)));
         },
         has(target, prop2) {
-          if (prop2 === LEGACY_PROPS)
-            return true;
+          if (prop2 === LEGACY_PROPS) return true;
           get(sources.get(prop2) ?? add_source(prop2, Reflect.get(target, prop2)));
           return Reflect.has(target, prop2);
         },
@@ -4562,8 +4441,7 @@ var Svelte4Component = class {
     }
     __privateSet(this, _events, props.$$events);
     for (const key2 of Object.keys(__privateGet(this, _instance))) {
-      if (key2 === "$set" || key2 === "$destroy" || key2 === "$on")
-        continue;
+      if (key2 === "$set" || key2 === "$destroy" || key2 === "$on") continue;
       define_property(this, key2, {
         get() {
           return __privateGet(this, _instance)[key2];
@@ -4610,20 +4488,20 @@ var Svelte4Component = class {
 _events = new WeakMap();
 _instance = new WeakMap();
 
-// node_modules/svelte/src/version.js
+// content/plugins/node_modules/svelte/src/version.js
 var PUBLIC_VERSION = "5";
 
-// node_modules/svelte/src/internal/disclose-version.js
+// content/plugins/node_modules/svelte/src/internal/disclose-version.js
 var _a;
 if (typeof window !== "undefined") {
   ((_a = window.__svelte ?? (window.__svelte = {})).v ?? (_a.v = /* @__PURE__ */ new Set())).add(PUBLIC_VERSION);
 }
 
-// node_modules/svelte/src/internal/flags/legacy.js
+// content/plugins/node_modules/svelte/src/internal/flags/legacy.js
 enable_legacy_mode_flag();
 
-// node_modules/svelte/src/internal/client/dom/blocks/branches.js
-var _batches, _onscreen, _offscreen, _outroing, _transition, _commit2, _discard;
+// content/plugins/node_modules/svelte/src/internal/client/dom/blocks/branches.js
+var _batches, _onscreen, _offscreen, _outroing, _transition, _commit, _discard;
 var BranchManager = class {
   /**
    * @param {TemplateNode} anchor
@@ -4668,9 +4546,8 @@ var BranchManager = class {
     /**
      * @param {Batch} batch
      */
-    __privateAdd(this, _commit2, (batch) => {
-      if (!__privateGet(this, _batches).has(batch))
-        return;
+    __privateAdd(this, _commit, (batch) => {
+      if (!__privateGet(this, _batches).has(batch)) return;
       var key2 = (
         /** @type {Key} */
         __privateGet(this, _batches).get(batch)
@@ -4705,8 +4582,7 @@ var BranchManager = class {
         }
       }
       for (const [k, effect2] of __privateGet(this, _onscreen)) {
-        if (k === key2 || __privateGet(this, _outroing).has(k))
-          continue;
+        if (k === key2 || __privateGet(this, _outroing).has(k)) continue;
         const on_destroy = () => {
           const keys = Array.from(__privateGet(this, _batches).values());
           if (keys.includes(k)) {
@@ -4787,13 +4663,13 @@ var BranchManager = class {
           batch.skip_effect(branch2.effect);
         }
       }
-      batch.oncommit(__privateGet(this, _commit2));
+      batch.oncommit(__privateGet(this, _commit));
       batch.ondiscard(__privateGet(this, _discard));
     } else {
       if (hydrating) {
         this.anchor = hydrate_node;
       }
-      __privateGet(this, _commit2).call(this, batch);
+      __privateGet(this, _commit).call(this, batch);
     }
   }
 };
@@ -4802,10 +4678,10 @@ _onscreen = new WeakMap();
 _offscreen = new WeakMap();
 _outroing = new WeakMap();
 _transition = new WeakMap();
-_commit2 = new WeakMap();
+_commit = new WeakMap();
 _discard = new WeakMap();
 
-// node_modules/svelte/src/index-client.js
+// content/plugins/node_modules/svelte/src/index-client.js
 if (dev_fallback_default) {
   let throw_rune_error = function(rune) {
     if (!(rune in globalThis)) {
@@ -4833,7 +4709,7 @@ if (dev_fallback_default) {
   throw_rune_error("$bindable");
 }
 
-// node_modules/svelte/src/internal/client/dom/blocks/if.js
+// content/plugins/node_modules/svelte/src/internal/client/dom/blocks/if.js
 function if_block(node, fn, elseif = false) {
   var marker;
   if (hydrating) {
@@ -4872,27 +4748,17 @@ function if_block(node, fn, elseif = false) {
   }, flags2);
 }
 
-// node_modules/svelte/src/internal/client/dom/blocks/key.js
-var NAN = Symbol("NaN");
-
-// node_modules/svelte/src/internal/shared/attributes.js
+// content/plugins/node_modules/svelte/src/internal/shared/attributes.js
 var whitespace = [..." 	\n\r\f\xA0\v\uFEFF"];
 
-// node_modules/svelte/src/internal/client/dom/elements/attributes.js
-var CLASS = Symbol("class");
-var STYLE = Symbol("style");
-var IS_CUSTOM_ELEMENT = Symbol("is custom element");
-var IS_HTML = Symbol("is html");
-
-// node_modules/svelte/src/internal/client/dom/legacy/lifecycle.js
+// content/plugins/node_modules/svelte/src/internal/client/dom/legacy/lifecycle.js
 function init(immutable = false) {
   const context = (
     /** @type {ComponentContextLegacy} */
     component_context
   );
   const callbacks = context.l.u;
-  if (!callbacks)
-    return;
+  if (!callbacks) return;
   let props = () => deep_read_state(context.s);
   if (immutable) {
     let version = 0;
@@ -4909,8 +4775,7 @@ function init(immutable = false) {
           changed = true;
         }
       }
-      if (changed)
-        version++;
+      if (changed) version++;
       return version;
     });
     props = () => get(d);
@@ -4940,13 +4805,12 @@ function init(immutable = false) {
 }
 function observe_all(context, props) {
   if (context.l.s) {
-    for (const signal of context.l.s)
-      get(signal);
+    for (const signal of context.l.s) get(signal);
   }
   props();
 }
 
-// node_modules/svelte/src/internal/client/dom/legacy/misc.js
+// content/plugins/node_modules/svelte/src/internal/client/dom/legacy/misc.js
 function add_legacy_event_listener($$props, event_name, event_callback) {
   var _a2;
   $$props.$$events || ($$props.$$events = {});
@@ -4961,7 +4825,7 @@ function update_legacy_props($$new_props) {
   }
 }
 
-// node_modules/svelte/src/internal/client/reactivity/props.js
+// content/plugins/node_modules/svelte/src/internal/client/reactivity/props.js
 function prop(props, key2, flags2, fallback2) {
   var runes = !legacy_mode_flag || (flags2 & PROPS_IS_RUNES) !== 0;
   var bindable = (flags2 & PROPS_IS_BINDABLE) !== 0;
@@ -5014,8 +4878,7 @@ function prop(props, key2, flags2, fallback2) {
   if (initial_value === void 0 && fallback2 !== void 0) {
     initial_value = get_fallback();
     if (setter) {
-      if (runes)
-        props_invalid_value(key2);
+      if (runes) props_invalid_value(key2);
       setter(initial_value);
     }
   }
@@ -5026,8 +4889,7 @@ function prop(props, key2, flags2, fallback2) {
         /** @type {V} */
         props[key2]
       );
-      if (value === void 0)
-        return get_fallback();
+      if (value === void 0) return get_fallback();
       fallback_dirty = true;
       return value;
     };
@@ -5051,7 +4913,7 @@ function prop(props, key2, flags2, fallback2) {
     var legacy_parent = props.$$legacy;
     return (
       /** @type {() => V} */
-      function(value, mutation) {
+      (function(value, mutation) {
         if (arguments.length > 0) {
           if (!runes || !mutation || legacy_parent || is_store_sub) {
             setter(mutation ? getter() : value);
@@ -5059,7 +4921,7 @@ function prop(props, key2, flags2, fallback2) {
           return value;
         }
         return getter();
-      }
+      })
     );
   }
   var overridden = false;
@@ -5070,15 +4932,14 @@ function prop(props, key2, flags2, fallback2) {
   if (dev_fallback_default) {
     d.label = key2;
   }
-  if (bindable)
-    get(d);
+  if (bindable) get(d);
   var parent_effect = (
     /** @type {Effect} */
     active_effect
   );
   return (
     /** @type {() => V} */
-    function(value, mutation) {
+    (function(value, mutation) {
       if (arguments.length > 0) {
         const new_value = mutation ? get(d) : runes && bindable ? proxy(value) : value;
         set(d, new_value);
@@ -5092,11 +4953,11 @@ function prop(props, key2, flags2, fallback2) {
         return d.v;
       }
       return get(d);
-    }
+    })
   );
 }
 
-// node_modules/svelte/src/internal/client/dom/elements/custom-element.js
+// content/plugins/node_modules/svelte/src/internal/client/dom/elements/custom-element.js
 var SvelteElement;
 if (typeof HTMLElement === "function") {
   SvelteElement = class extends HTMLElement {
@@ -5170,8 +5031,7 @@ if (typeof HTMLElement === "function") {
         let create_slot = function(name) {
           return (anchor) => {
             const slot2 = create_element("slot");
-            if (name !== "default")
-              slot2.name = name;
+            if (name !== "default") slot2.name = name;
             append(anchor, slot2);
           };
         };
@@ -5216,8 +5076,7 @@ if (typeof HTMLElement === "function") {
           render_effect(() => {
             this.$$r = true;
             for (const key2 of object_keys(this.$$c)) {
-              if (!this.$$p_d[key2]?.reflect)
-                continue;
+              if (!this.$$p_d[key2]?.reflect) continue;
               this.$$d[key2] = this.$$c[key2];
               const attribute_value = get_custom_element_value(
                 key2,
@@ -5251,8 +5110,7 @@ if (typeof HTMLElement === "function") {
      * @param {string} newValue
      */
     attributeChangedCallback(attr2, _oldValue, newValue) {
-      if (this.$$r)
-        return;
+      if (this.$$r) return;
       attr2 = this.$$g_p(attr2);
       this.$$d[attr2] = get_custom_element_value(attr2, newValue, this.$$p_d, "toProp");
       this.$$c?.$set({ [attr2]: this.$$d[attr2] });
@@ -5301,6 +5159,7 @@ function get_custom_element_value(prop2, value, props_definition, transform) {
         return value && JSON.parse(value);
       case "Boolean":
         return value;
+      // conversion already handled above
       case "Number":
         return value != null ? +value : value;
       default:
@@ -5319,11 +5178,10 @@ function get_custom_elements_slots(element2) {
   return result;
 }
 
-// marketplace/civitai-provider/frontend/src/ExportCivitaiButton.svelte
+// content/plugins/marketplace/civitai-provider/frontend/src/ExportCivitaiButton.svelte
 var root = from_html(`<button class="bg-black/50 hover:bg-black/70 disabled:opacity-50 text-white p-3 rounded-lg shadow-lg backdrop-blur-sm transition-colors" title="Export for Civitai"><svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg></button>`);
 function ExportCivitaiButton($$anchor, $$props) {
-  if (new.target)
-    return createClassComponent({ component: ExportCivitaiButton, ...$$anchor });
+  if (new.target) return createClassComponent({ component: ExportCivitaiButton, ...$$anchor });
   push($$props, false);
   const isImage = mutable_source();
   let context = prop($$props, "context", 28, () => ({}));
@@ -5337,8 +5195,7 @@ function ExportCivitaiButton($$anchor, $$props) {
     }
   }
   async function handleExport() {
-    if (get(exporting) || !context().generationId)
-      return;
+    if (get(exporting) || !context().generationId) return;
     set(exporting, true);
     try {
       const token = localStorage.getItem("auth_token");
@@ -5405,8 +5262,7 @@ function ExportCivitaiButton($$anchor, $$props) {
       append($$anchor2, button);
     };
     if_block(node, ($$render) => {
-      if (get(isImage))
-        $$render(consequent);
+      if (get(isImage)) $$render(consequent);
     });
   }
   append($$anchor, fragment);

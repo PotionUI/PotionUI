@@ -1,8 +1,8 @@
-// node_modules/esm-env/dev-fallback.js
+// content/plugins/node_modules/esm-env/dev-fallback.js
 var node_env = globalThis.process?.env?.NODE_ENV;
 var dev_fallback_default = node_env && !node_env.toLowerCase().startsWith("prod");
 
-// node_modules/svelte/src/internal/shared/utils.js
+// content/plugins/node_modules/svelte/src/internal/shared/utils.js
 var is_array = Array.isArray;
 var index_of = Array.prototype.indexOf;
 var includes = Array.prototype.includes;
@@ -32,7 +32,7 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-// node_modules/svelte/src/internal/client/constants.js
+// content/plugins/node_modules/svelte/src/internal/client/constants.js
 var DERIVED = 1 << 1;
 var EFFECT = 1 << 2;
 var RENDER_EFFECT = 1 << 3;
@@ -59,16 +59,15 @@ var WAS_MARKED = 1 << 16;
 var REACTION_IS_UPDATING = 1 << 21;
 var ASYNC = 1 << 22;
 var ERROR_VALUE = 1 << 23;
-var STATE_SYMBOL = Symbol("$state");
-var LEGACY_PROPS = Symbol("legacy props");
-var LOADING_ATTR_SYMBOL = Symbol("");
-var PROXY_PATH_SYMBOL = Symbol("proxy path");
-var ATTRIBUTES_CACHE = Symbol("attributes");
-var CLASS_CACHE = Symbol("class");
-var STYLE_CACHE = Symbol("style");
-var TEXT_CACHE = Symbol("text");
-var FORM_RESET_HANDLER = Symbol("form reset");
-var HMR_ANCHOR = Symbol("hmr anchor");
+var STATE_SYMBOL = /* @__PURE__ */ Symbol("$state");
+var LEGACY_PROPS = /* @__PURE__ */ Symbol("legacy props");
+var LOADING_ATTR_SYMBOL = /* @__PURE__ */ Symbol("");
+var PROXY_PATH_SYMBOL = /* @__PURE__ */ Symbol("proxy path");
+var ATTRIBUTES_CACHE = /* @__PURE__ */ Symbol("attributes");
+var CLASS_CACHE = /* @__PURE__ */ Symbol("class");
+var STYLE_CACHE = /* @__PURE__ */ Symbol("style");
+var TEXT_CACHE = /* @__PURE__ */ Symbol("text");
+var HMR_ANCHOR = /* @__PURE__ */ Symbol("hmr anchor");
 var STALE_REACTION = new class StaleReactionError extends Error {
   name = "StaleReactionError";
   message = "The reaction that called `getAbortSignal()` was re-run or destroyed";
@@ -80,7 +79,7 @@ var IS_XHTML = (
 var TEXT_NODE = 3;
 var COMMENT_NODE = 8;
 
-// node_modules/svelte/src/internal/shared/errors.js
+// content/plugins/node_modules/svelte/src/internal/shared/errors.js
 function invariant_violation(message) {
   if (dev_fallback_default) {
     const error = new Error(`invariant_violation
@@ -93,7 +92,7 @@ https://svelte.dev/e/invariant_violation`);
   }
 }
 
-// node_modules/svelte/src/internal/client/errors.js
+// content/plugins/node_modules/svelte/src/internal/client/errors.js
 function async_derived_orphan() {
   if (dev_fallback_default) {
     const error = new Error(`async_derived_orphan
@@ -238,7 +237,7 @@ https://svelte.dev/e/svelte_boundary_reset_onerror`);
   }
 }
 
-// node_modules/svelte/src/constants.js
+// content/plugins/node_modules/svelte/src/constants.js
 var EACH_INDEX_REACTIVE = 1 << 1;
 var EACH_IS_CONTROLLED = 1 << 2;
 var EACH_IS_ANIMATED = 1 << 3;
@@ -261,12 +260,11 @@ var HYDRATION_END = "]";
 var HYDRATION_ERROR = {};
 var ELEMENT_PRESERVE_ATTRIBUTE_CASE = 1 << 1;
 var ELEMENT_IS_INPUT = 1 << 2;
-var UNINITIALIZED = Symbol("uninitialized");
-var FILENAME = Symbol("filename");
-var HMR = Symbol("hmr");
+var UNINITIALIZED = /* @__PURE__ */ Symbol("uninitialized");
+var FILENAME = /* @__PURE__ */ Symbol("filename");
 var NAMESPACE_HTML = "http://www.w3.org/1999/xhtml";
 
-// node_modules/svelte/src/internal/client/warnings.js
+// content/plugins/node_modules/svelte/src/internal/client/warnings.js
 var bold = "font-weight: bold";
 var normal = "font-weight: normal";
 function await_reactivity_loss(name) {
@@ -355,7 +353,7 @@ https://svelte.dev/e/svelte_boundary_reset_noop`, bold, normal);
   }
 }
 
-// node_modules/svelte/src/internal/client/dom/hydration.js
+// content/plugins/node_modules/svelte/src/internal/client/dom/hydration.js
 var hydrating = false;
 function set_hydrating(value) {
   hydrating = value;
@@ -372,8 +370,7 @@ function hydrate_next() {
   return set_hydrate_node(get_next_sibling(hydrate_node));
 }
 function reset(node) {
-  if (!hydrating)
-    return;
+  if (!hydrating) return;
   if (get_next_sibling(hydrate_node) !== null) {
     hydration_mismatch();
     throw HYDRATION_ERROR;
@@ -401,8 +398,7 @@ function skip_nodes(remove = true) {
         node.data
       );
       if (data === HYDRATION_END) {
-        if (depth === 0)
-          return node;
+        if (depth === 0) return node;
         depth -= 1;
       } else if (data === HYDRATION_START || data === HYDRATION_START_ELSE || // "[1", "[2", etc. for if blocks
       data[0] === "[" && !isNaN(Number(data.slice(1)))) {
@@ -413,8 +409,7 @@ function skip_nodes(remove = true) {
       /** @type {TemplateNode} */
       get_next_sibling(node)
     );
-    if (remove)
-      node.remove();
+    if (remove) node.remove();
     node = next2;
   }
 }
@@ -429,7 +424,7 @@ function read_hydration_instruction(node) {
   );
 }
 
-// node_modules/svelte/src/internal/client/reactivity/equality.js
+// content/plugins/node_modules/svelte/src/internal/client/reactivity/equality.js
 function equals(value) {
   return value === this.v;
 }
@@ -440,12 +435,12 @@ function safe_equals(value) {
   return !safe_not_equal(value, this.v);
 }
 
-// node_modules/svelte/src/internal/flags/index.js
+// content/plugins/node_modules/svelte/src/internal/flags/index.js
 var async_mode_flag = false;
 var legacy_mode_flag = false;
 var tracing_mode_flag = false;
 
-// node_modules/svelte/src/internal/client/dev/tracing.js
+// content/plugins/node_modules/svelte/src/internal/client/dev/tracing.js
 var tracing_expressions = null;
 function tag(source2, label) {
   source2.label = label;
@@ -457,7 +452,7 @@ function tag_proxy(value, label) {
   return value;
 }
 
-// node_modules/svelte/src/internal/shared/dev.js
+// content/plugins/node_modules/svelte/src/internal/shared/dev.js
 function get_error(label) {
   const error = new Error();
   const stack2 = get_stack();
@@ -481,8 +476,7 @@ function get_stack() {
   Error.stackTraceLimit = Infinity;
   const stack2 = new Error().stack;
   Error.stackTraceLimit = limit;
-  if (!stack2)
-    return [];
+  if (!stack2) return [];
   const lines = stack2.split("\n");
   const new_lines = [];
   for (let i = 0; i < lines.length; i++) {
@@ -505,11 +499,10 @@ function invariant(condition, message) {
   if (!dev_fallback_default) {
     throw new Error("invariant(...) was not guarded by if (DEV)");
   }
-  if (!condition)
-    invariant_violation(message);
+  if (!condition) invariant_violation(message);
 }
 
-// node_modules/svelte/src/internal/client/context.js
+// content/plugins/node_modules/svelte/src/internal/client/context.js
 var component_context = null;
 function set_component_context(context) {
   component_context = context;
@@ -568,7 +561,7 @@ function is_runes() {
   return !legacy_mode_flag || component_context !== null && component_context.l === null;
 }
 
-// node_modules/svelte/src/internal/client/dom/task.js
+// content/plugins/node_modules/svelte/src/internal/client/dom/task.js
 var micro_tasks = [];
 function run_micro_tasks() {
   var tasks = micro_tasks;
@@ -579,8 +572,7 @@ function queue_micro_task(fn) {
   if (micro_tasks.length === 0 && !is_flushing_sync) {
     var tasks = micro_tasks;
     queueMicrotask(() => {
-      if (tasks === micro_tasks)
-        run_micro_tasks();
+      if (tasks === micro_tasks) run_micro_tasks();
     });
   }
   micro_tasks.push(fn);
@@ -591,7 +583,7 @@ function flush_tasks() {
   }
 }
 
-// node_modules/svelte/src/internal/client/error-handling.js
+// content/plugins/node_modules/svelte/src/internal/client/error-handling.js
 var adjustments = /* @__PURE__ */ new WeakMap();
 function handle_error(error) {
   var effect2 = active_effect;
@@ -635,8 +627,7 @@ function invoke_error_boundary(error, effect2) {
 }
 function get_adjustments(error, effect2) {
   const message_descriptor = get_descriptor(error, "message");
-  if (message_descriptor && !message_descriptor.configurable)
-    return;
+  if (message_descriptor && !message_descriptor.configurable) return;
   var indent = is_firefox ? "  " : "	";
   var component_stack = `
 ${indent}in ${effect2.fn?.name || "<unknown>"}`;
@@ -665,7 +656,7 @@ function apply_adjustments(error) {
   }
 }
 
-// node_modules/svelte/src/internal/client/reactivity/status.js
+// content/plugins/node_modules/svelte/src/internal/client/reactivity/status.js
 var STATUS_MASK = ~(DIRTY | MAYBE_DIRTY | CLEAN);
 function set_signal_status(signal, status) {
   signal.f = signal.f & STATUS_MASK | status;
@@ -678,10 +669,9 @@ function update_derived_status(derived2) {
   }
 }
 
-// node_modules/svelte/src/internal/client/reactivity/utils.js
+// content/plugins/node_modules/svelte/src/internal/client/reactivity/utils.js
 function clear_marked(deps) {
-  if (deps === null)
-    return;
+  if (deps === null) return;
   for (const dep of deps) {
     if ((dep.f & DERIVED) === 0 || (dep.f & WAS_MARKED) === 0) {
       continue;
@@ -703,10 +693,9 @@ function defer_effect(effect2, dirty_effects, maybe_dirty_effects) {
   set_signal_status(effect2, CLEAN);
 }
 
-// node_modules/svelte/src/internal/client/reactivity/store.js
+// content/plugins/node_modules/svelte/src/internal/client/reactivity/store.js
 var legacy_is_updating_store = false;
 var is_store_binding = false;
-var IS_UNMOUNTED = Symbol("unmounted");
 function capture_store_binding(fn) {
   var previous_is_store_binding = is_store_binding;
   try {
@@ -717,7 +706,7 @@ function capture_store_binding(fn) {
   }
 }
 
-// node_modules/svelte/src/reactivity/create-subscriber.js
+// content/plugins/node_modules/svelte/src/reactivity/create-subscriber.js
 function createSubscriber(start) {
   let subscribers = 0;
   let version = source(0);
@@ -748,7 +737,7 @@ function createSubscriber(start) {
   };
 }
 
-// node_modules/svelte/src/internal/client/dom/blocks/boundary.js
+// content/plugins/node_modules/svelte/src/internal/client/dom/blocks/boundary.js
 var flags = EFFECT_TRANSPARENT | EFFECT_PRESERVED;
 function boundary(node, props, children, transform_error) {
   new Boundary(node, props, children, transform_error);
@@ -863,8 +852,7 @@ var Boundary = class {
    */
   #hydrate_failed_content(error) {
     const failed = this.#props.failed;
-    if (!failed)
-      return;
+    if (!failed) return;
     this.#failed_effect = branch(() => {
       failed(
         this.#anchor,
@@ -876,8 +864,7 @@ var Boundary = class {
   }
   #hydrate_pending_content() {
     const pending2 = this.#props.pending;
-    if (!pending2)
-      return;
+    if (!pending2) return;
     this.is_pending = true;
     this.#pending_effect = branch(() => pending2(this.#anchor));
     queue_micro_task(() => {
@@ -1014,8 +1001,7 @@ var Boundary = class {
   update_pending_count(d, batch) {
     this.#update_pending_count(d, batch);
     this.#local_pending_count += d;
-    if (!this.#effect_pending || this.#pending_count_update_queued)
-      return;
+    if (!this.#effect_pending || this.#pending_count_update_queued) return;
     this.#pending_count_update_queued = true;
     queue_micro_task(() => {
       this.#pending_count_update_queued = false;
@@ -1037,12 +1023,9 @@ var Boundary = class {
       throw error;
     }
     if (current_batch?.is_fork) {
-      if (this.#main_effect)
-        current_batch.skip_effect(this.#main_effect);
-      if (this.#pending_effect)
-        current_batch.skip_effect(this.#pending_effect);
-      if (this.#failed_effect)
-        current_batch.skip_effect(this.#failed_effect);
+      if (this.#main_effect) current_batch.skip_effect(this.#main_effect);
+      if (this.#pending_effect) current_batch.skip_effect(this.#pending_effect);
+      if (this.#failed_effect) current_batch.skip_effect(this.#failed_effect);
       current_batch.oncommit(() => {
         this.#handle_error(error);
       });
@@ -1153,7 +1136,7 @@ var Boundary = class {
   }
 };
 
-// node_modules/svelte/src/internal/client/reactivity/async.js
+// content/plugins/node_modules/svelte/src/internal/client/reactivity/async.js
 function flatten(blockers, sync, async2, fn) {
   const d = is_runes() ? derived : derived_safe_equal;
   var pending2 = blockers.filter((b) => !b.settled);
@@ -1235,8 +1218,7 @@ function unset_context(deactivate_batch = true) {
   set_active_effect(null);
   set_active_reaction(null);
   set_component_context(null);
-  if (deactivate_batch)
-    current_batch?.deactivate();
+  if (deactivate_batch) current_batch?.deactivate();
   if (dev_fallback_default) {
     set_reactivity_loss_tracker(null);
     set_dev_stack(null);
@@ -1261,7 +1243,7 @@ function increment_pending() {
   };
 }
 
-// node_modules/svelte/src/internal/client/reactivity/deriveds.js
+// content/plugins/node_modules/svelte/src/internal/client/reactivity/deriveds.js
 var reactivity_loss_tracker = null;
 function set_reactivity_loss_tracker(v) {
   reactivity_loss_tracker = v;
@@ -1295,7 +1277,7 @@ function derived(fn) {
   }
   return signal;
 }
-var OBSOLETE = Symbol("obsolete");
+var OBSOLETE = /* @__PURE__ */ Symbol("obsolete");
 // @__NO_SIDE_EFFECTS__
 function async_derived(fn, label, location) {
   let parent = (
@@ -1314,8 +1296,7 @@ function async_derived(fn, label, location) {
     /** @type {V} */
     UNINITIALIZED
   );
-  if (dev_fallback_default)
-    signal.label = label ?? fn.toString();
+  if (dev_fallback_default) signal.label = label ?? fn.toString();
   var should_suspend = !active_reaction;
   var deferreds = /* @__PURE__ */ new Set();
   async_effect(() => {
@@ -1330,8 +1311,7 @@ function async_derived(fn, label, location) {
     promise = d.promise;
     try {
       Promise.resolve(fn()).then(d.resolve, (e) => {
-        if (e !== STALE_REACTION)
-          d.reject(e);
+        if (e !== STALE_REACTION) d.reject(e);
       }).finally(unset_context);
     } catch (error) {
       d.reject(error);
@@ -1379,8 +1359,7 @@ function async_derived(fn, label, location) {
       }
       decrement_pending?.();
       deferreds.delete(d);
-      if (error === OBSOLETE)
-        return;
+      if (error === OBSOLETE) return;
       batch.activate();
       if (error) {
         signal.f |= ERROR_VALUE;
@@ -1433,8 +1412,7 @@ function async_derived(fn, label, location) {
 // @__NO_SIDE_EFFECTS__
 function user_derived(fn) {
   const d = /* @__PURE__ */ derived(fn);
-  if (!async_mode_flag)
-    push_reaction_value(d);
+  if (!async_mode_flag) push_reaction_value(d);
   return d;
 }
 // @__NO_SIDE_EFFECTS__
@@ -1522,14 +1500,12 @@ function update_derived(derived2) {
   }
 }
 function freeze_derived_effects(derived2) {
-  if (derived2.effects === null)
-    return;
+  if (derived2.effects === null) return;
   for (const e of derived2.effects) {
     if (e.teardown || e.ac) {
       e.teardown?.();
       e.ac?.abort(STALE_REACTION);
-      if (e.fn !== null)
-        e.teardown = noop;
+      if (e.fn !== null) e.teardown = noop;
       e.ac = null;
       remove_reactions(e, 0);
       destroy_effect_children(e);
@@ -1537,8 +1513,7 @@ function freeze_derived_effects(derived2) {
   }
 }
 function unfreeze_derived_effects(derived2) {
-  if (derived2.effects === null)
-    return;
+  if (derived2.effects === null) return;
   for (const e of derived2.effects) {
     if (e.teardown && e.fn !== null) {
       update_effect(e);
@@ -1546,7 +1521,7 @@ function unfreeze_derived_effects(derived2) {
   }
 }
 
-// node_modules/svelte/src/internal/client/reactivity/batch.js
+// content/plugins/node_modules/svelte/src/internal/client/reactivity/batch.js
 var first_batch = null;
 var last_batch = null;
 var current_batch = null;
@@ -1655,8 +1630,7 @@ var Batch = class _Batch {
     last_batch = this;
   }
   #is_deferred() {
-    if (this.is_fork)
-      return true;
+    if (this.is_fork) return true;
     for (const effect2 of this.#blocking_pending.keys()) {
       var e = effect2;
       var skipped = false;
@@ -1735,8 +1709,7 @@ var Batch = class _Batch {
         this.#traverse(root2, effects, render_effects);
       } catch (e) {
         reset_all(root2);
-        if (!this.#is_deferred())
-          this.discard();
+        if (!this.#is_deferred()) this.discard();
         throw e;
       }
     }
@@ -1770,8 +1743,7 @@ var Batch = class _Batch {
     }
     this.#dirty_effects.clear();
     this.#maybe_dirty_effects.clear();
-    for (const fn of this.#commit_callbacks)
-      fn(this);
+    for (const fn of this.#commit_callbacks) fn(this);
     this.#commit_callbacks.clear();
     previous_batch = this;
     flush_queued_effects(render_effects);
@@ -1825,8 +1797,7 @@ var Batch = class _Batch {
         } else if (async_mode_flag && (flags2 & (RENDER_EFFECT | MANAGED_EFFECT)) !== 0) {
           render_effects.push(effect2);
         } else if (is_dirty(effect2)) {
-          if ((flags2 & BLOCK_EFFECT) !== 0)
-            this.#maybe_dirty_effects.add(effect2);
+          if ((flags2 & BLOCK_EFFECT) !== 0) this.#maybe_dirty_effects.add(effect2);
           update_effect(effect2);
         }
         var child2 = effect2.first;
@@ -1871,15 +1842,13 @@ var Batch = class _Batch {
     }
     for (const [effect2, deferred2] of batch.async_deriveds) {
       const d = this.async_deriveds.get(effect2);
-      if (d)
-        deferred2.promise.then(d.resolve).catch(d.reject);
+      if (d) deferred2.promise.then(d.resolve).catch(d.reject);
     }
     batch.async_deriveds.clear();
     this.transfer_effects(batch.#dirty_effects, batch.#maybe_dirty_effects);
     const mark = (value) => {
       var reactions = value.reactions;
-      if (reactions === null)
-        return;
+      if (reactions === null) return;
       for (const reaction of reactions) {
         var flags2 = reaction.f;
         if ((flags2 & DERIVED) !== 0) {
@@ -1967,8 +1936,7 @@ var Batch = class _Batch {
     }
   }
   discard() {
-    for (const fn of this.#discard_callbacks)
-      fn(this);
+    for (const fn of this.#discard_callbacks) fn(this);
     this.#discard_callbacks.clear();
     for (const deferred2 of this.async_deriveds.values()) {
       deferred2.reject(OBSOLETE);
@@ -2003,16 +1971,14 @@ var Batch = class _Batch {
       if (is_earlier) {
         for (const [effect2, deferred2] of this.async_deriveds) {
           const d = batch.async_deriveds.get(effect2);
-          if (d)
-            deferred2.promise.then(d.resolve).catch(d.reject);
+          if (d) deferred2.promise.then(d.resolve).catch(d.reject);
         }
       }
       var current = [...batch.current.keys()].filter(
         (source3) => !/** @type {[any, boolean]} */
         batch.current.get(source3)[1]
       );
-      if (!batch.#started || current.length === 0)
-        continue;
+      if (!batch.#started || current.length === 0) continue;
       var others = current.filter((source3) => !this.current.has(source3));
       if (others.length === 0) {
         if (is_earlier) {
@@ -2042,8 +2008,7 @@ var Batch = class _Batch {
         checked = /* @__PURE__ */ new Map();
         var current_unequal = [...batch.current].filter(([c, v1]) => {
           const v2 = this.current.get(c);
-          if (!v2)
-            return true;
+          if (!v2) return true;
           return v2[0] !== v1[0] || v2[1] !== v1[1];
         }).map(([c]) => c);
         if (current_unequal.length > 0) {
@@ -2094,8 +2059,7 @@ var Batch = class _Batch {
         this.#blocking_pending.set(effect2, blocking_pending_count - 1);
       }
     }
-    if (this.#decrement_queued)
-      return;
+    if (this.#decrement_queued) return;
     this.#decrement_queued = true;
     queue_micro_task(() => {
       this.#decrement_queued = false;
@@ -2152,13 +2116,11 @@ var Batch = class _Batch {
       batch_values.set(source2, value);
     }
     for (let batch = first_batch; batch !== null; batch = batch.#next) {
-      if (batch === this || batch.is_fork)
-        continue;
+      if (batch === this || batch.is_fork) continue;
       var intersects = false;
       if (batch.id < this.id) {
         for (const [source2, [, is_derived]] of batch.current) {
-          if (is_derived)
-            continue;
+          if (is_derived) continue;
           if (this.current.has(source2)) {
             intersects = true;
             break;
@@ -2189,8 +2151,7 @@ var Batch = class _Batch {
       e = e.parent;
       var flags2 = e.f;
       if (collected_effects !== null && e === active_effect) {
-        if (async_mode_flag)
-          return;
+        if (async_mode_flag) return;
         if ((active_reaction === null || (active_reaction.f & DERIVED) === 0) && !legacy_is_updating_store) {
           return;
         }
@@ -2205,8 +2166,7 @@ var Batch = class _Batch {
     this.#roots.push(e);
   }
   #unlink() {
-    if (!this.linked)
-      return;
+    if (!this.linked) return;
     var prev = this.#prev;
     var next2 = this.#next;
     if (prev === null) {
@@ -2282,8 +2242,7 @@ function infinite_loop_guard() {
 var eager_block_effects = null;
 function flush_queued_effects(effects) {
   var length = effects.length;
-  if (length === 0)
-    return;
+  if (length === 0) return;
   var i = 0;
   while (i < length) {
     var effect2 = effects[i++];
@@ -2296,8 +2255,7 @@ function flush_queued_effects(effects) {
       if (eager_block_effects?.size > 0) {
         old_values.clear();
         for (const e of eager_block_effects) {
-          if ((e.f & (DESTROYED | INERT)) !== 0)
-            continue;
+          if ((e.f & (DESTROYED | INERT)) !== 0) continue;
           const ordered_effects = [e];
           let ancestor = e.parent;
           while (ancestor !== null) {
@@ -2309,8 +2267,7 @@ function flush_queued_effects(effects) {
           }
           for (let j = ordered_effects.length - 1; j >= 0; j--) {
             const e2 = ordered_effects[j];
-            if ((e2.f & (DESTROYED | INERT)) !== 0)
-              continue;
+            if ((e2.f & (DESTROYED | INERT)) !== 0) continue;
             update_effect(e2);
           }
         }
@@ -2321,8 +2278,7 @@ function flush_queued_effects(effects) {
   eager_block_effects = null;
 }
 function mark_effects(value, sources, marked, checked) {
-  if (marked.has(value))
-    return;
+  if (marked.has(value)) return;
   marked.add(value);
   if (value.reactions !== null) {
     for (const reaction of value.reactions) {
@@ -2347,8 +2303,7 @@ function mark_effects(value, sources, marked, checked) {
 }
 function depends_on(reaction, sources, checked) {
   const depends = checked.get(reaction);
-  if (depends !== void 0)
-    return depends;
+  if (depends !== void 0) return depends;
   if (reaction.deps !== null) {
     for (const dep of reaction.deps) {
       if (includes.call(sources, dep)) {
@@ -2400,7 +2355,7 @@ function reset_all(effect2) {
   }
 }
 
-// node_modules/svelte/src/internal/client/reactivity/sources.js
+// content/plugins/node_modules/svelte/src/internal/client/reactivity/sources.js
 var eager_effects = /* @__PURE__ */ new Set();
 var old_values = /* @__PURE__ */ new Map();
 function set_eager_effects(v) {
@@ -2540,15 +2495,13 @@ function increment(source2) {
 }
 function mark_reactions(signal, status, updated_during_traversal) {
   var reactions = signal.reactions;
-  if (reactions === null)
-    return;
+  if (reactions === null) return;
   var runes = is_runes();
   var length = reactions.length;
   for (var i = 0; i < length; i++) {
     var reaction = reactions[i];
     var flags2 = reaction.f;
-    if (!runes && reaction === active_effect)
-      continue;
+    if (!runes && reaction === active_effect) continue;
     var not_dirty = (flags2 & DIRTY) === 0;
     if (not_dirty) {
       set_signal_status(reaction, status);
@@ -2587,7 +2540,7 @@ function mark_reactions(signal, status, updated_during_traversal) {
   }
 }
 
-// node_modules/svelte/src/internal/client/proxy.js
+// content/plugins/node_modules/svelte/src/internal/client/proxy.js
 var regex_is_valid_identifier = /^[a-zA-Z_$][a-zA-Z_$0-9]*$/;
 function proxy(value) {
   if (typeof value !== "object" || value === null || STATE_SYMBOL in value) {
@@ -2632,8 +2585,7 @@ function proxy(value) {
   var path = "";
   let updating = false;
   function update_path(new_path) {
-    if (updating)
-      return;
+    if (updating) return;
     updating = true;
     path = new_path;
     tag(version, `${path} version`);
@@ -2712,8 +2664,7 @@ function proxy(value) {
         var descriptor = Reflect.getOwnPropertyDescriptor(target, prop2);
         if (descriptor && "value" in descriptor) {
           var s = sources.get(prop2);
-          if (s)
-            descriptor.value = get2(s);
+          if (s) descriptor.value = get2(s);
         } else if (descriptor === void 0) {
           var source2 = sources.get(prop2);
           var value2 = source2?.v;
@@ -2824,10 +2775,8 @@ function proxy(value) {
   );
 }
 function get_label(path, prop2) {
-  if (typeof prop2 === "symbol")
-    return `${path}[Symbol(${prop2.description ?? ""})]`;
-  if (regex_is_valid_identifier.test(prop2))
-    return `${path}.${prop2}`;
+  if (typeof prop2 === "symbol") return `${path}[Symbol(${prop2.description ?? ""})]`;
+  if (regex_is_valid_identifier.test(prop2)) return `${path}.${prop2}`;
   return /^\d+$/.test(prop2) ? `${path}[${prop2}]` : `${path}['${prop2}']`;
 }
 function get_proxied_value(value) {
@@ -2870,7 +2819,7 @@ function inspectable_array(array) {
   });
 }
 
-// node_modules/svelte/src/internal/client/dev/equality.js
+// content/plugins/node_modules/svelte/src/internal/client/dev/equality.js
 function init_array_prototype_warnings() {
   const array_prototype2 = Array.prototype;
   const cleanup = Array.__svelte_cleanup;
@@ -2921,7 +2870,7 @@ function init_array_prototype_warnings() {
   };
 }
 
-// node_modules/svelte/src/internal/client/dom/operations.js
+// content/plugins/node_modules/svelte/src/internal/client/dom/operations.js
 var $window;
 var $document;
 var is_firefox;
@@ -2995,8 +2944,7 @@ function child(node, is_text) {
 function first_child(node, is_text = false) {
   if (!hydrating) {
     var first = /* @__PURE__ */ get_first_child(node);
-    if (first instanceof Comment && first.data === "")
-      return /* @__PURE__ */ get_next_sibling(first);
+    if (first instanceof Comment && first.data === "") return /* @__PURE__ */ get_next_sibling(first);
     return first;
   }
   if (is_text) {
@@ -3047,10 +2995,8 @@ function clear_text_content(node) {
   node.textContent = "";
 }
 function should_defer_append() {
-  if (!async_mode_flag)
-    return false;
-  if (eager_block_effects !== null)
-    return false;
+  if (!async_mode_flag) return false;
+  if (eager_block_effects !== null) return false;
   var flags2 = (
     /** @type {Effect} */
     active_effect.f
@@ -3085,7 +3031,7 @@ function merge_text_nodes(text2) {
   }
 }
 
-// node_modules/svelte/src/internal/client/dom/elements/bindings/shared.js
+// content/plugins/node_modules/svelte/src/internal/client/dom/elements/bindings/shared.js
 function without_reactive_context(fn) {
   var previous_reaction = active_reaction;
   var previous_effect = active_effect;
@@ -3099,7 +3045,7 @@ function without_reactive_context(fn) {
   }
 }
 
-// node_modules/svelte/src/internal/client/reactivity/effects.js
+// content/plugins/node_modules/svelte/src/internal/client/reactivity/effects.js
 function validate_effect(rune) {
   if (active_effect === null) {
     if (active_reaction === null) {
@@ -3358,25 +3304,19 @@ function unlink_effect(effect2) {
   var parent = effect2.parent;
   var prev = effect2.prev;
   var next2 = effect2.next;
-  if (prev !== null)
-    prev.next = next2;
-  if (next2 !== null)
-    next2.prev = prev;
+  if (prev !== null) prev.next = next2;
+  if (next2 !== null) next2.prev = prev;
   if (parent !== null) {
-    if (parent.first === effect2)
-      parent.first = next2;
-    if (parent.last === effect2)
-      parent.last = prev;
+    if (parent.first === effect2) parent.first = next2;
+    if (parent.last === effect2) parent.last = prev;
   }
 }
 function pause_effect(effect2, callback, destroy = true) {
   var transitions = [];
   pause_children(effect2, transitions, true);
   var fn = () => {
-    if (destroy)
-      destroy_effect(effect2);
-    if (callback)
-      callback();
+    if (destroy) destroy_effect(effect2);
+    if (callback) callback();
   };
   var remaining = transitions.length;
   if (remaining > 0) {
@@ -3389,8 +3329,7 @@ function pause_effect(effect2, callback, destroy = true) {
   }
 }
 function pause_children(effect2, transitions, local) {
-  if ((effect2.f & INERT) !== 0)
-    return;
+  if ((effect2.f & INERT) !== 0) return;
   effect2.f ^= INERT;
   var t = effect2.nodes && effect2.nodes.t;
   if (t !== null) {
@@ -3417,8 +3356,7 @@ function resume_effect(effect2) {
   resume_children(effect2, true);
 }
 function resume_children(effect2, local) {
-  if ((effect2.f & INERT) === 0)
-    return;
+  if ((effect2.f & INERT) === 0) return;
   effect2.f ^= INERT;
   if ((effect2.f & CLEAN) === 0) {
     set_signal_status(effect2, DIRTY);
@@ -3441,8 +3379,7 @@ function resume_children(effect2, local) {
   }
 }
 function move_effect(effect2, fragment) {
-  if (!effect2.nodes)
-    return;
+  if (!effect2.nodes) return;
   var node = effect2.nodes.start;
   var end = effect2.nodes.end;
   while (node !== null) {
@@ -3452,10 +3389,10 @@ function move_effect(effect2, fragment) {
   }
 }
 
-// node_modules/svelte/src/internal/client/legacy.js
+// content/plugins/node_modules/svelte/src/internal/client/legacy.js
 var captured_signals = null;
 
-// node_modules/svelte/src/internal/client/runtime.js
+// content/plugins/node_modules/svelte/src/internal/client/runtime.js
 var is_updating_effect = false;
 var is_destroying_effect = false;
 function set_is_destroying_effect(value) {
@@ -3530,8 +3467,7 @@ function is_dirty(reaction) {
 }
 function schedule_possible_effect_self_invalidation(signal, effect2, root2 = true) {
   var reactions = signal.reactions;
-  if (reactions === null)
-    return;
+  if (reactions === null) return;
   if (!async_mode_flag && current_sources !== null && current_sources.has(signal)) {
     return;
   }
@@ -3698,8 +3634,7 @@ function remove_reaction(signal, dependency) {
 }
 function remove_reactions(signal, start_index) {
   var dependencies = signal.deps;
-  if (dependencies === null)
-    return;
+  if (dependencies === null) return;
   for (var i = start_index; i < dependencies.length; i++) {
     remove_reaction(signal, dependencies[i]);
   }
@@ -3794,8 +3729,7 @@ function get2(signal) {
         signal.label
       );
       var trace2 = get_error("traced at");
-      if (trace2)
-        console.warn(trace2);
+      if (trace2) console.warn(trace2);
     }
     recent_async_deriveds.delete(signal);
     if (tracing_mode_flag && !untracking && tracing_expressions !== null && active_reaction !== null && tracing_expressions.reaction === active_reaction) {
@@ -3856,8 +3790,7 @@ function get2(signal) {
 }
 function reconnect(derived2) {
   derived2.f |= CONNECTED;
-  if (derived2.deps === null)
-    return;
+  if (derived2.deps === null) return;
   for (const dep of derived2.deps) {
     (dep.reactions ??= []).push(derived2);
     if ((dep.f & DERIVED) !== 0 && (dep.f & CONNECTED) === 0) {
@@ -3873,10 +3806,8 @@ function reconnect(derived2) {
   }
 }
 function depends_on_old_values(derived2) {
-  if (derived2.v === UNINITIALIZED)
-    return true;
-  if (derived2.deps === null)
-    return false;
+  if (derived2.v === UNINITIALIZED) return true;
+  if (derived2.deps === null) return false;
   for (const dep of derived2.deps) {
     if (old_values.has(dep)) {
       return true;
@@ -3943,7 +3874,7 @@ function deep_read(value, visited = /* @__PURE__ */ new Set()) {
   }
 }
 
-// node_modules/svelte/src/utils.js
+// content/plugins/node_modules/svelte/src/utils.js
 var DOM_BOOLEAN_ATTRIBUTES = [
   "allowfullscreen",
   "async",
@@ -4025,7 +3956,7 @@ var RUNES = (
   ]
 );
 
-// node_modules/svelte/src/internal/client/dev/css.js
+// content/plugins/node_modules/svelte/src/internal/client/dev/css.js
 var all_styles = /* @__PURE__ */ new Map();
 function register_style(hash2, style) {
   var styles = all_styles.get(hash2);
@@ -4036,8 +3967,8 @@ function register_style(hash2, style) {
   styles.add(style);
 }
 
-// node_modules/svelte/src/internal/client/dom/elements/events.js
-var event_symbol = Symbol("events");
+// content/plugins/node_modules/svelte/src/internal/client/dom/elements/events.js
+var event_symbol = /* @__PURE__ */ Symbol("events");
 var all_registered_events = /* @__PURE__ */ new Set();
 var root_event_handles = /* @__PURE__ */ new Set();
 function create_event(event_name, dom, handler, options = {}) {
@@ -4105,8 +4036,7 @@ function handle_event_propagation(event2) {
   }
   current_target = /** @type {Element} */
   path[path_idx] || event2.target;
-  if (current_target === handler_element)
-    return;
+  if (current_target === handler_element) return;
   define_property(event2, "currentTarget", {
     configurable: true,
     get() {
@@ -4121,8 +4051,7 @@ function handle_event_propagation(event2) {
     var throw_error;
     var other_errors = [];
     while (current_target !== null) {
-      if (current_target === handler_element)
-        break;
+      if (current_target === handler_element) break;
       try {
         var delegated2 = current_target[event_symbol]?.[event_name];
         if (delegated2 != null && (!/** @type {any} */
@@ -4138,8 +4067,7 @@ function handle_event_propagation(event2) {
           throw_error = error;
         }
       }
-      if (event2.cancelBubble)
-        break;
+      if (event2.cancelBubble) break;
       path_idx++;
       current_target = path_idx < path.length ? (
         /** @type {Element} */
@@ -4162,7 +4090,7 @@ function handle_event_propagation(event2) {
   }
 }
 
-// node_modules/svelte/src/internal/client/dom/reconciler.js
+// content/plugins/node_modules/svelte/src/internal/client/dom/reconciler.js
 var policy = (
   // We gotta write it like this because after downleveling the pure comment may end up in the wrong location
   globalThis?.window?.trustedTypes && /* @__PURE__ */ globalThis.window.trustedTypes.createPolicy("svelte-trusted-html", {
@@ -4184,7 +4112,7 @@ function create_fragment_from_html(html2) {
   return elem.content;
 }
 
-// node_modules/svelte/src/internal/client/dom/template.js
+// content/plugins/node_modules/svelte/src/internal/client/dom/template.js
 function assign_nodes(start, end) {
   var effect2 = (
     /** @type {Effect} */
@@ -4207,9 +4135,8 @@ function from_html(content, flags2) {
     }
     if (node === void 0) {
       node = create_fragment_from_html(has_start ? content : "<!>" + content);
-      if (!is_fragment)
-        node = /** @type {TemplateNode} */
-        get_first_child(node);
+      if (!is_fragment) node = /** @type {TemplateNode} */
+      get_first_child(node);
     }
     var clone = (
       /** @type {TemplateNode} */
@@ -4309,7 +4236,7 @@ function append(anchor, dom) {
   );
 }
 
-// node_modules/svelte/src/internal/client/render.js
+// content/plugins/node_modules/svelte/src/internal/client/render.js
 var should_intro = true;
 function set_text(text2, value) {
   var str = value == null ? "" : typeof value === "object" ? `${value}` : value;
@@ -4386,8 +4313,7 @@ function _mount(Component, { target, anchor, props = {}, events, context, intro 
           /** @type {ComponentContext} */
           component_context
         );
-        if (context)
-          ctx.c = context;
+        if (context) ctx.c = context;
         if (events) {
           props.$$events = events;
         }
@@ -4417,8 +4343,7 @@ function _mount(Component, { target, anchor, props = {}, events, context, intro 
     var event_handle = (events2) => {
       for (var i = 0; i < events2.length; i++) {
         var event_name = events2[i];
-        if (registered_events.has(event_name))
-          continue;
+        if (registered_events.has(event_name)) continue;
         registered_events.add(event_name);
         var passive2 = is_passive_event(event_name);
         for (const node of [target, document]) {
@@ -4487,7 +4412,7 @@ function unmount(component2, options) {
   return Promise.resolve();
 }
 
-// node_modules/svelte/src/internal/client/dom/blocks/branches.js
+// content/plugins/node_modules/svelte/src/internal/client/dom/blocks/branches.js
 var BranchManager = class {
   /** @type {TemplateNode} */
   anchor;
@@ -4536,8 +4461,7 @@ var BranchManager = class {
    * @param {Batch} batch
    */
   #commit = (batch) => {
-    if (!this.#batches.has(batch))
-      return;
+    if (!this.#batches.has(batch)) return;
     var key2 = (
       /** @type {Key} */
       this.#batches.get(batch)
@@ -4572,8 +4496,7 @@ var BranchManager = class {
       }
     }
     for (const [k, effect2] of this.#onscreen) {
-      if (k === key2 || this.#outroing.has(k))
-        continue;
+      if (k === key2 || this.#outroing.has(k)) continue;
       const on_destroy = () => {
         const keys = Array.from(this.#batches.values());
         if (keys.includes(k)) {
@@ -4662,7 +4585,7 @@ var BranchManager = class {
   }
 };
 
-// node_modules/svelte/src/internal/client/dom/blocks/if.js
+// content/plugins/node_modules/svelte/src/internal/client/dom/blocks/if.js
 function if_block(node, fn, elseif = false) {
   var marker;
   if (hydrating) {
@@ -4701,10 +4624,7 @@ function if_block(node, fn, elseif = false) {
   }, flags2);
 }
 
-// node_modules/svelte/src/internal/client/dom/blocks/key.js
-var NAN = Symbol("NaN");
-
-// node_modules/svelte/src/internal/client/dom/css.js
+// content/plugins/node_modules/svelte/src/internal/client/dom/css.js
 function append_styles(anchor, css) {
   effect(() => {
     var root2 = anchor.getRootNode();
@@ -4731,7 +4651,7 @@ function append_styles(anchor, css) {
   });
 }
 
-// node_modules/svelte/src/internal/client/dom/elements/actions.js
+// content/plugins/node_modules/svelte/src/internal/client/dom/elements/actions.js
 function action(dom, action2, get_value) {
   effect(() => {
     var payload = untrack(() => action2(dom, get_value?.()) || {});
@@ -4760,7 +4680,7 @@ function action(dom, action2, get_value) {
   });
 }
 
-// node_modules/svelte/src/internal/shared/attributes.js
+// content/plugins/node_modules/svelte/src/internal/shared/attributes.js
 var whitespace = [..." 	\n\r\f\xA0\v\uFEFF"];
 function to_class(value, hash2, directives) {
   var classname = value == null ? "" : "" + value;
@@ -4881,7 +4801,7 @@ function to_style(value, styles) {
   return value == null ? null : String(value);
 }
 
-// node_modules/svelte/src/internal/client/dom/elements/class.js
+// content/plugins/node_modules/svelte/src/internal/client/dom/elements/class.js
 function set_class(dom, is_html, value, hash2, prev_classes, next_classes) {
   var prev = (
     /** @type {any} */
@@ -4910,7 +4830,7 @@ function set_class(dom, is_html, value, hash2, prev_classes, next_classes) {
   return next_classes;
 }
 
-// node_modules/svelte/src/internal/client/dom/elements/style.js
+// content/plugins/node_modules/svelte/src/internal/client/dom/elements/style.js
 function update_styles(dom, prev = {}, next2, priority) {
   for (var key2 in next2) {
     var value = next2[key2];
@@ -4949,11 +4869,9 @@ function set_style(dom, value, prev_styles, next_styles) {
   return next_styles;
 }
 
-// node_modules/svelte/src/internal/client/dom/elements/attributes.js
-var CLASS = Symbol("class");
-var STYLE = Symbol("style");
-var IS_CUSTOM_ELEMENT = Symbol("is custom element");
-var IS_HTML = Symbol("is html");
+// content/plugins/node_modules/svelte/src/internal/client/dom/elements/attributes.js
+var IS_CUSTOM_ELEMENT = /* @__PURE__ */ Symbol("is custom element");
+var IS_HTML = /* @__PURE__ */ Symbol("is html");
 var LINK_TAG = IS_XHTML ? "link" : "LINK";
 function set_attribute2(element2, attribute, value, skip_warning) {
   var attributes = get_attributes(element2);
@@ -4966,8 +4884,7 @@ function set_attribute2(element2, attribute, value, skip_warning) {
       return;
     }
   }
-  if (attributes[attribute] === (attributes[attribute] = value))
-    return;
+  if (attributes[attribute] === (attributes[attribute] = value)) return;
   if (attribute === "loading") {
     element2[LOADING_ATTR_SYMBOL] = value;
   }
@@ -4993,8 +4910,7 @@ var setters_cache = /* @__PURE__ */ new Map();
 function get_setters(element2) {
   var cache_key = element2.getAttribute("is") || element2.nodeName;
   var setters = setters_cache.get(cache_key);
-  if (setters)
-    return setters;
+  if (setters) return setters;
   setters_cache.set(cache_key, setters = []);
   var descriptors;
   var proto = element2;
@@ -5012,12 +4928,9 @@ function get_setters(element2) {
   return setters;
 }
 function check_src_in_dev_hydration(element2, attribute, value) {
-  if (!dev_fallback_default)
-    return;
-  if (attribute === "srcset" && srcset_url_equal(element2, value))
-    return;
-  if (src_url_equal(element2.getAttribute(attribute) ?? "", value))
-    return;
+  if (!dev_fallback_default) return;
+  if (attribute === "srcset" && srcset_url_equal(element2, value)) return;
+  if (src_url_equal(element2.getAttribute(attribute) ?? "", value)) return;
   hydration_attribute_changed(
     attribute,
     element2.outerHTML.replace(element2.innerHTML, element2.innerHTML && "..."),
@@ -5025,8 +4938,7 @@ function check_src_in_dev_hydration(element2, attribute, value) {
   );
 }
 function src_url_equal(element_src, url) {
-  if (element_src === url)
-    return true;
+  if (element_src === url) return true;
   return new URL(element_src, document.baseURI).href === new URL(url, document.baseURI).href;
 }
 function split_srcset(srcset) {
@@ -5045,7 +4957,7 @@ function srcset_url_equal(element2, srcset) {
   );
 }
 
-// node_modules/svelte/src/internal/client/dom/elements/bindings/this.js
+// content/plugins/node_modules/svelte/src/internal/client/dom/elements/bindings/this.js
 function is_bound_this(bound_value, element_or_component) {
   return bound_value === element_or_component || bound_value?.[STATE_SYMBOL] === element_or_component;
 }
@@ -5093,7 +5005,7 @@ function bind_this(element_or_component = {}, update2, get_value, get_parts) {
   return element_or_component;
 }
 
-// node_modules/svelte/src/internal/client/reactivity/props.js
+// content/plugins/node_modules/svelte/src/internal/client/reactivity/props.js
 function prop(props, key2, flags2, fallback2) {
   var runes = !legacy_mode_flag || (flags2 & PROPS_IS_RUNES) !== 0;
   var bindable = (flags2 & PROPS_IS_BINDABLE) !== 0;
@@ -5146,8 +5058,7 @@ function prop(props, key2, flags2, fallback2) {
   if (initial_value === void 0 && fallback2 !== void 0) {
     initial_value = get_fallback();
     if (setter) {
-      if (runes)
-        props_invalid_value(key2);
+      if (runes) props_invalid_value(key2);
       setter(initial_value);
     }
   }
@@ -5158,8 +5069,7 @@ function prop(props, key2, flags2, fallback2) {
         /** @type {V} */
         props[key2]
       );
-      if (value === void 0)
-        return get_fallback();
+      if (value === void 0) return get_fallback();
       fallback_dirty = true;
       return value;
     };
@@ -5183,7 +5093,7 @@ function prop(props, key2, flags2, fallback2) {
     var legacy_parent = props.$$legacy;
     return (
       /** @type {() => V} */
-      function(value, mutation) {
+      (function(value, mutation) {
         if (arguments.length > 0) {
           if (!runes || !mutation || legacy_parent || is_store_sub) {
             setter(mutation ? getter() : value);
@@ -5191,7 +5101,7 @@ function prop(props, key2, flags2, fallback2) {
           return value;
         }
         return getter();
-      }
+      })
     );
   }
   var overridden = false;
@@ -5202,15 +5112,14 @@ function prop(props, key2, flags2, fallback2) {
   if (dev_fallback_default) {
     d.label = key2;
   }
-  if (bindable)
-    get2(d);
+  if (bindable) get2(d);
   var parent_effect = (
     /** @type {Effect} */
     active_effect
   );
   return (
     /** @type {() => V} */
-    function(value, mutation) {
+    (function(value, mutation) {
       if (arguments.length > 0) {
         const new_value = mutation ? get2(d) : runes && bindable ? proxy(value) : value;
         set(d, new_value);
@@ -5224,11 +5133,11 @@ function prop(props, key2, flags2, fallback2) {
         return d.v;
       }
       return get2(d);
-    }
+    })
   );
 }
 
-// node_modules/svelte/src/legacy/legacy-client.js
+// content/plugins/node_modules/svelte/src/legacy/legacy-client.js
 function createClassComponent(options) {
   return new Svelte4Component(options);
 }
@@ -5256,8 +5165,7 @@ var Svelte4Component = class {
           return get2(sources.get(prop2) ?? add_source(prop2, Reflect.get(target, prop2)));
         },
         has(target, prop2) {
-          if (prop2 === LEGACY_PROPS)
-            return true;
+          if (prop2 === LEGACY_PROPS) return true;
           get2(sources.get(prop2) ?? add_source(prop2, Reflect.get(target, prop2)));
           return Reflect.has(target, prop2);
         },
@@ -5281,8 +5189,7 @@ var Svelte4Component = class {
     }
     this.#events = props.$$events;
     for (const key2 of Object.keys(this.#instance)) {
-      if (key2 === "$set" || key2 === "$destroy" || key2 === "$on")
-        continue;
+      if (key2 === "$set" || key2 === "$destroy" || key2 === "$on") continue;
       define_property(this, key2, {
         get() {
           return this.#instance[key2];
@@ -5327,7 +5234,7 @@ var Svelte4Component = class {
   }
 };
 
-// node_modules/svelte/src/internal/client/dom/elements/custom-element.js
+// content/plugins/node_modules/svelte/src/internal/client/dom/elements/custom-element.js
 var SvelteElement;
 if (typeof HTMLElement === "function") {
   SvelteElement = class extends HTMLElement {
@@ -5401,8 +5308,7 @@ if (typeof HTMLElement === "function") {
         let create_slot = function(name) {
           return (anchor) => {
             const slot2 = create_element("slot");
-            if (name !== "default")
-              slot2.name = name;
+            if (name !== "default") slot2.name = name;
             append(anchor, slot2);
           };
         };
@@ -5447,8 +5353,7 @@ if (typeof HTMLElement === "function") {
           render_effect(() => {
             this.$$r = true;
             for (const key2 of object_keys(this.$$c)) {
-              if (!this.$$p_d[key2]?.reflect)
-                continue;
+              if (!this.$$p_d[key2]?.reflect) continue;
               this.$$d[key2] = this.$$c[key2];
               const attribute_value = get_custom_element_value(
                 key2,
@@ -5482,8 +5387,7 @@ if (typeof HTMLElement === "function") {
      * @param {string} newValue
      */
     attributeChangedCallback(attr2, _oldValue, newValue) {
-      if (this.$$r)
-        return;
+      if (this.$$r) return;
       attr2 = this.$$g_p(attr2);
       this.$$d[attr2] = get_custom_element_value(attr2, newValue, this.$$p_d, "toProp");
       this.$$c?.$set({ [attr2]: this.$$d[attr2] });
@@ -5532,6 +5436,7 @@ function get_custom_element_value(prop2, value, props_definition, transform) {
         return value && JSON.parse(value);
       case "Boolean":
         return value;
+      // conversion already handled above
       case "Number":
         return value != null ? +value : value;
       default:
@@ -5550,7 +5455,7 @@ function get_custom_elements_slots(element2) {
   return result;
 }
 
-// node_modules/svelte/src/index-client.js
+// content/plugins/node_modules/svelte/src/index-client.js
 if (dev_fallback_default) {
   let throw_rune_error = function(rune) {
     if (!(rune in globalThis)) {
@@ -5578,33 +5483,33 @@ if (dev_fallback_default) {
   throw_rune_error("$bindable");
 }
 
-// node_modules/svelte/src/version.js
+// content/plugins/node_modules/svelte/src/version.js
 var PUBLIC_VERSION = "5";
 
-// node_modules/svelte/src/internal/disclose-version.js
+// content/plugins/node_modules/svelte/src/internal/disclose-version.js
 if (typeof window !== "undefined") {
   ((window.__svelte ??= {}).v ??= /* @__PURE__ */ new Set()).add(PUBLIC_VERSION);
 }
 
-// marketplace/system-monitor/frontend/src/SystemMonitorWidget.svelte
-var root = from_html(`<button type="button" class="resource-trigger svelte-levjy4"><svg class="usage-ring svelte-levjy4" viewBox="0 0 32 32" aria-hidden="true"><circle class="usage-ring-track svelte-levjy4" cx="16" cy="16" r="14" fill="none" stroke-width="2"></circle><circle cx="16" cy="16" r="14" fill="none" stroke-width="2" class="usage-ring-value svelte-levjy4" stroke-linecap="round"></circle></svg> <svg class="trigger-icon svelte-levjy4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" class="svelte-levjy4"></path></svg></button>`);
-var root_1 = from_html(`<button type="button" class="resource-trigger svelte-levjy4"><svg class="usage-ring svelte-levjy4" viewBox="0 0 32 32" aria-hidden="true"><circle class="usage-ring-track svelte-levjy4" cx="16" cy="16" r="14" fill="none" stroke-width="2"></circle><circle cx="16" cy="16" r="14" fill="none" stroke-width="2" class="usage-ring-value svelte-levjy4" stroke-linecap="round"></circle></svg> <svg class="trigger-icon svelte-levjy4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375" class="svelte-levjy4"></path></svg></button>`);
-var root_2 = from_html(`<button type="button" class="resource-trigger svelte-levjy4"><svg class="usage-ring svelte-levjy4" viewBox="0 0 32 32" aria-hidden="true"><circle class="usage-ring-track svelte-levjy4" cx="16" cy="16" r="14" fill="none" stroke-width="2"></circle><circle cx="16" cy="16" r="14" fill="none" stroke-width="2" class="usage-ring-value svelte-levjy4" stroke-linecap="round"></circle></svg> <svg class="trigger-icon svelte-levjy4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H6.75A2.25 2.25 0 004.5 6.75v10.5a2.25 2.25 0 002.25 2.25zm.75-12h9v9h-9v-9z" class="svelte-levjy4"></path></svg></button>`);
+// content/plugins/marketplace/system-monitor/frontend/src/SystemMonitorWidget.svelte
+var root = from_html(`<button type="button" class="resource-trigger svelte-18hitiv"><svg class="usage-ring svelte-18hitiv" viewBox="0 0 32 32" aria-hidden="true"><circle class="usage-ring-track svelte-18hitiv" cx="16" cy="16" r="14" fill="none" stroke-width="2"></circle><circle cx="16" cy="16" r="14" fill="none" stroke-width="2" class="usage-ring-value svelte-18hitiv" stroke-linecap="round"></circle></svg> <svg class="trigger-icon svelte-18hitiv" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" class="svelte-18hitiv"></path></svg></button>`);
+var root_1 = from_html(`<button type="button" class="resource-trigger svelte-18hitiv"><svg class="usage-ring svelte-18hitiv" viewBox="0 0 32 32" aria-hidden="true"><circle class="usage-ring-track svelte-18hitiv" cx="16" cy="16" r="14" fill="none" stroke-width="2"></circle><circle cx="16" cy="16" r="14" fill="none" stroke-width="2" class="usage-ring-value svelte-18hitiv" stroke-linecap="round"></circle></svg> <svg class="trigger-icon svelte-18hitiv" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375" class="svelte-18hitiv"></path></svg></button>`);
+var root_2 = from_html(`<button type="button" class="resource-trigger svelte-18hitiv"><svg class="usage-ring svelte-18hitiv" viewBox="0 0 32 32" aria-hidden="true"><circle class="usage-ring-track svelte-18hitiv" cx="16" cy="16" r="14" fill="none" stroke-width="2"></circle><circle cx="16" cy="16" r="14" fill="none" stroke-width="2" class="usage-ring-value svelte-18hitiv" stroke-linecap="round"></circle></svg> <svg class="trigger-icon svelte-18hitiv" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H6.75A2.25 2.25 0 004.5 6.75v10.5a2.25 2.25 0 002.25 2.25zm.75-12h9v9h-9v-9z" class="svelte-18hitiv"></path></svg></button>`);
 var root_3 = from_html(`<!> <!> <!>`, 1);
-var root_4 = from_html(`<div class="tooltip-header connection-header svelte-levjy4"><div class="tooltip-icon connection-icon svelte-levjy4"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true" class="svelte-levjy4"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.807 9.981-3.807 13.788 0M1.924 8.674c5.564-5.564 14.588-5.564 20.152 0M12 18.75h.008v.008H12v-.008z" class="svelte-levjy4"></path></svg></div> <div class="tooltip-heading svelte-levjy4"><div class="tooltip-title svelte-levjy4">Resource monitor</div> <div class="tooltip-subtitle svelte-levjy4">Live hardware telemetry</div></div> <span><span class="svelte-levjy4"></span> </span></div> <p class="connection-copy svelte-levjy4"> </p>`, 1);
-var root_5 = from_svg(`<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true" class="svelte-levjy4"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" class="svelte-levjy4"></path></svg>`);
-var root_6 = from_svg(`<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true" class="svelte-levjy4"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375" class="svelte-levjy4"></path></svg>`);
-var root_7 = from_svg(`<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true" class="svelte-levjy4"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H6.75A2.25 2.25 0 004.5 6.75v10.5a2.25 2.25 0 002.25 2.25zm.75-12h9v9h-9v-9z" class="svelte-levjy4"></path></svg>`);
-var root_8 = from_html(`<div class="svelte-levjy4"><span class="svelte-levjy4">Temperature</span><strong class="svelte-levjy4"> </strong></div>`);
-var root_9 = from_html(`<div class="metric-grid svelte-levjy4"><div class="svelte-levjy4"><span class="svelte-levjy4">Used</span><strong class="svelte-levjy4"> </strong></div> <div class="svelte-levjy4"><span class="svelte-levjy4">Available</span><strong class="svelte-levjy4"> </strong></div> <div class="svelte-levjy4"><span class="svelte-levjy4">Capacity</span><strong class="svelte-levjy4"> </strong></div> <!></div>`);
-var root_10 = from_html(`<div class="metric-grid three-columns svelte-levjy4"><div class="svelte-levjy4"><span class="svelte-levjy4">Used</span><strong class="svelte-levjy4"> </strong></div> <div class="svelte-levjy4"><span class="svelte-levjy4">Available</span><strong class="svelte-levjy4"> </strong></div> <div class="svelte-levjy4"><span class="svelte-levjy4">Capacity</span><strong class="svelte-levjy4"> </strong></div></div>`);
-var root_11 = from_html(`<div class="metric-grid two-columns svelte-levjy4"><div class="svelte-levjy4"><span class="svelte-levjy4">Current load</span><strong class="svelte-levjy4"> </strong></div> <div class="svelte-levjy4"><span class="svelte-levjy4">Logical cores</span><strong class="svelte-levjy4"> </strong></div></div>`);
-var root_12 = from_html(`<div class="tooltip-header svelte-levjy4"><div class="tooltip-icon svelte-levjy4"><!></div> <div class="tooltip-heading svelte-levjy4"><div class="tooltip-title svelte-levjy4"> </div> <div class="tooltip-subtitle svelte-levjy4"> </div></div> <div class="usage-value svelte-levjy4"> <span class="svelte-levjy4">%</span></div></div> <div class="progress-track svelte-levjy4" aria-hidden="true"><div class="progress-value svelte-levjy4"></div></div> <!> <div class="tooltip-status svelte-levjy4"><span class="status-mark svelte-levjy4"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true" class="svelte-levjy4"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.25" d="M5 12.5l4 4L19 7" class="svelte-levjy4"></path></svg></span> </div>`, 1);
-var root_13 = from_html(`<div id="resource-monitor-tooltip" role="tooltip"><!> <div class="tooltip-arrow svelte-levjy4"></div></div>`);
-var root_14 = from_html(`<div class="resource-monitor svelte-levjy4" aria-label="System resources"><button type="button" class="connection-trigger svelte-levjy4"><span></span></button> <!></div> <!>`, 1);
+var root_4 = from_html(`<div class="tooltip-header connection-header svelte-18hitiv"><div class="tooltip-icon connection-icon svelte-18hitiv"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true" class="svelte-18hitiv"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.807 9.981-3.807 13.788 0M1.924 8.674c5.564-5.564 14.588-5.564 20.152 0M12 18.75h.008v.008H12v-.008z" class="svelte-18hitiv"></path></svg></div> <div class="tooltip-heading svelte-18hitiv"><div class="tooltip-title svelte-18hitiv">Resource monitor</div> <div class="tooltip-subtitle svelte-18hitiv">Live hardware telemetry</div></div> <span><span class="svelte-18hitiv"></span> </span></div> <p class="connection-copy svelte-18hitiv"> </p>`, 1);
+var root_5 = from_svg(`<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true" class="svelte-18hitiv"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" class="svelte-18hitiv"></path></svg>`);
+var root_6 = from_svg(`<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true" class="svelte-18hitiv"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375" class="svelte-18hitiv"></path></svg>`);
+var root_7 = from_svg(`<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true" class="svelte-18hitiv"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21m-9-1.5h10.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H6.75A2.25 2.25 0 004.5 6.75v10.5a2.25 2.25 0 002.25 2.25zm.75-12h9v9h-9v-9z" class="svelte-18hitiv"></path></svg>`);
+var root_8 = from_html(`<div class="svelte-18hitiv"><span class="svelte-18hitiv">Temperature</span><strong class="svelte-18hitiv"> </strong></div>`);
+var root_9 = from_html(`<div class="metric-grid svelte-18hitiv"><div class="svelte-18hitiv"><span class="svelte-18hitiv">Used</span><strong class="svelte-18hitiv"> </strong></div> <div class="svelte-18hitiv"><span class="svelte-18hitiv">Available</span><strong class="svelte-18hitiv"> </strong></div> <div class="svelte-18hitiv"><span class="svelte-18hitiv">Capacity</span><strong class="svelte-18hitiv"> </strong></div> <!></div>`);
+var root_10 = from_html(`<div class="metric-grid three-columns svelte-18hitiv"><div class="svelte-18hitiv"><span class="svelte-18hitiv">Used</span><strong class="svelte-18hitiv"> </strong></div> <div class="svelte-18hitiv"><span class="svelte-18hitiv">Available</span><strong class="svelte-18hitiv"> </strong></div> <div class="svelte-18hitiv"><span class="svelte-18hitiv">Capacity</span><strong class="svelte-18hitiv"> </strong></div></div>`);
+var root_11 = from_html(`<div class="metric-grid two-columns svelte-18hitiv"><div class="svelte-18hitiv"><span class="svelte-18hitiv">Current load</span><strong class="svelte-18hitiv"> </strong></div> <div class="svelte-18hitiv"><span class="svelte-18hitiv">Logical cores</span><strong class="svelte-18hitiv"> </strong></div></div>`);
+var root_12 = from_html(`<div class="tooltip-header svelte-18hitiv"><div class="tooltip-icon svelte-18hitiv"><!></div> <div class="tooltip-heading svelte-18hitiv"><div class="tooltip-title svelte-18hitiv"> </div> <div class="tooltip-subtitle svelte-18hitiv"> </div></div> <div class="usage-value svelte-18hitiv"> <span class="svelte-18hitiv">%</span></div></div> <div class="progress-track svelte-18hitiv" aria-hidden="true"><div class="progress-value svelte-18hitiv"></div></div> <!> <div class="tooltip-status svelte-18hitiv"><span class="status-mark svelte-18hitiv"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true" class="svelte-18hitiv"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.25" d="M5 12.5l4 4L19 7" class="svelte-18hitiv"></path></svg></span> </div>`, 1);
+var root_13 = from_html(`<div id="resource-monitor-tooltip" role="tooltip"><!> <div class="tooltip-arrow svelte-18hitiv"></div></div>`);
+var root_14 = from_html(`<div class="resource-monitor svelte-18hitiv" aria-label="System resources"><button type="button" class="connection-trigger svelte-18hitiv"><span></span></button> <!></div> <!>`, 1);
 var $$css = {
-  hash: "svelte-levjy4",
-  code: '.resource-monitor.svelte-levjy4 {display:flex;flex-direction:column;align-items:center;gap:6px;}.connection-trigger.svelte-levjy4,\n    .resource-trigger.svelte-levjy4 {appearance:none;border:0;padding:0;color:rgb(var(--fg-muted, 161 161 170));background:transparent;cursor:default;}.connection-trigger.svelte-levjy4 {display:grid;width:24px;height:14px;place-items:center;border-radius:4px;}.connection-trigger.svelte-levjy4:hover,\n    .connection-trigger.svelte-levjy4:focus-visible,\n    .resource-trigger.svelte-levjy4:hover,\n    .resource-trigger.svelte-levjy4:focus-visible {color:rgb(var(--fg, 244 244 245));background:rgb(var(--surface-2, 39 39 42));outline:none;}.connection-trigger.svelte-levjy4:focus-visible,\n    .resource-trigger.svelte-levjy4:focus-visible {box-shadow:0 0 0 2px rgb(var(--accent, 99 102 241) / 0.45);}.connection-dot.svelte-levjy4 {width:7px;height:7px;border-radius:999px;background:#f87171;box-shadow:0 0 0 3px rgb(248 113 113 / 0.1);}.connection-dot.connected.svelte-levjy4 {background:#34d399;box-shadow:0 0 0 3px rgb(52 211 153 / 0.1), 0 0 8px rgb(52 211 153 / 0.3);\n        animation: svelte-levjy4-monitor-pulse 2.2s ease-in-out infinite;}.resource-trigger.svelte-levjy4 {position:relative;display:grid;width:36px;height:36px;place-items:center;border-radius:7px;transition:color 120ms ease, background 120ms ease, transform 120ms ease;}.resource-trigger.svelte-levjy4:hover {transform:translateX(1px);}.usage-ring.svelte-levjy4 {position:absolute;inset:2px;width:32px;height:32px;transform:rotate(-90deg);}.usage-ring-track.svelte-levjy4 {stroke:rgb(var(--line-strong, 63 63 70));}.usage-ring-value.svelte-levjy4 {transition:stroke-dashoffset 300ms ease, stroke 200ms ease;}.trigger-icon.svelte-levjy4 {width:14px;height:14px;}.resource-tooltip.svelte-levjy4 {--resource-accent: #60a5fa;position:fixed;z-index:2147483000;width:min(288px, calc(100vw - 24px));box-sizing:border-box;padding:14px;color:rgb(var(--fg, 244 244 245));background:rgb(var(--surface-2, 30 30 33) / 0.98);border:1px solid rgb(var(--line-strong, 63 63 70));border-radius:10px;box-shadow:var(--shadow-overlay, 0 18px 48px rgb(0 0 0 / 0.45));font-family:-apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;pointer-events:none;opacity:0;transform:translateX(-4px) scale(0.985);transform-origin:left center;transition:opacity 120ms ease, transform 120ms ease;isolation:isolate;}.resource-tooltip.tooltip-ready.svelte-levjy4 {opacity:1;transform:translateX(0) scale(1);}.tooltip-header.svelte-levjy4 {display:flex;align-items:center;gap:10px;}.tooltip-icon.svelte-levjy4 {display:grid;flex:0 0 auto;width:34px;height:34px;place-items:center;color:var(--resource-accent);background:color-mix(in srgb, var(--resource-accent) 14%, transparent);border:1px solid color-mix(in srgb, var(--resource-accent) 28%, transparent);border-radius:7px;}.tooltip-icon.svelte-levjy4 svg:where(.svelte-levjy4) {width:17px;height:17px;}.tooltip-heading.svelte-levjy4 {min-width:0;flex:1 1 auto;}.tooltip-title.svelte-levjy4 {font-size:12px;line-height:16px;font-weight:650;letter-spacing:0.01em;color:rgb(var(--fg, 244 244 245));}.tooltip-subtitle.svelte-levjy4 {overflow:hidden;margin-top:1px;font-size:10px;line-height:14px;color:rgb(var(--fg-subtle, 113 113 122));text-overflow:ellipsis;white-space:nowrap;}.usage-value.svelte-levjy4 {flex:0 0 auto;color:var(--resource-accent);font-family:"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;font-size:18px;line-height:22px;font-weight:700;letter-spacing:-0.04em;}.usage-value.svelte-levjy4 span:where(.svelte-levjy4) {margin-left:1px;font-size:10px;font-weight:600;letter-spacing:0;}.progress-track.svelte-levjy4 {height:4px;margin:12px 0;overflow:hidden;background:rgb(var(--surface-3, 39 39 42));border-radius:999px;}.progress-value.svelte-levjy4 {height:100%;min-width:2px;background:var(--resource-accent);border-radius:inherit;box-shadow:0 0 8px color-mix(in srgb, var(--resource-accent) 45%, transparent);transition:width 300ms ease, background 180ms ease;}.metric-grid.svelte-levjy4 {display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));gap:1px;overflow:hidden;background:rgb(var(--line, 45 45 50));border:1px solid rgb(var(--line, 45 45 50));border-radius:7px;}.metric-grid.three-columns.svelte-levjy4 {grid-template-columns:repeat(3, minmax(0, 1fr));}.metric-grid.two-columns.svelte-levjy4 {grid-template-columns:repeat(2, minmax(0, 1fr));}.metric-grid.svelte-levjy4 > div:where(.svelte-levjy4) {display:flex;min-width:0;padding:8px 9px;flex-direction:column;background:rgb(var(--surface-1, 24 24 27));}.metric-grid.svelte-levjy4 span:where(.svelte-levjy4) {font-size:9px;line-height:12px;color:rgb(var(--fg-subtle, 113 113 122));text-transform:uppercase;letter-spacing:0.055em;}.metric-grid.svelte-levjy4 strong:where(.svelte-levjy4) {overflow:hidden;margin-top:2px;color:rgb(var(--fg-muted, 161 161 170));font-family:"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;font-size:10px;line-height:14px;font-weight:600;text-overflow:ellipsis;white-space:nowrap;}.tooltip-status.svelte-levjy4 {display:flex;align-items:center;gap:6px;margin-top:10px;color:rgb(var(--fg-muted, 161 161 170));font-size:10px;line-height:14px;}.status-mark.svelte-levjy4 {display:grid;width:15px;height:15px;place-items:center;color:var(--resource-accent);background:color-mix(in srgb, var(--resource-accent) 13%, transparent);border-radius:999px;}.status-mark.svelte-levjy4 svg:where(.svelte-levjy4) {width:10px;height:10px;}.connection-header.svelte-levjy4 {padding-right:1px;}.connection-badge.svelte-levjy4 {display:inline-flex;flex:0 0 auto;align-items:center;gap:5px;padding:3px 6px;color:#f87171;background:rgb(248 113 113 / 0.1);border:1px solid rgb(248 113 113 / 0.2);border-radius:999px;font-size:9px;line-height:12px;font-weight:650;text-transform:uppercase;letter-spacing:0.055em;}.connection-badge.online.svelte-levjy4 {color:#34d399;background:rgb(52 211 153 / 0.1);border-color:rgb(52 211 153 / 0.2);}.connection-badge.svelte-levjy4 > span:where(.svelte-levjy4) {width:5px;height:5px;background:currentColor;border-radius:999px;}.connection-copy.svelte-levjy4 {margin:11px 0 0;padding-top:10px;color:rgb(var(--fg-muted, 161 161 170));border-top:1px solid rgb(var(--line, 45 45 50));font-size:10px;line-height:15px;}.tooltip-arrow.svelte-levjy4 {position:absolute;top:calc(50% - 5px);left:-5px;z-index:-1;width:10px;height:10px;background:rgb(var(--surface-2, 30 30 33));border-bottom:1px solid rgb(var(--line-strong, 63 63 70));border-left:1px solid rgb(var(--line-strong, 63 63 70));transform:rotate(45deg);}\n\n    @keyframes svelte-levjy4-monitor-pulse {\n        0%, 100% { opacity: 1; }\n        50% { opacity: 0.58; }\n    }\n\n    @media (prefers-reduced-motion: reduce) {.connection-dot.connected.svelte-levjy4,\n        .resource-tooltip.svelte-levjy4,\n        .resource-trigger.svelte-levjy4,\n        .usage-ring-value.svelte-levjy4,\n        .progress-value.svelte-levjy4 {\n            animation: none;transition:none;}\n    }'
+  hash: "svelte-18hitiv",
+  code: '.resource-monitor.svelte-18hitiv {display:flex;flex-direction:column;align-items:center;gap:6px;}.connection-trigger.svelte-18hitiv,\n    .resource-trigger.svelte-18hitiv {appearance:none;border:0;padding:0;color:rgb(var(--fg-muted, 161 161 170));background:transparent;cursor:default;}.connection-trigger.svelte-18hitiv {display:grid;width:24px;height:14px;place-items:center;border-radius:4px;}.connection-trigger.svelte-18hitiv:hover,\n    .connection-trigger.svelte-18hitiv:focus-visible,\n    .resource-trigger.svelte-18hitiv:hover,\n    .resource-trigger.svelte-18hitiv:focus-visible {color:rgb(var(--fg, 244 244 245));background:rgb(var(--surface-2, 39 39 42));outline:none;}.connection-trigger.svelte-18hitiv:focus-visible,\n    .resource-trigger.svelte-18hitiv:focus-visible {box-shadow:0 0 0 2px rgb(var(--accent, 99 102 241) / 0.45);}.connection-dot.svelte-18hitiv {width:7px;height:7px;border-radius:999px;background:#f87171;box-shadow:0 0 0 3px rgb(248 113 113 / 0.1);}.connection-dot.connected.svelte-18hitiv {background:#34d399;box-shadow:0 0 0 3px rgb(52 211 153 / 0.1), 0 0 8px rgb(52 211 153 / 0.3);\n        animation: svelte-18hitiv-monitor-pulse 2.2s ease-in-out infinite;}.resource-trigger.svelte-18hitiv {position:relative;display:grid;width:36px;height:36px;place-items:center;border-radius:7px;transition:color 120ms ease, background 120ms ease, transform 120ms ease;}.resource-trigger.svelte-18hitiv:hover {transform:translateX(1px);}.usage-ring.svelte-18hitiv {position:absolute;inset:2px;width:32px;height:32px;transform:rotate(-90deg);}.usage-ring-track.svelte-18hitiv {stroke:rgb(var(--line-strong, 63 63 70));}.usage-ring-value.svelte-18hitiv {transition:stroke-dashoffset 300ms ease, stroke 200ms ease;}.trigger-icon.svelte-18hitiv {width:14px;height:14px;}.resource-tooltip.svelte-18hitiv {--resource-accent: #60a5fa;position:fixed;z-index:2147483000;width:min(288px, calc(100vw - 24px));box-sizing:border-box;padding:14px;color:rgb(var(--fg, 244 244 245));background:rgb(var(--surface-2, 30 30 33) / 0.98);border:1px solid rgb(var(--line-strong, 63 63 70));border-radius:10px;box-shadow:var(--shadow-overlay, 0 18px 48px rgb(0 0 0 / 0.45));font-family:-apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;pointer-events:none;opacity:0;transform:translateX(-4px) scale(0.985);transform-origin:left center;transition:opacity 120ms ease, transform 120ms ease;isolation:isolate;}.resource-tooltip.tooltip-ready.svelte-18hitiv {opacity:1;transform:translateX(0) scale(1);}.tooltip-header.svelte-18hitiv {display:flex;align-items:center;gap:10px;}.tooltip-icon.svelte-18hitiv {display:grid;flex:0 0 auto;width:34px;height:34px;place-items:center;color:var(--resource-accent);background:color-mix(in srgb, var(--resource-accent) 14%, transparent);border:1px solid color-mix(in srgb, var(--resource-accent) 28%, transparent);border-radius:7px;}.tooltip-icon.svelte-18hitiv svg:where(.svelte-18hitiv) {width:17px;height:17px;}.tooltip-heading.svelte-18hitiv {min-width:0;flex:1 1 auto;}.tooltip-title.svelte-18hitiv {font-size:12px;line-height:16px;font-weight:650;letter-spacing:0.01em;color:rgb(var(--fg, 244 244 245));}.tooltip-subtitle.svelte-18hitiv {overflow:hidden;margin-top:1px;font-size:10px;line-height:14px;color:rgb(var(--fg-subtle, 113 113 122));text-overflow:ellipsis;white-space:nowrap;}.usage-value.svelte-18hitiv {flex:0 0 auto;color:var(--resource-accent);font-family:"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;font-size:18px;line-height:22px;font-weight:700;letter-spacing:-0.04em;}.usage-value.svelte-18hitiv span:where(.svelte-18hitiv) {margin-left:1px;font-size:10px;font-weight:600;letter-spacing:0;}.progress-track.svelte-18hitiv {height:4px;margin:12px 0;overflow:hidden;background:rgb(var(--surface-3, 39 39 42));border-radius:999px;}.progress-value.svelte-18hitiv {height:100%;min-width:2px;background:var(--resource-accent);border-radius:inherit;box-shadow:0 0 8px color-mix(in srgb, var(--resource-accent) 45%, transparent);transition:width 300ms ease, background 180ms ease;}.metric-grid.svelte-18hitiv {display:grid;grid-template-columns:repeat(2, minmax(0, 1fr));gap:1px;overflow:hidden;background:rgb(var(--line, 45 45 50));border:1px solid rgb(var(--line, 45 45 50));border-radius:7px;}.metric-grid.three-columns.svelte-18hitiv {grid-template-columns:repeat(3, minmax(0, 1fr));}.metric-grid.two-columns.svelte-18hitiv {grid-template-columns:repeat(2, minmax(0, 1fr));}.metric-grid.svelte-18hitiv > div:where(.svelte-18hitiv) {display:flex;min-width:0;padding:8px 9px;flex-direction:column;background:rgb(var(--surface-1, 24 24 27));}.metric-grid.svelte-18hitiv span:where(.svelte-18hitiv) {font-size:9px;line-height:12px;color:rgb(var(--fg-subtle, 113 113 122));text-transform:uppercase;letter-spacing:0.055em;}.metric-grid.svelte-18hitiv strong:where(.svelte-18hitiv) {overflow:hidden;margin-top:2px;color:rgb(var(--fg-muted, 161 161 170));font-family:"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;font-size:10px;line-height:14px;font-weight:600;text-overflow:ellipsis;white-space:nowrap;}.tooltip-status.svelte-18hitiv {display:flex;align-items:center;gap:6px;margin-top:10px;color:rgb(var(--fg-muted, 161 161 170));font-size:10px;line-height:14px;}.status-mark.svelte-18hitiv {display:grid;width:15px;height:15px;place-items:center;color:var(--resource-accent);background:color-mix(in srgb, var(--resource-accent) 13%, transparent);border-radius:999px;}.status-mark.svelte-18hitiv svg:where(.svelte-18hitiv) {width:10px;height:10px;}.connection-header.svelte-18hitiv {padding-right:1px;}.connection-badge.svelte-18hitiv {display:inline-flex;flex:0 0 auto;align-items:center;gap:5px;padding:3px 6px;color:#f87171;background:rgb(248 113 113 / 0.1);border:1px solid rgb(248 113 113 / 0.2);border-radius:999px;font-size:9px;line-height:12px;font-weight:650;text-transform:uppercase;letter-spacing:0.055em;}.connection-badge.online.svelte-18hitiv {color:#34d399;background:rgb(52 211 153 / 0.1);border-color:rgb(52 211 153 / 0.2);}.connection-badge.svelte-18hitiv > span:where(.svelte-18hitiv) {width:5px;height:5px;background:currentColor;border-radius:999px;}.connection-copy.svelte-18hitiv {margin:11px 0 0;padding-top:10px;color:rgb(var(--fg-muted, 161 161 170));border-top:1px solid rgb(var(--line, 45 45 50));font-size:10px;line-height:15px;}.tooltip-arrow.svelte-18hitiv {position:absolute;top:calc(50% - 5px);left:-5px;z-index:-1;width:10px;height:10px;background:rgb(var(--surface-2, 30 30 33));border-bottom:1px solid rgb(var(--line-strong, 63 63 70));border-left:1px solid rgb(var(--line-strong, 63 63 70));transform:rotate(45deg);}\n\n    @keyframes svelte-18hitiv-monitor-pulse {\n        0%, 100% { opacity: 1; }\n        50% { opacity: 0.58; }\n    }\n\n    @media (prefers-reduced-motion: reduce) {.connection-dot.connected.svelte-18hitiv,\n        .resource-tooltip.svelte-18hitiv,\n        .resource-trigger.svelte-18hitiv,\n        .usage-ring-value.svelte-18hitiv,\n        .progress-value.svelte-18hitiv {\n            animation: none;transition:none;}\n    }'
 };
 function SystemMonitorWidget($$anchor, $$props) {
   push($$props, true);
@@ -5687,19 +5592,15 @@ function SystemMonitorWidget($$anchor, $$props) {
     }
   }
   function formatBytes(bytes) {
-    if (bytes === 0)
-      return "0 MB";
+    if (bytes === 0) return "0 MB";
     const mb = bytes;
-    if (mb < 1024)
-      return `${mb.toFixed(0)} MB`;
+    if (mb < 1024) return `${mb.toFixed(0)} MB`;
     const gb = mb / 1024;
     return `${gb.toFixed(1)} GB`;
   }
   function getUsageStroke(percent) {
-    if (percent < 50)
-      return "#34d399";
-    if (percent < 80)
-      return "#fbbf24";
+    if (percent < 50) return "#34d399";
+    if (percent < 80) return "#fbbf24";
     return "#f87171";
   }
   function calculateCircleOffset(percent, radius) {
@@ -5715,8 +5616,7 @@ function SystemMonitorWidget($$anchor, $$props) {
     };
   }
   function positionTooltip() {
-    if (!tooltipAnchor || !get2(tooltipElement) || !get2(activeTooltip))
-      return;
+    if (!tooltipAnchor || !get2(tooltipElement) || !get2(activeTooltip)) return;
     const anchorRect = tooltipAnchor.getBoundingClientRect();
     const tooltipRect = get2(tooltipElement).getBoundingClientRect();
     const viewportPadding = 12;
@@ -5732,8 +5632,7 @@ function SystemMonitorWidget($$anchor, $$props) {
     set(tooltipReady, true);
   }
   function showTooltip(kind, event2, delay = 90) {
-    if (tooltipTimeout)
-      clearTimeout(tooltipTimeout);
+    if (tooltipTimeout) clearTimeout(tooltipTimeout);
     tooltipAnchor = event2.currentTarget;
     tooltipTimeout = setTimeout(
       () => {
@@ -5754,25 +5653,18 @@ function SystemMonitorWidget($$anchor, $$props) {
     set(tooltipReady, false);
   }
   function handleTooltipKeydown(event2) {
-    if (event2.key === "Escape")
-      hideTooltip();
+    if (event2.key === "Escape") hideTooltip();
   }
   function getUsageLabel(percent) {
-    if (percent < 50)
-      return "Plenty of headroom";
-    if (percent < 80)
-      return "Moderate load";
+    if (percent < 50) return "Plenty of headroom";
+    if (percent < 80) return "Moderate load";
     return "Running near capacity";
   }
   function getTooltipAccent() {
-    if (get2(activeTooltip) === "connection")
-      return get2(connected) ? "#34d399" : "#f87171";
-    if (get2(activeTooltip) === "gpu")
-      return getUsageStroke(get2(stats)?.gpu?.vram_usage_percent ?? 0);
-    if (get2(activeTooltip) === "ram")
-      return getUsageStroke(get2(stats)?.ram?.usage_percent ?? 0);
-    if (get2(activeTooltip) === "cpu")
-      return getUsageStroke(get2(stats)?.cpu?.usage_percent ?? 0);
+    if (get2(activeTooltip) === "connection") return get2(connected) ? "#34d399" : "#f87171";
+    if (get2(activeTooltip) === "gpu") return getUsageStroke(get2(stats)?.gpu?.vram_usage_percent ?? 0);
+    if (get2(activeTooltip) === "ram") return getUsageStroke(get2(stats)?.ram?.usage_percent ?? 0);
+    if (get2(activeTooltip) === "cpu") return getUsageStroke(get2(stats)?.cpu?.usage_percent ?? 0);
     return "#60a5fa";
   }
   user_effect(() => {
@@ -5780,12 +5672,9 @@ function SystemMonitorWidget($$anchor, $$props) {
       connectWebSocket();
     }
     return () => {
-      if (reconnectTimeout)
-        clearTimeout(reconnectTimeout);
-      if (tooltipTimeout)
-        clearTimeout(tooltipTimeout);
-      if (ws)
-        ws.close(1e3, "Widget unmounting");
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      if (tooltipTimeout) clearTimeout(tooltipTimeout);
+      if (ws) ws.close(1e3, "Widget unmounting");
     };
   });
   var fragment = root_14();
@@ -5830,8 +5719,7 @@ function SystemMonitorWidget($$anchor, $$props) {
           append($$anchor3, button_1);
         };
         if_block(node_2, ($$render) => {
-          if (get2(stats).gpu.available)
-            $$render(consequent);
+          if (get2(stats).gpu.available) $$render(consequent);
         });
       }
       var node_3 = sibling(node_2, 2);
@@ -5864,8 +5752,7 @@ function SystemMonitorWidget($$anchor, $$props) {
           append($$anchor3, button_2);
         };
         if_block(node_3, ($$render) => {
-          if (get2(stats).ram.available)
-            $$render(consequent_1);
+          if (get2(stats).ram.available) $$render(consequent_1);
         });
       }
       var node_4 = sibling(node_3, 2);
@@ -5898,15 +5785,13 @@ function SystemMonitorWidget($$anchor, $$props) {
           append($$anchor3, button_3);
         };
         if_block(node_4, ($$render) => {
-          if (get2(stats).cpu.available)
-            $$render(consequent_2);
+          if (get2(stats).cpu.available) $$render(consequent_2);
         });
       }
       append($$anchor2, fragment_1);
     };
     if_block(node_1, ($$render) => {
-      if (get2(stats))
-        $$render(consequent_3);
+      if (get2(stats)) $$render(consequent_3);
     });
   }
   reset(div);
@@ -5929,7 +5814,7 @@ function SystemMonitorWidget($$anchor, $$props) {
           var text_1 = child(p, true);
           reset(p);
           template_effect(() => {
-            classes_2 = set_class(span_1, 1, "connection-badge svelte-levjy4", null, classes_2, { online: get2(connected) });
+            classes_2 = set_class(span_1, 1, "connection-badge svelte-18hitiv", null, classes_2, { online: get2(connected) });
             set_text(text2, get2(connected) ? "Live" : "Offline");
             set_text(text_1, get2(connected) ? "GPU, memory, and processor usage are updating in real time." : "Waiting for a connection to the system telemetry service.");
           });
@@ -5955,12 +5840,9 @@ function SystemMonitorWidget($$anchor, $$props) {
               append($$anchor4, svg_5);
             };
             if_block(node_7, ($$render) => {
-              if (get2(activeTooltip) === "gpu")
-                $$render(consequent_5);
-              else if (get2(activeTooltip) === "ram")
-                $$render(consequent_6, 1);
-              else
-                $$render(alternate, -1);
+              if (get2(activeTooltip) === "gpu") $$render(consequent_5);
+              else if (get2(activeTooltip) === "ram") $$render(consequent_6, 1);
+              else $$render(alternate, -1);
             });
           }
           reset(div_4);
@@ -6011,8 +5893,7 @@ function SystemMonitorWidget($$anchor, $$props) {
                   append($$anchor5, div_15);
                 };
                 if_block(node_9, ($$render) => {
-                  if (typeof get2(stats).gpu.temperature === "number")
-                    $$render(consequent_7);
+                  if (typeof get2(stats).gpu.temperature === "number") $$render(consequent_7);
                 });
               }
               reset(div_11);
@@ -6085,12 +5966,9 @@ function SystemMonitorWidget($$anchor, $$props) {
               append($$anchor4, div_20);
             };
             if_block(node_8, ($$render) => {
-              if (get2(activeTooltip) === "gpu")
-                $$render(consequent_8);
-              else if (get2(activeTooltip) === "ram")
-                $$render(consequent_9, 1);
-              else
-                $$render(alternate_1, -1);
+              if (get2(activeTooltip) === "gpu") $$render(consequent_8);
+              else if (get2(activeTooltip) === "ram") $$render(consequent_9, 1);
+              else $$render(alternate_1, -1);
             });
           }
           var div_23 = sibling(node_8, 2);
@@ -6113,10 +5991,8 @@ function SystemMonitorWidget($$anchor, $$props) {
           append($$anchor3, fragment_3);
         };
         if_block(node_6, ($$render) => {
-          if (get2(activeTooltip) === "connection")
-            $$render(consequent_4);
-          else if (get2(stats))
-            $$render(consequent_10, 1);
+          if (get2(activeTooltip) === "connection") $$render(consequent_4);
+          else if (get2(stats)) $$render(consequent_10, 1);
         });
       }
       next(2);
@@ -6125,7 +6001,7 @@ function SystemMonitorWidget($$anchor, $$props) {
       bind_this(div_1, ($$value) => set(tooltipElement, $$value), () => get2(tooltipElement));
       template_effect(
         ($0) => {
-          classes_1 = set_class(div_1, 1, "resource-tooltip svelte-levjy4", null, classes_1, { "tooltip-ready": get2(tooltipReady) });
+          classes_1 = set_class(div_1, 1, "resource-tooltip svelte-18hitiv", null, classes_1, { "tooltip-ready": get2(tooltipReady) });
           set_style(div_1, $0);
         },
         [
@@ -6135,14 +6011,13 @@ function SystemMonitorWidget($$anchor, $$props) {
       append($$anchor2, div_1);
     };
     if_block(node_5, ($$render) => {
-      if (get2(activeTooltip))
-        $$render(consequent_11);
+      if (get2(activeTooltip)) $$render(consequent_11);
     });
   }
   template_effect(() => {
     set_attribute2(button, "aria-label", get2(connected) ? "Resource monitor connected" : "Resource monitor disconnected");
     set_attribute2(button, "aria-describedby", get2(activeTooltip) === "connection" ? "resource-monitor-tooltip" : void 0);
-    classes = set_class(span, 1, "connection-dot svelte-levjy4", null, classes, { connected: get2(connected) });
+    classes = set_class(span, 1, "connection-dot svelte-18hitiv", null, classes, { connected: get2(connected) });
   });
   event("mouseenter", button, (event2) => showTooltip("connection", event2));
   event("mouseleave", button, hideTooltip);
@@ -6152,7 +6027,7 @@ function SystemMonitorWidget($$anchor, $$props) {
   pop();
 }
 
-// marketplace/system-monitor/frontend/src/index.js
+// content/plugins/marketplace/system-monitor/frontend/src/index.js
 function mountPlugin(target, props) {
   return mount(SystemMonitorWidget, { target, props });
 }

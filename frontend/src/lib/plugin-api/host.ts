@@ -20,6 +20,7 @@ import { registerModelView } from '$lib/registries/modelViewRegistry';
 import { chatToolRendererRegistry } from '$lib/registries/chatToolRendererRegistry';
 import { toasts, type ToastType } from '$lib/stores/toast';
 import { api } from '$lib/services/api';
+import { provideContext, declareMode, onToolApplied } from '$lib/chat/pageContext';
 
 export type RendererKind = 'history.artifact' | 'workbench.file' | 'model.view' | 'chat.tool';
 
@@ -42,6 +43,28 @@ export interface PluginNotificationsApi {
 	toast(level: NotificationLevel, message: string, duration?: number): void;
 	/** Persist + push a notification to the current user via `POST /api/notifications`. */
 	notify(input: PluginNotifyInput): Promise<void>;
+}
+
+export interface PluginChatApi {
+	/**
+	 * Register a provider contributing `{ [key]: provider() }` into the chat
+	 * assistant's `context_metadata` on every send (skipped when the provider
+	 * returns null). Returns an unregister function.
+	 */
+	provideContext: typeof provideContext;
+	/**
+	 * Take over the assistant's resolved mode (overriding the route-prefix
+	 * match) for as long as this declaration is active; the most recently
+	 * declared mode wins over other active declarations. Returns an
+	 * unregister function that restores route-based resolution.
+	 */
+	declareMode: typeof declareMode;
+	/**
+	 * Run `handler` with the result of an approved/confirmed tool call named
+	 * `toolName`, before any core hardcoded handling for that tool (which is
+	 * skipped once a handler is registered). Returns an unregister function.
+	 */
+	onToolApplied: typeof onToolApplied;
 }
 
 export interface PluginRendererEntry {
@@ -70,6 +93,8 @@ export interface PotionUIHostApi {
 	};
 	/** User notification surface: local toasts and persisted notifications. */
 	notifications: PluginNotificationsApi;
+	/** Page-scoped hooks into the global chat assistant: context, mode takeover, tool result handling. */
+	chat: PluginChatApi;
 }
 
 const TOAST_LEVELS: readonly ToastType[] = ['success', 'error', 'info', 'warning'];
@@ -129,6 +154,11 @@ export function initHostApi(): void {
 					metadata: input.metadata
 				});
 			}
+		},
+		chat: {
+			provideContext,
+			declareMode,
+			onToolApplied
 		}
 	};
 

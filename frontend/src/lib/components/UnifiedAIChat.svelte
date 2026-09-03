@@ -13,6 +13,7 @@
 	import { chatSession } from '$lib/stores/chatSession';
 	import { chatComposerDrafts } from '$lib/stores/chatComposerDrafts';
 	import { chatModes, resolveModeForRoute, resolveModeName, toolsForMode } from '$lib/stores/chatModes';
+	import { declaredMode, collectProvidedContext, dispatchToolApplied } from '$lib/chat/pageContext';
 	import ChatHeader from '$lib/components/chat/ChatHeader.svelte';
 	import ChatMemoryPanel from '$lib/components/chat/ChatMemoryPanel.svelte';
 	import ChatToolPreferencesPanel from '$lib/components/chat/ChatToolPreferencesPanel.svelte';
@@ -84,7 +85,10 @@
 	// Route only decides the mode of a NEW conversation. When the active
 	// session's mode differs from what the current route would resolve to,
 	// ChatScopeBanner explains the mismatch instead of silently swapping chats.
-	$: routeMode = resolveModeForRoute($page.url.pathname, $chatModes.modes);
+	// A plugin page's declareMode() (window.__potionui.chat) overrides the
+	// route-prefix match while it's active - e.g. an admin setup wizard mode
+	// that isn't reachable through any route prefix.
+	$: routeMode = $declaredMode || resolveModeForRoute($page.url.pathname, $chatModes.modes);
 	let dismissedScopeMismatch: ScopeDismissal | null = null;
 	$: showScopeMismatch = shouldShowScopeMismatch(
 		currentMode,
@@ -464,7 +468,7 @@
 		// Resolve the chat mode from the current route (only for a fresh conversation;
 		// a restored session keeps its own persisted mode)
 		if (!$chatSession.sessionId && $chatSession.messages.length === 0) {
-			const resolved = resolveModeForRoute($page.url.pathname, $chatModes.modes);
+			const resolved = $declaredMode || resolveModeForRoute($page.url.pathname, $chatModes.modes);
 			if (resolved !== $chatSession.mode) {
 				chatSession.newConversation(resolved);
 			}
@@ -548,7 +552,7 @@
 	}
 
 	function handleNewSession() {
-		const resolved = resolveModeForRoute($page.url.pathname, $chatModes.modes);
+		const resolved = $declaredMode || resolveModeForRoute($page.url.pathname, $chatModes.modes);
 		chatComposerDrafts.clear(sessionId);
 		chatSession.newConversation(resolved);
 		saveActiveSessionId('');
@@ -938,6 +942,9 @@
 			if (effectiveImageData?.url) {
 				contextMetadata.image_url = effectiveImageData.url;
 			}
+			// Plugin-contributed context (window.__potionui.chat.provideContext),
+			// keyed by the provider's own key - never touches segments/form_state.
+			Object.assign(contextMetadata, collectProvidedContext());
 
 			// Add streaming assistant placeholder
 			chatSession.addMessage({
@@ -1165,17 +1172,24 @@
 		if (data.approved && enableTools) {
 			try {
 				const resultData = JSON.parse(data.updatedExecution.result?.data || '');
-				if (resultData.action === 'apply_form_changes') {
-					handleFormChangesApplied(resultData.applied_changes);
-				}
-				if (resultData.action === 'apply_music_director_ops') {
-					handleMusicDirectorApplied(resultData.operations);
-				}
-				if (resultData.action === 'set_prompt_relay') {
-					handlePromptRelaySet(resultData);
-				}
-				if (resultData.action === 'apply_segment_updates') {
-					handleSegmentUpdatesApplied(resultData.updates);
+				// A plugin-registered handler (window.__potionui.chat.onToolApplied)
+				// for this tool name takes over entirely - skip the hardcoded
+				// core actions below so a plugin tool's result isn't misread as
+				// one of these.
+				const handledByPlugin = dispatchToolApplied(data.updatedExecution.tool_name, resultData);
+				if (!handledByPlugin) {
+					if (resultData.action === 'apply_form_changes') {
+						handleFormChangesApplied(resultData.applied_changes);
+					}
+					if (resultData.action === 'apply_music_director_ops') {
+						handleMusicDirectorApplied(resultData.operations);
+					}
+					if (resultData.action === 'set_prompt_relay') {
+						handlePromptRelaySet(resultData);
+					}
+					if (resultData.action === 'apply_segment_updates') {
+						handleSegmentUpdatesApplied(resultData.updates);
+					}
 				}
 			} catch {
 				/* result not JSON — nothing to apply */
@@ -1293,7 +1307,7 @@
 		chatComposerDrafts.clear(id);
 
 		if ($chatSession.sessionId === id) {
-			const resolved = resolveModeForRoute($page.url.pathname, $chatModes.modes);
+			const resolved = $declaredMode || resolveModeForRoute($page.url.pathname, $chatModes.modes);
 			chatSession.newConversation(resolved);
 			applyStoredDisabledToolsForMode(resolved);
 			saveActiveSessionId('');

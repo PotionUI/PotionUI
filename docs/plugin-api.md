@@ -245,6 +245,41 @@ being named there or by declaring the mode in its own `modes:` list (see "A chat
 above) — declaring it in both places is redundant but harmless. Disabling the plugin
 removes the mode and its tools from every registry automatically.
 
+### Driving the chat panel from your plugin's page
+
+`window.__potionui.chat` is the frontend host API (`$lib/plugin-api/host.ts`) a
+plugin-hosted page uses to work with the global chat assistant without the assistant
+knowing your plugin exists:
+
+- `provideContext(key, provider)` — registers a function called on every chat send;
+  its return value is merged into the outgoing `context_metadata` under `key` (a `null`
+  return is skipped, not sent). Call the returned unregister function when your page
+  unmounts.
+- `declareMode(modeId)` — makes `modeId` the assistant's active mode for as long as the
+  declaration is active, overriding the route-prefix match (useful for a mode that
+  isn't reachable through any route prefix, e.g. an admin-only setup wizard). The most
+  recently declared mode wins if more than one is active; unregistering restores
+  route-based resolution.
+- `onToolApplied(toolName, handler)` — runs `handler` with the parsed result of an
+  approved/confirmed call to `toolName`, before (and instead of) any core hardcoded
+  handling for that tool name.
+
+```js
+const unregisterContext = window.__potionui.chat.provideContext('comfyui_import_wizard', () => ({
+  step: currentStep,
+  workflow_id: workflowId
+}));
+const unregisterMode = window.__potionui.chat.declareMode('comfyui-import-wizard');
+const unregisterTool = window.__potionui.chat.onToolApplied('import_comfyui_workflow', (result) => {
+  applyImportedWorkflow(result.workflow);
+});
+
+// on unmount:
+unregisterContext();
+unregisterMode();
+unregisterTool();
+```
+
 ## Contributing automation templates
 
 An enabled plugin can add immutable starter workflows to the Automation Templates

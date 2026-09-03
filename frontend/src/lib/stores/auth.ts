@@ -12,6 +12,7 @@ import { libraryStore } from '$lib/stores/library';
 import { phrasebookStore } from '$lib/stores/phrasebook';
 import { nsfwFilterStore } from '$lib/stores/nsfwFilter';
 import { previewGenerationStore } from '$lib/stores/previewGeneration';
+import { resetPageContext } from '$lib/chat/pageContext';
 import { LAST_USER_ID_KEY, isDifferentIdentity, keysToPurge } from '$lib/stores/identityScopedStorage';
 
 export interface User {
@@ -75,6 +76,7 @@ export function applyIdentityGuard(userId: string): void {
 		phrasebookStore.reset();
 		nsfwFilterStore.reset();
 		previewGenerationStore.reset();
+		resetPageContext();
 	}
 	storage.set(LAST_USER_ID_KEY, userId);
 }

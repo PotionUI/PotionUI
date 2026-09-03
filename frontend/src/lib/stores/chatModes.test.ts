@@ -4,7 +4,9 @@ vi.mock('$lib/services/api/index', () => ({
 	api: { getChatModes: vi.fn(), listChatTools: vi.fn() }
 }));
 
+import { get } from 'svelte/store';
 import { resolveModeForRoute, resolveModeName, toolsForMode } from './chatModes';
+import { declareMode, declaredMode } from '$lib/chat/pageContext';
 import type { ChatMode, ChatToolInfo } from '$lib/types/chat';
 
 function mode(id: string, prefixes: string[]): ChatMode {
@@ -58,6 +60,21 @@ describe('resolveModeForRoute', () => {
 	it('falls back to generation when nothing matches or modes are empty', () => {
 		expect(resolveModeForRoute('/anywhere', [mode('x', ['/y'])])).toBe('generation');
 		expect(resolveModeForRoute('/anywhere', [])).toBe('generation');
+	});
+
+	// UnifiedAIChat.svelte resolves its effective mode as
+	// `$declaredMode || resolveModeForRoute(...)` - a plugin page's
+	// window.__potionui.chat.declareMode() takes over the route-prefix match.
+	it('a declared mode (window.__potionui.chat.declareMode) overrides the route match', () => {
+		const unregister = declareMode('comfyui-import-wizard');
+		try {
+			const effective = get(declaredMode) || resolveModeForRoute('/generate', modes);
+			expect(effective).toBe('comfyui-import-wizard');
+		} finally {
+			unregister();
+		}
+		const effectiveAfter = get(declaredMode) || resolveModeForRoute('/generate', modes);
+		expect(effectiveAfter).toBe('generation');
 	});
 });
 

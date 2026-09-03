@@ -1,7 +1,7 @@
 /**
  * Derives WebSocket URLs from the current window.location,
  * so the app works on any host (localhost, LAN IP, etc.)
- * instead of hardcoding localhost:8005.
+ * instead of hardcoding localhost:7680.
  */
 
 /**
@@ -19,7 +19,7 @@ export function getWsUrl(path: string, token?: string | null): string {
 }
 
 /**
- * Convert an absolute API URL (e.g. http://localhost:8005/api/...) to a
+ * Convert an absolute API URL (e.g. http://localhost:7680/api/...) to a
  * relative path so it routes through the Vite proxy or same-origin server.
  */
 export function toRelativeApiUrl(url: string): string | null {

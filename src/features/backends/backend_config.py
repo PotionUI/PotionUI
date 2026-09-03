@@ -334,7 +334,7 @@ class NativeRemoteBackendConfig(BaseBackendConfig):
     base_url: str = Field(
         default="",
         title="Worker URL",
-        description="Base URL of the Remote Native worker, e.g. http://10.0.0.5:8100",
+        description="Base URL of the Remote Native worker, e.g. http://10.0.0.5:7690",
     )
     worker_token: str = Field(
         default="",

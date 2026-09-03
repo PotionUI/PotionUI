@@ -27,7 +27,7 @@ produces.
   names exactly what's missing — never fail because a fixture wasn't there. Same
   rule as the HTTP journeys and the `models/tests` depot.
 - Specs never touch a real instance. The runner boots a throwaway backend and
-  serves a throwaway frontend; the backend port guard (8005/8006/3001 refused)
+  serves a throwaway frontend; the backend port guard (7680/7682/7681 refused)
   and ephemeral ports below make that structural.
 
 ## The evidence flow (screenshots + video)
@@ -55,7 +55,7 @@ runner splits the requested specs into **chunks** (see "Chunking" below) and,
    the instance claimed as owner (`e2e-owner`, fixed password so the browser can
    log in). Backend port: auto-picked **>= 8055**.
 2. Serves the build with **`vite preview`** on an **ephemeral port >= 4173**
-   (never 3001 — the real dev server stays banned — and never 8005/8006).
+   (never 7681 — the real dev server stays banned — and never 7680/7682).
    `vite preview` serves the SvelteKit SSR output regardless of the configured
    `adapter-auto` (which can't detect a deploy target in this container but does
    not need to). A `preview` block added to `frontend/vite.config.ts` proxies
@@ -127,7 +127,7 @@ process.
 
 ### Why not the dev server / a reverse proxy
 
-The real dev server on 3001 is banned. `vite preview` on an ephemeral port is
+The real dev server on 7681 is banned. `vite preview` on an ephemeral port is
 the simplest robust option: it already serves the SSR build and honors
 `preview.proxy` for `/api` + `/ws`, so no bespoke reverse proxy is needed. A
 hand-rolled proxy was the documented fallback if `vite preview` couldn't proxy;
@@ -137,8 +137,8 @@ it can, so we don't.
 
 | Role | Port | Rule |
 | --- | --- | --- |
-| Throwaway backend | auto from 8055 | never 8005/8006/3001 (guarded in `e2e_harness`) |
-| Frontend preview | auto from 4173 | ephemeral; never 3001/8005/8006 |
+| Throwaway backend | auto from 8055 | never 7680/7682/7681 (guarded in `e2e_harness`) |
+| Frontend preview | auto from 4173 | ephemeral; never 7681/7680/7682 |
 
 ## Deps
 

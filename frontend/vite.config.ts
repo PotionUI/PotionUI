@@ -1,8 +1,8 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 
-const backendPort = process.env.BACKEND_PORT || '8005';
-const frontendPort = parseInt(process.env.FRONTEND_PORT || '3001', 10);
+const backendPort = process.env.BACKEND_PORT || '7680';
+const frontendPort = parseInt(process.env.FRONTEND_PORT || '7681', 10);
 // 'localhost' and '127.0.0.1' are passed through literally so the caller's
 // bind address and readiness probe stay the exact same address (the
 // `./potionui` CLI sets '127.0.0.1' for both, avoiding the case where a

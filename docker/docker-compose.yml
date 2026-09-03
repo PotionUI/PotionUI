@@ -68,12 +68,12 @@ services:
     memswap_limit: 32g
     cpus: 8
     environment:
-      BACKEND_PORT: "8005"
-      FRONTEND_PORT: "3001"
+      BACKEND_PORT: "7680"
+      FRONTEND_PORT: "7681"
       POTIONUI_VRAM_CAP_GB: "16"
     ports:
-      - "8005:8005"
-      - "3001:3001"
+      - "7680:7680"
+      - "7681:7681"
 
   rig-small:
     <<: *potionui-base
@@ -82,12 +82,12 @@ services:
     memswap_limit: 16g
     cpus: 4
     environment:
-      BACKEND_PORT: "8006"
-      FRONTEND_PORT: "3002"
+      BACKEND_PORT: "7682"
+      FRONTEND_PORT: "7683"
       POTIONUI_VRAM_CAP_GB: "8"
     ports:
-      - "8006:8006"
-      - "3002:3002"
+      - "7682:7682"
+      - "7683:7683"
 
 volumes:
   potionui-models:

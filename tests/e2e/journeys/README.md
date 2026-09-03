@@ -23,7 +23,7 @@ considering a backend change done.
   fail a journey just because a fixture model wasn't there.
 - Journeys are read/write against a THROWAWAY instance only - never assume
   or touch a real instance's data. `ThrowawayApp` already enforces the port
-  guard (8005/8006/3001 are refused) and gives every journey its own fresh
+  guard (7680/7682/7681 are refused) and gives every journey its own fresh
   temp DB/storage/models mirror.
 - If a journey finds an actual backend bug, that's the point - print it in
   the failure evidence and report it. Journeys never patch `src/` themselves.

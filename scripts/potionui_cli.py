@@ -44,8 +44,8 @@ GPU                   warning   no        nvidia-smi present and reports a GPU
                                            profile is active; error+blocking
                                            under ``worker doctor``)
 DISK                  error     yes       free disk space on the repo's filesystem
-PORT_8005             error     yes       backend port is free to bind
-PORT_3001             error     yes       frontend port is free to bind
+PORT_BACKEND          error     yes       backend port is free to bind
+PORT_FRONTEND         error     yes       frontend port is free to bind
 STORAGE               error     yes       ./storage exists and is writable
 ENV_FILE              info      no        ./.env present (purely informational)
 ====================  ========  ========  =========================================
@@ -62,7 +62,7 @@ BACKEND_DEPS          warning   no        fastapi/torch importable from ./venv (
 GPU                   error     yes       nvidia-smi present and reports a GPU — a
                                            worker with no GPU can't execute anything
 DISK                  error     yes       free disk space on the repo's filesystem
-PORT_8100             error     yes       worker port is free to bind (``--port``)
+PORT_WORKER           error     yes       worker port is free to bind (``--port``)
 WORKER_DIR            error     yes       ``POTIONUI_WORKER_DIR`` (default ./worker_data)
                                            exists and is writable
 WORKER_TOKEN          error     yes       ``POTIONUI_WORKER_TOKEN`` is set (env or .env)
@@ -133,9 +133,9 @@ STATE_FILE = RUNTIME_DIR / "state.json"
 NO_GPU_PROFILE_FILE = RUNTIME_DIR / "no_gpu_profile"  # legacy 0.0.2 marker, read-only
 INSTALL_PROFILE_FILE = RUNTIME_DIR / "install_profile"
 
-DEFAULT_BACKEND_PORT = 8005
-DEFAULT_FRONTEND_PORT = 3001
-DEFAULT_WORKER_PORT = 8100
+DEFAULT_BACKEND_PORT = 7680
+DEFAULT_FRONTEND_PORT = 7681
+DEFAULT_WORKER_PORT = 7690
 DEFAULT_WORKER_HOST = "127.0.0.1"
 DEFAULT_WORKER_DIR_NAME = "worker_data"
 WORKER_TOKEN_ENV_VAR = "POTIONUI_WORKER_TOKEN"
@@ -699,8 +699,8 @@ def run_doctor(
         check_frontend_deps(probe, repo_root),
         check_gpu(probe, no_gpu=no_gpu),
         check_disk(probe, repo_root),
-        check_port(probe, backend_port, "PORT_8005", "backend"),
-        check_port(probe, frontend_port, "PORT_3001", "frontend"),
+        check_port(probe, backend_port, "PORT_BACKEND", "backend"),
+        check_port(probe, frontend_port, "PORT_FRONTEND", "frontend"),
         check_storage(probe, repo_root),
         check_env_file(probe, repo_root),
     ]
@@ -723,7 +723,7 @@ def run_worker_doctor(probe, repo_root: Path, port: int, worker_dir: Path, env: 
         check_backend_deps(probe, repo_root, no_gpu=False),
         check_gpu(probe, required=True),
         check_disk(probe, repo_root),
-        check_port(probe, port, "PORT_8100", "worker"),
+        check_port(probe, port, "PORT_WORKER", "worker"),
         check_worker_dir(probe, worker_dir),
         check_worker_token(repo_root, env=env),
     ]
@@ -1122,7 +1122,7 @@ def cmd_start(args) -> int:
     if single_process:
         # No Vite dev server means nothing binds the frontend port — checking
         # it free would block a start for no reason.
-        results = [r for r in results if r.code != "PORT_3001"]
+        results = [r for r in results if r.code != "PORT_FRONTEND"]
     blocking_failures = [r for r in results if r.blocking and r.severity == Severity.ERROR]
     if blocking_failures:
         print("Cannot start — blocking issue(s) found:\n")

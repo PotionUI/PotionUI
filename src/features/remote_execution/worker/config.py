@@ -74,7 +74,7 @@ class WorkerConfig:
             worker_id=source.get("POTIONUI_WORKER_ID") or f"worker-{uuid.uuid4().hex[:12]}",
             provider=source.get("POTIONUI_WORKER_PROVIDER", "manual"),
             host=source.get("POTIONUI_WORKER_HOST", "127.0.0.1"),
-            port=int(source.get("POTIONUI_WORKER_PORT", "8100")),
+            port=int(source.get("POTIONUI_WORKER_PORT", "7690")),
             work_dir=work_dir,
             artifacts_dir=work_dir / "artifacts",
             model_dir=Path(source.get("POTIONUI_WORKER_MODEL_DIR", "/models")).resolve(),

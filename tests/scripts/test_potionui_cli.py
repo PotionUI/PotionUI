@@ -362,14 +362,14 @@ def test_check_disk_handles_probe_error(tmp_path):
 
 def test_check_port_free():
     probe = FakeProbe(ports_free={8005: True})
-    result = cli.check_port(probe, 8005, "PORT_8005", "backend")
+    result = cli.check_port(probe, 8005, "PORT_BACKEND", "backend")
     assert result.severity == cli.Severity.OK
     assert result.blocking is True
 
 
 def test_check_port_occupied():
     probe = FakeProbe(ports_free={8005: False})
-    result = cli.check_port(probe, 8005, "PORT_8005", "backend")
+    result = cli.check_port(probe, 8005, "PORT_BACKEND", "backend")
     assert result.severity == cli.Severity.ERROR
     assert "in use" in result.message
     assert result.repair
@@ -476,7 +476,7 @@ def test_run_worker_doctor_returns_expected_codes_no_node_npm_frontend(tmp_path)
         probe, tmp_path, 8100, tmp_path / "worker_data", env={"POTIONUI_WORKER_TOKEN": "x"}
     )
     codes = {r.code for r in results}
-    assert codes == {"PY312", "VENV", "BACKEND_DEPS", "GPU", "DISK", "PORT_8100", "WORKER_DIR", "WORKER_TOKEN"}
+    assert codes == {"PY312", "VENV", "BACKEND_DEPS", "GPU", "DISK", "PORT_WORKER", "WORKER_DIR", "WORKER_TOKEN"}
     assert "NODE" not in codes
     assert "NPM" not in codes
     assert "FRONTEND_DEPS" not in codes
@@ -502,10 +502,10 @@ def test_run_doctor_returns_all_codes_with_expected_blocking(tmp_path):
     codes = {r.code: r for r in results}
     assert set(codes) == {
         "PY312", "VENV", "BACKEND_DEPS", "NODE", "NPM", "FRONTEND_DEPS",
-        "GPU", "DISK", "PORT_8005", "PORT_3001", "STORAGE", "ENV_FILE",
+        "GPU", "DISK", "PORT_BACKEND", "PORT_FRONTEND", "STORAGE", "ENV_FILE",
     }
     blocking_codes = {code for code, r in codes.items() if r.blocking}
-    assert blocking_codes == {"PY312", "NODE", "NPM", "PORT_8005", "PORT_3001", "STORAGE"}
+    assert blocking_codes == {"PY312", "NODE", "NPM", "PORT_BACKEND", "PORT_FRONTEND", "STORAGE"}
 
 
 def test_run_doctor_passes_no_gpu_through_to_gpu_row(tmp_path):

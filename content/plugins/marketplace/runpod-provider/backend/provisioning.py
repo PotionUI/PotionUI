@@ -68,7 +68,7 @@ class ProvisioningProfile:
     image_ref: str
     region: Optional[str] = None
     volume_size_gb: int = 100
-    worker_port: int = 8100
+    worker_port: int = 7690
     container_registry_auth_id: Optional[str] = None
     container_disk_gb: int = 20
     network_volume: str = NETWORK_VOLUME_CREATE
@@ -302,7 +302,7 @@ class RunPodProvisioningManager:
 
         pod = await self._wait_for_pod_running(pod, report)
 
-        worker_port = pod_record.meta.get("worker_port", 8100)
+        worker_port = pod_record.meta.get("worker_port", 7690)
         base_url = _proxy_url(pod.id, worker_port)
         ready = await self._wait_for_worker(base_url, worker_token, report)
 
@@ -336,7 +336,7 @@ class RunPodProvisioningManager:
         if token is None:
             return ReconcileOutcome(STATUS_UNREACHABLE, "Worker token missing - re-provision")
 
-        worker_port = pod_record.meta.get("worker_port", 8100)
+        worker_port = pod_record.meta.get("worker_port", 7690)
         base_url = _proxy_url(pod.id, worker_port)
         ready = await self._readiness_probe(base_url, token)
         if ready:

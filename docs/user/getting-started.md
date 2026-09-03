@@ -30,7 +30,7 @@ for how a worker is wired to the instance that dispatches to it.
 
 A freshly installed PotionUI has no accounts at all. The **first** account ever created on it automatically becomes its **owner** — an Administrator account, with no separate setup step. There is no default password to change and nothing to "unlock": you *are* the administrator your instance is waiting for.
 
-1. **Open the printed URL.** Whatever started the server printed a local address (for example `http://localhost:3001`). Open it in your browser.
+1. **Open the printed URL.** Whatever started the server printed a local address (for example `http://localhost:7681`). Open it in your browser.
 2. **Create the owner account.** Because no owner exists yet, PotionUI sends you straight to a screen titled **"Create the owner account"** instead of a login form. Fill in a username, email, and password.
    - If you're opening this from the same machine the server runs on, that's all you need.
    - If you're reaching it from another machine on your network, the form also asks for a **Claim code** — a one-time token proving you have console access to the server. The startup CLI prints it after the server comes up (`First-time setup: open http://localhost:<port> and use this claim code if asked: <token>`), or you can read it directly from `storage/setup_claim_token` on the server. The code is deleted once the owner account is created, so you only need it this one time.

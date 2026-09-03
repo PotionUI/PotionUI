@@ -1,5 +1,5 @@
 # Manual real-boot check for the distribution image (docker/Dockerfile):
-# builds it locally (no push), runs the container with no GPU on :8005,
+# builds it locally (no push), runs the container with no GPU on :7680,
 # waits for /health, dumps its logs, then tears it down.
 #
 # workflow_dispatch only, deliberately never on push/pull_request: the image
@@ -61,13 +61,13 @@ jobs:
         run: |
           docker run -d --name potionui-smoke \
             -e POTIONUI_HOST=0.0.0.0 \
-            -p 8005:8005 \
+            -p 7680:7680 \
             potionui-smoke:local
 
       - name: Wait for /health
         run: |
           deadline=$((SECONDS + 300))
-          until curl -fsS http://127.0.0.1:8005/health; do
+          until curl -fsS http://127.0.0.1:7680/health; do
             if [ "$SECONDS" -ge "$deadline" ]; then
               echo "container never became healthy within 5 minutes" >&2
               docker logs potionui-smoke || true

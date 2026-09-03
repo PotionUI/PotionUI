@@ -3,7 +3,7 @@
 
 Proves `./potionui start` works end to end for each install profile
 (`local`, `hybrid`, `remote`) plus the `worker` preset, on a throwaway
-checkout — never the maintainer's working tree, venv, or ports 3001/8005.
+checkout — never the maintainer's working tree, venv, or ports 7681/7680.
 
 Per profile:
 

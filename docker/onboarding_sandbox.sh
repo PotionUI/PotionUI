@@ -167,8 +167,8 @@ docker run \
     --gpus all \
     -e HF_HUB_OFFLINE=0 \
     -e TRANSFORMERS_OFFLINE=0 \
-    -p "${FRONTEND_PORT}:3001" \
-    -p "${BACKEND_PORT}:8005" \
+    -p "${FRONTEND_PORT}:7681" \
+    -p "${BACKEND_PORT}:7680" \
     -v "${MODELS_DIR}:/app/models:ro" \
     "${SYMLINK_MOUNTS[@]}" \
     -v "/app/storage" \

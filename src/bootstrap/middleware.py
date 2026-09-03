@@ -152,7 +152,7 @@ def register_middleware(app: FastAPI) -> None:
     app.add_middleware(SSEAwareGZipMiddleware, minimum_size=1000)  # Compress responses > 1KB, skip SSE
 
     # Add CORS middleware for frontend
-    _default_origins = ["http://localhost:3005", "http://127.0.0.1:3005", "http://localhost:3001", "http://127.0.0.1:3001"]
+    _default_origins = ["http://localhost:3005", "http://127.0.0.1:3005", "http://localhost:7681", "http://127.0.0.1:7681"]
     _allowed_origins = os.environ.get("ALLOWED_ORIGINS", "").split(",") if os.environ.get("ALLOWED_ORIGINS") else _default_origins
     app.add_middleware(
         CORSMiddleware,

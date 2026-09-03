@@ -252,7 +252,7 @@ jobs:
 
       # Real boot, end to end, of the `remote` install profile: materialize
       # a throwaway checkout via `git archive` (never this checkout's venv,
-      # frontend/, or ports 3001/8005), `doctor --json`, `./potionui start`,
+      # frontend/, or ports 7681/7680), `doctor --json`, `./potionui start`,
       # /health, the unclaimed-instance claim token, owner registration, a
       # presets listing, `status`, `stop`, and confirm the process tree is
       # actually gone - see tests/install/run.py's module docstring for the

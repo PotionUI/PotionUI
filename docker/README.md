@@ -6,13 +6,13 @@ The single-process production image, published to GHCR on every version tag
 by `.github/workflows/docker-publish.yml`:
 
 ```bash
-docker run --gpus all -p 8005:8005 \
+docker run --gpus all -p 7680:7680 \
   -v potionui-models:/app/models \
   -v potionui-storage:/app/storage \
   -v potionui-outputs:/app/outputs \
   ghcr.io/potionui/potionui:latest
 
-# open http://localhost:8005
+# open http://localhost:7680
 ```
 
 Unlike the rig-simulation harness below, this image runs exactly one process
@@ -25,7 +25,7 @@ none). GPU access works the same way as everything else in this directory:
 and `--gpus all`. The container binds `0.0.0.0` internally (a container's
 published port is its access control; the bare-metal loopback default would
 only make `-p` dead) — scope exposure with the `-p` flag, e.g.
-`-p 127.0.0.1:8005:8005` to keep it host-local.
+`-p 127.0.0.1:7680:7680` to keep it host-local.
 
 Build locally instead of pulling: `docker build -f docker/Dockerfile -t
 potionui .` from the repo root.
@@ -51,7 +51,7 @@ directly still works and is what the CLI wraps:
 docker compose -f docker/docker-compose.yml up rig-mid    # 32GB RAM / 8 CPU / 16GB "VRAM"
 docker compose -f docker/docker-compose.yml up rig-small  # 16GB RAM / 4 CPU /  8GB "VRAM"
 
-# open http://localhost:3001 (rig-mid) or http://localhost:3002 (rig-small)
+# open http://localhost:7681 (rig-mid) or http://localhost:7683 (rig-small)
 ```
 
 What it does, honestly — no dev shortcuts a real user wouldn't also get:
@@ -144,7 +144,7 @@ above, but runs a single throwaway container instead of the persistent
 - **Ports**: frontend on `POTIONUI_SANDBOX_PORT` (default `8065`), backend API
   on `POTIONUI_SANDBOX_BACKEND_PORT` (default frontend port + 1, i.e. `8066`).
   Both are host-side only - the container's internal ports stay the
-  Dockerfile's defaults (`3001`/`8005`).
+  Dockerfile's defaults (`7681`/`7680`).
 - **GPU**: same as the rig-simulation harness - requires
   `nvidia-container-toolkit` (`--gpus all`); no CPU-only fallback.
 - Ctrl-C stops the container; the `trap`/`--rm` combination is what actually

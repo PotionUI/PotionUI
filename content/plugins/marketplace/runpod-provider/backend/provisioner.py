@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 #: Fixed defaults with no admin-facing field. `container_disk_gb` is scratch
 #: space, unrelated to the persistent network volume `volume_size_gb`.
-_WORKER_PORT = 8100
+_WORKER_PORT = 7690
 _CONTAINER_DISK_GB = 20
 
 #: `gpuAvailability.stockStatus` values that mean "don't offer this GPU" -

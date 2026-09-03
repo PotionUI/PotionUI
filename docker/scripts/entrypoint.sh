@@ -44,4 +44,4 @@ echo " Starting PotionUI (run.sh --lan: binds 0.0.0.0 so the container's"
 echo " published ports are reachable from the host)"
 echo "================================================================"
 
-exec ./run.sh "${BACKEND_PORT:-8005}" "${FRONTEND_PORT:-3001}" --lan
+exec ./run.sh "${BACKEND_PORT:-7680}" "${FRONTEND_PORT:-7681}" --lan

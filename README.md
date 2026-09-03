@@ -263,7 +263,7 @@ git clone https://github.com/PotionUI/PotionUI.git potionui && cd potionui
 | Docker                      | Supported — see below (on Windows, Docker Desktop runs this via WSL2)                       |
 
 ```bash
-docker run --gpus all -p 8005:8005 ghcr.io/potionui/potionui:latest
+docker run --gpus all -p 7680:7680 ghcr.io/potionui/potionui:latest
 ```
 
 Requires an NVIDIA GPU +
@@ -281,20 +281,20 @@ setup:
 python -m venv venv
 source venv/bin/activate          # Windows: run inside WSL2 (native isn't supported yet)
 pip install -r requirements.txt -c constraints.txt
-python api.py                     # serves on http://localhost:8005
+python api.py                     # serves on http://localhost:7680
 
 # Frontend
 cd frontend
 npm install
-npm run dev                       # dev server on http://localhost:3001
+npm run dev                       # dev server on http://localhost:7681
 ```
 
 Or run both together with `./run.sh` (assumes the venv and `node_modules` are
 already installed — `./potionui start` does not):
 
 ```bash
-./run.sh                          # backend :8005, frontend :3001
-./run.sh 8005 3001 --lan          # also accept connections from the local network
+./run.sh                          # backend :7680, frontend :7681
+./run.sh 7680 7681 --lan          # also accept connections from the local network
 ```
 
 ## Documentation

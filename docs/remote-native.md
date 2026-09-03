@@ -53,7 +53,7 @@ scaled down to what a worker actually needs.
 | `POTIONUI_WORKER_ID` | no | generated once | Stable id to report in the handshake. |
 | `POTIONUI_WORKER_PROVIDER` | no | `manual` | Opaque provider name (core never enumerates legal values). |
 | `POTIONUI_WORKER_HOST` | no | `127.0.0.1` | Bind address. Never defaults to `0.0.0.0`. |
-| `POTIONUI_WORKER_PORT` | no | `8100` | Bind port. |
+| `POTIONUI_WORKER_PORT` | no | `7690` | Bind port. |
 | `POTIONUI_WORKER_DEVICE` / `_DTYPE` / `_VRAM_GB` | no | probed | Override what the worker injects into every pipe's config - see "Device injection" below. |
 | `POTIONUI_BUILD_ID` | no | none | Fed into `compute_build_fingerprint`; absent degrades to a protocol-version-only fingerprint. |
 | `POTIONUI_WORKER_MODEL_DIR` | no | `/models` | Model depot root. Models are looked up at `<root>/<type directory>/<filename>` - the same one-folder-per-type layout as the host's models folder (`src/platform/filesystem/model_types.py`). Files placed there by hand are found as long as the filename matches; a `.digest` sidecar is written on first inventory. |

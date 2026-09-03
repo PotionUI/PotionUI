@@ -13,7 +13,7 @@ never settle) that an HTTP assertion can't see. Each run:
        a. Boots one throwaway backend (`ThrowawayApp`, port >= 8055, temp
           DB/storage, read-only depot mirror).
        b. Serves the build with `vite preview` on an ephemeral port
-          (>= 4173, never 3001), with /api + /health + /ws proxied to the
+          (>= 4173, never 7681), with /api + /health + /ws proxied to the
           throwaway backend (see the `preview` block in
           frontend/vite.config.ts).
        c. Runs `npx playwright test` for just that chunk's specs, watching

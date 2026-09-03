@@ -82,6 +82,6 @@ RUN chmod +x ./potionui ./run.sh docker/scripts/entrypoint.sh \
 
 # Backend + frontend dev-server ports (see run.sh). Published/consumed via
 # docker-compose.yml's rig profiles.
-EXPOSE 8005 3001
+EXPOSE 7680 7681
 
 ENTRYPOINT ["docker/scripts/entrypoint.sh"]

@@ -8,7 +8,7 @@ can walk a Phase-3 setup recipe through to completion - including the
 owner-consent gate in front of any download - and can produce a real image on
 a real GPU. It is the fast inner loop for iterating on the onboarding flow
 without spinning up Docker and without ever touching a real running
-instance (ports 8005/3001) or its data.
+instance (ports 7680/7681) or its data.
 
 Everything below runs against a BRAND NEW, throwaway instance:
 
@@ -19,7 +19,7 @@ Everything below runs against a BRAND NEW, throwaway instance:
   - a real models directory, mirrored read-only (each file is
     symlinked in, never copied - the depot itself is never written to; new
     downloads land as ordinary new files in the mirror)
-  - a backend subprocess on its own port (default 8055), never 8005
+  - a backend subprocess on its own port (default 8055), never 7680
 
 Usage:
 

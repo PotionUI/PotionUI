@@ -400,7 +400,7 @@ async def test_provision_returns_connection_details_with_handle_as_profile_name(
 
     assert result.handle == "prof-1"
     assert result.resource_ref == "pod-1"
-    assert result.base_url.startswith("https://pod-1-8100.proxy.runpod.net")
+    assert result.base_url.startswith("https://pod-1-7690.proxy.runpod.net")
     assert result.worker_token
     assert result.ready is True
 

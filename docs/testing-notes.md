@@ -231,7 +231,7 @@ failure is fixed.
 `tests/install/run.py` proves `./potionui start` actually works for each
 install profile (`local`, `hybrid`, `remote`) plus the `worker` preset, on a
 throwaway checkout — never the maintainer's working tree, venv, or ports
-3001/8005. `tests/install/test_run.py` covers its pure logic (directory
+7681/7680. `tests/install/test_run.py` covers its pure logic (directory
 exclusion, port picking, the phase-stop-on-failure state machine, report
 shape) and runs as part of the normal suite:
 

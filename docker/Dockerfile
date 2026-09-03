@@ -2,7 +2,7 @@
 #
 # The single-process production deployment: the backend serves the built
 # SvelteKit SPA itself (src/bootstrap/static_frontend.py), so the container
-# runs exactly one process (`python api.py`) on exactly one port (8005).
+# runs exactly one process (`python api.py`) on exactly one port (7680).
 # Unlike Dockerfile.dev — which runs the dev servers under `run.sh` to
 # simulate a contributor's machine — this image ships a prebuilt frontend
 # and no node runtime at all.
@@ -11,7 +11,7 @@
 #   docker build -f docker/Dockerfile -t potionui .
 #
 # Run (same GPU story as Dockerfile.dev: nvidia-container-toolkit, --gpus all):
-#   docker run --gpus all -p 8005:8005 \
+#   docker run --gpus all -p 7680:7680 \
 #     -v potionui-models:/app/models \
 #     -v potionui-storage:/app/storage \
 #     -v potionui-outputs:/app/outputs \
@@ -90,11 +90,11 @@ RUN mkdir -p storage models outputs
 # a bare-metal install (see api.py) would only make the published port dead.
 ENV POTIONUI_HOST=0.0.0.0
 
-EXPOSE 8005
+EXPOSE 7680
 
 # First boot runs migrations and builds caches — give it a generous grace
 # period before health flapping restarts anything.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
-    CMD curl -fsS http://127.0.0.1:8005/health || exit 1
+    CMD curl -fsS http://127.0.0.1:7680/health || exit 1
 
 CMD ["venv/bin/python", "api.py"]

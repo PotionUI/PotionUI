@@ -226,7 +226,7 @@ selectors assert the pre-rework dock anatomy (`div.border-warning\/35`,
 failure is fixed.
 
 
-## Install matrix (`./potionui start`, local-only — not a CI gate)
+## Install matrix (`./potionui start`; CI runs `remote` for real, `local`/`hybrid`/`worker` stay local-only)
 
 `tests/install/run.py` proves `./potionui start` actually works for each
 install profile (`local`, `hybrid`, `remote`) plus the `worker` preset, on a
@@ -239,7 +239,9 @@ shape) and runs as part of the normal suite:
 PYTHONPATH=./venv/lib/python3.12/site-packages:. python -m pytest tests/install -q --no-cov
 ```
 
-The real end-to-end run is maintainer-triggered only, and defaults to
+CI also runs `--profiles remote` for real on every push/PR
+(`install-smoke-remote` in `.github/workflows/onboarding-smoke.yml`).
+Locally, the same run is maintainer-triggered only, and defaults to
 `--profiles remote` (CPU-only torch, no CUDA download) so it's safe to run
 without a GPU:
 

@@ -1,0 +1,85 @@
+# Manual real-boot check for the distribution image (docker/Dockerfile):
+# builds it locally (no push), runs the container with no GPU on :8005,
+# waits for /health, dumps its logs, then tears it down.
+#
+# workflow_dispatch only, deliberately never on push/pull_request: the image
+# is CUDA-runtime-based and multi-GB to build (same story as
+# docker-publish.yml), and no GitHub-hosted runner has an NVIDIA GPU, so this
+# only proves the process comes up and answers /health - not that generation
+# itself works. Trigger it by hand from the Actions tab after touching
+# docker/Dockerfile, requirements.txt, or constraints.txt.
+#
+# Kept out of onboarding-smoke.yml so that push/pull_request gate stays fast
+# and its `on:` block stays a plain push+pull_request pair.
+
+name: docker smoke (manual)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docker-smoke:
+    name: build + boot docker/Dockerfile (no GPU, no push)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # Same rationale as docker-publish.yml: the CUDA torch stack makes this
+      # a >10GB build and the default runner only has ~20GB free.
+      - name: Free runner disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+            /usr/local/.ghcup /usr/share/swift /opt/hostedtoolcache/CodeQL
+          sudo docker system prune -af
+          df -h /
+
+      - uses: docker/setup-buildx-action@v3
+
+      # `load: true` (not `push: true`) puts the built image into the local
+      # docker daemon so the next step can `docker run` it, without ever
+      # touching a registry.
+      - name: Build image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: potionui-smoke:local
+
+      # POTIONUI_HOST=0.0.0.0 matches the image's own default (see
+      # docker/Dockerfile) - set explicitly here for clarity, not because
+      # it's required. No --gpus flag: this runner has no NVIDIA GPU, and
+      # the image's HEALTHCHECK/​`/health` don't require one to come up.
+      - name: Run container (no GPU)
+        run: |
+          docker run -d --name potionui-smoke \
+            -e POTIONUI_HOST=0.0.0.0 \
+            -p 8005:8005 \
+            potionui-smoke:local
+
+      - name: Wait for /health
+        run: |
+          deadline=$((SECONDS + 300))
+          until curl -fsS http://127.0.0.1:8005/health; do
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "container never became healthy within 5 minutes" >&2
+              docker logs potionui-smoke || true
+              exit 1
+            fi
+            sleep 5
+          done
+
+      - name: Dump container logs
+        if: always()
+        run: docker logs potionui-smoke || true
+
+      - name: Stop + remove container
+        if: always()
+        run: docker rm -f potionui-smoke || true

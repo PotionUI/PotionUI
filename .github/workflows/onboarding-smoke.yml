@@ -5,16 +5,25 @@ name: Onboarding smoke gate
 # - frontend installs and builds.
 # - requirements.txt / requirements-dev.txt resolve against constraints.txt.
 #
-# What this does NOT do: boot the real backend. `src/bootstrap/container.py`
-# imports `GpuManager`, which does `import torch` at module level, so
-# `build_container()` (and therefore `api.py`) transitively requires the full
-# ML stack before any preset is ever selected — there is no lazy-import seam
-# today that would let a CPU-only/API-only subset boot standalone. Splitting
-# that out was evaluated and explicitly deferred for 0.0.1 (see the
-# "Feasibility note" in constraints.txt). Until that lands,
-# `pip install --dry-run` is as close as this gate gets to validating the
-# backend dependency set without installing multi-GB CUDA wheels on a
-# free-tier runner.
+# What `doctor`/`backend-deps-resolve` do NOT do: boot the real backend.
+# `src/bootstrap/container.py` imports `GpuManager`, which does `import torch`
+# at module level, so `build_container()` (and therefore `api.py`)
+# transitively requires the full ML stack before any preset is ever selected
+# — there is no lazy-import seam today that would let a CPU-only/API-only
+# subset boot standalone. Splitting that out was evaluated and explicitly
+# deferred for 0.0.1 (see the "Feasibility note" in constraints.txt). Until
+# that lands, `pip install --dry-run` is as close as those two jobs get to
+# validating the backend dependency set without installing multi-GB CUDA
+# wheels on a free-tier runner.
+#
+# `install-smoke-remote` below closes part of that gap for the one profile
+# that fits a free-tier runner: `./potionui start --profile remote` installs
+# `requirements-cpu.txt` against PyTorch's CPU wheel index (no CUDA), so
+# `tests/install/run.py --profiles remote` really does boot `api.py`,
+# register an owner, and list presets against a live backend on a throwaway
+# checkout. `local`/`hybrid`/`worker` still pull the full CUDA stack and stay
+# maintainer-triggered only (see `docs/testing-notes.md`'s Install matrix
+# section).
 #
 # TODO(post-0.0.1): once a CPU-only / lazy-torch profile exists, replace the
 # dry-run resolve job below with a real `pip install` + `python -c "import
@@ -192,3 +201,81 @@ jobs:
       # future change in that auto-detection logic.)
       - name: python tests/release/release_gate.py --skip-gpu
         run: python tests/release/release_gate.py --skip-gpu
+
+  install-smoke-remote:
+    name: install smoke (remote profile, real boot)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The dev-flow path below (see "Install matrix" step) runs `npm
+      # install` + `npm run dev` inside the throwaway checkout; npm's own
+      # cache dir (~/.npm) is content-addressed and shared regardless of
+      # which directory `npm install` runs from, so caching it here on
+      # frontend/package-lock.json still pays off even though the install
+      # happens in a different checkout.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Ensure ./potionui is executable
+        run: chmod +x ./potionui
+
+      # tests/install/run.py only needs `requests` importable in this
+      # (invoking) interpreter - the throwaway checkout it materializes
+      # builds its own venv and installs the backend's real dependencies
+      # there, isolated from this one.
+      - name: Install harness dependency (requests)
+        run: pip install requests
+
+      # The harness's own pip installs happen inside the throwaway
+      # checkout's venv with PIP_CACHE_DIR forced to <root>/pip-cache (it
+      # always overrides that var - see tests/install/run.py's
+      # `run_profile`), so actions/setup-python's built-in `cache: pip`
+      # would target the unrelated default ~/.cache/pip and cache nothing
+      # useful here. Cache the actual directory instead, keyed on
+      # requirements-cpu.txt (the file that pins what gets downloaded).
+      - name: Cache pip downloads for the throwaway checkout
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/potionui-install-smoke/pip-cache
+          key: install-smoke-remote-pip-${{ hashFiles('requirements-cpu.txt') }}
+          restore-keys: |
+            install-smoke-remote-pip-
+
+      # Real boot, end to end, of the `remote` install profile: materialize
+      # a throwaway checkout via `git archive` (never this checkout's venv,
+      # frontend/, or ports 3001/8005), `doctor --json`, `./potionui start`,
+      # /health, the unclaimed-instance claim token, owner registration, a
+      # presets listing, `status`, `stop`, and confirm the process tree is
+      # actually gone - see tests/install/run.py's module docstring for the
+      # full phase list. A git-archive checkout never has frontend/build/
+      # (gitignored), so `frontend_build_is_fresh()` is always false and
+      # `./potionui start` falls back to its two-process dev flow (backend +
+      # `npm run dev`) on its own, without any extra flag here - the
+      # cheapest path that still proves a real backend boot against /health,
+      # owner registration, and the preset catalog.
+      - name: Install matrix (remote profile) - real boot
+        run: |
+          python tests/install/run.py \
+            --profiles remote \
+            --from-git HEAD \
+            --root "${{ runner.temp }}/potionui-install-smoke" \
+            --json report.json
+
+      - name: Upload install-smoke report + logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: install-smoke-remote-report
+          path: |
+            report.json
+            ${{ runner.temp }}/potionui-install-smoke/logs-remote/
+          retention-days: 14

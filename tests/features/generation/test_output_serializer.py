@@ -136,6 +136,41 @@ class TestGenerationOutputSerializer(unittest.TestCase):
         self.assertEqual(result['current_step_num'], 1)
         self.assertEqual(result['total_steps'], 3)
 
+    def test_serialize_progress_output_carries_backend_when_offered(self):
+        """The serializer attaches `backend` to a `generation_status` message
+        only when the caller offers one (routes.py offers it until the
+        generation's first such message is actually sent)."""
+        mapper = GenerationOutputSerializer(
+            generation_id=self.generation_id,
+            preset_id=self.preset_id,
+            backend={'id': 'backend-1', 'name': 'Local Backend', 'routing_reason': 'default backend'},
+        )
+
+        result = mapper.serialize_output(ProgressGenerationOutput(state="Generating image"))
+
+        self.assertEqual(result['backend'], {
+            'id': 'backend-1', 'name': 'Local Backend', 'routing_reason': 'default backend',
+        })
+
+    def test_serialize_progress_output_omits_backend_by_default(self):
+        result = self.mapper.serialize_output(ProgressGenerationOutput(state="Generating image"))
+
+        self.assertNotIn('backend', result)
+
+    def test_serialize_non_status_output_ignores_backend(self):
+        """`backend` is a `generation_status`-only field - an output that
+        resolves to a different message type must not carry it, even when
+        one is offered."""
+        mapper = GenerationOutputSerializer(
+            generation_id=self.generation_id,
+            preset_id=self.preset_id,
+            backend={'id': 'backend-1', 'name': 'Local Backend', 'routing_reason': None},
+        )
+
+        result = mapper.serialize_output(SeedGenerationOutput(index=0, seed=123))
+
+        self.assertNotIn('backend', result)
+
     def test_serialize_progress_output_without_a_fraction_stays_none(self):
         """A stage with no progress fraction yet (e.g. a cold model load with
         no per-component breakdown) must serialize to `progress: None`, not

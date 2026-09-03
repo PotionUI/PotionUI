@@ -122,6 +122,22 @@ class TestAdminGenerationsController(PersistenceTestBase):
         self.assertEqual(report['prompt_template'], "a cat")
         self.assertEqual(len(report['artifacts']), 1)
 
+    def test_get_generation_includes_routing_decision(self):
+        trace = {
+            "chosen": {"backend_id": "b1", "backend_name": "Local", "reason": "default backend for this engine"},
+            "candidates": [{"backend_id": "b1", "backend_name": "Local", "dropped": False, "reasons": []}],
+            "rule_trace": [{"rule": "enabled_for_engine", "before": 0, "after": 1, "ms": 0.01}],
+        }
+        self.generation_repo.update_routing_decision(self.gen_a.id, trace)
+
+        response = asyncio.run(self.controller.admin_get_generation(self.gen_a.id))
+
+        self.assertEqual(response.data['generation']['routing'], trace)
+
+    def test_get_generation_routing_is_null_when_no_decision_was_captured(self):
+        response = asyncio.run(self.controller.admin_get_generation(self.gen_b.id))
+        self.assertIsNone(response.data['generation']['routing'])
+
     def test_get_generation_report_is_null_when_never_flushed(self):
         response = asyncio.run(self.controller.admin_get_generation(self.gen_b.id))
         self.assertIsNone(response.data['run_report'])

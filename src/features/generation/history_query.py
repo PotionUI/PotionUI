@@ -557,6 +557,11 @@ class GenerationHistoryQuery:
         segments = generation_segment_repo.get_by_generation(generation_id)
         generation_data['segments'] = [segment.to_dict() for segment in segments]
 
+        # The router's decision trace, if one was captured at creation - see
+        # `GenerationOrchestrator.start_generation`. `None` for a generation
+        # started with no router wired, or one predating migration 009.
+        generation_data['routing'] = generation.routing_decision
+
         # Fetch and include tags (get_history's list path already does this;
         # this by-id path never did, so every detail fetch reported no tags).
         from src.features.tags.repository import tag_repo

@@ -302,6 +302,53 @@ class TestGetById:
         with pytest.raises(GenerationNotFoundException):
             self.manager.get_by_id("gen-123", "user-123")
 
+    @patch('src.features.tags.repository.tag_repo')
+    @patch('src.features.generation.segment_repository.generation_segment_repo')
+    @patch('src.features.generation.parameter_repository.generation_parameter_repo')
+    @patch('src.features.generation.model_repository.generation_model_repo')
+    def test_get_by_id_includes_routing_decision(
+        self, mock_model_repo, mock_param_repo, mock_segment_repo, mock_tag_repo
+    ):
+        """The router's decision trace, when captured at creation, surfaces
+        under `routing`."""
+        mock_gen = Mock()
+        routing_decision = {
+            'chosen': {'backend_id': 'b1', 'backend_name': 'Local', 'reason': 'default backend for this engine'},
+            'candidates': [{'backend_id': 'b1', 'backend_name': 'Local', 'dropped': False, 'reasons': []}],
+            'rule_trace': [{'rule': 'enabled_for_engine', 'before': 0, 'after': 1, 'ms': 0.01}],
+        }
+        mock_gen.to_dict.return_value = {"id": "gen-123"}
+        mock_gen.routing_decision = routing_decision
+        self.mock_repo.get_by_id.return_value = mock_gen
+        mock_param_repo.get_by_generation.return_value = []
+        mock_model_repo.get_by_generation.return_value = []
+        mock_segment_repo.get_by_generation.return_value = []
+        mock_tag_repo.get_generation_tags.return_value = []
+
+        result = self.manager.get_by_id("gen-123", "user-123")
+
+        assert result["routing"] == routing_decision
+
+    @patch('src.features.tags.repository.tag_repo')
+    @patch('src.features.generation.segment_repository.generation_segment_repo')
+    @patch('src.features.generation.parameter_repository.generation_parameter_repo')
+    @patch('src.features.generation.model_repository.generation_model_repo')
+    def test_get_by_id_routing_none_when_no_decision_was_captured(
+        self, mock_model_repo, mock_param_repo, mock_segment_repo, mock_tag_repo
+    ):
+        mock_gen = Mock()
+        mock_gen.to_dict.return_value = {"id": "gen-123"}
+        mock_gen.routing_decision = None
+        self.mock_repo.get_by_id.return_value = mock_gen
+        mock_param_repo.get_by_generation.return_value = []
+        mock_model_repo.get_by_generation.return_value = []
+        mock_segment_repo.get_by_generation.return_value = []
+        mock_tag_repo.get_generation_tags.return_value = []
+
+        result = self.manager.get_by_id("gen-123", "user-123")
+
+        assert result["routing"] is None
+
 
 class TestDelete:
     """Tests for delete method."""

@@ -342,6 +342,32 @@ class TestGenerationRepository(PersistenceTestBase):
         success = self.repo.update_preset_version("nonexistent_id", "2.3")
         self.assertFalse(success)
 
+    def test_update_routing_decision_round_trips(self):
+        """The router's decision trace persists and reads back intact."""
+        created = self.repo.create(self.test_generation)
+        trace = {
+            "chosen": {"backend_id": "b1", "backend_name": "Local", "reason": "default backend for this engine"},
+            "candidates": [
+                {"backend_id": "b1", "backend_name": "Local", "dropped": False, "reasons": []},
+                {"backend_id": "b2", "backend_name": "Comfy", "dropped": True, "reasons": ["missing requirement(s): X"]},
+            ],
+            "rule_trace": [{"rule": "enabled_for_engine", "before": 0, "after": 2, "ms": 0.04}],
+        }
+
+        success = self.repo.update_routing_decision(created.id, trace)
+        self.assertTrue(success)
+
+        updated = self.repo.get_by_id(created.id)
+        self.assertEqual(updated.routing_decision, trace)
+
+    def test_generation_without_routing_decision_reads_back_none(self):
+        """A generation started with no router wired never gets the column set."""
+        created = self.repo.create(self.test_generation)
+
+        fetched = self.repo.get_by_id(created.id)
+
+        self.assertIsNone(fetched.routing_decision)
+
     def test_delete(self):
         """Test deleting generation"""
         created = self.repo.create(self.test_generation)

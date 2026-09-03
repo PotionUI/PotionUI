@@ -129,6 +129,12 @@ class Generation:
     # generations" provenance). No FK: a deleted prompt must not break
     # generation history, so a dangling id simply resolves to nothing.
     source_prompt_id: Optional[str] = None
+    # The router's `RoutingDecision.to_trace_dict()` (plus a `reason` on
+    # `chosen`), captured at creation. `None` for a generation started with no
+    # router wired, or one that predates migration 009. Never surfaced by
+    # `to_dict()` - a history list response would otherwise carry every row's
+    # full rule trace; `history_query.get_by_id` reads it directly.
+    routing_decision: Optional[Dict[str, Any]] = None
     rating: int = 0
     is_favorite: bool = False
     created_at: Optional[datetime] = None
@@ -163,6 +169,10 @@ class Generation:
             prompt_state=json.loads(row['prompt_state']) if row['prompt_state'] else None,
             form_name=row_get(row, 'form_name'),
             source_prompt_id=row_get(row, 'source_prompt_id'),
+            routing_decision=(
+                json.loads(row_get(row, 'routing_decision'))
+                if row_get(row, 'routing_decision') else None
+            ),
             rating=row_get(row, 'rating', 0),
             is_favorite=bool(row_get(row, 'is_favorite', 0)),
             duration_ms=row_get(row, 'duration_ms'),

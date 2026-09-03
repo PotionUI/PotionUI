@@ -64,6 +64,38 @@ export interface Tag {
 	created_at: string;
 }
 
+/** One candidate the router considered for a generation - kept (`dropped: false`)
+ *  or dropped, either way with the rule-added reasons that explain why. */
+export interface RoutingCandidate {
+	backend_id: string;
+	backend_name: string;
+	dropped: boolean;
+	reasons: string[];
+}
+
+/** One rule's contribution to a routing decision - how many live candidates
+ *  existed before/after it ran, and how long it took. */
+export interface RoutingRuleTraceEntry {
+	rule: string;
+	before: number;
+	after: number;
+	ms: number;
+}
+
+/** `GenerationRouter.route()`'s decision trace, persisted verbatim on the
+ *  generation row (migration 009) and surfaced by the history detail
+ *  endpoint as `routing`. `null` for a generation started with no router
+ *  wired, or one that predates the migration. */
+export interface RoutingDecision {
+	chosen: {
+		backend_id: string;
+		backend_name: string;
+		reason: string | null;
+	};
+	candidates: RoutingCandidate[];
+	rule_trace: RoutingRuleTraceEntry[];
+}
+
 export interface GenerationHistoryItem {
 	id: string;
 	preset_id?: string | null;
@@ -94,6 +126,9 @@ export interface GenerationHistoryItem {
 	 *  actually rolled for a `-1` submission is never persisted, so `-1`
 	 *  round-trips as `-1` on reuse. */
 	seed?: number | null;
+	/** The router's decision trace for this generation, or `null`/absent
+	 *  when none was captured. */
+	routing?: RoutingDecision | null;
 }
 
 /** The reusable-settings slice of an imported generation bundle — same shape

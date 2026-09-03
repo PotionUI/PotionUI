@@ -13,6 +13,7 @@
 	import { Badge, EmptyState } from '$lib/components/ui';
 	import GenerationDetailHeader from './GenerationDetailHeader.svelte';
 	import GenerationStatTiles from './GenerationStatTiles.svelte';
+	import GenerationRoutingPanel from './GenerationRoutingPanel.svelte';
 	import GenerationPipeTimeline from './GenerationPipeTimeline.svelte';
 	import GenerationOutputsGrid from './GenerationOutputsGrid.svelte';
 	import GenerationArtifactsGrid from './GenerationArtifactsGrid.svelte';
@@ -59,6 +60,10 @@
 <div class="space-y-4">
 	<GenerationDetailHeader {generation} {username} />
 	<GenerationStatTiles {generation} pipeCount={byPipe.size} />
+
+	{#if generation.routing}
+		<GenerationRoutingPanel routing={generation.routing} />
+	{/if}
 
 	{#if report && hasTimelineData}
 		<GenerationPipeTimeline {report} {groupedEntries} runStart={generation.created_at} {runEnd} {failedPipeKey} />

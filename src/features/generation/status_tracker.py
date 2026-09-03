@@ -39,6 +39,16 @@ class GenerationRecord:
     id: str
     preset_id: Optional[str] = None
     backend_id: Optional[str] = None
+    # Set alongside `backend_id` when a router picked it - see
+    # `GenerationOrchestrator.start_generation`. `None` when no router is
+    # wired.
+    backend_name: Optional[str] = None
+    routing_reason: Optional[str] = None
+    # Flips true once a `generation_status` message has actually carried
+    # `backend` - see `GenerationController._broadcast_generation_output`.
+    # Read/written without the tracker's lock: a duplicate send from a race
+    # is harmless, unlike a missed one.
+    backend_info_sent: bool = False
     user_id: Optional[str] = None
     tab_id: Optional[str] = None
     state: GenerationState = GenerationState.PENDING
@@ -93,6 +103,8 @@ class GenerationStatusTracker:
         id: str,
         preset_id: Optional[str] = None,
         backend_id: Optional[str] = None,
+        backend_name: Optional[str] = None,
+        routing_reason: Optional[str] = None,
         user_id: Optional[str] = None,
         tab_id: Optional[str] = None,
     ) -> GenerationRecord:
@@ -100,6 +112,8 @@ class GenerationStatusTracker:
             id=id,
             preset_id=preset_id,
             backend_id=backend_id,
+            backend_name=backend_name,
+            routing_reason=routing_reason,
             user_id=user_id,
             tab_id=tab_id,
         )

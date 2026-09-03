@@ -703,6 +703,7 @@ class GenerationOrchestrator:
                 backend = decision.chosen
                 routing_summary = decision.summary()
             else:
+                decision = None
                 backend = self.backend_registry.select_backend_for_generation(
                     engine=engine, backend_id=backend_id,
                 )
@@ -807,6 +808,18 @@ class GenerationOrchestrator:
             generation_repo.create(db_generation)
             logger.debug(f"Created database record for generation {generation_id}")
 
+            # Persist the router's decision trace for the history detail
+            # "Routing" section. `decision` is only set when a router is
+            # wired (see backend selection above) - most existing tests and
+            # any deployment without one never reach this.
+            if decision is not None:
+                try:
+                    trace = decision.to_trace_dict()
+                    trace['chosen']['reason'] = routing_summary['reason'] if routing_summary else None
+                    generation_repo.update_routing_decision(generation_id, trace)
+                except Exception as e:
+                    logger.warning(f"Failed to persist routing decision for {generation_id}: {e}")
+
             # Persist the provenance links validated above, now that
             # generation_id exists for them to point at.
             if generation_origins:
@@ -867,6 +880,8 @@ class GenerationOrchestrator:
                 id=generation_id,
                 preset_id=request.preset_id,
                 backend_id=backend.backend_id,
+                backend_name=backend.name,
+                routing_reason=routing_summary['reason'] if routing_summary else None,
                 user_id=user_id,
                 tab_id=getattr(request, 'tab_id', None),
             )

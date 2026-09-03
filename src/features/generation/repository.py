@@ -1,3 +1,4 @@
+import json
 import re
 from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime, timezone
@@ -568,6 +569,18 @@ class GenerationRepository:
                     (status, generation_id)
                 )
 
+            return cursor.rowcount > 0
+
+    def update_routing_decision(self, generation_id: str, routing_decision: Dict[str, Any]) -> bool:
+        """Record the router's decision trace for this generation. Best-effort,
+        same call shape as `update_preset_version` - the caller wraps this in
+        its own try/except so a serialization hiccup never fails the run."""
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            cursor.execute(
+                "UPDATE generations SET routing_decision = ? WHERE id = ?",
+                (json.dumps(routing_decision), generation_id)
+            )
             return cursor.rowcount > 0
 
     def update_preset_version(self, generation_id: str, preset_version: str) -> bool:

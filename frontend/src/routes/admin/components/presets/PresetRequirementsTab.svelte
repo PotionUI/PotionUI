@@ -7,11 +7,12 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { Badge, Button, EmptyState, IconButton, Spinner } from '$lib/components/ui';
-	import type { RequirementResultInfo, RequirementStatus } from '$lib/types/api';
+	import type { RequirementResultInfo } from '$lib/types/api';
 
 	export let presetId: string;
 
 	type SectionName = 'System' | 'Python' | 'Models' | 'Backend' | 'Other';
+	type Severity = 'ok' | 'warning' | 'danger';
 
 	// Requirement `type:` -> the section it groups under. Anything not listed
 	// here (a plugin-registered type this mapping doesn't know about yet)
@@ -27,16 +28,25 @@
 	};
 	const SECTION_ORDER: SectionName[] = ['System', 'Python', 'Models', 'Backend', 'Other'];
 
-	const STATUS_DOT: Record<RequirementStatus, string> = {
+	const SEVERITY_DOT: Record<Severity, string> = {
 		ok: 'bg-success',
-		missing: 'bg-danger',
-		unknown: 'bg-warning'
+		warning: 'bg-warning',
+		danger: 'bg-danger'
 	};
-	const STATUS_HINT: Record<RequirementStatus, string> = {
+	const SEVERITY_HINT: Record<Severity, string> = {
 		ok: '',
-		missing: 'text-danger',
-		unknown: 'text-warning'
+		warning: 'text-warning',
+		danger: 'text-danger'
 	};
+
+	// A `missing` optional entry is a soft warning, not a hard blocker - only a
+	// required (non-optional) miss is danger. `unknown` is always a warning
+	// (never "missing" - see RequirementStatus's docstring).
+	function severity(item: RequirementResultInfo): Severity {
+		if (item.status === 'ok') return 'ok';
+		if (item.status === 'unknown') return 'warning';
+		return item.optional ? 'warning' : 'danger';
+	}
 
 	let results: RequirementResultInfo[] = [];
 	let summary = { ok: 0, missing: 0, unknown: 0 };
@@ -71,10 +81,22 @@
 
 	$: sections = SECTION_ORDER.map((name) => {
 		const items = results.filter((result) => (SECTION_BY_TYPE[result.type || ''] || 'Other') === name);
-		const ok = items.filter((item) => item.status === 'ok').length;
-		const missing = items.filter((item) => item.status === 'missing').length;
+		const ok = items.filter((item) => severity(item) === 'ok').length;
+		const danger = items.filter((item) => severity(item) === 'danger').length;
+		// "unknown" (couldn't be checked) is kept apart from "optional missing" -
+		// they're both warning-severity, but only the former earns the "? N"
+		// badge treatment below.
 		const unknown = items.filter((item) => item.status === 'unknown').length;
-		return { name, items, ok, missing, unknown, hasProblem: missing > 0 || unknown > 0 };
+		const optionalMissing = items.filter((item) => item.status === 'missing' && item.optional).length;
+		return {
+			name,
+			items,
+			ok,
+			danger,
+			unknown,
+			optionalMissing,
+			hasProblem: danger > 0 || unknown > 0 || optionalMissing > 0
+		};
 	}).filter((section) => section.items.length > 0);
 
 	function isExpanded(section: { name: SectionName; hasProblem: boolean }): boolean {
@@ -214,10 +236,12 @@
 						/>
 						<span class="text-sm font-semibold text-fg">{section.name}</span>
 						<span class="flex-1"></span>
-						{#if section.missing > 0}
+						{#if section.danger > 0}
 							<Badge variant="danger" size="sm">{section.ok}/{section.items.length}</Badge>
 						{:else if section.unknown > 0}
 							<Badge variant="warning" size="sm">? {section.unknown}</Badge>
+						{:else if section.optionalMissing > 0}
+							<Badge variant="warning" size="sm">{section.ok}/{section.items.length}</Badge>
 						{:else}
 							<Badge variant="success" size="sm">{section.ok}/{section.items.length}</Badge>
 						{/if}
@@ -226,8 +250,9 @@
 					{#if isExpanded(section)}
 						<div class="px-3.5 py-1">
 							{#each section.items as item, index}
+								{@const itemSeverity = severity(item)}
 								<div class="flex items-start gap-2.5 py-2.5 {index > 0 ? 'border-t border-line' : ''}">
-									<span class="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 {STATUS_DOT[item.status]}"></span>
+									<span class="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 {SEVERITY_DOT[itemSeverity]}"></span>
 									<div class="min-w-0 flex-1">
 										<div class="flex items-baseline gap-2 flex-wrap">
 											<span class="font-mono text-sm font-semibold text-fg">{item.name || item.type || 'requirement'}</span>
@@ -235,7 +260,7 @@
 											{#if item.optional}<Badge variant="neutral" size="sm">optional</Badge>{/if}
 										</div>
 										{#if item.hint && item.status !== 'ok'}
-											<p class="text-xs mt-1 {STATUS_HINT[item.status]}">→ {item.hint}</p>
+											<p class="text-xs mt-1 {SEVERITY_HINT[itemSeverity]}">→ {item.hint}</p>
 										{/if}
 									</div>
 									{#if item.action}

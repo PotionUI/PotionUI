@@ -152,6 +152,35 @@ describe('PresetRequirementsTab', () => {
 		expect(buttons).toHaveLength(1);
 	});
 
+	it('renders a missing optional requirement as a warning, not a danger, with an optional microlabel', async () => {
+		vi.mocked(api.api.getPresetRequirements).mockResolvedValue(
+			mockResponse([
+				result({ type: 'binary', name: 'ffmpeg', detail: "'ffmpeg' found on PATH" }),
+				result({
+					type: 'python_package',
+					name: 'xformers>=0.0.28',
+					status: 'missing',
+					detail: "'xformers' is not installed",
+					hint: 'pip install xformers>=0.0.28',
+					optional: true
+				})
+			])
+		);
+
+		mounted = mount();
+		await settle();
+
+		expect(mounted.target.textContent).toContain('optional');
+		const dot = mounted.target.querySelector('.bg-warning.rounded-full');
+		expect(dot).toBeTruthy();
+		expect(mounted.target.querySelector('.bg-danger.rounded-full')).toBeFalsy();
+		const hint = Array.from(mounted.target.querySelectorAll('p')).find((p) =>
+			p.textContent?.includes('pip install xformers')
+		);
+		expect(hint?.className).toContain('text-warning');
+		expect(hint?.className).not.toContain('text-danger');
+	});
+
 	it('shows the unknown verdict when nothing is missing but something could not be checked', async () => {
 		vi.mocked(api.api.getPresetRequirements).mockResolvedValue(
 			mockResponse([

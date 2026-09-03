@@ -44,6 +44,27 @@ const ANALYZE_RESULT = {
 	default_history: []
 };
 
+const THREE_NODE_LORA_CHAIN = {
+	source_node_id: '4',
+	target_node_id: '3',
+	lora_node_ids: ['101', '102', '103'],
+	has_clip_path: false,
+	nodes: [
+		{ node_id: '101', class_type: 'LoraLoaderModelOnly', lora_name: 'a.safetensors', strength_model: 1, strength_clip: null },
+		{ node_id: '102', class_type: 'LoraLoaderModelOnly', lora_name: 'b.safetensors', strength_model: 1, strength_clip: null },
+		{ node_id: '103', class_type: 'LoraLoaderModelOnly', lora_name: 'c.safetensors', strength_model: 1, strength_clip: null }
+	]
+};
+
+const ANALYZE_RESULT_THREE_NODE_CHAIN = {
+	...ANALYZE_RESULT,
+	lora_chain: THREE_NODE_LORA_CHAIN,
+	candidates: [
+		...ANALYZE_RESULT.candidates,
+		{ node_id: '103', class_type: 'LoraLoaderModelOnly', node_title: 'LoRA 3', input_name: 'lora_name', current_value: 'c.safetensors', value_type: 'str', suggested_field_type: 'lora_picker', suggested_field_name: 'loras', suggested_label: 'LoRAs', suggested_config: {}, role: 'lora_slot' }
+	]
+};
+
 async function loadDist(): Promise<any> {
 	mkdirSync(STAGE_DIR, { recursive: true });
 	const staged = resolve(STAGE_DIR, `import-workflow-tab-lora-chain-${Math.random().toString(36).slice(2)}.mjs`);
@@ -82,11 +103,11 @@ afterEach(() => {
 	document.body.innerHTML = '';
 });
 
-async function mountOnFormStep(el: HTMLDivElement) {
+async function mountOnFormStep(el: HTMLDivElement, analyzeResult: unknown = ANALYZE_RESULT) {
 	const fetchMock = vi.fn(async (url: string) => {
 		if (url === '/api/fields/types') return jsonResponse({ success: true, data: [{ type: 'select', container: false }, { type: 'number', container: false }] });
 		if (url === '/api/plugins/comfyui-backend/presets/families') return jsonResponse({ families: [] });
-		if (url === '/api/plugins/comfyui-backend/presets/import/analyze') return jsonResponse(ANALYZE_RESULT);
+		if (url === '/api/plugins/comfyui-backend/presets/import/analyze') return jsonResponse(analyzeResult);
 		throw new Error(`Unexpected fetch: ${url}`);
 	});
 	vi.stubGlobal('fetch', fetchMock);
@@ -203,6 +224,36 @@ describe('ImportWorkflowTab LoRA chain card (real compiled dist)', () => {
 		// Both rows are individually mappable again.
 		expect(el.querySelector('[data-input-key="101:lora_name"]')).toBeTruthy();
 		expect(el.querySelector('[data-input-key="102:lora_name"]')).toBeTruthy();
+
+		unmount(instance);
+	});
+
+	it('keeping the middle node of a three-node chain fixed shows an inline error and disables Convert', async () => {
+		const el = target();
+		const instance = await mountOnFormStep(el, ANALYZE_RESULT_THREE_NODE_CHAIN);
+
+		// 101 and 103 stay destined for the picker; keeping 102 (the middle
+		// node) fixed sandwiches it between two to-be-replaced nodes.
+		el.querySelector<HTMLButtonElement>('[data-lora-chain-node="102"] [data-action="lora-keep-fixed"]')!.click();
+		await settle();
+
+		const error = el.querySelector('[data-lora-sandwich-error]');
+		expect(error).toBeTruthy();
+		expect(error?.textContent).toContain('Kept LoRA node 102 sits between replaced nodes 101 and 103');
+		expect(el.querySelector<HTMLButtonElement>('[data-action="convert-lora-picker"]')!.disabled).toBe(true);
+
+		unmount(instance);
+	});
+
+	it('bite check: keeping an end node of the three-node chain fixed is not sandwiched', async () => {
+		const el = target();
+		const instance = await mountOnFormStep(el, ANALYZE_RESULT_THREE_NODE_CHAIN);
+
+		el.querySelector<HTMLButtonElement>('[data-lora-chain-node="101"] [data-action="lora-keep-fixed"]')!.click();
+		await settle();
+
+		expect(el.querySelector('[data-lora-sandwich-error]')).toBeFalsy();
+		expect(el.querySelector<HTMLButtonElement>('[data-action="convert-lora-picker"]')!.disabled).toBe(false);
 
 		unmount(instance);
 	});

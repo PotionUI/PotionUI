@@ -347,3 +347,39 @@ def test_lora_picker_op_rejects_an_unknown_keep_fixed_node():
     result = run(tool.execute(_context(_wiz_with_lora_chain()), ops=ops))
     assert result.success is False
     assert "not in the detected chain" in result.error
+
+
+def _wiz_with_three_node_lora_chain(**overrides):
+    return _wiz(
+        lora_chain={
+            "nodes": [
+                {"node_id": "101", "class_type": "LoraLoaderModelOnly", "lora_name": "a.safetensors", "strength_model": 1.0},
+                {"node_id": "102", "class_type": "LoraLoaderModelOnly", "lora_name": "b.safetensors", "strength_model": 1.0},
+                {"node_id": "103", "class_type": "LoraLoaderModelOnly", "lora_name": "c.safetensors", "strength_model": 1.0},
+            ],
+            "replaced": [],
+            "kept": [],
+        },
+        **overrides,
+    )
+
+
+def test_lora_picker_op_rejects_a_kept_node_sandwiched_between_replaced_nodes():
+    """keep_fixed=["102"] leaves 102 kept while 101 and 103, on either side
+    of it, both become replaced - the shape a flat picker loop can't
+    represent (see schema._find_sandwiched_kept_nodes's docstring)."""
+    tool = ProposeFormChangesTool()
+    ops = [{"op": "lora_picker", "tab": "generation", "keep_fixed": ["102"]}]
+    result = run(tool.execute(_context(_wiz_with_three_node_lora_chain()), ops=ops))
+    assert result.success is False
+    assert "kept LoRA node 102 sandwiched between replaced nodes 101 and 103" in result.error
+
+
+def test_bite_check_keeping_an_end_node_is_not_sandwiched():
+    """Confirms the assertion above is really about being IN BETWEEN, not
+    merely coexisting with replaced nodes: keeping 101 (the source end)
+    fixed while replacing 102/103 must succeed."""
+    tool = ProposeFormChangesTool()
+    ops = [{"op": "lora_picker", "tab": "generation", "keep_fixed": ["101"]}]
+    result = run(tool.execute(_context(_wiz_with_three_node_lora_chain()), ops=ops))
+    assert result.success is True, result.error

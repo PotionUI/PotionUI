@@ -331,6 +331,52 @@ class TestLoraChainSelectionValidation:
         with pytest.raises(PresetEmitError, match="no detected LoRA chain"):
             validate_against_workflow(form, [], workflow)
 
+    def _three_node_chain_workflow(self):
+        """4 (checkpoint) -> 101 -> 102 -> 103 -> 3 (sampler), all
+        `LoraLoaderModelOnly` - a plain three-node chain for the
+        kept-sandwiched-between-replaced check below."""
+        return parse_api_workflow(
+            {
+                "4": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": "sdxlBase_v10.safetensors"}},
+                "101": {"class_type": "LoraLoaderModelOnly", "inputs": {"lora_name": "a.safetensors", "strength_model": 1.0, "model": ["4", 0]}},
+                "102": {"class_type": "LoraLoaderModelOnly", "inputs": {"lora_name": "b.safetensors", "strength_model": 1.0, "model": ["101", 0]}},
+                "103": {"class_type": "LoraLoaderModelOnly", "inputs": {"lora_name": "c.safetensors", "strength_model": 1.0, "model": ["102", 0]}},
+                "6": {"class_type": "CLIPTextEncode", "inputs": {"text": "a cat", "clip": ["4", 1]}},
+                "7": {"class_type": "CLIPTextEncode", "inputs": {"text": "blurry", "clip": ["4", 1]}},
+                "5": {"class_type": "EmptyLatentImage", "inputs": {"width": 512, "height": 512, "batch_size": 1}},
+                "3": {
+                    "class_type": "KSampler",
+                    "inputs": {
+                        "seed": 1, "steps": 20, "cfg": 7.0, "sampler_name": "euler", "scheduler": "normal",
+                        "denoise": 1.0, "model": ["103", 0], "positive": ["6", 0], "negative": ["7", 0],
+                        "latent_image": ["5", 0],
+                    },
+                },
+            }
+        )
+
+    def test_a_kept_node_between_two_replaced_nodes_is_rejected(self):
+        """102 is kept fixed while 101 and 103, on either side of it in
+        chain order, are both replaced - the shape a flat picker loop can't
+        represent (see `_find_sandwiched_kept_nodes`'s docstring)."""
+        workflow = self._three_node_chain_workflow()
+        form = self._lora_chain_form(
+            LoraChainSelection(replaced_node_ids=["101", "103"], kept_node_ids=["102"])
+        )
+        with pytest.raises(PresetEmitError, match="kept LoRA node 102 sits between replaced nodes 101 and 103"):
+            validate_against_workflow(form, [], workflow)
+
+    def test_bite_check_a_kept_node_at_either_end_is_not_sandwiched(self):
+        """Confirms the assertion above is really about being IN BETWEEN,
+        not merely coexisting with replaced nodes: keeping 101 (the source
+        end) fixed while replacing 102 and 103 is a perfectly ordinary,
+        already-tested shape and must not raise."""
+        workflow = self._three_node_chain_workflow()
+        form = self._lora_chain_form(
+            LoraChainSelection(replaced_node_ids=["102", "103"], kept_node_ids=["101"])
+        )
+        validate_against_workflow(form, [], workflow)  # must not raise
+
 
 # ----------------------------------------------------------------------
 # Prompts are never a choosable form field, even with no sampler to find

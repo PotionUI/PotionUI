@@ -65,6 +65,28 @@ def _slugify_tab_id(label: str) -> str:
     return slug or "tab"
 
 
+def _find_sandwiched_kept_nodes(
+    chain_nodes: List[Dict[str, Any]], replaced_ids: set, kept_ids: set
+) -> List[Tuple[str, str, str]]:
+    """`(kept_node_id, nearest_replaced_before, nearest_replaced_after)` for
+    every kept chain node with a replaced node both before AND after it in
+    `chain_nodes`' source -> target order (the same wire order
+    `buildImportChatContext` sends) - mirrors
+    `backend.preset_import.schema._find_sandwiched_kept_nodes` exactly, kept
+    as a separate copy since this module only ever sees the wizard's plain
+    wire-shape dicts, never the typed `suggest.LoraChainInfo`."""
+    order = [n.get("node_id") for n in chain_nodes]
+    sandwiched: List[Tuple[str, str, str]] = []
+    for i, node_id in enumerate(order):
+        if node_id not in kept_ids:
+            continue
+        before = next((order[j] for j in range(i - 1, -1, -1) if order[j] in replaced_ids), None)
+        after = next((order[j] for j in range(i + 1, len(order)) if order[j] in replaced_ids), None)
+        if before is not None and after is not None:
+            sandwiched.append((node_id, before, after))
+    return sandwiched
+
+
 def _iter_field_names_and_types(items: List[Dict[str, Any]]):
     for item in items or []:
         kind = item.get("kind")
@@ -355,6 +377,17 @@ def _validate_ops(
                 errors.append(
                     f"op {i} (lora_picker): 'keep_fixed' has node(s) not in the detected chain: "
                     f"{sorted(unknown_ids)}"
+                )
+                continue
+
+            replaced_ids = chain_node_ids - keep_fixed_set
+            sandwiched = _find_sandwiched_kept_nodes(chain_nodes, replaced_ids, keep_fixed_set)
+            if sandwiched:
+                node_id, before_id, after_id = sandwiched[0]
+                errors.append(
+                    f"op {i} (lora_picker): keep_fixed leaves kept LoRA node {node_id} sandwiched "
+                    f"between replaced nodes {before_id} and {after_id} - keep all LoRAs above it "
+                    "fixed too, or replace it"
                 )
                 continue
 

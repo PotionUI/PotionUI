@@ -126,6 +126,14 @@
 	let loraConverted = $derived(
 		!!form.lora_chain && !!loraPickerFieldName && allFields.some((f) => f.field_name === loraPickerFieldName && f.field_type === 'lora_picker')
 	);
+	// A kept node with a to-be-replaced node both before and after it (in
+	// chain order) is a shape the picker's flat loop can't represent - see
+	// backend.preset_import.schema._find_sandwiched_kept_nodes's docstring.
+	// Only meaningful pre-conversion, while `loraKeepFixed` is still being
+	// arranged; once converted the split is final and validated server-side.
+	let loraSandwichError = $derived(
+		loraConverted ? null : findSandwichedLoraNode(loraChainNodes, loraKeepFixed)
+	);
 	let leftGroups = $derived(
 		buildLeftGroups(
 			(analysis?.candidates || []).filter((c) => !loraReplacedIds.has(c.node_id)),
@@ -353,6 +361,30 @@
 		loraKeepFixed = next;
 	}
 
+	// `(kept_node_id, nearest_replaced_before, nearest_replaced_after)` for
+	// the first kept chain node with a to-be-replaced node both before AND
+	// after it in `nodes`' source -> target order, or `null` - mirrors
+	// backend.preset_import.schema._find_sandwiched_kept_nodes exactly (see
+	// its docstring for why this shape is rejected rather than silently
+	// dropping the kept node from the live compute path).
+	function findSandwichedLoraNode(nodes, keepFixedSet) {
+		const order = nodes.map((n) => n.node_id);
+		for (let i = 0; i < order.length; i++) {
+			const nodeId = order[i];
+			if (!keepFixedSet.has(nodeId)) continue;
+			let beforeId = null;
+			for (let j = i - 1; j >= 0; j--) {
+				if (!keepFixedSet.has(order[j])) { beforeId = order[j]; break; }
+			}
+			let afterId = null;
+			for (let j = i + 1; j < order.length; j++) {
+				if (!keepFixedSet.has(order[j])) { afterId = order[j]; break; }
+			}
+			if (beforeId !== null && afterId !== null) return { nodeId, beforeId, afterId };
+		}
+		return null;
+	}
+
 	// Shared by the wizard's own "Convert to LoRA picker" button and the
 	// assistant's `lora_picker` tool op (see applyImportFormChanges) - the
 	// only difference between the two call sites is where `keepFixedIds`
@@ -360,6 +392,7 @@
 	function applyLoraPickerConversion(tab, keepFixedIds, fieldNameHint) {
 		const nodes = loraChainNodes;
 		if (!tab || !nodes.length || loraConverted) return false;
+		if (findSandwichedLoraNode(nodes, keepFixedIds)) return false;
 		const replaced = nodes.filter((n) => !keepFixedIds.has(n.node_id));
 		const kept = nodes.filter((n) => keepFixedIds.has(n.node_id));
 		const fieldName = uniqueFieldName(fieldNameHint || 'loras');
@@ -1389,12 +1422,18 @@
 										</div>
 									</div>
 								{/each}
+								{#if loraSandwichError}
+									<p class="message message-error" data-lora-sandwich-error>
+										Kept LoRA node {loraSandwichError.nodeId} sits between replaced nodes {loraSandwichError.beforeId} and {loraSandwichError.afterId};
+										keep all LoRAs above it fixed too, or replace it.
+									</p>
+								{/if}
 								<div class="lora-chain-actions">
 									<button
 										type="button"
 										class="link-btn"
 										onclick={convertLoraChainToPicker}
-										disabled={loraConverted}
+										disabled={loraConverted || !!loraSandwichError}
 										data-action="convert-lora-picker"
 									>
 										{loraConverted ? 'Converted to LoRA picker' : 'Convert to LoRA picker'}

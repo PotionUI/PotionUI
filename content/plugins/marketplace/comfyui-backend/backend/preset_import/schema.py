@@ -200,6 +200,29 @@ def _prompt_role_targets(workflow: Workflow, object_info: Optional[Dict[str, Any
     return {(c.node_id, c.input_name) for c in analysis.candidates if c.role in _PROMPT_ROLES}
 
 
+def _find_sandwiched_kept_nodes(
+    chain, replaced_ids: Set[str], kept_ids: Set[str]
+) -> List[Tuple[str, str, str]]:
+    """`(kept_node_id, nearest_replaced_before, nearest_replaced_after)` for
+    every kept chain node that has a replaced node both before AND after it
+    in `chain.nodes`' source -> target order - the one shape the emitter's
+    graph rewrite can't represent: a flat `lora_picker` loop has no way to
+    re-insert a fixed node's own effect partway through a runtime-variable-
+    length sequence (see `emit._bypass_replaced_lora_nodes`'s docstring), so
+    this is rejected rather than silently dropping the kept node from the
+    live compute path."""
+    order = [n.node_id for n in chain.nodes]
+    sandwiched: List[Tuple[str, str, str]] = []
+    for i, node_id in enumerate(order):
+        if node_id not in kept_ids:
+            continue
+        before = next((order[j] for j in range(i - 1, -1, -1) if order[j] in replaced_ids), None)
+        after = next((order[j] for j in range(i + 1, len(order)) if order[j] in replaced_ids), None)
+        if before is not None and after is not None:
+            sandwiched.append((node_id, before, after))
+    return sandwiched
+
+
 def _validate_lora_chain_selection(
     form: ImportForm, workflow: Workflow, object_info: Optional[Dict[str, Any]]
 ) -> List[str]:
@@ -237,6 +260,16 @@ def _validate_lora_chain_selection(
     extra = union - chain_ids
     if extra:
         problems.append(f"lora_chain: replaced/kept name node(s) not in the detected chain: {sorted(extra)}")
+
+    if not problems:
+        # Only meaningful once replaced/kept actually partition the chain -
+        # a node id already flagged as missing/overlapping/unknown above
+        # would just produce a confusing second error about the same thing.
+        for node_id, before_id, after_id in _find_sandwiched_kept_nodes(chain, set(replaced), set(kept)):
+            problems.append(
+                f"lora_chain: kept LoRA node {node_id} sits between replaced nodes {before_id} and "
+                f"{after_id}; keep all LoRAs above it fixed too, or replace it"
+            )
 
     return problems
 

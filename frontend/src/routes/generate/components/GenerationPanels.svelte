@@ -7,9 +7,11 @@
 	import GenerationFormPane from './GenerationFormPane.svelte';
 	import GenerationWorkbenchPane from './GenerationWorkbenchPane.svelte';
 	import PromptSection from './PromptSection.svelte';
+	import FloatingGenerationForm from './FloatingGenerationForm.svelte';
 	import { PROMPT_PANEL_MIN_WIDTH } from '$lib/stores/generationLayout';
 	import { tabsStore } from '$lib/stores/tabs';
 	import { shortcutLabels } from '$lib/stores/keybindings';
+	import { closeFloatingForm } from '$lib/generation/floatingForm';
 	import type { Tab } from '$lib/types/tabs';
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';
 	import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
@@ -76,6 +78,11 @@
 	const WORKBENCH_MIN_WIDTH = 320;
 	const RESIZE_HANDLE_WIDTH = 4;
 	$: formPanelWidth = tab.leftPanelCollapsed ? '0.75rem' : `min(${leftPanelWidth}px, 45vw)`;
+	$: floatingPresetName = presets.find((p) => p.id === tab.selectedPreset)?.name;
+
+	function closeFloatingGenerationForm() {
+		tabsStore.updateTab(tab.id, closeFloatingForm(tab));
+	}
 
 	function promptWidthForClientX(clientX: number): number {
 		if (!panelsEl || !promptPaneEl) return tab.promptPanelWidth;
@@ -270,6 +277,18 @@
 		</div>
 	{/if}
 </div>
+
+{#if tab.formFloating}
+	<FloatingGenerationForm
+		{tab}
+		presetName={floatingPresetName}
+		{videoDirectorActive}
+		{dynamicFormRefs}
+		{onFormDataChange}
+		onClose={closeFloatingGenerationForm}
+		closeShortcut={$shortcutLabels['toggle_floating_form']}
+	/>
+{/if}
 
 <style>
 	.resize-handle {

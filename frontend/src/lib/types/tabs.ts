@@ -355,6 +355,15 @@ export interface Tab {
 	leftPanelWidth: number;
 	/** Whether the generation settings form is folded to its compact rail. */
 	leftPanelCollapsed?: boolean;
+	/** Whether the generation form is showing as the floating "quick" overlay
+	 *  (`toggle_floating_form` keybinding, default `q`) — see
+	 *  `$lib/generation/floatingForm.ts`. Deliberately absent from
+	 *  PersistedTab, same tier as `Tab.generation`: a reload never reopens it. */
+	formFloating?: boolean;
+	/** `leftPanelCollapsed` to restore once the floating overlay closes —
+	 *  set when it opens, cleared when it closes. Deliberately absent from
+	 *  PersistedTab, same tier as `formFloating`. */
+	formFloatingRestoreCollapsed?: boolean;
 	// Per-tab panel layout (two/three panes) and the three-pane prompt pane width.
 	layoutMode: GenerationLayoutMode;
 	promptPanelWidth: number;

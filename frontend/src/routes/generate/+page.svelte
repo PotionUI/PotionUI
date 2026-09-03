@@ -25,6 +25,7 @@
 	import StudioView from './components/studio/StudioView.svelte';
 	import { resolveNegativeApplicability } from '$lib/generation/negativeApplied';
 	import { leadIndex } from '$lib/generation/leadFile';
+	import { toggleFloatingForm } from '$lib/generation/floatingForm';
 	import { normalizeFileType } from '$lib/utils/fileType';
 	import { galleryTotal } from '$lib/components/workbench/workbenchGallery';
 	import GenerationSettingsPanel from './components/GenerationSettingsPanel.svelte';
@@ -306,6 +307,9 @@
 		});
 		keybindingsStore.registerHandler('toggle_left_panel', () => {
 			tabsStore.updateTab(activeTabId, { leftPanelCollapsed: !currentTab.leftPanelCollapsed });
+		});
+		keybindingsStore.registerHandler('toggle_floating_form', () => {
+			tabsStore.updateTab(activeTabId, toggleFloatingForm(currentTab));
 		});
 
 		// Load presets
@@ -660,6 +664,7 @@
 		keybindingsStore.unregisterHandler('new_tab');
 		keybindingsStore.unregisterHandler('close_tab');
 		keybindingsStore.unregisterHandler('toggle_left_panel');
+		keybindingsStore.unregisterHandler('toggle_floating_form');
 	});
 
 	// Reactive store for modes per tab

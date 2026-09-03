@@ -11,6 +11,7 @@ backend internals assumed. Read in this order, or jump to whatever you need:
 - [Getting Started](getting-started.md) — what PotionUI is and how presets, forms, and generation fit together.
 - [Generating Images](generating.md) — the Generate page: workspaces, prompts, the form, running and reading results.
 - [Presets & Forms](presets-and-forms.md) — what a preset is and how its form maps to what you're generating.
+- [Bringing Your Own ComfyUI Workflows](comfyui-presets.md) — turn a ComfyUI workflow you already have into a preset.
 - [History & Tags](history-and-tags.md) — finding past generations, inspecting how something was made, tagging and cleanup.
 - [Prompts Workspace](prompts-library.md) — the four reusable prompt-composition libraries in one place.
 - [LLM Assistant](llm-chat.md) — the optional AI chat assistant for writing prompts and taking actions.

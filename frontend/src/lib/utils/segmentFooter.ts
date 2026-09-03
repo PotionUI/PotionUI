@@ -2,10 +2,12 @@ import type { Segment } from '$lib/types/segments';
 import { richTextToPlainText } from './richTextUtils';
 import { isSegmentEnabled } from './richSegments';
 
-/** The card footer is the same strip on every card: the action set never
+/** The card's header action cluster is the same set on every card: it never
  *  changes shape between states, only the first action's sense flips. Keeping
  *  that here rather than in the component is what makes "identical on all
- *  cards" testable instead of a thing to eyeball. */
+ *  cards" testable instead of a thing to eyeball. Below the header's own
+ *  collapse width these actions move into the overflow menu instead of
+ *  disappearing — see PromptSegment.svelte's `clusterCollapsed`. */
 export type SegmentFooterActionId = 'toggleDisabled' | 'duplicate' | 'editDetails' | 'saveAsSegment';
 
 export interface SegmentFooterAction {
@@ -15,8 +17,9 @@ export interface SegmentFooterAction {
 	icon: string;
 }
 
-/** The card head, where the name is editable: an invitation to type one. */
-export const UNNAMED_SEGMENT_PLACEHOLDER = 'Name this segment';
+/** The card head's placeholder for a segment with no name yet. Short by
+ *  design — it has to survive the header's narrowest collapsed width. */
+export const UNNAMED_SEGMENT_PLACEHOLDER = 'Unnamed';
 
 export const DISABLED_SEGMENT_NOTE = 'excluded from the resolved prompt';
 
@@ -52,7 +55,7 @@ export function segmentFooterActions(segment: Segment): SegmentFooterAction[] {
 			icon: disabled ? 'eyes' : 'eye-off'
 		},
 		{ id: 'duplicate', label: 'Duplicate', icon: 'copy' },
-		{ id: 'editDetails', label: 'Details', icon: 'pencil' },
+		{ id: 'editDetails', label: 'Details', icon: 'info' },
 		{ id: 'saveAsSegment', label: 'Save', icon: 'save' }
 	];
 }

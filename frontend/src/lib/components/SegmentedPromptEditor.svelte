@@ -832,7 +832,7 @@
 	.segment-list {
 		display: flex;
 		flex-direction: column;
-		gap: 0.75rem;
+		gap: 0.5rem;
 	}
 
 	.add-row {
@@ -931,8 +931,8 @@
 	}
 
 	.resolved-body {
-		font-size: 0.8125rem;
-		line-height: 1.85;
+		font-size: 0.875rem;
+		line-height: 1.7;
 		color: rgb(var(--fg-muted));
 		text-wrap: pretty;
 		overflow-wrap: anywhere;

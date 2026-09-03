@@ -2,12 +2,11 @@
 	import { createEventDispatcher } from 'svelte';
 	import { PRESET_COLORS, type Segment } from '$lib/types/segments';
 
-	// The "Details" reveal (name / colour / description), shared by both
-	// PromptSegment.svelte variants (content and break rows). Swatch values
-	// are user data, not theme tokens: they are stored on the segment and
-	// round-trip through the API, so they stay literal.
+	// The name / colour / description fields, hosted by
+	// PromptSegmentDetailsModal.svelte. Swatch values are user data, not
+	// theme tokens: they are stored on the segment and round-trip through
+	// the API, so they stay literal.
 	export let segment: Segment;
-	export let compact = false;
 
 	const dispatch = createEventDispatcher();
 
@@ -18,12 +17,12 @@
 	}
 </script>
 
-<div class="metadata-reveal grid gap-2.5 rounded-lg bg-surface-2 {compact ? 'p-2.5' : 'p-3'} sm:grid-cols-2">
+<div class="metadata-fields grid gap-4 sm:grid-cols-2">
 	<label class="flex min-w-0 flex-col gap-1.5">
-		<span class="text-2xs text-fg-muted">Name</span>
+		<span class="text-xs text-fg-muted">Name</span>
 		<input
 			type="text"
-			class="input w-full py-1.5 text-xs"
+			class="input w-full"
 			value={segment.name || segment.title || ''}
 			placeholder="Optional segment name"
 			on:input={(event) => update('name', event.currentTarget.value)}
@@ -31,8 +30,8 @@
 	</label>
 
 	<div class="flex min-w-0 flex-col gap-1.5">
-		<span class="text-2xs text-fg-muted">Colour</span>
-		<div class="flex items-center gap-1.5">
+		<span class="text-xs text-fg-muted">Colour</span>
+		<div class="flex flex-wrap items-center gap-1.5">
 			<label class="swatch-current" style={currentColor ? `background-color: ${currentColor};` : undefined}>
 				<span class="sr-only">Pick a custom colour</span>
 				<input
@@ -60,9 +59,9 @@
 	</div>
 
 	<label class="flex min-w-0 flex-col gap-1.5 sm:col-span-2">
-		<span class="text-2xs text-fg-muted">Description</span>
+		<span class="text-xs text-fg-muted">Description</span>
 		<textarea
-			class="input w-full resize-y py-1.5 text-xs"
+			class="input w-full resize-y"
 			rows="2"
 			value={segment.description || ''}
 			placeholder="Optional notes about this segment"

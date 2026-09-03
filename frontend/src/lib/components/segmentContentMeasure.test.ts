@@ -32,9 +32,9 @@ describe('the segment card’s editable content', () => {
 		expect(rule).not.toMatch(/max-width/);
 	});
 
-	it('still carries the design’s 15/26 content setting', () => {
+	it('still carries the design’s 15/1.6 content setting', () => {
 		expect(rule).toMatch(/font-size:\s*0\.9375rem/);
-		expect(rule).toMatch(/line-height:\s*1\.7333/);
+		expect(rule).toMatch(/line-height:\s*1\.6\b/);
 	});
 });
 

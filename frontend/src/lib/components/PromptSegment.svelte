@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte';
+	import { createEventDispatcher, onMount, onDestroy } from 'svelte';
 	import type { Segment, ChipData } from '$lib/types/segments';
 	import type { VariablesMap, VariableDef, VariableRoll } from '$lib/utils/variableDefs';
 	import InlineChipEditor from './InlineChipEditor.svelte';
 	import Tooltip from './Tooltip.svelte';
 	import Icon from './Icon.svelte';
 	import PromptSegmentActionMenu from './PromptSegmentActionMenu.svelte';
-	import PromptSegmentMetadataEditor from './PromptSegmentMetadataEditor.svelte';
+	import PromptSegmentDetailsModal from './PromptSegmentDetailsModal.svelte';
 	import { computeFixedMenuPosition } from '$lib/utils/menuPosition';
 	import { lastAppliedSegment } from '$lib/stores/lastAppliedSegment';
 	import {
@@ -35,16 +35,62 @@
 	let dragOverPosition: 'none' | 'top' | 'bottom' = 'none';
 	let dragEnabled = false;
 	let menuOpen = false;
-	let metadataOpen = false;
+	let detailsModalOpen = false;
 	let menuRoot: HTMLElement;
 	let menuTriggerBtn: HTMLButtonElement;
 	let menuStyle = '';
 	let wrapperEl: HTMLDivElement;
+	let cardEl: HTMLDivElement;
+	let nameEl: HTMLButtonElement;
 	let scrolledNonce = -1;
+
+	// The header sheds detail in stages as its own width shrinks: below
+	// CHAR_COUNT_HIDE_WIDTH the char count drops out of the row (its value
+	// still reachable — folded into the Details tooltip); below
+	// CLUSTER_COLLAPSE_WIDTH the four content actions fold into the overflow
+	// menu (leaving grip + more). An inline description becomes an info icon
+	// either at that same collapse, or earlier still if the name (which never
+	// shrinks — see .card-name) is long enough that the description would be
+	// left with an unreadable sliver of its own; HEADER_RESERVED_WIDTH is
+	// everything else on the row (index, gaps, spacer, char count, the full
+	// action cluster) at its most generous, so this stays a same-or-earlier
+	// swap, never later than the width-only collapse. jsdom has no
+	// ResizeObserver, so component tests always see containerWidth 0, i.e.
+	// the widest, most-expanded shape — the one those tests assert against.
+	const CHAR_COUNT_HIDE_WIDTH = 380;
+	const CLUSTER_COLLAPSE_WIDTH = 340;
+	const HEADER_RESERVED_WIDTH = 220;
+	const DESCRIPTION_MIN_WIDTH = 100;
+	let containerWidth = 0;
+	let nameWidth = 0;
+	let cardResizeObserver: ResizeObserver | undefined;
+
+	onMount(() => {
+		if (typeof ResizeObserver === 'undefined' || !cardEl) return;
+		cardResizeObserver = new ResizeObserver((entries) => {
+			for (const entry of entries) {
+				const width = entry.contentRect.width;
+				if (entry.target === cardEl) containerWidth = width;
+				else if (entry.target === nameEl) nameWidth = width;
+			}
+		});
+		cardResizeObserver.observe(cardEl);
+		if (nameEl) cardResizeObserver.observe(nameEl);
+	});
+
+	onDestroy(() => cardResizeObserver?.disconnect());
+
+	$: charCountHidden = containerWidth > 0 && containerWidth < CHAR_COUNT_HIDE_WIDTH;
+	$: clusterCollapsed = containerWidth > 0 && containerWidth < CLUSTER_COLLAPSE_WIDTH;
+	$: descriptionAsIcon =
+		clusterCollapsed ||
+		(containerWidth > 0 &&
+			containerWidth - nameWidth - HEADER_RESERVED_WIDTH < DESCRIPTION_MIN_WIDTH);
 
 	$: isBreakSegment = segment.type === 'break';
 	$: segmentDisabled = segment.enabled === false || !!segment.isDisabled;
 	$: displayName = segmentDisplayName(segment);
+	$: hasDescription = !!segment.description && segment.description.trim().length > 0;
 	$: footerActions = segmentFooterActions(segment);
 	$: charCount = segmentCharCount(segment);
 	$: segmentLabel = isBreakSegment
@@ -152,14 +198,22 @@
 		dispatch(eventName, detail);
 	}
 
-	function toggleMetadataEditor() {
+	function openDetailsModal() {
 		menuOpen = false;
-		metadataOpen = !metadataOpen;
+		detailsModalOpen = true;
+	}
+
+	function closeDetailsModal() {
+		detailsModalOpen = false;
+	}
+
+	function saveDetails(updates: { name?: string; color?: string; description?: string }) {
+		dispatch('metadataChange', updates);
 	}
 
 	function runFooterAction(id: string) {
 		if (id === 'editDetails') {
-			toggleMetadataEditor();
+			openDetailsModal();
 			return;
 		}
 		dispatch(id);
@@ -234,7 +288,7 @@
 						style={menuStyle}
 						on:moveUp={() => runMenuAction('moveUp')}
 						on:moveDown={() => runMenuAction('moveDown')}
-						on:editDetails={toggleMetadataEditor}
+						on:editDetails={openDetailsModal}
 						on:saveAsSegment={() => runMenuAction('saveAsSegment')}
 						on:replaceFromSaved={() => runMenuAction('replaceFromSaved')}
 						on:toggleBreak={() => runMenuAction('toggleBreak')}
@@ -245,32 +299,15 @@
 				{/if}
 			</div>
 		</div>
-
-		{#if metadataOpen}
-			<div class="break-metadata">
-				<PromptSegmentMetadataEditor
-					{segment}
-					{compact}
-					on:change={(e) => dispatch('metadataChange', e.detail)}
-				/>
-			</div>
-		{/if}
 	{:else}
 		<div
 			class="card"
 			class:disabled={segmentDisabled}
-			class:details-open={metadataOpen}
 			class:last-applied={isLastApplied}
+			class:has-color={!segmentDisabled && !!segment.color}
+			style={!segmentDisabled && segment.color ? `--seg-color: ${segment.color};` : undefined}
+			bind:this={cardEl}
 		>
-			{#if !segmentDisabled}
-				<div
-					class="accent-bar"
-					class:has-color={!!segment.color}
-					style={segment.color ? `background-color: ${segment.color};` : undefined}
-					aria-hidden="true"
-				></div>
-			{/if}
-
 			<div class="card-head">
 				<span class="index font-mono tabular-nums" aria-hidden="true">{formatSegmentIndex(index)}</span>
 
@@ -280,63 +317,63 @@
 					class:unnamed={!displayName}
 					class:struck={segmentDisabled}
 					aria-label={displayName ? `Rename ${segmentLabel.toLowerCase()}` : `Name ${segmentLabel.toLowerCase()}`}
-					on:click={toggleMetadataEditor}
+					on:click={openDetailsModal}
+					bind:this={nameEl}
 				>
 					{displayName || UNNAMED_SEGMENT_PLACEHOLDER}
 				</button>
 
 				{#if segmentDisabled}
-					<span class="head-note">{DISABLED_SEGMENT_NOTE}</span>
-				{:else if segment.template}
-					<span class="head-note truncate">from template slot “{segment.template.slot}”</span>
+					<Tooltip text={DISABLED_SEGMENT_NOTE} position="top">
+						<span class="state-chip off-chip font-mono">off</span>
+					</Tooltip>
 				{/if}
-			</div>
 
-			<div class="card-content">
-				<InlineChipEditor
-					value={segment.content}
-					chips={segment.chips || {}}
-					on:change={handleContentChange}
-					{placeholder}
-					disabled={false}
-					segmentDisabled={segmentDisabled}
-					borderless={true}
-					density={compact ? 'compact' : 'default'}
-					{variables}
-					{variableRolls}
-					{onVariableDefChange}
-					{onOpenVariableManager}
-					{activeTriggerWords}
-				/>
-			</div>
+				{#if hasDescription}
+					{#if descriptionAsIcon}
+						<Tooltip text={segment.description ?? ''} position="top">
+							<button
+								type="button"
+								class="icon-btn description-icon"
+								aria-label={`Description: ${segment.description}`}
+							>
+								<Icon name="info" className="h-3.5 w-3.5" />
+							</button>
+						</Tooltip>
+					{:else}
+						<span class="head-description" title={segment.description}>{segment.description}</span>
+					{/if}
+				{/if}
 
-			{#if metadataOpen}
-				<div class="card-details">
-					<PromptSegmentMetadataEditor
-						{segment}
-						{compact}
-						on:change={(e) => dispatch('metadataChange', e.detail)}
-					/>
-				</div>
-			{/if}
+				<span class="head-spacer" aria-hidden="true"></span>
 
-			<div class="card-footer">
-				{#each footerActions as action (action.id)}
-					<button
-						type="button"
-						class="footer-btn"
-						class:enable={action.id === 'toggleDisabled' && segmentDisabled}
-						class:active={action.id === 'editDetails' && metadataOpen}
-						aria-pressed={action.id === 'editDetails' ? metadataOpen : undefined}
-						on:click={() => runFooterAction(action.id)}
-					>
-						<Icon name={action.icon} className="h-3.5 w-3.5 flex-shrink-0" />
-						<span class="footer-label">{action.label}</span>
-					</button>
-				{/each}
+				{#if !charCountHidden}
+					<Tooltip text={`${charCount} characters`} position="top">
+						<span class="char-count font-mono tabular-nums">{charCount}</span>
+					</Tooltip>
+				{/if}
 
-				<div class="footer-trailing">
-					<span class="char-count font-mono tabular-nums">{charCount} chars</span>
+				<div class="head-actions">
+					{#if !clusterCollapsed}
+						{#each footerActions as action (action.id)}
+							<Tooltip
+								text={action.id === 'editDetails' && charCountHidden
+									? `${action.label} — ${charCount} ch`
+									: action.label}
+								position="top"
+								wrapperClass="head-action-btn"
+							>
+								<button
+									type="button"
+									class="icon-btn"
+									aria-label={action.label}
+									on:click={() => runFooterAction(action.id)}
+								>
+									<Icon name={action.icon} className="h-3.5 w-3.5" />
+								</button>
+							</Tooltip>
+						{/each}
+					{/if}
 
 					<Tooltip text="Drag to reorder" position="top">
 						<button
@@ -371,12 +408,12 @@
 								{total}
 								isBreakSegment={false}
 								{segmentDisabled}
-								footerActionsShown={true}
+								footerActionsShown={!clusterCollapsed}
 								ariaLabel={`More actions for ${segmentLabel.toLowerCase()}`}
 								style={menuStyle}
 								on:moveUp={() => runMenuAction('moveUp')}
 								on:moveDown={() => runMenuAction('moveDown')}
-								on:editDetails={toggleMetadataEditor}
+								on:editDetails={openDetailsModal}
 								on:saveAsSegment={() => runMenuAction('saveAsSegment')}
 								on:replaceFromSaved={() => runMenuAction('replaceFromSaved')}
 								on:toggleBreak={() => runMenuAction('toggleBreak')}
@@ -388,9 +425,34 @@
 					</div>
 				</div>
 			</div>
+
+			<div class="card-content">
+				<InlineChipEditor
+					value={segment.content}
+					chips={segment.chips || {}}
+					on:change={handleContentChange}
+					{placeholder}
+					disabled={false}
+					segmentDisabled={segmentDisabled}
+					borderless={true}
+					density={compact ? 'compact' : 'default'}
+					{variables}
+					{variableRolls}
+					{onVariableDefChange}
+					{onOpenVariableManager}
+					{activeTriggerWords}
+				/>
+			</div>
 		</div>
 	{/if}
 </div>
+
+<PromptSegmentDetailsModal
+	isOpen={detailsModalOpen}
+	{segment}
+	onClose={closeDetailsModal}
+	onSave={saveDetails}
+/>
 
 <style>
 	.section-wrapper.menu-open {
@@ -420,48 +482,47 @@
 		bottom: -1px;
 	}
 
+	/* No overflow:hidden — the rail below is a real border, so it already
+	   follows the card's own radius with no clipping needed, and a header
+	   icon's tooltip is never clipped by the card either. */
 	.card {
-		overflow: hidden;
 		border: 1px solid rgb(var(--line));
+		border-left: 3px solid rgb(var(--line-strong));
 		border-radius: 0.375rem;
 		background-color: rgb(var(--surface-1));
 		transition: border-color 0.15s ease;
 	}
 
-	.card.details-open {
-		border-color: rgb(var(--line-strong));
+	/* Colour reads as a permanent 3px rail on the leading edge, not a top bar
+	   — the header sits directly beside it instead of under a strip. */
+	.card.has-color {
+		border-left-color: var(--seg-color);
 	}
 
 	.card.last-applied {
 		box-shadow: inset 0 0 0 1px rgb(var(--signal) / 0.5);
 	}
 
-	/* Disabled reads by absence — dashed edge, no accent bar, sunk to the page
-	   tint — never as an error tone. */
-	.card.disabled {
-		border-style: dashed;
-		background-color: rgb(var(--canvas));
-	}
+	/* Disabled reads by the Off chip and dimmed content, never as an error
+	   tone or a sunken/dashed frame — the card keeps its normal shape. */
 
-	.accent-bar {
-		height: 2px;
-		background-color: rgb(var(--line-strong));
-	}
-
+	/* Deliberately thin padding — the 28px icon buttons set the row's real
+	   height, so the row itself adds as little on top of that as possible,
+	   keeping this a quiet meta strip rather than a second content band. */
 	.card-head {
 		display: flex;
-		align-items: baseline;
-		gap: 0.5625rem;
-		padding: 0.6875rem 0.875rem 0;
+		align-items: center;
+		gap: 0.4375rem;
+		padding: 0.25rem 0.5rem 0.25rem 0.625rem;
 	}
 
 	.section-wrapper.compact .card-head {
-		padding: 0.5rem 0.625rem 0;
+		padding: 0.1875rem 0.4375rem 0.1875rem 0.5625rem;
 	}
 
 	.index {
 		flex-shrink: 0;
-		font-size: 0.6875rem;
+		font-size: 0.625rem;
 		color: rgb(var(--fg-subtle));
 	}
 
@@ -469,15 +530,28 @@
 		color: rgb(var(--fg-disabled));
 	}
 
+	/* flex-shrink: 0 rather than a merely-larger shrink factor on the
+	   description — flexbox always splits a deficit proportionally to
+	   shrink-factor × basis, so any ratio still lets a long description eat
+	   into the name once the numbers are big enough. Zero removes the name
+	   from that math entirely: the description gives up its own room first,
+	   down to the icon fallback once the header collapses, well before a
+	   normal name would ever need to. The ellipsis stays as a safety net for
+	   a name that's pathologically long even on its own. */
+	/* Quiet on purpose: the header is metadata, the content below is the
+	   prompt itself, and the content is the only fg-strength text on the
+	   card — the name only lifts to fg on hover/focus, a hint rather than a
+	   standing emphasis. */
 	.card-name {
 		min-width: 0;
-		flex-shrink: 1;
+		flex-shrink: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-		font-size: 0.8125rem;
-		font-weight: 600;
-		color: rgb(var(--fg));
+		max-width: 60%;
+		font-size: 0.75rem;
+		font-weight: 500;
+		color: rgb(var(--fg-muted));
 		text-align: left;
 	}
 
@@ -493,111 +567,90 @@
 		text-decoration: line-through;
 	}
 
-	.card-name:hover {
+	.card:hover .card-name,
+	.card:focus-within .card-name {
 		color: rgb(var(--fg));
 	}
 
-	.head-note {
-		min-width: 0;
-		font-size: 0.6875rem;
+	.state-chip {
+		flex-shrink: 0;
+		border-radius: 0.25rem;
+		padding: 0.125rem 0.3125rem;
+		font-size: 0.5625rem;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
 		color: rgb(var(--fg-subtle));
 	}
 
-	.card-content {
-		padding: 0 0.125rem 0.25rem;
+	.state-chip.off-chip {
+		background-color: rgb(var(--surface-2));
 	}
 
-	/* The mock's content setting: 15/26, pretty-wrapped. Deliberately NOT
+	/* Shrinks before the name ever does. Flexbox distributes a shrink deficit
+	   proportional to shrink-factor × basis, so a merely *larger* factor than
+	   the name's still lets a short description eat into a long name; this
+	   factor is deliberately lopsided so the split is "practically all
+	   description" for any normal name/description pair, with the name's own
+	   flex-shrink: 1 staying only as a last-resort safety valve against a
+	   pathologically long name with no description to make room. */
+	.head-description {
+		min-width: 0;
+		flex-shrink: 20;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: 0.75rem;
+		color: rgb(var(--fg-subtle));
+	}
+
+	/* Sits after the chip/description: absorbs any leftover width so the
+	   actions cluster hugs the right edge, while the name above only ever
+	   takes the room its own text needs instead of stretching to fill it. */
+	.head-spacer {
+		flex: 1 1 auto;
+		min-width: 0.25rem;
+	}
+
+	.char-count {
+		flex-shrink: 0;
+		font-size: 0.625rem;
+		color: rgb(var(--fg-subtle));
+	}
+
+	.head-actions {
+		display: flex;
+		flex-shrink: 0;
+		align-items: center;
+		gap: 0.125rem;
+	}
+
+	/* `:global()` only for the layout/hide hook — the class lands on Tooltip's
+	   own wrapper div, which this component's scoping hash never reaches. The
+	   resting/hover colors live on `.icon-btn` itself below, which IS this
+	   component's own markup (slotted into Tooltip, but still scoped to it),
+	   so no :global() is needed there. */
+	.card :global(.head-action-btn) {
+		display: inline-flex;
+		align-items: center;
+	}
+
+	.card-content {
+		padding: 0 0 0.25rem;
+	}
+
+	/* The mock's content setting: 15/1.6, pretty-wrapped. Deliberately NOT
 	   measure-capped — 66ch is a reading measure, and this element is the input
 	   itself, so capping it would shrink the typing area and the click target
 	   inside a wider card. The measure belongs on read-only text (the resolved
 	   panel), where it does not fight the caret. */
 	.card-content :global(.inline-chip-editor) {
 		font-size: 0.9375rem;
-		line-height: 1.7333;
+		line-height: 1.6;
 		text-wrap: pretty;
 	}
 
 	.card.disabled .card-content :global(.inline-chip-editor) {
 		color: rgb(var(--fg-disabled));
-	}
-
-	.card-details {
-		padding: 0 0.875rem 0.75rem;
-	}
-
-	.section-wrapper.compact .card-details {
-		padding: 0 0.625rem 0.625rem;
-	}
-
-	.card-footer {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: 0.25rem;
-		border-top: 1px solid rgb(var(--surface-2));
-		padding: 0.375rem 0.625rem;
-		background-color: rgb(var(--canvas));
-	}
-
-	/* The disabled card already sits on the page tint, so its footer takes no
-	   second fill — the strip reads as part of the same sunk surface. */
-	.card.disabled .card-footer {
-		background-color: transparent;
-	}
-
-	.footer-trailing {
-		display: flex;
-		flex-shrink: 0;
-		align-items: center;
-		gap: 0.25rem;
-		margin-left: auto;
-	}
-
-	.footer-btn {
-		display: inline-flex;
-		min-height: 1.625rem;
-		flex-shrink: 0;
-		align-items: center;
-		gap: 0.375rem;
-		border-radius: 0.25rem;
-		padding: 0 0.5rem;
-		font-size: 0.6875rem;
-		color: rgb(var(--fg-muted));
-		transition: color 0.15s, background-color 0.15s;
-	}
-
-	.card.disabled .footer-btn {
-		color: rgb(var(--fg-subtle));
-	}
-
-	.footer-btn:hover,
-	.footer-btn:focus-visible {
-		color: rgb(var(--fg));
-		background-color: rgb(var(--surface-2));
-		outline: none;
-	}
-
-	.footer-btn.active {
-		color: rgb(var(--fg));
-		background-color: rgb(var(--surface-2));
-	}
-
-	/* Enable is state, not an action: signal tint, never a solid blue button. */
-	.footer-btn.enable,
-	.card.disabled .footer-btn.enable {
-		color: rgb(var(--signal));
-		background-color: rgb(var(--signal) / 0.17);
-	}
-
-	.footer-btn.enable:hover {
-		background-color: rgb(var(--signal) / 0.18);
-	}
-
-	.char-count {
-		margin-right: 0.25rem;
-		font-size: 0.625rem;
-		color: rgb(var(--fg-subtle));
 	}
 
 	.break-row {
@@ -626,41 +679,43 @@
 		box-shadow: inset 0 0 0 1px rgb(var(--line-strong));
 	}
 
-	.break-metadata {
-		padding: 0.5rem 0.25rem 0;
-	}
-
+	/* Rest at fg-subtle so a row of resting cards stays calm; the whole
+	   cluster brightens once its card is hovered or focused-within, and the
+	   hovered/active button itself goes further to full fg. */
 	.icon-btn {
 		display: inline-flex;
-		min-width: 1.625rem;
-		min-height: 1.625rem;
+		min-width: 1.75rem;
+		min-height: 1.75rem;
 		flex-shrink: 0;
 		align-items: center;
 		justify-content: center;
 		border-radius: 0.25rem;
-		color: rgb(var(--fg-muted));
+		color: rgb(var(--fg-subtle));
 		transition: color 0.15s, background-color 0.15s;
 	}
 
+	.card:hover .icon-btn,
+	.card:focus-within .icon-btn {
+		color: rgb(var(--fg-muted));
+	}
+
 	.card.disabled .icon-btn {
-		color: rgb(var(--fg-subtle));
+		color: rgb(var(--fg-disabled));
 	}
 
 	.icon-btn:hover,
+	.icon-btn:focus-visible,
 	.icon-btn.active {
 		color: rgb(var(--fg));
 		background-color: rgb(var(--surface-2));
 	}
 
-	/* Narrow columns (the generate sidebar) keep every footer action visible and
-	   labelled by wrapping the strip; only below ~20rem do the labels go, and
-	   the buttons stay reachable by their aria-label and tooltip. */
-	@container (max-width: 20rem) {
-		.footer-label {
-			display: none;
-		}
-
-		.char-count {
+	/* Below ~21.25rem (340px) the cluster has no room for six icon buttons
+	   beside a readable name, so it collapses to grip + more; the script's own
+	   ResizeObserver crosses the same threshold to fold those four actions
+	   back into the overflow menu, so they stay reachable either way. */
+	@container (max-width: 21.25rem) {
+		.card :global(.head-action-btn) {
 			display: none;
 		}
 	}

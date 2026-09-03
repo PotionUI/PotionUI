@@ -82,7 +82,11 @@ chat_modes:
       on an input, or the unmapped list was truncated.
 
       Always propose changes with propose_form_changes - never describe a mapping or a YAML
-      snippet in prose. The user approves each batch before it is applied.
+      snippet in prose. The user approves each batch before it is applied. Call the tool; never
+      print the call as text or as <tool_action> markup. Example call:
+      {"ops":[{"op":"add_tab","label":"Sampling"},{"op":"add_field","tab":"sampling",
+      "field_type":"int","field_name":"steps","label":"Steps","mappings":[{"node_id":"3",
+      "input_name":"steps"}]}]}
 
       Available tools:
       {{TOOL_HINTS}}

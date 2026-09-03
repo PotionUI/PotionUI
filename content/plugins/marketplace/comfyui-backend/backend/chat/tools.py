@@ -67,6 +67,100 @@ def _iter_field_names_and_types(items: List[Dict[str, Any]]):
             yield from _iter_field_names_and_types(item.get("items") or [])
 
 
+# A model asked to propose form changes routinely names things close to but
+# not exactly the tool's own vocabulary (the shape a webui/ComfyUI node
+# itself uses, or plain English). Resolved before validation so a near-miss
+# is repaired instead of rejected -- the schema still enforces the real
+# shape once normalized, teaching the model what changed only when it
+# couldn't be resolved.
+_TAB_KEY_ALIASES = ("tab_id", "tab_label")
+_FIELD_NAME_KEY_ALIASES = ("id", "name")
+_DEFAULT_KEY_ALIASES = ("default_value", "value")
+_MAPPINGS_KEY_ALIASES = ("mapping", "inputs")
+
+_FIELD_TYPE_ALIASES = {
+    "wh": "resolution", "size": "resolution",
+    "checkpoint": "model",
+    "combo": "select",
+    "str": "string",
+    "int": "integer",
+    "float": "number",
+}
+
+# Every core (non-container) field type `register_builtin_fields`
+# (`src/features/fields/builtin.py`) registers. Duplicated here rather than
+# imported because a marketplace plugin may only import `src.plugin_api`,
+# which does not expose the field type registry -- keep in sync by hand.
+_KNOWN_FIELD_TYPES = frozenset({
+    "string", "textbox", "number", "integer", "boolean", "checkbox", "slider",
+    "stepper", "seed", "resolution", "select", "checkbox_group", "model",
+    "models", "lora_picker", "image", "video", "audio", "media", "file",
+    "carousel", "llm", "alert", "markdown", "header", "section", "gate",
+    "prompt_timeline", "camera_shot",
+})
+
+
+def _apply_key_aliases(op: Dict[str, Any], aliases: Tuple[str, ...], canonical: str) -> None:
+    if canonical in op:
+        for alias in aliases:
+            op.pop(alias, None)
+        return
+    for alias in aliases:
+        if alias in op:
+            op[canonical] = op.pop(alias)
+            return
+
+
+def _resolve_tab_alias(tab: Any, tabs: List[Dict[str, Any]], known_tab_ids: set) -> Any:
+    if not isinstance(tab, str) or tab in known_tab_ids:
+        return tab
+    lowered = tab.strip().lower()
+    if tabs:
+        first = tabs[0]
+        if lowered in (str(first.get("id") or "").lower(), str(first.get("label") or "").lower()):
+            return first.get("id")
+    if lowered == "main" and len(tabs) == 1:
+        return tabs[0].get("id")
+    return tab
+
+
+def _normalize_op(raw: Any, tabs: List[Dict[str, Any]], known_tab_ids: set) -> Any:
+    """Repair the near-miss op shapes a model reaches for instead of this
+    tool's own vocabulary. Structural (keys/aliases), not semantic -- a
+    genuinely invalid op still fails `_validate_ops` afterward, now against
+    its real mistake rather than a synonym of it."""
+    if not isinstance(raw, dict):
+        return raw
+    op = dict(raw)
+    nested = op.pop("field", None)
+    if isinstance(nested, dict):
+        op = {**nested, **op}
+
+    _apply_key_aliases(op, _TAB_KEY_ALIASES, "tab")
+    _apply_key_aliases(op, _FIELD_NAME_KEY_ALIASES, "field_name")
+    _apply_key_aliases(op, _DEFAULT_KEY_ALIASES, "default")
+    _apply_key_aliases(op, _MAPPINGS_KEY_ALIASES, "mappings")
+    if "field_type" in op:
+        op.pop("type", None)
+    elif "type" in op:
+        op["field_type"] = op.pop("type")
+
+    if isinstance(op.get("field_type"), str):
+        key = op["field_type"].strip().lower()
+        op["field_type"] = _FIELD_TYPE_ALIASES.get(key, key)
+
+    if "tab" in op:
+        op["tab"] = _resolve_tab_alias(op["tab"], tabs, known_tab_ids)
+
+    mappings = op.get("mappings")
+    if isinstance(mappings, list):
+        op["mappings"] = [
+            {**m, "transform": m.get("transform") or "none"} if isinstance(m, dict) else m
+            for m in mappings
+        ]
+    return op
+
+
 def _validate_ops(
     ops: List[Any], wiz: Dict[str, Any]
 ) -> Tuple[List[Dict[str, Any]], List[str]]:
@@ -121,7 +215,8 @@ def _validate_ops(
             return f"invalid transform '{transform}' for {node_id}.inputs.{input_name}: {e}"
         return None
 
-    for i, raw in enumerate(ops):
+    for i, original in enumerate(ops):
+        raw = _normalize_op(original, tabs, known_tab_ids)
         if not isinstance(raw, dict):
             errors.append(f"op {i}: not an object")
             continue
@@ -179,6 +274,11 @@ def _validate_ops(
                 problems.append(f"unknown tab '{tab}'")
             if not field_type:
                 problems.append("field_type is required")
+            elif field_type not in _KNOWN_FIELD_TYPES:
+                problems.append(
+                    f"unknown field_type '{field_type}'. Must be one of: "
+                    f"{', '.join(sorted(_KNOWN_FIELD_TYPES))}"
+                )
             if not field_name or not str(field_name).isidentifier():
                 problems.append(f"field_name '{field_name}' is not a valid identifier")
             elif field_name in known_fields:

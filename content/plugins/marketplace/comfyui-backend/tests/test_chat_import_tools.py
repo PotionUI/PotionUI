@@ -163,6 +163,104 @@ def test_propose_form_changes_all_or_nothing():
     assert result.preview is None
 
 
+def test_propose_form_changes_normalizes_live_incident_payload():
+    """A live incident payload: a model nested `field`,
+    `tab_id`/`id`/`type`/`default_value`/`mapping` instead of
+    `tab`/`field_name`/`field_type`/`default`/`mappings`, and field types
+    named after webui/ComfyUI conventions (`wh`, `number`, `float`, `string`)
+    instead of this tool's own vocabulary -- must normalize into 8 valid
+    add_field ops rather than reject."""
+    tool = ProposeFormChangesTool()
+    wiz = _wiz(
+        candidates=[
+            {"node_id": "4", "class_type": "CheckpointLoaderSimple", "node_title": "Load Checkpoint",
+             "input_name": "ckpt_name", "current_value": "v1-5-pruned-emaonly.safetensors",
+             "value_type": "str", "suggested_field_type": "model", "role": None, "locked": False},
+            {"node_id": "5", "class_type": "EmptyLatentImage", "node_title": "Empty Latent Image",
+             "input_name": "width", "current_value": 512, "value_type": "int",
+             "suggested_field_type": "resolution", "role": "resolution_width", "locked": False},
+            {"node_id": "5", "class_type": "EmptyLatentImage", "node_title": "Empty Latent Image",
+             "input_name": "height", "current_value": 512, "value_type": "int",
+             "suggested_field_type": "resolution", "role": "resolution_height", "locked": False},
+            {"node_id": "3", "class_type": "KSampler", "node_title": "KSampler",
+             "input_name": "seed", "current_value": 0, "value_type": "int",
+             "suggested_field_type": "seed", "role": "seed", "locked": False},
+            {"node_id": "3", "class_type": "KSampler", "node_title": "KSampler",
+             "input_name": "steps", "current_value": 20, "value_type": "int",
+             "suggested_field_type": "slider", "role": "steps", "locked": False},
+            {"node_id": "3", "class_type": "KSampler", "node_title": "KSampler",
+             "input_name": "cfg", "current_value": 7.0, "value_type": "float",
+             "suggested_field_type": "slider", "role": "cfg", "locked": False},
+            {"node_id": "3", "class_type": "KSampler", "node_title": "KSampler",
+             "input_name": "sampler_name", "current_value": "euler", "value_type": "str",
+             "suggested_field_type": "select", "role": "sampler", "locked": False},
+            {"node_id": "3", "class_type": "KSampler", "node_title": "KSampler",
+             "input_name": "scheduler", "current_value": "normal", "value_type": "str",
+             "suggested_field_type": "select", "role": "scheduler", "locked": False},
+            {"node_id": "3", "class_type": "KSampler", "node_title": "KSampler",
+             "input_name": "denoise", "current_value": 1.0, "value_type": "float",
+             "suggested_field_type": "slider", "role": "denoise", "locked": False},
+        ],
+        form={"tabs": [{"id": "main", "label": "Main", "items": []}]},
+        mapped=[],
+    )
+    ops = [
+        {"op": "add_field", "tab_id": "main", "field": {
+            "id": "model", "label": "Model", "type": "model",
+            "default_value": "v1-5-pruned-emaonly.safetensors",
+            "mapping": [{"node_id": "4", "input_name": "ckpt_name", "transform": "strip_model_prefix"}],
+        }},
+        {"op": "add_field", "tab_id": "main", "field": {
+            "id": "size", "label": "Size", "type": "wh", "default_value": [512, 512],
+            "mapping": [
+                {"node_id": "5", "input_name": "width", "transform": "split_wh_width"},
+                {"node_id": "5", "input_name": "height", "transform": "split_wh_height"},
+            ],
+        }},
+        {"op": "add_field", "tab_id": "main", "field": {
+            "id": "seed", "label": "Seed", "type": "seed", "default_value": 0,
+            "mapping": [{"node_id": "3", "input_name": "seed"}],
+        }},
+        {"op": "add_field", "tab_id": "main", "field": {
+            "id": "steps", "label": "Steps", "type": "number", "default_value": 20,
+            "mapping": [{"node_id": "3", "input_name": "steps"}],
+        }},
+        {"op": "add_field", "tab_id": "main", "field": {
+            "id": "cfg_scale", "label": "CFG Scale", "type": "float", "default_value": 7.0,
+            "mapping": [{"node_id": "3", "input_name": "cfg"}],
+        }},
+        {"op": "add_field", "tab_id": "main", "field": {
+            "id": "sampler_name", "label": "Sampler", "type": "string", "default_value": "euler",
+            "mapping": [{"node_id": "3", "input_name": "sampler_name"}],
+        }},
+        {"op": "add_field", "tab_id": "main", "field": {
+            "id": "scheduler", "label": "Scheduler", "type": "string", "default_value": "normal",
+            "mapping": [{"node_id": "3", "input_name": "scheduler"}],
+        }},
+        {"op": "add_field", "tab_id": "main", "field": {
+            "id": "denoise", "label": "Denoise", "type": "float", "default_value": 1.0,
+            "mapping": [{"node_id": "3", "input_name": "denoise"}],
+        }},
+    ]
+
+    result = run(tool.execute(_context(wiz), ops=ops))
+    assert result.success is True, result.error
+    assert len(result.preview.items) == 8
+
+
+def test_propose_form_changes_unknown_field_type_teaches_allowed_types():
+    tool = ProposeFormChangesTool()
+    ops = [{
+        "op": "add_field", "tab": "generation", "field_type": "wobble",
+        "field_name": "mystery", "label": "Mystery",
+        "mappings": [{"node_id": "3", "input_name": "cfg"}],
+    }]
+    result = run(tool.execute(_context(_wiz()), ops=ops))
+    assert result.success is False
+    assert "unknown field_type 'wobble'" in result.error
+    assert "resolution" in result.error and "select" in result.error
+
+
 def test_execute_confirmed_returns_apply_payload_with_defaulted_transform():
     tool = ProposeFormChangesTool()
     ops = [

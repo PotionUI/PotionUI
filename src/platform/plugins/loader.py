@@ -117,6 +117,9 @@ class PluginManifest:
     # Phrasebook batch tools: [{id, label, backend, component}]
     phrasebook_ops: List[Dict[str, Any]] = field(default_factory=list)
 
+    # Preset requirement checkers: [{type, backend}]
+    requirement_checkers: List[Dict[str, Any]] = field(default_factory=list)
+
     # Set when the manifest failed schema validation. The plugin is still
     # discovered (so it's visible/manageable in the admin UI) but the
     # registry puts it straight into PluginState.ERROR with this message.
@@ -410,6 +413,7 @@ class PluginLoader:
             automation_templates=[t.model_dump() for t in schema.automation_templates],
             prompt_importers=[p.model_dump() for p in schema.prompt_importers],
             phrasebook_ops=[o.model_dump() for o in schema.phrasebook_ops],
+            requirement_checkers=[r.model_dump() for r in schema.requirement_checkers],
         )
 
     def load_plugin_module(

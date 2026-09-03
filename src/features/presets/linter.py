@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
+from pydantic import ValidationError
 
 from src.features.media.image_processor import ImageProcessor
 
@@ -21,6 +22,7 @@ from .schema import (
     validate_manifest,
     validate_form_file,
     validate_field_list,
+    _format_errors,
 )
 from .tests_schema import NEEDS_MODEL_TAG, PLACEHOLDER_SHA256, validate_tests_yml
 
@@ -232,6 +234,8 @@ class PresetLinter:
         issues.extend(self._lint_engine_matches_pipes(preset_file, manifest))
 
         issues.extend(self._lint_speed_profiles(preset_file, manifest))
+
+        issues.extend(self._lint_requirements(preset_file, manifest))
 
         issues.extend(self._lint_tests_yml(preset_file, manifest))
 
@@ -1254,6 +1258,62 @@ class PresetLinter:
             from src.features.fields.builtin import register_builtin_fields
             register_builtin_fields(field_type_registry)
         return field_type_registry
+
+    @staticmethod
+    def _requirement_checker_registry():
+        """The `RequirementCheckerRegistry` to validate `requirements:`
+        entries against - same lazy-seed pattern as `_field_type_registry`,
+        so a bare `scripts/preset_lint.py` run still checks core requirement
+        types correctly. A checker contributed by a plugin that isn't loaded
+        in this process (the standalone script never loads plugins) is
+        unknown here exactly like an unregistered field type is - not a
+        regression this linter introduces, the same pre-existing gap
+        `_field_type_registry` already has.
+        """
+        from src.platform.plugins.requirement_checkers import requirement_checker_registry
+        if not requirement_checker_registry.all():
+            from src.features.presets.requirements.builtin import register_builtin_requirement_checkers
+            register_builtin_requirement_checkers(requirement_checker_registry)
+        return requirement_checker_registry
+
+    def _lint_requirements(self, preset_file: Path, manifest) -> List[LintIssue]:
+        """Validate `requirements:` entries (see docs/presets.md
+        "Requirements"): an unregistered `type:` is an error, and an entry
+        whose own arguments fail its checker's `schema` is an error citing
+        the pydantic message."""
+        issues: List[LintIssue] = []
+        requirements = getattr(manifest, "requirements", None)
+        if not requirements:
+            return issues
+
+        preset_str = str(preset_file)
+        registry = self._requirement_checker_registry()
+
+        for index, entry in enumerate(requirements):
+            type_name = entry.type
+            registration = registry.get(type_name)
+            if registration is None:
+                issues.append(
+                    LintIssue(
+                        "error",
+                        preset_str,
+                        f"requirements[{index}]: unknown type '{type_name}' - no checker "
+                        f"is registered for it (core types: binary, python_package, model, "
+                        f"vram_min_gb, platform)",
+                    )
+                )
+                continue
+
+            entry_dict = entry.model_dump(exclude_none=True)
+            try:
+                registration.checker.schema.model_validate(entry_dict)
+            except ValidationError as exc:
+                issues.extend(
+                    LintIssue("error", preset_str, f"requirements[{index}] ({type_name}): {msg}")
+                    for msg in _format_errors("requirements", exc)
+                )
+
+        return issues
 
     def _field_config_spec_names(self, registry, type_name: str) -> Optional[set]:
         """Declared `FieldConfigSpec` names for `type_name`, or `None` if this

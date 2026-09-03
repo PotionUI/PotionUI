@@ -20,6 +20,21 @@ shelling out to a script. To make a freshly written preset visible without a
 restart, reload the running catalogue via
 `get_container().preset_template_loader.reload()` (see `src.plugin_api.hooks`).
 
+A plugin can also contribute a preset **requirement checker** - the code that
+evaluates one `requirements:` entry `type:` (see docs/presets.md
+"Requirements") against this instance, e.g. a ComfyUI custom-node check.
+Declare it under `requirement_checkers:` in `manifest.yml`, pointing `backend`
+at a class implementing `RequirementChecker` below:
+
+    requirement_checkers:
+      - type: comfyui_node
+        backend: checkers:ComfyNodeChecker
+
+`RequirementChecker.check()` receives the raw `requirements:` entry dict and a
+`RequirementContext` (the models catalog, GPU info, the preset's resolved
+backend, this host's platform) and returns a `RequirementResult` - never
+"missing" when you simply couldn't tell; return `status="unknown"` instead.
+
 See docs/presets.md.
 """
 
@@ -30,11 +45,21 @@ from src.features.presets.collaborators import PresetCollaborators
 from src.features.presets import operations as preset_operations
 from src.features.presets.file_repository import FilePresetRepository
 from src.features.presets.linter import PresetLinter
+from src.features.presets.requirements.contracts import (
+    RequirementAction,
+    RequirementChecker,
+    RequirementContext,
+    RequirementResult,
+)
 
 __all__ = [
     "FilePresetRepository",
     "GenerationRequest",
     "PresetCollaborators",
+    "RequirementAction",
+    "RequirementChecker",
+    "RequirementContext",
+    "RequirementResult",
     "lint_preset_dir",
     "preset_operations",
     "PromptPair",

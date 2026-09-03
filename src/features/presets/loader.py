@@ -277,6 +277,7 @@ class PresetTemplateLoader:
 
         llm = manifest.llm.model_dump(exclude_none=True) if manifest.llm else None
         requires = manifest.requires.model_dump(exclude_none=True) if manifest.requires else None
+        requirements = [entry.model_dump(exclude_none=True) for entry in manifest.requirements]
 
         return PresetTemplate(
             id=manifest.id,
@@ -295,6 +296,7 @@ class PresetTemplateLoader:
             configuration=configuration,
             llm=llm,
             requires=requires,
+            requirements=requirements,
         )
 
     def _load_mode(self, preset_path: Path, mode_name: str) -> Tuple[Optional[ModeTemplate], List[str]]:

@@ -156,6 +156,16 @@ class PresetController(BaseController):
         except Exception as e:
             return self._handle_preset_exception(e, "preset_get_failed", "Failed to get preset")
 
+    async def get_preset_requirements(self, preset_id: str, refresh: bool = False) -> APIResponse:
+        """Check this preset's declared `requirements:` against this instance (admin only)."""
+        try:
+            data = await operations.get_preset_requirements(self.collaborators, preset_id, refresh=refresh)
+            return self.success_response(data=data)
+        except Exception as e:
+            return self._handle_preset_exception(
+                e, "requirements_check_failed", "Failed to check preset requirements"
+            )
+
     async def get_preset_models(
         self,
         preset_id: str,
@@ -430,6 +440,16 @@ def build_router(container: "AppContainer") -> APIRouter:
     async def get_preset(preset_id: str, current_user=Depends(get_current_active_user)):
         """Get detailed information about a specific preset including its configuration."""
         return await controller.get_preset(preset_id)
+
+    @router.get("/{preset_id}/requirements", response_model=APIResponse, summary="Get Preset Requirements")
+    async def get_preset_requirements(
+        preset_id: str, refresh: bool = False, current_user=Depends(get_current_admin_user)
+    ):
+        """Check this preset's declared `requirements:` against this instance (admin only).
+
+        Cached per (preset, requirements-block fingerprint, resolved backend);
+        pass `?refresh=1` to force a fresh evaluation. See docs/presets.md "Requirements"."""
+        return await controller.get_preset_requirements(preset_id, refresh)
 
     @router.get("/{preset_id}/models", response_model=APIResponse, summary="Get Preset Models")
     async def get_preset_models(

@@ -17,6 +17,7 @@ from src.platform.plugins.router_mounter import PluginRouterMounter
 from src.platform.plugins.field_types import FieldTypeDefinition, FieldTypeRegistry, DuplicateFieldTypeError
 from src.platform.plugins.prompt_importers import PromptImporterRegistry
 from src.platform.plugins.phrasebook_ops import PhrasebookOperationRegistry
+from src.platform.plugins.requirement_checkers import RequirementCheckerRegistry
 from src.platform.plugins.automation_templates import (
     AutomationTemplateRegistrationError,
     AutomationTemplateRegistry,
@@ -71,6 +72,7 @@ class PluginRegistry:
         automation_template_registry: Optional[AutomationTemplateRegistry] = None,
         prompt_importer_registry: Optional[PromptImporterRegistry] = None,
         phrasebook_operation_registry: Optional[PhrasebookOperationRegistry] = None,
+        requirement_checker_registry: Optional[RequirementCheckerRegistry] = None,
     ):
         self.loader = PluginLoader(marketplace_dir, local_dir)
         self.hook_chain = HookChain()
@@ -112,6 +114,9 @@ class PluginRegistry:
         # Phrasebook batch tools contributed by enabled plugins - same
         # register-on-enable / unregister-by-source-on-disable shape.
         self.phrasebook_operation_registry = phrasebook_operation_registry
+        # Preset requirement checkers contributed by enabled plugins - same
+        # register-on-enable / unregister-by-source-on-disable shape.
+        self.requirement_checker_registry = requirement_checker_registry
 
         # Plugin storage
         self._plugins: Dict[str, PluginManifest] = {}
@@ -285,6 +290,7 @@ class PluginRegistry:
                     self._register_plugin_automation_templates,
                     self._register_plugin_prompt_importers,
                     self._register_plugin_phrasebook_ops,
+                    self._register_plugin_requirement_checkers,
                 ):
                     error_msg = register_step(manifest)
                     if error_msg:
@@ -489,6 +495,54 @@ class PluginRegistry:
 
         return None
 
+    def _register_plugin_requirement_checkers(self, manifest: PluginManifest) -> Optional[str]:
+        """
+        Load and register a plugin's `requirement_checkers:` manifest entries
+        onto `self.requirement_checker_registry`. Returns an error message on
+        failure, None on success.
+        """
+        skip, error = self._require_registry(
+            manifest.requirement_checkers, self.requirement_checker_registry,
+            "requirement_checkers", "requirement checker",
+        )
+        if skip:
+            return error
+
+        from src.platform.plugins.requirement_checkers import (
+            DuplicateRequirementCheckerError,
+            RequirementCheckerRegistration,
+        )
+
+        plugin_id = manifest.id
+
+        for entry in manifest.requirement_checkers:
+            type_name = entry.get('type')
+            if not type_name:
+                return "requirement_checkers entry missing 'type'"
+
+            backend_ref = entry.get('backend')
+            if not backend_ref:
+                return f"requirement_checkers entry '{type_name}' missing 'backend'"
+            checker_cls = self.loader.load_class(manifest, backend_ref)
+            if checker_cls is None:
+                return f"Failed to load requirement checker backend: {backend_ref}"
+
+            try:
+                checker = checker_cls()
+            except Exception as e:
+                return f"Failed to instantiate requirement checker backend '{backend_ref}': {e}"
+
+            try:
+                self.requirement_checker_registry.register(RequirementCheckerRegistration(
+                    type_name=type_name,
+                    checker=checker,
+                    source=plugin_id,
+                ))
+            except DuplicateRequirementCheckerError as e:
+                return str(e)
+
+        return None
+
     def _rollback_partial_enable(self, plugin_id: str) -> None:
         """Tear down everything a partially-enabled plugin registered so far:
         hooks, field types, and LLM chat extensions (tools/modes/resources)."""
@@ -509,6 +563,8 @@ class PluginRegistry:
             self.prompt_importer_registry.unregister_source(plugin_id)
         if self.phrasebook_operation_registry is not None:
             self.phrasebook_operation_registry.unregister_source(plugin_id)
+        if self.requirement_checker_registry is not None:
+            self.requirement_checker_registry.unregister_source(plugin_id)
 
     def _require_registry(
         self, items, registry, attr_name: str, singular: str

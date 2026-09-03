@@ -61,7 +61,13 @@ from src.platform.plugins.phrasebook_ops import (
     PhrasebookOperationRegistry,
     phrasebook_operation_registry as _shared_phrasebook_operation_registry,
 )
+from src.platform.plugins.requirement_checkers import (
+    RequirementCheckerRegistry,
+    requirement_checker_registry as _shared_requirement_checker_registry,
+)
 from src.features.fields.builtin import register_builtin_fields
+from src.features.presets.requirements.builtin import register_builtin_requirement_checkers
+from src.features.presets.requirements.evaluator import RequirementsCache
 from src.features.models.attributes.repository import AttributeDefinitionRepository
 from src.features.models.attributes.user_repository import UserModelAttributeRepository
 from src.features.models.attributes.editor import ModelAttributeDefinitionsEditor
@@ -190,6 +196,8 @@ class AppContainer:
     model_attributes_manager: "ModelAttributeDefinitionsEditor"
     prompt_importer_registry: PromptImporterRegistry
     phrasebook_operation_registry: PhrasebookOperationRegistry
+    requirement_checker_registry: RequirementCheckerRegistry
+    requirements_cache: RequirementsCache
     tool_registry: "ToolRegistry"
     tool_executor: "ToolExecutor"
     chat_mode_registry: "ChatModeRegistry"
@@ -546,6 +554,15 @@ def build_container() -> AppContainer:
     phrasebook_operation_registry = _shared_phrasebook_operation_registry
     register_core_batch_operations(phrasebook_operation_registry)
 
+    # Preset requirement checker registry (src/platform/plugins/
+    # requirement_checkers.py) - core's five checkers register first so a
+    # plugin colliding with one of them (binary/python_package/model/
+    # vram_min_gb/platform) fails its enable. See docs/presets.md
+    # "Requirements".
+    requirement_checker_registry = _shared_requirement_checker_registry
+    register_builtin_requirement_checkers(requirement_checker_registry)
+    requirements_cache = RequirementsCache()
+
     plugin_router_mounter = PluginRouterMounter()
     plugin_registry = PluginRegistry(
         marketplace_dir="content/plugins/marketplace",
@@ -560,6 +577,7 @@ def build_container() -> AppContainer:
         automation_template_registry=automation_template_registry,
         prompt_importer_registry=prompt_importer_registry,
         phrasebook_operation_registry=phrasebook_operation_registry,
+        requirement_checker_registry=requirement_checker_registry,
     )
     _rr._global_plugin_registry = plugin_registry  # Set the global reference
 
@@ -1238,7 +1256,11 @@ def build_container() -> AppContainer:
         pipeline_builder=pipeline_builder,
         pipe_catalog=pipe_catalog,
         plugins=plugin_registry,
-        settings=settings
+        settings=settings,
+        model_index=model_index_manager,
+        gpu_monitor=gpu_monitor,
+        backend_registry=backend_registry,
+        requirements_cache=requirements_cache,
     )
     preset_controller = PresetController(
         preset_manager, backend_registry, media_store,

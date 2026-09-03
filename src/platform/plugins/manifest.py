@@ -247,6 +247,23 @@ class ModelMetadataFieldEntry(BaseModel):
     admin_only: bool = False
 
 
+class RequirementCheckerSpec(BaseModel):
+    """A plugin-provided preset requirement checker: `requirement_checkers[]`.
+
+    `backend` is a `"module.path:ClassName"` reference to a
+    `src.plugin_api.presets.RequirementChecker` subclass, loaded the same way
+    a `field_types[].schema_class` is. `type` is the `requirements:` entry
+    `type:` name this checker evaluates (e.g. `"comfyui_node"`) - it must not
+    collide with a core type (`binary`, `python_package`, `model`,
+    `vram_min_gb`, `platform`) or one already registered by another plugin.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: str
+    backend: str
+
+
 class PromptImporterSpec(BaseModel):
     """A plugin-provided prompt import source: `prompt_importers[]`.
 
@@ -500,3 +517,6 @@ class PluginManifestSchema(BaseModel):
 
     # Phrasebook batch tools
     phrasebook_ops: List[PhrasebookOpSpec] = Field(default_factory=list)
+
+    # Preset requirement checkers (see docs/presets.md "Requirements")
+    requirement_checkers: List[RequirementCheckerSpec] = Field(default_factory=list)

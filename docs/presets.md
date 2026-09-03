@@ -387,6 +387,52 @@ failing that, `recommended_vram_gb`) is set. When the backend's `/api/system/sta
 reports a detected GPU (available to any authenticated user, not admin-gated) and its VRAM is below
 `min_vram_gb`, the badge switches to a non-blocking warning — never a disabled button.
 
+## Requirements
+
+`requirements:` is an optional top-level `preset.yml` list, distinct from `requires:` above:
+where `requires:` is static guidance text shown before a download, `requirements:` is a list of
+typed entries **checked live** against this instance, surfaced to admins via
+`GET /api/presets/{preset_id}/requirements`. Each entry needs at least a `type:`; `hint:` (shown
+alongside a failed check) and `optional: true` (this entry's absence doesn't count as a hard
+failure) are accepted on every type.
+
+```yaml
+requirements:
+  - type: binary
+    name: ffmpeg
+    hint: "Install ffmpeg and make sure it is on PATH"
+  - type: binary
+    names: [ffmpeg, ffmpeg.exe]   # first found on PATH wins - per-platform alternatives
+  - type: python_package
+    name: xformers
+    version: ">=0.0.28"           # PEP 440 specifier; omit to accept any installed version
+    optional: true
+  - type: model
+    tag: "flux-klein-9b"          # matches an admin Tag *name* - see below
+  - type: model
+    hash: "<sha256>"              # exact match against the depot
+  - type: vram_min_gb
+    gb: 16
+  - type: platform
+    os: [linux, darwin]           # linux | darwin | windows
+```
+
+Core ships five types (`src/features/presets/requirements/builtin.py`): `binary` (`shutil.which`,
+or the first of `names:` found), `python_package` (`importlib.metadata` + a PEP 440 `version:`
+specifier), `model` (a tag name or exact sha256 present and available in the depot — `tag:` matches
+the same admin `Tag` concept a `configuration: {type: model_tags}` picker filter already uses, not
+a marketplace-specific id), `vram_min_gb` (this host's total VRAM), and `platform` (`sys.platform`).
+Engine-specific checks (a ComfyUI custom node or model) are not core — a plugin registers its own
+under a `requirement_checkers:` manifest root (see `src.plugin_api.presets.RequirementChecker`).
+
+Every check resolves to one of three statuses: `ok`, `missing`, or `unknown` — `unknown` means the
+check couldn't be evaluated here (a 5s per-check timeout, no local GPU reading, a checker type not
+registered in this process) and is never treated as `missing`. Results are cached per
+(preset, requirements-block content, resolved backend); pass `?refresh=1` to force a fresh
+evaluation. The preset list/detail endpoints expose the last-evaluated counts as
+`requirements_summary` (`{ok, missing, unknown}`, `null` until first checked) without ever running
+a check themselves.
+
 ## LLM context
 
 `llm:` is an optional top-level `preset.yml` mapping that shapes what the **chat** LLM is told

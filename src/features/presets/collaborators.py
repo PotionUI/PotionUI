@@ -16,16 +16,20 @@ access, plus one derived field built once at construction), matching
 - the reference shape for a wide-collaborator dissolution).
 """
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
+from src.features.backends.backend_registry import BackendRegistry
+from src.features.models.collaborators import ModelIndexCollaborators
 from src.features.presets import PresetTemplateLoader, PresetProcessor
 from src.features.presets.file_repository import FilePresetRepository
 from src.features.presets.form_serializer import PresetFormSerializer
 from src.features.presets.repository import DatabasePresetRepository
+from src.features.presets.requirements.evaluator import RequirementsCache
 from src.features.user_groups.repository import UserGroupRepository
 from src.features.users.repository import UserRepository
 from src.pipelines.catalog import PipeCatalog
 from src.platform.plugins import PluginRegistry
+from src.platform.runtime.gpu import GpuMonitor
 from src.platform.settings.settings import Settings
 from src.platform.templating import TemplateProcessor
 
@@ -52,6 +56,15 @@ class PresetCollaborators:
     # preview call can run the same media containment check a real
     # generation does (spec follow-up #1).
     settings: Settings
+    # Requirements checking (see docs/presets.md "Requirements") - all four
+    # optional so existing callers/tests that build this bundle without them
+    # keep working; without them, `get_preset_requirements` still runs but
+    # every `model`/`vram_min_gb` check resolves to "unknown" and the list/
+    # detail endpoints' `requirements_summary` stays `None`.
+    model_index: Optional[ModelIndexCollaborators] = None
+    gpu_monitor: Optional[GpuMonitor] = None
+    backend_registry: Optional[BackendRegistry] = None
+    requirements_cache: Optional[RequirementsCache] = None
     # Derived, built once here rather than per-call.
     form_serializer: PresetFormSerializer = field(init=False)
 

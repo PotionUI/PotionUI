@@ -153,6 +153,11 @@ class PresetTemplate:
     # Optional hardware guidance, e.g. {"min_vram_gb": 12, "recommended_vram_gb": 16}.
     # Mirrors PresetRequirements in schema.py. See docs/presets.md "Hardware requirements".
     requires: Optional[Dict[str, Any]] = None
+    # Typed, checkable requirements (see docs/presets.md "Requirements"),
+    # e.g. [{"type": "binary", "name": "ffmpeg"}, {"type": "vram_min_gb", "gb": 16}].
+    # Distinct from `requires` above. Raw dicts (mirrors `speed_profiles`) -
+    # evaluated by `src.features.presets.requirements.evaluate_preset_requirements`.
+    requirements: List[Dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self):
         # Default to the built-in native engine if not specified
@@ -178,6 +183,7 @@ class PresetTemplate:
             configuration=self.configuration,
             llm=self.llm,
             requires=self.requires,
+            requirements=self.requirements,
         )
 
     def to_dict(self):

@@ -432,6 +432,35 @@ class PresetRequirements(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Requirement checks (see docs/presets.md "Requirements") - distinct from
+# `requires:`/`PresetRequirements` above, which is static VRAM/RAM guidance
+# text shown before a user downloads the model. `requirements:` is a list of
+# typed, checkable entries evaluated live against this instance (a binary on
+# PATH, a Python package, a specific model in the depot, a VRAM floor, a
+# supported OS) via `src.features.presets.requirements`. Structural
+# validation only: `type:` must be a non-empty string, everything else is
+# `extra="allow"` because the checker `type:` set is an open extension point
+# (a plugin can add one without this schema knowing about it) - a checker's
+# own `schema` (its per-type argument model) is what `PresetLinter` validates
+# an entry's arguments against.
+# ---------------------------------------------------------------------------
+
+
+class RequirementEntry(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    type: str
+    hint: Optional[str] = None
+    optional: bool = False
+
+    @model_validator(mode="after")
+    def _validate_type(self) -> "RequirementEntry":
+        if not self.type or not self.type.strip():
+            raise ValueError("requirements[].type must be a non-empty string")
+        return self
+
+
+# ---------------------------------------------------------------------------
 # Speed profiles (roadmap 3.6): named bundles of generation knobs a preset's
 # pipeline.yml can switch between atomically via a selected profile name.
 # ---------------------------------------------------------------------------
@@ -593,6 +622,9 @@ class PresetManifest(BaseModel):
     # Optional hardware guidance shown at preset-choice time, before a user
     # downloads the model. See docs/presets.md "Hardware requirements".
     requires: Optional[PresetRequirements] = None
+    # Typed, checkable requirements evaluated live against this instance -
+    # distinct from `requires:` above. See docs/presets.md "Requirements".
+    requirements: List[RequirementEntry] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _validate_business_rules(self) -> "PresetManifest":

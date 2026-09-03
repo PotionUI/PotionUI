@@ -15,6 +15,7 @@ from src.features.presets.exceptions import (
     NoModesAvailableException,
     PresetNotFoundException,
 )
+from src.features.presets.requirements.context_builder import resolve_backend_id
 from src.features.presets.templates import ModeTemplate, GenerationMode, sorted_forms, default_form_name
 from src.pipelines.graph import build_graph, PipelineGraph
 from src.platform.security.user import User, AccountType
@@ -58,6 +59,7 @@ def list_presets(
                 preset['assignment_count'] = summary['total_assignments']
                 preset['preset_db_id'] = summary.get('preset_db_id')
                 preset['group_count'] = collaborators.group_repo.get_group_count_for_preset(preset['id'])
+            preset['requirements_summary'] = _peek_requirements_summary(collaborators, preset['id'])
 
         return all_presets
     else:
@@ -71,6 +73,20 @@ def list_presets(
             preset for preset in all_presets
             if preset['id'] in available_preset_ids
         ]
+
+
+def _peek_requirements_summary(collaborators: PresetCollaborators, preset_id: str) -> Optional[Dict[str, int]]:
+    """The last-evaluated `requirements_summary` for a preset, or `None` if it
+    has never been checked (or a reload/backend change invalidated the
+    cache). Never runs a check - see `RequirementsCache.peek_summary`."""
+    if collaborators.requirements_cache is None:
+        return None
+    preset_template = collaborators.file_repo.find_preset_by_id(preset_id)
+    if preset_template is None:
+        return None
+    backend_id = resolve_backend_id(collaborators.backend_registry, preset_template.engine)
+    peek = collaborators.requirements_cache.peek_summary(preset_template, backend_id)
+    return peek['summary'] if peek else None
 
 
 def get_preset(collaborators: PresetCollaborators, preset_id: str) -> Dict[str, Any]:
@@ -102,6 +118,8 @@ def get_preset(collaborators: PresetCollaborators, preset_id: str) -> Dict[str, 
     # (see docs/presets.md "LLM context"), for get_preset_info and similar
     # LLM-facing consumers.
     data['llm'] = found_preset.llm or {}
+
+    data['requirements_summary'] = _peek_requirements_summary(collaborators, preset_id)
 
     return data
 

@@ -74,8 +74,8 @@
 	let activeDrawer: DrawerType = null;
 	const STORAGE_KEY_DRAWER = 'generation-panel-active-drawer';
 
-	// Toggle drawer open/closed
-	function toggleDrawer(drawer: DrawerType) {
+	// Toggle drawer open/closed - exported so the page's keybinding handler can drive it
+	export function toggleDrawer(drawer: DrawerType) {
 		if (activeDrawer === drawer) {
 			activeDrawer = null;
 		} else {

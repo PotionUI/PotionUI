@@ -26,6 +26,7 @@
 	import { resolveNegativeApplicability } from '$lib/generation/negativeApplied';
 	import { leadIndex } from '$lib/generation/leadFile';
 	import { toggleFloatingForm } from '$lib/generation/floatingForm';
+	let generationPanelRef: GenerationPanel | undefined;
 	import { normalizeFileType } from '$lib/utils/fileType';
 	import { galleryTotal } from '$lib/components/workbench/workbenchGallery';
 	import GenerationSettingsPanel from './components/GenerationSettingsPanel.svelte';
@@ -311,6 +312,9 @@
 		});
 		keybindingsStore.registerHandler('toggle_left_panel', () => {
 			tabsStore.updateTab(activeTabId, { leftPanelCollapsed: !currentTab.leftPanelCollapsed });
+		});
+		keybindingsStore.registerHandler('toggle_last_generations', () => {
+			generationPanelRef?.toggleDrawer('lastGenerations');
 		});
 		keybindingsStore.registerHandler('toggle_floating_form', () => {
 			tabsStore.updateTab(activeTabId, toggleFloatingForm(currentTab));
@@ -669,6 +673,7 @@
 		keybindingsStore.unregisterHandler('close_tab');
 		keybindingsStore.unregisterHandler('toggle_left_panel');
 		keybindingsStore.unregisterHandler('toggle_floating_form');
+		keybindingsStore.unregisterHandler('toggle_last_generations');
 	});
 
 	// Reactive store for modes per tab
@@ -1740,6 +1745,7 @@
 	<div class="flex-shrink-0 w-full">
 		{#key currentTab.id}
 		<GenerationPanel
+			bind:this={generationPanelRef}
 			generation={generation}
 			{isGenerating}
 			onGenerate={startGeneration}

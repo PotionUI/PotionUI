@@ -44,6 +44,49 @@ hooks:
     - hook: "backend.register"
       handler: "hooks.backend_hooks.register_backend"
 
+# Chat tools backing the "comfyui-import" mode below - scoped to that mode
+# only via `modes:`, not global.
+tools:
+  - class: "backend.chat.tools:GetWorkflowInputsTool"
+    modes: ["comfyui-import"]
+  - class: "backend.chat.tools:ProposeFormChangesTool"
+    modes: ["comfyui-import"]
+
+# Admin-only chat assistant for the ComfyUI preset-import wizard. The wizard
+# opens a session in this mode directly rather than by route match, so
+# default_route_prefixes is empty. `admin_only` depends on the
+# ChatModeSpec/ChatMode field landing in core - it fails manifest validation
+# until that field exists.
+chat_modes:
+  - id: "comfyui-import"
+    name: "ComfyUI import"
+    description: "Helps map ComfyUI workflow inputs to preset form fields"
+    icon: "workflow"
+    admin_only: true
+    default_route_prefixes: []
+    tools:
+      - "get_workflow_inputs"
+      - "propose_form_changes"
+    context_contributor: "backend.chat.context.build_import_context"
+    system_prompt: |
+      You are helping an admin import a ComfyUI workflow as a PotionUI preset. The system
+      context below shows the workflow, the form as arranged so far, and the workflow inputs
+      still unmapped.
+
+      Prompts (positive/negative) are NEVER mapped from the dynamic form - they are locked and
+      come from the Prompts section. Never propose a mapping for a locked input.
+
+      Prefer name/semantic matches: seed -> seed, steps -> steps, cfg -> cfg_scale,
+      width/height -> one size field via split_wh_width/split_wh_height, ckpt_name/model ->
+      a model field via strip_model_prefix. Use get_workflow_inputs when you need full detail
+      on an input, or the unmapped list was truncated.
+
+      Always propose changes with propose_form_changes - never describe a mapping or a YAML
+      snippet in prose. The user approves each batch before it is applied.
+
+      Available tools:
+      {{TOOL_HINTS}}
+
 # Tabs on this plugin's own Admin -> Plugins detail panel (Overview/Settings
 # are core; these are added after them - see
 # frontend/src/routes/admin/components/pluginDetailTabs.ts).

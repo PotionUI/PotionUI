@@ -21,7 +21,7 @@ from src.features.plugins.operations.lifecycle import (
     disable_plugin,
     delete_plugin,
 )
-from src.features.plugins.operations.scan import scan_plugins
+from src.features.plugins.operations.scan import scan_plugins, refresh_known_plugin_hooks
 from src.features.plugins.operations.settings import (
     PluginManifestUnavailableError,
     update_plugin_settings,
@@ -39,6 +39,7 @@ __all__ = [
     "disable_plugin",
     "delete_plugin",
     "scan_plugins",
+    "refresh_known_plugin_hooks",
     "PluginManifestUnavailableError",
     "update_plugin_settings",
     "encrypt_declared_secrets",

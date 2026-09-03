@@ -86,6 +86,7 @@ from src.features.generation.status_tracker import GenerationStatusTracker
 from src.platform.settings.repository import SettingRepository
 from src.features.llm.repository import LLMRepository
 from src.features.plugins.repository import PluginRepository
+from src.features.plugins.operations import refresh_known_plugin_hooks
 from src.features.users.repository import UserRepository
 from src.features.phrasebook.repository import (
     PhrasebookCategoryRepository,
@@ -600,6 +601,15 @@ def build_container() -> AppContainer:
     # one fails plugin enable rather than crashing builtin registration.
     plugin_repository = PluginRepository()
     _sync_enabled_plugins(plugin_registry, plugin_repository)
+
+    # A manifest hook/page added since the plugin's last DB scan (e.g. a
+    # marketplace update) must take effect on restart, not wait for an admin
+    # to click "Scan for Plugins" - see refresh_known_plugin_hooks.
+    refreshed_plugin_count = refresh_known_plugin_hooks(plugin_repository, plugin_registry)
+    if refreshed_plugin_count:
+        logging.getLogger(__name__).info(
+            f"Refreshed hooks/pages for {refreshed_plugin_count} known plugin(s) at startup"
+        )
 
     # Download queue: built early (repository only - see below) because model
     # fetches across the app (admin queueing, model recommendations, setup

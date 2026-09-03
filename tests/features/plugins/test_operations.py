@@ -844,3 +844,118 @@ class TestScanPluginsWithInvalidManifest(PersistenceTestBase):
         # table's CHECK constraint actually accepts.
         broken_row = self.repo.get_plugin_by_id("broken-plugin")
         assert broken_row.type in ("frontend-only", "backend-only", "full-stack")
+
+
+# ========== refresh_known_plugin_hooks Tests ==========
+
+def test_refresh_known_plugin_hooks_refreshes_only_plugins_already_in_db(
+    mock_plugin_repo, mock_plugin_registry, sample_plugin, sample_plugin_manifest
+):
+    """Startup refresh must not create a DB row for a plugin the registry
+    discovers but the DB has never seen - that stays "Scan for Plugins"' job.
+    """
+    unknown_manifest = PluginManifest(
+        id="unknown-plugin",
+        name="Unknown Plugin",
+        version="1.0.0",
+        description="Discovered on disk, never scanned into the DB",
+        author="Test Author",
+        plugin_type="full-stack",
+        manifest_path=Path("/content/plugins/local/unknown-plugin/manifest.yml"),
+        plugin_dir=Path("/content/plugins/local/unknown-plugin"),
+        source="local",
+    )
+    mock_plugin_registry.get_all_plugins.return_value = [sample_plugin_manifest, unknown_manifest]
+    mock_plugin_repo.get_all_plugins.return_value = [sample_plugin]  # only sample_plugin is known
+
+    refreshed = operations.refresh_known_plugin_hooks(mock_plugin_repo, mock_plugin_registry)
+
+    assert refreshed == 1
+    mock_plugin_repo.clear_plugin_hooks.assert_called_once_with(sample_plugin_manifest.id)
+    mock_plugin_repo.create_plugin.assert_not_called()
+    mock_plugin_registry.discover_plugins.assert_not_called()
+
+
+def test_refresh_known_plugin_hooks_noop_when_nothing_known(mock_plugin_repo, mock_plugin_registry):
+    mock_plugin_registry.get_all_plugins.return_value = []
+    mock_plugin_repo.get_all_plugins.return_value = []
+
+    refreshed = operations.refresh_known_plugin_hooks(mock_plugin_repo, mock_plugin_registry)
+
+    assert refreshed == 0
+    mock_plugin_repo.clear_plugin_hooks.assert_not_called()
+
+
+class TestRefreshKnownPluginHooksAgainstRealDatabase(PersistenceTestBase):
+    """Reproduces the startup gap: a plugin manifest gains a new frontend
+    hook, but the DB row created by an earlier scan has none. Without a
+    startup refresh, `get_hooks_by_type("frontend")` never sees it until an
+    admin clicks "Scan for Plugins".
+    """
+
+    def setUp(self):
+        super().setUp()
+
+        self.plugins_dir = Path(tempfile.mkdtemp())
+        self.marketplace_dir = self.plugins_dir / "marketplace"
+        self.local_dir = self.plugins_dir / "local"
+        self.marketplace_dir.mkdir()
+        self.local_dir.mkdir()
+
+        self._write_manifest(self.marketplace_dir / "comfyui-backend", {
+            "id": "comfyui-backend",
+            "name": "ComfyUI Backend",
+            "version": "1.0.0",
+            "description": "Adds a header action to the presets admin screen",
+            "author": "Test Author",
+            "type": "full-stack",
+            "hooks": {
+                "frontend": [
+                    {
+                        "hook": "admin.presets.header-actions",
+                        "component": "HeaderAction.svelte",
+                    }
+                ]
+            },
+        })
+
+        self.registry = PluginRegistry(
+            marketplace_dir=str(self.marketplace_dir),
+            local_dir=str(self.local_dir),
+        )
+        self.repo = PluginRepository()
+
+        # Simulate a DB row from before the manifest gained the frontend hook.
+        self.repo.create_plugin(Plugin(
+            id="comfyui-backend",
+            name="ComfyUI Backend",
+            version="1.0.0",
+            type="full-stack",
+            enabled=True,
+            manifest_path=str(self.marketplace_dir / "comfyui-backend" / "manifest.yml"),
+            description="Adds a header action to the presets admin screen",
+            author="Test Author",
+            installed_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        ))
+
+    def tearDown(self):
+        shutil.rmtree(self.plugins_dir)
+        super().tearDown()
+
+    @staticmethod
+    def _write_manifest(plugin_dir: Path, manifest_data: dict) -> None:
+        plugin_dir.mkdir(parents=True)
+        with open(plugin_dir / "manifest.yml", "w") as f:
+            yaml.dump(manifest_data, f)
+
+    def test_startup_refresh_makes_new_frontend_hook_visible(self):
+        assert self.repo.get_hooks_by_type("frontend") == []
+
+        refreshed = operations.refresh_known_plugin_hooks(self.repo, self.registry)
+
+        assert refreshed == 1
+        frontend_hooks = self.repo.get_hooks_by_type("frontend")
+        assert len(frontend_hooks) == 1
+        assert frontend_hooks[0].plugin_id == "comfyui-backend"
+        assert frontend_hooks[0].hook_name == "admin.presets.header-actions"

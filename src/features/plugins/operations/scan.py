@@ -103,6 +103,31 @@ def _refresh_plugin_hooks(repo: PluginRepository, manifest) -> None:
     _register_plugin_hooks(repo, manifest)
 
 
+def refresh_known_plugin_hooks(repo: PluginRepository, registry: PluginRegistry) -> int:
+    """
+    Refresh hooks/pages in the DB for every plugin already known to it.
+
+    Run at process startup so a manifest change (a new `hooks.frontend`
+    entry, a new page) takes effect on restart instead of waiting for an
+    admin to click "Scan for Plugins". Deliberately does not create rows for
+    plugins the registry discovers but the DB has never seen - that first
+    registration (disabled, pending admin review) stays the "Scan for
+    Plugins" action's job.
+
+    Returns:
+        Number of plugins refreshed.
+    """
+    db_plugin_ids = {p.id for p in repo.get_all_plugins()}
+    refreshed = 0
+
+    for manifest in registry.get_all_plugins():
+        if manifest.id in db_plugin_ids:
+            _refresh_plugin_hooks(repo, manifest)
+            refreshed += 1
+
+    return refreshed
+
+
 def scan_plugins(repo: PluginRepository, registry: PluginRegistry) -> PluginScanResult:
     """
     Rescan plugin directories to discover new plugins.

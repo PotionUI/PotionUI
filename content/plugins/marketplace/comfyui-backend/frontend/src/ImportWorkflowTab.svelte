@@ -654,6 +654,8 @@
 
 	.wizard {
 		display: flex;
+		width: 100%;
+		max-width: none;
 		border: 1px solid rgb(var(--line, 36 38 44));
 		border-radius: 6px;
 		background: rgb(var(--surface-1, 22 24 28));

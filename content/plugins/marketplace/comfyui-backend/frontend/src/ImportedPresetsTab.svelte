@@ -96,6 +96,8 @@
 
 <style>
 	.ip-wrap {
+		width: 100%;
+		max-width: none;
 		padding: 4px 0;
 	}
 	.mono {

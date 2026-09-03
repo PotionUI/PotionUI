@@ -13,6 +13,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // (see tests/e2e/harness/e2e_harness.py), so emit_preset writes into the
 // real, .gitignored content/presets/local/ - the unique family name plus
 // the cleanup below keep this journey from leaving anything behind.
+test.use({ viewport: { width: 1440, height: 900 } });
+
 const JOURNEY = 'comfyui-workflow-import';
 const PLUGIN_ID = 'comfyui-backend';
 const REPO_ROOT = resolve(__dirname, '../../..');
@@ -77,6 +79,17 @@ test('Admin > Plugins > ComfyUI Backend - import a workflow through the wizard i
 
 		const tabNav = page.locator('nav[aria-label="Plugin details"]');
 		await expect(tabNav).toBeVisible();
+
+		// Settings gets its own card background (DetailSection), same as Overview -
+		// captured here for the maintainer's visual check, unrelated to the rest
+		// of this journey.
+		const settingsTab = tabNav.getByText('Settings', { exact: false });
+		if ((await settingsTab.count()) > 0) {
+			await settingsTab.click();
+			await page.waitForTimeout(300);
+			await screenshot(page, JOURNEY, '01b-settings-tab');
+		}
+
 		const importTab = tabNav.getByText('Import workflow', { exact: false });
 		if ((await importTab.count()) === 0) {
 			test.skip(true, "'Import workflow' tab not present - the admin_tabs hook wasn't picked up on this build.");

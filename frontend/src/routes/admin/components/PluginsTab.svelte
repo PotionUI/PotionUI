@@ -472,45 +472,47 @@
 							</DetailBody>
 						{:else if detailTab === 'settings'}
 							<DetailBody>
-								{#if liveSelected.settings_schema && liveSelected.settings_schema.length > 0}
-									<form id="plugin-settings-form" on:submit|preventDefault={saveSettings} class="space-y-4">
-										{#each liveSelected.settings_schema as schema}
-											<div>
-												<label for={schema.name} class="block text-sm font-medium text-fg-muted mb-1">
-													{schema.label}
-													{#if schema.required}
-														<span class="text-danger">*</span>
+								<DetailSection label="Settings">
+									{#if liveSelected.settings_schema && liveSelected.settings_schema.length > 0}
+										<form id="plugin-settings-form" on:submit|preventDefault={saveSettings} class="space-y-4">
+											{#each liveSelected.settings_schema as schema}
+												<div>
+													<label for={schema.name} class="block text-sm font-medium text-fg-muted mb-1">
+														{schema.label}
+														{#if schema.required}
+															<span class="text-danger">*</span>
+														{/if}
+													</label>
+													{#if schema.description}
+														<p class="text-xs text-fg-subtle mb-1">{schema.description}</p>
 													{/if}
-												</label>
-												{#if schema.description}
-													<p class="text-xs text-fg-subtle mb-1">{schema.description}</p>
-												{/if}
-												{#if schema.type === 'boolean'}
-													<Switch
-														checked={!!settingsValues[schema.name]}
-														onchange={(v) => (settingsValues[schema.name] = v)}
-														label={schema.label}
-														id={schema.name}
-													/>
-												{:else}
-													<Input
-														id={schema.name}
-														type={getInputType(schema)}
-														bind:value={settingsValues[schema.name]}
-														placeholder={schema.default !== undefined ? `Default: ${schema.default}` : 'Enter value...'}
-													/>
-												{/if}
-											</div>
-										{/each}
-									</form>
-								{:else}
-									<div class="bg-surface-2 rounded-lg p-4 text-center text-sm text-fg-subtle">
-										This plugin has no configurable settings
-									</div>
-								{/if}
+													{#if schema.type === 'boolean'}
+														<Switch
+															checked={!!settingsValues[schema.name]}
+															onchange={(v) => (settingsValues[schema.name] = v)}
+															label={schema.label}
+															id={schema.name}
+														/>
+													{:else}
+														<Input
+															id={schema.name}
+															type={getInputType(schema)}
+															bind:value={settingsValues[schema.name]}
+															placeholder={schema.default !== undefined ? `Default: ${schema.default}` : 'Enter value...'}
+														/>
+													{/if}
+												</div>
+											{/each}
+										</form>
+									{:else}
+										<div class="bg-surface-2 rounded-lg p-4 text-center text-sm text-fg-subtle">
+											This plugin has no configurable settings
+										</div>
+									{/if}
+								</DetailSection>
 							</DetailBody>
 						{:else if activeContributedTab && activeTabComponentPromise}
-							<DetailBody>
+							<DetailBody fullWidth>
 								{#await activeTabComponentPromise}
 									<div class="flex items-center justify-center py-10">
 										<Spinner size="lg" />

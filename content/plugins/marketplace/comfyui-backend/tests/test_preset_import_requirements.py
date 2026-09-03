@@ -3,11 +3,12 @@
 of which inputs the admin chose as form fields, since an unchosen model
 loader still needs its file present to run.
 
-Every fixture under tests/fixtures/ happens to be built entirely from
-ComfyUI's own built-in node classes (see CORE_NODE_CLASS_TYPES), so none of
-them exercise the `comfyui_node` (custom node) branch on their own - one
-test below injects a synthetic non-core node into a copy of sdxl_basic_api's
-data to cover it.
+Every workflow fixture under tests/fixtures/ is built entirely from
+ComfyUI's own built-in node classes, so the `comfyui_node` (custom node)
+tests below inject a synthetic non-core node rather than relying on one -
+except where they use `object_info_sdxl.json` (shared with
+test_preset_import_ui_format.py), whose `FaceDetailer` entry is declared
+non-core there already.
 """
 
 import json
@@ -17,7 +18,7 @@ import pytest
 import yaml
 
 from backend.preset_import.emit import _infer_requirements, emit_preset
-from backend.preset_import.parser import parse_api_workflow
+from backend.preset_import.parser import WorkflowNode, parse_api_workflow
 from backend.requirements import ComfyUIModelRequirementSchema, ComfyUINodeRequirementSchema
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -65,6 +66,10 @@ class TestModelRequirementsFromModelLoaders:
 
 
 class TestNodeRequirementsFromNonCoreClasses:
+    """No `object_info` given: falls back to the hand-kept
+    `CORE_NODE_CLASS_TYPES` allowlist (a plain Export (API) import never
+    fetches one - see api.py's `_parse_incoming_workflow`)."""
+
     def test_non_core_node_class_gets_a_comfyui_node_requirement(self):
         data = _load("sdxl_basic_api.json")
         data["20"] = {
@@ -86,6 +91,74 @@ class TestNodeRequirementsFromNonCoreClasses:
         assert _by_type(_infer_requirements(workflow), "comfyui_node") == []
 
 
+class TestNodeRequirementsFromObjectInfo:
+    """When `object_info` is available at import time (a UI-format import
+    always fetches one), `python_module` per class is authoritative instead
+    of the static allowlist - this is how a core node the allowlist hasn't
+    caught up with yet (e.g. `CFGGuider`) is correctly recognized as core."""
+
+    def test_nodes_python_module_is_core(self):
+        object_info = {"CFGGuider": {"python_module": "nodes"}}
+        workflow = parse_api_workflow({"1": {"class_type": "CFGGuider", "inputs": {}}})
+        assert _by_type(_infer_requirements(workflow, object_info=object_info), "comfyui_node") == []
+
+    def test_comfy_extras_python_module_is_core(self):
+        object_info = {"LatentUpscaleBy": {"python_module": "comfy_extras.nodes_upscale_model"}}
+        workflow = parse_api_workflow({"1": {"class_type": "LatentUpscaleBy", "inputs": {}}})
+        assert _by_type(_infer_requirements(workflow, object_info=object_info), "comfyui_node") == []
+
+    def test_custom_nodes_python_module_is_a_requirement(self):
+        object_info = {"FaceDetailer": {"python_module": "custom_nodes.ComfyUI-Impact-Pack"}}
+        workflow = parse_api_workflow({"1": {"class_type": "FaceDetailer", "inputs": {}}})
+        assert _by_type(_infer_requirements(workflow, object_info=object_info), "comfyui_node") == [
+            {"type": "comfyui_node", "class_type": "FaceDetailer"}
+        ]
+
+    def test_class_absent_from_object_info_is_a_requirement(self):
+        """An uninstalled custom node isn't in the server's /object_info at
+        all - treated as custom, not skipped as unrecognized-so-core."""
+        object_info = {"KSampler": {"python_module": "nodes"}}
+        workflow = parse_api_workflow(
+            {"1": {"class_type": "KSampler", "inputs": {}}, "2": {"class_type": "NotInstalled", "inputs": {}}}
+        )
+        assert _by_type(_infer_requirements(workflow, object_info=object_info), "comfyui_node") == [
+            {"type": "comfyui_node", "class_type": "NotInstalled"}
+        ]
+
+    def test_object_info_overrides_the_static_allowlist_for_a_class_it_lacks(self):
+        """`CFGGuider` isn't in CORE_NODE_CLASS_TYPES's predecessor set, but
+        with object_info available it's read from the live server, not
+        guessed - the allowlist is a fallback, never consulted once
+        object_info answers a class either way."""
+        object_info = {"TotallyUnknownToTheAllowlist": {"python_module": "nodes"}}
+        workflow = parse_api_workflow({"1": {"class_type": "TotallyUnknownToTheAllowlist", "inputs": {}}})
+        assert _by_type(_infer_requirements(workflow, object_info=object_info), "comfyui_node") == []
+
+    def test_bite_check_without_object_info_the_same_class_is_a_requirement(self):
+        """Confirms the assertion above is really reading object_info: the
+        identical unrecognized class, with no object_info given, falls back
+        to the allowlist and (correctly) becomes a requirement."""
+        workflow = parse_api_workflow({"1": {"class_type": "TotallyUnknownToTheAllowlist", "inputs": {}}})
+        assert _by_type(_infer_requirements(workflow), "comfyui_node") == [
+            {"type": "comfyui_node", "class_type": "TotallyUnknownToTheAllowlist"}
+        ]
+
+    def test_shared_fixture_flags_only_the_custom_node(self):
+        """tests/fixtures/object_info_sdxl.json (also used by
+        test_preset_import_ui_format.py) declares its core classes'
+        `python_module` as `nodes`/`comfy_extras.*` and FaceDetailer's as
+        `custom_nodes.ComfyUI-Impact-Pack` - only FaceDetailer should turn
+        into a requirement."""
+        object_info = json.loads((FIXTURES / "object_info_sdxl.json").read_text())
+        workflow = parse_api_workflow(_load("sdxl_basic_api.json"))
+        workflow.nodes["20"] = WorkflowNode(
+            id="20", class_type="FaceDetailer", title=None, inputs={"image": ["8", 0]}
+        )
+        assert _by_type(_infer_requirements(workflow, object_info=object_info), "comfyui_node") == [
+            {"type": "comfyui_node", "class_type": "FaceDetailer"}
+        ]
+
+
 class TestEmittedRequirementsAreSchemaValid:
     @pytest.fixture()
     def dest_root(self, tmp_path):
@@ -95,11 +168,9 @@ class TestEmittedRequirementsAreSchemaValid:
         """The importer's own emission, end to end: every `requirements:`
         entry written to preset.yml validates against its checker's schema
         (backend/requirements.py) - the same per-entry check PresetLinter
-        performs once this plugin is enabled and its checkers registered
-        (a bare `scripts/preset_lint.py` run never loads plugin-contributed
-        checkers - see src/features/presets/linter.py's
-        `_requirement_checker_registry` docstring - so this validates the
-        entries directly against their schemas instead of shelling out)."""
+        performs (see TestEndToEndRenderAndLint in test_preset_import_emit.py
+        for the full `scripts/preset_lint.py` subprocess assertion; this test
+        checks the schemas directly instead of shelling out)."""
         workflow = parse_api_workflow(_load("sdxl_basic_api.json"))
         result = emit_preset(
             workflow, [], model_family="ReqSchemaTest", variant="v1",

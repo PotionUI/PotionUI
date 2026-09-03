@@ -5,6 +5,7 @@ No network: aiohttp's `ClientSession.get()` is faked the same way
 test_list_models.py fakes ComfyUIBackend.list_models()'s HTTP calls.
 """
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any, Optional
 from unittest.mock import MagicMock, patch
@@ -29,8 +30,10 @@ BASE = "http://127.0.0.1:8188"
 def _clear_ttl_caches():
     """Every test gets a cold cache - the module-level `_object_info_cache`/
     `_model_list_cache` are shared per-process singletons."""
-    req_mod._object_info_cache._entries.clear()
-    req_mod._model_list_cache._entries.clear()
+    req_mod._object_info_cache._ready.clear()
+    req_mod._object_info_cache._inflight.clear()
+    req_mod._model_list_cache._ready.clear()
+    req_mod._model_list_cache._inflight.clear()
     yield
 
 
@@ -59,11 +62,14 @@ COMFY_BACKEND = _FakeBackend(id="comfy-1", engine="comfyui", config=_FakeConfig(
 
 
 class FakeResponse:
-    def __init__(self, payload=None, raise_exc=None):
+    def __init__(self, payload=None, raise_exc=None, delay: float = 0.0):
         self._payload = payload
         self._raise_exc = raise_exc
+        self._delay = delay
 
     async def json(self):
+        if self._delay:
+            await asyncio.sleep(self._delay)
         return self._payload
 
     def raise_for_status(self):
@@ -162,6 +168,26 @@ class TestComfyUINodeChecker:
             await ComfyUINodeChecker().check({"type": "comfyui_node", "class_type": "A"}, _ctx(COMFY_BACKEND))
             await ComfyUINodeChecker().check({"type": "comfyui_node", "class_type": "B"}, _ctx(COMFY_BACKEND))
         assert session.requested_urls == [f"{BASE}/object_info"]
+
+    @pytest.mark.asyncio
+    async def test_20_concurrent_checks_single_flight_into_one_request(self):
+        """The evaluator runs every `requirements:` entry concurrently - 20
+        `comfyui_node` entries checked at once (as a preset with many custom
+        nodes would) must still fetch `/object_info` exactly once, not once
+        per entry racing the same timeout."""
+        routes = {f"{BASE}/object_info": FakeResponse({"KSampler": {}}, delay=0.05)}
+        patcher, session = patch_session(routes)
+        with patcher:
+            results = await asyncio.gather(
+                *[
+                    ComfyUINodeChecker().check(
+                        {"type": "comfyui_node", "class_type": f"Node{i}"}, _ctx(COMFY_BACKEND)
+                    )
+                    for i in range(20)
+                ]
+            )
+        assert session.requested_urls == [f"{BASE}/object_info"]
+        assert all(r.status == "missing" for r in results)
 
 
 class TestComfyUIModelChecker:

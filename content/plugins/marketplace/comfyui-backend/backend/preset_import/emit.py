@@ -50,15 +50,46 @@ MODEL_TYPE_STRIP_PREFIXES = {
 # ComfyUI built-ins the `comfyui_node` requirement never needs to name - a
 # node class outside this set is assumed to come from a custom node pack
 # and gets a `requirements:` entry so a missing install surfaces before
-# generation instead of as a pipeline error. Extend this set as new core
-# node classes show up in emitted workflows.
+# generation instead of as a pipeline error. Used only as a fallback when no
+# `object_info` is available at import time (a plain Export (API) import
+# never fetches it - see `_is_core_node_class`); when it is, the live
+# server's own `python_module` per class is authoritative and this set is
+# never consulted. Extend this set as new core node classes show up in
+# workflows imported without a reachable backend.
 CORE_NODE_CLASS_TYPES = frozenset({
     "KSampler", "KSamplerAdvanced", "CheckpointLoaderSimple", "UNETLoader",
     "CLIPLoader", "DualCLIPLoader", "VAELoader", "CLIPTextEncode",
     "EmptyLatentImage", "EmptySD3LatentImage", "VAEDecode", "VAEEncode",
     "SaveImage", "PreviewImage", "LoadImage", "LoraLoader", "LoraLoaderModelOnly",
     "ModelSamplingFlux", "ModelSamplingAuraFlow", "FluxGuidance", "ConditioningZeroOut",
+    "CFGGuider", "BasicGuider", "BasicScheduler", "KSamplerSelect", "SamplerCustom",
+    "SamplerCustomAdvanced", "RandomNoise", "VAEDecodeTiled", "ModelSamplingSD3",
+    "CLIPTextEncodeFlux", "EmptyHunyuanLatentVideo", "EmptyLTXVLatentVideo",
+    "LTXVConditioning", "LTXVScheduler", "LTXVImgToVideo", "LoadImageMask",
+    "ImageScale", "ImageScaleBy", "UpscaleModelLoader", "ImageUpscaleWithModel",
+    "ControlNetLoader", "ControlNetApplyAdvanced", "ConditioningCombine",
+    "ConditioningConcat", "ConditioningSetTimestepRange", "LatentUpscaleBy",
+    "RepeatLatentBatch", "SaveAnimatedWEBP", "SaveVideo", "CreateVideo",
 })
+
+def _is_core_node_class(class_type: str, object_info: Optional[Dict[str, Any]]) -> bool:
+    """Whether `class_type` ships with ComfyUI itself. Prefers the live
+    server's own `/object_info` when available at import time - its
+    `python_module` is authoritative: "nodes" (the single-file core
+    registry) or a "comfy_extras.*" submodule means core, "custom_nodes.*"
+    or a class `/object_info` doesn't recognize at all means custom. Catches
+    core additions like `CFGGuider` the hand-kept allowlist hasn't caught up
+    with yet, and correctly flags an unrecognized class as custom rather
+    than guessing. Falls back to `CORE_NODE_CLASS_TYPES` when no
+    `object_info` is available (a plain Export (API) import has no reachable
+    backend to ask - see `api.py`'s `_parse_incoming_workflow`)."""
+    if object_info is not None:
+        class_info = object_info.get(class_type)
+        if class_info is None:
+            return False
+        python_module = class_info.get("python_module") or ""
+        return python_module == "nodes" or python_module.startswith("comfy_extras")
+    return class_type in CORE_NODE_CLASS_TYPES
 
 # Loader class -> (ComfyUI `models/` subfolder, the input names it loads a
 # filename from) - same classes `suggest.suggest_fields` detects as model
@@ -180,17 +211,22 @@ def _resolve_choices(
     return resolved
 
 
-def _infer_requirements(workflow: Workflow) -> List[Dict[str, Any]]:
+def _infer_requirements(
+    workflow: Workflow, object_info: Optional[Dict[str, Any]] = None
+) -> List[Dict[str, Any]]:
     """`requirements:` entries for this workflow, independent of which
-    inputs the admin chose as form fields: one `comfyui_node` per node class
-    outside `CORE_NODE_CLASS_TYPES`, and one `comfyui_model` per checkpoint/
-    UNET/CLIP/VAE/LoRA file it references. An unchosen model loader still
-    needs its file present to run, so this reads the whole graph rather than
-    the choice-gated candidate list `emit_preset`'s form-building uses."""
+    inputs the admin chose as form fields: one `comfyui_node` per non-core
+    node class (see `_is_core_node_class`), and one `comfyui_model` per
+    checkpoint/UNET/CLIP/VAE/LoRA file it references. An unchosen model
+    loader still needs its file present to run, so this reads the whole
+    graph rather than the choice-gated candidate list `emit_preset`'s
+    form-building uses."""
     requirements: List[Dict[str, Any]] = []
 
-    for class_type in sorted({n.class_type for n in workflow.nodes.values()} - CORE_NODE_CLASS_TYPES):
-        requirements.append({"type": "comfyui_node", "class_type": class_type})
+    node_classes = sorted({n.class_type for n in workflow.nodes.values()})
+    for class_type in node_classes:
+        if not _is_core_node_class(class_type, object_info):
+            requirements.append({"type": "comfyui_node", "class_type": class_type})
 
     seen: set = set()
 
@@ -681,7 +717,7 @@ def emit_preset(
         preset_yml["configuration"] = configuration_block
     if vars_block:
         preset_yml["vars"] = vars_block
-    requirements_block = _infer_requirements(workflow)
+    requirements_block = _infer_requirements(workflow, object_info=object_info)
     if requirements_block:
         preset_yml["requirements"] = requirements_block
 

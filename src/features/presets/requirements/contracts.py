@@ -105,6 +105,16 @@ class RequirementChecker(Protocol):
     result (e.g. a filename, a tag, "16 GB"). Without it, the endpoint falls
     back to the entry's first string-valued field besides `type`/`hint`/
     `optional`, else the type name itself.
+
+    A checker may also declare a `timeout_s: float` class/instance attribute
+    (same duck-typing - absent means the evaluator's own default) to override
+    how long `evaluate_preset_requirements` waits for its `check()` before
+    resolving the entry to "unknown". The default (5s,
+    `evaluator.CHECK_TIMEOUT_SECONDS`) suits a local check; a checker whose
+    `check()` does a real network round trip against a remote server (e.g. a
+    ComfyUI custom-node/model check fetching a big `/object_info`) should set
+    a longer one rather than let a slow-but-live server always read as
+    "unknown".
     """
 
     # The `requirements:` entry `type:` name this checker evaluates.

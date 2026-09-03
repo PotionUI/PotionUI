@@ -30,7 +30,8 @@ logger = logging.getLogger(__name__)
 
 # A checker gets this long to answer before its entry resolves to "unknown" -
 # one slow/hung checker (a plugin's network call, say) must never stall the
-# whole preset's requirements panel.
+# whole preset's requirements panel. A checker overrides this per-type via an
+# optional `timeout_s` attribute (see contracts.RequirementChecker).
 CHECK_TIMEOUT_SECONDS = 5.0
 
 
@@ -54,14 +55,15 @@ async def _evaluate_one(
             detail=f"no checker registered for requirement type '{type_name}'",
         )
 
+    timeout_s = getattr(registration.checker, "timeout_s", CHECK_TIMEOUT_SECONDS)
     try:
         return await asyncio.wait_for(
-            registration.checker.check(spec, ctx), timeout=CHECK_TIMEOUT_SECONDS
+            registration.checker.check(spec, ctx), timeout=timeout_s
         )
     except asyncio.TimeoutError:
         return RequirementResult(
             status="unknown",
-            detail=f"'{type_name}' check did not complete within {CHECK_TIMEOUT_SECONDS:g}s",
+            detail=f"'{type_name}' check did not complete within {timeout_s:g}s",
         )
     except Exception as e:
         logger.warning(f"Requirement check '{type_name}' raised: {e}", exc_info=True)

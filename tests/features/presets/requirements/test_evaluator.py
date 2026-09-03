@@ -88,6 +88,44 @@ class TestEvaluatePresetRequirements:
         assert "did not complete" in results[0].detail
 
     @pytest.mark.asyncio
+    async def test_checker_declared_timeout_s_overrides_the_default(self, monkeypatch):
+        """A checker's own `timeout_s` (e.g. a slow-but-legitimate network
+        check) wins over the evaluator's default - lowering
+        CHECK_TIMEOUT_SECONDS below the checker's `timeout_s` must not make
+        it time out early."""
+        import src.features.presets.requirements.evaluator as evaluator_module
+        monkeypatch.setattr(evaluator_module, "CHECK_TIMEOUT_SECONDS", 0.05)
+
+        class _SlowButPatientChecker(_HangingChecker):
+            type = "slow-patient-type"
+            timeout_s = 10.0
+
+            async def check(self, spec, ctx):
+                await asyncio.sleep(0.1)
+                return RequirementResult(status="ok", detail="took a moment, but made it")
+
+        registry = _registry(_SlowButPatientChecker())
+        preset = _preset(requirements=[{"type": "slow-patient-type"}])
+
+        results = await evaluate_preset_requirements(registry, preset, _ctx())
+
+        assert results[0].status == "ok"
+
+    @pytest.mark.asyncio
+    async def test_checker_declared_timeout_s_still_times_out_eventually(self):
+        class _StillTooSlowChecker(_HangingChecker):
+            type = "still-too-slow-type"
+            timeout_s = 0.05
+
+        registry = _registry(_StillTooSlowChecker())
+        preset = _preset(requirements=[{"type": "still-too-slow-type"}])
+
+        results = await evaluate_preset_requirements(registry, preset, _ctx())
+
+        assert results[0].status == "unknown"
+        assert "did not complete within 0.05s" in results[0].detail
+
+    @pytest.mark.asyncio
     async def test_raising_checker_resolves_to_unknown_not_raise(self):
         registry = _registry(_RaisingChecker())
         preset = _preset(requirements=[{"type": "raise-type"}])

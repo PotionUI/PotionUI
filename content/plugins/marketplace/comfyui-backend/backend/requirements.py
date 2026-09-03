@@ -9,9 +9,17 @@ Both checkers read `ctx.backend` (the preset's resolved backend, injected by
 `src.features.presets.requirements.context_builder`) rather than reaching
 into a container - core's checker contract passes everything by value so a
 plugin checker only ever needs `src.plugin_api.presets`. `/object_info` and
-`/models/{folder}` listings are cached per-process for a short TTL: a preset
-can carry many `comfyui_node`/`comfyui_model` entries and an evaluation run
-should not refetch the same listing once per entry.
+`/models/{folder}` listings are cached per-process for a short TTL, single-
+flight: `evaluate_preset_requirements` runs every `requirements:` entry
+concurrently, so a preset with many `comfyui_node`/`comfyui_model` entries
+would otherwise fire that many parallel fetches of the exact same listing -
+on a large custom-node install `/object_info` can run to several MB, so N
+parallel fetches each competing for bandwidth/CPU-to-parse is exactly what
+was blowing every entry's timeout in practice. The first caller for a key
+fetches; every concurrent caller for that same key awaits that one fetch
+instead of starting its own. Both checkers also declare a longer `timeout_s`
+(see `src.plugin_api.presets.RequirementChecker`) since even a single
+`/object_info` fetch/parse can take several seconds on a big install.
 
 `/object_info` is used here (and only here) to answer "is this node class
 installed" - `ComfyUIBackend.list_models()` deliberately never uses it for
@@ -22,7 +30,7 @@ docs/models.md), which is why model presence goes through `GET
 
 import asyncio
 import time
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple, Union
 
 import aiohttp
 from pydantic import BaseModel, ConfigDict
@@ -35,34 +43,69 @@ from src.plugin_api.presets import (
 
 _REQUEST_TIMEOUT_SECONDS = 5.0
 _CACHE_TTL_SECONDS = 60.0
+# `/object_info` on a big custom-node install can take several seconds to
+# fetch and parse even when the server is perfectly healthy - longer than the
+# evaluator's generic 5s default (src.features.presets.requirements.evaluator
+# .CHECK_TIMEOUT_SECONDS), which would otherwise read every check as
+# "unknown" on exactly the installs this feature matters most for.
+_CHECK_TIMEOUT_SECONDS = 20.0
 
 
-class _TTLCache:
-    """A tiny per-process, per-key TTL cache. Shared module-level instances
-    below back both checkers so a preset with many entries evaluated in one
-    run does not refetch the same `/object_info` or `/models/{folder}`
-    listing once per entry."""
+class _SingleFlightTTLCache:
+    """A per-key TTL cache where concurrent callers for the same key that
+    misses share one in-flight fetch, rather than each starting their own -
+    `evaluate_preset_requirements` runs every `requirements:` entry
+    concurrently, so without this an N-entry preset would fire N parallel
+    fetches of the identical listing. Shared module-level instances below
+    back both checkers."""
 
     def __init__(self, ttl_seconds: float):
         self._ttl = ttl_seconds
-        self._entries: Dict[Any, Tuple[float, Any]] = {}
+        self._ready: Dict[Any, Tuple[float, Any]] = {}
+        self._inflight: Dict[Any, "asyncio.Future[Any]"] = {}
+        self._lock = asyncio.Lock()
 
-    def get(self, key: Any) -> Optional[Any]:
-        entry = self._entries.get(key)
+    async def get_or_fetch(self, key: Any, fetch: Callable[[], Awaitable[Any]]) -> Any:
+        cached = self._get_ready(key)
+        if cached is not None:
+            return cached
+
+        async with self._lock:
+            # Another caller may have finished (or started) the fetch for
+            # this key while we were waiting for the lock above.
+            cached = self._get_ready(key)
+            if cached is not None:
+                return cached
+            future = self._inflight.get(key)
+            if future is None:
+                future = asyncio.ensure_future(fetch())
+                self._inflight[key] = future
+
+        try:
+            value = await future
+        finally:
+            async with self._lock:
+                # Only the caller that actually owns this future clears it -
+                # a late arrival that reused it must not clear a newer one.
+                if self._inflight.get(key) is future:
+                    del self._inflight[key]
+
+        self._ready[key] = (time.monotonic() + self._ttl, value)
+        return value
+
+    def _get_ready(self, key: Any) -> Optional[Any]:
+        entry = self._ready.get(key)
         if entry is None:
             return None
         expires_at, value = entry
         if time.monotonic() >= expires_at:
-            del self._entries[key]
+            del self._ready[key]
             return None
         return value
 
-    def set(self, key: Any, value: Any) -> None:
-        self._entries[key] = (time.monotonic() + self._ttl, value)
 
-
-_object_info_cache = _TTLCache(_CACHE_TTL_SECONDS)
-_model_list_cache = _TTLCache(_CACHE_TTL_SECONDS)
+_object_info_cache = _SingleFlightTTLCache(_CACHE_TTL_SECONDS)
+_model_list_cache = _SingleFlightTTLCache(_CACHE_TTL_SECONDS)
 
 
 class ComfyUINodeRequirementSchema(BaseModel):
@@ -104,31 +147,30 @@ def _resolve_comfyui_backend(ctx: RequirementContext) -> Union[Tuple[str, str], 
     return backend.id, get_base_url()
 
 
-async def _fetch_object_info(backend_id: str, base_url: str) -> Dict[str, Any]:
-    cached = _object_info_cache.get(backend_id)
-    if cached is not None:
-        return cached
+async def _get_object_info(base_url: str) -> Dict[str, Any]:
     timeout = aiohttp.ClientTimeout(total=_REQUEST_TIMEOUT_SECONDS)
     async with aiohttp.ClientSession(timeout=timeout) as session:
         async with session.get(f"{base_url}/object_info") as resp:
             resp.raise_for_status()
-            data = await resp.json()
-    _object_info_cache.set(backend_id, data)
-    return data
+            return await resp.json()
 
 
-async def _fetch_model_names(backend_id: str, base_url: str, folder: str) -> List[str]:
-    cache_key = (backend_id, folder)
-    cached = _model_list_cache.get(cache_key)
-    if cached is not None:
-        return cached
+async def _fetch_object_info(backend_id: str, base_url: str) -> Dict[str, Any]:
+    return await _object_info_cache.get_or_fetch(backend_id, lambda: _get_object_info(base_url))
+
+
+async def _get_model_names(base_url: str, folder: str) -> List[str]:
     timeout = aiohttp.ClientTimeout(total=_REQUEST_TIMEOUT_SECONDS)
     async with aiohttp.ClientSession(timeout=timeout) as session:
         async with session.get(f"{base_url}/models/{folder}") as resp:
             resp.raise_for_status()
-            names = await resp.json()
-    _model_list_cache.set(cache_key, names)
-    return names
+            return await resp.json()
+
+
+async def _fetch_model_names(backend_id: str, base_url: str, folder: str) -> List[str]:
+    return await _model_list_cache.get_or_fetch(
+        (backend_id, folder), lambda: _get_model_names(base_url, folder)
+    )
 
 
 def _basename(name: str) -> str:
@@ -145,6 +187,7 @@ def _model_present(name: str, names: List[str]) -> bool:
 class ComfyUINodeChecker:
     type = "comfyui_node"
     schema = ComfyUINodeRequirementSchema
+    timeout_s = _CHECK_TIMEOUT_SECONDS
 
     async def check(self, spec: Dict[str, Any], ctx: RequirementContext) -> RequirementResult:
         parsed = self.schema.model_validate(spec)
@@ -175,6 +218,7 @@ class ComfyUINodeChecker:
 class ComfyUIModelChecker:
     type = "comfyui_model"
     schema = ComfyUIModelRequirementSchema
+    timeout_s = _CHECK_TIMEOUT_SECONDS
 
     async def check(self, spec: Dict[str, Any], ctx: RequirementContext) -> RequirementResult:
         parsed = self.schema.model_validate(spec)

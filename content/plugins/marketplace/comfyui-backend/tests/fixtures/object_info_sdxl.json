@@ -2,141 +2,355 @@
   "KSampler": {
     "input": {
       "required": {
-        "model": ["MODEL", {}],
-        "seed": ["INT", {"default": 0, "min": 0, "max": 18446744073709551615, "control_after_generate": true}],
-        "steps": ["INT", {"default": 20, "min": 1, "max": 10000}],
-        "cfg": ["FLOAT", {"default": 8.0, "min": 0.0, "max": 100.0, "step": 0.1, "round": 0.01}],
-        "sampler_name": [["euler", "euler_ancestral", "heun", "dpm_2", "dpm_2_ancestral", "lms", "dpmpp_2m"], {}],
-        "scheduler": [["normal", "karras", "exponential", "simple", "ddim_uniform"], {}],
-        "positive": ["CONDITIONING", {}],
-        "negative": ["CONDITIONING", {}],
-        "latent_image": ["LATENT", {}],
-        "denoise": ["FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}]
+        "model": [
+          "MODEL",
+          {}
+        ],
+        "seed": [
+          "INT",
+          {
+            "default": 0,
+            "min": 0,
+            "max": 18446744073709551615,
+            "control_after_generate": true
+          }
+        ],
+        "steps": [
+          "INT",
+          {
+            "default": 20,
+            "min": 1,
+            "max": 10000
+          }
+        ],
+        "cfg": [
+          "FLOAT",
+          {
+            "default": 8.0,
+            "min": 0.0,
+            "max": 100.0,
+            "step": 0.1,
+            "round": 0.01
+          }
+        ],
+        "sampler_name": [
+          [
+            "euler",
+            "euler_ancestral",
+            "heun",
+            "dpm_2",
+            "dpm_2_ancestral",
+            "lms",
+            "dpmpp_2m"
+          ],
+          {}
+        ],
+        "scheduler": [
+          [
+            "normal",
+            "karras",
+            "exponential",
+            "simple",
+            "ddim_uniform"
+          ],
+          {}
+        ],
+        "positive": [
+          "CONDITIONING",
+          {}
+        ],
+        "negative": [
+          "CONDITIONING",
+          {}
+        ],
+        "latent_image": [
+          "LATENT",
+          {}
+        ],
+        "denoise": [
+          "FLOAT",
+          {
+            "default": 1.0,
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.01
+          }
+        ]
       }
     },
-    "output": ["LATENT"],
-    "output_name": ["LATENT"],
+    "output": [
+      "LATENT"
+    ],
+    "output_name": [
+      "LATENT"
+    ],
     "name": "KSampler",
     "display_name": "KSampler",
-    "category": "sampling"
+    "category": "sampling",
+    "python_module": "nodes"
   },
   "CheckpointLoaderSimple": {
     "input": {
       "required": {
-        "ckpt_name": [["sdxlBase_v10.safetensors", "otherCheckpoint.safetensors"], {}]
+        "ckpt_name": [
+          [
+            "sdxlBase_v10.safetensors",
+            "otherCheckpoint.safetensors"
+          ],
+          {}
+        ]
       }
     },
-    "output": ["MODEL", "CLIP", "VAE"],
-    "output_name": ["MODEL", "CLIP", "VAE"],
+    "output": [
+      "MODEL",
+      "CLIP",
+      "VAE"
+    ],
+    "output_name": [
+      "MODEL",
+      "CLIP",
+      "VAE"
+    ],
     "name": "CheckpointLoaderSimple",
     "display_name": "Load Checkpoint",
-    "category": "loaders"
+    "category": "loaders",
+    "python_module": "nodes"
   },
   "EmptyLatentImage": {
     "input": {
       "required": {
-        "width": ["INT", {"default": 512, "min": 16, "max": 8192, "step": 8}],
-        "height": ["INT", {"default": 512, "min": 16, "max": 8192, "step": 8}],
-        "batch_size": ["INT", {"default": 1, "min": 1, "max": 4096}]
+        "width": [
+          "INT",
+          {
+            "default": 512,
+            "min": 16,
+            "max": 8192,
+            "step": 8
+          }
+        ],
+        "height": [
+          "INT",
+          {
+            "default": 512,
+            "min": 16,
+            "max": 8192,
+            "step": 8
+          }
+        ],
+        "batch_size": [
+          "INT",
+          {
+            "default": 1,
+            "min": 1,
+            "max": 4096
+          }
+        ]
       }
     },
-    "output": ["LATENT"],
-    "output_name": ["LATENT"],
+    "output": [
+      "LATENT"
+    ],
+    "output_name": [
+      "LATENT"
+    ],
     "name": "EmptyLatentImage",
     "display_name": "Empty Latent Image",
-    "category": "latent"
+    "category": "latent",
+    "python_module": "nodes"
   },
   "CLIPTextEncode": {
     "input": {
       "required": {
-        "text": ["STRING", {"multiline": true, "dynamicPrompts": true}],
-        "clip": ["CLIP", {}]
+        "text": [
+          "STRING",
+          {
+            "multiline": true,
+            "dynamicPrompts": true
+          }
+        ],
+        "clip": [
+          "CLIP",
+          {}
+        ]
       }
     },
-    "output": ["CONDITIONING"],
-    "output_name": ["CONDITIONING"],
+    "output": [
+      "CONDITIONING"
+    ],
+    "output_name": [
+      "CONDITIONING"
+    ],
     "name": "CLIPTextEncode",
     "display_name": "CLIP Text Encode (Prompt)",
-    "category": "conditioning"
+    "category": "conditioning",
+    "python_module": "nodes"
   },
   "VAEDecode": {
     "input": {
       "required": {
-        "samples": ["LATENT", {}],
-        "vae": ["VAE", {}]
+        "samples": [
+          "LATENT",
+          {}
+        ],
+        "vae": [
+          "VAE",
+          {}
+        ]
       }
     },
-    "output": ["IMAGE"],
-    "output_name": ["IMAGE"],
+    "output": [
+      "IMAGE"
+    ],
+    "output_name": [
+      "IMAGE"
+    ],
     "name": "VAEDecode",
     "display_name": "VAE Decode",
-    "category": "latent"
+    "category": "latent",
+    "python_module": "nodes"
   },
   "SaveImage": {
     "input": {
       "required": {
-        "images": ["IMAGE", {}]
+        "images": [
+          "IMAGE",
+          {}
+        ]
       },
       "optional": {
-        "filename_prefix": ["STRING", {"default": "ComfyUI"}]
+        "filename_prefix": [
+          "STRING",
+          {
+            "default": "ComfyUI"
+          }
+        ]
       }
     },
     "output": [],
     "output_name": [],
     "name": "SaveImage",
     "display_name": "Save Image",
-    "category": "image"
+    "category": "image",
+    "python_module": "nodes"
   },
   "VAELoader": {
     "input": {
       "required": {
-        "vae_name": [["ae.safetensors", "otherVae.safetensors"], {}]
+        "vae_name": [
+          [
+            "ae.safetensors",
+            "otherVae.safetensors"
+          ],
+          {}
+        ]
       }
     },
-    "output": ["VAE"],
-    "output_name": ["VAE"],
+    "output": [
+      "VAE"
+    ],
+    "output_name": [
+      "VAE"
+    ],
     "name": "VAELoader",
     "display_name": "Load VAE",
-    "category": "loaders"
+    "category": "loaders",
+    "python_module": "nodes"
   },
   "UNETLoader": {
     "input": {
       "required": {
-        "unet_name": [["flux1-dev.safetensors", "otherUnet.safetensors"], {}],
-        "weight_dtype": [["default", "fp8_e4m3fn", "fp8_e5m2"], {}]
+        "unet_name": [
+          [
+            "flux1-dev.safetensors",
+            "otherUnet.safetensors"
+          ],
+          {}
+        ],
+        "weight_dtype": [
+          [
+            "default",
+            "fp8_e4m3fn",
+            "fp8_e5m2"
+          ],
+          {}
+        ]
       }
     },
-    "output": ["MODEL"],
-    "output_name": ["MODEL"],
+    "output": [
+      "MODEL"
+    ],
+    "output_name": [
+      "MODEL"
+    ],
     "name": "UNETLoader",
     "display_name": "Load Diffusion Model",
-    "category": "loaders"
+    "category": "loaders",
+    "python_module": "comfy_extras.nodes_model_advanced"
   },
   "CLIPLoader": {
     "input": {
       "required": {
-        "clip_name": [["t5xxl_fp16.safetensors", "otherClip.safetensors"], {}],
-        "type": [["stable_diffusion", "flux", "sd3"], {}]
+        "clip_name": [
+          [
+            "t5xxl_fp16.safetensors",
+            "otherClip.safetensors"
+          ],
+          {}
+        ],
+        "type": [
+          [
+            "stable_diffusion",
+            "flux",
+            "sd3"
+          ],
+          {}
+        ]
       }
     },
-    "output": ["CLIP"],
-    "output_name": ["CLIP"],
+    "output": [
+      "CLIP"
+    ],
+    "output_name": [
+      "CLIP"
+    ],
     "name": "CLIPLoader",
     "display_name": "Load CLIP",
-    "category": "loaders"
+    "category": "loaders",
+    "python_module": "comfy_extras.nodes_clip_sdxl"
   },
   "FaceDetailer": {
     "input": {
       "required": {
-        "image": ["IMAGE", {}],
-        "guide_size": ["FLOAT", {"default": 256.0, "min": 64.0, "max": 4096.0, "step": 8.0}],
-        "enabled": ["BOOLEAN", {"default": true}]
+        "image": [
+          "IMAGE",
+          {}
+        ],
+        "guide_size": [
+          "FLOAT",
+          {
+            "default": 256.0,
+            "min": 64.0,
+            "max": 4096.0,
+            "step": 8.0
+          }
+        ],
+        "enabled": [
+          "BOOLEAN",
+          {
+            "default": true
+          }
+        ]
       }
     },
-    "output": ["IMAGE"],
-    "output_name": ["IMAGE"],
+    "output": [
+      "IMAGE"
+    ],
+    "output_name": [
+      "IMAGE"
+    ],
     "name": "FaceDetailer",
     "display_name": "Face Detailer",
-    "category": "custom_node/detailer"
+    "category": "custom_node/detailer",
+    "python_module": "custom_nodes.ComfyUI-Impact-Pack"
   }
 }

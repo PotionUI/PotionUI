@@ -480,12 +480,10 @@ def handle(context):
 
         plugins = self.loader.discover_plugins()
 
-        # Should find both
-        self.assertEqual(len(plugins), 2)
-
-        # Verify they're from different sources
-        sources = {p.source for p in plugins}
-        self.assertEqual(sources, {'marketplace', 'local'})
+        # Same id in both roots: local wins, marketplace copy is dropped
+        self.assertEqual(len(plugins), 1)
+        self.assertEqual(plugins[0].source, 'local')
+        self.assertEqual(plugins[0].version, '2.0.0')
 
     def test_discover_plugins_warns_and_tags_shadowed_marketplace_copy(self):
         """A local plugin id also present in marketplace: local wins, is tagged, and warns"""
@@ -520,10 +518,11 @@ def handle(context):
         self.assertIn(str(marketplace_plugin_dir), warning_text)
         self.assertIn(str(local_plugin_dir), warning_text)
 
-        by_source = {p.source: p for p in plugins}
-        self.assertIsNone(by_source['marketplace'].shadows)
-        self.assertEqual(by_source['local'].shadows, marketplace_plugin_dir)
-        self.assertEqual(by_source['local'].version, '2.0.0')
+        matching = [p for p in plugins if p.id == 'duplicate-plugin']
+        self.assertEqual(len(matching), 1)
+        self.assertEqual(matching[0].source, 'local')
+        self.assertEqual(matching[0].shadows, marketplace_plugin_dir)
+        self.assertEqual(matching[0].version, '2.0.0')
 
 
 if __name__ == '__main__':

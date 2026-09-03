@@ -241,11 +241,23 @@ def test_no_tab_body_file_is_orphaned():
     import os
     import re
 
-    roots = ["content/presets"]
+    # A plugin id can exist in both content/plugins/marketplace and
+    # content/plugins/local at once (shadowing, in-progress graduation); the
+    # local copy is the one that actually loads, so it's the only one worth
+    # scanning for orphaned tab bodies.
+    best_root_by_id: dict[str, str] = {}
     for manifest in glob.glob("content/plugins/*/*/manifest.yml"):
         text = Path(manifest).read_text()
-        if "presets:" in text or "preset_modes:" in text:
-            roots.append(os.path.dirname(manifest))
+        if "presets:" not in text and "preset_modes:" not in text:
+            continue
+        id_match = re.search(r'^id:\s*"?([\w.-]+)"?\s*$', text, re.MULTILINE)
+        if not id_match:
+            continue
+        plugin_dir = os.path.dirname(manifest)
+        if id_match.group(1) not in best_root_by_id or "/local/" in plugin_dir:
+            best_root_by_id[id_match.group(1)] = plugin_dir
+
+    roots = ["content/presets", *best_root_by_id.values()]
 
     tab_files = [
         f for root in roots

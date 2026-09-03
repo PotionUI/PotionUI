@@ -166,34 +166,40 @@ class PluginLoader:
             plugins.extend(local_plugins)
             logger.info(f"Found {len(local_plugins)} local plugins")
 
-        self._mark_shadowed(plugins)
+        shadowed = self._mark_shadowed(plugins)
+        plugins = [m for m in plugins if m not in shadowed]
 
         logger.info(f"Total plugins discovered: {len(plugins)}")
         return plugins
 
-    def _mark_shadowed(self, plugins: List[PluginManifest]) -> None:
+    def _mark_shadowed(self, plugins: List[PluginManifest]) -> List[PluginManifest]:
         """
         Warn about, and tag, plugin ids present in both roots.
 
         `local/` wins (it's the dev workflow), matching the registry's
         discovery order (marketplace inserted first, local second, same id
         overwrites). The winning (local) manifest gets `shadows` set to the
-        marketplace plugin_dir it hides.
+        marketplace plugin_dir it hides. Returns the shadowed marketplace
+        manifests so the caller can drop them from the discovered list -
+        `discover_plugins()` must not return the same id twice.
         """
         by_id: Dict[str, PluginManifest] = {}
         for manifest in plugins:
             if manifest.source == "marketplace":
                 by_id.setdefault(manifest.id, manifest)
 
+        shadowed: List[PluginManifest] = []
         for manifest in plugins:
             if manifest.source == "local" and manifest.id in by_id:
-                shadowed = by_id[manifest.id]
-                manifest.shadows = shadowed.plugin_dir
+                shadowed_manifest = by_id[manifest.id]
+                manifest.shadows = shadowed_manifest.plugin_dir
+                shadowed.append(shadowed_manifest)
                 logger.warning(
                     f"Plugin id '{manifest.id}' is defined in both "
-                    f"{shadowed.plugin_dir} (marketplace) and {manifest.plugin_dir} "
+                    f"{shadowed_manifest.plugin_dir} (marketplace) and {manifest.plugin_dir} "
                     f"(local) - local wins"
                 )
+        return shadowed
 
     def _scan_directory(self, directory: Path, source: str) -> List[PluginManifest]:
         """

@@ -239,16 +239,15 @@ class TestEndToEndRenderAndLint:
             )
             lint_output = lint_proc.stdout + lint_proc.stderr
             error_lines = [line for line in lint_output.splitlines() if line.startswith("[ERROR]")]
-            # The emitted preset now carries a `requirements:` entry for its
+            # The emitted preset carries a `requirements:` entry for its
             # checkpoint loader (backend/preset_import/emit.py's
             # `_infer_requirements`), of a type (`comfyui_model`) this plugin
-            # registers - but this bare, plugin-unaware `preset_lint.py`
-            # subprocess never loads plugins, so it cannot resolve that type
-            # (see src/features/presets/linter.py's
-            # `_requirement_checker_registry` docstring: a documented,
-            # pre-existing gap, not something the importer can avoid emitting).
-            # Any OTHER error still fails this test.
-            assert error_lines and all("unknown type 'comfyui_" in line for line in error_lines), lint_output
+            # registers via manifest.yml `requirement_checkers:` - resolved
+            # even by this plugin-unaware `preset_lint.py` subprocess, which
+            # discovers manifests (not just the presets under the path it was
+            # given) purely to know about declared checker/mode types (see
+            # src/features/presets/linter.py's `_requirement_checker_registry`).
+            assert not error_lines, lint_output
 
             fixture_form = {
                 "seed": 7,

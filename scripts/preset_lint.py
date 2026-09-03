@@ -292,15 +292,18 @@ def main() -> int:
     parser.add_argument("--fix", action="store_true", help="Migrate preset.yml files to the canonical schema")
     args = parser.parse_args()
 
-    # Default run: core trees plus every plugin-contributed preset root
-    # (discovered from manifests on disk). Explicit paths are honoured as-is -
-    # same reasoning for skipping plugin discovery (incl. preset_modes
-    # cross-checks) as for plugin-owned presets: roots.
-    plugin_manifests: List = []
+    # Plugin manifests are always discovered (cheap - manifest.yml files on
+    # disk, no app boot, no imports) and handed to `PresetLinter` so it can
+    # validate `requirements:`/`preset_modes:` entries against what plugins
+    # declare even when this run never enables a single one. Which preset
+    # DIRECTORIES get scanned is a separate decision: explicit paths are
+    # honoured as-is (an explicit "lint just this one dir" call shouldn't
+    # also sweep in every plugin's own presets), only the no-args default run
+    # additionally scans plugin-contributed preset roots.
+    plugin_manifests = PluginLoader().discover_plugins()
     if args.paths:
         paths = list(args.paths)
     else:
-        plugin_manifests = PluginLoader().discover_plugins()
         paths = ["content/presets/marketplace", "content/presets/local"] + [
             str(p) for p in plugin_preset_roots(plugin_manifests)
         ]

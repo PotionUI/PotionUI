@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from src.features.media.image_processor import ImageProcessor
 
@@ -119,6 +119,29 @@ class LintIssue:
         return f"[{self.level.upper()}] {self.preset_path}: {self.message}"
 
 
+class _UncheckedRequirementSchema(BaseModel):
+    """Accepts any entry shape - used only when a plugin-declared checker's
+    backend class couldn't be imported for a standalone lint run (see
+    `PresetLinter._requirement_checker_registry`), so there is no real schema
+    left to validate an entry's own arguments against."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class _UncheckedPluginRequirementChecker:
+    """Placeholder registered under a plugin-declared `requirements:` type
+    name when that plugin's checker backend class couldn't be imported here
+    (lint-only - never asked to actually `check()` anything)."""
+
+    schema = _UncheckedRequirementSchema
+
+    def __init__(self, type_name: str):
+        self.type = type_name
+
+    async def check(self, spec, ctx):
+        raise NotImplementedError("lint-only placeholder - never evaluated at runtime")
+
+
 class PresetLinter:
     """
     Lints one or more preset root directories.
@@ -144,6 +167,11 @@ class PresetLinter:
         # schema class - see `_field_config_spec_names`). Memoized per linter
         # run since `configuration()` is a pure classmethod call.
         self._config_spec_cache: Dict[str, Optional[set]] = {}
+        # Built lazily by `_requirement_checker_registry`, memoized per linter
+        # run - `_req_checker_warnings` is folded into `lint()`'s result once
+        # the registry has been built.
+        self._req_checker_registry = None
+        self._req_checker_warnings: List[LintIssue] = []
 
     def lint(self) -> List[LintIssue]:
         issues: List[LintIssue] = []
@@ -164,6 +192,7 @@ class PresetLinter:
                     loaded_manifests[manifest.id] = (preset_file, manifest)
 
         issues.extend(self._lint_preset_mode_contributions(loaded_manifests))
+        issues.extend(self._req_checker_warnings)
 
         return issues
 
@@ -1259,22 +1288,89 @@ class PresetLinter:
             register_builtin_fields(field_type_registry)
         return field_type_registry
 
-    @staticmethod
-    def _requirement_checker_registry():
+    def _requirement_checker_registry(self):
         """The `RequirementCheckerRegistry` to validate `requirements:`
-        entries against - same lazy-seed pattern as `_field_type_registry`,
-        so a bare `scripts/preset_lint.py` run still checks core requirement
-        types correctly. A checker contributed by a plugin that isn't loaded
-        in this process (the standalone script never loads plugins) is
-        unknown here exactly like an unregistered field type is - not a
-        regression this linter introduces, the same pre-existing gap
-        `_field_type_registry` already has.
+        entries against - built once per linter run (memoized on `self`,
+        never the process-wide `requirement_checker_registry` singleton, so
+        one lint pass can't leak checkers into another or into whatever else
+        shares that singleton).
+
+        Unlike `_field_type_registry` (an unknown field type is skipped, not
+        an error - see `_lint_field_config_keys`), an unregistered
+        `requirements:` type IS a hard lint error (`_lint_requirements`), so
+        core-only seeding isn't enough: `scripts/preset_lint.py` never boots
+        the app or enables a plugin, so a preset declaring e.g. `comfyui_node`
+        would fail lint even though the ComfyUI plugin's manifest declares
+        that checker. Seeded from `self.plugin_manifests` instead (already
+        discovered by the caller - see `__init__`'s docstring and
+        `_lint_preset_mode_contributions`, which needs the same list for the
+        same reason): every manifest's `requirement_checkers:` entries are
+        registered by type name, core first so a plugin colliding with a core
+        type is silently shadowed here exactly as `PluginRegistry.
+        _register_plugin_requirement_checkers` would refuse it at real
+        enable time (that collision is reported there, not by this linter).
+
+        A plugin's checker backend class can fail to import here even when it
+        would load fine in a real app (the standalone script has no plugin
+        dependencies installed, no container, no DB) - that failure is
+        accepted by *type name* with a WARNING rather than left unregistered,
+        so a preset that correctly uses the type isn't hard-failed by an
+        environment gap: the in-app lint (which really loads the plugin) still
+        validates the entry's arguments for real.
         """
-        from src.platform.plugins.requirement_checkers import requirement_checker_registry
-        if not requirement_checker_registry.all():
-            from src.features.presets.requirements.builtin import register_builtin_requirement_checkers
-            register_builtin_requirement_checkers(requirement_checker_registry)
-        return requirement_checker_registry
+        if self._req_checker_registry is not None:
+            return self._req_checker_registry
+
+        from src.features.presets.requirements.builtin import register_builtin_requirement_checkers
+        from src.platform.plugins.loader import PluginLoader
+        from src.platform.plugins.requirement_checkers import (
+            DuplicateRequirementCheckerError,
+            RequirementCheckerRegistration,
+            RequirementCheckerRegistry,
+        )
+
+        registry = RequirementCheckerRegistry()
+        register_builtin_requirement_checkers(registry)
+
+        loader = PluginLoader()
+        for manifest in self.plugin_manifests:
+            for entry in getattr(manifest, "requirement_checkers", None) or []:
+                type_name = entry.get("type")
+                backend_ref = entry.get("backend")
+                if not type_name or not backend_ref or registry.get(type_name) is not None:
+                    continue
+
+                location = f"plugin '{manifest.id}' requirement_checkers -> '{type_name}'"
+                checker_cls = loader.load_class(manifest, backend_ref)
+                checker = None
+                if checker_cls is None:
+                    self._req_checker_warnings.append(LintIssue(
+                        "warning", location,
+                        f"could not import checker backend '{backend_ref}' for standalone lint - "
+                        f"argument validation for this type is skipped here (the in-app lint, "
+                        f"which loads the plugin for real, still validates it)",
+                    ))
+                else:
+                    try:
+                        checker = checker_cls()
+                    except Exception as e:
+                        self._req_checker_warnings.append(LintIssue(
+                            "warning", location,
+                            f"could not instantiate checker backend '{backend_ref}' for standalone "
+                            f"lint ({e}) - argument validation for this type is skipped here",
+                        ))
+
+                try:
+                    registry.register(RequirementCheckerRegistration(
+                        type_name=type_name,
+                        checker=checker if checker is not None else _UncheckedPluginRequirementChecker(type_name),
+                        source=manifest.id,
+                    ))
+                except DuplicateRequirementCheckerError:
+                    continue
+
+        self._req_checker_registry = registry
+        return registry
 
     def _lint_requirements(self, preset_file: Path, manifest) -> List[LintIssue]:
         """Validate `requirements:` entries (see docs/presets.md

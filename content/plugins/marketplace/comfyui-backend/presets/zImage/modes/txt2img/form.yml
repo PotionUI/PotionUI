@@ -29,10 +29,3 @@ fields:
           icon: "image"
           icon_display: "icon_only"
         children: "{{ paths.preset }}/modes/txt2img/tabs/post_processing.yml"
-
-      - type: "tab"
-        label: "About"
-        configuration:
-          icon: "information-circle"
-          icon_display: "icon_only"
-        children: "{{ paths.preset }}/modes/txt2img/tabs/about.yml"

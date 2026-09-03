@@ -338,29 +338,11 @@ def emit_preset(
             }
         )
 
-    form_files["about.yml"] = {
-        "fields": [
-            {
-                "type": "markdown",
-                "configuration": {
-                    "content": (
-                        f"## {display_name}\n\n"
-                        f"Imported from a ComfyUI workflow ({analysis.node_count} nodes).\n\n"
-                        "This preset runs the copied workflow file through the `comfyui` pipe; "
-                        "form fields drive only the node inputs picked at import time - everything "
-                        "else keeps the value it had in the source workflow."
-                    )
-                },
-            }
-        ]
-    }
-    tabs.append(
-        {
-            "type": "tab",
-            "label": "About",
-            "configuration": {"icon": "information-circle", "icon_display": "icon_only"},
-            "children": "{{ paths.preset }}/modes/" + mode + "/tabs/about.yml",
-        }
+    description_md = (
+        f"Imported from a ComfyUI workflow ({analysis.node_count} nodes). "
+        "This preset runs the copied workflow file through the `comfyui` pipe; "
+        "form fields drive only the node inputs picked at import time - everything "
+        "else keeps the value it had in the source workflow.\n"
     )
 
     form_yml = {"name": "custom", "fields": [{"type": "tabs", "children": tabs}]}
@@ -652,6 +634,7 @@ def emit_preset(
         written.append(path)
 
     write(preset_dir / "preset.yml", _dump_yaml(preset_yml))
+    write(preset_dir / "description.md", description_md)
     write(mode_dir / "form.yml", _dump_yaml(form_yml))
     write(mode_dir / "pipeline.yml", _dump_yaml(pipeline_yml))
     for filename, data in form_files.items():

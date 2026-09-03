@@ -52,7 +52,7 @@ vars:
 # checkpoint_tags / checkpoint_tags_fast: the Diffusion Model field's `reactions:`
 # (modes/*/tabs/generation.yml) switch between these two by Speed profile -
 # Balanced needs the base checkpoint, Fast needs the separately-trained distilled
-# one, and the two are never interchangeable (see about.yml). Tag the base
+# one, and the two are never interchangeable (see description.md). Tag the base
 # checkpoint file with whatever you list under checkpoint_tags and the distilled
 # one with checkpoint_tags_fast; leave either unset to show all checkpoints for
 # that profile (no filtering, same backward-compat rule as every other

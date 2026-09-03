@@ -1,6 +1,6 @@
 name: "nunchaku"
 label: "Nunchaku (FP4)"
-description: "Nunchaku FP4-quantized DiT with the NunchakuQwenImageLoraStackV3 slot-fill LoRA mechanism and configurable CPU offload."
+description: "Nunchaku FP4-quantized DiT with the NunchakuQwenImageLoraStackV3 slot-fill LoRA mechanism and configurable CPU offload. No model is preselected — pick a matching nunchaku_qwen_image_*_fp4 DiT, a Qwen 2.5 VL CLIP, and the Qwen-Image VAE from the pickers."
 default: false
 fields:
   - type: "tabs"
@@ -25,10 +25,3 @@ fields:
           icon: "settings"
           icon_display: "icon_only"
         children: "{{ paths.preset }}/modes/txt2img/variants/nunchaku/tabs/advanced.yml"
-
-      - type: "tab"
-        label: "About"
-        configuration:
-          icon: "information-circle"
-          icon_display: "icon_only"
-        children: "{{ paths.preset }}/modes/txt2img/variants/nunchaku/tabs/about.yml"

@@ -29,10 +29,3 @@ fields:
           icon: "settings"
           icon_display: "icon_only"
         children: "{{ paths.preset }}/modes/img2img/tabs/advanced.yml"
-
-      - type: "tab"
-        label: "About"
-        configuration:
-          icon: "information-circle"
-          icon_display: "icon_only"
-        children: "{{ paths.preset }}/modes/img2img/tabs/about.yml"

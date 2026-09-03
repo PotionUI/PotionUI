@@ -1,1 +1,3 @@
 Turn a text prompt into a detailed image — including posters and signs with readable text — or rework an existing picture with a new prompt. Built for Qwen-Image, Alibaba's open image model known for rendering written text accurately. Runs on your own ComfyUI server.
+
+A transformer-based (MMDiT) model, particularly strong at rendering Chinese characters.

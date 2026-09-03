@@ -1,1 +1,7 @@
 Turn a text prompt into a detailed, high-quality image, or reshape an existing picture with a new prompt. Built for Flux Klein, the compact member of the Flux family from Black Forest Labs, tuned to run faster and lighter. Runs on your own ComfyUI server.
+
+**Pick the checkpoint that matches your Speed profile.** Balanced and Fast are not the same model at different step counts — Balanced runs the full base checkpoint with real negative-prompt guidance, while Fast runs a separately-trained distilled checkpoint that bakes zeroed-out conditioning in place of a negative prompt. The Diffusion Model field is never auto-set; its options narrow to whichever checkpoint an admin has tagged for the selected profile, but an untagged install may still show both — pick manually. Keep CFG between 1.0–2.0 on the Fast profile: pushing it higher fights the distillation and degrades quality, since there is no negative prompt to counteract it.
+
+**Image to Image always runs the Fast-style graph.** Its single ComfyUI graph zeroes conditioning in place of a real negative prompt regardless of which Speed profile is selected — the Balanced pairing has not been GPU-validated for this mode, unlike Balanced txt2img.
+
+Requires ComfyUI with the ComfyUI-FLUX custom node pack (Flux2Scheduler, EmptyFlux2LatentImage); txt2img additionally needs ComfyUI-Custom-Primitives, and Image to Image needs ReferenceLatent plus the ImageScaleToTotalPixels node.

@@ -3,7 +3,7 @@ name: "ComfyUI Backend"
 version: "1.0.0"
 description: "Backend for connecting to ComfyUI servers for remote generation"
 author: "PotionUI Team"
-type: "backend-only"
+type: "full-stack"
 category: "generation"
 
 capabilities:
@@ -35,6 +35,10 @@ hooks:
   backend:
     - hook: "backend.register"
       handler: "hooks.backend_hooks.register_backend"
+  frontend:
+    - hook: "admin.presets.header-actions"
+      component: "ImportWorkflowAction.js"
+      order: 100
 
 quick_actions:
   - id: "clear-vram"

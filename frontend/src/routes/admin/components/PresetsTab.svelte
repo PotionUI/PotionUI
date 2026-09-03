@@ -9,6 +9,7 @@
 	import { hasPresetMedia } from '$lib/utils/presetMedia';
 	import { processMarkdown } from '$lib/utils/markdown';
 	import Icon from '$lib/components/Icon.svelte';
+	import PluginSlot from '$lib/components/plugins/PluginSlot.svelte';
 	import MasterDetailLayout from '$lib/components/master-detail/MasterDetailLayout.svelte';
 	import { Pane, PaneRow, PaneGroupHeader } from '$lib/components/pane';
 	import PresetThumbnail from '$lib/components/preset/PresetThumbnail.svelte';
@@ -280,6 +281,10 @@
 		]}
 	>
 		{#snippet actions()}
+			<PluginSlot
+				hookName="admin.presets.header-actions"
+				context={{ selectPreset, refreshPresets: () => loadPresets(true) }}
+			/>
 			<Button variant="secondary" size="sm" icon="refresh" loading={refreshing} onclick={() => loadPresets(true)}>Refresh catalog</Button>
 		{/snippet}
 	</AdminTabShell>

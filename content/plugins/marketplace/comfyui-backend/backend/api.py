@@ -26,6 +26,7 @@ router = APIRouter(prefix="/api/plugins/comfyui-backend", tags=["ComfyUI Backend
 # content/presets/local is the .gitignored, user-owned preset root scanned
 # exactly like content/presets/marketplace - see docs/presets.md.
 _IMPORTED_PRESETS_ROOT = Path("content/presets/local")
+_MARKETPLACE_PRESETS_ROOT = Path("content/presets/marketplace")
 
 
 def _get_comfyui_base_url() -> str:
@@ -98,6 +99,21 @@ class ImportWorkflowRequest(BaseModel):
     model_family: str
     variant: str = "imported"
     display_name: str
+
+
+@router.get("/presets/families")
+async def list_preset_families(current_user=Depends(get_current_admin_user)):
+    """List the model-family directory names already in use under both preset
+    roots, for the import UI's model-family field (suggestions only - any
+    name may still be typed, see /presets/import)."""
+    families = set()
+    for root in (_MARKETPLACE_PRESETS_ROOT, _IMPORTED_PRESETS_ROOT):
+        if not root.is_dir():
+            continue
+        for child in root.iterdir():
+            if child.is_dir() and not child.name.startswith("."):
+                families.add(child.name)
+    return {"families": sorted(families)}
 
 
 @router.post("/presets/import/analyze")

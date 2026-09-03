@@ -1743,6 +1743,15 @@ If you already have a working ComfyUI graph, don't hand-write the preset — imp
    The response is `{preset_id, path, mode, lint: {errors, warnings}}` — check `lint` before
    assuming the import is clean.
 
+   The written `preset.yml` also gets a `requirements:` block (see "Requirements" above),
+   inferred from the whole workflow graph regardless of which candidates you picked as fields: one
+   `comfyui_node` entry for every node class outside a small built-in allowlist (a custom node pack
+   the target server may not have installed), and one `comfyui_model` entry for every checkpoint/
+   UNET/CLIP/VAE/LoRA file a loader node references. Both types are registered by this plugin
+   (`backend/requirements.py`) — they check the resolved backend's `GET /object_info` and
+   `GET /models/{folder}` live, so a missing custom node or model file surfaces on the preset's
+   Requirements panel instead of as a mid-generation pipeline error.
+
 4. **Tweak the generated YAML.** The importer gets you a working skeleton, not a finished preset:
    check which fields you picked up (a "Power Lora Loader"-style single multi-LoRA node, or a
    pass-through node sitting between a LoRA chain and the sampler, aren't detected yet), rename

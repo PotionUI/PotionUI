@@ -31,6 +31,14 @@ presets:
 recipes:
   - path: "recipes"
 
+# Preset requirement checkers for the `comfyui` engine - see docs/presets.md
+# "Requirements" and backend/requirements.py.
+requirement_checkers:
+  - type: "comfyui_node"
+    backend: "backend.requirements:ComfyUINodeChecker"
+  - type: "comfyui_model"
+    backend: "backend.requirements:ComfyUIModelChecker"
+
 hooks:
   backend:
     - hook: "backend.register"

@@ -29,7 +29,15 @@ from typing import Any, Dict, List, Optional
 import yaml
 
 from .parser import Workflow
-from .suggest import InputCandidate, suggest_fields
+from .suggest import (
+    CHECKPOINT_CLASSES,
+    CLIP_CLASSES,
+    DIFFUSION_MODEL_CLASSES,
+    LORA_CLASS_PREFIX,
+    VAE_CLASSES,
+    InputCandidate,
+    suggest_fields,
+)
 
 MODEL_TYPE_STRIP_PREFIXES = {
     "checkpoint": ("models/checkpoints/",),
@@ -37,6 +45,29 @@ MODEL_TYPE_STRIP_PREFIXES = {
     "clip": ("models/clip/",),
     "vae": ("models/vae/",),
 }
+
+# ComfyUI built-ins the `comfyui_node` requirement never needs to name - a
+# node class outside this set is assumed to come from a custom node pack
+# and gets a `requirements:` entry so a missing install surfaces before
+# generation instead of as a pipeline error. Extend this set as new core
+# node classes show up in emitted workflows.
+CORE_NODE_CLASS_TYPES = frozenset({
+    "KSampler", "KSamplerAdvanced", "CheckpointLoaderSimple", "UNETLoader",
+    "CLIPLoader", "DualCLIPLoader", "VAELoader", "CLIPTextEncode",
+    "EmptyLatentImage", "EmptySD3LatentImage", "VAEDecode", "VAEEncode",
+    "SaveImage", "PreviewImage", "LoadImage", "LoraLoader", "LoraLoaderModelOnly",
+    "ModelSamplingFlux", "ModelSamplingAuraFlow", "FluxGuidance", "ConditioningZeroOut",
+})
+
+# Loader class -> (ComfyUI `models/` subfolder, the input names it loads a
+# filename from) - same classes `suggest.suggest_fields` detects as model
+# loaders, folder names matching `ComfyUIBackend.FOLDER_TO_MODEL_TYPE`.
+_MODEL_LOADER_FOLDERS = (
+    (CHECKPOINT_CLASSES, "checkpoints", ("ckpt_name",)),
+    (DIFFUSION_MODEL_CLASSES, "diffusion_models", ("unet_name",)),
+    (CLIP_CLASSES, "text_encoders", ("clip_name", "clip_name1", "clip_name2")),
+    (VAE_CLASSES, "vae", ("vae_name",)),
+)
 
 _ADVANCED_NAMED_ROLES = ("steps", "cfg", "sampler", "scheduler", "denoise")
 _MODEL_ROLES = ("checkpoint", "diffusion_model", "clip", "vae")
@@ -139,6 +170,38 @@ def _resolve_choices(
             "label": choice.label or candidate.suggested_label,
         }
     return resolved
+
+
+def _infer_requirements(workflow: Workflow) -> List[Dict[str, Any]]:
+    """`requirements:` entries for this workflow, independent of which
+    inputs the admin chose as form fields: one `comfyui_node` per node class
+    outside `CORE_NODE_CLASS_TYPES`, and one `comfyui_model` per checkpoint/
+    UNET/CLIP/VAE/LoRA file it references. An unchosen model loader still
+    needs its file present to run, so this reads the whole graph rather than
+    the choice-gated candidate list `emit_preset`'s form-building uses."""
+    requirements: List[Dict[str, Any]] = []
+
+    for class_type in sorted({n.class_type for n in workflow.nodes.values()} - CORE_NODE_CLASS_TYPES):
+        requirements.append({"type": "comfyui_node", "class_type": class_type})
+
+    seen: set = set()
+
+    def _add_model(folder: str, name: Any) -> None:
+        if not isinstance(name, str) or not name or (folder, name) in seen:
+            return
+        seen.add((folder, name))
+        requirements.append({"type": "comfyui_model", "folder": folder, "name": name})
+
+    for classes, folder, input_names in _MODEL_LOADER_FOLDERS:
+        for node in workflow.find_by_class(*classes):
+            literals = node.literals()
+            for input_name in input_names:
+                _add_model(folder, literals.get(input_name))
+
+    for node in workflow.find_by_class_prefix(LORA_CLASS_PREFIX):
+        _add_model("loras", node.literals().get("lora_name"))
+
+    return requirements
 
 
 def emit_preset(
@@ -600,6 +663,9 @@ def emit_preset(
         preset_yml["configuration"] = configuration_block
     if vars_block:
         preset_yml["vars"] = vars_block
+    requirements_block = _infer_requirements(workflow)
+    if requirements_block:
+        preset_yml["requirements"] = requirements_block
 
     # ------------------------------------------------------------------
     # workflow.json

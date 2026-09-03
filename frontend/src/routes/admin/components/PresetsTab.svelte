@@ -78,6 +78,14 @@
 		return true;
 	});
 	$: groupedPresets = groupByCategory(filteredPresets);
+	// Must run before `selectedPreset`/`activePreset` below: this reassigns
+	// `selectedPresetId` when the current selection drops out of the filtered
+	// list, and a legacy `$:` write is only visible to statements later in
+	// source order within the same update pass, not ones declared earlier.
+	$: if (!loading && !filteredPresets.some((preset) => preset.id === selectedPresetId)) {
+		const nextId = filteredPresets[0]?.id || '';
+		if (nextId !== selectedPresetId) selectPreset(nextId);
+	}
 	$: selectedPreset = presets.find((preset) => preset.id === selectedPresetId) || null;
 	$: activePreset =
 		selectedPreset && presetDetail?.id === selectedPreset.id
@@ -101,11 +109,6 @@
 		Number(!!selectedEngine) +
 		Number(installFilter !== 'all') +
 		Number(requirementsFilter !== 'all');
-
-	$: if (!loading && !filteredPresets.some((preset) => preset.id === selectedPresetId)) {
-		const nextId = filteredPresets[0]?.id || '';
-		if (nextId !== selectedPresetId) selectPreset(nextId);
-	}
 
 	onMount(() => {
 		loadPresets();

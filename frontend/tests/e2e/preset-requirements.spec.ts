@@ -82,12 +82,7 @@ modes:
 		await apiPost(page, `/api/presets/${familyId}/reload`, token);
 
 		await page.goto('/admin?tab=presets');
-		// Let the page's own default selection (the first preset in the
-		// unfiltered catalog) finish loading before narrowing the search - two
-		// overlapping `selectPreset` calls a beat apart is exactly the PresetsTab
-		// race this journey exists to catch, not something to paper over.
 		await expect(page.getByRole('heading', { level: 2 })).toBeVisible({ timeout: 10000 });
-		await page.waitForLoadState('networkidle');
 
 		await page.getByPlaceholder('Search presets by name, engine, type, or tag…').fill('E2E Requirements Fixture');
 		const row = page.getByRole('option', { name: /E2E Requirements Fixture/ });

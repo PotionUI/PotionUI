@@ -111,6 +111,7 @@ quick_actions:
     endpoint: "/api/plugins/comfyui-backend/actions/clear-vram"
     method: "POST"
     confirm: "Clear VRAM? This will unload all loaded models from ComfyUI."
+    require_role: "ADMIN"
 
 settings:
   - name: "default_host"

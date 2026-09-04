@@ -1856,6 +1856,35 @@ If you already have a working ComfyUI graph, don't hand-write the preset — imp
    conditional reference images, subgraph rewrites. The rest of this chapter is the reference for
    doing that by hand.
 
+### The node catalog
+
+Steps 2–4 read a class's role from a declarative catalog —
+`content/plugins/marketplace/comfyui-backend/backend/preset_import/node_catalog.yml` — instead of
+naming node classes in code. Each entry is `category` (`loader`/`sampler`/`sampling`/`latent`/
+`image_input`/`modifier`/`lora`/`output`/`ignore`), `links` (which connected inputs carry a prompt,
+a model/clip chain, the sampler's latent, or the sampler's own noise/guider/sampler/sigmas graph),
+and `inputs` (one `InputSpec` per literal input: `role`, the core `field` type, `name`/`label`,
+optional `config`/`transform`/`section`/`history`, and — for a model-file role — the `models/`
+`folder` it lives under). A class the catalog doesn't name still imports fine as generic literal
+fields; it just won't get an "obvious" default-form placement.
+
+The plugin ships a CLI over this catalog, `content/plugins/marketplace/comfyui-backend/scripts/comfyui_nodes.py`
+(run with `PYTHONPATH=./venv/lib/python3.12/site-packages:.` from the repo root — importing the
+plugin's `backend` package needs `aiohttp`):
+
+- `coverage <workflow.json>` — mode, sampler, sampling cluster, a per-class coverage table, the
+  default form outline, and an "Uncatalogued classes: ..." line (`--fail-on-uncatalogued` exits 1
+  when that list isn't empty, for CI use).
+- `scaffold <ClassType> [--object-info FILE | --comfyui-src DIR]` — a paste-ready catalog entry,
+  read from a saved `/object_info` dump or ComfyUI's own source (`nodes.py`/`comfy_extras/*.py`,
+  parsed with `ast`, never imported or run), with `# TODO` markers wherever a human must confirm a
+  guess (e.g. `python content/plugins/marketplace/comfyui-backend/scripts/comfyui_nodes.py scaffold BasicScheduler`).
+- `list [--category CAT]` — one line per catalogued class.
+- `check` — runs `validate_catalog`; exits 1 on any problem.
+
+Adding a node the catalog doesn't know is then: run `coverage` to find it, `scaffold` to draft its
+entry, paste and resolve the `# TODO`s, `check` to confirm — one YAML entry, no code change.
+
 ### The manual path: build a preset by hand
 
 **Scaffold**, choosing `content/presets/local` so nothing lands in a plugin directory:

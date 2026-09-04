@@ -114,6 +114,17 @@
 	let loraKeepFixed = $state(new Set());
 	let activeTabId = $state('generation');
 	let fieldTypeOptions = $state([]);
+	// type -> the full `/api/fields/types` manifest entry (configuration_schema
+	// included) - fieldTypeOptions above stays a plain name list for the type
+	// <select>, this is what the config editor below reads.
+	let fieldTypeManifest = $state({});
+	// Free-typed drafts for a config row's list/JSON textarea, keyed by
+	// `${item._id}::${spec.name}` - kept apart from `item.config` so an
+	// in-progress line or an unparsable JSON edit isn't clobbered by the
+	// canonical value on every keystroke.
+	let configListDrafts = $state({});
+	let configJsonDrafts = $state({});
+	let configJsonErrors = $state({});
 	let families = $state([]);
 	let modelFamily = $state('');
 	let variant = $state('imported');
@@ -929,12 +940,36 @@
 	const NUMERIC_FIELD_TYPES = new Set(['number', 'slider']);
 	const BOOL_FIELD_TYPES = new Set(['checkbox', 'boolean', 'gate']);
 
+	function configSchemaFor(fieldType) {
+		return fieldTypeManifest[fieldType]?.configuration_schema ?? [];
+	}
+
+	// Generic replacement for a hand-written per-type carry-forward table:
+	// a key the new type's own `configuration_schema` also declares survives
+	// with its old value, a required key with no old value gets the schema's
+	// default, everything else (a `select`'s 700-entry `options` surviving
+	// into a `lora_picker` as a broken hybrid) is dropped.
+	function seedConfigForType(newType, prevConfig) {
+		const schema = configSchemaFor(newType);
+		if (!schema.length) return null;
+		const prev = prevConfig || {};
+		const next = {};
+		for (const spec of schema) {
+			if (prev[spec.name] !== undefined) next[spec.name] = prev[spec.name];
+			else if (spec.required) next[spec.name] = spec.default;
+		}
+		return Object.keys(next).length ? next : null;
+	}
+
 	// A field's `config` (and often `default`) is shaped for its old
 	// `field_type` - carrying it across a type change is how a `select`'s
 	// 700-entry `options` list survives into a `lora_picker` as a broken
 	// hybrid. Called from the type <select>'s onchange with what the field
 	// is switching to; returns the `{ default, config }` the new type
-	// actually expects.
+	// actually expects. `lora_picker` and `model` stay hand-seeded: their
+	// config depends on data the contract can't supply on its own (a
+	// friendlier populated strength/placeholder set to show right away, and
+	// a model_type guessed from the mapped workflow input name).
 	function configForTypeChange(item, newType) {
 		if (newType === 'lora_picker') {
 			const prevName = looksLikeFilename(item.default) ? item.default : null;
@@ -952,20 +987,16 @@
 		}
 		if (newType === 'select') {
 			const hasOptions = Array.isArray(item.config?.options);
-			return { default: item.default, config: hasOptions ? item.config : { options: [] } };
+			return { default: item.default, config: hasOptions ? item.config : seedConfigForType(newType, item.config) };
 		}
 		if (newType === 'slider' || newType === 'number' || newType === 'stepper') {
-			const bounds = {};
-			for (const k of ['min', 'max', 'step']) {
-				if (item.config && item.config[k] !== undefined) bounds[k] = item.config[k];
-			}
-			return { default: coerceToNumber(item.default), config: Object.keys(bounds).length ? bounds : null };
+			return { default: coerceToNumber(item.default), config: seedConfigForType(newType, item.config) };
 		}
 		if (newType === 'checkbox') {
 			return { default: coerceToBoolean(item.default), config: null };
 		}
 		const sameFamily = TEXT_FIELD_TYPES.has(newType) ? TEXT_FIELD_TYPES.has(item.field_type) : item.field_type === newType;
-		return { default: typeof item.default === 'string' ? item.default : null, config: sameFamily ? item.config : null };
+		return { default: typeof item.default === 'string' ? item.default : null, config: sameFamily ? item.config : seedConfigForType(newType, item.config) };
 	}
 
 	function changeFieldType(item, newType) {
@@ -975,6 +1006,122 @@
 		item.default = nextDefault;
 		item.config = config;
 		if (newType !== 'resolution') delete item._wh;
+	}
+
+	// ---- Field card: configuration_schema-driven editor ----
+
+	function configDraftKey(item, spec) {
+		return `${item._id}::${spec.name}`;
+	}
+
+	function configValue(item, spec) {
+		const v = item.config?.[spec.name];
+		return v !== undefined ? v : spec.default;
+	}
+
+	function setConfigValue(item, name, value) {
+		if (!item.config) item.config = {};
+		item.config[name] = value;
+	}
+
+	function clearConfigValue(item, name) {
+		if (item.config) delete item.config[name];
+	}
+
+	function onNumberConfigInput(item, spec, raw) {
+		const trimmed = raw.trim();
+		if (trimmed === '') {
+			clearConfigValue(item, spec.name);
+			return;
+		}
+		const n = Number(trimmed);
+		if (!Number.isFinite(n)) return;
+		setConfigValue(item, spec.name, spec.param_type === 'int' ? Math.trunc(n) : n);
+	}
+
+	function onTextConfigInput(item, spec, raw) {
+		if (raw === '') {
+			clearConfigValue(item, spec.name);
+			return;
+		}
+		setConfigValue(item, spec.name, raw);
+	}
+
+	// A select/checkbox_group/resolution `options` entry is `{label, value,
+	// example?}` (see select.py) rather than a bare scalar - still "one
+	// choice per line" from an editing standpoint, so the line editor
+	// handles it too, just folding each typed line into `{label, value}`
+	// (dropping any `example` a round-tripped entry had) instead of a
+	// literal string.
+	function isOptionObjectList(sample) {
+		return Array.isArray(sample) && sample.length > 0 && sample.every((x) => x && typeof x === 'object' && ('value' in x || 'label' in x));
+	}
+
+	// `list`-typed config isn't always a list on the wire - `filter_tags`
+	// also accepts a bare `"@config:<key>"` string (see model.py) - so a
+	// current string value stays a text control rather than being forced
+	// into a line/JSON editor. An empty/unset value falls back to `lines`
+	// (rather than `spec.example`'s shape) unless the example is itself
+	// option-object-shaped, so a field with no current value never
+	// mis-defaults to opening a large JSON box.
+	function listControlKind(item, spec) {
+		const v = configValue(item, spec);
+		if (typeof v === 'string') return 'text';
+		const sample = Array.isArray(v) && v.length ? v : Array.isArray(spec.example) ? spec.example : null;
+		if (!sample) return 'lines';
+		if (isOptionObjectList(sample)) return 'option-lines';
+		if (sample.some((x) => x !== null && typeof x === 'object')) return 'json';
+		return 'lines';
+	}
+
+	// Read-only: writing to a $state store as a side effect of a template
+	// `value={...}` read is a derived-context mutation Svelte 5 rejects
+	// (`state_unsafe_mutation`), silently aborting that render pass - the
+	// draft is seeded lazily by returning the computed fallback, never by
+	// writing it back here. Only the input handlers below write drafts.
+	function listDraftFor(item, spec) {
+		const key = configDraftKey(item, spec);
+		if (configListDrafts[key] !== undefined) return configListDrafts[key];
+		const v = configValue(item, spec);
+		const arr = Array.isArray(v) ? v : [];
+		return arr.map((x) => (x && typeof x === 'object' ? String(x.value ?? x.label ?? '') : String(x))).join('\n');
+	}
+
+	function onListDraftInput(item, spec, raw, kind) {
+		const key = configDraftKey(item, spec);
+		configListDrafts[key] = raw;
+		const lines = raw.split('\n').map((l) => l.trim()).filter(Boolean);
+		if (lines.length === 0) {
+			clearConfigValue(item, spec.name);
+			return;
+		}
+		setConfigValue(item, spec.name, kind === 'option-lines' ? lines.map((l) => ({ label: l, value: l })) : lines);
+	}
+
+	// Read-only for the same reason as listDraftFor above.
+	function jsonDraftFor(item, spec) {
+		const key = configDraftKey(item, spec);
+		if (configJsonDrafts[key] !== undefined) return configJsonDrafts[key];
+		const v = configValue(item, spec);
+		return v === undefined || v === null ? '' : JSON.stringify(v, null, 2);
+	}
+
+	function onJsonDraftInput(item, spec, raw) {
+		const key = configDraftKey(item, spec);
+		configJsonDrafts[key] = raw;
+		const trimmed = raw.trim();
+		if (trimmed === '') {
+			configJsonErrors[key] = '';
+			clearConfigValue(item, spec.name);
+			return;
+		}
+		try {
+			const parsed = JSON.parse(trimmed);
+			configJsonErrors[key] = '';
+			setConfigValue(item, spec.name, parsed);
+		} catch (e) {
+			configJsonErrors[key] = 'Invalid JSON';
+		}
 	}
 
 	function displayDefault(item) {
@@ -1103,8 +1250,9 @@
 				const res = await fetch('/api/fields/types', { credentials: 'include', headers: authHeaders() });
 				if (res.ok) {
 					const payload = await res.json();
-					const list = payload?.data ?? [];
-					fieldTypeOptions = [...new Set(list.filter((t) => !t.container).map((t) => t.type))].sort();
+					const list = (payload?.data ?? []).filter((t) => !t.container);
+					fieldTypeOptions = [...new Set(list.map((t) => t.type))].sort();
+					fieldTypeManifest = Object.fromEntries(list.map((t) => [t.type, t]));
 				}
 			} catch (e) {
 				// Best-effort - the select still works with whatever the field suggests.
@@ -1419,6 +1567,72 @@
 	{/if}
 {/snippet}
 
+{#snippet configControl(item, spec)}
+	{#if spec.param_type === 'int' || spec.param_type === 'float'}
+		<input
+			type="number"
+			step={spec.param_type === 'int' ? 1 : 'any'}
+			class="di-config-input"
+			placeholder={spec.default ?? ''}
+			value={configValue(item, spec) ?? ''}
+			oninput={(e) => onNumberConfigInput(item, spec, e.currentTarget.value)}
+			aria-label={spec.name}
+		/>
+	{:else if spec.param_type === 'bool'}
+		<input
+			type="checkbox"
+			checked={Boolean(configValue(item, spec))}
+			onchange={(e) => setConfigValue(item, spec.name, e.currentTarget.checked)}
+			aria-label={spec.name}
+		/>
+	{:else if spec.param_type === 'str' && spec.choices?.length}
+		<select class="di-config-input" value={configValue(item, spec) ?? ''} onchange={(e) => setConfigValue(item, spec.name, e.currentTarget.value)} aria-label={spec.name}>
+			{#each spec.choices as c}<option value={c}>{c}</option>{/each}
+		</select>
+	{:else if spec.param_type === 'dict'}
+		<textarea
+			class="di-config-json"
+			rows="3"
+			value={jsonDraftFor(item, spec)}
+			oninput={(e) => onJsonDraftInput(item, spec, e.currentTarget.value)}
+			aria-label={spec.name}
+		></textarea>
+		{#if configJsonErrors[configDraftKey(item, spec)]}<div class="di-config-error">{configJsonErrors[configDraftKey(item, spec)]}</div>{/if}
+	{:else if spec.param_type === 'list'}
+		{#if listControlKind(item, spec) === 'json'}
+			<textarea
+				class="di-config-json"
+				rows="3"
+				value={jsonDraftFor(item, spec)}
+				oninput={(e) => onJsonDraftInput(item, spec, e.currentTarget.value)}
+				aria-label={spec.name}
+			></textarea>
+			{#if configJsonErrors[configDraftKey(item, spec)]}<div class="di-config-error">{configJsonErrors[configDraftKey(item, spec)]}</div>{/if}
+		{:else if listControlKind(item, spec) === 'text'}
+			<input type="text" class="di-config-input" value={configValue(item, spec) ?? ''} oninput={(e) => onTextConfigInput(item, spec, e.currentTarget.value)} aria-label={spec.name} />
+		{:else}
+			{@const kind = listControlKind(item, spec)}
+			<textarea
+				class="di-config-lines"
+				rows="3"
+				placeholder="One entry per line"
+				value={listDraftFor(item, spec)}
+				oninput={(e) => onListDraftInput(item, spec, e.currentTarget.value, kind)}
+				aria-label={spec.name}
+			></textarea>
+		{/if}
+	{:else}
+		<input
+			type="text"
+			class="di-config-input"
+			placeholder={spec.default ?? ''}
+			value={configValue(item, spec) ?? ''}
+			oninput={(e) => onTextConfigInput(item, spec, e.currentTarget.value)}
+			aria-label={spec.name}
+		/>
+	{/if}
+{/snippet}
+
 {#snippet fieldCard(item, parentItems, index)}
 	<div
 		class="di-field-card"
@@ -1475,7 +1689,27 @@
 			{/if}
 		{/if}
 		{#if expandedFieldId === item._id}
+			{@const configSpecs = configSchemaFor(item.field_type)}
 			{@const sortedMapCandidates = [...mappableCandidates].sort((a, b) => Number(candidateNameMatchesField(b, item)) - Number(candidateNameMatchesField(a, item)))}
+			{#if configSpecs.length > 0}
+				<div class="di-config" data-config-editor>
+					<div class="di-mapedit-label">Configuration</div>
+					<div class="di-config-list">
+						{#each configSpecs as spec (spec.name)}
+							<div class="di-config-row" data-config-row={spec.name}>
+								<div class="di-config-head">
+									<span class="di-config-name mono">{spec.name}</span>
+									{#if spec.required}<span class="chip chip-warn">required</span>{/if}
+								</div>
+								<div class="di-config-control">
+									{@render configControl(item, spec)}
+								</div>
+								{#if spec.description}<div class="di-config-desc">{spec.description}</div>{/if}
+							</div>
+						{/each}
+					</div>
+				</div>
+			{/if}
 			<div class="di-mapedit" data-mapping-editor>
 				<div class="di-mapedit-label">Mapped workflow inputs</div>
 				<div class="di-mapedit-list">
@@ -3196,6 +3430,70 @@
 		color: rgb(var(--fg, 232 234 237));
 		font-size: 11px;
 		padding: 0 6px;
+	}
+
+	.di-config {
+		margin-top: 8px;
+		padding-top: 10px;
+		border-top: 1px dashed rgb(var(--line, 36 38 44));
+	}
+	.di-config-list {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+	}
+	.di-config-row {
+		border: 1px solid rgb(var(--line, 36 38 44));
+		border-radius: 4px;
+		padding: 6px 8px;
+	}
+	.di-config-head {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin-bottom: 4px;
+	}
+	.di-config-name {
+		font-size: 11px;
+		color: rgb(var(--fg, 232 234 237));
+	}
+	.di-config-control {
+		display: flex;
+	}
+	.di-config-input,
+	.di-config-json,
+	.di-config-lines {
+		box-sizing: border-box;
+		width: 100%;
+		border-radius: 4px;
+		border: 1px solid rgb(var(--line-strong, 43 46 53));
+		background: rgb(var(--surface-2, 31 33 38));
+		color: rgb(var(--fg, 232 234 237));
+		font-size: 11px;
+		padding: 0 8px;
+	}
+	.di-config-input {
+		height: 26px;
+	}
+	.di-config-json,
+	.di-config-lines {
+		padding: 6px 8px;
+		font-family: inherit;
+		resize: vertical;
+	}
+	.di-config-json {
+		font-family: ui-monospace, monospace;
+		font-size: 10.5px;
+	}
+	.di-config-desc {
+		margin-top: 4px;
+		font-size: 10.5px;
+		color: rgb(var(--fg-subtle, 122 128 144));
+	}
+	.di-config-error {
+		margin-top: 4px;
+		font-size: 10.5px;
+		color: rgb(var(--danger, 255 138 138));
 	}
 
 	.tab-popover {

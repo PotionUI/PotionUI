@@ -31,7 +31,7 @@ from .preset_import.emit import (
     emit_preset,
 )
 from .preset_import.parser import Workflow, WorkflowFormatError, parse_api_workflow
-from .preset_import.schema import HistoryEntry, ImportForm, parse_form, parse_history
+from .preset_import.schema import parse_form, parse_history
 from .preset_import.suggest import suggest_fields
 from .requirements import ComfyUIModelChecker, ComfyUINodeChecker, _fetch_object_info
 
@@ -512,12 +512,15 @@ async def get_imported_preset_source(preset_id: str, current_user=Depends(get_cu
 
     stored_form = entry.sidecar.get("form") if entry.sidecar else None
     stored_history = entry.sidecar.get("history") if entry.sidecar else None
-    form = ImportForm.model_validate(stored_form) if stored_form else build_default_form(analysis)
-    history = (
-        [HistoryEntry.model_validate(e) for e in stored_history]
-        if stored_history is not None
-        else build_default_history(form, analysis)
-    )
+    try:
+        form = parse_form(stored_form) if stored_form else build_default_form(analysis)
+        history = (
+            parse_history(stored_history)
+            if stored_history is not None
+            else build_default_history(form, analysis)
+        )
+    except PresetEmitError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     return {
         "workflow": raw_workflow,
@@ -550,16 +553,16 @@ async def reload_imported_preset(preset_id: str, current_user=Depends(get_curren
     extra_warnings: List[str] = []
     stored_form = entry.sidecar.get("form") if entry.sidecar else None
     stored_history = entry.sidecar.get("history") if entry.sidecar else None
-    if stored_form is not None:
-        form = ImportForm.model_validate(stored_form)
-        history = [HistoryEntry.model_validate(e) for e in (stored_history or [])]
-    else:
-        analysis = suggest_fields(workflow)
-        form = build_default_form(analysis)
-        history = build_default_history(form, analysis)
-        extra_warnings.append("re-imported with the default form/history")
-
     try:
+        if stored_form is not None:
+            form = parse_form(stored_form)
+            history = parse_history(stored_history or [])
+        else:
+            analysis = suggest_fields(workflow)
+            form = build_default_form(analysis)
+            history = build_default_history(form, analysis)
+            extra_warnings.append("re-imported with the default form/history")
+
         result = emit_preset(
             workflow,
             form,

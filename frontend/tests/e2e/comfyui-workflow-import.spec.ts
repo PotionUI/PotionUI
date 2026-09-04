@@ -210,6 +210,31 @@ test('Admin > Plugins > ComfyUI Backend - import a workflow through the wizard i
 		await stepsCard.locator('.di-field-default').fill('4');
 		await expect(stepsCard.locator('.di-field-default')).toHaveValue('4');
 
+		// The field editor's Configuration section is generated from
+		// `/api/fields/types`'s `configuration_schema`, not a hand-written
+		// per-type form - a slider's min/max/step controls and a select's
+		// options line editor both come from the same contract the backend
+		// declares.
+		const cfgCard = wizard.locator('.di-field-card[data-field-name="cfg"]');
+		await expect(cfgCard).toHaveCount(1);
+		await cfgCard.locator('.di-field-type').selectOption('slider');
+		await cfgCard.locator('button[data-action="toggle-mapping"]').click();
+		await cfgCard.locator('[data-config-row="min"] input').fill('1');
+		await cfgCard.locator('[data-config-row="max"] input').fill('20');
+		await cfgCard.locator('[data-config-row="step"] input').fill('0.5');
+		await screenshot(page, JOURNEY, '03e-wizard-slider-config');
+
+		// "Sampler" is already a `select` field (node_catalog.yml) with a
+		// live-file-backed `options` config - re-declaring its type here
+		// proves the generic type-select path is idempotent, then the line
+		// editor replaces its options outright.
+		const samplerCard = wizard.locator('.di-field-card[data-field-name="sampler_name"]');
+		await expect(samplerCard).toHaveCount(1);
+		await samplerCard.locator('.di-field-type').selectOption('select');
+		await samplerCard.locator('button[data-action="toggle-mapping"]').click();
+		await samplerCard.locator('[data-config-row="options"] textarea').fill('Euler\nDPM++ 2M');
+		await screenshot(page, JOURNEY, '03f-wizard-select-options');
+
 		await wizard.locator('#import-model-family').fill(familyId);
 		await wizard.locator('#import-display-name').fill('E2E imported SDXL');
 		await wizard.locator('button[data-import-continue-form]').click();
@@ -259,6 +284,25 @@ test('Admin > Plugins > ComfyUI Backend - import a workflow through the wizard i
 		const stepsFieldYml = extractFieldBlock(stepsTabYml!, 'steps');
 		expect(stepsFieldYml).toContain('type: integer');
 		expect(stepsFieldYml).toMatch(/default: 4\s*$/m);
+
+		// The "cfg" field's min/max/step, set through the schema-generated
+		// slider controls, landed on the emitted field's `configuration:`.
+		const cfgTabYml = tabYamls.find((y) => y.includes('name: cfg'));
+		expect(cfgTabYml, 'no tab file defines the "cfg" field').toBeTruthy();
+		const cfgFieldYml = extractFieldBlock(cfgTabYml!, 'cfg');
+		expect(cfgFieldYml).toContain('type: slider');
+		expect(cfgFieldYml).toMatch(/min: 1(\.0)?\s*$/m);
+		expect(cfgFieldYml).toMatch(/max: 20(\.0)?\s*$/m);
+		expect(cfgFieldYml).toMatch(/step: 0\.5\s*$/m);
+
+		// The "sampler_name" field's two lines typed into the select's
+		// options line editor replaced its ~60-entry live sampler list
+		// outright, landing as a plain scalar `options:` list.
+		const samplerTabYml = tabYamls.find((y) => y.includes('name: sampler_name'));
+		expect(samplerTabYml, 'no tab file defines the "sampler_name" field').toBeTruthy();
+		const samplerFieldYml = extractFieldBlock(samplerTabYml!, 'sampler_name');
+		expect(samplerFieldYml).toContain('type: select');
+		expect(samplerFieldYml).toMatch(/options:\s*\n\s*-\s*Euler\s*\n\s*-\s*DPM\+\+ 2M/);
 
 		const openLink = wizard.locator('a[data-import-open-preset]');
 		await expect(openLink).toBeVisible();

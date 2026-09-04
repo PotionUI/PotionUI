@@ -3,6 +3,7 @@ from typing import Dict, Any, Optional, List
 from .base_field import BaseField
 from .specs import FieldConfigSpec, FieldValidationSpec, FieldExampleSpec
 from src.features.presets.configuration import resolve_field_filter_tags, resolve_reactions_filter_tags
+from src.platform.filesystem.model_types import MODEL_TYPES
 
 
 class Model(BaseField):
@@ -112,7 +113,7 @@ class Model(BaseField):
                 param_type=str,
                 default="checkpoint",
                 description="Type of model to filter by",
-                choices=["checkpoint", "lora", "embedding", "upscaler", "controlnet"],
+                choices=list(MODEL_TYPES),
                 example="lora"
             ),
             FieldConfigSpec(

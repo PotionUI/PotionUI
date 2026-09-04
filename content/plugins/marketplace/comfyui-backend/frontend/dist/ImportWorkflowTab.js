@@ -6513,85 +6513,96 @@ var root_3 = from_html(`<div class="di-add-wrap svelte-10v1sym"><button type="bu
 var root_4 = from_html(`<button type="button" data-action="move-to-tab" class="svelte-10v1sym"> </button>`);
 var root_5 = from_html(`<div class="tab-popover svelte-10v1sym"><div class="popover-label svelte-10v1sym">Move to</div> <!></div>`);
 var root_6 = from_html(`<button type="button" class="iconbtn svelte-10v1sym" title="Move to tab" data-action="move-to-tab-menu"><!></button> <!>`, 1);
-var root_7 = from_html(`<option> </option>`);
-var root_8 = from_html(`<div class="di-mapping svelte-10v1sym"><span class="line mono svelte-10v1sym"><span class="arrow svelte-10v1sym">\u2192</span> </span></div>`);
-var root_9 = from_html(`<div class="di-suggest-row svelte-10v1sym"><span class="di-suggest-text svelte-10v1sym">Matches workflow input <span class="mono svelte-10v1sym"> </span></span> <button type="button" class="di-suggest-map svelte-10v1sym" data-action="apply-name-match">Map</button></div>`);
-var root_10 = from_html(`<div class="di-suggest svelte-10v1sym" data-name-suggestions=""><div class="di-suggest-rows svelte-10v1sym"></div> <button type="button" class="di-suggest-dismiss svelte-10v1sym" aria-label="Dismiss suggestion" data-action="dismiss-name-match"><!></button></div>`);
-var root_11 = from_html(`<span class="chip chip-info svelte-10v1sym" data-name-match-chip="">name match</span>`);
-var root_12 = from_html(`<span class="di-mapedit-taken svelte-10v1sym"> </span>`);
-var root_13 = from_html(`<div class="di-mapedit-transform svelte-10v1sym"><select class="svelte-10v1sym"></select></div>`);
-var root_14 = from_html(`<div><input type="checkbox" class="svelte-10v1sym"/> <span class="di-mapedit-node mono svelte-10v1sym"> </span> <span class="di-mapedit-input mono svelte-10v1sym"> </span> <!> <!></div>`);
-var root_15 = from_html(`<div class="di-mapedit svelte-10v1sym" data-mapping-editor=""><div class="di-mapedit-label svelte-10v1sym">Mapped workflow inputs</div> <div class="di-mapedit-list svelte-10v1sym"></div></div>`);
-var root_16 = from_html(`<div class="di-field-card svelte-10v1sym"><div class="di-field-top svelte-10v1sym"><span class="drag-handle svelte-10v1sym" title="Drag to move to another tab" draggable="true"><!></span> <input class="di-field-label svelte-10v1sym" type="text" aria-label="Field label"/> <select class="di-field-type svelte-10v1sym" aria-label="Field type"></select> <input class="di-field-default svelte-10v1sym" type="text" aria-label="Default value"/> <div class="di-field-actions svelte-10v1sym"><button type="button" title="Edit mapping" data-action="toggle-mapping"><!></button> <button type="button" class="iconbtn svelte-10v1sym" title="Move up" data-action="move-up"><!></button> <button type="button" class="iconbtn svelte-10v1sym" title="Move down" data-action="move-down"><!></button> <!> <button type="button" class="iconbtn svelte-10v1sym" title="Remove" data-action="remove"><!></button></div></div> <!> <!></div>`);
-var root_17 = from_html(`<div class="di-header-card svelte-10v1sym"><span class="drag-handle svelte-10v1sym" title="Drag to move to another tab" draggable="true"><!></span> <span class="chip chip-warn svelte-10v1sym">HEADER</span> <input class="di-header-input svelte-10v1sym" type="text" aria-label="Header text"/> <div class="di-container-actions svelte-10v1sym"><button type="button" class="iconbtn svelte-10v1sym" title="Move up" data-action="move-up"><!></button> <button type="button" class="iconbtn svelte-10v1sym" title="Move down" data-action="move-down"><!></button> <!> <button type="button" class="iconbtn svelte-10v1sym" title="Remove" data-action="remove"><!></button></div></div>`);
-var root_18 = from_html(`<!> <!>`, 1);
-var root_19 = from_html(`<input class="di-container-title svelte-10v1sym" type="text" aria-label="Container title"/>`);
-var root_20 = from_html(`<button type="button" class="iconbtn svelte-10v1sym" title="Toggle section" data-action="toggle-section"><span><!></span></button>`);
-var root_21 = from_html(`<button type="button"> </button>`);
-var root_22 = from_html(`<div class="di-col-control svelte-10v1sym"><span class="lbl svelte-10v1sym">Columns</span> <!></div>`);
-var root_23 = from_html(`<button type="button" class="iconbtn svelte-10v1sym" data-action="convert"><!></button>`);
-var root_24 = from_html(`<div class="di-row-cols svelte-10v1sym"></div> <!>`, 1);
-var root_25 = from_html(`<div><div class="di-container-head svelte-10v1sym"><span class="drag-handle svelte-10v1sym" title="Drag to move to another tab" draggable="true"><!></span> <span> </span> <!> <!> <div class="di-container-spacer svelte-10v1sym"></div> <!> <div class="di-container-actions svelte-10v1sym"><!> <button type="button" class="iconbtn svelte-10v1sym" title="Move up" data-action="move-up"><!></button> <button type="button" class="iconbtn svelte-10v1sym" title="Move down" data-action="move-down"><!></button> <!> <button type="button" class="iconbtn svelte-10v1sym" title="Remove" data-action="remove"><!></button></div></div> <div class="di-container-body svelte-10v1sym"><!></div></div>`);
-var root_26 = from_html(`<div class="wiz-sub mono svelte-10v1sym"> </div>`);
-var root_27 = from_html(`<div class="wiz-sub svelte-10v1sym">checking\u2026</div>`);
-var root_28 = from_html(`<div class="edit-banner svelte-10v1sym" data-import-editing="">Editing <strong class="svelte-10v1sym"> </strong> \u2014 Continue updates it in place, it won't become a new preset.</div>`);
-var root_29 = from_html(`<div class="req-loading svelte-10v1sym"><span class="spinner svelte-10v1sym" aria-hidden="true"></span>Loading the preset's source workflow\u2026</div>`);
-var root_30 = from_html(`<p class="message message-error svelte-10v1sym" data-import-analyze-error=""> </p>`);
-var root_31 = from_html(`<p class="desc svelte-10v1sym">This preset's stored workflow is already loaded - Continue to keep it, or load a different one.</p> <div class="detected-strip svelte-10v1sym" data-import-detected=""><span class="chip chip-info svelte-10v1sym" data-import-format=""> </span> <span class="dim svelte-10v1sym">\xB7</span> <span class="mono svelte-10v1sym"> </span> <span class="dim svelte-10v1sym">\xB7</span> <span>Loaded from the existing preset</span> <button type="button" class="link-btn strip-end svelte-10v1sym">Change workflow</button></div> <!>`, 1);
-var root_32 = from_html(`<p class="desc svelte-10v1sym">Paste or drop a ComfyUI Export (API) workflow JSON. In ComfyUI, enable Dev mode options in settings, then use Workflow \u2192 Export (API).</p> <div role="group" aria-label="Workflow JSON"><textarea rows="12" data-import-json-input="" class="svelte-10v1sym"></textarea> <div class="dropzone-footer svelte-10v1sym"><span class="dim svelte-10v1sym">or</span> <button type="button" class="link-btn svelte-10v1sym">choose a .json file</button> <input type="file" accept=".json,application/json" class="file-input-hidden svelte-10v1sym"/></div></div> <!>`, 1);
-var root_33 = from_html(`<h3 class="svelte-10v1sym">Choose a workflow</h3> <!>`, 1);
-var root_34 = from_html(`<span class="dim svelte-10v1sym">\xB7</span> <span class="dim svelte-10v1sym" data-import-object-info-used="">ranges + options from your ComfyUI</span>`, 1);
-var root_35 = from_html(`<span class="dim svelte-10v1sym">\xB7</span> <span class="chip chip-info svelte-10v1sym">LoRA chain found</span>`, 1);
-var root_36 = from_html(`<span class="dim svelte-10v1sym" data-import-chat-hint="">Ask the assistant to map inputs</span>`);
-var root_37 = from_html(`<span class="chip chip-info svelte-10v1sym">\u2192 picker</span>`);
-var root_38 = from_html(`<div class="di-row svelte-10v1sym"><span class="di-row-name mono svelte-10v1sym"> </span> <span class="di-row-value mono svelte-10v1sym"> </span> <span class="dim mono svelte-10v1sym"> </span> <!> <div class="di-row-trail svelte-10v1sym"><button type="button" data-action="lora-keep-fixed"><!></button></div></div>`);
-var root_39 = from_html(`<p class="message message-error svelte-10v1sym" data-lora-sandwich-error=""> </p>`);
-var root_40 = from_html(`<p class="lora-chain-help svelte-10v1sym" data-lora-all-kept-hint="">Picker LoRAs are added after the kept node(s)</p>`);
-var root_41 = from_html(`<div class="lora-chain-card svelte-10v1sym" data-import-lora-chain=""><div class="di-group-h svelte-10v1sym">LoRA chain</div> <!> <!> <!> <div class="lora-chain-actions svelte-10v1sym"><button type="button" class="link-btn svelte-10v1sym" data-action="convert-lora-picker"> </button></div></div>`);
-var root_42 = from_html(`<div class="lora-chain-card svelte-10v1sym" data-import-lora-chain="" data-import-lora-chain-empty=""><div class="di-group-h svelte-10v1sym">LoRA chain</div> <p class="dim lora-chain-empty-label svelte-10v1sym">No LoRA nodes detected</p> <p class="lora-chain-help svelte-10v1sym" data-lora-no-chain-hint=""> </p> <div class="lora-chain-actions svelte-10v1sym"><button type="button" class="link-btn svelte-10v1sym" data-action="add-lora-picker"> </button></div></div>`);
-var root_43 = from_html(`<span class="lock-badge svelte-10v1sym"><!>always wired</span>`);
-var root_44 = from_html(`<span class="di-row-value svelte-10v1sym"> </span>`);
-var root_45 = from_html(`<span class="di-row-value mono svelte-10v1sym"> </span> <span class="chip chip-info svelte-10v1sym"> </span>`, 1);
-var root_46 = from_html(`<button type="button" class="iconbtn di-add-arrow svelte-10v1sym" title="Add to form" data-action="add-input"><!></button>`);
-var root_47 = from_html(`<div><span class="di-row-name mono svelte-10v1sym"> </span> <!> <div class="di-row-trail svelte-10v1sym"><!></div></div>`);
-var root_48 = from_html(`<div class="di-group-h svelte-10v1sym"> <span class="cls mono svelte-10v1sym"> </span></div> <!>`, 1);
-var root_49 = from_html(`<input class="di-tab-rename svelte-10v1sym" type="text"/>`);
-var root_50 = from_html(`<div class="tab-popover svelte-10v1sym"><button type="button" data-action="rename-tab" class="svelte-10v1sym"><!>Rename</button> <button type="button" data-action="move-tab-left" class="svelte-10v1sym"><!>Move left</button> <button type="button" data-action="move-tab-right" class="svelte-10v1sym"><!>Move right</button> <hr class="svelte-10v1sym"/> <div class="popover-label svelte-10v1sym">Icon</div> <select class="tab-popover-select svelte-10v1sym" data-action="tab-icon"></select> <div class="popover-label svelte-10v1sym">Display</div> <select class="tab-popover-select svelte-10v1sym" data-action="tab-display"></select> <hr class="svelte-10v1sym"/> <button type="button" class="danger svelte-10v1sym" data-action="delete-tab"><!>Delete tab</button></div>`);
-var root_51 = from_html(`<span role="tab" tabindex="0"><!> <!> <span class="kb svelte-10v1sym" role="button" tabindex="0" title="Tab options" data-action="tab-menu"><!></span> <!></span>`);
-var root_52 = from_html(`<div class="di-empty svelte-10v1sym"><!> <div class="di-empty-text svelte-10v1sym">Drop inputs here or click Add on the left</div></div>`);
-var root_53 = from_html(`<option></option>`);
-var root_54 = from_html(`<h3 class="svelte-10v1sym">Design the form</h3> <p class="desc svelte-10v1sym">Pick which workflow inputs become fields, then arrange them into tabs. Anything left unmapped keeps the value baked into the workflow.</p> <div class="detected-strip svelte-10v1sym" data-import-detected=""><span class="chip chip-info svelte-10v1sym" data-import-format=""> </span> <span class="dim svelte-10v1sym">\xB7</span> <span class="mono svelte-10v1sym"> </span> <!> <!> <span class="strip-end chat-hint-group svelte-10v1sym"><!> <button type="button" class="link-btn svelte-10v1sym">Change workflow</button></span></div> <div class="designer svelte-10v1sym"><div class="di-left svelte-10v1sym" data-import-form-inputs=""><div class="di-left-title svelte-10v1sym">Workflow inputs</div> <!> <div class="di-search svelte-10v1sym"><input type="text" placeholder="Search inputs\u2026" class="svelte-10v1sym"/></div> <!></div> <div class="di-right svelte-10v1sym"><div class="di-tabs svelte-10v1sym" data-import-form-tabs=""><!> <span class="di-tab-add svelte-10v1sym" role="button" tabindex="0" data-action="add-tab"><!>Add tab</span></div> <div class="di-field-list svelte-10v1sym" data-import-form-items=""><!> <!> <!></div></div></div> <div class="name-grid svelte-10v1sym"><div class="field svelte-10v1sym"><label for="import-model-family" class="svelte-10v1sym">Model family</label> <input id="import-model-family" type="text" list="import-model-family-list" placeholder="e.g. SDXL" class="svelte-10v1sym"/> <datalist id="import-model-family-list"></datalist></div> <div class="field svelte-10v1sym"><label for="import-variant" class="svelte-10v1sym">Variant</label> <input id="import-variant" type="text" placeholder="imported" class="svelte-10v1sym"/></div> <div class="field svelte-10v1sym"><label for="import-display-name" class="svelte-10v1sym">Display name</label> <input id="import-display-name" type="text" placeholder="e.g. SDXL - My workflow" class="svelte-10v1sym"/></div></div>`, 1);
-var root_55 = from_html(`<div class="hist-jinja-row svelte-10v1sym"><span class="lbl svelte-10v1sym">Template</span> <input class="hist-jinja-input mono svelte-10v1sym" type="text"/> <span class="hist-jinja-out svelte-10v1sym">\u2192 <span class="v mono svelte-10v1sym"> </span></span></div>`);
-var root_56 = from_html(`<div><div class="hist-reorder svelte-10v1sym"><button type="button" class="iconbtn svelte-10v1sym" title="Move up" data-action="move-up"><!></button> <button type="button" class="iconbtn svelte-10v1sym" title="Move down" data-action="move-down"><!></button></div> <input type="checkbox" data-action="toggle-emit" class="svelte-10v1sym"/> <div class="hist-field svelte-10v1sym"><span class="hist-field-label svelte-10v1sym"> </span> <span class="hist-field-name mono svelte-10v1sym"> </span></div> <input class="hist-label-input svelte-10v1sym" type="text"/> <select class="hist-value-select svelte-10v1sym"></select> <!></div>`);
-var root_57 = from_html(`<span class="chip chip-info svelte-10v1sym"> </span>`);
-var root_58 = from_html(`<div class="preview-cell span2 svelte-10v1sym"><div class="preview-k svelte-10v1sym"> </div> <div class="preview-chips svelte-10v1sym"></div></div>`);
-var root_59 = from_html(`<div class="preview-cell svelte-10v1sym"><div class="preview-k svelte-10v1sym"> </div><div class="preview-v tabular svelte-10v1sym"> </div></div>`);
-var root_60 = from_html(`<div class="preview-empty svelte-10v1sym"><!> <div class="preview-empty-text svelte-10v1sym">Nothing extra will be recorded \u2014 prompt, seed and quantity always are.</div></div>`);
-var root_61 = from_html(`<h3 class="svelte-10v1sym">What shows in history</h3> <p class="desc svelte-10v1sym">Pick the form fields whose values are recorded on every generation, and how they read in the history card.</p> <div class="hist-designer svelte-10v1sym"><div class="hist-left svelte-10v1sym"><div class="pane-title svelte-10v1sym">Recorded fields <span class="n svelte-10v1sym"> </span></div> <div class="hist-table svelte-10v1sym" data-history-table=""><div class="hist-head svelte-10v1sym"><span></span><span></span><span>Field</span><span>Label in history</span><span>Value</span></div> <div class="hist-row locked svelte-10v1sym"><span></span><span></span><div class="hist-field svelte-10v1sym"><span class="hist-field-label svelte-10v1sym">Prompt</span></div><input class="hist-label-input svelte-10v1sym" type="text" value="Prompt" disabled=""/><span class="lock-badge svelte-10v1sym"><!>always recorded</span></div> <div class="hist-row locked svelte-10v1sym"><span></span><span></span><div class="hist-field svelte-10v1sym"><span class="hist-field-label svelte-10v1sym">Negative prompt</span></div><input class="hist-label-input svelte-10v1sym" type="text" value="Negative prompt" disabled=""/><span class="lock-badge svelte-10v1sym"><!>always recorded</span></div> <div class="hist-row locked svelte-10v1sym"><span></span><span></span><div class="hist-field svelte-10v1sym"><span class="hist-field-label svelte-10v1sym">Seed</span></div><input class="hist-label-input svelte-10v1sym" type="text" value="Seed" disabled=""/><span class="lock-badge svelte-10v1sym"><!>always recorded</span></div> <div class="hist-row locked svelte-10v1sym"><span></span><span></span><div class="hist-field svelte-10v1sym"><span class="hist-field-label svelte-10v1sym">Quantity</span></div><input class="hist-label-input svelte-10v1sym" type="text" value="Quantity" disabled=""/><span class="lock-badge svelte-10v1sym"><!>always recorded</span></div> <!></div></div> <div class="hist-right svelte-10v1sym"><div class="pane-title svelte-10v1sym">History card preview</div> <div class="preview-card svelte-10v1sym" data-history-preview=""><div class="preview-head svelte-10v1sym"><div class="t svelte-10v1sym"><!>Parameters</div> <span class="chip chip-mute svelte-10v1sym">#1</span></div> <div class="preview-grid svelte-10v1sym"><div class="preview-cell span2 svelte-10v1sym"><div class="preview-k svelte-10v1sym">Prompt</div><div class="preview-v wrap svelte-10v1sym">cinematic wide shot of a lighthouse at dusk</div></div> <div class="preview-cell span2 svelte-10v1sym"><div class="preview-k svelte-10v1sym">Negative prompt</div><div class="preview-v wrap svelte-10v1sym">blurry, low quality</div></div> <div class="preview-cell svelte-10v1sym"><div class="preview-k svelte-10v1sym">Seed</div><div class="preview-v tabular svelte-10v1sym">429218</div></div> <div class="preview-cell svelte-10v1sym"><div class="preview-k svelte-10v1sym">Quantity</div><div class="preview-v tabular svelte-10v1sym">4</div></div> <!></div> <!></div></div></div>`, 1);
-var root_62 = from_html(`<div class="req-loading svelte-10v1sym"><span class="spinner svelte-10v1sym" aria-hidden="true"></span>Checking requirements\u2026</div>`);
-var root_63 = from_html(`<p class="message message-error svelte-10v1sym"> </p>`);
-var root_64 = from_html(`<div class="req-empty svelte-10v1sym">This workflow needs nothing beyond ComfyUI's own built-in nodes.</div>`);
-var root_65 = from_html(`<div class="req-hint svelte-10v1sym"> </div>`);
-var root_66 = from_html(`<div class="req-row svelte-10v1sym"><div></div> <div><div class="req-name mono svelte-10v1sym"> </div> <div class="req-detail svelte-10v1sym"> </div> <!></div></div>`);
-var root_67 = from_html(`<div class="req-list svelte-10v1sym" data-import-requirements=""></div>`);
-var root_68 = from_html(`<p class="message message-error svelte-10v1sym" data-import-create-error=""> </p>`);
-var root_69 = from_html(`<h3 class="svelte-10v1sym">Requirements</h3> <p class="desc svelte-10v1sym">What this preset will need to run, detected from the workflow's nodes and models.</p> <div class="well svelte-10v1sym"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:rgb(var(--info, 91 157 255));margin-top:1px" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="11" x2="12" y2="16.5"></line><circle cx="12" cy="7.5" r="0.75" fill="currentColor" stroke="none"></circle></svg> <span>You can still create the preset \u2014 it won't run until these are installed.</span></div> <!> <!>`, 1);
-var root_70 = from_html(`<li> </li>`);
-var root_71 = from_html(`<div class="message message-error svelte-10v1sym"><p class="message-title svelte-10v1sym">Lint errors</p> <ul class="svelte-10v1sym"></ul></div>`);
-var root_72 = from_html(`<div class="lint-warn svelte-10v1sym"><div class="lint-warn-title svelte-10v1sym">Lint warnings</div> <div class="lint-warn-body svelte-10v1sym"> </div></div>`);
-var root_73 = from_html(`<p class="message message-success svelte-10v1sym">Lint clean - no issues found.</p>`);
-var root_74 = from_html(`<h3 class="svelte-10v1sym">Preset created</h3> <p class="desc svelte-10v1sym"> </p> <div class="lint-block svelte-10v1sym" data-import-lint=""><p class="lint-path svelte-10v1sym">Preset created at <span class="mono svelte-10v1sym"> </span></p> <!> <!> <!></div>`, 1);
-var root_75 = from_html(`<button type="button" class="btn btn-secondary svelte-10v1sym">Import another</button> <div class="footer-spacer svelte-10v1sym"></div> <a class="btn btn-primary svelte-10v1sym" data-import-open-preset="">Open in Presets</a>`, 1);
-var root_76 = from_html(`<button type="button" class="btn btn-secondary svelte-10v1sym">Back</button>`);
-var root_77 = from_html(`<button type="button" class="btn btn-primary svelte-10v1sym" data-import-analyze=""> </button>`);
-var root_78 = from_html(`<button type="button" class="btn btn-primary svelte-10v1sym" data-import-continue-form="">Continue</button>`);
-var root_79 = from_html(`<button type="button" class="btn btn-primary svelte-10v1sym" data-import-continue-history="">Continue</button>`);
-var root_80 = from_html(`<button type="button" class="btn btn-primary svelte-10v1sym" data-import-create=""> </button>`);
-var root_81 = from_html(`<!> <div class="footer-spacer svelte-10v1sym"></div> <!>`, 1);
-var root_82 = from_html(`<svg style="display:none" aria-hidden="true"><defs><symbol id="i-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline></symbol><symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4" fill="none" stroke="currentColor" stroke-width="2"></path></symbol><symbol id="i-arrow-right" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><polyline points="12 5 19 12 12 19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline></symbol><symbol id="i-arrow-left" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><polyline points="12 19 5 12 12 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline></symbol><symbol id="i-grip" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.4" fill="currentColor"></circle><circle cx="9" cy="12" r="1.4" fill="currentColor"></circle><circle cx="9" cy="18" r="1.4" fill="currentColor"></circle><circle cx="15" cy="6" r="1.4" fill="currentColor"></circle><circle cx="15" cy="12" r="1.4" fill="currentColor"></circle><circle cx="15" cy="18" r="1.4" fill="currentColor"></circle></symbol><symbol id="i-chevron-up" viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline></symbol><symbol id="i-chevron-down" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline></symbol><symbol id="i-x" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line></symbol><symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6" fill="currentColor"></circle><circle cx="12" cy="12" r="1.6" fill="currentColor"></circle><circle cx="19" cy="12" r="1.6" fill="currentColor"></circle></symbol><symbol id="i-plus" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line></symbol><symbol id="i-pencil" viewBox="0 0 24 24"><path d="M12 20h9" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="i-columns" viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="16" rx="1" fill="none" stroke="currentColor" stroke-width="2"></rect><rect x="14" y="4" width="7" height="16" rx="1" fill="none" stroke="currentColor" stroke-width="2"></rect></symbol><symbol id="i-folder" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path></symbol><symbol id="i-layers" viewBox="0 0 24 24"><polygon points="12 2 2 7 12 12 22 7 12 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></polygon><polyline points="2 17 12 22 22 17" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></polyline><polyline points="2 12 12 17 22 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></polyline></symbol><symbol id="i-heading" viewBox="0 0 24 24"><path d="M6 4v16M18 4v16M6 12h12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></symbol><symbol id="i-inbox" viewBox="0 0 24 24"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></polyline><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path></symbol><symbol id="i-sliders" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="4" y1="10" x2="4" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="12" y1="21" x2="12" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="12" y1="8" x2="12" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="20" y1="21" x2="20" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="20" y1="12" x2="20" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="1" y1="14" x2="7" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="9" y1="8" x2="15" y2="8" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="17" y1="16" x2="23" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line></symbol><symbol id="ti-generation" viewBox="0 0 24 24"><path d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="ti-settings" viewBox="0 0 24 24"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="ti-lora" viewBox="0 0 24 24"><path d="m21 7.5-2.25-1.313M21 7.5v2.25m0-2.25-2.25 1.313M3 7.5l2.25-1.313M3 7.5l2.25 1.313M3 7.5v2.25m9 3 2.25-1.313M12 12.75l-2.25-1.313M12 12.75V15m0 6.75 2.25-1.313M12 21.75V19.5m0 2.25-2.25-1.313m0-16.875L12 2.25l2.25 1.313M21 14.25v2.25l-2.25 1.313m-13.5 0L3 16.5v-2.25" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="ti-model" viewBox="0 0 24 24"><path d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="ti-image" viewBox="0 0 24 24"><path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="ti-video" viewBox="0 0 24 24"><path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="ti-film" viewBox="0 0 24 24"><path d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="ti-sparkles" viewBox="0 0 24 24"><path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="ti-embedding" viewBox="0 0 24 24"><path d="M7.5 7.5h-.75A2.25 2.25 0 0 0 4.5 9.75v7.5a2.25 2.25 0 0 0 2.25 2.25h7.5a2.25 2.25 0 0 0 2.25-2.25v-7.5a2.25 2.25 0 0 0-2.25-2.25h-.75m-6 3.75 3 3m0 0 3-3m-3 3V1.5m6 9h.75a2.25 2.25 0 0 1 2.25 2.25v7.5a2.25 2.25 0 0 1-2.25 2.25h-7.5a2.25 2.25 0 0 1-2.25-2.25v-.75" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="ti-sliders" viewBox="0 0 24 24"><path d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="ti-face" viewBox="0 0 24 24"><path d="M15.182 15.182a4.5 4.5 0 0 1-6.364 0M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM9.75 9.75c0 .414-.168.75-.375.75S9 10.164 9 9.75 9.168 9 9.375 9s.375.336.375.75Zm-.375 0h.008v.015h-.008V9.75Zm5.625 0c0 .414-.168.75-.375.75s-.375-.336-.375-.75.168-.75.375-.75.375.336.375.75Zm-.375 0h.008v.015h-.008V9.75Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="ti-warning" viewBox="0 0 24 24"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="ti-information-circle" viewBox="0 0 24 24"><path d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol></defs></svg> <div class="wizard svelte-10v1sym" data-import-wizard=""><div class="wiz-rail svelte-10v1sym"><div data-wiz-step="source"><div class="wiz-num svelte-10v1sym"><!></div> <div class="wiz-text svelte-10v1sym"><div class="wiz-label svelte-10v1sym">Source</div> <!></div></div> <div data-wiz-step="form"><div class="wiz-num svelte-10v1sym"><!></div> <div class="wiz-text svelte-10v1sym"><div class="wiz-label svelte-10v1sym">Form</div> <div class="wiz-sub svelte-10v1sym"> </div></div></div> <div data-wiz-step="history"><div class="wiz-num svelte-10v1sym"><!></div> <div class="wiz-text svelte-10v1sym"><div class="wiz-label svelte-10v1sym">History</div> <!></div></div> <div data-wiz-step="requirements"><div class="wiz-num svelte-10v1sym"><!></div> <div class="wiz-text svelte-10v1sym"><div class="wiz-label svelte-10v1sym">Requirements</div> <!></div></div> <div data-wiz-step="done"><div class="wiz-num svelte-10v1sym"><!></div> <div class="wiz-text svelte-10v1sym"><div class="wiz-label svelte-10v1sym">Done</div></div></div></div> <div class="wiz-body svelte-10v1sym"><div class="wiz-content svelte-10v1sym"><!> <!></div> <div class="wiz-footer svelte-10v1sym"><!></div></div></div>`, 1);
+var root_7 = from_html(`<input type="number" class="di-config-input svelte-10v1sym"/>`);
+var root_8 = from_html(`<input type="checkbox"/>`);
+var root_9 = from_html(`<option> </option>`);
+var root_10 = from_html(`<select class="di-config-input svelte-10v1sym"></select>`);
+var root_11 = from_html(`<div class="di-config-error svelte-10v1sym"> </div>`);
+var root_12 = from_html(`<textarea class="di-config-json svelte-10v1sym" rows="3"></textarea> <!>`, 1);
+var root_13 = from_html(`<input type="text" class="di-config-input svelte-10v1sym"/>`);
+var root_14 = from_html(`<textarea class="di-config-lines svelte-10v1sym" rows="3" placeholder="One entry per line"></textarea>`);
+var root_15 = from_html(`<div class="di-mapping svelte-10v1sym"><span class="line mono svelte-10v1sym"><span class="arrow svelte-10v1sym">\u2192</span> </span></div>`);
+var root_16 = from_html(`<div class="di-suggest-row svelte-10v1sym"><span class="di-suggest-text svelte-10v1sym">Matches workflow input <span class="mono svelte-10v1sym"> </span></span> <button type="button" class="di-suggest-map svelte-10v1sym" data-action="apply-name-match">Map</button></div>`);
+var root_17 = from_html(`<div class="di-suggest svelte-10v1sym" data-name-suggestions=""><div class="di-suggest-rows svelte-10v1sym"></div> <button type="button" class="di-suggest-dismiss svelte-10v1sym" aria-label="Dismiss suggestion" data-action="dismiss-name-match"><!></button></div>`);
+var root_18 = from_html(`<span class="chip chip-warn svelte-10v1sym">required</span>`);
+var root_19 = from_html(`<div class="di-config-desc svelte-10v1sym"> </div>`);
+var root_20 = from_html(`<div class="di-config-row svelte-10v1sym"><div class="di-config-head svelte-10v1sym"><span class="di-config-name mono svelte-10v1sym"> </span> <!></div> <div class="di-config-control svelte-10v1sym"><!></div> <!></div>`);
+var root_21 = from_html(`<div class="di-config svelte-10v1sym" data-config-editor=""><div class="di-mapedit-label svelte-10v1sym">Configuration</div> <div class="di-config-list svelte-10v1sym"></div></div>`);
+var root_22 = from_html(`<span class="chip chip-info svelte-10v1sym" data-name-match-chip="">name match</span>`);
+var root_23 = from_html(`<span class="di-mapedit-taken svelte-10v1sym"> </span>`);
+var root_24 = from_html(`<div class="di-mapedit-transform svelte-10v1sym"><select class="svelte-10v1sym"></select></div>`);
+var root_25 = from_html(`<div><input type="checkbox" class="svelte-10v1sym"/> <span class="di-mapedit-node mono svelte-10v1sym"> </span> <span class="di-mapedit-input mono svelte-10v1sym"> </span> <!> <!></div>`);
+var root_26 = from_html(`<!> <div class="di-mapedit svelte-10v1sym" data-mapping-editor=""><div class="di-mapedit-label svelte-10v1sym">Mapped workflow inputs</div> <div class="di-mapedit-list svelte-10v1sym"></div></div>`, 1);
+var root_27 = from_html(`<div class="di-field-card svelte-10v1sym"><div class="di-field-top svelte-10v1sym"><span class="drag-handle svelte-10v1sym" title="Drag to move to another tab" draggable="true"><!></span> <input class="di-field-label svelte-10v1sym" type="text" aria-label="Field label"/> <select class="di-field-type svelte-10v1sym" aria-label="Field type"></select> <input class="di-field-default svelte-10v1sym" type="text" aria-label="Default value"/> <div class="di-field-actions svelte-10v1sym"><button type="button" title="Edit mapping" data-action="toggle-mapping"><!></button> <button type="button" class="iconbtn svelte-10v1sym" title="Move up" data-action="move-up"><!></button> <button type="button" class="iconbtn svelte-10v1sym" title="Move down" data-action="move-down"><!></button> <!> <button type="button" class="iconbtn svelte-10v1sym" title="Remove" data-action="remove"><!></button></div></div> <!> <!></div>`);
+var root_28 = from_html(`<div class="di-header-card svelte-10v1sym"><span class="drag-handle svelte-10v1sym" title="Drag to move to another tab" draggable="true"><!></span> <span class="chip chip-warn svelte-10v1sym">HEADER</span> <input class="di-header-input svelte-10v1sym" type="text" aria-label="Header text"/> <div class="di-container-actions svelte-10v1sym"><button type="button" class="iconbtn svelte-10v1sym" title="Move up" data-action="move-up"><!></button> <button type="button" class="iconbtn svelte-10v1sym" title="Move down" data-action="move-down"><!></button> <!> <button type="button" class="iconbtn svelte-10v1sym" title="Remove" data-action="remove"><!></button></div></div>`);
+var root_29 = from_html(`<!> <!>`, 1);
+var root_30 = from_html(`<input class="di-container-title svelte-10v1sym" type="text" aria-label="Container title"/>`);
+var root_31 = from_html(`<button type="button" class="iconbtn svelte-10v1sym" title="Toggle section" data-action="toggle-section"><span><!></span></button>`);
+var root_32 = from_html(`<button type="button"> </button>`);
+var root_33 = from_html(`<div class="di-col-control svelte-10v1sym"><span class="lbl svelte-10v1sym">Columns</span> <!></div>`);
+var root_34 = from_html(`<button type="button" class="iconbtn svelte-10v1sym" data-action="convert"><!></button>`);
+var root_35 = from_html(`<div class="di-row-cols svelte-10v1sym"></div> <!>`, 1);
+var root_36 = from_html(`<div><div class="di-container-head svelte-10v1sym"><span class="drag-handle svelte-10v1sym" title="Drag to move to another tab" draggable="true"><!></span> <span> </span> <!> <!> <div class="di-container-spacer svelte-10v1sym"></div> <!> <div class="di-container-actions svelte-10v1sym"><!> <button type="button" class="iconbtn svelte-10v1sym" title="Move up" data-action="move-up"><!></button> <button type="button" class="iconbtn svelte-10v1sym" title="Move down" data-action="move-down"><!></button> <!> <button type="button" class="iconbtn svelte-10v1sym" title="Remove" data-action="remove"><!></button></div></div> <div class="di-container-body svelte-10v1sym"><!></div></div>`);
+var root_37 = from_html(`<div class="wiz-sub mono svelte-10v1sym"> </div>`);
+var root_38 = from_html(`<div class="wiz-sub svelte-10v1sym">checking\u2026</div>`);
+var root_39 = from_html(`<div class="edit-banner svelte-10v1sym" data-import-editing="">Editing <strong class="svelte-10v1sym"> </strong> \u2014 Continue updates it in place, it won't become a new preset.</div>`);
+var root_40 = from_html(`<div class="req-loading svelte-10v1sym"><span class="spinner svelte-10v1sym" aria-hidden="true"></span>Loading the preset's source workflow\u2026</div>`);
+var root_41 = from_html(`<p class="message message-error svelte-10v1sym" data-import-analyze-error=""> </p>`);
+var root_42 = from_html(`<p class="desc svelte-10v1sym">This preset's stored workflow is already loaded - Continue to keep it, or load a different one.</p> <div class="detected-strip svelte-10v1sym" data-import-detected=""><span class="chip chip-info svelte-10v1sym" data-import-format=""> </span> <span class="dim svelte-10v1sym">\xB7</span> <span class="mono svelte-10v1sym"> </span> <span class="dim svelte-10v1sym">\xB7</span> <span>Loaded from the existing preset</span> <button type="button" class="link-btn strip-end svelte-10v1sym">Change workflow</button></div> <!>`, 1);
+var root_43 = from_html(`<p class="desc svelte-10v1sym">Paste or drop a ComfyUI Export (API) workflow JSON. In ComfyUI, enable Dev mode options in settings, then use Workflow \u2192 Export (API).</p> <div role="group" aria-label="Workflow JSON"><textarea rows="12" data-import-json-input="" class="svelte-10v1sym"></textarea> <div class="dropzone-footer svelte-10v1sym"><span class="dim svelte-10v1sym">or</span> <button type="button" class="link-btn svelte-10v1sym">choose a .json file</button> <input type="file" accept=".json,application/json" class="file-input-hidden svelte-10v1sym"/></div></div> <!>`, 1);
+var root_44 = from_html(`<h3 class="svelte-10v1sym">Choose a workflow</h3> <!>`, 1);
+var root_45 = from_html(`<span class="dim svelte-10v1sym">\xB7</span> <span class="dim svelte-10v1sym" data-import-object-info-used="">ranges + options from your ComfyUI</span>`, 1);
+var root_46 = from_html(`<span class="dim svelte-10v1sym">\xB7</span> <span class="chip chip-info svelte-10v1sym">LoRA chain found</span>`, 1);
+var root_47 = from_html(`<span class="dim svelte-10v1sym" data-import-chat-hint="">Ask the assistant to map inputs</span>`);
+var root_48 = from_html(`<span class="chip chip-info svelte-10v1sym">\u2192 picker</span>`);
+var root_49 = from_html(`<div class="di-row svelte-10v1sym"><span class="di-row-name mono svelte-10v1sym"> </span> <span class="di-row-value mono svelte-10v1sym"> </span> <span class="dim mono svelte-10v1sym"> </span> <!> <div class="di-row-trail svelte-10v1sym"><button type="button" data-action="lora-keep-fixed"><!></button></div></div>`);
+var root_50 = from_html(`<p class="message message-error svelte-10v1sym" data-lora-sandwich-error=""> </p>`);
+var root_51 = from_html(`<p class="lora-chain-help svelte-10v1sym" data-lora-all-kept-hint="">Picker LoRAs are added after the kept node(s)</p>`);
+var root_52 = from_html(`<div class="lora-chain-card svelte-10v1sym" data-import-lora-chain=""><div class="di-group-h svelte-10v1sym">LoRA chain</div> <!> <!> <!> <div class="lora-chain-actions svelte-10v1sym"><button type="button" class="link-btn svelte-10v1sym" data-action="convert-lora-picker"> </button></div></div>`);
+var root_53 = from_html(`<div class="lora-chain-card svelte-10v1sym" data-import-lora-chain="" data-import-lora-chain-empty=""><div class="di-group-h svelte-10v1sym">LoRA chain</div> <p class="dim lora-chain-empty-label svelte-10v1sym">No LoRA nodes detected</p> <p class="lora-chain-help svelte-10v1sym" data-lora-no-chain-hint=""> </p> <div class="lora-chain-actions svelte-10v1sym"><button type="button" class="link-btn svelte-10v1sym" data-action="add-lora-picker"> </button></div></div>`);
+var root_54 = from_html(`<span class="lock-badge svelte-10v1sym"><!>always wired</span>`);
+var root_55 = from_html(`<span class="di-row-value svelte-10v1sym"> </span>`);
+var root_56 = from_html(`<span class="di-row-value mono svelte-10v1sym"> </span> <span class="chip chip-info svelte-10v1sym"> </span>`, 1);
+var root_57 = from_html(`<button type="button" class="iconbtn di-add-arrow svelte-10v1sym" title="Add to form" data-action="add-input"><!></button>`);
+var root_58 = from_html(`<div><span class="di-row-name mono svelte-10v1sym"> </span> <!> <div class="di-row-trail svelte-10v1sym"><!></div></div>`);
+var root_59 = from_html(`<div class="di-group-h svelte-10v1sym"> <span class="cls mono svelte-10v1sym"> </span></div> <!>`, 1);
+var root_60 = from_html(`<input class="di-tab-rename svelte-10v1sym" type="text"/>`);
+var root_61 = from_html(`<div class="tab-popover svelte-10v1sym"><button type="button" data-action="rename-tab" class="svelte-10v1sym"><!>Rename</button> <button type="button" data-action="move-tab-left" class="svelte-10v1sym"><!>Move left</button> <button type="button" data-action="move-tab-right" class="svelte-10v1sym"><!>Move right</button> <hr class="svelte-10v1sym"/> <div class="popover-label svelte-10v1sym">Icon</div> <select class="tab-popover-select svelte-10v1sym" data-action="tab-icon"></select> <div class="popover-label svelte-10v1sym">Display</div> <select class="tab-popover-select svelte-10v1sym" data-action="tab-display"></select> <hr class="svelte-10v1sym"/> <button type="button" class="danger svelte-10v1sym" data-action="delete-tab"><!>Delete tab</button></div>`);
+var root_62 = from_html(`<span role="tab" tabindex="0"><!> <!> <span class="kb svelte-10v1sym" role="button" tabindex="0" title="Tab options" data-action="tab-menu"><!></span> <!></span>`);
+var root_63 = from_html(`<div class="di-empty svelte-10v1sym"><!> <div class="di-empty-text svelte-10v1sym">Drop inputs here or click Add on the left</div></div>`);
+var root_64 = from_html(`<option></option>`);
+var root_65 = from_html(`<h3 class="svelte-10v1sym">Design the form</h3> <p class="desc svelte-10v1sym">Pick which workflow inputs become fields, then arrange them into tabs. Anything left unmapped keeps the value baked into the workflow.</p> <div class="detected-strip svelte-10v1sym" data-import-detected=""><span class="chip chip-info svelte-10v1sym" data-import-format=""> </span> <span class="dim svelte-10v1sym">\xB7</span> <span class="mono svelte-10v1sym"> </span> <!> <!> <span class="strip-end chat-hint-group svelte-10v1sym"><!> <button type="button" class="link-btn svelte-10v1sym">Change workflow</button></span></div> <div class="designer svelte-10v1sym"><div class="di-left svelte-10v1sym" data-import-form-inputs=""><div class="di-left-title svelte-10v1sym">Workflow inputs</div> <!> <div class="di-search svelte-10v1sym"><input type="text" placeholder="Search inputs\u2026" class="svelte-10v1sym"/></div> <!></div> <div class="di-right svelte-10v1sym"><div class="di-tabs svelte-10v1sym" data-import-form-tabs=""><!> <span class="di-tab-add svelte-10v1sym" role="button" tabindex="0" data-action="add-tab"><!>Add tab</span></div> <div class="di-field-list svelte-10v1sym" data-import-form-items=""><!> <!> <!></div></div></div> <div class="name-grid svelte-10v1sym"><div class="field svelte-10v1sym"><label for="import-model-family" class="svelte-10v1sym">Model family</label> <input id="import-model-family" type="text" list="import-model-family-list" placeholder="e.g. SDXL" class="svelte-10v1sym"/> <datalist id="import-model-family-list"></datalist></div> <div class="field svelte-10v1sym"><label for="import-variant" class="svelte-10v1sym">Variant</label> <input id="import-variant" type="text" placeholder="imported" class="svelte-10v1sym"/></div> <div class="field svelte-10v1sym"><label for="import-display-name" class="svelte-10v1sym">Display name</label> <input id="import-display-name" type="text" placeholder="e.g. SDXL - My workflow" class="svelte-10v1sym"/></div></div>`, 1);
+var root_66 = from_html(`<div class="hist-jinja-row svelte-10v1sym"><span class="lbl svelte-10v1sym">Template</span> <input class="hist-jinja-input mono svelte-10v1sym" type="text"/> <span class="hist-jinja-out svelte-10v1sym">\u2192 <span class="v mono svelte-10v1sym"> </span></span></div>`);
+var root_67 = from_html(`<div><div class="hist-reorder svelte-10v1sym"><button type="button" class="iconbtn svelte-10v1sym" title="Move up" data-action="move-up"><!></button> <button type="button" class="iconbtn svelte-10v1sym" title="Move down" data-action="move-down"><!></button></div> <input type="checkbox" data-action="toggle-emit" class="svelte-10v1sym"/> <div class="hist-field svelte-10v1sym"><span class="hist-field-label svelte-10v1sym"> </span> <span class="hist-field-name mono svelte-10v1sym"> </span></div> <input class="hist-label-input svelte-10v1sym" type="text"/> <select class="hist-value-select svelte-10v1sym"></select> <!></div>`);
+var root_68 = from_html(`<span class="chip chip-info svelte-10v1sym"> </span>`);
+var root_69 = from_html(`<div class="preview-cell span2 svelte-10v1sym"><div class="preview-k svelte-10v1sym"> </div> <div class="preview-chips svelte-10v1sym"></div></div>`);
+var root_70 = from_html(`<div class="preview-cell svelte-10v1sym"><div class="preview-k svelte-10v1sym"> </div><div class="preview-v tabular svelte-10v1sym"> </div></div>`);
+var root_71 = from_html(`<div class="preview-empty svelte-10v1sym"><!> <div class="preview-empty-text svelte-10v1sym">Nothing extra will be recorded \u2014 prompt, seed and quantity always are.</div></div>`);
+var root_72 = from_html(`<h3 class="svelte-10v1sym">What shows in history</h3> <p class="desc svelte-10v1sym">Pick the form fields whose values are recorded on every generation, and how they read in the history card.</p> <div class="hist-designer svelte-10v1sym"><div class="hist-left svelte-10v1sym"><div class="pane-title svelte-10v1sym">Recorded fields <span class="n svelte-10v1sym"> </span></div> <div class="hist-table svelte-10v1sym" data-history-table=""><div class="hist-head svelte-10v1sym"><span></span><span></span><span>Field</span><span>Label in history</span><span>Value</span></div> <div class="hist-row locked svelte-10v1sym"><span></span><span></span><div class="hist-field svelte-10v1sym"><span class="hist-field-label svelte-10v1sym">Prompt</span></div><input class="hist-label-input svelte-10v1sym" type="text" value="Prompt" disabled=""/><span class="lock-badge svelte-10v1sym"><!>always recorded</span></div> <div class="hist-row locked svelte-10v1sym"><span></span><span></span><div class="hist-field svelte-10v1sym"><span class="hist-field-label svelte-10v1sym">Negative prompt</span></div><input class="hist-label-input svelte-10v1sym" type="text" value="Negative prompt" disabled=""/><span class="lock-badge svelte-10v1sym"><!>always recorded</span></div> <div class="hist-row locked svelte-10v1sym"><span></span><span></span><div class="hist-field svelte-10v1sym"><span class="hist-field-label svelte-10v1sym">Seed</span></div><input class="hist-label-input svelte-10v1sym" type="text" value="Seed" disabled=""/><span class="lock-badge svelte-10v1sym"><!>always recorded</span></div> <div class="hist-row locked svelte-10v1sym"><span></span><span></span><div class="hist-field svelte-10v1sym"><span class="hist-field-label svelte-10v1sym">Quantity</span></div><input class="hist-label-input svelte-10v1sym" type="text" value="Quantity" disabled=""/><span class="lock-badge svelte-10v1sym"><!>always recorded</span></div> <!></div></div> <div class="hist-right svelte-10v1sym"><div class="pane-title svelte-10v1sym">History card preview</div> <div class="preview-card svelte-10v1sym" data-history-preview=""><div class="preview-head svelte-10v1sym"><div class="t svelte-10v1sym"><!>Parameters</div> <span class="chip chip-mute svelte-10v1sym">#1</span></div> <div class="preview-grid svelte-10v1sym"><div class="preview-cell span2 svelte-10v1sym"><div class="preview-k svelte-10v1sym">Prompt</div><div class="preview-v wrap svelte-10v1sym">cinematic wide shot of a lighthouse at dusk</div></div> <div class="preview-cell span2 svelte-10v1sym"><div class="preview-k svelte-10v1sym">Negative prompt</div><div class="preview-v wrap svelte-10v1sym">blurry, low quality</div></div> <div class="preview-cell svelte-10v1sym"><div class="preview-k svelte-10v1sym">Seed</div><div class="preview-v tabular svelte-10v1sym">429218</div></div> <div class="preview-cell svelte-10v1sym"><div class="preview-k svelte-10v1sym">Quantity</div><div class="preview-v tabular svelte-10v1sym">4</div></div> <!></div> <!></div></div></div>`, 1);
+var root_73 = from_html(`<div class="req-loading svelte-10v1sym"><span class="spinner svelte-10v1sym" aria-hidden="true"></span>Checking requirements\u2026</div>`);
+var root_74 = from_html(`<p class="message message-error svelte-10v1sym"> </p>`);
+var root_75 = from_html(`<div class="req-empty svelte-10v1sym">This workflow needs nothing beyond ComfyUI's own built-in nodes.</div>`);
+var root_76 = from_html(`<div class="req-hint svelte-10v1sym"> </div>`);
+var root_77 = from_html(`<div class="req-row svelte-10v1sym"><div></div> <div><div class="req-name mono svelte-10v1sym"> </div> <div class="req-detail svelte-10v1sym"> </div> <!></div></div>`);
+var root_78 = from_html(`<div class="req-list svelte-10v1sym" data-import-requirements=""></div>`);
+var root_79 = from_html(`<p class="message message-error svelte-10v1sym" data-import-create-error=""> </p>`);
+var root_80 = from_html(`<h3 class="svelte-10v1sym">Requirements</h3> <p class="desc svelte-10v1sym">What this preset will need to run, detected from the workflow's nodes and models.</p> <div class="well svelte-10v1sym"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:rgb(var(--info, 91 157 255));margin-top:1px" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="11" x2="12" y2="16.5"></line><circle cx="12" cy="7.5" r="0.75" fill="currentColor" stroke="none"></circle></svg> <span>You can still create the preset \u2014 it won't run until these are installed.</span></div> <!> <!>`, 1);
+var root_81 = from_html(`<li> </li>`);
+var root_82 = from_html(`<div class="message message-error svelte-10v1sym"><p class="message-title svelte-10v1sym">Lint errors</p> <ul class="svelte-10v1sym"></ul></div>`);
+var root_83 = from_html(`<div class="lint-warn svelte-10v1sym"><div class="lint-warn-title svelte-10v1sym">Lint warnings</div> <div class="lint-warn-body svelte-10v1sym"> </div></div>`);
+var root_84 = from_html(`<p class="message message-success svelte-10v1sym">Lint clean - no issues found.</p>`);
+var root_85 = from_html(`<h3 class="svelte-10v1sym">Preset created</h3> <p class="desc svelte-10v1sym"> </p> <div class="lint-block svelte-10v1sym" data-import-lint=""><p class="lint-path svelte-10v1sym">Preset created at <span class="mono svelte-10v1sym"> </span></p> <!> <!> <!></div>`, 1);
+var root_86 = from_html(`<button type="button" class="btn btn-secondary svelte-10v1sym">Import another</button> <div class="footer-spacer svelte-10v1sym"></div> <a class="btn btn-primary svelte-10v1sym" data-import-open-preset="">Open in Presets</a>`, 1);
+var root_87 = from_html(`<button type="button" class="btn btn-secondary svelte-10v1sym">Back</button>`);
+var root_88 = from_html(`<button type="button" class="btn btn-primary svelte-10v1sym" data-import-analyze=""> </button>`);
+var root_89 = from_html(`<button type="button" class="btn btn-primary svelte-10v1sym" data-import-continue-form="">Continue</button>`);
+var root_90 = from_html(`<button type="button" class="btn btn-primary svelte-10v1sym" data-import-continue-history="">Continue</button>`);
+var root_91 = from_html(`<button type="button" class="btn btn-primary svelte-10v1sym" data-import-create=""> </button>`);
+var root_92 = from_html(`<!> <div class="footer-spacer svelte-10v1sym"></div> <!>`, 1);
+var root_93 = from_html(`<svg style="display:none" aria-hidden="true"><defs><symbol id="i-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline></symbol><symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4" fill="none" stroke="currentColor" stroke-width="2"></path></symbol><symbol id="i-arrow-right" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><polyline points="12 5 19 12 12 19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline></symbol><symbol id="i-arrow-left" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><polyline points="12 19 5 12 12 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline></symbol><symbol id="i-grip" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.4" fill="currentColor"></circle><circle cx="9" cy="12" r="1.4" fill="currentColor"></circle><circle cx="9" cy="18" r="1.4" fill="currentColor"></circle><circle cx="15" cy="6" r="1.4" fill="currentColor"></circle><circle cx="15" cy="12" r="1.4" fill="currentColor"></circle><circle cx="15" cy="18" r="1.4" fill="currentColor"></circle></symbol><symbol id="i-chevron-up" viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline></symbol><symbol id="i-chevron-down" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline></symbol><symbol id="i-x" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line></symbol><symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6" fill="currentColor"></circle><circle cx="12" cy="12" r="1.6" fill="currentColor"></circle><circle cx="19" cy="12" r="1.6" fill="currentColor"></circle></symbol><symbol id="i-plus" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line></symbol><symbol id="i-pencil" viewBox="0 0 24 24"><path d="M12 20h9" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="i-columns" viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="16" rx="1" fill="none" stroke="currentColor" stroke-width="2"></rect><rect x="14" y="4" width="7" height="16" rx="1" fill="none" stroke="currentColor" stroke-width="2"></rect></symbol><symbol id="i-folder" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path></symbol><symbol id="i-layers" viewBox="0 0 24 24"><polygon points="12 2 2 7 12 12 22 7 12 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></polygon><polyline points="2 17 12 22 22 17" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></polyline><polyline points="2 12 12 17 22 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></polyline></symbol><symbol id="i-heading" viewBox="0 0 24 24"><path d="M6 4v16M18 4v16M6 12h12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></symbol><symbol id="i-inbox" viewBox="0 0 24 24"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></polyline><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path></symbol><symbol id="i-sliders" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="4" y1="10" x2="4" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="12" y1="21" x2="12" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="12" y1="8" x2="12" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="20" y1="21" x2="20" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="20" y1="12" x2="20" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="1" y1="14" x2="7" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="9" y1="8" x2="15" y2="8" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="17" y1="16" x2="23" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line></symbol><symbol id="ti-generation" viewBox="0 0 24 24"><path d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="ti-settings" viewBox="0 0 24 24"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="ti-lora" viewBox="0 0 24 24"><path d="m21 7.5-2.25-1.313M21 7.5v2.25m0-2.25-2.25 1.313M3 7.5l2.25-1.313M3 7.5l2.25 1.313M3 7.5v2.25m9 3 2.25-1.313M12 12.75l-2.25-1.313M12 12.75V15m0 6.75 2.25-1.313M12 21.75V19.5m0 2.25-2.25-1.313m0-16.875L12 2.25l2.25 1.313M21 14.25v2.25l-2.25 1.313m-13.5 0L3 16.5v-2.25" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="ti-model" viewBox="0 0 24 24"><path d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="ti-image" viewBox="0 0 24 24"><path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="ti-video" viewBox="0 0 24 24"><path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="ti-film" viewBox="0 0 24 24"><path d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="ti-sparkles" viewBox="0 0 24 24"><path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="ti-embedding" viewBox="0 0 24 24"><path d="M7.5 7.5h-.75A2.25 2.25 0 0 0 4.5 9.75v7.5a2.25 2.25 0 0 0 2.25 2.25h7.5a2.25 2.25 0 0 0 2.25-2.25v-7.5a2.25 2.25 0 0 0-2.25-2.25h-.75m-6 3.75 3 3m0 0 3-3m-3 3V1.5m6 9h.75a2.25 2.25 0 0 1 2.25 2.25v7.5a2.25 2.25 0 0 1-2.25 2.25h-7.5a2.25 2.25 0 0 1-2.25-2.25v-.75" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="ti-sliders" viewBox="0 0 24 24"><path d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="ti-face" viewBox="0 0 24 24"><path d="M15.182 15.182a4.5 4.5 0 0 1-6.364 0M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM9.75 9.75c0 .414-.168.75-.375.75S9 10.164 9 9.75 9.168 9 9.375 9s.375.336.375.75Zm-.375 0h.008v.015h-.008V9.75Zm5.625 0c0 .414-.168.75-.375.75s-.375-.336-.375-.75.168-.75.375-.75.375.336.375.75Zm-.375 0h.008v.015h-.008V9.75Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="ti-warning" viewBox="0 0 24 24"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="ti-information-circle" viewBox="0 0 24 24"><path d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol></defs></svg> <div class="wizard svelte-10v1sym" data-import-wizard=""><div class="wiz-rail svelte-10v1sym"><div data-wiz-step="source"><div class="wiz-num svelte-10v1sym"><!></div> <div class="wiz-text svelte-10v1sym"><div class="wiz-label svelte-10v1sym">Source</div> <!></div></div> <div data-wiz-step="form"><div class="wiz-num svelte-10v1sym"><!></div> <div class="wiz-text svelte-10v1sym"><div class="wiz-label svelte-10v1sym">Form</div> <div class="wiz-sub svelte-10v1sym"> </div></div></div> <div data-wiz-step="history"><div class="wiz-num svelte-10v1sym"><!></div> <div class="wiz-text svelte-10v1sym"><div class="wiz-label svelte-10v1sym">History</div> <!></div></div> <div data-wiz-step="requirements"><div class="wiz-num svelte-10v1sym"><!></div> <div class="wiz-text svelte-10v1sym"><div class="wiz-label svelte-10v1sym">Requirements</div> <!></div></div> <div data-wiz-step="done"><div class="wiz-num svelte-10v1sym"><!></div> <div class="wiz-text svelte-10v1sym"><div class="wiz-label svelte-10v1sym">Done</div></div></div></div> <div class="wiz-body svelte-10v1sym"><div class="wiz-content svelte-10v1sym"><!> <!></div> <div class="wiz-footer svelte-10v1sym"><!></div></div></div>`, 1);
 var $$css = {
   hash: "svelte-10v1sym",
-  code: ".dim.svelte-10v1sym {color:rgb(var(--fg-subtle, 122 128 144));}.mono.svelte-10v1sym {font-family:ui-monospace, SFMono-Regular, Menlo, monospace;font-variant-numeric:tabular-nums;}.link-btn.svelte-10v1sym {padding:0;border:none;background:transparent;color:rgb(var(--signal, 91 157 255));font-size:12px;cursor:pointer;}.link-btn.svelte-10v1sym:hover {text-decoration:underline;}.wizard.svelte-10v1sym {display:flex;width:100%;max-width:none;border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--surface-1, 22 24 28));min-height:480px;}.wiz-rail.svelte-10v1sym {width:190px;flex-shrink:0;border-right:1px solid rgb(var(--line, 36 38 44));padding:24px 18px;}.wiz-step.svelte-10v1sym {display:flex;align-items:flex-start;gap:10px;position:relative;padding-bottom:26px;}.wiz-step.svelte-10v1sym:last-child {padding-bottom:0;}.wiz-step.svelte-10v1sym:not(:last-child)::after {content:'';position:absolute;left:10px;top:24px;bottom:4px;width:1px;background:rgb(var(--line-strong, 43 46 53));}.wiz-num.svelte-10v1sym {width:21px;height:21px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:700;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;}.wiz-step.done.svelte-10v1sym .wiz-num:where(.svelte-10v1sym) {background:rgb(var(--success, 61 214 140));color:rgb(var(--canvas, 12 13 15));}.wiz-step.current.svelte-10v1sym .wiz-num:where(.svelte-10v1sym) {border:2px solid rgb(var(--signal, 91 157 255));color:rgb(var(--signal, 91 157 255));}.wiz-step.upcoming.svelte-10v1sym .wiz-num:where(.svelte-10v1sym) {border:1px solid rgb(var(--line-strong, 43 46 53));color:rgb(var(--fg-subtle, 122 128 144));}.wiz-text.svelte-10v1sym {padding-top:1px;min-width:0;}.wiz-label.svelte-10v1sym {font-size:12.5px;font-weight:600;color:rgb(var(--fg, 232 234 237));}.wiz-step.upcoming.svelte-10v1sym .wiz-label:where(.svelte-10v1sym) {color:rgb(var(--fg-subtle, 122 128 144));font-weight:500;}.wiz-sub.svelte-10v1sym {font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));margin-top:2px;}.wiz-body.svelte-10v1sym {flex:1;min-width:0;display:flex;flex-direction:column;}.wiz-content.svelte-10v1sym {flex:1;padding:24px 28px;overflow-y:auto;}.wiz-content.svelte-10v1sym h3:where(.svelte-10v1sym) {font-size:15px;font-weight:600;margin:0 0 4px;color:rgb(var(--fg, 232 234 237));}.wiz-content.svelte-10v1sym .desc:where(.svelte-10v1sym) {font-size:12px;color:rgb(var(--fg-subtle, 122 128 144));margin:0 0 16px;max-width:640px;}.edit-banner.svelte-10v1sym {padding:8px 12px;margin-bottom:16px;border-radius:6px;background:rgb(var(--signal, 91 157 255) / 0.08);border:1px solid rgb(var(--signal, 91 157 255) / 0.25);color:rgb(var(--fg-muted, 169 174 184));font-size:12px;}.edit-banner.svelte-10v1sym strong:where(.svelte-10v1sym) {color:rgb(var(--fg, 232 234 237));font-weight:600;}.wiz-footer.svelte-10v1sym {border-top:1px solid rgb(var(--line, 36 38 44));padding:12px 20px;display:flex;align-items:center;gap:10px;}.footer-spacer.svelte-10v1sym {flex:1;}.dropzone.svelte-10v1sym {display:flex;flex-direction:column;border:1px dashed rgb(var(--line-strong, 43 46 53));border-radius:6px;background:rgb(var(--surface-2, 31 33 38) / 0.4);transition:border-color 0.1s ease, background-color 0.1s ease;}.dropzone.dragover.svelte-10v1sym {border-color:rgb(var(--signal, 91 157 255));background:rgb(var(--signal, 91 157 255) / 0.06);}.dropzone.svelte-10v1sym textarea:where(.svelte-10v1sym) {width:100%;box-sizing:border-box;padding:10px 12px;color:rgb(var(--fg, 232 234 237));background:transparent;border:none;resize:vertical;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;font-size:12px;line-height:1.6;}.dropzone.svelte-10v1sym textarea:where(.svelte-10v1sym):focus {outline:none;}.dropzone-footer.svelte-10v1sym {display:flex;align-items:center;gap:6px;padding:8px 12px;border-top:1px solid rgb(var(--line, 36 38 44));font-size:12px;}.file-input-hidden.svelte-10v1sym {display:none;}.detected-strip.svelte-10v1sym {display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 12px;border-radius:6px;background:rgb(var(--canvas, 12 13 15));border:1px solid rgb(var(--line, 36 38 44));margin-bottom:14px;font-size:12px;color:rgb(var(--fg-muted, 169 174 184));}.strip-end.svelte-10v1sym {margin-left:auto;}.chat-hint-group.svelte-10v1sym {display:flex;align-items:center;gap:8px;}.chip.svelte-10v1sym {font-size:9.5px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;padding:2px 6px;border-radius:3px;display:inline-flex;align-items:center;gap:4px;white-space:nowrap;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;flex-shrink:0;}.chip-info.svelte-10v1sym {background:rgb(var(--info, 91 157 255) / 0.13);color:rgb(var(--info, 91 157 255));}.chip-mute.svelte-10v1sym {background:rgb(var(--surface-3, 39 42 49));color:rgb(var(--fg-subtle, 122 128 144));}.chip-warn.svelte-10v1sym {background:rgb(var(--warning, 255 197 61) / 0.13);color:rgb(var(--warning, 255 197 61));}.chip-violet.svelte-10v1sym {background:rgb(var(--violet, 144 133 233) / 0.16);color:rgb(var(--violet, 144 133 233));}.well.svelte-10v1sym {background:rgb(var(--surface-2, 31 33 38));border-radius:6px;padding:12px 14px;display:flex;gap:10px;align-items:flex-start;font-size:12px;color:rgb(var(--fg-muted, 169 174 184));margin-bottom:14px;}.req-list.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--canvas, 12 13 15));overflow:hidden;}.req-row.svelte-10v1sym {display:flex;align-items:flex-start;gap:10px;padding:10px 12px;}.req-row.svelte-10v1sym + .req-row:where(.svelte-10v1sym) {border-top:1px solid rgb(var(--line, 36 38 44));}.req-dot.svelte-10v1sym {width:8px;height:8px;border-radius:50%;margin-top:5px;flex-shrink:0;}.req-dot.ok.svelte-10v1sym {background:rgb(var(--success, 61 214 140));}.req-dot.missing.svelte-10v1sym {background:rgb(var(--danger, 255 138 138));}.req-name.svelte-10v1sym {font-size:12.5px;font-weight:600;color:rgb(var(--fg, 232 234 237));}.req-detail.svelte-10v1sym {font-size:12px;color:rgb(var(--fg-muted, 169 174 184));}.req-hint.svelte-10v1sym {font-size:11.5px;color:rgb(var(--fg-subtle, 122 128 144));margin-top:2px;}.req-empty.svelte-10v1sym {padding:12px 14px;border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;color:rgb(var(--fg-subtle, 122 128 144));font-size:12px;}.req-loading.svelte-10v1sym {display:flex;align-items:center;gap:8px;padding:12px 0;color:rgb(var(--fg-muted, 169 174 184));font-size:12px;}.spinner.svelte-10v1sym {width:13px;height:13px;border-radius:50%;border:2px solid rgb(var(--line-strong, 43 46 53));border-top-color:rgb(var(--signal, 91 157 255));\n		animation: svelte-10v1sym-spin 0.7s linear infinite;}\n	@keyframes svelte-10v1sym-spin {\n		to {\n			transform: rotate(360deg);\n		}\n	}.lint-block.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--canvas, 12 13 15));padding:14px 16px;}.lint-path.svelte-10v1sym {font-size:12px;color:rgb(var(--fg-muted, 169 174 184));margin:0 0 12px;}.lint-warn.svelte-10v1sym {border-left:2px solid rgb(var(--warning, 255 197 61));padding-left:10px;margin-bottom:8px;}.lint-warn.svelte-10v1sym:last-child {margin-bottom:0;}.lint-warn-title.svelte-10v1sym {font-size:11.5px;font-weight:600;color:rgb(var(--warning, 255 197 61));margin-bottom:2px;}.lint-warn-body.svelte-10v1sym {font-size:12px;color:rgb(var(--fg-muted, 169 174 184));}.message.svelte-10v1sym {padding:10px 14px;border-radius:6px;font-size:12px;}.message.svelte-10v1sym ul:where(.svelte-10v1sym) {margin:4px 0 0;padding-left:18px;}.message-error.svelte-10v1sym {margin:0 0 12px;color:rgb(var(--danger, 255 138 138));background:rgb(var(--danger, 255 138 138) / 0.1);border:1px solid rgb(var(--danger, 255 138 138) / 0.25);}.message-success.svelte-10v1sym {margin:0;color:rgb(var(--success, 61 214 140));background:rgb(var(--success, 61 214 140) / 0.1);border:1px solid rgb(var(--success, 61 214 140) / 0.25);}.message-title.svelte-10v1sym {margin:0 0 4px;font-weight:600;}.btn.svelte-10v1sym {height:30px;padding:0 14px;border-radius:4px;font-size:12.5px;font-weight:600;display:inline-flex;align-items:center;gap:6px;border:1px solid transparent;cursor:pointer;white-space:nowrap;font-family:inherit;text-decoration:none;}.btn[disabled].svelte-10v1sym {opacity:0.45;cursor:not-allowed;}.btn-primary.svelte-10v1sym {background:rgb(var(--accent, 255 255 255));color:rgb(var(--accent-contrast, 22 22 22));}.btn-primary.svelte-10v1sym:hover:not([disabled]) {background:rgb(var(--accent-hover, 230 230 230));}.btn-secondary.svelte-10v1sym {background:rgb(var(--surface-1, 22 24 28));border-color:rgb(var(--line-strong, 43 46 53));color:rgb(var(--fg-muted, 169 174 184));}.btn-secondary.svelte-10v1sym:hover:not([disabled]) {color:rgb(var(--fg, 232 234 237));background:rgb(var(--surface-2, 31 33 38));}.iconbtn.svelte-10v1sym {width:22px;height:22px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;color:rgb(var(--fg-subtle, 122 128 144));background:transparent;border:1px solid transparent;cursor:pointer;flex-shrink:0;}.iconbtn.svelte-10v1sym:hover,\n	.iconbtn.active.svelte-10v1sym {color:rgb(var(--fg, 232 234 237));background:rgb(var(--surface-2, 31 33 38));}.iconbtn.svelte-10v1sym:disabled {opacity:0.4;cursor:not-allowed;}.drag-handle.svelte-10v1sym {display:inline-flex;cursor:grab;flex-shrink:0;}.drag-handle.svelte-10v1sym:active {cursor:grabbing;}.name-grid.svelte-10v1sym {display:grid;grid-template-columns:repeat(3, 1fr);gap:12px;margin-top:16px;}.field.svelte-10v1sym label:where(.svelte-10v1sym) {display:block;font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));margin-bottom:5px;}.field.svelte-10v1sym input[type='text']:where(.svelte-10v1sym) {box-sizing:border-box;width:100%;height:30px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:12.5px;padding:0 9px;font-family:inherit;}.field.svelte-10v1sym input[type='text']:where(.svelte-10v1sym):focus {outline:none;border-color:rgb(var(--signal, 91 157 255));}\n\n	/* ---- Form designer: two panes ---- */.designer.svelte-10v1sym {display:flex;gap:14px;align-items:flex-start;}.di-left.svelte-10v1sym {width:40%;flex-shrink:0;border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--canvas, 12 13 15));overflow:hidden;}.di-left-title.svelte-10v1sym {padding:10px 12px 8px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;color:rgb(var(--fg-muted, 169 174 184));}.di-search.svelte-10v1sym {padding:0 10px 10px;}.di-search.svelte-10v1sym input:where(.svelte-10v1sym) {width:100%;box-sizing:border-box;height:28px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:12px;padding:0 9px;}.di-group-h.svelte-10v1sym {padding:7px 12px;background:rgb(var(--surface-1, 22 24 28));border-top:1px solid rgb(var(--line, 36 38 44));border-bottom:1px solid rgb(var(--line, 36 38 44));font-size:11.5px;font-weight:600;color:rgb(var(--fg, 232 234 237));}.di-group-h.svelte-10v1sym .cls:where(.svelte-10v1sym) {font-size:10px;font-weight:400;color:rgb(var(--fg-subtle, 122 128 144));margin-left:4px;}.di-row.svelte-10v1sym {display:flex;align-items:center;gap:8px;padding:7px 12px;}.di-row.svelte-10v1sym + .di-row:where(.svelte-10v1sym) {border-top:1px solid rgb(var(--line, 36 38 44) / 0.5);}.di-row-name.svelte-10v1sym {font-size:11px;color:rgb(var(--fg, 232 234 237));flex-shrink:0;width:76px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}.di-row-value.svelte-10v1sym {font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}.di-row.mapped.svelte-10v1sym .di-row-name:where(.svelte-10v1sym),\n	.di-row.mapped.svelte-10v1sym .di-row-value:where(.svelte-10v1sym) {color:rgb(var(--fg-disabled, 92 98 112));}.di-row-trail.svelte-10v1sym {flex-shrink:0;width:22px;display:flex;align-items:center;justify-content:center;}.di-add-arrow.svelte-10v1sym {color:rgb(var(--signal, 91 157 255));}.lora-chain-card.svelte-10v1sym {border-bottom:1px solid rgb(var(--line, 36 38 44));}.lora-chain-actions.svelte-10v1sym {padding:8px 12px;border-top:1px solid rgb(var(--line, 36 38 44) / 0.5);}.lora-chain-empty-label.svelte-10v1sym {padding:0 12px;font-size:12px;}.lora-chain-help.svelte-10v1sym {padding:4px 12px 8px;font-size:11.5px;color:rgb(var(--fg-subtle, 122 128 144));}.lock-badge.svelte-10v1sym {display:inline-flex;align-items:center;gap:4px;font-size:9px;text-transform:uppercase;letter-spacing:0.05em;color:rgb(var(--fg-disabled, 92 98 112));flex-shrink:0;white-space:nowrap;}.di-right.svelte-10v1sym {flex:1;min-width:0;border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--surface-1, 22 24 28));overflow:hidden;display:flex;flex-direction:column;}.di-tabs.svelte-10v1sym {display:flex;align-items:center;gap:2px;padding:8px 10px 0;border-bottom:1px solid rgb(var(--line, 36 38 44));flex-wrap:wrap;}.di-tab.svelte-10v1sym {display:flex;align-items:center;gap:6px;padding:7px 10px;border-radius:4px 4px 0 0;font-size:12px;font-weight:500;color:rgb(var(--fg-muted, 169 174 184));cursor:pointer;position:relative;}.di-tab.active.svelte-10v1sym {background:rgb(var(--signal, 91 157 255) / 0.1);color:rgb(var(--signal, 91 157 255));}.di-tab.drop-target.svelte-10v1sym {box-shadow:inset 0 0 0 1px rgb(var(--signal, 91 157 255));background:rgb(var(--signal, 91 157 255) / 0.08);}.di-tab.svelte-10v1sym .kb:where(.svelte-10v1sym) {width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;color:rgb(var(--fg-subtle, 122 128 144));border-radius:3px;}.di-tab.svelte-10v1sym .kb:where(.svelte-10v1sym):hover {background:rgb(var(--surface-3, 39 42 49));color:rgb(var(--fg, 232 234 237));}.di-tab-rename.svelte-10v1sym {height:20px;width:90px;border-radius:3px;border:1px solid rgb(var(--signal, 91 157 255) / 0.4);background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:12px;padding:0 6px;}.di-tab-add.svelte-10v1sym {padding:7px 10px;color:rgb(var(--fg-subtle, 122 128 144));font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;}.di-tab-add.svelte-10v1sym:hover {color:rgb(var(--fg, 232 234 237));}.di-field-list.svelte-10v1sym {padding:12px;display:flex;flex-direction:column;gap:8px;flex:1;}.di-field-card.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--canvas, 12 13 15));padding:9px 10px;}.di-field-top.svelte-10v1sym {display:flex;align-items:center;gap:8px;flex-wrap:wrap;row-gap:6px;}.di-field-label.svelte-10v1sym {width:110px;flex-shrink:0;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:12px;font-weight:500;padding:0 8px;}.di-field-type.svelte-10v1sym {width:100px;flex-shrink:0;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg-muted, 169 174 184));font-size:11px;padding:0 6px;}.di-field-default.svelte-10v1sym {flex:1 1 90px;min-width:90px;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:11.5px;padding:0 8px;}.di-field-actions.svelte-10v1sym {display:flex;align-items:center;gap:1px;flex-shrink:0;}.di-mapping.svelte-10v1sym {margin-top:6px;padding-left:24px;}.di-mapping.svelte-10v1sym .line:where(.svelte-10v1sym) {font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));}.di-mapping.svelte-10v1sym .arrow:where(.svelte-10v1sym) {color:rgb(var(--fg-disabled, 92 98 112));margin-right:3px;}.di-suggest.svelte-10v1sym {display:flex;align-items:flex-start;gap:8px;margin-top:6px;padding:6px 8px 6px 24px;}.di-suggest-rows.svelte-10v1sym {display:flex;flex-direction:column;gap:4px;flex:1;min-width:0;}.di-suggest-row.svelte-10v1sym {display:flex;align-items:center;gap:8px;flex-wrap:wrap;}.di-suggest-text.svelte-10v1sym {font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));}.di-suggest-map.svelte-10v1sym {flex-shrink:0;height:20px;padding:0 8px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:10.5px;font-weight:600;cursor:pointer;}.di-suggest-map.svelte-10v1sym:hover {border-color:rgb(var(--line-hover, 58 62 70));background:rgb(var(--surface-3, 39 42 49));}.di-suggest-dismiss.svelte-10v1sym {flex-shrink:0;width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;border-radius:4px;color:rgb(var(--fg-disabled, 92 98 112));background:none;border:none;cursor:pointer;}.di-suggest-dismiss.svelte-10v1sym:hover {color:rgb(var(--fg-muted, 169 174 184));background:rgb(var(--surface-3, 39 42 49));}.di-add-wrap.svelte-10v1sym {position:relative;}.di-add-field.svelte-10v1sym {display:flex;align-items:center;justify-content:center;gap:6px;height:34px;width:100%;border:1px dashed rgb(var(--line-strong, 43 46 53));border-radius:6px;font-size:11.5px;color:rgb(var(--fg-muted, 169 174 184));background:none;cursor:pointer;}.di-add-field.svelte-10v1sym:hover {color:rgb(var(--fg, 232 234 237));}.di-add-menu.svelte-10v1sym {\n		/* Positioned by the `floating` action (position: fixed, inline top/left) -\n		   these are just its pre-mount fallback. */position:absolute;top:calc(100% + 4px);left:0;width:168px;border:1px solid rgb(var(--line-strong, 43 46 53));border-radius:8px;padding:4px;background:rgb(var(--surface-1, 22 24 28));box-shadow:var(--shadow-floating, 0 4px 16px rgb(0 0 0 / 0.5));z-index:1000;}.di-add-menu.svelte-10v1sym button:where(.svelte-10v1sym) {display:flex;width:100%;align-items:center;gap:8px;border-radius:5px;padding:6px 8px;font-size:12px;color:rgb(var(--fg-muted, 169 174 184));background:none;border:none;text-align:left;cursor:pointer;}.di-add-menu.svelte-10v1sym button:where(.svelte-10v1sym):hover {color:rgb(var(--fg, 232 234 237));background:rgb(var(--surface-3, 39 42 49));}.di-add-menu.svelte-10v1sym .type-tag:where(.svelte-10v1sym) {margin-left:auto;font-size:8.5px;color:rgb(var(--fg-disabled, 92 98 112));font-family:ui-monospace, SFMono-Regular, Menlo, monospace;}.di-container.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--surface-2, 31 33 38) / 0.4);}.di-container-head.svelte-10v1sym {display:flex;align-items:center;gap:8px;padding:8px 10px;flex-wrap:wrap;}.di-container-title.svelte-10v1sym {flex-shrink:0;width:130px;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:12px;font-weight:600;padding:0 8px;}.di-container-spacer.svelte-10v1sym {flex:1;}.di-container-actions.svelte-10v1sym {display:flex;align-items:center;gap:1px;flex-shrink:0;}.di-container-body.svelte-10v1sym {padding:0 10px 10px;display:flex;flex-direction:column;gap:8px;}.di-container.collapsed.svelte-10v1sym .di-container-body:where(.svelte-10v1sym) {display:none;}.di-chevron.svelte-10v1sym {display:inline-flex;transition:transform 0.12s;}.di-chevron.collapsed.svelte-10v1sym {transform:rotate(-90deg);}.di-row-cols.svelte-10v1sym {display:grid;gap:8px;min-width:0;}.di-row-cols.svelte-10v1sym > * {min-width:0;}.di-row-cols.svelte-10v1sym .di-field-card {overflow:hidden;}.di-row-cols.svelte-10v1sym .di-field-top {flex-wrap:wrap;}.di-col-control.svelte-10v1sym {display:flex;align-items:center;gap:5px;}.di-col-control.svelte-10v1sym .lbl:where(.svelte-10v1sym) {font-size:10px;color:rgb(var(--fg-subtle, 122 128 144));margin-right:2px;}.di-col-btn.svelte-10v1sym {width:22px;height:22px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg-muted, 169 174 184));font-size:11px;font-weight:600;cursor:pointer;}.di-col-btn.active.svelte-10v1sym {background:rgb(var(--signal, 91 157 255) / 0.15);color:rgb(var(--signal, 91 157 255));border-color:rgb(var(--signal, 91 157 255) / 0.4);}.di-header-card.svelte-10v1sym {display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--surface-2, 31 33 38) / 0.4);}.di-header-input.svelte-10v1sym {flex:1;min-width:0;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:12.5px;font-weight:600;padding:0 8px;}.di-empty.svelte-10v1sym {flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:40px 20px;text-align:center;}.di-empty.svelte-10v1sym .icon {color:rgb(var(--fg-disabled, 92 98 112));}.di-empty-text.svelte-10v1sym {font-size:12px;color:rgb(var(--fg-subtle, 122 128 144));}.di-mapedit.svelte-10v1sym {margin-top:8px;padding-top:10px;border-top:1px dashed rgb(var(--line, 36 38 44));}.di-mapedit-label.svelte-10v1sym {font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));margin-bottom:6px;}.di-mapedit-list.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:4px;overflow:hidden;}.di-mapedit-row.svelte-10v1sym {display:flex;align-items:center;gap:8px;padding:6px 9px;font-size:11px;flex-wrap:wrap;}.di-mapedit-node.svelte-10v1sym,\n	.di-mapedit-input.svelte-10v1sym {white-space:nowrap;}.di-mapedit-row.svelte-10v1sym + .di-mapedit-row:where(.svelte-10v1sym) {border-top:1px solid rgb(var(--line, 36 38 44));}.di-mapedit-row.selected.svelte-10v1sym {background:rgb(var(--signal, 91 157 255) / 0.08);}.di-mapedit-row.svelte-10v1sym input[type='checkbox']:where(.svelte-10v1sym) {accent-color:rgb(var(--signal, 91 157 255));}.di-mapedit-node.svelte-10v1sym {color:rgb(var(--fg-subtle, 122 128 144));}.di-mapedit-input.svelte-10v1sym {color:rgb(var(--fg, 232 234 237));}.di-mapedit-taken.svelte-10v1sym {margin-left:auto;font-size:10px;color:rgb(var(--fg-disabled, 92 98 112));}.di-mapedit-transform.svelte-10v1sym {margin-left:auto;flex:1 1 100%;}.di-mapedit-transform.svelte-10v1sym select:where(.svelte-10v1sym) {box-sizing:border-box;width:100%;height:24px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:11px;padding:0 6px;}.tab-popover.svelte-10v1sym {\n		/* Positioned by the `floating` action (position: fixed, inline top/left) -\n		   these are just its pre-mount fallback. */position:absolute;top:calc(100% + 4px);left:0;width:168px;border:1px solid rgb(var(--line-strong, 43 46 53));border-radius:8px;padding:4px;background:rgb(var(--surface-1, 22 24 28));box-shadow:var(--shadow-floating, 0 4px 16px rgb(0 0 0 / 0.5));z-index:1000;}.tab-popover.svelte-10v1sym button:where(.svelte-10v1sym) {display:flex;width:100%;align-items:center;gap:8px;border-radius:5px;padding:6px 8px;font-size:12px;color:rgb(var(--fg-muted, 169 174 184));background:none;border:none;text-align:left;cursor:pointer;}.tab-popover.svelte-10v1sym button:where(.svelte-10v1sym):hover:not(:disabled) {color:rgb(var(--fg, 232 234 237));background:rgb(var(--surface-3, 39 42 49));}.tab-popover.svelte-10v1sym .popover-label:where(.svelte-10v1sym) {font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));padding:4px 8px 2px;}.tab-popover.svelte-10v1sym button:where(.svelte-10v1sym):disabled {opacity:0.4;cursor:not-allowed;}.tab-popover.svelte-10v1sym hr:where(.svelte-10v1sym) {border:none;border-top:1px solid rgb(var(--line, 36 38 44));margin:4px 2px;}.tab-popover.svelte-10v1sym button.danger:where(.svelte-10v1sym) {color:rgb(var(--danger, 255 138 138));}.tab-popover-select.svelte-10v1sym {box-sizing:border-box;width:100%;height:24px;margin:0 0 4px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:11px;padding:0 6px;}.tab-popover-select.svelte-10v1sym:disabled {opacity:0.5;}\n\n	/* ---- History step ---- */.hist-designer.svelte-10v1sym {display:flex;gap:14px;align-items:flex-start;}.hist-left.svelte-10v1sym {width:58%;flex-shrink:0;}.hist-right.svelte-10v1sym {flex:1;min-width:0;}.pane-title.svelte-10v1sym {padding:0 0 8px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;color:rgb(var(--fg-muted, 169 174 184));display:flex;align-items:center;gap:8px;}.pane-title.svelte-10v1sym .n:where(.svelte-10v1sym) {font-weight:400;color:rgb(var(--fg-disabled, 92 98 112));text-transform:none;letter-spacing:0;}.hist-table.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--canvas, 12 13 15));overflow:hidden;}.hist-head.svelte-10v1sym {display:grid;grid-template-columns:40px 18px 1.3fr 1.05fr 1.05fr;align-items:center;gap:10px;padding:7px 12px;background:rgb(var(--surface-1, 22 24 28));border-bottom:1px solid rgb(var(--line, 36 38 44));font-size:9.5px;text-transform:uppercase;letter-spacing:0.06em;color:rgb(var(--fg-subtle, 122 128 144));}.hist-row.svelte-10v1sym {display:grid;grid-template-columns:40px 18px 1.3fr 1.05fr 1.05fr;align-items:center;gap:10px;padding:8px 12px;}.hist-row.svelte-10v1sym + .hist-row:where(.svelte-10v1sym) {border-top:1px solid rgb(var(--line, 36 38 44) / 0.6);}.hist-row.locked.svelte-10v1sym {background:rgb(var(--surface-1, 22 24 28) / 0.5);}.hist-reorder.svelte-10v1sym {display:flex;gap:2px;}.hist-row.svelte-10v1sym input[type='checkbox']:where(.svelte-10v1sym) {accent-color:rgb(var(--signal, 91 157 255));width:14px;height:14px;}.hist-field.svelte-10v1sym {min-width:0;display:flex;flex-direction:column;gap:1px;}.hist-field-label.svelte-10v1sym {font-size:12px;font-weight:500;color:rgb(var(--fg, 232 234 237));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}.hist-row.off.svelte-10v1sym .hist-field-label:where(.svelte-10v1sym) {color:rgb(var(--fg-subtle, 122 128 144));}.hist-field-name.svelte-10v1sym {font-size:9.5px;color:rgb(var(--fg-subtle, 122 128 144));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}.hist-label-input.svelte-10v1sym {width:100%;box-sizing:border-box;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:11.5px;padding:0 8px;}.hist-label-input.svelte-10v1sym:disabled {background:transparent;border-color:transparent;color:rgb(var(--fg-disabled, 92 98 112));padding-left:0;}.hist-value-select.svelte-10v1sym {width:100%;box-sizing:border-box;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg-muted, 169 174 184));font-size:11px;padding:0 6px;}.hist-value-select.svelte-10v1sym:disabled {opacity:0.5;}.hist-jinja-row.svelte-10v1sym {grid-column:1 / -1;margin:2px 0 0 58px;display:flex;align-items:center;gap:8px;}.hist-jinja-row.svelte-10v1sym .lbl:where(.svelte-10v1sym) {font-size:10px;color:rgb(var(--fg-subtle, 122 128 144));flex-shrink:0;}.hist-jinja-input.svelte-10v1sym {flex:1;box-sizing:border-box;height:26px;border-radius:4px;border:1px solid rgb(var(--signal, 91 157 255) / 0.4);background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:11px;padding:0 8px;}.hist-jinja-out.svelte-10v1sym {font-size:10px;color:rgb(var(--fg-subtle, 122 128 144));flex-shrink:0;}.hist-jinja-out.svelte-10v1sym .v:where(.svelte-10v1sym) {color:rgb(var(--success, 61 214 140));}.preview-card.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--surface-2, 31 33 38));overflow:hidden;box-shadow:var(--shadow-raised, inset 0 1px 0 rgb(255 255 255 / 0.04));}.preview-head.svelte-10v1sym {display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid rgb(var(--line, 36 38 44));}.preview-head.svelte-10v1sym .t:where(.svelte-10v1sym) {display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:rgb(var(--fg, 232 234 237));}.preview-head.svelte-10v1sym .t:where(.svelte-10v1sym) .icon {color:rgb(var(--success, 61 214 140));}.preview-grid.svelte-10v1sym {display:grid;grid-template-columns:1fr 1fr;gap:1px;background:rgb(var(--line, 36 38 44));}.preview-cell.svelte-10v1sym {background:rgb(var(--surface-2, 31 33 38));padding:10px;min-width:0;}.preview-cell.span2.svelte-10v1sym {grid-column:1 / -1;}.preview-k.svelte-10v1sym {font-size:9.5px;text-transform:uppercase;letter-spacing:0.06em;color:rgb(var(--fg-disabled, 92 98 112));margin-bottom:4px;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;}.preview-v.svelte-10v1sym {font-size:11.5px;font-weight:600;color:rgb(var(--fg, 232 234 237));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;}.preview-v.wrap.svelte-10v1sym {white-space:normal;overflow:visible;text-overflow:clip;}.preview-chips.svelte-10v1sym {display:flex;flex-wrap:wrap;gap:4px;margin-top:2px;}.preview-empty.svelte-10v1sym {padding:20px 16px;text-align:center;}.preview-empty.svelte-10v1sym .icon {color:rgb(var(--fg-disabled, 92 98 112));margin:0 auto 8px;}.preview-empty-text.svelte-10v1sym {font-size:11.5px;color:rgb(var(--fg-subtle, 122 128 144));max-width:260px;margin:0 auto;}.icon {stroke:currentColor;fill:none;flex:none;display:block;}"
+  code: ".dim.svelte-10v1sym {color:rgb(var(--fg-subtle, 122 128 144));}.mono.svelte-10v1sym {font-family:ui-monospace, SFMono-Regular, Menlo, monospace;font-variant-numeric:tabular-nums;}.link-btn.svelte-10v1sym {padding:0;border:none;background:transparent;color:rgb(var(--signal, 91 157 255));font-size:12px;cursor:pointer;}.link-btn.svelte-10v1sym:hover {text-decoration:underline;}.wizard.svelte-10v1sym {display:flex;width:100%;max-width:none;border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--surface-1, 22 24 28));min-height:480px;}.wiz-rail.svelte-10v1sym {width:190px;flex-shrink:0;border-right:1px solid rgb(var(--line, 36 38 44));padding:24px 18px;}.wiz-step.svelte-10v1sym {display:flex;align-items:flex-start;gap:10px;position:relative;padding-bottom:26px;}.wiz-step.svelte-10v1sym:last-child {padding-bottom:0;}.wiz-step.svelte-10v1sym:not(:last-child)::after {content:'';position:absolute;left:10px;top:24px;bottom:4px;width:1px;background:rgb(var(--line-strong, 43 46 53));}.wiz-num.svelte-10v1sym {width:21px;height:21px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:700;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;}.wiz-step.done.svelte-10v1sym .wiz-num:where(.svelte-10v1sym) {background:rgb(var(--success, 61 214 140));color:rgb(var(--canvas, 12 13 15));}.wiz-step.current.svelte-10v1sym .wiz-num:where(.svelte-10v1sym) {border:2px solid rgb(var(--signal, 91 157 255));color:rgb(var(--signal, 91 157 255));}.wiz-step.upcoming.svelte-10v1sym .wiz-num:where(.svelte-10v1sym) {border:1px solid rgb(var(--line-strong, 43 46 53));color:rgb(var(--fg-subtle, 122 128 144));}.wiz-text.svelte-10v1sym {padding-top:1px;min-width:0;}.wiz-label.svelte-10v1sym {font-size:12.5px;font-weight:600;color:rgb(var(--fg, 232 234 237));}.wiz-step.upcoming.svelte-10v1sym .wiz-label:where(.svelte-10v1sym) {color:rgb(var(--fg-subtle, 122 128 144));font-weight:500;}.wiz-sub.svelte-10v1sym {font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));margin-top:2px;}.wiz-body.svelte-10v1sym {flex:1;min-width:0;display:flex;flex-direction:column;}.wiz-content.svelte-10v1sym {flex:1;padding:24px 28px;overflow-y:auto;}.wiz-content.svelte-10v1sym h3:where(.svelte-10v1sym) {font-size:15px;font-weight:600;margin:0 0 4px;color:rgb(var(--fg, 232 234 237));}.wiz-content.svelte-10v1sym .desc:where(.svelte-10v1sym) {font-size:12px;color:rgb(var(--fg-subtle, 122 128 144));margin:0 0 16px;max-width:640px;}.edit-banner.svelte-10v1sym {padding:8px 12px;margin-bottom:16px;border-radius:6px;background:rgb(var(--signal, 91 157 255) / 0.08);border:1px solid rgb(var(--signal, 91 157 255) / 0.25);color:rgb(var(--fg-muted, 169 174 184));font-size:12px;}.edit-banner.svelte-10v1sym strong:where(.svelte-10v1sym) {color:rgb(var(--fg, 232 234 237));font-weight:600;}.wiz-footer.svelte-10v1sym {border-top:1px solid rgb(var(--line, 36 38 44));padding:12px 20px;display:flex;align-items:center;gap:10px;}.footer-spacer.svelte-10v1sym {flex:1;}.dropzone.svelte-10v1sym {display:flex;flex-direction:column;border:1px dashed rgb(var(--line-strong, 43 46 53));border-radius:6px;background:rgb(var(--surface-2, 31 33 38) / 0.4);transition:border-color 0.1s ease, background-color 0.1s ease;}.dropzone.dragover.svelte-10v1sym {border-color:rgb(var(--signal, 91 157 255));background:rgb(var(--signal, 91 157 255) / 0.06);}.dropzone.svelte-10v1sym textarea:where(.svelte-10v1sym) {width:100%;box-sizing:border-box;padding:10px 12px;color:rgb(var(--fg, 232 234 237));background:transparent;border:none;resize:vertical;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;font-size:12px;line-height:1.6;}.dropzone.svelte-10v1sym textarea:where(.svelte-10v1sym):focus {outline:none;}.dropzone-footer.svelte-10v1sym {display:flex;align-items:center;gap:6px;padding:8px 12px;border-top:1px solid rgb(var(--line, 36 38 44));font-size:12px;}.file-input-hidden.svelte-10v1sym {display:none;}.detected-strip.svelte-10v1sym {display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 12px;border-radius:6px;background:rgb(var(--canvas, 12 13 15));border:1px solid rgb(var(--line, 36 38 44));margin-bottom:14px;font-size:12px;color:rgb(var(--fg-muted, 169 174 184));}.strip-end.svelte-10v1sym {margin-left:auto;}.chat-hint-group.svelte-10v1sym {display:flex;align-items:center;gap:8px;}.chip.svelte-10v1sym {font-size:9.5px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;padding:2px 6px;border-radius:3px;display:inline-flex;align-items:center;gap:4px;white-space:nowrap;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;flex-shrink:0;}.chip-info.svelte-10v1sym {background:rgb(var(--info, 91 157 255) / 0.13);color:rgb(var(--info, 91 157 255));}.chip-mute.svelte-10v1sym {background:rgb(var(--surface-3, 39 42 49));color:rgb(var(--fg-subtle, 122 128 144));}.chip-warn.svelte-10v1sym {background:rgb(var(--warning, 255 197 61) / 0.13);color:rgb(var(--warning, 255 197 61));}.chip-violet.svelte-10v1sym {background:rgb(var(--violet, 144 133 233) / 0.16);color:rgb(var(--violet, 144 133 233));}.well.svelte-10v1sym {background:rgb(var(--surface-2, 31 33 38));border-radius:6px;padding:12px 14px;display:flex;gap:10px;align-items:flex-start;font-size:12px;color:rgb(var(--fg-muted, 169 174 184));margin-bottom:14px;}.req-list.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--canvas, 12 13 15));overflow:hidden;}.req-row.svelte-10v1sym {display:flex;align-items:flex-start;gap:10px;padding:10px 12px;}.req-row.svelte-10v1sym + .req-row:where(.svelte-10v1sym) {border-top:1px solid rgb(var(--line, 36 38 44));}.req-dot.svelte-10v1sym {width:8px;height:8px;border-radius:50%;margin-top:5px;flex-shrink:0;}.req-dot.ok.svelte-10v1sym {background:rgb(var(--success, 61 214 140));}.req-dot.missing.svelte-10v1sym {background:rgb(var(--danger, 255 138 138));}.req-name.svelte-10v1sym {font-size:12.5px;font-weight:600;color:rgb(var(--fg, 232 234 237));}.req-detail.svelte-10v1sym {font-size:12px;color:rgb(var(--fg-muted, 169 174 184));}.req-hint.svelte-10v1sym {font-size:11.5px;color:rgb(var(--fg-subtle, 122 128 144));margin-top:2px;}.req-empty.svelte-10v1sym {padding:12px 14px;border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;color:rgb(var(--fg-subtle, 122 128 144));font-size:12px;}.req-loading.svelte-10v1sym {display:flex;align-items:center;gap:8px;padding:12px 0;color:rgb(var(--fg-muted, 169 174 184));font-size:12px;}.spinner.svelte-10v1sym {width:13px;height:13px;border-radius:50%;border:2px solid rgb(var(--line-strong, 43 46 53));border-top-color:rgb(var(--signal, 91 157 255));\n		animation: svelte-10v1sym-spin 0.7s linear infinite;}\n	@keyframes svelte-10v1sym-spin {\n		to {\n			transform: rotate(360deg);\n		}\n	}.lint-block.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--canvas, 12 13 15));padding:14px 16px;}.lint-path.svelte-10v1sym {font-size:12px;color:rgb(var(--fg-muted, 169 174 184));margin:0 0 12px;}.lint-warn.svelte-10v1sym {border-left:2px solid rgb(var(--warning, 255 197 61));padding-left:10px;margin-bottom:8px;}.lint-warn.svelte-10v1sym:last-child {margin-bottom:0;}.lint-warn-title.svelte-10v1sym {font-size:11.5px;font-weight:600;color:rgb(var(--warning, 255 197 61));margin-bottom:2px;}.lint-warn-body.svelte-10v1sym {font-size:12px;color:rgb(var(--fg-muted, 169 174 184));}.message.svelte-10v1sym {padding:10px 14px;border-radius:6px;font-size:12px;}.message.svelte-10v1sym ul:where(.svelte-10v1sym) {margin:4px 0 0;padding-left:18px;}.message-error.svelte-10v1sym {margin:0 0 12px;color:rgb(var(--danger, 255 138 138));background:rgb(var(--danger, 255 138 138) / 0.1);border:1px solid rgb(var(--danger, 255 138 138) / 0.25);}.message-success.svelte-10v1sym {margin:0;color:rgb(var(--success, 61 214 140));background:rgb(var(--success, 61 214 140) / 0.1);border:1px solid rgb(var(--success, 61 214 140) / 0.25);}.message-title.svelte-10v1sym {margin:0 0 4px;font-weight:600;}.btn.svelte-10v1sym {height:30px;padding:0 14px;border-radius:4px;font-size:12.5px;font-weight:600;display:inline-flex;align-items:center;gap:6px;border:1px solid transparent;cursor:pointer;white-space:nowrap;font-family:inherit;text-decoration:none;}.btn[disabled].svelte-10v1sym {opacity:0.45;cursor:not-allowed;}.btn-primary.svelte-10v1sym {background:rgb(var(--accent, 255 255 255));color:rgb(var(--accent-contrast, 22 22 22));}.btn-primary.svelte-10v1sym:hover:not([disabled]) {background:rgb(var(--accent-hover, 230 230 230));}.btn-secondary.svelte-10v1sym {background:rgb(var(--surface-1, 22 24 28));border-color:rgb(var(--line-strong, 43 46 53));color:rgb(var(--fg-muted, 169 174 184));}.btn-secondary.svelte-10v1sym:hover:not([disabled]) {color:rgb(var(--fg, 232 234 237));background:rgb(var(--surface-2, 31 33 38));}.iconbtn.svelte-10v1sym {width:22px;height:22px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;color:rgb(var(--fg-subtle, 122 128 144));background:transparent;border:1px solid transparent;cursor:pointer;flex-shrink:0;}.iconbtn.svelte-10v1sym:hover,\n	.iconbtn.active.svelte-10v1sym {color:rgb(var(--fg, 232 234 237));background:rgb(var(--surface-2, 31 33 38));}.iconbtn.svelte-10v1sym:disabled {opacity:0.4;cursor:not-allowed;}.drag-handle.svelte-10v1sym {display:inline-flex;cursor:grab;flex-shrink:0;}.drag-handle.svelte-10v1sym:active {cursor:grabbing;}.name-grid.svelte-10v1sym {display:grid;grid-template-columns:repeat(3, 1fr);gap:12px;margin-top:16px;}.field.svelte-10v1sym label:where(.svelte-10v1sym) {display:block;font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));margin-bottom:5px;}.field.svelte-10v1sym input[type='text']:where(.svelte-10v1sym) {box-sizing:border-box;width:100%;height:30px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:12.5px;padding:0 9px;font-family:inherit;}.field.svelte-10v1sym input[type='text']:where(.svelte-10v1sym):focus {outline:none;border-color:rgb(var(--signal, 91 157 255));}\n\n	/* ---- Form designer: two panes ---- */.designer.svelte-10v1sym {display:flex;gap:14px;align-items:flex-start;}.di-left.svelte-10v1sym {width:40%;flex-shrink:0;border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--canvas, 12 13 15));overflow:hidden;}.di-left-title.svelte-10v1sym {padding:10px 12px 8px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;color:rgb(var(--fg-muted, 169 174 184));}.di-search.svelte-10v1sym {padding:0 10px 10px;}.di-search.svelte-10v1sym input:where(.svelte-10v1sym) {width:100%;box-sizing:border-box;height:28px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:12px;padding:0 9px;}.di-group-h.svelte-10v1sym {padding:7px 12px;background:rgb(var(--surface-1, 22 24 28));border-top:1px solid rgb(var(--line, 36 38 44));border-bottom:1px solid rgb(var(--line, 36 38 44));font-size:11.5px;font-weight:600;color:rgb(var(--fg, 232 234 237));}.di-group-h.svelte-10v1sym .cls:where(.svelte-10v1sym) {font-size:10px;font-weight:400;color:rgb(var(--fg-subtle, 122 128 144));margin-left:4px;}.di-row.svelte-10v1sym {display:flex;align-items:center;gap:8px;padding:7px 12px;}.di-row.svelte-10v1sym + .di-row:where(.svelte-10v1sym) {border-top:1px solid rgb(var(--line, 36 38 44) / 0.5);}.di-row-name.svelte-10v1sym {font-size:11px;color:rgb(var(--fg, 232 234 237));flex-shrink:0;width:76px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}.di-row-value.svelte-10v1sym {font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}.di-row.mapped.svelte-10v1sym .di-row-name:where(.svelte-10v1sym),\n	.di-row.mapped.svelte-10v1sym .di-row-value:where(.svelte-10v1sym) {color:rgb(var(--fg-disabled, 92 98 112));}.di-row-trail.svelte-10v1sym {flex-shrink:0;width:22px;display:flex;align-items:center;justify-content:center;}.di-add-arrow.svelte-10v1sym {color:rgb(var(--signal, 91 157 255));}.lora-chain-card.svelte-10v1sym {border-bottom:1px solid rgb(var(--line, 36 38 44));}.lora-chain-actions.svelte-10v1sym {padding:8px 12px;border-top:1px solid rgb(var(--line, 36 38 44) / 0.5);}.lora-chain-empty-label.svelte-10v1sym {padding:0 12px;font-size:12px;}.lora-chain-help.svelte-10v1sym {padding:4px 12px 8px;font-size:11.5px;color:rgb(var(--fg-subtle, 122 128 144));}.lock-badge.svelte-10v1sym {display:inline-flex;align-items:center;gap:4px;font-size:9px;text-transform:uppercase;letter-spacing:0.05em;color:rgb(var(--fg-disabled, 92 98 112));flex-shrink:0;white-space:nowrap;}.di-right.svelte-10v1sym {flex:1;min-width:0;border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--surface-1, 22 24 28));overflow:hidden;display:flex;flex-direction:column;}.di-tabs.svelte-10v1sym {display:flex;align-items:center;gap:2px;padding:8px 10px 0;border-bottom:1px solid rgb(var(--line, 36 38 44));flex-wrap:wrap;}.di-tab.svelte-10v1sym {display:flex;align-items:center;gap:6px;padding:7px 10px;border-radius:4px 4px 0 0;font-size:12px;font-weight:500;color:rgb(var(--fg-muted, 169 174 184));cursor:pointer;position:relative;}.di-tab.active.svelte-10v1sym {background:rgb(var(--signal, 91 157 255) / 0.1);color:rgb(var(--signal, 91 157 255));}.di-tab.drop-target.svelte-10v1sym {box-shadow:inset 0 0 0 1px rgb(var(--signal, 91 157 255));background:rgb(var(--signal, 91 157 255) / 0.08);}.di-tab.svelte-10v1sym .kb:where(.svelte-10v1sym) {width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;color:rgb(var(--fg-subtle, 122 128 144));border-radius:3px;}.di-tab.svelte-10v1sym .kb:where(.svelte-10v1sym):hover {background:rgb(var(--surface-3, 39 42 49));color:rgb(var(--fg, 232 234 237));}.di-tab-rename.svelte-10v1sym {height:20px;width:90px;border-radius:3px;border:1px solid rgb(var(--signal, 91 157 255) / 0.4);background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:12px;padding:0 6px;}.di-tab-add.svelte-10v1sym {padding:7px 10px;color:rgb(var(--fg-subtle, 122 128 144));font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;}.di-tab-add.svelte-10v1sym:hover {color:rgb(var(--fg, 232 234 237));}.di-field-list.svelte-10v1sym {padding:12px;display:flex;flex-direction:column;gap:8px;flex:1;}.di-field-card.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--canvas, 12 13 15));padding:9px 10px;}.di-field-top.svelte-10v1sym {display:flex;align-items:center;gap:8px;flex-wrap:wrap;row-gap:6px;}.di-field-label.svelte-10v1sym {width:110px;flex-shrink:0;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:12px;font-weight:500;padding:0 8px;}.di-field-type.svelte-10v1sym {width:100px;flex-shrink:0;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg-muted, 169 174 184));font-size:11px;padding:0 6px;}.di-field-default.svelte-10v1sym {flex:1 1 90px;min-width:90px;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:11.5px;padding:0 8px;}.di-field-actions.svelte-10v1sym {display:flex;align-items:center;gap:1px;flex-shrink:0;}.di-mapping.svelte-10v1sym {margin-top:6px;padding-left:24px;}.di-mapping.svelte-10v1sym .line:where(.svelte-10v1sym) {font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));}.di-mapping.svelte-10v1sym .arrow:where(.svelte-10v1sym) {color:rgb(var(--fg-disabled, 92 98 112));margin-right:3px;}.di-suggest.svelte-10v1sym {display:flex;align-items:flex-start;gap:8px;margin-top:6px;padding:6px 8px 6px 24px;}.di-suggest-rows.svelte-10v1sym {display:flex;flex-direction:column;gap:4px;flex:1;min-width:0;}.di-suggest-row.svelte-10v1sym {display:flex;align-items:center;gap:8px;flex-wrap:wrap;}.di-suggest-text.svelte-10v1sym {font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));}.di-suggest-map.svelte-10v1sym {flex-shrink:0;height:20px;padding:0 8px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:10.5px;font-weight:600;cursor:pointer;}.di-suggest-map.svelte-10v1sym:hover {border-color:rgb(var(--line-hover, 58 62 70));background:rgb(var(--surface-3, 39 42 49));}.di-suggest-dismiss.svelte-10v1sym {flex-shrink:0;width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;border-radius:4px;color:rgb(var(--fg-disabled, 92 98 112));background:none;border:none;cursor:pointer;}.di-suggest-dismiss.svelte-10v1sym:hover {color:rgb(var(--fg-muted, 169 174 184));background:rgb(var(--surface-3, 39 42 49));}.di-add-wrap.svelte-10v1sym {position:relative;}.di-add-field.svelte-10v1sym {display:flex;align-items:center;justify-content:center;gap:6px;height:34px;width:100%;border:1px dashed rgb(var(--line-strong, 43 46 53));border-radius:6px;font-size:11.5px;color:rgb(var(--fg-muted, 169 174 184));background:none;cursor:pointer;}.di-add-field.svelte-10v1sym:hover {color:rgb(var(--fg, 232 234 237));}.di-add-menu.svelte-10v1sym {\n		/* Positioned by the `floating` action (position: fixed, inline top/left) -\n		   these are just its pre-mount fallback. */position:absolute;top:calc(100% + 4px);left:0;width:168px;border:1px solid rgb(var(--line-strong, 43 46 53));border-radius:8px;padding:4px;background:rgb(var(--surface-1, 22 24 28));box-shadow:var(--shadow-floating, 0 4px 16px rgb(0 0 0 / 0.5));z-index:1000;}.di-add-menu.svelte-10v1sym button:where(.svelte-10v1sym) {display:flex;width:100%;align-items:center;gap:8px;border-radius:5px;padding:6px 8px;font-size:12px;color:rgb(var(--fg-muted, 169 174 184));background:none;border:none;text-align:left;cursor:pointer;}.di-add-menu.svelte-10v1sym button:where(.svelte-10v1sym):hover {color:rgb(var(--fg, 232 234 237));background:rgb(var(--surface-3, 39 42 49));}.di-add-menu.svelte-10v1sym .type-tag:where(.svelte-10v1sym) {margin-left:auto;font-size:8.5px;color:rgb(var(--fg-disabled, 92 98 112));font-family:ui-monospace, SFMono-Regular, Menlo, monospace;}.di-container.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--surface-2, 31 33 38) / 0.4);}.di-container-head.svelte-10v1sym {display:flex;align-items:center;gap:8px;padding:8px 10px;flex-wrap:wrap;}.di-container-title.svelte-10v1sym {flex-shrink:0;width:130px;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:12px;font-weight:600;padding:0 8px;}.di-container-spacer.svelte-10v1sym {flex:1;}.di-container-actions.svelte-10v1sym {display:flex;align-items:center;gap:1px;flex-shrink:0;}.di-container-body.svelte-10v1sym {padding:0 10px 10px;display:flex;flex-direction:column;gap:8px;}.di-container.collapsed.svelte-10v1sym .di-container-body:where(.svelte-10v1sym) {display:none;}.di-chevron.svelte-10v1sym {display:inline-flex;transition:transform 0.12s;}.di-chevron.collapsed.svelte-10v1sym {transform:rotate(-90deg);}.di-row-cols.svelte-10v1sym {display:grid;gap:8px;min-width:0;}.di-row-cols.svelte-10v1sym > * {min-width:0;}.di-row-cols.svelte-10v1sym .di-field-card {overflow:hidden;}.di-row-cols.svelte-10v1sym .di-field-top {flex-wrap:wrap;}.di-col-control.svelte-10v1sym {display:flex;align-items:center;gap:5px;}.di-col-control.svelte-10v1sym .lbl:where(.svelte-10v1sym) {font-size:10px;color:rgb(var(--fg-subtle, 122 128 144));margin-right:2px;}.di-col-btn.svelte-10v1sym {width:22px;height:22px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg-muted, 169 174 184));font-size:11px;font-weight:600;cursor:pointer;}.di-col-btn.active.svelte-10v1sym {background:rgb(var(--signal, 91 157 255) / 0.15);color:rgb(var(--signal, 91 157 255));border-color:rgb(var(--signal, 91 157 255) / 0.4);}.di-header-card.svelte-10v1sym {display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--surface-2, 31 33 38) / 0.4);}.di-header-input.svelte-10v1sym {flex:1;min-width:0;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:12.5px;font-weight:600;padding:0 8px;}.di-empty.svelte-10v1sym {flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:40px 20px;text-align:center;}.di-empty.svelte-10v1sym .icon {color:rgb(var(--fg-disabled, 92 98 112));}.di-empty-text.svelte-10v1sym {font-size:12px;color:rgb(var(--fg-subtle, 122 128 144));}.di-mapedit.svelte-10v1sym {margin-top:8px;padding-top:10px;border-top:1px dashed rgb(var(--line, 36 38 44));}.di-mapedit-label.svelte-10v1sym {font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));margin-bottom:6px;}.di-mapedit-list.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:4px;overflow:hidden;}.di-mapedit-row.svelte-10v1sym {display:flex;align-items:center;gap:8px;padding:6px 9px;font-size:11px;flex-wrap:wrap;}.di-mapedit-node.svelte-10v1sym,\n	.di-mapedit-input.svelte-10v1sym {white-space:nowrap;}.di-mapedit-row.svelte-10v1sym + .di-mapedit-row:where(.svelte-10v1sym) {border-top:1px solid rgb(var(--line, 36 38 44));}.di-mapedit-row.selected.svelte-10v1sym {background:rgb(var(--signal, 91 157 255) / 0.08);}.di-mapedit-row.svelte-10v1sym input[type='checkbox']:where(.svelte-10v1sym) {accent-color:rgb(var(--signal, 91 157 255));}.di-mapedit-node.svelte-10v1sym {color:rgb(var(--fg-subtle, 122 128 144));}.di-mapedit-input.svelte-10v1sym {color:rgb(var(--fg, 232 234 237));}.di-mapedit-taken.svelte-10v1sym {margin-left:auto;font-size:10px;color:rgb(var(--fg-disabled, 92 98 112));}.di-mapedit-transform.svelte-10v1sym {margin-left:auto;flex:1 1 100%;}.di-mapedit-transform.svelte-10v1sym select:where(.svelte-10v1sym) {box-sizing:border-box;width:100%;height:24px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:11px;padding:0 6px;}.di-config.svelte-10v1sym {margin-top:8px;padding-top:10px;border-top:1px dashed rgb(var(--line, 36 38 44));}.di-config-list.svelte-10v1sym {display:flex;flex-direction:column;gap:8px;}.di-config-row.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:4px;padding:6px 8px;}.di-config-head.svelte-10v1sym {display:flex;align-items:center;gap:6px;margin-bottom:4px;}.di-config-name.svelte-10v1sym {font-size:11px;color:rgb(var(--fg, 232 234 237));}.di-config-control.svelte-10v1sym {display:flex;}.di-config-input.svelte-10v1sym,\n	.di-config-json.svelte-10v1sym,\n	.di-config-lines.svelte-10v1sym {box-sizing:border-box;width:100%;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:11px;padding:0 8px;}.di-config-input.svelte-10v1sym {height:26px;}.di-config-json.svelte-10v1sym,\n	.di-config-lines.svelte-10v1sym {padding:6px 8px;font-family:inherit;resize:vertical;}.di-config-json.svelte-10v1sym {font-family:ui-monospace, monospace;font-size:10.5px;}.di-config-desc.svelte-10v1sym {margin-top:4px;font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));}.di-config-error.svelte-10v1sym {margin-top:4px;font-size:10.5px;color:rgb(var(--danger, 255 138 138));}.tab-popover.svelte-10v1sym {\n		/* Positioned by the `floating` action (position: fixed, inline top/left) -\n		   these are just its pre-mount fallback. */position:absolute;top:calc(100% + 4px);left:0;width:168px;border:1px solid rgb(var(--line-strong, 43 46 53));border-radius:8px;padding:4px;background:rgb(var(--surface-1, 22 24 28));box-shadow:var(--shadow-floating, 0 4px 16px rgb(0 0 0 / 0.5));z-index:1000;}.tab-popover.svelte-10v1sym button:where(.svelte-10v1sym) {display:flex;width:100%;align-items:center;gap:8px;border-radius:5px;padding:6px 8px;font-size:12px;color:rgb(var(--fg-muted, 169 174 184));background:none;border:none;text-align:left;cursor:pointer;}.tab-popover.svelte-10v1sym button:where(.svelte-10v1sym):hover:not(:disabled) {color:rgb(var(--fg, 232 234 237));background:rgb(var(--surface-3, 39 42 49));}.tab-popover.svelte-10v1sym .popover-label:where(.svelte-10v1sym) {font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));padding:4px 8px 2px;}.tab-popover.svelte-10v1sym button:where(.svelte-10v1sym):disabled {opacity:0.4;cursor:not-allowed;}.tab-popover.svelte-10v1sym hr:where(.svelte-10v1sym) {border:none;border-top:1px solid rgb(var(--line, 36 38 44));margin:4px 2px;}.tab-popover.svelte-10v1sym button.danger:where(.svelte-10v1sym) {color:rgb(var(--danger, 255 138 138));}.tab-popover-select.svelte-10v1sym {box-sizing:border-box;width:100%;height:24px;margin:0 0 4px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:11px;padding:0 6px;}.tab-popover-select.svelte-10v1sym:disabled {opacity:0.5;}\n\n	/* ---- History step ---- */.hist-designer.svelte-10v1sym {display:flex;gap:14px;align-items:flex-start;}.hist-left.svelte-10v1sym {width:58%;flex-shrink:0;}.hist-right.svelte-10v1sym {flex:1;min-width:0;}.pane-title.svelte-10v1sym {padding:0 0 8px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;color:rgb(var(--fg-muted, 169 174 184));display:flex;align-items:center;gap:8px;}.pane-title.svelte-10v1sym .n:where(.svelte-10v1sym) {font-weight:400;color:rgb(var(--fg-disabled, 92 98 112));text-transform:none;letter-spacing:0;}.hist-table.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--canvas, 12 13 15));overflow:hidden;}.hist-head.svelte-10v1sym {display:grid;grid-template-columns:40px 18px 1.3fr 1.05fr 1.05fr;align-items:center;gap:10px;padding:7px 12px;background:rgb(var(--surface-1, 22 24 28));border-bottom:1px solid rgb(var(--line, 36 38 44));font-size:9.5px;text-transform:uppercase;letter-spacing:0.06em;color:rgb(var(--fg-subtle, 122 128 144));}.hist-row.svelte-10v1sym {display:grid;grid-template-columns:40px 18px 1.3fr 1.05fr 1.05fr;align-items:center;gap:10px;padding:8px 12px;}.hist-row.svelte-10v1sym + .hist-row:where(.svelte-10v1sym) {border-top:1px solid rgb(var(--line, 36 38 44) / 0.6);}.hist-row.locked.svelte-10v1sym {background:rgb(var(--surface-1, 22 24 28) / 0.5);}.hist-reorder.svelte-10v1sym {display:flex;gap:2px;}.hist-row.svelte-10v1sym input[type='checkbox']:where(.svelte-10v1sym) {accent-color:rgb(var(--signal, 91 157 255));width:14px;height:14px;}.hist-field.svelte-10v1sym {min-width:0;display:flex;flex-direction:column;gap:1px;}.hist-field-label.svelte-10v1sym {font-size:12px;font-weight:500;color:rgb(var(--fg, 232 234 237));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}.hist-row.off.svelte-10v1sym .hist-field-label:where(.svelte-10v1sym) {color:rgb(var(--fg-subtle, 122 128 144));}.hist-field-name.svelte-10v1sym {font-size:9.5px;color:rgb(var(--fg-subtle, 122 128 144));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}.hist-label-input.svelte-10v1sym {width:100%;box-sizing:border-box;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:11.5px;padding:0 8px;}.hist-label-input.svelte-10v1sym:disabled {background:transparent;border-color:transparent;color:rgb(var(--fg-disabled, 92 98 112));padding-left:0;}.hist-value-select.svelte-10v1sym {width:100%;box-sizing:border-box;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg-muted, 169 174 184));font-size:11px;padding:0 6px;}.hist-value-select.svelte-10v1sym:disabled {opacity:0.5;}.hist-jinja-row.svelte-10v1sym {grid-column:1 / -1;margin:2px 0 0 58px;display:flex;align-items:center;gap:8px;}.hist-jinja-row.svelte-10v1sym .lbl:where(.svelte-10v1sym) {font-size:10px;color:rgb(var(--fg-subtle, 122 128 144));flex-shrink:0;}.hist-jinja-input.svelte-10v1sym {flex:1;box-sizing:border-box;height:26px;border-radius:4px;border:1px solid rgb(var(--signal, 91 157 255) / 0.4);background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:11px;padding:0 8px;}.hist-jinja-out.svelte-10v1sym {font-size:10px;color:rgb(var(--fg-subtle, 122 128 144));flex-shrink:0;}.hist-jinja-out.svelte-10v1sym .v:where(.svelte-10v1sym) {color:rgb(var(--success, 61 214 140));}.preview-card.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--surface-2, 31 33 38));overflow:hidden;box-shadow:var(--shadow-raised, inset 0 1px 0 rgb(255 255 255 / 0.04));}.preview-head.svelte-10v1sym {display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid rgb(var(--line, 36 38 44));}.preview-head.svelte-10v1sym .t:where(.svelte-10v1sym) {display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:rgb(var(--fg, 232 234 237));}.preview-head.svelte-10v1sym .t:where(.svelte-10v1sym) .icon {color:rgb(var(--success, 61 214 140));}.preview-grid.svelte-10v1sym {display:grid;grid-template-columns:1fr 1fr;gap:1px;background:rgb(var(--line, 36 38 44));}.preview-cell.svelte-10v1sym {background:rgb(var(--surface-2, 31 33 38));padding:10px;min-width:0;}.preview-cell.span2.svelte-10v1sym {grid-column:1 / -1;}.preview-k.svelte-10v1sym {font-size:9.5px;text-transform:uppercase;letter-spacing:0.06em;color:rgb(var(--fg-disabled, 92 98 112));margin-bottom:4px;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;}.preview-v.svelte-10v1sym {font-size:11.5px;font-weight:600;color:rgb(var(--fg, 232 234 237));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;}.preview-v.wrap.svelte-10v1sym {white-space:normal;overflow:visible;text-overflow:clip;}.preview-chips.svelte-10v1sym {display:flex;flex-wrap:wrap;gap:4px;margin-top:2px;}.preview-empty.svelte-10v1sym {padding:20px 16px;text-align:center;}.preview-empty.svelte-10v1sym .icon {color:rgb(var(--fg-disabled, 92 98 112));margin:0 auto 8px;}.preview-empty-text.svelte-10v1sym {font-size:11.5px;color:rgb(var(--fg-subtle, 122 128 144));max-width:260px;margin:0 auto;}.icon {stroke:currentColor;fill:none;flex:none;display:block;}"
 };
 function ImportWorkflowTab($$anchor, $$props) {
   if (new.target) return createClassComponent({ component: ImportWorkflowTab, ...$$anchor });
@@ -6727,221 +6738,465 @@ function ImportWorkflowTab($$anchor, $$props) {
     }
     append($$anchor2, fragment_2);
   };
-  const fieldCard = ($$anchor2, item = noop, parentItems = noop, index2 = noop) => {
-    var div_3 = root_16();
-    var div_4 = child(div_3);
-    var span = child(div_4);
-    var node_12 = child(span);
-    icon(node_12, () => "grip");
-    reset(span);
-    var input = sibling(span, 2);
-    remove_input_defaults(input);
-    var select = sibling(input, 2);
-    each(select, 21, () => fieldTypeOptionsFor(item().field_type), index, ($$anchor3, opt) => {
-      var option = root_7();
-      var text_3 = child(option, true);
-      reset(option);
-      var option_value = {};
-      template_effect(() => {
-        set_text(text_3, get(opt));
-        if (option_value !== (option_value = get(opt))) {
-          option.value = (option.__value = get(opt)) ?? "";
-        }
-      });
-      append($$anchor3, option);
-    });
-    reset(select);
-    var select_value;
-    init_select(select);
-    var input_1 = sibling(select, 2);
-    remove_input_defaults(input_1);
-    var div_5 = sibling(input_1, 2);
-    var button_8 = child(div_5);
-    let classes;
-    var node_13 = child(button_8);
-    icon(node_13, () => "link");
-    reset(button_8);
-    var button_9 = sibling(button_8, 2);
-    var node_14 = child(button_9);
-    icon(node_14, () => "chevron-up");
-    reset(button_9);
-    var button_10 = sibling(button_9, 2);
-    var node_15 = child(button_10);
-    icon(node_15, () => "chevron-down");
-    reset(button_10);
-    var node_16 = sibling(button_10, 2);
-    moveToMenu(node_16, item, parentItems, index2);
-    var button_11 = sibling(node_16, 2);
-    var node_17 = child(button_11);
-    icon(node_17, () => "x");
-    reset(button_11);
-    reset(div_5);
-    reset(div_4);
-    var node_18 = sibling(div_4, 2);
+  const configControl = ($$anchor2, item = noop, spec = noop) => {
+    var fragment_4 = comment();
+    var node_12 = first_child(fragment_4);
     {
       var consequent_4 = ($$anchor3) => {
-        var div_6 = root_8();
-        var span_1 = child(div_6);
-        var text_4 = sibling(child(span_1), 1, true);
-        reset(span_1);
-        reset(div_6);
-        template_effect(($0) => set_text(text_4, $0), [
-          () => item().mappings.map((m) => `${m.node_id}.inputs.${m.input_name}`).join(" \xB7 ")
-        ]);
-        append($$anchor3, div_6);
+        var input = root_7();
+        remove_input_defaults(input);
+        template_effect(
+          ($0) => {
+            set_attribute2(input, "step", spec().param_type === "int" ? 1 : "any");
+            set_attribute2(input, "placeholder", spec().default ?? "");
+            set_value(input, $0);
+            set_attribute2(input, "aria-label", spec().name);
+          },
+          [() => configValue(item(), spec()) ?? ""]
+        );
+        delegated("input", input, (e) => onNumberConfigInput(item(), spec(), e.currentTarget.value));
+        append($$anchor3, input);
+      };
+      var consequent_5 = ($$anchor3) => {
+        var input_1 = root_8();
+        remove_input_defaults(input_1);
+        template_effect(
+          ($0) => {
+            set_checked(input_1, $0);
+            set_attribute2(input_1, "aria-label", spec().name);
+          },
+          [() => Boolean(configValue(item(), spec()))]
+        );
+        delegated("change", input_1, (e) => setConfigValue(item(), spec().name, e.currentTarget.checked));
+        append($$anchor3, input_1);
       };
       var consequent_6 = ($$anchor3) => {
-        const suggestions = user_derived(() => nameMatchSuggestionsFor(item()));
-        var fragment_4 = comment();
-        var node_19 = first_child(fragment_4);
+        var select = root_10();
+        each(select, 21, () => spec().choices, index, ($$anchor4, c) => {
+          var option = root_9();
+          var text_3 = child(option, true);
+          reset(option);
+          var option_value = {};
+          template_effect(() => {
+            set_text(text_3, get(c));
+            if (option_value !== (option_value = get(c))) {
+              option.value = (option.__value = get(c)) ?? "";
+            }
+          });
+          append($$anchor4, option);
+        });
+        reset(select);
+        var select_value;
+        init_select(select);
+        template_effect(
+          ($0) => {
+            set_attribute2(select, "aria-label", spec().name);
+            if (select_value !== (select_value = $0)) {
+              select.value = (select.__value = $0) ?? "", select_option(select, $0);
+            }
+          },
+          [() => configValue(item(), spec()) ?? ""]
+        );
+        delegated("change", select, (e) => setConfigValue(item(), spec().name, e.currentTarget.value));
+        append($$anchor3, select);
+      };
+      var consequent_8 = ($$anchor3) => {
+        var fragment_5 = root_12();
+        var textarea = first_child(fragment_5);
+        remove_textarea_child(textarea);
+        var node_13 = sibling(textarea, 2);
         {
-          var consequent_5 = ($$anchor4) => {
-            var div_7 = root_10();
-            var div_8 = child(div_7);
-            each(div_8, 21, () => get(suggestions), (c) => candidateKey(c), ($$anchor5, c) => {
-              var div_9 = root_9();
-              var span_2 = child(div_9);
+          var consequent_7 = ($$anchor4) => {
+            var div_3 = root_11();
+            var text_4 = child(div_3, true);
+            reset(div_3);
+            template_effect(($0) => set_text(text_4, $0), [
+              () => get(configJsonErrors)[configDraftKey(item(), spec())]
+            ]);
+            append($$anchor4, div_3);
+          };
+          var d_2 = user_derived(() => get(configJsonErrors)[configDraftKey(item(), spec())]);
+          if_block(node_13, ($$render) => {
+            if (get(d_2)) $$render(consequent_7);
+          });
+        }
+        template_effect(
+          ($0) => {
+            set_value(textarea, $0);
+            set_attribute2(textarea, "aria-label", spec().name);
+          },
+          [() => jsonDraftFor(item(), spec())]
+        );
+        delegated("input", textarea, (e) => onJsonDraftInput(item(), spec(), e.currentTarget.value));
+        append($$anchor3, fragment_5);
+      };
+      var consequent_12 = ($$anchor3) => {
+        var fragment_6 = comment();
+        var node_14 = first_child(fragment_6);
+        {
+          var consequent_10 = ($$anchor4) => {
+            var fragment_7 = root_12();
+            var textarea_1 = first_child(fragment_7);
+            remove_textarea_child(textarea_1);
+            var node_15 = sibling(textarea_1, 2);
+            {
+              var consequent_9 = ($$anchor5) => {
+                var div_4 = root_11();
+                var text_5 = child(div_4, true);
+                reset(div_4);
+                template_effect(($0) => set_text(text_5, $0), [
+                  () => get(configJsonErrors)[configDraftKey(item(), spec())]
+                ]);
+                append($$anchor5, div_4);
+              };
+              var d_3 = user_derived(() => get(configJsonErrors)[configDraftKey(item(), spec())]);
+              if_block(node_15, ($$render) => {
+                if (get(d_3)) $$render(consequent_9);
+              });
+            }
+            template_effect(
+              ($0) => {
+                set_value(textarea_1, $0);
+                set_attribute2(textarea_1, "aria-label", spec().name);
+              },
+              [() => jsonDraftFor(item(), spec())]
+            );
+            delegated("input", textarea_1, (e) => onJsonDraftInput(item(), spec(), e.currentTarget.value));
+            append($$anchor4, fragment_7);
+          };
+          var d_4 = user_derived(() => listControlKind(item(), spec()) === "json");
+          var consequent_11 = ($$anchor4) => {
+            var input_2 = root_13();
+            remove_input_defaults(input_2);
+            template_effect(
+              ($0) => {
+                set_value(input_2, $0);
+                set_attribute2(input_2, "aria-label", spec().name);
+              },
+              [() => configValue(item(), spec()) ?? ""]
+            );
+            delegated("input", input_2, (e) => onTextConfigInput(item(), spec(), e.currentTarget.value));
+            append($$anchor4, input_2);
+          };
+          var d_5 = user_derived(() => listControlKind(item(), spec()) === "text");
+          var alternate_1 = ($$anchor4) => {
+            const kind = user_derived(() => listControlKind(item(), spec()));
+            var textarea_2 = root_14();
+            remove_textarea_child(textarea_2);
+            template_effect(
+              ($0) => {
+                set_value(textarea_2, $0);
+                set_attribute2(textarea_2, "aria-label", spec().name);
+              },
+              [() => listDraftFor(item(), spec())]
+            );
+            delegated("input", textarea_2, (e) => onListDraftInput(item(), spec(), e.currentTarget.value, get(kind)));
+            append($$anchor4, textarea_2);
+          };
+          if_block(node_14, ($$render) => {
+            if (get(d_4)) $$render(consequent_10);
+            else if (get(d_5)) $$render(consequent_11, 1);
+            else $$render(alternate_1, -1);
+          });
+        }
+        append($$anchor3, fragment_6);
+      };
+      var alternate_2 = ($$anchor3) => {
+        var input_3 = root_13();
+        remove_input_defaults(input_3);
+        template_effect(
+          ($0) => {
+            set_attribute2(input_3, "placeholder", spec().default ?? "");
+            set_value(input_3, $0);
+            set_attribute2(input_3, "aria-label", spec().name);
+          },
+          [() => configValue(item(), spec()) ?? ""]
+        );
+        delegated("input", input_3, (e) => onTextConfigInput(item(), spec(), e.currentTarget.value));
+        append($$anchor3, input_3);
+      };
+      if_block(node_12, ($$render) => {
+        if (spec().param_type === "int" || spec().param_type === "float") $$render(consequent_4);
+        else if (spec().param_type === "bool") $$render(consequent_5, 1);
+        else if (spec().param_type === "str" && spec().choices?.length) $$render(consequent_6, 2);
+        else if (spec().param_type === "dict") $$render(consequent_8, 3);
+        else if (spec().param_type === "list") $$render(consequent_12, 4);
+        else $$render(alternate_2, -1);
+      });
+    }
+    append($$anchor2, fragment_4);
+  };
+  const fieldCard = ($$anchor2, item = noop, parentItems = noop, index2 = noop) => {
+    var div_5 = root_27();
+    var div_6 = child(div_5);
+    var span = child(div_6);
+    var node_16 = child(span);
+    icon(node_16, () => "grip");
+    reset(span);
+    var input_4 = sibling(span, 2);
+    remove_input_defaults(input_4);
+    var select_1 = sibling(input_4, 2);
+    each(select_1, 21, () => fieldTypeOptionsFor(item().field_type), index, ($$anchor3, opt) => {
+      var option_1 = root_9();
+      var text_6 = child(option_1, true);
+      reset(option_1);
+      var option_1_value = {};
+      template_effect(() => {
+        set_text(text_6, get(opt));
+        if (option_1_value !== (option_1_value = get(opt))) {
+          option_1.value = (option_1.__value = get(opt)) ?? "";
+        }
+      });
+      append($$anchor3, option_1);
+    });
+    reset(select_1);
+    var select_1_value;
+    init_select(select_1);
+    var input_5 = sibling(select_1, 2);
+    remove_input_defaults(input_5);
+    var div_7 = sibling(input_5, 2);
+    var button_8 = child(div_7);
+    let classes;
+    var node_17 = child(button_8);
+    icon(node_17, () => "link");
+    reset(button_8);
+    var button_9 = sibling(button_8, 2);
+    var node_18 = child(button_9);
+    icon(node_18, () => "chevron-up");
+    reset(button_9);
+    var button_10 = sibling(button_9, 2);
+    var node_19 = child(button_10);
+    icon(node_19, () => "chevron-down");
+    reset(button_10);
+    var node_20 = sibling(button_10, 2);
+    moveToMenu(node_20, item, parentItems, index2);
+    var button_11 = sibling(node_20, 2);
+    var node_21 = child(button_11);
+    icon(node_21, () => "x");
+    reset(button_11);
+    reset(div_7);
+    reset(div_6);
+    var node_22 = sibling(div_6, 2);
+    {
+      var consequent_13 = ($$anchor3) => {
+        var div_8 = root_15();
+        var span_1 = child(div_8);
+        var text_7 = sibling(child(span_1), 1, true);
+        reset(span_1);
+        reset(div_8);
+        template_effect(($0) => set_text(text_7, $0), [
+          () => item().mappings.map((m) => `${m.node_id}.inputs.${m.input_name}`).join(" \xB7 ")
+        ]);
+        append($$anchor3, div_8);
+      };
+      var consequent_15 = ($$anchor3) => {
+        const suggestions = user_derived(() => nameMatchSuggestionsFor(item()));
+        var fragment_8 = comment();
+        var node_23 = first_child(fragment_8);
+        {
+          var consequent_14 = ($$anchor4) => {
+            var div_9 = root_17();
+            var div_10 = child(div_9);
+            each(div_10, 21, () => get(suggestions), (c) => candidateKey(c), ($$anchor5, c) => {
+              var div_11 = root_16();
+              var span_2 = child(div_11);
               var span_3 = sibling(child(span_2));
-              var text_5 = child(span_3);
+              var text_8 = child(span_3);
               reset(span_3);
               reset(span_2);
               var button_12 = sibling(span_2, 2);
-              reset(div_9);
-              template_effect(() => set_text(text_5, `${get(c).node_id ?? ""}.inputs.${get(c).input_name ?? ""}`));
+              reset(div_11);
+              template_effect(() => set_text(text_8, `${get(c).node_id ?? ""}.inputs.${get(c).input_name ?? ""}`));
               delegated("click", button_12, () => toggleMapping(item(), get(c), true));
-              append($$anchor5, div_9);
+              append($$anchor5, div_11);
             });
-            reset(div_8);
-            var button_13 = sibling(div_8, 2);
-            var node_20 = child(button_13);
-            icon(node_20, () => "x", () => 10);
+            reset(div_10);
+            var button_13 = sibling(div_10, 2);
+            var node_24 = child(button_13);
+            icon(node_24, () => "x", () => 10);
             reset(button_13);
-            reset(div_7);
+            reset(div_9);
             delegated("click", button_13, () => dismissSuggestion(item()._id));
-            append($$anchor4, div_7);
+            append($$anchor4, div_9);
           };
-          if_block(node_19, ($$render) => {
-            if (get(suggestions).length > 0) $$render(consequent_5);
+          if_block(node_23, ($$render) => {
+            if (get(suggestions).length > 0) $$render(consequent_14);
           });
         }
-        append($$anchor3, fragment_4);
+        append($$anchor3, fragment_8);
       };
-      if_block(node_18, ($$render) => {
-        if (item().mappings.length > 0) $$render(consequent_4);
-        else if (!get(dismissedSuggestionIds)[item()._id]) $$render(consequent_6, 1);
+      if_block(node_22, ($$render) => {
+        if (item().mappings.length > 0) $$render(consequent_13);
+        else if (!get(dismissedSuggestionIds)[item()._id]) $$render(consequent_15, 1);
       });
     }
-    var node_21 = sibling(node_18, 2);
+    var node_25 = sibling(node_22, 2);
     {
-      var consequent_10 = ($$anchor3) => {
+      var consequent_22 = ($$anchor3) => {
+        const configSpecs = user_derived(() => configSchemaFor(item().field_type));
         const sortedMapCandidates = user_derived(() => [...get(mappableCandidates)].sort((a, b) => Number(candidateNameMatchesField(b, item())) - Number(candidateNameMatchesField(a, item()))));
-        var div_10 = root_15();
-        var div_11 = sibling(child(div_10), 2);
-        each(div_11, 21, () => get(sortedMapCandidates), (c) => candidateKey(c), ($$anchor4, c) => {
+        var fragment_9 = root_26();
+        var node_26 = first_child(fragment_9);
+        {
+          var consequent_18 = ($$anchor4) => {
+            var div_12 = root_21();
+            var div_13 = sibling(child(div_12), 2);
+            each(div_13, 21, () => get(configSpecs), (spec) => spec.name, ($$anchor5, spec) => {
+              var div_14 = root_20();
+              var div_15 = child(div_14);
+              var span_4 = child(div_15);
+              var text_9 = child(span_4, true);
+              reset(span_4);
+              var node_27 = sibling(span_4, 2);
+              {
+                var consequent_16 = ($$anchor6) => {
+                  var span_5 = root_18();
+                  append($$anchor6, span_5);
+                };
+                if_block(node_27, ($$render) => {
+                  if (get(spec).required) $$render(consequent_16);
+                });
+              }
+              reset(div_15);
+              var div_16 = sibling(div_15, 2);
+              var node_28 = child(div_16);
+              configControl(node_28, item, () => get(spec));
+              reset(div_16);
+              var node_29 = sibling(div_16, 2);
+              {
+                var consequent_17 = ($$anchor6) => {
+                  var div_17 = root_19();
+                  var text_10 = child(div_17, true);
+                  reset(div_17);
+                  template_effect(() => set_text(text_10, get(spec).description));
+                  append($$anchor6, div_17);
+                };
+                if_block(node_29, ($$render) => {
+                  if (get(spec).description) $$render(consequent_17);
+                });
+              }
+              reset(div_14);
+              template_effect(() => {
+                set_attribute2(div_14, "data-config-row", get(spec).name);
+                set_text(text_9, get(spec).name);
+              });
+              append($$anchor5, div_14);
+            });
+            reset(div_13);
+            reset(div_12);
+            append($$anchor4, div_12);
+          };
+          if_block(node_26, ($$render) => {
+            if (get(configSpecs).length > 0) $$render(consequent_18);
+          });
+        }
+        var div_18 = sibling(node_26, 2);
+        var div_19 = sibling(child(div_18), 2);
+        each(div_19, 21, () => get(sortedMapCandidates), (c) => candidateKey(c), ($$anchor4, c) => {
           const checked = user_derived(() => item().mappings.some((m) => m.node_id === get(c).node_id && m.input_name === get(c).input_name));
           const mappedElsewhere = user_derived(() => get(mappedFieldByKey).get(candidateKey(get(c))) && get(mappedFieldByKey).get(candidateKey(get(c))) !== item());
           const isNameMatch = user_derived(() => candidateNameMatchesField(get(c), item()));
-          var div_12 = root_14();
+          var div_20 = root_25();
           let classes_1;
-          var input_2 = child(div_12);
-          remove_input_defaults(input_2);
-          var span_4 = sibling(input_2, 2);
-          var text_6 = child(span_4);
-          reset(span_4);
-          var span_5 = sibling(span_4, 2);
-          var text_7 = child(span_5, true);
-          reset(span_5);
-          var node_22 = sibling(span_5, 2);
+          var input_6 = child(div_20);
+          remove_input_defaults(input_6);
+          var span_6 = sibling(input_6, 2);
+          var text_11 = child(span_6);
+          reset(span_6);
+          var span_7 = sibling(span_6, 2);
+          var text_12 = child(span_7, true);
+          reset(span_7);
+          var node_30 = sibling(span_7, 2);
           {
-            var consequent_7 = ($$anchor5) => {
-              var span_6 = root_11();
-              append($$anchor5, span_6);
+            var consequent_19 = ($$anchor5) => {
+              var span_8 = root_22();
+              append($$anchor5, span_8);
             };
-            if_block(node_22, ($$render) => {
-              if (get(isNameMatch)) $$render(consequent_7);
+            if_block(node_30, ($$render) => {
+              if (get(isNameMatch)) $$render(consequent_19);
             });
           }
-          var node_23 = sibling(node_22, 2);
+          var node_31 = sibling(node_30, 2);
           {
-            var consequent_8 = ($$anchor5) => {
-              var span_7 = root_12();
-              var text_8 = child(span_7);
-              reset(span_7);
-              template_effect(($0) => set_text(text_8, `mapped to ${$0 ?? ""}`), [
+            var consequent_20 = ($$anchor5) => {
+              var span_9 = root_23();
+              var text_13 = child(span_9);
+              reset(span_9);
+              template_effect(($0) => set_text(text_13, `mapped to ${$0 ?? ""}`), [
                 () => get(mappedFieldByKey).get(candidateKey(get(c))).label
               ]);
-              append($$anchor5, span_7);
+              append($$anchor5, span_9);
             };
-            var consequent_9 = ($$anchor5) => {
-              var div_13 = root_13();
-              var select_1 = child(div_13);
-              each(select_1, 21, () => TRANSFORM_OPTIONS, index, ($$anchor6, t) => {
-                var option_1 = root_7();
-                var text_9 = child(option_1, true);
-                reset(option_1);
-                var option_1_value = {};
+            var consequent_21 = ($$anchor5) => {
+              var div_21 = root_24();
+              var select_2 = child(div_21);
+              each(select_2, 21, () => TRANSFORM_OPTIONS, index, ($$anchor6, t) => {
+                var option_2 = root_9();
+                var text_14 = child(option_2, true);
+                reset(option_2);
+                var option_2_value = {};
                 template_effect(() => {
-                  set_text(text_9, get(t).label);
-                  if (option_1_value !== (option_1_value = get(t).value)) {
-                    option_1.value = (option_1.__value = get(t).value) ?? "";
+                  set_text(text_14, get(t).label);
+                  if (option_2_value !== (option_2_value = get(t).value)) {
+                    option_2.value = (option_2.__value = get(t).value) ?? "";
                   }
                 });
-                append($$anchor6, option_1);
+                append($$anchor6, option_2);
               });
-              reset(select_1);
-              var select_1_value;
-              init_select(select_1);
-              reset(div_13);
+              reset(select_2);
+              var select_2_value;
+              init_select(select_2);
+              reset(div_21);
               template_effect(
                 ($0) => {
-                  if (select_1_value !== (select_1_value = $0)) {
-                    select_1.value = (select_1.__value = $0) ?? "", select_option(select_1, $0);
+                  if (select_2_value !== (select_2_value = $0)) {
+                    select_2.value = (select_2.__value = $0) ?? "", select_option(select_2, $0);
                   }
                 },
                 [
                   () => item().mappings.find((m) => m.node_id === get(c).node_id && m.input_name === get(c).input_name)?.transform || "none"
                 ]
               );
-              delegated("change", select_1, (e) => setMappingTransform(item(), get(c), e.currentTarget.value));
-              append($$anchor5, div_13);
+              delegated("change", select_2, (e) => setMappingTransform(item(), get(c), e.currentTarget.value));
+              append($$anchor5, div_21);
             };
-            if_block(node_23, ($$render) => {
-              if (get(mappedElsewhere)) $$render(consequent_8);
-              else if (get(checked)) $$render(consequent_9, 1);
+            if_block(node_31, ($$render) => {
+              if (get(mappedElsewhere)) $$render(consequent_20);
+              else if (get(checked)) $$render(consequent_21, 1);
             });
           }
-          reset(div_12);
+          reset(div_20);
           template_effect(
             ($0) => {
-              classes_1 = set_class(div_12, 1, "di-mapedit-row svelte-10v1sym", null, classes_1, { selected: get(checked) });
-              set_attribute2(div_12, "data-mapedit-key", $0);
-              set_checked(input_2, get(checked));
-              input_2.disabled = get(mappedElsewhere);
-              set_text(text_6, `${get(c).node_id ?? ""} \xB7 ${get(c).class_type ?? ""}`);
-              set_text(text_7, get(c).input_name);
+              classes_1 = set_class(div_20, 1, "di-mapedit-row svelte-10v1sym", null, classes_1, { selected: get(checked) });
+              set_attribute2(div_20, "data-mapedit-key", $0);
+              set_checked(input_6, get(checked));
+              input_6.disabled = get(mappedElsewhere);
+              set_text(text_11, `${get(c).node_id ?? ""} \xB7 ${get(c).class_type ?? ""}`);
+              set_text(text_12, get(c).input_name);
             },
             [() => candidateKey(get(c))]
           );
-          delegated("change", input_2, (e) => toggleMapping(item(), get(c), e.currentTarget.checked));
-          append($$anchor4, div_12);
+          delegated("change", input_6, (e) => toggleMapping(item(), get(c), e.currentTarget.checked));
+          append($$anchor4, div_20);
         });
-        reset(div_11);
-        reset(div_10);
-        append($$anchor3, div_10);
+        reset(div_19);
+        reset(div_18);
+        append($$anchor3, fragment_9);
       };
-      if_block(node_21, ($$render) => {
-        if (get(expandedFieldId) === item()._id) $$render(consequent_10);
+      if_block(node_25, ($$render) => {
+        if (get(expandedFieldId) === item()._id) $$render(consequent_22);
       });
     }
-    reset(div_3);
+    reset(div_5);
     template_effect(
       ($0, $1) => {
-        set_attribute2(div_3, "data-field-name", item().field_name);
-        if (select_value !== (select_value = item().field_type)) {
-          select.value = (select.__value = item().field_type) ?? "", select_option(select, item().field_type);
+        set_attribute2(div_5, "data-field-name", item().field_name);
+        if (select_1_value !== (select_1_value = item().field_type)) {
+          select_1.value = (select_1.__value = item().field_type) ?? "", select_option(select_1, item().field_type);
         }
-        set_attribute2(input_1, "inputmode", $0);
-        set_value(input_1, $1);
+        set_attribute2(input_5, "inputmode", $0);
+        set_value(input_5, $1);
         classes = set_class(button_8, 1, "iconbtn svelte-10v1sym", null, classes, { active: get(expandedFieldId) === item()._id });
         set_attribute2(button_8, "aria-expanded", get(expandedFieldId) === item()._id);
       },
@@ -6952,222 +7207,222 @@ function ImportWorkflowTab($$anchor, $$props) {
     );
     event("dragstart", span, (e) => handleItemDragStart(e, item()._id));
     event("dragend", span, handleItemDragEnd);
-    bind_value(input, () => item().label, ($$value) => item().label = $$value);
-    delegated("change", select, (e) => changeFieldType(item(), e.currentTarget.value));
-    delegated("input", input_1, (e) => setDefaultFromText(item(), e.currentTarget.value));
+    bind_value(input_4, () => item().label, ($$value) => item().label = $$value);
+    delegated("change", select_1, (e) => changeFieldType(item(), e.currentTarget.value));
+    delegated("input", input_5, (e) => setDefaultFromText(item(), e.currentTarget.value));
     delegated("click", button_8, () => set(expandedFieldId, get(expandedFieldId) === item()._id ? null : item()._id, true));
     delegated("click", button_9, () => moveItemAt(parentItems(), index2(), -1));
     delegated("click", button_10, () => moveItemAt(parentItems(), index2(), 1));
     delegated("click", button_11, () => removeItemAt(parentItems(), index2()));
-    append($$anchor2, div_3);
+    append($$anchor2, div_5);
   };
   const headerCard = ($$anchor2, item = noop, parentItems = noop, index2 = noop) => {
-    var div_14 = root_17();
-    var span_8 = child(div_14);
-    var node_24 = child(span_8);
-    icon(node_24, () => "grip");
-    reset(span_8);
-    var input_3 = sibling(span_8, 4);
-    remove_input_defaults(input_3);
-    var div_15 = sibling(input_3, 2);
-    var button_14 = child(div_15);
-    var node_25 = child(button_14);
-    icon(node_25, () => "chevron-up");
+    var div_22 = root_28();
+    var span_10 = child(div_22);
+    var node_32 = child(span_10);
+    icon(node_32, () => "grip");
+    reset(span_10);
+    var input_7 = sibling(span_10, 4);
+    remove_input_defaults(input_7);
+    var div_23 = sibling(input_7, 2);
+    var button_14 = child(div_23);
+    var node_33 = child(button_14);
+    icon(node_33, () => "chevron-up");
     reset(button_14);
     var button_15 = sibling(button_14, 2);
-    var node_26 = child(button_15);
-    icon(node_26, () => "chevron-down");
+    var node_34 = child(button_15);
+    icon(node_34, () => "chevron-down");
     reset(button_15);
-    var node_27 = sibling(button_15, 2);
-    moveToMenu(node_27, item, parentItems, index2);
-    var button_16 = sibling(node_27, 2);
-    var node_28 = child(button_16);
-    icon(node_28, () => "x");
+    var node_35 = sibling(button_15, 2);
+    moveToMenu(node_35, item, parentItems, index2);
+    var button_16 = sibling(node_35, 2);
+    var node_36 = child(button_16);
+    icon(node_36, () => "x");
     reset(button_16);
-    reset(div_15);
-    reset(div_14);
-    event("dragstart", span_8, (e) => handleItemDragStart(e, item()._id));
-    event("dragend", span_8, handleItemDragEnd);
-    bind_value(input_3, () => item().text, ($$value) => item().text = $$value);
+    reset(div_23);
+    reset(div_22);
+    event("dragstart", span_10, (e) => handleItemDragStart(e, item()._id));
+    event("dragend", span_10, handleItemDragEnd);
+    bind_value(input_7, () => item().text, ($$value) => item().text = $$value);
     delegated("click", button_14, () => moveItemAt(parentItems(), index2(), -1));
     delegated("click", button_15, () => moveItemAt(parentItems(), index2(), 1));
     delegated("click", button_16, () => removeItemAt(parentItems(), index2()));
-    append($$anchor2, div_14);
+    append($$anchor2, div_22);
   };
   const anyItem = ($$anchor2, item = noop, parentItems = noop, index2 = noop) => {
-    var fragment_5 = comment();
-    var node_29 = first_child(fragment_5);
+    var fragment_10 = comment();
+    var node_37 = first_child(fragment_10);
     {
-      var consequent_11 = ($$anchor3) => {
+      var consequent_23 = ($$anchor3) => {
         fieldCard($$anchor3, item, parentItems, index2);
       };
-      var consequent_12 = ($$anchor3) => {
+      var consequent_24 = ($$anchor3) => {
         headerCard($$anchor3, item, parentItems, index2);
       };
-      var consequent_13 = ($$anchor3) => {
+      var consequent_25 = ($$anchor3) => {
         containerCard($$anchor3, item, parentItems, index2, () => "ROW", () => "chip-violet");
       };
-      var consequent_14 = ($$anchor3) => {
+      var consequent_26 = ($$anchor3) => {
         containerCard($$anchor3, item, parentItems, index2, () => "GROUP", () => "chip-mute");
       };
-      var consequent_15 = ($$anchor3) => {
+      var consequent_27 = ($$anchor3) => {
         containerCard($$anchor3, item, parentItems, index2, () => "SECTION", () => "chip-info");
       };
-      if_block(node_29, ($$render) => {
-        if (item().kind === "field") $$render(consequent_11);
-        else if (item().kind === "header") $$render(consequent_12, 1);
-        else if (item().kind === "row") $$render(consequent_13, 2);
-        else if (item().kind === "group") $$render(consequent_14, 3);
-        else if (item().kind === "section") $$render(consequent_15, 4);
+      if_block(node_37, ($$render) => {
+        if (item().kind === "field") $$render(consequent_23);
+        else if (item().kind === "header") $$render(consequent_24, 1);
+        else if (item().kind === "row") $$render(consequent_25, 2);
+        else if (item().kind === "group") $$render(consequent_26, 3);
+        else if (item().kind === "section") $$render(consequent_27, 4);
       });
     }
-    append($$anchor2, fragment_5);
+    append($$anchor2, fragment_10);
   };
   const itemsList = ($$anchor2, items = noop) => {
-    var fragment_11 = root_18();
-    var node_30 = first_child(fragment_11);
-    each(node_30, 19, items, (it) => it._id, ($$anchor3, it, index2) => {
+    var fragment_16 = root_29();
+    var node_38 = first_child(fragment_16);
+    each(node_38, 19, items, (it) => it._id, ($$anchor3, it, index2) => {
       anyItem($$anchor3, () => get(it), items, () => get(index2));
     });
-    var node_31 = sibling(node_30, 2);
-    addMenu(node_31, items);
-    append($$anchor2, fragment_11);
+    var node_39 = sibling(node_38, 2);
+    addMenu(node_39, items);
+    append($$anchor2, fragment_16);
   };
   const containerCard = ($$anchor2, item = noop, parentItems = noop, index2 = noop, chipLabel = noop, chipClass = noop) => {
-    var div_16 = root_25();
+    var div_24 = root_36();
     let classes_2;
-    var div_17 = child(div_16);
-    var span_9 = child(div_17);
-    var node_32 = child(span_9);
-    icon(node_32, () => "grip");
-    reset(span_9);
-    var span_10 = sibling(span_9, 2);
-    var text_10 = child(span_10, true);
-    reset(span_10);
-    var node_33 = sibling(span_10, 2);
+    var div_25 = child(div_24);
+    var span_11 = child(div_25);
+    var node_40 = child(span_11);
+    icon(node_40, () => "grip");
+    reset(span_11);
+    var span_12 = sibling(span_11, 2);
+    var text_15 = child(span_12, true);
+    reset(span_12);
+    var node_41 = sibling(span_12, 2);
     {
-      var consequent_16 = ($$anchor3) => {
-        var input_4 = root_19();
-        remove_input_defaults(input_4);
-        bind_value(input_4, () => item().title, ($$value) => item().title = $$value);
-        append($$anchor3, input_4);
+      var consequent_28 = ($$anchor3) => {
+        var input_8 = root_30();
+        remove_input_defaults(input_8);
+        bind_value(input_8, () => item().title, ($$value) => item().title = $$value);
+        append($$anchor3, input_8);
       };
-      if_block(node_33, ($$render) => {
-        if (item().kind !== "row") $$render(consequent_16);
+      if_block(node_41, ($$render) => {
+        if (item().kind !== "row") $$render(consequent_28);
       });
     }
-    var node_34 = sibling(node_33, 2);
+    var node_42 = sibling(node_41, 2);
     {
-      var consequent_17 = ($$anchor3) => {
-        var button_17 = root_20();
-        var span_11 = child(button_17);
+      var consequent_29 = ($$anchor3) => {
+        var button_17 = root_31();
+        var span_13 = child(button_17);
         let classes_3;
-        var node_35 = child(span_11);
-        icon(node_35, () => "chevron-down");
-        reset(span_11);
+        var node_43 = child(span_13);
+        icon(node_43, () => "chevron-down");
+        reset(span_13);
         reset(button_17);
-        template_effect(() => classes_3 = set_class(span_11, 1, "di-chevron svelte-10v1sym", null, classes_3, { collapsed: item().collapsed }));
+        template_effect(() => classes_3 = set_class(span_13, 1, "di-chevron svelte-10v1sym", null, classes_3, { collapsed: item().collapsed }));
         delegated("click", button_17, () => item().collapsed = !item().collapsed);
         append($$anchor3, button_17);
       };
-      if_block(node_34, ($$render) => {
-        if (item().kind === "section") $$render(consequent_17);
+      if_block(node_42, ($$render) => {
+        if (item().kind === "section") $$render(consequent_29);
       });
     }
-    var node_36 = sibling(node_34, 4);
+    var node_44 = sibling(node_42, 4);
     {
-      var consequent_18 = ($$anchor3) => {
-        var div_18 = root_22();
-        var node_37 = sibling(child(div_18), 2);
-        each(node_37, 16, () => [2, 3, 4], index, ($$anchor4, n) => {
-          var button_18 = root_21();
+      var consequent_30 = ($$anchor3) => {
+        var div_26 = root_33();
+        var node_45 = sibling(child(div_26), 2);
+        each(node_45, 16, () => [2, 3, 4], index, ($$anchor4, n) => {
+          var button_18 = root_32();
           let classes_4;
-          var text_11 = child(button_18, true);
+          var text_16 = child(button_18, true);
           reset(button_18);
           template_effect(() => {
             classes_4 = set_class(button_18, 1, "di-col-btn svelte-10v1sym", null, classes_4, { active: item().columns === n });
             set_attribute2(button_18, "data-columns", n);
-            set_text(text_11, n);
+            set_text(text_16, n);
           });
           delegated("click", button_18, () => item().columns = n);
           append($$anchor4, button_18);
         });
-        reset(div_18);
-        append($$anchor3, div_18);
+        reset(div_26);
+        append($$anchor3, div_26);
       };
-      if_block(node_36, ($$render) => {
-        if (item().kind === "row") $$render(consequent_18);
+      if_block(node_44, ($$render) => {
+        if (item().kind === "row") $$render(consequent_30);
       });
     }
-    var div_19 = sibling(node_36, 2);
-    var node_38 = child(div_19);
+    var div_27 = sibling(node_44, 2);
+    var node_46 = child(div_27);
     {
-      var consequent_19 = ($$anchor3) => {
-        var button_19 = root_23();
-        var node_39 = child(button_19);
-        icon(node_39, () => "more");
+      var consequent_31 = ($$anchor3) => {
+        var button_19 = root_34();
+        var node_47 = child(button_19);
+        icon(node_47, () => "more");
         reset(button_19);
         template_effect(() => set_attribute2(button_19, "title", item().kind === "row" ? "Convert to Group" : "Convert to Row"));
         delegated("click", button_19, () => convertContainer(item()));
         append($$anchor3, button_19);
       };
-      if_block(node_38, ($$render) => {
-        if (item().kind === "row" || item().kind === "group") $$render(consequent_19);
+      if_block(node_46, ($$render) => {
+        if (item().kind === "row" || item().kind === "group") $$render(consequent_31);
       });
     }
-    var button_20 = sibling(node_38, 2);
-    var node_40 = child(button_20);
-    icon(node_40, () => "chevron-up");
+    var button_20 = sibling(node_46, 2);
+    var node_48 = child(button_20);
+    icon(node_48, () => "chevron-up");
     reset(button_20);
     var button_21 = sibling(button_20, 2);
-    var node_41 = child(button_21);
-    icon(node_41, () => "chevron-down");
+    var node_49 = child(button_21);
+    icon(node_49, () => "chevron-down");
     reset(button_21);
-    var node_42 = sibling(button_21, 2);
-    moveToMenu(node_42, item, parentItems, index2);
-    var button_22 = sibling(node_42, 2);
-    var node_43 = child(button_22);
-    icon(node_43, () => "x");
+    var node_50 = sibling(button_21, 2);
+    moveToMenu(node_50, item, parentItems, index2);
+    var button_22 = sibling(node_50, 2);
+    var node_51 = child(button_22);
+    icon(node_51, () => "x");
     reset(button_22);
-    reset(div_19);
-    reset(div_17);
-    var div_20 = sibling(div_17, 2);
-    var node_44 = child(div_20);
+    reset(div_27);
+    reset(div_25);
+    var div_28 = sibling(div_25, 2);
+    var node_52 = child(div_28);
     {
-      var consequent_20 = ($$anchor3) => {
-        var fragment_13 = root_24();
-        var div_21 = first_child(fragment_13);
-        each(div_21, 23, () => item().items, (child2) => child2._id, ($$anchor4, child2, ci) => {
+      var consequent_32 = ($$anchor3) => {
+        var fragment_18 = root_35();
+        var div_29 = first_child(fragment_18);
+        each(div_29, 23, () => item().items, (child2) => child2._id, ($$anchor4, child2, ci) => {
           anyItem($$anchor4, () => get(child2), () => item().items, () => get(ci));
         });
-        reset(div_21);
-        var node_45 = sibling(div_21, 2);
-        addMenu(node_45, () => item().items);
-        template_effect(() => set_style(div_21, `grid-template-columns: repeat(${item().columns}, 1fr)`));
-        append($$anchor3, fragment_13);
+        reset(div_29);
+        var node_53 = sibling(div_29, 2);
+        addMenu(node_53, () => item().items);
+        template_effect(() => set_style(div_29, `grid-template-columns: repeat(${item().columns}, 1fr)`));
+        append($$anchor3, fragment_18);
       };
-      var alternate_1 = ($$anchor3) => {
+      var alternate_3 = ($$anchor3) => {
         itemsList($$anchor3, () => item().items);
       };
-      if_block(node_44, ($$render) => {
-        if (item().kind === "row") $$render(consequent_20);
-        else $$render(alternate_1, -1);
+      if_block(node_52, ($$render) => {
+        if (item().kind === "row") $$render(consequent_32);
+        else $$render(alternate_3, -1);
       });
     }
-    reset(div_20);
-    reset(div_16);
+    reset(div_28);
+    reset(div_24);
     template_effect(() => {
-      classes_2 = set_class(div_16, 1, "di-container svelte-10v1sym", null, classes_2, { collapsed: item().kind === "section" && item().collapsed });
-      set_attribute2(div_16, "data-item-kind", item().kind);
-      set_class(span_10, 1, `chip ${chipClass() ?? ""}`, "svelte-10v1sym");
-      set_text(text_10, chipLabel());
+      classes_2 = set_class(div_24, 1, "di-container svelte-10v1sym", null, classes_2, { collapsed: item().kind === "section" && item().collapsed });
+      set_attribute2(div_24, "data-item-kind", item().kind);
+      set_class(span_12, 1, `chip ${chipClass() ?? ""}`, "svelte-10v1sym");
+      set_text(text_15, chipLabel());
     });
-    event("dragstart", span_9, (e) => handleItemDragStart(e, item()._id));
-    event("dragend", span_9, handleItemDragEnd);
+    event("dragstart", span_11, (e) => handleItemDragStart(e, item()._id));
+    event("dragend", span_11, handleItemDragEnd);
     delegated("click", button_20, () => moveItemAt(parentItems(), index2(), -1));
     delegated("click", button_21, () => moveItemAt(parentItems(), index2(), 1));
     delegated("click", button_22, () => removeItemAt(parentItems(), index2()));
-    append($$anchor2, div_16);
+    append($$anchor2, div_24);
   };
   let pluginId = prop($$props, "pluginId", 7, "comfyui-backend"), plugin = prop($$props, "plugin", 7, null);
   const API_BASE = `/api/plugins/${pluginId()}`;
@@ -7243,6 +7498,10 @@ function ImportWorkflowTab($$anchor, $$props) {
   let loraKeepFixed = state(proxy(/* @__PURE__ */ new Set()));
   let activeTabId = state("generation");
   let fieldTypeOptions = state(proxy([]));
+  let fieldTypeManifest = state(proxy({}));
+  let configListDrafts = state(proxy({}));
+  let configJsonDrafts = state(proxy({}));
+  let configJsonErrors = state(proxy({}));
   let families = state(proxy([]));
   let modelFamily = state("");
   let variant = state("imported");
@@ -7985,6 +8244,20 @@ function ImportWorkflowTab($$anchor, $$props) {
   const INT_FIELD_TYPES = /* @__PURE__ */ new Set(["integer", "stepper", "seed"]);
   const NUMERIC_FIELD_TYPES = /* @__PURE__ */ new Set(["number", "slider"]);
   const BOOL_FIELD_TYPES = /* @__PURE__ */ new Set(["checkbox", "boolean", "gate"]);
+  function configSchemaFor(fieldType) {
+    return get(fieldTypeManifest)[fieldType]?.configuration_schema ?? [];
+  }
+  function seedConfigForType(newType, prevConfig) {
+    const schema = configSchemaFor(newType);
+    if (!schema.length) return null;
+    const prev = prevConfig || {};
+    const next2 = {};
+    for (const spec of schema) {
+      if (prev[spec.name] !== void 0) next2[spec.name] = prev[spec.name];
+      else if (spec.required) next2[spec.name] = spec.default;
+    }
+    return Object.keys(next2).length ? next2 : null;
+  }
   function configForTypeChange(item, newType) {
     if (newType === "lora_picker") {
       const prevName = looksLikeFilename(item.default) ? item.default : null;
@@ -8007,17 +8280,13 @@ function ImportWorkflowTab($$anchor, $$props) {
       const hasOptions = Array.isArray(item.config?.options);
       return {
         default: item.default,
-        config: hasOptions ? item.config : { options: [] }
+        config: hasOptions ? item.config : seedConfigForType(newType, item.config)
       };
     }
     if (newType === "slider" || newType === "number" || newType === "stepper") {
-      const bounds = {};
-      for (const k of ["min", "max", "step"]) {
-        if (item.config && item.config[k] !== void 0) bounds[k] = item.config[k];
-      }
       return {
         default: coerceToNumber(item.default),
-        config: Object.keys(bounds).length ? bounds : null
+        config: seedConfigForType(newType, item.config)
       };
     }
     if (newType === "checkbox") {
@@ -8026,7 +8295,7 @@ function ImportWorkflowTab($$anchor, $$props) {
     const sameFamily = TEXT_FIELD_TYPES.has(newType) ? TEXT_FIELD_TYPES.has(item.field_type) : item.field_type === newType;
     return {
       default: typeof item.default === "string" ? item.default : null,
-      config: sameFamily ? item.config : null
+      config: sameFamily ? item.config : seedConfigForType(newType, item.config)
     };
   }
   function changeFieldType(item, newType) {
@@ -8036,6 +8305,89 @@ function ImportWorkflowTab($$anchor, $$props) {
     item.default = nextDefault;
     item.config = config;
     if (newType !== "resolution") delete item._wh;
+  }
+  function configDraftKey(item, spec) {
+    return `${item._id}::${spec.name}`;
+  }
+  function configValue(item, spec) {
+    const v = item.config?.[spec.name];
+    return v !== void 0 ? v : spec.default;
+  }
+  function setConfigValue(item, name, value) {
+    if (!item.config) item.config = {};
+    item.config[name] = value;
+  }
+  function clearConfigValue(item, name) {
+    if (item.config) delete item.config[name];
+  }
+  function onNumberConfigInput(item, spec, raw) {
+    const trimmed = raw.trim();
+    if (trimmed === "") {
+      clearConfigValue(item, spec.name);
+      return;
+    }
+    const n = Number(trimmed);
+    if (!Number.isFinite(n)) return;
+    setConfigValue(item, spec.name, spec.param_type === "int" ? Math.trunc(n) : n);
+  }
+  function onTextConfigInput(item, spec, raw) {
+    if (raw === "") {
+      clearConfigValue(item, spec.name);
+      return;
+    }
+    setConfigValue(item, spec.name, raw);
+  }
+  function isOptionObjectList(sample) {
+    return Array.isArray(sample) && sample.length > 0 && sample.every((x) => x && typeof x === "object" && ("value" in x || "label" in x));
+  }
+  function listControlKind(item, spec) {
+    const v = configValue(item, spec);
+    if (typeof v === "string") return "text";
+    const sample = Array.isArray(v) && v.length ? v : Array.isArray(spec.example) ? spec.example : null;
+    if (!sample) return "lines";
+    if (isOptionObjectList(sample)) return "option-lines";
+    if (sample.some((x) => x !== null && typeof x === "object")) return "json";
+    return "lines";
+  }
+  function listDraftFor(item, spec) {
+    const key2 = configDraftKey(item, spec);
+    if (get(configListDrafts)[key2] !== void 0) return get(configListDrafts)[key2];
+    const v = configValue(item, spec);
+    const arr = Array.isArray(v) ? v : [];
+    return arr.map((x) => x && typeof x === "object" ? String(x.value ?? x.label ?? "") : String(x)).join("\n");
+  }
+  function onListDraftInput(item, spec, raw, kind) {
+    const key2 = configDraftKey(item, spec);
+    get(configListDrafts)[key2] = raw;
+    const lines = raw.split("\n").map((l) => l.trim()).filter(Boolean);
+    if (lines.length === 0) {
+      clearConfigValue(item, spec.name);
+      return;
+    }
+    setConfigValue(item, spec.name, kind === "option-lines" ? lines.map((l) => ({ label: l, value: l })) : lines);
+  }
+  function jsonDraftFor(item, spec) {
+    const key2 = configDraftKey(item, spec);
+    if (get(configJsonDrafts)[key2] !== void 0) return get(configJsonDrafts)[key2];
+    const v = configValue(item, spec);
+    return v === void 0 || v === null ? "" : JSON.stringify(v, null, 2);
+  }
+  function onJsonDraftInput(item, spec, raw) {
+    const key2 = configDraftKey(item, spec);
+    get(configJsonDrafts)[key2] = raw;
+    const trimmed = raw.trim();
+    if (trimmed === "") {
+      get(configJsonErrors)[key2] = "";
+      clearConfigValue(item, spec.name);
+      return;
+    }
+    try {
+      const parsed = JSON.parse(trimmed);
+      get(configJsonErrors)[key2] = "";
+      setConfigValue(item, spec.name, parsed);
+    } catch (e) {
+      get(configJsonErrors)[key2] = "Invalid JSON";
+    }
   }
   function displayDefault(item) {
     if (item._wh) return `${item._wh.width ?? ""} \xD7 ${item._wh.height ?? ""}`;
@@ -8167,14 +8519,9 @@ function ImportWorkflowTab($$anchor, $$props) {
         const res = await fetch("/api/fields/types", { credentials: "include", headers: authHeaders() });
         if (res.ok) {
           const payload = await res.json();
-          const list = payload?.data ?? [];
-          set(
-            fieldTypeOptions,
-            [
-              ...new Set(list.filter((t) => !t.container).map((t) => t.type))
-            ].sort(),
-            true
-          );
+          const list = (payload?.data ?? []).filter((t) => !t.container);
+          set(fieldTypeOptions, [...new Set(list.map((t) => t.type))].sort(), true);
+          set(fieldTypeManifest, Object.fromEntries(list.map((t) => [t.type, t])), true);
         }
       } catch (e) {
       }
@@ -8421,546 +8768,529 @@ function ImportWorkflowTab($$anchor, $$props) {
     $set: update_legacy_props,
     $on: ($$event_name, $$event_cb) => add_legacy_event_listener($$props, $$event_name, $$event_cb)
   };
-  var fragment_16 = root_82();
-  var div_22 = sibling(first_child(fragment_16), 2);
-  var div_23 = child(div_22);
-  var div_24 = child(div_23);
-  var div_25 = child(div_24);
-  var node_46 = child(div_25);
-  stepDot(node_46, () => 1);
-  reset(div_25);
-  var div_26 = sibling(div_25, 2);
-  var node_47 = sibling(child(div_26), 2);
-  {
-    var consequent_21 = ($$anchor2) => {
-      var div_27 = root_26();
-      var text_12 = child(div_27);
-      reset(div_27);
-      template_effect(() => set_text(text_12, `export (api) \xB7 ${get(analysis).node_count ?? ""} nodes`));
-      append($$anchor2, div_27);
-    };
-    if_block(node_47, ($$render) => {
-      if (get(analysis)) $$render(consequent_21);
-    });
-  }
-  reset(div_26);
-  reset(div_24);
-  var div_28 = sibling(div_24, 2);
-  var div_29 = child(div_28);
-  var node_48 = child(div_29);
-  stepDot(node_48, () => 2);
-  reset(div_29);
-  var div_30 = sibling(div_29, 2);
-  var div_31 = sibling(child(div_30), 2);
-  var text_13 = child(div_31, true);
-  reset(div_31);
-  reset(div_30);
-  reset(div_28);
-  var div_32 = sibling(div_28, 2);
+  var fragment_21 = root_93();
+  var div_30 = sibling(first_child(fragment_21), 2);
+  var div_31 = child(div_30);
+  var div_32 = child(div_31);
   var div_33 = child(div_32);
-  var node_49 = child(div_33);
-  stepDot(node_49, () => 3);
+  var node_54 = child(div_33);
+  stepDot(node_54, () => 1);
   reset(div_33);
   var div_34 = sibling(div_33, 2);
-  var node_50 = sibling(child(div_34), 2);
+  var node_55 = sibling(child(div_34), 2);
   {
-    var consequent_22 = ($$anchor2) => {
-      var div_35 = root_26();
-      var text_14 = child(div_35);
+    var consequent_33 = ($$anchor2) => {
+      var div_35 = root_37();
+      var text_17 = child(div_35);
       reset(div_35);
-      template_effect(() => set_text(text_14, `${get(enabledHistoryCount) ?? ""} recorded${get(offHistoryCount) > 0 ? ` \xB7 ${get(offHistoryCount)} off` : ""}`));
+      template_effect(() => set_text(text_17, `export (api) \xB7 ${get(analysis).node_count ?? ""} nodes`));
       append($$anchor2, div_35);
     };
-    if_block(node_50, ($$render) => {
-      if (get(historyBuilt)) $$render(consequent_22);
+    if_block(node_55, ($$render) => {
+      if (get(analysis)) $$render(consequent_33);
     });
   }
   reset(div_34);
   reset(div_32);
   var div_36 = sibling(div_32, 2);
   var div_37 = child(div_36);
-  var node_51 = child(div_37);
-  stepDot(node_51, () => 4);
+  var node_56 = child(div_37);
+  stepDot(node_56, () => 2);
   reset(div_37);
   var div_38 = sibling(div_37, 2);
-  var node_52 = sibling(child(div_38), 2);
-  {
-    var consequent_23 = ($$anchor2) => {
-      var div_39 = root_27();
-      append($$anchor2, div_39);
-    };
-    var consequent_24 = ($$anchor2) => {
-      var div_40 = root_26();
-      var text_15 = child(div_40);
-      reset(div_40);
-      template_effect(() => set_text(text_15, `${get(requirementsOkCount) ?? ""} ok \xB7 ${get(requirementsMissingCount) ?? ""} missing`));
-      append($$anchor2, div_40);
-    };
-    if_block(node_52, ($$render) => {
-      if (get(requirementsLoading)) $$render(consequent_23);
-      else if (get(requirementsResults)) $$render(consequent_24, 1);
-    });
-  }
+  var div_39 = sibling(child(div_38), 2);
+  var text_18 = child(div_39, true);
+  reset(div_39);
   reset(div_38);
   reset(div_36);
-  var div_41 = sibling(div_36, 2);
-  var div_42 = child(div_41);
-  var node_53 = child(div_42);
-  stepDot(node_53, () => 5);
-  reset(div_42);
-  next(2);
+  var div_40 = sibling(div_36, 2);
+  var div_41 = child(div_40);
+  var node_57 = child(div_41);
+  stepDot(node_57, () => 3);
   reset(div_41);
-  reset(div_23);
-  var div_43 = sibling(div_23, 2);
-  var div_44 = child(div_43);
-  var node_54 = child(div_44);
+  var div_42 = sibling(div_41, 2);
+  var node_58 = sibling(child(div_42), 2);
   {
-    var consequent_25 = ($$anchor2) => {
-      var div_45 = root_28();
-      var strong = sibling(child(div_45));
-      var text_16 = child(strong, true);
-      reset(strong);
-      next();
-      reset(div_45);
-      template_effect(() => set_text(text_16, get(displayName) || "this preset"));
-      append($$anchor2, div_45);
+    var consequent_34 = ($$anchor2) => {
+      var div_43 = root_37();
+      var text_19 = child(div_43);
+      reset(div_43);
+      template_effect(() => set_text(text_19, `${get(enabledHistoryCount) ?? ""} recorded${get(offHistoryCount) > 0 ? ` \xB7 ${get(offHistoryCount)} off` : ""}`));
+      append($$anchor2, div_43);
     };
-    if_block(node_54, ($$render) => {
-      if (get(editPresetId)) $$render(consequent_25);
+    if_block(node_58, ($$render) => {
+      if (get(historyBuilt)) $$render(consequent_34);
     });
   }
-  var node_55 = sibling(node_54, 2);
+  reset(div_42);
+  reset(div_40);
+  var div_44 = sibling(div_40, 2);
+  var div_45 = child(div_44);
+  var node_59 = child(div_45);
+  stepDot(node_59, () => 4);
+  reset(div_45);
+  var div_46 = sibling(div_45, 2);
+  var node_60 = sibling(child(div_46), 2);
   {
-    var consequent_30 = ($$anchor2) => {
-      var fragment_17 = root_33();
-      var node_56 = sibling(first_child(fragment_17), 2);
+    var consequent_35 = ($$anchor2) => {
+      var div_47 = root_38();
+      append($$anchor2, div_47);
+    };
+    var consequent_36 = ($$anchor2) => {
+      var div_48 = root_37();
+      var text_20 = child(div_48);
+      reset(div_48);
+      template_effect(() => set_text(text_20, `${get(requirementsOkCount) ?? ""} ok \xB7 ${get(requirementsMissingCount) ?? ""} missing`));
+      append($$anchor2, div_48);
+    };
+    if_block(node_60, ($$render) => {
+      if (get(requirementsLoading)) $$render(consequent_35);
+      else if (get(requirementsResults)) $$render(consequent_36, 1);
+    });
+  }
+  reset(div_46);
+  reset(div_44);
+  var div_49 = sibling(div_44, 2);
+  var div_50 = child(div_49);
+  var node_61 = child(div_50);
+  stepDot(node_61, () => 5);
+  reset(div_50);
+  next(2);
+  reset(div_49);
+  reset(div_31);
+  var div_51 = sibling(div_31, 2);
+  var div_52 = child(div_51);
+  var node_62 = child(div_52);
+  {
+    var consequent_37 = ($$anchor2) => {
+      var div_53 = root_39();
+      var strong = sibling(child(div_53));
+      var text_21 = child(strong, true);
+      reset(strong);
+      next();
+      reset(div_53);
+      template_effect(() => set_text(text_21, get(displayName) || "this preset"));
+      append($$anchor2, div_53);
+    };
+    if_block(node_62, ($$render) => {
+      if (get(editPresetId)) $$render(consequent_37);
+    });
+  }
+  var node_63 = sibling(node_62, 2);
+  {
+    var consequent_42 = ($$anchor2) => {
+      var fragment_22 = root_44();
+      var node_64 = sibling(first_child(fragment_22), 2);
       {
-        var consequent_26 = ($$anchor3) => {
-          var div_46 = root_29();
-          append($$anchor3, div_46);
+        var consequent_38 = ($$anchor3) => {
+          var div_54 = root_40();
+          append($$anchor3, div_54);
         };
-        var consequent_28 = ($$anchor3) => {
-          var fragment_18 = root_31();
-          var div_47 = sibling(first_child(fragment_18), 2);
-          var span_12 = child(div_47);
-          var text_17 = child(span_12, true);
-          reset(span_12);
-          var span_13 = sibling(span_12, 4);
-          var text_18 = child(span_13);
-          reset(span_13);
-          var button_23 = sibling(span_13, 6);
-          reset(div_47);
-          var node_57 = sibling(div_47, 2);
+        var consequent_40 = ($$anchor3) => {
+          var fragment_23 = root_42();
+          var div_55 = sibling(first_child(fragment_23), 2);
+          var span_14 = child(div_55);
+          var text_22 = child(span_14, true);
+          reset(span_14);
+          var span_15 = sibling(span_14, 4);
+          var text_23 = child(span_15);
+          reset(span_15);
+          var button_23 = sibling(span_15, 6);
+          reset(div_55);
+          var node_65 = sibling(div_55, 2);
           {
-            var consequent_27 = ($$anchor4) => {
-              var p = root_30();
-              var text_19 = child(p, true);
+            var consequent_39 = ($$anchor4) => {
+              var p = root_41();
+              var text_24 = child(p, true);
               reset(p);
-              template_effect(() => set_text(text_19, get(analyzeError)));
+              template_effect(() => set_text(text_24, get(analyzeError)));
               append($$anchor4, p);
             };
-            if_block(node_57, ($$render) => {
-              if (get(analyzeError)) $$render(consequent_27);
+            if_block(node_65, ($$render) => {
+              if (get(analyzeError)) $$render(consequent_39);
             });
           }
           template_effect(() => {
-            set_text(text_17, get(analysis).format);
-            set_text(text_18, `${get(analysis).node_count ?? ""} nodes`);
+            set_text(text_22, get(analysis).format);
+            set_text(text_23, `${get(analysis).node_count ?? ""} nodes`);
           });
           delegated("click", button_23, changeWorkflow);
-          append($$anchor3, fragment_18);
+          append($$anchor3, fragment_23);
         };
-        var alternate_2 = ($$anchor3) => {
-          var fragment_19 = root_32();
-          var div_48 = sibling(first_child(fragment_19), 2);
+        var alternate_4 = ($$anchor3) => {
+          var fragment_24 = root_43();
+          var div_56 = sibling(first_child(fragment_24), 2);
           let classes_5;
-          var textarea = child(div_48);
-          remove_textarea_child(textarea);
-          set_attribute2(textarea, "placeholder", '{\n  "3": { "class_type": "KSampler", "inputs": { ... } },\n  ...\n}');
-          var div_49 = sibling(textarea, 2);
-          var button_24 = sibling(child(div_49), 2);
-          var input_5 = sibling(button_24, 2);
-          bind_this(input_5, ($$value) => set(fileInputEl, $$value), () => get(fileInputEl));
-          reset(div_49);
-          reset(div_48);
-          var node_58 = sibling(div_48, 2);
+          var textarea_3 = child(div_56);
+          remove_textarea_child(textarea_3);
+          set_attribute2(textarea_3, "placeholder", '{\n  "3": { "class_type": "KSampler", "inputs": { ... } },\n  ...\n}');
+          var div_57 = sibling(textarea_3, 2);
+          var button_24 = sibling(child(div_57), 2);
+          var input_9 = sibling(button_24, 2);
+          bind_this(input_9, ($$value) => set(fileInputEl, $$value), () => get(fileInputEl));
+          reset(div_57);
+          reset(div_56);
+          var node_66 = sibling(div_56, 2);
           {
-            var consequent_29 = ($$anchor4) => {
-              var p_1 = root_30();
-              var text_20 = child(p_1, true);
+            var consequent_41 = ($$anchor4) => {
+              var p_1 = root_41();
+              var text_25 = child(p_1, true);
               reset(p_1);
-              template_effect(() => set_text(text_20, get(analyzeError)));
+              template_effect(() => set_text(text_25, get(analyzeError)));
               append($$anchor4, p_1);
             };
-            if_block(node_58, ($$render) => {
-              if (get(analyzeError)) $$render(consequent_29);
+            if_block(node_66, ($$render) => {
+              if (get(analyzeError)) $$render(consequent_41);
             });
           }
-          template_effect(() => classes_5 = set_class(div_48, 1, "dropzone svelte-10v1sym", null, classes_5, { dragover: get(dragOver) }));
-          event("drop", div_48, handleDrop);
-          event("dragover", div_48, handleDragOver);
-          event("dragleave", div_48, handleDragLeave);
-          delegated("input", textarea, () => set(analyzeError, ""));
-          bind_value(textarea, () => get(rawText), ($$value) => set(rawText, $$value));
+          template_effect(() => classes_5 = set_class(div_56, 1, "dropzone svelte-10v1sym", null, classes_5, { dragover: get(dragOver) }));
+          event("drop", div_56, handleDrop);
+          event("dragover", div_56, handleDragOver);
+          event("dragleave", div_56, handleDragLeave);
+          delegated("input", textarea_3, () => set(analyzeError, ""));
+          bind_value(textarea_3, () => get(rawText), ($$value) => set(rawText, $$value));
           delegated("click", button_24, () => get(fileInputEl)?.click());
-          delegated("change", input_5, handleFileInput);
-          append($$anchor3, fragment_19);
+          delegated("change", input_9, handleFileInput);
+          append($$anchor3, fragment_24);
         };
-        if_block(node_56, ($$render) => {
-          if (get(editLoading)) $$render(consequent_26);
-          else if (get(editPresetId) && get(analysis)) $$render(consequent_28, 1);
-          else $$render(alternate_2, -1);
+        if_block(node_64, ($$render) => {
+          if (get(editLoading)) $$render(consequent_38);
+          else if (get(editPresetId) && get(analysis)) $$render(consequent_40, 1);
+          else $$render(alternate_4, -1);
         });
       }
-      append($$anchor2, fragment_17);
+      append($$anchor2, fragment_22);
     };
-    var consequent_47 = ($$anchor2) => {
-      var fragment_20 = root_54();
-      var div_50 = sibling(first_child(fragment_20), 4);
-      var span_14 = child(div_50);
-      var text_21 = child(span_14, true);
-      reset(span_14);
-      var span_15 = sibling(span_14, 4);
-      var text_22 = child(span_15);
-      reset(span_15);
-      var node_59 = sibling(span_15, 2);
-      {
-        var consequent_31 = ($$anchor3) => {
-          var fragment_21 = root_34();
-          next(2);
-          append($$anchor3, fragment_21);
-        };
-        if_block(node_59, ($$render) => {
-          if (get(analysis).object_info_used) $$render(consequent_31);
-        });
-      }
-      var node_60 = sibling(node_59, 2);
-      {
-        var consequent_32 = ($$anchor3) => {
-          var fragment_22 = root_35();
-          next(2);
-          append($$anchor3, fragment_22);
-        };
-        if_block(node_60, ($$render) => {
-          if (get(analysis).lora_chain) $$render(consequent_32);
-        });
-      }
-      var span_16 = sibling(node_60, 2);
-      var node_61 = child(span_16);
-      {
-        var consequent_33 = ($$anchor3) => {
-          var span_17 = root_36();
-          append($$anchor3, span_17);
-        };
-        if_block(node_61, ($$render) => {
-          if (typeof window !== "undefined" && window.__potionui?.chat) $$render(consequent_33);
-        });
-      }
-      var button_25 = sibling(node_61, 2);
+    var consequent_59 = ($$anchor2) => {
+      var fragment_25 = root_65();
+      var div_58 = sibling(first_child(fragment_25), 4);
+      var span_16 = child(div_58);
+      var text_26 = child(span_16, true);
       reset(span_16);
-      reset(div_50);
-      var div_51 = sibling(div_50, 2);
-      var div_52 = child(div_51);
-      var node_62 = sibling(child(div_52), 2);
+      var span_17 = sibling(span_16, 4);
+      var text_27 = child(span_17);
+      reset(span_17);
+      var node_67 = sibling(span_17, 2);
       {
-        var consequent_37 = ($$anchor3) => {
-          var div_53 = root_41();
-          var node_63 = sibling(child(div_53), 2);
-          each(node_63, 17, () => get(loraChainNodes), (n) => n.node_id, ($$anchor4, n) => {
+        var consequent_43 = ($$anchor3) => {
+          var fragment_26 = root_45();
+          next(2);
+          append($$anchor3, fragment_26);
+        };
+        if_block(node_67, ($$render) => {
+          if (get(analysis).object_info_used) $$render(consequent_43);
+        });
+      }
+      var node_68 = sibling(node_67, 2);
+      {
+        var consequent_44 = ($$anchor3) => {
+          var fragment_27 = root_46();
+          next(2);
+          append($$anchor3, fragment_27);
+        };
+        if_block(node_68, ($$render) => {
+          if (get(analysis).lora_chain) $$render(consequent_44);
+        });
+      }
+      var span_18 = sibling(node_68, 2);
+      var node_69 = child(span_18);
+      {
+        var consequent_45 = ($$anchor3) => {
+          var span_19 = root_47();
+          append($$anchor3, span_19);
+        };
+        if_block(node_69, ($$render) => {
+          if (typeof window !== "undefined" && window.__potionui?.chat) $$render(consequent_45);
+        });
+      }
+      var button_25 = sibling(node_69, 2);
+      reset(span_18);
+      reset(div_58);
+      var div_59 = sibling(div_58, 2);
+      var div_60 = child(div_59);
+      var node_70 = sibling(child(div_60), 2);
+      {
+        var consequent_49 = ($$anchor3) => {
+          var div_61 = root_52();
+          var node_71 = sibling(child(div_61), 2);
+          each(node_71, 17, () => get(loraChainNodes), (n) => n.node_id, ($$anchor4, n) => {
             const isKept = user_derived(() => get(loraConverted) ? get(loraKeptIds).has(get(n).node_id) : get(loraKeepFixed).has(get(n).node_id));
             const isReplaced = user_derived(() => get(loraConverted) && get(loraReplacedIds).has(get(n).node_id));
-            var div_54 = root_38();
-            var span_18 = child(div_54);
-            var text_23 = child(span_18, true);
-            reset(span_18);
-            var span_19 = sibling(span_18, 2);
-            var text_24 = child(span_19, true);
-            reset(span_19);
-            var span_20 = sibling(span_19, 2);
-            var text_25 = child(span_20, true);
+            var div_62 = root_49();
+            var span_20 = child(div_62);
+            var text_28 = child(span_20, true);
             reset(span_20);
-            var node_64 = sibling(span_20, 2);
+            var span_21 = sibling(span_20, 2);
+            var text_29 = child(span_21, true);
+            reset(span_21);
+            var span_22 = sibling(span_21, 2);
+            var text_30 = child(span_22, true);
+            reset(span_22);
+            var node_72 = sibling(span_22, 2);
             {
-              var consequent_34 = ($$anchor5) => {
-                var span_21 = root_37();
-                append($$anchor5, span_21);
+              var consequent_46 = ($$anchor5) => {
+                var span_23 = root_48();
+                append($$anchor5, span_23);
               };
-              if_block(node_64, ($$render) => {
-                if (get(isReplaced)) $$render(consequent_34);
+              if_block(node_72, ($$render) => {
+                if (get(isReplaced)) $$render(consequent_46);
               });
             }
-            var div_55 = sibling(node_64, 2);
-            var button_26 = child(div_55);
+            var div_63 = sibling(node_72, 2);
+            var button_26 = child(div_63);
             let classes_6;
-            var node_65 = child(button_26);
-            icon(node_65, () => "lock", () => 13);
+            var node_73 = child(button_26);
+            icon(node_73, () => "lock", () => 13);
             reset(button_26);
-            reset(div_55);
-            reset(div_54);
+            reset(div_63);
+            reset(div_62);
             template_effect(() => {
-              set_attribute2(div_54, "data-lora-chain-node", get(n).node_id);
-              set_text(text_23, get(n).node_id);
-              set_text(text_24, get(n).lora_name);
-              set_text(text_25, get(n).strength_model);
+              set_attribute2(div_62, "data-lora-chain-node", get(n).node_id);
+              set_text(text_28, get(n).node_id);
+              set_text(text_29, get(n).lora_name);
+              set_text(text_30, get(n).strength_model);
               classes_6 = set_class(button_26, 1, "iconbtn svelte-10v1sym", null, classes_6, { active: get(isKept) });
               set_attribute2(button_26, "title", get(isKept) ? "Keep fixed (won\u2019t become part of the picker)" : "Keep fixed");
               button_26.disabled = get(loraConverted);
             });
             delegated("click", button_26, () => toggleLoraKeepFixed(get(n).node_id));
-            append($$anchor4, div_54);
+            append($$anchor4, div_62);
           });
-          var node_66 = sibling(node_63, 2);
+          var node_74 = sibling(node_71, 2);
           {
-            var consequent_35 = ($$anchor4) => {
-              var p_2 = root_39();
-              var text_26 = child(p_2);
+            var consequent_47 = ($$anchor4) => {
+              var p_2 = root_50();
+              var text_31 = child(p_2);
               reset(p_2);
-              template_effect(() => set_text(text_26, `Kept LoRA node ${get(loraSandwichError).nodeId ?? ""} sits between replaced nodes ${get(loraSandwichError).beforeId ?? ""} and ${get(loraSandwichError).afterId ?? ""};
+              template_effect(() => set_text(text_31, `Kept LoRA node ${get(loraSandwichError).nodeId ?? ""} sits between replaced nodes ${get(loraSandwichError).beforeId ?? ""} and ${get(loraSandwichError).afterId ?? ""};
 										keep all LoRAs above it fixed too, or replace it.`));
               append($$anchor4, p_2);
             };
-            if_block(node_66, ($$render) => {
-              if (get(loraSandwichError)) $$render(consequent_35);
+            if_block(node_74, ($$render) => {
+              if (get(loraSandwichError)) $$render(consequent_47);
             });
           }
-          var node_67 = sibling(node_66, 2);
+          var node_75 = sibling(node_74, 2);
           {
-            var consequent_36 = ($$anchor4) => {
-              var p_3 = root_40();
+            var consequent_48 = ($$anchor4) => {
+              var p_3 = root_51();
               append($$anchor4, p_3);
             };
-            if_block(node_67, ($$render) => {
-              if (get(loraAllKept)) $$render(consequent_36);
+            if_block(node_75, ($$render) => {
+              if (get(loraAllKept)) $$render(consequent_48);
             });
           }
-          var div_56 = sibling(node_67, 2);
-          var button_27 = child(div_56);
-          var text_27 = child(button_27, true);
+          var div_64 = sibling(node_75, 2);
+          var button_27 = child(div_64);
+          var text_32 = child(button_27, true);
           reset(button_27);
-          reset(div_56);
-          reset(div_53);
+          reset(div_64);
+          reset(div_61);
           template_effect(() => {
             button_27.disabled = get(loraConverted) || !!get(loraSandwichError);
-            set_text(text_27, get(loraConverted) ? "Converted to LoRA picker" : "Convert to LoRA picker");
+            set_text(text_32, get(loraConverted) ? "Converted to LoRA picker" : "Convert to LoRA picker");
           });
           delegated("click", button_27, convertLoraChainToPicker);
-          append($$anchor3, div_53);
+          append($$anchor3, div_61);
         };
-        var consequent_38 = ($$anchor3) => {
-          var div_57 = root_42();
-          var p_4 = sibling(child(div_57), 4);
-          var text_28 = child(p_4);
+        var consequent_50 = ($$anchor3) => {
+          var div_65 = root_53();
+          var p_4 = sibling(child(div_65), 4);
+          var text_33 = child(p_4);
           reset(p_4);
-          var div_58 = sibling(p_4, 2);
-          var button_28 = child(div_58);
-          var text_29 = child(button_28, true);
+          var div_66 = sibling(p_4, 2);
+          var button_28 = child(div_66);
+          var text_34 = child(button_28, true);
           reset(button_28);
-          reset(div_58);
-          reset(div_57);
+          reset(div_66);
+          reset(div_65);
           template_effect(() => {
-            set_text(text_28, `Inserted before ${get(modelChainInsertionLabel) ?? ""}`);
+            set_text(text_33, `Inserted before ${get(modelChainInsertionLabel) ?? ""}`);
             button_28.disabled = get(loraConverted);
-            set_text(text_29, get(loraConverted) ? "Added LoRA picker" : "Add LoRA picker");
+            set_text(text_34, get(loraConverted) ? "Added LoRA picker" : "Add LoRA picker");
           });
           delegated("click", button_28, addLoraPickerNoChain);
-          append($$anchor3, div_57);
+          append($$anchor3, div_65);
         };
-        if_block(node_62, ($$render) => {
-          if (get(loraChainNodes).length) $$render(consequent_37);
-          else if (get(modelChainInfo)) $$render(consequent_38, 1);
+        if_block(node_70, ($$render) => {
+          if (get(loraChainNodes).length) $$render(consequent_49);
+          else if (get(modelChainInfo)) $$render(consequent_50, 1);
         });
       }
-      var div_59 = sibling(node_62, 2);
-      var input_6 = child(div_59);
-      remove_input_defaults(input_6);
-      reset(div_59);
-      var node_68 = sibling(div_59, 2);
-      each(node_68, 17, () => get(leftGroups), (g) => g.node_id, ($$anchor3, g) => {
-        var fragment_23 = root_48();
-        var div_60 = first_child(fragment_23);
-        var text_30 = child(div_60);
-        var span_22 = sibling(text_30);
-        var text_31 = child(span_22, true);
-        reset(span_22);
-        reset(div_60);
-        var node_69 = sibling(div_60, 2);
-        each(node_69, 17, () => get(g).rows, (c) => candidateKey(c), ($$anchor4, c) => {
+      var div_67 = sibling(node_70, 2);
+      var input_10 = child(div_67);
+      remove_input_defaults(input_10);
+      reset(div_67);
+      var node_76 = sibling(div_67, 2);
+      each(node_76, 17, () => get(leftGroups), (g) => g.node_id, ($$anchor3, g) => {
+        var fragment_28 = root_59();
+        var div_68 = first_child(fragment_28);
+        var text_35 = child(div_68);
+        var span_24 = sibling(text_35);
+        var text_36 = child(span_24, true);
+        reset(span_24);
+        reset(div_68);
+        var node_77 = sibling(div_68, 2);
+        each(node_77, 17, () => get(g).rows, (c) => candidateKey(c), ($$anchor4, c) => {
           const key2 = user_derived(() => candidateKey(get(c)));
           const locked = user_derived(() => isLockedCandidate(get(c)));
           const mappedField = user_derived(() => get(mappedFieldByKey).get(get(key2)));
-          var div_61 = root_47();
+          var div_69 = root_58();
           let classes_7;
-          var span_23 = child(div_61);
-          var text_32 = child(span_23, true);
-          reset(span_23);
-          var node_70 = sibling(span_23, 2);
+          var span_25 = child(div_69);
+          var text_37 = child(span_25, true);
+          reset(span_25);
+          var node_78 = sibling(span_25, 2);
           {
-            var consequent_39 = ($$anchor5) => {
-              var span_24 = root_43();
-              var node_71 = child(span_24);
-              icon(node_71, () => "lock", () => 10);
+            var consequent_51 = ($$anchor5) => {
+              var span_26 = root_54();
+              var node_79 = child(span_26);
+              icon(node_79, () => "lock", () => 10);
               next();
-              reset(span_24);
-              append($$anchor5, span_24);
-            };
-            var consequent_40 = ($$anchor5) => {
-              var span_25 = root_44();
-              var text_33 = child(span_25, true);
-              reset(span_25);
-              template_effect(() => set_text(text_33, get(mappedField).label));
-              append($$anchor5, span_25);
-            };
-            var alternate_3 = ($$anchor5) => {
-              var fragment_24 = root_45();
-              var span_26 = first_child(fragment_24);
-              var text_34 = child(span_26, true);
               reset(span_26);
-              var span_27 = sibling(span_26, 2);
-              var text_35 = child(span_27, true);
+              append($$anchor5, span_26);
+            };
+            var consequent_52 = ($$anchor5) => {
+              var span_27 = root_55();
+              var text_38 = child(span_27, true);
               reset(span_27);
+              template_effect(() => set_text(text_38, get(mappedField).label));
+              append($$anchor5, span_27);
+            };
+            var alternate_5 = ($$anchor5) => {
+              var fragment_29 = root_56();
+              var span_28 = first_child(fragment_29);
+              var text_39 = child(span_28, true);
+              reset(span_28);
+              var span_29 = sibling(span_28, 2);
+              var text_40 = child(span_29, true);
+              reset(span_29);
               template_effect(
                 ($0, $1) => {
-                  set_text(text_34, $0);
-                  set_text(text_35, $1);
+                  set_text(text_39, $0);
+                  set_text(text_40, $1);
                 },
                 [
                   () => String(get(c).current_value),
                   () => (get(c).value_type || get(c).suggested_field_type || "").toUpperCase()
                 ]
               );
-              append($$anchor5, fragment_24);
+              append($$anchor5, fragment_29);
             };
-            if_block(node_70, ($$render) => {
-              if (get(locked)) $$render(consequent_39);
-              else if (get(mappedField)) $$render(consequent_40, 1);
-              else $$render(alternate_3, -1);
+            if_block(node_78, ($$render) => {
+              if (get(locked)) $$render(consequent_51);
+              else if (get(mappedField)) $$render(consequent_52, 1);
+              else $$render(alternate_5, -1);
             });
           }
-          var div_62 = sibling(node_70, 2);
-          var node_72 = child(div_62);
+          var div_70 = sibling(node_78, 2);
+          var node_80 = child(div_70);
           {
-            var consequent_41 = ($$anchor5) => {
+            var consequent_53 = ($$anchor5) => {
               icon($$anchor5, () => "check", () => 13);
             };
-            var consequent_42 = ($$anchor5) => {
-              var button_29 = root_46();
-              var node_73 = child(button_29);
-              icon(node_73, () => "arrow-right", () => 13);
+            var consequent_54 = ($$anchor5) => {
+              var button_29 = root_57();
+              var node_81 = child(button_29);
+              icon(node_81, () => "arrow-right", () => 13);
               reset(button_29);
               delegated("click", button_29, () => addCandidateToForm(get(c)));
               append($$anchor5, button_29);
             };
-            if_block(node_72, ($$render) => {
-              if (get(mappedField)) $$render(consequent_41);
-              else if (!get(locked)) $$render(consequent_42, 1);
+            if_block(node_80, ($$render) => {
+              if (get(mappedField)) $$render(consequent_53);
+              else if (!get(locked)) $$render(consequent_54, 1);
             });
           }
-          reset(div_62);
-          reset(div_61);
+          reset(div_70);
+          reset(div_69);
           template_effect(() => {
-            classes_7 = set_class(div_61, 1, "di-row svelte-10v1sym", null, classes_7, { locked: get(locked), mapped: !!get(mappedField) });
-            set_attribute2(div_61, "data-input-key", get(key2));
-            set_text(text_32, get(c).input_name);
+            classes_7 = set_class(div_69, 1, "di-row svelte-10v1sym", null, classes_7, { locked: get(locked), mapped: !!get(mappedField) });
+            set_attribute2(div_69, "data-input-key", get(key2));
+            set_text(text_37, get(c).input_name);
           });
-          append($$anchor4, div_61);
+          append($$anchor4, div_69);
         });
         template_effect(() => {
-          set_text(text_30, `${get(g).node_title ?? ""} `);
-          set_text(text_31, get(g).class_type);
+          set_text(text_35, `${get(g).node_title ?? ""} `);
+          set_text(text_36, get(g).class_type);
         });
-        append($$anchor3, fragment_23);
+        append($$anchor3, fragment_28);
       });
-      reset(div_52);
-      var div_63 = sibling(div_52, 2);
-      var div_64 = child(div_63);
-      var node_74 = child(div_64);
-      each(node_74, 19, () => get(form).tabs, (tab) => tab.id, ($$anchor3, tab, ti) => {
-        var span_28 = root_51();
+      reset(div_60);
+      var div_71 = sibling(div_60, 2);
+      var div_72 = child(div_71);
+      var node_82 = child(div_72);
+      each(node_82, 19, () => get(form).tabs, (tab) => tab.id, ($$anchor3, tab, ti) => {
+        var span_30 = root_62();
         let classes_8;
-        var node_75 = child(span_28);
+        var node_83 = child(span_30);
         {
-          var consequent_43 = ($$anchor4) => {
+          var consequent_55 = ($$anchor4) => {
             tabIcon($$anchor4, () => get(tab).icon);
           };
-          if_block(node_75, ($$render) => {
-            if (get(tab).icon) $$render(consequent_43);
+          if_block(node_83, ($$render) => {
+            if (get(tab).icon) $$render(consequent_55);
           });
         }
-        var node_76 = sibling(node_75, 2);
+        var node_84 = sibling(node_83, 2);
         {
-          var consequent_44 = ($$anchor4) => {
-            var input_7 = root_49();
-            remove_input_defaults(input_7);
-            template_effect(() => set_value(input_7, get(tab).label));
-            delegated("click", input_7, (e) => e.stopPropagation());
-            event("blur", input_7, (e) => {
+          var consequent_56 = ($$anchor4) => {
+            var input_11 = root_60();
+            remove_input_defaults(input_11);
+            template_effect(() => set_value(input_11, get(tab).label));
+            delegated("click", input_11, (e) => e.stopPropagation());
+            event("blur", input_11, (e) => {
               get(tab).label = e.currentTarget.value.trim() || get(tab).label;
               set(renamingTabId, null);
             });
-            delegated("keydown", input_7, (e) => {
+            delegated("keydown", input_11, (e) => {
               if (e.key === "Enter") e.currentTarget.blur();
               if (e.key === "Escape") set(renamingTabId, null);
             });
-            append($$anchor4, input_7);
+            append($$anchor4, input_11);
           };
-          var alternate_4 = ($$anchor4) => {
-            var text_36 = text();
-            template_effect(() => set_text(text_36, get(tab).label));
-            append($$anchor4, text_36);
+          var alternate_6 = ($$anchor4) => {
+            var text_41 = text();
+            template_effect(() => set_text(text_41, get(tab).label));
+            append($$anchor4, text_41);
           };
-          if_block(node_76, ($$render) => {
-            if (get(renamingTabId) === get(tab).id) $$render(consequent_44);
-            else $$render(alternate_4, -1);
+          if_block(node_84, ($$render) => {
+            if (get(renamingTabId) === get(tab).id) $$render(consequent_56);
+            else $$render(alternate_6, -1);
           });
         }
-        var span_29 = sibling(node_76, 2);
-        var node_77 = child(span_29);
-        icon(node_77, () => "more", () => 11);
-        reset(span_29);
-        var node_78 = sibling(span_29, 2);
+        var span_31 = sibling(node_84, 2);
+        var node_85 = child(span_31);
+        icon(node_85, () => "more", () => 11);
+        reset(span_31);
+        var node_86 = sibling(span_31, 2);
         {
-          var consequent_45 = ($$anchor4) => {
-            var div_65 = root_50();
-            var button_30 = child(div_65);
-            var node_79 = child(button_30);
-            icon(node_79, () => "pencil");
+          var consequent_57 = ($$anchor4) => {
+            var div_73 = root_61();
+            var button_30 = child(div_73);
+            var node_87 = child(button_30);
+            icon(node_87, () => "pencil");
             next();
             reset(button_30);
             var button_31 = sibling(button_30, 2);
-            var node_80 = child(button_31);
-            icon(node_80, () => "arrow-left");
+            var node_88 = child(button_31);
+            icon(node_88, () => "arrow-left");
             next();
             reset(button_31);
             var button_32 = sibling(button_31, 2);
-            var node_81 = child(button_32);
-            icon(node_81, () => "arrow-right");
+            var node_89 = child(button_32);
+            icon(node_89, () => "arrow-right");
             next();
             reset(button_32);
-            var select_2 = sibling(button_32, 6);
-            each(select_2, 21, () => TAB_ICON_OPTIONS, index, ($$anchor5, opt) => {
-              var option_2 = root_7();
-              var text_37 = child(option_2, true);
-              reset(option_2);
-              var option_2_value = {};
-              template_effect(() => {
-                set_text(text_37, get(opt).label);
-                if (option_2_value !== (option_2_value = get(opt).value)) {
-                  option_2.value = (option_2.__value = get(opt).value) ?? "";
-                }
-              });
-              append($$anchor5, option_2);
-            });
-            reset(select_2);
-            var select_2_value;
-            init_select(select_2);
-            var select_3 = sibling(select_2, 4);
-            each(select_3, 21, () => TAB_DISPLAY_OPTIONS, index, ($$anchor5, opt) => {
-              var option_3 = root_7();
-              var text_38 = child(option_3, true);
+            var select_3 = sibling(button_32, 6);
+            each(select_3, 21, () => TAB_ICON_OPTIONS, index, ($$anchor5, opt) => {
+              var option_3 = root_9();
+              var text_42 = child(option_3, true);
               reset(option_3);
               var option_3_value = {};
               template_effect(() => {
-                set_text(text_38, get(opt).label);
+                set_text(text_42, get(opt).label);
                 if (option_3_value !== (option_3_value = get(opt).value)) {
                   option_3.value = (option_3.__value = get(opt).value) ?? "";
                 }
@@ -8970,30 +9300,47 @@ function ImportWorkflowTab($$anchor, $$props) {
             reset(select_3);
             var select_3_value;
             init_select(select_3);
-            var button_33 = sibling(select_3, 4);
-            var node_82 = child(button_33);
-            icon(node_82, () => "x");
+            var select_4 = sibling(select_3, 4);
+            each(select_4, 21, () => TAB_DISPLAY_OPTIONS, index, ($$anchor5, opt) => {
+              var option_4 = root_9();
+              var text_43 = child(option_4, true);
+              reset(option_4);
+              var option_4_value = {};
+              template_effect(() => {
+                set_text(text_43, get(opt).label);
+                if (option_4_value !== (option_4_value = get(opt).value)) {
+                  option_4.value = (option_4.__value = get(opt).value) ?? "";
+                }
+              });
+              append($$anchor5, option_4);
+            });
+            reset(select_4);
+            var select_4_value;
+            init_select(select_4);
+            var button_33 = sibling(select_4, 4);
+            var node_90 = child(button_33);
+            icon(node_90, () => "x");
             next();
             reset(button_33);
-            reset(div_65);
-            action(div_65, ($$node, $$action_arg) => floating?.($$node, $$action_arg), () => ({
+            reset(div_73);
+            action(div_73, ($$node, $$action_arg) => floating?.($$node, $$action_arg), () => ({
               anchor: get(tabPopoverAnchorEl),
               onOutsideClick: () => set(tabPopoverId, null)
             }));
             template_effect(() => {
               button_31.disabled = get(ti) === 0;
               button_32.disabled = get(ti) === get(form).tabs.length - 1;
-              if (select_2_value !== (select_2_value = get(tab).icon ?? "")) {
-                select_2.value = (select_2.__value = get(tab).icon ?? "") ?? "", select_option(select_2, get(tab).icon ?? "");
+              if (select_3_value !== (select_3_value = get(tab).icon ?? "")) {
+                select_3.value = (select_3.__value = get(tab).icon ?? "") ?? "", select_option(select_3, get(tab).icon ?? "");
               }
-              select_3.disabled = !get(tab).icon;
-              if (select_3_value !== (select_3_value = get(tab).icon_display)) {
-                select_3.value = (select_3.__value = get(tab).icon_display) ?? "", select_option(select_3, get(tab).icon_display);
+              select_4.disabled = !get(tab).icon;
+              if (select_4_value !== (select_4_value = get(tab).icon_display)) {
+                select_4.value = (select_4.__value = get(tab).icon_display) ?? "", select_option(select_4, get(tab).icon_display);
               }
               button_33.disabled = get(form).tabs.length <= 1;
             });
-            delegated("click", div_65, (e) => e.stopPropagation());
-            delegated("keydown", div_65, (e) => e.stopPropagation());
+            delegated("click", div_73, (e) => e.stopPropagation());
+            delegated("keydown", div_73, (e) => e.stopPropagation());
             delegated("click", button_30, () => {
               set(renamingTabId, get(tab).id, true);
               set(tabPopoverId, null);
@@ -9006,243 +9353,243 @@ function ImportWorkflowTab($$anchor, $$props) {
               moveTab(get(ti), 1);
               set(tabPopoverId, null);
             });
-            delegated("change", select_2, (e) => setTabIcon(get(tab), e.currentTarget.value));
-            delegated("change", select_3, (e) => setTabDisplay(get(tab), e.currentTarget.value));
+            delegated("change", select_3, (e) => setTabIcon(get(tab), e.currentTarget.value));
+            delegated("change", select_4, (e) => setTabDisplay(get(tab), e.currentTarget.value));
             delegated("click", button_33, () => {
               deleteTab(get(ti));
               set(tabPopoverId, null);
             });
-            append($$anchor4, div_65);
+            append($$anchor4, div_73);
           };
-          if_block(node_78, ($$render) => {
-            if (get(tabPopoverId) === get(tab).id) $$render(consequent_45);
+          if_block(node_86, ($$render) => {
+            if (get(tabPopoverId) === get(tab).id) $$render(consequent_57);
           });
         }
-        reset(span_28);
+        reset(span_30);
         template_effect(() => {
-          classes_8 = set_class(span_28, 1, "di-tab svelte-10v1sym", null, classes_8, {
+          classes_8 = set_class(span_30, 1, "di-tab svelte-10v1sym", null, classes_8, {
             active: get(tab).id === get(activeTabId),
             "drop-target": get(dragOverTabId) === get(tab).id
           });
-          set_attribute2(span_28, "aria-selected", get(tab).id === get(activeTabId));
-          set_attribute2(span_28, "data-tab-id", get(tab).id);
+          set_attribute2(span_30, "aria-selected", get(tab).id === get(activeTabId));
+          set_attribute2(span_30, "data-tab-id", get(tab).id);
         });
-        delegated("click", span_28, () => set(activeTabId, get(tab).id, true));
-        delegated("keydown", span_28, (e) => {
+        delegated("click", span_30, () => set(activeTabId, get(tab).id, true));
+        delegated("keydown", span_30, (e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
             set(activeTabId, get(tab).id, true);
           }
         });
-        event("dragover", span_28, (e) => handleTabDragOver(e, get(tab).id));
-        event("dragleave", span_28, () => handleTabDragLeave(get(tab).id));
-        event("drop", span_28, (e) => handleTabDrop(e, get(tab).id));
-        delegated("click", span_29, (e) => {
+        event("dragover", span_30, (e) => handleTabDragOver(e, get(tab).id));
+        event("dragleave", span_30, () => handleTabDragLeave(get(tab).id));
+        event("drop", span_30, (e) => handleTabDrop(e, get(tab).id));
+        delegated("click", span_31, (e) => {
           e.stopPropagation();
           toggleTabPopover(get(tab).id, e.currentTarget);
         });
-        delegated("keydown", span_29, (e) => {
+        delegated("keydown", span_31, (e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
             e.stopPropagation();
             toggleTabPopover(get(tab).id, e.currentTarget);
           }
         });
-        append($$anchor3, span_28);
+        append($$anchor3, span_30);
       });
-      var span_30 = sibling(node_74, 2);
-      var node_83 = child(span_30);
-      icon(node_83, () => "plus", () => 11);
+      var span_32 = sibling(node_82, 2);
+      var node_91 = child(span_32);
+      icon(node_91, () => "plus", () => 11);
       next();
-      reset(span_30);
-      reset(div_64);
-      var div_66 = sibling(div_64, 2);
-      var node_84 = child(div_66);
+      reset(span_32);
+      reset(div_72);
+      var div_74 = sibling(div_72, 2);
+      var node_92 = child(div_74);
       {
-        var consequent_46 = ($$anchor3) => {
-          var div_67 = root_52();
-          var node_85 = child(div_67);
-          icon(node_85, () => "inbox", () => 24);
+        var consequent_58 = ($$anchor3) => {
+          var div_75 = root_63();
+          var node_93 = child(div_75);
+          icon(node_93, () => "inbox", () => 24);
           next(2);
-          reset(div_67);
-          append($$anchor3, div_67);
+          reset(div_75);
+          append($$anchor3, div_75);
         };
-        if_block(node_84, ($$render) => {
-          if (get(activeTab).items.length === 0) $$render(consequent_46);
+        if_block(node_92, ($$render) => {
+          if (get(activeTab).items.length === 0) $$render(consequent_58);
         });
       }
-      var node_86 = sibling(node_84, 2);
-      each(node_86, 19, () => get(activeTab).items, (it) => it._id, ($$anchor3, it, index2) => {
+      var node_94 = sibling(node_92, 2);
+      each(node_94, 19, () => get(activeTab).items, (it) => it._id, ($$anchor3, it, index2) => {
         anyItem($$anchor3, () => get(it), () => get(activeTab).items, () => get(index2));
       });
-      var node_87 = sibling(node_86, 2);
-      addMenu(node_87, () => get(activeTab).items, () => true);
-      reset(div_66);
-      reset(div_63);
-      reset(div_51);
-      var div_68 = sibling(div_51, 2);
-      var div_69 = child(div_68);
-      var input_8 = sibling(child(div_69), 2);
-      remove_input_defaults(input_8);
-      var datalist = sibling(input_8, 2);
+      var node_95 = sibling(node_94, 2);
+      addMenu(node_95, () => get(activeTab).items, () => true);
+      reset(div_74);
+      reset(div_71);
+      reset(div_59);
+      var div_76 = sibling(div_59, 2);
+      var div_77 = child(div_76);
+      var input_12 = sibling(child(div_77), 2);
+      remove_input_defaults(input_12);
+      var datalist = sibling(input_12, 2);
       each(datalist, 21, () => get(families), index, ($$anchor3, f) => {
-        var option_4 = root_53();
-        var option_4_value = {};
+        var option_5 = root_64();
+        var option_5_value = {};
         template_effect(() => {
-          if (option_4_value !== (option_4_value = get(f))) {
-            option_4.value = (option_4.__value = get(f)) ?? "";
+          if (option_5_value !== (option_5_value = get(f))) {
+            option_5.value = (option_5.__value = get(f)) ?? "";
           }
         });
-        append($$anchor3, option_4);
+        append($$anchor3, option_5);
       });
       reset(datalist);
-      reset(div_69);
-      var div_70 = sibling(div_69, 2);
-      var input_9 = sibling(child(div_70), 2);
-      remove_input_defaults(input_9);
-      reset(div_70);
-      var div_71 = sibling(div_70, 2);
-      var input_10 = sibling(child(div_71), 2);
-      remove_input_defaults(input_10);
-      reset(div_71);
-      reset(div_68);
+      reset(div_77);
+      var div_78 = sibling(div_77, 2);
+      var input_13 = sibling(child(div_78), 2);
+      remove_input_defaults(input_13);
+      reset(div_78);
+      var div_79 = sibling(div_78, 2);
+      var input_14 = sibling(child(div_79), 2);
+      remove_input_defaults(input_14);
+      reset(div_79);
+      reset(div_76);
       template_effect(() => {
-        set_text(text_21, get(analysis).format);
-        set_text(text_22, `${get(analysis).node_count ?? ""} nodes`);
+        set_text(text_26, get(analysis).format);
+        set_text(text_27, `${get(analysis).node_count ?? ""} nodes`);
       });
       delegated("click", button_25, changeWorkflow);
-      bind_value(input_6, () => get(leftSearch), ($$value) => set(leftSearch, $$value));
-      delegated("click", span_30, addTab);
-      delegated("keydown", span_30, (e) => {
+      bind_value(input_10, () => get(leftSearch), ($$value) => set(leftSearch, $$value));
+      delegated("click", span_32, addTab);
+      delegated("keydown", span_32, (e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           addTab();
         }
       });
-      bind_value(input_8, () => get(modelFamily), ($$value) => set(modelFamily, $$value));
-      bind_value(input_9, () => get(variant), ($$value) => set(variant, $$value));
-      bind_value(input_10, () => get(displayName), ($$value) => set(displayName, $$value));
-      append($$anchor2, fragment_20);
+      bind_value(input_12, () => get(modelFamily), ($$value) => set(modelFamily, $$value));
+      bind_value(input_13, () => get(variant), ($$value) => set(variant, $$value));
+      bind_value(input_14, () => get(displayName), ($$value) => set(displayName, $$value));
+      append($$anchor2, fragment_25);
     };
-    var consequent_51 = ($$anchor2) => {
-      var fragment_29 = root_61();
-      var div_72 = sibling(first_child(fragment_29), 4);
-      var div_73 = child(div_72);
-      var div_74 = child(div_73);
-      var span_31 = sibling(child(div_74));
-      var text_39 = child(span_31, true);
-      reset(span_31);
-      reset(div_74);
-      var div_75 = sibling(div_74, 2);
-      var div_76 = sibling(child(div_75), 2);
-      var input_11 = sibling(child(div_76), 3);
-      var span_32 = sibling(input_11);
-      var node_88 = child(span_32);
-      icon(node_88, () => "lock", () => 10);
-      next();
-      reset(span_32);
-      reset(div_76);
-      var div_77 = sibling(div_76, 2);
-      var input_12 = sibling(child(div_77), 3);
-      var span_33 = sibling(input_12);
-      var node_89 = child(span_33);
-      icon(node_89, () => "lock", () => 10);
-      next();
+    var consequent_63 = ($$anchor2) => {
+      var fragment_34 = root_72();
+      var div_80 = sibling(first_child(fragment_34), 4);
+      var div_81 = child(div_80);
+      var div_82 = child(div_81);
+      var span_33 = sibling(child(div_82));
+      var text_44 = child(span_33, true);
       reset(span_33);
-      reset(div_77);
-      var div_78 = sibling(div_77, 2);
-      var input_13 = sibling(child(div_78), 3);
-      var span_34 = sibling(input_13);
-      var node_90 = child(span_34);
-      icon(node_90, () => "lock", () => 10);
+      reset(div_82);
+      var div_83 = sibling(div_82, 2);
+      var div_84 = sibling(child(div_83), 2);
+      var input_15 = sibling(child(div_84), 3);
+      var span_34 = sibling(input_15);
+      var node_96 = child(span_34);
+      icon(node_96, () => "lock", () => 10);
       next();
       reset(span_34);
-      reset(div_78);
-      var div_79 = sibling(div_78, 2);
-      var input_14 = sibling(child(div_79), 3);
-      var span_35 = sibling(input_14);
-      var node_91 = child(span_35);
-      icon(node_91, () => "lock", () => 10);
+      reset(div_84);
+      var div_85 = sibling(div_84, 2);
+      var input_16 = sibling(child(div_85), 3);
+      var span_35 = sibling(input_16);
+      var node_97 = child(span_35);
+      icon(node_97, () => "lock", () => 10);
       next();
       reset(span_35);
-      reset(div_79);
-      var node_92 = sibling(div_79, 2);
-      each(node_92, 19, () => get(historyRows), (row) => row.field_name, ($$anchor3, row, index2) => {
+      reset(div_85);
+      var div_86 = sibling(div_85, 2);
+      var input_17 = sibling(child(div_86), 3);
+      var span_36 = sibling(input_17);
+      var node_98 = child(span_36);
+      icon(node_98, () => "lock", () => 10);
+      next();
+      reset(span_36);
+      reset(div_86);
+      var div_87 = sibling(div_86, 2);
+      var input_18 = sibling(child(div_87), 3);
+      var span_37 = sibling(input_18);
+      var node_99 = child(span_37);
+      icon(node_99, () => "lock", () => 10);
+      next();
+      reset(span_37);
+      reset(div_87);
+      var node_100 = sibling(div_87, 2);
+      each(node_100, 19, () => get(historyRows), (row) => row.field_name, ($$anchor3, row, index2) => {
         const f = user_derived(() => fieldForRow(get(row)));
-        var div_80 = root_56();
+        var div_88 = root_67();
         let classes_9;
-        var div_81 = child(div_80);
-        var button_34 = child(div_81);
-        var node_93 = child(button_34);
-        icon(node_93, () => "chevron-up", () => 10);
+        var div_89 = child(div_88);
+        var button_34 = child(div_89);
+        var node_101 = child(button_34);
+        icon(node_101, () => "chevron-up", () => 10);
         reset(button_34);
         var button_35 = sibling(button_34, 2);
-        var node_94 = child(button_35);
-        icon(node_94, () => "chevron-down", () => 10);
+        var node_102 = child(button_35);
+        icon(node_102, () => "chevron-down", () => 10);
         reset(button_35);
-        reset(div_81);
-        var input_15 = sibling(div_81, 2);
-        remove_input_defaults(input_15);
-        var div_82 = sibling(input_15, 2);
-        var span_36 = child(div_82);
-        var text_40 = child(span_36, true);
-        reset(span_36);
-        var span_37 = sibling(span_36, 2);
-        var text_41 = child(span_37, true);
-        reset(span_37);
-        reset(div_82);
-        var input_16 = sibling(div_82, 2);
-        remove_input_defaults(input_16);
-        var select_4 = sibling(input_16, 2);
-        each(select_4, 21, () => FORMAT_OPTIONS, index, ($$anchor4, opt) => {
-          var option_5 = root_7();
-          var text_42 = child(option_5, true);
-          reset(option_5);
-          var option_5_value = {};
+        reset(div_89);
+        var input_19 = sibling(div_89, 2);
+        remove_input_defaults(input_19);
+        var div_90 = sibling(input_19, 2);
+        var span_38 = child(div_90);
+        var text_45 = child(span_38, true);
+        reset(span_38);
+        var span_39 = sibling(span_38, 2);
+        var text_46 = child(span_39, true);
+        reset(span_39);
+        reset(div_90);
+        var input_20 = sibling(div_90, 2);
+        remove_input_defaults(input_20);
+        var select_5 = sibling(input_20, 2);
+        each(select_5, 21, () => FORMAT_OPTIONS, index, ($$anchor4, opt) => {
+          var option_6 = root_9();
+          var text_47 = child(option_6, true);
+          reset(option_6);
+          var option_6_value = {};
           template_effect(() => {
-            set_text(text_42, get(opt).label);
-            if (option_5_value !== (option_5_value = get(opt).value)) {
-              option_5.value = (option_5.__value = get(opt).value) ?? "";
+            set_text(text_47, get(opt).label);
+            if (option_6_value !== (option_6_value = get(opt).value)) {
+              option_6.value = (option_6.__value = get(opt).value) ?? "";
             }
           });
-          append($$anchor4, option_5);
+          append($$anchor4, option_6);
         });
-        reset(select_4);
-        var select_4_value;
-        init_select(select_4);
-        var node_95 = sibling(select_4, 2);
+        reset(select_5);
+        var select_5_value;
+        init_select(select_5);
+        var node_103 = sibling(select_5, 2);
         {
-          var consequent_48 = ($$anchor4) => {
-            var div_83 = root_55();
-            var input_17 = sibling(child(div_83), 2);
-            remove_input_defaults(input_17);
-            var span_38 = sibling(input_17, 2);
-            var span_39 = sibling(child(span_38));
-            var text_43 = child(span_39, true);
-            reset(span_39);
-            reset(span_38);
-            reset(div_83);
-            template_effect(($0) => set_text(text_43, $0), [
+          var consequent_60 = ($$anchor4) => {
+            var div_91 = root_66();
+            var input_21 = sibling(child(div_91), 2);
+            remove_input_defaults(input_21);
+            var span_40 = sibling(input_21, 2);
+            var span_41 = sibling(child(span_40));
+            var text_48 = child(span_41, true);
+            reset(span_41);
+            reset(span_40);
+            reset(div_91);
+            template_effect(($0) => set_text(text_48, $0), [
               () => get(f) ? formatPreviewValue(get(f), "jinja", get(row).template) : ""
             ]);
-            bind_value(input_17, () => get(row).template, ($$value) => get(row).template = $$value);
-            append($$anchor4, div_83);
+            bind_value(input_21, () => get(row).template, ($$value) => get(row).template = $$value);
+            append($$anchor4, div_91);
           };
-          if_block(node_95, ($$render) => {
-            if (get(row).enabled && get(row).format === "jinja") $$render(consequent_48);
+          if_block(node_103, ($$render) => {
+            if (get(row).enabled && get(row).format === "jinja") $$render(consequent_60);
           });
         }
-        reset(div_80);
+        reset(div_88);
         template_effect(
           ($0) => {
-            classes_9 = set_class(div_80, 1, "hist-row svelte-10v1sym", null, classes_9, { off: !get(row).enabled });
-            set_attribute2(div_80, "data-history-row", get(row).field_name);
-            set_text(text_40, get(f)?.label || get(row).field_name);
-            set_text(text_41, $0);
-            input_16.disabled = !get(row).enabled;
-            select_4.disabled = !get(row).enabled;
-            if (select_4_value !== (select_4_value = get(row).format)) {
-              select_4.value = (select_4.__value = get(row).format) ?? "", select_option(select_4, get(row).format);
+            classes_9 = set_class(div_88, 1, "hist-row svelte-10v1sym", null, classes_9, { off: !get(row).enabled });
+            set_attribute2(div_88, "data-history-row", get(row).field_name);
+            set_text(text_45, get(f)?.label || get(row).field_name);
+            set_text(text_46, $0);
+            input_20.disabled = !get(row).enabled;
+            select_5.disabled = !get(row).enabled;
+            if (select_5_value !== (select_5_value = get(row).format)) {
+              select_5.value = (select_5.__value = get(row).format) ?? "", select_option(select_5, get(row).format);
             }
           },
           [
@@ -9251,300 +9598,300 @@ function ImportWorkflowTab($$anchor, $$props) {
         );
         delegated("click", button_34, () => moveHistoryRow(get(index2), -1));
         delegated("click", button_35, () => moveHistoryRow(get(index2), 1));
-        bind_checked(input_15, () => get(row).enabled, ($$value) => get(row).enabled = $$value);
-        bind_value(input_16, () => get(row).label, ($$value) => get(row).label = $$value);
-        delegated("change", select_4, (e) => onFormatChange(get(row), e.currentTarget.value));
-        append($$anchor3, div_80);
+        bind_checked(input_19, () => get(row).enabled, ($$value) => get(row).enabled = $$value);
+        bind_value(input_20, () => get(row).label, ($$value) => get(row).label = $$value);
+        delegated("change", select_5, (e) => onFormatChange(get(row), e.currentTarget.value));
+        append($$anchor3, div_88);
       });
-      reset(div_75);
-      reset(div_73);
-      var div_84 = sibling(div_73, 2);
-      var div_85 = sibling(child(div_84), 2);
-      var div_86 = child(div_85);
-      var div_87 = child(div_86);
-      var node_96 = child(div_87);
-      icon(node_96, () => "sliders", () => 14);
+      reset(div_83);
+      reset(div_81);
+      var div_92 = sibling(div_81, 2);
+      var div_93 = sibling(child(div_92), 2);
+      var div_94 = child(div_93);
+      var div_95 = child(div_94);
+      var node_104 = child(div_95);
+      icon(node_104, () => "sliders", () => 14);
       next();
-      reset(div_87);
+      reset(div_95);
       next(2);
-      reset(div_86);
-      var div_88 = sibling(div_86, 2);
-      var node_97 = sibling(child(div_88), 8);
-      each(node_97, 17, () => get(historyRows).filter((r) => r.enabled), (row) => row.field_name, ($$anchor3, row) => {
+      reset(div_94);
+      var div_96 = sibling(div_94, 2);
+      var node_105 = sibling(child(div_96), 8);
+      each(node_105, 17, () => get(historyRows).filter((r) => r.enabled), (row) => row.field_name, ($$anchor3, row) => {
         const f = user_derived(() => fieldForRow(get(row)));
-        var fragment_30 = comment();
-        var node_98 = first_child(fragment_30);
+        var fragment_35 = comment();
+        var node_106 = first_child(fragment_35);
         {
-          var consequent_49 = ($$anchor4) => {
-            var div_89 = root_58();
-            var div_90 = child(div_89);
-            var text_44 = child(div_90, true);
-            reset(div_90);
-            var div_91 = sibling(div_90, 2);
-            each(div_91, 21, () => get(f).default, index, ($$anchor5, chipItem) => {
-              var span_40 = root_57();
-              var text_45 = child(span_40, true);
-              reset(span_40);
-              template_effect(($0) => set_text(text_45, $0), [
+          var consequent_61 = ($$anchor4) => {
+            var div_97 = root_69();
+            var div_98 = child(div_97);
+            var text_49 = child(div_98, true);
+            reset(div_98);
+            var div_99 = sibling(div_98, 2);
+            each(div_99, 21, () => get(f).default, index, ($$anchor5, chipItem) => {
+              var span_42 = root_68();
+              var text_50 = child(span_42, true);
+              reset(span_42);
+              template_effect(($0) => set_text(text_50, $0), [
                 () => typeof get(chipItem) === "object" ? get(chipItem)?.name || JSON.stringify(get(chipItem)) : get(chipItem)
               ]);
-              append($$anchor5, span_40);
+              append($$anchor5, span_42);
             });
-            reset(div_91);
-            reset(div_89);
-            template_effect(() => set_text(text_44, get(row).label));
-            append($$anchor4, div_89);
+            reset(div_99);
+            reset(div_97);
+            template_effect(() => set_text(text_49, get(row).label));
+            append($$anchor4, div_97);
           };
-          var d_2 = user_derived(() => get(row).format === "list" && get(f) && Array.isArray(get(f).default));
-          var alternate_5 = ($$anchor4) => {
-            var div_92 = root_59();
-            var div_93 = child(div_92);
-            var text_46 = child(div_93, true);
-            reset(div_93);
-            var div_94 = sibling(div_93);
-            var text_47 = child(div_94, true);
-            reset(div_94);
-            reset(div_92);
+          var d_6 = user_derived(() => get(row).format === "list" && get(f) && Array.isArray(get(f).default));
+          var alternate_7 = ($$anchor4) => {
+            var div_100 = root_70();
+            var div_101 = child(div_100);
+            var text_51 = child(div_101, true);
+            reset(div_101);
+            var div_102 = sibling(div_101);
+            var text_52 = child(div_102, true);
+            reset(div_102);
+            reset(div_100);
             template_effect(
               ($0) => {
-                set_text(text_46, get(row).label);
-                set_text(text_47, $0);
+                set_text(text_51, get(row).label);
+                set_text(text_52, $0);
               },
               [
                 () => get(f) ? formatPreviewValue(get(f), get(row).format, get(row).template) : ""
               ]
             );
-            append($$anchor4, div_92);
+            append($$anchor4, div_100);
           };
-          if_block(node_98, ($$render) => {
-            if (get(d_2)) $$render(consequent_49);
-            else $$render(alternate_5, -1);
+          if_block(node_106, ($$render) => {
+            if (get(d_6)) $$render(consequent_61);
+            else $$render(alternate_7, -1);
           });
         }
-        append($$anchor3, fragment_30);
+        append($$anchor3, fragment_35);
       });
-      reset(div_88);
-      var node_99 = sibling(div_88, 2);
+      reset(div_96);
+      var node_107 = sibling(div_96, 2);
       {
-        var consequent_50 = ($$anchor3) => {
-          var div_95 = root_60();
-          var node_100 = child(div_95);
-          icon(node_100, () => "inbox", () => 20);
+        var consequent_62 = ($$anchor3) => {
+          var div_103 = root_71();
+          var node_108 = child(div_103);
+          icon(node_108, () => "inbox", () => 20);
           next(2);
-          reset(div_95);
-          append($$anchor3, div_95);
+          reset(div_103);
+          append($$anchor3, div_103);
         };
-        var d_3 = user_derived(() => get(historyRows).filter((r) => r.enabled).length === 0);
-        if_block(node_99, ($$render) => {
-          if (get(d_3)) $$render(consequent_50);
+        var d_7 = user_derived(() => get(historyRows).filter((r) => r.enabled).length === 0);
+        if_block(node_107, ($$render) => {
+          if (get(d_7)) $$render(consequent_62);
         });
       }
-      reset(div_85);
-      reset(div_84);
-      reset(div_72);
-      template_effect(() => set_text(text_39, get(historyRows).length + 4));
-      append($$anchor2, fragment_29);
+      reset(div_93);
+      reset(div_92);
+      reset(div_80);
+      template_effect(() => set_text(text_44, get(historyRows).length + 4));
+      append($$anchor2, fragment_34);
     };
-    var consequent_58 = ($$anchor2) => {
-      var fragment_31 = root_69();
-      var node_101 = sibling(first_child(fragment_31), 6);
+    var consequent_70 = ($$anchor2) => {
+      var fragment_36 = root_80();
+      var node_109 = sibling(first_child(fragment_36), 6);
       {
-        var consequent_52 = ($$anchor3) => {
-          var div_96 = root_62();
-          append($$anchor3, div_96);
+        var consequent_64 = ($$anchor3) => {
+          var div_104 = root_73();
+          append($$anchor3, div_104);
         };
-        var consequent_53 = ($$anchor3) => {
-          var p_5 = root_63();
-          var text_48 = child(p_5, true);
+        var consequent_65 = ($$anchor3) => {
+          var p_5 = root_74();
+          var text_53 = child(p_5, true);
           reset(p_5);
-          template_effect(() => set_text(text_48, get(requirementsError)));
+          template_effect(() => set_text(text_53, get(requirementsError)));
           append($$anchor3, p_5);
         };
-        var consequent_56 = ($$anchor3) => {
-          var fragment_32 = comment();
-          var node_102 = first_child(fragment_32);
+        var consequent_68 = ($$anchor3) => {
+          var fragment_37 = comment();
+          var node_110 = first_child(fragment_37);
           {
-            var consequent_54 = ($$anchor4) => {
-              var div_97 = root_64();
-              append($$anchor4, div_97);
+            var consequent_66 = ($$anchor4) => {
+              var div_105 = root_75();
+              append($$anchor4, div_105);
             };
-            var alternate_6 = ($$anchor4) => {
-              var div_98 = root_67();
-              each(div_98, 21, () => get(requirementsResults), index, ($$anchor5, r) => {
-                var div_99 = root_66();
-                var div_100 = child(div_99);
-                var div_101 = sibling(div_100, 2);
-                var div_102 = child(div_101);
-                var text_49 = child(div_102);
-                reset(div_102);
-                var div_103 = sibling(div_102, 2);
-                var text_50 = child(div_103, true);
-                reset(div_103);
-                var node_103 = sibling(div_103, 2);
+            var alternate_8 = ($$anchor4) => {
+              var div_106 = root_78();
+              each(div_106, 21, () => get(requirementsResults), index, ($$anchor5, r) => {
+                var div_107 = root_77();
+                var div_108 = child(div_107);
+                var div_109 = sibling(div_108, 2);
+                var div_110 = child(div_109);
+                var text_54 = child(div_110);
+                reset(div_110);
+                var div_111 = sibling(div_110, 2);
+                var text_55 = child(div_111, true);
+                reset(div_111);
+                var node_111 = sibling(div_111, 2);
                 {
-                  var consequent_55 = ($$anchor6) => {
-                    var div_104 = root_65();
-                    var text_51 = child(div_104, true);
-                    reset(div_104);
-                    template_effect(() => set_text(text_51, get(r).hint));
-                    append($$anchor6, div_104);
+                  var consequent_67 = ($$anchor6) => {
+                    var div_112 = root_76();
+                    var text_56 = child(div_112, true);
+                    reset(div_112);
+                    template_effect(() => set_text(text_56, get(r).hint));
+                    append($$anchor6, div_112);
                   };
-                  if_block(node_103, ($$render) => {
-                    if (get(r).status !== "ok" && get(r).hint) $$render(consequent_55);
+                  if_block(node_111, ($$render) => {
+                    if (get(r).status !== "ok" && get(r).hint) $$render(consequent_67);
                   });
                 }
-                reset(div_101);
-                reset(div_99);
+                reset(div_109);
+                reset(div_107);
                 template_effect(() => {
-                  set_class(div_100, 1, `req-dot ${get(r).status === "ok" ? "ok" : "missing"}`, "svelte-10v1sym");
-                  set_text(text_49, `${get(r).type ?? ""}: ${get(r).name ?? ""}`);
-                  set_text(text_50, get(r).detail);
+                  set_class(div_108, 1, `req-dot ${get(r).status === "ok" ? "ok" : "missing"}`, "svelte-10v1sym");
+                  set_text(text_54, `${get(r).type ?? ""}: ${get(r).name ?? ""}`);
+                  set_text(text_55, get(r).detail);
                 });
-                append($$anchor5, div_99);
+                append($$anchor5, div_107);
               });
-              reset(div_98);
-              append($$anchor4, div_98);
+              reset(div_106);
+              append($$anchor4, div_106);
             };
-            if_block(node_102, ($$render) => {
-              if (get(requirementsResults).length === 0) $$render(consequent_54);
-              else $$render(alternate_6, -1);
+            if_block(node_110, ($$render) => {
+              if (get(requirementsResults).length === 0) $$render(consequent_66);
+              else $$render(alternate_8, -1);
             });
           }
-          append($$anchor3, fragment_32);
+          append($$anchor3, fragment_37);
         };
-        if_block(node_101, ($$render) => {
-          if (get(requirementsLoading)) $$render(consequent_52);
-          else if (get(requirementsError)) $$render(consequent_53, 1);
-          else if (get(requirementsResults)) $$render(consequent_56, 2);
+        if_block(node_109, ($$render) => {
+          if (get(requirementsLoading)) $$render(consequent_64);
+          else if (get(requirementsError)) $$render(consequent_65, 1);
+          else if (get(requirementsResults)) $$render(consequent_68, 2);
         });
       }
-      var node_104 = sibling(node_101, 2);
+      var node_112 = sibling(node_109, 2);
       {
-        var consequent_57 = ($$anchor3) => {
-          var p_6 = root_68();
-          var text_52 = child(p_6, true);
+        var consequent_69 = ($$anchor3) => {
+          var p_6 = root_79();
+          var text_57 = child(p_6, true);
           reset(p_6);
-          template_effect(() => set_text(text_52, get(createError)));
+          template_effect(() => set_text(text_57, get(createError)));
           append($$anchor3, p_6);
         };
-        if_block(node_104, ($$render) => {
-          if (get(createError)) $$render(consequent_57);
+        if_block(node_112, ($$render) => {
+          if (get(createError)) $$render(consequent_69);
         });
       }
-      append($$anchor2, fragment_31);
+      append($$anchor2, fragment_36);
     };
-    var consequent_62 = ($$anchor2) => {
-      var fragment_33 = root_74();
-      var p_7 = sibling(first_child(fragment_33), 2);
-      var text_53 = child(p_7);
+    var consequent_74 = ($$anchor2) => {
+      var fragment_38 = root_85();
+      var p_7 = sibling(first_child(fragment_38), 2);
+      var text_58 = child(p_7);
       reset(p_7);
-      var div_105 = sibling(p_7, 2);
-      var p_8 = child(div_105);
-      var span_41 = sibling(child(p_8));
-      var text_54 = child(span_41, true);
-      reset(span_41);
+      var div_113 = sibling(p_7, 2);
+      var p_8 = child(div_113);
+      var span_43 = sibling(child(p_8));
+      var text_59 = child(span_43, true);
+      reset(span_43);
       reset(p_8);
-      var node_105 = sibling(p_8, 2);
+      var node_113 = sibling(p_8, 2);
       {
-        var consequent_59 = ($$anchor3) => {
-          var div_106 = root_71();
-          var ul = sibling(child(div_106), 2);
+        var consequent_71 = ($$anchor3) => {
+          var div_114 = root_82();
+          var ul = sibling(child(div_114), 2);
           each(ul, 21, () => get(createResult).lint.errors, index, ($$anchor4, err) => {
-            var li = root_70();
-            var text_55 = child(li, true);
+            var li = root_81();
+            var text_60 = child(li, true);
             reset(li);
-            template_effect(() => set_text(text_55, get(err)));
+            template_effect(() => set_text(text_60, get(err)));
             append($$anchor4, li);
           });
           reset(ul);
-          reset(div_106);
-          append($$anchor3, div_106);
+          reset(div_114);
+          append($$anchor3, div_114);
         };
-        if_block(node_105, ($$render) => {
-          if (get(createResult).lint.errors.length > 0) $$render(consequent_59);
+        if_block(node_113, ($$render) => {
+          if (get(createResult).lint.errors.length > 0) $$render(consequent_71);
         });
       }
-      var node_106 = sibling(node_105, 2);
+      var node_114 = sibling(node_113, 2);
       {
-        var consequent_60 = ($$anchor3) => {
-          var fragment_34 = comment();
-          var node_107 = first_child(fragment_34);
-          each(node_107, 17, () => get(createResult).lint.warnings, index, ($$anchor4, warn) => {
-            var div_107 = root_72();
-            var div_108 = sibling(child(div_107), 2);
-            var text_56 = child(div_108, true);
-            reset(div_108);
-            reset(div_107);
-            template_effect(() => set_text(text_56, get(warn)));
-            append($$anchor4, div_107);
+        var consequent_72 = ($$anchor3) => {
+          var fragment_39 = comment();
+          var node_115 = first_child(fragment_39);
+          each(node_115, 17, () => get(createResult).lint.warnings, index, ($$anchor4, warn) => {
+            var div_115 = root_83();
+            var div_116 = sibling(child(div_115), 2);
+            var text_61 = child(div_116, true);
+            reset(div_116);
+            reset(div_115);
+            template_effect(() => set_text(text_61, get(warn)));
+            append($$anchor4, div_115);
           });
-          append($$anchor3, fragment_34);
+          append($$anchor3, fragment_39);
         };
-        if_block(node_106, ($$render) => {
-          if (get(createResult).lint.warnings.length > 0) $$render(consequent_60);
+        if_block(node_114, ($$render) => {
+          if (get(createResult).lint.warnings.length > 0) $$render(consequent_72);
         });
       }
-      var node_108 = sibling(node_106, 2);
+      var node_116 = sibling(node_114, 2);
       {
-        var consequent_61 = ($$anchor3) => {
-          var p_9 = root_73();
+        var consequent_73 = ($$anchor3) => {
+          var p_9 = root_84();
           append($$anchor3, p_9);
         };
-        if_block(node_108, ($$render) => {
-          if (get(createResult).lint.errors.length === 0 && get(createResult).lint.warnings.length === 0) $$render(consequent_61);
+        if_block(node_116, ($$render) => {
+          if (get(createResult).lint.errors.length === 0 && get(createResult).lint.warnings.length === 0) $$render(consequent_73);
         });
       }
-      reset(div_105);
+      reset(div_113);
       template_effect(() => {
-        set_text(text_53, `It's ready in Presets${get(requirementsMissingCount) > 0 ? ` \u2014 the ${get(requirementsMissingCount)} missing requirement${get(requirementsMissingCount) === 1 ? "" : "s"} from the last step won't block it from opening, only from running.` : "."}`);
-        set_text(text_54, get(createResult).path);
+        set_text(text_58, `It's ready in Presets${get(requirementsMissingCount) > 0 ? ` \u2014 the ${get(requirementsMissingCount)} missing requirement${get(requirementsMissingCount) === 1 ? "" : "s"} from the last step won't block it from opening, only from running.` : "."}`);
+        set_text(text_59, get(createResult).path);
       });
-      append($$anchor2, fragment_33);
+      append($$anchor2, fragment_38);
     };
-    if_block(node_55, ($$render) => {
-      if (get(step) === 1) $$render(consequent_30);
-      else if (get(step) === 2) $$render(consequent_47, 1);
-      else if (get(step) === 3) $$render(consequent_51, 2);
-      else if (get(step) === 4) $$render(consequent_58, 3);
-      else if (get(step) === 5 && get(createResult)) $$render(consequent_62, 4);
+    if_block(node_63, ($$render) => {
+      if (get(step) === 1) $$render(consequent_42);
+      else if (get(step) === 2) $$render(consequent_59, 1);
+      else if (get(step) === 3) $$render(consequent_63, 2);
+      else if (get(step) === 4) $$render(consequent_70, 3);
+      else if (get(step) === 5 && get(createResult)) $$render(consequent_74, 4);
     });
   }
-  reset(div_44);
-  var div_109 = sibling(div_44, 2);
-  var node_109 = child(div_109);
+  reset(div_52);
+  var div_117 = sibling(div_52, 2);
+  var node_117 = child(div_117);
   {
-    var consequent_63 = ($$anchor2) => {
-      var fragment_35 = root_75();
-      var button_36 = first_child(fragment_35);
+    var consequent_75 = ($$anchor2) => {
+      var fragment_40 = root_86();
+      var button_36 = first_child(fragment_40);
       var a_1 = sibling(button_36, 4);
       template_effect(() => set_attribute2(a_1, "href", `/admin?tab=presets&preset=${get(createResult)?.preset_id ?? ""}`));
       delegated("click", button_36, importAnother);
-      append($$anchor2, fragment_35);
+      append($$anchor2, fragment_40);
     };
-    var alternate_7 = ($$anchor2) => {
-      var fragment_36 = root_81();
-      var node_110 = first_child(fragment_36);
+    var alternate_9 = ($$anchor2) => {
+      var fragment_41 = root_92();
+      var node_118 = first_child(fragment_41);
       {
-        var consequent_64 = ($$anchor3) => {
-          var button_37 = root_76();
+        var consequent_76 = ($$anchor3) => {
+          var button_37 = root_87();
           template_effect(() => button_37.disabled = get(analyzing) || get(creating));
           delegated("click", button_37, goBack);
           append($$anchor3, button_37);
         };
-        if_block(node_110, ($$render) => {
-          if (get(step) > 1) $$render(consequent_64);
+        if_block(node_118, ($$render) => {
+          if (get(step) > 1) $$render(consequent_76);
         });
       }
-      var node_111 = sibling(node_110, 4);
+      var node_119 = sibling(node_118, 4);
       {
-        var consequent_65 = ($$anchor3) => {
-          var button_38 = root_77();
-          var text_57 = child(button_38, true);
+        var consequent_77 = ($$anchor3) => {
+          var button_38 = root_88();
+          var text_62 = child(button_38, true);
           reset(button_38);
           template_effect(
             ($0) => {
               button_38.disabled = $0;
-              set_text(text_57, get(analyzing) ? "Analyzing\u2026" : "Continue");
+              set_text(text_62, get(analyzing) ? "Analyzing\u2026" : "Continue");
             },
             [
               () => get(analyzing) || get(editLoading) || !(get(analysis) && get(workflowJson)) && !get(rawText).trim()
@@ -9553,53 +9900,53 @@ function ImportWorkflowTab($$anchor, $$props) {
           delegated("click", button_38, handleSourceContinue);
           append($$anchor3, button_38);
         };
-        var consequent_66 = ($$anchor3) => {
-          var button_39 = root_78();
+        var consequent_78 = ($$anchor3) => {
+          var button_39 = root_89();
           template_effect(() => button_39.disabled = !get(canContinueForm));
           delegated("click", button_39, goToHistory);
           append($$anchor3, button_39);
         };
-        var consequent_67 = ($$anchor3) => {
-          var button_40 = root_79();
+        var consequent_79 = ($$anchor3) => {
+          var button_40 = root_90();
           delegated("click", button_40, goToRequirementsStep);
           append($$anchor3, button_40);
         };
-        var consequent_68 = ($$anchor3) => {
-          var button_41 = root_80();
-          var text_58 = child(button_41, true);
+        var consequent_80 = ($$anchor3) => {
+          var button_41 = root_91();
+          var text_63 = child(button_41, true);
           reset(button_41);
           template_effect(() => {
             button_41.disabled = get(creating);
-            set_text(text_58, get(creating) ? get(editPresetId) ? "Updating\u2026" : "Creating\u2026" : get(editPresetId) ? "Update preset" : "Continue");
+            set_text(text_63, get(creating) ? get(editPresetId) ? "Updating\u2026" : "Creating\u2026" : get(editPresetId) ? "Update preset" : "Continue");
           });
           delegated("click", button_41, runCreate);
           append($$anchor3, button_41);
         };
-        if_block(node_111, ($$render) => {
-          if (get(step) === 1) $$render(consequent_65);
-          else if (get(step) === 2) $$render(consequent_66, 1);
-          else if (get(step) === 3) $$render(consequent_67, 2);
-          else if (get(step) === 4) $$render(consequent_68, 3);
+        if_block(node_119, ($$render) => {
+          if (get(step) === 1) $$render(consequent_77);
+          else if (get(step) === 2) $$render(consequent_78, 1);
+          else if (get(step) === 3) $$render(consequent_79, 2);
+          else if (get(step) === 4) $$render(consequent_80, 3);
         });
       }
-      append($$anchor2, fragment_36);
+      append($$anchor2, fragment_41);
     };
-    if_block(node_109, ($$render) => {
-      if (get(step) === 5) $$render(consequent_63);
-      else $$render(alternate_7, -1);
+    if_block(node_117, ($$render) => {
+      if (get(step) === 5) $$render(consequent_75);
+      else $$render(alternate_9, -1);
     });
   }
-  reset(div_109);
-  reset(div_43);
-  reset(div_22);
+  reset(div_117);
+  reset(div_51);
+  reset(div_30);
   template_effect(
     ($0, $1, $2, $3, $4) => {
-      set_class(div_24, 1, `wiz-step ${$0 ?? ""}`, "svelte-10v1sym");
-      set_class(div_28, 1, `wiz-step ${$1 ?? ""}`, "svelte-10v1sym");
-      set_text(text_13, get(formFieldCount) > 0 ? `${get(formFieldCount)} field${get(formFieldCount) === 1 ? "" : "s"} designed` : "design the form");
-      set_class(div_32, 1, `wiz-step ${$2 ?? ""}`, "svelte-10v1sym");
-      set_class(div_36, 1, `wiz-step ${$3 ?? ""}`, "svelte-10v1sym");
-      set_class(div_41, 1, `wiz-step ${$4 ?? ""}`, "svelte-10v1sym");
+      set_class(div_32, 1, `wiz-step ${$0 ?? ""}`, "svelte-10v1sym");
+      set_class(div_36, 1, `wiz-step ${$1 ?? ""}`, "svelte-10v1sym");
+      set_text(text_18, get(formFieldCount) > 0 ? `${get(formFieldCount)} field${get(formFieldCount) === 1 ? "" : "s"} designed` : "design the form");
+      set_class(div_40, 1, `wiz-step ${$2 ?? ""}`, "svelte-10v1sym");
+      set_class(div_44, 1, `wiz-step ${$3 ?? ""}`, "svelte-10v1sym");
+      set_class(div_49, 1, `wiz-step ${$4 ?? ""}`, "svelte-10v1sym");
     },
     [
       () => stepState(1),
@@ -9609,10 +9956,10 @@ function ImportWorkflowTab($$anchor, $$props) {
       () => stepState(5)
     ]
   );
-  append($$anchor, fragment_16);
+  append($$anchor, fragment_21);
   return pop($$exports);
 }
-delegate(["click", "keydown", "change", "input"]);
+delegate(["click", "keydown", "input", "change"]);
 export {
   ImportWorkflowTab as default
 };

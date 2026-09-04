@@ -158,6 +158,46 @@ class TestReloadImportedPreset:
         assert exc_info.value.status_code == 404
 
 
+class TestCorruptSidecarFormRaisesA400:
+    """A sidecar's `form` that fails pydantic validation - e.g. a slider
+    field left with an uncoercible default - must surface as the same 400
+    `parse_form` gives the create path, not an unguarded `ValidationError`
+    bubbling out of `ImportForm.model_validate` as a 500."""
+
+    @staticmethod
+    def _corrupt_sidecar_default(preset_dir):
+        sidecar_path = preset_dir / "import.json"
+        sidecar = json.loads(sidecar_path.read_text())
+        sidecar["form"]["tabs"][0]["items"].append({
+            "kind": "field",
+            "field_name": "bad_slider",
+            "field_type": "slider",
+            "label": "Bad Slider",
+            "default": "not-a-number",
+            "config": None,
+            "mappings": [],
+        })
+        sidecar_path.write_text(json.dumps(sidecar))
+
+    @pytest.mark.asyncio
+    async def test_get_source_with_a_corrupt_sidecar_form_raises_400_not_500(self, _imported_root):
+        result = _import_fixture(_imported_root, model_family="CorruptSourceTest")
+        self._corrupt_sidecar_default(result.preset_dir)
+
+        with pytest.raises(Exception) as exc_info:
+            await api.get_imported_preset_source(result.preset_id, current_user=None)
+        assert exc_info.value.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_reload_with_a_corrupt_sidecar_form_raises_400_not_500(self, _imported_root):
+        result = _import_fixture(_imported_root, model_family="CorruptReloadTest")
+        self._corrupt_sidecar_default(result.preset_dir)
+
+        with pytest.raises(Exception) as exc_info:
+            await api.reload_imported_preset(result.preset_id, current_user=None)
+        assert exc_info.value.status_code == 400
+
+
 class TestModifyViaImportWorkflowOverwrite:
     """The wizard's "Update preset" path: `POST .../presets/import` with
     `overwrite_preset_id` set - same endpoint a fresh import uses, just told

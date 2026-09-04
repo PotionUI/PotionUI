@@ -40,7 +40,7 @@ async function openChat(page: Page): Promise<Locator> {
 	const fab = page.getByRole('button', { name: 'AI Chat' });
 	await expect(fab).toBeVisible({ timeout: 15000 });
 	await fab.click();
-	const composer = page.locator('.bg-surface-1.rounded-lg:has(button[title="Send (Enter)"])');
+	const composer = page.locator('.bg-surface-2.rounded-xl:has(button[title="Send (Enter)"])');
 	await expect(composer).toBeVisible({ timeout: 15000 });
 	return composer;
 }
@@ -142,7 +142,11 @@ test.describe('desktop', () => {
 
 		await expect(dropdown).toHaveCount(0);
 		await expect(composer).toBeVisible();
-		await expect(page.locator('.fixed.top-0.right-0.bottom-0.z-50')).toBeVisible();
+		// The chat rework replaced the old edge-to-edge right-docked drawer
+		// (`.fixed.top-0.right-0.bottom-0`) with a floating window inset from
+		// every edge (GlobalChatPanel.svelte's `top-3 right-3 bottom-3`) —
+		// assert its actual `role="dialog"` shell instead of that stale anatomy.
+		await expect(page.getByRole('dialog', { name: 'AI chat' })).toBeVisible();
 	});
 });
 

@@ -40,7 +40,7 @@ test('chat composer exposes attach, tools, memory and pin controls (no command p
 	await expect(fab).toBeVisible({ timeout: 15000 });
 	await fab.click();
 
-	const composer = page.locator('.bg-surface-1.rounded-lg:has(button[title="Send (Enter)"])');
+	const composer = page.locator('.bg-surface-2.rounded-xl:has(button[title="Send (Enter)"])');
 	await expect(composer).toBeVisible({ timeout: 15000 });
 	await page.waitForTimeout(BEAT);
 
@@ -169,25 +169,27 @@ test('chat composer exposes attach, tools, memory and pin controls (no command p
 	await expect(toolsPopover).toBeHidden();
 	await page.waitForTimeout(BEAT);
 
-	// --- 2. Memory panel (fixed right-side overlay) ---
+	// --- 2. Memory panel (docked inspector beside the transcript) ---
 	await composer.locator('button[title="Memory"]').click();
 	const memoryPanel = page.locator('[aria-label="Memory"]');
 	await expect(memoryPanel).toBeVisible();
 	await expect(memoryPanel.getByRole('heading', { name: 'Memory' })).toBeVisible();
 	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'memory-panel-open');
-	await memoryPanel.locator('button[title="Close"]').click();
+	// Close is an IconButton wrapped in a Tooltip, so its accessible name comes
+	// from aria-label, not a native title attribute.
+	await memoryPanel.getByRole('button', { name: 'Close' }).click();
 	await expect(memoryPanel).toBeHidden();
 	await page.waitForTimeout(BEAT);
 
 	// --- 3. Pin toggle (the picker itself lives in the context strip now) ---
 	await composer.locator('button[title^="Pin to"]').click();
 	await expect(page.locator('button[title^="Unpin from"]')).toBeVisible();
-	await expect(page.getByText('Pinned to').first()).toBeVisible();
+	await expect(page.locator('[data-testid="chat-context-strip"]')).toHaveAttribute('data-strip-state', 'pinned-active');
 	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'pin-toggle-pinned');
 	await composer.locator('button[title^="Unpin from"]').click();
-	await expect(page.getByText('Reading tab:').first()).toBeVisible();
+	await expect(page.locator('[data-testid="chat-context-strip"]')).toHaveAttribute('data-strip-state', 'following');
 	await page.waitForTimeout(BEAT);
 
 	// --- 4. Final full-composer screenshot of the settled bottom row ---

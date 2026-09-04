@@ -85,7 +85,7 @@
 </script>
 
 {#if model.state === 'pinned-mismatch'}
-	<div class="flex-shrink-0 border-t border-warning/35 bg-warning/[0.06] px-3 py-2" data-testid="chat-context-strip" data-strip-state="pinned-mismatch">
+	<div class="flex-shrink-0 mx-3 mt-2 rounded-lg border border-warning/35 bg-warning/[0.06] px-3 py-2" data-testid="chat-context-strip" data-strip-state="pinned-mismatch">
 		<div class="flex items-center gap-2">
 			<svg class="w-3.5 h-3.5 text-warning flex-shrink-0" fill="currentColor" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
 				<path stroke-linecap="round" stroke-linejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
@@ -126,69 +126,51 @@
 			</button>
 		</div>
 	</div>
-{:else if model.state === 'pinned-active'}
-	<div class="flex-shrink-0 border-t border-line bg-surface-1 px-3 py-1.5 flex items-center gap-2" data-testid="chat-context-strip" data-strip-state="pinned-active">
-		<svg class="w-3.5 h-3.5 text-warning flex-shrink-0" fill="currentColor" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-			<path stroke-linecap="round" stroke-linejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
-		</svg>
-		<div class="min-w-0 flex-1 text-xs text-fg-muted overflow-hidden text-ellipsis whitespace-nowrap">
-			Pinned to
-			<button type="button" bind:this={triggerEl} class="font-medium text-fg hover:underline underline-offset-2" on:click={togglePicker}>
-				{model.tabName}
-			</button>
-			{#if model.presetLabel}
-				— <span class="text-fg-subtle">{model.presetLabel}</span>
-			{/if}
-			{#if dimsText}
-				<span class="font-mono text-2xs tabular-nums text-fg-subtle">· {dimsText}</span>
-			{/if}
-		</div>
-		<span class="font-mono text-2xs uppercase tracking-[0.08em] text-signal flex-shrink-0">active</span>
+{:else}
+	<!-- Following / pinned-active: the composer's context chip (mock `.resource-chip`):
+	     pin toggle · tab name (picker trigger) · state. One place for the fact. -->
+	{@const pinned = model.state === 'pinned-active'}
+	<span
+		class="inline-flex h-6 max-w-[220px] items-center gap-[5px] rounded-md border px-[7px] text-2xs flex-shrink-0 motion-safe:transition-colors motion-safe:duration-[1200ms] ease-out {pinned
+			? 'border-warning/35 bg-warning/[0.07] text-warning'
+			: flash
+				? 'border-signal/35 bg-signal/[0.07] text-fg'
+				: 'border-line bg-surface-1 text-fg-muted'}"
+		data-testid="chat-context-strip"
+		data-strip-state={pinned ? 'pinned-active' : 'following'}
+	>
 		<button
 			type="button"
-			class="flex-shrink-0 px-1.5 py-1 text-xs text-fg-subtle hover:text-fg-muted transition-colors"
-			on:click={() => selectTab(null)}
+			bind:this={triggerEl}
+			class="max-w-[125px] truncate font-semibold {pinned ? 'text-warning' : 'text-fg'} hover:underline underline-offset-2"
+			on:click={togglePicker}
 		>
-			Unpin
+			{model.tabName}
 		</button>
-	</div>
-{:else}
-	<div
-		class="flex-shrink-0 border-t px-3 py-1.5 flex items-center gap-2 motion-safe:transition-colors motion-safe:duration-[1200ms] ease-out {flash
-			? 'border-signal/35 bg-signal/[0.07]'
-			: 'border-line bg-surface-1'}"
-		data-testid="chat-context-strip"
-		data-strip-state="following"
-	>
-		<svg
-			class="w-3.5 h-3.5 flex-shrink-0 motion-safe:transition-colors motion-safe:duration-[1200ms] ease-out {flash
-				? 'text-signal'
-				: 'text-fg-subtle'}"
-			fill="none"
-			stroke="currentColor"
-			stroke-width="2"
-			viewBox="0 0 24 24"
+		{#if model.presetLabel}
+			<span class="truncate text-fg-subtle">· {model.presetLabel}</span>
+		{/if}
+		<span class="font-mono uppercase tracking-[0.06em] {pinned ? 'text-warning' : 'text-signal'}">
+			{pinned ? 'pinned · active' : 'following'}
+		</span>
+		<button
+			type="button"
+			title={pinned ? `Unpin from ${model.tabName}` : `Pin to ${model.tabName}`}
+			aria-pressed={pinned}
+			class="grid h-4 w-4 flex-shrink-0 place-items-center rounded hover:bg-surface-2 transition-colors duration-100"
+			on:click={() => selectTab(pinned ? null : activeTabId)}
 		>
-			<path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
-			<path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-		</svg>
-		<div
-			class="min-w-0 flex-1 text-xs overflow-hidden text-ellipsis whitespace-nowrap motion-safe:transition-colors motion-safe:duration-[1200ms] ease-out {flash
-				? 'text-fg'
-				: 'text-fg-muted'}"
-		>
-			Reading tab:
-			<button type="button" bind:this={triggerEl} class="text-signal font-medium hover:underline underline-offset-2" on:click={togglePicker}>
-				{model.tabName}
-			</button>
-			{#if model.presetLabel}
-				— <span class="text-fg-subtle">{model.presetLabel}</span>
-			{/if}
-			{#if dimsText}
-				<span class="font-mono text-2xs tabular-nums text-fg-subtle">· {dimsText}</span>
-			{/if}
-		</div>
-	</div>
+			<svg
+				class="h-[11px] w-[11px] {pinned ? 'text-warning' : 'text-signal'}"
+				fill={pinned ? 'currentColor' : 'none'}
+				stroke="currentColor"
+				stroke-width={pinned ? '1.5' : '2'}
+				viewBox="0 0 24 24"
+			>
+				<path stroke-linecap="round" stroke-linejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+			</svg>
+		</button>
+	</span>
 {/if}
 
 {#if showPicker}

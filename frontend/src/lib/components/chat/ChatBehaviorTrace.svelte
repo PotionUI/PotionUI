@@ -1,19 +1,19 @@
 <script lang="ts">
 	/**
-	 * The behavior trace under an assistant message: tool calls compress to an
-	 * always-visible row of status chips (ChatToolChip); context steps
-	 * (resources read, memory recalled, pre-chat actions, thinking, answering)
-	 * stay in a separate, collapsible timeline below it. Tool APPROVAL is a
-	 * separate surface (ApprovalDock, docked above the composer) — a pending
-	 * chip here is display-only. No arguments/results render for a tool beyond
-	 * a failed chip's one-line error: showing more in the user-facing chat can
-	 * leak internal data, so full detail lives only in Admin -> LLM / Sessions.
+	 * The behavior trace under an assistant message: tool calls compress into a
+	 * single collapsible record (ChatToolRun); context steps (resources read,
+	 * memory recalled, pre-chat actions, thinking, answering) stay in a
+	 * separate, collapsible timeline below it. Tool APPROVAL is a separate
+	 * surface (ApprovalDock, docked above the composer) — a pending execution
+	 * here is display-only (ChatToolRun excludes it entirely). No
+	 * arguments/results render for a tool beyond a failed row's one-line
+	 * error: showing more in the user-facing chat can leak internal data, so
+	 * full detail lives only in Admin -> LLM / Sessions.
 	 */
 	import { slide } from 'svelte/transition';
-	import type { ToolExecution, ChatToolInfo, TraceStep, TraceStepName } from '$lib/types/chat';
-	import { chatModes } from '$lib/stores/chatModes';
+	import type { ToolExecution, TraceStep, TraceStepName } from '$lib/types/chat';
 	import { hydrateTraceSteps, formatContextLedgerSummary, sumMemoryDropped } from '$lib/utils/chatStream';
-	import ChatToolChip from './ChatToolChip.svelte';
+	import ChatToolRun from './ChatToolRun.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 
 	export let executions: ToolExecution[] = [];
@@ -85,22 +85,10 @@
 		return '';
 	}
 
-	function toolMetaFor(name: string, catalog: ChatToolInfo[]) {
-		const info = catalog.find((t) => t.name === name);
-		return info ? { icon: info.icon, label: info.label } : null;
-	}
-
 	let expandedSteps: Record<number, boolean> = {};
 	function toggleStep(seq: number) {
 		expandedSteps = { ...expandedSteps, [seq]: !expandedSteps[seq] };
 	}
-
-	// Which tool chip's error line (if any) is expanded. Cleared whenever the
-	// execution list changes shape so a stale index can't point at the wrong tool.
-	let expandedChipIndex: number | null = null;
-	$: executions, (expandedChipIndex = null);
-	$: expandedError =
-		expandedChipIndex !== null ? executions[expandedChipIndex]?.result?.error : undefined;
 
 	// Collapsed by default once a message is finished; expanded while streaming.
 	let userToggled: boolean | null = null;
@@ -121,21 +109,7 @@
 	$: toolFailureEntries = Object.entries(manifest?.tool_failures ?? {});
 </script>
 
-{#if executions.length > 0}
-	<div class="mt-2 flex flex-wrap items-center gap-1.5">
-		{#each executions as execution, i}
-			<ChatToolChip
-				{execution}
-				toolMeta={toolMetaFor(execution.tool_name, $chatModes.toolsCatalog)}
-				expanded={expandedChipIndex === i}
-				onToggle={() => (expandedChipIndex = expandedChipIndex === i ? null : i)}
-			/>
-		{/each}
-	</div>
-	{#if expandedError}
-		<div class="mt-1 text-xs text-danger" transition:slide={{ duration: 120 }}>{expandedError}</div>
-	{/if}
-{/if}
+<ChatToolRun {executions} />
 
 {#if effectiveSteps.length > 0}
 	<div class="mt-2">

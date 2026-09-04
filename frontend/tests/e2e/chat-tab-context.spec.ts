@@ -75,13 +75,13 @@ test('strip follows the active tab, and its picker resolves pinned-active and pi
 	const fab = page.getByRole('button', { name: 'AI Chat' });
 	await expect(fab).toBeVisible({ timeout: 15000 });
 	await fab.click();
-	const composer = page.locator('.bg-surface-1.rounded-lg:has(button[title="Send (Enter)"])');
+	const composer = page.locator('.bg-surface-2.rounded-xl:has(button[title="Send (Enter)"])');
 	await expect(composer).toBeVisible({ timeout: 15000 });
 
 	const contextStrip = strip(page);
 	await expect(contextStrip).toBeVisible({ timeout: 15000 });
 	await expect(contextStrip).toHaveAttribute('data-strip-state', 'following');
-	await expect(contextStrip).toContainText('Reading tab:');
+	await expect(contextStrip).toContainText('following');
 	await expect(contextStrip).toContainText('Generation 2');
 	await screenshot(page, JOURNEY, '00-following-at-rest');
 
@@ -98,7 +98,7 @@ test('strip follows the active tab, and its picker resolves pinned-active and pi
 
 	// --- Pinning to the currently-active tab (Generation 2) -> pinned-active.
 	await expect(contextStrip).toHaveAttribute('data-strip-state', 'pinned-active');
-	await expect(contextStrip).toContainText('Pinned to');
+	await expect(contextStrip).toContainText('pinned');
 	await expect(contextStrip).toContainText('Generation 2');
 	await expect(contextStrip).toContainText('active');
 	await screenshot(page, JOURNEY, '02-pinned-active');

@@ -13,7 +13,7 @@
 </script>
 
 <div
-	class="flex-shrink-0 border-t border-line bg-surface-1 px-3 py-2 flex items-center gap-2"
+	class="flex-shrink-0 mx-3 mt-2 rounded-lg border border-line bg-surface-2 px-3 py-2 flex items-center gap-2"
 	transition:slide={{ duration: 150 }}
 >
 	<svg class="w-3.5 h-3.5 text-fg-subtle flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">

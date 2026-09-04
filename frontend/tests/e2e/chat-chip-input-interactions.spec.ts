@@ -44,7 +44,7 @@ async function openGlobalChat(page: Page): Promise<Locator> {
 	const fab = page.getByRole('button', { name: 'AI Chat' });
 	await expect(fab).toBeVisible({ timeout: 15000 });
 	await fab.click();
-	const composer = page.locator('.bg-surface-1.rounded-lg:has(button[title="Send (Enter)"])');
+	const composer = page.locator('.bg-surface-2.rounded-xl:has(button[title="Send (Enter)"])');
 	await expect(composer).toBeVisible({ timeout: 15000 });
 	const chipInput = composer.locator('.chat-chip-input[role="textbox"]');
 	await expect(chipInput).toBeVisible();
@@ -61,10 +61,20 @@ async function openGlobalChat(page: Page): Promise<Locator> {
 async function attachFirstFormSuggestion(page: Page, chipInput: Locator): Promise<void> {
 	await chipInput.click();
 	await page.keyboard.type('@form.');
-	const firstOption = page.locator('[role="option"]').first();
+	const firstOption = suggestOptions(page).first();
 	await expect(firstOption).toBeVisible({ timeout: 5000 });
 	await page.keyboard.press('Enter');
 	await expect(chipInput.locator('.inline-chip-container')).toHaveCount(1);
+}
+
+/** AutocompleteDropdown.svelte's own `[role="option"]` rows, scoped to its
+ *  `role="listbox"` container. A page-wide `[role="option"]` locator also
+ *  matches PaneRow's option rows in CollectionLibrarySidebar (the /models
+ *  page's permanent left sidebar, e.g. its "All models" row) — an unrelated
+ *  component this spec's fixed-instance page happens to render underneath
+ *  the chat panel. */
+function suggestOptions(page: Page): Locator {
+	return page.locator('[role="listbox"] [role="option"]');
 }
 
 test.describe('ChatChipInput browser interactions', () => {
@@ -101,7 +111,7 @@ test.describe('ChatChipInput browser interactions', () => {
 		// generations, models, presets, phrasebook are all builtin), so this
 		// doesn't depend on depot/preset fixtures. Exact count/order isn't
 		// asserted (plugins can register more namespaces).
-		const options = page.locator('[role="option"]');
+		const options = suggestOptions(page);
 		await expect(options.nth(1)).toBeVisible({ timeout: 5000 });
 		const count = await options.count();
 		expect(count).toBeGreaterThanOrEqual(2);

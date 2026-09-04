@@ -12,6 +12,9 @@
 	import { buildVariableChipTooltips } from '$lib/utils/variableSnapshot';
 	import type { VariablesMap, VariableRoll } from '$lib/utils/variableDefs';
 	import ChatBehaviorTrace from '$lib/components/chat/ChatBehaviorTrace.svelte';
+	import Logo from '$lib/components/brand/Logo.svelte';
+	import Button from '$lib/components/ui/Button.svelte';
+	import CopyButton from '$lib/components/ui/CopyButton.svelte';
 	import { appliedSegmentActions, isAppliedSegmentAction } from '$lib/stores/appliedSegmentActions';
 
 	export let role: 'user' | 'assistant' | 'system';
@@ -124,6 +127,19 @@
 		return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 	}
 
+	// Best-effort file name for an attached image: the props carry only a URL
+	// (no source/name metadata reaches this component), so the label line
+	// never claims a source it can't verify — see attachmentSourceLabel.
+	function attachmentName(url: string): string {
+		try {
+			const path = url.split(/[?#]/)[0];
+			const base = decodeURIComponent(path.split('/').pop() || '');
+			return base || 'image';
+		} catch {
+			return 'image';
+		}
+	}
+
 	// Split proposed segment content into plain text and #phrasebook marker tokens
 	// (same pattern as chipParser.ts) so markers render as chips in the preview
 	function splitMarkerTokens(text: string): Array<{ text: string; isMarker: boolean }> {
@@ -173,33 +189,44 @@
 		const match = messageResources.find((r) => r.uri === uri);
 		return match?.title || match?.label || uri;
 	}
+
+	// Trailing "MODEL · N TOKENS" line: both come straight from the backend's
+	// per-message metadata (conversation.py's assistant_metadata) — never
+	// derived from the session's current model, which can differ from what
+	// actually answered this turn.
+	$: modelTokensLine = (() => {
+		const model = typeof metadata?.model === 'string' ? metadata.model.toUpperCase() : '';
+		const tokens = typeof metadata?.tokens_used === 'number' ? `${metadata.tokens_used.toLocaleString()} TOKENS` : '';
+		return [model, tokens].filter(Boolean).join(' · ');
+	})();
 </script>
 
 <!-- User Message -->
 {#if role === 'user'}
-	<div class="border-l-2 border-line-strong/60 pl-3">
-		<div class="{compact ? 'mb-1' : 'mb-1.5'}">
-			<span class="font-mono text-2xs font-medium uppercase tracking-[0.07em] text-fg-subtle">YOU</span>
+	<div class="flex justify-end">
+		<div class="flex max-w-[78%] flex-col items-end gap-1.5">
 			{#if timestamp}
-				<span class="font-mono text-2xs font-medium uppercase tracking-[0.07em] text-fg-disabled"> · {formatTime(timestamp)}</span>
+				<span class="font-mono text-2xs text-fg-disabled">{formatTime(timestamp)}</span>
 			{/if}
-		</div>
-		<div class="{compact ? 'text-xs' : 'text-sm'} text-fg-muted whitespace-pre-wrap">
-			{#each splitResourceTokens(content) as part}{#if part.type === 'resource'}<span class="text-signal bg-signal/10 border border-signal/25 rounded px-1" title={part.value}>@{resourceLabel(part.value)}</span>{:else}{part.value}{/if}{/each}
+			<div class="whitespace-pre-wrap rounded-lg rounded-br border border-line bg-surface-2 px-3.5 py-2.5 {compact ? 'text-xs' : 'text-sm'} text-fg">
+				{#each splitResourceTokens(content) as part}{#if part.type === 'resource'}<span class="text-signal bg-signal/10 border border-signal/25 rounded px-1" title={part.value}>@{resourceLabel(part.value)}</span>{:else}{part.value}{/if}{/each}
+			</div>
 			{#if imageUrl}
-				<div class="mt-2">
-					<div class="flex items-center gap-1.5 mb-1.5">
-						<svg class="w-3 h-3 text-fg-subtle" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-						</svg>
-						<span class="text-[10px] text-fg-subtle font-medium">Attached image</span>
-					</div>
+				<div class="flex max-w-full items-center gap-2 rounded-lg border border-line bg-surface-1 py-1 pl-1 pr-2.5">
 					<img
 						src={imageUrl}
 						alt="Attached"
-						class="max-w-[200px] max-h-[200px] rounded-lg border border-line object-cover"
+						class="h-[38px] w-[38px] flex-shrink-0 rounded border border-line object-cover"
 						loading="lazy"
 					/>
+					<div class="min-w-0">
+						<div class="max-w-[180px] truncate text-2xs font-semibold text-fg-muted" title={attachmentName(imageUrl)}>
+							{attachmentName(imageUrl)}
+						</div>
+						<div class="mt-0.5 font-mono text-[9px] uppercase tracking-[0.06em] text-fg-subtle">
+							Image attachment
+						</div>
+					</div>
 				</div>
 			{/if}
 		</div>
@@ -207,132 +234,140 @@
 
 <!-- Assistant Message -->
 {:else if role === 'assistant'}
-	<div>
-		<div class="{compact ? 'mb-1' : 'mb-1.5'}">
-			<span class="font-mono text-2xs font-medium uppercase tracking-[0.07em] text-fg-subtle">ASSISTANT</span>
-			{#if timestamp}
-				<span class="font-mono text-2xs font-medium uppercase tracking-[0.07em] text-fg-disabled"> · {formatTime(timestamp)}</span>
-			{/if}
+	<div class="grid grid-cols-[28px_minmax(0,1fr)] items-start gap-3">
+		<div class="ai-avatar flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-surface-1 text-fg">
+			<Logo size={16} />
 		</div>
-
-		<!-- Card container for AI response -->
-		<div class="rounded-lg bg-surface-1 border border-line overflow-hidden">
-				<!-- Plain assistant message -->
-				<div class="{compact ? 'px-3 py-2 text-xs' : 'px-4 py-3 text-sm'} text-fg-muted leading-normal max-w-none">
-					{@html renderedHtml}{#if isStreaming}<span class="inline-block w-2 h-4 ml-0.5 bg-signal animate-pulse rounded-sm"></span>{/if}
-				</div>
-				{#if replyContract?.improved?.length}
-					<div class="border-t border-line {compact ? 'px-3 py-2' : 'px-4 py-3'}">
-						<div class="font-mono text-2xs font-medium uppercase tracking-[0.07em] text-fg-subtle mb-1.5">IMPROVED</div>
-						<ul class="space-y-1">
-							{#each replyContract.improved as line}
-								<li class="flex items-start gap-1.5 text-sm text-fg-muted">
-									<span class="mt-1.5 w-1 h-1 rounded-full bg-fg-subtle flex-shrink-0" aria-hidden="true"></span>
-									<span>{@html processMarkdown(line, { variableChips })}</span>
-								</li>
-							{/each}
-						</ul>
-					</div>
-				{/if}
-				{#if markdownResult.actions.length > 0}
-					<div class="border-t border-line">
-						{#each markdownResult.actions as action, i}
-							{@const feedback = promptFeedbackByIndex[i]}
-							{@const applied = appliedByIndex[i]}
-							<div
-								class="{compact ? 'px-3 py-2' : 'px-4 py-3'} {i > 0 ? 'border-t border-line' : ''} {applied
-									? 'ring-1 ring-inset ring-signal/40 bg-signal/5'
-									: ''}"
-							>
-								<div class="flex items-center justify-between mb-2">
-									<span class="text-xs font-semibold text-signal uppercase tracking-wider flex items-center gap-1.5">
-										<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-										</svg>
-										{action.type === 'update_director_segment' ? 'Director Segment' : 'Update Segment'} #{action.segmentIndex + 1}
-									</span>
-									<div class="flex items-center gap-2">
-										{#if onPromptFeedback && sessionId && messageId}
-											<div class="flex items-center gap-1">
-												<button
-													class="p-1 rounded border transition-colors {feedback?.verdict === 'approved'
-														? 'bg-signal/10 border-signal/40 text-signal'
-														: 'border-transparent text-fg-subtle hover:text-signal hover:bg-signal/10'}"
-													disabled={!!feedback}
-													title="Good prompt"
-													aria-pressed={feedback?.verdict === 'approved'}
-													on:click={() => submitPromptFeedback(i, 'approved')}
-												>
-													<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-7m0 10H5a2 2 0 01-2-2v-6a2 2 0 012-2h2" />
-													</svg>
-												</button>
-												<button
-													class="p-1 rounded border transition-colors {feedback?.verdict === 'rejected'
-														? 'bg-signal/10 border-signal/40 text-signal'
-														: 'border-transparent text-fg-subtle hover:text-signal hover:bg-signal/10'}"
-													disabled={!!feedback}
-													title="Bad prompt"
-													aria-pressed={feedback?.verdict === 'rejected'}
-													on:click={() => toggleReasonPanel(i)}
-												>
-													<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.737 3h4.017c.163 0 .326.02.485.06L17 4m-7 10v5a2 2 0 002 2h.095c.5 0 .905-.405.905-.905 0-.714.211-1.412.608-2.006L17 13V4m-7 10h7m0-10h2a2 2 0 012 2v6a2 2 0 01-2 2h-2" />
-													</svg>
-												</button>
-											</div>
-										{/if}
-										{#if onApplyAction}
-											<button
-												class="px-3 py-1.5 text-xs font-medium rounded transition-colors flex items-center gap-1.5 {applied
-													? 'text-signal bg-signal/10 border border-signal/40 hover:bg-signal/15'
-													: 'text-accent-contrast bg-accent hover:bg-accent-hover'}"
-												title={applied ? 'Re-apply this variant' : applyActionHint}
-												on:click={() => onApplyAction?.(action, i)}
-											>
-												{#if applied}
-													<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-														<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-													</svg>
-												{/if}
-												{applied ? 'Applied' : 'Apply'}
-											</button>
-										{/if}
-									</div>
-								</div>
-								{#if reasonPanelFor === i && !feedback}
-									<div class="flex items-center gap-1.5 mb-2" transition:slide={{ duration: 150 }}>
-										<input
-											type="text"
-											bind:value={reasonText}
-											placeholder="Optional reason (why is this prompt bad?)"
-											class="flex-1 text-xs bg-canvas border border-line rounded px-2 py-1 text-fg-muted placeholder-fg-subtle focus:outline-none focus:border-line-strong"
-											on:keydown={(e) => e.key === 'Enter' && submitPromptFeedback(i, 'rejected', reasonText.trim() || undefined)}
-										/>
-										<button
-											class="px-2 py-1 text-xs font-medium text-white bg-danger-solid rounded hover:bg-danger-solid/90 transition-colors"
-											on:click={() => submitPromptFeedback(i, 'rejected', reasonText.trim() || undefined)}
-										>
-											Confirm
-										</button>
-										<button
-											class="px-2 py-1 text-xs font-medium text-fg-muted hover:text-fg-muted transition-colors"
-											on:click={() => toggleReasonPanel(i)}
-										>
-											Cancel
-										</button>
-									</div>
-								{/if}
-								<div class="text-xs text-fg-muted bg-canvas rounded-lg p-2.5 font-mono whitespace-pre-wrap border border-line">
-									{#each splitMarkerTokens(action.content) as token}{#if token.isMarker}<span class="text-signal bg-signal/15 rounded px-1">{token.text}</span>{:else}{token.text}{/if}{/each}
-								</div>
-							</div>
-						{/each}
-					</div>
+		<div class="min-w-0 pt-0.5">
+			<div class="flex h-[21px] items-center gap-1.5">
+				<span class="text-xs font-semibold text-fg-muted">Potion AI</span>
+				{#if timestamp}
+					<span class="font-mono text-2xs text-fg-disabled">{formatTime(timestamp)}</span>
 				{/if}
 			</div>
+
+			<div class="{compact ? 'text-xs' : 'text-sm'} leading-relaxed text-fg-muted">
+				{@html renderedHtml}{#if isStreaming}<span class="inline-block w-2 h-4 ml-0.5 bg-signal animate-pulse rounded-sm"></span>{/if}
+			</div>
+
+			{#if replyContract?.improved?.length}
+				<div class="mt-3 rounded-lg border border-line bg-surface-2 {compact ? 'px-3 py-2' : 'px-3.5 py-3'}">
+					<div class="font-mono text-2xs font-medium uppercase tracking-[0.07em] text-fg-subtle mb-1.5">IMPROVED</div>
+					<ul class="space-y-1">
+						{#each replyContract.improved as line}
+							<li class="flex items-start gap-1.5 text-sm text-fg-muted">
+								<span class="mt-1.5 w-1 h-1 rounded-full bg-fg-subtle flex-shrink-0" aria-hidden="true"></span>
+								<span>{@html processMarkdown(line, { variableChips })}</span>
+							</li>
+						{/each}
+					</ul>
+				</div>
+			{/if}
+
+			<ChatBehaviorTrace executions={toolExecutions} {traceSteps} {metadata} {isStreaming} />
+
+			{#each markdownResult.actions as action, i}
+				{@const feedback = promptFeedbackByIndex[i]}
+				{@const applied = appliedByIndex[i]}
+				<div
+					class="mt-3 overflow-hidden rounded-lg border border-line-strong bg-surface-2 {applied
+						? 'ring-1 ring-inset ring-success/30'
+						: ''}"
+				>
+					<div class="flex min-h-[40px] flex-wrap items-center justify-between gap-2 border-b border-line px-3 py-2">
+						<div class="flex min-w-0 items-center gap-2">
+							<svg class="w-3.5 h-3.5 flex-shrink-0 text-signal" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+							</svg>
+							<strong class="truncate text-xs font-semibold text-fg">
+								{action.type === 'update_director_segment' ? 'Director Segment' : 'Update Segment'} #{action.segmentIndex + 1}
+							</strong>
+							<span class="flex-shrink-0 rounded bg-signal/10 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.06em] text-signal">
+								Suggested change
+							</span>
+						</div>
+						<div class="flex flex-shrink-0 items-center gap-2">
+							{#if onPromptFeedback && sessionId && messageId}
+								<div class="flex items-center gap-1">
+									<button
+										class="p-1 rounded border transition-colors {feedback?.verdict === 'approved'
+											? 'bg-signal/10 border-signal/40 text-signal'
+											: 'border-transparent text-fg-subtle hover:text-signal hover:bg-signal/10'}"
+										disabled={!!feedback}
+										title="Good prompt"
+										aria-pressed={feedback?.verdict === 'approved'}
+										on:click={() => submitPromptFeedback(i, 'approved')}
+									>
+										<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-7m0 10H5a2 2 0 01-2-2v-6a2 2 0 012-2h2" />
+										</svg>
+									</button>
+									<button
+										class="p-1 rounded border transition-colors {feedback?.verdict === 'rejected'
+											? 'bg-signal/10 border-signal/40 text-signal'
+											: 'border-transparent text-fg-subtle hover:text-signal hover:bg-signal/10'}"
+										disabled={!!feedback}
+										title="Bad prompt"
+										aria-pressed={feedback?.verdict === 'rejected'}
+										on:click={() => toggleReasonPanel(i)}
+									>
+										<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.737 3h4.017c.163 0 .326.02.485.06L17 4m-7 10v5a2 2 0 002 2h.095c.5 0 .905-.405.905-.905 0-.714.211-1.412.608-2.006L17 13V4m-7 10h7m0-10h2a2 2 0 012 2v6a2 2 0 01-2 2h-2" />
+										</svg>
+									</button>
+								</div>
+							{/if}
+							{#if onApplyAction}
+								{#if applied}
+									<button
+										class="inline-flex items-center gap-1.5 rounded border border-success/40 bg-success/10 px-2.5 py-1.5 text-xs font-medium text-success transition-colors hover:bg-success/15"
+										title="Re-apply this variant"
+										on:click={() => onApplyAction?.(action, i)}
+									>
+										<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+										</svg>
+										Applied
+									</button>
+								{:else}
+									<Button variant="primary" size="xs" title={applyActionHint} onclick={() => onApplyAction?.(action, i)}>
+										Apply
+									</Button>
+								{/if}
+							{/if}
+						</div>
+					</div>
+					{#if reasonPanelFor === i && !feedback}
+						<div class="flex items-center gap-1.5 px-3 pt-2.5" transition:slide={{ duration: 150 }}>
+							<input
+								type="text"
+								bind:value={reasonText}
+								placeholder="Optional reason (why is this prompt bad?)"
+								class="flex-1 text-xs bg-canvas border border-line rounded px-2 py-1 text-fg-muted placeholder-fg-subtle focus:outline-none focus:border-line-strong"
+								on:keydown={(e) => e.key === 'Enter' && submitPromptFeedback(i, 'rejected', reasonText.trim() || undefined)}
+							/>
+							<button
+								class="px-2 py-1 text-xs font-medium text-white bg-danger-solid rounded hover:bg-danger-solid/90 transition-colors"
+								on:click={() => submitPromptFeedback(i, 'rejected', reasonText.trim() || undefined)}
+							>
+								Confirm
+							</button>
+							<button
+								class="px-2 py-1 text-xs font-medium text-fg-muted hover:text-fg-muted transition-colors"
+								on:click={() => toggleReasonPanel(i)}
+							>
+								Cancel
+							</button>
+						</div>
+					{/if}
+					<div class="whitespace-pre-wrap px-3 py-3 font-mono text-xs leading-relaxed text-fg-muted">
+						{#each splitMarkerTokens(action.content) as token}{#if token.isMarker}<span class="rounded bg-signal/10 px-1 text-signal">{token.text}</span>{:else}{token.text}{/if}{/each}
+					</div>
+				</div>
+			{/each}
+
 			{#if uniqueSources.length > 0}
-				<div class="mt-2.5 flex gap-2 overflow-x-auto pb-1 scrollbar-thin scrollbar-thumb-[rgb(var(--line-strong))] scrollbar-track-transparent">
+				<div class="mt-3 flex gap-2 overflow-x-auto pb-1 scrollbar-thin scrollbar-thumb-[rgb(var(--line-strong))] scrollbar-track-transparent">
 					{#each uniqueSources as source}
 						<div class="flex-shrink-0 w-48 rounded-lg bg-surface-1 border border-line p-2.5 hover:border-line-strong transition-colors">
 							<div class="flex items-center gap-1.5 mb-1">
@@ -370,8 +405,14 @@
 					{/each}
 				</div>
 			{/if}
-			<!-- Behavior trace: tool status chips + context steps, expandable details (display-only) -->
-			<ChatBehaviorTrace executions={toolExecutions} {traceSteps} {metadata} {isStreaming} />
+
+			<div class="mt-2 flex h-[27px] items-center gap-0.5">
+				<CopyButton text={content} title="Copy response" size="xs" variant="ghost" />
+				{#if modelTokensLine}
+					<span class="ml-1 font-mono text-2xs text-fg-subtle">{modelTokensLine}</span>
+				{/if}
+			</div>
+		</div>
 	</div>
 
 <!-- System Message -->
@@ -388,3 +429,15 @@
 		</div>
 	</div>
 {/if}
+
+<style>
+	/* Same border-box/padding-box gradient-ring idiom as the sidebar's AI Chat
+	   trigger (Sidebar.svelte) and ChatThinkingBubble's placeholder avatar —
+	   the one place the AI-product gradient renders as a border, never a fill. */
+	.ai-avatar {
+		border: 1px solid transparent;
+		background:
+			linear-gradient(rgb(var(--surface-1)), rgb(var(--surface-1))) padding-box,
+			linear-gradient(135deg, rgb(var(--ai-1)), rgb(var(--ai-2)), rgb(var(--ai-3))) border-box;
+	}
+</style>

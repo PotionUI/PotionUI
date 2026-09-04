@@ -71,7 +71,7 @@ test('known ${var} renders as a chip in chat, unknown stays literal', async ({ p
 	// click no longer exists — the /generate page shares the same
 	// "AI Chat" trigger as everywhere else now).
 	await page.getByRole('button', { name: 'AI Chat' }).click();
-	const composer = page.locator('.bg-surface-1.rounded-lg:has(button[title="Send (Enter)"])');
+	const composer = page.locator('.bg-surface-2.rounded-xl:has(button[title="Send (Enter)"])');
 	await expect(composer).toBeVisible({ timeout: 15000 });
 
 	fake.enqueue({

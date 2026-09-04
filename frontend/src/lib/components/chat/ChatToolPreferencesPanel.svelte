@@ -3,6 +3,7 @@
 	import { logger } from '$lib/utils/logger';
 	import { api } from '$lib/services/api/index';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
+	import Switch from '$lib/components/ui/Switch.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import type { UserToolPreference } from '$lib/types/llm';
 	import portal from '$lib/actions/portal';
@@ -138,19 +139,14 @@
 							<div class="text-[10px] text-fg-subtle mt-0.5 leading-snug">{tool.user_description}</div>
 						{/if}
 					</div>
-					<button
-						type="button"
-						role="switch"
-						aria-checked={!tool.disabled_by_user}
-						disabled={tool.locked || !!saving[tool.name]}
-						title={tool.locked ? 'Enabled for everyone by the administrator' : tool.disabled_by_user ? 'Turn on' : 'Turn off'}
-						class="mt-0.5 flex-shrink-0 relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-150 {tool.disabled_by_user ? 'bg-surface-3' : 'bg-signal'} {tool.locked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}"
-						on:click={() => toggleTool(tool)}
-					>
-						<span
-							class="inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform duration-150 {tool.disabled_by_user ? 'translate-x-0.5' : 'translate-x-4'}"
-						></span>
-					</button>
+					<Switch
+						checked={!tool.disabled_by_user}
+						disabled={tool.locked}
+						busy={!!saving[tool.name]}
+						label={tool.locked ? 'Enabled for everyone by the administrator' : tool.disabled_by_user ? 'Turn on' : 'Turn off'}
+						class="mt-0.5 flex-shrink-0"
+						onclick={() => toggleTool(tool)}
+					/>
 				</div>
 			{/each}
 		{/if}

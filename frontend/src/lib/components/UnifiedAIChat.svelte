@@ -5,7 +5,8 @@
 	import { storage } from '$lib/utils/storage';
 	import { api, type ChatSessionResponse, type ChatMessageResponse } from '$lib/services/api/index';
 	import ChatMessage from '$lib/components/ChatMessage.svelte';
-	import MediaLoaderField from '$lib/components/form-fields/MediaLoaderField.svelte';
+	import Logo from '$lib/components/brand/Logo.svelte';
+	import { iconPaths } from '$lib/utils/IconLibrary';
 	import { buildUploadedMediaItem } from '$lib/components/form-fields/mediaLoaderUpload';
 	import { activeTab, tabsStore } from '$lib/stores/tabs';
 	import { loraSelectionsForTab } from '$lib/stores/loraPickerSelections';
@@ -74,6 +75,29 @@
 	const STORAGE_KEY_PINNED_TAB = 'unified-ai-chat-pinned-tab';
 	const STORAGE_KEY_ENABLE_TOOLS = 'unified-ai-chat-enable-tools';
 
+	// Empty-state suggestion cards: clicking one hands its prompt straight to
+	// the composer (same as the mock's suggestion buttons).
+	const EMPTY_STATE_SUGGESTIONS = [
+		{
+			title: 'Explore ideas',
+			sub: 'Get creative prompt directions',
+			prompt: 'Suggest a creative prompt idea',
+			iconPath: iconPaths.lightbulb as string
+		},
+		{
+			title: 'Review my settings',
+			sub: 'Find quality or composition improvements',
+			prompt: 'Review my current settings and suggest improvements.',
+			iconPath: iconPaths.settings as string
+		},
+		{
+			title: 'Refine this prompt',
+			sub: 'Improve composition, detail, and lighting',
+			prompt: 'Rewrite my prompt with stronger composition and lighting.',
+			iconPath: iconPaths.sparkles as string
+		}
+	];
+
 	// Conversation state lives in the chatSession store (survives panel close)
 	$: sessionId = $chatSession.sessionId;
 	$: messages = $chatSession.messages;
@@ -123,16 +147,63 @@
 	}
 	$: chatComposerDrafts.save(sessionId, { text: userInput, resources: userResources });
 
-	let showImagePanel = false;
 	let showMemoryPanel = false;
 	let showToolPreferencesPanel = false;
 
 	// History rail (left of the conversation, not a covering view) — persists
 	// only the collapsed/expanded boolean, read once on mount.
 	let historyRailCollapsed = loadHistoryRailCollapsed();
+	// Transcript and composer share one column: the mock's 750px, widened
+	// when the rail is away so the conversation uses the freed space.
+	$: conversationMaxWidth = historyRailCollapsed ? 'max-w-[960px]' : 'max-w-[750px]';
 	function toggleHistoryRail() {
 		historyRailCollapsed = !historyRailCollapsed;
 		saveHistoryRailCollapsed(historyRailCollapsed);
+	}
+
+	// Opening Memory collapses the rail (screen real estate goes to the
+	// inspector instead) and restores whatever the rail's state was before —
+	// this collapse is transient UI, not a user preference, so it bypasses
+	// saveHistoryRailCollapsed entirely (mirrors the mock's openMemory/closeMemory).
+	let railCollapsedBeforeMemory: boolean | null = null;
+	function openMemoryPanel() {
+		if (!showMemoryPanel) {
+			railCollapsedBeforeMemory = historyRailCollapsed;
+			historyRailCollapsed = true;
+		}
+		showMemoryPanel = true;
+	}
+	function closeMemoryPanel() {
+		showMemoryPanel = false;
+		if (railCollapsedBeforeMemory !== null) {
+			historyRailCollapsed = railCollapsedBeforeMemory;
+			railCollapsedBeforeMemory = null;
+		}
+	}
+	// null = not yet known, hides the composer's "Memory · n" badge (see
+	// ChatInput). While the memory panel is mounted, its exact per-scope count
+	// (global + preset + resolved model) drives this via onCountChange below;
+	// at rest, loadMemoryNoteCountAtRest() below gives a cheaper global+preset
+	// approximation so the badge isn't empty before the panel is ever opened.
+	let memoryNoteCount: number | null = null;
+	let memoryNoteCountPresetCache: string | null = null;
+	async function loadMemoryNoteCountAtRest(presetId: string | null) {
+		if (memoryNoteCountPresetCache === (presetId ?? '')) return;
+		memoryNoteCountPresetCache = presetId ?? '';
+		try {
+			const response = await api.listMemory({});
+			if (response.success && !showMemoryPanel) {
+				const notes = response.data?.notes || [];
+				memoryNoteCount = notes.filter(
+					(n) => n.scope === 'global' || (n.scope === 'preset' && n.scope_ref === presetId)
+				).length;
+			}
+		} catch (err) {
+			logger.error('Failed to load memory note count:', err);
+		}
+	}
+	$: if (browser) {
+		loadMemoryNoteCountAtRest(contextTab?.selectedPreset ?? null);
 	}
 	// null = not yet loaded (the Tools popover shows every mode tool, same as
 	// before this feature existed); once loaded, tools this user can't see at
@@ -294,6 +365,33 @@
 		? selectedImageData.relative_path || selectedImageData.path
 		: null;
 
+	// The context tab's most recent generation, for the attach popover's
+	// "Use last generated image" row (Seam 1) — same source sendMessage's
+	// auto-attach reads, just surfaced here for manual reuse too.
+	$: lastGeneratedImage = (() => {
+		const batchImages = contextTab?.generation?.batchImages;
+		if (!batchImages || batchImages.length === 0) return null;
+		const last = batchImages[batchImages.length - 1];
+		const url = last.originalUrl || last.url;
+		if (!url) return null;
+		return { url, name: url.split('/').pop() || 'last_generated_image' };
+	})();
+
+	function attachLastGeneratedImage() {
+		if (!lastGeneratedImage) return;
+		selectedImageData = {
+			path: lastGeneratedImage.url,
+			relative_path: lastGeneratedImage.url,
+			url: lastGeneratedImage.url,
+			name: lastGeneratedImage.name,
+			type: 'image'
+		};
+	}
+
+	function removeSelectedImage() {
+		selectedImageData = null;
+	}
+
 	// Selected LoRAs of the context tab's lora_picker field(s), for the @form
 	// picker's browsable per-LoRA rows.
 	$: loraSelectionsStore = loraSelectionsForTab(contextTab?.id);
@@ -381,8 +479,8 @@
 	// Tools visible in the current mode (mode tools + global tools)
 	$: visibleTools = toolsForMode($chatModes.toolsCatalog, currentMode);
 
-	// Token usage tracking
-	$: totalTokensUsed = messages.reduce((sum, m) => sum + (m.tokens_used || 0), 0);
+	// Token usage tracking: the header's context meter (Seam 3) only wants
+	// the last request's prompt-token count, not a running total.
 	$: currentContextSize = (() => {
 		for (let i = messages.length - 1; i >= 0; i--) {
 			if (messages[i].role === 'assistant' && messages[i].prompt_tokens) {
@@ -1314,6 +1412,67 @@
 		}
 	}
 
+	// Header identity: title comes from the session record (recentSessions
+	// already tracks the async LLM-generated title via the 'title' SSE event,
+	// see createStreamEventHandler), not from chatSession itself, which has no
+	// name field of its own.
+	$: currentSessionRecord = sessionId ? recentSessions.find((s) => s.id === sessionId) : null;
+	$: conversationTitle = currentSessionRecord?.name || (sessionId ? 'Untitled conversation' : 'New conversation');
+	$: threadImageCount = messages.filter((m) => m.role === 'user' && m.imageUrl).length;
+	$: headerSubtitle = threadImageCount > 0
+		? `${threadImageCount} image${threadImageCount === 1 ? '' : 's'} attached in thread`
+		: sessionId
+			? `${messages.filter((m) => !m.isSystem).length} messages`
+			: '';
+
+	async function handleRenameConversation(newTitle: string) {
+		if (!sessionId) return;
+		try {
+			const response = await api.updateChatSession(sessionId, { name: newTitle });
+			if (response.success) {
+				recentSessions = recentSessions.map((s) => (s.id === sessionId ? { ...s, name: newTitle } : s));
+			} else {
+				logger.error('Failed to rename conversation:', response.message);
+			}
+		} catch (err) {
+			logger.error('Failed to rename conversation:', err);
+		}
+	}
+
+	function handleExportTranscript() {
+		const lines: string[] = [`# ${conversationTitle}`, ''];
+		for (const message of messages) {
+			if (message.isSystem || (!message.content && !message.tool_executions?.length)) continue;
+			const speaker = message.role === 'user' ? 'You' : 'Potion AI';
+			const when = message.timestamp ? new Date(message.timestamp).toLocaleString() : '';
+			lines.push(`## ${speaker}${when ? ` — ${when}` : ''}`, '', message.content || '_(no text content)_', '');
+		}
+		const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = `${conversationTitle.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'conversation'}.md`;
+		a.click();
+		URL.revokeObjectURL(url);
+	}
+
+	async function handleDeleteConversation() {
+		if (!sessionId) return;
+		const id = sessionId;
+		try {
+			const response = await api.deleteChatSession(id);
+			if (!response.success) {
+				chatSession.patch({ error: response.error || 'Failed to delete conversation' });
+				return;
+			}
+		} catch (err) {
+			logger.error('Failed to delete conversation:', err);
+			chatSession.patch({ error: 'Failed to delete conversation' });
+			return;
+		}
+		handleSessionDeleted(id);
+	}
+
 	function selectFormImage(entry: FormImageEntry) {
 		selectedImageData = {
 			path: entry.media.path,
@@ -1322,7 +1481,6 @@
 			name: entry.media.name || entry.media.path.split('/').pop() || entry.media.path,
 			type: 'image'
 		};
-		showImagePanel = true;
 	}
 
 	// A pasted image reaches here from ChatChipInput via ChatInput's
@@ -1333,8 +1491,6 @@
 		// either: an accidental image paste in a text-only mode should be a
 		// silent no-op, not an error.
 		if (!supportsVision) return;
-
-		showImagePanel = true;
 
 		try {
 			const response = await api.uploadMedia(file);
@@ -1424,44 +1580,25 @@
 </script>
 
 <div class="flex flex-col h-full min-h-0 flex-1 bg-canvas">
-	<!-- Header bar: session, model, mode, toggles, close -->
+	<!-- Header bar: rail toggle, identity, mode/context/model, more menu, close.
+	     Always on top (full width) so it's still reachable — Close included —
+	     even in the "no usable config" body below. -->
 	<ChatHeader
 		{llmConfigs}
 		{selectedConfigId}
 		onSelectConfig={handleSelectConfig}
 		onSelectMode={handleSelectMode}
-		{supportsVision}
-		hasImageAttached={!!selectedImageData}
-		{totalTokensUsed}
 		{currentContextSize}
+		railCollapsed={historyRailCollapsed}
+		onToggleRail={toggleHistoryRail}
+		title={conversationTitle}
+		subtitle={headerSubtitle}
+		hasSession={!!sessionId}
+		onRename={handleRenameConversation}
+		onExportTranscript={handleExportTranscript}
+		onDeleteConversation={handleDeleteConversation}
 		onClose={onClose ? handleClose : undefined}
-	>
-		<svelte:fragment slot="leading">
-			<!-- History rail toggle + new chat -->
-			<button
-				type="button"
-				title="Conversation history"
-				aria-pressed={!historyRailCollapsed}
-				class="p-1.5 rounded text-xs transition-colors {!historyRailCollapsed ? 'bg-signal/10 text-signal' : 'text-fg-muted hover:text-fg-muted hover:bg-surface-2'}"
-				on:click={toggleHistoryRail}
-			>
-				<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-				</svg>
-			</button>
-			<button
-				type="button"
-				title="New chat"
-				class="p-1.5 rounded text-xs text-fg-muted hover:text-fg-muted hover:bg-surface-2 transition-colors"
-				on:click={handleNewSession}
-			>
-				<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-				</svg>
-			</button>
-			<div class="w-px h-4 bg-surface-2"></div>
-		</svelte:fragment>
-	</ChatHeader>
+	/>
 
 	{#if configsLoaded && llmConfigs.length === 0}
 		<!-- No usable LLM config: replaces the whole chat surface, rail included.
@@ -1485,13 +1622,12 @@
 			{/if}
 		</div>
 	{:else}
-	<div class="flex flex-1 min-h-0 relative">
+	<div class="flex flex-1 min-h-0">
+		<!-- History rail: a real column (not an overlay) that collapses to 0
+		     width, matching the mock's grid geometry. -->
 		{#if !historyRailCollapsed}
-			<!-- In flow on md+; overlays the conversation from the left below md so
-			     the composer never gets squeezed. -->
-			<div class="absolute inset-y-0 left-0 z-20 w-60 max-w-[80vw] flex-shrink-0 flex flex-col min-h-0 overflow-y-auto bg-surface-1 border-r border-line shadow-floating md:static md:z-auto md:shadow-none">
+			<div class="w-60 flex-shrink-0 border-r border-line overflow-hidden">
 				<ChatHistoryView
-					compact
 					onOpenSession={loadSession}
 					onNewChat={handleNewSession}
 					onSessionDeleted={handleSessionDeleted}
@@ -1499,248 +1635,234 @@
 			</div>
 		{/if}
 
-		<div class="flex flex-col flex-1 min-w-0 min-h-0">
-			<!-- Chat messages area -->
-			<div
-				bind:this={messagesContainerRef}
-				use:preserveScrollAcrossHiding
-				on:scroll={rememberScroll}
-				class="flex-1 overflow-y-auto p-3 md:p-5 space-y-3 md:space-y-5 min-h-0 scrollbar-thin scrollbar-thumb-[rgb(var(--line-strong))] scrollbar-track-transparent hover:scrollbar-thumb-[rgb(var(--line-hover))]"
-			>
-				{#if messages.length === 0}
-					<div class="dot-grid flex flex-col items-center justify-center h-full min-h-[150px] md:min-h-[300px] text-center px-4 md:px-6">
-						<div class="mb-3 md:mb-6">
-							<div class="w-12 h-12 md:w-16 md:h-16 rounded-lg bg-surface-1 border border-line flex items-center justify-center">
-								<svg class="w-6 h-6 md:w-8 md:h-8 text-fg-subtle" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-								</svg>
-							</div>
-						</div>
-						<h3 class="text-base md:text-xl font-semibold text-fg-muted mb-1 md:mb-2">Chat with AI</h3>
-						<p class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle mb-3 md:mb-6 max-w-sm">Ask questions, get creative ideas, or explore what's possible</p>
-						<div class="flex flex-wrap justify-center gap-2">
-							<button
-								class="px-3 py-1.5 text-xs font-medium text-fg-subtle bg-surface-1 border border-line rounded hover:text-fg-muted hover:border-signal transition-colors"
-								on:click={() => (userInput = 'What styles work best for portraits?')}
-							>
-								Portrait styles
-							</button>
-							<button
-								class="px-3 py-1.5 text-xs font-medium text-fg-subtle bg-surface-1 border border-line rounded hover:text-fg-muted hover:border-signal transition-colors"
-								on:click={() => (userInput = 'How can I improve image quality?')}
-							>
-								Improve quality
-							</button>
-							<button
-								class="px-3 py-1.5 text-xs font-medium text-fg-subtle bg-surface-1 border border-line rounded hover:text-fg-muted hover:border-signal transition-colors"
-								on:click={() => (userInput = 'Suggest a creative prompt idea')}
-							>
-								Creative ideas
-							</button>
-						</div>
-					</div>
-				{:else}
-					{#each messages as message, idx}
-						{#if message.isStreaming && !message.content && !message.tool_executions?.length && !message.trace_steps?.length && idx === messages.length - 1}
-							<!-- Nothing has happened for this turn yet (no content, no tool call, no
-							     trace step) — a bare "thinking" placeholder covers that brief gap
-							     for a tool called with no preceding narration. Once any of those
-							     arrive this branch never renders again for the turn
-							     (tool_executions/trace_steps only grow and content is never
-							     blanked), so the assistant bubble mounts once and stays mounted —
-							     content and tool rows render as updates inside it
-							     (ChatMessage/ChatBehaviorTrace). -->
-							<ChatThinkingBubble />
-						{:else}
-							<ChatMessage
-								role={message.role}
-								content={message.content}
-								timestamp={message.timestamp}
-								imageUrl={message.imageUrl || undefined}
-								compact={false}
-								isStreaming={message.isStreaming || false}
-								onApplyAction={enableTools
-									? (action, actionIndex) =>
-											handleApplySegmentAction(action, message.id || '', actionIndex)
-									: undefined}
-							applyActionHint={videoDirectorActive
-								? "Applies to the Video Director's persistent Direction prompt"
-								: undefined}
-								onPromptFeedback={message.id
-									? (data) => handlePromptFeedback(message.id!, data)
-									: undefined}
-								toolExecutions={message.tool_executions || []}
-								traceSteps={message.trace_steps || []}
-								sources={message.sources || []}
-								sessionId={sessionId || ''}
-								messageId={message.id || ''}
-								metadata={message.metadata}
-								parsedContent={message.parsed_content}
-								variables={contextTab?.variables}
-								variableRolls={contextTab?.variableRolls}
-							/>
-						{/if}
-							<!-- Tab-switch divider: same idiom as a date divider, not a system
-							     message. Client-side only (see contextDividers above); can land
-							     after any message index, including the last one. -->
-							{#each contextDividers.filter((d) => d.afterIndex === idx) as divider (divider.id)}
-								<div class="flex items-center gap-2 py-0.5" data-testid="context-switch-divider">
-									<div class="flex-1 h-px bg-line"></div>
-									<div class="flex items-center gap-1.5 flex-shrink-0">
-										<svg class="w-2.5 h-2.5 text-fg-subtle" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-											<path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4M16 17H4m0 0l4 4m-4-4l4-4" />
-										</svg>
-										<span class="font-mono text-2xs uppercase tracking-[0.08em] text-fg-subtle whitespace-nowrap">
-											Switched to {divider.tabName}{#if divider.presetLabel} · {divider.presetLabel}{/if}{#if divider.dims} · {divider.dims}{/if}
-										</span>
-									</div>
-									<div class="flex-1 h-px bg-line"></div>
+		<div class="flex flex-1 min-h-0">
+			<div class="flex flex-col flex-1 min-w-0 min-h-0">
+				<!-- Chat messages area -->
+				<div
+					bind:this={messagesContainerRef}
+					use:preserveScrollAcrossHiding
+					on:scroll={rememberScroll}
+					class="flex-1 overflow-y-auto min-h-0 scrollbar-thin scrollbar-thumb-[rgb(var(--line-strong))] scrollbar-track-transparent hover:scrollbar-thumb-[rgb(var(--line-hover))]"
+				>
+					<div class="mx-auto w-full {conversationMaxWidth} px-3 py-3 md:px-5 md:py-5">
+						{#if messages.length === 0}
+							<!-- Empty state: orb + prompt + three suggestion cards that hand
+							     their prompt straight to the composer. -->
+							<div class="flex flex-col items-center justify-center text-center py-10 md:py-16">
+								<span class="empty-orb mb-4 flex h-11 w-11 items-center justify-center rounded-xl text-fg">
+									<Logo size={22} />
+								</span>
+								<h2 class="text-lg md:text-xl font-semibold text-fg">What are we making?</h2>
+								<p class="mt-2 max-w-sm text-sm text-fg-subtle">
+									I can see your active workspace and help shape prompts, settings, and creative direction.
+								</p>
+								<div class="mt-6 grid w-full grid-cols-1 sm:grid-cols-3 gap-2 text-left">
+									{#each EMPTY_STATE_SUGGESTIONS as suggestion (suggestion.title)}
+										<button
+											type="button"
+											class="rounded-lg border border-line bg-surface-1 p-3 text-left transition-colors hover:border-line-hover hover:bg-surface-2"
+											on:click={() => { userInput = suggestion.prompt; inputRef?.focus(); }}
+										>
+											<svg class="mb-2.5 w-4 h-4 text-signal" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d={suggestion.iconPath} />
+											</svg>
+											<div class="text-xs font-semibold text-fg">{suggestion.title}</div>
+											<div class="mt-1 text-2xs text-fg-subtle leading-snug">{suggestion.sub}</div>
+										</button>
+									{/each}
 								</div>
-							{/each}
-					{/each}
-				{/if}
-
-				{#if isGenerating && !messages.some((m) => m.isStreaming)}
-					<ChatThinkingBubble />
-				{/if}
-			</div>
-
-			<!-- Approval/question dock: docked above the composer whenever a tool execution is
-			     pending approval or the latest reply came with docked questions. Approvals rank
-			     first inside the dock itself (they gate side effects); questions are optional. -->
-			{#if pendingApprovalQueue.length > 0 || pendingQuestionQueue.length > 0}
-				<ApprovalDock
-					{messages}
-					sessionId={sessionId || ''}
-					onResolved={handleToolApprovalResolved}
-					onAnswerQuestion={(text) => sendMessage(text)}
-				/>
-			{/if}
-
-			<!-- Scope mismatch notice: docked above the composer when the active session's mode
-			     doesn't match the route we're currently on -->
-			{#if showScopeMismatch}
-				<ChatScopeBanner
-					{sessionModeName}
-					{routeModeName}
-					onStartNew={handleNewSession}
-					onDismiss={dismissScopeMismatch}
-				/>
-			{/if}
-
-			<!-- Error display -->
-			{#if $chatSession.error}
-				<div class="flex-shrink-0 px-3 md:px-4 pb-2 md:pb-3">
-					<div class="bg-surface-1 border border-danger/25 rounded-lg p-3">
-						<div class="flex items-center gap-2 text-sm text-danger">
-							<svg class="w-5 h-5 text-danger flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-							</svg>
-							{$chatSession.error}
-						</div>
-					</div>
-				</div>
-			{/if}
-
-			<!-- Vision Image Upload (collapsible, toggled by image button) -->
-			{#if supportsVision && showImagePanel}
-				<div class="flex-shrink-0 px-3 pb-2 border-t border-line pt-2">
-					{#if formImageEntries.length > 0}
-						<div class="mb-2">
-							<div class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle mb-1">
-								From current form
 							</div>
-							<div class="flex gap-1.5 overflow-x-auto pb-1">
-								{#each formImageEntries as entry (entry.key)}
-									<button
-										type="button"
-										class="flex-shrink-0 w-14 h-14 rounded border overflow-hidden transition-colors {(entry
-											.media.relative_path || entry.media.path) === selectedDurablePath
-											? 'border-signal ring-2 ring-signal/50'
-											: 'border-line hover:border-line-hover'}"
-										title={entry.label}
-										aria-label={entry.label}
-										on:click={() => selectFormImage(entry)}
-									>
-										<img src={entry.url} alt={entry.label} class="w-full h-full object-cover" />
-									</button>
+						{:else}
+							<div class="flex flex-col gap-[29px]">
+							{#each messages as message, idx}
+									{#if message.isStreaming && !message.content && !message.tool_executions?.length && !message.trace_steps?.length && idx === messages.length - 1}
+										<!-- Nothing has happened for this turn yet (no content, no tool call, no
+										     trace step) — a bare "thinking" placeholder covers that brief gap
+										     for a tool called with no preceding narration. Once any of those
+										     arrive this branch never renders again for the turn
+										     (tool_executions/trace_steps only grow and content is never
+										     blanked), so the assistant bubble mounts once and stays mounted —
+										     content and tool rows render as updates inside it
+										     (ChatMessage/ChatBehaviorTrace). -->
+										<ChatThinkingBubble />
+									{:else}
+										<ChatMessage
+											role={message.role}
+											content={message.content}
+											timestamp={message.timestamp}
+											imageUrl={message.imageUrl || undefined}
+											compact={false}
+											isStreaming={message.isStreaming || false}
+											onApplyAction={enableTools
+												? (action, actionIndex) =>
+														handleApplySegmentAction(action, message.id || '', actionIndex)
+												: undefined}
+										applyActionHint={videoDirectorActive
+											? "Applies to the Video Director's persistent Direction prompt"
+											: undefined}
+											onPromptFeedback={message.id
+												? (data) => handlePromptFeedback(message.id!, data)
+												: undefined}
+											toolExecutions={message.tool_executions || []}
+											traceSteps={message.trace_steps || []}
+											sources={message.sources || []}
+											sessionId={sessionId || ''}
+											messageId={message.id || ''}
+											metadata={message.metadata}
+											parsedContent={message.parsed_content}
+											variables={contextTab?.variables}
+											variableRolls={contextTab?.variableRolls}
+										/>
+									{/if}
+										<!-- Tab-switch divider: same idiom as a date divider, not a system
+										     message. Client-side only (see contextDividers above); can land
+										     after any message index, including the last one. -->
+										{#each contextDividers.filter((d) => d.afterIndex === idx) as divider (divider.id)}
+											<div class="flex items-center gap-2 py-0.5" data-testid="context-switch-divider">
+												<div class="flex-1 h-px bg-line"></div>
+												<div class="flex items-center gap-1.5 flex-shrink-0">
+													<svg class="w-2.5 h-2.5 text-fg-subtle" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+														<path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4M16 17H4m0 0l4 4m-4-4l4-4" />
+													</svg>
+													<span class="font-mono text-2xs uppercase tracking-[0.08em] text-fg-subtle whitespace-nowrap">
+														Switched to {divider.tabName}{#if divider.presetLabel} · {divider.presetLabel}{/if}{#if divider.dims} · {divider.dims}{/if}
+													</span>
+												</div>
+												<div class="flex-1 h-px bg-line"></div>
+											</div>
+										{/each}
 								{/each}
 							</div>
-						</div>
-					{/if}
-					<MediaLoaderField
-						name="vision_image"
-						value={selectedImageData}
-						onChange={handleMediaLoaderChange}
-						config={{ title: 'Reference Image', accept: 'image/*' }}
-						compact={true}
-					/>
-				</div>
-			{/if}
+						{/if}
 
-			<!-- Context strip: states which tab the chat is reading, always visible
-			     while the composer renders. Docked closest to the composer, below
-			     the occasional Approval/Scope banners above. -->
-			{#if stripModel}
-				<ChatContextStrip
-					model={stripModel}
-					flash={stripFlash}
-					{allTabs}
-					activeTabId={$activeTab?.id ?? null}
-					{pinnedTabId}
-					{tabPresetNames}
-					onPinTab={savePinnedTab}
-					onSwitchToPinned={() => {
-						if (pinnedTabId) tabsStore.setActiveTab(pinnedTabId);
-					}}
+						{#if isGenerating && !messages.some((m) => m.isStreaming)}
+							<ChatThinkingBubble />
+						{/if}
+					</div>
+				</div>
+
+				<div class="mx-auto w-full {conversationMaxWidth}">
+				<!-- Approval/question dock: docked above the composer whenever a tool execution is
+				     pending approval or the latest reply came with docked questions. Approvals rank
+				     first inside the dock itself (they gate side effects); questions are optional. -->
+				{#if pendingApprovalQueue.length > 0 || pendingQuestionQueue.length > 0}
+					<ApprovalDock
+						{messages}
+						sessionId={sessionId || ''}
+						onResolved={handleToolApprovalResolved}
+						onAnswerQuestion={(text) => sendMessage(text)}
+					/>
+				{/if}
+
+				<!-- Scope mismatch notice: docked above the composer when the active session's mode
+				     doesn't match the route we're currently on -->
+				{#if showScopeMismatch}
+					<ChatScopeBanner
+						{sessionModeName}
+						{routeModeName}
+						onStartNew={handleNewSession}
+						onDismiss={dismissScopeMismatch}
+					/>
+				{/if}
+
+				<!-- Error display -->
+				{#if $chatSession.error}
+					<div class="flex-shrink-0 px-3 md:px-4 pb-2 md:pb-3">
+						<div class="bg-surface-1 border border-danger/25 rounded-lg p-3">
+							<div class="flex items-center gap-2 text-sm text-danger">
+								<svg class="w-5 h-5 text-danger flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+								</svg>
+								{$chatSession.error}
+							</div>
+						</div>
+					</div>
+				{/if}
+
+				<!-- Pinned-to-another-tab warning: the only context state that needs its
+				     own block with actions; the following/pinned-active states render as
+				     the chip inside the composer's context row (see ChatInput's slot). -->
+				{#if stripModel && stripModel.state === 'pinned-mismatch'}
+					<ChatContextStrip
+						model={stripModel}
+						flash={stripFlash}
+						{allTabs}
+						activeTabId={$activeTab?.id ?? null}
+						{pinnedTabId}
+						{tabPresetNames}
+						onPinTab={savePinnedTab}
+						onSwitchToPinned={() => {
+							if (pinnedTabId) tabsStore.setActiveTab(pinnedTabId);
+						}}
+					/>
+				{/if}
+
+				<!-- Input area: @resource chip editor + action row -->
+				<ChatInput
+					bind:this={inputRef}
+					bind:value={userInput}
+					bind:resources={userResources}
+					mode={currentMode}
+					formData={contextTab?.formData || {}}
+					{loraSelections}
+					disabled={isGenerating || llmConfigs.length === 0 || pendingApprovalQueue.length > 0}
+					approvalsPending={pendingApprovalQueue.length > 0}
+					{isGenerating}
+					{supportsVision}
+					{formImageEntries}
+					{selectedDurablePath}
+					onSelectFormImage={selectFormImage}
+					{selectedImageData}
+					onMediaLoaderChange={(value) => handleMediaLoaderChange('vision_image', value)}
+					{lastGeneratedImage}
+					onAttachLastImage={attachLastGeneratedImage}
+					onRemoveImage={removeSelectedImage}
+					onSend={handleSend}
+					onStop={handleStop}
+					onKeydown={handleKeyDown}
+					onPasteImage={handlePasteImage}
+					{visibleTools}
+					disabledTools={$chatSession.disabledTools}
+					{enableTools}
+					onToggleEnableTools={handleToggleEnableTools}
+					onToggleTool={handleToggleTool}
+					{myToolPreferences}
+					onOpenToolPreferences={() => (showToolPreferencesPanel = true)}
+					{alwaysAttachLastImage}
+					onToggleAttachImage={toggleAttachLastImage}
+					onOpenMemory={openMemoryPanel}
+					memoryOpen={showMemoryPanel}
+					{memoryNoteCount}
+				>
+					<svelte:fragment slot="context">
+						{#if stripModel && stripModel.state !== 'pinned-mismatch'}
+							<ChatContextStrip
+								model={stripModel}
+								flash={stripFlash}
+								{allTabs}
+								activeTabId={$activeTab?.id ?? null}
+								{pinnedTabId}
+								{tabPresetNames}
+								onPinTab={savePinnedTab}
+							/>
+						{/if}
+					</svelte:fragment>
+				</ChatInput>
+				</div>
+			</div>
+
+			<!-- Memory inspector: a docked column beside the transcript (Seam 2),
+			     not an overlay — opening it collapses the rail (see openMemoryPanel). -->
+			{#if showMemoryPanel}
+				<ChatMemoryPanel
+					presetId={contextTab?.selectedPreset ?? null}
+					formData={contextTab?.formData ?? {}}
+					onClose={closeMemoryPanel}
+					onCountChange={(n) => (memoryNoteCount = n)}
 				/>
 			{/if}
-
-			<!-- Input area: @resource chip editor + action row -->
-			<ChatInput
-				bind:this={inputRef}
-				bind:value={userInput}
-				bind:resources={userResources}
-				mode={currentMode}
-				formData={contextTab?.formData || {}}
-				{loraSelections}
-				disabled={isGenerating || llmConfigs.length === 0 || pendingApprovalQueue.length > 0}
-				approvalsPending={pendingApprovalQueue.length > 0}
-				{isGenerating}
-				{supportsVision}
-				imagePanelActive={showImagePanel || !!selectedImageData}
-				onSend={handleSend}
-				onStop={handleStop}
-				onToggleImagePanel={() => (showImagePanel = !showImagePanel)}
-				onKeydown={handleKeyDown}
-				onPasteImage={handlePasteImage}
-				{visibleTools}
-				disabledTools={$chatSession.disabledTools}
-				{enableTools}
-				onToggleEnableTools={handleToggleEnableTools}
-				onToggleTool={handleToggleTool}
-				{myToolPreferences}
-				onOpenToolPreferences={() => (showToolPreferencesPanel = true)}
-				{alwaysAttachLastImage}
-				onToggleAttachImage={toggleAttachLastImage}
-				onOpenMemory={() => (showMemoryPanel = true)}
-				memoryOpen={showMemoryPanel}
-				{pinnedTabId}
-				contextTabId={contextTab?.id ?? ''}
-				contextTabName={contextTab?.name ?? ''}
-				onPinTab={savePinnedTab}
-			/>
 		</div>
 	</div>
-	{/if}
-
-	<!-- Memory panel (slide-out overlay) -->
-	{#if showMemoryPanel}
-		<ChatMemoryPanel
-			presetId={contextTab?.selectedPreset ?? null}
-			formData={contextTab?.formData ?? {}}
-			onClose={() => (showMemoryPanel = false)}
-		/>
 	{/if}
 
 	<!-- My Tools panel (slide-out overlay, persistent per-user tool opt-out) -->
@@ -1753,3 +1875,14 @@
 	{/if}
 
 </div>
+
+<style>
+	/* Same iridescent gradient-border idiom as the rail's brand orb and
+	   Sidebar's AI Chat trigger — border-box gradient, padding-box flat fill. */
+	.empty-orb {
+		border: 1px solid transparent;
+		background:
+			linear-gradient(rgb(var(--surface-1)), rgb(var(--surface-1))) padding-box,
+			linear-gradient(135deg, rgb(var(--ai-1)), rgb(var(--ai-2)), rgb(var(--ai-3))) border-box;
+	}
+</style>

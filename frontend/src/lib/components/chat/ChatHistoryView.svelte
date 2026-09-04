@@ -1,26 +1,31 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { api } from '$lib/services/api';
 	import { chatModes, resolveModeName } from '$lib/stores/chatModes';
 	import { chatSession } from '$lib/stores/chatSession';
 	import { groupSessionsByDate } from '$lib/utils/chat';
 	import { timeAgo } from '$lib/utils/relativeTime';
-	import Badge from '$lib/components/ui/Badge.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
+	import IconButton from '$lib/components/ui/IconButton.svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
+	import Tooltip from '$lib/components/Tooltip.svelte';
+	import Logo from '$lib/components/brand/Logo.svelte';
 	import { logger } from '$lib/utils/logger';
 	import type { ChatSessionResponse } from '$lib/types/api';
 
 	export let onOpenSession: (id: string) => void | Promise<void>;
 	export let onNewChat: () => void;
 	export let onSessionDeleted: ((id: string) => void) | undefined = undefined;
-	// Rail presentation: narrower rows, no message-count/mode badge, search
-	// and "New chat" stacked instead of side by side.
-	export let compact = false;
+
+	// `groupSessionsByDate`'s bucket labels read naturally in a settings table;
+	// the rail wants the shorter, more casual phrasing the mock uses instead.
+	const GROUP_LABELS: Record<string, string> = { 'This week': 'Previous 7 days' };
 
 	let sessions: ChatSessionResponse[] = [];
 	let loading = true;
 	let search = '';
+	let searchOpen = false;
+	let searchInputEl: HTMLInputElement | undefined;
 	let modeFilter: string | null = null;
 	let searchTimer: ReturnType<typeof setTimeout> | null = null;
 	let requestSeq = 0;
@@ -63,6 +68,17 @@
 		searchTimer = setTimeout(fetchSessions, 250);
 	}
 
+	async function toggleSearch() {
+		searchOpen = !searchOpen;
+		if (searchOpen) {
+			await tick();
+			searchInputEl?.focus();
+		} else if (search) {
+			search = '';
+			fetchSessions();
+		}
+	}
+
 	function setModeFilter(mode: string | null) {
 		modeFilter = mode;
 		fetchSessions();
@@ -89,53 +105,71 @@
 	});
 </script>
 
-<div class="flex-1 flex flex-col min-h-0 bg-canvas">
-	<!-- Controls -->
-	<div class="{compact ? 'px-2.5 pt-2.5' : 'px-4 pt-4'} pb-2 space-y-2 flex-shrink-0">
-		<div class="{compact ? 'flex flex-col gap-2' : 'flex items-center gap-2'}">
-			<div class="relative flex-1">
-				<svg class="w-3.5 h-3.5 text-fg-subtle absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-				</svg>
-				<input
-					type="text"
-					placeholder="Search conversations…"
-					bind:value={search}
-					on:input={handleSearchInput}
-					class="w-full pl-8 pr-3 py-1.5 text-sm bg-surface-1 border border-line rounded text-fg placeholder:text-fg-subtle focus:outline-none focus:border-signal transition-colors"
-				/>
-			</div>
-			<Button variant="primary" size="sm" icon="plus" onclick={onNewChat} class={compact ? 'w-full' : ''}>New chat</Button>
-		</div>
-
-		{#if $chatModes.modes.length > 1}
-			<div class="flex items-center gap-1.5 flex-wrap">
-				<button
-					type="button"
-					class="px-2 py-0.5 text-xs rounded border transition-colors {modeFilter === null
-						? 'bg-signal/10 text-signal border-signal/25'
-						: 'text-fg-subtle border-line hover:text-fg-muted hover:bg-surface-2'}"
-					on:click={() => setModeFilter(null)}
-				>
-					All
-				</button>
-				{#each $chatModes.modes as mode}
-					<button
-						type="button"
-						class="px-2 py-0.5 text-xs rounded border transition-colors {modeFilter === mode.id
-							? 'bg-signal/10 text-signal border-signal/25'
-							: 'text-fg-subtle border-line hover:text-fg-muted hover:bg-surface-2'}"
-						on:click={() => setModeFilter(mode.id)}
-					>
-						{mode.name}
-					</button>
-				{/each}
-			</div>
-		{/if}
+<div class="flex h-full flex-col min-h-0 bg-canvas">
+	<!-- Brand head: matches the conversation header's height so the rail/header
+	     divide reads as one deliberate row, not two mismatched panels. -->
+	<div class="flex h-[68px] flex-shrink-0 items-center gap-2.5 px-3.5">
+		<span class="brand-orb flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg text-fg">
+			<Logo size={16} />
+		</span>
+		<span class="min-w-0 flex-1 truncate text-sm font-semibold text-fg">Potion AI</span>
+		<Tooltip text="Search conversations" position="bottom">
+			<IconButton
+				icon="search"
+				label="Search conversations"
+				size="sm"
+				active={searchOpen}
+				onclick={toggleSearch}
+			/>
+		</Tooltip>
 	</div>
 
+	{#if searchOpen}
+		<div class="px-3 pb-2.5">
+			<input
+				bind:this={searchInputEl}
+				type="text"
+				placeholder="Search conversations…"
+				bind:value={search}
+				on:input={handleSearchInput}
+				class="w-full px-2.5 py-1.5 text-sm bg-surface-1 border border-line rounded text-fg placeholder:text-fg-subtle focus:outline-none focus:border-signal transition-colors"
+			/>
+		</div>
+	{/if}
+
+	<div class="px-3 pb-2.5">
+		<Button variant="primary" size="sm" icon="plus" onclick={onNewChat} class="w-full">
+			New conversation
+		</Button>
+	</div>
+
+	{#if $chatModes.modes.length > 1}
+		<div class="flex items-center gap-1.5 flex-wrap px-3 pb-2.5">
+			<button
+				type="button"
+				class="px-2 py-0.5 text-xs rounded border transition-colors {modeFilter === null
+					? 'bg-signal/10 text-signal border-signal/25'
+					: 'text-fg-subtle border-line hover:text-fg-muted hover:bg-surface-2'}"
+				on:click={() => setModeFilter(null)}
+			>
+				All
+			</button>
+			{#each $chatModes.modes as mode}
+				<button
+					type="button"
+					class="px-2 py-0.5 text-xs rounded border transition-colors {modeFilter === mode.id
+						? 'bg-signal/10 text-signal border-signal/25'
+						: 'text-fg-subtle border-line hover:text-fg-muted hover:bg-surface-2'}"
+					on:click={() => setModeFilter(mode.id)}
+				>
+					{mode.name}
+				</button>
+			{/each}
+		</div>
+	{/if}
+
 	<!-- Conversation list -->
-	<div class="flex-1 overflow-y-auto px-2 pb-4 min-h-0 scrollbar-thin scrollbar-thumb-[rgb(var(--line-strong))] scrollbar-track-transparent">
+	<div class="flex-1 overflow-y-auto px-2 pb-3 min-h-0 scrollbar-thin scrollbar-thumb-[rgb(var(--line-strong))] scrollbar-track-transparent">
 		{#if loading}
 			<div class="flex items-center justify-center py-16">
 				<Spinner size="sm" />
@@ -150,61 +184,66 @@
 				{#if search.trim()}
 					<p class="text-sm text-fg-muted">No conversations match &ldquo;{search.trim()}&rdquo;</p>
 				{:else}
-					<p class="text-sm text-fg-muted mb-3">No conversations yet</p>
-					<Button variant="primary" size="sm" icon="plus" onclick={onNewChat}>New chat</Button>
+					<p class="text-sm text-fg-muted">No conversations yet</p>
 				{/if}
 			</div>
 		{:else}
 			{#each groups as group}
-				<div class="px-2 {compact ? 'pt-3' : 'pt-4'} pb-1.5">
-					<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">{group.label}</span>
+				<div class="px-2 pt-3 pb-1.5">
+					<span class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">
+						{GROUP_LABELS[group.label] ?? group.label}
+					</span>
 				</div>
 				{#each group.sessions as session (session.id)}
 					<div
-						class="group w-full {compact ? 'px-2 py-1.5' : 'px-3 py-2'} rounded cursor-pointer transition-colors flex items-center gap-2 {activeSessionId === session.id
-							? 'border-l-2 border-signal bg-surface-2'
-							: 'border-l-2 border-transparent hover:bg-surface-2'}"
+						class="group relative w-full px-2.5 py-2 rounded cursor-pointer transition-colors border-l-2 {activeSessionId === session.id
+							? 'border-signal bg-surface-2'
+							: 'border-transparent hover:bg-surface-2'}"
 						role="button"
 						tabindex="0"
 						on:click={() => onOpenSession(session.id)}
 						on:keydown={(e) => e.key === 'Enter' && onOpenSession(session.id)}
 					>
-						<div class="flex-1 min-w-0">
-							<div class="{compact ? 'text-xs' : 'text-sm'} font-medium text-fg truncate">
-								{session.name || 'New conversation'}
-							</div>
-							{#if compact}
-								<div class="flex items-center gap-1.5 mt-0.5">
-									<Badge variant="neutral" size="sm" class="font-mono uppercase">{modeName(session.mode)}</Badge>
-									<span class="font-mono tabular-nums text-2xs text-fg-subtle uppercase">
-										{timeAgo(session.updated_at || session.created_at)}
-									</span>
+						<div class="flex items-center gap-2">
+							<div class="flex-1 min-w-0">
+								<div class="text-xs font-medium text-fg truncate">
+									{session.name || 'New conversation'}
 								</div>
-							{:else}
-								<div class="flex items-center gap-2 mt-0.5">
-									<Badge variant="neutral" size="sm">{modeName(session.mode)}</Badge>
-									<span class="font-mono tabular-nums text-2xs text-fg-subtle uppercase">
-										{timeAgo(session.updated_at || session.created_at)}
+								<div class="flex items-center gap-1.5 mt-1">
+									<span class="font-mono text-2xs uppercase tracking-[0.05em] text-fg-subtle bg-surface-3/60 rounded px-1 py-0.5">
+										{modeName(session.mode)}
 									</span>
 									<span class="font-mono tabular-nums text-2xs text-fg-subtle">
-										{session.message_count ?? 0} msg
+										{timeAgo(session.updated_at || session.created_at)}
 									</span>
 								</div>
-							{/if}
+							</div>
+							<button
+								type="button"
+								title="Delete conversation"
+								class="p-1.5 rounded text-fg-subtle hover:text-danger hover:bg-surface-3/50 opacity-0 group-hover:opacity-100 focus:opacity-100 flex-shrink-0 transition-all"
+								on:click={(e) => handleDelete(session.id, e)}
+							>
+								<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+								</svg>
+							</button>
 						</div>
-						<button
-							type="button"
-							title="Delete conversation"
-							class="p-1.5 rounded text-fg-subtle hover:text-danger hover:bg-surface-3/50 opacity-0 group-hover:opacity-100 focus:opacity-100 flex-shrink-0 transition-all"
-							on:click={(e) => handleDelete(session.id, e)}
-						>
-							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-							</svg>
-						</button>
 					</div>
 				{/each}
 			{/each}
 		{/if}
 	</div>
 </div>
+
+<style>
+	/* Same iridescent gradient-border idiom as Sidebar's AI Chat trigger
+	   (border-box gets the gradient, padding-box a flat fill) — the rail's
+	   own small mark of the same identity, never a filled gradient. */
+	.brand-orb {
+		border: 1px solid transparent;
+		background:
+			linear-gradient(rgb(var(--canvas)), rgb(var(--canvas))) padding-box,
+			linear-gradient(135deg, rgb(var(--ai-1)), rgb(var(--ai-2)), rgb(var(--ai-3))) border-box;
+	}
+</style>

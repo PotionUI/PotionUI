@@ -380,9 +380,9 @@ function toolCallLabel(name: string | null): string {
 	return name.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-// Same visual language as ChatToolChip (dot + mono label, h-6 rounded border
-// chip) but plain markup: this renders inline inside {@html} message content,
-// where a Svelte component can't be mounted.
+// Same visual language as ChatToolRun's collapsed rows (dot + mono label, h-6
+// rounded border chip) but plain markup: this renders inline inside {@html}
+// message content, where a Svelte component can't be mounted.
 function toolCallChipHtml(call: ToolCallSpan, isStreaming: boolean): string {
 	if (call.status === 'unclosed') {
 		return isStreaming

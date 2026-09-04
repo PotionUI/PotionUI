@@ -4,8 +4,8 @@
 	 * execution somewhere in the conversation is waiting on the user. Replaces
 	 * the old inline ChatToolApproval card: approvals are an action surface,
 	 * not transcript content, so they live here instead of interleaved with
-	 * messages — the transcript keeps only a compact status chip
-	 * (see ChatBehaviorTrace / ChatToolChip).
+	 * messages — the transcript keeps only a compact status record
+	 * (see ChatBehaviorTrace / ChatToolRun).
 	 *
 	 * Default posture is a compact summary row (tool chip, one-line summary,
 	 * key-setting chips); "Review full details" expands it in place to the

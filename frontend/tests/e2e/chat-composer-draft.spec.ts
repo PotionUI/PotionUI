@@ -36,7 +36,7 @@ test('a composer draft survives closing the chat drawer and is restored on reope
 	await expect(fab).toBeVisible({ timeout: 15000 });
 	await fab.click();
 
-	const composer = page.locator('.bg-surface-1.rounded-lg:has(button[title="Send (Enter)"])');
+	const composer = page.locator('.bg-surface-2.rounded-xl:has(button[title="Send (Enter)"])');
 	await expect(composer).toBeVisible({ timeout: 15000 });
 	const chipInput = composer.locator('[role="textbox"][aria-placeholder]');
 	await chipInput.click();
@@ -54,7 +54,7 @@ test('a composer draft survives closing the chat drawer and is restored on reope
 
 	// Reopen via the sidebar AI Chat button — a fresh UnifiedAIChat instance.
 	await fab.click();
-	const reopenedComposer = page.locator('.bg-surface-1.rounded-lg:has(button[title="Send (Enter)"])');
+	const reopenedComposer = page.locator('.bg-surface-2.rounded-xl:has(button[title="Send (Enter)"])');
 	await expect(reopenedComposer).toBeVisible({ timeout: 15000 });
 	const reopenedChipInput = reopenedComposer.locator('[role="textbox"][aria-placeholder]');
 	await expect(reopenedChipInput).toContainText('Draft I do not want to lose');
@@ -73,7 +73,7 @@ test('a composer draft survives closing the chat drawer and is restored on reope
 	await page.locator('button[title="Close (Esc)"]').click();
 	await expect(reopenedComposer).toBeHidden();
 	await fab.click();
-	const finalComposer = page.locator('.bg-surface-1.rounded-lg:has(button[title="Send (Enter)"])');
+	const finalComposer = page.locator('.bg-surface-2.rounded-xl:has(button[title="Send (Enter)"])');
 	await expect(finalComposer).toBeVisible({ timeout: 15000 });
 	const finalChipInput = finalComposer.locator('[role="textbox"][aria-placeholder]');
 	await expect(finalChipInput).toHaveText('');

@@ -225,6 +225,16 @@ selectors assert the pre-rework dock anatomy (`div.border-warning\/35`,
 "from reply") and need updating to the compact-row dock once the underlying
 failure is fixed.
 
+**`chat-chip-input-interactions.spec.ts` has two failures unrelated to the chat
+composer (confirmed 2026-09-04 during the chat-view rework, `ChatChipInput`
+untouched).** "the @ suggest dropdown supports Arrow/Enter keyboard navigation
+over root namespaces" opens the chat from `/models`, which resolves the
+Models-assistant mode, and that mode's root `@` suggestion lists a single
+namespace (`models`) in this container — the spec's "at least two namespaces"
+assumption is about the mode's resource providers, not the composer. "Delete
+immediately before an attached resource chip (forward-delete gap, unhandled)"
+documents a known gap and fails by design until forward-delete is handled.
+
 
 ## Install matrix (`./potionui start`; CI runs `remote` for real, `local`/`hybrid`/`worker` stay local-only)
 

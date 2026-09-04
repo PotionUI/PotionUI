@@ -13,8 +13,9 @@ import { resolvePluginComponent } from '$lib/plugin-api/componentResolver';
  * component (registered from a manifest's `renderers: [{kind: "chat.tool", ...}]`
  * entry), resolved on demand via `plugin-api/componentResolver` — mirrors
  * `artifactRendererRegistry.ts`. No core consumer currently calls `.resolve()`
- * (the transcript renders tool status as chips — ChatToolChip — and pending
- * approvals go through ApprovalDock, neither of which is per-tool-rendered);
+ * (the transcript renders tool status via ChatToolRun's collapsible record —
+ * and pending approvals go through ApprovalDock, neither of which is
+ * per-tool-rendered);
  * this stays as the `registries.chatTool` plugin API surface (`host.ts`).
  */
 export type ChatToolRendererEntry =

@@ -522,6 +522,13 @@ textarea.field { height: 70px; padding: 8px 9px; resize: vertical; }
 }
 
 /* additions */
+/* Readability (maintainer): the mock's 5.5–7px picker/popover footer hints
+   are illegible on a real screen — key hints and their kbd caps read at the
+   app's mono size. */
+.picker-footer, .popover-footer { font-size: 11px; height: 36px; gap: 12px; }
+.picker-footer button, .popover-footer button { font-size: 11px; }
+.kbd { min-width: 20px; height: 20px; padding: 0 5px; font-size: 11px; }
+
 
 /* The description shrinks before the name does — real behaviour the mock's
    single fixed-width screenshot never had to arbitrate. Flexbox splits a

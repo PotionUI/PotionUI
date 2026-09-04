@@ -130,7 +130,11 @@ def _build_tab_items(candidates: List[InputCandidate]) -> List[Item]:
             section_order.append(c.section)
         by_section[c.section].append(c)
     for section in section_order:
-        items.append(SectionItem(title=section, items=[_item_for(c) for c in by_section[section]]))
+        # Named roles (steps, cfg, sampler, ...) lead a section; a catalog
+        # `option` knob (ControlNet strength, FreeU scales, ...) follows them,
+        # whichever node the analysis enumerated first.
+        ordered = sorted(by_section[section], key=lambda c: c.role == "option")
+        items.append(SectionItem(title=section, items=[_item_for(c) for c in ordered]))
 
     for c in candidates:
         if c.role in ("resolution_width", "resolution_height") or c.section:

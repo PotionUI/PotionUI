@@ -1,0 +1,66 @@
+{
+  "1": {
+    "inputs": {"unet_name": "wan2.1_t2v_1.3B_fp16.safetensors", "weight_dtype": "default"},
+    "class_type": "UNETLoader",
+    "_meta": {"title": "Load Diffusion Model"}
+  },
+  "2": {
+    "inputs": {"clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors"},
+    "class_type": "CLIPLoader",
+    "_meta": {"title": "Load CLIP"}
+  },
+  "3": {
+    "inputs": {"vae_name": "wan_2.1_vae.safetensors"},
+    "class_type": "VAELoader",
+    "_meta": {"title": "Load VAE"}
+  },
+  "4": {
+    "inputs": {"text": "a cat walking through a garden", "clip": ["2", 0]},
+    "class_type": "CLIPTextEncode",
+    "_meta": {"title": "CLIP Text Encode (Positive)"}
+  },
+  "5": {
+    "inputs": {"text": "blurry, low quality", "clip": ["2", 0]},
+    "class_type": "CLIPTextEncode",
+    "_meta": {"title": "CLIP Text Encode (Negative)"}
+  },
+  "6": {
+    "inputs": {
+      "positive": ["4", 0],
+      "negative": ["5", 0],
+      "vae": ["3", 0],
+      "width": 832,
+      "height": 480,
+      "length": 33,
+      "batch_size": 1
+    },
+    "class_type": "WanImageToVideo",
+    "_meta": {"title": "WanImageToVideo"}
+  },
+  "7": {
+    "inputs": {
+      "seed": 42,
+      "steps": 20,
+      "cfg": 6.0,
+      "sampler_name": "uni_pc",
+      "scheduler": "simple",
+      "denoise": 1.0,
+      "model": ["1", 0],
+      "positive": ["6", 0],
+      "negative": ["6", 1],
+      "latent_image": ["6", 2]
+    },
+    "class_type": "KSampler",
+    "_meta": {"title": "KSampler"}
+  },
+  "8": {
+    "inputs": {"samples": ["7", 0], "vae": ["3", 0]},
+    "class_type": "VAEDecode",
+    "_meta": {"title": "VAE Decode"}
+  },
+  "9": {
+    "inputs": {"images": ["8", 0], "filename_prefix": "wan"},
+    "class_type": "SaveImage",
+    "_meta": {"title": "Save Image"}
+  }
+}

@@ -72,6 +72,30 @@ class TestShippedCatalog:
                 if spec.role in ("checkpoint", "diffusion_model", "clip", "vae", "lora_slot"):
                     assert spec.folder, f"{class_type}.{input_name} has role {spec.role!r} with no folder"
 
+    def test_triple_clip_loader_has_three_clip_inputs_from_text_encoders(self):
+        entry = load_catalog().get("TripleCLIPLoader")
+        assert entry is not None
+        assert entry.category == "loader"
+        clip_inputs = {"clip_name1", "clip_name2", "clip_name3"}
+        assert set(entry.inputs) == clip_inputs
+        for input_name in clip_inputs:
+            spec = entry.inputs[input_name]
+            assert spec.role == "clip"
+            assert spec.field == "model"
+            assert spec.folder == "text_encoders"
+
+    def test_empty_hunyuan_latent_video_yields_video_sizing_roles(self):
+        entry = load_catalog().get("EmptyHunyuanLatentVideo")
+        assert entry is not None
+        assert entry.category == "latent"
+        roles_by_input = {name: spec.role for name, spec in entry.inputs.items()}
+        assert roles_by_input == {
+            "width": "resolution_width",
+            "height": "resolution_height",
+            "length": "frames",
+            "batch_size": "batch_size",
+        }
+
 
 class TestValidateCatalogCatchesProblems:
     def _catalog(self, nodes: dict) -> NodeCatalog:

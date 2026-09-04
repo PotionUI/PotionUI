@@ -27,9 +27,10 @@ _INTERNAL_INPUT_NAMES = frozenset({"control_after_generate"})
 _PROMPT_TEXT_INPUT_NAMES = ("text", "prompt")
 
 # Roles a catalog-driven candidate is "obvious" (offered in the wizard's
-# default form) for. Not stored on the catalog itself - a node's role never
-# changes, but whether it belongs in a starter form is this module's own
-# call, same as before this catalog existed.
+# default form) for even without a catalog `section` - the foundational and
+# merged ones (seed, prompts, resolution, batch, LoRA slots). Everything
+# else is obvious exactly when its catalog entry gives it a `section`: the
+# catalog, not this module, decides what belongs in a starter form.
 _OBVIOUS_ROLES = frozenset(
     {
         "seed", "steps", "cfg", "sampler", "scheduler", "denoise", "guidance", "shift",
@@ -284,7 +285,7 @@ def _catalog_candidates_for_node(
                 suggested_label=label,
                 suggested_config=dict(spec.config),
                 role=spec.role,
-                obvious=spec.role in _OBVIOUS_ROLES,
+                obvious=spec.role in _OBVIOUS_ROLES or spec.section is not None,
                 section=spec.section,
                 history=spec.history,
             )

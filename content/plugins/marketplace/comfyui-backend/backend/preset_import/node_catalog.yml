@@ -1,5 +1,35 @@
 version: 1
 nodes:
+  AddNoise:
+    category: latent
+    links:
+      model: model_chain
+
+  AlignYourStepsScheduler:
+    category: sampling
+    inputs:
+      model_type:
+        role: option
+        field: select
+        name: ays_model_type
+        label: Model Type
+        config: {options: ["SD1", "SDXL", "SVD"]}
+        section: Sampling
+      steps:
+        role: steps
+        field: slider
+        name: steps
+        label: Steps
+        config: {min: 1, max: 150, step: 1}
+        section: Sampling
+      denoise:
+        role: denoise
+        field: slider
+        name: denoise
+        label: Denoise
+        config: {min: 0.0, max: 1.0, step: 0.05}
+        section: Sampling
+
   BasicGuider:
     category: sampling
     links:
@@ -35,6 +65,31 @@ nodes:
         config: {min: 0.0, max: 1.0, step: 0.05}
         section: Sampling
 
+  BetaSamplingScheduler:
+    category: sampling
+    links:
+      model: model_chain
+    inputs:
+      steps:
+        role: steps
+        field: slider
+        name: steps
+        label: Steps
+        config: {min: 1, max: 150, step: 1}
+        section: Sampling
+      alpha:
+        role: option
+        field: number
+        name: beta_alpha
+        label: Alpha
+        section: Sampling
+      beta:
+        role: option
+        field: number
+        name: beta
+        label: Beta
+        section: Sampling
+
   CFGGuider:
     category: sampling
     links:
@@ -48,6 +103,49 @@ nodes:
         name: cfg
         label: CFG Scale
         config: {min: 1.0, max: 30.0, step: 0.1}
+        section: Sampling
+
+  CFGNorm:
+    category: modifier
+    links:
+      model: model_chain
+    inputs:
+      strength:
+        role: option
+        field: number
+        name: cfg_norm_strength
+        label: Strength
+        section: Sampling
+      pre_cfg:
+        role: option
+        field: checkbox
+        name: cfg_norm_pre_cfg
+        label: Rescale Before CFG Combine
+        section: Sampling
+
+  CFGOverride:
+    category: modifier
+    links:
+      model: model_chain
+    inputs:
+      cfg:
+        role: cfg
+        field: slider
+        name: cfg_override
+        label: CFG
+        config: {min: 0.0, max: 100.0, step: 0.1}
+        section: Sampling
+      start_percent:
+        role: option
+        field: number
+        name: cfg_override_start
+        label: Start %
+        section: Sampling
+      end_percent:
+        role: option
+        field: number
+        name: cfg_override_end
+        label: End %
         section: Sampling
 
   CLIPLoader:
@@ -64,6 +162,112 @@ nodes:
         history: model_name
         folder: text_encoders
 
+  CLIPSetLastLayer:
+    category: modifier
+    links:
+      clip: clip_chain
+    inputs:
+      stop_at_clip_layer:
+        role: option
+        field: number
+        name: clip_stop_at_layer
+        label: Stop at CLIP Layer
+        section: Sampling
+
+  CLIPTextEncodeFlux:
+    category: modifier
+    links:
+      clip: clip_chain
+    inputs:
+      guidance:
+        role: guidance
+        field: slider
+        name: guidance
+        label: Guidance
+        config: {min: 0.0, max: 100.0, step: 0.1}
+        section: Sampling
+
+  CLIPTextEncodeSD3:
+    category: modifier
+    links:
+      clip: clip_chain
+    inputs:
+      empty_padding:
+        role: option
+        field: select
+        name: sd3_te_empty_padding
+        label: Empty Padding
+        config: {options: ["none", "empty_prompt"]}
+        section: Sampling
+
+  CLIPTextEncodeSDXL:
+    category: modifier
+    links:
+      clip: clip_chain
+    inputs:
+      width:
+        role: resolution_width
+        field: resolution
+        name: resolution
+        label: Image Resolution
+      height:
+        role: resolution_height
+        field: resolution
+        name: resolution
+        label: Image Resolution
+      crop_w:
+        role: option
+        field: number
+        name: sdxl_crop_w
+        label: Crop W
+        section: Sampling
+      crop_h:
+        role: option
+        field: number
+        name: sdxl_crop_h
+        label: Crop H
+        section: Sampling
+      target_width:
+        role: option
+        field: number
+        name: sdxl_target_width
+        label: Target Width
+        section: Sampling
+      target_height:
+        role: option
+        field: number
+        name: sdxl_target_height
+        label: Target Height
+        section: Sampling
+
+  CLIPVisionLoader:
+    category: loader
+    inputs:
+      clip_name:
+        role: clip_vision
+        field: model
+        name: clip_vision
+        label: CLIP Vision
+        config: {model_type: text_encoder, allow_info_modal: true}
+        transform: strip_model_prefix
+        section: Models
+        history: model_name
+        folder: clip_vision
+
+  CheckpointLoader:
+    category: loader
+    inputs:
+      ckpt_name:
+        role: checkpoint
+        field: model
+        name: checkpoint
+        label: Checkpoint
+        config: {model_type: checkpoint, allow_info_modal: true}
+        transform: strip_model_prefix
+        section: Models
+        history: model_name
+        folder: checkpoints
+
   CheckpointLoaderSimple:
     category: loader
     inputs:
@@ -77,6 +281,105 @@ nodes:
         section: Models
         history: model_name
         folder: checkpoints
+
+  ConditioningSetTimestepRange:
+    category: modifier
+    links:
+      conditioning: prompt_positive
+    inputs:
+      start:
+        role: option
+        field: number
+        name: cond_timestep_start
+        label: Start
+        section: Sampling
+      end:
+        role: option
+        field: number
+        name: cond_timestep_end
+        label: End
+        section: Sampling
+
+  ControlNetApplyAdvanced:
+    category: modifier
+    links:
+      positive: prompt_positive
+      negative: prompt_negative
+      control_net: model_chain
+    inputs:
+      strength:
+        role: option
+        field: number
+        name: controlnet_strength
+        label: Strength
+        section: Sampling
+      start_percent:
+        role: option
+        field: number
+        name: controlnet_start_percent
+        label: Start %
+        section: Sampling
+      end_percent:
+        role: option
+        field: number
+        name: controlnet_end_percent
+        label: End %
+        section: Sampling
+
+  ControlNetLoader:
+    category: loader
+    inputs:
+      control_net_name:
+        role: controlnet
+        field: model
+        name: controlnet
+        label: ControlNet
+        config: {model_type: controlnet, allow_info_modal: true}
+        transform: strip_model_prefix
+        section: Models
+        history: model_name
+        folder: controlnet
+
+  CreateVideo:
+    category: latent
+    inputs:
+      fps:
+        role: fps
+        field: slider
+        name: fps
+        label: FPS
+        config: {min: 1.0, max: 120.0, step: 1.0}
+        section: Sampling
+      bit_depth:
+        role: option
+        field: select
+        name: bit_depth
+        label: Bit Depth
+        config: {options: ["auto", 8, 10]}
+        section: Sampling
+      color_space:
+        role: option
+        field: select
+        name: color_space
+        label: Color Space
+        config: {options: ["sRGB", "HDR", "HDR PQ"]}
+        section: Sampling
+
+  DiffControlNetLoader:
+    category: loader
+    links:
+      model: model_chain
+    inputs:
+      control_net_name:
+        role: controlnet
+        field: model
+        name: controlnet
+        label: ControlNet
+        config: {model_type: controlnet, allow_info_modal: true}
+        transform: strip_model_prefix
+        section: Models
+        history: model_name
+        folder: controlnet
 
   DisableNoise:
     category: sampling
@@ -110,6 +413,149 @@ nodes:
         history: model_name
         folder: text_encoders
 
+  DualModelGuider:
+    category: sampling
+    links:
+      model: model_chain
+      positive: prompt_positive
+      negative: prompt_negative
+    inputs:
+      cfg:
+        role: cfg
+        field: slider
+        name: cfg
+        label: CFG Scale
+        config: {min: 0.0, max: 100.0, step: 0.1}
+        section: Sampling
+
+  EmptyCosmosLatentVideo:
+    category: latent
+    inputs:
+      width:
+        role: resolution_width
+        field: resolution
+        name: resolution
+        label: Image Resolution
+      height:
+        role: resolution_height
+        field: resolution
+        name: resolution
+        label: Image Resolution
+      length:
+        role: frames
+        field: slider
+        name: frames
+        label: Length (Frames)
+        config: {min: 1, max: 1024, step: 8}
+        section: Sampling
+      batch_size:
+        role: batch_size
+        field: slider
+        name: quantity
+        label: Batch Size
+        config: {min: 1, max: 8, step: 1}
+
+  EmptyHunyuanImageLatent:
+    category: latent
+    inputs:
+      width:
+        role: resolution_width
+        field: resolution
+        name: resolution
+        label: Image Resolution
+      height:
+        role: resolution_height
+        field: resolution
+        name: resolution
+        label: Image Resolution
+      batch_size:
+        role: batch_size
+        field: slider
+        name: quantity
+        label: Batch Size
+        config: {min: 1, max: 8, step: 1}
+
+  EmptyHunyuanLatentVideo:
+    category: latent
+    inputs:
+      width:
+        role: resolution_width
+        field: resolution
+        name: resolution
+        label: Image Resolution
+      height:
+        role: resolution_height
+        field: resolution
+        name: resolution
+        label: Image Resolution
+      length:
+        role: frames
+        field: slider
+        name: frames
+        label: Length (Frames)
+        config: {min: 1, max: 1024, step: 4}
+        section: Sampling
+      batch_size:
+        role: batch_size
+        field: slider
+        name: quantity
+        label: Batch Size
+        config: {min: 1, max: 8, step: 1}
+
+  EmptyHunyuanVideo15Latent:
+    category: latent
+    inputs:
+      width:
+        role: resolution_width
+        field: resolution
+        name: resolution
+        label: Image Resolution
+      height:
+        role: resolution_height
+        field: resolution
+        name: resolution
+        label: Image Resolution
+      length:
+        role: frames
+        field: slider
+        name: frames
+        label: Length (Frames)
+        config: {min: 1, max: 1024, step: 4}
+        section: Sampling
+      batch_size:
+        role: batch_size
+        field: slider
+        name: quantity
+        label: Batch Size
+        config: {min: 1, max: 8, step: 1}
+
+  EmptyLTXVLatentVideo:
+    category: latent
+    inputs:
+      width:
+        role: resolution_width
+        field: resolution
+        name: resolution
+        label: Image Resolution
+      height:
+        role: resolution_height
+        field: resolution
+        name: resolution
+        label: Image Resolution
+      length:
+        role: frames
+        field: slider
+        name: frames
+        label: Length (Frames)
+        config: {min: 1, max: 1024, step: 8}
+        section: Sampling
+      batch_size:
+        role: batch_size
+        field: slider
+        name: quantity
+        label: Batch Size
+        config: {min: 1, max: 8, step: 1}
+
   EmptyLatentImage:
     category: latent
     inputs:
@@ -123,6 +569,33 @@ nodes:
         field: resolution
         name: resolution
         label: Image Resolution
+      batch_size:
+        role: batch_size
+        field: slider
+        name: quantity
+        label: Batch Size
+        config: {min: 1, max: 8, step: 1}
+
+  EmptyMochiLatentVideo:
+    category: latent
+    inputs:
+      width:
+        role: resolution_width
+        field: resolution
+        name: resolution
+        label: Image Resolution
+      height:
+        role: resolution_height
+        field: resolution
+        name: resolution
+        label: Image Resolution
+      length:
+        role: frames
+        field: slider
+        name: frames
+        label: Length (Frames)
+        config: {min: 7, max: 1024, step: 6}
+        section: Sampling
       batch_size:
         role: batch_size
         field: slider
@@ -185,6 +658,80 @@ nodes:
         label: Guidance
         config: {min: 0.0, max: 100.0, step: 0.1}
         section: Sampling
+
+  FreeU:
+    category: modifier
+    links:
+      model: model_chain
+    inputs:
+      b1:
+        role: option
+        field: number
+        name: freeu_b1
+        label: B1
+        section: Sampling
+      b2:
+        role: option
+        field: number
+        name: freeu_b2
+        label: B2
+        section: Sampling
+      s1:
+        role: option
+        field: number
+        name: freeu_s1
+        label: S1
+        section: Sampling
+      s2:
+        role: option
+        field: number
+        name: freeu_s2
+        label: S2
+        section: Sampling
+
+  FreeU_V2:
+    category: modifier
+    links:
+      model: model_chain
+    inputs:
+      b1:
+        role: option
+        field: number
+        name: freeu_b1
+        label: B1
+        section: Sampling
+      b2:
+        role: option
+        field: number
+        name: freeu_b2
+        label: B2
+        section: Sampling
+      s1:
+        role: option
+        field: number
+        name: freeu_s1
+        label: S1
+        section: Sampling
+      s2:
+        role: option
+        field: number
+        name: freeu_s2
+        label: S2
+        section: Sampling
+
+  ImageOnlyCheckpointLoader:
+    category: loader
+    inputs:
+      ckpt_name:
+        role: checkpoint
+        field: model
+        name: checkpoint
+        label: Checkpoint
+        config: {model_type: checkpoint, allow_info_modal: true}
+        transform: strip_model_prefix
+        section: Models
+        history: model_name
+        folder: checkpoints
 
   KSampler:
     category: sampler
@@ -329,6 +876,102 @@ nodes:
         label: Rho
         section: Sampling
 
+  LTXVConditioning:
+    category: latent
+    links:
+      positive: prompt_positive
+      negative: prompt_negative
+    inputs:
+      frame_rate:
+        role: fps
+        field: slider
+        name: fps
+        label: Frame Rate
+        config: {min: 0.0, max: 240.0, step: 0.01}
+        section: Sampling
+
+  LTXVImgToVideo:
+    category: latent
+    links:
+      positive: prompt_positive
+      negative: prompt_negative
+    inputs:
+      width:
+        role: resolution_width
+        field: resolution
+        name: resolution
+        label: Image Resolution
+      height:
+        role: resolution_height
+        field: resolution
+        name: resolution
+        label: Image Resolution
+      length:
+        role: frames
+        field: slider
+        name: frames
+        label: Length (Frames)
+        config: {min: 9, max: 1024, step: 8}
+        section: Sampling
+      batch_size:
+        role: batch_size
+        field: slider
+        name: quantity
+        label: Batch Size
+        config: {min: 1, max: 8, step: 1}
+      strength:
+        role: denoise
+        field: slider
+        name: image_strength
+        label: Image Strength
+        config: {min: 0.0, max: 1.0, step: 0.05}
+        section: Sampling
+
+  LaplaceScheduler:
+    category: sampling
+    inputs:
+      steps:
+        role: steps
+        field: slider
+        name: steps
+        label: Steps
+        config: {min: 1, max: 150, step: 1}
+        section: Sampling
+      sigma_max:
+        role: option
+        field: number
+        name: sigma_max
+        label: Sigma Max
+        section: Sampling
+      sigma_min:
+        role: option
+        field: number
+        name: sigma_min
+        label: Sigma Min
+        section: Sampling
+      mu:
+        role: option
+        field: number
+        name: mu
+        label: Mu
+        section: Sampling
+      beta:
+        role: option
+        field: number
+        name: beta
+        label: Beta
+        section: Sampling
+
+  LoadAudio:
+    category: image_input
+    inputs:
+      audio:
+        role: audio
+        field: audio
+        name: source_audio
+        label: Source Audio
+        config: {formats: [".mp3", ".wav", ".flac", ".ogg"]}
+
   LoadImage:
     category: image_input
     inputs:
@@ -338,6 +981,42 @@ nodes:
         name: source_image
         label: Source Image
         config: {formats: [".jpg", ".jpeg", ".png", ".webp"]}
+
+  LoadImageMask:
+    category: image_input
+    inputs:
+      image:
+        role: image
+        field: image
+        name: source_image
+        label: Source Image
+        config: {formats: [".jpg", ".jpeg", ".png", ".webp"]}
+      channel:
+        role: option
+        field: select
+        name: mask_channel
+        label: Mask Channel
+        config: {options: ["alpha", "red", "green", "blue"]}
+
+  LoadImageOutput:
+    category: image_input
+    inputs:
+      image:
+        role: image
+        field: image
+        name: source_image
+        label: Source Image
+        config: {formats: [".jpg", ".jpeg", ".png", ".webp"]}
+
+  LoadVideo:
+    category: image_input
+    inputs:
+      file:
+        role: video
+        field: video
+        name: source_video
+        label: Source Video
+        config: {formats: [".mp4", ".webm", ".mov", ".mkv"]}
 
   LoraLoader:
     category: lora
@@ -368,6 +1047,16 @@ nodes:
         history: list
         folder: loras
 
+  ManualSigmas:
+    category: sampling
+    inputs:
+      sigmas:
+        role: option
+        field: string
+        name: manual_sigmas
+        label: Sigmas
+        section: Sampling
+
   MarkdownNote:
     category: ignore
 
@@ -384,7 +1073,51 @@ nodes:
         config: {min: 0.0, max: 100.0, step: 0.01}
         section: Sampling
 
+  ModelSamplingContinuousEDM:
+    category: modifier
+    links:
+      model: model_chain
+    inputs:
+      sampling:
+        role: option
+        field: select
+        name: edm_sampling_type
+        label: Sampling Type
+        config: {options: ["v_prediction", "edm", "edm_playground_v2.5", "eps", "cosmos_rflow"]}
+        section: Sampling
+      sigma_max:
+        role: option
+        field: number
+        name: edm_sigma_max
+        label: Sigma Max
+        section: Sampling
+      sigma_min:
+        role: option
+        field: number
+        name: edm_sigma_min
+        label: Sigma Min
+        section: Sampling
+
   ModelSamplingFlux:
+    category: modifier
+    links:
+      model: model_chain
+    inputs:
+      max_shift:
+        role: shift
+        field: slider
+        name: shift
+        label: Max Shift
+        config: {min: 0.0, max: 100.0, step: 0.01}
+        section: Sampling
+      base_shift:
+        role: option
+        field: number
+        name: base_shift
+        label: Base Shift
+        section: Sampling
+
+  ModelSamplingLTXV:
     category: modifier
     links:
       model: model_chain
@@ -419,11 +1152,141 @@ nodes:
   Note:
     category: ignore
 
+  PerturbedAttentionGuidance:
+    category: modifier
+    links:
+      model: model_chain
+    inputs:
+      scale:
+        role: option
+        field: number
+        name: pag_scale
+        label: PAG Scale
+        section: Sampling
+
+  PolyexponentialScheduler:
+    category: sampling
+    inputs:
+      steps:
+        role: steps
+        field: slider
+        name: steps
+        label: Steps
+        config: {min: 1, max: 150, step: 1}
+        section: Sampling
+      sigma_max:
+        role: option
+        field: number
+        name: sigma_max
+        label: Sigma Max
+        section: Sampling
+      sigma_min:
+        role: option
+        field: number
+        name: sigma_min
+        label: Sigma Min
+        section: Sampling
+      rho:
+        role: option
+        field: number
+        name: rho
+        label: Rho
+        section: Sampling
+
   PreviewAudio:
     category: output
 
   PreviewImage:
     category: output
+
+  PrimitiveBoolean:
+    category: modifier
+    inputs:
+      value:
+        role: option
+        field: checkbox
+        name: primitive_boolean
+        label: Value
+
+  PrimitiveFloat:
+    category: modifier
+    inputs:
+      value:
+        role: option
+        field: number
+        name: primitive_float
+        label: Value
+
+  PrimitiveInt:
+    category: modifier
+    inputs:
+      value:
+        role: option
+        field: integer
+        name: primitive_int
+        label: Value
+
+  PrimitiveString:
+    category: modifier
+    inputs:
+      value:
+        role: option
+        field: string
+        name: primitive_string
+        label: Value
+
+  PrimitiveStringMultiline:
+    category: modifier
+    inputs:
+      value:
+        role: option
+        field: textbox
+        name: primitive_string_multiline
+        label: Value
+
+  QuadrupleCLIPLoader:
+    category: loader
+    inputs:
+      clip_name1:
+        role: clip
+        field: model
+        name: clip
+        label: CLIP Model
+        config: {model_type: text_encoder, allow_info_modal: true}
+        transform: strip_model_prefix
+        section: Models
+        history: model_name
+        folder: text_encoders
+      clip_name2:
+        role: clip
+        field: model
+        name: clip
+        label: CLIP Model
+        config: {model_type: text_encoder, allow_info_modal: true}
+        transform: strip_model_prefix
+        section: Models
+        history: model_name
+        folder: text_encoders
+      clip_name3:
+        role: clip
+        field: model
+        name: clip
+        label: CLIP Model
+        config: {model_type: text_encoder, allow_info_modal: true}
+        transform: strip_model_prefix
+        section: Models
+        history: model_name
+        folder: text_encoders
+      clip_name4:
+        role: clip
+        field: model
+        name: clip
+        label: CLIP Model
+        config: {model_type: text_encoder, allow_info_modal: true}
+        transform: strip_model_prefix
+        section: Models
+        history: model_name
+        folder: text_encoders
 
   RandomNoise:
     category: sampling
@@ -434,6 +1297,38 @@ nodes:
         name: seed
         label: Seed
         transform: seed
+
+  RescaleCFG:
+    category: modifier
+    links:
+      model: model_chain
+    inputs:
+      multiplier:
+        role: option
+        field: number
+        name: rescale_cfg_multiplier
+        label: Multiplier
+        section: Sampling
+
+  SDTurboScheduler:
+    category: sampling
+    links:
+      model: model_chain
+    inputs:
+      steps:
+        role: steps
+        field: slider
+        name: steps
+        label: Steps
+        config: {min: 1, max: 10, step: 1}
+        section: Sampling
+      denoise:
+        role: denoise
+        field: slider
+        name: denoise
+        label: Denoise
+        config: {min: 0.0, max: 1.0, step: 0.05}
+        section: Sampling
 
   SamplerCustom:
     category: sampler
@@ -474,6 +1369,70 @@ nodes:
   SaveImage:
     category: output
 
+  SelfAttentionGuidance:
+    category: modifier
+    links:
+      model: model_chain
+    inputs:
+      scale:
+        role: option
+        field: number
+        name: sag_scale
+        label: SAG Scale
+        section: Sampling
+      blur_sigma:
+        role: option
+        field: number
+        name: sag_blur_sigma
+        label: Blur Sigma
+        section: Sampling
+
+  SplitSigmas:
+    category: sampling
+    links:
+      sigmas: sampling
+    inputs:
+      step:
+        role: option
+        field: number
+        name: split_sigmas_step
+        label: Split Step
+        section: Sampling
+
+  TripleCLIPLoader:
+    category: loader
+    inputs:
+      clip_name1:
+        role: clip
+        field: model
+        name: clip
+        label: CLIP Model
+        config: {model_type: text_encoder, allow_info_modal: true}
+        transform: strip_model_prefix
+        section: Models
+        history: model_name
+        folder: text_encoders
+      clip_name2:
+        role: clip
+        field: model
+        name: clip
+        label: CLIP Model
+        config: {model_type: text_encoder, allow_info_modal: true}
+        transform: strip_model_prefix
+        section: Models
+        history: model_name
+        folder: text_encoders
+      clip_name3:
+        role: clip
+        field: model
+        name: clip
+        label: CLIP Model
+        config: {model_type: text_encoder, allow_info_modal: true}
+        transform: strip_model_prefix
+        section: Models
+        history: model_name
+        folder: text_encoders
+
   UNETLoader:
     category: loader
     inputs:
@@ -502,6 +1461,20 @@ nodes:
         history: model_name
         folder: diffusion_models
 
+  UpscaleModelLoader:
+    category: loader
+    inputs:
+      model_name:
+        role: upscale_model
+        field: model
+        name: upscale_model
+        label: Upscale Model
+        config: {model_type: upscaler, allow_info_modal: true}
+        transform: strip_model_prefix
+        section: Models
+        history: model_name
+        folder: upscale_models
+
   VAELoader:
     category: loader
     inputs:
@@ -518,3 +1491,154 @@ nodes:
 
   VHS_VideoCombine:
     category: output
+
+  VPScheduler:
+    category: sampling
+    inputs:
+      steps:
+        role: steps
+        field: slider
+        name: steps
+        label: Steps
+        config: {min: 1, max: 150, step: 1}
+        section: Sampling
+      beta_d:
+        role: option
+        field: number
+        name: beta_d
+        label: Beta D
+        section: Sampling
+      beta_min:
+        role: option
+        field: number
+        name: beta_min
+        label: Beta Min
+        section: Sampling
+      eps_s:
+        role: option
+        field: number
+        name: eps_s
+        label: Eps S
+        section: Sampling
+
+  WanFirstLastFrameToVideo:
+    category: latent
+    links:
+      positive: prompt_positive
+      negative: prompt_negative
+    inputs:
+      width:
+        role: resolution_width
+        field: resolution
+        name: resolution
+        label: Image Resolution
+      height:
+        role: resolution_height
+        field: resolution
+        name: resolution
+        label: Image Resolution
+      length:
+        role: frames
+        field: slider
+        name: frames
+        label: Length (Frames)
+        config: {min: 1, max: 1024, step: 4}
+        section: Sampling
+      batch_size:
+        role: batch_size
+        field: slider
+        name: quantity
+        label: Batch Size
+        config: {min: 1, max: 8, step: 1}
+
+  WanFunControlToVideo:
+    category: latent
+    links:
+      positive: prompt_positive
+      negative: prompt_negative
+    inputs:
+      width:
+        role: resolution_width
+        field: resolution
+        name: resolution
+        label: Image Resolution
+      height:
+        role: resolution_height
+        field: resolution
+        name: resolution
+        label: Image Resolution
+      length:
+        role: frames
+        field: slider
+        name: frames
+        label: Length (Frames)
+        config: {min: 1, max: 1024, step: 4}
+        section: Sampling
+      batch_size:
+        role: batch_size
+        field: slider
+        name: quantity
+        label: Batch Size
+        config: {min: 1, max: 8, step: 1}
+
+  WanImageToVideo:
+    category: latent
+    links:
+      positive: prompt_positive
+      negative: prompt_negative
+    inputs:
+      width:
+        role: resolution_width
+        field: resolution
+        name: resolution
+        label: Image Resolution
+      height:
+        role: resolution_height
+        field: resolution
+        name: resolution
+        label: Image Resolution
+      length:
+        role: frames
+        field: slider
+        name: frames
+        label: Length (Frames)
+        config: {min: 1, max: 1024, step: 4}
+        section: Sampling
+      batch_size:
+        role: batch_size
+        field: slider
+        name: quantity
+        label: Batch Size
+        config: {min: 1, max: 8, step: 1}
+
+  unCLIPCheckpointLoader:
+    category: loader
+    inputs:
+      ckpt_name:
+        role: checkpoint
+        field: model
+        name: checkpoint
+        label: Checkpoint
+        config: {model_type: checkpoint, allow_info_modal: true}
+        transform: strip_model_prefix
+        section: Models
+        history: model_name
+        folder: checkpoints
+
+  unCLIPConditioning:
+    category: modifier
+    links:
+      conditioning: prompt_positive
+    inputs:
+      strength:
+        role: option
+        field: number
+        name: unclip_strength
+        label: Strength
+        section: Sampling
+      noise_augmentation:
+        role: option
+        field: number
+        name: unclip_noise_augmentation
+        label: Noise Augmentation
+        section: Sampling

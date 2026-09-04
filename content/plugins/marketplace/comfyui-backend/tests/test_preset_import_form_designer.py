@@ -864,7 +864,7 @@ class TestDefaultFormAndHistory:
         assert sections.keys() == {"Models", "Sampling"}
         assert {f.field_name for f in sections["Models"].items} == {"diffusion_model", "clip", "clip_2", "vae"}
         assert {f.field_name for f in sections["Sampling"].items} == {
-            "steps", "sampler_name", "scheduler", "denoise", "guidance", "shift",
+            "steps", "sampler_name", "scheduler", "denoise", "guidance", "shift", "base_shift",
         }
         # "Models" comes before "Sampling" - loaders are enumerated before
         # the sampling cluster in suggest_fields for exactly this reason.
@@ -890,6 +890,59 @@ class TestDefaultFormAndHistory:
         form = build_default_form(analysis)
         models_section = next(i for i in form.tabs[0].items if i.kind == "section")
         assert {f.field_name for f in models_section.items} == {"vae", "vae_2"}
+
+    def test_wan_video_latent_default_form_has_frames_in_sampling_section(self):
+        """A video-latent node (`WanImageToVideo`) contributes `frames`
+        alongside the sampler's own steps/cfg/etc. in one merged "Sampling"
+        section, same first-seen-order merge as any other shared section -
+        see `_build_tab_items`'s docstring."""
+        workflow = parse_api_workflow(_load("wan_video_latent_api.json"))
+        analysis = suggest_fields(workflow)
+        by_role = {c.role: c for c in analysis.candidates}
+        assert by_role["frames"].current_value == 33
+        assert by_role["frames"].suggested_field_name == "frames"
+
+        form = build_default_form(analysis)
+        items = form.tabs[0].items
+        assert items[0].kind == "field" and items[0].field_name == "resolution"
+        sections = {i.title: i for i in items if i.kind == "section"}
+        assert sections.keys() == {"Models", "Sampling"}
+        assert {f.field_name for f in sections["Sampling"].items} == {
+            "steps", "cfg", "sampler_name", "scheduler", "denoise", "frames",
+        }
+
+    def test_sectioned_catalog_inputs_join_the_default_form_after_named_roles(self):
+        """Any catalogued input with a `section` is obvious - a ControlNet
+        loader joins Models, its apply-node knobs and CLIPSetLastLayer join
+        Sampling - and inside a section the named roles (steps, cfg, ...)
+        lead while `option` knobs follow, whichever node came first."""
+        doc = _load("sdxl_basic_api.json")
+        doc["40"] = {"inputs": {"control_net_name": "tile.safetensors"}, "class_type": "ControlNetLoader"}
+        doc["41"] = {
+            "inputs": {
+                "strength": 0.8, "start_percent": 0.0, "end_percent": 1.0,
+                "positive": ["6", 0], "negative": ["7", 0], "control_net": ["40", 0], "image": ["42", 0],
+            },
+            "class_type": "ControlNetApplyAdvanced",
+        }
+        doc["42"] = {"inputs": {"image": "guide.png"}, "class_type": "LoadImage"}
+        doc["43"] = {"inputs": {"stop_at_clip_layer": -2, "clip": ["4", 1]}, "class_type": "CLIPSetLastLayer"}
+        doc["3"]["inputs"]["positive"] = ["41", 0]
+        doc["3"]["inputs"]["negative"] = ["41", 1]
+
+        analysis = suggest_fields(parse_api_workflow(doc))
+        by_name = {c.suggested_field_name: c for c in analysis.candidates}
+        assert by_name["controlnet"].obvious and by_name["controlnet"].section == "Models"
+        assert by_name["controlnet_strength"].obvious and by_name["clip_stop_at_layer"].obvious
+
+        form = build_default_form(analysis)
+        sections = {i.title: i for i in form.tabs[0].items if i.kind == "section"}
+        assert [f.field_name for f in sections["Models"].items] == ["checkpoint", "controlnet"]
+        sampling = [f.field_name for f in sections["Sampling"].items]
+        assert sampling[:5] == ["steps", "cfg", "sampler_name", "scheduler", "denoise"]
+        assert set(sampling[5:]) == {
+            "controlnet_strength", "controlnet_start_percent", "controlnet_end_percent", "clip_stop_at_layer",
+        }
 
     def test_krea2_real_all_in_one_node_has_no_obvious_fields(self):
         """No KSampler for structural detection to key off (see

@@ -45,6 +45,7 @@ FOLDER_TO_MODEL_TYPE = {
     "upscale_models": "upscaler",
     "embeddings": "embedding",
     "controlnet": "controlnet",
+    "clip_vision": "clip_vision",
 }
 
 

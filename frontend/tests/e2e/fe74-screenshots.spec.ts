@@ -48,12 +48,32 @@ async function setSegmentMeta(page: Page, listAriaLabel: string, index: number, 
 	// move/replace/convert/delete now that the footer covers the rest.
 	const detailsBtn = item.getByRole('button', { name: 'Details' });
 	await detailsBtn.click();
-	await item.getByPlaceholder('Optional segment name').fill(name);
+	// The segment-composer port renders Details as a real modal
+	// (PromptSegmentDetailsModal, portaled onto <body>), not an inline reveal
+	// under the card — its fields live in the dialog, not inside the list item.
+	const dialog = page.getByRole('dialog', { name: 'Segment details' });
+	await dialog.getByPlaceholder('Optional segment name').fill(name);
 	// bbff1e9f also replaced the free-text hex input with a fixed swatch
 	// palette (PRESET_COLORS) — pick by the swatch's accessible name.
-	await item.getByRole('button', { name: colorSwatch, exact: true }).click();
-	// Toggle the metadata reveal back closed via the same footer button.
-	await detailsBtn.click();
+	await dialog.getByRole('button', { name: colorSwatch, exact: true }).click();
+	// Save details commits the edit and closes the modal (Cancel would discard it).
+	await dialog.getByRole('button', { name: 'Save details' }).click();
+	// BaseModal's own exit transition (~150ms) keeps the dialog node — and its
+	// focusTrap action — mounted a beat after `isOpen` flips false; that
+	// action's `destroy()` restores focus to whatever was focused before the
+	// modal opened. Racing that against the very next action (this spec
+	// immediately clicks into the segment's editor and types a sentence
+	// starting with "A" — the global "open_quick_actions" shortcut) lets the
+	// restored focus swallow that keystroke instead of the editor, opening
+	// Quick Actions mid-test. Waiting for the dialog to actually disappear
+	// absorbs the transition before proceeding.
+	await expect(dialog).toBeHidden();
+	// Stronger than the dialog's own visibility: BaseModal's full-viewport,
+	// z-[9999] backdrop (`aria-label="Close modal"`) is what actually
+	// intercepts a later click while it's still attached, even a moment after
+	// its own opacity has faded to the point `toBeHidden` would already call
+	// it hidden. Wait for it to actually leave the DOM, not just look gone.
+	await expect(page.locator('[aria-label="Close modal"].fixed.inset-0')).toHaveCount(0);
 }
 
 test('one-panel prompt editor — visual capture only', async ({ page }) => {
@@ -201,10 +221,14 @@ test('one-panel prompt editor — visual capture only', async ({ page }) => {
 	// Metadata inline editor open via the always-visible "Details" footer button.
 	const firstRuleDetailsBtn = firstRule.getByRole('button', { name: 'Details' });
 	await firstRuleDetailsBtn.click();
+	const detailsDialog = page.getByRole('dialog', { name: 'Segment details' });
+	await expect(detailsDialog).toBeVisible();
 	await page.waitForTimeout(200);
 	await screenshot(page, JOURNEY, '05-generate-metadata-editor-open');
 	// Close it back down before continuing.
-	await firstRuleDetailsBtn.click();
+	// Details is a modal now, not an inline toggle: close it instead of re-clicking.
+	await detailsDialog.getByRole('button', { name: 'Close modal' }).click();
+	await expect(page.locator('[aria-label="Close modal"].fixed.inset-0')).toHaveCount(0);
 
 	// Action menu of the LAST negative segment, at the bottom of the panel.
 	// The panel wrapper clips with overflow-hidden, so this segment's menu
@@ -288,7 +312,9 @@ test('one-panel prompt editor — visual capture only', async ({ page }) => {
 	if (await newTemplateBtn.count() > 0) {
 		await newTemplateBtn.click();
 		await page.waitForTimeout(300);
-		const templateEditor = page.locator('.inline-chip-editor[role="textbox"]').first();
+		// Scope to the template form: the Segments workspace's editor from the
+		// previous step can stay mounted (hidden), and it precedes this one in DOM order.
+		const templateEditor = page.getByRole('list', { name: 'Template slots' }).locator('.inline-chip-editor[role="textbox"]').first();
 		if (await templateEditor.count() > 0) {
 			await templateEditor.click();
 			await page.keyboard.type('Reusable template slot content.');
@@ -321,7 +347,9 @@ test('one-panel prompt editor — visual capture only', async ({ page }) => {
 				// name also contains "video" (its engine/category subtitle line),
 				// so a substring match grabs that button instead and reopens the
 				// picker modal.
-				const videoModeBtn = page.getByRole('button', { name: 'Video', exact: true });
+				// The mode control's button carries a native title; a plain role query
+				// also matches the Video Director's own collapsible header button.
+				const videoModeBtn = page.locator('button[title="Video"]');
 				if (await videoModeBtn.count() > 0) {
 					await videoModeBtn.click();
 					await page.waitForTimeout(1000);

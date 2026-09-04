@@ -49,6 +49,10 @@
 	export let onCreate: (() => void) | undefined = undefined;
 	export let onOpenManager: (() => void) | undefined = undefined;
 	export let onRemove: (() => void) | undefined = undefined;
+	// See InlinePopoverChip's own doc comment — the segment composer's
+	// `.chip.variable-chip` + `.variable-popover` anatomy from
+	// prompt-segments-concept.html, additive alongside the default look.
+	export let variant: 'default' | 'segment-composer' = 'default';
 
 	let open = false;
 
@@ -88,6 +92,8 @@
 </script>
 
 <InlinePopoverChip
+	{variant}
+	kind="variable"
 	tone={isUndefined ? 'warning' : 'accent'}
 	density="tight"
 	{disabled}
@@ -96,6 +102,9 @@
 	class="variable-usage-chip"
 	removeTitle="Remove this usage"
 	popoverLabel={`Variable ${name}`}
+	headerMark="$"
+	headerTitle={name}
+	headerSubtitle={def?.type === 'choice' ? 'Choice variable' : def?.type === 'text' ? 'Text variable' : 'Undefined variable'}
 >
 	{#snippet label()}
 		{#if isUndefined}
@@ -113,8 +122,79 @@
 		{/if}
 	{/snippet}
 
-	{#snippet popover()}
+	{#snippet composerLabel()}
 		{#if isUndefined}
+			<svg class="icon"><use href="#i-info" /></svg>
+		{/if}
+		<span class="chip-context">{name}</span>
+		{#if isShuffleWithRoll && roll}
+			<span class="chip-label">{roll.value}</span>
+		{:else if def?.type === 'text'}
+			<span class="chip-label">{def.value || '(empty)'}</span>
+		{/if}
+		{#if def?.type === 'choice' && def.mode !== 'shuffle'}
+			<span class="chip-state">{def.mode === 'pin' ? 'Pinned' : 'Per image'}</span>
+		{/if}
+	{/snippet}
+
+	{#snippet popover()}
+		{#if variant === 'segment-composer' && !isUndefined && def}
+			{#if def.type === 'choice'}
+				<div class="section-label">Definition preview</div>
+				<div class="option-list">
+					{#each def.options as option, index (index)}
+						<div class="option-row">
+							<span class="dot"></span>
+							<strong>{option || `Option ${index + 1}`}</strong>
+							<span>
+								{def.mode === 'pin' && def.pinnedIndex === index
+									? 'Current'
+									: def.mode === 'shuffle' && roll?.optionIndex === index
+										? 'Current'
+										: 'Option'}
+							</span>
+						</div>
+					{/each}
+				</div>
+				<div class="behavior">
+					<div class="section-label">Value behavior</div>
+					<div class="segmented">
+						<button type="button" class="behavior-button" class:active={def.mode === 'shuffle'} on:click={() => handleModeSelectChange('shuffle')}>Shuffle</button>
+						<button type="button" class="behavior-button" class:active={def.mode === 'pin'} on:click={() => handleModeSelectChange('pin')}>Pin</button>
+						<button type="button" class="behavior-button" class:active={def.mode === 'per-image'} on:click={() => handleModeSelectChange('per-image')}>Per image</button>
+					</div>
+					<p class="helper">
+						{#if def.mode === 'shuffle'}
+							Rolls once when Generate is clicked and uses that value everywhere.
+						{:else if def.mode === 'pin'}
+							Always uses the pinned option below, everywhere ${'{'}{name}{'}'} is used.
+						{:else}
+							Rolls independently for every image — check the result card to see what each image got.
+						{/if}
+					</p>
+					{#if def.mode === 'pin'}
+						<select
+							class="field"
+							style="margin-top: 6px"
+							value={def.pinnedIndex ?? 0}
+							on:change={(e) => handlePinnedIndexChange(e.currentTarget.value)}
+							aria-label={`Which option to use for ${name}`}
+						>
+							{#each def.options as option, index (index)}
+								<option value={index}>{option || `Option ${index + 1}`}</option>
+							{/each}
+						</select>
+					{/if}
+				</div>
+			{:else}
+				<div class="section-label">Value</div>
+				<p class="helper">{def.value || '(empty)'}</p>
+			{/if}
+			<button type="button" class="small-button" style="margin-top: 8px" on:click={handleOpenManager}>
+				<svg class="icon"><use href="#i-braces" /></svg>
+				Edit in Variables
+			</button>
+		{:else if isUndefined}
 			<p class="text-xs text-fg-muted">
 				<span class="font-mono text-warning">${'{'}{name}{'}'}</span> isn't defined — it will expand to nothing.
 			</p>
@@ -205,6 +285,14 @@
 				<Icon name="braces" className="h-3.5 w-3.5" />
 				Edit in Variables
 			</button>
+		{/if}
+	{/snippet}
+
+	{#snippet footer()}
+		{#if variant === 'segment-composer'}
+			<button type="button" class="small-button danger" title="Remove this usage" on:click={() => onRemove?.()}
+				>Remove usage</button
+			>
 		{/if}
 	{/snippet}
 </InlinePopoverChip>

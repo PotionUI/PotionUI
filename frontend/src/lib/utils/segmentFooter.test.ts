@@ -25,6 +25,11 @@ function chip(id: string, value: string): ChipData {
 }
 
 describe('segmentFooterActions', () => {
+	// Order matches the mock's header cluster (prompt-segments-concept.html):
+	// details, save, duplicate, then toggle last — details/save are also the
+	// two the `optional` class folds away first at a narrow container width.
+	const EXPECTED_ORDER = ['editDetails', 'saveAsSegment', 'duplicate', 'toggleDisabled'];
+
 	it('offers the same actions in the same order regardless of card state', () => {
 		const states = [
 			editor('a', 'x', { name: 'SUBJECT' }),
@@ -34,36 +39,37 @@ describe('segmentFooterActions', () => {
 		];
 
 		for (const segment of states) {
-			expect(segmentFooterActions(segment).map((action) => action.id)).toEqual([
-				'toggleDisabled',
-				'duplicate',
-				'editDetails',
-				'saveAsSegment'
-			]);
+			expect(segmentFooterActions(segment).map((action) => action.id)).toEqual(EXPECTED_ORDER);
 		}
 	});
 
-	it('names the first action Disable while the segment is enabled', () => {
-		const [first] = segmentFooterActions(editor('a', 'x'));
-		expect(first.label).toBe('Disable');
-		expect(first.icon).toBe('eye-off');
+	function toggleAction(segment: Segment) {
+		const action = segmentFooterActions(segment).find((a) => a.id === 'toggleDisabled');
+		if (!action) throw new Error('toggleDisabled action missing');
+		return action;
+	}
+
+	it('names the toggle action Disable while the segment is enabled', () => {
+		const action = toggleAction(editor('a', 'x'));
+		expect(action.label).toBe('Disable');
+		expect(action.icon).toBe('eye-off');
 	});
 
-	it('names the first action Enable once the segment is disabled', () => {
-		const [first] = segmentFooterActions(editor('a', 'x', { enabled: false }));
-		expect(first.label).toBe('Enable');
-		expect(first.icon).toBe('eyes');
+	it('names the toggle action Enable once the segment is disabled', () => {
+		const action = toggleAction(editor('a', 'x', { enabled: false }));
+		expect(action.label).toBe('Enable');
+		expect(action.icon).toBe('eye');
 	});
 
 	it('reads a legacy isDisabled-only segment as disabled', () => {
-		const [first] = segmentFooterActions(editor('a', 'x', { enabled: undefined, isDisabled: true }));
-		expect(first.label).toBe('Enable');
+		const action = toggleAction(editor('a', 'x', { enabled: undefined, isDisabled: true }));
+		expect(action.label).toBe('Enable');
 	});
 
-	it('leaves every action but the first identical between enabled and disabled', () => {
-		const enabled = segmentFooterActions(editor('a', 'x')).slice(1);
-		const disabled = segmentFooterActions(editor('a', 'x', { enabled: false })).slice(1);
-		expect(disabled).toEqual(enabled);
+	it('leaves every action but the toggle identical between enabled and disabled', () => {
+		const without = (segment: Segment) =>
+			segmentFooterActions(segment).filter((a) => a.id !== 'toggleDisabled');
+		expect(without(editor('a', 'x', { enabled: false }))).toEqual(without(editor('a', 'x')));
 	});
 
 	it('labels every action in sentence case', () => {

@@ -81,6 +81,13 @@
 	// are highlighted via the CSS Custom Highlight API, mirroring the "already
 	// in prompt" indicator LoraPickerField.svelte shows on the trigger chip.
 	export let activeTriggerWords: string[] = [];
+	// Threaded straight through to every chip this editor mounts (InlineChip,
+	// ChoiceGroupChip, VariableUsageChip) and to both AutocompleteDropdown
+	// pickers below — see their own doc comments for the segment composer's
+	// anatomy. PromptSegment.svelte is the only caller that passes
+	// `"segment-composer"`; every other host (ChatChipInput today) keeps the
+	// default, unaffected by this port.
+	export let variant: 'default' | 'segment-composer' = 'default';
 
 	const dispatch = createEventDispatcher();
 
@@ -645,19 +652,12 @@
 		dispatch('change', { value: newValue, chips: newChips });
 	}
 
-	function handleNavigateUp() {
-		if (!phrasebookPath) return;
-
-		const cleanPath = phrasebookPath.endsWith('.')
-			? phrasebookPath.slice(0, -1)
-			: phrasebookPath;
-
-		if (!cleanPath) return;
-
-		const pathParts = cleanPath.split('.');
-		pathParts.pop();
-		const parentPath = pathParts.join('.');
-
+	/** Rewrites the live `#path` trigger text to `newPath` (trailing dot means
+	 *  "browsing inside", none means root) and re-fetches suggestions for it —
+	 *  the shared move behind both the header's single-level "navigate up" and
+	 *  the segment-composer picker's breadcrumb (jump straight to any ancestor
+	 *  crumb, not just the immediate parent). */
+	function navigateToPath(newPath: string) {
 		const selection = window.getSelection();
 		if (!selection || !selection.rangeCount) return;
 
@@ -676,7 +676,6 @@
 
 		if (triggerStart < 0) return;
 
-		const newPath = parentPath ? parentPath + '.' : '';
 		const newText = text.substring(0, triggerStart + 1) + newPath + text.substring(cursorOffset);
 
 		// Calculate new cursor position before modifying DOM
@@ -699,11 +698,27 @@
 		});
 
 		phrasebookPath = newPath;
-		fetchPhrasebookSuggestions(parentPath);
+		fetchPhrasebookSuggestions(newPath.endsWith('.') ? newPath.slice(0, -1) : newPath);
 
 		// Don't call handleInput - extract and dispatch manually
 		const { value: newValue, chips: newChips } = extractContentFromDOM(editorRef, chips);
 		dispatch('change', { value: newValue, chips: newChips });
+	}
+
+	function handleNavigateUp() {
+		if (!phrasebookPath) return;
+
+		const cleanPath = phrasebookPath.endsWith('.')
+			? phrasebookPath.slice(0, -1)
+			: phrasebookPath;
+
+		if (!cleanPath) return;
+
+		const pathParts = cleanPath.split('.');
+		pathParts.pop();
+		const parentPath = pathParts.join('.');
+
+		navigateToPath(parentPath ? parentPath + '.' : '');
 	}
 
 	function closePhrasebook() {
@@ -759,6 +774,67 @@
 		variableTriggerNode = null;
 		variableTriggerOffset = -1;
 		variableSelectedIndex = 0;
+	}
+
+	// =====================
+	// Programmatic trigger insertion
+	// =====================
+	// The mock's segment footer offers explicit "Phrasebook / Variable / Choice"
+	// buttons, alongside typing `#`/`${`/`{` — a way IN to the exact same
+	// pickers/chip-ification this editor already owns, not a second mechanism.
+	// Caret-relative when the editor already has a selection inside it (so a
+	// mid-sentence insert works), end-of-content otherwise.
+
+	function insertTextAtCaret(text: string): void {
+		if (!editorRef) return;
+		editorRef.focus();
+		const selection = window.getSelection();
+		let range: Range;
+		if (selection && selection.rangeCount && editorRef.contains(selection.getRangeAt(0).commonAncestorContainer)) {
+			range = selection.getRangeAt(0);
+		} else {
+			range = document.createRange();
+			range.selectNodeContents(editorRef);
+			range.collapse(false);
+		}
+		range.deleteContents();
+		const textNode = document.createTextNode(text);
+		range.insertNode(textNode);
+		// `setStartAfter(textNode)` would put the boundary point in the PARENT
+		// element (the offset right after the node), not the text node itself —
+		// detectPhrasebookTrigger/detectVariablePickerTrigger both require
+		// `range.startContainer` to be a `Node.TEXT_NODE` and bail (closing the
+		// picker) otherwise. `setStart` on the text node keeps the caret inside
+		// it, exactly where a real keystroke would leave it.
+		range.setStart(textNode, textNode.length);
+		range.collapse(true);
+		selection?.removeAllRanges();
+		selection?.addRange(range);
+	}
+
+	/** Insert `#` at the caret and open the phrasebook picker on it, exactly as
+	 *  typing `#` would. */
+	export function insertPhrasebookTrigger(): void {
+		if (isDisabled) return;
+		insertTextAtCaret('#');
+		handleInput();
+	}
+
+	/** Insert `$` at the caret and open the variable picker on it, exactly as
+	 *  typing `$` would. */
+	export function insertVariableTrigger(): void {
+		if (isDisabled) return;
+		insertTextAtCaret('$');
+		handleInput();
+	}
+
+	/** Insert a two-option `{a|b}` choice group at the caret and chip-ify it
+	 *  immediately — the same rebuild `handleInput` already does the instant a
+	 *  user's own typing closes a `}`. */
+	export function insertChoiceGroup(): void {
+		if (isDisabled) return;
+		insertTextAtCaret('{option one|option two}');
+		handleInput();
 	}
 
 	/**
@@ -889,6 +965,7 @@
 				data: chipData,
 				colorIndex,
 				disabled: isDisabled,
+				variant,
 				animate: animate ? 'shuffle' : 'none',
 				onchange: (updated: ChipData) => {
 					handleChipChange(chipId, updated);
@@ -1027,6 +1104,7 @@
 					raw,
 					colorIndex: index,
 					disabled: isDisabled,
+					variant,
 					onchange: (newRaw: string) => handleGroupChange(el, newRaw),
 					onremove: () => handleGroupRemove(el)
 				}
@@ -1103,6 +1181,7 @@
 					definition: name in variables ? variables[name] : undefined,
 					roll: variableRolls[name],
 					disabled: isDisabled,
+					variant,
 					onModeChange: (mode: ChoiceVariableMode, pinnedIndex: number | null) =>
 						handleVariableModeChange(name, mode, pinnedIndex),
 					onCreate: () => handleVariableCreate(name),
@@ -1236,6 +1315,7 @@
 					data: chipData,
 					colorIndex: index,
 					disabled: isDisabled,
+					variant,
 					onchange: (updatedData: ChipData) => {
 						handleChipChange(chipId, updatedData);
 					},
@@ -1425,9 +1505,11 @@
 			currentPath={phrasebookPath}
 			onClose={closePhrasebook}
 			onNavigateUp={handleNavigateUp}
+			onNavigateToPath={navigateToPath}
 			parentRef={containerRef}
 			getImageUrl={(fileId) => api.getFileURL(fileId, 'small')}
 			contextLabel="Phrasebook"
+			{variant}
 		/>
 	{/if}
 
@@ -1446,6 +1528,7 @@
 			onClose={closeVariablePicker}
 			parentRef={containerRef}
 			contextLabel="Variables"
+			{variant}
 		/>
 	{/if}
 </div>

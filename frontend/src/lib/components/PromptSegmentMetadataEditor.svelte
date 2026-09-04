@@ -17,21 +17,27 @@
 	}
 </script>
 
-<div class="metadata-fields grid gap-4 sm:grid-cols-2">
-	<label class="flex min-w-0 flex-col gap-1.5">
-		<span class="text-xs text-fg-muted">Name</span>
+<!--
+	Anatomy/classes match the mock's Segment details modal body (`.form-grid` /
+	`.field-label` / `.field` / `.swatches` / `.swatch`) — visuals come from
+	segment-composer.css via the `.segment-composer` wrapper PromptSegmentDetailsModal
+	provides, since BaseModal portals this content onto <body>.
+-->
+<div class="form-grid">
+	<label class="flex min-w-0 flex-col">
+		<span class="field-label">Name</span>
 		<input
 			type="text"
-			class="input w-full"
+			class="field"
 			value={segment.name || segment.title || ''}
 			placeholder="Optional segment name"
 			on:input={(event) => update('name', event.currentTarget.value)}
 		/>
 	</label>
 
-	<div class="flex min-w-0 flex-col gap-1.5">
-		<span class="text-xs text-fg-muted">Colour</span>
-		<div class="flex flex-wrap items-center gap-1.5">
+	<div class="flex min-w-0 flex-col">
+		<span class="field-label">Colour</span>
+		<div class="swatches">
 			<label class="swatch-current" style={currentColor ? `background-color: ${currentColor};` : undefined}>
 				<span class="sr-only">Pick a custom colour</span>
 				<input
@@ -45,8 +51,8 @@
 				<button
 					type="button"
 					class="swatch"
-					class:selected={currentColor.toLowerCase() === option.value.toLowerCase()}
-					style="background-color: {option.value};"
+					class:active={currentColor.toLowerCase() === option.value.toLowerCase()}
+					style="--swatch: {option.value};"
 					aria-label={option.name}
 					aria-pressed={currentColor.toLowerCase() === option.value.toLowerCase()}
 					on:click={() => update('color', option.value)}
@@ -58,10 +64,10 @@
 		</div>
 	</div>
 
-	<label class="flex min-w-0 flex-col gap-1.5 sm:col-span-2">
-		<span class="text-xs text-fg-muted">Description</span>
+	<label class="full flex min-w-0 flex-col">
+		<span class="field-label">Description</span>
 		<textarea
-			class="input w-full resize-y"
+			class="field"
 			rows="2"
 			value={segment.description || ''}
 			placeholder="Optional notes about this segment"
@@ -69,43 +75,3 @@
 		></textarea>
 	</label>
 </div>
-
-<style>
-	.swatch-current {
-		display: inline-flex;
-		width: 1.875rem;
-		height: 1.875rem;
-		flex-shrink: 0;
-		cursor: pointer;
-		border-radius: 0.25rem;
-		box-shadow: inset 0 0 0 1px rgb(var(--line-strong));
-	}
-
-	.swatch {
-		width: 1.25rem;
-		height: 1.25rem;
-		flex-shrink: 0;
-		border-radius: 0.25rem;
-		box-shadow: inset 0 0 0 1px rgb(var(--line-strong) / 0.6);
-		transition: transform 0.12s ease, box-shadow 0.12s ease;
-	}
-
-	.swatch:hover {
-		transform: scale(1.1);
-	}
-
-	.swatch.selected {
-		box-shadow: 0 0 0 2px rgb(var(--surface-2)), 0 0 0 3px rgb(var(--signal));
-	}
-
-	.clear-color {
-		flex-shrink: 0;
-		font-size: 0.6875rem;
-		color: rgb(var(--fg-subtle));
-		transition: color 0.15s ease;
-	}
-
-	.clear-color:hover {
-		color: rgb(var(--fg));
-	}
-</style>

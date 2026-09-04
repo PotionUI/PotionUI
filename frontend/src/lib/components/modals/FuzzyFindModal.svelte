@@ -32,6 +32,16 @@
 	export let showDescriptions: boolean = true;
 	export let showImages: boolean = true;
 	export let size: ModalSize = 'sm';
+	// The segment composer's own "value finder" anatomy (search bar, a plain
+	// row list with a trailing check circle, Cancel/"Use selected" footer) —
+	// see prompt-segments-concept.html `.value-finder`. Every other host
+	// (QuickActions today) keeps the original markup untouched. In this
+	// variant a row click only highlights (like arrow-key navigation); only
+	// "Use selected value" or Enter actually commits — the mock treats value
+	// selection as a deliberate act, separate from browsing. The side
+	// image-preview pane (arrow-left) is a `default`-only extra the mock
+	// never shows here.
+	export let variant: 'default' | 'segment-composer' = 'default';
 
 	const dispatch = createEventDispatcher<{
 		select: FuzzyFindItem;
@@ -195,6 +205,13 @@
 		handleClose();
 	}
 
+	/** segment-composer variant only: "Use selected value" footer button —
+	 *  commits whatever row is currently highlighted (click or arrow-key), the
+	 *  same item Enter would commit. */
+	function commitSelected() {
+		if (filteredItems[selectedIndex]) handleSelect(filteredItems[selectedIndex]);
+	}
+
 	function handleClose() {
 		searchQuery = '';
 		showPreview = false;
@@ -228,7 +245,85 @@
      transformed ancestor (e.g. the mobile generate carousel's panel track),
      which would otherwise become the containing block for this fixed
      backdrop. -->
-{#if isOpen}
+{#if isOpen && variant === 'segment-composer'}
+	<div use:portal class="segment-composer" style="display: contents;">
+		<div
+			class="modal-backdrop"
+			role="dialog"
+			aria-modal="true"
+			aria-labelledby="valueFinderTitle"
+			tabindex="-1"
+			on:click={handleBackdropClick}
+			on:keydown={handleKeydown}
+		>
+			<section class="modal value-finder" role="presentation" on:click|stopPropagation on:keydown|stopPropagation>
+				<header class="modal-head">
+					<span class="popover-mark">#</span>
+					<div class="finder-heading">
+						<strong id="valueFinderTitle">{title}</strong>
+						{#if subtitle}<span>{subtitle}</span>{/if}
+					</div>
+					<button type="button" class="close" aria-label="Close value finder" on:click={handleClose}>
+						<svg class="icon"><use href="#i-close" /></svg>
+					</button>
+				</header>
+				<div class="modal-body finder-body">
+					<div class="finder-search-wrap">
+						<svg class="icon"><use href="#i-search" /></svg>
+						<input
+							bind:this={searchInput}
+							bind:value={searchQuery}
+							on:keydown={handleInputKeydown}
+							type="text"
+							class="finder-search"
+							{placeholder}
+							autocomplete="off"
+						/>
+					</div>
+					<div class="finder-label">
+						Values <span>{filteredItems.length} {filteredItems.length === 1 ? 'result' : 'results'}</span>
+					</div>
+					<div bind:this={listContainer} class="finder-list">
+						{#if filteredItems.length === 0}
+							<div class="px-4 py-8 text-center text-fg-subtle text-sm">{emptyMessage}</div>
+						{:else}
+							{#each filteredItems as item, index}
+								<button
+									type="button"
+									data-index={index}
+									class="finder-row"
+									class:selected={index === selectedIndex}
+									on:click={() => (selectedIndex = index)}
+									on:dblclick={() => handleSelect(item)}
+								>
+									<span class="finder-thumb">
+										{#if item.imageUrl}
+											<img src={item.imageUrl} alt={item.label} />
+										{:else}
+											<svg class="icon"><use href="#i-file" /></svg>
+										{/if}
+									</span>
+									<span class="finder-copy">
+										<strong>{item.label}</strong>
+										{#if item.description}<span>{item.description}</span>{/if}
+									</span>
+									<span class="finder-check"><svg class="icon"><use href="#i-check" /></svg></span>
+								</button>
+							{/each}
+						{/if}
+					</div>
+				</div>
+				<footer class="modal-foot">
+					<span class="helper" style="margin: 0 auto 0 0">Value selection is separate from shuffle behavior.</span>
+					<button type="button" class="small-button" on:click={handleClose}>Cancel</button>
+					<button type="button" class="small-button primary" disabled={!filteredItems.length} on:click={commitSelected}
+						>Use selected value</button
+					>
+				</footer>
+			</section>
+		</div>
+	</div>
+{:else if isOpen}
 	<div
 		use:portal
 		class="fixed inset-0 z-[9999] flex md:items-center md:justify-center bg-black/60 backdrop-blur-sm md:p-4"

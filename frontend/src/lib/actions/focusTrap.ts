@@ -52,8 +52,19 @@ export default function focusTrap(node: HTMLElement) {
 	return {
 		destroy() {
 			node.removeEventListener('keydown', handleKeydown);
-			// Restore focus to the element that was focused before the modal opened
-			if (previouslyFocused && typeof previouslyFocused.focus === 'function') {
+			// Restore focus to the element that was focused before the modal
+			// opened — but only if focus is still where the trap left it (inside
+			// the trap, or on <body> if nothing inside ever took it). If the user
+			// has already moved on — clicked into a different field the instant
+			// the modal's own exit transition started, say — that's a real,
+			// deliberate focus change elsewhere in the app; restoring over it
+			// would silently steal the keystroke the user is mid-typing into
+			// whatever they clicked (this exact race let a modal-close hand a
+			// stray "A" to the global "open quick actions" shortcut instead of
+			// the field the user had already moved into).
+			const current = document.activeElement;
+			const stillOurs = current === document.body || (current instanceof Node && node.contains(current));
+			if (stillOurs && previouslyFocused && typeof previouslyFocused.focus === 'function') {
 				previouslyFocused.focus();
 			}
 		}

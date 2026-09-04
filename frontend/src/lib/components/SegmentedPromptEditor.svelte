@@ -30,8 +30,7 @@
 	import { resolvedPromptStats, resolvedPromptTokens } from '$lib/utils/resolvedPrompt';
 	import PromptSegment from './PromptSegment.svelte';
 	import Tooltip from './Tooltip.svelte';
-	import Icon from './Icon.svelte';
-	import { Button } from '$lib/components/ui';
+	import SegmentComposerIconSprite from './SegmentComposerIconSprite.svelte';
 	import SegmentListApplyModal from './modals/SegmentListApplyModal.svelte';
 	import SavedSegmentSelectionModal from './modals/SavedSegmentSelectionModal.svelte';
 	import SaveSegmentModal from './modals/SaveSegmentModal.svelte';
@@ -59,6 +58,13 @@
 	export let onVariableDefChange: ((name: string, def: VariableDef) => void) | undefined = undefined;
 	export let onOpenVariableManager: (() => void) | undefined = undefined;
 	export let activeTriggerWords: string[] = [];
+	// The Video Director's shot stage (StageBeat.svelte) already gives this
+	// editor its own caption/card — the mock's `.composer` shell (toolbar
+	// header + resolved panel) would just be a second, redundant container
+	// around the same segments. `embedded` drops that chrome down to the bare
+	// segment rail (`.segment-list` + its add-segment row); the `.segment-composer`
+	// scope class stays on the root either way, so chip/picker styling still applies.
+	export let embedded = false;
 
 	$: paired = negativeSegments !== undefined;
 	// aria-label for the sections role="list" — kept stable independent of the
@@ -402,271 +408,291 @@
 
 <svelte:window on:pointerdown={handleOutsidePointerDown} on:keydown={handleOutsideKeydown} />
 
-<div class="prompt-editor min-w-0" class:compact>
-	<div class="section-header">
-		<span class="section-title">{headerWord}</span>
-		<span class="section-count font-mono tabular-nums">{segmentCountLabel(segments.length)}</span>
+<div class="prompt-editor segment-composer min-w-0" class:compact>
+	<SegmentComposerIconSprite />
 
-		{#if !paired && isNegative && negativePromptUnavailable}
-			<span class="inline-note-warning">Not used by this preset</span>
-		{/if}
-
-		<div class="header-spacer"></div>
-
-		{#if showLibraryActions}
-			<Tooltip text="Insert a saved Segment" position="top">
-				<Button variant="ghost" size="xs" icon="library" class="header-btn" onclick={() => openLibraryInsert('main')}>
-					{#if !compact}<span>Library</span>{/if}
-				</Button>
-			</Tooltip>
-			<Tooltip text="Apply a Segment Template" position="top">
-				<Button variant="ghost" size="xs" icon="layout-template" class="header-btn" onclick={() => openTemplateApply('main')}>
-					{#if !compact}<span>Template</span>{/if}
-				</Button>
-			</Tooltip>
-		{/if}
-
-		{#if onOpenVariableManager}
-			<Tooltip text="Manage prompt variables" position="top">
-				<Button variant="ghost" size="xs" icon="braces" class="header-btn" onclick={onOpenVariableManager}>
-					{#if !compact}<span>Variables</span>{/if}
-					{#if variableCount > 0}
-						<span class="count-badge font-mono tabular-nums">{variableCount}</span>
-					{/if}
-				</Button>
-			</Tooltip>
-		{/if}
-
-		{#if showLibraryActions || hasMainContent}
-			<div class="relative" bind:this={mainMoreRoot}>
-				<Tooltip text="More prompt actions" position="top">
-					<button
-						type="button"
-						class="header-icon-btn"
-						class:active={mainMoreOpen}
-						bind:this={mainMoreTrigger}
-						aria-haspopup="menu"
-						aria-expanded={mainMoreOpen}
-						aria-label="More prompt actions"
-						on:click={toggleMainMore}
-					>
-						<Icon name="more" className="h-4 w-4" />
-					</button>
-				</Tooltip>
-				{#if mainMoreOpen}
-					<div class="header-menu" role="menu" aria-label="More prompt actions">
-						{#if showLibraryActions}
-							<button type="button" role="menuitem" on:click={() => runMainMore(() => openPromptApply('main'))}>
-								<Icon name="book-open" className="h-4 w-4 flex-shrink-0" />
-								<span>Apply Prompt</span>
-							</button>
-							<button type="button" role="menuitem" on:click={() => runMainMore(() => openSavePrompt('main'))}>
-								<Icon name="save" className="h-4 w-4 flex-shrink-0" />
-								<span>Save as Prompt</span>
-							</button>
-						{/if}
-						{#if hasMainContent}
-							<button type="button" role="menuitem" on:click={() => runMainMore(() => handleCopyPrompt('main'))}>
-								<Icon name={copiedTarget === 'main' ? 'check' : 'copy'} className="h-4 w-4 flex-shrink-0" />
-								<span>{copiedTarget === 'main' ? 'Copied' : 'Copy prompt'}</span>
-							</button>
-						{/if}
-					</div>
-				{/if}
-			</div>
-		{/if}
-	</div>
-
-	<div role="list" aria-label={mainLabel} class="segment-list">
-		{#each segments as segment, index (segment.id)}
-			<PromptSegment
-				{segment}
-				{index}
-				total={segments.length}
-				isNegative={isNegative && !paired}
-				{compact}
-				{placeholder}
-				{variables}
-				{variableRolls}
-				{onVariableDefChange}
-				{onOpenVariableManager}
-				{activeTriggerWords}
-				on:change={(e) => handleSegmentUpdate('main', segment.id, e.detail)}
-				on:metadataChange={(e) => handleMetadataUpdate('main', segment.id, e.detail)}
-				on:remove={() => removeSegment('main', segment.id)}
-				on:duplicate={() => duplicateSegment('main', segment.id)}
-				on:toggleDisabled={() => toggleSegmentDisabled('main', segment.id)}
-				on:toggleBreak={() => toggleSegmentBreak('main', segment.id)}
-				on:moveUp={() => moveSegment('main', segment.id, 'up')}
-				on:moveDown={() => moveSegment('main', segment.id, 'down')}
-				on:saveAsSegment={() => {
-					saveSegmentTarget = 'main';
-					saveSegmentId = segment.id;
-				}}
-				on:replaceFromSaved={() => openReplaceFromSaved('main', segment.id)}
-				on:drop={(e) => handleSegmentDrop('main', e.detail.draggedId, e.detail.targetId, e.detail.position)}
-			/>
-		{/each}
-	</div>
-
-	<button type="button" class="add-row" on:click={() => addSegment('main')}>
-		<Icon name="plus" className="h-3.5 w-3.5" />
-		<span>Add segment</span>
-	</button>
-
-	{#if showPreview}
-		<div class="resolved-divider" aria-hidden="true">
-			<span class="divider-rule"></span>
-			<span class="divider-label font-mono">resolved</span>
-			<span class="divider-rule"></span>
-		</div>
-
-		<div class="resolved-panel">
-			<div class="resolved-head">
-				<button
-					type="button"
-					class="resolved-toggle"
-					aria-expanded={resolvedOpen}
-					on:click={() => (resolvedOpen = !resolvedOpen)}
-				>
-					<Icon name="chevron-down" className="h-3.5 w-3.5 flex-shrink-0 transition-transform {resolvedOpen ? 'rotate-180' : ''}" />
-					<span class="resolved-title">What the model receives</span>
-				</button>
-				<span class="resolved-stats font-mono tabular-nums">
-					{resolvedStats.chars} chars · {resolvedStats.breaks} {resolvedStats.breaks === 1 ? 'break' : 'breaks'}
-				</span>
-				<div class="header-spacer"></div>
-				{#if hasMainContent}
-					<button type="button" class="resolved-copy" on:click={() => handleCopyPrompt('main')}>
-						{copiedTarget === 'main' ? 'Copied' : 'Copy'}
-					</button>
-				{/if}
-			</div>
-
-			{#if resolvedOpen}
-				<div class="resolved-body font-mono">
-					{#if resolvedTokens.length}
-						{#each resolvedTokens as token}
-							{#if token.kind === 'break'}
-								<span class="resolved-break">{token.text}</span>
-							{:else if token.kind === 'value'}
-								<span class="resolved-value">{token.text}</span>
-							{:else if token.kind === 'emphasis'}
-								<span class="resolved-emphasis">{token.text}</span>
-							{:else if token.kind === 'muted'}
-								<span class="resolved-muted">{token.text}</span>
-							{:else}{token.text}{/if}
-						{/each}
-					{:else}
-						<span class="resolved-empty">Nothing yet — the enabled segments above are empty.</span>
-					{/if}
-				</div>
-			{/if}
-		</div>
-	{/if}
-
-	{#if paired}
-		<div class="section-header negative-header">
-			<span class="section-title negative">Negative</span>
-			<span class="section-count font-mono tabular-nums">{segmentCountLabel(negativeCount)}</span>
-
-			{#if negativePromptUnavailable}
-				<span class="inline-note-warning">Not used by this preset</span>
-			{:else if negativeInert}
-				<span class="inline-warning">Not applied at current guidance</span>
-			{/if}
-
-			<div class="header-spacer"></div>
-
-			{#if showLibraryActions}
-				<Tooltip text="Insert a saved Segment" position="top">
-					<Button variant="ghost" size="xs" icon="library" class="header-btn" onclick={() => openLibraryInsert('negative')}>
-						{#if !compact}<span>Library</span>{/if}
-					</Button>
-				</Tooltip>
-				<Tooltip text="Apply a Segment Template" position="top">
-					<Button variant="ghost" size="xs" icon="layout-template" class="header-btn" onclick={() => openTemplateApply('negative')}>
-						{#if !compact}<span>Template</span>{/if}
-					</Button>
-				</Tooltip>
-			{/if}
-
-			{#if showLibraryActions || hasNegativeContent}
-				<div class="relative" bind:this={negativeMoreRoot}>
-					<Tooltip text="More negative prompt actions" position="top">
-						<button
-							type="button"
-							class="header-icon-btn"
-							class:active={negativeMoreOpen}
-							bind:this={negativeMoreTrigger}
-							aria-haspopup="menu"
-							aria-expanded={negativeMoreOpen}
-							aria-label="More negative prompt actions"
-							on:click={toggleNegativeMore}
-						>
-							<Icon name="more" className="h-4 w-4" />
-						</button>
-					</Tooltip>
-					{#if negativeMoreOpen}
-						<div class="header-menu" role="menu" aria-label="More negative prompt actions">
-							{#if showLibraryActions}
-								<button type="button" role="menuitem" on:click={() => runNegativeMore(() => openPromptApply('negative'))}>
-									<Icon name="book-open" className="h-4 w-4 flex-shrink-0" />
-									<span>Apply Prompt</span>
-								</button>
-								<button type="button" role="menuitem" on:click={() => runNegativeMore(() => openSavePrompt('negative'))}>
-									<Icon name="save" className="h-4 w-4 flex-shrink-0" />
-									<span>Save as Prompt</span>
-								</button>
-							{/if}
-							{#if hasNegativeContent}
-								<button type="button" role="menuitem" on:click={() => runNegativeMore(() => handleCopyPrompt('negative'))}>
-									<Icon name={copiedTarget === 'negative' ? 'check' : 'copy'} className="h-4 w-4 flex-shrink-0" />
-									<span>{copiedTarget === 'negative' ? 'Copied' : 'Copy prompt'}</span>
-								</button>
-							{/if}
-						</div>
-					{/if}
-				</div>
-			{/if}
-		</div>
-
-		<div role="list" aria-label="Negative segments" class="segment-list negative-list">
-			{#each negativeSegments || [] as segment, index (segment.id)}
+	{#snippet mainRail()}
+		<div role="list" aria-label={mainLabel} class="segment-list">
+			{#each segments as segment, index (segment.id)}
 				<PromptSegment
 					{segment}
 					{index}
-					total={(negativeSegments || []).length}
-					isNegative={true}
+					total={segments.length}
+					isNegative={isNegative && !paired}
 					{compact}
-					placeholder="What should never appear… (# for phrasebook)"
+					{placeholder}
 					{variables}
 					{variableRolls}
 					{onVariableDefChange}
 					{onOpenVariableManager}
 					{activeTriggerWords}
-					on:change={(e) => handleSegmentUpdate('negative', segment.id, e.detail)}
-					on:metadataChange={(e) => handleMetadataUpdate('negative', segment.id, e.detail)}
-					on:remove={() => removeSegment('negative', segment.id)}
-					on:duplicate={() => duplicateSegment('negative', segment.id)}
-					on:toggleDisabled={() => toggleSegmentDisabled('negative', segment.id)}
-					on:toggleBreak={() => toggleSegmentBreak('negative', segment.id)}
-					on:moveUp={() => moveSegment('negative', segment.id, 'up')}
-					on:moveDown={() => moveSegment('negative', segment.id, 'down')}
+					on:change={(e) => handleSegmentUpdate('main', segment.id, e.detail)}
+					on:metadataChange={(e) => handleMetadataUpdate('main', segment.id, e.detail)}
+					on:remove={() => removeSegment('main', segment.id)}
+					on:duplicate={() => duplicateSegment('main', segment.id)}
+					on:toggleDisabled={() => toggleSegmentDisabled('main', segment.id)}
+					on:toggleBreak={() => toggleSegmentBreak('main', segment.id)}
+					on:moveUp={() => moveSegment('main', segment.id, 'up')}
+					on:moveDown={() => moveSegment('main', segment.id, 'down')}
 					on:saveAsSegment={() => {
-						saveSegmentTarget = 'negative';
+						saveSegmentTarget = 'main';
 						saveSegmentId = segment.id;
 					}}
-					on:replaceFromSaved={() => openReplaceFromSaved('negative', segment.id)}
-					on:drop={(e) => handleSegmentDrop('negative', e.detail.draggedId, e.detail.targetId, e.detail.position)}
+					on:replaceFromSaved={() => openReplaceFromSaved('main', segment.id)}
+					on:drop={(e) => handleSegmentDrop('main', e.detail.draggedId, e.detail.targetId, e.detail.position)}
 				/>
 			{/each}
 		</div>
 
-		<button type="button" class="add-row" on:click={() => addSegment('negative')}>
-			<Icon name="plus" className="h-3.5 w-3.5" />
+		<button type="button" class="add-segment add-row" on:click={() => addSegment('main')}>
+			<svg class="icon"><use href="#i-plus" /></svg>
 			<span>Add segment</span>
 		</button>
+	{/snippet}
+
+	{#if embedded}
+		{@render mainRail()}
+	{:else}
+		<section class="composer edge-inline" class:compact>
+			<header class="composer-toolbar section-header">
+				<strong class="composer-title section-title">{headerWord}</strong>
+				<span class="composer-count section-count font-mono tabular-nums">{segmentCountLabel(segments.length)}</span>
+
+				{#if !paired && isNegative && negativePromptUnavailable}
+					<span class="inline-note-warning">Not used by this preset</span>
+				{/if}
+
+				<div class="toolbar-spacer"></div>
+
+				{#if showLibraryActions}
+					<Tooltip text="Insert a saved Segment" position="top">
+						<button type="button" class="toolbar-button" on:click={() => openLibraryInsert('main')}>
+							<svg class="icon"><use href="#i-library" /></svg>
+							{#if !compact}<span>Library</span>{/if}
+						</button>
+					</Tooltip>
+					<Tooltip text="Apply a Segment Template" position="top">
+						<button type="button" class="toolbar-button" on:click={() => openTemplateApply('main')}>
+							<svg class="icon"><use href="#i-template" /></svg>
+							{#if !compact}<span>Template</span>{/if}
+						</button>
+					</Tooltip>
+				{/if}
+
+				{#if onOpenVariableManager}
+					<Tooltip text="Manage prompt variables" position="top">
+						<button type="button" class="toolbar-button" on:click={onOpenVariableManager}>
+							<svg class="icon"><use href="#i-braces" /></svg>
+							{#if !compact}<span>Variables</span>{/if}
+							{#if variableCount > 0}
+								<span class="badge font-mono tabular-nums">{variableCount}</span>
+							{/if}
+						</button>
+					</Tooltip>
+				{/if}
+
+				{#if showLibraryActions || hasMainContent}
+					<div class="relative" bind:this={mainMoreRoot}>
+						<button
+							type="button"
+							class="toolbar-button more-button"
+							class:active={mainMoreOpen}
+							bind:this={mainMoreTrigger}
+							aria-haspopup="menu"
+							aria-expanded={mainMoreOpen}
+							aria-label="More prompt actions"
+							on:click={toggleMainMore}
+						>
+							<svg class="icon"><use href="#i-more" /></svg>
+						</button>
+						{#if mainMoreOpen}
+							<div class="floating segment-menu header-menu" role="menu" aria-label="More prompt actions">
+								<div class="menu-group">
+									{#if showLibraryActions}
+										<button type="button" role="menuitem" class="menu-item" on:click={() => runMainMore(() => openPromptApply('main'))}>
+											<svg class="icon"><use href="#i-file" /></svg>
+											<span>Apply Prompt</span>
+										</button>
+										<button type="button" role="menuitem" class="menu-item" on:click={() => runMainMore(() => openSavePrompt('main'))}>
+											<svg class="icon"><use href="#i-save" /></svg>
+											<span>Save as Prompt</span>
+										</button>
+									{/if}
+									{#if hasMainContent}
+										<button type="button" role="menuitem" class="menu-item" on:click={() => runMainMore(() => handleCopyPrompt('main'))}>
+											<svg class="icon"><use href={copiedTarget === 'main' ? '#i-check' : '#i-copy'} /></svg>
+											<span>{copiedTarget === 'main' ? 'Copied' : 'Copy prompt'}</span>
+										</button>
+									{/if}
+								</div>
+							</div>
+						{/if}
+					</div>
+				{/if}
+			</header>
+
+			{@render mainRail()}
+
+			{#if showPreview}
+				<section class="resolved" class:open={resolvedOpen}>
+					<div class="resolved-head">
+						<button
+							type="button"
+							class="resolved-toggle"
+							aria-expanded={resolvedOpen}
+							on:click={() => (resolvedOpen = !resolvedOpen)}
+						>
+							<svg class="icon"><use href="#i-chevron-down" /></svg>
+							<span class="resolved-title">What the model receives</span>
+						</button>
+						<span class="resolved-stats font-mono tabular-nums">
+							{resolvedStats.chars} chars · {resolvedStats.breaks} {resolvedStats.breaks === 1 ? 'break' : 'breaks'}
+						</span>
+						{#if hasMainContent}
+							<button type="button" class="resolved-copy small-button" on:click={() => handleCopyPrompt('main')}>
+								{copiedTarget === 'main' ? 'Copied' : 'Copy'}
+							</button>
+						{/if}
+					</div>
+
+					{#if resolvedOpen}
+						<div class="resolved-body font-mono">
+							{#if resolvedTokens.length}
+								{#each resolvedTokens as token}
+									{#if token.kind === 'break'}
+										<span class="resolved-break">{token.text}</span>
+									{:else if token.kind === 'value'}
+										<mark class="resolved-value">{token.text}</mark>
+									{:else if token.kind === 'emphasis'}
+										<span class="resolved-emphasis">{token.text}</span>
+									{:else if token.kind === 'muted'}
+										<span class="resolved-muted">{token.text}</span>
+									{:else}{token.text}{/if}
+								{/each}
+							{:else}
+								<span class="resolved-empty">Nothing yet — the enabled segments above are empty.</span>
+							{/if}
+						</div>
+					{/if}
+				</section>
+			{/if}
+		</section>
+	{/if}
+
+	{#if paired}
+		{#snippet negativeRail()}
+			<div role="list" aria-label="Negative segments" class="segment-list negative-list">
+				{#each negativeSegments || [] as segment, index (segment.id)}
+					<PromptSegment
+						{segment}
+						{index}
+						total={(negativeSegments || []).length}
+						isNegative={true}
+						{compact}
+						placeholder="What should never appear… (# for phrasebook)"
+						{variables}
+						{variableRolls}
+						{onVariableDefChange}
+						{onOpenVariableManager}
+						{activeTriggerWords}
+						on:change={(e) => handleSegmentUpdate('negative', segment.id, e.detail)}
+						on:metadataChange={(e) => handleMetadataUpdate('negative', segment.id, e.detail)}
+						on:remove={() => removeSegment('negative', segment.id)}
+						on:duplicate={() => duplicateSegment('negative', segment.id)}
+						on:toggleDisabled={() => toggleSegmentDisabled('negative', segment.id)}
+						on:toggleBreak={() => toggleSegmentBreak('negative', segment.id)}
+						on:moveUp={() => moveSegment('negative', segment.id, 'up')}
+						on:moveDown={() => moveSegment('negative', segment.id, 'down')}
+						on:saveAsSegment={() => {
+							saveSegmentTarget = 'negative';
+							saveSegmentId = segment.id;
+						}}
+						on:replaceFromSaved={() => openReplaceFromSaved('negative', segment.id)}
+						on:drop={(e) => handleSegmentDrop('negative', e.detail.draggedId, e.detail.targetId, e.detail.position)}
+					/>
+				{/each}
+			</div>
+
+			<button type="button" class="add-segment add-row" on:click={() => addSegment('negative')}>
+				<svg class="icon"><use href="#i-plus" /></svg>
+				<span>Add segment</span>
+			</button>
+		{/snippet}
+
+		{#if embedded}
+			{@render negativeRail()}
+		{:else}
+			<section class="composer edge-inline negative-composer" class:compact>
+				<header class="composer-toolbar section-header negative-header">
+					<strong class="composer-title negative section-title negative">Negative</strong>
+					<span class="composer-count section-count font-mono tabular-nums">{segmentCountLabel(negativeCount)}</span>
+
+					{#if negativePromptUnavailable}
+						<span class="inline-note-warning">Not used by this preset</span>
+					{:else if negativeInert}
+						<span class="inline-warning">Not applied at current guidance</span>
+					{/if}
+
+					<div class="toolbar-spacer"></div>
+
+					{#if showLibraryActions}
+						<Tooltip text="Insert a saved Segment" position="top">
+							<button type="button" class="toolbar-button" on:click={() => openLibraryInsert('negative')}>
+								<svg class="icon"><use href="#i-library" /></svg>
+								{#if !compact}<span>Library</span>{/if}
+							</button>
+						</Tooltip>
+						<Tooltip text="Apply a Segment Template" position="top">
+							<button type="button" class="toolbar-button" on:click={() => openTemplateApply('negative')}>
+								<svg class="icon"><use href="#i-template" /></svg>
+								{#if !compact}<span>Template</span>{/if}
+							</button>
+						</Tooltip>
+					{/if}
+
+					{#if showLibraryActions || hasNegativeContent}
+						<div class="relative" bind:this={negativeMoreRoot}>
+							<button
+								type="button"
+								class="toolbar-button more-button"
+								class:active={negativeMoreOpen}
+								bind:this={negativeMoreTrigger}
+								aria-haspopup="menu"
+								aria-expanded={negativeMoreOpen}
+								aria-label="More negative prompt actions"
+								on:click={toggleNegativeMore}
+							>
+								<svg class="icon"><use href="#i-more" /></svg>
+							</button>
+							{#if negativeMoreOpen}
+								<div class="floating segment-menu header-menu" role="menu" aria-label="More negative prompt actions">
+									<div class="menu-group">
+										{#if showLibraryActions}
+											<button type="button" role="menuitem" class="menu-item" on:click={() => runNegativeMore(() => openPromptApply('negative'))}>
+												<svg class="icon"><use href="#i-file" /></svg>
+												<span>Apply Prompt</span>
+											</button>
+											<button type="button" role="menuitem" class="menu-item" on:click={() => runNegativeMore(() => openSavePrompt('negative'))}>
+												<svg class="icon"><use href="#i-save" /></svg>
+												<span>Save as Prompt</span>
+											</button>
+										{/if}
+										{#if hasNegativeContent}
+											<button type="button" role="menuitem" class="menu-item" on:click={() => runNegativeMore(() => handleCopyPrompt('negative'))}>
+												<svg class="icon"><use href={copiedTarget === 'negative' ? '#i-check' : '#i-copy'} /></svg>
+												<span>{copiedTarget === 'negative' ? 'Copied' : 'Copy prompt'}</span>
+											</button>
+										{/if}
+									</div>
+								</div>
+							{/if}
+						</div>
+					{/if}
+				</header>
+
+				{@render negativeRail()}
+			</section>
+		{/if}
 	{/if}
 </div>
 
@@ -711,42 +737,21 @@
 />
 
 <style>
+	/* Chrome, toolbar, segment-list, add-row and resolved-panel visuals all
+	   come from the ported `.composer`/`.composer-toolbar`/`.toolbar-button`/
+	   `.segment-list`/`.add-segment`/`.resolved*` rules in segment-composer.css
+	   (imported globally, scoped under this root's own `.segment-composer`
+	   class). This block is only the handful of layout/state bits the mock
+	   doesn't need to say anything about. */
+
 	.prompt-editor {
-		container-type: inline-size;
 		display: flex;
 		flex-direction: column;
 		gap: 0.75rem;
 	}
 
-	.section-header {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0 0.125rem;
-	}
-
-	.negative-header {
-		margin-top: 0.625rem;
-	}
-
-	.section-title {
-		font-size: 0.8125rem;
-		font-weight: 600;
-		color: rgb(var(--fg));
-	}
-
-	.section-title.negative {
-		color: rgb(var(--danger));
-	}
-
-	.section-count {
-		font-size: 0.6875rem;
-		color: rgb(var(--fg-subtle));
-	}
-
-	.header-spacer {
-		flex: 1 1 auto;
+	.negative-composer {
+		margin-top: 0.125rem;
 	}
 
 	.inline-warning {
@@ -762,206 +767,5 @@
 		font-size: 0.625rem;
 		font-weight: 500;
 		color: rgb(var(--warning));
-	}
-
-	.prompt-editor :global(.header-btn) {
-		height: 1.75rem;
-		border: 1px solid rgb(var(--line));
-	}
-
-	.count-badge {
-		border-radius: 0.25rem;
-		background-color: rgb(var(--signal) / 0.15);
-		padding: 0.0625rem 0.3125rem;
-		font-size: 0.625rem;
-		color: rgb(var(--signal));
-	}
-
-	.header-icon-btn {
-		display: inline-flex;
-		width: 1.75rem;
-		height: 1.75rem;
-		flex-shrink: 0;
-		align-items: center;
-		justify-content: center;
-		border: 1px solid rgb(var(--line));
-		border-radius: 0.25rem;
-		color: rgb(var(--fg-muted));
-		transition: color 0.15s, background-color 0.15s;
-	}
-
-	.header-icon-btn:hover,
-	.header-icon-btn.active {
-		color: rgb(var(--fg));
-		background-color: rgb(var(--surface-1));
-	}
-
-	.header-menu {
-		position: absolute;
-		top: calc(100% + 0.375rem);
-		right: 0;
-		z-index: 40;
-		width: 12rem;
-		border: 1px solid rgb(var(--line-strong));
-		border-radius: 0.625rem;
-		padding: 0.25rem;
-		background-color: rgb(var(--surface-1));
-		box-shadow: var(--shadow-floating);
-	}
-
-	.header-menu button {
-		display: flex;
-		width: 100%;
-		min-height: 2.25rem;
-		align-items: center;
-		gap: 0.5rem;
-		border-radius: 0.375rem;
-		padding: 0.5rem 0.625rem;
-		font-size: 0.8125rem;
-		color: rgb(var(--fg-muted));
-		text-align: left;
-	}
-
-	.header-menu button:hover,
-	.header-menu button:focus-visible {
-		color: rgb(var(--fg));
-		background-color: rgb(var(--surface-3));
-		outline: none;
-	}
-
-	.segment-list {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-	}
-
-	.add-row {
-		display: flex;
-		height: 2.625rem;
-		width: 100%;
-		align-items: center;
-		justify-content: center;
-		gap: 0.4375rem;
-		border: 1px dashed rgb(var(--line-strong));
-		border-radius: 0.375rem;
-		font-size: 0.75rem;
-		font-weight: 500;
-		color: rgb(var(--fg-muted));
-		transition: color 0.15s, border-color 0.15s, background-color 0.15s;
-	}
-
-	.add-row:hover {
-		border-color: rgb(var(--line-hover));
-		background-color: rgb(var(--surface-1));
-		color: rgb(var(--fg));
-	}
-
-	.resolved-divider {
-		display: flex;
-		align-items: center;
-		gap: 0.625rem;
-		margin-top: 0.25rem;
-	}
-
-	.divider-rule {
-		flex: 1 1 auto;
-		height: 1px;
-		background-color: rgb(var(--line));
-	}
-
-	.divider-label {
-		font-size: 0.625rem;
-		text-transform: uppercase;
-		letter-spacing: 0.09em;
-		color: rgb(var(--fg-subtle));
-	}
-
-	/* Deliberately the page tint rather than a panel fill: the resolved string is
-	   output, not another editable surface, and it has to read as recessed
-	   against the cards in both themes. */
-	.resolved-panel {
-		border: 1px solid rgb(var(--line-strong));
-		border-radius: 0.375rem;
-		background-color: rgb(var(--canvas));
-		padding: 0.875rem 1rem 1rem;
-		box-shadow: var(--shadow-raised);
-	}
-
-	.resolved-head {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: 0.5625rem;
-		margin-bottom: 0.625rem;
-	}
-
-	.resolved-toggle {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.5625rem;
-		color: rgb(var(--fg));
-	}
-
-	.resolved-title {
-		font-size: 0.8125rem;
-		font-weight: 600;
-	}
-
-	.resolved-stats {
-		font-size: 0.625rem;
-		color: rgb(var(--fg-subtle));
-	}
-
-	.resolved-copy {
-		display: inline-flex;
-		height: 1.625rem;
-		flex-shrink: 0;
-		align-items: center;
-		border: 1px solid rgb(var(--line-strong));
-		border-radius: 0.25rem;
-		padding: 0 0.5625rem;
-		font-size: 0.6875rem;
-		color: rgb(var(--fg-muted));
-		transition: color 0.15s, background-color 0.15s;
-	}
-
-	.resolved-copy:hover {
-		color: rgb(var(--fg));
-		background-color: rgb(var(--surface-2));
-	}
-
-	.resolved-body {
-		font-size: 0.875rem;
-		line-height: 1.7;
-		color: rgb(var(--fg-muted));
-		text-wrap: pretty;
-		overflow-wrap: anywhere;
-	}
-
-	.resolved-value {
-		color: rgb(var(--fg));
-	}
-
-	.resolved-emphasis {
-		color: rgb(var(--signal));
-	}
-
-	.resolved-muted {
-		color: rgb(var(--fg-subtle));
-		text-decoration: line-through;
-	}
-
-	.resolved-break {
-		border-radius: 0.25rem;
-		background-color: rgb(var(--surface-3));
-		padding: 0.0625rem 0.3125rem;
-		font-size: 0.6875rem;
-		letter-spacing: 0.08em;
-		color: rgb(var(--fg-muted));
-	}
-
-	.resolved-empty {
-		font-style: italic;
-		color: rgb(var(--fg-subtle));
 	}
 </style>

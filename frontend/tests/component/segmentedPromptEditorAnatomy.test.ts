@@ -81,6 +81,56 @@ describe('the negative region', () => {
 	});
 });
 
+describe('adding segments', () => {
+	// e2e (fe74) reported "Add segment" clicked twice still leaving 1 listitem
+	// in the list. Reproduced here to rule the component in or out: two clicks
+	// append two rows, both inside the same role="list" container the mock's
+	// anatomy renders (not a sibling of it) — confirms the real failure was
+	// downstream (a focus-restoration race after the Details modal closes,
+	// stealing a keystroke into a global shortcut — see fe70/fe74's own
+	// `setSegmentMeta` fix), not this component's add/commit path.
+	it('appends a row per click, every row inside the same list container', async () => {
+		const editor = mount();
+		const addBtn = () => editor.buttons().find((b) => (b.textContent || '').includes('Add segment'));
+		// Each click's own reactive update needs to settle before the DOM (and
+		// the button reference it re-renders) reflects it — a real click, with
+		// its own dispatch + paint cycle, always clears that; two `.click()`
+		// calls back-to-back in the same tick do not, which is a test-harness
+		// gap, not the double-click bug e2e chased (that traced to a focus race
+		// after the Details modal, not to this add/commit path — see the
+		// describe block's own comment).
+		addBtn()?.click();
+		await Promise.resolve();
+		addBtn()?.click();
+		await Promise.resolve();
+
+		const list = editor.target.querySelector('div[role="list"][aria-label="Positive segments"]');
+		expect(list).not.toBeNull();
+		expect(list?.querySelectorAll('[role="listitem"]')).toHaveLength(3);
+		expect(editor.target.querySelectorAll('[role="listitem"]')).toHaveLength(3);
+	});
+});
+
+describe('embedded (Video Director\'s stage beat)', () => {
+	// StageBeat.svelte already gives this editor its own card (`.editor` in
+	// its own stylesheet) — without `embedded`, the mock's `.composer` shell
+	// nests a second, redundant container around the same segments.
+	it('drops the composer card and toolbar, keeping the list and add row', () => {
+		const editor = mount({ embedded: true, label: 'Prompt' });
+
+		expect(editor.target.querySelector('.composer')).toBeNull();
+		expect(editor.target.querySelector('.composer-toolbar')).toBeNull();
+		expect(editor.target.querySelector('div[role="list"][aria-label="Prompt"]')).toBeTruthy();
+		expect(editor.buttons().some((b) => (b.textContent || '').includes('Add segment'))).toBe(true);
+	});
+
+	it('renders the ordinary composer card when not embedded', () => {
+		const editor = mount({ embedded: false, label: 'Prompt' });
+		expect(editor.target.querySelector('.composer')).toBeTruthy();
+		expect(editor.target.querySelector('.composer-toolbar')).toBeTruthy();
+	});
+});
+
 describe('the resolved panel', () => {
 	it('is rendered when the call site asks for a preview', () => {
 		const editor = mount({ showPreview: true });

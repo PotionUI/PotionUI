@@ -56,11 +56,19 @@
 	export let contextLabel: string = 'Suggestions';
 	export const onClose: (() => void) | undefined = undefined;
 	export let onNavigateUp: (() => void) | undefined = undefined;
+	// segment-composer only: jump straight to an arbitrary ancestor path (a
+	// breadcrumb crumb), vs. `onNavigateUp`'s single "one level up" step.
+	export let onNavigateToPath: ((path: string) => void) | undefined = undefined;
 	export let parentRef: HTMLElement | undefined = undefined;
 	export let getImageUrl: ((fileId: string) => string) | undefined = undefined;
+	// The segment composer's own picker anatomy (`.picker` head/breadcrumb/
+	// rows/footer) — see prompt-segments-concept.html `.phrasebook-picker` /
+	// `.variable-picker`. Chat's ChatChipInput keeps `variant="default"`
+	// (today's Tailwind card) untouched.
+	export let variant: 'default' | 'segment-composer' = 'default';
 
 	let dropdownRef: HTMLDivElement;
-	let selectedItemRef: HTMLDivElement | null = null;
+	let selectedItemRef: HTMLElement | null = null;
 	let dropdownPosition = { top: 0, bottom: 0, left: 0, width: 0, openAbove: false };
 
 	// `position: fixed` on the dropdown is viewport-relative only when no
@@ -102,7 +110,7 @@
 	})() : false;
 
 	// Action to handle selected item ref and scrolling
-	function trackSelectedItem(node: HTMLDivElement, isSelected: boolean) {
+	function trackSelectedItem(node: HTMLElement, isSelected: boolean) {
 		if (isSelected) {
 			selectedItemRef = node;
 			scrollSelectedIntoView();
@@ -144,11 +152,141 @@
 	});
 </script>
 
-<div
-	use:portal
-	class="fixed z-[99999] px-[2px]"
-	style="{dropdownPosition.openAbove
-		? `bottom: ${dropdownPosition.bottom}px;`
+{#if variant === 'segment-composer'}
+	<!-- `display: contents`: a pure CSS-scope carrier for the portaled content,
+	     invisible to layout/positioning — the mock's `.picker` class carries its
+	     own static prototype `left`/`top` (a fixed demo position), so the real,
+	     caret-anchored position (identical to the default variant's own
+	     computeAutocompletePlacement) has to be inline on the SAME element as
+	     `.picker`, not on a wrapper `.picker` can out-position. All four
+	     offsets are set explicitly (not just the ones currently in use) so the
+	     mock's own `left`/`right`/`top` values can never leak through when
+	     `left`+`width`+`right`, or `top`+`bottom` with no explicit height, would
+	     otherwise both be "specified" at once. -->
+	<div use:portal class="segment-composer" style="display: contents;">
+		<section
+			class="floating picker {triggerChar === '$' ? 'variable-picker' : 'phrasebook-picker'}"
+			aria-label={contextLabel}
+			style="position: fixed; z-index: 99999; left: {dropdownPosition.left}px; right: auto; width: {dropdownPosition.width}px;
+				{dropdownPosition.openAbove
+				? `bottom: ${dropdownPosition.bottom}px; top: auto;`
+				: `top: ${dropdownPosition.top}px; bottom: auto;`}"
+		>
+			<header class="picker-head">
+				<span class="picker-symbol">{triggerChar}</span>
+				<div class="picker-search">
+					<label for="acdd-path-{triggerChar}">{contextLabel}</label>
+					<input id="acdd-path-{triggerChar}" readonly tabindex="-1" value="{triggerChar}{currentPath}" aria-label="{contextLabel} path" />
+				</div>
+				<span class="esc">ESC</span>
+			</header>
+
+			{#if triggerChar === '$'}
+				<div class="picker-breadcrumb"><span>Shared by every segment in this prompt</span></div>
+			{:else}
+				{@const pathParts = currentPath.split('.').filter(Boolean)}
+				<div class="picker-breadcrumb">
+					{#if onNavigateToPath}
+						<button type="button" class="crumb" on:click={() => onNavigateToPath?.('')}>Phrasebook</button>
+					{:else}
+						<span>Phrasebook</span>
+					{/if}
+					{#each pathParts as part, i (i)}
+						<span>/</span>
+						{#if onNavigateToPath && i < pathParts.length - 1}
+							<button
+								type="button"
+								class="crumb"
+								on:click={() => onNavigateToPath?.(pathParts.slice(0, i + 1).join('.') + '.')}
+							>
+								<strong>{part}</strong>
+							</button>
+						{:else}
+							<strong>{part}</strong>
+						{/if}
+					{/each}
+				</div>
+			{/if}
+
+			{#if isLoading}
+				<div class="px-3 py-2 text-sm text-fg-subtle">Loading suggestions...</div>
+			{:else if categories.length > 0 || suggestions.length > 0}
+				<div bind:this={dropdownRef} class="max-h-[300px] overflow-y-auto" role="listbox">
+					{#if categories.length > 0}
+						<div class="picker-section-title">Categories <span>Browse deeper</span></div>
+						{#each categories as category, index}
+							{@const isSelected = index === selectedIndex}
+							{@const displayName = category.path.split('.').pop() || category.name}
+							<button
+								type="button"
+								use:trackSelectedItem={isSelected}
+								class="picker-row category-row"
+								class:selected={isSelected}
+								on:click={() => onSelectCategory(category)}
+								role="option"
+								aria-selected={isSelected}
+							>
+								<span class="row-thumb"><svg class="icon"><use href="#i-folder" /></svg></span>
+								<span class="row-copy"><strong>{displayName}</strong>{#if category.description}<span>{category.description}</span>{/if}</span>
+								<span class="row-meta">{isSelected ? 'Enter' : 'Open →'}</span>
+							</button>
+						{/each}
+					{/if}
+
+					{#if suggestions.length > 0}
+						<div class="picker-section-title">Values <span>{suggestions.length} {suggestions.length === 1 ? 'match' : 'matches'}</span></div>
+						{#each suggestions as suggestion, index}
+							{@const actualIndex = categories.length + index}
+							{@const isSelected = actualIndex === selectedIndex}
+							<button
+								type="button"
+								use:trackSelectedItem={isSelected}
+								class="picker-row phrase-value"
+								class:selected={isSelected}
+								data-value={suggestion.value}
+								on:click={() => onSelectValue(suggestion)}
+								role="option"
+								aria-selected={isSelected}
+							>
+								<span class="row-thumb">
+									{#if suggestion.preview_file_id && getImageUrl}
+										<img src={getImageUrl(suggestion.preview_file_id)} alt={suggestion.label} />
+									{:else}
+										<svg class="icon"><use href="#i-braces" /></svg>
+									{/if}
+								</span>
+								<span class="row-copy">
+									<strong>{suggestion.label}</strong>
+									{#if suggestion.label !== suggestion.value}<span>{suggestion.value}</span>{/if}
+								</span>
+								<span class="row-meta">{isSelected ? 'Enter' : 'Value'}</span>
+							</button>
+						{/each}
+					{/if}
+				</div>
+			{:else}
+				<div class="px-3 py-2 text-sm text-fg-subtle">
+					{#if currentPath}
+						No suggestions for <span class="font-mono">{triggerChar}{currentPath}</span>
+					{:else}
+						{emptyHint}
+					{/if}
+				</div>
+			{/if}
+
+			<footer class="picker-footer">
+				<span><span class="kbd">↑↓</span> Navigate</span>
+				<span><span class="kbd">↵</span> {triggerChar === '$' ? 'Insert ${name}' : 'Insert'}</span>
+				<span><span class="kbd">Esc</span> Close</span>
+			</footer>
+		</section>
+	</div>
+{:else}
+	<div
+		use:portal
+		class="fixed z-[99999] px-[2px]"
+		style="{dropdownPosition.openAbove
+			? `bottom: ${dropdownPosition.bottom}px;`
 		: `top: ${dropdownPosition.top}px;`} left: {dropdownPosition.left}px; width: {dropdownPosition.width}px;"
 >
 	<div class="bg-surface-2 shadow-overlay border border-line-strong rounded-xl overflow-hidden">
@@ -313,3 +451,4 @@
 		{/if}
 	</div>
 </div>
+{/if}

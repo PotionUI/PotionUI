@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import BaseModal from './modals/BaseModal.svelte';
-	import ConfirmFooter from './modals/ConfirmFooter.svelte';
 	import { createConfirmSettlementGate, getConfirmKeyboardAction } from './modals/confirmKeyboard';
+	import { Kbd } from '$lib/components/ui';
 	import type { Segment } from '$lib/types/segments';
 	import PromptSegmentMetadataEditor from './PromptSegmentMetadataEditor.svelte';
 
@@ -61,34 +61,41 @@
 <svelte:window on:keydown|capture={handleKeydown} />
 
 <BaseModal {isOpen} title="Segment details" size="lg" handleEscapeKey={false} on:close={handleCancel}>
-	<div class="p-4 sm:p-6">
-		<PromptSegmentMetadataEditor segment={draft} on:change={handleChange} />
+	<div class="segment-composer">
+		<div class="p-4 sm:p-6">
+			<PromptSegmentMetadataEditor segment={draft} on:change={handleChange} />
 
-		{#if segment.template}
-			<p class="mt-1 text-xs text-fg-subtle">
-				From template {segment.template.name}, slot {segment.template.slot}
-			</p>
-		{/if}
+			{#if segment.template}
+				<p class="mt-1 text-xs text-fg-subtle">
+					From template {segment.template.name}, slot {segment.template.slot}
+				</p>
+			{/if}
+		</div>
 	</div>
 
 	<svelte:fragment slot="footer">
-		<div class="details-footer">
-			<ConfirmFooter confirmLabel="Save" onCancel={handleCancel} onConfirm={handleConfirm} />
+		<div class="segment-composer details-footer w-full">
+			<footer class="modal-foot">
+				<button type="button" class="small-button" onclick={handleCancel}>
+					Cancel
+					<Kbd keys="Esc" />
+				</button>
+				<button type="button" class="small-button primary" onclick={handleConfirm}>
+					Save details
+					<Kbd keys="Enter" />
+				</button>
+			</footer>
 		</div>
 	</svelte:fragment>
 </BaseModal>
 
 <style>
-	/* The Save button is autofocused on open (ConfirmFooter's `initialFocus`,
-	   via focusTrap's requestAnimationFrame `.focus()`), which browsers treat
-	   as keyboard-origin focus and ring accordingly — a wide default UA
-	   outline, not a styling bug in this modal specifically. Swapped for a
-	   thin signal ring on real keyboard focus, nothing on the autofocus/mouse
-	   case, matching how the rest of this design system treats focus. */
-	.details-footer :global(button:focus) {
-		outline: none;
-	}
-
+	/* The Save button used to be autofocused via ConfirmFooter's `initialFocus`
+	   (a focusTrap requestAnimationFrame `.focus()`), which browsers treat as
+	   keyboard-origin focus and ring accordingly — now the mock's own footer
+	   buttons, so that autofocus is gone with it; Escape/Enter still reach the
+	   same confirm/cancel path via the window keydown handler above regardless
+	   of where focus sits. */
 	.details-footer :global(button:focus-visible) {
 		outline: 2px solid rgb(var(--signal));
 		outline-offset: 2px;

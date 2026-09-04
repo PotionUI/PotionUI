@@ -266,8 +266,15 @@ test.describe('InlineChipEditor browser interactions', () => {
 		await page.keyboard.press('Escape');
 		await expect(popover).toBeHidden();
 
-		// unmount(): removing the chip tears the mounted component down.
-		await editor.locator('.variable-usage-chip').locator('button[title="Remove this usage"]').click();
+		// unmount(): removing the chip tears the mounted component down. The
+		// segment-composer port moved Remove into the popover's own footer
+		// (`.popover-actions`, per prompt-segments-concept.html) rather than a
+		// standing button on the chip — reopen the popover (Escape above closed
+		// it) before reaching for it. The popover is portaled onto <body>, so
+		// look inside it rather than inside `.variable-usage-chip`.
+		await chipButton.click();
+		await expect(popover).toBeVisible();
+		await popover.locator('button[title="Remove this usage"]').click();
 		await expect(editor.locator('.variable-usage-container')).toHaveCount(0);
 		await page.waitForTimeout(BEAT);
 		await screenshot(page, JOURNEY, 'variable-chip-unmounted');

@@ -46,16 +46,26 @@ export function segmentCharCount(segment: Pick<Segment, 'content' | 'chips'>): n
 	return (Object.keys(chips).length ? richTextToPlainText(content, chips) : content).length;
 }
 
+// Order and glyphs match the mock's header cluster: details, save, duplicate,
+// then toggle — details/save are also the two actions the `optional` class
+// hides first at a narrow container width (see PromptSegment.svelte / the
+// ported `@container (max-width: 43rem)` rule).
 export function segmentFooterActions(segment: Segment): SegmentFooterAction[] {
 	const disabled = !isSegmentEnabled(segment);
 	return [
+		{ id: 'editDetails', label: 'Details', icon: 'pencil' },
+		{ id: 'saveAsSegment', label: 'Save', icon: 'save' },
+		{ id: 'duplicate', label: 'Duplicate', icon: 'copy' },
 		{
 			id: 'toggleDisabled',
 			label: disabled ? 'Enable' : 'Disable',
-			icon: disabled ? 'eyes' : 'eye-off'
-		},
-		{ id: 'duplicate', label: 'Duplicate', icon: 'copy' },
-		{ id: 'editDetails', label: 'Details', icon: 'info' },
-		{ id: 'saveAsSegment', label: 'Save', icon: 'save' }
+			icon: disabled ? 'eye' : 'eye-off'
+		}
 	];
+}
+
+/** The two footer actions the mock's `.optional` class folds away first at a
+ *  narrow container width — everything else in the cluster stays put. */
+export function isOptionalFooterAction(id: SegmentFooterActionId): boolean {
+	return id === 'editDetails' || id === 'saveAsSegment';
 }

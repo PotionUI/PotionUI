@@ -43,9 +43,30 @@ async function setSegmentMeta(page: Page, listAriaLabel: string, index: number, 
 	const item = page.locator(`div[role="list"][aria-label="${listAriaLabel}"] [role="listitem"]`).nth(index);
 	await item.hover();
 	await item.getByRole('button', { name: 'Details' }).click();
-	await item.getByPlaceholder('Optional segment name').fill(name);
-	await item.getByRole('button', { name: colorName, exact: true }).click();
-	await item.getByRole('button', { name: 'Details' }).click();
+	// The segment-composer port renders Details as a real modal
+	// (PromptSegmentDetailsModal, portaled onto <body>), not an inline reveal
+	// under the card — its fields live in the dialog, not inside the list item,
+	// and "Save details" both commits and closes it (Cancel would discard it).
+	const dialog = page.getByRole('dialog', { name: 'Segment details' });
+	await dialog.getByPlaceholder('Optional segment name').fill(name);
+	await dialog.getByRole('button', { name: colorName, exact: true }).click();
+	await dialog.getByRole('button', { name: 'Save details' }).click();
+	// BaseModal's own exit transition (~150ms) keeps the dialog node — and its
+	// focusTrap action — mounted a beat after `isOpen` flips false; that
+	// action's `destroy()` restores focus to whatever was focused before the
+	// modal opened. Racing that against the very next action (this spec
+	// immediately clicks into the segment's editor and types a sentence
+	// starting with "A" — the global "open_quick_actions" shortcut) lets the
+	// restored focus swallow that keystroke instead of the editor, opening
+	// Quick Actions mid-test. Waiting for the dialog to actually disappear
+	// absorbs the transition before proceeding.
+	await expect(dialog).toBeHidden();
+	// Stronger than the dialog's own visibility: BaseModal's full-viewport,
+	// z-[9999] backdrop (`aria-label="Close modal"`) is what actually
+	// intercepts a later click while it's still attached, even a moment after
+	// its own opacity has faded to the point `toBeHidden` would already call
+	// it hidden. Wait for it to actually leave the DOM, not just look gone.
+	await expect(page.locator('[aria-label="Close modal"].fixed.inset-0')).toHaveCount(0);
 }
 
 test('unsaved tab keeps its prompt/segments/negative prompt across a reload', async ({ page }) => {

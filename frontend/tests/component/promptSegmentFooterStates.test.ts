@@ -198,12 +198,21 @@ describe('the card head', () => {
 		expect(card.target.querySelector('.off-chip')).toBeTruthy();
 	});
 
-	it('reports its own character count as a bare number, with a tooltip', () => {
+	it('reports its own character count as a bare number in the header, with a tooltip', () => {
 		const card = mount({ segment: segment({ content: 'harsh noon sun, hard shadows' }) });
 		const count = card.target.querySelector('.char-count');
 		expect(count?.textContent?.trim()).toBe('28');
 		expect(card.text()).not.toContain('28 chars');
-		expect(card.text()).not.toContain('28 ch');
+	});
+
+	// The mock's footer `.segment-stats` row repeats the same count as "28 ch"
+	// (alongside the dynamic-token count) — real anatomy the header's own
+	// bare-number badge doesn't replace, not a second, conflicting count.
+	it('also reports it in the footer stats row, alongside the dynamic-token count', () => {
+		const card = mount({ segment: segment({ content: 'harsh noon sun, hard shadows' }) });
+		const stats = card.target.querySelector('.segment-stats');
+		expect(stats?.textContent).toContain('28 ch');
+		expect(stats?.textContent).toContain('No dynamic tokens');
 	});
 
 	it('numbers the card from one, zero-padded', () => {

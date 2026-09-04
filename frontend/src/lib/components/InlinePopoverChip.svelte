@@ -25,7 +25,20 @@
 		open = $bindable(false),
 		onremove,
 		label,
-		popover
+		popover,
+		// The segment composer's own chip anatomy (`.chip.{kind}-chip` with a
+		// chip-main/chip-config split, and a `.{kind}-popover` with the mock's
+		// own header+close instead of a bare panel) — see
+		// prompt-segments-concept.html. Every other host of this chip (chat's
+		// ChatChipInput today) gets `variant="default"` and keeps today's
+		// trigger+remove-button island untouched.
+		variant = 'default',
+		kind = 'choice',
+		composerLabel,
+		headerMark = '',
+		headerTitle = '',
+		headerSubtitle = '',
+		footer
 	}: {
 		tone?: ChipTone;
 		density?: ChipDensity;
@@ -42,6 +55,20 @@
 		onremove?: () => void;
 		label: Snippet;
 		popover: Snippet;
+		variant?: 'default' | 'segment-composer';
+		/** Which of the mock's two popover chips this is — picks `.choice-chip`/
+		 *  `.variable-chip` and `.choice-popover`/`.variable-popover`. */
+		kind?: 'choice' | 'variable';
+		/** segment-composer only: the mock's plainer chip-main content (no
+		 *  colour dot, no chevron) — `label` above stays the default variant's
+		 *  own look, since the two anatomies aren't interchangeable. */
+		composerLabel?: Snippet;
+		headerMark?: string;
+		headerTitle?: string;
+		headerSubtitle?: string;
+		/** segment-composer only: `.popover-actions` content — the mock puts
+		 *  "Remove" here instead of a standing button on the chip itself. */
+		footer?: Snippet;
 	} = $props();
 
 	let chipRef = $state<HTMLSpanElement>();
@@ -110,9 +137,17 @@
 		});
 	}
 
+	// The segment-composer variant's `.popover` class (ported from the mock)
+	// carries its own static prototype `right`/`top` — every offset below is
+	// set explicitly, including the unused pair as `auto`, so those can never
+	// leak through a `left`+`width`+`right`(all-specified) or a `top`+`bottom`
+	// (with no explicit height) resolution. `position: fixed` likewise
+	// overrides `.floating`'s own `position: absolute`.
 	let popoverStyle = $derived(
-		`left: ${popoverPos.left}px; ${
-			popoverPos.top !== undefined ? `top: ${popoverPos.top}px;` : `bottom: ${popoverPos.bottom}px;`
+		`position: fixed; left: ${popoverPos.left}px; right: auto; ${
+			popoverPos.top !== undefined
+				? `top: ${popoverPos.top}px; bottom: auto;`
+				: `bottom: ${popoverPos.bottom}px; top: auto;`
 		}`
 	);
 
@@ -136,49 +171,110 @@
 
 <svelte:window onpointerdown={handleWindowPointerDown} onkeydown={handleWindowKeydown} />
 
-<span
-	bind:this={chipRef}
-	class="inline-popover-chip relative inline-flex items-center rounded border text-fg
-		transition-colors duration-100 mx-1 {toneClasses[tone]}
-		{disabled ? 'opacity-50 cursor-not-allowed' : ''} {className}"
-	contenteditable="false"
-	style="user-select: none; vertical-align: middle;"
->
-	<button
-		type="button"
-		onmousedown={toggle}
-		{disabled}
-		class="inline-flex items-center {triggerGapClasses[density]} px-2 py-1 {disabled
-			? ''
-			: 'cursor-pointer'} transition-colors duration-100"
+{#if variant === 'segment-composer'}
+	<span
+		bind:this={chipRef}
+		class="chip {kind}-chip {className}"
+		class:active={open}
+		class:opacity-50={disabled}
+		contenteditable="false"
+		data-chip={kind}
+		style="user-select: none; vertical-align: middle;"
 	>
-		{@render label()}
-	</button>
-
-	{#if !disabled}
 		<button
 			type="button"
-			onmousedown={handleRemove}
-			class="p-1.5 {removePaddingClasses[density]} text-fg-muted hover:text-fg transition-colors duration-100"
-			title={removeTitle}
-		>
-			<Icon name="close" className="w-3.5 h-3.5" />
-		</button>
-	{/if}
-
-	{#if open}
-		<div
-			bind:this={popoverRef}
-			use:portal
-			class="fixed z-[99999] w-72 rounded-lg border border-line-strong bg-surface-1 p-2.5 shadow-floating"
-			style={popoverStyle}
-			role="dialog"
+			onmousedown={toggle}
+			disabled={disabled || !canOpen}
+			class="chip-main"
 			aria-label={popoverLabel}
 		>
-			{@render popover()}
-		</div>
-	{/if}
-</span>
+			{@render (composerLabel ?? label)()}
+		</button>
+		{#if !disabled}
+			<button type="button" onmousedown={toggle} class="chip-config" title={popoverLabel} aria-label={popoverLabel}>
+				<svg class="icon"><use href="#i-sliders" /></svg>
+			</button>
+		{/if}
+
+		{#if open}
+			<!-- `display: contents`: a pure CSS-scope carrier, not a positioned box —
+			     the real position lives inline on the popover div itself (see
+			     popoverStyle above), never on this wrapper. -->
+			<div class="segment-composer" use:portal style="display: contents;">
+				<div
+					bind:this={popoverRef}
+					class="floating popover {kind}-popover"
+					style={popoverStyle}
+					role="dialog"
+					aria-label={popoverLabel}
+				>
+					<header class="popover-head">
+						<span class="popover-mark">{headerMark}</span>
+						<div class="popover-title">
+							<strong>{headerTitle}</strong>
+							{#if headerSubtitle}<span>{headerSubtitle}</span>{/if}
+						</div>
+						<button type="button" class="close" aria-label="Close" onmousedown={toggle}>
+							<svg class="icon"><use href="#i-close" /></svg>
+						</button>
+					</header>
+					<div class="popover-body">
+						{@render popover()}
+					</div>
+					{#if footer}
+						<footer class="popover-actions">
+							{@render footer()}
+						</footer>
+					{/if}
+				</div>
+			</div>
+		{/if}
+	</span>
+{:else}
+	<span
+		bind:this={chipRef}
+		class="inline-popover-chip relative inline-flex items-center rounded border text-fg
+			transition-colors duration-100 mx-1 {toneClasses[tone]}
+			{disabled ? 'opacity-50 cursor-not-allowed' : ''} {className}"
+		contenteditable="false"
+		style="user-select: none; vertical-align: middle;"
+	>
+		<button
+			type="button"
+			onmousedown={toggle}
+			{disabled}
+			class="inline-flex items-center {triggerGapClasses[density]} px-2 py-1 {disabled
+				? ''
+				: 'cursor-pointer'} transition-colors duration-100"
+		>
+			{@render label()}
+		</button>
+
+		{#if !disabled}
+			<button
+				type="button"
+				onmousedown={handleRemove}
+				class="p-1.5 {removePaddingClasses[density]} text-fg-muted hover:text-fg transition-colors duration-100"
+				title={removeTitle}
+			>
+				<Icon name="close" className="w-3.5 h-3.5" />
+			</button>
+		{/if}
+
+		{#if open}
+			<div
+				bind:this={popoverRef}
+				use:portal
+				class="fixed z-[99999] w-72 rounded-lg border border-line-strong bg-surface-1 p-2.5 shadow-floating"
+				style={popoverStyle}
+				role="dialog"
+				aria-label={popoverLabel}
+			>
+				{@render popover()}
+			</div>
+		{/if}
+	</span>
+{/if}
 
 <style>
 	.inline-popover-chip {

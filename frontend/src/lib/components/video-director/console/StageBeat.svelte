@@ -76,17 +76,14 @@
 			</button>
 		</div>
 	{/if}
-	<div class="editor">
-		<SegmentedPromptEditor
-			segments={model.promptSegments}
-			label="Prompt"
-			showPreview={false}
-			compact
-			embedded
-			placeholder={model.isFirst && model.isLast ? 'Describe the first shot…' : "Describe this shot's action, camera and composition…"}
-			on:segmentsChange={(e) => updatePromptSegments(e.detail)}
-		/>
-	</div>
+	<SegmentedPromptEditor
+		segments={model.promptSegments}
+		label="Prompt"
+		showPreview={false}
+		compact
+		placeholder={model.isFirst && model.isLast ? 'Describe the first shot…' : "Describe this shot's action, camera and composition…"}
+		on:segmentsChange={(e) => updatePromptSegments(e.detail)}
+	/>
 </div>
 
 <style>
@@ -156,12 +153,5 @@
 		stroke: currentColor;
 		fill: none;
 		flex: none;
-	}
-	.editor {
-		border-radius: 8px;
-		border: 1px solid rgb(var(--line-strong));
-		background: rgb(var(--canvas));
-		box-shadow: var(--shadow-well);
-		padding: 12px;
 	}
 </style>

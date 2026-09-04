@@ -633,4 +633,263 @@ textarea.field { height: 70px; padding: 8px 9px; resize: vertical; }
    global class) still overrides to `position: fixed` with a JS-computed
    offset, since a per-segment menu has to clamp to the viewport from inside
    a scrolling card list, which the mock's static demo never needed. */
+
+/* Readability: the mock's own 6-11px prototype type scale doesn't survive a
+   real screen — maintainer, live: "everything there is so tiny I can't read
+   it (the chips, descriptions etc.) TOO SMALL." Raised to the app's own scale
+   (13px body / 12px secondary / 11px mono tags) everywhere that scale showed
+   up below it; padding/heights follow the type up so nothing clips. Mock
+   geometry (layout, borders, radii, colors) is otherwise unchanged. */
+
+/* Chips (phrase/variable/choice) */
+.chip {
+	min-height: 32px;
+	padding: 0 9px 0 6px;
+}
+.chip-mark {
+	width: 20px;
+	height: 20px;
+	font-size: 11px;
+}
+.chip-label {
+	font-size: 13px;
+}
+.chip-context {
+	font-size: 12px;
+}
+.chip-state {
+	font-size: 9px;
+	padding: 3px 5px;
+}
+.chip .icon {
+	width: 12px;
+	height: 12px;
+}
+.chip-main {
+	min-height: 30px;
+	padding: 0 9px 0 6px;
+}
+.chip-main .chip-label {
+	max-width: 220px;
+}
+.chip-config {
+	min-height: 30px;
+	width: 30px;
+}
+.chip-config .icon {
+	width: 13px;
+	height: 13px;
+}
+
+/* Picker rows (phrasebook / variable pickers) */
+.picker-row {
+	min-height: 48px;
+}
+.row-copy strong {
+	font-size: 13px;
+}
+.row-copy span {
+	font-size: 12px;
+}
+.row-meta {
+	font-size: 11px;
+}
+.picker-breadcrumb {
+	font-size: 12px;
+}
+.picker-section-title {
+	font-size: 11px;
+}
+.picker-search input {
+	font-size: 13px;
+}
+
+/* Popovers (phrase / variable / choice settings) — controls kept ≥28px tall */
+.popover-title strong {
+	font-size: 13px;
+}
+.popover-title span {
+	font-size: 12px;
+}
+.section-label {
+	font-size: 12px;
+}
+.current-value-copy span {
+	font-size: 11px;
+}
+.current-value-copy strong {
+	font-size: 13px;
+}
+.option-row span:last-child {
+	font-size: 11px;
+}
+.choice-edit-row input {
+	font-size: 13px;
+	height: 32px;
+}
+.behavior-button {
+	font-size: 12px;
+	height: 30px;
+}
+.helper {
+	font-size: 12px;
+	line-height: 1.5;
+}
+.small-button {
+	font-size: 12px;
+	height: 30px;
+	padding: 0 10px;
+}
+
+/* Value finder */
+.finder-copy strong {
+	font-size: 13px;
+}
+.finder-copy span {
+	font-size: 12px;
+}
+.finder-search {
+	font-size: 13px;
+}
+.finder-label {
+	font-size: 11px;
+}
+
+/* Segment details modal fields */
+.field {
+	font-size: 13px;
+}
+
+/* Segment card header (both below 12px in the mock) */
+.segment-name {
+	font-size: 12px;
+}
+.segment-description {
+	font-size: 12px;
+}
+
+/* `embedded` (SegmentedPromptEditor's Video Director mode) renders `.segment`
+   with no `.composer.edge-inline` ancestor at all — the generated rules above
+   that key the whole edge-inline layout (single content column, the rail
+   absolutely positioned over an 82px head indent) off that ancestor class
+   never match, so `.segment` falls back to its base two-column
+   `grid-template-columns: 42px minmax(0, 1fr)` with `.segment-head`/
+   `.segment-content`/`.segment-foot` auto-placed across both columns —
+   the content area lands squeezed into the 42px rail track (the maintainer's
+   "editor is ~20px wide, wraps letter by letter" report). This app never
+   ships the non-edge-inline layout at all, embedded or not, so these
+   repeat the same rules unscoped, making edge-inline unconditional instead
+   of composer-dependent. */
+.segment {
+	grid-template-columns: minmax(0, 1fr);
+}
+.segment-rail {
+	position: absolute;
+	z-index: 2;
+	left: 7px;
+	top: 7px;
+	width: auto;
+	height: 26px;
+	flex-direction: row;
+	gap: 1px;
+	padding: 0;
+	background: transparent;
+	border: 0;
+}
+.segment-rail::after,
+.rail-line {
+	display: none;
+}
+.segment-rail .type-dot {
+	order: -1;
+	width: 6px;
+	height: 6px;
+	margin: 0 3px;
+	box-shadow: none;
+}
+.segment-rail .grip {
+	width: 22px;
+	height: 22px;
+}
+.segment-rail .index {
+	min-width: 25px;
+	height: 21px;
+	margin: 0 3px 0 1px;
+	display: grid;
+	place-items: center;
+	color: rgb(var(--fg-muted));
+	background: rgb(var(--surface-2));
+	border: 1px solid rgb(var(--line));
+	border-radius: 4px;
+}
+.segment-head {
+	padding-left: 82px;
+}
+.break-row .index {
+	width: 25px;
+	height: 21px;
+	display: grid;
+	place-items: center;
+	color: rgb(var(--fg-muted));
+	background: rgb(var(--surface-1));
+	border: 1px solid rgb(var(--line));
+	border-radius: 4px;
+}
+
+/* Same reasoning for `.composer.compact` — embedded has no `.composer`
+   ancestor either, so the compact content sizing needs a route that doesn't
+   go through it. `.prompt-editor` (SegmentedPromptEditor's own root) carries
+   `.compact` unconditionally, embedded or not. */
+.prompt-editor.compact .segment-content {
+	min-height: 54px;
+	font-size: 12px;
+	line-height: 1.65;
+}
+.prompt-editor.compact .segment-content .inline-chip-editor {
+	font-size: 12px;
+	line-height: 1.65;
+}
+.prompt-editor.compact .segment-head {
+	min-height: 35px;
+}
+.prompt-editor.compact .segment-foot {
+	min-height: 30px;
+}
+.prompt-editor.compact .insert-button {
+	height: 21px;
+}
+
+/* Maintainer, live: clicking the phrasebook chip's settings (chip-config)
+   button painted the plain UA focus outline over it, drowning out the
+   chip's own active/sweep effect. The mock's own base rule already gives
+   every button a `:focus-visible` ring for real keyboard focus — this only
+   silences `:focus` for a POINTER click specifically (`:not(:focus-visible)`),
+   so it can never also swallow the keyboard ring it's scoped to protect. The
+   `:focus-visible` rules are repeated explicitly for the same selectors so
+   the two always travel together. */
+.chip-main:focus:not(:focus-visible),
+.chip-config:focus:not(:focus-visible),
+.close:focus:not(:focus-visible),
+.picker-row:focus:not(:focus-visible),
+.picker-footer button:focus:not(:focus-visible),
+.popover-body button:focus:not(:focus-visible),
+.popover-actions button:focus:not(:focus-visible),
+.small-button:focus:not(:focus-visible),
+.behavior-button:focus:not(:focus-visible),
+.menu-item:focus:not(:focus-visible) {
+	outline: none;
+}
+.chip-main:focus-visible,
+.chip-config:focus-visible,
+.close:focus-visible,
+.picker-row:focus-visible,
+.picker-footer button:focus-visible,
+.popover-body button:focus-visible,
+.popover-actions button:focus-visible,
+.small-button:focus-visible,
+.behavior-button:focus-visible,
+.menu-item:focus-visible {
+	outline: 2px solid color-mix(in srgb, rgb(var(--fg)) 72%, transparent);
+	outline-offset: 2px;
+}
 }

@@ -17,10 +17,15 @@
 	export let disabled: boolean = false;
 	export let onchange: ((newRaw: string) => void) | undefined = undefined;
 	export let onremove: (() => void) | undefined = undefined;
+	// See InlinePopoverChip's own doc comment — the segment composer's
+	// `.chip.choice-chip` + `.choice-popover` anatomy from
+	// prompt-segments-concept.html, additive alongside the default look.
+	export let variant: 'default' | 'segment-composer' = 'default';
 
 	let open = false;
 
 	$: indicatorColor = chipIndicatorColorAt(colorIndex);
+	$: summaryLine = spec ? spec.options.map((o) => o.text || '…').join(' · ') : raw;
 
 	$: spec = parseGroupInner(raw.slice(1, -1));
 	$: summary = spec ? spec.options.map((o) => o.text || '…').join(' | ') : raw;
@@ -64,6 +69,8 @@
 </script>
 
 <InlinePopoverChip
+	{variant}
+	kind="choice"
 	tone="signal"
 	density="default"
 	{disabled}
@@ -73,6 +80,9 @@
 	class="choice-group-chip"
 	removeTitle="Remove group"
 	popoverLabel="Edit choice group"
+	headerMark={'{ }'}
+	headerTitle="Choice group"
+	headerSubtitle={raw + ' · inline syntax'}
 >
 	{#snippet label()}
 		<span class="w-2.5 h-2.5 rounded-full {indicatorColor} flex-shrink-0"></span>
@@ -80,44 +90,85 @@
 		<Icon name="chevron-down" className="w-3 h-3 text-fg-subtle flex-shrink-0" />
 	{/snippet}
 
+	{#snippet composerLabel()}
+		<span class="chip-mark">{'{ }'}</span>
+		<span class="chip-label">{summaryLine}</span>
+	{/snippet}
+
 	{#snippet popover()}
-		<p class="mb-2 font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">Options — one is picked at random</p>
-		<div class="space-y-1.5">
-			{#each spec?.options ?? [] as option, index (index)}
-				<div class="flex items-center gap-1.5">
-					<input
-						type="text"
-						class="input w-14 flex-shrink-0 py-1 text-center font-mono text-xs tabular-nums"
-						placeholder="1"
-						value={option.weight ?? ''}
-						title="Weight (default 1)"
-						on:input={(e) => updateOptionWeight(index, e.currentTarget.value)}
-					/>
-					<input
-						type="text"
-						class="input min-w-0 flex-1 py-1 text-sm"
-						placeholder="option text"
-						value={option.text}
-						on:input={(e) => updateOptionText(index, e.currentTarget.value)}
-					/>
-					<button
-						type="button"
-						class="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded text-fg-muted transition-colors hover:bg-surface-2 hover:text-danger"
-						on:click={() => removeOption(index)}
-						aria-label={`Remove option ${index + 1}`}
-					>
-						<Icon name="trash" className="h-3.5 w-3.5" />
-					</button>
-				</div>
-			{/each}
-		</div>
-		<button
-			type="button"
-			class="mt-2 inline-flex items-center gap-1 rounded px-1.5 py-1 text-2xs font-medium text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg"
-			on:click={addOption}
-		>
-			<Icon name="plus" className="h-3.5 w-3.5" />
-			Add option
-		</button>
+		{#if variant === 'segment-composer'}
+			<p class="section-label">Options · one is picked at random</p>
+			<div class="choice-editor-list">
+				{#each spec?.options ?? [] as option, index (index)}
+					<div class="choice-edit-row">
+						<input
+							value={option.weight ?? ''}
+							aria-label="Option weight"
+							title="Weight (default 1)"
+							on:input={(e) => updateOptionWeight(index, e.currentTarget.value)}
+						/>
+						<input
+							value={option.text}
+							aria-label="Option text"
+							placeholder="option text"
+							on:input={(e) => updateOptionText(index, e.currentTarget.value)}
+						/>
+						<button type="button" data-choice-remove title="Remove option" on:click={() => removeOption(index)}>
+							<svg class="icon"><use href="#i-trash" /></svg>
+						</button>
+					</div>
+				{/each}
+			</div>
+			<button type="button" class="small-button" style="margin-top: 8px" on:click={addOption}>
+				<svg class="icon"><use href="#i-plus" /></svg>
+				Add option
+			</button>
+			<p class="helper">Weights default to 1. The editor preserves advanced count and separator syntax when it already exists.</p>
+		{:else}
+			<p class="mb-2 font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">Options — one is picked at random</p>
+			<div class="space-y-1.5">
+				{#each spec?.options ?? [] as option, index (index)}
+					<div class="flex items-center gap-1.5">
+						<input
+							type="text"
+							class="input w-14 flex-shrink-0 py-1 text-center font-mono text-xs tabular-nums"
+							placeholder="1"
+							value={option.weight ?? ''}
+							title="Weight (default 1)"
+							on:input={(e) => updateOptionWeight(index, e.currentTarget.value)}
+						/>
+						<input
+							type="text"
+							class="input min-w-0 flex-1 py-1 text-sm"
+							placeholder="option text"
+							value={option.text}
+							on:input={(e) => updateOptionText(index, e.currentTarget.value)}
+						/>
+						<button
+							type="button"
+							class="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded text-fg-muted transition-colors hover:bg-surface-2 hover:text-danger"
+							on:click={() => removeOption(index)}
+							aria-label={`Remove option ${index + 1}`}
+						>
+							<Icon name="trash" className="h-3.5 w-3.5" />
+						</button>
+					</div>
+				{/each}
+			</div>
+			<button
+				type="button"
+				class="mt-2 inline-flex items-center gap-1 rounded px-1.5 py-1 text-2xs font-medium text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg"
+				on:click={addOption}
+			>
+				<Icon name="plus" className="h-3.5 w-3.5" />
+				Add option
+			</button>
+		{/if}
+	{/snippet}
+
+	{#snippet footer()}
+		{#if variant === 'segment-composer'}
+			<button type="button" class="small-button danger" on:click={() => onremove?.()}>Remove group</button>
+		{/if}
 	{/snippet}
 </InlinePopoverChip>

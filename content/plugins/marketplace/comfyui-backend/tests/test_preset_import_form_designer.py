@@ -825,18 +825,23 @@ class TestDefaultFormAndHistory:
     def test_sdxl_default_form_has_resolution_models_steps_cfg_in_one_tab(self):
         analysis = suggest_fields(_sdxl_workflow())
         form = build_default_form(analysis)
-        history = build_default_history(form)
+        history = build_default_history(form, analysis)
 
         assert [t.id for t in form.tabs] == ["generation"]
         items = form.tabs[0].items
         assert items[0].kind == "field" and items[0].field_name == "resolution"
         assert len(items[0].mappings) == 2
         assert {m.transform for m in items[0].mappings} == {"split_wh_width", "split_wh_height"}
-        models_section = next(i for i in items if i.kind == "section")
-        assert models_section.title == "Models"
-        assert [f.field_name for f in models_section.items] == ["checkpoint"]
-        assert {i.field_name for i in items if i.kind == "field"} == {"resolution", "steps", "cfg"}
-        assert {h.field for h in history} == {"resolution", "checkpoint", "steps", "cfg"}
+        sections = {i.title: i for i in items if i.kind == "section"}
+        assert sections.keys() == {"Models", "Sampling"}
+        assert [f.field_name for f in sections["Models"].items] == ["checkpoint"]
+        assert {f.field_name for f in sections["Sampling"].items} == {
+            "steps", "cfg", "sampler_name", "scheduler", "denoise",
+        }
+        assert {i.field_name for i in items if i.kind == "field"} == {"resolution"}
+        assert {h.field for h in history} == {
+            "resolution", "checkpoint", "steps", "cfg", "sampler_name", "scheduler", "denoise",
+        }
         assert next(h for h in history if h.field == "resolution").format == "wxh"
         assert next(h for h in history if h.field == "checkpoint").format == "model_name"
 
@@ -848,6 +853,43 @@ class TestDefaultFormAndHistory:
         assert {f.field_name for f in models_section.items} == {"diffusion_model", "clip", "vae"}
         # Subgraph node ids survive into the mappings, same as field_mappings.
         assert any(m.node_id.startswith("92:") for f in models_section.items for m in f.mappings)
+
+    def test_custom_sampling_default_form_has_models_and_sampling_sections(self):
+        workflow = parse_api_workflow(_load("flux_custom_sampling_api.json"))
+        analysis = suggest_fields(workflow)
+        form = build_default_form(analysis)
+
+        items = form.tabs[0].items
+        sections = {i.title: i for i in items if i.kind == "section"}
+        assert sections.keys() == {"Models", "Sampling"}
+        assert {f.field_name for f in sections["Models"].items} == {"diffusion_model", "clip", "clip_2", "vae"}
+        assert {f.field_name for f in sections["Sampling"].items} == {
+            "steps", "sampler_name", "scheduler", "denoise", "guidance", "shift",
+        }
+        # "Models" comes before "Sampling" - loaders are enumerated before
+        # the sampling cluster in suggest_fields for exactly this reason.
+        assert [i.title for i in items if i.kind == "section"] == ["Models", "Sampling"]
+        # lora_slot never becomes a default-form field (see the module
+        # docstring); the detected chain stays individually mappable.
+        assert not any(getattr(f, "field_type", None) == "lora_picker" for i in items for f in getattr(i, "items", []))
+
+    def test_two_vae_loaders_get_distinct_field_names_in_one_analysis(self):
+        """`vae`/`vae_2` - the bug this catalog-driven dedup fixes: the old
+        per-node suffixing only distinguished multiple inputs on ONE node,
+        so two separate VAELoader nodes both wanting "vae" used to collide."""
+        workflow = parse_api_workflow(
+            {
+                "1": {"class_type": "VAELoader", "inputs": {"vae_name": "a.safetensors"}},
+                "2": {"class_type": "VAELoader", "inputs": {"vae_name": "b.safetensors"}},
+            }
+        )
+        analysis = suggest_fields(workflow)
+        vae_candidates = [c for c in analysis.candidates if c.role == "vae"]
+        assert {c.suggested_field_name for c in vae_candidates} == {"vae", "vae_2"}
+
+        form = build_default_form(analysis)
+        models_section = next(i for i in form.tabs[0].items if i.kind == "section")
+        assert {f.field_name for f in models_section.items} == {"vae", "vae_2"}
 
     def test_krea2_real_all_in_one_node_has_no_obvious_fields(self):
         """No KSampler for structural detection to key off (see

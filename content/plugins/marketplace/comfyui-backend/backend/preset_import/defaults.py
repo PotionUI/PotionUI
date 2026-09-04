@@ -11,7 +11,7 @@ regardless of what the admin's form contains.
 
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from .schema import FieldItem, FieldMapping, FormTab, ImportForm, HistoryEntry, Item, SectionItem
 from .suggest import AnalyzeResult, InputCandidate
@@ -99,27 +99,45 @@ def _simple_item(candidate: InputCandidate) -> FieldItem:
     )
 
 
-def _build_tab_items(candidates: List[InputCandidate]) -> List[Item]:
-    by_role: Dict[str, List[InputCandidate]] = {}
-    for c in candidates:
-        by_role.setdefault(c.role, []).append(c)
+def _item_for(candidate: InputCandidate) -> FieldItem:
+    if candidate.role in _MODEL_ROLES:
+        return _model_item(candidate)
+    return _simple_item(candidate)
 
+
+def _build_tab_items(candidates: List[InputCandidate]) -> List[Item]:
+    """Resolution's width/height merge into one field first, then one
+    `SectionItem` per distinct `InputCandidate.section` in first-seen order
+    (`suggest_fields` enumerates loaders before the sampling cluster
+    specifically so "Models" comes out ahead of "Sampling" here without a
+    hardcoded priority - see its own comment), then every remaining
+    sectionless candidate (image inputs, and anything else with no
+    `section`) as a plain field."""
     items: List[Item] = []
 
-    width = by_role.get("resolution_width")
-    height = by_role.get("resolution_height")
+    width = next((c for c in candidates if c.role == "resolution_width"), None)
+    height = next((c for c in candidates if c.role == "resolution_height"), None)
     if width and height:
-        items.append(_resolution_item(width[0], height[0]))
+        items.append(_resolution_item(width, height))
 
-    model_candidates = [c for role in _MODEL_ROLES for c in by_role.get(role, [])]
-    if model_candidates:
-        items.append(SectionItem(title="Models", items=[_model_item(c) for c in model_candidates]))
+    section_order: List[str] = []
+    by_section: Dict[str, List[InputCandidate]] = {}
+    for c in candidates:
+        if c.role in ("resolution_width", "resolution_height") or not c.section:
+            continue
+        if c.section not in by_section:
+            by_section[c.section] = []
+            section_order.append(c.section)
+        by_section[c.section].append(c)
+    for section in section_order:
+        items.append(SectionItem(title=section, items=[_item_for(c) for c in by_section[section]]))
 
-    for c in by_role.get("image", []):
-        items.append(_image_item(c))
-
-    for role in ("steps", "cfg"):
-        for c in by_role.get(role, []):
+    for c in candidates:
+        if c.role in ("resolution_width", "resolution_height") or c.section:
+            continue
+        if c.role == "image":
+            items.append(_image_item(c))
+        else:
             items.append(_simple_item(c))
 
     return items
@@ -173,22 +191,27 @@ _HISTORY_FORMAT_BY_FIELD_TYPE = {
 }
 
 
-def build_default_history(form: ImportForm) -> List[HistoryEntry]:
+def build_default_history(form: ImportForm, analysis: Optional[AnalyzeResult] = None) -> List[HistoryEntry]:
     """Every non-image field in `form`, in display order - "sampling fields
     on, image inputs off" per the contract: an image field is never
-    something worth recording to generation history."""
+    something worth recording to generation history. A field's catalog
+    `history` hint (`analysis`'s originating candidate, when given) wins
+    over the field-type default below - see `node_catalog.InputSpec.history`."""
     from .schema import iter_field_items
+
+    history_by_field_name: Dict[str, str] = {}
+    if analysis is not None:
+        for c in analysis.candidates:
+            if c.obvious and c.history:
+                history_by_field_name.setdefault(c.suggested_field_name, c.history)
 
     entries: List[HistoryEntry] = []
     for tab in form.tabs:
         for field in iter_field_items(tab.items):
             if field.field_type == "image":
                 continue
-            entries.append(
-                HistoryEntry(
-                    field=field.field_name,
-                    label=field.label,
-                    format=_HISTORY_FORMAT_BY_FIELD_TYPE.get(field.field_type, "as_is"),
-                )
+            format_ = history_by_field_name.get(
+                field.field_name, _HISTORY_FORMAT_BY_FIELD_TYPE.get(field.field_type, "as_is")
             )
+            entries.append(HistoryEntry(field=field.field_name, label=field.label, format=format_))
     return entries

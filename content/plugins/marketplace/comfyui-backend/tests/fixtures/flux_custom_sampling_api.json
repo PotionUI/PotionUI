@@ -1,0 +1,93 @@
+{
+  "1": {
+    "inputs": {"unet_name": "flux1-dev.safetensors", "weight_dtype": "default"},
+    "class_type": "UNETLoader",
+    "_meta": {"title": "Load Diffusion Model"}
+  },
+  "2": {
+    "inputs": {"clip_name1": "clip_l.safetensors", "clip_name2": "t5xxl_fp16.safetensors", "type": "flux"},
+    "class_type": "DualCLIPLoader",
+    "_meta": {"title": "DualCLIPLoader"}
+  },
+  "3": {
+    "inputs": {"vae_name": "ae.safetensors"},
+    "class_type": "VAELoader",
+    "_meta": {"title": "Load VAE"}
+  },
+  "10": {
+    "inputs": {
+      "lora_name": "flux_style.safetensors",
+      "strength_model": 0.8,
+      "model": ["1", 0]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {"title": "LoraLoaderModelOnly"}
+  },
+  "11": {
+    "inputs": {
+      "model": ["10", 0],
+      "max_shift": 1.15,
+      "base_shift": 0.5,
+      "width": 1024,
+      "height": 1024
+    },
+    "class_type": "ModelSamplingFlux",
+    "_meta": {"title": "ModelSamplingFlux"}
+  },
+  "20": {
+    "inputs": {"text": "a cat astronaut", "clip": ["2", 0]},
+    "class_type": "CLIPTextEncode",
+    "_meta": {"title": "CLIP Text Encode (Positive Prompt)"}
+  },
+  "21": {
+    "inputs": {"conditioning": ["20", 0], "guidance": 3.5},
+    "class_type": "FluxGuidance",
+    "_meta": {"title": "FluxGuidance"}
+  },
+  "22": {
+    "inputs": {"model": ["11", 0], "conditioning": ["21", 0]},
+    "class_type": "BasicGuider",
+    "_meta": {"title": "BasicGuider"}
+  },
+  "30": {
+    "inputs": {"noise_seed": 424242},
+    "class_type": "RandomNoise",
+    "_meta": {"title": "RandomNoise"}
+  },
+  "31": {
+    "inputs": {"sampler_name": "euler"},
+    "class_type": "KSamplerSelect",
+    "_meta": {"title": "KSamplerSelect"}
+  },
+  "32": {
+    "inputs": {"model": ["11", 0], "scheduler": "simple", "steps": 20, "denoise": 1.0},
+    "class_type": "BasicScheduler",
+    "_meta": {"title": "BasicScheduler"}
+  },
+  "5": {
+    "inputs": {"width": 1024, "height": 1024, "batch_size": 1},
+    "class_type": "EmptySD3LatentImage",
+    "_meta": {"title": "EmptySD3LatentImage"}
+  },
+  "40": {
+    "inputs": {
+      "noise": ["30", 0],
+      "guider": ["22", 0],
+      "sampler": ["31", 0],
+      "sigmas": ["32", 0],
+      "latent_image": ["5", 0]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {"title": "SamplerCustomAdvanced"}
+  },
+  "8": {
+    "inputs": {"samples": ["40", 0], "vae": ["3", 0]},
+    "class_type": "VAEDecode",
+    "_meta": {"title": "VAE Decode"}
+  },
+  "9": {
+    "inputs": {"images": ["8", 0], "filename_prefix": "ComfyUI"},
+    "class_type": "SaveImage",
+    "_meta": {"title": "Save Image"}
+  }
+}

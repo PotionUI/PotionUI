@@ -30,6 +30,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 import yaml
 
+from .node_catalog import get_catalog
 from .parser import Workflow
 from .schema import (
     FieldItem,
@@ -40,7 +41,6 @@ from .schema import (
     all_field_items,
     validate_against_workflow,
 )
-from .suggest import CHECKPOINT_CLASSES, CLIP_CLASSES, DIFFUSION_MODEL_CLASSES, LORA_CLASS_PREFIX, VAE_CLASSES
 from .suggest import _infer_value_type, suggest_fields
 
 # `description.md`'s opening line for every preset this module emits - the
@@ -121,16 +121,6 @@ def _is_core_node_class(class_type: str, object_info: Optional[Dict[str, Any]]) 
         python_module = class_info.get("python_module") or ""
         return python_module == "nodes" or python_module.startswith("comfy_extras")
     return class_type in CORE_NODE_CLASS_TYPES
-
-# Loader class -> (ComfyUI `models/` subfolder, the input names it loads a
-# filename from) - same classes `suggest.suggest_fields` detects as model
-# loaders, folder names matching `ComfyUIBackend.FOLDER_TO_MODEL_TYPE`.
-_MODEL_LOADER_FOLDERS = (
-    (CHECKPOINT_CLASSES, "checkpoints", ("ckpt_name",)),
-    (DIFFUSION_MODEL_CLASSES, "diffusion_models", ("unet_name",)),
-    (CLIP_CLASSES, "text_encoders", ("clip_name", "clip_name1", "clip_name2")),
-    (VAE_CLASSES, "vae", ("vae_name",)),
-)
 
 # One path segment: no "/", "\", "..", and no leading dot (so it can't be
 # hidden or resolve as a relative-parent trick on any OS).
@@ -267,15 +257,21 @@ def _infer_requirements(
             entry["optional"] = True
         requirements.append(entry)
 
-    for classes, folder, input_names in _MODEL_LOADER_FOLDERS:
-        for node in workflow.find_by_class(*classes):
-            literals = node.literals()
-            for input_name in input_names:
-                _add_model(folder, literals.get(input_name))
-
-    for node in workflow.find_by_class_prefix(LORA_CLASS_PREFIX):
-        is_replaced = replaced_lora_node_ids is not None and node.id in replaced_lora_node_ids
-        _add_model("loras", node.literals().get("lora_name"), optional=is_replaced)
+    catalog = get_catalog()
+    for node in workflow.nodes.values():
+        entry = catalog.get(node.class_type)
+        if entry is None:
+            continue
+        literals = node.literals()
+        for input_name, spec in entry.inputs.items():
+            if not spec.folder or input_name not in literals:
+                continue
+            is_replaced = (
+                spec.role == "lora_slot"
+                and replaced_lora_node_ids is not None
+                and node.id in replaced_lora_node_ids
+            )
+            _add_model(spec.folder, literals[input_name], optional=is_replaced)
 
     return requirements
 

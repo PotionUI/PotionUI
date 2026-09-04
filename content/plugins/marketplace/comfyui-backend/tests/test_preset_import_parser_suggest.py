@@ -234,3 +234,116 @@ class TestSuggestFields:
         assert model_only.model_consumer == ("3", "model")
         assert model_only.clip_source is None
         assert model_only.clip_consumers == []
+
+
+class TestCustomSamplingGraphViaNodeCatalog:
+    """A SamplerCustomAdvanced-based Flux graph (RandomNoise + KSamplerSelect
+    + BasicScheduler + BasicGuider, FluxGuidance, ModelSamplingFlux, one
+    LoraLoaderModelOnly) - the class of workflow the node catalog exists to
+    recognize without naming these classes directly in suggest.py."""
+
+    def test_sampler_and_sampling_cluster_are_found(self):
+        workflow = parse_api_workflow(_load("flux_custom_sampling_api.json"))
+        analysis = suggest_fields(workflow)
+
+        assert analysis.sampler_node_id == "40"
+        assert set(analysis.sampling_cluster_node_ids) == {"40", "30", "31", "32", "22"}
+
+    def test_seed_steps_scheduler_denoise_sampler_come_from_the_cluster(self):
+        workflow = parse_api_workflow(_load("flux_custom_sampling_api.json"))
+        analysis = suggest_fields(workflow)
+        by_role = {c.role: c for c in analysis.candidates}
+
+        assert by_role["seed"].node_id == "30" and by_role["seed"].input_name == "noise_seed"
+        assert by_role["sampler"].node_id == "31" and by_role["sampler"].input_name == "sampler_name"
+        assert by_role["scheduler"].node_id == "32" and by_role["scheduler"].input_name == "scheduler"
+        assert by_role["steps"].node_id == "32" and by_role["steps"].current_value == 20
+        assert by_role["denoise"].node_id == "32" and by_role["denoise"].current_value == 1.0
+        for role in ("steps", "scheduler", "denoise", "sampler"):
+            assert by_role[role].section == "Sampling"
+
+    def test_guidance_and_shift_come_from_modifier_nodes_anywhere_in_the_graph(self):
+        workflow = parse_api_workflow(_load("flux_custom_sampling_api.json"))
+        analysis = suggest_fields(workflow)
+        by_role = {c.role: c for c in analysis.candidates}
+
+        assert by_role["guidance"].node_id == "21" and by_role["guidance"].current_value == 3.5
+        assert by_role["guidance"].section == "Sampling"
+        assert by_role["shift"].node_id == "11" and by_role["shift"].input_name == "max_shift"
+        assert by_role["shift"].section == "Sampling"
+
+    def test_prompt_positive_resolves_through_flux_guidance_to_the_text_node(self):
+        """CLIPTextEncode(20) -> FluxGuidance(21) -> BasicGuider(22): the
+        prompt walk must follow FluxGuidance's own `prompt_positive`-kind
+        link rather than stopping at it (it has no `text`/`prompt` literal
+        of its own)."""
+        workflow = parse_api_workflow(_load("flux_custom_sampling_api.json"))
+        analysis = suggest_fields(workflow)
+        positive = next(c for c in analysis.candidates if c.role == "prompt_positive")
+        assert positive.node_id == "20"
+        assert positive.input_name == "text"
+        assert positive.current_value == "a cat astronaut"
+
+    def test_resolution_and_batch_come_from_the_sd3_latent(self):
+        workflow = parse_api_workflow(_load("flux_custom_sampling_api.json"))
+        analysis = suggest_fields(workflow)
+        by_role = {c.role: c for c in analysis.candidates}
+
+        assert by_role["resolution_width"].node_id == "5" and by_role["resolution_width"].current_value == 1024
+        assert by_role["resolution_height"].node_id == "5" and by_role["resolution_height"].current_value == 1024
+        assert by_role["batch_size"].node_id == "5"
+
+    def test_three_loaders_and_one_lora_slot_are_found(self):
+        workflow = parse_api_workflow(_load("flux_custom_sampling_api.json"))
+        analysis = suggest_fields(workflow)
+        by_role = {c.role: [] for c in analysis.candidates}
+        for c in analysis.candidates:
+            by_role.setdefault(c.role, []).append(c)
+
+        assert by_role["diffusion_model"][0].node_id == "1"
+        assert {c.node_id for c in by_role["clip"]} == {"2"}
+        assert {c.suggested_field_name for c in by_role["clip"]} == {"clip", "clip_2"}
+        assert by_role["vae"][0].node_id == "3"
+
+        lora_candidates = by_role["lora_slot"]
+        assert {c.node_id for c in lora_candidates} == {"10"}
+        assert all(c.suggested_field_name == "loras" for c in lora_candidates)
+
+        assert analysis.lora_chain is not None
+        assert analysis.lora_chain.lora_node_ids == ["10"]
+        assert analysis.lora_chain.source_node_id == "1"
+
+    def test_bite_check_sampling_cluster_walk_breaks_without_the_sampling_link(self):
+        """Confirms the assertions above can fail: severing
+        SamplerCustomAdvanced's own `guider` connection drops BasicGuider(22)
+        out of the sampling cluster entirely. The LoRA-chain walk still finds
+        a `model_chain` link (BasicScheduler(32) carries one too), but now
+        starts from THAT node instead - proving the start node really comes
+        from cluster membership, not a hardcoded "the guider" assumption."""
+        workflow = parse_api_workflow(_load("flux_custom_sampling_api.json"))
+        workflow.node("40").inputs["guider"] = "not-a-connection"
+        analysis = suggest_fields(workflow)
+        assert "22" not in analysis.sampling_cluster_node_ids
+        assert set(analysis.sampling_cluster_node_ids) == {"40", "30", "31", "32"}
+        assert analysis.lora_chain is not None
+        assert analysis.lora_chain.target_node_id == "32"
+
+
+class TestLtx25RealExportFindsItsSamplerViaCategory:
+    """This fixture has NO connections at all (every input, including a
+    sampler's own noise/seed, is a positional `widget_N` literal with no
+    `object_info` to resolve it) - the sampler is still found by category,
+    even though nothing further can be recovered from it."""
+
+    def test_sampler_is_found_by_category_not_by_conditioning_links(self):
+        workflow = parse_api_workflow(_load("ltx25_img2img_real_api.json"))
+        analysis = suggest_fields(workflow)
+        assert analysis.sampler_node_id == "5516:4829"
+        assert workflow.node(analysis.sampler_node_id).class_type == "SamplerCustomAdvanced"
+
+    def test_mode_is_img2img_from_the_load_image_node(self):
+        workflow = parse_api_workflow(_load("ltx25_img2img_real_api.json"))
+        analysis = suggest_fields(workflow)
+        assert analysis.mode == "img2img"
+        image = next(c for c in analysis.candidates if c.role == "image")
+        assert image.node_id == "2004"

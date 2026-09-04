@@ -1,0 +1,520 @@
+version: 1
+nodes:
+  BasicGuider:
+    category: sampling
+    links:
+      model: model_chain
+      conditioning: prompt_positive
+
+  BasicScheduler:
+    category: sampling
+    links:
+      model: model_chain
+    inputs:
+      scheduler:
+        role: scheduler
+        field: select
+        name: scheduler
+        label: Scheduler
+        config:
+          file:
+            path: "{{ paths._shared }}/comfyui/form/schedulers/all.yml"
+        section: Sampling
+      steps:
+        role: steps
+        field: slider
+        name: steps
+        label: Steps
+        config: {min: 1, max: 150, step: 1}
+        section: Sampling
+      denoise:
+        role: denoise
+        field: slider
+        name: denoise
+        label: Denoise
+        config: {min: 0.0, max: 1.0, step: 0.05}
+        section: Sampling
+
+  CFGGuider:
+    category: sampling
+    links:
+      model: model_chain
+      positive: prompt_positive
+      negative: prompt_negative
+    inputs:
+      cfg:
+        role: cfg
+        field: slider
+        name: cfg
+        label: CFG Scale
+        config: {min: 1.0, max: 30.0, step: 0.1}
+        section: Sampling
+
+  CLIPLoader:
+    category: loader
+    inputs:
+      clip_name:
+        role: clip
+        field: model
+        name: clip
+        label: CLIP Model
+        config: {model_type: text_encoder, allow_info_modal: true}
+        transform: strip_model_prefix
+        section: Models
+        history: model_name
+        folder: text_encoders
+
+  CheckpointLoaderSimple:
+    category: loader
+    inputs:
+      ckpt_name:
+        role: checkpoint
+        field: model
+        name: checkpoint
+        label: Checkpoint
+        config: {model_type: checkpoint, allow_info_modal: true}
+        transform: strip_model_prefix
+        section: Models
+        history: model_name
+        folder: checkpoints
+
+  DisableNoise:
+    category: sampling
+
+  DualCFGGuider:
+    category: sampling
+    links:
+      model: model_chain
+
+  DualCLIPLoader:
+    category: loader
+    inputs:
+      clip_name1:
+        role: clip
+        field: model
+        name: clip
+        label: CLIP Model
+        config: {model_type: text_encoder, allow_info_modal: true}
+        transform: strip_model_prefix
+        section: Models
+        history: model_name
+        folder: text_encoders
+      clip_name2:
+        role: clip
+        field: model
+        name: clip
+        label: CLIP Model
+        config: {model_type: text_encoder, allow_info_modal: true}
+        transform: strip_model_prefix
+        section: Models
+        history: model_name
+        folder: text_encoders
+
+  EmptyLatentImage:
+    category: latent
+    inputs:
+      width:
+        role: resolution_width
+        field: resolution
+        name: resolution
+        label: Image Resolution
+      height:
+        role: resolution_height
+        field: resolution
+        name: resolution
+        label: Image Resolution
+      batch_size:
+        role: batch_size
+        field: slider
+        name: quantity
+        label: Batch Size
+        config: {min: 1, max: 8, step: 1}
+
+  EmptySD3LatentImage:
+    category: latent
+    inputs:
+      width:
+        role: resolution_width
+        field: resolution
+        name: resolution
+        label: Image Resolution
+      height:
+        role: resolution_height
+        field: resolution
+        name: resolution
+        label: Image Resolution
+      batch_size:
+        role: batch_size
+        field: slider
+        name: quantity
+        label: Batch Size
+        config: {min: 1, max: 8, step: 1}
+
+  ExponentialScheduler:
+    category: sampling
+    inputs:
+      steps:
+        role: steps
+        field: slider
+        name: steps
+        label: Steps
+        config: {min: 1, max: 150, step: 1}
+        section: Sampling
+      sigma_max:
+        role: option
+        field: number
+        name: sigma_max
+        label: Sigma Max
+        section: Sampling
+      sigma_min:
+        role: option
+        field: number
+        name: sigma_min
+        label: Sigma Min
+        section: Sampling
+
+  FluxGuidance:
+    category: modifier
+    links:
+      conditioning: prompt_positive
+    inputs:
+      guidance:
+        role: guidance
+        field: slider
+        name: guidance
+        label: Guidance
+        config: {min: 0.0, max: 100.0, step: 0.1}
+        section: Sampling
+
+  KSampler:
+    category: sampler
+    links:
+      model: model_chain
+      positive: prompt_positive
+      negative: prompt_negative
+      latent_image: latent
+    inputs:
+      seed:
+        role: seed
+        field: seed
+        name: seed
+        label: Seed
+        transform: seed
+      steps:
+        role: steps
+        field: slider
+        name: steps
+        label: Steps
+        config: {min: 1, max: 150, step: 1}
+        section: Sampling
+      cfg:
+        role: cfg
+        field: slider
+        name: cfg
+        label: CFG Scale
+        config: {min: 1.0, max: 30.0, step: 0.1}
+        section: Sampling
+      sampler_name:
+        role: sampler
+        field: select
+        name: sampler_name
+        label: Sampler
+        config:
+          file:
+            path: "{{ paths._shared }}/comfyui/form/samplers/all.yml"
+        section: Sampling
+      scheduler:
+        role: scheduler
+        field: select
+        name: scheduler
+        label: Scheduler
+        config:
+          file:
+            path: "{{ paths._shared }}/comfyui/form/schedulers/all.yml"
+        section: Sampling
+      denoise:
+        role: denoise
+        field: slider
+        name: denoise
+        label: Denoise
+        config: {min: 0.0, max: 1.0, step: 0.05}
+        section: Sampling
+
+  KSamplerAdvanced:
+    category: sampler
+    links:
+      model: model_chain
+      positive: prompt_positive
+      negative: prompt_negative
+      latent_image: latent
+    inputs:
+      noise_seed:
+        role: seed
+        field: seed
+        name: seed
+        label: Seed
+        transform: seed
+      steps:
+        role: steps
+        field: slider
+        name: steps
+        label: Steps
+        config: {min: 1, max: 150, step: 1}
+        section: Sampling
+      cfg:
+        role: cfg
+        field: slider
+        name: cfg
+        label: CFG Scale
+        config: {min: 1.0, max: 30.0, step: 0.1}
+        section: Sampling
+      sampler_name:
+        role: sampler
+        field: select
+        name: sampler_name
+        label: Sampler
+        config:
+          file:
+            path: "{{ paths._shared }}/comfyui/form/samplers/all.yml"
+        section: Sampling
+      scheduler:
+        role: scheduler
+        field: select
+        name: scheduler
+        label: Scheduler
+        config:
+          file:
+            path: "{{ paths._shared }}/comfyui/form/schedulers/all.yml"
+        section: Sampling
+
+  KSamplerSelect:
+    category: sampling
+    inputs:
+      sampler_name:
+        role: sampler
+        field: select
+        name: sampler_name
+        label: Sampler
+        config:
+          file:
+            path: "{{ paths._shared }}/comfyui/form/samplers/all.yml"
+        section: Sampling
+
+  KarrasScheduler:
+    category: sampling
+    inputs:
+      steps:
+        role: steps
+        field: slider
+        name: steps
+        label: Steps
+        config: {min: 1, max: 150, step: 1}
+        section: Sampling
+      sigma_max:
+        role: option
+        field: number
+        name: sigma_max
+        label: Sigma Max
+        section: Sampling
+      sigma_min:
+        role: option
+        field: number
+        name: sigma_min
+        label: Sigma Min
+        section: Sampling
+      rho:
+        role: option
+        field: number
+        name: rho
+        label: Rho
+        section: Sampling
+
+  LoadImage:
+    category: image_input
+    inputs:
+      image:
+        role: image
+        field: image
+        name: source_image
+        label: Source Image
+        config: {formats: [".jpg", ".jpeg", ".png", ".webp"]}
+
+  LoraLoader:
+    category: lora
+    links:
+      model: model_chain
+      clip: clip_chain
+    inputs:
+      lora_name:
+        role: lora_slot
+        field: lora_picker
+        name: loras
+        label: LoRAs
+        config: {model_type: lora, max_items: 6}
+        history: list
+        folder: loras
+
+  LoraLoaderModelOnly:
+    category: lora
+    links:
+      model: model_chain
+    inputs:
+      lora_name:
+        role: lora_slot
+        field: lora_picker
+        name: loras
+        label: LoRAs
+        config: {model_type: lora, max_items: 6}
+        history: list
+        folder: loras
+
+  MarkdownNote:
+    category: ignore
+
+  ModelSamplingAuraFlow:
+    category: modifier
+    links:
+      model: model_chain
+    inputs:
+      shift:
+        role: shift
+        field: slider
+        name: shift
+        label: Shift
+        config: {min: 0.0, max: 100.0, step: 0.01}
+        section: Sampling
+
+  ModelSamplingFlux:
+    category: modifier
+    links:
+      model: model_chain
+    inputs:
+      max_shift:
+        role: shift
+        field: slider
+        name: shift
+        label: Max Shift
+        config: {min: 0.0, max: 100.0, step: 0.01}
+        section: Sampling
+      base_shift:
+        role: option
+        field: number
+        name: base_shift
+        label: Base Shift
+        section: Sampling
+
+  ModelSamplingSD3:
+    category: modifier
+    links:
+      model: model_chain
+    inputs:
+      shift:
+        role: shift
+        field: slider
+        name: shift
+        label: Shift
+        config: {min: 0.0, max: 100.0, step: 0.01}
+        section: Sampling
+
+  Note:
+    category: ignore
+
+  PreviewAudio:
+    category: output
+
+  PreviewImage:
+    category: output
+
+  RandomNoise:
+    category: sampling
+    inputs:
+      noise_seed:
+        role: seed
+        field: seed
+        name: seed
+        label: Seed
+        transform: seed
+
+  SamplerCustom:
+    category: sampler
+    links:
+      model: model_chain
+      positive: prompt_positive
+      negative: prompt_negative
+      latent_image: latent
+      sampler: sampling
+      sigmas: sampling
+    inputs:
+      noise_seed:
+        role: seed
+        field: seed
+        name: seed
+        label: Seed
+        transform: seed
+      cfg:
+        role: cfg
+        field: slider
+        name: cfg
+        label: CFG Scale
+        config: {min: 1.0, max: 30.0, step: 0.1}
+        section: Sampling
+
+  SamplerCustomAdvanced:
+    category: sampler
+    links:
+      noise: sampling
+      guider: sampling
+      sampler: sampling
+      sigmas: sampling
+      latent_image: latent
+
+  SaveAudio:
+    category: output
+
+  SaveImage:
+    category: output
+
+  UNETLoader:
+    category: loader
+    inputs:
+      unet_name:
+        role: diffusion_model
+        field: model
+        name: diffusion_model
+        label: Diffusion Model (UNET)
+        config: {model_type: diffusion_model, allow_info_modal: true}
+        transform: strip_model_prefix
+        section: Models
+        history: model_name
+        folder: diffusion_models
+
+  UnetLoaderGGUF:
+    category: loader
+    inputs:
+      unet_name:
+        role: diffusion_model
+        field: model
+        name: diffusion_model
+        label: Diffusion Model (UNET)
+        config: {model_type: diffusion_model, allow_info_modal: true}
+        transform: strip_model_prefix
+        section: Models
+        history: model_name
+        folder: diffusion_models
+
+  VAELoader:
+    category: loader
+    inputs:
+      vae_name:
+        role: vae
+        field: model
+        name: vae
+        label: VAE Model
+        config: {model_type: vae, allow_info_modal: true}
+        transform: strip_model_prefix
+        section: Models
+        history: model_name
+        folder: vae
+
+  VHS_VideoCombine:
+    category: output

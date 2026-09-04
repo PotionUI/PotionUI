@@ -253,7 +253,7 @@ async def analyze_workflow(
     object_info = await _try_object_info()
     analysis = suggest_fields(workflow, object_info=object_info)
     default_form = build_default_form(analysis)
-    default_history = build_default_history(default_form)
+    default_history = build_default_history(default_form, analysis)
     return {
         **analysis.to_dict(),
         "format": "api",
@@ -516,7 +516,7 @@ async def get_imported_preset_source(preset_id: str, current_user=Depends(get_cu
     history = (
         [HistoryEntry.model_validate(e) for e in stored_history]
         if stored_history is not None
-        else build_default_history(form)
+        else build_default_history(form, analysis)
     )
 
     return {
@@ -556,7 +556,7 @@ async def reload_imported_preset(preset_id: str, current_user=Depends(get_curren
     else:
         analysis = suggest_fields(workflow)
         form = build_default_form(analysis)
-        history = build_default_history(form)
+        history = build_default_history(form, analysis)
         extra_warnings.append("re-imported with the default form/history")
 
     try:

@@ -49,6 +49,23 @@ class TestModelRequirementsFromModelLoaders:
             ("vae", "ae.safetensors"),
         }
 
+    def test_custom_sampling_graph_gets_the_unet_clips_vae_and_lora(self):
+        """The catalog-driven pass over `entry.inputs` (keyed by `folder`,
+        not a hardcoded class tuple) covers UNETLoader/DualCLIPLoader/
+        VAELoader/LoraLoaderModelOnly the same way, even though none of them
+        sit anywhere near a KSampler in this graph."""
+        workflow = parse_api_workflow(_load("flux_custom_sampling_api.json"))
+        requirements = _infer_requirements(workflow)
+
+        assert _by_type(requirements, "comfyui_node") == []
+        assert {(r["folder"], r["name"]) for r in _by_type(requirements, "comfyui_model")} == {
+            ("diffusion_models", "flux1-dev.safetensors"),
+            ("text_encoders", "clip_l.safetensors"),
+            ("text_encoders", "t5xxl_fp16.safetensors"),
+            ("vae", "ae.safetensors"),
+            ("loras", "flux_style.safetensors"),
+        }
+
     def test_lora_chain_workflow_gets_a_comfyui_model_entry_per_lora(self):
         workflow = parse_api_workflow(_load("lora_chain_img2img_api.json"))
         requirements = _infer_requirements(workflow)

@@ -1,14 +1,22 @@
 // @vitest-environment jsdom
 //
-// StageShot's own onDoc chain is proven sound (stageShotPromptPersistence.test.ts).
+// StageBeat's own onDoc chain is proven sound (stageShotPromptPersistence.test.ts).
 // This tests one level up: the full VideoDirectorEditor, whose two $effects
-// (adopt-external-value, mode-coherence-then-emit) sit between a typed edit
-// and `onChange`, and whose `value` prop is round-tripped through a store the
+// (adopt-external-value, mode-coherence-then-emit -- now living in
+// ShotConsole.svelte, see its own header note) sit between a typed edit and
+// `onChange`, and whose `value` prop is round-tripped through a store the
 // way PromptSection.svelte's `tabsStore.updateTab` does -- reproducing the
 // exact loop a real generate-page edit goes through, to catch an echo/adopt
 // effect clobbering a just-typed doc before it ever reaches `onChange`, or an
 // `onChange` that never fires because the mode-coherence effect keeps
 // reassigning `doc` and returning early.
+//
+// Since the W1 Shot Console rework (PLAN.md §C W1), a freshly-expanded shot
+// card's stage defaults to NOTHING selected (the Global-prompt fallback --
+// console.html's own MiniMax H3 Video frame demonstrates exactly this resting
+// state) rather than the shot itself being the implicit selection the old
+// Stage.svelte always resolved to. Reaching the shot's own prompt editor now
+// means clicking its rail beat first, same as any other rail object.
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
 vi.mock('$lib/services/api/index', () => ({
@@ -152,6 +160,15 @@ describe('VideoDirectorEditor: typed shot edit reaches onChange, and a store rou
 		});
 		cleanup = () => instance.$destroy();
 
+		await settle();
+
+		// Chain-1 is the default expanded shot, but its stage starts on the
+		// Global-prompt fallback (nothing selected) -- click its one full-span
+		// rail beat (PLAN.md D3: one beat per chain shot) to select it before
+		// its own SegmentedPromptEditor appears.
+		const beat = target.querySelector('.beat-b') as HTMLElement | null;
+		expect(beat).toBeTruthy();
+		beat!.click();
 		await settle();
 
 		const editable = target.querySelector('[contenteditable="true"]') as HTMLElement | null;

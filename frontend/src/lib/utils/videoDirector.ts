@@ -47,11 +47,13 @@ const MODE_ORDER: DirectorMode[] = ['t2v', 'i2v', 'flf', 'director'];
 // module-level *mutable* counter here (as originally used, RelayTimeline-
 // style) made every such call produce a different id, so the JSON-equality
 // re-sync check never converged — infinite effect loop, hard browser hang.
-// User-triggered additions (ShotTimeline's "+ Add shot", KeyframeTimeline's
-// "+ Direction" etc.) still use timelineCore's makeIdFactory per component
-// instance, which is safe because those only run on discrete click events,
-// not inside a reactive derivation. Only one tab's editor is mounted at a
-// time, so a fixed id here never collides with a live document.
+// User-triggered additions (the Shot Console's own "+ Add shot"/"+" rail
+// buttons, RelayTimeline's/PromptTimelineField's own additions) mint via
+// timelineCore's `mintId` against the live collection instead -- safe
+// because those only run on discrete click events, not inside a reactive
+// derivation, and collision-safe across a remount the way a per-instance
+// counter never was (see mintId's own doc comment). Only one tab's editor is
+// mounted at a time, so a fixed id here never collides with a live document.
 const DEFAULT_CHAIN_SEGMENT_ID = 'chain-0';
 
 // Same fixed-id reasoning as DEFAULT_CHAIN_SEGMENT_ID, for the single

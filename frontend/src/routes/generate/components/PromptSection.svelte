@@ -62,10 +62,13 @@
 
 <!-- Prompt Editors -->
 <div class="space-y-4 {spacingClass}">
-	{#if promptRelayActive}
+	{#if promptRelayActive || videoDirectorActive}
 		<!-- PromptRelayEditor doesn't render its own toolbar/header, so it needs
-			this standalone entry point. Video Director has its own header and
-			adopts the same button there instead (see onOpenVariables below). -->
+			this standalone entry point. Video Director's Shot Console header
+			(console.html's `.dh-row`) has no slot for a Variables affordance --
+			the maintainer's ruling on the header's contents didn't add one, so
+			this is Video Director's only remaining way to reach the modal too,
+			same as Prompt Relay. -->
 		<div class="flex justify-end">
 			<button
 				type="button"
@@ -89,8 +92,6 @@
 			presetId={tab.selectedPreset || ''}
 			formData={tab.formData}
 			onChange={(v) => tabsStore.updateTab(tab.id, { videoDirector: v })}
-			onOpenVariables={openVariableManager}
-			{variableCount}
 		/>
 	{:else if musicDirectorActive && musicDirectorCaps}
 		<!-- Music Director Mode -->

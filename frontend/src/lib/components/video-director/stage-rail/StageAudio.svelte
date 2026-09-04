@@ -3,6 +3,13 @@
 	// generator implements it; condition asks the model to generate against
 	// it, which a generator is allowed to refuse -- the consequence is stated
 	// in place rather than a control simply being greyed out.
+	//
+	// console.html has no dedicated audio-stage anatomy of its own (PLAN.md
+	// §A D6: "reuse StageAudio.svelte body under the stage-cap idiom") --
+	// ShotStage renders the `.stage-cap` caption ("Audio — role, start–end")
+	// above this component, so the body below only drops the old redundant
+	// header line (badge + filename + Remove) that duplicated it, keeping a
+	// small icon-only Remove in its place.
 	import type { VideoDirectorValue, DirectorCapabilities, DirectorMediaValue } from '$lib/types/videoDirector';
 	import type { StageAudioModel } from './stageModel';
 	import { withAudioPatch, withRemoveAudio } from './stageModel';
@@ -52,10 +59,7 @@
 </script>
 
 <div class="flex flex-col gap-3.5">
-	<div class="flex items-center gap-2.5">
-		<span class="rounded bg-signal px-1.5 py-0.5 font-mono text-2xs font-semibold uppercase tracking-wide text-canvas">Audio</span>
-		<span class="text-sm font-semibold text-fg">{model.fileLabel}</span>
-		<div class="flex-1"></div>
+	<div class="flex items-center justify-end">
 		<IconButton icon="trash" label="Remove audio" size="sm" onclick={remove} />
 	</div>
 

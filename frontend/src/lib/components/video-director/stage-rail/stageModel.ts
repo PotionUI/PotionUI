@@ -306,7 +306,7 @@ export interface StageModel {
 
 // ─── Small formatting helpers ────────────────────────────────────────────────
 
-function mediaFileLabel(media: DirectorMediaValue | null): string | null {
+export function mediaFileLabel(media: DirectorMediaValue | null): string | null {
 	if (!media) return null;
 	if ('form_ref' in media) return null;
 	const ref = media as MediaRef;
@@ -1047,6 +1047,14 @@ export function withIcLoraPatch(doc: VideoDirectorValue, id: string, patch: Part
 	const next: DirectorIcLoraEntry = { ...existing, ...patch };
 	const nextList = idx === -1 ? [...list, next] : list.map((e, i) => (i === idx ? next : e));
 	return { ...doc, timeline: { ...doc.timeline, ic_lora: nextList } };
+}
+
+/** Drops one IC-LoRA entry from the timeline's `ic_lora` list -- the console's
+ * IC-LoRA tab renders the whole list (PLAN.md §A: a stage tab, not a single
+ * rail-selected head), so unlike every other `withXxx` here this removes by
+ * filtering rather than patching a selected id. */
+export function withRemoveIcLora(doc: VideoDirectorValue, id: string): VideoDirectorValue {
+	return { ...doc, timeline: { ...doc.timeline, ic_lora: doc.timeline.ic_lora.filter((e) => e.id !== id) } };
 }
 
 /** The role a gate's "place a keyframe here" well should mint on fill. */

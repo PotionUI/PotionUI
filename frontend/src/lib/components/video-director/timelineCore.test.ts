@@ -5,7 +5,6 @@ import {
 	getTickInterval,
 	formatTick,
 	buildTicks,
-	makeIdFactory,
 	mintId,
 	vizSlot,
 	totalWidth,
@@ -107,27 +106,13 @@ describe('buildTicks', () => {
 	});
 });
 
-describe('makeIdFactory', () => {
-	it('produces monotonic prefixed ids starting at 1', () => {
-		const makeId = makeIdFactory('seg');
-		expect(makeId()).toBe('seg-1');
-		expect(makeId()).toBe('seg-2');
-		expect(makeId()).toBe('seg-3');
-	});
-
-	it('keeps independent counters per factory instance', () => {
-		const a = makeIdFactory('a');
-		const b = makeIdFactory('b');
-		expect(a()).toBe('a-1');
-		expect(b()).toBe('b-1');
-		expect(a()).toBe('a-2');
-	});
-});
-
 // mintId guards the crash documented at timelineCore.ts:60-64: a per-instance
-// counter (makeIdFactory) resets on remount while the document persists, so a
-// fresh mount over a session-restored/mode-swapped document can re-mint an id
-// the document already holds — Svelte's keyed {#each} throws on the duplicate.
+// mutable counter (the old `makeIdFactory`, removed once every Video Director
+// caller moved to `mintId` -- ShotTimeline/KeyframeTimeline's own instances
+// were the last holdouts, both gone with the W1 console rework) resets on
+// remount while the document persists, so a fresh mount over a session-
+// restored/mode-swapped document can re-mint an id the document already
+// holds — Svelte's keyed {#each} throws on the duplicate.
 describe('mintId', () => {
 	it('mints the next id past the existing collection when uncontested', () => {
 		const existing = [{ id: 'seg-1' }, { id: 'seg-2' }];

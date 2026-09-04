@@ -2,13 +2,20 @@
 //
 // A typed shot prompt has to survive a whole chain: InlineChipEditor's DOM
 // input -> PromptSegment's `change` -> SegmentedPromptEditor's `segmentsChange`
-// -> StageShot's `withShotPromptSegments` -> Stage's bindable `doc` -> back out
-// through `onDoc`. 9eaa22c7 rewrote SegmentedPromptEditor's prop/dispatch
-// surface (flow mode removed); this mounts the real StageShot and drives a
-// real DOM edit to prove the chain still reaches `onDoc` with the typed text
-// in both `prompt` and `prompt_segments`, then that a normalize/validate/
-// submit round trip on that emitted document keeps the text -- for both a
-// references (H3-style) chain and a plain segment-routed chain.
+// -> StageBeat's `withShotPromptSegments` -> onDoc. 9eaa22c7 rewrote
+// SegmentedPromptEditor's prop/dispatch surface (flow mode removed); this
+// mounts the real StageBeat and drives a real DOM edit to prove the chain
+// still reaches `onDoc` with the typed text in both `prompt` and
+// `prompt_segments`, then that a normalize/validate/submit round trip on
+// that emitted document keeps the text -- for both a references (H3-style)
+// chain and a plain segment-routed chain.
+//
+// Migrated off the deleted `StageShot.svelte` (superseded by the W1 Shot
+// Console rework, PLAN.md §C W1): the prompt-editing slice this test drives
+// lives in `console/StageBeat.svelte` now (StageShot's gate-well/footer/
+// LoRAs/References anatomy split out to ShotCard's header, the LoRAs/
+// References stage tabs, and ShotRail's keyframe/audio lanes instead --
+// none of it is what this test exercises).
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
 vi.mock('$lib/services/api/index', () => ({
@@ -27,8 +34,8 @@ vi.mock('$lib/services/api/index', () => ({
 }));
 
 const { mount, unmount, flushSync } = await import('svelte');
-const { default: StageShot } = await import(
-	'$lib/components/video-director/stage-rail/StageShot.svelte'
+const { default: StageBeat } = await import(
+	'$lib/components/video-director/console/StageBeat.svelte'
 );
 const { deriveStageModel } = await import('$lib/components/video-director/stage-rail/stageModel');
 const {
@@ -163,14 +170,12 @@ async function driveShotEdit(
 	document.body.appendChild(target);
 
 	let emitted: VideoDirectorValue | null = null;
-	const instance = mount(StageShot, {
+	const instance = mount(StageBeat, {
 		target,
 		props: {
 			model,
 			doc,
 			caps,
-			formData,
-			presetId: 'test-preset',
 			onDoc: (next: VideoDirectorValue) => {
 				emitted = next;
 			}

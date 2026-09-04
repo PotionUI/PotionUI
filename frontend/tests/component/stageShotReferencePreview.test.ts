@@ -1,11 +1,18 @@
 // @vitest-environment jsdom
 //
-// The per-shot reference picker (StageShot's "References for this shot" grid)
-// drew every pool item's thumbnail with a bare `<img src={opt.item.url}>`,
-// with no gate on `opt.item.type` - an audio reference has a `url` (the served
-// file) but nothing an <img> can decode, so it rendered a broken-image icon.
-// This mounts the real StageShot, opens the picker, and proves an audio pool
-// item renders through the Icon fallback instead of ever reaching an <img>.
+// The per-shot reference picker (originally StageShot's "References for this
+// shot" grid) drew every pool item's thumbnail with a bare
+// `<img src={opt.item.url}>`, with no gate on `opt.item.type` - an audio
+// reference has a `url` (the served file) but nothing an <img> can decode, so
+// it rendered a broken-image icon. This mounts the real picker and proves an
+// audio pool item renders through the Icon fallback instead of ever reaching
+// an <img>.
+//
+// Migrated off the deleted `StageShot.svelte` (superseded by the W1 Shot
+// Console rework, PLAN.md §C W1): this exact picker grid is lifted verbatim
+// into `console/StageReferencesTab.svelte` (its own header comment names the
+// same source lines), which always renders its grid directly -- no
+// collapsed-toggle step to open it first, unlike the old StageShot anatomy.
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
 vi.mock('$lib/services/api/index', () => ({
@@ -24,14 +31,12 @@ vi.mock('$lib/services/api/index', () => ({
 }));
 
 const { mount, unmount, flushSync } = await import('svelte');
-const { default: StageShot } = await import(
-	'$lib/components/video-director/stage-rail/StageShot.svelte'
+const { default: StageReferencesTab } = await import(
+	'$lib/components/video-director/console/StageReferencesTab.svelte'
 );
-const { deriveStageModel } = await import('$lib/components/video-director/stage-rail/stageModel');
 const { resolveDirectorCapabilities } = await import('$lib/utils/videoDirector');
 
 import type { VideoDirectorValue, ChainSegment, DirectorCapabilities } from '$lib/types/videoDirector';
-import type { StageShotModel } from '$lib/components/video-director/stage-rail/stageModel';
 
 function baseDoc(): VideoDirectorValue {
 	return {
@@ -126,30 +131,20 @@ describe('StageShot per-shot reference picker: non-image pool items', () => {
 			reference_audios: [{ path: '/pool/voice.mp3', type: 'audio', url: '/pool/voice.mp3' }]
 		};
 
-		const model = deriveStageModel(doc, caps, { kind: 'shot', id: 'chain-1' }, formData).selected as StageShotModel;
-
 		const target = document.createElement('div');
 		document.body.appendChild(target);
 
-		const instance = mount(StageShot, {
+		const instance = mount(StageReferencesTab, {
 			target,
 			props: {
-				model,
 				doc,
 				caps,
 				formData,
-				presetId: 'test-preset',
+				shotId: 'chain-1',
 				onDoc: () => {}
 			}
 		});
 		cleanup = () => unmount(instance);
-		await settle();
-
-		const toggle = Array.from(target.querySelectorAll('button')).find((b) =>
-			/^(All \(\d+\)|\d+ of \d+)$/.test(b.textContent?.trim() ?? '')
-		);
-		expect(toggle).toBeTruthy();
-		toggle!.click();
 		await settle();
 
 		const labels = Array.from(target.querySelectorAll('label'));

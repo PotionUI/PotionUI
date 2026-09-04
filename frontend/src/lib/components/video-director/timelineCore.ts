@@ -65,12 +65,7 @@ export function buildTicks(duration: number, pxPerSec: number): Tick[] {
 	return out;
 }
 
-// ─── Monotonic id factory (no Math.random / Date.now) ───────────────────────────
-export function makeIdFactory(prefix: string): () => string {
-	let counter = 0;
-	return () => `${prefix}-${++counter}`;
-}
-
+// ─── Monotonic id minting (no Math.random / Date.now) ───────────────────────────
 /** Mint `${prefix}-N` guaranteed absent from `existing` — a per-instance
  * counter (makeIdFactory) resets on remount while the DOCUMENT persists, so
  * a fresh mount over a session-restored or mode-swapped document re-mints

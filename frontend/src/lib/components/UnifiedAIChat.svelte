@@ -1567,7 +1567,20 @@
 			wasCollapsed = collapsed;
 		});
 		observer.observe(node);
-		return { destroy: () => observer.disconnect() };
+		// A reader at the bottom follows whatever the reply grows by — tokens,
+		// the steps record, tool rows, images — without having to nudge the
+		// scroll themselves; a reader who scrolled up is left alone.
+		const content = node.firstElementChild;
+		const follow = new ResizeObserver(() => {
+			if (node.clientHeight > 0 && wasPinnedToBottom) jumpTo(node, node.scrollHeight);
+		});
+		if (content) follow.observe(content);
+		return {
+			destroy: () => {
+				observer.disconnect();
+				follow.disconnect();
+			}
+		};
 	}
 
 	function handleKeyDown(e: KeyboardEvent) {

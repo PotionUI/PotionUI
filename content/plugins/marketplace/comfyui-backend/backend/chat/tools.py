@@ -17,11 +17,19 @@ them fresh on every message. Wire contract (sent by the frontend wizard)::
       "lora_chain": {"nodes": [{"node_id", "class_type", "lora_name",
                                  "strength_model"}], "replaced": [node_id, ...],
                       "kept": [node_id, ...]} | None,
+      "model_chain": {"source_node_id", "source_output_index",
+                       "target_node_id", "target_input"} | None,
     }
 
 ``lora_chain`` mirrors the wizard's own `suggest.LoraChainInfo.nodes` plus
 its current keep-fixed/replaced split (`schema.LoraChainSelection`) - absent
 or `None` when the workflow has no detected LoRA chain.
+
+``model_chain`` mirrors `suggest.ModelChainInfo` (`AnalyzeResult.to_dict()`'s
+own key names) - the sampling cluster's own model-chain boundary, present
+whenever the cluster consumes a model at all, independent of whether any of
+it is a LoRA node. It's what makes `lora_picker` valid even for a workflow
+with no detected LoRA chain (see the op's own handling below).
 
 ``form`` mirrors `backend.preset_import.schema.ImportForm` exactly (as plain
 dicts, not parsed models - the wizard's form is a work in progress and may be
@@ -85,6 +93,30 @@ def _find_sandwiched_kept_nodes(
         if before is not None and after is not None:
             sandwiched.append((node_id, before, after))
     return sandwiched
+
+
+def _lora_picker_splice_description(
+    model_chain: Optional[Dict[str, Any]], keep_fixed_ids: set, candidates: List[Dict[str, Any]]
+) -> str:
+    """Human-readable fragment naming where the picker's `@loop` actually
+    lands - `model_chain` (mirroring `suggest.ModelChainInfo`) is the
+    sampling cluster's own model-chain boundary, the only splice point the
+    wizard always has even for a workflow with no LoRA chain at all (see
+    `emit._lora_node_manipulations`). Names the kept node when the splice
+    sits right after one the admin chose to keep fixed, else names the
+    node/input the splice lands before."""
+    if not model_chain:
+        return ""
+    source_id = model_chain.get("source_node_id")
+    if source_id in keep_fixed_ids:
+        return f"after kept node {source_id}"
+    target_id = model_chain.get("target_node_id")
+    target_input = model_chain.get("target_input")
+    target_class = next(
+        (c.get("class_type") for c in candidates if c.get("node_id") == target_id and c.get("class_type")),
+        None,
+    )
+    return f"before {target_class or target_id}.{target_input}"
 
 
 def _iter_field_names_and_types(items: List[Dict[str, Any]]):
@@ -355,7 +387,8 @@ def _validate_ops(
         elif op == "lora_picker":
             chain_nodes = ((wiz.get("lora_chain") or {}).get("nodes")) or []
             chain_node_ids = {n.get("node_id") for n in chain_nodes if n.get("node_id")}
-            if not chain_node_ids:
+            model_chain = wiz.get("model_chain")
+            if not chain_node_ids and not model_chain:
                 errors.append(f"op {i} (lora_picker): no LoRA chain detected in this workflow")
                 continue
             if any(ftype == "lora_picker" for ftype in known_fields.values()):
@@ -372,22 +405,31 @@ def _validate_ops(
                 errors.append(f"op {i} (lora_picker): 'keep_fixed' must be a list of node ids")
                 continue
             keep_fixed_set = set(keep_fixed)
-            unknown_ids = keep_fixed_set - chain_node_ids
-            if unknown_ids:
+
+            if chain_node_ids:
+                unknown_ids = keep_fixed_set - chain_node_ids
+                if unknown_ids:
+                    errors.append(
+                        f"op {i} (lora_picker): 'keep_fixed' has node(s) not in the detected chain: "
+                        f"{sorted(unknown_ids)}"
+                    )
+                    continue
+
+                replaced_ids = chain_node_ids - keep_fixed_set
+                sandwiched = _find_sandwiched_kept_nodes(chain_nodes, replaced_ids, keep_fixed_set)
+                if sandwiched:
+                    node_id, before_id, after_id = sandwiched[0]
+                    errors.append(
+                        f"op {i} (lora_picker): keep_fixed leaves kept LoRA node {node_id} sandwiched "
+                        f"between replaced nodes {before_id} and {after_id} - keep all LoRAs above it "
+                        "fixed too, or replace it"
+                    )
+                    continue
+            elif keep_fixed_set:
+                # No chain at all - there is nothing keep_fixed could name.
                 errors.append(
                     f"op {i} (lora_picker): 'keep_fixed' has node(s) not in the detected chain: "
-                    f"{sorted(unknown_ids)}"
-                )
-                continue
-
-            replaced_ids = chain_node_ids - keep_fixed_set
-            sandwiched = _find_sandwiched_kept_nodes(chain_nodes, replaced_ids, keep_fixed_set)
-            if sandwiched:
-                node_id, before_id, after_id = sandwiched[0]
-                errors.append(
-                    f"op {i} (lora_picker): keep_fixed leaves kept LoRA node {node_id} sandwiched "
-                    f"between replaced nodes {before_id} and {after_id} - keep all LoRAs above it "
-                    "fixed too, or replace it"
+                    f"{sorted(keep_fixed_set)}"
                 )
                 continue
 
@@ -404,12 +446,26 @@ def _validate_ops(
                 else f", {len(keep_fixed_set)} nodes kept fixed" if keep_fixed_set
                 else ""
             )
+            # Nothing structural is actually being replaced (no chain, or
+            # every chain node kept) - name the boundary the emitted loop
+            # really splices onto (see emit._lora_node_manipulations); with
+            # replaced nodes in play, the emitter's own splice point can't
+            # be derived from the wizard's wire-shape data, so the preview
+            # stays as it is.
+            splice_desc = (
+                _lora_picker_splice_description(model_chain, keep_fixed_set, wiz.get("candidates") or [])
+                if not (chain_node_ids - keep_fixed_set)
+                else ""
+            )
             validated.append({
                 "_clean": {
                     "op": "lora_picker", "tab": tab, "field_name": field_name,
                     "keep_fixed": sorted(keep_fixed_set),
                 },
-                "_preview": f"+ LoRA picker ({replaced_count} LoRAs seeded{kept_desc})",
+                "_preview": (
+                    f"+ LoRA picker ({replaced_count} LoRAs seeded{kept_desc})"
+                    + (f" - spliced {splice_desc}" if splice_desc else "")
+                ),
             })
 
         else:
@@ -541,7 +597,8 @@ class ProposeFormChangesTool(BaseTool):
             "prose. Never map a prompt input; prompts come from the Prompts section, not here. "
             "When the workflow has a detected LoRA chain (see the context block), use lora_picker "
             "to convert it to a LoRA picker field rather than mapping its lora_name/strength "
-            "inputs one at a time."
+            "inputs one at a time. lora_picker also works with no detected chain at all - it "
+            "seeds a fresh LoRA slot right before the sampler's model input."
         )
 
     @property

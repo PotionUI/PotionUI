@@ -490,37 +490,64 @@ def _lora_chain_clip_boundary(
     return clip_entry.clip_source[0], clip_exit.clip_consumers
 
 
-def _lora_node_manipulations(lora_field: FieldItem, chain, replaced_node_ids: Set[str]) -> List[Any]:
-    """The `@loop` rewrite that turns `form.<lora_field>` into a fresh chain
-    of LoRA nodes spliced between the replaced span's real source and
-    target: the FIRST replaced node's own source becomes the loop's source,
-    and whoever consumed the LAST replaced node's MODEL output reads the
-    loop's tail instead. A kept node (see `schema.LoraChainSelection`) is
-    left out of `replaced_node_ids` entirely and keeps its original wiring
-    untouched - it never appears here.
-
-    If any replaced node is a `LoraLoader` (carries a CLIP path, unlike
-    `LoraLoaderModelOnly`), the loop emits `LoraLoader` nodes instead so
-    CLIP keeps flowing through it too, each with `strength_clip` falling
-    back to the entry's own `strength` (the `lora_picker` field's value
-    shape has no separate clip-strength key - see
-    `src.platform.templating.dict_utils.active_loras`)."""
+def _lora_loop_boundary(
+    chain, replaced_node_ids: Set[str]
+) -> Tuple[str, int, str, str, Optional[Tuple[str, List[Tuple[str, str]]]]]:
+    """The `(source_node_id, source_output_index, target_node_id,
+    target_input, clip_boundary)` a `lora_picker` field's `@loop` splices
+    into, for the replaced span of a detected LoRA chain: the FIRST
+    replaced node's own source, and whoever consumed the LAST replaced
+    node's MODEL output. `clip_boundary` is `(clip_source_node_id,
+    clip_consumers)` when any replaced node carries a CLIP path (see
+    `_lora_chain_clip_boundary`), else `None`."""
     ordered = [n for n in chain.nodes if n.node_id in replaced_node_ids]
     first, last = ordered[0], ordered[-1]
-    loras_field = lora_field.field_name
-    source_id = first.model_source[0]
+    source_id, source_index = first.model_source
     target_id, target_input = last.model_consumer
-
     clip_source_id, clip_consumers = _lora_chain_clip_boundary(chain, replaced_node_ids)
-    has_clip = clip_source_id is not None
+    clip_boundary = (clip_source_id, clip_consumers) if clip_source_id is not None else None
+    return source_id, source_index, target_id, target_input, clip_boundary
+
+
+def _lora_node_manipulations(
+    lora_field: FieldItem,
+    source_id: str,
+    source_index: int,
+    target_id: str,
+    target_input: str,
+    clip_boundary: Optional[Tuple[str, List[Tuple[str, str]]]],
+) -> List[Any]:
+    """The `@loop` rewrite that turns `form.<lora_field>` into a fresh chain
+    of LoRA nodes spliced between `(source_id, source_index)` and
+    `(target_id, target_input)` - either a detected LoRA chain's replaced
+    span (`_lora_loop_boundary`) or, when there is nothing to replace (no
+    chain at all, or every chain node kept fixed), the sampling cluster's
+    own model-chain boundary (`suggest.ModelChainInfo`) - splicing right
+    after whatever the workflow already has wired there.
+
+    `clip_boundary`, when given, is `(clip_source_node_id, clip_consumers)`
+    and makes the loop emit `LoraLoader` nodes instead of
+    `LoraLoaderModelOnly` so CLIP keeps flowing through it too, each with
+    `strength_clip` falling back to the entry's own `strength` (the
+    `lora_picker` field's value shape has no separate clip-strength key -
+    see `src.platform.templating.dict_utils.active_loras`)."""
+    loras_field = lora_field.field_name
+    has_clip = clip_boundary is not None
+    clip_source_id, clip_consumers = clip_boundary if has_clip else (None, None)
     node_class = "LoraLoader" if has_clip else "LoraLoaderModelOnly"
+
+    # `source_index` only matters for `loop.first` - every OTHER iteration
+    # reads our own previously-emitted node, whose MODEL output is always
+    # index 0. The common case (source_index == 0) stays a plain int so the
+    # emitted YAML doesn't grow a ternary for nothing.
+    model_index: Any = source_index if source_index == 0 else f"{{{{ {source_index} if loop.first else 0 }}}}"
 
     node_inputs: Dict[str, Any] = {
         "lora_name": "{{ item.model | replace('models/loras/', '') }}",
         "strength_model": "{{ item.strength }}",
         "model": [
             "{% if loop.first %}" + source_id + "{% else %}lora_{{ loop.index0 }}{% endif %}",
-            0,
+            model_index,
         ],
     }
     if has_clip:
@@ -703,10 +730,26 @@ def emit_preset(
 
     node_manipulations: List[Any] = []
     excluded_node_ids: Set[str] = set()
-    if lora_field is not None and analysis.lora_chain is not None and replaced_lora_node_ids:
+    if lora_field is not None and replaced_lora_node_ids:
         excluded_node_ids.update(replaced_lora_node_ids)
         node_manipulations.extend(
-            _lora_node_manipulations(lora_field, analysis.lora_chain, replaced_lora_node_ids)
+            _lora_node_manipulations(
+                lora_field, *_lora_loop_boundary(analysis.lora_chain, replaced_lora_node_ids)
+            )
+        )
+    elif lora_field is not None and analysis.model_chain is not None:
+        # Nothing detected to replace (no chain at all, or every chain node
+        # kept fixed) - splice the picker right after whatever the workflow
+        # already has feeding the sampling cluster's own model input.
+        node_manipulations.extend(
+            _lora_node_manipulations(
+                lora_field,
+                analysis.model_chain.source_node_id,
+                analysis.model_chain.source_output_index,
+                analysis.model_chain.target_node_id,
+                analysis.model_chain.target_input,
+                None,
+            )
         )
 
     workflow_filename = f"{mode}.json"

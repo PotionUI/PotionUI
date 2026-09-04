@@ -245,7 +245,14 @@ def _validate_lora_chain_selection(
     current analysis's `lora_chain` detects, each exactly once - a stale
     selection left over from editing the workflow (a node id the chain no
     longer has, or a chain node neither list mentions) is caught here
-    rather than silently mis-splicing the emitted graph."""
+    rather than silently mis-splicing the emitted graph.
+
+    A workflow with no detected chain at all can still legitimately carry
+    an empty selection (`{replaced_node_ids: [], kept_node_ids: []}`) - the
+    `lora_picker` field, in that case, splices onto the sampling cluster's
+    own model-chain boundary instead (see `emit._lora_node_manipulations`),
+    so there is nothing here to account for. A NON-empty selection with no
+    detected chain, though, is still a stale/invalid one."""
     selection = form.lora_chain
     if selection is None:
         return []
@@ -253,6 +260,8 @@ def _validate_lora_chain_selection(
     analysis = suggest_fields(workflow, object_info=object_info)
     chain = analysis.lora_chain
     if chain is None:
+        if not selection.replaced_node_ids and not selection.kept_node_ids:
+            return []
         return ["lora_chain: a selection was given but this workflow has no detected LoRA chain"]
 
     problems: List[str] = []

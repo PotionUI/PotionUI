@@ -347,6 +347,18 @@ class TestLoraChainSelectionValidation:
         with pytest.raises(PresetEmitError, match="no detected LoRA chain"):
             validate_against_workflow(form, [], workflow)
 
+    def test_empty_selection_with_no_chain_detected_is_accepted(self):
+        """A `lora_picker` field on a workflow with no LoRA chain at all
+        legitimately carries an empty selection (`emit.emit_preset` splices
+        it onto the sampling cluster's own model-chain boundary instead -
+        see `suggest.ModelChainInfo`), unlike the non-empty selection
+        above, which still has nothing to refer to."""
+        workflow = _sdxl_workflow()
+        form = self._lora_chain_form(
+            LoraChainSelection(replaced_node_ids=[], kept_node_ids=[])
+        )
+        validate_against_workflow(form, [], workflow)  # must not raise
+
     def _three_node_chain_workflow(self):
         """4 (checkpoint) -> 101 -> 102 -> 103 -> 3 (sampler), all
         `LoraLoaderModelOnly` - a plain three-node chain for the

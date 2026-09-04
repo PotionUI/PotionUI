@@ -36,6 +36,30 @@ def _load(name: str) -> dict:
         return json.load(f)
 
 
+def _render_comfyui_node_manipulations(preset_id: str, mode: str, form_data: dict) -> list:
+    """Render a preset's `comfyui` pipe's `node_manipulations` through the
+    real `scripts/preset_render.py` harness (`PresetProcessor.process()`),
+    with `form_data` supplied verbatim (no fixture walk) - the only way to
+    see a `lora_picker` field's `@loop` actually expand against a chosen
+    set of active LoRAs, since that expansion happens in the same generic
+    templating pass as every other pipe config value, not inside this
+    plugin."""
+    form_file = REPO_ROOT / f"_render_probe_{uuid.uuid4().hex[:12]}_form.yml"
+    form_file.write_text(yaml.safe_dump(form_data))
+    try:
+        proc = subprocess.run(
+            [sys.executable, "scripts/preset_render.py", preset_id, mode, "--form", str(form_file), "--json"],
+            cwd=REPO_ROOT, capture_output=True, text=True, timeout=120,
+        )
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        record = json.loads(proc.stdout[proc.stdout.index("{"):])
+        assert "error" not in record, record
+        comfyui_pipe = next(p for p in record["pipes"] if p["name"] == "comfyui")
+        return comfyui_pipe["config"]["node_manipulations"]["value"]
+    finally:
+        form_file.unlink(missing_ok=True)
+
+
 @pytest.fixture()
 def dest_root(tmp_path):
     return tmp_path / "presets"
@@ -370,6 +394,199 @@ class TestLoraChainKeepFixedSplicing:
             (result.preset_dir / "modes" / result.mode / "files" / "workflows" / f"{result.mode}.json").read_text()
         )
         assert workflow_json["150"]["inputs"]["model"] == ["101", 0]  # dangling - 101 no longer exists
+
+
+class TestLoraPickerWithNothingStructuralToReplace:
+    """A `lora_picker` field is valid even when nothing detected gets
+    excluded from the baked workflow - a chain with every node kept fixed,
+    or no LoRA chain at all. In both cases `emit_preset` splices the
+    picker's `@loop` onto `suggest.ModelChainInfo` (the sampling cluster's
+    own model-chain boundary) instead of a replaced span's boundary."""
+
+    def _inject_kept_lora(self, raw: dict, *, lora_node_id="50", source_id="4", sampler_id="3") -> dict:
+        raw = json.loads(json.dumps(raw))
+        raw[lora_node_id] = {
+            "class_type": "LoraLoaderModelOnly",
+            "inputs": {"lora_name": "lighting.safetensors", "strength_model": 1.0, "model": [source_id, 0]},
+            "_meta": {"title": "Lighting LoRA"},
+        }
+        raw[sampler_id]["inputs"]["model"] = [lora_node_id, 0]
+        return raw
+
+    def test_all_kept_chain_splices_after_the_kept_node(self):
+        """One `LoraLoaderModelOnly` node (kept fixed) between the
+        checkpoint and the sampler, no other LoRA node in the workflow:
+        `form.lora_chain` keeps it, nothing is replaced, and the picker's
+        loop must splice right after it - node 50 itself must survive
+        completely untouched (not bypassed).
+
+        Emits into `content/presets/local` (not the `dest_root` tmp_path
+        fixture) because the final assertion renders it by preset id
+        through `scripts/preset_render.py`, which only scans real preset
+        roots - same reason `TestEndToEndRenderAndLint` does the same."""
+        raw = self._inject_kept_lora(_load("sdxl_basic_api.json"))
+        workflow = parse_api_workflow(raw)
+        analysis = suggest_fields(workflow)
+        assert analysis.lora_chain is not None
+        assert analysis.lora_chain.lora_node_ids == ["50"]
+        assert analysis.model_chain is not None
+        assert analysis.model_chain.source_node_id == "50"
+
+        form = form_from_roles(analysis, {"checkpoint", "steps", "cfg"})
+        form.tabs[0].items.append(_lora_item())
+        form.lora_chain = LoraChainSelection(replaced_node_ids=[], kept_node_ids=["50"])
+
+        local_root = REPO_ROOT / "content" / "presets" / "local"
+        marker = f"WorkflowImporterAllKeptTest{uuid.uuid4().hex[:12]}"
+        try:
+            result = emit_preset(
+                workflow, form, [], model_family=marker, variant="v1",
+                display_name="LoRA All Kept Test", dest_root=local_root,
+            )
+            assert result.mode == "txt2img"
+
+            workflow_json = json.loads(
+                (result.preset_dir / "modes" / "txt2img" / "files" / "workflows" / "txt2img.json").read_text()
+            )
+            assert workflow_json["50"]["inputs"]["model"] == ["4", 0]  # kept node - untouched, not bypassed
+            assert workflow_json["3"]["inputs"]["model"] == ["50", 0]  # sampler still reads the kept node directly
+
+            pipeline = yaml.safe_load(
+                (result.preset_dir / "modes" / "txt2img" / "pipeline.yml").read_text()
+            )
+            comfyui_pipe = next(p for p in pipeline["pipeline"] if p["name"] == "comfyui")
+            manipulations = comfyui_pipe["configuration"]["node_manipulations"]
+            loop_manip = next(m for m in manipulations if "@loop" in m)["@loop"]
+            assert "50" in loop_manip["template"]["node_config"]["inputs"]["model"][0]
+            update_input = next(m for m in manipulations if m.get("type") == "update_node_input")
+            assert update_input["node_id"] == "3"
+            assert "50" in update_input["input_value"][0]  # falls back to the kept node when no LoRAs are chosen
+
+            requirements = yaml.safe_load((result.preset_dir / "preset.yml").read_text())["requirements"]
+            lora_req = next(r for r in requirements if r.get("folder") == "loras")
+            assert lora_req["name"] == "lighting.safetensors"
+            assert "optional" not in lora_req  # kept - still hard, nothing was replaced
+
+            # Render through the real templating path with two active LoRAs
+            # and confirm the actual chain: checkpoint -> lighting (kept) ->
+            # lora_1 -> lora_2 -> KSampler.
+            form_data = {
+                "seed": 7, "quantity": 1,
+                "checkpoint": "models/checkpoints/sdxlBase_v10.safetensors",
+                "steps": 27, "cfg": 4.0,
+                "loras": [
+                    {"model": "models/loras/style_a.safetensors", "strength": 0.6},
+                    {"model": "models/loras/style_b.safetensors", "strength": 0.9},
+                ],
+            }
+            rendered = _render_comfyui_node_manipulations(result.preset_id, "txt2img", form_data)
+            add_nodes = [m for m in rendered[0] if m["type"] == "add_node"]
+            assert add_nodes[0]["node_config"]["inputs"]["model"] == ["50", 0]
+            assert add_nodes[0]["node_id"] == "lora_1"
+            assert add_nodes[1]["node_config"]["inputs"]["model"] == ["lora_1", 0]
+            assert add_nodes[1]["node_id"] == "lora_2"
+            assert rendered[1] == {
+                "type": "update_node_input", "node_id": "3", "input_key": "model", "input_value": ["lora_2", 0],
+            }
+        finally:
+            shutil.rmtree(local_root / marker, ignore_errors=True)
+
+    def test_bite_check_all_kept_splice_breaks_without_the_model_chain_fallback(self, dest_root):
+        """Confirms the assertion above can fail: without the model-chain
+        fallback branch, a fully-kept chain (`replaced_lora_node_ids`
+        empty) emits no node_manipulations at all, so the picker field
+        would be silently ignored at generation time."""
+        raw = self._inject_kept_lora(_load("sdxl_basic_api.json"))
+        workflow = parse_api_workflow(raw)
+        analysis = suggest_fields(workflow)
+        form = form_from_roles(analysis, {"checkpoint", "steps", "cfg"})
+        form.tabs[0].items.append(_lora_item())
+        form.lora_chain = LoraChainSelection(replaced_node_ids=[], kept_node_ids=["50"])
+
+        result = emit_preset(
+            workflow, form, [], model_family="LoraAllKeptBite", variant="v1",
+            display_name="X", dest_root=dest_root,
+        )
+        pipeline = yaml.safe_load(
+            (result.preset_dir / "modes" / "txt2img" / "pipeline.yml").read_text()
+        )
+        comfyui_pipe = next(p for p in pipeline["pipeline"] if p["name"] == "comfyui")
+        assert "node_manipulations" in comfyui_pipe["configuration"]  # would be absent if the branch were reverted
+
+    def test_no_lora_chain_at_all_splices_onto_the_model_chain(self):
+        """No LoRA node anywhere in the workflow: `analysis.lora_chain` is
+        `None`, so the picker's loop must splice directly onto the
+        checkpoint -> sampler link (`analysis.model_chain`), and with zero
+        active LoRAs the sampler falls back straight to the checkpoint.
+        Emits into `content/presets/local` - see the previous test's
+        docstring for why."""
+        workflow = parse_api_workflow(_load("sdxl_basic_api.json"))
+        analysis = suggest_fields(workflow)
+        assert analysis.lora_chain is None
+        assert analysis.model_chain is not None
+
+        form = form_from_roles(analysis, {"checkpoint", "steps", "cfg"})
+        form.tabs[0].items.append(_lora_item())
+        form.lora_chain = LoraChainSelection(replaced_node_ids=[], kept_node_ids=[])
+
+        local_root = REPO_ROOT / "content" / "presets" / "local"
+        marker = f"WorkflowImporterNoChainTest{uuid.uuid4().hex[:12]}"
+        try:
+            result = emit_preset(
+                workflow, form, [], model_family=marker, variant="v1",
+                display_name="LoRA No Chain Test", dest_root=local_root,
+            )
+            workflow_json = json.loads(
+                (result.preset_dir / "modes" / "txt2img" / "files" / "workflows" / "txt2img.json").read_text()
+            )
+            assert workflow_json["3"]["inputs"]["model"] == ["4", 0]  # source workflow untouched - nothing to replace
+
+            pipeline = yaml.safe_load(
+                (result.preset_dir / "modes" / "txt2img" / "pipeline.yml").read_text()
+            )
+            comfyui_pipe = next(p for p in pipeline["pipeline"] if p["name"] == "comfyui")
+            manipulations = comfyui_pipe["configuration"]["node_manipulations"]
+            loop_manip = next(m for m in manipulations if "@loop" in m)["@loop"]
+            assert "4" in loop_manip["template"]["node_config"]["inputs"]["model"][0]
+            update_input = next(m for m in manipulations if m.get("type") == "update_node_input")
+            assert update_input["node_id"] == "3"
+            assert "4" in update_input["input_value"][0]
+
+            form_data = {
+                "seed": 7, "quantity": 1,
+                "checkpoint": "models/checkpoints/sdxlBase_v10.safetensors",
+                "steps": 27, "cfg": 4.0,
+                "loras": [],
+            }
+            rendered = _render_comfyui_node_manipulations(result.preset_id, "txt2img", form_data)
+            assert rendered[0] == []  # no active LoRAs - loop expands to nothing
+            assert rendered[1] == {
+                "type": "update_node_input", "node_id": "3", "input_key": "model", "input_value": ["4", 0],
+            }
+        finally:
+            shutil.rmtree(local_root / marker, ignore_errors=True)
+
+    def test_a_form_with_no_lora_chain_selection_at_all_still_splices_via_model_chain(self, dest_root):
+        """`form.lora_chain is None` (a hand-built form, or a preset from
+        before this selection existed) on a workflow with no LoRA chain -
+        pre-existing code already reads this as "nothing to replace"; it
+        must fall into the same model-chain splice as an explicit empty
+        selection, not silently drop the picker's wiring."""
+        workflow = parse_api_workflow(_load("sdxl_basic_api.json"))
+        analysis = suggest_fields(workflow)
+        form = form_from_roles(analysis, {"checkpoint", "steps", "cfg"})
+        form.tabs[0].items.append(_lora_item())
+        form.lora_chain = None
+
+        result = emit_preset(
+            workflow, form, [], model_family="LoraNoChainNoneSelection", variant="v1",
+            display_name="X", dest_root=dest_root,
+        )
+        pipeline = yaml.safe_load(
+            (result.preset_dir / "modes" / "txt2img" / "pipeline.yml").read_text()
+        )
+        comfyui_pipe = next(p for p in pipeline["pipeline"] if p["name"] == "comfyui")
+        assert "node_manipulations" in comfyui_pipe["configuration"]
 
 
 class TestSubgraphIdsSurvive:

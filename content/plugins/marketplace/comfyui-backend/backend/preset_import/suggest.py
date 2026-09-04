@@ -131,12 +131,29 @@ class LoraChainInfo:
 
 
 @dataclass
+class ModelChainInfo:
+    """The single connection feeding the sampling cluster's own model-chain
+    input (`_model_chain_start`), independent of whether anything along it
+    is a LoRA node - unlike `LoraChainInfo` (which walks all the way back to
+    the loader and is `None` when the walk finds no `lora`-category node),
+    this is populated whenever the cluster consumes a model at all, so a
+    `lora_picker` field can be spliced in even for a workflow with no LoRA
+    node, or with every existing LoRA node kept fixed."""
+
+    source_node_id: str
+    source_output_index: int
+    target_node_id: str
+    target_input: str
+
+
+@dataclass
 class AnalyzeResult:
     candidates: List[InputCandidate]
     mode: str
     node_count: int
     sampler_node_id: Optional[str]
     lora_chain: Optional[LoraChainInfo]
+    model_chain: Optional[ModelChainInfo] = None
     sampling_cluster_node_ids: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -145,6 +162,16 @@ class AnalyzeResult:
             "node_count": self.node_count,
             "sampler_node_id": self.sampler_node_id,
             "sampling_cluster_node_ids": self.sampling_cluster_node_ids,
+            "model_chain": (
+                {
+                    "source_node_id": self.model_chain.source_node_id,
+                    "source_output_index": self.model_chain.source_output_index,
+                    "target_node_id": self.model_chain.target_node_id,
+                    "target_input": self.model_chain.target_input,
+                }
+                if self.model_chain
+                else None
+            ),
             "lora_chain": (
                 {
                     "source_node_id": self.lora_chain.source_node_id,
@@ -374,22 +401,21 @@ def _model_chain_start(
 
 
 def _detect_lora_chain(
-    workflow: Workflow, catalog: NodeCatalog, cluster: Dict[str, WorkflowNode]
+    workflow: Workflow,
+    catalog: NodeCatalog,
+    start: Tuple[WorkflowNode, str, Tuple[str, int]],
 ) -> Optional[LoraChainInfo]:
     """Walk backward from the sampling cluster's own model-chain input
-    (`_model_chain_start`), collecting every `lora`-category node found
-    along the way - through any number of pass-through patcher nodes
-    (`ModelSamplingAuraFlow`, `CFGNorm`, `FreeU`, ...: anything whose own
-    `model` input is itself a connection), not just an unbroken run of LoRA
-    nodes back to back. The walk stops at the first node with no connected
-    `model` input at all - the loader (`CheckpointLoaderSimple`/
+    (`start`, from `_model_chain_start`), collecting every `lora`-category
+    node found along the way - through any number of pass-through patcher
+    nodes (`ModelSamplingAuraFlow`, `CFGNorm`, `FreeU`, ...: anything whose
+    own `model` input is itself a connection), not just an unbroken run of
+    LoRA nodes back to back. The walk stops at the first node with no
+    connected `model` input at all - the loader (`CheckpointLoaderSimple`/
     `UNETLoader`/...). Contiguity among the LoRA nodes themselves is not
     required, and collecting a node as a LoRA depends only on its OWN
     catalog category at the moment it's visited, not on any category the
     walk itself is following."""
-    start = _model_chain_start(catalog, cluster)
-    if start is None:
-        return None
     start_node, start_input, conn = start
 
     nodes: List[LoraChainNode] = []  # target -> source order while walking
@@ -627,7 +653,18 @@ def suggest_fields(
 
     sampler = _find_sampler(workflow, catalog)
     cluster: Dict[str, WorkflowNode] = _sampling_cluster(workflow, catalog, sampler) if sampler else {}
-    lora_chain = _detect_lora_chain(workflow, catalog, cluster) if cluster else None
+    model_chain_start = _model_chain_start(catalog, cluster) if cluster else None
+    model_chain = (
+        ModelChainInfo(
+            source_node_id=model_chain_start[2][0],
+            source_output_index=model_chain_start[2][1],
+            target_node_id=model_chain_start[0].id,
+            target_input=model_chain_start[1],
+        )
+        if model_chain_start is not None
+        else None
+    )
+    lora_chain = _detect_lora_chain(workflow, catalog, model_chain_start) if model_chain_start else None
 
     # Loaders, image inputs and modifiers - scanned across the whole
     # workflow, independent of the sampling cluster: a loader or an inline
@@ -781,5 +818,6 @@ def suggest_fields(
         node_count=len(workflow.nodes),
         sampler_node_id=sampler.id if sampler else None,
         lora_chain=lora_chain,
+        model_chain=model_chain,
         sampling_cluster_node_ids=list(cluster.keys()),
     )

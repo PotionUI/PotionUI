@@ -329,6 +329,52 @@ class TestCustomSamplingGraphViaNodeCatalog:
         assert analysis.lora_chain.target_node_id == "32"
 
 
+class TestModelChainDetection:
+    """`AnalyzeResult.model_chain` (`suggest.ModelChainInfo`) - the sampling
+    cluster's own model-chain boundary, populated independent of whether a
+    LoRA chain exists at all (unlike `lora_chain`, which is `None` for a
+    workflow with no LoRA node)."""
+
+    def test_no_lora_chain_still_finds_the_model_chain(self):
+        workflow = parse_api_workflow(_load("sdxl_basic_api.json"))
+        analysis = suggest_fields(workflow)
+        assert analysis.lora_chain is None
+        assert analysis.model_chain is not None
+        assert (
+            analysis.model_chain.source_node_id,
+            analysis.model_chain.source_output_index,
+            analysis.model_chain.target_node_id,
+            analysis.model_chain.target_input,
+        ) == ("4", 0, "3", "model")
+        assert analysis.to_dict()["model_chain"] == {
+            "source_node_id": "4",
+            "source_output_index": 0,
+            "target_node_id": "3",
+            "target_input": "model",
+        }
+
+    def test_model_chain_tracks_the_cluster_node_that_actually_carries_it(self):
+        """Whatever `_model_chain_start` picks as the cluster's own
+        model-chain consumer (BasicGuider(22), not BasicScheduler(32), for
+        this fixture's default cluster) is `model_chain`'s target - the
+        immediate connection, one hop back (ModelSamplingFlux(11)), not the
+        chain walk's ultimate loader (UNETLoader(1))."""
+        workflow = parse_api_workflow(_load("flux_custom_sampling_api.json"))
+        analysis = suggest_fields(workflow)
+        assert analysis.lora_chain is not None
+        assert analysis.model_chain is not None
+        assert analysis.model_chain.target_node_id == "22"
+        assert analysis.model_chain.source_node_id == "11"
+        assert analysis.model_chain.source_output_index == 0
+
+    def test_model_chain_is_none_when_nothing_in_the_cluster_consumes_a_model(self):
+        workflow = parse_api_workflow(_load("sdxl_basic_api.json"))
+        workflow.node("3").inputs["model"] = "not-a-connection"
+        analysis = suggest_fields(workflow)
+        assert analysis.model_chain is None
+        assert analysis.to_dict()["model_chain"] is None
+
+
 class TestLtx25RealExportFindsItsSamplerViaCategory:
     """This fixture has NO connections at all (every input, including a
     sampler's own noise/seed, is a positional `widget_N` literal with no

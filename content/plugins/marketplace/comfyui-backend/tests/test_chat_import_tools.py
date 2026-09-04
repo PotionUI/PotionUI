@@ -383,3 +383,82 @@ def test_bite_check_keeping_an_end_node_is_not_sandwiched():
     ops = [{"op": "lora_picker", "tab": "generation", "keep_fixed": ["101"]}]
     result = run(tool.execute(_context(_wiz_with_three_node_lora_chain()), ops=ops))
     assert result.success is True, result.error
+
+
+# --- ProposeFormChangesTool: lora_picker with nothing structural to replace
+
+
+_NO_CHAIN_MODEL_CHAIN = {
+    "source_node_id": "4", "source_output_index": 0,
+    "target_node_id": "3", "target_input": "model",
+}
+
+
+def test_lora_picker_op_accepted_with_no_chain_but_a_model_chain():
+    """No `lora_chain` at all - `model_chain` (the sampling cluster's own
+    model-chain boundary, present even with no LoRA node in the workflow)
+    is enough on its own to make the op valid."""
+    tool = ProposeFormChangesTool()
+    wiz = _wiz(model_chain=_NO_CHAIN_MODEL_CHAIN)
+    ops = [{"op": "lora_picker", "tab": "generation"}]
+    result = run(tool.execute(_context(wiz), ops=ops))
+    assert result.success is True, result.error
+    assert "+ LoRA picker (0 LoRAs seeded)" in result.preview.items[0]
+    assert "before KSampler.model" in result.preview.items[0]  # node "3" is a KSampler in _wiz()'s candidates
+
+    confirmed = run(tool.execute_confirmed(_context(wiz), ops=ops))
+    payload = json.loads(confirmed.data)
+    assert payload["ops"][0] == {"op": "lora_picker", "tab": "generation", "field_name": "loras", "keep_fixed": []}
+
+
+def test_lora_picker_op_still_rejected_with_neither_chain_nor_model_chain():
+    """`test_lora_picker_op_without_a_detected_chain_is_rejected` above
+    covers the same shape via `_wiz()`'s bare defaults; this is explicit
+    about `model_chain` being the thing that makes the difference."""
+    tool = ProposeFormChangesTool()
+    wiz = _wiz()
+    assert wiz.get("model_chain") is None
+    ops = [{"op": "lora_picker", "tab": "generation"}]
+    result = run(tool.execute(_context(wiz), ops=ops))
+    assert result.success is False
+    assert "no LoRA chain detected" in result.error
+
+
+def test_lora_picker_op_rejects_keep_fixed_when_there_is_no_chain_at_all():
+    tool = ProposeFormChangesTool()
+    wiz = _wiz(model_chain=_NO_CHAIN_MODEL_CHAIN)
+    ops = [{"op": "lora_picker", "tab": "generation", "keep_fixed": ["999"]}]
+    result = run(tool.execute(_context(wiz), ops=ops))
+    assert result.success is False
+    assert "not in the detected chain" in result.error
+
+
+def _wiz_with_a_single_kept_lora_node(**overrides):
+    """A workflow with one `LoraLoaderModelOnly` node the admin keeps fixed
+    and no other LoRA - `model_chain.source_node_id` is that same node,
+    exactly as `suggest.ModelChainInfo` would report it (the sampler's
+    model input connects directly to the kept node, not the loader)."""
+    return _wiz(
+        lora_chain={
+            "nodes": [
+                {"node_id": "101", "class_type": "LoraLoaderModelOnly", "lora_name": "lighting.safetensors", "strength_model": 1.0},
+            ],
+            "replaced": [],
+            "kept": [],
+        },
+        model_chain={"source_node_id": "101", "source_output_index": 0, "target_node_id": "3", "target_input": "model"},
+        **overrides,
+    )
+
+
+def test_lora_picker_op_on_a_single_kept_node_workflow_names_the_splice_point():
+    tool = ProposeFormChangesTool()
+    ops = [{"op": "lora_picker", "tab": "generation", "keep_fixed": ["101"]}]
+    result = run(tool.execute(_context(_wiz_with_a_single_kept_lora_node()), ops=ops))
+    assert result.success is True, result.error
+    assert "node 101 kept fixed" in result.preview.items[0]
+    assert "after kept node 101" in result.preview.items[0]
+
+    confirmed = run(tool.execute_confirmed(_context(_wiz_with_a_single_kept_lora_node()), ops=ops))
+    payload = json.loads(confirmed.data)
+    assert payload["ops"][0] == {"op": "lora_picker", "tab": "generation", "field_name": "loras", "keep_fixed": ["101"]}

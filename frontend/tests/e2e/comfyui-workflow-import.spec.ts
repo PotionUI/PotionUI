@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { readFileSync, rmSync } from 'node:fs';
+import { readdirSync, readFileSync, rmSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loginAsOwner, ownerToken, screenshot } from './helpers';
@@ -23,6 +23,29 @@ const FIXTURE_PATH = resolve(
 	REPO_ROOT,
 	'content/plugins/marketplace/comfyui-backend/tests/fixtures/sdxl_basic_api.json'
 );
+
+// Isolates one `- name: <fieldName>` list item out of a tab YAML's `fields:`
+// block (sibling fields, and a section's other fields sharing the file,
+// would otherwise leak into a substring/toContain check on the whole file).
+function extractFieldBlock(yamlText: string, fieldName: string): string {
+	const lines = yamlText.split('\n');
+	const startIdx = lines.findIndex((l) => new RegExp(`^\\s*- name: ${fieldName}\\s*$`).test(l));
+	if (startIdx === -1) return '';
+	const indent = lines[startIdx].match(/^\s*/)?.[0].length ?? 0;
+	const block = [lines[startIdx]];
+	for (let i = startIdx + 1; i < lines.length; i++) {
+		const line = lines[i];
+		if (line.trim() === '') {
+			block.push(line);
+			continue;
+		}
+		const lineIndent = line.match(/^\s*/)?.[0].length ?? 0;
+		if (lineIndent <= indent && line.trim().startsWith('- ')) break;
+		if (lineIndent < indent) break;
+		block.push(line);
+	}
+	return block.join('\n');
+}
 
 async function apiGet(page: Page, url: string, token: string) {
 	const res = await page.request.get(url, { headers: { Authorization: `Bearer ${token}` } });
@@ -167,6 +190,15 @@ test('Admin > Plugins > ComfyUI Backend - import a workflow through the wizard i
 		await expect(fieldsList).toHaveCount(fieldCountBefore);
 		await screenshot(page, JOURNEY, '03c-wizard-drag-to-tab');
 
+		// Changing a field's type resets its config/default to what the new
+		// type expects, rather than carrying the old type's shape across (a
+		// `model` field's `{model_type, placeholder}` config and string
+		// filename default surviving into a `lora_picker` as a broken hybrid).
+		const checkpointCard = wizard.locator('.di-field-card[data-field-name="checkpoint"]');
+		await expect(checkpointCard).toHaveCount(1);
+		await checkpointCard.locator('.di-field-type').selectOption('lora_picker');
+		await screenshot(page, JOURNEY, '03d-wizard-field-type-reset');
+
 		await wizard.locator('#import-model-family').fill(familyId);
 		await wizard.locator('#import-display-name').fill('E2E imported SDXL');
 		await wizard.locator('button[data-import-continue-form]').click();
@@ -194,6 +226,20 @@ test('Admin > Plugins > ComfyUI Backend - import a workflow through the wizard i
 		const formYml = readFileSync(resolve(createdPresetDir, 'imported/modes/txt2img/form.yml'), 'utf-8');
 		expect(formYml).toContain('icon: lora');
 		expect(formYml).toContain('icon_display: icon_label');
+
+		// The "checkpoint" field switched to `lora_picker` above: its emitted
+		// tab YAML must carry the fresh picker shape (list default seeded
+		// from the old filename default, max_items), never the `model` type's
+		// leftover `options`/scalar-string config it replaced.
+		const tabsDir = resolve(createdPresetDir, 'imported/modes/txt2img/tabs');
+		const tabYamls = readdirSync(tabsDir).map((f) => readFileSync(resolve(tabsDir, f), 'utf-8'));
+		const checkpointTabYml = tabYamls.find((y) => y.includes('name: checkpoint'));
+		expect(checkpointTabYml, 'no tab file defines the "checkpoint" field').toBeTruthy();
+		const checkpointFieldYml = extractFieldBlock(checkpointTabYml!, 'checkpoint');
+		expect(checkpointFieldYml).toContain('type: lora_picker');
+		expect(checkpointFieldYml).toContain('max_items: 6');
+		expect(checkpointFieldYml).toMatch(/default:\s*\n\s*-\s*model: models\/loras\/sdxlBase_v10\.safetensors/);
+		expect(checkpointFieldYml).not.toContain('options');
 
 		const openLink = wizard.locator('a[data-import-open-preset]');
 		await expect(openLink).toBeVisible();
@@ -261,6 +307,100 @@ test('Admin > Plugins > ComfyUI Backend - import a workflow through the wizard i
 		await confirmDialog.getByRole('button', { name: 'Delete', exact: true }).click();
 		await expect(importedTable.locator('.ip-row').filter({ hasText: familyId })).toHaveCount(0, { timeout: 10000 });
 		await screenshot(page, JOURNEY, '13-deleted');
+	} finally {
+		rmSync(createdPresetDir, { recursive: true, force: true });
+	}
+});
+
+test('Admin > Plugins > ComfyUI Backend - "Add LoRA picker" wires a picker into a workflow with no LoRA nodes', async ({
+	page
+}) => {
+	test.setTimeout(60_000);
+	const familyId = `e2e-import-nolora-${Date.now()}`;
+	const createdPresetDir = resolve(REPO_ROOT, 'content/presets/local', familyId);
+
+	try {
+		await loginAsOwner(page);
+		const token = await ownerToken(page);
+
+		await apiPost(page, '/api/plugins/scan', token);
+		const pluginsList = await apiGet(page, '/api/plugins', token);
+		const pluginRow = (pluginsList.data || []).find((p: any) => p.id === PLUGIN_ID);
+		if (!pluginRow) {
+			test.skip(true, `'${PLUGIN_ID}' was not discovered on this throwaway instance.`);
+			return;
+		}
+		if (!pluginRow.enabled) {
+			await apiPost(page, `/api/plugins/${PLUGIN_ID}/enable`, token);
+		}
+
+		await page.goto('/admin?tab=plugins');
+		await page.waitForTimeout(500);
+
+		const pluginListRow = page.getByText('ComfyUI Backend', { exact: false }).first();
+		if ((await pluginListRow.count()) === 0) {
+			test.skip(
+				true,
+				"'ComfyUI Backend' is not present in the plugin list - the plugin frontend isn't mounted on this build."
+			);
+			return;
+		}
+		await pluginListRow.click();
+
+		const tabNav = page.locator('nav[aria-label="Plugin details"]');
+		await expect(tabNav).toBeVisible();
+		const importTab = tabNav.getByText('Import workflow', { exact: false });
+		if ((await importTab.count()) === 0) {
+			test.skip(true, "'Import workflow' tab not present - the admin_tabs hook wasn't picked up on this build.");
+			return;
+		}
+		await importTab.click();
+
+		const wizard = page.locator('[data-import-wizard]');
+		await expect(wizard).toBeVisible();
+
+		// sdxl_basic_api.json (same fixture as the journey above) has a
+		// KSampler fed straight off CheckpointLoaderSimple - no LoRA node at
+		// all, but a sampler cluster for `analysis.model_chain` to point at.
+		const workflowJson = readFileSync(FIXTURE_PATH, 'utf-8');
+		await wizard.locator('textarea[data-import-json-input]').fill(workflowJson);
+		await wizard.locator('button[data-import-analyze]').click();
+
+		await expect(wizard.locator('[data-import-form-inputs]')).toBeVisible({ timeout: 10000 });
+
+		const loraChainCard = wizard.locator('[data-import-lora-chain]');
+		await expect(loraChainCard).toBeVisible({ timeout: 10000 });
+		await expect(loraChainCard).toHaveAttribute('data-import-lora-chain-empty', '');
+		await screenshot(page, JOURNEY, '14-no-lora-card');
+
+		const fieldsList = wizard.locator('[data-import-form-items] .di-field-card');
+		const fieldCountBefore = await fieldsList.count();
+
+		const addPickerBtn = loraChainCard.locator('button[data-action="add-lora-picker"]');
+		await addPickerBtn.click();
+		await expect(fieldsList).toHaveCount(fieldCountBefore + 1);
+		await expect(wizard.locator('[data-import-form-items] .di-field-card[data-field-name="loras"]')).toBeVisible();
+		await expect(addPickerBtn).toBeDisabled();
+		await screenshot(page, JOURNEY, '15-lora-picker-added-no-chain');
+
+		await wizard.locator('#import-model-family').fill(familyId);
+		await wizard.locator('#import-display-name').fill('E2E no-LoRA import');
+		await wizard.locator('button[data-import-continue-form]').click();
+
+		await expect(wizard.locator('[data-wiz-step="history"].current')).toBeVisible({ timeout: 10000 });
+		await wizard.locator('button[data-import-continue-history]').click();
+
+		await expect(wizard.locator('[data-wiz-step="requirements"].current')).toBeVisible({ timeout: 10000 });
+		await wizard.locator('button[data-import-create]').click();
+
+		await expect(wizard.locator('[data-import-lint]')).toBeVisible({ timeout: 15000 });
+
+		// The emitter splices the picker's `@loop` at the model chain's tail
+		// since nothing was replaced (no chain existed to replace) - a plain
+		// model-chain-only splice has no CLIP path, so it's LoraLoaderModelOnly.
+		const pipelineYml = readFileSync(resolve(createdPresetDir, 'imported/modes/txt2img/pipeline.yml'), 'utf-8');
+		expect(pipelineYml).toContain('@loop');
+		expect(pipelineYml).toContain('LoraLoaderModelOnly');
 	} finally {
 		rmSync(createdPresetDir, { recursive: true, force: true });
 	}

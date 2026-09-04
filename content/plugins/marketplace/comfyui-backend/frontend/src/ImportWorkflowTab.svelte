@@ -162,6 +162,19 @@
 	let loraSandwichError = $derived(
 		loraConverted ? null : findSandwichedLoraNode(loraChainNodes, loraKeepFixed)
 	);
+	// True once every detected chain node is marked kept (either mid-toggle
+	// or, post-conversion, because the replaced set ended up empty) - the
+	// splice point moves from "replace in place" to "after the last kept
+	// node", which is worth calling out next to the Convert button.
+	let loraAllKept = $derived(
+		loraChainNodes.length > 0 &&
+			(loraConverted ? loraReplacedIds.size === 0 : loraChainNodes.every((n) => loraKeepFixed.has(n.node_id)))
+	);
+	// The model-chain edge the emitter splices a picker's `@loop` into when
+	// there is nothing to replace (no chain at all, or every node kept) -
+	// see backend's `analysis.model_chain`. `null` when the workflow has no
+	// sampler cluster to splice before.
+	let modelChainInfo = $derived(analysis?.model_chain || null);
 	let leftGroups = $derived(
 		buildLeftGroups(
 			(analysis?.candidates || []).filter((c) => !loraReplacedIds.has(c.node_id)),
@@ -392,6 +405,22 @@
 		tab.items.push(field);
 	}
 
+	// A node's class type via whatever the wizard already has in hand
+	// (a candidate row, then the raw API-format workflow), falling back to
+	// its bare id - used for the "no LoRA nodes detected" splice hint.
+	function nodeClassLabel(nodeId) {
+		if (!nodeId) return null;
+		const candidate = (analysis?.candidates || []).find((c) => c.node_id === nodeId);
+		if (candidate?.class_type) return candidate.class_type;
+		const raw = workflowJson && typeof workflowJson === 'object' ? workflowJson[nodeId] : null;
+		if (raw && typeof raw === 'object' && raw.class_type) return raw.class_type;
+		return nodeId;
+	}
+
+	let modelChainInsertionLabel = $derived(
+		modelChainInfo ? `${nodeClassLabel(modelChainInfo.target_node_id)}.${modelChainInfo.target_input}` : ''
+	);
+
 	// ---- LoRA chain -> lora_picker conversion ----
 	function toggleLoraKeepFixed(nodeId) {
 		if (loraConverted) return;
@@ -425,13 +454,33 @@
 		return null;
 	}
 
+	// Shared by the chain-conversion flow below and a field card's own
+	// type-change reset (configForTypeChange) - both need the exact same
+	// picker config shape.
+	function loraPickerConfig() {
+		return {
+			model_type: 'lora',
+			placeholder: 'Select a LoRA...',
+			allow_info_modal: true,
+			strength_min: -2.0,
+			strength_max: 2.0,
+			strength_step: 0.1,
+			strength_default: 1.0,
+			max_items: 6
+		};
+	}
+
 	// Shared by the wizard's own "Convert to LoRA picker" button and the
 	// assistant's `lora_picker` tool op (see applyImportFormChanges) - the
 	// only difference between the two call sites is where `keepFixedIds`
 	// comes from.
 	function applyLoraPickerConversion(tab, keepFixedIds, fieldNameHint) {
 		const nodes = loraChainNodes;
-		if (!tab || !nodes.length || loraConverted) return false;
+		if (!tab || loraConverted) return false;
+		// No detected chain at all is only fine when there's somewhere to
+		// splice the picker's own `@loop` - i.e. a model_chain edge into a
+		// sampler cluster. Otherwise there's nothing to wire it into.
+		if (!nodes.length && !modelChainInfo) return false;
 		if (findSandwichedLoraNode(nodes, keepFixedIds)) return false;
 		const replaced = nodes.filter((n) => !keepFixedIds.has(n.node_id));
 		const kept = nodes.filter((n) => keepFixedIds.has(n.node_id));
@@ -446,16 +495,7 @@
 				model: `models/loras/${n.lora_name || ''}`,
 				strength: typeof n.strength_model === 'number' ? n.strength_model : 1
 			})),
-			config: {
-				model_type: 'lora',
-				placeholder: 'Select a LoRA...',
-				allow_info_modal: true,
-				strength_min: -2.0,
-				strength_max: 2.0,
-				strength_step: 0.1,
-				strength_default: 1.0,
-				max_items: 6
-			},
+			config: loraPickerConfig(),
 			mappings: []
 		};
 		tab.items.push(field);
@@ -469,6 +509,10 @@
 
 	function convertLoraChainToPicker() {
 		applyLoraPickerConversion(activeTab || form.tabs[0], loraKeepFixed, 'loras');
+	}
+
+	function addLoraPickerNoChain() {
+		applyLoraPickerConversion(activeTab || form.tabs[0], new Set(), 'loras');
 	}
 
 	// A field removed by any path (the field card's Remove button, deleting
@@ -846,6 +890,83 @@
 
 	function fieldTypeOptionsFor(current) {
 		return [...new Set([current, ...fieldTypeOptions])].filter(Boolean);
+	}
+
+	function looksLikeFilename(value) {
+		return typeof value === 'string' && /\.[A-Za-z0-9]{2,12}$/.test(value);
+	}
+
+	// Guess from the mapped workflow input name alone - a `model` field has
+	// no node/class_type in hand at this point, only `item.mappings`.
+	function guessModelTypeFromInputName(inputName) {
+		if (inputName.startsWith('lora_name')) return 'lora';
+		if (inputName.startsWith('ckpt_name')) return 'checkpoint';
+		if (inputName.startsWith('unet_name')) return 'diffusion_model';
+		if (inputName.startsWith('vae_name')) return 'vae';
+		if (inputName.startsWith('clip_name')) return 'text_encoder';
+		if (inputName.startsWith('control_net_name')) return 'controlnet';
+		if (inputName === 'model_name') return 'upscaler';
+		return 'checkpoint';
+	}
+
+	function coerceToNumber(value) {
+		const n = Number(value);
+		return Number.isFinite(n) ? n : 0;
+	}
+
+	function coerceToBoolean(value) {
+		if (typeof value === 'string') return value.toLowerCase() === 'true' || value === '1';
+		return Boolean(value);
+	}
+
+	const TEXT_FIELD_TYPES = new Set(['textbox', 'string']);
+
+	// A field's `config` (and often `default`) is shaped for its old
+	// `field_type` - carrying it across a type change is how a `select`'s
+	// 700-entry `options` list survives into a `lora_picker` as a broken
+	// hybrid. Called from the type <select>'s onchange with what the field
+	// is switching to; returns the `{ default, config }` the new type
+	// actually expects.
+	function configForTypeChange(item, newType) {
+		if (newType === 'lora_picker') {
+			const prevName = looksLikeFilename(item.default) ? item.default : null;
+			return {
+				default: prevName ? [{ model: `models/loras/${prevName}`, strength: 1 }] : [],
+				config: loraPickerConfig()
+			};
+		}
+		if (newType === 'model') {
+			const inputName = item.mappings?.[0]?.input_name || '';
+			return {
+				default: typeof item.default === 'string' ? item.default : '',
+				config: { model_type: guessModelTypeFromInputName(inputName), allow_info_modal: true }
+			};
+		}
+		if (newType === 'select') {
+			const hasOptions = Array.isArray(item.config?.options);
+			return { default: item.default, config: hasOptions ? item.config : { options: [] } };
+		}
+		if (newType === 'slider' || newType === 'number' || newType === 'stepper') {
+			const bounds = {};
+			for (const k of ['min', 'max', 'step']) {
+				if (item.config && item.config[k] !== undefined) bounds[k] = item.config[k];
+			}
+			return { default: coerceToNumber(item.default), config: Object.keys(bounds).length ? bounds : null };
+		}
+		if (newType === 'checkbox') {
+			return { default: coerceToBoolean(item.default), config: null };
+		}
+		const sameFamily = TEXT_FIELD_TYPES.has(newType) ? TEXT_FIELD_TYPES.has(item.field_type) : item.field_type === newType;
+		return { default: typeof item.default === 'string' ? item.default : null, config: sameFamily ? item.config : null };
+	}
+
+	function changeFieldType(item, newType) {
+		if (newType === item.field_type) return;
+		const { default: nextDefault, config } = configForTypeChange(item, newType);
+		item.field_type = newType;
+		item.default = nextDefault;
+		item.config = config;
+		if (newType !== 'resolution') delete item._wh;
 	}
 
 	function displayDefault(item) {
@@ -1273,7 +1394,7 @@
 		<div class="di-field-top">
 			<span class="drag-handle" title="Drag to move to another tab" draggable="true" ondragstart={(e) => handleItemDragStart(e, item._id)} ondragend={handleItemDragEnd}>{@render icon('grip')}</span>
 			<input class="di-field-label" type="text" bind:value={item.label} aria-label="Field label" />
-			<select class="di-field-type" value={item.field_type} onchange={(e) => (item.field_type = e.currentTarget.value)} aria-label="Field type">
+			<select class="di-field-type" value={item.field_type} onchange={(e) => changeFieldType(item, e.currentTarget.value)} aria-label="Field type">
 				{#each fieldTypeOptionsFor(item.field_type) as opt}<option value={opt}>{opt}</option>{/each}
 			</select>
 			<input class="di-field-default" type="text" value={displayDefault(item)} oninput={(e) => setDefaultFromText(item, e.currentTarget.value)} aria-label="Default value" />
@@ -1626,6 +1747,9 @@
 										keep all LoRAs above it fixed too, or replace it.
 									</p>
 								{/if}
+								{#if loraAllKept}
+									<p class="lora-chain-help" data-lora-all-kept-hint>Picker LoRAs are added after the kept node(s)</p>
+								{/if}
 								<div class="lora-chain-actions">
 									<button
 										type="button"
@@ -1635,6 +1759,23 @@
 										data-action="convert-lora-picker"
 									>
 										{loraConverted ? 'Converted to LoRA picker' : 'Convert to LoRA picker'}
+									</button>
+								</div>
+							</div>
+						{:else if modelChainInfo}
+							<div class="lora-chain-card" data-import-lora-chain data-import-lora-chain-empty>
+								<div class="di-group-h">LoRA chain</div>
+								<p class="dim lora-chain-empty-label">No LoRA nodes detected</p>
+								<p class="lora-chain-help" data-lora-no-chain-hint>Inserted before {modelChainInsertionLabel}</p>
+								<div class="lora-chain-actions">
+									<button
+										type="button"
+										class="link-btn"
+										onclick={addLoraPickerNoChain}
+										disabled={loraConverted}
+										data-action="add-lora-picker"
+									>
+										{loraConverted ? 'Added LoRA picker' : 'Add LoRA picker'}
 									</button>
 								</div>
 							</div>
@@ -2539,6 +2680,15 @@
 	.lora-chain-actions {
 		padding: 8px 12px;
 		border-top: 1px solid rgb(var(--line, 36 38 44) / 0.5);
+	}
+	.lora-chain-empty-label {
+		padding: 0 12px;
+		font-size: 12px;
+	}
+	.lora-chain-help {
+		padding: 4px 12px 8px;
+		font-size: 11.5px;
+		color: rgb(var(--fg-subtle, 122 128 144));
 	}
 	.lock-badge {
 		display: inline-flex;

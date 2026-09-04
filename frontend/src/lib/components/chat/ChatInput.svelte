@@ -209,7 +209,7 @@
 			: null;
 </script>
 
-<div class="flex-shrink-0 px-[22px] pt-2 pb-[17px]">
+<div class="flex-shrink-0 px-5 pt-2 pb-[17px]">
 	<div
 		class="rounded-xl border border-line-strong bg-surface-2 shadow-raised transition-colors duration-100 focus-within:border-signal {approvalsPending
 			? 'opacity-60'

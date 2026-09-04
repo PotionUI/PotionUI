@@ -13,7 +13,7 @@
 	import { page } from '$app/stores';
 	import { chatSession } from '$lib/stores/chatSession';
 	import { chatComposerDrafts } from '$lib/stores/chatComposerDrafts';
-	import { chatModes, resolveModeForRoute, resolveModeName, toolsForMode } from '$lib/stores/chatModes';
+	import { chatModes, resolveModeForRoute, toolsForMode } from '$lib/stores/chatModes';
 	import { declaredMode, collectProvidedContext, dispatchToolApplied } from '$lib/chat/pageContext';
 	import ChatHeader from '$lib/components/chat/ChatHeader.svelte';
 	import ChatMemoryPanel from '$lib/components/chat/ChatMemoryPanel.svelte';
@@ -23,10 +23,8 @@
 	import { authStore } from '$lib/stores/auth';
 	import ChatInput from '$lib/components/chat/ChatInput.svelte';
 	import ApprovalDock from '$lib/components/chat/ApprovalDock.svelte';
-	import ChatScopeBanner from '$lib/components/chat/ChatScopeBanner.svelte';
 	import ChatContextStrip from '$lib/components/chat/ChatContextStrip.svelte';
 	import { deriveContextStripModel, deriveTabSwitchDivider } from '$lib/chat/contextStrip';
-	import { shouldShowScopeMismatch, type ScopeDismissal } from '$lib/utils/chatScopeMismatch';
 	import ChatThinkingBubble from '$lib/components/chat/ChatThinkingBubble.svelte';
 	import { deriveApprovalQueue } from '$lib/chat/approvalQueue';
 	import { deriveQuestionQueue, dismissedQuestions } from '$lib/chat/questionQueue';
@@ -105,27 +103,6 @@
 	$: isGenerating = $chatSession.isGenerating;
 	$: pendingApprovalQueue = deriveApprovalQueue(messages);
 	$: pendingQuestionQueue = deriveQuestionQueue(messages, $dismissedQuestions);
-
-	// Route only decides the mode of a NEW conversation. When the active
-	// session's mode differs from what the current route would resolve to,
-	// ChatScopeBanner explains the mismatch instead of silently swapping chats.
-	// A plugin page's declareMode() (window.__potionui.chat) overrides the
-	// route-prefix match while it's active - e.g. an admin setup wizard mode
-	// that isn't reachable through any route prefix.
-	$: routeMode = $declaredMode || resolveModeForRoute($page.url.pathname, $chatModes.modes);
-	let dismissedScopeMismatch: ScopeDismissal | null = null;
-	$: showScopeMismatch = shouldShowScopeMismatch(
-		currentMode,
-		routeMode,
-		sessionId,
-		dismissedScopeMismatch
-	);
-	$: sessionModeName = resolveModeName(currentMode, $chatModes.modes);
-	$: routeModeName = resolveModeName(routeMode, $chatModes.modes);
-
-	function dismissScopeMismatch() {
-		dismissedScopeMismatch = { sessionId, routeMode };
-	}
 
 	// UI state
 	let userInput = '';
@@ -1754,20 +1731,9 @@
 					/>
 				{/if}
 
-				<!-- Scope mismatch notice: docked above the composer when the active session's mode
-				     doesn't match the route we're currently on -->
-				{#if showScopeMismatch}
-					<ChatScopeBanner
-						{sessionModeName}
-						{routeModeName}
-						onStartNew={handleNewSession}
-						onDismiss={dismissScopeMismatch}
-					/>
-				{/if}
-
 				<!-- Error display -->
 				{#if $chatSession.error}
-					<div class="flex-shrink-0 px-3 md:px-4 pb-2 md:pb-3">
+					<div class="flex-shrink-0 px-5 pb-2">
 						<div class="bg-surface-1 border border-danger/25 rounded-lg p-3">
 							<div class="flex items-center gap-2 text-sm text-danger">
 								<svg class="w-5 h-5 text-danger flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">

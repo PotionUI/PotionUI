@@ -1,7 +1,7 @@
 <script lang="ts">
 	/**
 	 * Docked above the composer, always visible while it renders — same idiom
-	 * and slot family as ChatScopeBanner / ApprovalDock. States which tab the
+	 * and slot family as ApprovalDock. States which tab the
 	 * chat is currently reading (see $lib/chat/contextStrip.ts for the state
 	 * machine): following the active tab, pinned and in agreement with it, or
 	 * pinned and mismatched with it. The tab name is itself the trigger for the

@@ -43,6 +43,9 @@ export function collectTabSessionData(
 			...(typeof tab.leftPanelCollapsed === 'boolean'
 				? { leftPanelCollapsed: tab.leftPanelCollapsed }
 				: {}),
+			...(typeof tab.workbenchCollapsed === 'boolean'
+				? { workbenchCollapsed: tab.workbenchCollapsed }
+				: {}),
 			layoutMode: tab.layoutMode,
 			promptPanelWidth: tab.promptPanelWidth || DEFAULT_PROMPT_PANEL_WIDTH,
 			positiveSegmentsCollapsed: tab.positiveSegmentsCollapsed,

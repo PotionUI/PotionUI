@@ -64,6 +64,9 @@ export function buildSessionRestoreTabPatch(
 		...(typeof modeData.leftPanelCollapsed === 'boolean'
 			? { leftPanelCollapsed: modeData.leftPanelCollapsed }
 			: {}),
+		...(typeof modeData.workbenchCollapsed === 'boolean'
+			? { workbenchCollapsed: modeData.workbenchCollapsed }
+			: {}),
 		promptPanelWidth: modeData.promptPanelWidth || fallback.promptPanelWidth || DEFAULT_PROMPT_PANEL_WIDTH,
 		positiveSegmentsCollapsed: modeData.positiveSegmentsCollapsed,
 		negativeSegmentsCollapsed: modeData.negativeSegmentsCollapsed,

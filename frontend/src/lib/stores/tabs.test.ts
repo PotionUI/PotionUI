@@ -98,4 +98,36 @@ describe('restoring a tab persisted with the removed Flow-view fields', () => {
 			vi.resetModules();
 		}
 	});
+
+	it('hydrates a persisted workbenchCollapsed flag, same tier as leftPanelCollapsed', async () => {
+		localStorage.setItem(
+			TABS_STORAGE_KEY,
+			JSON.stringify({
+				tabs: [
+					{
+						id: 'folded-1',
+						name: 'Generation 1',
+						selectedPreset: null,
+						selectedMode: null,
+						selectedSessionId: null,
+						activeGenerationId: null,
+						workbenchCollapsed: true
+					}
+				],
+				activeTabId: 'folded-1'
+			})
+		);
+
+		vi.doMock('$app/environment', () => ({ browser: true }));
+		vi.resetModules();
+		try {
+			const { tabsStore: freshTabsStore } = await import('./tabs');
+			const state = get(freshTabsStore);
+			const tab = state.tabs.find((t) => t.id === 'folded-1');
+			expect(tab?.workbenchCollapsed).toBe(true);
+		} finally {
+			vi.doUnmock('$app/environment');
+			vi.resetModules();
+		}
+	});
 });

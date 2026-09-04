@@ -376,6 +376,8 @@ export interface SessionData {
 	layoutMode?: 'two' | 'three';
 	// Whether the generation settings form is folded to its compact rail
 	leftPanelCollapsed?: boolean;
+	// Whether the docked workbench pane is folded to its compact rail
+	workbenchCollapsed?: boolean;
 	// Width (px) of the prompts pane in three-pane layout mode
 	promptPanelWidth?: number;
 	// Horizontal folding state for the positive/negative segment editors

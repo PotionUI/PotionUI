@@ -104,12 +104,15 @@
 	function applySessionLayout(sessionData: ModeBasedSessionData, mode: string | null) {
 		const modeData = mode ? sessionData[mode] : undefined;
 		const layout = modeData?.layoutMode;
-		const updates: { layoutMode?: GenerationLayoutMode; leftPanelCollapsed?: boolean } = {};
+		const updates: { layoutMode?: GenerationLayoutMode; leftPanelCollapsed?: boolean; workbenchCollapsed?: boolean } = {};
 		if (layout === 'two' || layout === 'three') {
 			updates.layoutMode = layout;
 		}
 		if (typeof modeData?.leftPanelCollapsed === 'boolean') {
 			updates.leftPanelCollapsed = modeData.leftPanelCollapsed;
+		}
+		if (typeof modeData?.workbenchCollapsed === 'boolean') {
+			updates.workbenchCollapsed = modeData.workbenchCollapsed;
 		}
 		if (Object.keys(updates).length > 0) tabsStore.updateTab(tabId, updates);
 	}

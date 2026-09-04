@@ -63,6 +63,12 @@ describe('buildSessionRestoreTabPatch', () => {
 		expect(buildSessionRestoreTabPatch({ prompt: '', leftPanelCollapsed: false }).leftPanelCollapsed).toBe(false);
 	});
 
+	it('only includes workbenchCollapsed when the saved session actually set it (avoids a phantom diff)', () => {
+		expect(buildSessionRestoreTabPatch({ prompt: '' })).not.toHaveProperty('workbenchCollapsed');
+		expect(buildSessionRestoreTabPatch({ prompt: '', workbenchCollapsed: true }).workbenchCollapsed).toBe(true);
+		expect(buildSessionRestoreTabPatch({ prompt: '', workbenchCollapsed: false }).workbenchCollapsed).toBe(false);
+	});
+
 	it('only includes layoutMode when it is a recognized value', () => {
 		expect(buildSessionRestoreTabPatch({ prompt: '' })).not.toHaveProperty('layoutMode');
 		expect(buildSessionRestoreTabPatch({ prompt: '', layoutMode: 'three' }).layoutMode).toBe('three');

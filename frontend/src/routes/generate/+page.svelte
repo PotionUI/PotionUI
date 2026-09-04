@@ -314,6 +314,9 @@
 		keybindingsStore.registerHandler('toggle_left_panel', () => {
 			tabsStore.updateTab(activeTabId, { leftPanelCollapsed: !currentTab.leftPanelCollapsed });
 		});
+		keybindingsStore.registerHandler('toggle_workbench_panel', () => {
+			tabsStore.updateTab(activeTabId, { workbenchCollapsed: !currentTab.workbenchCollapsed });
+		});
 		keybindingsStore.registerHandler('toggle_last_generations', () => {
 			generationPanelRef?.toggleDrawer('lastGenerations');
 		});
@@ -676,6 +679,7 @@
 		keybindingsStore.unregisterHandler('new_tab');
 		keybindingsStore.unregisterHandler('close_tab');
 		keybindingsStore.unregisterHandler('toggle_left_panel');
+		keybindingsStore.unregisterHandler('toggle_workbench_panel');
 		keybindingsStore.unregisterHandler('toggle_floating_form');
 		keybindingsStore.unregisterHandler('toggle_floating_workbench');
 		keybindingsStore.unregisterHandler('toggle_last_generations');

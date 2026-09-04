@@ -41,6 +41,7 @@ function tab(overrides: Partial<Tab> = {}): Tab {
 		workbenchMaxHeight: '600',
 		leftPanelWidth: 380,
 		leftPanelCollapsed: true,
+		workbenchCollapsed: false,
 		layoutMode: 'three',
 		promptPanelWidth: 420,
 		...overrides
@@ -64,7 +65,7 @@ describe('session tab remount state', () => {
 	});
 
 	it('captures form, prompt, and layout together when server hydration records its baseline', () => {
-		const snapshot = collectTabSessionData(tab(), 'txt2img', {
+		const snapshot = collectTabSessionData(tab({ workbenchCollapsed: true }), 'txt2img', {
 			txt2img: { prompt: 'saved prompt', formData: { steps: 20 } }
 		});
 
@@ -73,7 +74,8 @@ describe('session tab remount state', () => {
 			negativePrompt: 'edited negative',
 			formData: { steps: 31 },
 			layoutMode: 'three',
-			leftPanelCollapsed: true
+			leftPanelCollapsed: true,
+			workbenchCollapsed: true
 		});
 	});
 

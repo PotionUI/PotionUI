@@ -55,6 +55,7 @@ function createDefaultTab(id: string, name: string): Tab {
 		workbenchMaxHeight: '600',
 		leftPanelWidth: 380,
 		leftPanelCollapsed: false,
+		workbenchCollapsed: false,
 		layoutMode: 'two',
 		promptPanelWidth: DEFAULT_PROMPT_PANEL_WIDTH,
 		positiveSegmentsCollapsed: undefined,
@@ -99,6 +100,7 @@ function createTabsStore() {
 					workbenchFloatingWidth: p.workbenchFloatingWidth,
 					leftPanelWidth: p.leftPanelWidth || 380,
 					leftPanelCollapsed: p.leftPanelCollapsed ?? false,
+					workbenchCollapsed: p.workbenchCollapsed ?? false,
 					// Unsaved-tab content — overwritten by restoreTabSessions
 					// on mount when this tab has a selectedSessionId; otherwise this
 					// is the only source for it.

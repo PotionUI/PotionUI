@@ -53,6 +53,7 @@ export function toPersistedTab(t: Tab): PersistedTab {
 		workbenchFloatingWidth: t.workbenchFloatingWidth,
 		leftPanelWidth: t.leftPanelWidth,
 		leftPanelCollapsed: t.leftPanelCollapsed,
+		workbenchCollapsed: t.workbenchCollapsed,
 		// Unsaved-tab content — a tab bound to a saved session
 		// (`selectedSessionId` set) still gets these overwritten from the
 		// server on load (`restoreTabSessions`), so this is only

@@ -9,7 +9,7 @@
 	import PromptSection from './PromptSection.svelte';
 	import FloatingGenerationForm from './FloatingGenerationForm.svelte';
 	import FloatingWorkbench from './FloatingWorkbench.svelte';
-	import { Kbd } from '$lib/components/ui';
+	import { Kbd, IconButton } from '$lib/components/ui';
 	import { PROMPT_PANEL_MIN_WIDTH } from '$lib/stores/generationLayout';
 	import { tabsStore } from '$lib/stores/tabs';
 	import { shortcutLabels } from '$lib/stores/keybindings';
@@ -90,6 +90,16 @@
 	let measuredPaneWidth = 0;
 	$: if (tab.workbenchFloating && !tab.workbenchFloatingWidth && measuredPaneWidth > 0) {
 		tabsStore.updateTab(tab.id, { workbenchFloatingWidth: String(Math.round(measuredPaneWidth)) });
+	}
+
+	// Three-pane prompt pane's max-width bound: the space reserved for the
+	// workbench column on its right. Collapsed, that column is the same
+	// 0.75rem rail as the form's collapsed state, so the bound shrinks to
+	// match and the freed width goes to prompts.
+	$: workbenchBoundWidth = tab.workbenchCollapsed ? '0.75rem' : '328px';
+
+	function toggleWorkbenchCollapsed() {
+		tabsStore.updateTab(tab.id, { workbenchCollapsed: !tab.workbenchCollapsed });
 	}
 
 	function closeFloatingGenerationForm() {
@@ -216,11 +226,16 @@
 	{/if}
 
 	{#if tab.layoutMode === 'three' && !promptless}
-		<!-- Middle Panel: Prompts (resizable) -->
+		<!-- Middle Panel: Prompts (resizable, grows to fill the freed space when the workbench is collapsed) -->
 		<div
 			bind:this={promptPaneEl}
-			class="flex-shrink-0 overflow-y-auto bg-surface-1/20"
-			style="width: {tab.promptPanelWidth}px; max-width: calc(100% - {formPanelWidth} - 328px)"
+			data-testid="prompts-pane"
+			class={tab.workbenchCollapsed
+				? 'flex-1 min-w-0 overflow-y-auto bg-surface-1/20'
+				: 'flex-shrink-0 overflow-y-auto bg-surface-1/20'}
+			style={tab.workbenchCollapsed
+				? ''
+				: `width: ${tab.promptPanelWidth}px; max-width: calc(100% - ${formPanelWidth} - ${workbenchBoundWidth})`}
 		>
 			<div class="p-4">
 				<PromptSection
@@ -239,54 +254,56 @@
 			</div>
 		</div>
 
-		<!-- Prompts/Workbench Resize Handle -->
-		<button
-			type="button"
-			class="resize-handle flex-shrink-0 w-1 bg-line hover:bg-line-hover cursor-col-resize transition-colors relative group"
-			on:pointerdown={startPromptResize}
-			on:keydown={handlePromptResizeKeydown}
-			aria-label="Resize prompt panel"
-			title="Drag to resize prompts and workbench"
-		>
-			<div class="absolute inset-y-0 -left-1 -right-1 group-hover:bg-line-hover/20"></div>
-		</button>
+		{#if !tab.workbenchCollapsed}
+			<!-- Prompts/Workbench Resize Handle -->
+			<button
+				type="button"
+				class="resize-handle flex-shrink-0 w-1 bg-line hover:bg-line-hover cursor-col-resize transition-colors relative group"
+				on:pointerdown={startPromptResize}
+				on:keydown={handlePromptResizeKeydown}
+				aria-label="Resize prompt panel"
+				title="Drag to resize prompts and workbench"
+			>
+				<div class="absolute inset-y-0 -left-1 -right-1 group-hover:bg-line-hover/20"></div>
+			</button>
+		{/if}
 
 		<!-- Right Panel: Workbench only (full height for portrait media) -->
-		<div
-			class="flex-1 min-w-[320px] overflow-y-auto p-4"
-			data-testid="workbench-pane"
-			bind:clientWidth={measuredPaneWidth}
-		>
-			{#if isActive}
-				{#if tab.workbenchFloating}
-					<div class="flex h-full items-center justify-center gap-2 text-fg-subtle">
-						<span class="text-sm">Workbench is floating</span>
-						<Kbd keys={$shortcutLabels['toggle_floating_workbench'] || 'W'} />
-						<span class="text-sm">to dock</span>
-					</div>
-				{:else}
-					<GenerationWorkbenchPane
-						{tab}
-						{onWorkbenchPrevious}
-						{onWorkbenchNext}
-						{onWorkbenchHeightChange}
-						{onMoveToWorkbench}
+		{#if tab.workbenchCollapsed}
+			<Tooltip text="Expand workbench" kbd={$shortcutLabels['toggle_workbench_panel']} position="left" delay={150} wrapperClass="flex h-full flex-shrink-0">
+				<button
+					type="button"
+					class="group flex w-3 h-full flex-shrink-0 items-center justify-center border-l border-line bg-surface-3 transition-colors hover:bg-line-hover"
+					aria-label="Expand workbench"
+					aria-expanded="false"
+					data-testid="workbench-pane"
+					on:click={toggleWorkbenchCollapsed}
+				>
+					<Icon
+						name="chevron-left"
+						className="h-3 w-3 text-fg-subtle transition-colors group-hover:text-fg"
 					/>
-				{/if}
-			{/if}
-		</div>
-	{:else}
-		<!-- Right Panel: Workbench + Prompts -->
-		<div class="flex-1 min-w-0 flex flex-col overflow-hidden">
-			<!-- Workbench Area -->
+				</button>
+			</Tooltip>
+		{:else}
 			<div
-				class="flex-1 min-h-0 overflow-y-auto p-4"
+				class="relative flex-1 min-w-[320px] overflow-y-auto p-4"
 				data-testid="workbench-pane"
 				bind:clientWidth={measuredPaneWidth}
 			>
+				<div class="absolute right-2 top-2 z-10">
+					<Tooltip text="Collapse workbench" kbd={$shortcutLabels['toggle_workbench_panel']} position="left" delay={150}>
+						<IconButton
+							icon="chevron-right"
+							label="Collapse workbench"
+							size="sm"
+							onclick={toggleWorkbenchCollapsed}
+						/>
+					</Tooltip>
+				</div>
 				{#if isActive}
 					{#if tab.workbenchFloating}
-						<div class="flex h-40 items-center justify-center gap-2 text-fg-subtle">
+						<div class="flex h-full items-center justify-center gap-2 text-fg-subtle">
 							<span class="text-sm">Workbench is floating</span>
 							<Kbd keys={$shortcutLabels['toggle_floating_workbench'] || 'W'} />
 							<span class="text-sm">to dock</span>
@@ -301,23 +318,98 @@
 						/>
 					{/if}
 				{/if}
+			</div>
+		{/if}
+	{:else}
+		<!-- Right Panel: Workbench + Prompts -->
+		<div class="flex-1 min-w-0 flex flex-col overflow-hidden">
+			{#if tab.workbenchCollapsed}
+				<!-- Workbench Area: collapsed to a thin rail above the prompts -->
+				<Tooltip text="Expand workbench" kbd={$shortcutLabels['toggle_workbench_panel']} position="bottom" delay={150}>
+					<button
+						type="button"
+						class="group flex h-3 w-full flex-shrink-0 items-center justify-center border-b border-line bg-surface-3 transition-colors hover:bg-line-hover"
+						aria-label="Expand workbench"
+						aria-expanded="false"
+						data-testid="workbench-pane"
+						on:click={toggleWorkbenchCollapsed}
+					>
+						<Icon
+							name="chevron-down"
+							className="h-3 w-3 text-fg-subtle transition-colors group-hover:text-fg"
+						/>
+					</button>
+				</Tooltip>
 
 				{#if !promptless}
-					<PromptSection
-						{tab}
-						{tabHandlers}
-						{promptRelayActive}
-						{videoDirectorActive}
-						{videoDirectorCaps}
-						{musicDirectorActive}
-						{musicDirectorCaps}
-						{numPrompts}
-						{negativePromptSupported}
-						{negativeInert}
-						spacingClass="mt-6"
-					/>
+					<div class="flex-1 min-h-0 overflow-y-auto p-4">
+						<PromptSection
+							{tab}
+							{tabHandlers}
+							{promptRelayActive}
+							{videoDirectorActive}
+							{videoDirectorCaps}
+							{musicDirectorActive}
+							{musicDirectorCaps}
+							{numPrompts}
+							{negativePromptSupported}
+							{negativeInert}
+							spacingClass=""
+						/>
+					</div>
 				{/if}
-			</div>
+			{:else}
+				<!-- Workbench Area -->
+				<div
+					class="relative flex-1 min-h-0 overflow-y-auto p-4"
+					data-testid="workbench-pane"
+					bind:clientWidth={measuredPaneWidth}
+				>
+					<div class="absolute right-2 top-2 z-10">
+						<Tooltip text="Collapse workbench" kbd={$shortcutLabels['toggle_workbench_panel']} position="bottom">
+							<IconButton
+								icon="chevron-up"
+								label="Collapse workbench"
+								size="sm"
+								onclick={toggleWorkbenchCollapsed}
+							/>
+						</Tooltip>
+					</div>
+					{#if isActive}
+						{#if tab.workbenchFloating}
+							<div class="flex h-40 items-center justify-center gap-2 text-fg-subtle">
+								<span class="text-sm">Workbench is floating</span>
+								<Kbd keys={$shortcutLabels['toggle_floating_workbench'] || 'W'} />
+								<span class="text-sm">to dock</span>
+							</div>
+						{:else}
+							<GenerationWorkbenchPane
+								{tab}
+								{onWorkbenchPrevious}
+								{onWorkbenchNext}
+								{onWorkbenchHeightChange}
+								{onMoveToWorkbench}
+							/>
+						{/if}
+					{/if}
+
+					{#if !promptless}
+						<PromptSection
+							{tab}
+							{tabHandlers}
+							{promptRelayActive}
+							{videoDirectorActive}
+							{videoDirectorCaps}
+							{musicDirectorActive}
+							{musicDirectorCaps}
+							{numPrompts}
+							{negativePromptSupported}
+							{negativeInert}
+							spacingClass="mt-6"
+						/>
+					{/if}
+				</div>
+			{/if}
 		</div>
 	{/if}
 </div>

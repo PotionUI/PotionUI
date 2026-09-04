@@ -53,6 +53,9 @@ export interface PersistedTab {
 	workbenchFloatingWidth?: string;
 	leftPanelWidth?: number;
 	leftPanelCollapsed?: boolean;
+	/** Whether the docked workbench pane is folded to its compact rail. See
+	 *  the matching field on `Tab` below. */
+	workbenchCollapsed?: boolean;
 	// Content fields — the actual prompt/form state, persisted so an unsaved
 	// tab survives a reload. `formData`/`variables` are sanitized on save
 	// (see `sanitizeForPersistence` in tabPersistence.ts) to drop any
@@ -379,6 +382,12 @@ export interface Tab {
 	 *  (`PersistedTab`, same tier as `workbenchMaxHeight`): a reload should
 	 *  reopen the float at the size the user left it. */
 	workbenchFloatingWidth?: string;
+	/** Whether the docked workbench pane is folded to its compact rail
+	 *  (`toggle_workbench_panel` keybinding). Unlike `workbenchFloating` this
+	 *  DOES persist (`PersistedTab`, same tier as `leftPanelCollapsed`): a
+	 *  reload should keep the pane folded. Independent of `workbenchFloating`
+	 *  — closing the floating overlay never un-collapses the docked pane. */
+	workbenchCollapsed?: boolean;
 	// Per-tab panel layout (two/three panes) and the three-pane prompt pane width.
 	layoutMode: GenerationLayoutMode;
 	promptPanelWidth: number;

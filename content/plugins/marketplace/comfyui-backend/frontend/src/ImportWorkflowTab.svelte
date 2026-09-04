@@ -487,6 +487,87 @@
 		items.splice(index, 1);
 	}
 
+	// Finds `{ items, index }` for the item with this `_id` anywhere in the
+	// form (any tab, any nesting depth) - shared by the "Move to" popover and
+	// the tab-header drop target so both resolve a target item the same way.
+	function locateItemInForm(id) {
+		function search(items) {
+			for (let i = 0; i < items.length; i++) {
+				if (items[i]._id === id) return { items, index: i };
+				if (items[i].items) {
+					const found = search(items[i].items);
+					if (found) return found;
+				}
+			}
+			return null;
+		}
+		for (const t of form.tabs) {
+			const found = search(t.items);
+			if (found) return found;
+		}
+		return null;
+	}
+
+	// Splices the item out of its current container and appends it to the
+	// target tab's root `items`, keeping the same object so `_id` and
+	// mappings survive. Shared by the per-item "Move to" popover and the
+	// tab-header drop target.
+	function moveItemToTab(parentItems, index, targetTabId) {
+		const targetTab = form.tabs.find((t) => t.id === targetTabId);
+		if (!targetTab || parentItems === targetTab.items) return;
+		const [it] = parentItems.splice(index, 1);
+		targetTab.items.push(it);
+		activeTabId = targetTabId;
+	}
+
+	let moveToPopoverId = $state(null);
+	let moveToPopoverAnchorEl = $state(null);
+
+	function toggleMoveToPopover(itemId, anchorEl) {
+		if (moveToPopoverId === itemId) {
+			moveToPopoverId = null;
+		} else {
+			moveToPopoverId = itemId;
+			moveToPopoverAnchorEl = anchorEl;
+		}
+	}
+
+	// ---- Cross-tab drag and drop (any item kind, any depth) - the grip is
+	// the drag handle, tab headers are the drop targets. In-tab reordering
+	// stays Move up/down; this is cross-tab only.
+	let draggedItemId = $state(null);
+	let dragOverTabId = $state(null);
+
+	function handleItemDragStart(e, itemId) {
+		draggedItemId = itemId;
+		e.dataTransfer.effectAllowed = 'move';
+		e.dataTransfer.setData('text/plain', itemId);
+	}
+
+	function handleItemDragEnd() {
+		draggedItemId = null;
+	}
+
+	function handleTabDragOver(e, tabId) {
+		if (!draggedItemId) return;
+		e.preventDefault();
+		dragOverTabId = tabId;
+	}
+
+	function handleTabDragLeave(tabId) {
+		if (dragOverTabId === tabId) dragOverTabId = null;
+	}
+
+	function handleTabDrop(e, tabId) {
+		e.preventDefault();
+		const id = draggedItemId || e.dataTransfer.getData('text/plain');
+		dragOverTabId = null;
+		draggedItemId = null;
+		if (!id) return;
+		const loc = locateItemInForm(id);
+		if (loc) moveItemToTab(loc.items, loc.index, tabId);
+	}
+
 	function addItemToContainer(items, kind) {
 		if (kind === 'field') items.push({ _id: uid('item'), kind: 'field', field_name: uniqueFieldName('field'), field_type: 'text', label: 'New field', default: null, config: null, mappings: [] });
 		else if (kind === 'row') items.push({ _id: uid('item'), kind: 'row', columns: 2, items: [] });
@@ -1098,10 +1179,41 @@
 	</div>
 {/snippet}
 
+{#snippet moveToMenu(item, parentItems, index)}
+	{#if form.tabs.length > 1}
+		<button type="button" class="iconbtn" title="Move to tab" onclick={(e) => toggleMoveToPopover(item._id, e.currentTarget)} data-action="move-to-tab-menu">
+			{@render icon('more')}
+		</button>
+		{#if moveToPopoverId === item._id}
+			<div
+				class="tab-popover"
+				use:floating={{ anchor: moveToPopoverAnchorEl, onOutsideClick: () => (moveToPopoverId = null) }}
+				onclick={(e) => e.stopPropagation()}
+				onkeydown={(e) => e.stopPropagation()}
+			>
+				<div class="popover-label">Move to</div>
+				{#each form.tabs.filter((t) => t.id !== activeTabId) as t (t.id)}
+					<button
+						type="button"
+						onclick={() => { moveItemToTab(parentItems, index, t.id); moveToPopoverId = null; }}
+						data-action="move-to-tab"
+						data-target-tab={t.id}
+					>
+						{t.label}
+					</button>
+				{/each}
+			</div>
+		{/if}
+	{/if}
+{/snippet}
+
 {#snippet fieldCard(item, parentItems, index)}
-	<div class="di-field-card" data-field-name={item.field_name}>
+	<div
+		class="di-field-card"
+		data-field-name={item.field_name}
+	>
 		<div class="di-field-top">
-			{@render icon('grip')}
+			<span class="drag-handle" title="Drag to move to another tab" draggable="true" ondragstart={(e) => handleItemDragStart(e, item._id)} ondragend={handleItemDragEnd}>{@render icon('grip')}</span>
 			<input class="di-field-label" type="text" bind:value={item.label} aria-label="Field label" />
 			<select class="di-field-type" value={item.field_type} onchange={(e) => (item.field_type = e.currentTarget.value)} aria-label="Field type">
 				{#each fieldTypeOptionsFor(item.field_type) as opt}<option value={opt}>{opt}</option>{/each}
@@ -1117,10 +1229,11 @@
 					onclick={() => (expandedFieldId = expandedFieldId === item._id ? null : item._id)}
 					data-action="toggle-mapping"
 				>
-					{@render icon(expandedFieldId === item._id ? 'chevron-up' : 'chevron-down')}
+					{@render icon('link')}
 				</button>
 				<button type="button" class="iconbtn" title="Move up" onclick={() => moveItemAt(parentItems, index, -1)} data-action="move-up">{@render icon('chevron-up')}</button>
 				<button type="button" class="iconbtn" title="Move down" onclick={() => moveItemAt(parentItems, index, 1)} data-action="move-down">{@render icon('chevron-down')}</button>
+				{@render moveToMenu(item, parentItems, index)}
 				<button type="button" class="iconbtn" title="Remove" onclick={() => removeItemAt(parentItems, index)} data-action="remove">{@render icon('x')}</button>
 			</div>
 		</div>
@@ -1174,13 +1287,16 @@
 {/snippet}
 
 {#snippet headerCard(item, parentItems, index)}
-	<div class="di-header-card">
-		{@render icon('grip')}
+	<div
+		class="di-header-card"
+	>
+		<span class="drag-handle" title="Drag to move to another tab" draggable="true" ondragstart={(e) => handleItemDragStart(e, item._id)} ondragend={handleItemDragEnd}>{@render icon('grip')}</span>
 		<span class="chip chip-warn">HEADER</span>
 		<input class="di-header-input" type="text" bind:value={item.text} aria-label="Header text" />
 		<div class="di-container-actions">
 			<button type="button" class="iconbtn" title="Move up" onclick={() => moveItemAt(parentItems, index, -1)} data-action="move-up">{@render icon('chevron-up')}</button>
 			<button type="button" class="iconbtn" title="Move down" onclick={() => moveItemAt(parentItems, index, 1)} data-action="move-down">{@render icon('chevron-down')}</button>
+			{@render moveToMenu(item, parentItems, index)}
 			<button type="button" class="iconbtn" title="Remove" onclick={() => removeItemAt(parentItems, index)} data-action="remove">{@render icon('x')}</button>
 		</div>
 	</div>
@@ -1208,9 +1324,13 @@
 {/snippet}
 
 {#snippet containerCard(item, parentItems, index, chipLabel, chipClass)}
-	<div class="di-container" class:collapsed={item.kind === 'section' && item.collapsed} data-item-kind={item.kind}>
+	<div
+		class="di-container"
+		class:collapsed={item.kind === 'section' && item.collapsed}
+		data-item-kind={item.kind}
+	>
 		<div class="di-container-head">
-			{@render icon('grip')}
+			<span class="drag-handle" title="Drag to move to another tab" draggable="true" ondragstart={(e) => handleItemDragStart(e, item._id)} ondragend={handleItemDragEnd}>{@render icon('grip')}</span>
 			<span class="chip {chipClass}">{chipLabel}</span>
 			{#if item.kind !== 'row'}
 				<input class="di-container-title" type="text" bind:value={item.title} aria-label="Container title" />
@@ -1237,6 +1357,7 @@
 				{/if}
 				<button type="button" class="iconbtn" title="Move up" onclick={() => moveItemAt(parentItems, index, -1)} data-action="move-up">{@render icon('chevron-up')}</button>
 				<button type="button" class="iconbtn" title="Move down" onclick={() => moveItemAt(parentItems, index, 1)} data-action="move-down">{@render icon('chevron-down')}</button>
+				{@render moveToMenu(item, parentItems, index)}
 				<button type="button" class="iconbtn" title="Remove" onclick={() => removeItemAt(parentItems, index)} data-action="remove">{@render icon('x')}</button>
 			</div>
 		</div>
@@ -1265,6 +1386,7 @@
 		<symbol id="i-chevron-up" viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></symbol>
 		<symbol id="i-chevron-down" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></symbol>
 		<symbol id="i-x" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round" /><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></symbol>
+		<symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></symbol>
 		<symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6" fill="currentColor" /><circle cx="12" cy="12" r="1.6" fill="currentColor" /><circle cx="19" cy="12" r="1.6" fill="currentColor" /></symbol>
 		<symbol id="i-plus" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19" stroke="currentColor" stroke-width="2" stroke-linecap="round" /><line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></symbol>
 		<symbol id="i-pencil" viewBox="0 0 24 24"><path d="M12 20h9" stroke="currentColor" stroke-width="2" stroke-linecap="round" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></symbol>
@@ -1478,11 +1600,15 @@
 								<span
 									class="di-tab"
 									class:active={tab.id === activeTabId}
+									class:drop-target={dragOverTabId === tab.id}
 									role="tab"
 									tabindex="0"
 									aria-selected={tab.id === activeTabId}
 									onclick={() => (activeTabId = tab.id)}
 									onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activeTabId = tab.id; } }}
+									ondragover={(e) => handleTabDragOver(e, tab.id)}
+									ondragleave={() => handleTabDragLeave(tab.id)}
+									ondrop={(e) => handleTabDrop(e, tab.id)}
 									data-tab-id={tab.id}
 								>
 									{#if renamingTabId === tab.id}
@@ -2174,6 +2300,15 @@
 		cursor: not-allowed;
 	}
 
+	.drag-handle {
+		display: inline-flex;
+		cursor: grab;
+		flex-shrink: 0;
+	}
+	.drag-handle:active {
+		cursor: grabbing;
+	}
+
 	.name-grid {
 		display: grid;
 		grid-template-columns: repeat(3, 1fr);
@@ -2347,6 +2482,10 @@
 	.di-tab.active {
 		background: rgb(var(--signal, 91 157 255) / 0.1);
 		color: rgb(var(--signal, 91 157 255));
+	}
+	.di-tab.drop-target {
+		box-shadow: inset 0 0 0 1px rgb(var(--signal, 91 157 255));
+		background: rgb(var(--signal, 91 157 255) / 0.08);
 	}
 	.di-tab .kb {
 		width: 16px;
@@ -2797,6 +2936,11 @@
 	.tab-popover button:hover:not(:disabled) {
 		color: rgb(var(--fg, 232 234 237));
 		background: rgb(var(--surface-3, 39 42 49));
+	}
+	.tab-popover .popover-label {
+		font-size: 10.5px;
+		color: rgb(var(--fg-subtle, 122 128 144));
+		padding: 4px 8px 2px;
 	}
 	.tab-popover button:disabled {
 		opacity: 0.4;

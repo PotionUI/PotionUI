@@ -114,6 +114,48 @@ test('Admin > Plugins > ComfyUI Backend - import a workflow through the wizard i
 		// right: tabs/field cards).
 		await expect(wizard.locator('[data-import-form-inputs]')).toBeVisible({ timeout: 10000 });
 		await screenshot(page, JOURNEY, '03-wizard-form');
+
+		// The mapping toggle has its own icon, distinct from the adjacent
+		// Move up/down chevrons it used to share.
+		const fieldsList = wizard.locator('[data-import-form-items] .di-field-card');
+		const firstFieldCard = fieldsList.first();
+		await expect(firstFieldCard).toHaveCount(1);
+		await expect(firstFieldCard.locator('button[data-action="toggle-mapping"] use[href="#i-link"]')).toHaveCount(1);
+
+		// Cross-tab move: add a second tab, "Move to" a field into it via the
+		// popover, then drag another field back onto the original tab header.
+		const tabsBar = wizard.locator('[data-import-form-tabs]');
+		const originalTab = tabsBar.locator('.di-tab').first();
+		const originalTabId = await originalTab.getAttribute('data-tab-id');
+
+		await wizard.locator('[data-action="add-tab"]').click();
+		const newTab = tabsBar.locator('.di-tab').last();
+		const newTabId = await newTab.getAttribute('data-tab-id');
+		expect(newTabId).not.toBe(originalTabId);
+
+		await originalTab.click();
+		const fieldCountBefore = await fieldsList.count();
+		expect(fieldCountBefore).toBeGreaterThan(0);
+
+		await fieldsList.first().locator('button[data-action="move-to-tab-menu"]').click();
+		await page.locator(`.tab-popover button[data-target-tab="${newTabId}"]`).click();
+		// Moving a field switches the view to the tab it landed on.
+		await expect(newTab).toHaveClass(/active/);
+		await expect(fieldsList).toHaveCount(1);
+		await screenshot(page, JOURNEY, '03b-wizard-move-to-tab');
+
+		await originalTab.click();
+		await expect(fieldsList).toHaveCount(fieldCountBefore - 1);
+
+		// Drag the moved field (now the new tab's only item) back onto the
+		// original tab's header.
+		await newTab.click();
+		const movedCard = fieldsList.first();
+		await movedCard.locator('.drag-handle').dragTo(originalTab);
+		await expect(originalTab).toHaveClass(/active/);
+		await expect(fieldsList).toHaveCount(fieldCountBefore);
+		await screenshot(page, JOURNEY, '03c-wizard-drag-to-tab');
+
 		await wizard.locator('#import-model-family').fill(familyId);
 		await wizard.locator('#import-display-name').fill('E2E imported SDXL');
 		await wizard.locator('button[data-import-continue-form]').click();

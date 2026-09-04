@@ -85,8 +85,10 @@ test('folding the docked workbench pane persists, frees space for prompts, and c
 	const promptsBoxBefore = await promptsPane.boundingBox();
 	expect(promptsBoxBefore).not.toBeNull();
 
-	// Collapse via the pane's own collapse control.
-	await page.getByRole('button', { name: 'Collapse workbench' }).click();
+	// Collapse by clicking the prompts/workbench separator — the three-pane
+	// layout has no other collapse control.
+	await page.locator('[data-testid="prompts-workbench-handle"]').click();
+	await expect(page.getByRole('button', { name: 'Collapse workbench' })).toHaveCount(0);
 
 	const collapsedBox = await workbenchPane.boundingBox();
 	expect(collapsedBox).not.toBeNull();

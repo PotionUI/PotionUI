@@ -309,16 +309,6 @@
 				data-testid="workbench-pane"
 				bind:clientWidth={measuredPaneWidth}
 			>
-				<div class="absolute right-2 top-2 z-10">
-					<Tooltip text="Collapse workbench" kbd={$shortcutLabels['toggle_workbench_panel']} position="left" delay={150}>
-						<IconButton
-							icon="chevron-right"
-							label="Collapse workbench"
-							size="sm"
-							onclick={toggleWorkbenchCollapsed}
-						/>
-					</Tooltip>
-				</div>
 				{#if isActive}
 					{#if tab.workbenchFloating}
 						<div class="flex h-full items-center justify-center gap-2 text-fg-subtle">

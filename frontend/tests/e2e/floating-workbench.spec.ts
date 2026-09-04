@@ -88,9 +88,9 @@ test('floating workbench opens at the docked size and resizes from its own handl
 
 	// The mark's accessible name depends on whether a prompt is filled in
 	// (canGenerate/disabledReason) — this spec cares about screen position,
-	// not that copy, so it targets the mark's distinctive size/shape classes
-	// (GenerateMark.svelte) rather than its label.
-	const generateMark = page.locator('button.h-14.w-14.rounded-full');
+	// not that copy, so it targets the generate control's own class
+	// (GenerateMark.svelte, the panel template's `.generate-button`).
+	const generateMark = page.locator('button.generate-button');
 	await expect(generateMark).toBeVisible({ timeout: 10000 });
 
 	const dockedPane = page.locator('[data-testid="workbench-pane"]');

@@ -30,8 +30,6 @@
 	import { activeWorkspaceDirtyQuery, answerWorkspaceDirtyQuery } from '$lib/stores/workspaceDirtyQuery';
 	import { toasts } from '$lib/stores/toast';
 	import { timeAgo } from '$lib/utils/relativeTime';
-	import Icon from '$lib/components/Icon.svelte';
-	import ReadoutCell from './ReadoutCell.svelte';
 	import SessionPopoverContent from './SessionPopoverContent.svelte';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
 	import SessionSaveModal from '$lib/components/session/SessionSaveModal.svelte';
@@ -83,6 +81,25 @@
 
 	let open = false;
 	let root: HTMLDivElement;
+	let sessionButtonEl: HTMLButtonElement;
+	let popoverEl: HTMLDivElement;
+	// `.floating-panel` is `position: fixed` (generation-panel-concept.html's
+	// own `positionPopover`, lines 678-683) rather than an absolutely
+	// positioned dropdown, because its real ancestor here is
+	// `.context-rail`, which clips overflow — an absolute popover would be
+	// invisible under it. Positioned imperatively against the trigger's
+	// rect on open; a resize closes it, exactly like the mock.
+	let popoverStyle = '';
+
+	async function positionPopover() {
+		await tick();
+		if (!popoverEl || !sessionButtonEl) return;
+		const rect = sessionButtonEl.getBoundingClientRect();
+		const width = popoverEl.offsetWidth || 330;
+		const left = Math.max(8, Math.min(window.innerWidth - width - 8, rect.left));
+		const bottom = window.innerHeight - rect.top + 8;
+		popoverStyle = `left:${left}px; bottom:${bottom}px;`;
+	}
 
 	function warnIfPresetVersionDrifted(sessionData: ModeBasedSessionData, mode: string | null) {
 		const savedVersion = mode ? sessionData[mode]?.presetVersion : undefined;
@@ -233,6 +250,11 @@
 		if (!sessionControlsEnabled) return;
 		open = !open;
 		if (!open) closeSessionHistory();
+		else positionPopover();
+	}
+
+	function handleWindowResize() {
+		if (open) closePanel();
 	}
 
 	function handleSaveCellClick() {
@@ -269,7 +291,11 @@
 		}
 
 		document.addEventListener('mousedown', handleWindowClick);
-		return () => document.removeEventListener('mousedown', handleWindowClick);
+		window.addEventListener('resize', handleWindowResize);
+		return () => {
+			document.removeEventListener('mousedown', handleWindowClick);
+			window.removeEventListener('resize', handleWindowResize);
+		};
 	});
 
 	onDestroy(() => {
@@ -731,28 +757,56 @@
 	}
 </script>
 
-<div class="relative flex items-stretch" bind:this={root}>
-	<ReadoutCell label="session" mono={false} clickable disabled={!sessionControlsEnabled} onclick={toggleOpen} ariaLabel="Session">
-		{#if currentSession}
-			<span class="max-w-[170px] truncate font-semibold text-fg">{currentSession.name}</span>
-			<span
-				class="h-[5px] w-[5px] flex-shrink-0 rounded-full {hasUnsavedChanges ? 'bg-warning-solid' : 'bg-success-solid'}"
-				aria-hidden="true"
-			></span>
-		{:else}
-			<span class="font-medium text-fg-muted">None</span>
-		{/if}
-		<Icon name="chevron-down" className="h-3 w-3 flex-shrink-0 text-fg-subtle transition-transform {open ? 'rotate-0' : 'rotate-180'}" />
-	</ReadoutCell>
+<div class="session-control" bind:this={root}>
+	<!-- Ported literally from generation-panel-concept.html's `.session-control`
+	     > `.session-button` (lines 186-187, 443-450): the name+chevron line
+	     AND the passive status line (dirty-dot + save status text) both live
+	     inside this one button, which opens the picker — aria-label stays the
+	     constant "Session" (real contract: button[aria-label="Session"] in
+	     session-edit-survives-tab-switch.spec.ts / sessionClusterTabSwitchClobber.test.ts). -->
+	<button
+		type="button"
+		class="session-button"
+		bind:this={sessionButtonEl}
+		disabled={!sessionControlsEnabled}
+		aria-label="Session"
+		aria-haspopup="dialog"
+		aria-expanded={open}
+		on:click={toggleOpen}
+	>
+		<span class="cell-copy">
+			<span class="session-name-line">
+				<span class="session-name">{currentSession ? currentSession.name : 'None'}</span>
+				<span class="session-chevron"><svg class="icon"><use href="#i-chevron" /></svg></span>
+			</span>
+			<span class="session-state">
+				<span class="dirty-dot {hasUnsavedChanges ? '' : 'is-saved'}" aria-hidden="true"></span>
+				<span class={saveCellClass}>{saveCellText}</span>
+			</span>
+		</span>
+	</button>
 
-	<span class="h-[26px] w-px flex-shrink-0 bg-line" aria-hidden="true"></span>
-
-	<ReadoutCell label="save" mono={false} clickable disabled={!sessionControlsEnabled} onclick={handleSaveCellClick} ariaLabel={saveCellAriaLabel}>
-		<span class="font-semibold {saveCellClass}">{saveCellText}</span>
-	</ReadoutCell>
+	<!-- The mock's own icon-only `.session-save-button` (32px) — the actual
+	     save action. Its aria-label is the dynamic one ("Save session" /
+	     "Session saved" / "Save as a new session" / "Session save
+	     unavailable"): real contract (session-edit-survives-tab-switch.spec.ts,
+	     button[aria-label="Save session"] etc.) matches on the attribute, not
+	     on visible text, so an icon-only button satisfies it unchanged. -->
+	<button
+		type="button"
+		class="session-save-button"
+		disabled={!sessionControlsEnabled}
+		aria-label={saveCellAriaLabel}
+		title={saveCellAriaLabel}
+		on:click={handleSaveCellClick}
+	>
+		<svg class="icon"><use href="#i-save" /></svg>
+	</button>
 
 	{#if open}
-		<div class="absolute bottom-full right-0 z-50 mb-1 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-line-strong bg-surface-1 shadow-floating" role="menu">
+		<!-- role="menu" (not the mock's role="dialog"): keeps the existing
+		     [role="menuitem"] row contract (sessionClusterTabSwitchClobber.test.ts). -->
+		<div class="floating-panel" style={popoverStyle} bind:this={popoverEl} role="menu" aria-label="Sessions">
 			<SessionPopoverContent
 				{sessions}
 				{currentSession}

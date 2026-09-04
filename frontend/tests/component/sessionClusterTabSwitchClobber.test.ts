@@ -131,12 +131,15 @@ describe('SessionCluster survives a tab-switch destroy/recreate round trip', () 
 		const tab = get(tabsStore).tabs.find((t) => t.id === tabId);
 		expect(tab?.promptSegments).toEqual(EDITED_SEGMENTS);
 
-		// The dirty indicator ("save" readout cell) must reflect the surviving
-		// draft, not silently go quiet as if the session were freshly (cleanly)
-		// loaded — sessionIsDirty compares the live signature against the
-		// baseline recorded at load time, never a server refetch.
-		const saveCell = mounted.target.querySelector('[aria-label="Save session"], [aria-label="Session save unavailable"], [aria-label="Save as a new session"], [aria-label="Session saved"]');
-		expect(saveCell?.textContent).toContain('Unsaved changes');
+		// The dirty indicator must reflect the surviving draft, not silently go
+		// quiet as if the session were freshly (cleanly) loaded — sessionIsDirty
+		// compares the live signature against the baseline recorded at load
+		// time, never a server refetch. The status text lives in the mock's own
+		// passive `.session-state` line (inside `button[aria-label="Session"]`)
+		// — the save action itself is the mock's icon-only `.session-save-button`,
+		// which carries the dynamic aria-label but no visible text.
+		const statusText = mounted.target.querySelector('.session-state');
+		expect(statusText?.textContent).toContain('Unsaved changes');
 	});
 });
 
@@ -200,7 +203,7 @@ describe('SessionCluster survives a tab-switch round trip after loading (not sav
 		tab = get(tabsStore).tabs.find((t) => t.id === tabId);
 		expect(tab?.promptSegments).toEqual(EDITED_SEGMENTS);
 
-		const saveCell = mounted.target.querySelector('[aria-label="Save session"], [aria-label="Session save unavailable"], [aria-label="Save as a new session"], [aria-label="Session saved"]');
-		expect(saveCell?.textContent).toContain('Unsaved changes');
+		const statusText = mounted.target.querySelector('.session-state');
+		expect(statusText?.textContent).toContain('Unsaved changes');
 	});
 });

@@ -1954,7 +1954,7 @@
 								onReload={() => handlePresetReload(tab.id, tab.selectedPreset)}
 							/>
 						</div>
-						<div class="flex flex-1 items-center justify-center">
+						<div class="flex flex-1 items-center justify-center pb-[var(--dock-height)]">
 							{@render noSelectionState()}
 						</div>
 					</div>
@@ -1998,7 +1998,7 @@
 
 			<!-- Connection Status Warning -->
 			{#if !isConnected}
-				<div class="flex-shrink-0 px-4 py-2 bg-warning/10 border-t border-warning/25">
+				<div class="flex-shrink-0 px-4 py-2 bg-warning/10 border-t border-warning/25 mb-[var(--dock-height)]">
 					<div class="flex items-center gap-3">
 						<svg class="w-5 h-5 text-warning flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
 							<path
@@ -2017,9 +2017,12 @@
 		</div>
 	{/each}
 
-	<!-- Generation Panel - Desktop only -->
+	<!-- Generation Panel - Desktop only. `.generation-panel` (maintainer ruling)
+		keeps the pre-port docked-bar container: fixed, full-width, flush to the
+		bottom edge — only its inside is restyled onto generation-panel-concept.html.
+		It occupies no flow row, so it needs no wrapper here; the panes above
+		reserve their own clearance via `--dock-height`. -->
 	{#if !$isMobile}
-	<div class="flex-shrink-0 w-full">
 		{#key currentTab.id}
 		<GenerationPanel
 			bind:this={generationPanelRef}
@@ -2063,7 +2066,6 @@
 			/>
 		</GenerationPanel>
 		{/key}
-	</div>
 	{/if}
 
 </div>

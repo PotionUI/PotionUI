@@ -255,7 +255,7 @@
 		</Tooltip>
 	{:else}
 		<div class="flex h-full flex-shrink-0" style="width: {formPanelWidth}">
-			<div class="min-w-0 flex-1 overflow-y-auto bg-surface-1/30">
+			<div class="min-w-0 flex-1 overflow-y-auto bg-surface-1/30 pb-[var(--dock-height)]">
 			<div class="border-b border-line px-3 pb-3 pt-3">
 				<PresetControls
 					{tab}
@@ -302,8 +302,8 @@
 			bind:this={promptPaneEl}
 			data-testid="prompts-pane"
 			class={tab.workbenchCollapsed
-				? 'flex-1 min-w-0 overflow-y-auto bg-surface-1/20'
-				: 'flex-shrink-0 overflow-y-auto bg-surface-1/20'}
+				? 'flex-1 min-w-0 overflow-y-auto bg-surface-1/20 pb-[var(--dock-height)]'
+				: 'flex-shrink-0 overflow-y-auto bg-surface-1/20 pb-[var(--dock-height)]'}
 			style={tab.workbenchCollapsed
 				? ''
 				: `width: ${tab.promptPanelWidth}px; max-width: calc(100% - ${formPanelWidth} - ${workbenchBoundWidth})`}
@@ -363,7 +363,7 @@
 			</Tooltip>
 		{:else}
 			<div
-				class="relative flex-1 min-w-[320px] overflow-y-auto p-4"
+				class="relative flex-1 min-w-[320px] overflow-y-auto p-4 pb-[var(--dock-height)]"
 				data-testid="workbench-pane"
 				bind:clientWidth={measuredPaneWidth}
 			>
@@ -408,7 +408,7 @@
 				</Tooltip>
 
 				{#if !promptless}
-					<div class="flex-1 min-h-0 overflow-y-auto p-4">
+					<div class="flex-1 min-h-0 overflow-y-auto p-4 pb-[var(--dock-height)]">
 						<PromptSection
 							{tab}
 							{tabHandlers}
@@ -430,7 +430,7 @@
 			{:else}
 				<!-- Workbench Area -->
 				<div
-					class="relative flex-1 min-h-0 overflow-y-auto p-4"
+					class="relative flex-1 min-h-0 overflow-y-auto p-4 pb-[var(--dock-height)]"
 					data-testid="workbench-pane"
 					bind:clientWidth={measuredPaneWidth}
 				>

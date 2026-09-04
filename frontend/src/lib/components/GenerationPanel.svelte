@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, onDestroy, createEventDispatcher } from 'svelte';
+	import { onMount, onDestroy, tick, createEventDispatcher } from 'svelte';
 	import { browser } from '$app/environment';
 	import { storage } from '$lib/utils/storage';
 	import type { GenerationState } from '$lib/types/tabs';
@@ -7,11 +7,9 @@
 	import { parseTemplateMarkers } from '$lib/utils/templateProcessor';
 	import { contributionsForSlot } from '$lib/extensions/extensionSlots';
 	import { resolvePluginComponent } from '$lib/plugin-api/componentResolver';
-	import Button from './ui/Button.svelte';
-	import Icon from './Icon.svelte';
-	import Tooltip from './Tooltip.svelte';
+	import GenerationPanelIconSprite from './generation-panel/GenerationPanelIconSprite.svelte';
 	import GenerateMark from './generation-panel/GenerateMark.svelte';
-	import ReadoutCell from './generation-panel/ReadoutCell.svelte';
+	import PanelReadoutCell from './generation-panel/PanelReadoutCell.svelte';
 	import SessionCluster from './generation-panel/SessionCluster.svelte';
 	import { deriveMarkState, deriveModeChromeGlyph, formatDurationMs, formatDurationSeconds } from './generation-panel/barState';
 	import { shortcutLabels } from '$lib/stores/keybindings';
@@ -98,8 +96,34 @@
 	const modeController = createGenerationModeController(() => handleGenerate());
 	const { mode: generationMode, stopAfterCurrentRequested } = modeController;
 	let showQueuePopover = false;
-	let queuePopoverRef: HTMLDivElement;
-	let queueCellRef: HTMLDivElement;
+	let queuePopoverRef: HTMLElement;
+	let queueCellRef: HTMLElement;
+	// `.floating-panel` is `position: fixed` (generation-panel-concept.html's
+	// own `positionPopover`) rather than an absolutely positioned dropdown,
+	// because its real ancestor here is `.context-rail`, which clips
+	// overflow — an absolute popover would be invisible under it. Positioned
+	// imperatively against the trigger's rect on open; a resize closes it,
+	// exactly like the mock.
+	let queuePopoverStyle = '';
+
+	async function positionQueuePopover() {
+		await tick();
+		if (!queuePopoverRef || !queueCellRef) return;
+		const rect = queueCellRef.getBoundingClientRect();
+		const width = queuePopoverRef.offsetWidth || 288;
+		const left = Math.max(8, Math.min(window.innerWidth - width - 8, rect.left));
+		const bottom = window.innerHeight - rect.top + 8;
+		queuePopoverStyle = `left:${left}px; bottom:${bottom}px;`;
+	}
+
+	function toggleQueuePopover() {
+		showQueuePopover = !showQueuePopover;
+		if (showQueuePopover) positionQueuePopover();
+	}
+
+	function handleWindowResize() {
+		showQueuePopover = false;
+	}
 
 	// The mark's visual state, and the mode chrome slot's glyph, are pure
 	// derivations (see generation-panel/barState.ts) — kept out of components
@@ -121,6 +145,41 @@
 				: $generationMode === 'forever'
 					? 'Mode: Continuous'
 					: 'Mode: Generate once';
+	$: modeChromeSpriteId =
+		modeChromeGlyph === 'pause' ? 'i-pause' : modeChromeGlyph === 'stopping' ? 'i-hourglass' : 'i-loop';
+
+	// data-state drives the ported CSS's status-symbol/progress-track colour
+	// and the "other tab" inline-action visibility (generation-panel-concept.html
+	// lines 108-149) — the mock's five preview states, mapped onto real
+	// generation state instead of a demo tab switcher. "loading" is a
+	// generation in flight whose active stage hasn't reported a progress
+	// fraction yet (a cold model load); "other" is another tab owning the
+	// worker, unchanged from this component's pre-existing branch order.
+	$: dataState = isGenerating
+		? hasProgressFraction
+			? 'running'
+			: 'loading'
+		: generatingTabName && !isActiveTabGenerating
+			? 'other'
+			: markState === 'disabled'
+				? 'disabled'
+				: 'ready';
+
+	// The mock's `.drawer` only ever shows one generic panel at a fixed
+	// 380px (generation-panel-concept.html line 317) — real content here
+	// needs more: the last-generations gallery and a plugin's own drawer
+	// content (e.g. the Video Director shot console) were 480px/1000px
+	// before this port and still need to be, or their own layout math
+	// (a justified gallery measuring its container, a wide console laid out
+	// in columns) puts real elements outside the drawer's `overflow: hidden`
+	// box — invisible to hit-testing, so a click there falls through to
+	// whatever is behind (the backdrop). Bug found by fe149-drawer-modal-escape.spec.ts.
+	$: drawerWidth =
+		activeDrawer === 'lastGenerations'
+			? 'min(480px, calc(100vw - 36px))'
+			: activeDrawer && activeDrawer !== 'settings'
+				? 'min(1000px, calc(100vw - 36px))'
+				: undefined;
 
 	function handleModeChromeClick() {
 		if (modeChromeGlyph === 'stopping') return;
@@ -273,8 +332,10 @@
 
 	onMount(() => {
 		document.addEventListener('mousedown', handleClickOutside);
+		window.addEventListener('resize', handleWindowResize);
 		return () => {
 			document.removeEventListener('mousedown', handleClickOutside);
+			window.removeEventListener('resize', handleWindowResize);
 		};
 	});
 
@@ -313,256 +374,290 @@
 	$: queueText = queueDepth > 0 ? `${queueDepth} ${queueDepth === 1 ? 'job' : 'jobs'}` : 'empty';
 </script>
 
-<!-- Backdrop for drawer -->
-{#if activeDrawer}
-	<div
-	class="fixed top-0 left-0 right-0 bottom-[73px] bg-canvas/50 backdrop-blur-sm z-40 transition-opacity duration-300"
-		on:click={closeDrawer}
-		on:keydown={(e) => e.key === 'Escape' && closeDrawer()}
-		role="button"
-		tabindex="-1"
-		aria-label="Close drawer"
-	></div>
-{/if}
+<div class="generation-panel" data-state={dataState} aria-label="Generation controls">
+	<GenerationPanelIconSprite />
 
-<!-- Right Slide-Out Drawer -->
-<div
-	class="fixed top-0 right-0 bottom-[73px] {activeDrawer === 'settings' ? 'w-[380px]' : activeDrawer === 'lastGenerations' ? 'w-[480px]' : 'w-[1000px]'} max-w-[90vw] bg-surface-1 border-l border-line/50 z-50 shadow-overlay
-		transform transition-all duration-300 ease-out
-		{activeDrawer ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0'}"
->
-	<!-- Drawer Header -->
-	<div class="flex items-center justify-between p-4 border-b border-line-strong/50 bg-surface-2/50 backdrop-blur-sm">
-		<h2 class="font-semibold text-fg">
-			{#if activeDrawer === 'settings'}
-				Generation Settings
-			{:else if activeDrawer === 'lastGenerations'}
-				Last Generations
-			{:else if activePanelModeContribution}
-				{activePanelModeContribution.label || activePanelModeContribution.component}
+	<!-- Backdrop for drawer -->
+	{#if activeDrawer}
+		<div
+			class="backdrop"
+			on:click={closeDrawer}
+			on:keydown={(e) => e.key === 'Escape' && closeDrawer()}
+			role="button"
+			tabindex="-1"
+			aria-label="Close drawer"
+		></div>
+
+		<!-- Right slide-out drawer -->
+		<aside class="drawer" style={drawerWidth ? `width: ${drawerWidth}` : ''} aria-label="Panel drawer">
+			<header class="drawer-header">
+				<div class="drawer-header-copy">
+					<!-- h2, not the mock's bare <strong>: real e2e/a11y contract
+						(fe149-drawer-modal-escape.spec.ts) looks this up as a
+						heading; `.drawer-header h2` addition below carries the
+						same type styling the mock gives `strong`. -->
+					<h2>
+						{#if activeDrawer === 'settings'}
+							Generation Settings
+						{:else if activeDrawer === 'lastGenerations'}
+							Last Generations
+						{:else if activePanelModeContribution}
+							{activePanelModeContribution.label || activePanelModeContribution.component}
+						{/if}
+					</h2>
+				</div>
+				<button type="button" class="close-button" on:click={closeDrawer} aria-label="Close drawer">
+					<svg class="icon"><use href="#i-x" /></svg>
+				</button>
+			</header>
+
+			<!-- Settings content (app-level generation options, provided by the page) -->
+			<div class="drawer-body {activeDrawer === 'settings' ? '' : 'hidden'}">
+				<slot name="settings" />
+			</div>
+
+			<!-- Last-generations content (recent results for this tab's preset,
+				provided by the page). Mounted only while open, like the plugin
+				drawers below, so it fetches fresh every time it's opened. -->
+			{#if activeDrawer === 'lastGenerations'}
+				<div class="drawer-body">
+					<slot name="lastGenerations" />
+				</div>
 			{/if}
-		</h2>
-		<Tooltip text="Close drawer" position="left" delay={150}>
-			<button
-				type="button"
-				class="p-2 text-fg-muted hover:text-fg hover:bg-surface-3 rounded-lg transition-colors"
-				on:click={closeDrawer}
-				aria-label="Close drawer"
-			>
-				<Icon name="close" className="w-5 h-5" />
-			</button>
-		</Tooltip>
-	</div>
 
-	<!-- Drawer Content -->
-	<!-- Settings content (app-level generation options, provided by the page) -->
-	<div class="{activeDrawer === 'settings' ? 'overflow-y-auto h-[calc(100%-57px)]' : 'hidden'}">
-		<slot name="settings" />
-	</div>
-
-	<!-- Last-generations content (recent results for this tab's preset,
-		provided by the page). Mounted only while open, like the plugin
-		drawers below, so it fetches fresh every time it's opened. -->
-	{#if activeDrawer === 'lastGenerations'}
-		<div class="overflow-y-auto h-[calc(100%-57px)]">
-			<slot name="lastGenerations" />
-		</div>
+			<!-- Plugin `generation.panel.modes` content -->
+			{#each $panelModeContributions as modeContrib (pluginDrawerId(modeContrib))}
+				{#if activeDrawer === pluginDrawerId(modeContrib)}
+					<div class="drawer-body">
+						{#await resolvePluginComponent(modeContrib.plugin_id, modeContrib.component) then Component}
+							{#if Component}
+								<svelte:component this={Component} {generation} />
+							{/if}
+						{/await}
+					</div>
+				{/if}
+			{/each}
+		</aside>
 	{/if}
 
-	<!-- Plugin `generation.panel.modes` content -->
-	{#each $panelModeContributions as modeContrib (pluginDrawerId(modeContrib))}
-		<div class="{activeDrawer === pluginDrawerId(modeContrib) ? 'overflow-y-auto h-[calc(100%-57px)]' : 'hidden'}">
-			{#if activeDrawer === pluginDrawerId(modeContrib)}
-				{#await resolvePluginComponent(modeContrib.plugin_id, modeContrib.component) then Component}
-					{#if Component}
-						<svelte:component this={Component} {generation} />
-					{/if}
-				{/await}
-			{/if}
-		</div>
-	{/each}
-</div>
-
-<!-- Generation console bar -->
-<div class="relative w-full border-t border-line-strong bg-surface-1">
 	<div
-		class="absolute inset-x-0 top-0 h-1 overflow-hidden bg-surface-3"
+		class="progress-track"
 		role="progressbar"
 		aria-label="Generation progress"
 		aria-valuemin="0"
 		aria-valuemax="100"
 		aria-valuenow={isGenerating && hasProgressFraction ? progressPercent : undefined}
 	>
-		{#if isGenerating}
-			{#if hasProgressFraction}
-				<div
-					class="h-full bg-signal"
-					style="width: {progressPercent}%; transition: width 150ms var(--ease-out-quart);"
-				></div>
-			{:else}
-				<div class="h-full w-1/3 bg-signal progress-indeterminate"></div>
-			{/if}
-		{/if}
+		<div
+			class="progress-fill"
+			style={isGenerating && hasProgressFraction ? `width: ${progressPercent}%` : ''}
+		></div>
 	</div>
 
-	<div class="mx-auto flex h-[72px] w-full max-w-[1800px] items-center gap-3 px-4 pt-1 lg:px-6">
+	<div class="panel-bar">
 		<!-- Status block -->
-		<div class="flex min-w-0 flex-1 items-center gap-3" aria-live="polite">
-			<span class="h-2 w-2 flex-shrink-0 rounded-full {isGenerating ? "bg-accent animate-pulse" : generatingTabName && !isActiveTabGenerating ? "bg-warning" : "bg-success"}"></span>
-			<div class="min-w-0">
-				{#if isGenerating}
-					<div class="flex min-w-0 items-center gap-2">
-						<span class="text-sm font-semibold text-fg">Running</span>
-						{#if progressMessage}<span class="truncate text-sm text-fg-muted">{progressMessage}</span>{/if}
-					</div>
-					<div class="flex items-center gap-2 overflow-hidden font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">
-						{#if currentPipeName}<span class="truncate">{currentPipeName}</span>{/if}
-						{#each progressMeta as marker (marker.type + marker.value)}
-							<span class="hidden truncate xl:inline">{marker.value}</span>
-						{/each}
-						{#if multiBackend && generation.routingBackend}
-							<span class="hidden truncate normal-case tracking-normal text-fg-subtle xl:inline">Runs on <span class="font-mono lowercase text-fg-muted">{generation.routingBackend.name}</span>{generation.routingBackend.routing_reason ? ` — ${generation.routingBackend.routing_reason}` : ''}</span>
-						{/if}
-						{#if $stopAfterCurrentRequested}
-							<span class="text-warning normal-case tracking-normal">stopping after this one</span>
-						{:else if $generationMode === "forever"}
-							<span class="text-signal normal-case tracking-normal">continuous</span>
-						{/if}
-						<span class="text-fg-muted">{hasProgressFraction ? `${progressPercent}%` : "working…"}</span>
-					</div>
-				{:else if generatingTabName && !isActiveTabGenerating}
-					<div class="truncate text-sm font-medium text-fg">Generating in {generatingTabName}</div>
-					<button type="button" class="text-xs text-signal hover:underline" on:click={onSwitchToGeneratingTab}>Switch to tab</button>
-				{:else}
-					<div class="text-sm font-medium text-fg">{markState === "disabled" && disabledReason ? "Can't generate yet" : "Ready to generate"}</div>
-					<div class="truncate font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">
-						{markState === "disabled" && disabledReason
+		<section class="status-block" aria-live="polite">
+			<div class="status-symbol" aria-hidden="true"></div>
+			<div class="status-copy">
+				<div class="status-line">
+					{#if isGenerating}
+						<span class="status-title">Running</span>
+					{:else if generatingTabName && !isActiveTabGenerating}
+						<span class="status-title">Generating in {generatingTabName}</span>
+					{:else}
+						<span class="status-title">{markState === 'disabled' && disabledReason ? "Can't generate yet" : 'Ready to generate'}</span>
+					{/if}
+					{#if isGenerating}
+						<span class="status-percent">{hasProgressFraction ? `${progressPercent}%` : 'working…'}</span>
+					{/if}
+					<button type="button" class="inline-action" on:click={() => onSwitchToGeneratingTab?.()}>
+						Switch to tab <svg class="icon" style="width:11px;height:11px"><use href="#i-arrow" /></svg>
+					</button>
+				</div>
+				<span class="status-meta">
+					{#if isGenerating}
+						{[
+							progressMessage,
+							currentPipeName,
+							...progressMeta.map((marker) => marker.value),
+							multiBackend && generation.routingBackend
+								? `Runs on ${generation.routingBackend.name}${generation.routingBackend.routing_reason ? ` — ${generation.routingBackend.routing_reason}` : ''}`
+								: null,
+							$stopAfterCurrentRequested ? 'stopping after this one' : $generationMode === 'forever' ? 'continuous' : null
+						]
+							.filter(Boolean)
+							.join(' · ')}
+					{:else if generatingTabName && !isActiveTabGenerating}
+						Another tab currently owns the generation worker
+					{:else}
+						{markState === 'disabled' && disabledReason
 							? disabledReason
-							: $generationMode === "forever" ? "Continuous mode armed" : "Configure the prompt and settings"}
-					</div>
-				{/if}
+							: $generationMode === 'forever'
+								? 'Continuous mode armed'
+								: 'Configure the prompt and settings'}
+					{/if}
+				</span>
 			</div>
-		</div>
+		</section>
 
-		<!-- Readout cluster: session · save · last · elapsed · queue, then chrome
-			(settings · mode), then the mark. Fixed order, every cell
-			always rendered (generation-panel.dc.html line 415) — a value that
-			doesn't exist yet reads "none"/"empty" rather than the cell vanishing. -->
-		<div class="flex h-[38px] flex-shrink-0 items-stretch">
+		<!-- Context rail: session · save, last, elapsed, queue. Fixed order,
+			every cell always rendered — a value that doesn't exist yet reads
+			"none"/"empty" rather than the cell vanishing. -->
+		<section class="context-rail" aria-label="Session and run information">
 			<SessionCluster {presetId} {currentMode} {tabId} {presetVersion} {availableModes} />
 
-			<span class="h-[26px] w-px flex-shrink-0 self-center bg-line" aria-hidden="true"></span>
-			<ReadoutCell label="last">
-				<span class={lastText === "none" ? "text-fg-subtle" : "text-fg-muted"}>{lastText}</span>
-			</ReadoutCell>
+			<PanelReadoutCell label="last" ariaLabel="Last generation duration">
+				<span class={lastText === 'none' ? 'text-fg-subtle' : ''}>{lastText}</span>
+			</PanelReadoutCell>
 
-			<span class="h-[26px] w-px flex-shrink-0 self-center bg-line" aria-hidden="true"></span>
-			<ReadoutCell label="elapsed">
-				<span class={isGenerating ? "text-fg" : "text-fg-subtle"}>{elapsedText}</span>
-			</ReadoutCell>
+			<PanelReadoutCell label="elapsed" ariaLabel="Elapsed time">
+				<span class={isGenerating ? '' : 'text-fg-subtle'}>{elapsedText}</span>
+			</PanelReadoutCell>
 
-			<span class="h-[26px] w-px flex-shrink-0 self-center bg-line" aria-hidden="true"></span>
-			<div class="relative" bind:this={queueCellRef}>
-				<ReadoutCell
-					label="queue"
-					clickable={queueDepth > 0}
-					onclick={() => (showQueuePopover = !showQueuePopover)}
+			<PanelReadoutCell
+				label="queue"
+				clickable={queueDepth > 0}
+				ariaLabel="Generation queue"
+				onclick={toggleQueuePopover}
+				onElement={(el) => (queueCellRef = el)}
+			>
+				<span class={queueDepth > 0 ? '' : 'text-fg-subtle'}>{queueText}</span>
+			</PanelReadoutCell>
+		</section>
+
+		<section class="commands" aria-label="Generation actions">
+			<div class="utility-cluster">
+				<button
+					type="button"
+					class="icon-button"
+					data-tooltip="Generation settings"
+					aria-label="Generation settings"
+					aria-expanded={activeDrawer === 'settings'}
+					disabled={!$$slots.settings}
+					on:click={() => toggleDrawer('settings')}
 				>
-					<span class={queueDepth > 0 ? "text-fg-muted" : "text-fg-subtle"}>{queueText}</span>
-				</ReadoutCell>
-				{#if showQueuePopover}
-					<div bind:this={queuePopoverRef} class="absolute bottom-full right-0 z-50 mb-2 w-72 overflow-hidden rounded-xl border border-line-strong bg-surface-1 shadow-floating" role="menu">
-						<div class="flex items-center justify-between border-b border-line px-4 py-3">
-							<div><p class="text-sm font-medium text-fg">Generation queue</p><p class="text-xs text-fg-subtle">Jobs from this tab</p></div>
-							<Button variant="ghost" size="xs" onclick={() => { showQueuePopover = false; onClearQueue?.(); }}>Cancel all</Button>
-						</div>
-						<div class="max-h-64 overflow-y-auto p-2">
-							{#each queueEntries as entry, index (entry.generation_id)}
-								<div class="flex items-center gap-3 rounded-lg px-2 py-2">
-									<span class="flex h-6 w-6 items-center justify-center rounded bg-surface-2 font-mono text-2xs text-fg-subtle">{index + 1}</span>
-									<div class="min-w-0 flex-1"><p class="truncate font-mono text-xs text-fg-muted">{entry.generation_id}</p><p class="text-2xs capitalize text-fg-subtle">{entry.status}{entry.queue_position !== null ? ` · queue #${entry.queue_position}` : ""}</p></div>
-									<span class="h-2 w-2 rounded-full {entry.status === "running" ? "bg-accent animate-pulse" : "bg-warning"}"></span>
-								</div>
-							{/each}
-						</div>
-					</div>
-				{/if}
-			</div>
-
-			<span class="h-[26px] w-px flex-shrink-0 self-center bg-line" aria-hidden="true"></span>
-			<div class="flex items-center gap-0.5 px-3.5">
-				<Tooltip text="Generation settings" position="top" delay={150}>
-					<button type="button" class="inline-flex h-[34px] w-[34px] items-center justify-center rounded text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg disabled:cursor-not-allowed disabled:text-fg-disabled disabled:hover:bg-transparent" on:click={() => toggleDrawer("settings")} disabled={!$$slots.settings} aria-label="Generation settings" aria-pressed={activeDrawer === "settings"}>
-						<Icon name="sliders" className="h-4 w-4" />
-					</button>
-				</Tooltip>
-				<Tooltip text="Last generations" position="top" delay={150}>
-					<button type="button" class="inline-flex h-[34px] w-[34px] items-center justify-center rounded text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg disabled:cursor-not-allowed disabled:text-fg-disabled disabled:hover:bg-transparent" on:click={() => toggleDrawer("lastGenerations")} disabled={!$$slots.lastGenerations} aria-label="Last generations" aria-pressed={activeDrawer === "lastGenerations"}>
-						<Icon name="clock" className="h-4 w-4" />
-					</button>
-				</Tooltip>
-				<Tooltip text={modeChromeTooltip} position="top" delay={150}>
+					<svg class="icon"><use href="#i-sliders" /></svg>
+				</button>
+				<button
+					type="button"
+					class="icon-button"
+					data-tooltip="Last generations"
+					aria-label="Last generations"
+					aria-expanded={activeDrawer === 'lastGenerations'}
+					disabled={!$$slots.lastGenerations}
+					on:click={() => toggleDrawer('lastGenerations')}
+				>
+					<svg class="icon"><use href="#i-history" /></svg>
+				</button>
+				{#each $panelModeContributions as modeContrib (pluginDrawerId(modeContrib))}
 					<button
 						type="button"
-						class="inline-flex h-[34px] w-[34px] items-center justify-center rounded transition-colors disabled:cursor-not-allowed disabled:text-fg-disabled disabled:hover:bg-transparent
-							{modeChromeGlyph === 'stopping' ? 'bg-warning/10 text-warning' : modeChromeActive ? 'bg-signal/10 text-signal' : 'text-fg-muted hover:bg-surface-2 hover:text-fg'}"
-						on:click={handleModeChromeClick}
-						disabled={modeChromeDisabled}
-						aria-label={modeChromeTooltip}
+						class="icon-button"
+						data-tooltip={modeContrib.label || modeContrib.component}
+						aria-label={modeContrib.label || modeContrib.component}
+						aria-expanded={activeDrawer === pluginDrawerId(modeContrib)}
+						on:click={() => toggleDrawer(pluginDrawerId(modeContrib))}
 					>
-						<Icon name={modeChromeIcon} className="h-4 w-4" />
+						<svg class="icon"><use href="#i-extension" /></svg>
 					</button>
-				</Tooltip>
-				{#each $panelModeContributions as modeContrib (pluginDrawerId(modeContrib))}
-					<Tooltip text={modeContrib.label || modeContrib.component} position="top" delay={150}>
-						<button type="button" class="inline-flex h-[34px] w-[34px] items-center justify-center rounded text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg" on:click={() => toggleDrawer(pluginDrawerId(modeContrib))} aria-label={modeContrib.label || modeContrib.component} aria-pressed={activeDrawer === pluginDrawerId(modeContrib)}>
-							<Icon name="extension" className="h-4 w-4" />
-						</button>
-					</Tooltip>
 				{/each}
 			</div>
-
-			<Tooltip text={markLabel} kbd={markState !== "running" ? $shortcutLabels["start_generation"] : undefined} position="top" delay={150}>
-				<GenerateMark state={markState} disabled={markState === "disabled"} label={markLabel} onclick={handleMarkClick} />
-			</Tooltip>
-		</div>
+			<div class="run-cluster">
+				<button
+					type="button"
+					class="mode-button {modeChromeActive ? 'is-continuous' : ''} {modeChromeGlyph === 'stopping' ? 'is-stopping' : ''}"
+					data-tooltip={modeChromeTooltip}
+					aria-label={modeChromeTooltip}
+					aria-pressed={$generationMode === 'forever'}
+					disabled={modeChromeDisabled}
+					on:click={handleModeChromeClick}
+				>
+					<svg class="icon"><use href="#{modeChromeSpriteId}" /></svg>
+				</button>
+				<GenerateMark
+					state={markState}
+					disabled={markState === 'disabled'}
+					label={markLabel}
+					shortcut={markState !== 'running' ? $shortcutLabels['start_generation'] : undefined}
+					onclick={handleMarkClick}
+				/>
+			</div>
+		</section>
 	</div>
+
+	{#if showQueuePopover}
+		<!-- role="dialog" per the mock's #queuePopover (a <div>, not a
+			<section> — sectioning content can't take an interactive role);
+			z-index/positioning come from `.floating-panel` (position: fixed —
+			the real ancestor here is `.context-rail`, which clips overflow). -->
+		<div
+			class="floating-panel"
+			style={queuePopoverStyle}
+			bind:this={queuePopoverRef}
+			role="dialog"
+			aria-label="Generation queue"
+		>
+			<div class="popover-header">
+				<strong>Generation queue</strong>
+				<button
+					type="button"
+					class="quiet-button danger"
+					on:click={() => {
+						showQueuePopover = false;
+						onClearQueue?.();
+					}}
+				>
+					<svg class="icon"><use href="#i-trash" /></svg>Cancel all
+				</button>
+			</div>
+			<div class="queue-list">
+				{#if queueEntries.length === 0}
+					<div class="queue-row">
+						<span class="row-copy">
+							<span class="row-title">Queue is empty</span>
+							<span class="row-meta">New requests will appear here.</span>
+						</span>
+					</div>
+				{:else}
+					{#each queueEntries as entry, index (entry.generation_id)}
+						<div class="queue-row">
+							<span class="job-index">{String(index + 1).padStart(2, '0')}</span>
+							<span class="row-copy">
+								<span class="row-title">{entry.generation_id}</span>
+								<span class="row-meta">{entry.queue_position !== null ? `Queue #${entry.queue_position}` : entry.status}</span>
+							</span>
+							<span class="row-status {entry.status === 'running' ? 'live' : ''}">{entry.status}</span>
+						</div>
+					{/each}
+				{/if}
+			</div>
+			<div class="popover-footer"><span>Jobs run in the order they were added.</span></div>
+		</div>
+	{/if}
 </div>
 
 <style>
-	:global(.tabular-nums) {
-		font-variant-numeric: tabular-nums;
+	/* `--dock-height`: the panel's own height — the mock's own `.panel-bar`
+	   natural height (min-height: 82px, generation-panel-concept.html;
+	   `generation-three-pane-integration.html` reserves the same
+	   `--dock-height: 82px`), no extra padding beyond what the mock's bar
+	   already has (maintainer ruling — the outer container is the pre-port
+	   docked bar again: fixed, full-width, flush to the bottom edge, on the
+	   order of the old 73px bar, not a wider slab; see the additions
+	   override in generation-panel.css). Declared at :root (not scoped to
+	   `.generation-panel`) so sibling surfaces that used to hardcode the old
+	   73px bar height — FloatingWorkbench's modal overlay, the three-pane
+	   workspace's own bottom padding, the drawer's own `bottom` offset —
+	   read the one value instead of drifting from it independently. */
+	:global(:root) {
+		--dock-height: 82px;
 	}
 
-	.overflow-y-auto::-webkit-scrollbar {
-		width: 8px;
-	}
-
-	.overflow-y-auto::-webkit-scrollbar-track {
-		background: transparent;
-	}
-
-	.overflow-y-auto::-webkit-scrollbar-thumb {
-		background: rgb(var(--line-strong));
-		border-radius: 4px;
-	}
-
-	.overflow-y-auto::-webkit-scrollbar-thumb:hover {
-		background: rgb(var(--line-hover));
-	}
-
-	/* Indeterminate progress: no known fraction yet, so slide a fixed-width
-	   segment instead of pinning the bar at 0% (reads as hung, not working). */
-	.progress-indeterminate {
-		animation: progress-indeterminate-slide 1.2s ease-in-out infinite;
-	}
-
-	@keyframes progress-indeterminate-slide {
-		0% {
-			transform: translateX(-100%);
-		}
-		100% {
-			transform: translateX(300%);
+	@media (max-width: 720px) {
+		:global(:root) {
+			/* Same ratio to the default as before (168/112): the mock's own
+			   narrow-layout drawer offset scaled onto the new base height. */
+			--dock-height: 123px;
 		}
 	}
 </style>

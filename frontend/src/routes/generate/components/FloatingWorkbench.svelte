@@ -10,7 +10,7 @@
 
 	// The "W" floating workbench: the same GenerationWorkbenchPane the inline
 	// right pane renders, shown as a centered window in the area above the
-	// Generation Panel (bottom-[73px]) instead of covering it — the point of
+	// Generation Panel (bottom-[var(--dock-height)]) instead of covering it — the point of
 	// The floating workbench is there to bring results forward while the user keeps hitting
 	// Generate. Mounted only while `tab.workbenchFloating` is true, at which
 	// point the inline pane renders a placeholder instead — so there is never
@@ -187,7 +187,7 @@
 	bind:clientWidth={overlayWidth}
 	bind:clientHeight={overlayHeight}
 	use:portal
-	class="fixed inset-x-0 top-0 bottom-[73px] z-30 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 md:p-6"
+	class="fixed inset-x-0 top-0 bottom-[var(--dock-height)] z-30 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 md:p-6"
 	role="button"
 	tabindex="-1"
 	aria-label="Close floating workbench"

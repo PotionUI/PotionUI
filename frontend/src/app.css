@@ -1,5 +1,7 @@
 @import './lib/styles/tokens.css';
 @import './lib/styles/chat-concept.css';
+@import './lib/styles/segment-composer.css';
+@import './lib/styles/generation-panel.css';
 
 @tailwind base;
 @tailwind components;

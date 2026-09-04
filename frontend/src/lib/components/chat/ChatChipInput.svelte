@@ -827,22 +827,20 @@
 		role="textbox"
 		tabindex="0"
 		aria-multiline="true"
+		aria-label="Message PotionAI"
 		aria-placeholder={placeholder}
 		on:input={handleInput}
 		on:keydown={handleKeyDown}
 		on:paste={handlePaste}
-		class="chat-chip-input w-full min-h-[2.25rem] px-3 pt-2.5 pb-1 bg-transparent text-fg
-			{disabled ? 'opacity-60' : ''}
-			focus:outline-none transition-colors duration-100 text-sm leading-relaxed"
+		class="chat-chip-input"
+		class:opacity-60={disabled}
 		style="white-space: pre-wrap; word-break: break-word;"
 	></div>
 
-	<!-- Placeholder (shown when empty) -->
+	<!-- Placeholder (shown when empty), positioned to sit exactly over the
+	     editor's own text origin (.composer .chat-chip-input padding). -->
 	{#if !value && !disabled}
-		<div
-			class="absolute top-2.5 left-3 text-fg-subtle text-sm pointer-events-none"
-			aria-hidden="true"
-		>
+		<div class="chat-chip-input-placeholder" aria-hidden="true">
 			{placeholder}
 		</div>
 	{/if}
@@ -870,14 +868,21 @@
 
 <style>
 	.chat-chip-input {
-		font-family: inherit;
-		font-size: 0.875rem;
-		line-height: 1.625;
 		position: relative;
 	}
 
 	.chat-chip-input:focus {
 		outline: none;
+	}
+
+	.chat-chip-input-placeholder {
+		position: absolute;
+		top: 10px;
+		left: 13px;
+		color: rgb(var(--fg-subtle));
+		font-size: 13px;
+		line-height: 1.55;
+		pointer-events: none;
 	}
 
 	/* Chip containers */

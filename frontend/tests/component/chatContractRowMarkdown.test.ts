@@ -41,7 +41,7 @@ describe('IMPROVED rows render inline markdown', () => {
 		expect(target.textContent).toContain('Structure');
 		expect(target.textContent).not.toContain('**Structure**');
 		expect(target.textContent).not.toContain('`MiniMax`');
-		const strong = target.querySelector('strong');
+		const strong = target.querySelector('.reply-improved strong');
 		expect(strong?.textContent).toBe('Structure');
 		expect(strong?.className).toContain('font-semibold');
 		expect(target.querySelector('code')?.textContent).toBe('MiniMax');

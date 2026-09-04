@@ -13,8 +13,7 @@
 	import type { VariablesMap, VariableRoll } from '$lib/utils/variableDefs';
 	import ChatBehaviorTrace from '$lib/components/chat/ChatBehaviorTrace.svelte';
 	import Logo from '$lib/components/brand/Logo.svelte';
-	import Button from '$lib/components/ui/Button.svelte';
-	import CopyButton from '$lib/components/ui/CopyButton.svelte';
+	import { copyText } from '$lib/utils/clipboard';
 	import { appliedSegmentActions, isAppliedSegmentAction } from '$lib/stores/appliedSegmentActions';
 
 	export let role: 'user' | 'assistant' | 'system';
@@ -66,22 +65,21 @@
 		});
 	})();
 
-	function getSourceBadgeColor(type: string): string {
-		switch (type) {
-			case 'model': return 'bg-info/10 text-info border-info/25';
-			case 'prompt': return 'bg-signal/10 text-signal border-signal/25';
-			case 'preset': return 'bg-warning/10 text-warning border-warning/25';
-			case 'segment': return 'bg-success/10 text-success border-success/25';
-			case 'phrasebook': return 'bg-info/10 text-info border-info/25';
-			case 'style': return 'bg-danger/10 text-danger border-danger/25';
-			default: return 'bg-surface-2 text-fg-muted border-line';
-		}
-	}
-
 	// Prompt feedback (thumbs up/down on proposed segment updates)
 	let localPromptFeedback: Record<number, { verdict: 'approved' | 'rejected'; reason?: string }> = {};
 	let reasonPanelFor: number | null = null;
 	let reasonText = '';
+
+	// Response copy: check-swap for ~1.5s (see feedback_copy_feedback_standard).
+	let responseCopied = false;
+	let responseCopiedTimer: ReturnType<typeof setTimeout> | undefined;
+	async function copyResponse() {
+		const ok = await copyText(content);
+		if (!ok) return;
+		responseCopied = true;
+		clearTimeout(responseCopiedTimer);
+		responseCopiedTimer = setTimeout(() => (responseCopied = false), 1500);
+	}
 
 	$: storedPromptFeedback = (metadata?.prompt_feedback || {}) as Record<
 		string,
@@ -203,217 +201,144 @@
 
 <!-- User Message -->
 {#if role === 'user'}
-	<div class="flex justify-end">
-		<div class="flex max-w-[78%] flex-col items-end gap-1.5">
-			{#if timestamp}
-				<span class="font-mono text-2xs text-fg-disabled">{formatTime(timestamp)}</span>
-			{/if}
-			<div class="whitespace-pre-wrap rounded-lg rounded-br border border-line bg-surface-2 px-3.5 py-2.5 {compact ? 'text-xs' : 'text-sm'} text-fg">
-				{#each splitResourceTokens(content) as part}{#if part.type === 'resource'}<span class="text-signal bg-signal/10 border border-signal/25 rounded px-1" title={part.value}>@{resourceLabel(part.value)}</span>{:else}{part.value}{/if}{/each}
-			</div>
-			{#if imageUrl}
-				<div class="flex max-w-full items-center gap-2 rounded-lg border border-line bg-surface-1 py-1 pl-1 pr-2.5">
-					<img
-						src={imageUrl}
-						alt="Attached"
-						class="h-[38px] w-[38px] flex-shrink-0 rounded border border-line object-cover"
-						loading="lazy"
-					/>
-					<div class="min-w-0">
-						<div class="max-w-[180px] truncate text-2xs font-semibold text-fg-muted" title={attachmentName(imageUrl)}>
-							{attachmentName(imageUrl)}
-						</div>
-						<div class="mt-0.5 font-mono text-[9px] uppercase tracking-[0.06em] text-fg-subtle">
-							Image attachment
-						</div>
-					</div>
-				</div>
-			{/if}
+	<article class="message user-message">
+		<div class="user-bubble">
+			{#each splitResourceTokens(content) as part}{#if part.type === 'resource'}<span class="prompt-token" title={part.value}>@{resourceLabel(part.value)}</span>{:else}{part.value}{/if}{/each}
 		</div>
-	</div>
+		{#if imageUrl}
+			<div class="user-attachment">
+				<img src={imageUrl} alt="Attached" loading="lazy" />
+				<div class="user-attachment-copy">
+					<strong>{attachmentName(imageUrl)}</strong>
+					<span>Image attachment</span>
+				</div>
+			</div>
+		{/if}
+	</article>
 
 <!-- Assistant Message -->
 {:else if role === 'assistant'}
-	<div class="grid grid-cols-[28px_minmax(0,1fr)] items-start gap-3">
-		<div class="ai-avatar flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-surface-1 text-fg">
-			<Logo size={16} />
-		</div>
-		<div class="min-w-0 pt-0.5">
-			<div class="flex h-[21px] items-center gap-1.5">
-				<span class="text-xs font-semibold text-fg-muted">Potion AI</span>
-				{#if timestamp}
-					<span class="font-mono text-2xs text-fg-disabled">{formatTime(timestamp)}</span>
-				{/if}
+	<article class="message assistant-message">
+		<div class="ai-avatar"><Logo size={18} /></div>
+		<div class="assistant-body">
+			<div class="assistant-meta">
+				<strong>PotionAI</strong>
+				{#if timestamp}<span>{formatTime(timestamp)}</span>{/if}
 			</div>
 
-			<div class="{compact ? 'text-xs' : 'text-sm'} leading-relaxed text-fg-muted">
+			<div class="assistant-copy">
 				{@html renderedHtml}{#if isStreaming}<span class="inline-block w-2 h-4 ml-0.5 bg-signal animate-pulse rounded-sm"></span>{/if}
-			</div>
 
-			{#if replyContract?.improved?.length}
-				<div class="mt-3 rounded-lg border border-line bg-surface-2 {compact ? 'px-3 py-2' : 'px-3.5 py-3'}">
-					<div class="font-mono text-2xs font-medium uppercase tracking-[0.07em] text-fg-subtle mb-1.5">IMPROVED</div>
-					<ul class="space-y-1">
-						{#each replyContract.improved as line}
-							<li class="flex items-start gap-1.5 text-sm text-fg-muted">
-								<span class="mt-1.5 w-1 h-1 rounded-full bg-fg-subtle flex-shrink-0" aria-hidden="true"></span>
-								<span>{@html processMarkdown(line, { variableChips })}</span>
-							</li>
-						{/each}
-					</ul>
-				</div>
-			{/if}
+				{#if replyContract?.improved?.length}
+					<div class="reply-improved">
+						<div class="reply-improved-label">Improved</div>
+						<ul>
+							{#each replyContract.improved as line}
+								<li>{@html processMarkdown(line, { variableChips })}</li>
+							{/each}
+						</ul>
+					</div>
+				{/if}
 
-			<ChatBehaviorTrace executions={toolExecutions} {traceSteps} {metadata} {isStreaming} />
+				<ChatBehaviorTrace executions={toolExecutions} {traceSteps} {metadata} {isStreaming} />
 
-			{#each markdownResult.actions as action, i}
-				{@const feedback = promptFeedbackByIndex[i]}
-				{@const applied = appliedByIndex[i]}
-				<div
-					class="mt-3 overflow-hidden rounded-lg border border-line-strong bg-surface-2 {applied
-						? 'ring-1 ring-inset ring-success/30'
-						: ''}"
-				>
-					<div class="flex min-h-[40px] flex-wrap items-center justify-between gap-2 border-b border-line px-3 py-2">
-						<div class="flex min-w-0 items-center gap-2">
-							<svg class="w-3.5 h-3.5 flex-shrink-0 text-signal" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-							</svg>
-							<strong class="truncate text-xs font-semibold text-fg">
-								{action.type === 'update_director_segment' ? 'Director Segment' : 'Update Segment'} #{action.segmentIndex + 1}
-							</strong>
-							<span class="flex-shrink-0 rounded bg-signal/10 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.06em] text-signal">
-								Suggested change
-							</span>
-						</div>
-						<div class="flex flex-shrink-0 items-center gap-2">
-							{#if onPromptFeedback && sessionId && messageId}
-								<div class="flex items-center gap-1">
+				{#each markdownResult.actions as action, i}
+					{@const feedback = promptFeedbackByIndex[i]}
+					{@const applied = appliedByIndex[i]}
+					<div class="prompt-card">
+						<div class="prompt-card-head">
+							<div class="prompt-card-title">
+								<svg class="icon"><use href="#i-edit" /></svg>
+								<strong
+									>{action.type === 'update_director_segment' ? 'Director Segment' : 'Update Segment'} #{action.segmentIndex +
+										1}</strong
+								>
+								<span class="prompt-label">Suggested change</span>
+							</div>
+							<div class="flex flex-shrink-0 items-center gap-2">
+								{#if onPromptFeedback && sessionId && messageId}
 									<button
-										class="p-1 rounded border transition-colors {feedback?.verdict === 'approved'
-											? 'bg-signal/10 border-signal/40 text-signal'
-											: 'border-transparent text-fg-subtle hover:text-signal hover:bg-signal/10'}"
+										type="button"
+										class="message-action"
+										class:active={feedback?.verdict === 'approved'}
 										disabled={!!feedback}
 										title="Good prompt"
 										aria-pressed={feedback?.verdict === 'approved'}
 										on:click={() => submitPromptFeedback(i, 'approved')}
 									>
-										<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-7m0 10H5a2 2 0 01-2-2v-6a2 2 0 012-2h2" />
-										</svg>
+										<svg class="icon"><use href="#i-good" /></svg>
 									</button>
 									<button
-										class="p-1 rounded border transition-colors {feedback?.verdict === 'rejected'
-											? 'bg-signal/10 border-signal/40 text-signal'
-											: 'border-transparent text-fg-subtle hover:text-signal hover:bg-signal/10'}"
+										type="button"
+										class="message-action"
+										class:active={feedback?.verdict === 'rejected'}
 										disabled={!!feedback}
 										title="Bad prompt"
 										aria-pressed={feedback?.verdict === 'rejected'}
 										on:click={() => toggleReasonPanel(i)}
 									>
-										<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.737 3h4.017c.163 0 .326.02.485.06L17 4m-7 10v5a2 2 0 002 2h.095c.5 0 .905-.405.905-.905 0-.714.211-1.412.608-2.006L17 13V4m-7 10h7m0-10h2a2 2 0 012 2v6a2 2 0 01-2 2h-2" />
-										</svg>
+										<svg class="icon"><use href="#i-bad" /></svg>
 									</button>
-								</div>
-							{/if}
-							{#if onApplyAction}
-								{#if applied}
+								{/if}
+								{#if onApplyAction}
 									<button
-										class="inline-flex items-center gap-1.5 rounded border border-success/40 bg-success/10 px-2.5 py-1.5 text-xs font-medium text-success transition-colors hover:bg-success/15"
-										title="Re-apply this variant"
+										type="button"
+										class="apply-button"
+										class:applied
+										title={applied ? 'Re-apply this variant' : applyActionHint}
 										on:click={() => onApplyAction?.(action, i)}
 									>
-										<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-										</svg>
-										Applied
+										{applied ? '✓ Applied' : 'Apply'}
 									</button>
-								{:else}
-									<Button variant="primary" size="xs" title={applyActionHint} onclick={() => onApplyAction?.(action, i)}>
-										Apply
-									</Button>
 								{/if}
-							{/if}
+							</div>
+						</div>
+						{#if reasonPanelFor === i && !feedback}
+							<div class="prompt-feedback-reason" transition:slide={{ duration: 150 }}>
+								<input
+									type="text"
+									bind:value={reasonText}
+									placeholder="Optional reason (why is this prompt bad?)"
+									on:keydown={(e) => e.key === 'Enter' && submitPromptFeedback(i, 'rejected', reasonText.trim() || undefined)}
+								/>
+								<button on:click={() => submitPromptFeedback(i, 'rejected', reasonText.trim() || undefined)}>Confirm</button>
+								<button on:click={() => toggleReasonPanel(i)}>Cancel</button>
+							</div>
+						{/if}
+						<div class="prompt-copy">
+							{#each splitMarkerTokens(action.content) as token}{#if token.isMarker}<span class="prompt-token">{token.text}</span>{:else}{token.text}{/if}{/each}
 						</div>
 					</div>
-					{#if reasonPanelFor === i && !feedback}
-						<div class="flex items-center gap-1.5 px-3 pt-2.5" transition:slide={{ duration: 150 }}>
-							<input
-								type="text"
-								bind:value={reasonText}
-								placeholder="Optional reason (why is this prompt bad?)"
-								class="flex-1 text-xs bg-canvas border border-line rounded px-2 py-1 text-fg-muted placeholder-fg-subtle focus:outline-none focus:border-line-strong"
-								on:keydown={(e) => e.key === 'Enter' && submitPromptFeedback(i, 'rejected', reasonText.trim() || undefined)}
-							/>
-							<button
-								class="px-2 py-1 text-xs font-medium text-white bg-danger-solid rounded hover:bg-danger-solid/90 transition-colors"
-								on:click={() => submitPromptFeedback(i, 'rejected', reasonText.trim() || undefined)}
-							>
-								Confirm
-							</button>
-							<button
-								class="px-2 py-1 text-xs font-medium text-fg-muted hover:text-fg-muted transition-colors"
-								on:click={() => toggleReasonPanel(i)}
-							>
-								Cancel
-							</button>
-						</div>
-					{/if}
-					<div class="whitespace-pre-wrap px-3 py-3 font-mono text-xs leading-relaxed text-fg-muted">
-						{#each splitMarkerTokens(action.content) as token}{#if token.isMarker}<span class="rounded bg-signal/10 px-1 text-signal">{token.text}</span>{:else}{token.text}{/if}{/each}
+				{/each}
+
+				{#if uniqueSources.length > 0}
+					<div class="message-sources">
+						{#each uniqueSources as source}
+							<div class="message-source-card">
+								<span class="message-source-badge">{source.source_type}</span>
+								<div class="message-source-title" title={source.title}>{source.title}</div>
+								{#if source.subtitle}<div class="message-source-sub">{source.subtitle}</div>{/if}
+								{#if source.url}
+									<a href={source.url} target="_blank" rel="noopener noreferrer" class="message-source-sub"
+										>Source ↗</a
+									>
+								{/if}
+							</div>
+						{/each}
 					</div>
-				</div>
-			{/each}
+				{/if}
+			</div>
 
-			{#if uniqueSources.length > 0}
-				<div class="mt-3 flex gap-2 overflow-x-auto pb-1 scrollbar-thin scrollbar-thumb-[rgb(var(--line-strong))] scrollbar-track-transparent">
-					{#each uniqueSources as source}
-						<div class="flex-shrink-0 w-48 rounded-lg bg-surface-1 border border-line p-2.5 hover:border-line-strong transition-colors">
-							<div class="flex items-center gap-1.5 mb-1">
-								<span class="px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase border {getSourceBadgeColor(source.source_type)}">
-									{source.source_type}
-								</span>
-							</div>
-							<div class="text-[11px] font-medium text-fg-muted truncate" title={source.title}>
-								{source.title}
-							</div>
-							{#if source.subtitle}
-								<div class="text-[10px] text-fg-subtle truncate mt-0.5">
-									{source.subtitle}
-								</div>
-							{/if}
-							{#if source.description}
-								<div class="text-[10px] text-fg-subtle mt-1 line-clamp-2 leading-relaxed">
-									{source.description}
-								</div>
-							{/if}
-							{#if source.url}
-								<a
-									href={source.url}
-									target="_blank"
-									rel="noopener noreferrer"
-									class="inline-flex items-center gap-1 text-[10px] text-signal hover:text-signal mt-1.5 transition-colors"
-								>
-									<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-									</svg>
-									Source
-								</a>
-							{/if}
-						</div>
-					{/each}
-				</div>
-			{/if}
-
-			<div class="mt-2 flex h-[27px] items-center gap-0.5">
-				<CopyButton text={content} title="Copy response" size="xs" variant="ghost" />
+			<div class="message-actions">
+				<button type="button" class="message-action" title="Copy" aria-label="Copy response" on:click={copyResponse}>
+					<svg class="icon"><use href={responseCopied ? '#i-check' : '#i-copy'} /></svg>
+				</button>
 				{#if modelTokensLine}
-					<span class="ml-1 font-mono text-2xs text-fg-subtle">{modelTokensLine}</span>
+					<span class="message-model">{modelTokensLine}</span>
 				{/if}
 			</div>
 		</div>
-	</div>
+	</article>
 
 <!-- System Message -->
 {:else if role === 'system'}
@@ -429,15 +354,3 @@
 		</div>
 	</div>
 {/if}
-
-<style>
-	/* Same border-box/padding-box gradient-ring idiom as the sidebar's AI Chat
-	   trigger (Sidebar.svelte) and ChatThinkingBubble's placeholder avatar —
-	   the one place the AI-product gradient renders as a border, never a fill. */
-	.ai-avatar {
-		border: 1px solid transparent;
-		background:
-			linear-gradient(rgb(var(--surface-1)), rgb(var(--surface-1))) padding-box,
-			linear-gradient(135deg, rgb(var(--ai-1)), rgb(var(--ai-2)), rgb(var(--ai-3))) border-box;
-	}
-</style>

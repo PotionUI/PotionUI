@@ -81,7 +81,7 @@ function fireResizeCallbackFor(node: Element) {
 }
 
 function findMessagesContainer(target: Element): HTMLElement {
-	const el = target.querySelector<HTMLElement>('.scrollbar-thin');
+	const el = target.querySelector<HTMLElement>('.messages');
 	expect(el, 'messages container (.scrollbar-thin) not found in the rendered tree').toBeTruthy();
 	return el!;
 }

@@ -2,12 +2,7 @@
 	import { onMount } from 'svelte';
 	import { logger } from '$lib/utils/logger';
 	import { api } from '$lib/services/api/index';
-	import Button from '$lib/components/ui/Button.svelte';
-	import IconButton from '$lib/components/ui/IconButton.svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
-	import Input from '$lib/components/ui/Input.svelte';
-	import Badge from '$lib/components/ui/Badge.svelte';
-	import Tooltip from '$lib/components/Tooltip.svelte';
 	import type { MemoryNote, MemoryScope } from '$lib/types/chat';
 
 	// The panel resolves the preset name + active model itself from the chat's
@@ -314,37 +309,25 @@
 	}
 </script>
 
-<!-- Docked inspector: a plain flex child of the conversation area (mounted and
-     positioned by UnifiedAIChat per the chat-rework brief's Seam 2), not an
-     overlay — no portal, no backdrop, no fixed positioning of its own. -->
-<div
-	class="memory-panel-in flex h-full w-[332px] flex-shrink-0 flex-col overflow-hidden border-l border-line-strong bg-surface-2"
-	role="region"
-	aria-label="Memory"
->
-	<!-- Head -->
-	<div class="flex flex-shrink-0 items-center gap-2.5 border-b border-line px-4 py-3">
-		<svg class="h-4 w-4 flex-shrink-0 text-signal" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-			<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.5 2A2.5 2.5 0 0112 4.5v15a2.5 2.5 0 01-4.9.7A2.5 2.5 0 013.5 17a2.5 2.5 0 01-.5-4.9A2.5 2.5 0 013 7.5 2.5 2.5 0 015.6 3.4 2.5 2.5 0 019.5 2zM14.5 2A2.5 2.5 0 0012 4.5v15a2.5 2.5 0 004.9.7A2.5 2.5 0 0020.5 17a2.5 2.5 0 00.5-4.9A2.5 2.5 0 0021 7.5a2.5 2.5 0 00-2.6-4.1A2.5 2.5 0 0014.5 2z" />
-		</svg>
-		<div class="min-w-0 flex-1">
-			<h2 class="truncate text-sm font-semibold text-fg">Memory</h2>
-			<div class="mt-0.5 truncate text-2xs text-fg-subtle">What Potion AI carries into replies</div>
+<!-- Backdrop + inspector: positioned by their own CSS (chat-concept.css,
+     .memory-backdrop / .memory-inspector), absolute inside .conversation —
+     mounted here as flat siblings, last children of .conversation. -->
+<button class="memory-backdrop" aria-label="Close memory" on:click={onClose}></button>
+<aside class="memory-inspector" aria-label="Memory">
+	<div class="memory-head">
+		<svg class="icon"><use href="#i-memory" /></svg>
+		<div class="memory-title">
+			<strong>Memory</strong>
+			<span>What PotionAI carries into replies</span>
 		</div>
-		<Tooltip text="Close" position="left" delay={150}>
-			<IconButton icon="close" label="Close" size="sm" onclick={onClose} />
-		</Tooltip>
+		<button class="tiny-button" aria-label="Close" title="Close" on:click={onClose}>
+			<svg class="icon"><use href="#i-close" /></svg>
+		</button>
 	</div>
 
-	<!-- Body -->
-	<div
-		bind:this={scrollEl}
-		class="flex-1 space-y-4 overflow-y-auto p-3 scrollbar-thin scrollbar-thumb-[rgb(var(--line-strong))] scrollbar-track-transparent"
-	>
+	<div class="memory-scroll" bind:this={scrollEl}>
 		{#if error}
-			<div class="rounded border border-danger/25 bg-surface-1 px-3 py-2 text-xs text-danger">
-				{error}
-			</div>
+			<div class="memory-error">{error}</div>
 		{/if}
 
 		{#if loading}
@@ -352,161 +335,121 @@
 				<Spinner />
 			</div>
 		{:else}
-			<div class="flex items-center justify-between gap-2 rounded-lg border border-line bg-surface-1 px-2.5 py-2">
-				<span class="text-xs text-fg-muted"
-					>{activeNoteCount} active note{activeNoteCount === 1 ? '' : 's'}</span
+			<div class="memory-summary">
+				<span>{activeNoteCount} active note{activeNoteCount === 1 ? '' : 's'}</span>
+				<span title="Injected into every chat message"
+					>~{totalFootprint.tokens.toLocaleString()} tokens in context</span
 				>
-				<span
-					class="font-mono text-2xs uppercase tracking-[0.05em] text-fg-subtle tabular-nums"
-					title="Injected into every chat message"
-				>
-					~{totalFootprint.tokens.toLocaleString()} tokens in context
-				</span>
 			</div>
 
 			{#each groups as group (group.scope)}
 				{@const groupNotes = notesByGroupScope.get(group.scope) ?? []}
 				{@const footprint = footprintByScope.get(group.scope)}
-				<section>
-					<div class="mb-1.5 flex items-center gap-2 px-0.5">
-						<h3 class="truncate font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle">
+				<section class="memory-group">
+					<div class="memory-group-head">
+						<span>
 							{groupTitle(group, groupNotes.length)}
-						</h3>
-						{#if footprint && footprint.overCap}
-							<Badge variant="warning" size="sm"
-								>{footprint.injectedCount} of {footprint.total} injected</Badge
-							>
-						{/if}
+							{#if footprint && footprint.overCap}
+								<span class="memory-footprint-badge">{footprint.injectedCount}/{footprint.total} injected</span>
+							{/if}
+						</span>
 						{#if group.available}
-							<button
-								type="button"
-								class="ml-auto flex-shrink-0 text-2xs font-medium text-signal transition-opacity hover:opacity-80"
-								on:click={() => startAdd(group.scope)}
-							>
+							<button type="button" data-memory-action="Add note" on:click={() => startAdd(group.scope)}>
 								+ Add
 							</button>
 						{/if}
 					</div>
 
 					{#if !group.available}
-						<div class="rounded-lg border border-dashed border-line px-3 py-3 text-center text-2xs text-fg-subtle">
-							{group.scope === 'model' ? 'No active model' : 'No active preset'}
-						</div>
+						<div class="memory-empty">{group.scope === 'model' ? 'No active model' : 'No active preset'}</div>
 					{:else}
-						<!-- Add form -->
 						{#if addingScope === group.scope}
-							<div class="mb-2 space-y-2 rounded-lg border border-line bg-surface-1 p-2.5">
-								<Input bind:value={addKey} placeholder="Key (e.g. tone)" class="text-xs" />
-								<textarea
-									bind:value={addContent}
-									placeholder="What to remember…"
-									rows="2"
-									class="input w-full resize-y text-xs"
-								></textarea>
-								<div class="flex items-center justify-end gap-2">
-									<Button variant="ghost" size="xs" onclick={cancelAdd}>Cancel</Button>
-									<Button
-										variant="primary"
-										size="xs"
+							<div class="memory-add-form">
+								<input type="text" bind:value={addKey} placeholder="Key (e.g. tone)" />
+								<textarea bind:value={addContent} placeholder="What to remember…" rows="2"></textarea>
+								<div class="memory-add-form-actions">
+									<button type="button" class="cancel" on:click={cancelAdd}>Cancel</button>
+									<button
+										type="button"
+										class="save"
 										disabled={saving || !addKey.trim() || !addContent.trim()}
-										onclick={() => submitAdd(group.scope, group.ref)}
+										on:click={() => submitAdd(group.scope, group.ref)}
 									>
 										Save
-									</Button>
+									</button>
 								</div>
 							</div>
 						{/if}
 
-						<!-- Notes -->
 						{#if groupNotes.length === 0 && addingScope !== group.scope}
-							<div class="rounded-lg border border-dashed border-line px-3 py-3 text-center text-2xs text-fg-subtle">
-								Nothing remembered yet
-							</div>
+							<div class="memory-empty">Nothing remembered yet</div>
 						{:else}
-							<div class="space-y-1.5">
-								{#each groupNotes as note (note.id)}
-									{@const notInjected = !!footprint && !footprint.injectedIds.has(note.id)}
-									<div class="rounded-lg border border-line bg-surface-1 p-2.5 {notInjected ? 'opacity-60' : ''}">
-										{#if editingId === note.id}
-											<div class="space-y-2">
-												<Input bind:value={editKey} placeholder="Key" class="text-xs" />
-												<textarea
-													bind:value={editContent}
-													rows="2"
-													class="input w-full resize-y text-xs"
-												></textarea>
-												<div class="flex items-center justify-end gap-2">
-													<Button variant="ghost" size="xs" onclick={cancelEdit}>Cancel</Button>
-													<Button
-														variant="primary"
-														size="xs"
-														disabled={saving || !editKey.trim() || !editContent.trim()}
-														onclick={() => submitEdit(note.id)}
+							{#each groupNotes as note (note.id)}
+								{@const notInjected = !!footprint && !footprint.injectedIds.has(note.id)}
+								<div class="memory-note" class:opacity-60={notInjected}>
+									{#if editingId === note.id}
+										<div class="memory-add-form">
+											<input type="text" bind:value={editKey} placeholder="Key" />
+											<textarea bind:value={editContent} rows="2"></textarea>
+											<div class="memory-add-form-actions">
+												<button type="button" class="cancel" on:click={cancelEdit}>Cancel</button>
+												<button
+													type="button"
+													class="save"
+													disabled={saving || !editKey.trim() || !editContent.trim()}
+													on:click={() => submitEdit(note.id)}
+												>
+													Save
+												</button>
+											</div>
+										</div>
+									{:else}
+										<div class="memory-note-head">
+											<strong>{note.key}</strong>
+											{#if note.updated_at}<span>{formatTimestamp(note.updated_at)}</span>{/if}
+											{#if notInjected}<span title="Over the injection cap for this group">not injected</span>{/if}
+											<div class="memory-note-actions">
+												{#if confirmDeleteId === note.id}
+													<button
+														type="button"
+														class="danger"
+														title="Confirm delete"
+														aria-label="Confirm delete"
+														on:click={() => deleteNote(note.id)}
 													>
-														Save
-													</Button>
-												</div>
+														<svg class="icon"><use href="#i-check" /></svg>
+													</button>
+													<button
+														type="button"
+														title="Cancel"
+														aria-label="Cancel"
+														on:click={() => (confirmDeleteId = null)}
+													>
+														<svg class="icon"><use href="#i-close" /></svg>
+													</button>
+												{:else}
+													<button type="button" title="Edit" aria-label="Edit" on:click={() => startEdit(note)}>
+														<svg class="icon"><use href="#i-edit" /></svg>
+													</button>
+													<button
+														type="button"
+														class="danger"
+														title="Delete"
+														aria-label="Delete"
+														on:click={() => {
+															cancelEdit();
+															confirmDeleteId = note.id;
+														}}
+													>
+														<svg class="icon"><use href="#i-trash" /></svg>
+													</button>
+												{/if}
 											</div>
-										{:else}
-											<div class="flex items-start gap-2">
-												<div class="min-w-0 flex-1">
-													<div class="flex items-center gap-1.5">
-														<span class="truncate font-mono text-2xs font-semibold text-fg">{note.key}</span>
-														{#if note.updated_at}
-															<span class="flex-shrink-0 font-mono text-2xs tabular-nums text-fg-subtle"
-																>{formatTimestamp(note.updated_at)}</span
-															>
-														{/if}
-														{#if notInjected}
-															<Badge variant="neutral" size="sm">not injected</Badge>
-														{/if}
-													</div>
-													<div class="mt-1 whitespace-pre-wrap break-words text-xs text-fg-muted">
-														{note.content}
-													</div>
-												</div>
-												<div class="flex flex-shrink-0 items-center gap-0.5">
-													{#if confirmDeleteId === note.id}
-														<Tooltip text="Confirm delete" position="left" delay={150}>
-															<IconButton
-																icon="check"
-																label="Confirm delete"
-																size="sm"
-																class="text-danger"
-																onclick={() => deleteNote(note.id)}
-															/>
-														</Tooltip>
-														<Tooltip text="Cancel" position="left" delay={150}>
-															<IconButton
-																icon="close"
-																label="Cancel"
-																size="sm"
-																onclick={() => (confirmDeleteId = null)}
-															/>
-														</Tooltip>
-													{:else}
-														<Tooltip text="Edit" position="left" delay={150}>
-															<IconButton icon="edit" label="Edit" size="sm" onclick={() => startEdit(note)} />
-														</Tooltip>
-														<Tooltip text="Delete" position="left" delay={150}>
-															<IconButton
-																icon="trash"
-																label="Delete"
-																size="sm"
-																class="hover:text-danger"
-																onclick={() => {
-																	cancelEdit();
-																	confirmDeleteId = note.id;
-																}}
-															/>
-														</Tooltip>
-													{/if}
-												</div>
-											</div>
-										{/if}
-									</div>
-								{/each}
-							</div>
+										</div>
+										<p>{note.content}</p>
+									{/if}
+								</div>
+							{/each}
 						{/if}
 					{/if}
 				</section>
@@ -514,25 +457,9 @@
 		{/if}
 	</div>
 
-	<!-- Footer -->
-	<div class="flex-shrink-0 border-t border-line px-3 py-2.5">
-		<Button variant="primary" size="sm" icon="plus" class="w-full shadow-raised" onclick={startAddFromFooter}>
-			New memory note
-		</Button>
+	<div class="memory-footer">
+		<button type="button" data-memory-action="Create memory note" on:click={startAddFromFooter}>
+			+ New memory note
+		</button>
 	</div>
-</div>
-
-<style>
-	@keyframes memory-panel-in {
-		from {
-			opacity: 0;
-		}
-		to {
-			opacity: 1;
-		}
-	}
-
-	.memory-panel-in {
-		animation: memory-panel-in 160ms ease-out;
-	}
-</style>
+</aside>

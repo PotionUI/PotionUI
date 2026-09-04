@@ -79,9 +79,9 @@ describe('ChatAttachPopover', () => {
 		});
 
 		const selectedThumb = document.body.querySelector('button[aria-label="b.png"]') as HTMLButtonElement;
-		expect(selectedThumb.className).toContain('border-signal');
+		expect(selectedThumb.className).toContain('selected');
 		const unselectedThumb = document.body.querySelector('button[aria-label="a.png"]') as HTMLButtonElement;
-		expect(unselectedThumb.className).not.toContain('border-signal');
+		expect(unselectedThumb.className).not.toContain('selected');
 
 		component.$destroy?.();
 	});

@@ -127,48 +127,29 @@
 		</div>
 	</div>
 {:else}
-	<!-- Following / pinned-active: the composer's context chip (mock `.resource-chip`):
-	     pin toggle · tab name (picker trigger) · state. One place for the fact. -->
+	<!-- Following / pinned-active: the composer's context chip, mock `.resource-chip`
+	     markup (chat-rework BRIEF2) — pin toggle · tab name (picker trigger) · state. -->
 	{@const pinned = model.state === 'pinned-active'}
 	<span
-		class="inline-flex h-6 max-w-[220px] items-center gap-[5px] rounded-md border px-[7px] text-2xs flex-shrink-0 motion-safe:transition-colors motion-safe:duration-[1200ms] ease-out {pinned
-			? 'border-warning/35 bg-warning/[0.07] text-warning'
-			: flash
-				? 'border-signal/35 bg-signal/[0.07] text-fg'
-				: 'border-line bg-surface-1 text-fg-muted'}"
+		class="resource-chip"
+		class:pinned
+		class:flash={!pinned && flash}
 		data-testid="chat-context-strip"
 		data-strip-state={pinned ? 'pinned-active' : 'following'}
 	>
-		<button
-			type="button"
-			bind:this={triggerEl}
-			class="max-w-[125px] truncate font-semibold {pinned ? 'text-warning' : 'text-fg'} hover:underline underline-offset-2"
-			on:click={togglePicker}
-		>
-			{model.tabName}
+		<svg class="icon"><use href={pinned ? '#i-pin' : '#i-file'} /></svg>
+		<button type="button" bind:this={triggerEl} class="context-chip-name" on:click={togglePicker}>
+			{model.tabName}{#if model.presetLabel} · {model.presetLabel}{/if}
 		</button>
-		{#if model.presetLabel}
-			<span class="truncate text-fg-subtle">· {model.presetLabel}</span>
-		{/if}
-		<span class="font-mono uppercase tracking-[0.06em] {pinned ? 'text-warning' : 'text-signal'}">
-			{pinned ? 'pinned · active' : 'following'}
-		</span>
+		<span class="resource-state">{pinned ? 'pinned · active' : 'following'}</span>
 		<button
 			type="button"
 			title={pinned ? `Unpin from ${model.tabName}` : `Pin to ${model.tabName}`}
 			aria-pressed={pinned}
-			class="grid h-4 w-4 flex-shrink-0 place-items-center rounded hover:bg-surface-2 transition-colors duration-100"
+			class="chip-remove"
 			on:click={() => selectTab(pinned ? null : activeTabId)}
 		>
-			<svg
-				class="h-[11px] w-[11px] {pinned ? 'text-warning' : 'text-signal'}"
-				fill={pinned ? 'currentColor' : 'none'}
-				stroke="currentColor"
-				stroke-width={pinned ? '1.5' : '2'}
-				viewBox="0 0 24 24"
-			>
-				<path stroke-linecap="round" stroke-linejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
-			</svg>
+			<svg class="icon"><use href="#i-pin" /></svg>
 		</button>
 	</span>
 {/if}

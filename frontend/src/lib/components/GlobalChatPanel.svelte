@@ -24,12 +24,17 @@
 		typeof window.matchMedia === 'function' &&
 		window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 	const motionDuration = prefersReducedMotion ? 0 : 160;
+
+	// Bound from UnifiedAIChat: the shell's own `&.rail-collapsed .history-rail`
+	// CSS rule needs the class on this ancestor, not on .history-rail itself.
+	let railCollapsed = false;
 </script>
 
 <svelte:window on:keydown={handleKeydown} />
 
 {#if isOpen}
-	<!-- Backdrop -->
+	<!-- Backdrop (the mock's page-dimmer, which is decoration-only in the
+	     standalone prototype and has no equivalent token here). -->
 	<div
 		class="fixed inset-0 bg-black/40 z-40"
 		role="button"
@@ -40,17 +45,17 @@
 		transition:fade={{ duration: motionDuration }}
 	></div>
 
-	<!-- Floating shell: a window over the app, not a right-docked drawer —
-	     geometry from the chat-rework brief (top-3/right-3/bottom-3, width
-	     capped so it never spans edge-to-edge on a wide monitor). -->
+	<!-- The floating window itself: geometry, grid, border, radius and shadow
+	     all come from .chat-shell's own CSS (chat-concept.css), ported
+	     verbatim from the mock — nothing here overrides it. -->
 	<div
-		class="fixed top-3 right-3 bottom-3 z-50 flex flex-col overflow-hidden rounded-xl border border-line-strong bg-surface-1 shadow-overlay"
-		style="width: min(1080px, calc(100vw - 76px));"
+		class="chat-shell floating-panel"
+		class:rail-collapsed={railCollapsed}
 		role="dialog"
 		aria-modal="true"
 		aria-label="AI chat"
 		transition:scale={{ duration: motionDuration, start: 0.98, opacity: 0 }}
 	>
-		<UnifiedAIChat onClose={handleClose} />
+		<UnifiedAIChat onClose={handleClose} bind:historyRailCollapsed={railCollapsed} />
 	</div>
 {/if}

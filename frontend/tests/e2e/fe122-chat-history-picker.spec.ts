@@ -75,11 +75,11 @@ test('chat vision picker - History pick lands the image in the field', async ({ 
 	await expect(fab).toBeVisible({ timeout: 15000 });
 	await fab.click();
 
-	const composer = page.locator('.bg-surface-2.rounded-xl:has(button[title="Send (Enter)"])');
+	const composer = page.locator('.composer:has(button[title="Send (Enter)"])');
 	await expect(composer).toBeVisible({ timeout: 15000 });
 
 	// --- Reveal the vision image panel.
-	const attachImageButton = page.locator('button[title="Attach image"]');
+	const attachImageButton = page.locator('button[title="Add image or resource"]');
 	await expect(attachImageButton).toBeVisible({ timeout: 15000 });
 	await attachImageButton.click();
 

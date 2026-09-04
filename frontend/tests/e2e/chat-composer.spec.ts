@@ -40,7 +40,7 @@ test('chat composer exposes attach, tools, memory and pin controls (no command p
 	await expect(fab).toBeVisible({ timeout: 15000 });
 	await fab.click();
 
-	const composer = page.locator('.bg-surface-2.rounded-xl:has(button[title="Send (Enter)"])');
+	const composer = page.locator('.composer:has(button[title="Send (Enter)"])');
 	await expect(composer).toBeVisible({ timeout: 15000 });
 	await page.waitForTimeout(BEAT);
 
@@ -64,7 +64,7 @@ test('chat composer exposes attach, tools, memory and pin controls (no command p
 
 	// The menu is portaled to <body> with computed fixed positioning (see
 	// ChatInput.svelte) — locate it by its floating-surface styling, not layout.
-	const toolsPopover = page.locator('div.shadow-floating').filter({ hasText: 'Enable tools' });
+	const toolsPopover = page.locator('.tools-popover');
 	await expect(toolsPopover).toBeVisible();
 	await expect(page.getByText('Enable tools')).toBeVisible();
 
@@ -173,7 +173,7 @@ test('chat composer exposes attach, tools, memory and pin controls (no command p
 	await composer.locator('button[title="Memory"]').click();
 	const memoryPanel = page.locator('[aria-label="Memory"]');
 	await expect(memoryPanel).toBeVisible();
-	await expect(memoryPanel.getByRole('heading', { name: 'Memory' })).toBeVisible();
+	await expect(memoryPanel.getByText('Memory', { exact: true })).toBeVisible();
 	await page.waitForTimeout(BEAT);
 	await screenshot(page, JOURNEY, 'memory-panel-open');
 	// Close is an IconButton wrapped in a Tooltip, so its accessible name comes

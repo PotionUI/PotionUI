@@ -6,7 +6,7 @@
 	import { api, type ChatSessionResponse, type ChatMessageResponse } from '$lib/services/api/index';
 	import ChatMessage from '$lib/components/ChatMessage.svelte';
 	import Logo from '$lib/components/brand/Logo.svelte';
-	import { iconPaths } from '$lib/utils/IconLibrary';
+	import ChatIconSprite from '$lib/components/chat/ChatIconSprite.svelte';
 	import { buildUploadedMediaItem } from '$lib/components/form-fields/mediaLoaderUpload';
 	import { activeTab, tabsStore } from '$lib/stores/tabs';
 	import { loraSelectionsForTab } from '$lib/stores/loraPickerSelections';
@@ -74,25 +74,25 @@
 	const STORAGE_KEY_ENABLE_TOOLS = 'unified-ai-chat-enable-tools';
 
 	// Empty-state suggestion cards: clicking one hands its prompt straight to
-	// the composer (same as the mock's suggestion buttons).
+	// the composer (copy and icons ported verbatim from the mock's .suggestions).
 	const EMPTY_STATE_SUGGESTIONS = [
 		{
-			title: 'Explore ideas',
-			sub: 'Get creative prompt directions',
-			prompt: 'Suggest a creative prompt idea',
-			iconPath: iconPaths.lightbulb as string
+			title: 'Explore art directions',
+			sub: 'Three distinct approaches from the current image',
+			prompt: 'Give me three art directions for the current image.',
+			icon: 'i-sparkles'
 		},
 		{
 			title: 'Review my settings',
-			sub: 'Find quality or composition improvements',
+			sub: 'Find quality, speed, or composition improvements',
 			prompt: 'Review my current settings and suggest improvements.',
-			iconPath: iconPaths.settings as string
+			icon: 'i-sliders'
 		},
 		{
 			title: 'Refine this prompt',
 			sub: 'Improve composition, detail, and lighting',
 			prompt: 'Rewrite my prompt with stronger composition and lighting.',
-			iconPath: iconPaths.sparkles as string
+			icon: 'i-wand'
 		}
 	];
 
@@ -128,11 +128,11 @@
 	let showToolPreferencesPanel = false;
 
 	// History rail (left of the conversation, not a covering view) — persists
-	// only the collapsed/expanded boolean, read once on mount.
-	let historyRailCollapsed = loadHistoryRailCollapsed();
-	// Transcript and composer share one column: the mock's 750px, widened
-	// when the rail is away so the conversation uses the freed space.
-	$: conversationMaxWidth = historyRailCollapsed ? 'max-w-[960px]' : 'max-w-[750px]';
+	// only the collapsed/expanded boolean, read once on mount. Exported so the
+	// host (GlobalChatPanel) can bind it onto .chat-shell itself: the CSS rule
+	// that actually collapses/widens things (&.rail-collapsed …) targets that
+	// ancestor, not .history-rail.
+	export let historyRailCollapsed = loadHistoryRailCollapsed();
 	function toggleHistoryRail() {
 		historyRailCollapsed = !historyRailCollapsed;
 		saveHistoryRailCollapsed(historyRailCollapsed);
@@ -1420,7 +1420,7 @@
 		const lines: string[] = [`# ${conversationTitle}`, ''];
 		for (const message of messages) {
 			if (message.isSystem || (!message.content && !message.tool_executions?.length)) continue;
-			const speaker = message.role === 'user' ? 'You' : 'Potion AI';
+			const speaker = message.role === 'user' ? 'You' : 'PotionAI';
 			const when = message.timestamp ? new Date(message.timestamp).toLocaleString() : '';
 			lines.push(`## ${speaker}${when ? ` — ${when}` : ''}`, '', message.content || '_(no text content)_', '');
 		}
@@ -1556,10 +1556,14 @@
 	}
 </script>
 
-<div class="flex flex-col h-full min-h-0 flex-1 bg-canvas">
-	<!-- Header bar: rail toggle, identity, mode/context/model, more menu, close.
-	     Always on top (full width) so it's still reachable — Close included —
-	     even in the "no usable config" body below. -->
+<ChatIconSprite />
+
+<!-- History rail: a real column (mock's <aside class="history-rail">), always
+     mounted — .chat-shell's own &.rail-collapsed rule (chat-concept.css)
+     animates it to zero width instead of this unmounting it. -->
+<ChatHistoryView onOpenSession={loadSession} onNewChat={handleNewSession} onSessionDeleted={handleSessionDeleted} />
+
+<section class="conversation" class:memory-open={showMemoryPanel}>
 	<ChatHeader
 		{llmConfigs}
 		{selectedConfigId}
@@ -1578,177 +1582,197 @@
 	/>
 
 	{#if configsLoaded && llmConfigs.length === 0}
-		<!-- No usable LLM config: replaces the whole chat surface, rail included.
+		<!-- No usable LLM config — a state the prototype never shows.
 		     Non-admins get no pointer into Admin — they can't act on it. -->
-		<div class="flex-1 min-h-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
-			<div class="w-10 h-10 inline-flex items-center justify-center rounded-lg bg-surface-2 border border-line-strong text-fg-subtle">
-				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 9v2m0 4h.01M5.062 19h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-				</svg>
-			</div>
+		<div class="chat-shell-notice">
+			<svg class="icon" style="width:28px;height:28px;color:rgb(var(--fg-subtle))"
+				><use href="#i-info" /></svg
+			>
 			{#if $authStore.user?.account_type === 'ADMIN'}
-				<p class="text-sm font-semibold text-fg">No enabled LLM configurations</p>
-				<p class="max-w-xs text-sm text-fg-muted">
-					Enable or create one in <a href="/admin?tab=llm" class="text-signal hover:underline">Admin → LLM Configuration</a> to start chatting.
+				<p>No enabled LLM configurations</p>
+				<p>
+					Enable or create one in <a href="/admin?tab=llm" style="color:rgb(var(--signal))"
+						>Admin → LLM Configuration</a
+					> to start chatting.
 				</p>
 			{:else}
-				<p class="text-sm font-semibold text-fg">Chat is currently unavailable</p>
-				<p class="max-w-xs text-sm text-fg-muted">
-					You are not allowed to use any chat configuration right now. If you think this is a mistake, contact your administrator.
-				</p>
+				<p>Chat is currently unavailable</p>
+				<p>You are not allowed to use any chat configuration right now. If you think this is a mistake, contact your administrator.</p>
 			{/if}
 		</div>
 	{:else}
-	<div class="flex flex-1 min-h-0">
-		<!-- History rail: a real column (not an overlay) that collapses to 0
-		     width, matching the mock's grid geometry. -->
-		{#if !historyRailCollapsed}
-			<div class="w-60 flex-shrink-0 border-r border-line overflow-hidden">
-				<ChatHistoryView
-					onOpenSession={loadSession}
-					onNewChat={handleNewSession}
-					onSessionDeleted={handleSessionDeleted}
+		<!-- Chat messages area -->
+		<div class="messages" bind:this={messagesContainerRef} use:preserveScrollAcrossHiding on:scroll={rememberScroll}>
+			<div class="messages-inner" class:hidden={messages.length === 0}>
+				{#each messages as message, idx}
+					{#if message.isStreaming && !message.content && !message.tool_executions?.length && !message.trace_steps?.length && idx === messages.length - 1}
+						<!-- Nothing has happened for this turn yet (no content, no tool call, no
+						     trace step) — a bare "thinking" placeholder covers that brief gap
+						     for a tool called with no preceding narration. Once any of those
+						     arrive this branch never renders again for the turn
+						     (tool_executions/trace_steps only grow and content is never
+						     blanked), so the assistant bubble mounts once and stays mounted —
+						     content and tool rows render as updates inside it
+						     (ChatMessage/ChatBehaviorTrace). -->
+						<ChatThinkingBubble />
+					{:else}
+						<ChatMessage
+							role={message.role}
+							content={message.content}
+							timestamp={message.timestamp}
+							imageUrl={message.imageUrl || undefined}
+							compact={false}
+							isStreaming={message.isStreaming || false}
+							onApplyAction={enableTools
+								? (action, actionIndex) =>
+										handleApplySegmentAction(action, message.id || '', actionIndex)
+								: undefined}
+							applyActionHint={videoDirectorActive
+								? "Applies to the Video Director's persistent Direction prompt"
+								: undefined}
+							onPromptFeedback={message.id
+								? (data) => handlePromptFeedback(message.id!, data)
+								: undefined}
+							toolExecutions={message.tool_executions || []}
+							traceSteps={message.trace_steps || []}
+							sources={message.sources || []}
+							sessionId={sessionId || ''}
+							messageId={message.id || ''}
+							metadata={message.metadata}
+							parsedContent={message.parsed_content}
+							variables={contextTab?.variables}
+							variableRolls={contextTab?.variableRolls}
+						/>
+					{/if}
+					<!-- Tab-switch divider: same idiom as a date divider, not a system
+					     message. Client-side only (see contextDividers above); can land
+					     after any message index, including the last one. -->
+					{#each contextDividers.filter((d) => d.afterIndex === idx) as divider (divider.id)}
+						<div class="context-switch-divider" data-testid="context-switch-divider">
+							<div class="rule"></div>
+							<span
+								>Switched to {divider.tabName}{#if divider.presetLabel} · {divider.presetLabel}{/if}{#if divider.dims}
+									· {divider.dims}{/if}</span
+							>
+							<div class="rule"></div>
+						</div>
+					{/each}
+				{/each}
+
+				{#if isGenerating && !messages.some((m) => m.isStreaming)}
+					<ChatThinkingBubble />
+				{/if}
+			</div>
+
+			<!-- Empty state: orb + prompt + three suggestion cards that hand
+			     their prompt straight to the composer. -->
+			<div class="empty-state" class:hidden={messages.length > 0}>
+				<div class="empty-content">
+					<span class="empty-orb"><Logo size={27} /></span>
+					<h2>What are we making?</h2>
+					<p>I can see your active workspace and help shape prompts, settings, and creative direction.</p>
+					<div class="suggestions">
+						{#each EMPTY_STATE_SUGGESTIONS as suggestion (suggestion.title)}
+							<button
+								type="button"
+								class="suggestion"
+								on:click={() => {
+									userInput = suggestion.prompt;
+									inputRef?.focus();
+								}}
+							>
+								<svg class="icon"><use href="#{suggestion.icon}" /></svg><strong>{suggestion.title}</strong
+								><span>{suggestion.sub}</span>
+							</button>
+						{/each}
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Approval/question dock: docked above the composer whenever a tool execution is
+		     pending approval or the latest reply came with docked questions. Approvals rank
+		     first inside the dock itself (they gate side effects); questions are optional. -->
+		{#if pendingApprovalQueue.length > 0 || pendingQuestionQueue.length > 0}
+			<div class="chat-overlay-col">
+				<ApprovalDock
+					{messages}
+					sessionId={sessionId || ''}
+					onResolved={handleToolApprovalResolved}
+					onAnswerQuestion={(text) => sendMessage(text)}
 				/>
 			</div>
 		{/if}
 
-		<div class="flex flex-1 min-h-0">
-			<div class="flex flex-col flex-1 min-w-0 min-h-0">
-				<!-- Chat messages area -->
-				<div
-					bind:this={messagesContainerRef}
-					use:preserveScrollAcrossHiding
-					on:scroll={rememberScroll}
-					class="flex-1 overflow-y-auto min-h-0 scrollbar-thin scrollbar-thumb-[rgb(var(--line-strong))] scrollbar-track-transparent hover:scrollbar-thumb-[rgb(var(--line-hover))]"
-				>
-					<div class="mx-auto w-full {conversationMaxWidth} px-3 py-3 md:px-5 md:py-5">
-						{#if messages.length === 0}
-							<!-- Empty state: orb + prompt + three suggestion cards that hand
-							     their prompt straight to the composer. -->
-							<div class="flex flex-col items-center justify-center text-center py-10 md:py-16">
-								<span class="empty-orb mb-4 flex h-11 w-11 items-center justify-center rounded-xl text-fg">
-									<Logo size={22} />
-								</span>
-								<h2 class="text-lg md:text-xl font-semibold text-fg">What are we making?</h2>
-								<p class="mt-2 max-w-sm text-sm text-fg-subtle">
-									I can see your active workspace and help shape prompts, settings, and creative direction.
-								</p>
-								<div class="mt-6 grid w-full grid-cols-1 sm:grid-cols-3 gap-2 text-left">
-									{#each EMPTY_STATE_SUGGESTIONS as suggestion (suggestion.title)}
-										<button
-											type="button"
-											class="rounded-lg border border-line bg-surface-1 p-3 text-left transition-colors hover:border-line-hover hover:bg-surface-2"
-											on:click={() => { userInput = suggestion.prompt; inputRef?.focus(); }}
-										>
-											<svg class="mb-2.5 w-4 h-4 text-signal" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d={suggestion.iconPath} />
-											</svg>
-											<div class="text-xs font-semibold text-fg">{suggestion.title}</div>
-											<div class="mt-1 text-2xs text-fg-subtle leading-snug">{suggestion.sub}</div>
-										</button>
-									{/each}
-								</div>
-							</div>
-						{:else}
-							<div class="flex flex-col gap-[29px]">
-							{#each messages as message, idx}
-									{#if message.isStreaming && !message.content && !message.tool_executions?.length && !message.trace_steps?.length && idx === messages.length - 1}
-										<!-- Nothing has happened for this turn yet (no content, no tool call, no
-										     trace step) — a bare "thinking" placeholder covers that brief gap
-										     for a tool called with no preceding narration. Once any of those
-										     arrive this branch never renders again for the turn
-										     (tool_executions/trace_steps only grow and content is never
-										     blanked), so the assistant bubble mounts once and stays mounted —
-										     content and tool rows render as updates inside it
-										     (ChatMessage/ChatBehaviorTrace). -->
-										<ChatThinkingBubble />
-									{:else}
-										<ChatMessage
-											role={message.role}
-											content={message.content}
-											timestamp={message.timestamp}
-											imageUrl={message.imageUrl || undefined}
-											compact={false}
-											isStreaming={message.isStreaming || false}
-											onApplyAction={enableTools
-												? (action, actionIndex) =>
-														handleApplySegmentAction(action, message.id || '', actionIndex)
-												: undefined}
-										applyActionHint={videoDirectorActive
-											? "Applies to the Video Director's persistent Direction prompt"
-											: undefined}
-											onPromptFeedback={message.id
-												? (data) => handlePromptFeedback(message.id!, data)
-												: undefined}
-											toolExecutions={message.tool_executions || []}
-											traceSteps={message.trace_steps || []}
-											sources={message.sources || []}
-											sessionId={sessionId || ''}
-											messageId={message.id || ''}
-											metadata={message.metadata}
-											parsedContent={message.parsed_content}
-											variables={contextTab?.variables}
-											variableRolls={contextTab?.variableRolls}
-										/>
-									{/if}
-										<!-- Tab-switch divider: same idiom as a date divider, not a system
-										     message. Client-side only (see contextDividers above); can land
-										     after any message index, including the last one. -->
-										{#each contextDividers.filter((d) => d.afterIndex === idx) as divider (divider.id)}
-											<div class="flex items-center gap-2 py-0.5" data-testid="context-switch-divider">
-												<div class="flex-1 h-px bg-line"></div>
-												<div class="flex items-center gap-1.5 flex-shrink-0">
-													<svg class="w-2.5 h-2.5 text-fg-subtle" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-														<path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4M16 17H4m0 0l4 4m-4-4l4-4" />
-													</svg>
-													<span class="font-mono text-2xs uppercase tracking-[0.08em] text-fg-subtle whitespace-nowrap">
-														Switched to {divider.tabName}{#if divider.presetLabel} · {divider.presetLabel}{/if}{#if divider.dims} · {divider.dims}{/if}
-													</span>
-												</div>
-												<div class="flex-1 h-px bg-line"></div>
-											</div>
-										{/each}
-								{/each}
-							</div>
-						{/if}
-
-						{#if isGenerating && !messages.some((m) => m.isStreaming)}
-							<ChatThinkingBubble />
-						{/if}
-					</div>
+		<!-- Error display -->
+		{#if $chatSession.error}
+			<div class="chat-overlay-col">
+				<div class="chat-error-banner">
+					<svg class="icon"><use href="#i-info" /></svg>
+					{$chatSession.error}
 				</div>
+			</div>
+		{/if}
 
-				<div class="mx-auto w-full {conversationMaxWidth}">
-				<!-- Approval/question dock: docked above the composer whenever a tool execution is
-				     pending approval or the latest reply came with docked questions. Approvals rank
-				     first inside the dock itself (they gate side effects); questions are optional. -->
-				{#if pendingApprovalQueue.length > 0 || pendingQuestionQueue.length > 0}
-					<ApprovalDock
-						{messages}
-						sessionId={sessionId || ''}
-						onResolved={handleToolApprovalResolved}
-						onAnswerQuestion={(text) => sendMessage(text)}
-					/>
-				{/if}
+		<!-- Pinned-to-another-tab warning: the only context state that needs its
+		     own block with actions; the following/pinned-active states render as
+		     the chip inside the composer's context row (see ChatInput's slot). -->
+		{#if stripModel && stripModel.state === 'pinned-mismatch'}
+			<div class="chat-overlay-col">
+				<ChatContextStrip
+					model={stripModel}
+					flash={stripFlash}
+					{allTabs}
+					activeTabId={$activeTab?.id ?? null}
+					{pinnedTabId}
+					{tabPresetNames}
+					onPinTab={savePinnedTab}
+					onSwitchToPinned={() => {
+						if (pinnedTabId) tabsStore.setActiveTab(pinnedTabId);
+					}}
+				/>
+			</div>
+		{/if}
 
-				<!-- Error display -->
-				{#if $chatSession.error}
-					<div class="flex-shrink-0 px-5 pb-2">
-						<div class="bg-surface-1 border border-danger/25 rounded-lg p-3">
-							<div class="flex items-center gap-2 text-sm text-danger">
-								<svg class="w-5 h-5 text-danger flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-								</svg>
-								{$chatSession.error}
-							</div>
-						</div>
-					</div>
-				{/if}
-
-				<!-- Pinned-to-another-tab warning: the only context state that needs its
-				     own block with actions; the following/pinned-active states render as
-				     the chip inside the composer's context row (see ChatInput's slot). -->
-				{#if stripModel && stripModel.state === 'pinned-mismatch'}
+		<!-- Input area: @resource chip editor + action row -->
+		<ChatInput
+			bind:this={inputRef}
+			bind:value={userInput}
+			bind:resources={userResources}
+			mode={currentMode}
+			formData={contextTab?.formData || {}}
+			{loraSelections}
+			disabled={isGenerating || llmConfigs.length === 0 || pendingApprovalQueue.length > 0}
+			approvalsPending={pendingApprovalQueue.length > 0}
+			{isGenerating}
+			{supportsVision}
+			{formImageEntries}
+			{selectedDurablePath}
+			onSelectFormImage={selectFormImage}
+			{selectedImageData}
+			onMediaLoaderChange={(value) => handleMediaLoaderChange('vision_image', value)}
+			{lastGeneratedImage}
+			onAttachLastImage={attachLastGeneratedImage}
+			onRemoveImage={removeSelectedImage}
+			onSend={handleSend}
+			onStop={handleStop}
+			onKeydown={handleKeyDown}
+			onPasteImage={handlePasteImage}
+			{visibleTools}
+			disabledTools={$chatSession.disabledTools}
+			{enableTools}
+			onToggleEnableTools={handleToggleEnableTools}
+			onToggleTool={handleToggleTool}
+			{myToolPreferences}
+			onOpenToolPreferences={() => (showToolPreferencesPanel = true)}
+			{alwaysAttachLastImage}
+			onToggleAttachImage={toggleAttachLastImage}
+			onOpenMemory={openMemoryPanel}
+			memoryOpen={showMemoryPanel}
+			{memoryNoteCount}
+		>
+			<svelte:fragment slot="context">
+				{#if stripModel && stripModel.state !== 'pinned-mismatch'}
 					<ChatContextStrip
 						model={stripModel}
 						flash={stripFlash}
@@ -1757,98 +1781,29 @@
 						{pinnedTabId}
 						{tabPresetNames}
 						onPinTab={savePinnedTab}
-						onSwitchToPinned={() => {
-							if (pinnedTabId) tabsStore.setActiveTab(pinnedTabId);
-						}}
 					/>
 				{/if}
-
-				<!-- Input area: @resource chip editor + action row -->
-				<ChatInput
-					bind:this={inputRef}
-					bind:value={userInput}
-					bind:resources={userResources}
-					mode={currentMode}
-					formData={contextTab?.formData || {}}
-					{loraSelections}
-					disabled={isGenerating || llmConfigs.length === 0 || pendingApprovalQueue.length > 0}
-					approvalsPending={pendingApprovalQueue.length > 0}
-					{isGenerating}
-					{supportsVision}
-					{formImageEntries}
-					{selectedDurablePath}
-					onSelectFormImage={selectFormImage}
-					{selectedImageData}
-					onMediaLoaderChange={(value) => handleMediaLoaderChange('vision_image', value)}
-					{lastGeneratedImage}
-					onAttachLastImage={attachLastGeneratedImage}
-					onRemoveImage={removeSelectedImage}
-					onSend={handleSend}
-					onStop={handleStop}
-					onKeydown={handleKeyDown}
-					onPasteImage={handlePasteImage}
-					{visibleTools}
-					disabledTools={$chatSession.disabledTools}
-					{enableTools}
-					onToggleEnableTools={handleToggleEnableTools}
-					onToggleTool={handleToggleTool}
-					{myToolPreferences}
-					onOpenToolPreferences={() => (showToolPreferencesPanel = true)}
-					{alwaysAttachLastImage}
-					onToggleAttachImage={toggleAttachLastImage}
-					onOpenMemory={openMemoryPanel}
-					memoryOpen={showMemoryPanel}
-					{memoryNoteCount}
-				>
-					<svelte:fragment slot="context">
-						{#if stripModel && stripModel.state !== 'pinned-mismatch'}
-							<ChatContextStrip
-								model={stripModel}
-								flash={stripFlash}
-								{allTabs}
-								activeTabId={$activeTab?.id ?? null}
-								{pinnedTabId}
-								{tabPresetNames}
-								onPinTab={savePinnedTab}
-							/>
-						{/if}
-					</svelte:fragment>
-				</ChatInput>
-				</div>
-			</div>
-
-			<!-- Memory inspector: a docked column beside the transcript (Seam 2),
-			     not an overlay — opening it collapses the rail (see openMemoryPanel). -->
-			{#if showMemoryPanel}
-				<ChatMemoryPanel
-					presetId={contextTab?.selectedPreset ?? null}
-					formData={contextTab?.formData ?? {}}
-					onClose={closeMemoryPanel}
-					onCountChange={(n) => (memoryNoteCount = n)}
-				/>
-			{/if}
-		</div>
-	</div>
+			</svelte:fragment>
+		</ChatInput>
 	{/if}
 
-	<!-- My Tools panel (slide-out overlay, persistent per-user tool opt-out) -->
-	{#if showToolPreferencesPanel}
-		<ChatToolPreferencesPanel
-			llmConfigId={selectedConfigId || null}
-			onClose={() => (showToolPreferencesPanel = false)}
-			onChanged={loadMyToolPreferences}
+	<!-- Memory inspector: absolutely positioned inside .conversation (Seam 2),
+	     not an overlay — opening it collapses the rail (see openMemoryPanel). -->
+	{#if showMemoryPanel}
+		<ChatMemoryPanel
+			presetId={contextTab?.selectedPreset ?? null}
+			formData={contextTab?.formData ?? {}}
+			onClose={closeMemoryPanel}
+			onCountChange={(n) => (memoryNoteCount = n)}
 		/>
 	{/if}
+</section>
 
-</div>
-
-<style>
-	/* Same iridescent gradient-border idiom as the rail's brand orb and
-	   Sidebar's AI Chat trigger — border-box gradient, padding-box flat fill. */
-	.empty-orb {
-		border: 1px solid transparent;
-		background:
-			linear-gradient(rgb(var(--surface-1)), rgb(var(--surface-1))) padding-box,
-			linear-gradient(135deg, rgb(var(--ai-1)), rgb(var(--ai-2)), rgb(var(--ai-3))) border-box;
-	}
-</style>
+<!-- My Tools panel (slide-out overlay, persistent per-user tool opt-out) -->
+{#if showToolPreferencesPanel}
+	<ChatToolPreferencesPanel
+		llmConfigId={selectedConfigId || null}
+		onClose={() => (showToolPreferencesPanel = false)}
+		onChanged={loadMyToolPreferences}
+	/>
+{/if}

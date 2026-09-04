@@ -75,7 +75,7 @@ test('strip follows the active tab, and its picker resolves pinned-active and pi
 	const fab = page.getByRole('button', { name: 'AI Chat' });
 	await expect(fab).toBeVisible({ timeout: 15000 });
 	await fab.click();
-	const composer = page.locator('.bg-surface-2.rounded-xl:has(button[title="Send (Enter)"])');
+	const composer = page.locator('.composer:has(button[title="Send (Enter)"])');
 	await expect(composer).toBeVisible({ timeout: 15000 });
 
 	const contextStrip = strip(page);

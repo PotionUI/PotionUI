@@ -2,20 +2,13 @@
 	// Vision-image attach surface opened from ChatInput's "Add" button: current-
 	// form thumbnails, the shared MediaLoaderField (upload/library/paste/history
 	// — whatever it already offers, nothing invented here), reuse-last-image,
-	// and the auto-attach-next-message checkbox. Portaled + fixed-positioned by
-	// its caller (ChatInput computes `style` from the trigger's rect), with its
-	// own outside-pointerdown/Escape teardown — the fixed idiom for an anchored
-	// popover documented on ChatInput's Tools dropdown (never a portaled
-	// full-page catcher next to a non-portaled menu, which desyncs on close).
+	// and the auto-attach-next-message checkbox. Markup ported verbatim from
+	// the mock's .media-popover (chat-rework BRIEF2) — absolutely positioned
+	// inside .composer-wrap (its CSS), a plain sibling of .composer, no portal.
 	import { onMount } from 'svelte';
 	import MediaLoaderField from '$lib/components/form-fields/MediaLoaderField.svelte';
-	import Icon from '$lib/components/Icon.svelte';
-	import IconButton from '$lib/components/ui/IconButton.svelte';
-	import Tooltip from '$lib/components/Tooltip.svelte';
-	import portal from '$lib/actions/portal';
 	import type { FormImageEntry } from '$lib/chat/formMedia';
 
-	export let style: string = '';
 	export let triggerEl: HTMLElement | undefined = undefined;
 	export let onClose: () => void;
 
@@ -95,96 +88,74 @@
 </script>
 
 <div
-	use:portal
+	class="media-popover"
 	bind:this={rootEl}
-	class="fixed z-[9999] w-[min(420px,calc(100vw-2rem))] max-h-[min(32rem,calc(100vh-8rem))] overflow-y-auto bg-surface-1 border border-line rounded-xl shadow-floating"
-	{style}
 	role="dialog"
 	aria-label="Attach an image"
 	data-testid="chat-attach-popover"
 >
-	<div class="flex items-start gap-2.5 px-3 py-2.5 border-b border-line">
-		<span class="w-7 h-7 rounded-lg bg-signal/10 text-signal grid place-items-center flex-shrink-0">
-			<Icon name="image" className="w-3.5 h-3.5" />
-		</span>
-		<div class="flex-1 min-w-0">
-			<div class="text-xs font-semibold text-fg">Attach an image</div>
-			<div class="text-2xs text-fg-subtle mt-0.5">One image can be sent with the next message</div>
+	<div class="media-head">
+		<span class="media-head-icon"><svg class="icon"><use href="#i-image" /></svg></span>
+		<div class="media-head-copy">
+			<strong>Attach an image</strong>
+			<span>One image can be sent with the next message</span>
 		</div>
-		<span class="font-mono text-2xs px-1.5 py-0.5 rounded bg-signal/10 text-signal tracking-[0.06em] flex-shrink-0">VISION</span>
-		<Tooltip text="Close" position="left" delay={150}>
-			<IconButton icon="close" label="Close image picker" size="sm" onclick={onClose} />
-		</Tooltip>
+		<span class="capability-badge">VISION</span>
+		<button class="tiny-button" aria-label="Close image picker" title="Close" on:click={onClose}>
+			<svg class="icon"><use href="#i-close" /></svg>
+		</button>
 	</div>
 
-	<div class="p-3 space-y-3">
+	<div class="media-body">
 		{#if formImageEntries.length > 0}
-			<div>
-				<div class="font-mono text-2xs uppercase tracking-[0.07em] text-fg-subtle mb-1.5">From current form</div>
-				<div class="flex gap-1.5 overflow-x-auto pb-0.5">
-					{#each formImageEntries as entry (entry.key)}
-						<button
-							type="button"
-							class="relative flex-shrink-0 w-12 h-12 rounded-lg overflow-hidden border transition-colors duration-100 {isSelected(entry)
-								? 'border-signal ring-2 ring-signal/40'
-								: 'border-line hover:border-line-hover'}"
-							title={entry.label}
-							aria-label={entry.label}
-							on:click={() => pickFormImage(entry)}
-						>
-							<img src={entry.url} alt={entry.label} class="w-full h-full object-cover" />
-							{#if isSelected(entry)}
-								<span class="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-signal text-accent-contrast grid place-items-center">
-									<svg class="w-2 h-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
-									</svg>
-								</span>
-							{/if}
-						</button>
-					{/each}
-				</div>
+			<div class="media-section-label">From current form</div>
+			<div class="form-images">
+				{#each formImageEntries as entry (entry.key)}
+					<button
+						type="button"
+						class="form-image"
+						class:selected={isSelected(entry)}
+						title={entry.label}
+						aria-label={entry.label}
+						on:click={() => pickFormImage(entry)}
+					>
+						<img src={entry.url} alt={entry.label} />
+					</button>
+				{/each}
 			</div>
 		{/if}
 
-		<MediaLoaderField
-			name="vision_image"
-			value={selectedImageData}
-			onChange={handleFieldChange}
-			config={{ title: 'Reference image', accept: 'image/*' }}
-			compact
-			compactFullWidth
-		/>
+		<div class="media-loader-field">
+			<MediaLoaderField
+				name="vision_image"
+				value={selectedImageData}
+				onChange={handleFieldChange}
+				config={{ title: 'Reference image', accept: 'image/*' }}
+				compact
+				compactFullWidth
+			/>
+		</div>
 
 		{#if lastGeneratedImage}
-			<div class="flex items-center gap-2.5 pt-3 border-t border-line">
-				<img src={lastGeneratedImage.url} alt="" class="w-10 h-10 rounded-lg object-cover border border-line flex-shrink-0" />
-				<div class="flex-1 min-w-0">
-					<div class="text-xs font-medium text-fg">Use last generated image</div>
-					<div class="text-2xs text-fg-subtle truncate mt-0.5">
-						{lastGeneratedImage.name}{#if lastGeneratedImage.generatedAt} · {lastGeneratedImage.generatedAt}{/if}
-					</div>
+			<div class="last-image-row">
+				<img src={lastGeneratedImage.url} alt="Last generated" />
+				<div class="last-image-copy">
+					<strong>Use last generated image</strong>
+					<span
+						>{lastGeneratedImage.name}{#if lastGeneratedImage.generatedAt}
+							· {lastGeneratedImage.generatedAt}{/if}</span
+					>
 				</div>
-				<button
-					type="button"
-					class="flex-shrink-0 h-7 px-2.5 rounded border border-line-strong bg-surface-2 text-xs font-medium text-fg hover:bg-surface-3 transition-colors duration-100"
-					on:click={attachAgain}
-				>
-					Attach again
-				</button>
+				<button type="button" class="reuse-button" on:click={attachAgain}>Attach again</button>
 			</div>
 		{/if}
 	</div>
 
 	{#if onToggleAttachImage}
-		<label class="flex items-center gap-2.5 px-3 py-2 border-t border-line bg-surface-2 text-2xs text-fg-muted cursor-pointer">
-			<input
-				type="checkbox"
-				checked={alwaysAttachLastImage}
-				on:change={() => onToggleAttachImage?.()}
-				class="w-3.5 h-3.5 rounded border-line bg-canvas text-signal focus:ring-signal focus:ring-offset-0"
-			/>
-			<span class="flex-1">Auto-attach the last generated image to your next message</span>
-			<span class="font-mono text-2xs text-fg-subtle uppercase tracking-[0.06em] flex-shrink-0">Once when new</span>
+		<label class="auto-attach-row">
+			<input type="checkbox" checked={alwaysAttachLastImage} on:change={() => onToggleAttachImage?.()} />
+			<span>Auto-attach the last generated image to your next message</span>
+			<small>ONCE WHEN NEW</small>
 		</label>
 	{/if}
 </div>

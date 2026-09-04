@@ -73,6 +73,7 @@ function mountRail(props: {
 	onAddKeyframe?: (atSeconds: number) => void;
 	onAddAudio?: () => void;
 	onMoveKeyframe?: (id: string, atSeconds: number) => void;
+	onRemoveKeyframe?: (id: string) => void;
 	onResizeBeat?: (id: string, edge: 'start' | 'end', atSeconds: number) => void;
 }) {
 	target = document.createElement('div');
@@ -87,6 +88,7 @@ function mountRail(props: {
 			onAddKeyframe: vi.fn(),
 			onAddAudio: vi.fn(),
 			onMoveKeyframe: vi.fn(),
+			onRemoveKeyframe: vi.fn(),
 			onResizeBeat: vi.fn(),
 			...props
 		}
@@ -230,6 +232,75 @@ describe('ShotRail keyframes lane', () => {
 		anchor.click();
 		expect(onSelect).toHaveBeenCalledWith({ shotId: 'shot-1', kind: 'keyframe', id: 'kf-start' });
 		expect(onAddKeyframe).not.toHaveBeenCalled();
+	});
+
+	// Maintainer bug (09-04): "when I place a frame on the keyframes timeline
+	// the drag & drop works really poorly -- I drag and see the change only
+	// after I drop". A per-move document write (full console-model
+	// recompute) made the mark visibly lag behind the pointer; it must now
+	// follow the pointer live off local state and commit exactly once, on
+	// pointerup.
+	function leftPercentOf(el: Element): number {
+		const style = el.getAttribute('style') ?? '';
+		const match = /left:\s*([\d.]+)%/.exec(style);
+		expect(match).not.toBeNull();
+		return parseFloat(match![1]);
+	}
+
+	it('a free keyframe drag follows the pointer live and commits once, on pointerup', () => {
+		const onMoveKeyframe = vi.fn();
+		mountRail({ rail: buildRail(), onMoveKeyframe });
+		const free = target.querySelector('.kf-free') as HTMLElement;
+		const thumb = target.querySelector('.kf-thumb40') as HTMLElement;
+
+		free.dispatchEvent(new PointerEvent('pointerdown', { clientX: 130.8, pointerId: 1, bubbles: true }));
+		flushSync();
+
+		// fraction = 240/400 = 0.6 -> 0.6 * 5.5s = 3.3s -> snaps to 3.25s (13 * 0.25s)
+		window.dispatchEvent(new PointerEvent('pointermove', { clientX: 240, pointerId: 1 }));
+		flushSync();
+		const expectedPercent = (3.25 / 5.5) * 100;
+		expect(leftPercentOf(free)).toBeCloseTo(expectedPercent, 5);
+		expect(leftPercentOf(thumb)).toBeCloseTo(expectedPercent, 5);
+		expect(target.querySelector('.drag-label')?.textContent).toBe('3.25s');
+		expect(onMoveKeyframe).not.toHaveBeenCalled();
+
+		window.dispatchEvent(new PointerEvent('pointerup', { clientX: 240, pointerId: 1 }));
+		flushSync();
+		expect(onMoveKeyframe).toHaveBeenCalledTimes(1);
+		expect(onMoveKeyframe).toHaveBeenCalledWith('kf-free-1', 3.25);
+		expect(target.querySelector('.drag-label')).toBeNull();
+	});
+
+	// Maintainer bug (09-04): "I can't remove the dynamic keyframes".
+	it('Delete on a selected free mark removes it; the same key on an anchor is a no-op', () => {
+		const onRemoveKeyframe = vi.fn();
+		mountRail({ rail: buildRail(), onRemoveKeyframe });
+		const free = target.querySelector('.kf-free') as HTMLElement;
+		free.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }));
+		expect(onRemoveKeyframe).toHaveBeenCalledWith('kf-free-1');
+
+		onRemoveKeyframe.mockClear();
+		const anchor = target.querySelector('.kf-anchor') as HTMLElement;
+		anchor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }));
+		expect(onRemoveKeyframe).not.toHaveBeenCalled();
+	});
+
+	it('Escape cancels a free keyframe drag without committing', () => {
+		const onMoveKeyframe = vi.fn();
+		mountRail({ rail: buildRail(), onMoveKeyframe });
+		const free = target.querySelector('.kf-free') as HTMLElement;
+
+		free.dispatchEvent(new PointerEvent('pointerdown', { clientX: 130.8, pointerId: 1, bubbles: true }));
+		flushSync();
+		window.dispatchEvent(new PointerEvent('pointermove', { clientX: 240, pointerId: 1 }));
+		flushSync();
+
+		window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+		flushSync();
+		expect(onMoveKeyframe).not.toHaveBeenCalled();
+		expect(target.querySelector('.drag-label')).toBeNull();
+		expect(leftPercentOf(target.querySelector('.kf-free') as HTMLElement)).toBeCloseTo(32.7, 5);
 	});
 });
 

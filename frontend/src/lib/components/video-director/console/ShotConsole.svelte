@@ -39,7 +39,7 @@
 		isKeyframeLocked,
 		chainFilmSecondsFromLocal
 	} from '../stage-rail/railModel';
-	import { withAddedShot, withDuplicatedShot, withRemovedShot, withAddedAudio, withSeamKind } from '../stage-rail/stageModel';
+	import { withAddedShot, withDuplicatedShot, withRemovedShot, withAddedAudio, withSeamKind, withRemoveKeyframe } from '../stage-rail/stageModel';
 	import { mintId, clamp } from '../timelineCore';
 	import FilmPromptRow from './FilmPromptRow.svelte';
 	import ShotRow from './ShotRow.svelte';
@@ -269,6 +269,16 @@
 		}
 	}
 
+	function handleRemoveKeyframe(shotId: string, id: string) {
+		if (capabilities.segmentRouting) {
+			if (isChainEdgeKeyframeId(id)) return; // locked well mirrors aren't removable from the lane
+		} else {
+			const kf = doc.timeline.shots.find((s) => s.id === shotId)?.keyframes.find((k) => k.id === id);
+			if (!kf || isKeyframeLocked(kf.role)) return;
+		}
+		doc = withRemoveKeyframe(doc, capabilities, shotId, id);
+	}
+
 	function handleAddAudio(shotId: string) {
 		doc = withAddedAudio(doc, capabilities, shotId);
 	}
@@ -385,6 +395,7 @@
 						onAddKeyframe={(atSeconds) => handleAddKeyframe(shot.id, atSeconds)}
 						onAddAudio={() => handleAddAudio(shot.id)}
 						onMoveKeyframe={(id, atSeconds) => handleMoveKeyframe(shot.id, id, atSeconds)}
+						onRemoveKeyframe={(id) => handleRemoveKeyframe(shot.id, id)}
 						onResizeBeat={(id, edge, atSeconds) => handleResizeBeat(shot.id, id, edge, atSeconds)}
 					/>
 					<ShotStage {shot} {doc} caps={capabilities} {formData} {presetId} {selection} onDoc={updateDoc} />

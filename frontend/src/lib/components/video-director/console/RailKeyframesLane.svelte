@@ -8,7 +8,7 @@
 	// instead (see console.html's CSS comment on `.insert-cue.in-lane`).
 	import type { RailKeyframeMark } from './shotRailModel';
 	import type { ConsoleSelection } from './consoleSelection';
-	import { attachDrag } from '../timelineCore';
+	import { attachPointerDrag, tryCapturePointer, tryReleasePointer, clamp } from '../timelineCore';
 
 	const NUDGE_SECONDS = 0.25;
 
@@ -21,6 +21,7 @@
 		onSelect,
 		onAdd,
 		onMove,
+		onRemove,
 		snapFraction
 	}: {
 		shotId: string;
@@ -31,13 +32,21 @@
 		onSelect: (sel: ConsoleSelection) => void;
 		onAdd: (atSeconds: number) => void;
 		onMove: (id: string, atSeconds: number) => void;
+		/** Free keyframes only -- a locked start/end anchor never reaches this
+		 * (it has no keydown handler at all; see the template). */
+		onRemove: (id: string) => void;
 		/** `(fraction) => railTimeFromFraction(rail, fraction)`, bound by ShotRail.svelte. */
 		snapFraction: (fraction: number) => number;
 	} = $props();
 
 	let laneEl: HTMLDivElement | undefined = $state();
 	let hoverFraction = $state<number | null>(null);
-	let dragging = $state(false);
+	// Live position of an in-progress free-keyframe drag, in shot-local
+	// seconds -- kept purely local until pointerup so the mark FOLLOWS the
+	// pointer without a document write (and therefore a full console-model
+	// recompute) on every pixel of movement (maintainer bug, 09-04).
+	let liveDrag = $state<{ id: string; atSeconds: number } | null>(null);
+	let dragging = $derived(liveDrag != null);
 
 	function isSelected(id: string): boolean {
 		return selection?.shotId === shotId && selection.kind === 'keyframe' && selection.id === id;
@@ -90,34 +99,59 @@
 		onSelect({ shotId, kind: 'keyframe', id });
 	}
 
+	// A dragged free mark's live position -- `mark.atPercent` while nothing is
+	// being dragged, `liveDrag.atSeconds` (converted to percent) while it's
+	// this mark being dragged. Both `.kf-free` and its paired `.kf-thumb40`
+	// read this, so the diamond and its thumbnail move together.
+	function displayPercent(mark: RailKeyframeMark): number {
+		if (!liveDrag || liveDrag.id !== mark.id || durationSeconds <= 0) return mark.atPercent;
+		return clamp((liveDrag.atSeconds / durationSeconds) * 100, 0, 100);
+	}
+
 	function startDrag(mark: RailKeyframeMark, e: PointerEvent) {
 		if (mark.kind !== 'free') return;
 		e.stopPropagation();
 		e.preventDefault();
 		if (!laneEl) return;
-		const rect = laneEl.getBoundingClientRect();
-		if (rect.width <= 0) return;
-		dragging = true;
 		hoverFraction = null;
-		const originClientX = e.clientX;
-		const originSeconds = (mark.atPercent / 100) * durationSeconds;
-		attachDrag(
+		const target = e.currentTarget as Element;
+		const pointerId = e.pointerId;
+		tryCapturePointer(target, pointerId);
+		liveDrag = { id: mark.id, atSeconds: (mark.atPercent / 100) * durationSeconds };
+		attachPointerDrag(
 			(move) => {
-				const deltaSeconds = ((move.clientX - originClientX) / rect.width) * durationSeconds;
-				onMove(mark.id, originSeconds + deltaSeconds);
+				const fraction = fractionFromClientX(move.clientX);
+				if (fraction == null) return;
+				liveDrag = { id: mark.id, atSeconds: snapFraction(fraction) };
 			},
 			() => {
-				dragging = false;
+				tryReleasePointer(target, pointerId);
+				if (liveDrag) onMove(liveDrag.id, liveDrag.atSeconds);
+				liveDrag = null;
+			},
+			() => {
+				tryReleasePointer(target, pointerId);
+				liveDrag = null;
 			}
 		);
 	}
 
-	function nudge(e: KeyboardEvent, mark: RailKeyframeMark) {
+	// Maintainer bug (09-04): "I can't remove the dynamic keyframes" -- a
+	// free mark's own keydown handler previously only nudged it; Delete and
+	// Backspace now remove it outright (the anchors' buttons never bind this
+	// handler at all, so a locked start/end mark can't reach `onRemove`).
+	function handleMarkKeydown(e: KeyboardEvent, mark: RailKeyframeMark) {
 		if (mark.kind !== 'free') return;
-		if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-		e.preventDefault();
-		const atSeconds = (mark.atPercent / 100) * durationSeconds;
-		onMove(mark.id, atSeconds + (e.key === 'ArrowLeft' ? -NUDGE_SECONDS : NUDGE_SECONDS));
+		if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+			e.preventDefault();
+			const atSeconds = (mark.atPercent / 100) * durationSeconds;
+			onMove(mark.id, atSeconds + (e.key === 'ArrowLeft' ? -NUDGE_SECONDS : NUDGE_SECONDS));
+			return;
+		}
+		if (e.key === 'Delete' || e.key === 'Backspace') {
+			e.preventDefault();
+			onRemove(mark.id);
+		}
 	}
 
 	let hoverSeconds = $derived(hoverFraction != null ? snapFraction(hoverFraction) : null);
@@ -149,23 +183,26 @@
 		{:else}
 			<button
 				type="button"
-				class="kf-free {isSelected(mark.id) ? 'selected' : ''}"
-				style="left:{mark.atPercent}%"
+				class="kf-free {isSelected(mark.id) ? 'selected' : ''} {liveDrag?.id === mark.id ? 'is-dragging' : ''}"
+				style="left:{displayPercent(mark)}%"
 				title="{mark.label} — drag to move, arrow keys to nudge"
 				onclick={(e) => selectMark(e, mark.id)}
 				onpointerdown={(e) => startDrag(mark, e)}
-				onkeydown={(e) => nudge(e, mark)}
+				onkeydown={(e) => handleMarkKeydown(e, mark)}
 			></button>
 			<button
 				type="button"
-				class="kf-thumb40 {isSelected(mark.id) ? 'selected' : ''} {mark.empty ? 'is-empty' : ''}"
-				style="left:{mark.atPercent}%{mark.thumbUrl ? `;background-image:url(${mark.thumbUrl})` : ''}"
+				class="kf-thumb40 {isSelected(mark.id) ? 'selected' : ''} {mark.empty ? 'is-empty' : ''} {liveDrag?.id === mark.id ? 'is-dragging' : ''}"
+				style="left:{displayPercent(mark)}%{mark.thumbUrl ? `;background-image:url(${mark.thumbUrl})` : ''}"
 				title={mark.label}
 				tabindex="-1"
 				aria-hidden="true"
 				onclick={(e) => selectMark(e, mark.id)}
 				onpointerdown={(e) => startDrag(mark, e)}
 			></button>
+			{#if liveDrag?.id === mark.id}
+				<div class="drag-label" style="left:{displayPercent(mark)}%">{liveDrag.atSeconds.toFixed(2)}s</div>
+			{/if}
 		{/if}
 	{/each}
 	{#if hoverPercent != null && hoverSeconds != null}
@@ -254,6 +291,26 @@
 	.kf-thumb40.is-empty {
 		background-color: rgb(var(--canvas));
 		border-style: dashed;
+	}
+	.kf-free.is-dragging,
+	.kf-thumb40.is-dragging {
+		z-index: 3;
+		cursor: grabbing;
+	}
+	.drag-label {
+		position: absolute;
+		top: -20px;
+		z-index: 3;
+		transform: translateX(-50%);
+		font-family: 'IBM Plex Mono', monospace;
+		font-size: 9px;
+		white-space: nowrap;
+		padding: 2px 7px;
+		border-radius: 4px;
+		background: rgb(var(--signal) / 0.15);
+		border: 1px solid rgb(var(--signal) / 0.5);
+		color: rgb(var(--signal));
+		pointer-events: none;
 	}
 	.insert-cue.in-lane {
 		position: absolute;

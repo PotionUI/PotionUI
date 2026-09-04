@@ -24,6 +24,7 @@
 		onAddKeyframe,
 		onAddAudio,
 		onMoveKeyframe,
+		onRemoveKeyframe,
 		onResizeBeat
 	}: {
 		shotId: string;
@@ -34,6 +35,7 @@
 		onAddKeyframe: (atSeconds: number) => void;
 		onAddAudio: () => void;
 		onMoveKeyframe: (id: string, atSeconds: number) => void;
+		onRemoveKeyframe: (id: string) => void;
 		onResizeBeat: (id: string, edge: 'start' | 'end', atSeconds: number) => void;
 	} = $props();
 
@@ -96,6 +98,7 @@
 					{onSelect}
 					onAdd={onAddKeyframe}
 					onMove={onMoveKeyframe}
+					onRemove={onRemoveKeyframe}
 					{snapFraction}
 				/>
 			{/if}

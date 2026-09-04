@@ -178,3 +178,60 @@ export function attachDrag(onMove: (e: MouseEvent) => void, onUp?: () => void): 
 	window.addEventListener('mousemove', onMove);
 	window.addEventListener('mouseup', up);
 }
+
+// ─── Pointer-event drag with live local state, Escape-to-cancel ────────────────
+// Same "attach on down, detach on up" shape as attachDrag, but for a drag
+// whose caller wants to render a live position on every pointermove WITHOUT
+// writing it to the document each time (maintainer bug, 09-04: per-move
+// document churn made a keyframe drag visibly lag -- the mark only "caught
+// up" once movement stopped and the model finished recomputing). `onMove`
+// fires on every pointermove for the caller's own local $state; `onCommit`
+// fires exactly once, on pointerup, and is the only place the caller should
+// write to the document; `onCancel` fires instead on Escape or pointercancel
+// (never together with onCommit) so the caller can drop its local state
+// without committing anything.
+export function attachPointerDrag(
+	onMove: (e: PointerEvent) => void,
+	onCommit: () => void,
+	onCancel: () => void
+): void {
+	function finish(fn: () => void) {
+		window.removeEventListener('pointermove', move);
+		window.removeEventListener('pointerup', up);
+		window.removeEventListener('pointercancel', cancel);
+		window.removeEventListener('keydown', keydown);
+		fn();
+	}
+	const move = (e: PointerEvent) => onMove(e);
+	const up = () => finish(onCommit);
+	const cancel = () => finish(onCancel);
+	const keydown = (e: KeyboardEvent) => {
+		if (e.key === 'Escape') {
+			e.preventDefault();
+			finish(onCancel);
+		}
+	};
+	window.addEventListener('pointermove', move);
+	window.addEventListener('pointerup', up);
+	window.addEventListener('pointercancel', cancel);
+	window.addEventListener('keydown', keydown);
+}
+
+// ─── Pointer-capture helpers (jsdom has neither method -- guard both) ──────────
+export function tryCapturePointer(el: Element, pointerId: number): void {
+	if (typeof (el as { setPointerCapture?: unknown }).setPointerCapture !== 'function') return;
+	try {
+		(el as Element & { setPointerCapture: (id: number) => void }).setPointerCapture(pointerId);
+	} catch {
+		// not supported, or already released -- window-level listeners still track the drag
+	}
+}
+
+export function tryReleasePointer(el: Element, pointerId: number): void {
+	if (typeof (el as { releasePointerCapture?: unknown }).releasePointerCapture !== 'function') return;
+	try {
+		(el as Element & { releasePointerCapture: (id: number) => void }).releasePointerCapture(pointerId);
+	} catch {
+		// already released
+	}
+}

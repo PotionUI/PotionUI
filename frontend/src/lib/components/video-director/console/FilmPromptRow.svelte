@@ -72,6 +72,7 @@
 				label={row.label}
 				showPreview={false}
 				compact
+				embedded
 				showLibraryActions={false}
 				on:segmentsChange={(e) => handleSegmentsChange(e.detail)}
 			/>

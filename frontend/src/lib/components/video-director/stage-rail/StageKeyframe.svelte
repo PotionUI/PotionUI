@@ -158,7 +158,7 @@
 			<span class="fl">Source</span>
 			<span class="fv">{sourceLabel}</span>
 		</div>
-		{#if model.media}
+		{#if !locked || model.media}
 			<div class="stage-actions">
 				<button type="button" class="btn" onclick={remove}>
 					<svg class="icon" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M6 18L18 6M6 6l12 12" /></svg>

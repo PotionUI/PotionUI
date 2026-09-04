@@ -82,6 +82,7 @@
 			label="Prompt"
 			showPreview={false}
 			compact
+			embedded
 			placeholder={model.isFirst && model.isLast ? 'Describe the first shot…' : "Describe this shot's action, camera and composition…"}
 			on:segmentsChange={(e) => updatePromptSegments(e.detail)}
 		/>

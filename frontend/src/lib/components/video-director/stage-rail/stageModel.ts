@@ -1250,6 +1250,21 @@ export function timelineGateKeyframeRole(rail: RailModel, atSeconds: number): Di
 	return timelineKeyframeRoleForEdge(rail, atSeconds);
 }
 
+/** Removes a free (timeline) or 'anywhere' (chain) keyframe outright.
+ * `withChainKeyframeMedia`/`withTimelineKeyframeMedia` already drop a
+ * media:null entry from the list rather than leaving an empty placeholder
+ * behind, so this is just their shared media=null call under one name --
+ * the role/start args are ignored on that path, a locked edge (first/last)
+ * is never passed in here (isKeyframeLocked guards both call sites: the
+ * stage's own Remove button and the keyframes lane's Delete/Backspace key).
+ * Maintainer bug, 09-04: "I can't remove the dynamic keyframes" -- Remove
+ * had been hidden for the common case of a freshly-added, still-empty free
+ * keyframe. */
+export function withRemoveKeyframe(doc: VideoDirectorValue, caps: DirectorCapabilities, timelineShotId: string, id: string): VideoDirectorValue {
+	if (caps.segmentRouting) return withChainKeyframeMedia(doc, id, null);
+	return withTimelineKeyframeMedia(doc, timelineShotId, id, 'free', 0, null);
+}
+
 /** Removes the currently selected object's media/entry via the shared ops
  * path where one exists. Exposed so the console doesn't need to know which
  * document sub-tree an audio track lives in. */

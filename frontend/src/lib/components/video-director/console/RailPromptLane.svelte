@@ -10,7 +10,7 @@
 	// simply don't activate; nothing here needs to know *why*.
 	import type { RailBeat } from './shotRailModel';
 	import type { ConsoleSelection } from './consoleSelection';
-	import { attachDrag } from '../timelineCore';
+	import { attachPointerDrag, tryCapturePointer, tryReleasePointer, clamp } from '../timelineCore';
 
 	let {
 		shotId,
@@ -39,7 +39,13 @@
 
 	let laneEl: HTMLDivElement | undefined = $state();
 	let hoverFraction = $state<number | null>(null);
-	let dragging = $state(false);
+	// Live position of an in-progress beat-edge drag, in seconds -- kept
+	// purely local until pointerup so the beat's box resizes as the pointer
+	// moves instead of only jumping once at drop (maintainer bug, 09-04, same
+	// root cause as the keyframes lane's free-mark drag: a document write on
+	// every pointermove made the resize visibly lag).
+	let liveEdge = $state<{ id: string; edge: 'start' | 'end'; atSeconds: number } | null>(null);
+	let dragging = $derived(liveEdge != null);
 
 	let realBeats = $derived(beats.filter((b) => !b.global));
 
@@ -95,22 +101,48 @@
 		onSelect({ shotId, kind: 'beat', id });
 	}
 
+	// A beat's live start/width while its own edge is being dragged --
+	// unaffected beats, and this beat outside a drag, just use its real
+	// percentages. Clamped to the beat's own other edge only (not sibling
+	// beats/gaps -- the document mutation `onResizeBeat` commits already
+	// enforces the real bounds; this is preview-only).
+	function beatDisplay(beat: RailBeat): { startPercent: number; widthPercent: number } {
+		if (!liveEdge || liveEdge.id !== beat.id || durationSeconds <= 0) {
+			return { startPercent: beat.startPercent, widthPercent: beat.widthPercent };
+		}
+		const endPercent = beat.startPercent + beat.widthPercent;
+		const livePercent = clamp((liveEdge.atSeconds / durationSeconds) * 100, 0, 100);
+		if (liveEdge.edge === 'start') {
+			const startPercent = Math.min(livePercent, endPercent);
+			return { startPercent, widthPercent: endPercent - startPercent };
+		}
+		const newEndPercent = Math.max(livePercent, beat.startPercent);
+		return { startPercent: beat.startPercent, widthPercent: newEndPercent - beat.startPercent };
+	}
+
 	function startEdgeDrag(id: string, edge: 'start' | 'end', originSeconds: number, e: PointerEvent) {
 		e.stopPropagation();
 		e.preventDefault();
 		if (!laneEl) return;
-		const rect = laneEl.getBoundingClientRect();
-		if (rect.width <= 0) return;
-		dragging = true;
 		hoverFraction = null;
-		const originClientX = e.clientX;
-		attachDrag(
+		const target = e.currentTarget as Element;
+		const pointerId = e.pointerId;
+		tryCapturePointer(target, pointerId);
+		liveEdge = { id, edge, atSeconds: originSeconds };
+		attachPointerDrag(
 			(move) => {
-				const deltaSeconds = ((move.clientX - originClientX) / rect.width) * durationSeconds;
-				onResizeBeat(id, edge, originSeconds + deltaSeconds);
+				const fraction = fractionFromClientX(move.clientX);
+				if (fraction == null) return;
+				liveEdge = { id, edge, atSeconds: clamp(fraction * durationSeconds, 0, durationSeconds) };
 			},
 			() => {
-				dragging = false;
+				tryReleasePointer(target, pointerId);
+				if (liveEdge) onResizeBeat(liveEdge.id, liveEdge.edge, liveEdge.atSeconds);
+				liveEdge = null;
+			},
+			() => {
+				tryReleasePointer(target, pointerId);
+				liveEdge = null;
 			}
 		);
 	}
@@ -138,8 +170,8 @@
 		{:else}
 			<button
 				type="button"
-				class="beat-b {isSelected(beat.id) ? 'selected' : ''}"
-				style="left:{beat.startPercent}%;width:{beat.widthPercent}%"
+				class="beat-b {isSelected(beat.id) ? 'selected' : ''} {liveEdge?.id === beat.id ? 'is-dragging' : ''}"
+				style="left:{beatDisplay(beat).startPercent}%;width:{beatDisplay(beat).widthPercent}%"
 				onclick={(e) => selectBeat(e, beat.id)}
 			>
 				<span class="idx">{String(beatIndex(beat.id)).padStart(2, '0')}</span>
@@ -147,17 +179,25 @@
 			</button>
 			<div
 				class="beat-edge beat-edge-start"
-				style="left:{beat.startPercent}%"
+				style="left:{beatDisplay(beat).startPercent}%"
 				onpointerdown={(e) => startEdgeDrag(beat.id, 'start', (beat.startPercent / 100) * durationSeconds, e)}
 				role="presentation"
 			></div>
 			<div
 				class="beat-edge beat-edge-end"
-				style="left:{beat.startPercent + beat.widthPercent}%"
+				style="left:{beatDisplay(beat).startPercent + beatDisplay(beat).widthPercent}%"
 				onpointerdown={(e) =>
 					startEdgeDrag(beat.id, 'end', ((beat.startPercent + beat.widthPercent) / 100) * durationSeconds, e)}
 				role="presentation"
 			></div>
+			{#if liveEdge?.id === beat.id}
+				<div
+					class="drag-label"
+					style="left:{liveEdge.edge === 'start' ? beatDisplay(beat).startPercent : beatDisplay(beat).startPercent + beatDisplay(beat).widthPercent}%"
+				>
+					{liveEdge.atSeconds.toFixed(2)}s
+				</div>
+			{/if}
 		{/if}
 	{/each}
 	{#if hoverPercent != null && hoverSeconds != null}
@@ -247,6 +287,24 @@
 		width: 6px;
 		margin-left: -3px;
 		cursor: ew-resize;
+	}
+	.beat-b.is-dragging {
+		z-index: 3;
+	}
+	.drag-label {
+		position: absolute;
+		top: -20px;
+		z-index: 3;
+		transform: translateX(-50%);
+		font-family: 'IBM Plex Mono', monospace;
+		font-size: 9px;
+		white-space: nowrap;
+		padding: 2px 7px;
+		border-radius: 4px;
+		background: rgb(var(--signal) / 0.15);
+		border: 1px solid rgb(var(--signal) / 0.5);
+		color: rgb(var(--signal));
+		pointer-events: none;
 	}
 	.insert-cue {
 		position: absolute;

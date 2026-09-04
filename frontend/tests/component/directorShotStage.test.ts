@@ -295,6 +295,53 @@ describe('ShotStage keyframe variant', () => {
 	});
 });
 
+// Maintainer bug (09-04): "I can't remove the dynamic keyframes". A free
+// keyframe minted empty (the normal "Add keyframe" flow -- no media yet)
+// had its Remove button hidden by the earlier empty-anchor fix, which
+// gated Remove on `model.media` for every role instead of only locked
+// (first/last) edges.
+describe('ShotStage free keyframe remove (09-04 bug regression)', () => {
+	it('an EMPTY free keyframe still shows Remove; clicking it drops the keyframe from the doc', () => {
+		const doc = timelineDoc();
+		doc.timeline.shots[0].keyframes = [{ id: 'kf-1', start: 1.8, role: 'free', strength: 0.85, media: null }];
+		let latest: VideoDirectorValue | undefined;
+		mounted = mount({
+			shot: baseShot(),
+			doc,
+			caps: timelineCaps(),
+			selection: { shotId: 'shot-1', kind: 'keyframe', id: 'kf-1' },
+			onDoc: (next) => (latest = next)
+		});
+
+		const removeBtn = Array.from(mounted.target.querySelectorAll<HTMLButtonElement>('.btn')).find((b) =>
+			b.textContent?.includes('Remove')
+		);
+		expect(removeBtn).toBeTruthy();
+		removeBtn!.click();
+
+		expect(latest?.timeline.shots[0].keyframes.some((k) => k.id === 'kf-1')).toBe(false);
+	});
+
+	it('a FILLED free keyframe still shows Remove and drops the keyframe on click', () => {
+		let latest: VideoDirectorValue | undefined;
+		mounted = mount({
+			shot: baseShot(),
+			doc: timelineDoc(),
+			caps: timelineCaps(),
+			selection: { shotId: 'shot-1', kind: 'keyframe', id: 'kf-1' },
+			onDoc: (next) => (latest = next)
+		});
+
+		const removeBtn = Array.from(mounted.target.querySelectorAll<HTMLButtonElement>('.btn')).find((b) =>
+			b.textContent?.includes('Remove')
+		);
+		expect(removeBtn).toBeTruthy();
+		removeBtn!.click();
+
+		expect(latest?.timeline.shots[0].keyframes.some((k) => k.id === 'kf-1')).toBe(false);
+	});
+});
+
 describe('ShotStage chain edge keyframe (09-04 bug regression)', () => {
 	// The bug: shotRailModel.ts's RailKeyframesLane anchor minted an ad-hoc
 	// `${segment.id}-leading` id that neither `parseChainEdgeKeyframeId` nor

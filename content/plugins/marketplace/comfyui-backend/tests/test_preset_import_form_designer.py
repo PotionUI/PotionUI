@@ -978,6 +978,20 @@ class TestDefaultFormAndHistory:
             "controlnet_strength", "controlnet_start_percent", "controlnet_end_percent", "clip_stop_at_layer",
         }
 
+    def test_default_form_keeps_a_candidates_suggested_transform(self):
+        """An off-chain LoRA lands in the default form as a model field whose
+        mapping strips the `models/loras/` prefix, exactly as the analysis
+        suggested - `_simple_item` must not flatten every transform to none."""
+        doc = _load("sdxl_basic_api.json")
+        doc["50"] = {
+            "inputs": {"lora_name": "detail.safetensors", "strength_model": 0.7, "model": ["4", 0]},
+            "class_type": "LoraLoaderModelOnly",
+        }
+        form = build_default_form(suggest_fields(parse_api_workflow(doc)))
+        models = next(i for i in form.tabs[0].items if i.kind == "section" and i.title == "Models")
+        lora = next(f for f in models.items if f.field_type == "model" and f.config["model_type"] == "lora")
+        assert lora.mappings[0].transform == "strip_model_prefix"
+
     def test_krea2_real_all_in_one_node_has_no_obvious_fields(self):
         """No KSampler for structural detection to key off (see
         suggest.py's module docstring) - every input on this all-in-one node

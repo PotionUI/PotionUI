@@ -41,7 +41,7 @@ from .schema import (
     all_field_items,
     validate_against_workflow,
 )
-from .suggest import _infer_value_type, suggest_fields
+from .suggest import InputCandidate, _infer_value_type, suggest_fields
 
 # `description.md`'s opening line for every preset this module emits - the
 # provenance marker `GET /api/plugins/comfyui-backend/presets/imported`
@@ -224,6 +224,7 @@ def _infer_requirements(
     object_info: Optional[Dict[str, Any]] = None,
     *,
     replaced_lora_node_ids: Optional[Set[str]] = None,
+    candidates: Optional[List[InputCandidate]] = None,
 ) -> List[Dict[str, Any]]:
     """`requirements:` entries for this workflow, independent of `form`: one
     `comfyui_node` per non-core node class (see `_is_core_node_class`), and
@@ -238,7 +239,13 @@ def _infer_requirements(
     default the admin can remove at will, not something the preset can't run
     without, so its `comfyui_model` entry is `optional: true`. A kept
     (non-replaced) chain node, or any LoRA node when no selection was made
-    at all, still gets a hard requirement exactly as before."""
+    at all, still gets a hard requirement exactly as before.
+
+    `candidates` (`suggest.suggest_fields`'s own analysis, when given) adds
+    one more requirement per candidate carrying a `suggested_folder` - a
+    model-file field `_enrich_with_object_info` built for a class/input the
+    catalog above never declared a `folder` for in the first place, so the
+    catalog-driven pass can't find it on its own."""
     requirements: List[Dict[str, Any]] = []
 
     node_classes = sorted({n.class_type for n in workflow.nodes.values()})
@@ -272,6 +279,10 @@ def _infer_requirements(
                 and node.id in replaced_lora_node_ids
             )
             _add_model(spec.folder, literals[input_name], optional=is_replaced)
+
+    for candidate in candidates or []:
+        if candidate.suggested_folder:
+            _add_model(candidate.suggested_folder, candidate.current_value)
 
     return requirements
 
@@ -831,7 +842,7 @@ def emit_preset(
         "modes": [mode],
     }
     requirements_block = _infer_requirements(
-        workflow, object_info=object_info, replaced_lora_node_ids=replaced_lora_node_ids
+        workflow, object_info=object_info, replaced_lora_node_ids=replaced_lora_node_ids, candidates=analysis.candidates
     )
     if requirements_block:
         preset_yml["requirements"] = requirements_block

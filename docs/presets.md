@@ -1868,6 +1868,12 @@ optional `config`/`transform`/`section`/`history`, and — for a model-file role
 `folder` it lives under). A class the catalog doesn't name still imports fine as generic literal
 fields; it just won't get an "obvious" default-form placement.
 
+A `passthrough`-tagged link forwards whatever kind of connection reached the node (a model/clip
+chain, a prompt walk) onward unchanged; an entry's `branch: {input, on_true, on_false}` picks which
+of two `passthrough` inputs a walk follows by that literal's own value at import time — how a
+runtime switch node (`ComfySwitchNode`) is caught by the model-chain and prompt walks without either
+one naming it directly.
+
 The plugin ships a CLI over this catalog, `content/plugins/marketplace/comfyui-backend/scripts/comfyui_nodes.py`
 (run with `PYTHONPATH=./venv/lib/python3.12/site-packages:.` from the repo root — importing the
 plugin's `backend` package needs `aiohttp`):

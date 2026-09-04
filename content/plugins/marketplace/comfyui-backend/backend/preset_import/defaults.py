@@ -84,7 +84,7 @@ def _image_item(candidate: InputCandidate) -> FieldItem:
         label=candidate.suggested_label,
         default=candidate.current_value,
         config=dict(candidate.suggested_config) or None,
-        mappings=[FieldMapping(node_id=candidate.node_id, input_name=candidate.input_name, transform="none")],
+        mappings=[FieldMapping(node_id=candidate.node_id, input_name=candidate.input_name, transform=candidate.suggested_transform)],
     )
 
 
@@ -95,7 +95,7 @@ def _simple_item(candidate: InputCandidate) -> FieldItem:
         label=candidate.suggested_label,
         default=candidate.current_value,
         config=dict(candidate.suggested_config) or None,
-        mappings=[FieldMapping(node_id=candidate.node_id, input_name=candidate.input_name, transform="none")],
+        mappings=[FieldMapping(node_id=candidate.node_id, input_name=candidate.input_name, transform=candidate.suggested_transform)],
     )
 
 

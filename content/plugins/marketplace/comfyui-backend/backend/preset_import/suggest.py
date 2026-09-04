@@ -15,8 +15,29 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
-from .node_catalog import NodeCatalog, NodeEntry, get_catalog
+from .node_catalog import MODEL_FILE_BY_INPUT_NAME, NodeCatalog, NodeEntry, get_catalog
 from .parser import Workflow, WorkflowNode
+
+# `MODEL_FILE_BY_INPUT_NAME` extended with names this module can afford to be
+# less conservative about than `node_scaffold.py` (which uses the same role
+# string to draft a catalog `role:`, where an ambiguous guess costs a human a
+# wrong TODO to fix; here it only ever becomes a `model` field's
+# `model_type`, corrected at worst by the admin re-picking it) - see
+# `_infer_model_file_field`.
+_ENRICHMENT_MODEL_FILE_BY_INPUT_NAME: Dict[str, Tuple[str, str]] = {
+    **MODEL_FILE_BY_INPUT_NAME,
+    "lora_name": ("lora", "loras"),
+    "clip_name": ("text_encoder", "text_encoders"),
+    "clip_name1": ("text_encoder", "text_encoders"),
+    "clip_name2": ("text_encoder", "text_encoders"),
+    "clip_name3": ("text_encoder", "text_encoders"),
+    "clip_name4": ("text_encoder", "text_encoders"),
+}
+
+# A combo option list this fraction or more of whose values end in a known
+# model-file extension is treated as a model-name combo even when its input
+# name isn't one this module recognizes (see `_looks_like_model_file_combo`).
+_MODEL_FILE_EXTENSIONS = (".safetensors", ".ckpt", ".pt", ".pth", ".bin", ".gguf", ".sft")
 
 # Inputs ComfyUI's own UI drives (never present as real user-facing data even
 # though they may show up as a literal in an API-format export).
@@ -70,6 +91,18 @@ class InputCandidate:
     suggested_tab: Optional[str] = None
     section: Optional[str] = None
     history: Optional[str] = None
+    # The `FieldMapping.transform` a field built from this candidate should
+    # default to (see `schema.FieldMapping.transform`) - "none" unless this
+    # candidate is a model-file field the wizard should strip the `models/`
+    # prefix off of by default (see `_infer_model_file_field`). Catalog-driven
+    # model candidates still get their transform from `defaults._model_item`,
+    # not this field - it exists for candidates `defaults.py` doesn't already
+    # special-case by role.
+    suggested_transform: str = "none"
+    # The ComfyUI `models/` folder this candidate's value lives under, for a
+    # model-file candidate no catalog `InputSpec.folder` already covers (see
+    # `emit._infer_requirements`) - `None` for everything else.
+    suggested_folder: Optional[str] = None
 
     def key(self) -> tuple:
         return (self.node_id, self.input_name)
@@ -91,6 +124,8 @@ class InputCandidate:
             "suggested_tab": self.suggested_tab,
             "section": self.section,
             "history": self.history,
+            "suggested_transform": self.suggested_transform,
+            "suggested_folder": self.suggested_folder,
         }
 
 
@@ -311,6 +346,7 @@ def _catalog_candidates_for_node(
                 suggested_field_name=field_name,
                 suggested_label=label,
                 suggested_config=dict(spec.config),
+                suggested_transform=spec.transform,
                 role=spec.role,
                 obvious=spec.role in _OBVIOUS_ROLES or spec.section is not None,
                 section=spec.section,
@@ -328,6 +364,42 @@ def _prompt_text_input(node: WorkflowNode) -> Optional[str]:
     return None
 
 
+def _branch_selected_input(node: WorkflowNode, entry: NodeEntry) -> Optional[str]:
+    """Which of `entry.branch`'s `on_true`/`on_false` passthrough inputs
+    `node` selects (see `node_catalog.NodeEntry.branch`) - the branch
+    input's own literal truthiness, or `on_true` when that input is
+    connected to something else or missing from `node` entirely (a runtime
+    switch's value not knowable ahead of generation defaults to the "keep
+    going" side rather than dead-ending the walk). `None` when `entry`
+    declares no `branch` at all."""
+    if entry.branch is None:
+        return None
+    literals = node.literals()
+    if entry.branch.input in literals:
+        return entry.branch.on_true if literals[entry.branch.input] else entry.branch.on_false
+    return entry.branch.on_true
+
+
+def _forward_link_input(catalog: NodeCatalog, node: WorkflowNode, link_kind: str) -> Optional[str]:
+    """The input name on `node` a `link_kind`-kind connection continues
+    through - the input `node_catalog.yml` declares with that exact link
+    kind, or, when `node` has none but declares a `branch` over two
+    `passthrough` inputs instead (a runtime switch), whichever of those the
+    branch selects (a switch is untyped, so it forwards a model chain, a
+    prompt walk, or anything else the same way). `None` when `node` isn't
+    catalogued, or is catalogued but forwards neither."""
+    entry = catalog.get(node.class_type)
+    if entry is None:
+        return None
+    for input_name, kind in entry.links.items():
+        if kind == link_kind:
+            return input_name
+    selected = _branch_selected_input(node, entry)
+    if selected is not None and entry.links.get(selected) == "passthrough":
+        return selected
+    return None
+
+
 def _resolve_prompt_text_node(
     workflow: Workflow,
     catalog: NodeCatalog,
@@ -337,7 +409,8 @@ def _resolve_prompt_text_node(
 ) -> Optional[Tuple[WorkflowNode, str]]:
     """Follow a `prompt_positive`/`prompt_negative`-kind connection to the
     text node it ultimately resolves to, through any number of intermediate
-    nodes (e.g. `FluxGuidance`) that forward a conditioning of the same kind
+    nodes (e.g. `FluxGuidance`, or a runtime switch - see
+    `_forward_link_input`) that forward a conditioning of the same kind
     without originating it themselves - a node with its own `text`/`prompt`
     literal always wins outright, even if its catalog entry ALSO declares a
     same-kind outgoing link (there is nothing further to follow past the
@@ -350,18 +423,13 @@ def _resolve_prompt_text_node(
     text_input = _prompt_text_input(node)
     if text_input is not None:
         return node, text_input
-    entry = catalog.get(node.class_type)
-    if entry is None:
+    forward_input = _forward_link_input(catalog, node, link_kind)
+    if forward_input is None:
         return None
-    for input_name, kind in entry.links.items():
-        if kind != link_kind:
-            continue
-        next_conn = node.connection_source(input_name)
-        if next_conn is not None:
-            resolved = _resolve_prompt_text_node(workflow, catalog, next_conn, link_kind, depth + 1)
-            if resolved is not None:
-                return resolved
-    return None
+    next_conn = node.connection_source(forward_input)
+    if next_conn is None:
+        return None
+    return _resolve_prompt_text_node(workflow, catalog, next_conn, link_kind, depth + 1)
 
 
 def _find_clip_consumers(workflow: Workflow, node_id: str) -> List[Tuple[str, str]]:
@@ -408,14 +476,16 @@ def _detect_lora_chain(
     """Walk backward from the sampling cluster's own model-chain input
     (`start`, from `_model_chain_start`), collecting every `lora`-category
     node found along the way - through any number of pass-through patcher
-    nodes (`ModelSamplingAuraFlow`, `CFGNorm`, `FreeU`, ...: anything whose
-    own `model` input is itself a connection), not just an unbroken run of
-    LoRA nodes back to back. The walk stops at the first node with no
-    connected `model` input at all - the loader (`CheckpointLoaderSimple`/
-    `UNETLoader`/...). Contiguity among the LoRA nodes themselves is not
-    required, and collecting a node as a LoRA depends only on its OWN
-    catalog category at the moment it's visited, not on any category the
-    walk itself is following."""
+    nodes (`ModelSamplingAuraFlow`, `CFGNorm`, `FreeU`, ..., and a runtime
+    switch between two model sources - see `_forward_link_input`), not just
+    an unbroken run of LoRA nodes back to back. The walk stops at the first
+    node with nothing further to follow - the loader (`CheckpointLoaderSimple`/
+    `UNETLoader`/...), or an uncatalogued node with no connected `model`
+    input (the historical, catalog-independent default this falls back to).
+    Contiguity among the LoRA nodes themselves is not required, and
+    collecting a node as a LoRA depends only on its OWN catalog category at
+    the moment it's visited, not on any category the walk itself is
+    following."""
     start_node, start_input, conn = start
 
     nodes: List[LoraChainNode] = []  # target -> source order while walking
@@ -425,7 +495,8 @@ def _detect_lora_chain(
 
     while current is not None:
         current_entry = catalog.get(current.class_type)
-        own_source = current.connection_source("model")
+        own_input = _forward_link_input(catalog, current, "model_chain") or "model"
+        own_source = current.connection_source(own_input)
         is_lora = current_entry is not None and current_entry.category == "lora"
         if is_lora:
             has_clip = current_entry.links.get("clip") == "clip_chain"
@@ -444,8 +515,8 @@ def _detect_lora_chain(
                 )
             )
         if own_source is None:
-            break  # current has no connected `model` input - it's the loader
-        consumer = (current.id, "model")
+            break  # current has nothing further upstream to follow - it's the loader
+        consumer = (current.id, own_input)
         last_source_conn = own_source
         current = workflow.resolve(own_source)
 
@@ -462,6 +533,63 @@ def _detect_lora_chain(
         nodes=nodes,
         has_clip_path=has_clip_path,
     )
+
+
+def _off_chain_lora_candidates(
+    workflow: Workflow,
+    catalog: NodeCatalog,
+    lora_chain: Optional[LoraChainInfo],
+    claimed: set,
+    used_field_names: Dict[str, int],
+) -> List[InputCandidate]:
+    """A `lora`-category node the detected chain (if any) doesn't
+    include - a second sampler's own chain, or a LoRA feeding something the
+    model backbone never reaches - still needs its `lora_name` offered as a
+    real field, since nothing else will ever surface it: unlike a chain
+    node's (claimed for the `lora_picker` conversion by `suggest_fields`'s
+    own LoRA-chain loop before this runs), it's rendered as a plain `model`
+    field, not `lora_picker` - there is no chain here to convert, just one
+    specific file to pick. Its `strength_model`/`strength_clip` inputs are
+    left to the ordinary catalog pass right after (not claimed here), which
+    picks them up as regular sliders now that the two LoRA node entries
+    declare them."""
+    chain_ids = set(lora_chain.lora_node_ids) if lora_chain is not None else set()
+    candidates: List[InputCandidate] = []
+    for node in workflow.nodes.values():
+        if node.id in chain_ids:
+            continue
+        entry = catalog.get(node.class_type)
+        if entry is None or entry.category != "lora":
+            continue
+        literals = node.literals()
+        if "lora_name" not in literals or (node.id, "lora_name") in claimed:
+            continue
+        claimed.add((node.id, "lora_name"))
+        field_name, count = _unique_field_name("lora", used_field_names)
+        label = node.title or "LoRA"
+        if count > 1:
+            label = f"{label} {count}"
+        candidates.append(
+            InputCandidate(
+                node_id=node.id,
+                class_type=node.class_type,
+                node_title=node.title,
+                input_name="lora_name",
+                current_value=literals["lora_name"],
+                value_type="str",
+                suggested_field_type="model",
+                suggested_field_name=field_name,
+                suggested_label=label,
+                suggested_config={"model_type": "lora", "allow_info_modal": True},
+                suggested_transform="strip_model_prefix",
+                suggested_folder="loras",
+                role="lora_file",
+                obvious=True,
+                section="Models",
+            )
+        )
+        candidates.extend(_catalog_candidates_for_node(node, entry, claimed, used_field_names))
+    return candidates
 
 
 def _find_input_spec(class_info: Dict[str, Any], input_name: str) -> Optional[Tuple[Any, Dict[str, Any]]]:
@@ -486,15 +614,46 @@ def _find_input_spec(class_info: Dict[str, Any], input_name: str) -> Optional[Tu
     return None
 
 
+def _model_file_type_for_combo(class_type: str, input_name: str) -> Optional[Tuple[str, str]]:
+    """`(model_type, folder)` for a combo confidently identifiable as a
+    model-file picker from its input name alone (and, for the one ambiguous
+    name below, its owning class) - `None` when nothing here is sure enough
+    to guess (see `_looks_like_model_file_combo` for the values-based
+    fallback `_enrich_with_object_info` tries next)."""
+    if input_name in _ENRICHMENT_MODEL_FILE_BY_INPUT_NAME:
+        return _ENRICHMENT_MODEL_FILE_BY_INPUT_NAME[input_name]
+    if input_name == "model_name" and "upscale" in class_type.lower():
+        return "upscaler", "upscale_models"
+    return None
+
+
+def _looks_like_model_file_combo(options: List[Any]) -> bool:
+    """Whether at least half of `options` end in a known model-file
+    extension - a combo this consistently full of filenames is a model
+    picker even when nothing about its input name says so, and must never
+    become a `select` field baking the live server's whole model directory
+    into the preset as a static option list (see `_enrich_with_object_info`)."""
+    values = [v for v in options if isinstance(v, str)]
+    if not values:
+        return False
+    matches = sum(1 for v in values if v.lower().endswith(_MODEL_FILE_EXTENSIONS))
+    return matches * 2 >= len(values)
+
+
 def _enrich_with_object_info(
     candidates: List[InputCandidate], workflow: Workflow, object_info: Dict[str, Any]
 ) -> None:
     """Sharpen each candidate's suggested field using the live server's own
-    declared input schema: real min/max/step for a slider, the actual
-    option list for a combo (rather than this importer's generic
-    `select`/`model` guess), a checkbox for a boolean, and multiline for a
-    text area - independent of which structural role (if any) the candidate
-    already has."""
+    declared input schema: real min/max/step for a slider, a checkbox for a
+    boolean, multiline for a text area, and - for a combo - either the real
+    option list (this importer's generic `select` guess) or, when the combo
+    is a model-file picker (by input name, or because most of its own option
+    values look like model filenames - see `_model_file_type_for_combo`/
+    `_looks_like_model_file_combo`), a `model` field with no static options
+    at all: baking the live server's whole model directory into the preset
+    as a giant `select` is exactly the failure mode this guards against.
+    Independent of which structural role (if any) the candidate already
+    has."""
     for candidate in candidates:
         node = workflow.node(candidate.node_id)
         if node is None:
@@ -508,12 +667,28 @@ def _enrich_with_object_info(
         type_spec, config = spec
 
         if isinstance(type_spec, list):
-            if candidate.suggested_field_type not in ("model", "lora_picker"):
-                # The real option list replaces a generic "select" guess's
-                # config outright - a static `file:` pointer and a live
-                # `options:` list would otherwise both be present at once.
-                candidate.suggested_field_type = "select"
-                candidate.suggested_config = {"options": list(type_spec)}
+            if candidate.suggested_field_type in ("model", "lora_picker"):
+                pass  # already a catalog/chain-driven model field - leave it alone
+            else:
+                model_file = _model_file_type_for_combo(node.class_type, candidate.input_name)
+                if model_file is None and _looks_like_model_file_combo(type_spec):
+                    # Sure it's a model file, not sure which folder - "checkpoint"
+                    # is this field's own default `model_type` (src/features/
+                    # fields/model.py) when none is set, and no `folder` means
+                    # no `comfyui_model` requirement gets emitted for it.
+                    model_file = ("checkpoint", None)
+                if model_file is not None:
+                    model_type, folder = model_file
+                    candidate.suggested_field_type = "model"
+                    candidate.suggested_config = {"model_type": model_type, "allow_info_modal": True}
+                    candidate.suggested_transform = "strip_model_prefix"
+                    candidate.suggested_folder = folder
+                else:
+                    # The real option list replaces a generic "select" guess's
+                    # config outright - a static `file:` pointer and a live
+                    # `options:` list would otherwise both be present at once.
+                    candidate.suggested_field_type = "select"
+                    candidate.suggested_config = {"options": list(type_spec)}
         elif type_spec in ("INT", "FLOAT"):
             numeric_config = {k: config[k] for k in ("min", "max", "step") if k in config}
             if numeric_config:
@@ -742,7 +917,12 @@ def suggest_fields(
         if latent_entry is not None:
             candidates.extend(_catalog_candidates_for_node(latent_node, latent_entry, claimed, used_field_names))
 
-    # LoRA chain -> one "lora_name" candidate per node, sharing field_name "loras"
+    # LoRA chain -> one "lora_name" candidate per node, sharing field_name
+    # "loras". Its strength_model/strength_clip inputs are pre-claimed
+    # (never left to _catalog_candidates_for_node below) so a chain node
+    # never doubles up as an individual slider field on top of the
+    # lora_picker conversion the chain is for - see _off_chain_lora_candidates
+    # for the node that DOES want those as real fields.
     if lora_chain is not None:
         for lora_node_id in lora_chain.lora_node_ids:
             lora_node = workflow.node(lora_node_id)
@@ -751,7 +931,11 @@ def suggest_fields(
             lora_entry = catalog.get(lora_node.class_type)
             if lora_entry is None:
                 continue
+            claimed.add((lora_node.id, "strength_model"))
+            claimed.add((lora_node.id, "strength_clip"))
             candidates.extend(_catalog_candidates_for_node(lora_node, lora_entry, claimed, used_field_names))
+
+    candidates.extend(_off_chain_lora_candidates(workflow, catalog, lora_chain, claimed, used_field_names))
 
     # Input images - "the first LoadImage is the obvious source image, any
     # further ones are optional reference images" isn't something a static

@@ -1,0 +1,62 @@
+{
+  "4": {
+    "inputs": {"ckpt_name": "sdxlBase_v10.safetensors"},
+    "class_type": "CheckpointLoaderSimple",
+    "_meta": {"title": "Load Checkpoint"}
+  },
+  "20": {
+    "inputs": {
+      "lora_name": "lightning_4step.safetensors",
+      "strength_model": 1.0,
+      "model": ["4", 0]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {"title": "Lightning LoRA"}
+  },
+  "30": {
+    "inputs": {"switch": true, "on_true": ["20", 0], "on_false": ["4", 0]},
+    "class_type": "ComfySwitchNode",
+    "_meta": {"title": "Enable Lightning LoRA"}
+  },
+  "5": {
+    "inputs": {"width": 1024, "height": 1024, "batch_size": 1},
+    "class_type": "EmptyLatentImage",
+    "_meta": {"title": "Empty Latent Image"}
+  },
+  "6": {
+    "inputs": {"text": "a cat", "clip": ["4", 1]},
+    "class_type": "CLIPTextEncode",
+    "_meta": {"title": "CLIP Text Encode (Positive)"}
+  },
+  "7": {
+    "inputs": {"text": "blurry", "clip": ["4", 1]},
+    "class_type": "CLIPTextEncode",
+    "_meta": {"title": "CLIP Text Encode (Negative)"}
+  },
+  "3": {
+    "inputs": {
+      "seed": 42,
+      "steps": 20,
+      "cfg": 4.0,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1.0,
+      "model": ["30", 0],
+      "positive": ["6", 0],
+      "negative": ["7", 0],
+      "latent_image": ["5", 0]
+    },
+    "class_type": "KSampler",
+    "_meta": {"title": "KSampler"}
+  },
+  "8": {
+    "inputs": {"samples": ["3", 0], "vae": ["4", 2]},
+    "class_type": "VAEDecode",
+    "_meta": {"title": "VAE Decode"}
+  },
+  "9": {
+    "inputs": {"images": ["8", 0], "filename_prefix": "ComfyUI"},
+    "class_type": "SaveImage",
+    "_meta": {"title": "Save Image"}
+  }
+}

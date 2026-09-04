@@ -20,6 +20,20 @@ below for the shape it must hold.
 - `sampling` - this input is part of the sampler's own configuration graph
   (noise, guider, sampler selection, sigmas); `suggest.py` walks these
   recursively from the sampler to build the "sampling cluster".
+- `passthrough` - this input forwards whatever kind of connection reached the
+  node (a model/clip chain, a prompt walk, ...) onward, unchanged - a runtime
+  switch's `on_true`/`on_false`, not a link kind of its own. Which
+  passthrough input a walk actually follows is decided by the entry's own
+  `branch` (below) when one is declared; a passthrough input outside a
+  `branch` is never chosen and the walk stops.
+
+A `NodeEntry` may also declare `branch`: `{input, on_true, on_false}`, where
+`input` names a literal (a `switch`-style boolean widget) and `on_true`/
+`on_false` name two of the entry's own `passthrough`-tagged inputs. Following
+a link through this node resolves to `on_true` or `on_false` by the branch
+input's own value in the workflow being imported - the literal's truthiness
+when it's a literal, `on_true` when it's connected to something else or
+missing entirely (an unresolvable condition defaults to the "normal" path).
 
 `inputs` values (`InputSpec`) describe one literal (non-connection) input:
 the importer `role` it plays (validated against the closed `ROLES` set), the
@@ -64,7 +78,9 @@ MODEL_FILE_ROLES = frozenset(
     {"checkpoint", "diffusion_model", "clip", "vae", "clip_vision", "controlnet", "upscale_model", "style_model", "lora_slot"}
 )
 
-LINK_KINDS = frozenset({"prompt_positive", "prompt_negative", "model_chain", "clip_chain", "latent", "sampling"})
+LINK_KINDS = frozenset(
+    {"prompt_positive", "prompt_negative", "model_chain", "clip_chain", "latent", "sampling", "passthrough"}
+)
 
 TRANSFORMS = frozenset({"none", "strip_model_prefix", "seed"})
 
@@ -96,10 +112,17 @@ class InputSpec(BaseModel):
     folder: Optional[str] = None
 
 
+class BranchSpec(BaseModel):
+    input: str
+    on_true: str
+    on_false: str
+
+
 class NodeEntry(BaseModel):
     category: str
     links: Dict[str, str] = Field(default_factory=dict)
     inputs: Dict[str, InputSpec] = Field(default_factory=dict)
+    branch: Optional[BranchSpec] = None
 
 
 class NodeCatalog(BaseModel):
@@ -116,6 +139,24 @@ class NodeCatalog(BaseModel):
     def by_category(self, category: str) -> List[str]:
         return [class_type for class_type, entry in self.nodes.items() if entry.category == category]
 
+
+# Combo input name -> (catalog `role`, `models/` folder) for the small set
+# of *_name widgets confidently identifiable by name alone, independent of
+# which node class carries them - shared between `node_scaffold.py` (uses
+# the role to draft a catalog `InputSpec`) and `suggest.py`'s live-object-info
+# enrichment (uses the role as a `model` field's `model_type`; these two
+# meanings coincide for every name below). A name not listed here still gets
+# handled - `node_scaffold._infer_model_file` falls back to its own
+# class-name-aware guesses, and `suggest.py` extends this mapping with a few
+# more (`lora_name`, `clip_name*`) it can afford to be less conservative
+# about.
+MODEL_FILE_BY_INPUT_NAME: Dict[str, Tuple[str, str]] = {
+    "ckpt_name": ("checkpoint", "checkpoints"),
+    "unet_name": ("diffusion_model", "diffusion_models"),
+    "vae_name": ("vae", "vae"),
+    "control_net_name": ("controlnet", "controlnet"),
+    "style_model_name": ("style_model", "style_models"),
+}
 
 _DEFAULT_CATALOG_PATH = Path(__file__).with_name("node_catalog.yml")
 
@@ -163,6 +204,17 @@ def validate_catalog(catalog: NodeCatalog) -> List[str]:
         for input_name, link_kind in entry.links.items():
             if link_kind not in LINK_KINDS:
                 problems.append(f"{class_type}.links.{input_name}: unknown link kind '{link_kind}'")
+
+        if entry.branch is not None:
+            if entry.branch.input in entry.links:
+                problems.append(
+                    f"{class_type}.branch: switch input '{entry.branch.input}' must not itself be a link"
+                )
+            for side, link_input in (("on_true", entry.branch.on_true), ("on_false", entry.branch.on_false)):
+                if entry.links.get(link_input) != "passthrough":
+                    problems.append(
+                        f"{class_type}.branch.{side}: '{link_input}' must be a 'passthrough' link"
+                    )
 
         for input_name, spec in entry.inputs.items():
             where = f"{class_type}.inputs.{input_name}"

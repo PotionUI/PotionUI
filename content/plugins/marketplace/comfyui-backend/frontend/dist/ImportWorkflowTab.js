@@ -7474,7 +7474,7 @@ function ImportWorkflowTab($$anchor, $$props) {
   function defaultTransformFor(c) {
     if (c.suggested_field_type === "resolution") return c.input_name === "width" ? "split_wh_width" : c.input_name === "height" ? "split_wh_height" : "none";
     if (c.role === "seed") return "seed";
-    return "none";
+    return c.suggested_transform || "none";
   }
   function addCandidateToForm(c) {
     const key2 = candidateKey(c);

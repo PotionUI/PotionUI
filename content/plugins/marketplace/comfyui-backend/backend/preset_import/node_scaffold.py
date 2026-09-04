@@ -34,6 +34,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from .node_catalog import MODEL_FILE_BY_INPUT_NAME as _MODEL_FILE_BY_INPUT_NAME
+
 # Connection (non-widget) ComfyUI types this module recognizes. Anything
 # else reaching `_classify` is treated as a widget, including a type this
 # module has never seen - a widget guess is more useful than silently
@@ -63,21 +65,11 @@ _LINK_NAME_MAP = {
     "sigmas": "sampling",
 }
 
-# `*_name` combo widget -> (role, models/ folder), for the model-file
-# inference the wizard's own `suggest.py` needs a `folder` for (see
-# node_catalog.InputSpec.folder / MODEL_FILE_ROLES). `clip_name` and
-# `model_name` aren't here - they're ambiguous by name alone (see
-# `_infer_model_file`); `lora_name` isn't either - it gets its own
-# `lora_picker` rendering (see `_is_lora_node`/`_render_lora_slot_input`),
-# never the generic `field: model` treatment.
-_MODEL_FILE_BY_INPUT_NAME = {
-    "ckpt_name": ("checkpoint", "checkpoints"),
-    "unet_name": ("diffusion_model", "diffusion_models"),
-    "vae_name": ("vae", "vae"),
-    "control_net_name": ("controlnet", "controlnet"),
-    "style_model_name": ("style_model", "style_models"),
-}
-
+# `clip_name` and `model_name` aren't in the shared `MODEL_FILE_BY_INPUT_NAME`
+# below - they're ambiguous by name alone (see `_infer_model_file`);
+# `lora_name` isn't either - it gets its own `lora_picker` rendering (see
+# `_is_lora_node`/`_render_lora_slot_input`), never the generic `field: model`
+# treatment.
 _SAMPLING_NAME_HINTS = ("sampler", "scheduler", "guider", "noise")
 
 

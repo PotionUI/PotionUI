@@ -173,6 +173,47 @@ class TestValidateCatalogCatchesProblems:
         problems = validate_catalog(catalog)
         assert any("unknown link kind" in p for p in problems)
 
+    def test_branch_side_not_declared_as_passthrough_is_flagged(self):
+        catalog = self._catalog(
+            {
+                "Foo": {
+                    "category": "modifier",
+                    "links": {"on_true": "passthrough", "on_false": "model_chain"},
+                    "branch": {"input": "switch", "on_true": "on_true", "on_false": "on_false"},
+                }
+            }
+        )
+        problems = validate_catalog(catalog)
+        assert any("on_false" in p and "passthrough" in p for p in problems)
+
+    def test_branch_input_declared_as_a_link_is_flagged(self):
+        catalog = self._catalog(
+            {
+                "Foo": {
+                    "category": "modifier",
+                    "links": {"on_true": "passthrough", "on_false": "passthrough", "switch": "model_chain"},
+                    "branch": {"input": "switch", "on_true": "on_true", "on_false": "on_false"},
+                }
+            }
+        )
+        problems = validate_catalog(catalog)
+        assert any("must not itself be a link" in p for p in problems)
+
+    def test_bite_check_a_valid_branch_is_not_flagged(self):
+        catalog = self._catalog(
+            {
+                "Foo": {
+                    "category": "modifier",
+                    "links": {"on_true": "passthrough", "on_false": "passthrough"},
+                    "branch": {"input": "switch", "on_true": "on_true", "on_false": "on_false"},
+                    "inputs": {
+                        "switch": {"role": "option", "field": "checkbox", "name": "switch", "label": "Switch"}
+                    },
+                }
+            }
+        )
+        assert validate_catalog(catalog) == []
+
     def test_model_role_without_folder_is_flagged(self):
         catalog = self._catalog(
             {

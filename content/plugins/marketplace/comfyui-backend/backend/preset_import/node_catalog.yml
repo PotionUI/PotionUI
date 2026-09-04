@@ -282,6 +282,40 @@ nodes:
         history: model_name
         folder: checkpoints
 
+  ComfySoftSwitchNode:
+    category: modifier
+    links:
+      on_true: passthrough
+      on_false: passthrough
+    branch:
+      input: switch
+      on_true: on_true
+      on_false: on_false
+    inputs:
+      switch:
+        role: option
+        field: checkbox
+        name: switch
+        label: Switch
+        section: Sampling
+
+  ComfySwitchNode:
+    category: modifier
+    links:
+      on_true: passthrough
+      on_false: passthrough
+    branch:
+      input: switch
+      on_true: on_true
+      on_false: on_false
+    inputs:
+      switch:
+        role: option
+        field: checkbox
+        name: switch
+        label: Switch
+        section: Sampling
+
   ConditioningSetTimestepRange:
     category: modifier
     links:
@@ -1032,6 +1066,20 @@ nodes:
         config: {model_type: lora, max_items: 6}
         history: list
         folder: loras
+      strength_model:
+        role: lora_strength_model
+        field: slider
+        name: strength_model
+        label: Strength (Model)
+        config: {min: -2.0, max: 2.0, step: 0.05}
+        section: Sampling
+      strength_clip:
+        role: lora_strength_clip
+        field: slider
+        name: strength_clip
+        label: Strength (CLIP)
+        config: {min: -2.0, max: 2.0, step: 0.05}
+        section: Sampling
 
   LoraLoaderModelOnly:
     category: lora
@@ -1046,6 +1094,13 @@ nodes:
         config: {model_type: lora, max_items: 6}
         history: list
         folder: loras
+      strength_model:
+        role: lora_strength_model
+        field: slider
+        name: strength_model
+        label: Strength (Model)
+        config: {min: -2.0, max: 2.0, step: 0.05}
+        section: Sampling
 
   ManualSigmas:
     category: sampling

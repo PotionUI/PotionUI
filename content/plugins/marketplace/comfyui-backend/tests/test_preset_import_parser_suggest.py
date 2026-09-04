@@ -236,6 +236,59 @@ class TestSuggestFields:
         assert model_only.clip_consumers == []
 
 
+class TestLoraChainThroughARuntimeSwitch:
+    """`ComfySwitchNode`'s `on_true`/`on_false` are `passthrough`-tagged
+    (see `node_catalog.NodeEntry.branch`) - the model-chain walk must follow
+    whichever side the switch's own `switch` literal selects, not stop dead
+    at the first node without an input literally named `model` (the
+    maintainer's real case: a switch toggling a Lightning LoRA on/off)."""
+
+    def test_switch_true_follows_on_true_into_the_lora(self):
+        workflow = parse_api_workflow(_load("switch_lora_api.json"))
+        analysis = suggest_fields(workflow)
+
+        assert analysis.model_chain is not None
+        chain = analysis.lora_chain
+        assert chain is not None
+        assert chain.lora_node_ids == ["20"]
+        assert chain.source_node_id == "4"
+        assert chain.target_node_id == "3"
+
+        node = chain.nodes[0]
+        assert node.class_type == "LoraLoaderModelOnly"
+        assert node.model_source == ("4", 0)
+        # The consumer is the switch's own on_true input, not the sampler -
+        # splicing must rewire the switch, not jump straight past it.
+        assert node.model_consumer == ("30", "on_true")
+
+        by_role = {c.role: c for c in analysis.candidates}
+        assert by_role["option"].node_id == "30"
+        assert by_role["option"].input_name == "switch"
+        assert by_role["option"].suggested_field_type == "checkbox"
+
+    def test_switch_false_follows_on_false_and_finds_no_lora(self):
+        """Confirms the walk actually reads the switch's own value: flipping
+        the same fixture's literal to false must lose the LoRA entirely (it
+        walks into the raw checkpoint loader instead) while the model chain
+        itself is still detected."""
+        workflow = parse_api_workflow(_load("switch_lora_api.json"))
+        workflow.node("30").inputs["switch"] = False
+
+        analysis = suggest_fields(workflow)
+
+        assert analysis.model_chain is not None
+        assert analysis.lora_chain is None
+
+    def test_bite_check_switch_walk_breaks_without_the_branch_rule(self):
+        """Confirms the assertions above can fail: without branch/passthrough
+        resolution, the old hardcoded `.connection_source("model")` lookup
+        finds nothing on the switch node (it has no input literally named
+        `model`) and the walk stops there."""
+        workflow = parse_api_workflow(_load("switch_lora_api.json"))
+        switch_node = workflow.node("30")
+        assert switch_node.connection_source("model") is None
+
+
 class TestCustomSamplingGraphViaNodeCatalog:
     """A SamplerCustomAdvanced-based Flux graph (RandomNoise + KSamplerSelect
     + BasicScheduler + BasicGuider, FluxGuidance, ModelSamplingFlux, one
@@ -393,3 +446,177 @@ class TestLtx25RealExportFindsItsSamplerViaCategory:
         assert analysis.mode == "img2img"
         image = next(c for c in analysis.candidates if c.role == "image")
         assert image.node_id == "2004"
+
+
+class TestModelFileComboEnrichment:
+    """`_enrich_with_object_info` must never turn a model-name combo into a
+    `select` field baking the live server's whole model directory into the
+    preset as static options - see `suggest._model_file_type_for_combo`/
+    `_looks_like_model_file_combo`."""
+
+    def _workflow(self):
+        raw = {
+            "1": {
+                "class_type": "MyCustomLoraApplyNode",
+                "inputs": {"lora_name": "style_a.safetensors"},
+                "_meta": {"title": "Custom LoRA Apply"},
+            },
+            "2": {
+                "class_type": "MyCustomSamplerPickerNode",
+                "inputs": {"sampler_name": "euler"},
+                "_meta": {"title": "Custom Sampler Picker"},
+            },
+            "3": {
+                "class_type": "MyCustomCheckpointPickerNode",
+                "inputs": {"weights": "some_checkpoint.safetensors"},
+                "_meta": {"title": "Custom Weights Picker"},
+            },
+        }
+        return parse_api_workflow(raw)
+
+    def test_lora_name_combo_by_name_becomes_a_model_field_with_no_options(self):
+        workflow = self._workflow()
+        object_info = {
+            "MyCustomLoraApplyNode": {
+                "input": {
+                    "required": {
+                        "lora_name": [["style_a.safetensors", "style_b.safetensors", "style_c.safetensors"]]
+                    }
+                }
+            },
+        }
+        analysis = suggest_fields(workflow, object_info=object_info)
+        candidate = next(c for c in analysis.candidates if c.node_id == "1" and c.input_name == "lora_name")
+
+        assert candidate.suggested_field_type == "model"
+        assert candidate.suggested_config == {"model_type": "lora", "allow_info_modal": True}
+        assert "options" not in candidate.suggested_config
+        assert candidate.suggested_transform == "strip_model_prefix"
+        assert candidate.suggested_folder == "loras"
+
+    def test_unrelated_combo_still_becomes_a_plain_select(self):
+        """Confirms the assertion above is really keyed on the model-file
+        detection, not "every combo becomes a model field": a combo with
+        nothing model-shaped about it (name or values) must keep behaving
+        exactly as before."""
+        workflow = self._workflow()
+        object_info = {
+            "MyCustomSamplerPickerNode": {
+                "input": {"required": {"sampler_name": [["euler", "dpmpp_2m"]]}}
+            },
+        }
+        analysis = suggest_fields(workflow, object_info=object_info)
+        candidate = next(c for c in analysis.candidates if c.node_id == "2" and c.input_name == "sampler_name")
+
+        assert candidate.suggested_field_type == "select"
+        assert candidate.suggested_config == {"options": ["euler", "dpmpp_2m"]}
+        assert candidate.suggested_folder is None
+
+    def test_a_combo_mostly_full_of_model_filenames_is_still_caught_by_name_alone(self):
+        """The input name here (`weights`) isn't in the by-name mapping, but
+        the combo's own values are almost all model filenames - the
+        values-based fallback must still catch it and skip `options`."""
+        workflow = self._workflow()
+        object_info = {
+            "MyCustomCheckpointPickerNode": {
+                "input": {
+                    "required": {
+                        "weights": [
+                            [
+                                "some_checkpoint.safetensors",
+                                "another_one.ckpt",
+                                "a_third.safetensors",
+                                "not_a_model_file",
+                            ]
+                        ]
+                    }
+                }
+            },
+        }
+        analysis = suggest_fields(workflow, object_info=object_info)
+        candidate = next(c for c in analysis.candidates if c.node_id == "3" and c.input_name == "weights")
+
+        assert candidate.suggested_field_type == "model"
+        assert "options" not in candidate.suggested_config
+        assert candidate.suggested_folder is None  # unknown folder - no comfyui_model requirement guessed
+
+
+class TestOffChainLoraNode:
+    """A `lora`-category node the detected chain doesn't include - see
+    `suggest._off_chain_lora_candidates`."""
+
+    def _workflow(self):
+        raw = {
+            "4": {
+                "inputs": {"ckpt_name": "sdxlBase_v10.safetensors"},
+                "class_type": "CheckpointLoaderSimple",
+                "_meta": {"title": "Load Checkpoint"},
+            },
+            "5": {
+                "inputs": {"width": 1024, "height": 1024, "batch_size": 1},
+                "class_type": "EmptyLatentImage",
+                "_meta": {"title": "Empty Latent Image"},
+            },
+            "6": {
+                "inputs": {"text": "a cat", "clip": ["4", 1]},
+                "class_type": "CLIPTextEncode",
+                "_meta": {"title": "CLIP Text Encode (Positive)"},
+            },
+            "7": {
+                "inputs": {"text": "blurry", "clip": ["4", 1]},
+                "class_type": "CLIPTextEncode",
+                "_meta": {"title": "CLIP Text Encode (Negative)"},
+            },
+            "3": {
+                "inputs": {
+                    "seed": 1, "steps": 20, "cfg": 4.0, "sampler_name": "euler", "scheduler": "simple",
+                    "denoise": 1.0, "model": ["4", 0], "positive": ["6", 0], "negative": ["7", 0],
+                    "latent_image": ["5", 0],
+                },
+                "class_type": "KSampler",
+                "_meta": {"title": "KSampler"},
+            },
+            # Not on the model backbone at all - feeds nothing, just sits in
+            # the graph (e.g. a second sampler's own chain in the real
+            # workflow this mirrors).
+            "50": {
+                "inputs": {"lora_name": "unrelated.safetensors", "strength_model": 0.5, "model": ["4", 0]},
+                "class_type": "LoraLoaderModelOnly",
+                "_meta": {"title": "Detail LoRA"},
+            },
+        }
+        return parse_api_workflow(raw)
+
+    def test_off_chain_lora_becomes_a_model_field_not_a_lora_picker_slot(self):
+        workflow = self._workflow()
+        analysis = suggest_fields(workflow)
+
+        assert analysis.lora_chain is None  # node 50 never reaches the sampler's model input
+
+        candidate = next(c for c in analysis.candidates if c.node_id == "50" and c.input_name == "lora_name")
+        assert candidate.role == "lora_file"
+        assert candidate.suggested_field_type == "model"
+        assert candidate.suggested_config == {"model_type": "lora", "allow_info_modal": True}
+        assert candidate.suggested_transform == "strip_model_prefix"
+        assert candidate.suggested_folder == "loras"
+        assert candidate.obvious is True
+        assert candidate.section == "Models"
+
+    def test_off_chain_lora_strength_inputs_become_ordinary_sliders(self):
+        workflow = self._workflow()
+        analysis = suggest_fields(workflow)
+
+        strength = next(c for c in analysis.candidates if c.node_id == "50" and c.input_name == "strength_model")
+        assert strength.role == "lora_strength_model"
+        assert strength.suggested_field_type == "slider"
+        assert strength.section == "Sampling"
+
+    def test_bite_check_off_chain_lora_is_invisible_without_the_dedicated_scan(self):
+        """Confirms the assertions above depend on the off-chain scan: node
+        50's class is only ever category "lora" via the catalog, which the
+        generic loader/image_input/modifier sweep in suggest_fields
+        deliberately skips (lora nodes are handled separately)."""
+        from backend.preset_import.node_catalog import get_catalog
+
+        entry = get_catalog().get("LoraLoaderModelOnly")
+        assert entry.category not in ("loader", "image_input", "modifier")

@@ -589,6 +589,90 @@ class TestLoraPickerWithNothingStructuralToReplace:
         assert "node_manipulations" in comfyui_pipe["configuration"]
 
 
+class TestSwitchLoraEmission:
+    """A LoRA node reached only through a `ComfySwitchNode` (see
+    `node_catalog.NodeEntry.branch`) - the maintainer's real case: a
+    Lightning LoRA toggled on/off by a runtime switch instead of sitting
+    directly on the model backbone."""
+
+    def _form_with_picker(self, analysis, roles, lora_chain=None):
+        form = form_from_roles(analysis, roles)
+        form.tabs[0].items.append(_lora_item())
+        form.lora_chain = lora_chain
+        return form
+
+    def test_replacing_the_switch_lora_rewires_the_switchs_on_true(self, dest_root):
+        workflow = parse_api_workflow(_load("switch_lora_api.json"))
+        analysis = suggest_fields(workflow)
+        form = self._form_with_picker(
+            analysis, {"checkpoint", "steps", "cfg", "sampler", "scheduler", "denoise"},
+            LoraChainSelection(replaced_node_ids=["20"], kept_node_ids=[]),
+        )
+
+        result = emit_preset(
+            workflow, form, [], model_family="SwitchLoraReplacedTest", variant="v1",
+            display_name="Switch LoRA Replaced Test", dest_root=dest_root,
+        )
+
+        workflow_json = json.loads(
+            (result.preset_dir / "modes" / "txt2img" / "files" / "workflows" / "txt2img.json").read_text()
+        )
+        assert "20" not in workflow_json
+        assert workflow_json["30"]["inputs"]["on_false"] == ["4", 0]  # untouched
+        assert workflow_json["3"]["inputs"]["model"] == ["30", 0]  # sampler still reads the switch directly
+
+        pipeline = yaml.safe_load(
+            (result.preset_dir / "modes" / "txt2img" / "pipeline.yml").read_text()
+        )
+        comfyui_pipe = next(p for p in pipeline["pipeline"] if p["name"] == "comfyui")
+        manipulations = comfyui_pipe["configuration"]["node_manipulations"]
+        update_input = next(m for m in manipulations if m.get("type") == "update_node_input")
+        assert update_input["node_id"] == "30"
+        assert update_input["input_key"] == "on_true"
+        assert "4" in update_input["input_value"][0]  # falls back to the raw loader when no LoRAs are chosen
+
+        loop_manip = next(m for m in manipulations if "@loop" in m)["@loop"]
+        assert "4" in loop_manip["template"]["node_config"]["inputs"]["model"][0]
+
+    def test_keeping_the_switch_lora_splices_before_the_sampler(self, dest_root):
+        """Nothing is replaced (the node stays kept) - the picker's loop
+        must fall back to the sampling cluster's own model-chain boundary
+        (the switch -> KSampler edge), leaving the switch and the kept LoRA
+        node both completely untouched."""
+        workflow = parse_api_workflow(_load("switch_lora_api.json"))
+        analysis = suggest_fields(workflow)
+        assert analysis.model_chain is not None
+        assert analysis.model_chain.source_node_id == "30"
+        assert analysis.model_chain.target_node_id == "3"
+
+        form = self._form_with_picker(
+            analysis, {"checkpoint", "steps", "cfg", "sampler", "scheduler", "denoise"},
+            LoraChainSelection(replaced_node_ids=[], kept_node_ids=["20"]),
+        )
+
+        result = emit_preset(
+            workflow, form, [], model_family="SwitchLoraKeptTest", variant="v1",
+            display_name="Switch LoRA Kept Test", dest_root=dest_root,
+        )
+
+        workflow_json = json.loads(
+            (result.preset_dir / "modes" / "txt2img" / "files" / "workflows" / "txt2img.json").read_text()
+        )
+        assert "20" in workflow_json  # kept - untouched
+        assert workflow_json["20"]["inputs"]["model"] == ["4", 0]
+        assert workflow_json["30"]["inputs"]["on_true"] == ["20", 0]  # switch untouched
+        assert workflow_json["3"]["inputs"]["model"] == ["30", 0]  # sampler still reads the switch directly
+
+        pipeline = yaml.safe_load(
+            (result.preset_dir / "modes" / "txt2img" / "pipeline.yml").read_text()
+        )
+        comfyui_pipe = next(p for p in pipeline["pipeline"] if p["name"] == "comfyui")
+        manipulations = comfyui_pipe["configuration"]["node_manipulations"]
+        update_input = next(m for m in manipulations if m.get("type") == "update_node_input")
+        assert update_input["node_id"] == "3"  # spliced right before the sampler
+        assert "30" in update_input["input_value"][0]  # falls back to the switch when no LoRAs are chosen
+
+
 class TestSubgraphIdsSurvive:
     def test_field_mappings_target_subgraph_node_ids(self, dest_root):
         workflow = parse_api_workflow(_load("flux_subgraph_api.json"))

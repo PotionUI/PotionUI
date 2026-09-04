@@ -145,15 +145,18 @@ function collectDirectorImages(
 	tryAdd(state, 'director:simple:first_frame', 'Director · First frame', directorMediaRef(director.simple?.first_frame, formData));
 	tryAdd(state, 'director:simple:last_frame', 'Director · Last frame', directorMediaRef(director.simple?.last_frame, formData));
 
-	(director.timeline?.keyframes || []).forEach((kf, i) => {
-		tryAdd(state, `director:timeline:keyframe:${kf.id ?? i}`, `Director · Keyframe ${i + 1}`, directorMediaRef(kf.media, formData));
-	});
-
-	const icLoraEntries = director.timeline?.ic_lora || [];
-	icLoraEntries.forEach((entry, i) => {
-		const label =
-			icLoraEntries.length > 1 ? `Director · IC-LoRA reference ${i + 1}` : 'Director · IC-LoRA reference';
-		tryAdd(state, `director:timeline:ic_lora:${entry.id ?? i}`, label, directorMediaRef(entry.ref_media, formData));
+	const timelineShots = director.timeline?.shots || [];
+	timelineShots.forEach((shot, shotIdx) => {
+		const shotPrefix = timelineShots.length > 1 ? `Shot ${shotIdx + 1} · ` : '';
+		(shot.keyframes || []).forEach((kf, i) => {
+			tryAdd(state, `director:timeline:${shot.id}:keyframe:${kf.id ?? i}`, `Director · ${shotPrefix}Keyframe ${i + 1}`, directorMediaRef(kf.media, formData));
+		});
+		const icLoraEntries = shot.ic_lora || [];
+		icLoraEntries.forEach((entry, i) => {
+			const label =
+				icLoraEntries.length > 1 ? `Director · ${shotPrefix}IC-LoRA reference ${i + 1}` : `Director · ${shotPrefix}IC-LoRA reference`;
+			tryAdd(state, `director:timeline:${shot.id}:ic_lora:${entry.id ?? i}`, label, directorMediaRef(entry.ref_media, formData));
+		});
 	});
 
 	(director.chain?.segments || []).forEach((segment, i) => {

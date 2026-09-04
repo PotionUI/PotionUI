@@ -47,6 +47,7 @@ import type {
 	DirectorLoraStacks,
 	DirectorLoraRef,
 	DirectorMediaValue,
+	DirectorTimelineShot,
 	SegmentSubType,
 	SegmentReference
 } from '$lib/types/videoDirector';
@@ -71,6 +72,7 @@ import {
 	chainSegmentEdgeAllowances,
 	collectFormMediaOptions,
 	isChainEdgeKeyframeId,
+	mapTimelineShot,
 	parseChainEdgeKeyframeId,
 	resolveDirectorEdgeAllowances,
 	type DirectorEdgeAllowances
@@ -437,7 +439,7 @@ function chainTrailingGate(
 // has a keyframe landing on always shows it -- disallowing an edge only hides
 // the EMPTY well, it never un-displays an existing (now stale) one.
 function timelineEdgeGate(
-	doc: VideoDirectorValue,
+	shot: DirectorTimelineShot,
 	rail: RailModel,
 	block: RailShotBlock,
 	edge: 'leading' | 'trailing',
@@ -446,7 +448,7 @@ function timelineEdgeGate(
 	const atSeconds = edge === 'leading' ? block.startSeconds : block.startSeconds + block.contributedSeconds;
 	const landing = rail.keyframes.find((k) => Math.abs(k.atSeconds - atSeconds) <= SNAP_EPSILON_SECONDS);
 	if (landing) {
-		const kf = doc.timeline.keyframes.find((k) => k.id === landing.id);
+		const kf = shot.keyframes.find((k) => k.id === landing.id);
 		return {
 			kind: 'keyframe',
 			keyframeId: landing.id,
@@ -531,7 +533,8 @@ function buildShotModel(
 	caps: DirectorCapabilities,
 	rail: RailModel,
 	shotId: string,
-	formData: Record<string, unknown> | null | undefined
+	formData: Record<string, unknown> | null | undefined,
+	timelineShot: DirectorTimelineShot | null
 ): StageShotModel | null {
 	const idx = rail.shots.findIndex((s) => s.id === shotId);
 	if (idx === -1) return null;
@@ -585,8 +588,8 @@ function buildShotModel(
 	}
 
 	// timeline
-	const segment = doc.timeline.segments.find((s) => s.id === shotId);
-	if (!segment) return null;
+	const segment = timelineShot?.segments.find((s) => s.id === shotId);
+	if (!segment || !timelineShot) return null;
 	const text = segment.text.trim();
 	const footer: StageShotFooter = {
 		shotTypeLabel: 'Timed prompt',
@@ -617,8 +620,8 @@ function buildShotModel(
 		promptSegments: segment.prompt_segments,
 		isPromptEmpty: text === '',
 		showTeachingCopy: rail.shots.length === 1 && text === '',
-		leadingGate: timelineEdgeGate(doc, rail, block, 'leading', allowances),
-		trailingGate: timelineEdgeGate(doc, rail, block, 'trailing', allowances),
+		leadingGate: timelineEdgeGate(timelineShot, rail, block, 'leading', allowances),
+		trailingGate: timelineEdgeGate(timelineShot, rail, block, 'trailing', allowances),
 		footer,
 		overCap: false,
 		trimToSeconds: null,
@@ -723,7 +726,13 @@ export function withChainEdgeKeyframeStrength(doc: VideoDirectorValue, id: strin
 		: withChainTrailingMedia(doc, parsed.segmentId, segment.last_keyframe, strength);
 }
 
-function buildKeyframeModel(doc: VideoDirectorValue, caps: DirectorCapabilities, rail: RailModel, keyframeId: string): StageKeyframeModel | null {
+function buildKeyframeModel(
+	doc: VideoDirectorValue,
+	caps: DirectorCapabilities,
+	rail: RailModel,
+	keyframeId: string,
+	timelineShot: DirectorTimelineShot | null
+): StageKeyframeModel | null {
 	const railKf = rail.keyframes.find((k) => k.id === keyframeId);
 	if (!railKf) return null;
 	const directorCap = caps.modes.director;
@@ -771,7 +780,7 @@ function buildKeyframeModel(doc: VideoDirectorValue, caps: DirectorCapabilities,
 			role: 'keyframe'
 		};
 	}
-	const kf = doc.timeline.keyframes.find((k) => k.id === keyframeId);
+	const kf = timelineShot?.keyframes.find((k) => k.id === keyframeId);
 	if (!kf) return null;
 	return {
 		kind: 'keyframe',
@@ -812,39 +821,46 @@ function buildAudioModel(rail: RailModel, list: DirectorAudioSegment[], audioId:
 	};
 }
 
-function buildIcLoraModel(doc: VideoDirectorValue, icLoraId: string): StageIcLoraModel | null {
-	const entry = doc.timeline.ic_lora.find((e) => e.id === icLoraId) ?? doc.timeline.ic_lora[0] ?? null;
+function buildIcLoraModel(entries: DirectorIcLoraEntry[], icLoraId: string): StageIcLoraModel | null {
+	const entry = entries.find((e) => e.id === icLoraId) ?? entries[0] ?? null;
 	if (!entry) return null;
 	return { kind: 'ic_lora', id: entry.id, lora: entry.lora, refMedia: entry.ref_media, strength: entry.strength };
 }
 
 // ─── Entry point ────────────────────────────────────────────────────────────
 
+/**
+ * `timelineShotId` selects which independent LTX shot this stage renders --
+ * irrelevant for chain routing (see `deriveRailModel`'s own doc comment,
+ * which this forwards it to unchanged).
+ */
 export function deriveStageModel(
 	doc: VideoDirectorValue,
 	caps: DirectorCapabilities,
 	selection: RailSelectionId | null,
-	formData?: Record<string, unknown> | null
+	formData?: Record<string, unknown> | null,
+	timelineShotId?: string
 ): StageModel {
-	const rail = deriveRailModel(doc, caps);
+	const rail = deriveRailModel(doc, caps, timelineShotId);
+	const timelineShot = caps.segmentRouting ? null : (doc.timeline.shots.find((s) => s.id === timelineShotId) ?? doc.timeline.shots[0] ?? null);
 	let selected: StageSelected | null = null;
 
 	if (selection) {
 		switch (selection.kind) {
 			case 'shot':
-				selected = buildShotModel(doc, caps, rail, selection.id, formData);
+				selected = buildShotModel(doc, caps, rail, selection.id, formData, timelineShot);
 				break;
 			case 'seam':
 				selected = buildJoinModel(doc, caps, rail, selection.id);
 				break;
 			case 'keyframe':
-				selected = buildKeyframeModel(doc, caps, rail, selection.id);
+				selected = buildKeyframeModel(doc, caps, rail, selection.id, timelineShot);
 				break;
 			case 'audio':
-				selected = buildAudioModel(rail, rail.routing === 'chain' ? doc.chain.audio : doc.timeline.audio, selection.id);
+				selected = buildAudioModel(rail, rail.routing === 'chain' ? doc.chain.audio : (timelineShot?.audio ?? []), selection.id);
 				break;
 			case 'ic_lora':
-				selected = buildIcLoraModel(doc, selection.id);
+				selected = buildIcLoraModel(timelineShot?.ic_lora ?? [], selection.id);
 				break;
 		}
 	}
@@ -869,7 +885,17 @@ export function deriveStageModel(
 // for the chat tool, not for a raw picker value that may be a bare
 // `form_ref`). Each mirrors railModel.ts's own `withXxx` idiom.
 
-export function withShotPromptSegments(doc: VideoDirectorValue, caps: DirectorCapabilities, id: string, promptSegments: Segment[]): VideoDirectorValue {
+/** `id` is the beat's own id for timeline routing (a chain shot's prompt IS
+ * its one segment, so `id`/`timelineShotId` are the same thing there) --
+ * `timelineShotId` names which shot's beat list to look in (a beat id is
+ * only unique WITHIN its own shot), required once `!caps.segmentRouting`. */
+export function withShotPromptSegments(
+	doc: VideoDirectorValue,
+	caps: DirectorCapabilities,
+	id: string,
+	promptSegments: Segment[],
+	timelineShotId?: string
+): VideoDirectorValue {
 	const prompt = resolvePromptSegments(promptSegments);
 	if (caps.segmentRouting) {
 		return {
@@ -877,9 +903,17 @@ export function withShotPromptSegments(doc: VideoDirectorValue, caps: DirectorCa
 			chain: { ...doc.chain, segments: doc.chain.segments.map((s) => (s.id === id ? { ...s, prompt_segments: promptSegments, prompt } : s)) }
 		};
 	}
+	if (!timelineShotId) return doc;
 	return {
 		...doc,
-		timeline: { ...doc.timeline, segments: doc.timeline.segments.map((s) => (s.id === id ? { ...s, prompt_segments: promptSegments, text: prompt } : s)) }
+		timeline: {
+			...doc.timeline,
+			shots: doc.timeline.shots.map((shot) =>
+				shot.id !== timelineShotId
+					? shot
+					: { ...shot, segments: shot.segments.map((s) => (s.id === id ? { ...s, prompt_segments: promptSegments, text: prompt } : s)) }
+			)
+		}
 	};
 }
 
@@ -909,33 +943,80 @@ export function withShotReferences(
 			chain: { ...doc.chain, segments: doc.chain.segments.map((s) => (s.id === id ? { ...s, references: next } : s)) }
 		};
 	}
+	// `id` here is the SHOT's own id (StageReferencesTab passes it exactly
+	// like chain routing does), not one of its beats -- `references` has no
+	// shot-level field of its own on DirectorTimelineShot, so it lands on the
+	// shot's first beat (mirrors `extractSingleShot`'s own read of
+	// `shot.segments[0]?.references`). A shot with no beats yet has nowhere
+	// to put it -- a no-op rather than minting one.
 	return {
 		...doc,
-		timeline: { ...doc.timeline, segments: doc.timeline.segments.map((s) => (s.id === id ? { ...s, references: next } : s)) }
+		timeline: {
+			...doc.timeline,
+			shots: doc.timeline.shots.map((shot) =>
+				shot.id !== id || shot.segments.length === 0
+					? shot
+					: { ...shot, segments: shot.segments.map((s, i) => (i === 0 ? { ...s, references: next } : s)) }
+			)
+		}
 	};
 }
 
 export function withDuplicatedShot(doc: VideoDirectorValue, caps: DirectorCapabilities, id: string): VideoDirectorValue {
-	if (!caps.segmentRouting) return doc;
-	const segments = doc.chain.segments;
-	const idx = segments.findIndex((s) => s.id === id);
+	if (caps.segmentRouting) {
+		const segments = doc.chain.segments;
+		const idx = segments.findIndex((s) => s.id === id);
+		if (idx === -1) return doc;
+		const source = segments[idx];
+		const copy: ChainSegment = {
+			...source,
+			id: mintId('chain', segments),
+			prompt_segments: source.prompt_segments.map((seg) => ({ ...seg })),
+			// A duplicate never inherits its source's own edge frames (an image
+			// makes no sense copied onto a second shot) -- whether the COPY is
+			// itself eligible for its own leading/trailing well is then a normal
+			// join-aware question (`chainSegmentEdgeAllowances`), same as any
+			// other segment.
+			keyframe: null,
+			keyframe_strength: 1,
+			last_keyframe: null,
+			last_keyframe_strength: 1
+		};
+		return { ...doc, chain: { ...doc.chain, segments: [...segments.slice(0, idx + 1), copy, ...segments.slice(idx + 1)] } };
+	}
+	const shots = doc.timeline.shots;
+	const idx = shots.findIndex((s) => s.id === id);
 	if (idx === -1) return doc;
-	const source = segments[idx];
-	const copy: ChainSegment = {
-		...source,
-		id: mintId('chain', segments),
-		prompt_segments: source.prompt_segments.map((seg) => ({ ...seg })),
-		// A duplicate never inherits its source's own edge frames (an image
-		// makes no sense copied onto a second shot) -- whether the COPY is
-		// itself eligible for its own leading/trailing well is then a normal
-		// join-aware question (`chainSegmentEdgeAllowances`), same as any
-		// other segment.
-		keyframe: null,
-		keyframe_strength: 1,
-		last_keyframe: null,
-		last_keyframe_strength: 1
+	const source = shots[idx];
+	const { title: _sourceTitle, ...sourceRest } = source;
+	const copy: DirectorTimelineShot = {
+		...sourceRest,
+		id: mintId('shot', shots),
+		segments: source.segments.map((s) => ({ ...s, prompt_segments: s.prompt_segments.map((seg) => ({ ...seg })) })),
+		// A duplicate never inherits its source's own frames -- an independent
+		// clip conditioned on the same still makes little sense, and it is
+		// never eligible to continue from the source (there is nothing between
+		// the two to join).
+		keyframes: [],
+		continue_from_previous: false,
+		audio: source.audio.map((a) => ({ ...a })),
+		ic_lora: source.ic_lora.map((e) => ({ ...e }))
 	};
-	return { ...doc, chain: { ...doc.chain, segments: [...segments.slice(0, idx + 1), copy, ...segments.slice(idx + 1)] } };
+	return { ...doc, timeline: { ...doc.timeline, shots: [...shots.slice(0, idx + 1), copy, ...shots.slice(idx + 1)] } };
+}
+
+/** Removes one whole shot -- a chain segment, or an independent timeline
+ * clip -- never fewer than one remains. Console-only action (mirrors
+ * `withDuplicatedShot`); the `remove_segment` wire op keeps its own,
+ * different meaning (one BEAT within a timeline shot, see
+ * `applyDirectorOperations`'s doc comment). */
+export function withRemovedShot(doc: VideoDirectorValue, caps: DirectorCapabilities, id: string): VideoDirectorValue {
+	if (caps.segmentRouting) {
+		if (doc.chain.segments.length <= 1) return doc;
+		return { ...doc, chain: { ...doc.chain, segments: doc.chain.segments.filter((s) => s.id !== id) } };
+	}
+	if (doc.timeline.shots.length <= 1) return doc;
+	return { ...doc, timeline: { ...doc.timeline, shots: doc.timeline.shots.filter((s) => s.id !== id) } };
 }
 
 /** Sets or clears one segment's own leading keyframe -- legal on any segment
@@ -979,25 +1060,26 @@ export function withChainTrailingMedia(
 	};
 }
 
-/** Upserts or clears (media=null) one timeline keyframe by id -- the mint path
- * for a gate's empty "place a keyframe here" well as well as an ordinary edit
- * of an existing one. */
+/** Upserts or clears (media=null) one timeline keyframe by id, on the named
+ * shot -- the mint path for a gate's empty "place a keyframe here" well as
+ * well as an ordinary edit of an existing one. */
 export function withTimelineKeyframeMedia(
 	doc: VideoDirectorValue,
+	timelineShotId: string,
 	id: string,
 	role: DirectorKeyframe['role'],
 	start: number,
 	media: DirectorMediaValue | null
 ): VideoDirectorValue {
-	const list = doc.timeline.keyframes;
-	if (media == null) {
-		return { ...doc, timeline: { ...doc.timeline, keyframes: list.filter((k) => k.id !== id) } };
-	}
-	const idx = list.findIndex((k) => k.id === id);
-	const existing = idx === -1 ? null : list[idx];
-	const kf: DirectorKeyframe = { id, start, role, strength: existing?.strength ?? 1, media };
-	const next = idx === -1 ? [...list, kf] : list.map((k, i) => (i === idx ? kf : k));
-	return { ...doc, timeline: { ...doc.timeline, keyframes: next } };
+	return mapTimelineShot(doc, timelineShotId, (shot) => {
+		const list = shot.keyframes;
+		if (media == null) return { ...shot, keyframes: list.filter((k) => k.id !== id) };
+		const idx = list.findIndex((k) => k.id === id);
+		const existing = idx === -1 ? null : list[idx];
+		const kf: DirectorKeyframe = { id, start, role, strength: existing?.strength ?? 1, media };
+		const next = idx === -1 ? [...list, kf] : list.map((k, i) => (i === idx ? kf : k));
+		return { ...shot, keyframes: next };
+	});
 }
 
 /** Upserts or clears (media=null) one chain 'anywhere' keyframe's media,
@@ -1015,46 +1097,68 @@ export function withChainKeyframeMedia(doc: VideoDirectorValue, id: string, medi
 	return { ...doc, chain: { ...doc.chain, keyframes: next } };
 }
 
-export function withKeyframeStrength(doc: VideoDirectorValue, caps: DirectorCapabilities, id: string, strength: number): VideoDirectorValue {
+export function withKeyframeStrength(
+	doc: VideoDirectorValue,
+	caps: DirectorCapabilities,
+	timelineShotId: string,
+	id: string,
+	strength: number
+): VideoDirectorValue {
 	if (caps.segmentRouting) {
 		return { ...doc, chain: { ...doc.chain, keyframes: doc.chain.keyframes.map((k) => (k.id === id ? { ...k, strength } : k)) } };
 	}
-	return { ...doc, timeline: { ...doc.timeline, keyframes: doc.timeline.keyframes.map((k) => (k.id === id ? { ...k, strength } : k)) } };
+	return mapTimelineShot(doc, timelineShotId, (shot) => ({
+		...shot,
+		keyframes: shot.keyframes.map((k) => (k.id === id ? { ...k, strength } : k))
+	}));
 }
 
 /** Patches an existing audio clip in whichever sub-tree the routing reads
- * (chain.audio / timeline.audio) -- unlike the 'upsert_audio' op this takes a
- * raw DirectorMediaValue (a bare FormMediaRef included), not a resolved
- * `path` string, so it fits a direct DirectorMediaSlot onChange. */
+ * (chain.audio / the named shot's own audio) -- unlike the 'upsert_audio' op
+ * this takes a raw DirectorMediaValue (a bare FormMediaRef included), not a
+ * resolved `path` string, so it fits a direct DirectorMediaSlot onChange. */
 export function withAudioPatch(
 	doc: VideoDirectorValue,
 	caps: DirectorCapabilities,
+	timelineShotId: string,
 	id: string,
 	patch: Partial<Pick<DirectorAudioSegment, 'media' | 'role' | 'start' | 'trim_start' | 'length'>>
 ): VideoDirectorValue {
-	const onChain = caps.segmentRouting;
-	const list = onChain ? doc.chain.audio : doc.timeline.audio;
-	const idx = list.findIndex((a) => a.id === id);
-	if (idx === -1) return doc;
-	const nextList = list.map((a, i) => (i === idx ? { ...a, ...patch } : a));
-	return onChain ? { ...doc, chain: { ...doc.chain, audio: nextList } } : { ...doc, timeline: { ...doc.timeline, audio: nextList } };
+	if (caps.segmentRouting) {
+		const list = doc.chain.audio;
+		const idx = list.findIndex((a) => a.id === id);
+		if (idx === -1) return doc;
+		return { ...doc, chain: { ...doc.chain, audio: list.map((a, i) => (i === idx ? { ...a, ...patch } : a)) } };
+	}
+	return mapTimelineShot(doc, timelineShotId, (shot) => {
+		const idx = shot.audio.findIndex((a) => a.id === id);
+		if (idx === -1) return shot;
+		return { ...shot, audio: shot.audio.map((a, i) => (i === idx ? { ...a, ...patch } : a)) };
+	});
 }
 
-export function withIcLoraPatch(doc: VideoDirectorValue, id: string, patch: Partial<Pick<DirectorIcLoraEntry, 'lora' | 'ref_media' | 'strength'>>): VideoDirectorValue {
-	const list = doc.timeline.ic_lora;
-	const idx = list.findIndex((e) => e.id === id);
-	const existing: DirectorIcLoraEntry = idx === -1 ? { id, lora: null, ref_media: null, strength: 1 } : list[idx];
-	const next: DirectorIcLoraEntry = { ...existing, ...patch };
-	const nextList = idx === -1 ? [...list, next] : list.map((e, i) => (i === idx ? next : e));
-	return { ...doc, timeline: { ...doc.timeline, ic_lora: nextList } };
+export function withIcLoraPatch(
+	doc: VideoDirectorValue,
+	timelineShotId: string,
+	id: string,
+	patch: Partial<Pick<DirectorIcLoraEntry, 'lora' | 'ref_media' | 'strength'>>
+): VideoDirectorValue {
+	return mapTimelineShot(doc, timelineShotId, (shot) => {
+		const list = shot.ic_lora;
+		const idx = list.findIndex((e) => e.id === id);
+		const existing: DirectorIcLoraEntry = idx === -1 ? { id, lora: null, ref_media: null, strength: 1 } : list[idx];
+		const next: DirectorIcLoraEntry = { ...existing, ...patch };
+		const nextList = idx === -1 ? [...list, next] : list.map((e, i) => (i === idx ? next : e));
+		return { ...shot, ic_lora: nextList };
+	});
 }
 
-/** Drops one IC-LoRA entry from the timeline's `ic_lora` list -- the console's
- * IC-LoRA tab renders the whole list (PLAN.md §A: a stage tab, not a single
- * rail-selected head), so unlike every other `withXxx` here this removes by
- * filtering rather than patching a selected id. */
-export function withRemoveIcLora(doc: VideoDirectorValue, id: string): VideoDirectorValue {
-	return { ...doc, timeline: { ...doc.timeline, ic_lora: doc.timeline.ic_lora.filter((e) => e.id !== id) } };
+/** Drops one IC-LoRA entry from the named shot's `ic_lora` list -- the
+ * console's IC-LoRA tab renders the whole list (PLAN.md §A: a stage tab, not
+ * a single rail-selected head), so unlike every other `withXxx` here this
+ * removes by filtering rather than patching a selected id. */
+export function withRemoveIcLora(doc: VideoDirectorValue, timelineShotId: string, id: string): VideoDirectorValue {
+	return mapTimelineShot(doc, timelineShotId, (shot) => ({ ...shot, ic_lora: shot.ic_lora.filter((e) => e.id !== id) }));
 }
 
 /** The role a gate's "place a keyframe here" well should mint on fill. */
@@ -1063,10 +1167,10 @@ export function timelineGateKeyframeRole(rail: RailModel, atSeconds: number): Di
 }
 
 /** Removes the currently selected object's media/entry via the shared ops
- * path where one exists. Exposed so Stage.svelte doesn't need to know which
+ * path where one exists. Exposed so the console doesn't need to know which
  * document sub-tree an audio track lives in. */
-export function withRemoveAudio(doc: VideoDirectorValue, caps: DirectorCapabilities, id: string): VideoDirectorValue {
-	return applyDirectorOperations(doc, [{ op: 'remove_audio', id }], caps);
+export function withRemoveAudio(doc: VideoDirectorValue, caps: DirectorCapabilities, timelineShotId: string, id: string): VideoDirectorValue {
+	return applyDirectorOperations(doc, [{ op: 'remove_audio', id, shot_id: timelineShotId }], caps);
 }
 
 export function withStitch(doc: VideoDirectorValue, caps: DirectorCapabilities, stitch: boolean): VideoDirectorValue {
@@ -1108,10 +1212,13 @@ export function withTrimShotToCap(doc: VideoDirectorValue, caps: DirectorCapabil
 // object is the caller's job (it renders on the rail immediately; the user
 // clicks it, same as any other rail object).
 
-/** Appends a blank shot: a new chain segment after the last one (chain
- * routing) or a new timed prompt block starting where the last one ends
- * (timeline routing). Respects `maxSegments` on chain routing -- callers
- * should also gate the control on `RailModel.canAddShot`. */
+/** Appends a blank shot: a new chain segment after the last one, or (LTX
+ * timeline) a new INDEPENDENT clip -- its own default-duration, empty,
+ * `continue_from_previous: false` `DirectorTimelineShot` (one generation of
+ * its own, PLAN.md §B) -- never a beat within the current one (that's
+ * `ShotConsole.svelte`'s own `insertTimelineBeatAt`, position-aware and
+ * per-shot). Respects `maxSegments` on chain routing -- callers should also
+ * gate the control on the console's own shot-count ceiling. */
 export function withAddedShot(doc: VideoDirectorValue, caps: DirectorCapabilities): VideoDirectorValue {
 	const defaultDuration = caps.modes.director?.defaultSegmentDuration ?? caps.defaultDuration;
 	if (caps.segmentRouting) {
@@ -1126,41 +1233,51 @@ export function withAddedShot(doc: VideoDirectorValue, caps: DirectorCapabilitie
 			keyframe_strength: 1,
 			last_keyframe: null,
 			last_keyframe_strength: 1,
-			sub_type_override: null
+			sub_type_override: null,
+			steps: null,
+			cfg: null
 		};
 		return { ...doc, chain: { ...doc.chain, segments: [...segments, seg] } };
 	}
-	const segments = doc.timeline.segments;
-	const start = segments.reduce((max, s) => Math.max(max, s.end), 0);
-	const end = Math.max(start + defaultDuration, start + 0.1);
-	const seg: DirectorPromptSegment = { id: mintId('seg', segments), start, end, text: '', prompt_segments: [] };
-	return { ...doc, timeline: { ...doc.timeline, segments: [...segments, seg] } };
+	const shots = doc.timeline.shots;
+	const shot: DirectorTimelineShot = {
+		id: mintId('shot', shots),
+		duration: defaultDuration,
+		continue_from_previous: false,
+		segments: [],
+		keyframes: [],
+		audio: [],
+		ic_lora: []
+	};
+	return { ...doc, timeline: { ...doc.timeline, shots: [...shots, shot] } };
 }
 
 /** Appends a blank keyframe: a chain 'anywhere' keyframe at the midpoint of
- * the chain's current window, or a 'free' timeline keyframe at the midpoint
- * of the timeline's duration. Callers should gate on the mode's
+ * the chain's current window, or a 'free' keyframe at the midpoint of the
+ * named shot's own duration. Callers should gate on the mode's
  * `keyframes`/`maxKeyframes` capability. */
-export function withAddedKeyframe(doc: VideoDirectorValue, caps: DirectorCapabilities): VideoDirectorValue {
+export function withAddedKeyframe(doc: VideoDirectorValue, caps: DirectorCapabilities, timelineShotId: string): VideoDirectorValue {
 	if (caps.segmentRouting) {
 		const window = chainKeyframeWindow(doc.chain);
 		const kf = { id: mintId('ckf', doc.chain.keyframes), at: clamp(window / 2, 0, window), strength: 1, media: null };
 		return { ...doc, chain: { ...doc.chain, keyframes: [...doc.chain.keyframes, kf] } };
 	}
-	const duration = doc.timeline.duration;
-	const kf: DirectorKeyframe = {
-		id: mintId('kf', doc.timeline.keyframes),
-		start: clamp(duration / 2, 0, duration),
-		role: 'free',
-		strength: 1,
-		media: null
-	};
-	return { ...doc, timeline: { ...doc.timeline, keyframes: [...doc.timeline.keyframes, kf] } };
+	return mapTimelineShot(doc, timelineShotId, (shot) => {
+		const kf: DirectorKeyframe = {
+			id: mintId('kf', shot.keyframes),
+			start: clamp(shot.duration / 2, 0, shot.duration),
+			role: 'free',
+			strength: 1,
+			media: null
+		};
+		return { ...shot, keyframes: [...shot.keyframes, kf] };
+	});
 }
 
-/** Appends a blank audio track spanning the current window (chain) or
- * duration (timeline). Callers should gate on the mode's `audio` capability. */
-export function withAddedAudio(doc: VideoDirectorValue, caps: DirectorCapabilities): VideoDirectorValue {
+/** Appends a blank audio track spanning the current window (chain) or the
+ * named shot's own duration (timeline). Callers should gate on the mode's
+ * `audio` capability. */
+export function withAddedAudio(doc: VideoDirectorValue, caps: DirectorCapabilities, timelineShotId: string): VideoDirectorValue {
 	if (caps.segmentRouting) {
 		const window = chainKeyframeWindow(doc.chain);
 		const track: DirectorAudioSegment = {
@@ -1173,12 +1290,14 @@ export function withAddedAudio(doc: VideoDirectorValue, caps: DirectorCapabiliti
 		};
 		return { ...doc, chain: { ...doc.chain, audio: [...doc.chain.audio, track] } };
 	}
-	const track: DirectorAudioSegment = {
-		id: mintId('aud', doc.timeline.audio),
-		start: 0,
-		trim_start: 0,
-		length: doc.timeline.duration > 0 ? doc.timeline.duration : 1,
-		media: null
-	};
-	return { ...doc, timeline: { ...doc.timeline, audio: [...doc.timeline.audio, track] } };
+	return mapTimelineShot(doc, timelineShotId, (shot) => {
+		const track: DirectorAudioSegment = {
+			id: mintId('aud', shot.audio),
+			start: 0,
+			trim_start: 0,
+			length: shot.duration > 0 ? shot.duration : 1,
+			media: null
+		};
+		return { ...shot, audio: [...shot.audio, track] };
+	});
 }

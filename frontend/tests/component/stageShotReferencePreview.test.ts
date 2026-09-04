@@ -47,7 +47,10 @@ function baseDoc(): VideoDirectorValue {
 		negative_prompt: '',
 		negative_prompt_segments: [],
 		simple: { duration: 5, fps: 24, start_image: null, first_frame: null, last_frame: null },
-		timeline: { duration: 5, fps: 24, segments: [], keyframes: [], audio: [], ic_lora: [] },
+		timeline: {
+			fps: 24,
+			shots: [{ id: 'shot-1', duration: 5, continue_from_previous: false, segments: [], keyframes: [], audio: [], ic_lora: [] }]
+		},
 		chain: { fps: 16, segments: [], continuation: { overlap_frames: 0, stitch: true }, keyframes: [], audio: [] }
 	};
 }
@@ -64,6 +67,8 @@ function blankChainSegment(id: string, duration: number, overrides: Partial<Chai
 		last_keyframe: null,
 		last_keyframe_strength: 1,
 		sub_type_override: null,
+		steps: null,
+		cfg: null,
 		...overrides
 	};
 }

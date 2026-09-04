@@ -1,13 +1,40 @@
 <script lang="ts">
 	// Steps / CFG per-shot overrides -- chain profiles only (a timeline
-	// DirectorPromptSegment has no such fields at all, see PLAN.md §A). The
-	// wire already accepts settings.steps/cfg; the editor's ChainSegment does
-	// not carry them yet (W2), so both inputs render disabled with a title
-	// explaining why rather than silently doing nothing on input.
+	// DirectorPromptSegment has no such fields at all, see PLAN.md §A).
+	// `ChainSegment.steps`/`cfg` (W2) are the live storage; an empty input
+	// clears back to `null` ("auto" -- let the backend use its own default),
+	// same as every other numeric override field in this feature.
+	import type { VideoDirectorValue, DirectorCapabilities } from '$lib/types/videoDirector';
+	import { applyDirectorOperations } from '$lib/utils/videoDirector';
 	import Icon from '$lib/components/Icon.svelte';
 
+	let {
+		doc,
+		caps,
+		shotId,
+		onDoc
+	}: {
+		doc: VideoDirectorValue;
+		caps: DirectorCapabilities;
+		shotId: string;
+		onDoc: (next: VideoDirectorValue) => void;
+	} = $props();
+
 	let collapsed = $state(true);
-	const REASON = 'Per-shot overrides land in the next wave';
+	let segment = $derived(doc.chain.segments.find((s) => s.id === shotId));
+
+	function readNumberOrNull(e: Event): number | null {
+		const raw = (e.currentTarget as HTMLInputElement).value.trim();
+		if (raw === '') return null;
+		const parsed = parseFloat(raw);
+		return Number.isFinite(parsed) ? parsed : null;
+	}
+	function setSteps(e: Event) {
+		onDoc(applyDirectorOperations(doc, [{ op: 'upsert_segment', segment: { id: shotId, steps: readNumberOrNull(e) } }], caps));
+	}
+	function setCfg(e: Event) {
+		onDoc(applyDirectorOperations(doc, [{ op: 'upsert_segment', segment: { id: shotId, cfg: readNumberOrNull(e) } }], caps));
+	}
 </script>
 
 <div class="overrides" class:collapsed>
@@ -19,11 +46,19 @@
 		<div class="overrides-body">
 			<label class="overrides-field">
 				<span class="fl">Steps</span>
-				<input class="overrides-input tabular" placeholder="auto" disabled title={REASON} />
+				<input
+					class="overrides-input tabular"
+					type="number"
+					min="1"
+					step="1"
+					placeholder="auto"
+					value={segment?.steps ?? ''}
+					onchange={setSteps}
+				/>
 			</label>
 			<label class="overrides-field">
 				<span class="fl">CFG</span>
-				<input class="overrides-input tabular" placeholder="auto" disabled title={REASON} />
+				<input class="overrides-input tabular" type="number" min="0" step="0.1" placeholder="auto" value={segment?.cfg ?? ''} onchange={setCfg} />
 			</label>
 		</div>
 	</div>
@@ -78,7 +113,7 @@
 		border-radius: 4px;
 		border: 1px solid rgb(var(--line-strong));
 		background: rgb(var(--surface-2));
-		color: rgb(var(--fg-disabled));
+		color: rgb(var(--fg));
 		font-size: 12px;
 		font-family: 'IBM Plex Mono', monospace;
 		padding: 0 9px;

@@ -38,15 +38,56 @@ and validation shapes it takes is decided by one preset capability, `segment_rou
 
 | | `segment_routing: true` (chain style — Wan) | no `segment_routing` (timeline style — LTX) |
 |---|---|---|
-| What runs | Multiple sequential generations, one per segment, stitched end-to-end with a tail-frame handoff | One generation whose timeline the segments describe |
-| Segment shape | `frames` per segment (required); `steps`/`cfg`/`loras` overrides allowed | `start`/`end` seconds (required); `frames`/`steps`/`cfg`/`loras` rejected |
-| Total length | Sum of per-segment `frames`; `settings.duration` is advisory and not validated | `settings.duration`, validated against `limits` |
-| Keyframes | Only with `keyframes: "anywhere"` (see [`media`](#media)) | Always, capped by `max_keyframes` |
-| Audio / IC-LoRA | Audio with the `audio` capability; IC-LoRA never | Audio with `audio`; IC-LoRA with `ic_lora` |
+| What runs | Multiple sequential generations, one per segment, stitched end-to-end with a tail-frame handoff, submitted as ONE wire document | A FILM of one or more independent editor shots, each its own generation and its own wire document — see [Editor shots and per-shot generation](#editor-shots-and-per-shot-generation) below |
+| Segment shape | `frames` per segment (required); `steps`/`cfg`/`loras` overrides allowed | `start`/`end` seconds (required, shot-local); `frames`/`steps`/`cfg`/`loras` rejected |
+| Total length | Sum of per-segment `frames`; `settings.duration` is advisory and not validated | Per shot: that shot's own `settings.duration`, validated against `limits` |
+| Keyframes | Only with `keyframes: "anywhere"` (see [`media`](#media)) | Always, capped by `max_keyframes` PER SHOT |
+| Audio / IC-LoRA | Audio with the `audio` capability; IC-LoRA never | Audio with `audio`; IC-LoRA with `ic_lora`, both per shot |
 | Derived output | `sub_type` per segment + `needs_t2v_set`/`needs_i2v_set` | — |
 
 The two styles never coexist in one preset, and no mode string distinguishes them —
 everything downstream keys off `segment_routing` and the per-mode capability keys.
+
+### Editor shots and per-shot generation
+
+The editor's own document model (`VideoDirectorValue`,
+`frontend/src/lib/types/videoDirector.ts`) is shot-centric in both styles, but only the
+timeline style changes shape on the wire because of it — the wire contract itself stays
+"one clip = one generation" (`schema_version` unchanged) in both styles:
+
+- **Chain style** already had shot identity: each `chain.segments[]` entry already IS one
+  shot (its own prompt, length, media, sub_type). The whole chain still compiles to ONE
+  wire document — the shots are stitched end-to-end by the backend's own tail-frame
+  handoff, not by submitting several generations — so nothing about the wire shape in
+  [The document contract](#the-document-contract) changes for chain style. Selecting a
+  subset of rows and generating ("Generate n selected") does not change the wire shape
+  either: the document still carries every segment, plus a [`render`](#render) key naming
+  which contiguous span to actually execute — see [Per-shot generation
+  compiler](#per-shot-generation-compiler).
+- **Timeline style** (LTX) did not have shot identity before this: the whole editor
+  document was one clip with timed prompt beats, keyframes, audio and IC-LoRA. The editor
+  document is now `{ fps, shots: DirectorTimelineShot[] }` — a FILM of one or more
+  independent shots, each `{ id, title?, duration, continue_from_previous, segments,
+  keyframes, audio, ic_lora }`. A pre-shots stored document (tab storage, a session blob)
+  is lifted into a single shot the first time it's read; see
+  `normalizeDirectorValue` in `frontend/src/lib/utils/videoDirector.ts`.
+
+  Each timeline shot compiles to its OWN wire document — a multi-shot LTX film is N
+  generations, submitted and queued in shot order, not one generation covering the whole
+  film. Every field that used to live at the timeline document's top level (`duration`,
+  `segments`, `keyframes`, `audio`, `ic_lora`) is now that SHOT's own — in particular,
+  **IC-LoRA moves to the shot**: a shot's `ic_lora` list conditions only that shot's
+  generation, so a multi-shot LTX film cannot share one continuous IC-LoRA-conditioned
+  render across shots the way a single-shot film could. Each compiled wire document also
+  carries the optional `shot` provenance key (see [`shot`](#shot) below) naming which
+  editor shot it came from.
+
+  A shot whose `continue_from_previous` is set inherits a `first` keyframe from the
+  previous shot's rendered output when one exists (LTX has no native multi-shot
+  continuation the way Wan/MiniMax-H3 do, so "continuing" here means seeding the next
+  shot's start frame, not a latent/tail handoff); when no predecessor output exists yet,
+  the shot is not ready to submit ("Shot n needs its previous shot") rather than silently
+  falling back to a hard cut.
 
 ## The document contract
 
@@ -117,7 +158,10 @@ downstream (pipes, history, the persisted `Generation` row).
       "reference": { "path": "..." } | null,
       "strength": 1.0
     }
-  ]
+  ],
+  "shot": {                        // optional, see "shot" below
+    "id": "shot-2", "index": 1, "count": 3, "title": "Opening"
+  }
 }
 ```
 
@@ -348,6 +392,65 @@ that only muxes should say so in its `tips` rather than expecting a rejection he
 `reference` is an optional media reference (e.g. a source image or clip the IC-LoRA
 conditions on). `lora.strength` and the entry's own `strength` are both clamped to `[0, 1]`.
 
+### `shot`
+
+Optional in every mode; in practice only ever sent for a timeline-style document, since a
+timeline shot compiles to its own wire document (see [Editor shots and per-shot
+generation](#editor-shots-and-per-shot-generation) above) while a chain-style document
+still submits its whole film as one. Pure PROVENANCE — nothing in the normalizer, the
+pipeline, or any pipe branches on it; it exists so a persisted generation's `form_data`
+records which shot of a multi-shot film produced it (there is no shot/film identity on the
+`Generation` row itself).
+
+```jsonc
+"shot": {
+  "id": "shot-2",       // required, non-empty string
+  "index": 1,           // required int, 0 <= index < count
+  "count": 3,           // required int, the film's total shot count at compile time
+  "title": "Opening"    // optional string
+}
+```
+
+`id` must be a non-empty string; `index` and `count` must both be integers satisfying
+`0 <= index < count`; `title`, when present, must be a string. A malformed `shot` (missing
+`id`, a non-integer `index`/`count`, an out-of-range `index`, or an unrecognized key inside
+it) is a validation error like every other known structure in this document — see
+[Unknown-key policy](#unknown-key-policy). Absent entirely is the normal case for a
+chain-style document and for a single-shot timeline document.
+
+### `render`
+
+Optional, and meaningful only for a **chain-style** document (`segment_routing`) — the
+Video Director console's "Generate n selected". A timeline-style (LTX) document never
+needs it: each editor shot already compiles to its own standalone wire document
+client-side (see [Editor shots and per-shot generation](#editor-shots-and-per-shot-generation)
+above), so there is never anything left to carve out of it server-side.
+
+```jsonc
+"render": {
+  "scope": "shots",              // "film" (default) or "shots"
+  "shot_ids": ["seg-2", "seg-3"] // required, non-empty, when scope is "shots"
+}
+```
+
+`scope` must be `"film"` or `"shots"`; any other value is a validation error. `"film"` (or
+the key absent entirely) is the normal, unchanged case — the whole document renders as one
+generation, exactly as before this key existed; `shot_ids` must be empty (or absent) under
+`"film"`. `"shots"` requires a non-empty list of non-empty strings, each naming a segment
+that actually exists on this document — an id this document has no segment for is a
+validation error naming it. The wire document still carries **every** segment of the film
+under `"shots"`, not just the selected ones: a segment's derived values (its rolled seed,
+its resolved `sub_type`, a packed reference subset) are only correct in the context of the
+FULL film, so the whole thing has to be normalized first.
+
+This module validates only the *shape* of the request — that `scope` is one of the two
+values and, under `"shots"`, that every id names a real segment. It does not touch
+`segments`/`media`/`audio` to act on it. The actual cutting-down happens one step later, in
+`compile_shot_plan` (`src/features/video_director/compile.py`), called by
+`GenerationOrchestrator.start_generation()` immediately after `normalize_video_director()`
+returns a document whose `render.scope` is `"shots"` — see [Per-shot generation
+compiler](#per-shot-generation-compiler) below.
+
 ### Derived blocks
 
 On success the canonical document gains keys no client sends. They exist because the
@@ -394,6 +497,61 @@ number (`at * fps`, rounded half-up like Jinja's `round`, not Python's banker's 
 Each `ic_lora` reference is routed by its own media type — an image reference becomes a
 `source: "image"` placement, because the video loader is cv2-backed and cannot read a still.
 
+### Per-shot generation compiler
+
+`compile_shot_plan(normalized_doc, shot_ids)` (`src/features/video_director/compile.py`)
+runs strictly AFTER `normalize_video_director`, and only when the normalized document's
+`render.scope` is `"shots"` (`GenerationOrchestrator.start_generation()` is the one caller,
+right after normalization). It is a **chain-style-only** concern — see [`render`](#render)
+above for why a timeline-style document never reaches it.
+
+It cuts the full, already-normalized segment list down to the contiguous span named by
+`shot_ids`, baking every position-dependent derived value onto the surviving segments
+explicitly before slicing:
+
+- **Seed** — `segment.seed` if the document already set one (a user override), else
+  `settings.seed + original_index` — the segment's index in the FULL film, matching what
+  `chain_video_wan22/main.py` and `video_minimax_h3/windows.py` would each derive on their
+  own `segment.get("seed") or base_seed + i` if handed a shorter list without this baked in.
+- **`sub_type`** — carried through unchanged; already resolved by [segment
+  routing](#derived-blocks) during normalization, never re-derived from the span's own
+  (different) segment positions.
+- **`reference_indices`** — carried through unchanged: `null` (the whole pool) stays
+  `null`, an explicit subset stays exactly that subset.
+- **`sequence_index`** — the segment's position in the FULL film (new field, provenance
+  only — nothing downstream branches on it yet).
+- **Media/audio `at`/`start`** — a free-floating (`keyframes: "anywhere"`) keyframe or an
+  audio track is rebased onto the span's own local time (`at - span_start`; an audio track
+  straddling the span boundary has its `trim_start` extended and its `length` clipped to
+  match), or dropped outright when it falls entirely outside the span. Per-segment `first`/
+  `last` media is filtered by whether its owning segment survived into the span — never
+  rebased, since it isn't film-time positioned to begin with.
+- **`settings.duration`**, **`needs_t2v_set`**/**`needs_i2v_set`**, and
+  `media_images`/`media_videos`/`media_placements` are all recomputed from the compiled
+  span alone, exactly as `normalize_video_director` computes them for a whole film.
+- A single-segment span gets a `shot` provenance key (`{id, index, count}`); a multi-segment
+  span carries none — it's a continuous render, not one owned shot.
+
+Raises `VideoDirectorValidationError` (same type as the normalizer) when `shot_ids` is
+empty, names an id with no matching segment, does not form a single contiguous run of the
+film (a gap is rejected outright rather than silently rendering just the named segments
+back-to-back — "never filter `segments`" is a hard rule here), or when the span's own first
+segment resolves to the `"chain"` sub_type: it continues the previous segment's tail
+frames, but that segment sits outside the span with nothing to hand off. The console's
+"Generate previous + this shot" action on a join like that submits the contiguous span from
+the nearest fresh cut instead (as one request, so pipe continuation stays native); "Convert
+to fresh cut" changes the segment's own resolved `sub_type` instead of ever being handled
+here. The order `shot_ids` arrives in never matters — the compiled span always comes back
+in the film's own segment order, since continuation depends on it.
+
+**Progress carries the active segment.** A chain (`chain_video_wan22`) or windowed
+(`video_minimax_h3`) generation's `generation_status` WebSocket messages include a
+`segment_id` field naming the segment currently sampling
+(`ProgressGenerationOutput.segment_id`, `src/pipelines/outputs.py`) — present whether the
+generation covers the whole film or a compiled span. The console uses it to light up the
+active row while a "Part of continuous render" run is in progress; every non-Director
+progress message simply omits the field.
+
 ### Path resolution and traversal
 
 Every `media.media` object and `ic_lora.reference` is a `{path, relative_path, ...}`
@@ -408,10 +566,14 @@ resolved absolute path; every other key on the reference passes through unchange
 ### Unknown-key policy
 
 Unknown **top-level** keys on the document (anything besides `schema_version`, `mode`,
-`settings`, `segments`, `media`, `audio`, `ic_lora`) are preserved verbatim in the
-canonical output — a future field a newer frontend adds doesn't get silently eaten by an
-older server. Unknown keys **inside** known structures (a stray field on a segment, a
-media entry, etc.) are dropped; only the keys documented above survive normalization there.
+`settings`, `segments`, `media`, `audio`, `ic_lora`, `shot`, `render`) are preserved
+verbatim in the canonical output — a future field a newer frontend adds doesn't get
+silently eaten by an older server. Unknown keys **inside** most known structures (a stray
+field on a segment, a media entry, etc.) are silently dropped; only the keys documented
+above survive normalization there. `shot` and `render` are the two exceptions: an
+unrecognized key inside either is a validation error rather than a silent drop (see
+[`shot`](#shot)/[`render`](#render) above) — provenance and render-scoping data are either
+right or rejected, never quietly truncated.
 
 ## Preset capability declaration
 
@@ -483,6 +645,11 @@ vars:
   - `audio` (bool) — admits an `audio` list, in either style.
   - `ic_lora` (bool) — admits an `ic_lora` list, timeline style only.
   - `max_keyframes` (int, default `8`) — the keyframe count cap, wherever keyframes are legal.
+  - `fps_locked` (bool) — frontend-only: this family always samples at `limits.default_fps`,
+    with no fps field on its own form for the editor to bind to (MiniMax-H3's chain-style
+    windows are a fixed 24fps). The console shows fps as a locked fact on the header/shot
+    cards instead of an editable setting; the normalizer itself doesn't read this key —
+    `settings.fps` is still validated the normal way (see [`settings`](#settings) above).
   - `continuation` — an object is frontend-only defaults the editor seeds its continuity
     controls with; the normalizer doesn't read those, the submitted document's own
     `settings.continuation` is what gets validated. **An explicit `null`** (the key
@@ -518,6 +685,7 @@ vars:
         keyframes: "anywhere"
         audio: true
         max_keyframes: 8
+        fps_locked: true
         max_segments: 6
         max_frames_per_segment: 345
         max_overlap_frames: 34

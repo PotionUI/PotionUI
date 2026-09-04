@@ -20,41 +20,45 @@
 		model,
 		doc,
 		caps,
+		timelineShotId,
 		formData,
 		onDoc
 	}: {
 		model: StageAudioModel;
 		doc: VideoDirectorValue;
 		caps: DirectorCapabilities;
+		/** Which shot's own audio list `model.id` addresses -- ignored for
+		 * chain routing. */
+		timelineShotId: string;
 		formData: Record<string, unknown> | null | undefined;
 		onDoc: (next: VideoDirectorValue) => void;
 	} = $props();
 
 	function setMedia(value: DirectorMediaValue | null) {
 		if (value == null) {
-			onDoc(withRemoveAudio(doc, caps, model.id));
+			onDoc(withRemoveAudio(doc, caps, timelineShotId, model.id));
 			return;
 		}
-		onDoc(withAudioPatch(doc, caps, model.id, { media: value }));
+		onDoc(withAudioPatch(doc, caps, timelineShotId, model.id, { media: value }));
 	}
 	function setRole(role: 'mux' | 'condition') {
-		onDoc(withAudioPatch(doc, caps, model.id, { role }));
+		onDoc(withAudioPatch(doc, caps, timelineShotId, model.id, { role }));
 	}
 	function remove() {
-		onDoc(withRemoveAudio(doc, caps, model.id));
+		onDoc(withRemoveAudio(doc, caps, timelineShotId, model.id));
 	}
 	function readNumber(e: Event, fallback: number): number {
 		const parsed = parseFloat((e.currentTarget as HTMLInputElement).value);
 		return Number.isFinite(parsed) ? parsed : fallback;
 	}
 	function setStart(e: Event) {
-		onDoc(withAudioPatch(doc, caps, model.id, { start: Math.max(0, readNumber(e, model.startSeconds)) }));
+		onDoc(withAudioPatch(doc, caps, timelineShotId, model.id, { start: Math.max(0, readNumber(e, model.startSeconds)) }));
 	}
 	function setTrimStart(e: Event) {
-		onDoc(withAudioPatch(doc, caps, model.id, { trim_start: Math.max(0, readNumber(e, model.trimStartSeconds)) }));
+		onDoc(withAudioPatch(doc, caps, timelineShotId, model.id, { trim_start: Math.max(0, readNumber(e, model.trimStartSeconds)) }));
 	}
 	function setLength(e: Event) {
-		onDoc(withAudioPatch(doc, caps, model.id, { length: Math.max(0.1, readNumber(e, model.lengthSeconds)) }));
+		onDoc(withAudioPatch(doc, caps, timelineShotId, model.id, { length: Math.max(0.1, readNumber(e, model.lengthSeconds)) }));
 	}
 </script>
 

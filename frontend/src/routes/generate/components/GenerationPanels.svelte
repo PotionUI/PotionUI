@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
+	import { onDestroy, tick } from 'svelte';
 	import type DynamicForm from '$lib/components/DynamicForm.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import Tooltip from '$lib/components/Tooltip.svelte';
@@ -10,12 +10,16 @@
 	import FloatingGenerationForm from './FloatingGenerationForm.svelte';
 	import FloatingWorkbench from './FloatingWorkbench.svelte';
 	import { Kbd, IconButton } from '$lib/components/ui';
-	import { PROMPT_PANEL_MIN_WIDTH } from '$lib/stores/generationLayout';
+	import {
+		PROMPT_PANEL_MIN_WIDTH,
+		widenPromptPanelForDirector,
+		restorePromptPanelFromDirector
+	} from '$lib/stores/generationLayout';
 	import { tabsStore } from '$lib/stores/tabs';
 	import { shortcutLabels } from '$lib/stores/keybindings';
 	import { closeFloatingForm } from '$lib/generation/floatingForm';
 	import { closeFloatingWorkbench } from '$lib/generation/floatingWorkbench';
-	import type { Tab } from '$lib/types/tabs';
+	import type { Tab, DirectorRunState } from '$lib/types/tabs';
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';
 	import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
 	import type { PresetInfo, PresetModeVariant } from '$lib/services/api/index';
@@ -36,6 +40,12 @@
 	export let videoDirectorCaps: DirectorCapabilities | null = null;
 	export let musicDirectorActive: boolean = false;
 	export let musicDirectorCaps: MusicDirectorCapabilities | null = null;
+	/** `Tab.directorRuns` -- see VideoDirectorEditor.svelte's own doc comment. */
+	export let directorRuns: Record<string, DirectorRunState> | undefined = undefined;
+	/** See ShotConsole.svelte's own doc comments -- passed straight through to
+	 *  every PromptSection instance below. */
+	export let onDirectorCheckedChange: ((checked: Set<string>) => void) | undefined = undefined;
+	export let onDirectorGenerateShots: ((shotIds: string[]) => void) | undefined = undefined;
 	export let numPrompts: number;
 	export let negativePromptSupported = true;
 	export let negativeInert = false;
@@ -83,7 +93,7 @@
 	$: formPanelWidth = tab.leftPanelCollapsed ? '0.75rem' : `min(${leftPanelWidth}px, 45vw)`;
 	$: floatingPresetName = presets.find((p) => p.id === tab.selectedPreset)?.name;
 
-	// The floating workbench (FE-179) opens at the inline pane's own width —
+	// The floating workbench opens at the inline pane's own width —
 	// captured here (the pane container's width doesn't change when its
 	// content swaps to the "floating" placeholder) the first time it opens,
 	// then persisted so later opens reuse it instead of re-measuring.
@@ -129,6 +139,51 @@
 	function setPromptWidth(width: number) {
 		const nextWidth = promptWidthForClientX(promptPaneEl.getBoundingClientRect().left + width);
 		tabsStore.updateTab(tab.id, { promptPanelWidth: Math.round(nextWidth) });
+	}
+
+	// Video Director auto-widen (PLAN.md §C W4): while the Director is
+	// active, the prompts pane it renders into grows to the widest it can
+	// be; on deactivation it returns to whatever the user had it at. Only
+	// this component (`GenerationPanels.svelte`) owns the max-width formula
+	// (`promptWidthForClientX`), so the widen/restore trigger lives here too;
+	// the actual stash/restore math is the pure, independently-tested
+	// `widenPromptPanelForDirector`/`restorePromptPanelFromDirector` in
+	// `$lib/stores/generationLayout`.
+	//
+	// Level-triggered on `(videoDirectorActive, tab.promptPanelWidthBeforeDirector)`
+	// — deliberately NOT an edge computed from a local "previous active"
+	// variable. This component only mounts for the active tab
+	// (`+page.svelte`'s `{#if isActive}`), and a preset switch can pass
+	// through a moment where `tab.selectedMode` is briefly unset (the
+	// "no preset/mode selected" branch there) before landing on the next
+	// preset's own mode — that unmounts and remounts this component. A local
+	// "was Director active last render" flag re-initializes on that remount,
+	// so if by the time it remounts `videoDirectorActive` is already `false`
+	// (a switch straight to a non-Director preset), the falling edge never
+	// happens and the restore never fires — the pane is stuck at its widened
+	// width forever. Driving both directions off the tab's own PERSISTED
+	// stash instead survives the remount: each direction stops re-triggering
+	// as soon as it runs, because running it is exactly what clears (widen)
+	// or sets (restore) the condition that gated it — see
+	// `widenPromptPanelForDirector`/`restorePromptPanelFromDirector`'s own
+	// idempotency guards. A three-pane layout is a precondition for a
+	// meaningful maximum; in any other layout `promptWidthForClientX` has no
+	// pane to measure and falls back to the current width, i.e. nothing to
+	// widen to, so the widen direction is naturally a no-op there too.
+	$: if (videoDirectorActive && tab.promptPanelWidthBeforeDirector == null) {
+		widenPromptPanelOnDirectorActivate();
+	}
+	$: if (!videoDirectorActive && tab.promptPanelWidthBeforeDirector != null) {
+		const patch = restorePromptPanelFromDirector(tab);
+		if (patch) tabsStore.updateTab(tab.id, patch);
+	}
+
+	async function widenPromptPanelOnDirectorActivate() {
+		await tick();
+		if (!panelsEl) return;
+		const maximum = promptWidthForClientX(panelsEl.getBoundingClientRect().right);
+		const patch = widenPromptPanelForDirector(tab, maximum);
+		if (patch) tabsStore.updateTab(tab.id, patch);
 	}
 
 	// A press on the handle that never travels is a click: it folds the
@@ -181,7 +236,7 @@
 	onDestroy(stopPromptResize);
 </script>
 
-<div bind:this={panelsEl} class="flex h-full">
+<div bind:this={panelsEl} data-testid="generation-panels-root" class="flex h-full">
 	<!-- Left Panel: Form -->
 	{#if tab.leftPanelCollapsed}
 		<Tooltip text="Expand generation settings" kbd={$shortcutLabels['toggle_left_panel']} position="right" delay={150} wrapperClass="flex h-full flex-shrink-0">
@@ -262,6 +317,9 @@
 					{videoDirectorCaps}
 					{musicDirectorActive}
 					{musicDirectorCaps}
+					{directorRuns}
+					onDirectorCheckedChange={onDirectorCheckedChange}
+					onDirectorGenerateShots={onDirectorGenerateShots}
 					{numPrompts}
 					{negativePromptSupported}
 					{negativeInert}
@@ -359,6 +417,9 @@
 							{videoDirectorCaps}
 							{musicDirectorActive}
 							{musicDirectorCaps}
+							{directorRuns}
+							onDirectorCheckedChange={onDirectorCheckedChange}
+							onDirectorGenerateShots={onDirectorGenerateShots}
 							{numPrompts}
 							{negativePromptSupported}
 							{negativeInert}
@@ -410,6 +471,9 @@
 							{videoDirectorCaps}
 							{musicDirectorActive}
 							{musicDirectorCaps}
+							{directorRuns}
+							onDirectorCheckedChange={onDirectorCheckedChange}
+							onDirectorGenerateShots={onDirectorGenerateShots}
 							{numPrompts}
 							{negativePromptSupported}
 							{negativeInert}

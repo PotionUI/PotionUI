@@ -1,6 +1,7 @@
 import { generationMessageRegistry } from '$lib/registries/generationMessageRegistry';
 import { leadIndex } from '$lib/generation/leadFile';
 import { playGenerationCompleteSound } from '$lib/utils/generationSounds';
+import { directorShotIdsFor, withDirectorRunTerminal } from './directorRuns';
 
 generationMessageRegistry.register('generation_complete', {
 	type: 'generation_complete',
@@ -61,7 +62,29 @@ generationMessageRegistry.register('generation_complete', {
 			}
 		};
 
-		ctx.tabsStore.updateTab(targetTabId, { ...updatePayload, activeGenerationId: null });
+		// Video Director run tracking (PLAN.md §C W3) -- the poster is this
+		// generation's own output video, already in `videos` by the time
+		// `generation_complete` fires (the backend sends `gallery_update`
+		// first; every other reader in this handler already relies on that
+		// ordering for `leadItem` above).
+		const directorShotIds = directorShotIdsFor(targetTab, ctx.generationId);
+		const directorPosterUrl = videos[0]?.originalUrl ?? videos[0]?.url ?? null;
+
+		ctx.tabsStore.updateTab(targetTabId, {
+			...updatePayload,
+			activeGenerationId: null,
+			...(directorShotIds
+				? {
+						directorRuns: withDirectorRunTerminal(
+							targetTab,
+							directorShotIds,
+							'done',
+							directorPosterUrl,
+							Date.now()
+						)
+					}
+				: {})
+		});
 
 		if (targetTab.soundOnComplete) {
 			playGenerationCompleteSound();

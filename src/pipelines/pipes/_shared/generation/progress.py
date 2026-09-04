@@ -26,13 +26,21 @@ class ProgressEmitter:
             total: int,
             state: str = "",
             icon: Optional[Icon] = None,
+            segment_id: Optional[str] = None,
     ) -> None:
-        """Emit a ProgressGenerationOutput for step `current` of `total`."""
+        """Emit a ProgressGenerationOutput for step `current` of `total`.
+
+        `segment_id` names the Video Director segment this step belongs to,
+        for a multi-segment chain/window generation -- see
+        `ProgressGenerationOutput.segment_id`. Omitted (`None`) for every
+        non-Director pipe.
+        """
         self.emit(ProgressGenerationOutput(
             title=self._title,
             state=state,
             icon=icon,
             progress=Progress(current=current, max=total),
+            segment_id=segment_id,
         ))
 
     def state(self, message: str, icon: Optional[Icon] = None) -> None:

@@ -2,6 +2,13 @@ export interface ToolAction {
 	type: string;
 	segmentIndex: number;
 	segmentId: string;
+	/** Video Director timeline style only: which shot `segmentId` (a beat)
+	 * belongs to -- the backend tool's system prompt requires the LLM to
+	 * carry this on an `update_director_segment` tag once the document has
+	 * more than one shot (see `applyDirectorSegmentPrompt` in
+	 * utils/videoDirector.ts, the one consumer). Absent on every other
+	 * `tool_action` type, and on a single-shot/chain document. */
+	shotId?: string;
 	content: string;
 }
 
@@ -420,14 +427,18 @@ export function injectToolCallChips(html: string, calls: ToolCallSpan[], isStrea
 
 export function parseToolActions(text: string): { cleanedText: string; actions: ToolAction[] } {
 	const actions: ToolAction[] = [];
+	// `shot_id` is an OPTIONAL trailing attribute (Video Director timeline
+	// style, 2+ shots only -- see ToolAction.shotId's doc comment): every
+	// other tag, and a chain/single-shot document's tag, never carries it.
 	const regex =
-		/<tool_action\s+type="([^"]+)"\s+segment_index="(\d+)"\s+segment_id="([^"]+)">([\s\S]*?)<\/tool_action>/g;
+		/<tool_action\s+type="([^"]+)"\s+segment_index="(\d+)"\s+segment_id="([^"]+)"(?:\s+shot_id="([^"]+)")?>([\s\S]*?)<\/tool_action>/g;
 
-	const cleanedText = text.replace(regex, (_match, type, segmentIndex, segmentId, content) => {
+	const cleanedText = text.replace(regex, (_match, type, segmentIndex, segmentId, shotId, content) => {
 		actions.push({
 			type,
 			segmentIndex: parseInt(segmentIndex, 10),
 			segmentId,
+			...(shotId ? { shotId } : {}),
 			content: content.trim()
 		});
 		return '';

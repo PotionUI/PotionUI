@@ -1,4 +1,5 @@
 import { generationMessageRegistry } from '$lib/registries/generationMessageRegistry';
+import { directorShotIdsFor, withDirectorRunPoster } from './directorRuns';
 
 // Gallery updates can contain any combination of images, videos, and audio.
 generationMessageRegistry.register('gallery_update', {
@@ -164,6 +165,12 @@ generationMessageRegistry.register('gallery_update', {
 				.filter(Boolean);
 		}
 
+		// Video Director run tracking (PLAN.md §C W3): the row thumb switches to
+		// the output poster as soon as the final video is known, without
+		// waiting for `generation_complete`.
+		const directorShotIds = directorShotIdsFor(targetTab, ctx.generationId);
+		const directorPosterUrl = nextVideos[0]?.originalUrl ?? nextVideos[0]?.url ?? null;
+
 		ctx.tabsStore.updateTab(targetTabId, {
 			generation: {
 				...targetTab.generation,
@@ -172,7 +179,10 @@ generationMessageRegistry.register('gallery_update', {
 				batchAudios: nextAudios,
 				batchMeshes: nextMeshes,
 				workbenchTotal: nextImages.length + nextVideos.length + nextAudios.length + nextMeshes.length
-			}
+			},
+			...(directorShotIds && directorPosterUrl
+				? { directorRuns: withDirectorRunPoster(targetTab, directorShotIds, directorPosterUrl) }
+				: {})
 		});
 	}
 });

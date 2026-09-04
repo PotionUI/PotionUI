@@ -1,5 +1,6 @@
 import { generationMessageRegistry, type GenerationMessageHandler } from '$lib/registries/generationMessageRegistry';
 import { playGenerationErrorSound } from '$lib/utils/generationSounds';
+import { directorShotIdsFor, withDirectorRunTerminal } from './directorRuns';
 
 // Handles both 'generation_error' and 'generation_cancelled' - moved verbatim
 // from the shared switch-case in generate/+page.svelte.
@@ -20,6 +21,11 @@ const handler: GenerationMessageHandler = {
 		const totalTime = targetTab.generation.startedAt
 			? Math.max(0, (Date.now() - targetTab.generation.startedAt) / 1000)
 			: targetTab.generation.totalTime;
+
+		// Video Director run tracking (PLAN.md §C W3) -- a cancellation resolves
+		// to 'failed' the same as a real error: Retry is the right recovery
+		// either way, and DirectorRunState has no separate 'cancelled' state.
+		const directorShotIds = directorShotIdsFor(targetTab, ctx.generationId);
 
 		ctx.tabsStore.updateTab(targetTabId, {
 			activeGenerationId: null,
@@ -42,7 +48,10 @@ const handler: GenerationMessageHandler = {
 				queue: (targetTab.generation.queue || []).filter(
 					(q: { generation_id: string }) => q.generation_id !== ctx.generationId
 				)
-			}
+			},
+			...(directorShotIds
+				? { directorRuns: withDirectorRunTerminal(targetTab, directorShotIds, 'failed', null, Date.now()) }
+				: {})
 		});
 
 		// Cancellation is a deliberate user action, not an outcome to alert on.

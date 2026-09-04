@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { tabsStore, activeTab, generatingTab, isActiveTabGenerating } from '$lib/stores/tabs';
-	import type { PromptTabData } from '$lib/types/tabs';
+	import type { PromptTabData, DirectorRunState } from '$lib/types/tabs';
 	import { authStore } from '$lib/stores/auth';
 	import { api, type GenerationRequest, type PromptPair } from '$lib/services/api';
 	import { buildSegmentsPayload, buildVariablesPayload, mapGenerationFiles } from '$lib/utils/generationOrchestrator';
@@ -38,7 +38,8 @@
 	import { keybindingsStore } from '$lib/stores/keybindings';
 	import { isMobile, viewportWidth } from '$lib/stores/viewport';
 	import { settingsPaneWidth } from '$lib/stores/generationLayout';
-	import { resolveDirectorCapabilities, normalizeDirectorValue, validateDirector, buildDirectorSubmission, representativeDirectorPrompt, dereferenceFormMediaRefs, seedDirectorPromptFromLegacyText } from '$lib/utils/videoDirector';
+	import { resolveDirectorCapabilities, normalizeDirectorValue, validateDirector, buildDirectorSubmission, representativeDirectorPrompt, dereferenceFormMediaRefs, seedDirectorPromptFromLegacyText, directorShotFingerprint } from '$lib/utils/videoDirector';
+	import type { VideoDirectorWireDoc, VideoDirectorValue } from '$lib/types/videoDirector';
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';
 	import { resolveMusicDirectorCapabilities, normalizeMusicDirectorValue, validateMusicDirector, buildMusicDirectorSubmission } from '$lib/utils/musicDirector';
 	import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
@@ -60,6 +61,147 @@
 	let ws: WebSocketService | null = null;
 	let isConnected = false;
 	let presets: any[] = [];
+
+	// Video Director's Shot Console mirrors its own transient row-checkbox
+	// selection up here (per tab id, since every tab keeps its own
+	// ShotConsole instance mounted -- see GenerationPanels.svelte's per-tab
+	// `{#each tabs as tab (tab.id)}`) via `onCheckedChange`; `startGeneration`
+	// below reads the ACTIVE tab's entry to scope which shot(s) it submits.
+	// Deliberately plain state, not persisted (PLAN.md §C W3: the checked set
+	// is transient, unlike `directorRuns`).
+	let directorCheckedByTab: Record<string, Set<string>> = {};
+	function handleDirectorCheckedChange(tabId: string, checked: Set<string>) {
+		directorCheckedByTab = { ...directorCheckedByTab, [tabId]: checked };
+	}
+
+	/** One `DirectorRunState` per shot id a just-started generation covers
+	 *  (PLAN.md §C W3) -- `inputsHash` is captured from `doc` NOW, at submit
+	 *  time, so it reflects what was actually sent even if the document keeps
+	 *  changing while the generation is in flight. */
+	function buildDirectorRunEntries(
+		shotIds: string[],
+		generationId: string,
+		status: 'queued' | 'generating',
+		doc: VideoDirectorValue
+	): Record<string, DirectorRunState> {
+		const entries: Record<string, DirectorRunState> = {};
+		for (const shotId of shotIds) {
+			entries[shotId] = {
+				generationId,
+				status,
+				progress: null,
+				finishedAt: null,
+				posterUrl: null,
+				inputsHash: directorShotFingerprint(doc, shotId)
+			};
+		}
+		return entries;
+	}
+
+	/**
+	 * Submits exactly `shotIds` (in the order given) for `tabId`'s Video
+	 * Director document -- backs the Shot Console's two contextual generate
+	 * actions (PLAN.md §C W3): a failed row's Retry (one id) and a broken
+	 * join's "Generate previous + this shot" (the contiguous span). Unlike
+	 * the main Generate button (`startGeneration` above), this does NOT reset
+	 * the tab's generation/workbench state -- it's a small, targeted
+	 * resubmission that must not disturb other shots' already-displayed
+	 * posters or the rest of the tab's generation UI.
+	 */
+	async function submitVideoDirectorShots(tabId: string, shotIds: string[]): Promise<void> {
+		const tab = $tabsStore.tabs.find((t) => t.id === tabId);
+		if (!tab || !tab.selectedPreset || shotIds.length === 0) return;
+		const caps = resolveDirectorCapabilities(presetVars[tab.selectedPreset]?.video_director, tab.selectedMode);
+		if (!caps) return;
+
+		const doc = normalizeDirectorValue(tab.videoDirector, caps);
+		const validation = validateDirector(doc, caps, tab.directorRuns);
+		if (!validation.ok) {
+			toasts.error(validation.reasons[0] || 'Video Director is not ready to generate.');
+			return;
+		}
+
+		const checked = new Set(shotIds);
+		const wireDocs = buildDirectorSubmission(doc, caps, checked);
+		if (wireDocs.length === 0) return;
+		const isChainDoc = caps.segmentRouting;
+		const allShotIds = isChainDoc ? doc.chain.segments.map((s) => s.id) : doc.timeline.shots.map((s) => s.id);
+		const targetShotIds = allShotIds.filter((id) => checked.has(id));
+		// A chain doc is ONE generation covering every targeted shot at once;
+		// a timeline doc is one generation PER shot, same order the docs came
+		// back in.
+		const shotIdCoverage: string[][] = isChainDoc ? [targetShotIds] : targetShotIds.map((id) => [id]);
+
+		for (let i = 0; i < wireDocs.length; i++) {
+			const wireDoc = wireDocs[i];
+			const shotsForDoc = shotIdCoverage[i] ?? [];
+			const { doc: resolvedDoc, errors } = dereferenceFormMediaRefs(wireDoc, tab.formData);
+			if (errors.length > 0) {
+				toasts.error(`Video Director references media that's no longer on the form: ${errors.join('; ')}`);
+				continue;
+			}
+			const positive = resolvedDoc.segments[0]?.prompt ?? '';
+			const negative = resolvedDoc.segments[0]?.negative_prompt ?? '';
+			const variablesResult = buildVariablesPayload(tab);
+			const request: GenerationRequest = {
+				preset_id: tab.selectedPreset,
+				prompts: [{ positive, negative }],
+				mode: tab.selectedMode ?? undefined,
+				form_name: tab.selectedVariant ?? undefined,
+				form_data: { ...tab.formData, video_director: resolvedDoc },
+				backend_id: tab.selectedBackendId ?? undefined,
+				tag_ids: tab.autoTagIds?.length ? tab.autoTagIds : undefined,
+				collection_ids: tab.autoCollectionIds?.length ? tab.autoCollectionIds : undefined,
+				variables: variablesResult.variables,
+				tab_id: tab.id,
+				source_prompt_id: tab.sourcePromptId ?? undefined,
+				prompt_state: {
+					prompt: tab.prompt,
+					negativePrompt: tab.negativePrompt,
+					promptSegments: tab.promptSegments,
+					negativePromptSegments: tab.negativePromptSegments,
+					promptTabs: tab.promptTabs,
+					activePromptTab: tab.activePromptTab,
+					promptRelay: tab.promptRelay,
+					videoDirector: tab.videoDirector
+				},
+				segments: buildSegmentsPayload(tab, presetVars[tab.selectedPreset]?.num_prompts || 1)
+			};
+			try {
+				const response = await api.startGeneration(request);
+				if (response.success && response.data) {
+					const { generation_id, queue_position } = response.data;
+					const isQueued = queue_position !== null && queue_position !== undefined;
+					const liveTab = $tabsStore.tabs.find((t) => t.id === tabId) || tab;
+					tabsStore.updateTab(tabId, {
+						generation: {
+							...liveTab.generation,
+							queue: [
+								...(liveTab.generation.queue || []),
+								{ generation_id, queue_position: queue_position ?? null, status: isQueued ? 'pending' : 'running' }
+							]
+						},
+						directorRuns: {
+							...(liveTab.directorRuns || {}),
+							...buildDirectorRunEntries(shotsForDoc, generation_id, isQueued ? 'queued' : 'generating', doc)
+						},
+						directorRunLinks: {
+							...(liveTab.directorRunLinks || {}),
+							[generation_id]: shotsForDoc
+						}
+					});
+					if (ws) {
+						ws.subscribe(generation_id, (message: WebSocketMessage) => handleGenerationMessage(message));
+					}
+				} else {
+					toasts.error('Shot failed to start.');
+				}
+			} catch (error) {
+				console.error('Failed to start Video Director shot generation:', error);
+				toasts.error('Shot failed to start.');
+			}
+		}
+	}
 
 	// Bumped whenever the active tab's generation completes, so the "last
 	// generations" drawer refetches while it's open instead of going stale.
@@ -1060,12 +1202,42 @@
 		// form_data sent to the backend; prompt-relay mode injects its timeline + global prompt
 		let formDataForRequest: Record<string, unknown> = currentTab.formData;
 
+		// "One clip = one generation" still holds (PLAN.md §B): a chain doc,
+		// or a single-shot timeline/t2v/i2v/flf doc, is exactly one wire doc,
+		// but a multi-shot LTX film is N -- `remainingDirectorDocs` carries
+		// docs[1..] for the follow-up submissions after the primary one below.
+		let remainingDirectorDocs: VideoDirectorWireDoc[] = [];
+		// Shot id(s) each doc above covers -- the console's checked rows scope
+		// which shot(s) actually submit (PLAN.md §C W3); parallel arrays to
+		// `wireDoc`/`remainingDirectorDocs`, populated alongside them below,
+		// consumed after a successful `api.startGeneration` to populate
+		// `directorRuns`/`directorRunLinks`.
+		let primaryDirectorShotIds: string[] = [];
+		let remainingDirectorShotIds: string[][] = [];
+		let directorValueForRuns: VideoDirectorValue | null = null;
+
 		if (videoDirectorActive && videoDirectorCaps) {
 			// Video Director mode: the structured multi-mode editor (tab.videoDirector)
 			// is normalized then mapped to the backend wire contract and attached to
 			// form_data.video_director; the pipeline reads it from there.
 			const doc = normalizeDirectorValue(currentTab.videoDirector, videoDirectorCaps);
-			const wireDoc = buildDirectorSubmission(doc, videoDirectorCaps);
+			directorValueForRuns = doc;
+			// The console's own transient row-checkbox selection (ShotConsole,
+			// mirrored up via onCheckedChange) -- empty means "the whole film",
+			// same as before the console had checkboxes at all.
+			const directorChecked = directorCheckedByTab[activeTabId] ?? new Set<string>();
+			const wireDocs = buildDirectorSubmission(doc, videoDirectorCaps, directorChecked);
+			const [wireDoc, ...restDocs] = wireDocs;
+			remainingDirectorDocs = restDocs;
+			const isChainDoc = videoDirectorCaps.segmentRouting;
+			const allShotIds = isChainDoc ? doc.chain.segments.map((s) => s.id) : doc.timeline.shots.map((s) => s.id);
+			const targetShotIds = directorChecked.size > 0 ? allShotIds.filter((id) => directorChecked.has(id)) : allShotIds;
+			// A chain doc is ONE generation covering every targeted shot at
+			// once; a timeline doc is one generation PER shot, in the same
+			// order `buildDirectorSubmission` filtered them in.
+			const shotIdCoverage: string[][] = isChainDoc ? [targetShotIds] : targetShotIds.map((id) => [id]);
+			primaryDirectorShotIds = shotIdCoverage[0] ?? [];
+			remainingDirectorShotIds = shotIdCoverage.slice(1);
 			// A media entry may point at the form's own media-loader field(s)
 			// (Stage B reference media) rather than embedding its own copy --
 			// resolve those live, right before the request is built. The server
@@ -1334,7 +1506,28 @@
 					// on an earlier click keeps its last roll until it's rolled again.
 					...(Object.keys(variablesResult.rolls).length > 0 ? {
 						variableRolls: { ...(currentTab.variableRolls || {}), ...variablesResult.rolls }
-					} : {})
+					} : {}),
+					// Per-shot Video Director run tracking (PLAN.md §C W3) -- only
+					// when this submission actually covered shot(s) (Video Director
+					// active and the film has at least one shot, always true once
+					// `videoDirectorActive` since a document always has ≥1 shot).
+					...(directorValueForRuns && primaryDirectorShotIds.length > 0
+						? {
+								directorRuns: {
+									...(currentTab.directorRuns || {}),
+									...buildDirectorRunEntries(
+										primaryDirectorShotIds,
+										generation_id,
+										isQueued ? 'queued' : 'generating',
+										directorValueForRuns
+									)
+								},
+								directorRunLinks: {
+									...(currentTab.directorRunLinks || {}),
+									[generation_id]: primaryDirectorShotIds
+								}
+							}
+						: {})
 				});
 
 				// Subscribe to WebSocket updates — a queued generation gets
@@ -1344,6 +1537,78 @@
 					ws.subscribe(generation_id, (message: WebSocketMessage) => {
 						handleGenerationMessage(message);
 					});
+				}
+
+				// Multi-shot LTX film: shot 1 above already enqueued as the primary
+				// generation (tab state reset, `submittedPromptTemplate`, etc.); each
+				// remaining shot enqueues its own separate generation, in shot order,
+				// against the freshest tab snapshot so an earlier shot's queue entry
+				// is never clobbered by a later one's (unlike `currentTab`, captured
+				// once at the top of this function).
+				for (let shotIndex = 0; shotIndex < remainingDirectorDocs.length; shotIndex++) {
+					const shotNumber = shotIndex + 2; // shot 1 is the primary submission above
+					const shotDoc = remainingDirectorDocs[shotIndex];
+					const { doc: resolvedShotDoc, errors: shotFormRefErrors } = dereferenceFormMediaRefs(shotDoc, currentTab.formData);
+					if (shotFormRefErrors.length > 0) {
+						toasts.error(`Shot ${shotNumber} references media that's no longer on the form: ${shotFormRefErrors.join('; ')}`);
+						continue;
+					}
+					const shotPrompt = resolvedShotDoc.segments[0]?.prompt ?? '';
+					const shotNegative = resolvedShotDoc.segments[0]?.negative_prompt ?? '';
+					const shotRequest: GenerationRequest = {
+						...request,
+						form_data: { ...currentTab.formData, video_director: resolvedShotDoc },
+						prompts: [{ positive: shotPrompt, negative: shotNegative }]
+					};
+					try {
+						const shotResponse = await api.startGeneration(shotRequest);
+						if (shotResponse.success && shotResponse.data) {
+							const { generation_id: shotGenerationId, queue_position: shotQueuePosition } = shotResponse.data;
+							const shotIsQueued = shotQueuePosition !== null && shotQueuePosition !== undefined;
+							const liveTab = $tabsStore.tabs.find((t) => t.id === activeTabId) || currentTab;
+							const shotIdsForThisDoc = remainingDirectorShotIds[shotIndex] ?? [];
+							tabsStore.updateTab(activeTabId, {
+								generation: {
+									...liveTab.generation,
+									queue: [
+										...(liveTab.generation.queue || []),
+										{
+											generation_id: shotGenerationId,
+											queue_position: shotQueuePosition ?? null,
+											status: shotIsQueued ? 'pending' : 'running'
+										}
+									]
+								},
+								...(directorValueForRuns && shotIdsForThisDoc.length > 0
+									? {
+											directorRuns: {
+												...(liveTab.directorRuns || {}),
+												...buildDirectorRunEntries(
+													shotIdsForThisDoc,
+													shotGenerationId,
+													shotIsQueued ? 'queued' : 'generating',
+													directorValueForRuns
+												)
+											},
+											directorRunLinks: {
+												...(liveTab.directorRunLinks || {}),
+												[shotGenerationId]: shotIdsForThisDoc
+											}
+										}
+									: {})
+							});
+							if (ws) {
+								ws.subscribe(shotGenerationId, (message: WebSocketMessage) => {
+									handleGenerationMessage(message);
+								});
+							}
+						} else {
+							toasts.error(`Shot ${shotNumber} failed to start.`);
+						}
+					} catch (shotError) {
+						console.error(`Failed to start generation for shot ${shotNumber}:`, shotError);
+						toasts.error(`Shot ${shotNumber} failed to start.`);
+					}
 				}
 			}
 		} catch (error) {
@@ -1469,7 +1734,7 @@
 			hasPrompt = true;
 		} else if (videoDirectorActive && videoDirectorCaps) {
 			const doc = normalizeDirectorValue(currentTab.videoDirector, videoDirectorCaps);
-			const result = validateDirector(doc, videoDirectorCaps);
+			const result = validateDirector(doc, videoDirectorCaps, currentTab.directorRuns);
 			hasPrompt = result.ok;
 			noPromptReason = result.reasons[0] || noPromptReason;
 		} else if (musicDirectorActive && musicDirectorCaps) {
@@ -1703,6 +1968,9 @@
 						{videoDirectorCaps}
 						{musicDirectorActive}
 						{musicDirectorCaps}
+						directorRuns={tab.directorRuns}
+						onDirectorCheckedChange={(checked) => handleDirectorCheckedChange(tab.id, checked)}
+						onDirectorGenerateShots={(shotIds) => submitVideoDirectorShots(tab.id, shotIds)}
 						{numPrompts}
 						{negativePromptSupported}
 						{negativeInert}

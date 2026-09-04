@@ -86,7 +86,10 @@ function baseDoc(): VideoDirectorValue {
 		negative_prompt: '',
 		negative_prompt_segments: [],
 		simple: { duration: 5, fps: 24, start_image: null, first_frame: null, last_frame: null },
-		timeline: { duration: 5, fps: 24, segments: [], keyframes: [], audio: [], ic_lora: [] },
+		timeline: {
+			fps: 24,
+			shots: [{ id: 'shot-1', duration: 5, continue_from_previous: false, segments: [], keyframes: [], audio: [], ic_lora: [] }]
+		},
 		chain: { fps: 24, segments: [], continuation: { overlap_frames: 0, stitch: true }, keyframes: [], audio: [] }
 	};
 }
@@ -103,6 +106,8 @@ function chainSegment(id: string, prompt: string, duration: number, overrides: P
 		last_keyframe: null,
 		last_keyframe_strength: 1,
 		sub_type_override: null,
+		steps: null,
+		cfg: null,
 		...overrides
 	};
 }
@@ -123,10 +128,11 @@ describe('representativeDirectorPrompt: the default single-shot document (derive
 	it('the default document has exactly one edgeless shot, deriving to a non-"director" mode -- this is the scenario the pipeline gate excludes', () => {
 		const caps = resolveDirectorCapabilities(H3_PRESET_RAW, 'refs')!;
 		const doc = normalizeDirectorValue(singleShotDoc('a lighthouse at dusk'), caps);
-		const wireDoc = buildDirectorSubmission(doc, caps);
+		const wireDocs = buildDirectorSubmission(doc, caps);
+		expect(wireDocs).toHaveLength(1);
 		// This is exactly the field presets/native/MiniMax-H3/modes/refs/pipeline.yml
 		// (lines 196, 294, 312) and windows.py's build_director_plan() gate on.
-		expect(wireDoc.mode).not.toBe('director');
+		expect(wireDocs[0].mode).not.toBe('director');
 	});
 
 	it('includes the shot\'s own typed prompt, not just Direction (global_prompt)', () => {
@@ -173,7 +179,9 @@ describe('representativeDirectorPrompt: multi-shot director mode is untouched (r
 	it('refs mode: joins every segment prompt, same as before this fix', () => {
 		const caps = resolveDirectorCapabilities(H3_PRESET_RAW, 'refs')!;
 		const doc = multiShotDoc(caps);
-		expect(buildDirectorSubmission(doc, caps).mode).toBe('director');
+		const wireDocs = buildDirectorSubmission(doc, caps);
+		expect(wireDocs).toHaveLength(1);
+		expect(wireDocs[0].mode).toBe('director');
 		const positive = representativeDirectorPrompt(doc, caps);
 		expect(positive).toContain('a lighthouse at dusk');
 		expect(positive).toContain('a boat leaving harbour');
@@ -187,8 +195,9 @@ describe('generate/+page.svelte startGeneration attach block, replayed verbatim 
 
 		// Verbatim from generate/+page.svelte:958-977
 		const doc = normalizeDirectorValue(singleShotDoc('a lighthouse at dusk'), caps);
-		const wireDoc = buildDirectorSubmission(doc, caps);
-		const { doc: resolvedWireDoc, errors: formRefErrors } = dereferenceFormMediaRefs(wireDoc, currentTabFormData);
+		const wireDocs = buildDirectorSubmission(doc, caps);
+		expect(wireDocs).toHaveLength(1);
+		const { doc: resolvedWireDoc, errors: formRefErrors } = dereferenceFormMediaRefs(wireDocs[0], currentTabFormData);
 		expect(formRefErrors).toEqual([]);
 
 		const formDataForRequest: Record<string, unknown> = {
@@ -209,8 +218,8 @@ describe('generate/+page.svelte startGeneration attach block, replayed verbatim 
 	it('video mode: same replay, for comparison', () => {
 		const caps = resolveDirectorCapabilities(H3_PRESET_RAW, 'video')!;
 		const doc = normalizeDirectorValue(singleShotDoc('a lighthouse at dusk'), caps);
-		const wireDoc = buildDirectorSubmission(doc, caps);
-		const { doc: resolvedWireDoc } = dereferenceFormMediaRefs(wireDoc, null);
+		const wireDocs = buildDirectorSubmission(doc, caps);
+		const { doc: resolvedWireDoc } = dereferenceFormMediaRefs(wireDocs[0], null);
 
 		expect(resolvedWireDoc.segments[0].prompt).toContain('a lighthouse at dusk');
 		expect(representativeDirectorPrompt(doc, caps)).toContain('a lighthouse at dusk');

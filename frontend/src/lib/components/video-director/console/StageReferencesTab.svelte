@@ -27,7 +27,7 @@
 	} = $props();
 
 	let referenceSegment = $derived(
-		caps.segmentRouting ? doc.chain.segments.find((s) => s.id === shotId) : doc.timeline.segments.find((s) => s.id === shotId)
+		caps.segmentRouting ? doc.chain.segments.find((s) => s.id === shotId) : doc.timeline.shots.find((s) => s.id === shotId)?.segments[0]
 	);
 	let currentReferences = $derived(referenceSegment?.references ?? []);
 	let referencePool = $derived(collectFormMediaOptions(formData).filter((o) => caps.referenceFields.includes(o.field)));

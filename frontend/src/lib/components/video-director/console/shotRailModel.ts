@@ -27,11 +27,13 @@
 // actually lands in (frame-accurate, mirrors stageModel.ts's own
 // `chainLandingWindow`), never split across a join.
 //
-// Timeline routing (LTX): W1 renders the whole document as ONE console shot
-// (see consoleModel.ts's `TIMELINE_SHOT_ID` header comment), so its rail
-// spans `rail.totalSeconds` and `timeline.segments`/`keyframes`/`audio` are
-// ALREADY shot-local (film time and shot-local time are the same thing when
-// there is only one shot) -- no rebasing needed, unlike chain routing.
+// Timeline routing (LTX, W2): each `doc.timeline.shots` entry is its own
+// independent clip -- this derives the rail for exactly the one named by
+// `shotId`, spanning that shot's own `deriveRailModel(doc, caps, shotId)
+// .totalSeconds`; its `segments`/`keyframes`/`audio` are already shot-local
+// (no rebasing needed, unlike chain routing, where a shot's placed
+// keyframes/audio are FILM-time and must be rebased into the shot's own
+// window).
 //
 // ─── Deviation from the written contract ────────────────────────────────────
 // `formData` is an added OPTIONAL 4th parameter (see consoleModel.ts's own
@@ -39,10 +41,10 @@
 // the live form, and `deriveShotRail(doc, caps, shotId)` per the brief has no
 // such parameter). Omitting it degrades to a null thumbUrl rather than throw.
 
-import type { VideoDirectorValue, DirectorCapabilities, DirectorMediaValue } from '$lib/types/videoDirector';
+import type { VideoDirectorValue, DirectorCapabilities, DirectorMediaValue, DirectorTimelineShot } from '$lib/types/videoDirector';
 import type { MediaRef } from '$lib/types/tabs';
-import { deriveRailModel, type RailModel } from '../stage-rail/railModel';
-import { resolveDirectorMediaDisplay } from '$lib/utils/videoDirector';
+import { deriveRailModel, deriveShotLabel, type RailModel } from '../stage-rail/railModel';
+import { resolveDirectorMediaDisplay, chainEdgeKeyframeId } from '$lib/utils/videoDirector';
 import { clamp } from '../timelineCore';
 
 export interface RailTick {
@@ -203,12 +205,17 @@ function deriveChainShotRail(
 		// stage-rail/stageModel.ts's `buildShotModel`, which looks the id up
 		// directly in `doc.chain.segments` -- exactly mirroring how a timeline
 		// beat's id already IS its `DirectorPromptSegment.id` below.
+		// A beat block shows the shot's SHORT derived label (mock: index + a
+		// short name, `deriveShotLabel`'s own first-clause/40-char rule --
+		// same one the compact row and card head already use for the shot
+		// title), never the raw prompt text -- maintainer bug report (09-04):
+		// a long prompt must never visibly flow across the lane.
 		beats: [
 			{
 				id: segment.id,
 				startPercent: 0,
 				widthPercent: 100,
-				text: segment.prompt.trim() || `Shot ${index + 1}`,
+				text: deriveShotLabel(segment.prompt, index),
 				global: false
 			}
 		],
@@ -219,10 +226,30 @@ function deriveChainShotRail(
 	let keyframesLane: ShotRailModel['lanes']['keyframes'] = null;
 	if (rail.lanes.keyframes) {
 		const marks: RailKeyframeMark[] = [];
+		// MUST be `chainEdgeKeyframeId` -- the same id `deriveStageModel`'s
+		// `buildKeyframeModel` (via `parseChainEdgeKeyframeId`) and railModel.ts's
+		// own film-level edge mirrors use. A synthesized `${id}-leading` id here
+		// (the earlier W1 shape) parses as neither a chain-edge id nor a placed
+		// `chain.keyframes` entry, so clicking the anchor selected nothing and
+		// the stage never showed the keyframe panel (bug: 09-04 maintainer report).
 		const startUrl = thumbUrlFor(segment.keyframe, formData);
-		marks.push({ id: `${segment.id}-leading`, kind: 'start', atPercent: 0, thumbUrl: startUrl, label: 'START', empty: startUrl == null });
+		marks.push({
+			id: chainEdgeKeyframeId('first', segment.id),
+			kind: 'start',
+			atPercent: 0,
+			thumbUrl: startUrl,
+			label: 'START',
+			empty: startUrl == null
+		});
 		const endUrl = thumbUrlFor(segment.last_keyframe, formData);
-		marks.push({ id: `${segment.id}-trailing`, kind: 'end', atPercent: 100, thumbUrl: endUrl, label: 'END', empty: endUrl == null });
+		marks.push({
+			id: chainEdgeKeyframeId('last', segment.id),
+			kind: 'end',
+			atPercent: 100,
+			thumbUrl: endUrl,
+			label: 'END',
+			empty: endUrl == null
+		});
 
 		const fps = rail.fps;
 		for (const kf of doc.chain.keyframes) {
@@ -273,6 +300,17 @@ function deriveChainShotRail(
 	return { durationSeconds, ticks, lanes: { prompt: promptLane, keyframes: keyframesLane, audio: audioLane } };
 }
 
+// Same short-label rule as `deriveShotLabel` (first clause, 40 chars) minus
+// its shot-specific ordinal fallback -- a beat block always shows one line,
+// ellipsized, never the raw prompt text (maintainer bug report, 09-04).
+const MAX_BEAT_LABEL = 40;
+function shortBeatLabel(text: string, emptyFallback: string): string {
+	const trimmed = text.trim();
+	if (!trimmed) return emptyFallback;
+	const firstClause = trimmed.split(/[,.;\n]/, 1)[0]?.trim() ?? trimmed;
+	return firstClause.length > MAX_BEAT_LABEL ? `${firstClause.slice(0, MAX_BEAT_LABEL - 1)}…` : firstClause;
+}
+
 function globalFillBeat(start: number, end: number, durationSeconds: number): RailBeat {
 	return {
 		id: `global-${start.toFixed(3)}-${end.toFixed(3)}`,
@@ -284,16 +322,16 @@ function globalFillBeat(start: number, end: number, durationSeconds: number): Ra
 }
 
 function deriveTimelineShotRail(
-	doc: VideoDirectorValue,
 	caps: DirectorCapabilities,
 	rail: RailModel,
+	shot: DirectorTimelineShot,
 	formData: Record<string, unknown> | null | undefined
 ): ShotRailModel {
 	const durationSeconds = rail.totalSeconds;
 	const ticks = buildRailTicks(durationSeconds);
 	const dc = caps.modes.director;
 
-	const sorted = [...doc.timeline.segments].sort((a, b) => a.start - b.start);
+	const sorted = [...shot.segments].sort((a, b) => a.start - b.start);
 	const beats: RailBeat[] = [];
 	let cursor = 0;
 	for (const seg of sorted) {
@@ -302,7 +340,7 @@ function deriveTimelineShotRail(
 			id: seg.id,
 			startPercent: durationSeconds > 0 ? (seg.start / durationSeconds) * 100 : 0,
 			widthPercent: durationSeconds > 0 ? ((seg.end - seg.start) / durationSeconds) * 100 : 0,
-			text: seg.text.trim() || 'Untitled beat',
+			text: shortBeatLabel(seg.text, 'Untitled beat'),
 			global: false
 		});
 		cursor = Math.max(cursor, seg.end);
@@ -313,7 +351,7 @@ function deriveTimelineShotRail(
 
 	let keyframesLane: ShotRailModel['lanes']['keyframes'] = null;
 	if (rail.lanes.keyframes) {
-		const marks: RailKeyframeMark[] = doc.timeline.keyframes.map((kf) => {
+		const marks: RailKeyframeMark[] = shot.keyframes.map((kf) => {
 			const kind: RailKeyframeMark['kind'] = kf.role === 'first' ? 'start' : kf.role === 'last' ? 'end' : 'free';
 			return {
 				id: kf.id,
@@ -331,7 +369,7 @@ function deriveTimelineShotRail(
 
 	let audioLane: ShotRailModel['lanes']['audio'] = null;
 	if (dc?.audio === true) {
-		const clips: RailAudioClip[] = doc.timeline.audio.map((a) => ({
+		const clips: RailAudioClip[] = shot.audio.map((a) => ({
 			id: a.id,
 			startPercent: durationSeconds > 0 ? clamp((a.start / durationSeconds) * 100, 0, 100) : 0,
 			widthPercent: durationSeconds > 0 ? (a.length / durationSeconds) * 100 : 0,
@@ -350,7 +388,9 @@ export function deriveShotRail(
 	shotId: string,
 	formData?: Record<string, unknown> | null
 ): ShotRailModel {
-	const rail = deriveRailModel(doc, caps);
+	const rail = deriveRailModel(doc, caps, shotId);
 	if (rail.routing === 'chain') return deriveChainShotRail(doc, caps, rail, shotId, formData);
-	return deriveTimelineShotRail(doc, caps, rail, formData);
+	const shot = doc.timeline.shots.find((s) => s.id === shotId) ?? doc.timeline.shots[0];
+	if (!shot) return emptyShotRail();
+	return deriveTimelineShotRail(caps, rail, shot, formData);
 }

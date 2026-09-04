@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsOwner, ownerToken, screenshot } from './helpers';
 
-// The floating workbench (FE-179, `toggle_floating_workbench` keybinding,
+// The floating workbench (`toggle_floating_workbench` keybinding,
 // default `w`) is a centered window above the Generation Panel (bottom-
 // [73px]), sized from the workbench's own settings — width from the inline
 // pane's measured width, height from `tab.workbenchMaxHeight` (the same
@@ -21,7 +21,7 @@ const SIZE_TOLERANCE_PX = 8;
 // The default viewport is short enough that the window's `max-height: 100%`
 // safety clamp kicks in even at the default `workbenchMaxHeight` (600px) —
 // correct floating-window behavior, but it breaks this spec's exact-size
-// assertions for reasons that have nothing to do with FE-179. A taller
+// assertions for reasons that have nothing to do with the floating workbench. A taller
 // viewport keeps the window unclamped so the size math is testable.
 test.use({ viewport: { width: 1400, height: 1000 } });
 

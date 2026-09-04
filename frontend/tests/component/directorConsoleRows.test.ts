@@ -56,7 +56,6 @@ function join(overrides: Partial<ConsoleJoin> = {}): ConsoleJoin {
 
 function header(overrides: Partial<ConsoleHeaderModel> = {}): ConsoleHeaderModel {
 	return {
-		title: 'Video Director',
 		shotCount: 3,
 		totalSeconds: 14,
 		capChips: [{ text: 'Audio' }],
@@ -169,26 +168,28 @@ describe('JoinConnector', () => {
 		expect(call).toEqual(['shot-2', 'continue']);
 	});
 
-	it('renders the missing-predecessor warning block with its two actions, wired to no-ops by default', () => {
-		let generated: string | null = null;
+	it('renders the missing-predecessor warning block with its two actions (W3: spans the contiguous run back to the nearest fresh cut)', () => {
+		let generated: string[] | null = null;
 		let converted: string | null = null;
 		mounted = mount(JoinConnector, {
 			join: join({
+				afterShotId: 'shot-0',
+				beforeShotId: 'shot-1',
 				kind: 'missing',
 				label: 'Missing predecessor',
 				sentence: 'Shot 01 has no output yet.',
-				control: { kind: 'chip', text: 'n/a' }
+				control: { kind: 'missing', spanShotIds: ['shot-0', 'shot-1'] }
 			}),
 			onSetJoin: () => {},
-			onGeneratePreviousAndThis: (id: string) => (generated = id),
+			onGeneratePreviousAndThis: (spanShotIds: string[]) => (generated = spanShotIds),
 			onConvertToFreshCut: (id: string) => (converted = id)
 		});
 		expect(mounted.target.textContent).toContain('Missing predecessor');
 		const buttons = Array.from(mounted.target.querySelectorAll('button'));
 		buttons.find((b) => b.textContent?.includes('Generate previous'))!.click();
 		buttons.find((b) => b.textContent?.includes('Convert to fresh cut'))!.click();
-		expect(generated).toBe('shot-1');
-		expect(converted).toBe('shot-1');
+		expect(generated).toEqual(['shot-0', 'shot-1']);
+		expect(converted).toBe('shot-0');
 	});
 });
 
@@ -223,45 +224,35 @@ describe('FilmPromptRow', () => {
 });
 
 describe('ConsoleHeader', () => {
-	it('renders no action at all when nothing is checked (maintainer ruling: no preset chip, no Generate film in the console)', () => {
-		mounted = mount(ConsoleHeader, {
-			header: header(),
-			checkedCount: 0,
-			onGenerateSelected: () => {},
-			onClearChecked: () => {}
-		});
-		expect(mounted.target.textContent).not.toContain('Generate film');
+	// Maintainer rulings (09-04): (1) "there is no such thing as 'Generate n
+	// selected' -- the generation panel ALWAYS decides about the generation" --
+	// ConsoleHeader never renders a Generate control, checked-state or not (the
+	// `n selected · Clear` readout lives in ShotConsole.svelte, above the shot
+	// stack, not here -- untestable at this leaf without mounting the whole
+	// console). (2) "I don't want to have two headers" -- the Generate page's
+	// own Video Director section header carries the title; this renders only
+	// the informational strip (shot count/duration, readiness, capability
+	// chips), never a "Video Director" title of its own.
+	it('renders no title and no Generate control of any kind', () => {
+		mounted = mount(ConsoleHeader, { header: header() });
+		expect(mounted.target.textContent).not.toContain('Video Director');
+		expect(mounted.target.textContent).not.toContain('Generate');
 		expect(mounted.target.textContent).not.toContain('selected');
 		expect(mounted.target.textContent).not.toContain('Clear');
 		expect(mounted.target.querySelectorAll('button')).toHaveLength(0);
 	});
 
-	it('shows Clear, queued n, and a disabled "Generate n selected" once shots are checked', () => {
-		mounted = mount(ConsoleHeader, {
-			header: header(),
-			checkedCount: 2,
-			queuedCount: 2,
-			onGenerateSelected: () => {},
-			onClearChecked: () => {}
-		});
-		expect(mounted.target.textContent).toContain('Clear');
-		expect(mounted.target.textContent).toContain('queued 2');
-		const generateSelected = Array.from(mounted.target.querySelectorAll('button')).find((b) =>
-			b.textContent?.includes('Generate 2 selected')
-		) as HTMLButtonElement;
-		expect(generateSelected).toBeTruthy();
-		expect(generateSelected.disabled).toBe(true);
-		expect(generateSelected.title).toBe('Per-shot generation lands in the next wave');
-	});
-
 	it('renders the shot/duration summary and readiness text from the model', () => {
 		mounted = mount(ConsoleHeader, {
-			header: header({ shotCount: 1, totalSeconds: 5.5, readiness: { ok: false, text: 'Add a shot' } }),
-			checkedCount: 0,
-			onGenerateSelected: () => {},
-			onClearChecked: () => {}
+			header: header({ shotCount: 1, totalSeconds: 5.5, readiness: { ok: false, text: 'Add a shot' } })
 		});
 		expect(mounted.target.textContent).toContain('1 shot · 5.5 s');
 		expect(mounted.target.textContent).toContain('Add a shot');
+	});
+
+	it('renders the capability chips from the model', () => {
+		mounted = mount(ConsoleHeader, { header: header({ capChips: [{ text: 'Audio' }, { text: 'IC-LoRA' }] }) });
+		expect(mounted.target.textContent).toContain('Audio');
+		expect(mounted.target.textContent).toContain('IC-LoRA');
 	});
 });

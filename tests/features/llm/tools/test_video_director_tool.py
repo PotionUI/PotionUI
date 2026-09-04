@@ -60,13 +60,22 @@ def make_chain_capabilities(max_segments: Optional[int] = None, keyframes: Optio
     }
 
 
+def make_timeline_shot(shot_id: str = "shot-1", **overrides) -> dict:
+    shot = {
+        "id": shot_id, "duration": 10, "continue_from_previous": False,
+        "segments": [], "keyframes": [], "audio": [], "ic_lora": [],
+    }
+    shot.update(overrides)
+    return shot
+
+
 def make_timeline_doc(mode: str = "t2v", **overrides) -> dict:
     doc = {
         "mode": mode,
         "global_prompt": "a storm over the ocean",
         "negative_prompt": "blurry",
         "simple": {"duration": 5, "fps": 24, "start_image": None, "first_frame": None, "last_frame": None},
-        "timeline": {"duration": 10, "fps": 24, "segments": [], "keyframes": [], "audio": [], "ic_lora": []},
+        "timeline": {"fps": 24, "shots": [make_timeline_shot()]},
         "chain": {"fps": 16, "segments": [], "continuation": {"overlap_frames": 4, "stitch": True}},
     }
     doc.update(overrides)
@@ -212,7 +221,7 @@ class TestGetVideoDirectorToolTimelineDirector:
     @pytest.mark.asyncio
     async def test_timeline_segments_use_start_end(self):
         doc = make_timeline_doc(mode="director")
-        doc["timeline"]["segments"] = [
+        doc["timeline"]["shots"][0]["segments"] = [
             {"id": "tl-0", "start": 0, "end": 5, "text": "opening shot", "prompt_segments": []},
         ]
         caps = make_timeline_capabilities()
@@ -225,6 +234,80 @@ class TestGetVideoDirectorToolTimelineDirector:
         assert payload["segments"][0]["start"] == 0
         assert payload["segments"][0]["end"] == 5
         assert payload["segments"][0]["frames"] is None
+
+    @pytest.mark.asyncio
+    async def test_timeline_segment_carries_its_owning_shot_id(self):
+        doc = make_timeline_doc(mode="director")
+        doc["timeline"]["shots"][0]["segments"] = [
+            {"id": "tl-0", "start": 0, "end": 5, "text": "opening shot"},
+        ]
+        caps = make_timeline_capabilities()
+        form_state = make_form_state(doc, caps)
+        ctx = make_context(session_metadata={"form_state": form_state})
+
+        result = await GetVideoDirectorTool().execute(ctx)
+        payload = json.loads(result.data)
+        assert payload["segments"][0]["shot_id"] == "shot-1"
+
+    @pytest.mark.asyncio
+    async def test_multi_shot_film_flattens_every_shot_with_its_own_id(self):
+        doc = make_timeline_doc(mode="director")
+        doc["timeline"]["shots"] = [
+            make_timeline_shot("shot-1", duration=5, segments=[
+                {"id": "tl-a", "start": 0, "end": 5, "text": "shot one"},
+            ]),
+            make_timeline_shot("shot-2", duration=7, continue_from_previous=True, segments=[
+                {"id": "tl-b", "start": 0, "end": 7, "text": "shot two"},
+            ]),
+        ]
+        caps = make_timeline_capabilities()
+        form_state = make_form_state(doc, caps)
+        ctx = make_context(session_metadata={"form_state": form_state})
+
+        result = await GetVideoDirectorTool().execute(ctx)
+        payload = json.loads(result.data)
+        assert [s["shot_id"] for s in payload["segments"]] == ["shot-1", "shot-2"]
+        assert payload["settings"]["duration"] == 12
+
+    @pytest.mark.asyncio
+    async def test_timeline_media_and_audio_carry_shot_id(self):
+        doc = make_timeline_doc(mode="director")
+        doc["timeline"]["shots"][0].update(
+            keyframes=[{"id": "kf-1", "role": "free", "start": 1.0, "strength": 1.0, "media": {"path": "/k.png"}}],
+            audio=[{"id": "a-1", "role": "mux", "start": 0, "length": 5, "media": {"path": "/a.wav"}}],
+        )
+        caps = make_timeline_capabilities()
+        form_state = make_form_state(doc, caps)
+        ctx = make_context(session_metadata={"form_state": form_state})
+
+        result = await GetVideoDirectorTool().execute(ctx)
+        payload = json.loads(result.data)
+        assert payload["media"][0]["shot_id"] == "shot-1"
+        assert payload["audio"][0]["shot_id"] == "shot-1"
+
+    @pytest.mark.asyncio
+    async def test_timeline_capability_summary_lists_shot_id_field(self):
+        doc = make_timeline_doc(mode="director")
+        caps = make_timeline_capabilities()
+        form_state = make_form_state(doc, caps)
+        ctx = make_context(session_metadata={"form_state": form_state})
+
+        result = await GetVideoDirectorTool().execute(ctx)
+        payload = json.loads(result.data)
+        assert "shot_id" in payload["capabilities"]["segment_fields_by_style"]["timeline"]
+
+    @pytest.mark.asyncio
+    async def test_how_to_edit_requires_shot_id_for_timeline_style(self):
+        doc = make_timeline_doc(mode="director")
+        caps = make_timeline_capabilities()
+        form_state = make_form_state(doc, caps)
+        ctx = make_context(session_metadata={"form_state": form_state})
+
+        result = await GetVideoDirectorTool().execute(ctx)
+        payload = json.loads(result.data)
+        how_to_edit = payload["how_to_edit"].lower()
+        assert "shot_id" in how_to_edit
+        assert "no default shot" in how_to_edit or "no fallback" in how_to_edit
 
 
 # ---------------------------------------------------------------------------

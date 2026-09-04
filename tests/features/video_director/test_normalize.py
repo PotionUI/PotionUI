@@ -741,6 +741,136 @@ def test_unknown_top_level_key_round_trips(storage_dir):
     assert out["client_meta"] == {"editor_version": "1.2.3"}
 
 
+# -- shot provenance key -- optional {id, index, count, title?} -------------
+
+
+def test_shot_absent_is_absent(storage_dir):
+    doc = _base_doc("t2v")
+    out = normalize_video_director(doc, LTX_CAPS, str(storage_dir))
+    assert "shot" not in out
+
+
+def test_shot_accepted_and_echoed(storage_dir):
+    doc = _base_doc("t2v", shot={"id": "shot-1", "index": 0, "count": 3})
+    out = normalize_video_director(doc, LTX_CAPS, str(storage_dir))
+    assert out["shot"] == {"id": "shot-1", "index": 0, "count": 3}
+
+
+def test_shot_with_title_echoed(storage_dir):
+    doc = _base_doc("t2v", shot={"id": "shot-2", "index": 1, "count": 3, "title": "Opening"})
+    out = normalize_video_director(doc, LTX_CAPS, str(storage_dir))
+    assert out["shot"] == {"id": "shot-2", "index": 1, "count": 3, "title": "Opening"}
+
+
+def test_shot_not_an_object_rejected(storage_dir):
+    doc = _base_doc("t2v", shot="shot-1")
+    with pytest.raises(VideoDirectorValidationError):
+        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
+
+
+def test_shot_missing_id_rejected(storage_dir):
+    doc = _base_doc("t2v", shot={"index": 0, "count": 1})
+    with pytest.raises(VideoDirectorValidationError, match="shot.id"):
+        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
+
+
+def test_shot_empty_id_rejected(storage_dir):
+    doc = _base_doc("t2v", shot={"id": "", "index": 0, "count": 1})
+    with pytest.raises(VideoDirectorValidationError, match="shot.id"):
+        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
+
+
+def test_shot_non_integer_index_rejected(storage_dir):
+    doc = _base_doc("t2v", shot={"id": "shot-1", "index": 0.5, "count": 1})
+    with pytest.raises(VideoDirectorValidationError, match="shot.index"):
+        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
+
+
+def test_shot_index_out_of_range_rejected(storage_dir):
+    doc = _base_doc("t2v", shot={"id": "shot-1", "index": 3, "count": 3})
+    with pytest.raises(VideoDirectorValidationError, match="0 <= index < count"):
+        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
+
+
+def test_shot_negative_index_rejected(storage_dir):
+    doc = _base_doc("t2v", shot={"id": "shot-1", "index": -1, "count": 3})
+    with pytest.raises(VideoDirectorValidationError, match="0 <= index < count"):
+        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
+
+
+def test_shot_non_string_title_rejected(storage_dir):
+    doc = _base_doc("t2v", shot={"id": "shot-1", "index": 0, "count": 1, "title": 42})
+    with pytest.raises(VideoDirectorValidationError, match="shot.title"):
+        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
+
+
+def test_shot_unknown_key_rejected(storage_dir):
+    doc = _base_doc("t2v", shot={"id": "shot-1", "index": 0, "count": 1, "bogus": True})
+    with pytest.raises(VideoDirectorValidationError, match="unknown keys"):
+        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
+
+
+# -- render key -- optional {scope: "film"|"shots", shot_ids} ----------------
+# Purely a REQUEST for src.features.video_director.compile.compile_shot_plan
+# to act on afterward; this normalizer only validates the shape (scope enum,
+# shot_ids non-empty and naming real segments), it never touches
+# segments/media/audio to honour it.
+
+
+def test_render_absent_is_absent(storage_dir):
+    doc = _base_doc("t2v")
+    out = normalize_video_director(doc, LTX_CAPS, str(storage_dir))
+    assert "render" not in out
+
+
+def test_render_film_scope_echoed(storage_dir):
+    doc = _base_doc("t2v", render={"scope": "film"})
+    out = normalize_video_director(doc, LTX_CAPS, str(storage_dir))
+    assert out["render"] == {"scope": "film", "shot_ids": []}
+
+
+def test_render_shots_scope_echoed(storage_dir):
+    doc = _base_doc("t2v", render={"scope": "shots", "shot_ids": ["seg-1"]})
+    out = normalize_video_director(doc, LTX_CAPS, str(storage_dir))
+    assert out["render"] == {"scope": "shots", "shot_ids": ["seg-1"]}
+
+
+def test_render_not_an_object_rejected(storage_dir):
+    doc = _base_doc("t2v", render="shots")
+    with pytest.raises(VideoDirectorValidationError, match="render"):
+        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
+
+
+def test_render_invalid_scope_rejected(storage_dir):
+    doc = _base_doc("t2v", render={"scope": "bogus"})
+    with pytest.raises(VideoDirectorValidationError, match="render.scope"):
+        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
+
+
+def test_render_film_scope_with_shot_ids_rejected(storage_dir):
+    doc = _base_doc("t2v", render={"scope": "film", "shot_ids": ["seg-1"]})
+    with pytest.raises(VideoDirectorValidationError, match="render.shot_ids"):
+        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
+
+
+def test_render_shots_scope_empty_shot_ids_rejected(storage_dir):
+    doc = _base_doc("t2v", render={"scope": "shots", "shot_ids": []})
+    with pytest.raises(VideoDirectorValidationError, match="render.shot_ids"):
+        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
+
+
+def test_render_shots_scope_unknown_id_rejected(storage_dir):
+    doc = _base_doc("t2v", render={"scope": "shots", "shot_ids": ["nope"]})
+    with pytest.raises(VideoDirectorValidationError, match="unknown segment id"):
+        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
+
+
+def test_render_unknown_key_rejected(storage_dir):
+    doc = _base_doc("t2v", render={"scope": "film", "bogus": True})
+    with pytest.raises(VideoDirectorValidationError, match="unknown keys"):
+        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
+
+
 # -- keyframes "anywhere": a chain-style director placing keyframes ----------
 
 

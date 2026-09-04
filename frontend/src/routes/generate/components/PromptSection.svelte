@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { tabsStore } from '$lib/stores/tabs';
 	import { activeLoraTriggersForTab } from '$lib/stores/activeLoraTriggers';
-	import type { Tab } from '$lib/types/tabs';
+	import type { Tab, DirectorRunState } from '$lib/types/tabs';
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';
 	import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
 	import type { VariablesMap, VariableDef } from '$lib/utils/variableDefs';
@@ -30,6 +30,12 @@
 	export let promptRelayActive: boolean;
 	export let videoDirectorActive: boolean = false;
 	export let videoDirectorCaps: DirectorCapabilities | null = null;
+	/** `Tab.directorRuns` -- see VideoDirectorEditor.svelte's own doc comment. */
+	export let directorRuns: Record<string, DirectorRunState> | undefined = undefined;
+	/** See ShotConsole.svelte's own doc comments -- passed straight through to
+	 *  VideoDirectorEditor. */
+	export let onDirectorCheckedChange: ((checked: Set<string>) => void) | undefined = undefined;
+	export let onDirectorGenerateShots: ((shotIds: string[]) => void) | undefined = undefined;
 	export let musicDirectorActive: boolean = false;
 	export let musicDirectorCaps: MusicDirectorCapabilities | null = null;
 	export let numPrompts: number;
@@ -62,13 +68,10 @@
 
 <!-- Prompt Editors -->
 <div class="space-y-4 {spacingClass}">
-	{#if promptRelayActive || videoDirectorActive}
+	{#if promptRelayActive}
 		<!-- PromptRelayEditor doesn't render its own toolbar/header, so it needs
-			this standalone entry point. Video Director's Shot Console header
-			(console.html's `.dh-row`) has no slot for a Variables affordance --
-			the maintainer's ruling on the header's contents didn't add one, so
-			this is Video Director's only remaining way to reach the modal too,
-			same as Prompt Relay. -->
+			this standalone entry point. Video Director has its own header and
+			adopts the same button there instead (see onOpenVariables below). -->
 		<div class="flex justify-end">
 			<button
 				type="button"
@@ -91,7 +94,12 @@
 			capabilities={videoDirectorCaps}
 			presetId={tab.selectedPreset || ''}
 			formData={tab.formData}
+			runs={directorRuns}
 			onChange={(v) => tabsStore.updateTab(tab.id, { videoDirector: v })}
+			onOpenVariables={openVariableManager}
+			{variableCount}
+			onCheckedChange={onDirectorCheckedChange}
+			onGenerateShots={onDirectorGenerateShots}
 		/>
 	{:else if musicDirectorActive && musicDirectorCaps}
 		<!-- Music Director Mode -->

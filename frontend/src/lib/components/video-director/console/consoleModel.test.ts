@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { deriveConsoleModel, TIMELINE_SHOT_ID } from './consoleModel';
-import { resolveDirectorCapabilities } from '$lib/utils/videoDirector';
+import { deriveConsoleModel } from './consoleModel';
+import { resolveDirectorCapabilities, directorShotFingerprint } from '$lib/utils/videoDirector';
 import type { VideoDirectorValue, DirectorCapabilities, DirectorModeCapability, ChainSegment } from '$lib/types/videoDirector';
+import type { DirectorRunState } from '$lib/types/tabs';
 
 // ─── Shared fixture helpers (mirror railModel.test.ts's own idiom) ─────────
 
@@ -20,6 +21,7 @@ function baseModeCap(overrides: Partial<DirectorModeCapability> = {}): DirectorM
 		continuation: null,
 		maxOverlapFrames: null,
 		continuationDisabled: false,
+		fpsLocked: false,
 		...overrides
 	};
 }
@@ -33,7 +35,10 @@ function baseDoc(): VideoDirectorValue {
 		negative_prompt: '',
 		negative_prompt_segments: [],
 		simple: { duration: 5, fps: 24, start_image: null, first_frame: null, last_frame: null },
-		timeline: { duration: 5, fps: 24, segments: [], keyframes: [], audio: [], ic_lora: [] },
+		timeline: {
+			fps: 24,
+			shots: [{ id: 'shot-1', duration: 5, continue_from_previous: false, segments: [], keyframes: [], audio: [], ic_lora: [] }]
+		},
 		chain: { fps: 16, segments: [], continuation: { overlap_frames: 0, stitch: true }, keyframes: [], audio: [] }
 	};
 }
@@ -49,6 +54,8 @@ function chainSegment(id: string, prompt: string, duration: number, override: 't
 		keyframe_strength: 1,
 		last_keyframe: null,
 		last_keyframe_strength: 1,
+		steps: null,
+		cfg: null,
 		sub_type_override: override
 	};
 }
@@ -152,12 +159,19 @@ function ltxCaps(): DirectorCapabilities {
 
 function ltxDoc(): VideoDirectorValue {
 	const doc = baseDoc();
-	doc.timeline.fps = 25;
-	doc.timeline.duration = 40.04;
-	doc.timeline.segments = [
-		{ id: 'b1', start: 0, end: 4.2, text: 'Rain on the neon sign', prompt_segments: [] },
-		{ id: 'b2', start: 4.2, end: 8.6, text: 'Past the noodle window', prompt_segments: [] }
-	];
+	doc.timeline = {
+		fps: 25,
+		shots: [
+			{
+				...doc.timeline.shots[0],
+				duration: 40.04,
+				segments: [
+					{ id: 'b1', start: 0, end: 4.2, text: 'Rain on the neon sign', prompt_segments: [] },
+					{ id: 'b2', start: 4.2, end: 8.6, text: 'Past the noodle window', prompt_segments: [] }
+				]
+			}
+		]
+	};
 	return doc;
 }
 
@@ -223,9 +237,13 @@ describe('deriveConsoleModel — Wan chain', () => {
 		expect(model.joins[1].control).toEqual({ kind: 'toggle', value: 'cut' });
 	});
 
-	it('badge is continuous for shots either side of a continue join, independent otherwise', () => {
-		expect(model.shots[0].badge).toBe('continuous'); // outgoing continue
-		expect(model.shots[1].badge).toBe('continuous'); // incoming continue
+	it('badge: continuous on the outgoing side of a continue join, needs-previous on the incoming side with no runs map (W3), independent where both joins are cuts', () => {
+		expect(model.shots[0].badge).toBe('continuous'); // outgoing continue -- not itself dependent on anything
+		// s2 DEPENDS on s1's output (incoming continue) -- with no runs map at
+		// all, that dependency is unmet (see the dedicated W3 badge describe
+		// block below for the full needs-previous/input-ready/stale/continuous
+		// state machine once a runs map exists).
+		expect(model.shots[1].badge).toBe('needs-previous');
 		expect(model.shots[2].badge).toBe('independent'); // both joins around it are cuts
 	});
 
@@ -284,34 +302,51 @@ describe('deriveConsoleModel — MiniMax-H3 Video chain (anywhere keyframes + au
 	});
 });
 
-describe('deriveConsoleModel — LTX timeline (W1: one console shot for the whole film)', () => {
+describe('deriveConsoleModel — LTX timeline (W2: one console shot per DirectorTimelineShot)', () => {
 	const model = deriveConsoleModel(ltxDoc(), ltxCaps(), { activeShotId: null });
 
-	it('renders exactly one shot spanning the whole document', () => {
+	it('renders exactly one shot for a single-shot document, id = the real shot id', () => {
 		expect(model.shots).toHaveLength(1);
-		expect(model.shots[0].id).toBe(TIMELINE_SHOT_ID);
+		expect(model.shots[0].id).toBe('shot-1');
 		expect(model.header.shotCount).toBe(1);
 		expect(model.shots[0].durationSeconds).toBeCloseTo(8.6, 5);
 		expect(model.shots[0].frames).toBe(Math.round(8.6 * 25));
 		expect(model.shots[0].capFrames).toBe(1001);
 	});
 
-	it('never offers "Add shot" in W1 (multi-shot LTX documents need W2 types)', () => {
-		expect(model.canAddShot).toBe(false);
-		expect(model.addShotDisabledReason).toBeTruthy();
+	it('always offers "Add shot" for timeline routing (W2: multiple independent LTX shots)', () => {
+		expect(model.canAddShot).toBe(true);
+		expect(model.addShotDisabledReason).toBeNull();
 	});
 
 	it('no joins exist for a single-shot timeline document', () => {
 		expect(model.joins).toEqual([]);
 	});
 
-	it('badge is always independent (no seam concept for timeline routing)', () => {
+	it('badge is independent when the shot has no continue_from_previous', () => {
 		expect(model.shots[0].badge).toBe('independent');
 	});
 
-	it('IC-LoRA tab/chip/mini-chip reflect the document-level ic_lora list (W2 moves it per-shot)', () => {
+	it('a second shot adds a continue/cut join; its badge needs the predecessor\'s run (W3, see the dedicated describe block below) — with none, needs-previous', () => {
 		const doc = ltxDoc();
-		doc.timeline.ic_lora = [{ id: 'icl-1', lora: { model: 'style', strength: 0.8 }, ref_media: null, strength: 1 }];
+		doc.timeline = {
+			...doc.timeline,
+			shots: [...doc.timeline.shots, { id: 'shot-2', duration: 3, continue_from_previous: true, segments: [], keyframes: [], audio: [], ic_lora: [] }]
+		};
+		const withSecond = deriveConsoleModel(doc, ltxCaps(), { activeShotId: null });
+		expect(withSecond.shots).toHaveLength(2);
+		expect(withSecond.header.shotCount).toBe(2);
+		expect(withSecond.shots[1].badge).toBe('needs-previous');
+		expect(withSecond.joins).toHaveLength(1);
+		expect(withSecond.joins[0]).toMatchObject({ afterShotId: 'shot-1', beforeShotId: 'shot-2', kind: 'continue' });
+	});
+
+	it('IC-LoRA tab/chip reflect that SHOT\'s own ic_lora list, not the whole document', () => {
+		const doc = ltxDoc();
+		doc.timeline = {
+			...doc.timeline,
+			shots: [{ ...doc.timeline.shots[0], ic_lora: [{ id: 'icl-1', lora: { model: 'style', strength: 0.8 }, ref_media: null, strength: 1 }] }]
+		};
 		const withIc = deriveConsoleModel(doc, ltxCaps(), { activeShotId: null });
 		expect(withIc.header.capChips.map((c) => c.text)).toContain('IC-LoRA');
 		expect(withIc.shots[0].hasIcLora).toBe(true);
@@ -322,15 +357,37 @@ describe('deriveConsoleModel — LTX timeline (W1: one console shot for the whol
 
 	it('thumb precedence keyframe > start > end > slate', () => {
 		const doc = ltxDoc();
-		doc.timeline.keyframes = [
-			{ id: 'kf-first', start: 0, role: 'first', strength: 1, media: { path: 'start.png', url: 'https://x/start.png' } },
-			{ id: 'kf-last', start: 8.6, role: 'last', strength: 1, media: { path: 'end.png', url: 'https://x/end.png' } }
-		];
+		doc.timeline = {
+			...doc.timeline,
+			shots: [
+				{
+					...doc.timeline.shots[0],
+					keyframes: [
+						{ id: 'kf-first', start: 0, role: 'first', strength: 1, media: { path: 'start.png', url: 'https://x/start.png' } },
+						{ id: 'kf-last', start: 8.6, role: 'last', strength: 1, media: { path: 'end.png', url: 'https://x/end.png' } }
+					]
+				}
+			]
+		};
 		const withEdges = deriveConsoleModel(doc, ltxCaps(), { activeShotId: null });
 		expect(withEdges.shots[0].thumb).toEqual({ url: 'https://x/start.png', source: 'start' });
 
-		doc.timeline.keyframes.push({ id: 'kf-free', start: 2, role: 'free', strength: 1, media: { path: 'free.png', url: 'https://x/free.png' } });
-		const withFree = deriveConsoleModel(doc, ltxCaps(), { activeShotId: null });
+		const docWithFree = {
+			...doc,
+			timeline: {
+				...doc.timeline,
+				shots: [
+					{
+						...doc.timeline.shots[0],
+						keyframes: [
+							...doc.timeline.shots[0].keyframes,
+							{ id: 'kf-free', start: 2, role: 'free' as const, strength: 1, media: { path: 'free.png', url: 'https://x/free.png' } }
+						]
+					}
+				]
+			}
+		};
+		const withFree = deriveConsoleModel(docWithFree, ltxCaps(), { activeShotId: null });
 		expect(withFree.shots[0].thumb).toEqual({ url: 'https://x/free.png', source: 'keyframe' });
 
 		const bare = deriveConsoleModel(ltxDoc(), ltxCaps(), { activeShotId: null });
@@ -366,5 +423,189 @@ describe('deriveConsoleModel — H3 refs (continuationDisabled + per_shot refere
 		const formData = { references: [{ path: '/pool/a.png' }, { path: '/pool/b.png' }] };
 		const model = deriveConsoleModel(doc, refsCaps, { activeShotId: null }, formData);
 		expect(model.shots[0].tabs.find((t) => t.id === 'references')?.label).toBe('References · 1 of 2');
+	});
+});
+
+// ─── W3: run states, dependency badges, missing-predecessor joins ─────────
+
+function run(overrides: Partial<DirectorRunState> = {}): DirectorRunState {
+	return {
+		generationId: 'gen-1',
+		status: 'queued',
+		progress: null,
+		finishedAt: null,
+		posterUrl: null,
+		inputsHash: null,
+		...overrides
+	};
+}
+
+describe('deriveConsoleModel — W3 run states', () => {
+	it('run is null with no runs map, matching W1/W2 exactly', () => {
+		const model = deriveConsoleModel(wanDoc(), wanCaps(), { activeShotId: null });
+		expect(model.shots.every((s) => s.run === null)).toBe(true);
+	});
+
+	it('maps queued/generating/done/failed onto the shot with the matching id', () => {
+		const doc = wanDoc();
+		const runs: Record<string, DirectorRunState> = {
+			s1: run({ status: 'queued' }),
+			s2: run({ status: 'generating', progress: 0.417 }),
+			s3: run({ status: 'failed' })
+		};
+		const model = deriveConsoleModel(doc, wanCaps(), { activeShotId: null }, null, runs);
+		expect(model.shots[0].run).toEqual({ kind: 'queued' });
+		expect(model.shots[1].run).toEqual({ kind: 'generating', percent: 42 });
+		expect(model.shots[2].run).toEqual({ kind: 'failed' });
+	});
+
+	it('done reads as HH:MM off finishedAt, and its output poster replaces the row thumb', () => {
+		const doc = wanDoc();
+		const finishedAt = new Date(2026, 0, 1, 9, 5).getTime();
+		const runs: Record<string, DirectorRunState> = {
+			s1: run({ status: 'done', finishedAt, posterUrl: 'https://x/out.mp4' })
+		};
+		const model = deriveConsoleModel(doc, wanCaps(), { activeShotId: null }, null, runs);
+		expect(model.shots[0].run).toEqual({ kind: 'done', time: '09:05' });
+		expect(model.shots[0].thumb).toEqual({ url: 'https://x/out.mp4', source: 'output' });
+	});
+
+	it('a run that is not done never overrides the shot\'s own editor-side thumb', () => {
+		const doc = wanDoc();
+		const runs: Record<string, DirectorRunState> = { s1: run({ status: 'generating', progress: 0.5, posterUrl: null }) };
+		const model = deriveConsoleModel(doc, wanCaps(), { activeShotId: null }, null, runs);
+		expect(model.shots[0].thumb).toEqual({ url: null, source: 'slate' });
+	});
+});
+
+describe('deriveConsoleModel — W3 dependency badges (chain: continue join between s1 and s2)', () => {
+	it('needs-previous when the predecessor has no run at all', () => {
+		const model = deriveConsoleModel(wanDoc(), wanCaps(), { activeShotId: null }, null, {});
+		expect(model.shots[1].badge).toBe('needs-previous');
+	});
+
+	it('needs-previous when the predecessor run exists but is not done', () => {
+		const runs: Record<string, DirectorRunState> = { s1: run({ status: 'generating', progress: 0.5 }) };
+		const model = deriveConsoleModel(wanDoc(), wanCaps(), { activeShotId: null }, null, runs);
+		expect(model.shots[1].badge).toBe('needs-previous');
+	});
+
+	it('input-ready when the predecessor is done and this shot has never itself rendered', () => {
+		const runs: Record<string, DirectorRunState> = { s1: run({ status: 'done', finishedAt: 1000 }) };
+		const model = deriveConsoleModel(wanDoc(), wanCaps(), { activeShotId: null }, null, runs);
+		expect(model.shots[1].badge).toBe('input-ready');
+	});
+
+	it('continuous when both are done and the predecessor has not changed since', () => {
+		const doc = wanDoc();
+		const s1Hash = directorShotFingerprint(doc, 's1');
+		const runs: Record<string, DirectorRunState> = {
+			s1: run({ status: 'done', finishedAt: 1000, inputsHash: s1Hash }),
+			s2: run({ status: 'done', finishedAt: 2000 })
+		};
+		const model = deriveConsoleModel(doc, wanCaps(), { activeShotId: null }, null, runs);
+		expect(model.shots[1].badge).toBe('continuous');
+	});
+
+	it('stale when the predecessor rendered again AFTER this shot\'s own run', () => {
+		const doc = wanDoc();
+		const s1Hash = directorShotFingerprint(doc, 's1');
+		const runs: Record<string, DirectorRunState> = {
+			s1: run({ status: 'done', finishedAt: 3000, inputsHash: s1Hash }),
+			s2: run({ status: 'done', finishedAt: 2000 }) // s2 rendered BEFORE s1's latest render
+		};
+		const model = deriveConsoleModel(doc, wanCaps(), { activeShotId: null }, null, runs);
+		expect(model.shots[1].badge).toBe('stale');
+	});
+
+	it('stale when the predecessor\'s live document changed since its own run (edited, not re-rendered)', () => {
+		const doc = wanDoc();
+		const staleHash = directorShotFingerprint(doc, 's1') + '-old';
+		const runs: Record<string, DirectorRunState> = {
+			s1: run({ status: 'done', finishedAt: 1000, inputsHash: staleHash }),
+			s2: run({ status: 'done', finishedAt: 2000 })
+		};
+		const model = deriveConsoleModel(doc, wanCaps(), { activeShotId: null }, null, runs);
+		expect(model.shots[1].badge).toBe('stale');
+	});
+
+	it('a shot with no dependency (both its joins are cuts) never consults runs', () => {
+		const model = deriveConsoleModel(wanDoc(), wanCaps(), { activeShotId: null }, null, {});
+		expect(model.shots[2].badge).toBe('independent');
+	});
+});
+
+describe('deriveConsoleModel — W3 missing-predecessor join (chain)', () => {
+	it('unchecked: a broken continuation still renders as a normal toggle, never the warning block', () => {
+		const model = deriveConsoleModel(wanDoc(), wanCaps(), { activeShotId: null }, null, {}, new Set());
+		expect(model.joins[0].kind).toBe('native');
+		expect(model.joins[0].control.kind).toBe('toggle');
+	});
+
+	it('checked + predecessor has no done run: the join becomes "missing" with the simple 2-shot span', () => {
+		const model = deriveConsoleModel(wanDoc(), wanCaps(), { activeShotId: null }, null, {}, new Set(['s2']));
+		expect(model.joins[0]).toMatchObject({
+			kind: 'missing',
+			label: 'MISSING PREDECESSOR',
+			sentence: 'Shot 01 has no output yet.'
+		});
+		expect(model.joins[0].control).toEqual({ kind: 'missing', spanShotIds: ['s1', 's2'] });
+	});
+
+	it('checked + predecessor IS done: no warning, normal toggle instead', () => {
+		const runs: Record<string, DirectorRunState> = { s1: run({ status: 'done', finishedAt: 1000 }) };
+		const model = deriveConsoleModel(wanDoc(), wanCaps(), { activeShotId: null }, null, runs, new Set(['s2']));
+		expect(model.joins[0].kind).toBe('native');
+	});
+
+	it('checking the far shot alone never flags the earlier, unrelated cut join', () => {
+		const model = deriveConsoleModel(wanDoc(), wanCaps(), { activeShotId: null }, null, {}, new Set(['s3']));
+		expect(model.joins[1].kind).toBe('cut'); // s2->s3 is a hard cut regardless of checked state
+	});
+
+	it('a checked shot with a broken CHAIN of continuations spans back through both', () => {
+		const doc = wanDoc();
+		// s3 was a hard cut ('t2v' override) -- flip it to continue s2 so checking
+		// s3 alone must span all the way back to s1 (the nearest fresh cut).
+		doc.chain.segments[2].sub_type_override = null;
+		const model = deriveConsoleModel(doc, wanCaps(), { activeShotId: null }, null, {}, new Set(['s3']));
+		expect(model.joins[1]).toMatchObject({ kind: 'missing' });
+		expect(model.joins[1].control).toEqual({ kind: 'missing', spanShotIds: ['s1', 's2', 's3'] });
+	});
+});
+
+describe('deriveConsoleModel — W3 dependency badge/missing-join (LTX timeline continue_from_previous)', () => {
+	function ltxTwoShots(continueFromPrevious: boolean) {
+		const doc = ltxDoc();
+		doc.timeline = {
+			...doc.timeline,
+			shots: [
+				doc.timeline.shots[0],
+				{ id: 'shot-2', duration: 3, continue_from_previous: continueFromPrevious, segments: [], keyframes: [], audio: [], ic_lora: [] }
+			]
+		};
+		return doc;
+	}
+
+	it('needs-previous with no runs map', () => {
+		const model = deriveConsoleModel(ltxTwoShots(true), ltxCaps(), { activeShotId: null }, null, {});
+		expect(model.shots[1].badge).toBe('needs-previous');
+	});
+
+	it('input-ready once the predecessor shot is done', () => {
+		const runs: Record<string, DirectorRunState> = { 'shot-1': run({ status: 'done', finishedAt: 1000 }) };
+		const model = deriveConsoleModel(ltxTwoShots(true), ltxCaps(), { activeShotId: null }, null, runs);
+		expect(model.shots[1].badge).toBe('input-ready');
+	});
+
+	it('checked + predecessor not done renders the missing-predecessor join', () => {
+		const model = deriveConsoleModel(ltxTwoShots(true), ltxCaps(), { activeShotId: null }, null, {}, new Set(['shot-2']));
+		expect(model.joins[0]).toMatchObject({ kind: 'missing', sentence: 'Shot 01 has no output yet.' });
+		expect(model.joins[0].control).toEqual({ kind: 'missing', spanShotIds: ['shot-1', 'shot-2'] });
+	});
+
+	it('a hard-cut join is never reported as missing regardless of checked/runs', () => {
+		const model = deriveConsoleModel(ltxTwoShots(false), ltxCaps(), { activeShotId: null }, null, {}, new Set(['shot-2']));
+		expect(model.joins[0].kind).toBe('cut');
 	});
 });

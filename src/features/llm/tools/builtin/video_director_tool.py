@@ -210,26 +210,36 @@ def _flatten(doc: Dict[str, Any], capabilities: Dict[str, Any], form_data: Dict[
                 "stitch": bool(raw_continuation.get("stitch", True)),
             }
     elif mode == "director":
+        # Timeline style (LTX) is a FILM of one or more independent shots, each
+        # its own generation with its own duration/keyframes/audio (note09 /
+        # PLAN.md §B W2) -- unlike chain style, where a segment already IS a
+        # shot, so every entry read here is tagged with the owning shot's
+        # `shot_id`: that is what lets a caller's edit (`update_director_segment`)
+        # target the right shot when the same document has several.
         timeline = doc.get("timeline") or {}
         fps = timeline.get("fps")
-        duration = timeline.get("duration")
-        for s in timeline.get("segments") or []:
-            segments.append({
-                "id": s.get("id") or _new_segment_id(), "prompt": s.get("text") or "",
-                "negative_prompt": None, "start": s.get("start"), "end": s.get("end"),
-                "frames": None, "seed": None, "steps": None, "cfg": None,
-                "references": s.get("references"),
-            })
-        for kf in timeline.get("keyframes") or []:
-            role = "keyframe" if kf.get("role") == "free" else kf.get("role")
-            kf_path = _media_ref_path(kf.get("media"), form_data)
-            if kf_path:
-                media.append({
-                    "id": kf.get("id") or _new_media_id(), "role": role, "segment_id": None,
-                    "at": kf.get("start"), "strength": kf.get("strength", 1.0),
-                    "path": kf_path,
+        shots = timeline.get("shots") or []
+        duration = sum((shot.get("duration") or 0) for shot in shots) or None
+        for shot in shots:
+            shot_id = shot.get("id")
+            for s in shot.get("segments") or []:
+                segments.append({
+                    "id": s.get("id") or _new_segment_id(), "shot_id": shot_id,
+                    "prompt": s.get("text") or "",
+                    "negative_prompt": None, "start": s.get("start"), "end": s.get("end"),
+                    "frames": None, "seed": None, "steps": None, "cfg": None,
+                    "references": s.get("references"),
                 })
-        audio = _flatten_audio(timeline.get("audio"), form_data)
+            for kf in shot.get("keyframes") or []:
+                role = "keyframe" if kf.get("role") == "free" else kf.get("role")
+                kf_path = _media_ref_path(kf.get("media"), form_data)
+                if kf_path:
+                    media.append({
+                        "id": kf.get("id") or _new_media_id(), "role": role, "segment_id": None,
+                        "shot_id": shot_id, "at": kf.get("start"), "strength": kf.get("strength", 1.0),
+                        "path": kf_path,
+                    })
+            audio.extend(_flatten_audio(shot.get("audio"), form_data, shot_id=shot_id))
     else:
         simple = doc.get("simple") or {}
         fps = simple.get("fps")
@@ -267,9 +277,13 @@ def _flatten(doc: Dict[str, Any], capabilities: Dict[str, Any], form_data: Dict[
     }
 
 
-def _flatten_audio(entries: Any, form_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _flatten_audio(
+    entries: Any, form_data: Dict[str, Any], shot_id: Optional[str] = None,
+) -> List[Dict[str, Any]]:
     """Editor audio tracks (`DirectorAudioSegment`) as wire-shaped read entries.
-    An absent role means "condition" on the wire, so it is spelled out here."""
+    An absent role means "condition" on the wire, so it is spelled out here.
+    `shot_id`, when given (timeline style only -- chain-style audio is
+    chain-wide, not per shot), tags each entry with its owning shot."""
     out: List[Dict[str, Any]] = []
     for entry in entries or []:
         if not isinstance(entry, dict):
@@ -278,14 +292,17 @@ def _flatten_audio(entries: Any, form_data: Dict[str, Any]) -> List[Dict[str, An
         if not entry_path:
             continue
         role = entry.get("role")
-        out.append({
+        item = {
             "id": entry.get("id") or _new_audio_id(),
             "role": role if role in _AUDIO_ROLES else "condition",
             "start": entry.get("start", 0.0),
             "trim_start": entry.get("trim_start", 0.0),
             "length": entry.get("length"),
             "path": entry_path,
-        })
+        }
+        if shot_id is not None:
+            item["shot_id"] = shot_id
+        out.append(item)
     return out
 
 
@@ -423,7 +440,8 @@ def _capability_summary(capabilities: Dict[str, Any], mode: str, style: str) -> 
                 )
         else:
             media_rules["director"] = (
-                f"timeline style: any number of 'first'/'last'/'keyframe' media entries (max {max_kf} keyframes)"
+                f"timeline style: a film of one or more independent shots, each its own generation; "
+                f"any number of 'first'/'last'/'keyframe' media entries per shot (max {max_kf} keyframes per shot)"
             )
 
     summary: Dict[str, Any] = {
@@ -435,7 +453,7 @@ def _capability_summary(capabilities: Dict[str, Any], mode: str, style: str) -> 
         "media_rules": media_rules,
         "segment_fields_by_style": {
             "chain": ["prompt", "negative_prompt", "duration", "frames", "sub_type_override", "seed", "steps", "cfg"],
-            "timeline": ["prompt", "negative_prompt", "start", "end"],
+            "timeline": ["shot_id", "prompt", "negative_prompt", "start", "end"],
         },
         "audio": _audio_capability(mode, capabilities),
         "references": _references_capability(capabilities),
@@ -513,13 +531,17 @@ def _available_ops(mode: str, style: str, capabilities: Dict[str, Any]) -> List[
 _HOW_TO_EDIT = (
     "You cannot edit this document -- shot count, durations, media, mode, and "
     "settings are user-only, forever. The only thing you may do is offer prompt "
-    "VERSIONS for one or more shots: emit "
+    "VERSIONS for one or more prompt segments: emit "
     '<tool_action type="update_director_segment" segment_index="N" segment_id="ID">'
     "proposed prompt text</tool_action> tags in your reply text, one per version, "
     "plain replacement prompt text only -- no [Shot N]/[Scene N] markers, no JSON "
-    "-- using a shot's index/id from the segments list above (or the per-turn "
-    "Video Director summary). Never attempt or claim to change duration, media, "
-    "mode, or shot count; there is no tool for that."
+    "-- using a segment's index/id from the segments list above (or the per-turn "
+    "Video Director summary). In 'timeline' style (a multi-shot film, e.g. LTX), "
+    "a prompt segment belongs to exactly one shot: the tag MUST ALSO carry "
+    'shot_id="ID", copied from that segment\'s own shot_id field in the segments '
+    "list -- there is no default shot and no fallback to the first one; naming the "
+    "wrong shot_id edits the wrong shot's prompt. Never attempt or claim to change "
+    "duration, media, mode, or shot count; there is no tool for that."
 )
 
 
@@ -563,14 +585,17 @@ class GetVideoDirectorTool(BaseTool):
             "composition whose shape depends on the preset's capabilities rather than its "
             "name: 'chain' style (e.g. Wan, MiniMax-H3) is an ordered list of shots, each "
             "generated separately with its own prompt and length and then concatenated; "
-            "'timeline' style (e.g. LTX) is a single generation with segments placed by "
-            "start/end time along one total duration, plus optional keyframe images and "
-            "IC-LoRA references. Returns the active mode and style, current settings (fps, "
-            "duration, resolution, seed, and in chain style the continuation settings that "
-            "join consecutive shots), every segment (in chain style with its length in both "
-            "seconds and frames, its resolved 'sub_type' -- whether it continues the previous "
-            "shot or cuts to a new one -- and its 'sub_type_override'), the media and audio "
-            "tracks on the document, the global direction prompt and negative prompt, and a "
+            "'timeline' style (e.g. LTX) is a FILM of one or more independent shots, each "
+            "its own generation, with prompt segments placed by start/end time along that "
+            "shot's own duration, plus optional keyframe images, audio and IC-LoRA "
+            "references per shot. Returns the active mode and style, current settings (fps, "
+            "duration -- the film's total in timeline style, resolution, seed, and in chain "
+            "style the continuation settings that join consecutive shots), every segment (in "
+            "chain style with its length in both seconds and frames, its resolved 'sub_type' "
+            "-- whether it continues the previous shot or cuts to a new one -- and its "
+            "'sub_type_override'; in timeline style, its owning shot's 'shot_id'), the media "
+            "and audio tracks on the document (each tagged with 'shot_id' in timeline style), "
+            "the global direction prompt and negative prompt, and a "
             "capability summary naming this preset's limits and shape. Also returns "
             "how_to_edit: the document is otherwise read-only from your side -- the only "
             "change you may propose is a prompt VERSION for one or more shots."

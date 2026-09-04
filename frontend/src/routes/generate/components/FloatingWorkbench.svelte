@@ -11,7 +11,7 @@
 	// The "W" floating workbench: the same GenerationWorkbenchPane the inline
 	// right pane renders, shown as a centered window in the area above the
 	// Generation Panel (bottom-[73px]) instead of covering it — the point of
-	// FE-179 is to bring results forward while the user keeps hitting
+	// The floating workbench is there to bring results forward while the user keeps hitting
 	// Generate. Mounted only while `tab.workbenchFloating` is true, at which
 	// point the inline pane renders a placeholder instead — so there is never
 	// more than one live Workbench instance for a tab to diverge from. z-30,

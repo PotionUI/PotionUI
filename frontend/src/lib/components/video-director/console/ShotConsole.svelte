@@ -18,6 +18,7 @@
 	import { untrack } from 'svelte';
 	import type { VideoDirectorValue, DirectorCapabilities, DirectorKeyframe, DirectorPromptSegment } from '$lib/types/videoDirector';
 	import type { Segment } from '$lib/types/segments';
+	import type { DirectorRunState } from '$lib/types/tabs';
 	import {
 		normalizeDirectorValue,
 		toModelessDirectorValue,
@@ -26,7 +27,7 @@
 		isChainEdgeKeyframeId
 	} from '$lib/utils/videoDirector';
 	import { resolvePromptSegments } from '$lib/utils/promptSegments';
-	import { deriveConsoleModel } from './consoleModel';
+	import { deriveConsoleModel, type ConsoleHeader as ConsoleHeaderModel } from './consoleModel';
 	import { deriveShotRail, railTimeFromFraction } from './shotRailModel';
 	import type { ConsoleSelection } from './consoleSelection';
 	import {
@@ -38,9 +39,8 @@
 		isKeyframeLocked,
 		type RailModel
 	} from '../stage-rail/railModel';
-	import { withAddedShot, withDuplicatedShot, withAddedAudio, withSeamKind } from '../stage-rail/stageModel';
+	import { withAddedShot, withDuplicatedShot, withRemovedShot, withAddedAudio, withSeamKind } from '../stage-rail/stageModel';
 	import { mintId, clamp } from '../timelineCore';
-	import ConsoleHeader from './ConsoleHeader.svelte';
 	import FilmPromptRow from './FilmPromptRow.svelte';
 	import ShotRow from './ShotRow.svelte';
 	import ShotCard from './ShotCard.svelte';
@@ -54,7 +54,11 @@
 		capabilities,
 		presetId,
 		formData,
-		onChange
+		runs,
+		onChange,
+		onHeaderChange,
+		onCheckedChange,
+		onGenerateShots
 	}: {
 		value: VideoDirectorValue | undefined;
 		capabilities: DirectorCapabilities;
@@ -63,7 +67,31 @@
 		 * in the console). */
 		presetId: string;
 		formData: Record<string, unknown> | null | undefined;
+		/** `Tab.directorRuns` (PLAN.md §C W3) -- per-shot generation state, keyed
+		 * by shot id. Read-only here (ShotConsole never writes it; +page.svelte
+		 * owns the submission that produces it). */
+		runs?: Record<string, DirectorRunState>;
 		onChange: (v: VideoDirectorValue) => void;
+		/** Mirrors the derived header (shot count/duration, readiness,
+		 * capability chips) up to VideoDirectorEditor.svelte, which renders it
+		 * inside its own `<header>` -- the console itself has no header row any
+		 * more (maintainer ruling 09-04: "I don't want to have two headers").
+		 * ShotConsole stays the single place `deriveConsoleModel` runs against
+		 * the live `doc` (never re-derived from `value` a second time
+		 * elsewhere, which could observe a different, in-flight document). */
+		onHeaderChange?: (header: ConsoleHeaderModel) => void;
+		/** Mirrors the console's own transient row-checkbox selection up to
+		 * +page.svelte (same flow as `onHeaderChange`, PLAN.md §C W3) -- the
+		 * page's Generate control reads this to scope its submission; the
+		 * console itself never gains a Generate control of its own. */
+		onCheckedChange?: (checked: Set<string>) => void;
+		/** Submits exactly the given shot ids (in the order given) -- backs
+		 * this console's two contextual generate actions: a failed row's Retry
+		 * (one id) and a broken join's "Generate previous + this shot" (the
+		 * contiguous span). Never the console's own bulk Generate control,
+		 * which per the maintainer ruling doesn't exist -- +page.svelte owns
+		 * the actual submission/tab-state work either way. */
+		onGenerateShots?: (shotIds: string[]) => void;
 	} = $props();
 
 	function project(raw: unknown): VideoDirectorValue {
@@ -100,7 +128,7 @@
 	let selection: ConsoleSelection = $state(null);
 	let checked: Set<string> = $state(new Set());
 
-	let model = $derived(deriveConsoleModel(doc, capabilities, { activeShotId }, formData));
+	let model = $derived(deriveConsoleModel(doc, capabilities, { activeShotId }, formData, runs, checked));
 	// The default active shot is the first one; a stale id (its shot got
 	// removed) resolves back to the first shot too -- never a dangling
 	// expansion. Reading this everywhere instead of the raw `activeShotId`
@@ -115,6 +143,28 @@
 	// mirrors `consoleSelectionBelongsToShot`'s own contract.
 	$effect(() => {
 		if (selection && !model.shots.some((s) => s.id === selection!.shotId)) selection = null;
+	});
+	// A chain shot IS its prompt (one full-span beat, PLAN.md D3) -- with
+	// nothing selected in the active shot yet (freshly expanded, or a
+	// selection belonging to a DIFFERENT shot that's now inactive) it must
+	// default to that beat, never the "this shot uses the global prompt"
+	// fallback (that fallback is legitimate only for a timeline shot resting
+	// between beats, per the 09-04 maintainer bug report). Timeline routing
+	// gets no default -- nothing selected there is a real, meaningful state.
+	$effect(() => {
+		if (!effectiveActiveShotId) return;
+		if (selection && selection.shotId === effectiveActiveShotId) return;
+		if (capabilities.segmentRouting) selection = { shotId: effectiveActiveShotId, kind: 'beat', id: effectiveActiveShotId };
+	});
+	// Mirrors the derived header up to VideoDirectorEditor.svelte's own
+	// `<header>` -- see this prop's own doc comment above.
+	$effect(() => {
+		onHeaderChange?.(model.header);
+	});
+	// Mirrors the checked set up to +page.svelte -- see this prop's own doc
+	// comment above.
+	$effect(() => {
+		onCheckedChange?.(checked);
 	});
 
 	function activateShot(shotId: string) {
@@ -165,16 +215,19 @@
 		return block.startSeconds + (fps > 0 ? outputFrame / fps : 0);
 	}
 
-	/** Inserts a new timed prompt beat at `atSeconds`, clamped into the open
-	 * gap around it (never overlapping a neighbour) -- the position-aware
-	 * counterpart to stageModel.ts's `withAddedShot` (which always appends at
-	 * the end, ignoring position; that's still what the trailing "+" column's
-	 * "next open slot" default uses, but a click on the lane itself, or a
-	 * drag, needs a real time). */
-	function insertTimelineBeatAt(target: VideoDirectorValue, atSeconds: number): VideoDirectorValue {
-		const segments = target.timeline.segments;
+	/** Inserts a new timed prompt beat at `atSeconds` on the named shot,
+	 * clamped into the open gap around it (never overlapping a neighbour) --
+	 * the position-aware counterpart to stageModel.ts's `withAddedShot`
+	 * (which always appends at the end, ignoring position; that's still what
+	 * the trailing "+" column's "next open slot" default uses, but a click on
+	 * the lane itself, or a drag, needs a real time). */
+	function insertTimelineBeatAt(target: VideoDirectorValue, shotId: string, atSeconds: number): VideoDirectorValue {
+		const shotIdx = target.timeline.shots.findIndex((s) => s.id === shotId);
+		if (shotIdx === -1) return target;
+		const shot = target.timeline.shots[shotIdx];
+		const segments = shot.segments;
 		const sorted = [...segments].sort((a, b) => a.start - b.start);
-		const duration = target.timeline.duration;
+		const duration = shot.duration;
 		let leftBound = 0;
 		let rightBound = duration;
 		for (const s of sorted) {
@@ -188,89 +241,111 @@
 		const end = Math.min(rightBound, start + Math.max(0.25, Math.min(1, rightBound - leftBound)));
 		if (end - start < 0.1) return target; // no open room here
 		const seg: DirectorPromptSegment = { id: mintId('seg', segments), start, end, text: '', prompt_segments: [] };
-		return { ...target, timeline: { ...target.timeline, segments: [...segments, seg] } };
+		const nextShots = target.timeline.shots.map((s, i) => (i === shotIdx ? { ...s, segments: [...segments, seg] } : s));
+		return { ...target, timeline: { ...target.timeline, shots: nextShots } };
 	}
 
 	function handleAddBeat(shotId: string, atSeconds: number) {
 		if (capabilities.segmentRouting) return; // one full-span beat per chain shot, no per-beat add (PLAN.md D3)
-		doc = insertTimelineBeatAt(doc, atSeconds);
+		doc = insertTimelineBeatAt(doc, shotId, atSeconds);
 	}
 
 	function handleAddKeyframe(shotId: string, atSeconds: number) {
-		const rail = deriveRailModel(doc, capabilities);
 		if (capabilities.segmentRouting) {
+			const rail = deriveRailModel(doc, capabilities);
 			const blockIndex = rail.shots.findIndex((s) => s.id === shotId);
 			if (blockIndex === -1) return;
 			const at = chainFilmSecondsFromLocal(rail, blockIndex, atSeconds);
 			const kf = { id: mintId('ckf', doc.chain.keyframes), at, strength: 1, media: null };
 			doc = { ...doc, chain: { ...doc.chain, keyframes: [...doc.chain.keyframes, kf] } };
 		} else {
-			const kf: DirectorKeyframe = { id: mintId('kf', doc.timeline.keyframes), start: atSeconds, role: 'free', strength: 1, media: null };
-			doc = { ...doc, timeline: { ...doc.timeline, keyframes: [...doc.timeline.keyframes, kf] } };
+			const shotIdx = doc.timeline.shots.findIndex((s) => s.id === shotId);
+			if (shotIdx === -1) return;
+			const shot = doc.timeline.shots[shotIdx];
+			const kf: DirectorKeyframe = { id: mintId('kf', shot.keyframes), start: atSeconds, role: 'free', strength: 1, media: null };
+			const nextShots = doc.timeline.shots.map((s, i) => (i === shotIdx ? { ...s, keyframes: [...s.keyframes, kf] } : s));
+			doc = { ...doc, timeline: { ...doc.timeline, shots: nextShots } };
 		}
 	}
 
 	function handleMoveKeyframe(shotId: string, id: string, atSeconds: number) {
-		const rail = deriveRailModel(doc, capabilities);
 		if (capabilities.segmentRouting) {
 			if (isChainEdgeKeyframeId(id)) return; // locked well mirrors never move via drag
+			const rail = deriveRailModel(doc, capabilities);
 			const blockIndex = rail.shots.findIndex((s) => s.id === shotId);
 			if (blockIndex === -1) return;
 			doc = withChainKeyframeAt(doc, id, chainFilmSecondsFromLocal(rail, blockIndex, atSeconds));
 		} else {
-			const kf = doc.timeline.keyframes.find((k) => k.id === id);
+			const kf = doc.timeline.shots.find((s) => s.id === shotId)?.keyframes.find((k) => k.id === id);
 			if (!kf || isKeyframeLocked(kf.role)) return;
-			doc = withTimelineKeyframeAt(doc, id, atSeconds);
+			doc = withTimelineKeyframeAt(doc, shotId, id, atSeconds);
 		}
 	}
 
-	function handleAddAudio() {
-		// Chain and timeline audio are both document/film-wide tracks (see
-		// `chain.audio`/`timeline.audio`'s own doc comments) -- adding "for
-		// this shot" is really adding to the shared list; shotRailModel.ts
-		// already clips/rebases whichever shots a track's span touches.
-		doc = withAddedAudio(doc, capabilities);
+	function handleAddAudio(shotId: string) {
+		doc = withAddedAudio(doc, capabilities, shotId);
 	}
 
 	function handleResizeBeat(shotId: string, id: string, edge: 'start' | 'end', atSeconds: number) {
 		if (capabilities.segmentRouting) return; // a chain shot's one full-span beat has no independent edges
-		const clamped = resizeTimelineBlockEdge(doc.timeline.segments, id, edge, atSeconds, doc.timeline.duration);
-		doc = withTimelineSegmentEdge(doc, id, edge, clamped);
+		const shot = doc.timeline.shots.find((s) => s.id === shotId);
+		if (!shot) return;
+		const clamped = resizeTimelineBlockEdge(shot.segments, id, edge, atSeconds, shot.duration);
+		doc = withTimelineSegmentEdge(doc, shotId, id, edge, clamped);
 	}
 
 	function handleSetJoin(afterShotId: string, kind: 'continue' | 'cut') {
-		const rail = deriveRailModel(doc, capabilities);
-		const idx = rail.shots.findIndex((s) => s.id === afterShotId);
-		const seam = idx === -1 ? undefined : rail.seams[idx];
-		if (!seam) return;
-		doc = withSeamKind(doc, capabilities, seam.id, kind);
+		if (capabilities.segmentRouting) {
+			const rail = deriveRailModel(doc, capabilities);
+			const idx = rail.shots.findIndex((s) => s.id === afterShotId);
+			const seam = idx === -1 ? undefined : rail.seams[idx];
+			if (!seam) return;
+			doc = withSeamKind(doc, capabilities, seam.id, kind);
+			return;
+		}
+		// LTX has no native continuation -- the toggle just sets the NEXT
+		// shot's own `continue_from_previous` (PLAN.md's LTX join ruling).
+		const shots = doc.timeline.shots;
+		const idx = shots.findIndex((s) => s.id === afterShotId);
+		const nextShot = idx === -1 ? undefined : shots[idx + 1];
+		if (!nextShot) return;
+		doc = {
+			...doc,
+			timeline: {
+				...doc.timeline,
+				shots: shots.map((s) => (s.id === nextShot.id ? { ...s, continue_from_previous: kind === 'continue' } : s))
+			}
+		};
 	}
 
 	function handleDuplicate(shotId: string) {
-		if (!capabilities.segmentRouting) return;
 		doc = withDuplicatedShot(doc, capabilities, shotId);
 	}
 
 	function handleRemove(shotId: string) {
-		if (!capabilities.segmentRouting) return;
-		doc = applyDirectorOperations(doc, [{ op: 'remove_segment', id: shotId }], capabilities);
+		doc = withRemovedShot(doc, capabilities, shotId);
 		if (selection?.shotId === shotId) selection = null;
 	}
 
 	function handleAddShot() {
 		doc = withAddedShot(doc, capabilities);
 	}
+
+	// ─── Contextual generate actions (W3) ────────────────────────────────────
+	// Both delegate the actual submission to +page.svelte via `onGenerateShots`
+	// -- this component never talks to the generation API itself.
+	function handleRetry(shotId: string) {
+		onGenerateShots?.([shotId]);
+	}
+	function handleGeneratePreviousAndThis(spanShotIds: string[]) {
+		onGenerateShots?.(spanShotIds);
+	}
+	function handleConvertToFreshCut(afterShotId: string) {
+		handleSetJoin(afterShotId, 'cut');
+	}
 </script>
 
 <div class="flex flex-col gap-3.5">
-	<ConsoleHeader
-		header={model.header}
-		checkedCount={checked.size}
-		queuedCount={0}
-		onGenerateSelected={() => {}}
-		onClearChecked={clearChecked}
-	/>
-
 	<div>
 		<FilmPromptRow
 			row={model.filmRows[0]}
@@ -286,6 +361,23 @@
 		/>
 	</div>
 
+	{#if checked.size > 0}
+		<!-- Maintainer ruling (09-04): there is no "Generate n selected" here --
+			the page's own Generate control always decides about the generation.
+			Checking a row only scopes what that control submits (a later wave);
+			this is purely a transient readout of what's currently checked. -->
+		<div class="flex items-center justify-end gap-2.5">
+			<span class="font-mono text-[10.5px] tabular-nums text-fg-subtle">{checked.size} selected</span>
+			<button
+				type="button"
+				class="border-none bg-none p-0 text-xs text-fg-subtle underline decoration-line-strong hover:text-fg"
+				onclick={clearChecked}
+			>
+				Clear
+			</button>
+		</div>
+	{/if}
+
 	<div class="flex flex-col">
 		{#each model.shots as shot, i (shot.id)}
 			{#if shot.id === effectiveActiveShotId}
@@ -295,6 +387,7 @@
 					onToggleChecked={toggleChecked}
 					onDuplicate={handleDuplicate}
 					onRemove={handleRemove}
+					onRetry={handleRetry}
 				>
 					<ShotRail
 						shotId={shot.id}
@@ -303,22 +396,33 @@
 						onSelect={(sel) => (selection = sel)}
 						onAddBeat={(atSeconds) => handleAddBeat(shot.id, atSeconds)}
 						onAddKeyframe={(atSeconds) => handleAddKeyframe(shot.id, atSeconds)}
-						onAddAudio={handleAddAudio}
+						onAddAudio={() => handleAddAudio(shot.id)}
 						onMoveKeyframe={(id, atSeconds) => handleMoveKeyframe(shot.id, id, atSeconds)}
 						onResizeBeat={(id, edge, atSeconds) => handleResizeBeat(shot.id, id, edge, atSeconds)}
 					/>
 					<ShotStage {shot} {doc} caps={capabilities} {formData} {presetId} {selection} onDoc={updateDoc} />
 					{#if capabilities.segmentRouting}
-						<OverridesDisclosure />
+						<OverridesDisclosure {doc} caps={capabilities} shotId={shot.id} onDoc={updateDoc} />
 					{/if}
 				</ShotCard>
 			{:else}
-				<ShotRow {shot} checked={checked.has(shot.id)} onToggleChecked={toggleChecked} onActivate={activateShot} />
+				<ShotRow
+					{shot}
+					checked={checked.has(shot.id)}
+					onToggleChecked={toggleChecked}
+					onActivate={activateShot}
+					onRetry={handleRetry}
+				/>
 			{/if}
 			{#if i < model.shots.length - 1}
 				{@const join = model.joins.find((j) => j.afterShotId === shot.id && j.beforeShotId === model.shots[i + 1].id)}
 				{#if join}
-					<JoinConnector {join} onSetJoin={handleSetJoin} />
+					<JoinConnector
+						{join}
+						onSetJoin={handleSetJoin}
+						onGeneratePreviousAndThis={handleGeneratePreviousAndThis}
+						onConvertToFreshCut={handleConvertToFreshCut}
+					/>
 				{/if}
 			{/if}
 		{/each}

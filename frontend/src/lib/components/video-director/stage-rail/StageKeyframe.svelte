@@ -31,12 +31,16 @@
 		model,
 		doc,
 		caps,
+		timelineShotId,
 		formData,
 		onDoc
 	}: {
 		model: StageKeyframeModel;
 		doc: VideoDirectorValue;
 		caps: DirectorCapabilities;
+		/** Which shot's own keyframe list `model.id` addresses -- ignored for
+		 * chain routing. */
+		timelineShotId: string;
 		formData: Record<string, unknown> | null | undefined;
 		onDoc: (next: VideoDirectorValue) => void;
 	} = $props();
@@ -57,11 +61,11 @@
 		} else if (isChain) {
 			onDoc(withChainKeyframeMedia(doc, model.id, value));
 		} else {
-			onDoc(withTimelineKeyframeMedia(doc, model.id, model.role as 'first' | 'last' | 'free', model.atSeconds, value));
+			onDoc(withTimelineKeyframeMedia(doc, timelineShotId, model.id, model.role as 'first' | 'last' | 'free', model.atSeconds, value));
 		}
 	}
 	function applyTime(seconds: number) {
-		onDoc(isChain ? withChainKeyframeAt(doc, model.id, seconds) : withTimelineKeyframeAt(doc, model.id, seconds));
+		onDoc(isChain ? withChainKeyframeAt(doc, model.id, seconds) : withTimelineKeyframeAt(doc, timelineShotId, model.id, seconds));
 	}
 	function setTime(e: Event) {
 		const seconds = parseFloat((e.currentTarget as HTMLInputElement).value);
@@ -75,7 +79,7 @@
 		if (isChainEdge) {
 			onDoc(withChainEdgeKeyframeStrength(doc, model.id, strength));
 		} else {
-			onDoc(withKeyframeStrength(doc, caps, model.id, strength));
+			onDoc(withKeyframeStrength(doc, caps, timelineShotId, model.id, strength));
 		}
 	}
 	function remove() {

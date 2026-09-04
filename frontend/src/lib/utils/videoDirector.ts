@@ -20,6 +20,7 @@ import type {
 	DirectorAudioSegment,
 	DirectorIcLoraEntry,
 	DirectorTimelineDoc,
+	DirectorTimelineShot,
 	ChainSegment,
 	SegmentSubType,
 	SimpleComposition,
@@ -60,6 +61,14 @@ const DEFAULT_CHAIN_SEGMENT_ID = 'chain-0';
 // placeholder segment toModelessDirectorValue mints on the timeline side of
 // a projected t2v/i2v/flf document.
 const DEFAULT_TIMELINE_SEGMENT_ID = 'timeline-0';
+
+// Deterministic id for the one shot a fresh/legacy timeline document is
+// lifted into -- `normalizeDirectorValue`'s "a `timeline` without `shots`
+// becomes one shot" rule (PLAN.md §B) never mints a random/counter id (see
+// feedback_pure_normalize_no_id_minting), and a real per-shot document always
+// carries its own stored ids from that point on, so this fixed id never
+// collides with a later "Add shot".
+export const DEFAULT_TIMELINE_SHOT_ID = 'shot-1';
 
 /** What `_normalize_media` falls back to when a keyframe-capable mode declares
  * no `max_keyframes` (src/features/video_director/normalize.py). */
@@ -380,7 +389,8 @@ function parseModeCapability(
 			typeof r.default_segment_duration === 'number' ? r.default_segment_duration : globalDefaultDuration,
 		continuation,
 		maxOverlapFrames: typeof r.max_overlap_frames === 'number' ? r.max_overlap_frames : null,
-		continuationDisabled
+		continuationDisabled,
+		fpsLocked: r.fps_locked === true
 	};
 }
 
@@ -751,7 +761,10 @@ export function createDefaultDirectorValue(caps: DirectorCapabilities): VideoDir
 		negative_prompt: '',
 		negative_prompt_segments: [],
 		simple: { duration, fps, start_image: null, first_frame: null, last_frame: null },
-		timeline: { duration, fps, segments: [], keyframes: [], audio: [], ic_lora: [] },
+		timeline: {
+			fps,
+			shots: [{ id: DEFAULT_TIMELINE_SHOT_ID, duration, continue_from_previous: false, segments: [], keyframes: [], audio: [], ic_lora: [] }]
+		},
 		chain: {
 			fps,
 			segments: [
@@ -765,13 +778,96 @@ export function createDefaultDirectorValue(caps: DirectorCapabilities): VideoDir
 					keyframe_strength: 1,
 					last_keyframe: null,
 					last_keyframe_strength: 1,
-					sub_type_override: null
+					sub_type_override: null,
+					steps: null,
+					cfg: null
 				}
 			],
 			continuation: defaultChainContinuation(caps),
 			keyframes: [],
 			audio: []
 		}
+	};
+}
+
+/** Normalizes one `DirectorTimelineShot` record -- shared by the `shots[]`
+ * path and the legacy flat-`timeline` lift (`normalizeDirectorValue`'s own
+ * doc comment). `sR` is either a real shot record or the legacy `timeline`
+ * record itself (its `segments`/`keyframes`/`audio`/`ic_lora`/`duration`
+ * fields sit at the same top level either way). */
+function normTimelineShot(sR: Record<string, unknown>, fallbackDuration: number): DirectorTimelineShot {
+	const id = str(sR.id);
+	const title = typeof sR.title === 'string' && sR.title.trim() !== '' ? sR.title : undefined;
+	const segments: DirectorPromptSegment[] = Array.isArray(sR.segments)
+		? sR.segments
+				.filter(isRecord)
+				.filter((s) => typeof s.id === 'string' && (typeof s.text === 'string' || Array.isArray(s.prompt_segments)))
+				.map((s) => {
+					const legacyText = str(s.text);
+					const promptSegments = normPromptSegments(s.prompt_segments, legacyText, `${s.id}-prompt-0`);
+					const references = normSegmentReferences(s.references);
+					return {
+						id: s.id as string,
+						start: num(s.start, 0),
+						end: num(s.end, 0),
+						text: Array.isArray(s.prompt_segments) ? resolvePromptSegments(promptSegments) : legacyText,
+						prompt_segments: promptSegments,
+						...(references ? { references } : {})
+					};
+				})
+		: [];
+	const keyframes: DirectorKeyframe[] = Array.isArray(sR.keyframes)
+		? sR.keyframes
+				.filter(isRecord)
+				.filter((k) => typeof k.id === 'string' && (k.role === 'first' || k.role === 'last' || k.role === 'free'))
+				.map((k) => ({
+					id: k.id as string,
+					start: num(k.start, 0),
+					role: k.role as DirectorKeyframe['role'],
+					strength: num(k.strength, 1),
+					media: normMedia(k.media)
+				}))
+		: [];
+	// `role` is preserved only where the stored entry already carries one: a
+	// timeline director that never showed the control must keep normalizing to
+	// exactly the document (and wire audio entry) it produced before the role
+	// existed.
+	const audio: DirectorAudioSegment[] = Array.isArray(sR.audio)
+		? sR.audio
+				.filter(isRecord)
+				.filter((a) => typeof a.id === 'string')
+				.map((a) => {
+					const role = normAudioRole(a.role);
+					return {
+						id: a.id as string,
+						start: num(a.start, 0),
+						trim_start: num(a.trim_start, 0),
+						length: num(a.length, 0),
+						media: normMedia(a.media),
+						...(role ? { role } : {})
+					};
+				})
+		: [];
+	const icLora: DirectorIcLoraEntry[] = Array.isArray(sR.ic_lora)
+		? sR.ic_lora
+				.filter(isRecord)
+				.filter((e) => typeof e.id === 'string')
+				.map((e) => ({
+					id: e.id as string,
+					lora: normLoraRef(e.lora),
+					ref_media: normMedia(e.ref_media),
+					strength: num(e.strength, 1)
+				}))
+		: [];
+	return {
+		id,
+		...(title ? { title } : {}),
+		duration: num(sR.duration, fallbackDuration),
+		continue_from_previous: typeof sR.continue_from_previous === 'boolean' ? sR.continue_from_previous : false,
+		segments,
+		keyframes,
+		audio,
+		ic_lora: icLora
 	};
 }
 
@@ -796,75 +892,22 @@ export function normalizeDirectorValue(raw: unknown, caps: DirectorCapabilities)
 	};
 
 	const tlR = isRecord(r.timeline) ? r.timeline : {};
-	const segments: DirectorPromptSegment[] = Array.isArray(tlR.segments)
-		? tlR.segments
+	const defShot = def.timeline.shots[0];
+	const shots: DirectorTimelineShot[] = Array.isArray(tlR.shots)
+		? tlR.shots
 				.filter(isRecord)
-				.filter((s) => typeof s.id === 'string' && (typeof s.text === 'string' || Array.isArray(s.prompt_segments)))
-				.map((s) => {
-					const legacyText = str(s.text);
-					const promptSegments = normPromptSegments(s.prompt_segments, legacyText, `${s.id}-prompt-0`);
-					const references = normSegmentReferences(s.references);
-					return {
-						id: s.id as string,
-						start: num(s.start, 0),
-						end: num(s.end, 0),
-						text: Array.isArray(s.prompt_segments) ? resolvePromptSegments(promptSegments) : legacyText,
-						prompt_segments: promptSegments,
-						...(references ? { references } : {})
-					};
-				})
-		: [];
-	const keyframes: DirectorKeyframe[] = Array.isArray(tlR.keyframes)
-		? tlR.keyframes
-				.filter(isRecord)
-				.filter((k) => typeof k.id === 'string' && (k.role === 'first' || k.role === 'last' || k.role === 'free'))
-				.map((k) => ({
-					id: k.id as string,
-					start: num(k.start, 0),
-					role: k.role as DirectorKeyframe['role'],
-					strength: num(k.strength, 1),
-					media: normMedia(k.media)
-				}))
-		: [];
-	// `role` is preserved only where the stored entry already carries one: a
-	// timeline director that never showed the control must keep normalizing to
-	// exactly the document (and wire audio entry) it produced before the role
-	// existed.
-	const audio: DirectorAudioSegment[] = Array.isArray(tlR.audio)
-		? tlR.audio
-				.filter(isRecord)
-				.filter((a) => typeof a.id === 'string')
-				.map((a) => {
-					const role = normAudioRole(a.role);
-					return {
-						id: a.id as string,
-						start: num(a.start, 0),
-						trim_start: num(a.trim_start, 0),
-						length: num(a.length, 0),
-						media: normMedia(a.media),
-						...(role ? { role } : {})
-					};
-				})
-		: [];
-	const icLora: DirectorIcLoraEntry[] = Array.isArray(tlR.ic_lora)
-		? tlR.ic_lora
-				.filter(isRecord)
-				.filter((e) => typeof e.id === 'string')
-				.map((e) => ({
-					id: e.id as string,
-					lora: normLoraRef(e.lora),
-					ref_media: normMedia(e.ref_media),
-					strength: num(e.strength, 1)
-				}))
-		: [];
+				.filter((s) => typeof s.id === 'string')
+				.map((s) => normTimelineShot(s, defShot.duration))
+		: // Legacy/pre-W2 shape: `timeline` IS the one shot (its own `segments`/
+			// `keyframes`/`audio`/`ic_lora`/`duration` sit at the top level, no
+			// `shots` array at all). Lifted into ONE shot with a fixed,
+			// deterministic id -- never minted -- so this is idempotent and
+			// byte-stable the moment a document already carries `shots`.
+			[normTimelineShot({ ...tlR, id: DEFAULT_TIMELINE_SHOT_ID }, defShot.duration)];
 
 	const timeline: DirectorTimelineDoc = {
-		duration: num(tlR.duration, def.timeline.duration),
 		fps: num(tlR.fps, def.timeline.fps),
-		segments,
-		keyframes,
-		audio,
-		ic_lora: icLora
+		shots: shots.length > 0 ? shots : def.timeline.shots
 	};
 
 	const chainR = isRecord(r.chain) ? r.chain : {};
@@ -876,6 +919,7 @@ export function normalizeDirectorValue(raw: unknown, caps: DirectorCapabilities)
 					const legacyPrompt = str(s.prompt);
 					const promptSegments = normPromptSegments(s.prompt_segments, legacyPrompt, `${s.id}-prompt-0`);
 					const references = normSegmentReferences(s.references);
+					const title = typeof s.title === 'string' && s.title.trim() !== '' ? s.title : undefined;
 					const seg: ChainSegment = {
 						id: s.id as string,
 						prompt: Array.isArray(s.prompt_segments) ? resolvePromptSegments(promptSegments) : legacyPrompt,
@@ -887,6 +931,9 @@ export function normalizeDirectorValue(raw: unknown, caps: DirectorCapabilities)
 						last_keyframe: normMedia(s.last_keyframe),
 						last_keyframe_strength: num(s.last_keyframe_strength, 1),
 						sub_type_override: s.sub_type_override === 't2v' ? 't2v' : null,
+						steps: typeof s.steps === 'number' ? s.steps : null,
+						cfg: typeof s.cfg === 'number' ? s.cfg : null,
+						...(title ? { title } : {}),
 						...(references ? { references } : {})
 					};
 					// Reordering or gaining edge media can leave a stale override behind
@@ -1028,14 +1075,18 @@ export function seedDirectorPromptFromLegacyText(
 		return { ...normalized, chain: { ...normalized.chain, segments: [seg, ...restSegs] } };
 	}
 
+	const firstShot = normalized.timeline.shots[0];
 	const segment: DirectorPromptSegment = {
 		id: DEFAULT_TIMELINE_SEGMENT_ID,
 		start: 0,
-		end: normalized.timeline.duration,
+		end: firstShot.duration,
 		text,
 		prompt_segments: normPromptSegments(undefined, text, `${DEFAULT_TIMELINE_SEGMENT_ID}-prompt-0`)
 	};
-	return { ...normalized, timeline: { ...normalized.timeline, segments: [segment] } };
+	return {
+		...normalized,
+		timeline: { ...normalized.timeline, shots: [{ ...firstShot, segments: [segment] }, ...normalized.timeline.shots.slice(1)] }
+	};
 }
 
 // ─── Modeless mode derivation ────────────────────────────────────────────────
@@ -1056,7 +1107,10 @@ function singleShotEdges(
 		if (segments.length !== 1 || keyframes.length > 0 || audio.length > 0) return null;
 		return { leading: segments[0].keyframe != null, trailing: segments[0].last_keyframe != null };
 	}
-	const { segments, keyframes, audio, ic_lora } = value.timeline;
+	// More than one timeline SHOT is never the "single, unadorned shot" case,
+	// independent of what either shot itself carries.
+	if (value.timeline.shots.length !== 1) return null;
+	const { segments, keyframes, audio, ic_lora } = value.timeline.shots[0];
 	if (segments.length > 1 || audio.length > 0 || ic_lora.length > 0) return null;
 	if (keyframes.some((k) => k.role === 'free')) return null;
 	const first = keyframes.find((k) => k.role === 'first');
@@ -1125,15 +1179,16 @@ function extractSingleShot(value: VideoDirectorValue, caps: DirectorCapabilities
 			references: seg?.references
 		};
 	}
-	const first = value.timeline.keyframes.find((k) => k.role === 'first');
-	const last = value.timeline.keyframes.find((k) => k.role === 'last');
+	const shot = value.timeline.shots[0];
+	const first = shot?.keyframes.find((k) => k.role === 'first');
+	const last = shot?.keyframes.find((k) => k.role === 'last');
 	return {
-		duration: value.timeline.duration,
+		duration: shot?.duration ?? 0,
 		fps: value.timeline.fps,
 		leading: first?.media ?? null,
 		trailing: last?.media ?? null,
-		promptText: value.timeline.segments[0]?.text ?? '',
-		references: value.timeline.segments[0]?.references
+		promptText: shot?.segments[0]?.text ?? '',
+		references: shot?.segments[0]?.references
 	};
 }
 
@@ -1210,15 +1265,21 @@ export function toModelessDirectorValue(value: VideoDirectorValue, caps: Directo
 						keyframe_strength: 1,
 						last_keyframe: null,
 						last_keyframe_strength: 1,
-						sub_type_override: null
+						sub_type_override: null,
+						steps: null,
+						cfg: null
 					};
 			next = { ...next, chain: { ...next.chain, fps, segments: [seg, ...restSegs] } };
 		} else {
+			const [firstShot, ...restShots] = next.timeline.shots;
 			const segments: DirectorPromptSegment[] =
-				next.timeline.segments.length > 0
-					? next.timeline.segments
+				firstShot && firstShot.segments.length > 0
+					? firstShot.segments
 					: [{ id: DEFAULT_TIMELINE_SEGMENT_ID, start: 0, end: duration, text: '', prompt_segments: [] }];
-			next = { ...next, timeline: { ...next.timeline, duration, fps, segments } };
+			const shot: DirectorTimelineShot = firstShot
+				? { ...firstShot, duration, segments }
+				: { id: DEFAULT_TIMELINE_SHOT_ID, duration, continue_from_previous: false, segments, keyframes: [], audio: [], ic_lora: [] };
+			next = { ...next, timeline: { ...next.timeline, fps, shots: [shot, ...restShots] } };
 		}
 	}
 
@@ -1231,9 +1292,12 @@ export function toModelessDirectorValue(value: VideoDirectorValue, caps: Directo
 				next = { ...next, chain: { ...next.chain, segments: [{ ...firstSeg, keyframe: leading, keyframe_strength: 1 }, ...restSegs] } };
 			}
 		} else {
-			const keyframes = next.timeline.keyframes.filter((k) => k.role !== 'first');
-			keyframes.push({ id: 'kf-first', start: 0, role: 'first', strength: 1, media: leading });
-			next = { ...next, timeline: { ...next.timeline, keyframes } };
+			const [firstShot, ...restShots] = next.timeline.shots;
+			if (firstShot) {
+				const keyframes = firstShot.keyframes.filter((k) => k.role !== 'first');
+				keyframes.push({ id: 'kf-first', start: 0, role: 'first', strength: 1, media: leading });
+				next = { ...next, timeline: { ...next.timeline, shots: [{ ...firstShot, keyframes }, ...restShots] } };
+			}
 		}
 		next = { ...next, simple: { ...next.simple, start_image: null, first_frame: null } };
 	}
@@ -1248,9 +1312,12 @@ export function toModelessDirectorValue(value: VideoDirectorValue, caps: Directo
 				};
 			}
 		} else {
-			const keyframes = next.timeline.keyframes.filter((k) => k.role !== 'last');
-			keyframes.push({ id: 'kf-last', start: next.timeline.duration, role: 'last', strength: 1, media: trailing });
-			next = { ...next, timeline: { ...next.timeline, keyframes } };
+			const [firstShot, ...restShots] = next.timeline.shots;
+			if (firstShot) {
+				const keyframes = firstShot.keyframes.filter((k) => k.role !== 'last');
+				keyframes.push({ id: 'kf-last', start: firstShot.duration, role: 'last', strength: 1, media: trailing });
+				next = { ...next, timeline: { ...next.timeline, shots: [{ ...firstShot, keyframes }, ...restShots] } };
+			}
 		}
 		next = { ...next, simple: { ...next.simple, last_frame: null } };
 	}
@@ -1295,7 +1362,15 @@ function validateSegmentReferences(
  */
 export function validateDirector(
 	rawValue: VideoDirectorValue,
-	caps: DirectorCapabilities
+	caps: DirectorCapabilities,
+	/** Per-shot generation state, keyed by shot id (`Tab.directorRuns`, PLAN.md
+	 * §C W3) -- optional and read-only here, only ever consulted for a
+	 * timeline shot's "needs its previous shot" reason (see below): once the
+	 * predecessor has a 'done' run its output exists to inherit a leading
+	 * frame from, so the reason no longer applies. Only `status` is read, so
+	 * a caller can pass any object shaped like `Tab.directorRuns` without
+	 * importing its full type. */
+	runs?: Record<string, { status: string }> | null
 ): { ok: boolean; reasons: string[] } {
 	const value = toModelessDirectorValue(rawValue, caps);
 	const reasons: string[] = [];
@@ -1392,31 +1467,64 @@ export function validateDirector(
 				}
 				validateSegmentReferences(segs, caps, reasons);
 			} else {
-				// LTX's single keyframe/audio timeline generation.
-				addTimingReasons(value.timeline.duration, value.timeline.fps);
-				const hasSegmentText = value.timeline.segments.some((s) => s.text.trim());
+				// LTX's keyframe/audio timeline generation -- one wire doc PER SHOT
+				// (buildDirectorSubmission). A single-shot document (the common/
+				// legacy case, and every document `normalizeDirectorValue` lifts a
+				// pre-W2 stored value into) keeps its messages exactly as before;
+				// once a document has 2+ shots each shot's own reasons carry a
+				// "Shot n: " prefix so a multi-shot readiness list reads like
+				// `validateSegmentReferences`'s single global "not supported"
+				// message never needed to.
+				const shots = value.timeline.shots;
+				const multi = shots.length > 1;
+				if (shots.length === 0) reasons.push('At least one shot is required');
+				const hasSegmentText = shots.some((s) => s.segments.some((seg) => seg.text.trim()));
 				if (!value.global_prompt.trim() && !hasSegmentText) reasons.push('Missing prompt');
-				if (value.timeline.keyframes.some((k) => !k.media)) reasons.push('Keyframe missing media');
-				if (value.timeline.audio.some((a) => !a.media)) reasons.push('Audio segment missing media');
-				if (value.timeline.ic_lora.some((e) => !e.lora)) reasons.push('IC-LoRA entry missing a LoRA');
-				if (cap?.maxKeyframes != null && value.timeline.keyframes.length > cap.maxKeyframes) {
-					reasons.push(`Too many keyframes (max ${cap.maxKeyframes})`);
-				}
-				// A stale/foreign document (a preset switch, or a chat op run
-				// against an older capability set) can carry keyframes an edge this
-				// mode no longer opens -- surface the same human-readable style the
-				// chain branch above uses rather than letting the backend reject it.
 				const edgeAllowances = resolveDirectorEdgeAllowances(caps);
-				if (!edgeAllowances.leadingEdgeAllowed && value.timeline.keyframes.some((k) => k.role === 'first')) {
-					reasons.push('This mode has no start-frame slot');
-				}
-				if (!edgeAllowances.trailingEdgeAllowed && value.timeline.keyframes.some((k) => k.role === 'last')) {
-					reasons.push('This mode has no end-frame slot');
-				}
-				if (!edgeAllowances.freePlacementAllowed && value.timeline.keyframes.some((k) => k.role === 'free')) {
-					reasons.push('Free keyframe placement is not supported in this mode');
-				}
-				validateSegmentReferences(value.timeline.segments, caps, reasons);
+				shots.forEach((shot, i) => {
+					const prefix = multi ? `Shot ${i + 1}: ` : '';
+					const timing = evaluateDirectorTiming(shot.duration, value.timeline.fps, {
+						maxDuration: caps.maxDuration,
+						maxFrames: caps.maxFrames
+					});
+					for (const error of Object.values(timing.fieldErrors)) reasons.push(prefix + error);
+					if (shot.keyframes.some((k) => !k.media)) reasons.push(`${prefix}Keyframe missing media`);
+					if (shot.audio.some((a) => !a.media)) reasons.push(`${prefix}Audio segment missing media`);
+					if (shot.ic_lora.some((e) => !e.lora)) reasons.push(`${prefix}IC-LoRA entry missing a LoRA`);
+					if (cap?.maxKeyframes != null && shot.keyframes.length > cap.maxKeyframes) {
+						reasons.push(`${prefix}Too many keyframes (max ${cap.maxKeyframes})`);
+					}
+					// A stale/foreign document (a preset switch, or a chat op run
+					// against an older capability set) can carry keyframes an edge
+					// this mode no longer opens -- surface the same human-readable
+					// style the chain branch above uses rather than letting the
+					// backend reject it.
+					if (!edgeAllowances.leadingEdgeAllowed && shot.keyframes.some((k) => k.role === 'first')) {
+						reasons.push(`${prefix}This mode has no start-frame slot`);
+					}
+					if (!edgeAllowances.trailingEdgeAllowed && shot.keyframes.some((k) => k.role === 'last')) {
+						reasons.push(`${prefix}This mode has no end-frame slot`);
+					}
+					if (!edgeAllowances.freePlacementAllowed && shot.keyframes.some((k) => k.role === 'free')) {
+						reasons.push(`${prefix}Free keyframe placement is not supported in this mode`);
+					}
+					// LTX has no native multi-shot continuation -- a shot marked
+					// `continue_from_previous` can only ever be readied once a
+					// predecessor's rendered output exists to inherit a leading
+					// frame from (buildDirectorSubmission's doc comment). `runs`
+					// (PLAN.md §C W3) is the only source of that: the predecessor's
+					// own run resolving to 'done' means its output exists.
+					if (shot.continue_from_previous) {
+						const predecessorId = i > 0 ? shots[i - 1].id : null;
+						const predecessorDone = predecessorId != null && runs?.[predecessorId]?.status === 'done';
+						if (!predecessorDone) reasons.push(`Shot ${i + 1} needs its previous shot`);
+					}
+				});
+				validateSegmentReferences(
+					shots.flatMap((s) => s.segments),
+					caps,
+					reasons
+				);
 			}
 			break;
 		}
@@ -1482,32 +1590,139 @@ function emptyWireSegment(
 }
 
 /**
- * Builds `form_data.video_director` from an editor value. Projects through
- * `toModelessDirectorValue` first (see `validateDirector`'s docstring -- same
- * reasoning), then derives `mode` from the resulting document's structure
- * (`deriveDirectorMode`) rather than trusting `value.mode`, which is only as
- * fresh as the last place something wrote it back (VideoDirectorEditor.svelte
- * keeps it coherent on every edit, but a caller reaching this directly, e.g. a
- * chat-produced document, has no such guarantee).
+ * Builds one timeline shot's wire doc -- everything `buildDirectorSubmission`'s
+ * old single-shot `director`/timeline branch already did, unchanged, except
+ * every field that used to read `value.timeline.*` now reads `shot.*`
+ * (already shot-local time, no rebasing needed), and the doc carries a `shot`
+ * provenance key when the film has more than one shot (a lone shot's doc is
+ * indistinguishable from the pre-W2 shape, unaffected replay per PLAN.md §B).
  */
-export function buildDirectorSubmission(rawValue: VideoDirectorValue, caps: DirectorCapabilities): VideoDirectorWireDoc {
+function buildTimelineShotWireDoc(
+	value: VideoDirectorValue,
+	caps: DirectorCapabilities,
+	shot: DirectorTimelineShot,
+	index: number,
+	count: number
+): VideoDirectorWireDoc {
+	const fps = value.timeline.fps;
+	const duration = shot.duration;
+	const sorted = sortByStart(shot.segments);
+	let wireSegments: WireSegment[] = sorted.map((s, i) => {
+		const references = wireSegmentReferences(s.references, caps);
+		return {
+			id: s.id,
+			prompt: directorSegmentPrompt(value.global_prompt, s.text, i === 0),
+			negative_prompt: value.negative_prompt,
+			start: s.start,
+			end: s.end,
+			frames: null,
+			seed: null,
+			steps: null,
+			cfg: null,
+			loras: null,
+			...(references ? { references } : {})
+		};
+	});
+	if (wireSegments.length === 0) {
+		wireSegments = [emptyWireSegment('seg-1', value.global_prompt, value.negative_prompt, 0, duration)];
+	}
+	const firstSegId = wireSegments[0].id;
+	const lastSegId = wireSegments[wireSegments.length - 1].id;
+
+	const media: WireMedia[] = [];
+	let mIdx = 0;
+	for (const kf of shot.keyframes) {
+		if (!kf.media) continue;
+		mIdx += 1;
+		if (kf.role === 'first') {
+			media.push({ id: `m-${mIdx}`, role: 'first', segment_id: firstSegId, at: 0, strength: kf.strength, media: kf.media });
+		} else if (kf.role === 'last') {
+			media.push({ id: `m-${mIdx}`, role: 'last', segment_id: lastSegId, at: duration, strength: kf.strength, media: kf.media });
+		} else {
+			media.push({ id: `m-${mIdx}`, role: 'keyframe', segment_id: null, at: kf.start, strength: kf.strength, media: kf.media });
+		}
+	}
+
+	const audio: WireAudio[] = shot.audio
+		.filter((a): a is DirectorAudioSegment & { media: DirectorMediaValue } => a.media !== null)
+		.map((a) => ({
+			id: a.id,
+			...(a.role ? { role: a.role } : {}),
+			start: a.start,
+			trim_start: a.trim_start,
+			length: a.length,
+			media: a.media
+		}));
+
+	const icLora: WireIcLora[] = shot.ic_lora
+		.filter((e): e is DirectorIcLoraEntry & { lora: DirectorLoraRef } => e.lora !== null)
+		.map((e) => ({ id: e.id, lora: e.lora, reference: e.ref_media, strength: e.strength }));
+
+	return {
+		schema_version: 1,
+		mode: 'director',
+		settings: { fps, duration, seed: -1 },
+		segments: wireSegments,
+		media,
+		audio,
+		ic_lora: icLora,
+		...(count > 1 ? { shot: { id: shot.id, index, count, ...(shot.title ? { title: shot.title } : {}) } } : {})
+	};
+}
+
+/**
+ * Builds `form_data.video_director` from an editor value -- one
+ * `VideoDirectorWireDoc` PER GENERATION ("one clip = one generation" holds
+ * for every routing style; only a timeline film with 2+ shots ever returns
+ * more than one). Projects through `toModelessDirectorValue` first (see
+ * `validateDirector`'s docstring -- same reasoning), then derives `mode` from
+ * the resulting document's structure (`deriveDirectorMode`) rather than
+ * trusting `value.mode`, which is only as fresh as the last place something
+ * wrote it back (VideoDirectorEditor.svelte keeps it coherent on every edit,
+ * but a caller reaching this directly, e.g. a chat-produced document, has no
+ * such guarantee).
+ *
+ * `checkedShotIds` (PLAN.md §C W3, the Shot Console's row checkboxes) scopes
+ * which shot(s) actually get submitted -- omitted (the default, every
+ * existing call site) preserves the exact pre-W3 output byte-for-byte. A
+ * CHAIN document (Wan/H3) still returns exactly ONE wire doc carrying every
+ * segment (never filtered client-side -- PLAN.md's "never filter segments"
+ * trap), tagged with a `render` key naming which segment ids to actually
+ * execute; `compile_shot_plan` (`src/features/video_director/compile.py`)
+ * does the actual slicing server-side, after normalize, where every
+ * position-dependent derived value (seed, sub_type, packed reference subset)
+ * is still resolvable against the FULL film. A TIMELINE document already
+ * returns one independent doc per shot -- an empty/undefined
+ * `checkedShotIds` returns all of them (unchanged), a non-empty one filters
+ * the array down to the checked shots, keeping each doc otherwise identical
+ * (same `index`/`count` provenance as the full film) since nothing about a
+ * timeline shot's own doc depends on which of its SIBLINGS also got picked.
+ */
+export function buildDirectorSubmission(
+	rawValue: VideoDirectorValue,
+	caps: DirectorCapabilities,
+	checkedShotIds?: Iterable<string>
+): VideoDirectorWireDoc[] {
 	const value = toModelessDirectorValue(rawValue, caps);
 	const mode = deriveDirectorMode(value, caps);
+	const checked = checkedShotIds ? new Set(checkedShotIds) : undefined;
 	switch (mode) {
 		case 't2v': {
 			const shot = extractSingleShot(value, caps);
 			const prompt = joinPrompt(value.global_prompt, shot.promptText);
-			return {
-				schema_version: 1,
-				mode: 't2v',
-				settings: { fps: shot.fps, duration: shot.duration, seed: -1 },
-				segments: [
-					emptyWireSegment('seg-1', prompt, value.negative_prompt, 0, shot.duration, wireSegmentReferences(shot.references, caps))
-				],
-				media: [],
-				audio: [],
-				ic_lora: []
-			};
+			return [
+				{
+					schema_version: 1,
+					mode: 't2v',
+					settings: { fps: shot.fps, duration: shot.duration, seed: -1 },
+					segments: [
+						emptyWireSegment('seg-1', prompt, value.negative_prompt, 0, shot.duration, wireSegmentReferences(shot.references, caps))
+					],
+					media: [],
+					audio: [],
+					ic_lora: []
+				}
+			];
 		}
 		case 'i2v': {
 			const shot = extractSingleShot(value, caps);
@@ -1515,17 +1730,19 @@ export function buildDirectorSubmission(rawValue: VideoDirectorValue, caps: Dire
 			const media: WireMedia[] = shot.leading
 				? [{ id: 'm-1', role: 'first', segment_id: 'seg-1', at: 0, strength: 1, media: shot.leading }]
 				: [];
-			return {
-				schema_version: 1,
-				mode: 'i2v',
-				settings: { fps: shot.fps, duration: shot.duration, seed: -1 },
-				segments: [
-					emptyWireSegment('seg-1', prompt, value.negative_prompt, 0, shot.duration, wireSegmentReferences(shot.references, caps))
-				],
-				media,
-				audio: [],
-				ic_lora: []
-			};
+			return [
+				{
+					schema_version: 1,
+					mode: 'i2v',
+					settings: { fps: shot.fps, duration: shot.duration, seed: -1 },
+					segments: [
+						emptyWireSegment('seg-1', prompt, value.negative_prompt, 0, shot.duration, wireSegmentReferences(shot.references, caps))
+					],
+					media,
+					audio: [],
+					ic_lora: []
+				}
+			];
 		}
 		case 'flf': {
 			const shot = extractSingleShot(value, caps);
@@ -1533,84 +1750,69 @@ export function buildDirectorSubmission(rawValue: VideoDirectorValue, caps: Dire
 			const media: WireMedia[] = [];
 			if (shot.leading) media.push({ id: 'm-1', role: 'first', segment_id: 'seg-1', at: 0, strength: 1, media: shot.leading });
 			if (shot.trailing) media.push({ id: 'm-2', role: 'last', segment_id: 'seg-1', at: shot.duration, strength: 1, media: shot.trailing });
-			return {
-				schema_version: 1,
-				mode: 'flf',
-				settings: { fps: shot.fps, duration: shot.duration, seed: -1 },
-				segments: [
-					emptyWireSegment('seg-1', prompt, value.negative_prompt, 0, shot.duration, wireSegmentReferences(shot.references, caps))
-				],
-				media,
-				audio: [],
-				ic_lora: []
-			};
+			return [
+				{
+					schema_version: 1,
+					mode: 'flf',
+					settings: { fps: shot.fps, duration: shot.duration, seed: -1 },
+					segments: [
+						emptyWireSegment('seg-1', prompt, value.negative_prompt, 0, shot.duration, wireSegmentReferences(shot.references, caps))
+					],
+					media,
+					audio: [],
+					ic_lora: []
+				}
+			];
 		}
 		case 'director': {
-			if (caps.segmentRouting) return buildChainDirectorSubmission(value, caps);
-			const { duration, fps } = value.timeline;
-			const sorted = sortByStart(value.timeline.segments);
-			let wireSegments: WireSegment[] = sorted.map((s, i) => {
-				const references = wireSegmentReferences(s.references, caps);
-				return {
-					id: s.id,
-					prompt: directorSegmentPrompt(value.global_prompt, s.text, i === 0),
-					negative_prompt: value.negative_prompt,
-					start: s.start,
-					end: s.end,
-					frames: null,
-					seed: null,
-					steps: null,
-					cfg: null,
-					loras: null,
-					...(references ? { references } : {})
-				};
-			});
-			if (wireSegments.length === 0) {
-				wireSegments = [emptyWireSegment('seg-1', value.global_prompt, value.negative_prompt, 0, duration)];
+			if (caps.segmentRouting) {
+				const doc = buildChainDirectorSubmission(value, caps);
+				if (!checked) return [doc];
+				// Only the ids the caller actually checked, but in the FILM's own
+				// segment order -- never the caller's (Set iteration/insertion)
+				// order, which `compile_shot_plan` would otherwise have to
+				// re-sort or reject (PLAN.md: "the compiled span always comes
+				// back in the film's own segment order").
+				const orderedChecked = value.chain.segments.map((s) => s.id).filter((id) => checked.has(id));
+				return [
+					{
+						...doc,
+						render:
+							orderedChecked.length > 0
+								? { scope: 'shots', shot_ids: orderedChecked }
+								: { scope: 'film', shot_ids: [] }
+					}
+				];
 			}
-			const firstSegId = wireSegments[0].id;
-			const lastSegId = wireSegments[wireSegments.length - 1].id;
-
-			const media: WireMedia[] = [];
-			let mIdx = 0;
-			for (const kf of value.timeline.keyframes) {
-				if (!kf.media) continue;
-				mIdx += 1;
-				if (kf.role === 'first') {
-					media.push({ id: `m-${mIdx}`, role: 'first', segment_id: firstSegId, at: 0, strength: kf.strength, media: kf.media });
-				} else if (kf.role === 'last') {
-					media.push({ id: `m-${mIdx}`, role: 'last', segment_id: lastSegId, at: duration, strength: kf.strength, media: kf.media });
-				} else {
-					media.push({ id: `m-${mIdx}`, role: 'keyframe', segment_id: null, at: kf.start, strength: kf.strength, media: kf.media });
-				}
-			}
-
-			const audio: WireAudio[] = value.timeline.audio
-				.filter((a): a is DirectorAudioSegment & { media: DirectorMediaValue } => a.media !== null)
-				.map((a) => ({
-					id: a.id,
-					...(a.role ? { role: a.role } : {}),
-					start: a.start,
-					trim_start: a.trim_start,
-					length: a.length,
-					media: a.media
-				}));
-
-			const icLora: WireIcLora[] = value.timeline.ic_lora
-				.filter((e): e is DirectorIcLoraEntry & { lora: DirectorLoraRef } => e.lora !== null)
-				.map((e) => ({ id: e.id, lora: e.lora, reference: e.ref_media, strength: e.strength }));
-
-			return {
-				schema_version: 1,
-				mode: 'director',
-				settings: { fps, duration, seed: -1 },
-				segments: wireSegments,
-				media,
-				audio,
-				ic_lora: icLora
-			};
+			const shots = value.timeline.shots;
+			const docs = shots.map((shot, index) => buildTimelineShotWireDoc(value, caps, shot, index, shots.length));
+			if (!checked || checked.size === 0) return docs;
+			return docs.filter((_doc, index) => checked.has(shots[index].id));
 		}
 	}
+}
+
+/**
+ * Canonical-JSON fingerprint of a single shot's own generation-defining
+ * fields -- a chain segment carries its own keyframe/last_keyframe media
+ * inline (`ChainSegment`), so `JSON.stringify` of the segment itself already
+ * captures everything that changes what it renders; a timeline shot is the
+ * same for `DirectorTimelineShot`. Not a real hash (no algorithm, just the
+ * canonical string) -- every caller only ever compares two fingerprints for
+ * equality, so a cheap deterministic string serves exactly as well as a real
+ * hash and avoids picking/vendoring one. Field order is stable because every
+ * writer in this module always constructs these objects with the same key
+ * order; this is a change-detector across ONE session's lifetime, not a
+ * durable content-addressed id. Returns null when the doc has no shot with
+ * that id (a stale reference -- the shot was removed since). See
+ * `DirectorRunState.inputsHash` (types/tabs.ts).
+ */
+export function directorShotFingerprint(value: VideoDirectorValue, shotId: string): string | null {
+	const chainSegment = value.chain.segments.find((s) => s.id === shotId);
+	if (chainSegment) return JSON.stringify(chainSegment);
+	const timelineShot = value.timeline.shots.find((s) => s.id === shotId);
+	if (timelineShot) return JSON.stringify(timelineShot);
+	return null;
 }
 
 // Wan's routed multi-shot chain (director mode with segment_routing). Produces
@@ -1632,8 +1834,8 @@ function buildChainDirectorSubmission(value: VideoDirectorValue, caps: DirectorC
 			end: null,
 			frames: Math.round(s.duration * fps),
 			seed: null,
-			steps: null,
-			cfg: null,
+			steps: s.steps,
+			cfg: s.cfg,
 			loras: s.loras,
 			// Only sent on an ambiguous segment where the user actually chose
 			// "New shot" -- never the derived value (keeps the document minimal
@@ -1745,7 +1947,9 @@ export function representativeDirectorPrompt(value: VideoDirectorValue, caps: Di
 		case 'director':
 			return caps.segmentRouting
 				? [value.global_prompt, ...value.chain.segments.map((s) => s.prompt)].filter((t) => t && t.trim()).join(' | ')
-				: [value.global_prompt, ...value.timeline.segments.map((s) => s.text)].filter((t) => t && t.trim()).join(' | ');
+				: [value.global_prompt, ...value.timeline.shots.flatMap((shot) => shot.segments.map((s) => s.text))]
+					.filter((t) => t && t.trim())
+					.join(' | ');
 	}
 }
 
@@ -1776,6 +1980,33 @@ function reorderByIds<T extends { id: string }>(items: T[], ids: string[]): T[] 
 	return [...ordered, ...items.filter((item) => !orderedIds.has(item.id))];
 }
 
+// Timeline routing's `shots[]` broke the "one id list" assumption every op
+// below used to make: a beat/keyframe/audio id (`mintId`) is only unique
+// WITHIN its own shot's list, not across the whole film. Every op that
+// addresses one of those now carries an optional `shot_id`; this resolves it
+// against the document rather than guessing -- unambiguous (and so omittable)
+// on a single-shot document, otherwise a request that doesn't name a real
+// shot has no destination and the op is skipped (see PLAN.md W2's "no
+// backward compat" ruling -- never silently pick the first shot out of many).
+function resolveTimelineShotId(shots: DirectorTimelineShot[], requestedId: unknown): string | null {
+	if (typeof requestedId === 'string' && shots.some((s) => s.id === requestedId)) return requestedId;
+	return shots.length === 1 ? shots[0].id : null;
+}
+
+/** Immutably patches one timeline shot by id; a no-op if it doesn't exist.
+ * Exported for stageModel.ts's own timeline `withXxx` setters, which target a
+ * shot the same way. */
+export function mapTimelineShot(
+	value: VideoDirectorValue,
+	shotId: string,
+	fn: (shot: DirectorTimelineShot) => DirectorTimelineShot
+): VideoDirectorValue {
+	const idx = value.timeline.shots.findIndex((s) => s.id === shotId);
+	if (idx === -1) return value;
+	const shots = value.timeline.shots.map((s, i) => (i === idx ? fn(s) : s));
+	return { ...value, timeline: { ...value.timeline, shots } };
+}
+
 function applySetMode(value: VideoDirectorValue, mode: unknown): VideoDirectorValue {
 	if (mode === 't2v' || mode === 'i2v' || mode === 'flf' || mode === 'director') {
 		return { ...value, mode };
@@ -1783,7 +2014,7 @@ function applySetMode(value: VideoDirectorValue, mode: unknown): VideoDirectorVa
 	return value;
 }
 
-function applySetSettings(value: VideoDirectorValue, settings: unknown): VideoDirectorValue {
+function applySetSettings(value: VideoDirectorValue, settings: unknown, shotId: unknown): VideoDirectorValue {
 	if (!isRecord(settings)) return value;
 	let next = value;
 	if (typeof settings.fps === 'number') {
@@ -1797,9 +2028,13 @@ function applySetSettings(value: VideoDirectorValue, settings: unknown): VideoDi
 	}
 	// Chain mode has no destination for duration -- its total is derived as the
 	// sum of segment durations (see buildChainDirectorSubmission), not stored.
+	// Timeline's duration now lives per-shot -- unambiguous (may omit shot_id)
+	// on a single-shot document, a no-op otherwise without a resolvable id.
 	if (typeof settings.duration === 'number') {
 		const duration = settings.duration;
-		next = { ...next, simple: { ...next.simple, duration }, timeline: { ...next.timeline, duration } };
+		next = { ...next, simple: { ...next.simple, duration } };
+		const targetShotId = resolveTimelineShotId(next.timeline.shots, shotId);
+		if (targetShotId) next = mapTimelineShot(next, targetShotId, (s) => ({ ...s, duration }));
 	}
 	return next;
 }
@@ -1856,6 +2091,7 @@ function applyUpsertSegmentChain(value: VideoDirectorValue, raw: unknown, caps: 
 				: null
 			: existing?.sub_type_override ?? null;
 	const references = 'references' in raw ? parseOpSegmentReferences(raw.references, existing?.references) : existing?.references;
+	const title = typeof raw.title === 'string' && raw.title.trim() !== '' ? raw.title : existing?.title;
 	const seg: ChainSegment = {
 		id,
 		prompt: resolvePromptSegments(promptSegments),
@@ -1867,56 +2103,75 @@ function applyUpsertSegmentChain(value: VideoDirectorValue, raw: unknown, caps: 
 		last_keyframe: existing?.last_keyframe ?? null,
 		last_keyframe_strength: existing?.last_keyframe_strength ?? 1,
 		sub_type_override: subTypeOverride,
+		// 'steps' in raw distinguishes an explicit clear (raw.steps === null,
+		// stays null) from the key being absent entirely (keep existing) --
+		// same idiom sub_type_override/references already use above.
+		steps: 'steps' in raw ? (typeof raw.steps === 'number' ? raw.steps : null) : (existing?.steps ?? null),
+		cfg: 'cfg' in raw ? (typeof raw.cfg === 'number' ? raw.cfg : null) : (existing?.cfg ?? null),
+		...(title ? { title } : {}),
 		...(references ? { references } : {})
 	};
 	const nextSegments = idx === -1 ? [...segments, seg] : segments.map((s, i) => (i === idx ? seg : s));
 	return { ...value, chain: { ...value.chain, segments: nextSegments } };
 }
 
-function applyUpsertSegmentTimeline(value: VideoDirectorValue, raw: unknown): VideoDirectorValue {
+function applyUpsertSegmentTimeline(value: VideoDirectorValue, raw: unknown, rawShotId: unknown): VideoDirectorValue {
 	if (!isRecord(raw) || typeof raw.id !== 'string') return value;
+	const targetShotId = resolveTimelineShotId(value.timeline.shots, rawShotId);
+	if (!targetShotId) return value;
 	const id = raw.id;
-	const segments = value.timeline.segments;
-	const idx = segments.findIndex((s) => s.id === id);
-	const existing = idx === -1 ? null : segments[idx];
-	const start = typeof raw.start === 'number' ? raw.start : existing?.start ?? 0;
-	const end = typeof raw.end === 'number' ? raw.end : existing?.end ?? value.timeline.duration;
-	const promptSegments =
-		typeof raw.prompt === 'string'
-			? singleTextSegmentList(raw.prompt, existing?.prompt_segments ?? [], `${id}-prompt-0`)
-			: existing?.prompt_segments ?? [];
-	const references = 'references' in raw ? parseOpSegmentReferences(raw.references, existing?.references) : existing?.references;
-	const seg: DirectorPromptSegment = {
-		id,
-		start,
-		end,
-		text: resolvePromptSegments(promptSegments),
-		prompt_segments: promptSegments,
-		...(references ? { references } : {})
-	};
-	const nextSegments = idx === -1 ? [...segments, seg] : segments.map((s, i) => (i === idx ? seg : s));
-	return { ...value, timeline: { ...value.timeline, segments: nextSegments } };
+	return mapTimelineShot(value, targetShotId, (shot) => {
+		const segments = shot.segments;
+		const idx = segments.findIndex((s) => s.id === id);
+		const existing = idx === -1 ? null : segments[idx];
+		const start = typeof raw.start === 'number' ? raw.start : (existing?.start ?? 0);
+		const end = typeof raw.end === 'number' ? raw.end : (existing?.end ?? shot.duration);
+		const promptSegments =
+			typeof raw.prompt === 'string'
+				? singleTextSegmentList(raw.prompt, existing?.prompt_segments ?? [], `${id}-prompt-0`)
+				: (existing?.prompt_segments ?? []);
+		const references = 'references' in raw ? parseOpSegmentReferences(raw.references, existing?.references) : existing?.references;
+		const seg: DirectorPromptSegment = {
+			id,
+			start,
+			end,
+			text: resolvePromptSegments(promptSegments),
+			prompt_segments: promptSegments,
+			...(references ? { references } : {})
+		};
+		const nextSegments = idx === -1 ? [...segments, seg] : segments.map((s, i) => (i === idx ? seg : s));
+		// `title`/`continue_from_previous` describe the SHOT `shot_id` names, not
+		// the beat `segment.id` addresses -- applied alongside the beat upsert
+		// rather than gated on which beat (if any) was touched (`duration` has no
+		// timeline destination here: unlike chain, a beat is start/end, not a
+		// shot length -- see the op's own doc comment).
+		const title = typeof raw.title === 'string' && raw.title.trim() !== '' ? raw.title : shot.title;
+		const continueFromPrevious = typeof raw.continue_from_previous === 'boolean' ? raw.continue_from_previous : shot.continue_from_previous;
+		return { ...shot, segments: nextSegments, continue_from_previous: continueFromPrevious, ...(title ? { title } : {}) };
+	});
 }
 
-function applyRemoveSegment(value: VideoDirectorValue, id: unknown): VideoDirectorValue {
+function applyRemoveSegment(value: VideoDirectorValue, id: unknown, shotId: unknown): VideoDirectorValue {
 	if (typeof id !== 'string') return value;
-	return {
-		...value,
-		timeline: { ...value.timeline, segments: value.timeline.segments.filter((s) => s.id !== id) },
-		chain: { ...value.chain, segments: value.chain.segments.filter((s) => s.id !== id) }
-	};
+	let next: VideoDirectorValue = { ...value, chain: { ...value.chain, segments: value.chain.segments.filter((s) => s.id !== id) } };
+	const targetShotId = resolveTimelineShotId(value.timeline.shots, shotId);
+	if (targetShotId) {
+		next = mapTimelineShot(next, targetShotId, (shot) => ({ ...shot, segments: shot.segments.filter((s) => s.id !== id) }));
+	}
+	return next;
 }
 
-function applyReorderSegments(value: VideoDirectorValue, ids: unknown): VideoDirectorValue {
+function applyReorderSegments(value: VideoDirectorValue, ids: unknown, shotId: unknown): VideoDirectorValue {
 	if (!Array.isArray(ids) || !ids.every((id): id is string => typeof id === 'string')) return value;
-	return {
-		...value,
-		timeline: { ...value.timeline, segments: reorderByIds(value.timeline.segments, ids) },
-		chain: { ...value.chain, segments: reorderByIds(value.chain.segments, ids) }
-	};
+	let next: VideoDirectorValue = { ...value, chain: { ...value.chain, segments: reorderByIds(value.chain.segments, ids) } };
+	const targetShotId = resolveTimelineShotId(value.timeline.shots, shotId);
+	if (targetShotId) {
+		next = mapTimelineShot(next, targetShotId, (shot) => ({ ...shot, segments: reorderByIds(shot.segments, ids) }));
+	}
+	return next;
 }
 
-function applyUpsertMedia(value: VideoDirectorValue, raw: unknown, caps: DirectorCapabilities): VideoDirectorValue {
+function applyUpsertMedia(value: VideoDirectorValue, raw: unknown, caps: DirectorCapabilities, rawShotId: unknown): VideoDirectorValue {
 	if (!isRecord(raw) || typeof raw.id !== 'string' || typeof raw.path !== 'string') return value;
 	const role = raw.role;
 	if (role !== 'first' && role !== 'last' && role !== 'keyframe') return value;
@@ -1975,21 +2230,25 @@ function applyUpsertMedia(value: VideoDirectorValue, raw: unknown, caps: Directo
 		};
 	}
 
+	const targetShotId = resolveTimelineShotId(value.timeline.shots, rawShotId);
+	if (!targetShotId) return value;
 	const kfRole: DirectorKeyframe['role'] = role === 'keyframe' ? 'free' : role;
-	const idx = value.timeline.keyframes.findIndex((k) => k.id === raw.id);
-	const existing = idx === -1 ? null : value.timeline.keyframes[idx];
-	const kf: DirectorKeyframe = {
-		id: raw.id,
-		start: typeof raw.at === 'number' ? raw.at : existing?.start ?? 0,
-		role: kfRole,
-		strength: typeof raw.strength === 'number' ? raw.strength : existing?.strength ?? 1,
-		media
-	};
-	const keyframes = idx === -1 ? [...value.timeline.keyframes, kf] : value.timeline.keyframes.map((k, i) => (i === idx ? kf : k));
-	return { ...value, timeline: { ...value.timeline, keyframes } };
+	return mapTimelineShot(value, targetShotId, (shot) => {
+		const idx = shot.keyframes.findIndex((k) => k.id === raw.id);
+		const existing = idx === -1 ? null : shot.keyframes[idx];
+		const kf: DirectorKeyframe = {
+			id: raw.id as string,
+			start: typeof raw.at === 'number' ? raw.at : (existing?.start ?? 0),
+			role: kfRole,
+			strength: typeof raw.strength === 'number' ? raw.strength : (existing?.strength ?? 1),
+			media
+		};
+		const keyframes = idx === -1 ? [...shot.keyframes, kf] : shot.keyframes.map((k, i) => (i === idx ? kf : k));
+		return { ...shot, keyframes };
+	});
 }
 
-function applyRemoveMedia(value: VideoDirectorValue, id: unknown): VideoDirectorValue {
+function applyRemoveMedia(value: VideoDirectorValue, id: unknown, shotId: unknown): VideoDirectorValue {
 	if (typeof id !== 'string') return value;
 	// Only timeline keyframes and placed chain keyframes carry a stable
 	// per-entry id in the editor value; simple media is a single unlabeled slot
@@ -1999,9 +2258,8 @@ function applyRemoveMedia(value: VideoDirectorValue, id: unknown): VideoDirector
 	// `kf-<segment id>` (leading) / `kf-last-<segment id>` (trailing), so those
 	// ids are honoured here rather than leaving the model unable to clear a
 	// frame it can see.
-	return {
+	let next: VideoDirectorValue = {
 		...value,
-		timeline: { ...value.timeline, keyframes: value.timeline.keyframes.filter((k) => k.id !== id) },
 		chain: {
 			...value.chain,
 			segments: value.chain.segments.map((s) => {
@@ -2012,41 +2270,65 @@ function applyRemoveMedia(value: VideoDirectorValue, id: unknown): VideoDirector
 			keyframes: value.chain.keyframes.filter((k) => k.id !== id)
 		}
 	};
+	const targetShotId = resolveTimelineShotId(value.timeline.shots, shotId);
+	if (targetShotId) {
+		next = mapTimelineShot(next, targetShotId, (shot) => ({ ...shot, keyframes: shot.keyframes.filter((k) => k.id !== id) }));
+	}
+	return next;
 }
 
 /** Audio lives on whichever composition the current style edits: the chain's
- * own track list under segment_routing, the timeline's otherwise. */
-function applyUpsertAudio(value: VideoDirectorValue, raw: unknown, caps: DirectorCapabilities): VideoDirectorValue {
+ * own track list under segment_routing, one shot's own track list otherwise
+ * (see `DirectorOpUpsertAudio.shot_id`). */
+function applyUpsertAudio(value: VideoDirectorValue, raw: unknown, caps: DirectorCapabilities, rawShotId: unknown): VideoDirectorValue {
 	if (!isRecord(raw) || typeof raw.id !== 'string' || typeof raw.path !== 'string') return value;
 	if (value.mode !== 'director' || !caps.modes.director?.audio) return value;
-	const onChain = caps.segmentRouting;
-	const list = onChain ? value.chain.audio : value.timeline.audio;
-	const idx = list.findIndex((a) => a.id === raw.id);
-	const existing = idx === -1 ? null : list[idx];
-	// The chain editor's select always needs a value; a timeline track stays
-	// role-less unless one was given (mirrors normalizeDirectorValue).
-	const role = normAudioRole(raw.role) ?? existing?.role ?? (onChain ? 'condition' : undefined);
-	const entry: DirectorAudioSegment = {
-		id: raw.id,
-		start: typeof raw.start === 'number' ? raw.start : existing?.start ?? 0,
-		trim_start: typeof raw.trim_start === 'number' ? raw.trim_start : existing?.trim_start ?? 0,
-		length: typeof raw.length === 'number' ? raw.length : existing?.length ?? 0,
-		media: { path: raw.path },
-		...(role ? { role } : {})
-	};
-	const next = idx === -1 ? [...list, entry] : list.map((a, i) => (i === idx ? entry : a));
-	return onChain
-		? { ...value, chain: { ...value.chain, audio: next } }
-		: { ...value, timeline: { ...value.timeline, audio: next } };
+	if (caps.segmentRouting) {
+		const list = value.chain.audio;
+		const idx = list.findIndex((a) => a.id === raw.id);
+		const existing = idx === -1 ? null : list[idx];
+		const role = normAudioRole(raw.role) ?? existing?.role ?? 'condition';
+		const entry: DirectorAudioSegment = {
+			id: raw.id,
+			start: typeof raw.start === 'number' ? raw.start : (existing?.start ?? 0),
+			trim_start: typeof raw.trim_start === 'number' ? raw.trim_start : (existing?.trim_start ?? 0),
+			length: typeof raw.length === 'number' ? raw.length : (existing?.length ?? 0),
+			media: { path: raw.path },
+			...(role ? { role } : {})
+		};
+		const next = idx === -1 ? [...list, entry] : list.map((a, i) => (i === idx ? entry : a));
+		return { ...value, chain: { ...value.chain, audio: next } };
+	}
+	const targetShotId = resolveTimelineShotId(value.timeline.shots, rawShotId);
+	if (!targetShotId) return value;
+	return mapTimelineShot(value, targetShotId, (shot) => {
+		const list = shot.audio;
+		const idx = list.findIndex((a) => a.id === raw.id);
+		const existing = idx === -1 ? null : list[idx];
+		// A timeline track stays role-less unless one was given (mirrors
+		// normalizeDirectorValue).
+		const role = normAudioRole(raw.role) ?? existing?.role;
+		const entry: DirectorAudioSegment = {
+			id: raw.id as string,
+			start: typeof raw.start === 'number' ? raw.start : (existing?.start ?? 0),
+			trim_start: typeof raw.trim_start === 'number' ? raw.trim_start : (existing?.trim_start ?? 0),
+			length: typeof raw.length === 'number' ? raw.length : (existing?.length ?? 0),
+			media: { path: raw.path as string },
+			...(role ? { role } : {})
+		};
+		const next = idx === -1 ? [...list, entry] : list.map((a, i) => (i === idx ? entry : a));
+		return { ...shot, audio: next };
+	});
 }
 
-function applyRemoveAudio(value: VideoDirectorValue, id: unknown): VideoDirectorValue {
+function applyRemoveAudio(value: VideoDirectorValue, id: unknown, shotId: unknown): VideoDirectorValue {
 	if (typeof id !== 'string') return value;
-	return {
-		...value,
-		timeline: { ...value.timeline, audio: value.timeline.audio.filter((a) => a.id !== id) },
-		chain: { ...value.chain, audio: value.chain.audio.filter((a) => a.id !== id) }
-	};
+	let next: VideoDirectorValue = { ...value, chain: { ...value.chain, audio: value.chain.audio.filter((a) => a.id !== id) } };
+	const targetShotId = resolveTimelineShotId(value.timeline.shots, shotId);
+	if (targetShotId) {
+		next = mapTimelineShot(next, targetShotId, (shot) => ({ ...shot, audio: shot.audio.filter((a) => a.id !== id) }));
+	}
+	return next;
 }
 
 function applySetContinuation(value: VideoDirectorValue, raw: unknown, caps: DirectorCapabilities): VideoDirectorValue {
@@ -2071,6 +2353,12 @@ function applySetContinuation(value: VideoDirectorValue, raw: unknown, caps: Dir
  * `operations` is treated as untyped wire data (it arrives as JSON on a
  * tool result) -- each entry is defensively narrowed; anything malformed or
  * unrecognized is skipped rather than thrown.
+ *
+ * Timeline routing's per-op `shot_id` (see the `DirectorOp*` types) is
+ * resolved via `resolveTimelineShotId`: unambiguous, and so omittable, on a
+ * single-shot document; on a multi-shot one an op that doesn't name a real
+ * shot has no destination and is silently skipped -- it never guesses the
+ * first shot (chat tooling must always name the shot it means to edit).
  */
 export function applyDirectorOperations(
 	value: VideoDirectorValue,
@@ -2084,7 +2372,7 @@ export function applyDirectorOperations(
 			case 'set_mode':
 				return applySetMode(acc, raw.mode);
 			case 'set_settings':
-				return applySetSettings(acc, raw.settings);
+				return applySetSettings(acc, raw.settings, raw.shot_id);
 			case 'set_prompt':
 				return applySetPrompt(acc, raw.prompt);
 			case 'set_negative_prompt':
@@ -2092,19 +2380,19 @@ export function applyDirectorOperations(
 			case 'upsert_segment':
 				return caps.segmentRouting
 					? applyUpsertSegmentChain(acc, raw.segment, caps)
-					: applyUpsertSegmentTimeline(acc, raw.segment);
+					: applyUpsertSegmentTimeline(acc, raw.segment, raw.shot_id);
 			case 'remove_segment':
-				return applyRemoveSegment(acc, raw.id);
+				return applyRemoveSegment(acc, raw.id, raw.shot_id);
 			case 'reorder_segments':
-				return applyReorderSegments(acc, raw.ids);
+				return applyReorderSegments(acc, raw.ids, raw.shot_id);
 			case 'upsert_media':
-				return applyUpsertMedia(acc, raw.media, caps);
+				return applyUpsertMedia(acc, raw.media, caps, raw.shot_id);
 			case 'remove_media':
-				return applyRemoveMedia(acc, raw.id);
+				return applyRemoveMedia(acc, raw.id, raw.shot_id);
 			case 'upsert_audio':
-				return applyUpsertAudio(acc, raw.audio, caps);
+				return applyUpsertAudio(acc, raw.audio, caps, raw.shot_id);
 			case 'remove_audio':
-				return applyRemoveAudio(acc, raw.id);
+				return applyRemoveAudio(acc, raw.id, raw.shot_id);
 			case 'set_continuation':
 				return applySetContinuation(acc, raw.continuation, caps);
 			default:
@@ -2117,9 +2405,10 @@ export function applyDirectorOperations(
  * Applies an LLM-proposed `<tool_action type="update_director_segment">` --
  * a full-prompt replacement for one director shot -- onto an already-
  * normalized value. Targets whichever list the current mode actually reads
- * (`caps.segmentRouting` routes to `chain.segments`, otherwise
- * `timeline.segments`), resolving id-first then index-fallback like
- * `locateSegmentIndex` in `promptSegments.ts` (segments can be reordered
+ * (`caps.segmentRouting` routes to `chain.segments`, a beat id resolved
+ * against every timeline shot's own beat list otherwise -- this caller has no
+ * shot of its own to name, see below), resolving id-first then index-fallback
+ * like `locateSegmentIndex` in `promptSegments.ts` (segments can be reordered
  * between the tool call and the user clicking Apply). Returns null when
  * neither resolves -- callers must treat that as a no-op, and this must
  * never append a new segment the way a raw `upsert_segment` op would for an
@@ -2129,15 +2418,43 @@ export function applyDirectorOperations(
 export function applyDirectorSegmentPrompt(
 	value: VideoDirectorValue,
 	caps: DirectorCapabilities,
-	action: { segmentId: string; segmentIndex: number; content: string }
+	action: { segmentId: string; segmentIndex: number; content: string; shotId?: string }
 ): VideoDirectorValue | null {
-	const segments: { id: string }[] = caps.segmentRouting ? value.chain.segments : value.timeline.segments;
-	const byId = segments.findIndex((s) => s.id === action.segmentId);
-	const idx = byId !== -1 ? byId : action.segmentIndex >= 0 && action.segmentIndex < segments.length ? action.segmentIndex : -1;
-	if (idx === -1) return null;
+	if (caps.segmentRouting) {
+		const segments = value.chain.segments;
+		const byId = segments.findIndex((s) => s.id === action.segmentId);
+		const idx = byId !== -1 ? byId : action.segmentIndex >= 0 && action.segmentIndex < segments.length ? action.segmentIndex : -1;
+		if (idx === -1) return null;
+		return applyDirectorOperations(value, [{ op: 'upsert_segment', segment: { id: segments[idx].id, prompt: action.content } }], caps);
+	}
+	// A beat id is only unique WITHIN its own shot (mintId scopes to one
+	// shot's list). `action.shotId` (the tag's own `shot_id` attribute, parsed
+	// in markdown.ts's parseToolActions) is authoritative once given -- the
+	// backend tool's system prompt requires the LLM to carry it once the
+	// document has 2+ shots. Fall back to flattening every shot's beats (in
+	// shot order) and resolving id-first/index-fallback, same as chain
+	// routing, for the single-shot case (where `shotId` is legitimately
+	// absent -- there's nothing ambiguous to name) or an older caller that
+	// predates the attribute.
+	if (action.shotId) {
+		const shot = value.timeline.shots.find((s) => s.id === action.shotId);
+		if (!shot) return null;
+		const byId = shot.segments.findIndex((s) => s.id === action.segmentId);
+		const idx = byId !== -1 ? byId : action.segmentIndex >= 0 && action.segmentIndex < shot.segments.length ? action.segmentIndex : -1;
+		if (idx === -1) return null;
+		return applyDirectorOperations(
+			value,
+			[{ op: 'upsert_segment', segment: { id: shot.segments[idx].id, prompt: action.content }, shot_id: shot.id }],
+			caps
+		);
+	}
+	const flat = value.timeline.shots.flatMap((shot) => shot.segments.map((s) => ({ shotId: shot.id, id: s.id })));
+	const byId = flat.findIndex((s) => s.id === action.segmentId);
+	const target = byId !== -1 ? flat[byId] : action.segmentIndex >= 0 && action.segmentIndex < flat.length ? flat[action.segmentIndex] : null;
+	if (!target) return null;
 	return applyDirectorOperations(
 		value,
-		[{ op: 'upsert_segment', segment: { id: segments[idx].id, prompt: action.content } }],
+		[{ op: 'upsert_segment', segment: { id: target.id, prompt: action.content }, shot_id: target.shotId }],
 		caps
 	);
 }

@@ -27,6 +27,26 @@ class TestProgressEmitterStep:
 
         assert emitted[0].icon is icon
 
+    def test_step_forwards_segment_id(self):
+        """Video Director: a multi-segment chain/window generation names the
+        segment its step belongs to, so a film-scoped run can light up the
+        active row (see chain_video_wan22/main.py and
+        video_minimax_h3/main.py's window loop)."""
+        emitted = []
+        progress = ProgressEmitter(emitted.append)
+        progress.step(1, 5, state="CHAIN 2/3", segment_id="seg-2")
+
+        assert emitted[0].segment_id == "seg-2"
+
+    def test_step_defaults_segment_id_to_none(self):
+        """Every non-Director pipe's step() call omits segment_id entirely --
+        must default to None, not an empty string or a KeyError."""
+        emitted = []
+        progress = ProgressEmitter(emitted.append)
+        progress.step(1, 5, state="TXT2IMG")
+
+        assert emitted[0].segment_id is None
+
 
 class TestProgressEmitterState:
 

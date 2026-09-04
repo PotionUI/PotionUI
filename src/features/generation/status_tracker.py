@@ -56,6 +56,13 @@ class GenerationRecord:
     current_step: Optional[str] = None
     current_step_num: Optional[int] = None
     total_steps: Optional[int] = None
+    # Video Director: the segment/shot the most recent progress update
+    # belonged to (`ProgressGenerationOutput.segment_id`), for a film-scoped
+    # chain/window generation. `None` for every non-Director generation and
+    # before the first per-segment progress update arrives; once set it
+    # sticks at the last segment reported (a `None` update never clears it --
+    # see `update_from_output`).
+    segment_id: Optional[str] = None
     message: Optional[str] = None
     error: Optional[str] = None
     created_at: float = field(default_factory=time.time)
@@ -80,6 +87,7 @@ class GenerationRecord:
             'total_steps': self.total_steps,
             'current_step_num': self.current_step_num,
             'message': self.message,
+            'segment_id': self.segment_id,
             'created_at': str(self.created_at),
             'completed_at': str(self.completed_at) if self.completed_at is not None else None,
         }
@@ -134,6 +142,8 @@ class GenerationStatusTracker:
                 record.total_steps = output.total_steps
             if getattr(output, 'current_step_num', None) is not None:
                 record.current_step_num = output.current_step_num
+            if getattr(output, 'segment_id', None) is not None:
+                record.segment_id = output.segment_id
 
     @staticmethod
     def _calculate_progress(progress: Any) -> float:

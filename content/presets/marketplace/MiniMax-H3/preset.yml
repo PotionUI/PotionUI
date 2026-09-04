@@ -123,6 +123,10 @@ vars:
         keyframes: "anywhere"
         audio: true
         max_keyframes: 8
+        # Every H3 window samples at a fixed 24fps -- there is no fps field
+        # on this preset's form for the Director to bind to, so the console
+        # shows it as a locked fact rather than an editable setting.
+        fps_locked: true
         # Six shots of up to ~10.8s is ~65s of finished video, and every shot
         # is a full-canvas H3 generation -- past that a run stops being
         # something a user waits through.

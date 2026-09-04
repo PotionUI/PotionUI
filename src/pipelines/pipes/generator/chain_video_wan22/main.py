@@ -632,9 +632,9 @@ class GeneratorWanChainVideoPipe(BasePipe):
 
                 steps_before = sum(seg_steps_list[:i])
 
-                def on_progress(_frac, step_index, _total, _i=i, _before=steps_before):
+                def on_progress(_frac, step_index, _total, _i=i, _before=steps_before, _seg_id=seg_id):
                     progress.step(_before + step_index + 1, total_steps, state=f"CHAIN {_i + 1}/{n}",
-                                  icon=Icon(name="film", effect="pulse"))
+                                  icon=Icon(name="film", effect="pulse"), segment_id=_seg_id)
 
                 logger.debug("[%s] segment %d/%d (%s, %s set), seed %d, frames %d, latent %s",
                             _LOG_TAG, i + 1, n, sub_type, set_name, seed_i, frames_i, shape)

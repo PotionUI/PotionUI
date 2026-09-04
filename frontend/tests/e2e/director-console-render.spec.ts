@@ -122,7 +122,7 @@ test.describe('Video Director shot console', () => {
 		await expect(director).toBeVisible({ timeout: 15000 });
 
 		// Header: title, model chip, shot count/duration, readiness dot.
-		await expect(director.getByTestId('director-console-title')).toHaveText('Video Director');
+		await expect(director.getByRole('heading', { name: 'Video Director' })).toBeVisible();
 		await expect(director.getByText(/shots? · [\d.]+ s/)).toBeVisible();
 
 		// Film rows: Global prompt / Negative prompt, never the pre-W1 labels.

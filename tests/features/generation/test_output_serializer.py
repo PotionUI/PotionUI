@@ -136,6 +136,24 @@ class TestGenerationOutputSerializer(unittest.TestCase):
         self.assertEqual(result['current_step_num'], 1)
         self.assertEqual(result['total_steps'], 3)
 
+    def test_serialize_progress_output_carries_segment_id_when_present(self):
+        """Video Director: a multi-segment chain/window generation's progress
+        names the segment it belongs to (see
+        src.pipelines.outputs.ProgressGenerationOutput.segment_id) -- the
+        console uses it to light up the active row of a continuous render."""
+        output = ProgressGenerationOutput(state="CHAIN 2/3", segment_id="seg-2")
+
+        result = self.mapper.serialize_output(output)
+
+        self.assertEqual(result['segment_id'], 'seg-2')
+
+    def test_serialize_progress_output_omits_segment_id_by_default(self):
+        """Every non-Director progress output leaves segment_id unset --
+        must not show up as `segment_id: None` on the wire message."""
+        result = self.mapper.serialize_output(ProgressGenerationOutput(state="Generating image"))
+
+        self.assertNotIn('segment_id', result)
+
     def test_serialize_progress_output_carries_backend_when_offered(self):
         """The serializer attaches `backend` to a `generation_status` message
         only when the caller offers one (routes.py offers it until the

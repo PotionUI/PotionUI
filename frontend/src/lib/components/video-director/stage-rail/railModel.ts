@@ -16,7 +16,8 @@ import type {
 	ChainKeyframe,
 	DirectorKeyframe,
 	DirectorAudioSegment,
-	DirectorPromptSegment
+	DirectorPromptSegment,
+	DirectorTimelineShot
 } from '$lib/types/videoDirector';
 import {
 	chainEdgeKeyframeId,
@@ -28,6 +29,20 @@ import {
 	DEFAULT_MAX_KEYFRAMES
 } from '$lib/utils/videoDirector';
 import { sortByStart, neighborBounds, trimSegmentLeft, trimSegmentRight, clamp } from '../timelineCore';
+
+// A `doc.timeline.shots` array is never empty in a normalized document (see
+// `normalizeDirectorValue`), but `deriveRailModel` is a pure function of
+// whatever it's handed -- this keeps it from throwing on a hand-built test
+// fixture that skipped normalization.
+const EMPTY_TIMELINE_SHOT: DirectorTimelineShot = {
+	id: 'empty-shot',
+	duration: 0,
+	continue_from_previous: false,
+	segments: [],
+	keyframes: [],
+	audio: [],
+	ic_lora: []
+};
 
 export type RailObjectKind = 'shot' | 'seam' | 'keyframe' | 'audio' | 'ic_lora';
 
@@ -276,21 +291,26 @@ export function withChainKeyframeAt(doc: VideoDirectorValue, id: string, atSecon
 	};
 }
 
-/** Repositions one timeline keyframe (first/last/free role). Pure. */
-export function withTimelineKeyframeAt(doc: VideoDirectorValue, id: string, atSeconds: number): VideoDirectorValue {
+/** Repositions one timeline keyframe (first/last/free role) on the named
+ * shot. Pure. */
+export function withTimelineKeyframeAt(doc: VideoDirectorValue, shotId: string, id: string, atSeconds: number): VideoDirectorValue {
 	return {
 		...doc,
 		timeline: {
 			...doc.timeline,
-			keyframes: doc.timeline.keyframes.map((k) => (k.id === id ? { ...k, start: atSeconds } : k))
+			shots: doc.timeline.shots.map((s) =>
+				s.id === shotId ? { ...s, keyframes: s.keyframes.map((k) => (k.id === id ? { ...k, start: atSeconds } : k)) } : s
+			)
 		}
 	};
 }
 
-/** Moves one LTX prompt block's start or end edge. Pure; the caller is
- * expected to have already clamped `seconds` via `resizeTimelineBlockEdge`. */
+/** Moves one LTX prompt block's start or end edge on the named shot. Pure;
+ * the caller is expected to have already clamped `seconds` via
+ * `resizeTimelineBlockEdge`. */
 export function withTimelineSegmentEdge(
 	doc: VideoDirectorValue,
+	shotId: string,
 	id: string,
 	edge: 'start' | 'end',
 	seconds: number
@@ -299,7 +319,9 @@ export function withTimelineSegmentEdge(
 		...doc,
 		timeline: {
 			...doc.timeline,
-			segments: doc.timeline.segments.map((s) => (s.id === id ? { ...s, [edge]: seconds } : s))
+			shots: doc.timeline.shots.map((s) =>
+				s.id === shotId ? { ...s, segments: s.segments.map((seg) => (seg.id === id ? { ...seg, [edge]: seconds } : seg)) } : s
+			)
 		}
 	};
 }
@@ -473,20 +495,20 @@ function deriveChainRail(
 }
 
 function deriveTimelineRail(
-	timeline: VideoDirectorValue['timeline'],
+	fps: number,
+	shot: DirectorTimelineShot,
 	caps: DirectorCapabilities
 ): Omit<RailModel, 'routing' | 'lanes' | 'freePlacementActive'> {
 	const directorCap = caps.modes.director;
-	const fps = safeFps(timeline.fps);
-	const sorted = sortByStart(timeline.segments);
+	const sorted = sortByStart(shot.segments);
 
 	const contentEnd = Math.max(
 		0,
 		...sorted.map((s) => s.end),
-		...timeline.keyframes.map((k) => k.start),
-		...timeline.audio.map((a) => a.start + a.length)
+		...shot.keyframes.map((k) => k.start),
+		...shot.audio.map((a) => a.start + a.length)
 	);
-	const totalSeconds = contentEnd > 0 ? contentEnd : Math.max(timeline.duration, 1);
+	const totalSeconds = contentEnd > 0 ? contentEnd : Math.max(shot.duration, 1);
 	const totalFrames = Math.round(totalSeconds * fps);
 
 	const shots: RailShotBlock[] = sorted.map((segment, index) => {
@@ -523,7 +545,7 @@ function deriveTimelineRail(
 		.map(([atSeconds, label]) => ({ atSeconds, label }))
 		.sort((a, b) => a.atSeconds - b.atSeconds);
 
-	const keyframes: RailKeyframe[] = timeline.keyframes.map((kf: DirectorKeyframe) => {
+	const keyframes: RailKeyframe[] = shot.keyframes.map((kf: DirectorKeyframe) => {
 		const { snapped, label } = resolveKeyframeSnap(kf.start, snapTargets);
 		return {
 			id: kf.id,
@@ -536,7 +558,7 @@ function deriveTimelineRail(
 		};
 	});
 
-	const audio: RailAudioClip[] = timeline.audio.map((a: DirectorAudioSegment) => ({
+	const audio: RailAudioClip[] = shot.audio.map((a: DirectorAudioSegment) => ({
 		id: a.id,
 		startSeconds: a.start,
 		endSeconds: a.start + a.length,
@@ -545,7 +567,7 @@ function deriveTimelineRail(
 	}));
 
 	const icLoraEnabled = directorCap?.icLora === true;
-	const firstIcLora = timeline.ic_lora[0] ?? null;
+	const firstIcLora = shot.ic_lora[0] ?? null;
 	const icLora: RailIcLoraHead | null = icLoraEnabled
 		? {
 				id: firstIcLora?.id ?? 'ic-lora-head',
@@ -577,10 +599,22 @@ function deriveTimelineRail(
 	};
 }
 
-export function deriveRailModel(doc: VideoDirectorValue, caps: DirectorCapabilities): RailModel {
+/**
+ * `timelineShotId` selects WHICH independent LTX shot (`doc.timeline.shots`)
+ * this rail renders -- irrelevant (and ignored) for chain routing, where each
+ * `chain.segments` entry already IS a rail shot block. Unresolvable/omitted
+ * on a timeline document resolves to the first shot -- every call site that
+ * cares about a specific shot (the Shot Console's expanded card) always
+ * passes its own `shot.id`; this fallback exists only so a caller that has no
+ * shot context yet (a bare `deriveDirectorMode`-style read) still gets a
+ * valid model rather than an empty one.
+ */
+export function deriveRailModel(doc: VideoDirectorValue, caps: DirectorCapabilities, timelineShotId?: string): RailModel {
 	const directorCap = caps.modes.director;
 	const routing: RailRouting = caps.segmentRouting ? 'chain' : 'timeline';
-	const body = routing === 'chain' ? deriveChainRail(doc, caps) : deriveTimelineRail(doc.timeline, caps);
+	const timelineShot = routing === 'timeline' ? (doc.timeline.shots.find((s) => s.id === timelineShotId) ?? doc.timeline.shots[0]) : null;
+	const body =
+		routing === 'chain' ? deriveChainRail(doc, caps) : deriveTimelineRail(doc.timeline.fps, timelineShot ?? EMPTY_TIMELINE_SHOT, caps);
 
 	// Composition-scoped, not just capability-scoped: a single-shot t2v/i2v/flf
 	// document (deriveDirectorMode reads anything but 'director') offers ONLY

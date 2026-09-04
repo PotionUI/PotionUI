@@ -74,7 +74,7 @@ from src.platform.settings.settings import Settings
 from src.platform.plugins.hooks import HookContext, await_hook_blocking_waits
 from src.features.generation.hooks import GENERATION_HOOKS
 from src.features.presets import PresetTemplateLoader
-from src.features.video_director import apply_preset_mode_overlay, normalize_video_director
+from src.features.video_director import apply_preset_mode_overlay, compile_shot_plan, normalize_video_director
 from src.features.music_director import (
     apply_preset_mode_overlay as apply_music_director_mode_overlay,
     compile_sections_to_lyrics,
@@ -620,9 +620,25 @@ class GenerationOrchestrator:
                 if isinstance(form_seed, int) and form_seed != -1:
                     raw_doc = {**raw_doc, 'settings': {**(raw_doc.get('settings') or {}), 'seed': form_seed}}
 
-                request.form_data['video_director'] = normalize_video_director(
+                normalized_doc = normalize_video_director(
                     raw_doc, capabilities, storage_dir, request.form_data
                 )
+
+                # A per-shot submission ("Generate n selected" in the Video
+                # Director console): the wire document still carries the
+                # WHOLE film's segments (every position-dependent value --
+                # seed, sub_type, packed reference subsets -- is only
+                # correct in that context), plus `render: {scope: "shots",
+                # shot_ids}` naming which contiguous span to actually
+                # execute. Compile that span down AFTER normalization, never
+                # before -- see src/features/video_director/compile.py.
+                # `scope == "film"` (or no `render` key at all) leaves the
+                # normalized document untouched.
+                render = normalized_doc.get('render')
+                if isinstance(render, dict) and render.get('scope') == 'shots':
+                    normalized_doc = compile_shot_plan(normalized_doc, render.get('shot_ids') or [])
+
+                request.form_data['video_director'] = normalized_doc
 
             # A Music Director document, same discipline as Video Director
             # above: untrusted client input, validated + canonicalized

@@ -70,6 +70,30 @@ class TestUpdateFromOutput:
         assert record.current_step_num == 3
         assert record.total_steps == 10
 
+    def test_updates_segment_id_when_present(self, tracker):
+        """Video Director: a chain/window generation's progress names the
+        segment it belongs to -- the tracker sticks with the last one
+        reported, for a film-scoped run's console row to key off."""
+        tracker.create(id='gen1')
+        output = ProgressGenerationOutput(state='CHAIN 2/3', segment_id='seg-2')
+
+        tracker.update_from_output('gen1', output)
+
+        assert tracker.get('gen1').segment_id == 'seg-2'
+
+    def test_segment_id_defaults_to_none_and_sticks_at_the_last_reported(self, tracker):
+        tracker.create(id='gen1')
+        assert tracker.get('gen1').segment_id is None
+
+        tracker.update_from_output('gen1', ProgressGenerationOutput(state='CHAIN 1/2', segment_id='seg-1'))
+        assert tracker.get('gen1').segment_id == 'seg-1'
+
+        # A later update that carries no segment_id (e.g. a non-Director
+        # progress output slipping through, or the segment's own output)
+        # must not clear the last one the console is showing.
+        tracker.update_from_output('gen1', ProgressGenerationOutput(state='CHAIN 1/2'))
+        assert tracker.get('gen1').segment_id == 'seg-1'
+
     def test_unknown_generation_is_a_noop(self, tracker):
         # Should not raise
         tracker.update_from_output('missing', Mock(progress=0.5))

@@ -7,7 +7,8 @@
 	// render (StageIcLoraModel/buildIcLoraModel/RailIcLoraHead go unused by
 	// the console -- selection no longer includes an 'ic_lora' kind; only
 	// consoleSelection.ts's keyframe/beat/audio do) with a list editor over
-	// the document's timeline.ic_lora directly. `withIcLoraPatch` already
+	// the ACTIVE shot's own `ic_lora` (W2: per-shot, not document-level).
+	// `withIcLoraPatch` already
 	// upserts-by-id (mintId + a not-yet-present id inserts), so "Add" needs
 	// no new op builder; `withRemoveIcLora` (stageModel.ts) is the one
 	// addition, filtering the list the way no existing op needed to.
@@ -29,32 +30,36 @@
 
 	let {
 		doc,
+		timelineShotId,
 		formData,
 		presetId,
 		onDoc
 	}: {
 		doc: VideoDirectorValue;
+		/** Which shot's own `ic_lora` list this tab reads/writes (IC-LoRA is
+		 * per-shot, PLAN.md §B/W2's "13:20 ruling"). */
+		timelineShotId: string;
 		formData: Record<string, unknown> | null | undefined;
 		presetId: string;
 		onDoc: (next: VideoDirectorValue) => void;
 	} = $props();
 
-	let entries = $derived(doc.timeline.ic_lora);
+	let entries = $derived(doc.timeline.shots.find((s) => s.id === timelineShotId)?.ic_lora ?? []);
 
 	function setReference(id: string, value: DirectorMediaValue | null) {
-		onDoc(withIcLoraPatch(doc, id, { ref_media: value }));
+		onDoc(withIcLoraPatch(doc, timelineShotId, id, { ref_media: value }));
 	}
 	function setLora(id: string, items: LoraPickerItem[]) {
-		onDoc(withIcLoraPatch(doc, id, { lora: (items[0] as DirectorLoraRef | undefined) ?? null }));
+		onDoc(withIcLoraPatch(doc, timelineShotId, id, { lora: (items[0] as DirectorLoraRef | undefined) ?? null }));
 	}
 	function setStrength(id: string, strength: number) {
-		onDoc(withIcLoraPatch(doc, id, { strength }));
+		onDoc(withIcLoraPatch(doc, timelineShotId, id, { strength }));
 	}
 	function removeEntry(id: string) {
-		onDoc(withRemoveIcLora(doc, id));
+		onDoc(withRemoveIcLora(doc, timelineShotId, id));
 	}
 	function addEntry() {
-		onDoc(withIcLoraPatch(doc, mintId('ic-lora', doc.timeline.ic_lora), {}));
+		onDoc(withIcLoraPatch(doc, timelineShotId, mintId('ic-lora', entries), {}));
 	}
 </script>
 

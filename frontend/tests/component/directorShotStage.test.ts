@@ -19,6 +19,7 @@ import type { ConsoleSelection } from '../../src/lib/components/video-director/c
 const { default: ShotStage } = await import('../../src/lib/components/video-director/console/ShotStage.svelte');
 const { default: OverridesDisclosure } = await import('../../src/lib/components/video-director/console/OverridesDisclosure.svelte');
 const { createClassComponent } = await import('svelte/legacy');
+const { chainEdgeKeyframeId } = await import('../../src/lib/utils/videoDirector');
 
 function baseModeCap(overrides: Partial<DirectorModeCapability> = {}): DirectorModeCapability {
 	return {
@@ -35,6 +36,7 @@ function baseModeCap(overrides: Partial<DirectorModeCapability> = {}): DirectorM
 		continuation: null,
 		maxOverlapFrames: null,
 		continuationDisabled: false,
+		fpsLocked: false,
 		...overrides
 	};
 }
@@ -48,7 +50,10 @@ function baseDoc(): VideoDirectorValue {
 		negative_prompt: '',
 		negative_prompt_segments: [],
 		simple: { duration: 5, fps: 24, start_image: null, first_frame: null, last_frame: null },
-		timeline: { duration: 5, fps: 24, segments: [], keyframes: [], audio: [], ic_lora: [] },
+		timeline: {
+			fps: 24,
+			shots: [{ id: 'shot-1', duration: 5, continue_from_previous: false, segments: [], keyframes: [], audio: [], ic_lora: [] }]
+		},
 		chain: { fps: 16, segments: [], continuation: { overlap_frames: 0, stitch: true }, keyframes: [], audio: [] }
 	};
 }
@@ -69,6 +74,8 @@ function chainSegment(id: string, prompt: string, duration: number, overrides: P
 		last_keyframe: null,
 		last_keyframe_strength: 1,
 		sub_type_override: null,
+		steps: null,
+		cfg: null,
 		...overrides
 	};
 }
@@ -77,12 +84,18 @@ function chainSegment(id: string, prompt: string, duration: number, overrides: P
 function timelineDoc(): VideoDirectorValue {
 	const doc = baseDoc();
 	doc.timeline = {
-		duration: 5,
 		fps: 24,
-		segments: [tlSegment('seg-1', 'Establishing move', 0, 3), tlSegment('seg-2', 'Detail beat', 3, 5)],
-		keyframes: [{ id: 'kf-1', start: 1.8, role: 'free', strength: 0.85, media: { path: 'lighting_ref_1.jpg' } }],
-		audio: [],
-		ic_lora: []
+		shots: [
+			{
+				id: 'shot-1',
+				duration: 5,
+				continue_from_previous: false,
+				segments: [tlSegment('seg-1', 'Establishing move', 0, 3), tlSegment('seg-2', 'Detail beat', 3, 5)],
+				keyframes: [{ id: 'kf-1', start: 1.8, role: 'free', strength: 0.85, media: { path: 'lighting_ref_1.jpg' } }],
+				audio: [],
+				ic_lora: []
+			}
+		]
 	};
 	return doc;
 }
@@ -281,6 +294,75 @@ describe('ShotStage keyframe variant', () => {
 	});
 });
 
+describe('ShotStage chain edge keyframe (09-04 bug regression)', () => {
+	// The bug: shotRailModel.ts's RailKeyframesLane anchor minted an ad-hoc
+	// `${segment.id}-leading` id that neither `parseChainEdgeKeyframeId` nor
+	// the placed-keyframes list recognised -- clicking START/END selected
+	// something `deriveStageModel` could never resolve, so the stage showed
+	// nothing. `chainEdgeKeyframeId` is the one true id both the rail mark
+	// (shotRailModel.test.ts) and this selection must agree on.
+	it('selecting the START anchor id shows the keyframe panel with its media', () => {
+		const doc = chainDoc();
+		doc.chain = {
+			...doc.chain,
+			segments: doc.chain.segments.map((s) =>
+				s.id === 'chain-1' ? { ...s, keyframe: { path: 'start_frame.png' }, keyframe_strength: 1 } : s
+			)
+		};
+		mounted = mount({
+			shot: baseShot({ id: 'chain-1' }),
+			doc,
+			caps: chainCaps(),
+			selection: { shotId: 'chain-1', kind: 'keyframe', id: chainEdgeKeyframeId('first', 'chain-1') }
+		});
+
+		expect(mounted.target.querySelector('.stage-kf')).not.toBeNull();
+		const text = mounted.text();
+		expect(text).toContain('Role');
+		expect(text).toContain('Start');
+		expect(text).toContain('start_frame.png');
+	});
+
+	it('selecting the END anchor id shows the keyframe panel', () => {
+		const doc = chainDoc();
+		doc.chain = {
+			...doc.chain,
+			segments: doc.chain.segments.map((s) =>
+				s.id === 'chain-1' ? { ...s, last_keyframe: { path: 'end_frame.png' }, last_keyframe_strength: 1 } : s
+			)
+		};
+		mounted = mount({
+			shot: baseShot({ id: 'chain-1' }),
+			doc,
+			caps: chainCaps(),
+			selection: { shotId: 'chain-1', kind: 'keyframe', id: chainEdgeKeyframeId('last', 'chain-1') }
+		});
+
+		expect(mounted.target.querySelector('.stage-kf')).not.toBeNull();
+		const text = mounted.text();
+		expect(text).toContain('End');
+		expect(text).toContain('end_frame.png');
+	});
+});
+
+describe('ShotStage default selection (09-04 bug regression)', () => {
+	it("a chain shot's own beat is selected by default -- never the global-prompt fallback", () => {
+		// ShotStage itself is a pure function of the `selection` prop it's
+		// given -- the DEFAULT (nothing selected yet) is ShotConsole.svelte's
+		// job (see its own $effect), so this pins the two states this bug
+		// actually confused: passing the shot's own beat selection must show
+		// the Prompt editor, not the read-only global fallback.
+		mounted = mount({
+			shot: baseShot({ id: 'chain-1' }),
+			doc: chainDoc(),
+			caps: chainCaps(),
+			selection: { shotId: 'chain-1', kind: 'beat', id: 'chain-1' }
+		});
+		expect(mounted.target.querySelector('.stage-beat')).not.toBeNull();
+		expect(mounted.text()).not.toContain('This shot uses the global prompt here');
+	});
+});
+
 describe('ShotStage beat variant Range row', () => {
 	it('shows the editable Range row for a timeline (LTX-style) beat', () => {
 		mounted = mount({
@@ -314,10 +396,14 @@ describe('ShotStage beat variant Range row', () => {
 });
 
 describe('OverridesDisclosure', () => {
-	function mountOverrides() {
+	function mountOverrides(props: { doc: VideoDirectorValue; caps: DirectorCapabilities; shotId: string; onDoc?: (v: VideoDirectorValue) => void }) {
 		const target = document.createElement('div');
 		document.body.appendChild(target);
-		const component = createClassComponent({ component: OverridesDisclosure as never, target, props: {} });
+		const component = createClassComponent({
+			component: OverridesDisclosure as never,
+			target,
+			props: { doc: props.doc, caps: props.caps, shotId: props.shotId, onDoc: props.onDoc ?? (() => {}) }
+		});
 		return {
 			target,
 			destroy: () => {
@@ -327,15 +413,19 @@ describe('OverridesDisclosure', () => {
 		};
 	}
 
-	it('renders Steps and CFG inputs disabled with an explanatory title', () => {
-		const disclosure = mountOverrides();
+	// Overrides went LIVE (Steps/CFG bound to ChainSegment.steps/cfg) --
+	// editable, not permanently disabled; empty = auto (null).
+	it('renders Steps and CFG editable, seeded from the segment, empty when unset', () => {
+		const doc = chainDoc();
+		doc.chain = { ...doc.chain, segments: doc.chain.segments.map((s) => (s.id === 'chain-1' ? { ...s, steps: 30, cfg: null } : s)) };
+		const disclosure = mountOverrides({ doc, caps: chainCaps(), shotId: 'chain-1' });
 		try {
 			const inputs = Array.from(disclosure.target.querySelectorAll<HTMLInputElement>('.overrides-input'));
 			expect(inputs).toHaveLength(2);
-			for (const input of inputs) {
-				expect(input.disabled).toBe(true);
-				expect(input.title).toBe('Per-shot overrides land in the next wave');
-			}
+			for (const input of inputs) expect(input.disabled).toBe(false);
+			expect(inputs[0].value).toBe('30');
+			expect(inputs[1].value).toBe('');
+			expect(inputs[1].placeholder).toBe('auto');
 		} finally {
 			disclosure.destroy();
 		}

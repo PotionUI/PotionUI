@@ -41,13 +41,15 @@ export interface PersistedTab {
 	color?: string | null;
 	layoutMode?: GenerationLayoutMode;
 	promptPanelWidth?: number;
+	/** See the matching field on `Tab` below (Video Director auto-widen). */
+	promptPanelWidthBeforeDirector?: number;
 	positiveSegmentsCollapsed?: boolean;
 	negativeSegmentsCollapsed?: boolean;
 	/** Per-section fold state for `type: section` form fields; see the
 	 *  matching field on `SessionData`/`Tab`. */
 	sectionCollapsed?: Record<string, boolean>;
 	workbenchMaxHeight?: string;
-	/** Width of the floating workbench window (FE-179), set from the inline
+	/** Width of the floating workbench window, set from the inline
 	 *  pane's measured width the first time it opens and from then on by the
 	 *  window's own resize handles. See the matching field on `Tab` below. */
 	workbenchFloatingWidth?: string;
@@ -75,12 +77,57 @@ export interface PersistedTab {
 	modeStateByMode?: Record<string, ModeState>;
 	seed?: number;
 	selectedBackendId?: string | null;
+	/** See the matching fields on `Tab` below. */
+	directorRuns?: Record<string, DirectorRunState>;
+	directorRunLinks?: DirectorRunLinks;
 }
 
 export interface PersistedTabsState {
 	tabs: PersistedTab[];
 	activeTabId: string;
 }
+
+/**
+ * Per-shot generation state for the Video Director console (PLAN.md §C W3).
+ * One BACKEND generation can cover several shots at once -- a chain/H3 film
+ * run submits the checked span as ONE request (`render.shot_ids`), so every
+ * shot in that span shares this same record's `generationId` -- see
+ * `directorRunLinks` below, which is how an incoming WebSocket message
+ * (carrying only a `generation_id`, plus an optional `segment_id` naming the
+ * currently-active shot within a multi-shot run) is routed back to the
+ * shot(s) it belongs to.
+ */
+export interface DirectorRunState {
+	generationId: string;
+	status: 'queued' | 'generating' | 'done' | 'failed';
+	/** 0..1, mirrors `ProgressData.progress` -- null before the first progress
+	 *  update (cold model load) or once the run is no longer 'generating'. */
+	progress: number | null;
+	/** Client epoch ms when this run last resolved to 'done' -- persisted so
+	 *  the row's `Done · <time>` readout survives a reload. */
+	finishedAt: number | null;
+	/** The output video's servable URL once 'done' -- becomes the row's thumb
+	 *  in place of the shot's own keyframe/slate thumb. */
+	posterUrl: string | null;
+	/** Canonical-JSON fingerprint (see `directorShotFingerprint` in
+	 *  utils/videoDirector.ts) of this shot's OWN generation-defining fields,
+	 *  captured at the moment this run was SUBMITTED (so it reflects what was
+	 *  actually sent, not whatever the document drifts to while the run is in
+	 *  flight). `deriveConsoleModel`'s stale-dependency badge compares a
+	 *  PREDECESSOR shot's live, freshly-recomputed fingerprint against the
+	 *  predecessor's own stored value here -- never a shot's own live
+	 *  fingerprint against its own stored one. */
+	inputsHash: string | null;
+}
+
+/** Maps a generation id back to the shot id(s) it covers -- see
+ *  `DirectorRunState`'s doc comment. Populated at submit time (never derived
+ *  from `directorRuns`, since several shots can share one `generationId`, an
+ *  intentionally non-invertible-by-lookup mapping without it). Transient
+ *  same tier as `directorRuns` (persisted with the tab so a reload can still
+ *  route a resumed WebSocket subscription's messages, per `PersistedTab`
+ *  below). */
+export type DirectorRunLinks = Record<string, string[]>;
 
 export interface ImageData {
 	url: string;
@@ -319,6 +366,15 @@ export interface Tab {
 	// Round-trips via sessions/prompt_state, and via localStorage tab
 	// persistence for an unsaved tab -- same lifecycle as `videoDirector`.
 	musicDirector?: MusicDirectorValue;
+	/** Per-shot Video Director generation state -- see `DirectorRunState`.
+	 *  Round-trips via localStorage tab persistence (`PersistedTab`) same tier
+	 *  as `videoDirector` itself; a saved SESSION never carries it (no
+	 *  server-side field for it -- a run belongs to a live tab, not a
+	 *  reusable/replayable document). */
+	directorRuns?: Record<string, DirectorRunState>;
+	/** generationId -> shot id(s) that generation covers -- see
+	 *  `DirectorRunLinks`. Same persistence tier as `directorRuns`. */
+	directorRunLinks?: DirectorRunLinks;
 	formData: Record<string, unknown>;
 	/** Prompt variables (name -> typed definition), referenced from any segment of
 	 *  this tab as `${name}`. Shared by all segments/prompt-tabs. Like `formData`,
@@ -391,6 +447,13 @@ export interface Tab {
 	// Per-tab panel layout (two/three panes) and the three-pane prompt pane width.
 	layoutMode: GenerationLayoutMode;
 	promptPanelWidth: number;
+	/** `promptPanelWidth` from just before the Video Director auto-widened the
+	 *  prompts pane to its maximum (`GenerationPanels.svelte`, PLAN.md §C W4)
+	 *  — set on activation, restored to and cleared on deactivation. Unset
+	 *  means the pane is at its normal, user-chosen width. DOES persist
+	 *  (`PersistedTab`, same tier as `promptPanelWidth`) so a reload mid-session
+	 *  still knows what to restore to. */
+	promptPanelWidthBeforeDirector?: number;
 	/** Per-tab prompt composer layout, also stored in generation sessions. */
 	positiveSegmentsCollapsed?: boolean;
 	negativeSegmentsCollapsed?: boolean;

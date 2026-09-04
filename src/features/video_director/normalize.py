@@ -36,6 +36,7 @@ _CONTINUATION_SOURCES = {"tail_frames", "last_frame"}
 _AUDIO_ROLES = {"condition", "mux"}
 
 _SUB_TYPES = ("t2v", "i2v", "flf", "chain")
+_RENDER_SCOPES = ("film", "shots")
 # Which loaded checkpoint SET each resolved sub-type draws from. t2v shots run
 # on the plain (16-channel) t2v experts; every image-conditioned shot -- a fresh
 # start image (i2v), a start+end pair (flf), or a continuation of the previous
@@ -185,7 +186,7 @@ def normalize_video_director(
     out: Dict[str, Any] = {
         key: value
         for key, value in document.items()
-        if key not in {"schema_version", "mode", "settings", "segments", "media", "audio", "ic_lora"}
+        if key not in {"schema_version", "mode", "settings", "segments", "media", "audio", "ic_lora", "shot", "render"}
     }
 
     schema_version = document.get("schema_version")
@@ -258,6 +259,14 @@ def normalize_video_director(
 
     out["audio"] = _normalize_audio(document.get("audio") or [], mode_caps, storage_path, errors)
     out["ic_lora"] = _normalize_ic_lora(document.get("ic_lora") or [], timeline_style, mode_caps, storage_path, errors)
+
+    shot = _normalize_shot(document.get("shot"), errors)
+    if shot is not None:
+        out["shot"] = shot
+
+    render = _normalize_render(document.get("render"), segment_ids, errors)
+    if render is not None:
+        out["render"] = render
 
     if errors:
         raise VideoDirectorValidationError(errors)
@@ -1134,3 +1143,101 @@ def _normalize_ic_lora(
         })
 
     return out
+
+
+def _normalize_shot(shot: Any, errors: List[str]) -> Optional[Dict[str, Any]]:
+    """Validate and echo the optional ``shot`` provenance key: which editor
+    shot a per-shot wire submission was compiled from. Purely informational --
+    the pipeline, the pipes, and every other normalizer function never branch
+    on it -- so a document without one normalizes to no key at all rather
+    than a synthesized default (a chain-style document compiled as a whole
+    film has no single owning shot).
+    """
+    if shot is None:
+        return None
+
+    context = "shot"
+    if not isinstance(shot, dict):
+        errors.append(f"{context}: must be an object")
+        return None
+
+    allowed_keys = {"id", "index", "count", "title"}
+    unknown = sorted(set(shot.keys()) - allowed_keys)
+    if unknown:
+        errors.append(f"{context}: unknown keys {unknown}")
+
+    shot_id = shot.get("id")
+    if not isinstance(shot_id, str) or not shot_id:
+        errors.append(f"{context}.id: must be a non-empty string, got {shot_id!r}")
+
+    index = shot.get("index")
+    if isinstance(index, bool) or not isinstance(index, int):
+        errors.append(f"{context}.index: must be an integer, got {index!r}")
+        index = None
+
+    count = shot.get("count")
+    if isinstance(count, bool) or not isinstance(count, int):
+        errors.append(f"{context}.count: must be an integer, got {count!r}")
+        count = None
+
+    if index is not None and count is not None and not (0 <= index < count):
+        errors.append(f"{context}: index must satisfy 0 <= index < count, got index={index!r} count={count!r}")
+
+    title = shot.get("title")
+    if title is not None and not isinstance(title, str):
+        errors.append(f"{context}.title: must be a string, got {title!r}")
+        title = None
+
+    out: Dict[str, Any] = {"id": shot_id, "index": index, "count": count}
+    if title is not None:
+        out["title"] = title
+    return out
+
+
+def _normalize_render(render: Any, segment_ids: set, errors: List[str]) -> Optional[Dict[str, Any]]:
+    """Validate and echo the optional ``render`` key: which slice of the
+    document this submission actually wants executed. ``"film"`` (or the key
+    absent entirely) is the whole document, unchanged from every wire
+    document before this key existed. ``"shots"`` names a SPAN of segment ids
+    -- never an arbitrary filtered subset -- for
+    ``src.features.video_director.compile.compile_shot_plan`` to cut down to
+    after this function returns; this normalizer only validates the request
+    shape, it never touches ``segments``/``media``/``audio`` to honour it.
+    """
+    if render is None:
+        return None
+
+    context = "render"
+    if not isinstance(render, dict):
+        errors.append(f"{context}: must be an object")
+        return None
+
+    allowed_keys = {"scope", "shot_ids"}
+    unknown = sorted(set(render.keys()) - allowed_keys)
+    if unknown:
+        errors.append(f"{context}: unknown keys {unknown}")
+
+    scope = render.get("scope")
+    if scope not in _RENDER_SCOPES:
+        errors.append(f"{context}.scope: must be one of {list(_RENDER_SCOPES)}, got {scope!r}")
+        return None
+
+    shot_ids = render.get("shot_ids")
+    if scope == "film":
+        if shot_ids:
+            errors.append(f"{context}.shot_ids: only valid when scope is 'shots', got {shot_ids!r}")
+        return {"scope": "film", "shot_ids": []}
+
+    if (
+        not isinstance(shot_ids, list)
+        or not shot_ids
+        or not all(isinstance(shot_id, str) and shot_id for shot_id in shot_ids)
+    ):
+        errors.append(f"{context}.shot_ids: must be a non-empty list of non-empty strings, got {shot_ids!r}")
+        return {"scope": "shots", "shot_ids": []}
+
+    unknown_ids = [shot_id for shot_id in shot_ids if shot_id not in segment_ids]
+    if unknown_ids:
+        errors.append(f"{context}.shot_ids: unknown segment id(s) {unknown_ids}")
+
+    return {"scope": "shots", "shot_ids": list(shot_ids)}

@@ -2,9 +2,11 @@
 	// `.shot-card` -- the expanded, active shot. Card head carries every fact
 	// (no per-shot Generate, no info band, per note09-decisions.md); the body
 	// is entirely `children` -- lane (c)'s ShotRail and lane (d)'s ShotStage,
-	// wired up by ShotConsole (lane a). The signal ring is the "active shot"
-	// state -- a card only renders here because it IS the active shot, so the
-	// ring is unconditional, not a prop.
+	// wired up by ShotConsole (lane a). The active-shot border is unconditional
+	// (a card only renders here because it IS the active shot, so it's not a
+	// prop) -- maintainer ruling (09-04): a subtle 1px signal-tinted border,
+	// no glow -- the earlier full-strength `border-signal` + shadow ring read
+	// as too loud/blue for what is just "which shot is expanded".
 	import type { Snippet } from 'svelte';
 	import type { ConsoleShot } from './consoleModel';
 	import { badgeMeta, BADGE_TONE_CLASS } from './badgeMeta';
@@ -16,6 +18,7 @@
 		onToggleChecked,
 		onDuplicate,
 		onRemove,
+		onRetry,
 		children
 	}: {
 		shot: ConsoleShot;
@@ -23,6 +26,8 @@
 		onToggleChecked: (shotId: string) => void;
 		onDuplicate: (shotId: string) => void;
 		onRemove: (shotId: string) => void;
+		/** Resubmits just this shot (W3) -- only ever rendered for a 'failed' run. */
+		onRetry?: (shotId: string) => void;
 		children?: Snippet;
 	} = $props();
 
@@ -54,7 +59,7 @@
 
 <svelte:window onclick={handleWindowClick} />
 
-<div class="rounded-md border border-signal bg-surface-1 shadow-[0_0_0_3px_rgb(var(--signal)/0.08)]">
+<div class="rounded-md border bg-surface-1" style="border-color: rgb(var(--signal) / 0.35)">
 	<div class="flex flex-wrap items-center gap-2.5 border-b border-line px-3.5 py-2.5">
 		<button
 			type="button"
@@ -70,7 +75,7 @@
 		</button>
 
 		<span class="font-mono text-[11px] text-fg">{shot.number}</span>
-		<span class="text-[13px] font-semibold text-fg">{shot.title}</span>
+		<span class="max-w-[220px] truncate text-[13px] font-semibold text-fg" title={shot.title}>{shot.title}</span>
 		<span class="font-mono text-[11px] text-fg-subtle">{shot.durationSeconds.toFixed(1)} s</span>
 		<span class="font-mono text-[11px] text-fg-subtle"><b class="font-normal text-fg-muted">{framesBold}</b>{framesRest}</span>
 
@@ -103,7 +108,13 @@
 			>
 				{runLabel()}
 				{#if shot.run.kind === 'failed'}
-					<span class="cursor-pointer text-fg-muted underline normal-case">Retry</span>
+					<button
+						type="button"
+						class="cursor-pointer border-none bg-none p-0 font-mono text-[10px] normal-case text-fg-muted underline"
+						onclick={() => onRetry?.(shot.id)}
+					>
+						Retry
+					</button>
 				{/if}
 			</span>
 		{/if}

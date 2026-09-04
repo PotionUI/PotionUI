@@ -28,3 +28,51 @@ export function settingsPaneWidth(viewportWidth: number): number {
 export function settingsPaneContentWidth(viewportWidth: number): number {
 	return settingsPaneWidth(viewportWidth) - SETTINGS_PANE_CONTENT_PADDING;
 }
+
+// Video Director auto-widen: while the Director is active, the prompts pane
+// (which hosts the console) grows to the widest it can be; on deactivation it
+// returns to whatever the user had it at before. Both directions are pure
+// reducers — `GenerationPanels.svelte` supplies the current width state (the
+// tab's `promptPanelWidth`/`promptPanelWidthBeforeDirector`) and, for the
+// widen direction, the pane's current maximum (from its own
+// `promptWidthForClientX(panelRight)`) — and applies the returned patch via
+// `tabsStore.updateTab`.
+export interface PromptPanelWidthState {
+	promptPanelWidth: number;
+	promptPanelWidthBeforeDirector?: number;
+}
+
+/**
+ * Video Director activation: widen the prompts pane to `maxWidth`, stashing
+ * the prior width so it can be restored later. Returns `null` (no patch) when
+ * the pane is already widened — `promptPanelWidthBeforeDirector` is the guard
+ * that makes this idempotent across an activation, so a manual drag partway
+ * through is never overwritten by a later call — or when there is nothing to
+ * widen to (`maxWidth` no bigger than the current width).
+ */
+export function widenPromptPanelForDirector(
+	state: PromptPanelWidthState,
+	maxWidth: number
+): Partial<PromptPanelWidthState> | null {
+	if (state.promptPanelWidthBeforeDirector != null) return null;
+	if (maxWidth <= state.promptPanelWidth) return null;
+	return {
+		promptPanelWidthBeforeDirector: state.promptPanelWidth,
+		promptPanelWidth: maxWidth
+	};
+}
+
+/**
+ * Video Director deactivation: restore the prompts pane to the width stashed
+ * by `widenPromptPanelForDirector` and clear the stash. Returns `null` (no
+ * patch) when there is nothing stashed — the pane was never widened.
+ */
+export function restorePromptPanelFromDirector(
+	state: PromptPanelWidthState
+): Partial<PromptPanelWidthState> | null {
+	if (state.promptPanelWidthBeforeDirector == null) return null;
+	return {
+		promptPanelWidth: state.promptPanelWidthBeforeDirector,
+		promptPanelWidthBeforeDirector: undefined
+	};
+}

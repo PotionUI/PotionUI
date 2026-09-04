@@ -24,33 +24,40 @@
 		model,
 		doc,
 		caps,
+		timelineShotId,
 		onDoc
 	}: {
 		model: StageShotModel;
 		doc: VideoDirectorValue;
 		caps: DirectorCapabilities;
+		/** Which shot's own beat list `model.id` addresses -- ignored for chain
+		 * routing (a chain shot's prompt IS its one segment). */
+		timelineShotId: string;
 		onDoc: (next: VideoDirectorValue) => void;
 	} = $props();
 
 	let isTimeline = $derived(model.routing === 'timeline' && model.footer.startSeconds != null && model.footer.endSeconds != null);
+	let timelineShot = $derived(caps.segmentRouting ? undefined : doc.timeline.shots.find((s) => s.id === timelineShotId));
 
 	function updatePromptSegments(segments: Segment[]) {
-		onDoc(withShotPromptSegments(doc, caps, model.id, segments));
+		onDoc(withShotPromptSegments(doc, caps, model.id, segments, timelineShotId));
 	}
 	function setStart(e: Event) {
+		if (!timelineShot) return;
 		const raw = parseFloat((e.currentTarget as HTMLInputElement).value);
 		if (!Number.isFinite(raw)) return;
-		const clamped = resizeTimelineBlockEdge(doc.timeline.segments, model.id, 'start', raw, doc.timeline.duration);
-		onDoc(withTimelineSegmentEdge(doc, model.id, 'start', clamped));
+		const clamped = resizeTimelineBlockEdge(timelineShot.segments, model.id, 'start', raw, timelineShot.duration);
+		onDoc(withTimelineSegmentEdge(doc, timelineShotId, model.id, 'start', clamped));
 	}
 	function setEnd(e: Event) {
+		if (!timelineShot) return;
 		const raw = parseFloat((e.currentTarget as HTMLInputElement).value);
 		if (!Number.isFinite(raw)) return;
-		const clamped = resizeTimelineBlockEdge(doc.timeline.segments, model.id, 'end', raw, doc.timeline.duration);
-		onDoc(withTimelineSegmentEdge(doc, model.id, 'end', clamped));
+		const clamped = resizeTimelineBlockEdge(timelineShot.segments, model.id, 'end', raw, timelineShot.duration);
+		onDoc(withTimelineSegmentEdge(doc, timelineShotId, model.id, 'end', clamped));
 	}
 	function removeBeat() {
-		onDoc(applyDirectorOperations(doc, [{ op: 'remove_segment', id: model.id }], caps));
+		onDoc(applyDirectorOperations(doc, [{ op: 'remove_segment', id: model.id, shot_id: timelineShotId }], caps));
 	}
 </script>
 

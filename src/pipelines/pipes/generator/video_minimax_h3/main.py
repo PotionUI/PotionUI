@@ -1395,7 +1395,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
         condition_audio_rows: Optional[Tensor], steps: int, generator: torch.Generator, progress,
         progress_offset: int = 0, progress_total: Optional[int] = None, progress_state: str = "VIDEO",
         layout: Optional[PackedLayout] = None, is_cancelled: Optional[Callable[[], bool]] = None,
-        initial_latent: Optional[Tensor] = None,
+        initial_latent: Optional[Tensor] = None, progress_segment_id: Optional[str] = None,
     ) -> tuple[Tensor, Tensor, PackedLayout]:
         """Sample ONE packed sequence to completion; returns the final
         `(video_rows, audio_rows, layout)` with the condition prefixes still
@@ -1547,7 +1547,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
 
         def on_progress(_frac, step_index, total):
             progress.step(progress_offset + step_index + 1, reported_total, state=progress_state,
-                          icon=Icon(name="film", effect="pulse"))
+                          icon=Icon(name="film", effect="pulse"), segment_id=progress_segment_id)
 
         hooks = [ProgressHook(on_progress)]
         if self.config.get("preview", True):
@@ -1725,6 +1725,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 progress_offset=steps_done, progress_total=total_steps,
                 progress_state=f"SHOT {window.index + 1}/{len(windows)}",
                 layout=ref2va_layout, is_cancelled=is_cancelled,
+                progress_segment_id=window.segment_id,
             )
             if is_cancelled is not None and is_cancelled():
                 # Same rationale as the non-director path: don't pay for this

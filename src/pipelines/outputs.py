@@ -146,6 +146,13 @@ class ProgressGenerationOutput(GenerationOutput):
     icon: Icon = None
     title: str = None
     progress: Progress = None
+    # Video Director: the segment/shot this progress update belongs to, for a
+    # multi-segment chain generation (e.g. `chain_video_wan22`, MiniMax-H3's
+    # windowed run) -- `None` for every non-Director pipe and for the
+    # document-level progress a Director pipe emits outside its per-segment
+    # loop. Lets a film-scoped run light up the active row in the Video
+    # Director console (`segment["id"]` from `form.video_director.segments`).
+    segment_id: str = None
 
 
 @dataclass

@@ -28,6 +28,7 @@ function baseModeCap(overrides: Partial<DirectorModeCapability> = {}): DirectorM
 		continuation: null,
 		maxOverlapFrames: null,
 		continuationDisabled: false,
+		fpsLocked: false,
 		...overrides
 	};
 }
@@ -41,7 +42,10 @@ function baseDoc(): VideoDirectorValue {
 		negative_prompt: '',
 		negative_prompt_segments: [],
 		simple: { duration: 5, fps: 24, start_image: null, first_frame: null, last_frame: null },
-		timeline: { duration: 5, fps: 24, segments: [], keyframes: [], audio: [], ic_lora: [] },
+		timeline: {
+			fps: 24,
+			shots: [{ id: 'shot-1', duration: 5, continue_from_previous: false, segments: [], keyframes: [], audio: [], ic_lora: [] }]
+		},
 		chain: {
 			fps: 16,
 			segments: [],
@@ -63,6 +67,8 @@ function chainSegment(id: string, prompt: string, duration: number, override: 't
 		keyframe_strength: 1,
 		last_keyframe: null,
 		last_keyframe_strength: 1,
+		steps: null,
+		cfg: null,
 		sub_type_override: override
 	};
 }
@@ -173,13 +179,20 @@ function ltxCaps(): DirectorCapabilities {
 
 function ltxDoc(): VideoDirectorValue {
 	const doc = baseDoc();
-	doc.timeline.fps = 25;
-	doc.timeline.duration = 40.04;
-	doc.timeline.segments = [
-		{ id: 'b1', start: 0, end: 4.2, text: 'Rain on the neon sign', prompt_segments: [] },
-		{ id: 'b2', start: 4.2, end: 8.6, text: 'Past the noodle window', prompt_segments: [] },
-		{ id: 'b3', start: 8.6, end: 11.88, text: 'The sign goes out', prompt_segments: [] }
-	];
+	doc.timeline = {
+		fps: 25,
+		shots: [
+			{
+				...doc.timeline.shots[0],
+				duration: 40.04,
+				segments: [
+					{ id: 'b1', start: 0, end: 4.2, text: 'Rain on the neon sign', prompt_segments: [] },
+					{ id: 'b2', start: 4.2, end: 8.6, text: 'Past the noodle window', prompt_segments: [] },
+					{ id: 'b3', start: 8.6, end: 11.88, text: 'The sign goes out', prompt_segments: [] }
+				]
+			}
+		]
+	};
 	return doc;
 }
 
@@ -454,15 +467,26 @@ describe('deriveRailModel — LTX timeline', () => {
 			modes: { director: baseModeCap({ audio: true, icLora: true, maxKeyframes: 8 }) }
 		};
 		const bareDoc = ltxDoc();
-		bareDoc.timeline.segments = [{ id: 'b1', start: 0, end: 4, text: '', prompt_segments: [] }];
-		const model = deriveRailModel(bareDoc, realLtxCaps);
+		bareDoc.timeline = {
+			...bareDoc.timeline,
+			shots: [{ ...bareDoc.timeline.shots[0], segments: [{ id: 'b1', start: 0, end: 4, text: '', prompt_segments: [] }] }]
+		};
+		const model = deriveRailModel(bareDoc, realLtxCaps, 'shot-1');
 		expect(model.freePlacementActive).toBe(true);
 		expect(model.lanes.keyframes).toBe(true);
 	});
 
 	it('draws keyframes, audio and the whole-video IC-LoRA head', () => {
 		const doc = ltxDoc();
-		doc.timeline.ic_lora = [{ id: 'ic-1', lora: { model: 'ltx-2-detailer', strength: 0.65 }, ref_media: { path: 'alley-plate.png' }, strength: 0.65 }];
+		doc.timeline = {
+			...doc.timeline,
+			shots: [
+				{
+					...doc.timeline.shots[0],
+					ic_lora: [{ id: 'ic-1', lora: { model: 'ltx-2-detailer', strength: 0.65 }, ref_media: { path: 'alley-plate.png' }, strength: 0.65 }]
+				}
+			]
+		};
 		const model = deriveRailModel(doc, ltxCaps());
 		expect(model.lanes).toEqual({ shots: true, keyframes: true, audio: true, icLora: true, references: false });
 		expect(model.icLora).toEqual({ id: 'ic-1', hasLora: true, hasReference: true });
@@ -480,11 +504,12 @@ describe('deriveRailModel — LTX timeline', () => {
 
 	it('clamps a block-edge drag against its neighbour rather than crossing it', () => {
 		const doc = ltxDoc();
-		const clampedStart = resizeTimelineBlockEdge(doc.timeline.segments, 'b2', 'start', 2, doc.timeline.duration);
+		const shot = doc.timeline.shots[0];
+		const clampedStart = resizeTimelineBlockEdge(shot.segments, 'b2', 'start', 2, shot.duration);
 		expect(clampedStart).toBe(4.2); // block 1 ends at 4.2s; cannot cross it
-		const clampedEnd = resizeTimelineBlockEdge(doc.timeline.segments, 'b2', 'end', 20, doc.timeline.duration);
+		const clampedEnd = resizeTimelineBlockEdge(shot.segments, 'b2', 'end', 20, shot.duration);
 		expect(clampedEnd).toBe(8.6); // block 3 starts at 8.6s; cannot cross it
-		const withinRange = resizeTimelineBlockEdge(doc.timeline.segments, 'b2', 'start', 5, doc.timeline.duration);
+		const withinRange = resizeTimelineBlockEdge(shot.segments, 'b2', 'start', 5, shot.duration);
 		expect(withinRange).toBeCloseTo(5, 5);
 	});
 });
@@ -499,18 +524,21 @@ describe('drag reducers', () => {
 		expect(next.chain.segments).toBe(doc.chain.segments); // unrelated branch not rebuilt
 	});
 
-	it('withTimelineKeyframeAt moves only the matching keyframe', () => {
+	it('withTimelineKeyframeAt moves only the matching keyframe, on the named shot', () => {
 		const doc = ltxDoc();
-		doc.timeline.keyframes = [{ id: 'k1', start: 0, role: 'free', strength: 1, media: null }];
-		const next = withTimelineKeyframeAt(doc, 'k1', 6);
-		expect(next.timeline.keyframes[0].start).toBe(6);
+		doc.timeline = {
+			...doc.timeline,
+			shots: [{ ...doc.timeline.shots[0], keyframes: [{ id: 'k1', start: 0, role: 'free', strength: 1, media: null }] }]
+		};
+		const next = withTimelineKeyframeAt(doc, 'shot-1', 'k1', 6);
+		expect(next.timeline.shots[0].keyframes[0].start).toBe(6);
 	});
 
-	it('withTimelineSegmentEdge moves only the matching block edge', () => {
+	it('withTimelineSegmentEdge moves only the matching block edge, on the named shot', () => {
 		const doc = ltxDoc();
-		const next = withTimelineSegmentEdge(doc, 'b2', 'start', 5);
-		expect(next.timeline.segments.find((s) => s.id === 'b2')!.start).toBe(5);
-		expect(next.timeline.segments.find((s) => s.id === 'b1')!.end).toBe(4.2); // untouched
+		const next = withTimelineSegmentEdge(doc, 'shot-1', 'b2', 'start', 5);
+		expect(next.timeline.shots[0].segments.find((s) => s.id === 'b2')!.start).toBe(5);
+		expect(next.timeline.shots[0].segments.find((s) => s.id === 'b1')!.end).toBe(4.2); // untouched
 	});
 });
 
@@ -661,7 +689,10 @@ describe('deriveRailModel — free keyframes lane visibility mirrors resolveDire
 			referenceFields: []
 		};
 		const doc = baseDoc();
-		doc.timeline.segments = [{ id: 'tl-1', start: 0, end: 4, text: 'x', prompt_segments: [] }];
+		doc.timeline = {
+			...doc.timeline,
+			shots: [{ ...doc.timeline.shots[0], segments: [{ id: 'tl-1', start: 0, end: 4, text: 'x', prompt_segments: [] }] }]
+		};
 		const model = deriveRailModel(doc, caps);
 		expect(model.lanes.keyframes).toBe(false);
 	});
@@ -677,10 +708,18 @@ describe('deriveRailModel — free keyframes lane visibility mirrors resolveDire
 
 	it('a timeline keyframe placed via an edge well (role first/last) is locked; one added via the lane (role free) is not', () => {
 		const doc = ltxDoc();
-		doc.timeline.keyframes = [
-			{ id: 'kf-first', start: 0, role: 'first', strength: 1, media: { path: 'a.png' } },
-			{ id: 'kf-free', start: 6, role: 'free', strength: 1, media: null }
-		];
+		doc.timeline = {
+			...doc.timeline,
+			shots: [
+				{
+					...doc.timeline.shots[0],
+					keyframes: [
+						{ id: 'kf-first', start: 0, role: 'first', strength: 1, media: { path: 'a.png' } },
+						{ id: 'kf-free', start: 6, role: 'free', strength: 1, media: null }
+					]
+				}
+			]
+		};
 		const model = deriveRailModel(doc, ltxCaps());
 		const first = model.keyframes.find((k) => k.id === 'kf-first')!;
 		const free = model.keyframes.find((k) => k.id === 'kf-free')!;

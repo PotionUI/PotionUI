@@ -18,14 +18,38 @@
 //   spanning the whole timeline; the timeline's own beats/keyframes/audio
 //   become that one shot's rail lanes. `canAddShot` is therefore always false
 //   for timeline routing in W1 (see below).
-// - Dependency badges: only 'independent' and 'continuous' are derivable
-//   without a runs map (W3) -- never 'needs-previous'/'input-ready'/'stale'.
-// - `run` is always null (no per-shot generation exists yet, W3).
 // - `fpsLocked` is always false and no "24 fps" header chip is ever emitted:
 //   there is no `fps_locked` capability on `DirectorModeCapability` yet (W2
 //   adds one to MiniMax-H3's preset block) -- without it there is no signal
 //   to derive "fixed" from, so this omits the chip entirely rather than
 //   guess (see PLAN.md's open item D5 and the W1-BRIEF's own hedge on this).
+//
+// ─── W3 additions (PLAN.md §C W3) ──────────────────────────────────────────
+// - `deriveConsoleModel` takes two new optional trailing params: `runs`
+//   (`Tab.directorRuns`, keyed by shot id) and `checked` (the console's own
+//   transient row-checkbox selection, ShotConsole component state). Both
+//   default to empty, which reproduces W1/W2's behaviour exactly (`run`
+//   always null, badges never 'needs-previous'/'input-ready'/'stale', joins
+//   never 'missing').
+// - `run` now reflects the shot's own entry in `runs` (queued/generating %/
+//   done · time/failed).
+// - The dependency badge for a shot that DEPENDS on its predecessor (a
+//   'continue'/'native' seam, or a timeline shot's `continue_from_previous`)
+//   is derived from `runs` via `dependentBadge` below: no predecessor run (or
+//   not 'done') is 'needs-previous'; predecessor done and this shot never
+//   itself rendered is 'input-ready'; predecessor done and this shot's OWN
+//   last render is stale relative to it (predecessor rendered again, or its
+//   live document changed since ITS OWN run) is 'stale'; otherwise
+//   'continuous' (W1/W2's steady state). A shot with no such dependency keeps
+//   its plain 'independent'/'continuous' read, unchanged.
+// - A join whose kind would be 'native'/'continue' (i.e. NOT a hard cut)
+//   becomes `kind: 'missing'` -- rendering the warning block instead of the
+//   normal chip/toggle -- only when its downstream shot is CHECKED and the
+//   predecessor has no 'done' run (PLAN.md: the console has no ambient
+//   Generate control, so this warning is only shown once the user has
+//   actually scoped a generation that would hit it). `control.spanShotIds`
+//   carries the contiguous run back to the nearest fresh cut, inclusive of
+//   the checked shot, for the block's "Generate previous + this shot" action.
 //
 // ─── Deviations from the written contract (documented, not silent) ────────
 // - No `presetLabel` parameter and no `ConsoleHeader.modelLabel` field: the
@@ -56,8 +80,10 @@ import type {
 	DirectorCapabilities,
 	DirectorModeCapability,
 	DirectorMediaValue,
-	ChainSegment
+	ChainSegment,
+	DirectorTimelineShot
 } from '$lib/types/videoDirector';
+import type { DirectorRunState } from '$lib/types/tabs';
 import {
 	deriveRailModel,
 	deriveShotLabel,
@@ -69,7 +95,8 @@ import {
 	DEFAULT_MAX_KEYFRAMES,
 	collectFormMediaOptions,
 	resolveDirectorMediaDisplay,
-	validateDirector
+	validateDirector,
+	directorShotFingerprint
 } from '$lib/utils/videoDirector';
 
 // ─── Public types (verbatim from W1-BRIEF.md's contract) ───────────────────
@@ -112,12 +139,17 @@ export interface ConsoleJoin {
 	kind: ConsoleJoinKind;
 	label: string /* 'HARD CUT' */;
 	sentence: string;
-	control: { kind: 'chip'; text: string } | { kind: 'toggle'; value: 'continue' | 'cut' };
+	control:
+		| { kind: 'chip'; text: string }
+		| { kind: 'toggle'; value: 'continue' | 'cut' }
+		/** `kind: 'missing'` only -- the contiguous run of shot ids back to the
+		 * nearest fresh cut, inclusive of the checked (downstream) shot, for
+		 * the warning block's "Generate previous + this shot" action. */
+		| { kind: 'missing'; spanShotIds: string[] };
 	overlapFrames: number | null;
 }
 
 export interface ConsoleHeader {
-	title: string;
 	shotCount: number;
 	totalSeconds: number;
 	capChips: Array<{ icon?: string; text: string }>;
@@ -139,13 +171,6 @@ export interface ConsoleModel {
 	canAddShot: boolean;
 	addShotDisabledReason: string | null;
 }
-
-/** Synthetic id for the single console shot a TIMELINE (LTX) document renders
- * as in W1 -- there is no per-shot id on `DirectorTimelineDoc` yet (that
- * lands with W2's `DirectorTimelineShot`). Stable across renders (never
- * minted from a counter/clock) so `ui.activeShotId` and `deriveShotRail`
- * agree on the same id. */
-export const TIMELINE_SHOT_ID = 'timeline-shot';
 
 // ─── Small shared helpers ───────────────────────────────────────────────────
 
@@ -197,26 +222,36 @@ function buildCapChips(
 	else if (dc.keyframes === 'first_only') chips.push({ icon: 'image', text: 'Edge anchors only' });
 
 	if (dc.keyframes === 'anywhere') {
+		// Free keyframes across shots (PLAN.md's cap-strip note): a chain
+		// document has one shared `chain.keyframes` list, a timeline film's
+		// count is summed across every independent shot's own list.
 		const cap = dc.maxKeyframes ?? DEFAULT_MAX_KEYFRAMES;
 		const placed = caps.segmentRouting
 			? doc.chain.keyframes.length
-			: doc.timeline.keyframes.filter((k) => k.role === 'free').length;
+			: doc.timeline.shots.flatMap((s) => s.keyframes).filter((k) => k.role === 'free').length;
 		chips.push({ icon: 'layers', text: `Free keyframes · ${placed}/${cap}` });
 	}
 
 	if (dc.audio) chips.push({ text: 'Audio' });
 	if (dc.icLora) chips.push({ text: 'IC-LoRA' });
 	if (dc.perSegmentLoras) chips.push({ text: 'Per-shot LoRAs' });
+	if (dc.fpsLocked) chips.push({ text: `${rail.fps} fps` });
 
 	return chips;
 }
 
-function buildHeader(doc: VideoDirectorValue, caps: DirectorCapabilities, rail: RailModel, shotCount: number): ConsoleHeader {
-	const result = validateDirector(doc, caps);
+function buildHeader(
+	doc: VideoDirectorValue,
+	caps: DirectorCapabilities,
+	rail: RailModel,
+	shotCount: number,
+	totalSeconds: number,
+	runs: Record<string, DirectorRunState> | null | undefined
+): ConsoleHeader {
+	const result = validateDirector(doc, caps, runs);
 	return {
-		title: 'Video Director',
 		shotCount,
-		totalSeconds: rail.totalSeconds,
+		totalSeconds,
 		capChips: buildCapChips(doc, caps, rail),
 		readiness: { ok: result.ok, text: result.ok ? 'Ready' : (result.reasons[0] ?? 'Not ready') }
 	};
@@ -239,13 +274,81 @@ function buildFilmRows(doc: VideoDirectorValue): ConsoleFilmRow[] {
 	];
 }
 
+// ─── Run state / dependency badges (W3) ────────────────────────────────────
+
+function consoleRunState(run: DirectorRunState | undefined | null): ConsoleShot['run'] {
+	if (!run) return null;
+	switch (run.status) {
+		case 'queued':
+			return { kind: 'queued' };
+		case 'generating':
+			return { kind: 'generating', percent: Math.round((run.progress ?? 0) * 100) };
+		case 'done':
+			return { kind: 'done', time: formatRunFinishedAt(run.finishedAt) };
+		case 'failed':
+			return { kind: 'failed' };
+	}
+}
+
+/** `HH:MM`, local time, zero-padded -- a pure function of the given
+ * timestamp (never reads the live clock itself, so this stays
+ * byte-deterministic for a given `finishedAt`), matching the console.html
+ * mock's `Done · 12:03` reading. `null` (no timestamp recorded) reads as
+ * '--:--' rather than throwing. */
+function formatRunFinishedAt(finishedAt: number | null): string {
+	if (finishedAt == null) return '--:--';
+	const d = new Date(finishedAt);
+	return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/** Dependency badge for a shot that DEPENDS on `predecessorId`'s output (a
+ * continue-style seam/join) -- see this file's W3 header note for the state
+ * machine. `runs` absent/empty degrades to 'needs-previous' throughout,
+ * matching W1/W2 (no runs map existed yet). */
+function dependentBadge(
+	doc: VideoDirectorValue,
+	predecessorId: string,
+	shotId: string,
+	runs: Record<string, DirectorRunState> | null | undefined
+): ConsoleBadge {
+	const predecessorRun = runs?.[predecessorId];
+	if (!predecessorRun || predecessorRun.status !== 'done') return 'needs-previous';
+	const ownRun = runs?.[shotId];
+	if (!ownRun || ownRun.status !== 'done') return 'input-ready';
+	const predecessorFinishedAfterOwnRun =
+		predecessorRun.finishedAt != null && ownRun.finishedAt != null && predecessorRun.finishedAt > ownRun.finishedAt;
+	const predecessorLiveHash = directorShotFingerprint(doc, predecessorId);
+	const predecessorEditedSinceItsRun =
+		predecessorRun.inputsHash != null && predecessorLiveHash != null && predecessorRun.inputsHash !== predecessorLiveHash;
+	return predecessorFinishedAfterOwnRun || predecessorEditedSinceItsRun ? 'stale' : 'continuous';
+}
+
 // ─── Chain shots/joins ──────────────────────────────────────────────────────
 
-function chainShotBadge(rail: RailModel, index: number): ConsoleBadge {
+function chainShotBadge(
+	doc: VideoDirectorValue,
+	rail: RailModel,
+	index: number,
+	runs: Record<string, DirectorRunState> | null | undefined
+): ConsoleBadge {
 	const incoming = index > 0 ? rail.seams[index - 1] : null;
 	const outgoing = index < rail.shots.length - 1 ? rail.seams[index] : null;
-	const continuous = (incoming && incoming.kind === 'continue') || (outgoing && outgoing.kind === 'continue');
+	if (incoming && incoming.kind === 'continue') {
+		return dependentBadge(doc, doc.chain.segments[index - 1].id, doc.chain.segments[index].id, runs);
+	}
+	const continuous = outgoing && outgoing.kind === 'continue';
 	return continuous ? 'continuous' : 'independent';
+}
+
+/** The contiguous run of chain segment ids back to the nearest fresh cut
+ * (inclusive), ending at `uptoIndex` -- the span `compile_shot_plan` accepts
+ * for a "Generate previous + this shot" submission (PLAN.md's "never filter
+ * segments" discipline: a broken continuation chain of 3+ shots resolves to
+ * the WHOLE dependent run, never just the two nearest cards). */
+function chainSpanFromFreshCut(doc: VideoDirectorValue, rail: RailModel, uptoIndex: number): string[] {
+	let start = uptoIndex;
+	while (start > 0 && rail.seams[start - 1].kind === 'continue') start -= 1;
+	return doc.chain.segments.slice(start, uptoIndex + 1).map((s) => s.id);
 }
 
 /** Which shot a chain 'anywhere' keyframe's film-time position lands in --
@@ -259,6 +362,15 @@ function chainLandingShotIndex(rail: RailModel, atSeconds: number): number {
 		}
 	}
 	return targetIndex;
+}
+
+/** Once a shot's run resolves to 'done' with an output poster, that
+ * REPLACES the shot's own keyframe/slate thumb (PLAN.md: "Row thumb = the
+ * shot's output poster once done") -- a shot whose run is still queued/
+ * generating/failed, or has none, keeps reading its own editor-side thumb. */
+function withRunPoster(thumb: ConsoleThumb, run: DirectorRunState | null | undefined): ConsoleThumb {
+	if (run?.status === 'done' && run.posterUrl) return { url: run.posterUrl, source: 'output' };
+	return thumb;
 }
 
 function chainShotThumb(
@@ -281,7 +393,8 @@ function buildChainShots(
 	doc: VideoDirectorValue,
 	caps: DirectorCapabilities,
 	rail: RailModel,
-	formData: Record<string, unknown> | null | undefined
+	formData: Record<string, unknown> | null | undefined,
+	runs: Record<string, DirectorRunState> | null | undefined
 ): ConsoleShot[] {
 	const dc = caps.modes.director;
 	return rail.shots.map((block, index) => {
@@ -307,12 +420,12 @@ function buildChainShots(
 			capFrames: block.capFrames,
 			newFrames: block.hasOverlapIn ? block.contributedFrames : null,
 			fps: rail.fps,
-			fpsLocked: false,
-			thumb: chainShotThumb(doc, rail, segment, block, formData),
-			badge: chainShotBadge(rail, index),
+			fpsLocked: dc?.fpsLocked === true,
+			thumb: withRunPoster(chainShotThumb(doc, rail, segment, block, formData), runs?.[segment.id]),
+			badge: chainShotBadge(doc, rail, index, runs),
 			hasIcLora: false,
 			icLoraCount: 0,
-			run: null,
+			run: consoleRunState(runs?.[segment.id]),
 			tabs,
 			canRemove: rail.shots.length > 1,
 			canDuplicate: dc?.maxSegments == null || rail.shots.length < dc.maxSegments
@@ -320,12 +433,33 @@ function buildChainShots(
 	});
 }
 
-function buildChainJoins(rail: RailModel, caps: DirectorCapabilities): ConsoleJoin[] {
+function buildChainJoins(
+	doc: VideoDirectorValue,
+	rail: RailModel,
+	caps: DirectorCapabilities,
+	runs: Record<string, DirectorRunState> | null | undefined,
+	checked: Set<string> | null | undefined
+): ConsoleJoin[] {
 	const continuationAvailable = caps.modes.director?.continuationDisabled !== true;
 	return rail.seams.map((seam: RailSeam) => {
 		const fromShot = rail.shots[seam.beforeShotIndex];
 		const toShot = rail.shots[seam.beforeShotIndex + 1];
 		const isCut = seam.kind === 'cut';
+		// Only checking the downstream shot can surface the warning -- the
+		// console has no ambient Generate control, so this is only ever shown
+		// once the user has scoped a generation that would actually hit it.
+		const missing = !isCut && checked?.has(toShot.id) && runs?.[fromShot.id]?.status !== 'done';
+		if (missing) {
+			return {
+				afterShotId: fromShot.id,
+				beforeShotId: toShot.id,
+				kind: 'missing',
+				label: 'MISSING PREDECESSOR',
+				sentence: `Shot ${shotNumber(seam.beforeShotIndex)} has no output yet.`,
+				control: { kind: 'missing', spanShotIds: chainSpanFromFreshCut(doc, rail, seam.beforeShotIndex + 1) },
+				overlapFrames: null
+			};
+		}
 		const kind: ConsoleJoinKind = isCut ? 'cut' : 'native';
 		const label = isCut ? 'HARD CUT' : 'NATIVE CONTINUATION';
 		const sentence = isCut
@@ -346,17 +480,23 @@ function buildChainJoins(rail: RailModel, caps: DirectorCapabilities): ConsoleJo
 	});
 }
 
-// ─── Timeline (LTX) single shot ────────────────────────────────────────────
+// ─── Timeline (LTX) shots ───────────────────────────────────────────────────
+// W2: `DirectorTimelineDoc` is `{fps, shots[]}` -- each shot renders exactly
+// like a chain segment does (one ConsoleShot, one generation), except a
+// timeline shot's own rail geometry comes from `deriveRailModel(doc, caps,
+// shot.id)` (per-shot, no cross-shot concatenation -- see that function's
+// doc comment) rather than a single document-wide `RailModel`.
 
-function timelineFilmTitle(doc: VideoDirectorValue): string {
-	const withText = doc.timeline.segments.find((s) => s.text.trim() !== '');
-	if (withText) return deriveShotLabel(withText.text, 0);
-	if (doc.global_prompt.trim() !== '') return deriveShotLabel(doc.global_prompt, 0);
-	return deriveShotLabel('', 0);
+function timelineShotTitle(doc: VideoDirectorValue, shot: DirectorTimelineShot, index: number): string {
+	if (shot.title) return shot.title;
+	const withText = shot.segments.find((s) => s.text.trim() !== '');
+	if (withText) return deriveShotLabel(withText.text, index);
+	if (doc.global_prompt.trim() !== '') return deriveShotLabel(doc.global_prompt, index);
+	return deriveShotLabel('', index);
 }
 
-function timelineShotThumb(doc: VideoDirectorValue, formData: Record<string, unknown> | null | undefined): ConsoleThumb {
-	const sorted = [...doc.timeline.keyframes].sort((a, b) => a.start - b.start);
+function timelineShotThumb(shot: DirectorTimelineShot, formData: Record<string, unknown> | null | undefined): ConsoleThumb {
+	const sorted = [...shot.keyframes].sort((a, b) => a.start - b.start);
 	const free = sorted.find((k) => k.role === 'free' && k.media != null);
 	if (free) return { url: thumbUrlFor(free.media, formData), source: 'keyframe' };
 	const start = sorted.find((k) => k.role === 'first' && k.media != null);
@@ -366,48 +506,114 @@ function timelineShotThumb(doc: VideoDirectorValue, formData: Record<string, unk
 	return { url: null, source: 'slate' };
 }
 
-function buildTimelineShot(
+function buildTimelineShots(
 	doc: VideoDirectorValue,
 	caps: DirectorCapabilities,
-	rail: RailModel,
-	formData: Record<string, unknown> | null | undefined
-): ConsoleShot {
+	formData: Record<string, unknown> | null | undefined,
+	runs: Record<string, DirectorRunState> | null | undefined
+): ConsoleShot[] {
 	const dc = caps.modes.director;
-	const icLoraEntries = doc.timeline.ic_lora.filter((e) => e.lora != null);
-	const hasIcLora = dc?.icLora === true && icLoraEntries.length > 0;
+	const shots = doc.timeline.shots;
+	return shots.map((shot, index) => {
+		const rail = deriveRailModel(doc, caps, shot.id);
+		// Every row the user added counts, picked LoRA or not — the tab and the
+		// row chip answer "does this shot carry IC-LoRA entries", the submission
+		// decides what is complete enough to send.
+		const icLoraEntries = shot.ic_lora;
+		const hasIcLora = dc?.icLora === true && icLoraEntries.length > 0;
 
-	const tabs: ConsoleShot['tabs'] = [{ id: 'selection', label: 'Selection' }];
-	if (caps.references === 'per_shot') {
-		const references = doc.timeline.segments[0]?.references;
-		tabs.push({ id: 'references', label: referencesTabLabel(caps, formData, references) });
-	} else if (caps.references === 'whole') {
-		tabs.push({ id: 'references', label: referencesWholeTabLabel(caps, formData) });
-	}
-	if (dc?.icLora) {
-		tabs.push({ id: 'ic_lora', label: `IC-LoRA · ${icLoraEntries.length}` });
-	}
+		const tabs: ConsoleShot['tabs'] = [{ id: 'selection', label: 'Selection' }];
+		if (caps.references === 'per_shot') {
+			const references = shot.segments[0]?.references;
+			tabs.push({ id: 'references', label: referencesTabLabel(caps, formData, references) });
+		} else if (caps.references === 'whole') {
+			tabs.push({ id: 'references', label: referencesWholeTabLabel(caps, formData) });
+		}
+		if (dc?.icLora) {
+			tabs.push({ id: 'ic_lora', label: `IC-LoRA · ${icLoraEntries.length}` });
+		}
 
-	return {
-		id: TIMELINE_SHOT_ID,
-		index: 0,
-		number: shotNumber(0),
-		title: timelineFilmTitle(doc),
-		durationSeconds: rail.totalSeconds,
-		startSeconds: 0,
-		frames: rail.totalFrames,
-		capFrames: rail.maxFrames,
-		newFrames: null,
-		fps: rail.fps,
-		fpsLocked: false,
-		thumb: timelineShotThumb(doc, formData),
-		badge: 'independent',
-		hasIcLora,
-		icLoraCount: icLoraEntries.length,
-		run: null,
-		tabs,
-		canRemove: false,
-		canDuplicate: false
-	};
+		return {
+			id: shot.id,
+			index,
+			number: shotNumber(index),
+			title: timelineShotTitle(doc, shot, index),
+			durationSeconds: rail.totalSeconds,
+			startSeconds: 0,
+			frames: rail.totalFrames,
+			capFrames: rail.maxFrames,
+			newFrames: null,
+			fps: rail.fps,
+			fpsLocked: dc?.fpsLocked === true,
+			thumb: withRunPoster(timelineShotThumb(shot, formData), runs?.[shot.id]),
+			// A timeline shot has no native continuation (unlike a chain's
+			// `continue` seam) -- `continue_from_previous` is purely an
+			// editor/compile-time join, so its badge reads the SAME
+			// runs-dependent state a chain 'continue' shot does (W3) even
+			// though the join control below renders a toggle, not a chip.
+			badge:
+				shot.continue_from_previous && index > 0
+					? dependentBadge(doc, shots[index - 1].id, shot.id, runs)
+					: 'independent',
+			hasIcLora,
+			icLoraCount: icLoraEntries.length,
+			run: consoleRunState(runs?.[shot.id]),
+			tabs,
+			canRemove: shots.length > 1,
+			canDuplicate: true
+		};
+	});
+}
+
+/** Consecutive-shot joins for a timeline film -- LTX has no native
+ * multi-shot continuation, but the console still offers the Continue | Fresh
+ * cut toggle (it sets `shots[i].continue_from_previous`, compiled at
+ * generation time in a later wave -- see PLAN.md §B/W2's join ruling). */
+/** The contiguous run of timeline shot ids back to the nearest fresh cut
+ * (inclusive), ending at `uptoIndex` -- mirrors `chainSpanFromFreshCut` for
+ * the timeline routing (each shot in the span still submits as its OWN
+ * independent generation; see `buildDirectorSubmission`'s `checkedShotIds`,
+ * there is no server-side compile step for a timeline document). */
+function timelineSpanFromFreshCut(shots: DirectorTimelineShot[], uptoIndex: number): string[] {
+	let start = uptoIndex;
+	while (start > 0 && shots[start].continue_from_previous) start -= 1;
+	return shots.slice(start, uptoIndex + 1).map((s) => s.id);
+}
+
+function buildTimelineJoins(
+	shots: DirectorTimelineShot[],
+	runs: Record<string, DirectorRunState> | null | undefined,
+	checked: Set<string> | null | undefined
+): ConsoleJoin[] {
+	const joins: ConsoleJoin[] = [];
+	for (let i = 0; i < shots.length - 1; i++) {
+		const from = shots[i];
+		const to = shots[i + 1];
+		const isContinue = to.continue_from_previous;
+		const missing = isContinue && checked?.has(to.id) && runs?.[from.id]?.status !== 'done';
+		if (missing) {
+			joins.push({
+				afterShotId: from.id,
+				beforeShotId: to.id,
+				kind: 'missing',
+				label: 'MISSING PREDECESSOR',
+				sentence: `Shot ${shotNumber(i)} has no output yet.`,
+				control: { kind: 'missing', spanShotIds: timelineSpanFromFreshCut(shots, i + 1) },
+				overlapFrames: null
+			});
+			continue;
+		}
+		joins.push({
+			afterShotId: from.id,
+			beforeShotId: to.id,
+			kind: isContinue ? 'continue' : 'cut',
+			label: isContinue ? 'CONTINUES' : 'HARD CUT',
+			sentence: isContinue ? `Inherits Shot ${shotNumber(i)}'s last frame.` : 'Starts fresh — nothing shared.',
+			control: { kind: 'toggle', value: isContinue ? 'continue' : 'cut' },
+			overlapFrames: null
+		});
+	}
+	return joins;
 }
 
 // ─── Entry point ────────────────────────────────────────────────────────────
@@ -416,15 +622,23 @@ export function deriveConsoleModel(
 	doc: VideoDirectorValue,
 	caps: DirectorCapabilities,
 	ui: { activeShotId: string | null },
-	formData?: Record<string, unknown> | null
+	formData?: Record<string, unknown> | null,
+	/** `Tab.directorRuns` (PLAN.md §C W3) -- absent/empty reproduces W1/W2's
+	 * behaviour exactly (see this file's header note). */
+	runs?: Record<string, DirectorRunState> | null,
+	/** The console's own transient row-checkbox selection (ShotConsole
+	 * component state) -- only ever used to decide whether a broken
+	 * continuation's warning block should show (see this file's header note);
+	 * never affects which shots/joins/badges exist otherwise. */
+	checked?: Set<string> | null
 ): ConsoleModel {
 	const rail = deriveRailModel(doc, caps);
 
 	if (rail.routing === 'chain') {
-		const shots = buildChainShots(doc, caps, rail, formData);
-		const joins = buildChainJoins(rail, caps);
+		const shots = buildChainShots(doc, caps, rail, formData, runs);
+		const joins = buildChainJoins(doc, rail, caps, runs, checked);
 		return {
-			header: buildHeader(doc, caps, rail, shots.length),
+			header: buildHeader(doc, caps, rail, shots.length, rail.totalSeconds, runs),
 			filmRows: buildFilmRows(doc),
 			shots,
 			joins,
@@ -435,15 +649,15 @@ export function deriveConsoleModel(
 		};
 	}
 
-	const shot = buildTimelineShot(doc, caps, rail, formData);
+	const shots = buildTimelineShots(doc, caps, formData, runs);
+	const joins = buildTimelineJoins(doc.timeline.shots, runs, checked);
+	const totalSeconds = shots.reduce((sum, s) => sum + s.durationSeconds, 0);
 	return {
-		header: buildHeader(doc, caps, rail, 1),
+		header: buildHeader(doc, caps, rail, shots.length, totalSeconds, runs),
 		filmRows: buildFilmRows(doc),
-		shots: [shot],
-		joins: [],
-		// Multiple independent LTX shots need `DirectorTimelineShot` (W2) --
-		// today's `DirectorTimelineDoc` is one clip, so W1 never offers this.
-		canAddShot: false,
-		addShotDisabledReason: 'Multiple shots per LTX film land in a later release'
+		shots,
+		joins,
+		canAddShot: true,
+		addShotDisabledReason: null
 	};
 }

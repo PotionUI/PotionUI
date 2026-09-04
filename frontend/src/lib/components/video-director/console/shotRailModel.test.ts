@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { deriveShotRail, buildRailTicks, railTimeFromFraction } from './shotRailModel';
+import { chainEdgeKeyframeId, parseChainEdgeKeyframeId } from '$lib/utils/videoDirector';
 import type { VideoDirectorValue, DirectorCapabilities, DirectorModeCapability, ChainSegment } from '$lib/types/videoDirector';
 
 function baseModeCap(overrides: Partial<DirectorModeCapability> = {}): DirectorModeCapability {
@@ -17,6 +18,7 @@ function baseModeCap(overrides: Partial<DirectorModeCapability> = {}): DirectorM
 		continuation: null,
 		maxOverlapFrames: null,
 		continuationDisabled: false,
+		fpsLocked: false,
 		...overrides
 	};
 }
@@ -30,7 +32,10 @@ function baseDoc(): VideoDirectorValue {
 		negative_prompt: '',
 		negative_prompt_segments: [],
 		simple: { duration: 5, fps: 24, start_image: null, first_frame: null, last_frame: null },
-		timeline: { duration: 5, fps: 24, segments: [], keyframes: [], audio: [], ic_lora: [] },
+		timeline: {
+			fps: 24,
+			shots: [{ id: 'shot-1', duration: 5, continue_from_previous: false, segments: [], keyframes: [], audio: [], ic_lora: [] }]
+		},
 		chain: { fps: 16, segments: [], continuation: { overlap_frames: 0, stitch: true }, keyframes: [], audio: [] }
 	};
 }
@@ -46,6 +51,8 @@ function chainSegment(id: string, prompt: string, duration: number, override: 't
 		keyframe_strength: 1,
 		last_keyframe: null,
 		last_keyframe_strength: 1,
+		steps: null,
+		cfg: null,
 		sub_type_override: override
 	};
 }
@@ -138,12 +145,20 @@ function ltxCaps(): DirectorCapabilities {
 
 function ltxDoc(): VideoDirectorValue {
 	const doc = baseDoc();
-	doc.timeline.fps = 25;
-	doc.timeline.duration = 40.04;
-	doc.timeline.segments = [
-		{ id: 'b1', start: 0, end: 4.2, text: 'Rain on the neon sign', prompt_segments: [] },
-		{ id: 'b2', start: 5.5, end: 8.6, text: 'Past the noodle window', prompt_segments: [] } // gap 4.2-5.5 -> global fill
-	];
+	doc.timeline = {
+		...doc.timeline,
+		fps: 25,
+		shots: [
+			{
+				...doc.timeline.shots[0],
+				duration: 40.04,
+				segments: [
+					{ id: 'b1', start: 0, end: 4.2, text: 'Rain on the neon sign', prompt_segments: [] },
+					{ id: 'b2', start: 5.5, end: 8.6, text: 'Past the noodle window', prompt_segments: [] } // gap 4.2-5.5 -> global fill
+				]
+			}
+		]
+	};
 	return doc;
 }
 
@@ -277,11 +292,32 @@ describe('deriveShotRail — chain routing (H3, anywhere: free keyframes + audio
 		const rail = deriveShotRail(h3Doc(), h3Caps(), 'h1');
 		expect(rail.lanes.keyframes!.canAdd).toBe(true);
 	});
+
+	// 09-04 maintainer bug report: clicking the START/END anchor selected
+	// nothing and the stage stayed empty. Root cause was this file minting an
+	// ad-hoc `${segment.id}-leading`/`-trailing` id for the anchor mark that
+	// neither `parseChainEdgeKeyframeId` nor `doc.chain.keyframes` could ever
+	// resolve -- `chainEdgeKeyframeId` is the one id both this rail mark and
+	// `deriveStageModel`'s `buildKeyframeModel` (stageModel.ts) must agree on.
+	it('the START/END anchor marks use chainEdgeKeyframeId, the same id deriveStageModel resolves', () => {
+		const doc = h3Doc();
+		doc.chain.segments = doc.chain.segments.map((s) =>
+			s.id === 'h1' ? { ...s, keyframe: { path: 'start.png' }, last_keyframe: { path: 'end.png' } } : s
+		);
+		const rail = deriveShotRail(doc, h3Caps(), 'h1');
+		const marks = rail.lanes.keyframes!.marks;
+		const start = marks.find((m) => m.kind === 'start')!;
+		const end = marks.find((m) => m.kind === 'end')!;
+		expect(start.id).toBe(chainEdgeKeyframeId('first', 'h1'));
+		expect(end.id).toBe(chainEdgeKeyframeId('last', 'h1'));
+		expect(parseChainEdgeKeyframeId(start.id)).toEqual({ edge: 'first', segmentId: 'h1' });
+		expect(parseChainEdgeKeyframeId(end.id)).toEqual({ edge: 'last', segmentId: 'h1' });
+	});
 });
 
 describe('deriveShotRail — timeline routing (LTX): already shot-local, no rebasing', () => {
 	it('spans the whole document and reports every prompt beat plus a Global gap-fill', () => {
-		const rail = deriveShotRail(ltxDoc(), ltxCaps(), 'timeline-shot');
+		const rail = deriveShotRail(ltxDoc(), ltxCaps(), 'shot-1');
 		expect(rail.durationSeconds).toBeCloseTo(8.6, 5);
 		const beats = rail.lanes.prompt!.beats;
 		expect(beats.map((b) => b.global)).toEqual([false, true, false]);
@@ -291,12 +327,20 @@ describe('deriveShotRail — timeline routing (LTX): already shot-local, no reba
 
 	it('a start/end/free keyframe is placed at film-time percent directly (no rebasing needed)', () => {
 		const doc = ltxDoc();
-		doc.timeline.keyframes = [
-			{ id: 'kf-first', start: 0, role: 'first', strength: 1, media: { path: 's.png', url: 'https://x/s.png' } },
-			{ id: 'kf-free', start: 2.15, role: 'free', strength: 1, media: null },
-			{ id: 'kf-last', start: 8.6, role: 'last', strength: 1, media: null }
-		];
-		const rail = deriveShotRail(doc, ltxCaps(), 'timeline-shot');
+		doc.timeline = {
+			...doc.timeline,
+			shots: [
+				{
+					...doc.timeline.shots[0],
+					keyframes: [
+						{ id: 'kf-first', start: 0, role: 'first', strength: 1, media: { path: 's.png', url: 'https://x/s.png' } },
+						{ id: 'kf-free', start: 2.15, role: 'free', strength: 1, media: null },
+						{ id: 'kf-last', start: 8.6, role: 'last', strength: 1, media: null }
+					]
+				}
+			]
+		};
+		const rail = deriveShotRail(doc, ltxCaps(), 'shot-1');
 		const marks = rail.lanes.keyframes!.marks;
 		expect(marks.find((m) => m.id === 'kf-first')).toMatchObject({ kind: 'start', atPercent: 0, label: 'START', empty: false });
 		expect(marks.find((m) => m.id === 'kf-last')).toMatchObject({ kind: 'end', atPercent: 100, label: 'END', empty: true });
@@ -307,7 +351,7 @@ describe('deriveShotRail — timeline routing (LTX): already shot-local, no reba
 	});
 
 	it('no per-shot generator cap on timeline routing: an unset maxKeyframes never disables canAdd', () => {
-		const rail = deriveShotRail(ltxDoc(), ltxCaps(), 'timeline-shot');
+		const rail = deriveShotRail(ltxDoc(), ltxCaps(), 'shot-1');
 		expect(rail.lanes.keyframes!.cap).toBeNull();
 		expect(rail.lanes.keyframes!.canAdd).toBe(true);
 	});

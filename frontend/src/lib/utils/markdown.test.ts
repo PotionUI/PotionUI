@@ -235,6 +235,16 @@ describe('parseToolActions / processMarkdownWithActions', () => {
 		]);
 	});
 
+	it('extracts an optional trailing shot_id attribute (timeline-style Video Director, 2+ shots)', () => {
+		const text =
+			'<tool_action type="update_director_segment" segment_index="0" segment_id="seg-1" shot_id="shot-2">a wide shot of the harbor</tool_action>';
+		const { cleanedText, actions } = parseToolActions(text);
+		expect(cleanedText).toBe('');
+		expect(actions).toEqual([
+			{ type: 'update_director_segment', segmentIndex: 0, segmentId: 'seg-1', shotId: 'shot-2', content: 'a wide shot of the harbor' }
+		]);
+	});
+
 	it('combines tool action parsing with markdown rendering', () => {
 		const text = '**bold** <tool_action type="x" segment_index="1" segment_id="y">hidden</tool_action>';
 		const { html, actions } = processMarkdownWithActions(text);

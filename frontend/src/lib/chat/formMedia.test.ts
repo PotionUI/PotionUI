@@ -130,16 +130,22 @@ describe('collectFormImages', () => {
 					last_frame: { path: 'generations/d/g3/last.png', type: 'image' }
 				},
 				timeline: {
-					duration: 5,
 					fps: 24,
-					segments: [],
-					keyframes: [
-						{ id: 'k1', start: 0, role: 'first', strength: 1, media: { path: 'generations/d/g4/kf1.png', type: 'image' } },
-						{ id: 'k2', start: 1, role: 'last', strength: 1, media: { path: 'generations/d/g5/kf2.png', type: 'image' } }
-					],
-					audio: [],
-					ic_lora: [
-						{ id: 'ic1', lora: null, ref_media: { path: 'generations/d/g6/ic.png', type: 'image' }, strength: 1 }
+					shots: [
+						{
+							id: 'shot-1',
+							duration: 5,
+							continue_from_previous: false,
+							segments: [],
+							keyframes: [
+								{ id: 'k1', start: 0, role: 'first', strength: 1, media: { path: 'generations/d/g4/kf1.png', type: 'image' } },
+								{ id: 'k2', start: 1, role: 'last', strength: 1, media: { path: 'generations/d/g5/kf2.png', type: 'image' } }
+							],
+							audio: [],
+							ic_lora: [
+								{ id: 'ic1', lora: null, ref_media: { path: 'generations/d/g6/ic.png', type: 'image' }, strength: 1 }
+							]
+						}
 					]
 				},
 				chain: {
@@ -155,7 +161,9 @@ describe('collectFormImages', () => {
 							keyframe_strength: 1,
 							last_keyframe: null,
 							last_keyframe_strength: 1,
-							sub_type_override: null
+							sub_type_override: null,
+							steps: null,
+							cfg: null
 						}
 					],
 					continuation: { overlap_frames: 0, stitch: false },
@@ -192,14 +200,20 @@ describe('collectFormImages', () => {
 				negative_prompt_segments: [],
 				simple: { duration: 5, fps: 24, start_image: null, first_frame: null, last_frame: null },
 				timeline: {
-					duration: 5,
 					fps: 24,
-					segments: [],
-					keyframes: [
-						{ id: 'k1', start: 0, role: 'first', strength: 1, media: { path: 'generations/d/g1/kf.mp4', type: 'video' } }
-					],
-					audio: [],
-					ic_lora: []
+					shots: [
+						{
+							id: 'shot-1',
+							duration: 5,
+							continue_from_previous: false,
+							segments: [],
+							keyframes: [
+								{ id: 'k1', start: 0, role: 'first', strength: 1, media: { path: 'generations/d/g1/kf.mp4', type: 'video' } }
+							],
+							audio: [],
+							ic_lora: []
+						}
+					]
 				},
 				chain: { fps: 24, segments: [], continuation: { overlap_frames: 0, stitch: false }, keyframes: [], audio: [] }
 			}
@@ -219,7 +233,10 @@ describe('collectFormImages', () => {
 				negative_prompt: '',
 				negative_prompt_segments: [],
 				simple: { duration: 5, fps: 24, start_image: { ...shared }, first_frame: null, last_frame: null },
-				timeline: { duration: 5, fps: 24, segments: [], keyframes: [], audio: [], ic_lora: [] },
+				timeline: {
+					fps: 24,
+					shots: [{ id: 'shot-1', duration: 5, continue_from_previous: false, segments: [], keyframes: [], audio: [], ic_lora: [] }]
+				},
 				chain: { fps: 24, segments: [], continuation: { overlap_frames: 0, stitch: false }, keyframes: [], audio: [] }
 			}
 		});

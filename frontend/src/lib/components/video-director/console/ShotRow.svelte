@@ -13,12 +13,15 @@
 		shot,
 		checked,
 		onToggleChecked,
-		onActivate
+		onActivate,
+		onRetry
 	}: {
 		shot: ConsoleShot;
 		checked: boolean;
 		onToggleChecked: (shotId: string) => void;
 		onActivate: (shotId: string) => void;
+		/** Resubmits just this shot (W3) -- only ever rendered for a 'failed' run. */
+		onRetry?: (shotId: string) => void;
 	} = $props();
 
 	let meta = $derived(badgeMeta(shot.badge));
@@ -105,7 +108,16 @@
 		>
 			{runLabel()}
 			{#if shot.run.kind === 'failed'}
-				<span class="cursor-pointer text-fg-muted underline normal-case">Retry</span>
+				<button
+					type="button"
+					class="cursor-pointer border-none bg-none p-0 font-mono text-[10px] normal-case text-fg-muted underline"
+					onclick={(e) => {
+						e.stopPropagation();
+						onRetry?.(shot.id);
+					}}
+				>
+					Retry
+				</button>
 			{/if}
 		</span>
 	{/if}

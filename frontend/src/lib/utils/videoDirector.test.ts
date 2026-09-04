@@ -28,7 +28,7 @@ import {
 	formMediaOptionKeys,
 	dereferenceFormMediaRefs
 } from './videoDirector';
-import type { ChainSegment, VideoDirectorValue, VideoDirectorWireDoc } from '$lib/types/videoDirector';
+import type { ChainSegment, DirectorTimelineDoc, DirectorTimelineShot, VideoDirectorValue, VideoDirectorWireDoc } from '$lib/types/videoDirector';
 import type { MediaRef } from '$lib/types/tabs';
 
 // The `director` mode is capability-shaped. Two fixtures mirror the two real
@@ -190,7 +190,8 @@ describe('parseDirectorCapabilities', () => {
 			defaultSegmentDuration: 5,
 			continuation: null,
 			maxOverlapFrames: null,
-			continuationDisabled: false
+			continuationDisabled: false,
+			fpsLocked: false
 		});
 		expect(parseDirectorCapabilities(RAW_CAPS)!.modes.director).toEqual({
 			tips: ['use keyframes'],
@@ -205,7 +206,8 @@ describe('parseDirectorCapabilities', () => {
 			defaultSegmentDuration: 5,
 			continuation: null,
 			maxOverlapFrames: null,
-			continuationDisabled: false
+			continuationDisabled: false,
+			fpsLocked: false
 		});
 	});
 
@@ -524,7 +526,30 @@ function chainSegment(overrides: Partial<ChainSegment> = {}): ChainSegment {
 		last_keyframe: null,
 		last_keyframe_strength: 1,
 		sub_type_override: null,
+		steps: null,
+		cfg: null,
 		...overrides
+	};
+}
+
+/** A one-shot `DirectorTimelineDoc` -- the shape `normalizeDirectorValue`
+ * lifts every legacy/fresh timeline document into. `shotOverrides` patches
+ * the one shot; pass `shots` directly to test a real multi-shot document. */
+function timelineDoc(shotOverrides: Partial<DirectorTimelineShot> = {}, fps = 24): DirectorTimelineDoc {
+	return {
+		fps,
+		shots: [
+			{
+				id: 'shot-1',
+				duration: 5,
+				continue_from_previous: false,
+				segments: [],
+				keyframes: [],
+				audio: [],
+				ic_lora: [],
+				...shotOverrides
+			}
+		]
 	};
 }
 
@@ -589,7 +614,7 @@ describe('createDefaultDirectorValue', () => {
 		const v = createDefaultDirectorValue(caps);
 		expect(v.simple.duration).toBe(5);
 		expect(v.simple.fps).toBe(24);
-		expect(v.timeline.duration).toBe(5);
+		expect(v.timeline.shots[0].duration).toBe(5);
 		expect(v.timeline.fps).toBe(24);
 		expect(v.chain.fps).toBe(24);
 	});
@@ -631,12 +656,15 @@ describe('createDefaultDirectorValue', () => {
 		expect(JSON.stringify(a)).toBe(JSON.stringify(b));
 	});
 
-	it('starts with an empty timeline', () => {
+	it('starts with an empty timeline: one shot, with a fixed (non-counter) id', () => {
 		const v = createDefaultDirectorValue(caps);
-		expect(v.timeline.segments).toEqual([]);
-		expect(v.timeline.keyframes).toEqual([]);
-		expect(v.timeline.audio).toEqual([]);
-		expect(v.timeline.ic_lora).toEqual([]);
+		expect(v.timeline.shots).toHaveLength(1);
+		expect(v.timeline.shots[0].id).toBe('shot-1');
+		expect(v.timeline.shots[0].continue_from_previous).toBe(false);
+		expect(v.timeline.shots[0].segments).toEqual([]);
+		expect(v.timeline.shots[0].keyframes).toEqual([]);
+		expect(v.timeline.shots[0].audio).toEqual([]);
+		expect(v.timeline.shots[0].ic_lora).toEqual([]);
 	});
 
 	it('picks first enabled mode even when t2v is absent', () => {
@@ -698,7 +726,9 @@ describe('isDefaultDirectorDocument', () => {
 						keyframe_strength: 1,
 						last_keyframe: null,
 						last_keyframe_strength: 1,
-						sub_type_override: null
+						sub_type_override: null,
+						steps: null,
+						cfg: null
 					}
 				]
 			}
@@ -782,9 +812,9 @@ describe('normalizeDirectorValue', () => {
 			},
 			caps
 		);
-		expect(v.timeline.duration).toBe(5);
-		expect(v.timeline.segments).toHaveLength(1);
-		expect(v.timeline.keyframes).toHaveLength(1);
+		expect(v.timeline.shots[0].duration).toBe(5);
+		expect(v.timeline.shots[0].segments).toHaveLength(1);
+		expect(v.timeline.shots[0].keyframes).toHaveLength(1);
 	});
 
 	it('reads stored chain continuity, falling back to defaults', () => {
@@ -863,8 +893,8 @@ describe('normalizeDirectorValue', () => {
 			{ mode: 'director', timeline: { audio: [{ id: 'a1', start: 0, trim_start: 0, length: 4, media: { path: '/a.wav' } }] } },
 			caps
 		);
-		expect(v.timeline.audio[0]).toEqual({ id: 'a1', start: 0, trim_start: 0, length: 4, media: { path: '/a.wav' } });
-		expect('role' in v.timeline.audio[0]).toBe(false);
+		expect(v.timeline.shots[0].audio[0]).toEqual({ id: 'a1', start: 0, trim_start: 0, length: 4, media: { path: '/a.wav' } });
+		expect('role' in v.timeline.shots[0].audio[0]).toBe(false);
 	});
 
 	it('preserves a role a timeline audio entry already carries', () => {
@@ -872,7 +902,7 @@ describe('normalizeDirectorValue', () => {
 			{ mode: 'director', timeline: { audio: [{ id: 'a1', role: 'mux', start: 0, trim_start: 0, length: 4, media: { path: '/a.wav' } }] } },
 			caps
 		);
-		expect(v.timeline.audio[0].role).toBe('mux');
+		expect(v.timeline.shots[0].audio[0].role).toBe('mux');
 	});
 
 	it('normalizes media refs, dropping ones without a path', () => {
@@ -894,7 +924,7 @@ describe('normalizeDirectorValue', () => {
 
 		expect(v.global_prompt_segments).toEqual([expect.objectContaining({ id: 'global-prompt-0', content: 'global legacy prompt' })]);
 		expect(v.negative_prompt_segments).toEqual([expect.objectContaining({ id: 'negative-prompt-0', content: 'negative legacy prompt' })]);
-		expect(v.timeline.segments[0].prompt_segments).toEqual([
+		expect(v.timeline.shots[0].segments[0].prompt_segments).toEqual([
 			expect.objectContaining({ id: 's1-prompt-0', content: 'timeline legacy prompt' })
 		]);
 		expect(v.chain.segments[0].prompt_segments).toEqual([
@@ -926,7 +956,7 @@ describe('normalizeDirectorValue', () => {
 		);
 
 		expect(v.global_prompt).toBe('first direction, second direction');
-		expect(v.timeline.segments[0].text).toBe('timed direction');
+		expect(v.timeline.shots[0].segments[0].text).toBe('timed direction');
 		expect(v.chain.segments[0].prompt).toBe('shot direction');
 	});
 
@@ -942,7 +972,7 @@ describe('normalizeDirectorValue', () => {
 		);
 
 		expect(v.global_prompt).toBe('');
-		expect(v.timeline.segments[0].text).toBe('');
+		expect(v.timeline.shots[0].segments[0].text).toBe('');
 		expect(v.chain.segments[0].prompt).toBe('');
 	});
 
@@ -1076,7 +1106,10 @@ describe('validateDirector', () => {
 
 		const withSeg = {
 			...v,
-			timeline: { ...v.timeline, segments: [{ id: 's1', start: 0, end: 1, text: 'hello', prompt_segments: [] }] }
+			timeline: {
+				...v.timeline,
+				shots: [{ ...v.timeline.shots[0], segments: [{ id: 's1', start: 0, end: 1, text: 'hello', prompt_segments: [] }] }]
+			}
 		};
 		expect(validateDirector(withSeg, caps).ok).toBe(true);
 	});
@@ -1379,7 +1412,7 @@ describe('buildDirectorSubmission', () => {
 
 	it('t2v: settings from simple, one segment with global prompt, no media', () => {
 		const v = { ...base('t2v'), global_prompt: 'a red car' };
-		const wire = buildDirectorSubmission(v, caps);
+		const wire = buildDirectorSubmission(v, caps)[0];
 		expect(wire.schema_version).toBe(1);
 		expect(wire.mode).toBe('t2v');
 		expect(wire.settings).toEqual({ fps: 24, duration: 5, seed: -1 });
@@ -1405,7 +1438,7 @@ describe('buildDirectorSubmission', () => {
 
 	it('i2v: adds a first-role media entry for the start image', () => {
 		const v = { ...base('i2v'), global_prompt: 'p', simple: { ...base('i2v').simple, start_image: media('/s.png') } };
-		const wire = buildDirectorSubmission(v, caps);
+		const wire = buildDirectorSubmission(v, caps)[0];
 		expect(wire.media).toEqual([{ id: 'm-1', role: 'first', segment_id: 'seg-1', at: 0, strength: 1, media: media('/s.png') }]);
 	});
 
@@ -1416,7 +1449,7 @@ describe('buildDirectorSubmission', () => {
 			global_prompt: 'p',
 			simple: { ...b.simple, duration: 7, first_frame: media('/f.png'), last_frame: media('/l.png') }
 		};
-		const wire = buildDirectorSubmission(v, caps);
+		const wire = buildDirectorSubmission(v, caps)[0];
 		expect(wire.media).toEqual([
 			{ id: 'm-1', role: 'first', segment_id: 'seg-1', at: 0, strength: 1, media: media('/f.png') },
 			{ id: 'm-2', role: 'last', segment_id: 'seg-1', at: 7, strength: 1, media: media('/l.png') }
@@ -1445,7 +1478,7 @@ describe('buildDirectorSubmission', () => {
 			},
 			caps
 		);
-		const wire = buildDirectorSubmission(v, caps);
+		const wire = buildDirectorSubmission(v, caps)[0];
 		expect(wire.mode).toBe('director');
 		expect(wire.segments.map((s) => s.id)).toEqual(['s1', 's2']);
 		// The global prompt is prefixed onto the FIRST segment only — the LTX
@@ -1481,17 +1514,17 @@ describe('buildDirectorSubmission', () => {
 			},
 			caps
 		);
-		expect(v.timeline.ic_lora[0].lora).toEqual({ model: 'style.safetensors', strength: 0, saved_strength: 0.9 });
+		expect(v.timeline.shots[0].ic_lora[0].lora).toEqual({ model: 'style.safetensors', strength: 0, saved_strength: 0.9 });
 
 		// Re-normalizing an already-normalized value must be idempotent (the
 		// re-sync effect's convergence check relies on this).
 		const again = normalizeDirectorValue(v, caps);
-		expect(again.timeline.ic_lora[0].lora).toEqual(v.timeline.ic_lora[0].lora);
+		expect(again.timeline.shots[0].ic_lora[0].lora).toEqual(v.timeline.shots[0].ic_lora[0].lora);
 
 		// The backend's own normalizer (src/features/video_director/normalize.py)
 		// is what actually drops saved_strength at submission time - this wire
 		// builder passes it through untouched, which is fine either way.
-		const wire = buildDirectorSubmission(v, caps);
+		const wire = buildDirectorSubmission(v, caps)[0];
 		expect(wire.ic_lora[0].lora).toEqual({ model: 'style.safetensors', strength: 0, saved_strength: 0.9 });
 	});
 
@@ -1515,9 +1548,9 @@ describe('buildDirectorSubmission', () => {
 			},
 			caps
 		);
-		expect(v.timeline.ic_lora.map((e) => (e.ref_media as MediaRef | null)?.type)).toEqual(['video', 'image']);
+		expect(v.timeline.shots[0].ic_lora.map((e) => (e.ref_media as MediaRef | null)?.type)).toEqual(['video', 'image']);
 
-		const wire = buildDirectorSubmission(v, caps);
+		const wire = buildDirectorSubmission(v, caps)[0];
 		expect(wire.ic_lora.map((e) => e.reference)).toEqual([
 			{ path: '/clip.mp4', type: 'video' },
 			{ path: '/still.png', type: 'image' }
@@ -1526,7 +1559,7 @@ describe('buildDirectorSubmission', () => {
 
 	it('timeline director: synthesizes a single full-range segment from global_prompt when no timeline segments', () => {
 		const v = normalizeDirectorValue({ mode: 'director', global_prompt: 'only global', timeline: { duration: 6 } }, caps);
-		const wire = buildDirectorSubmission(v, caps);
+		const wire = buildDirectorSubmission(v, caps)[0];
 		expect(wire.segments).toEqual([
 			{
 				id: 'seg-1',
@@ -1548,7 +1581,7 @@ describe('buildDirectorSubmission', () => {
 			{ mode: 'director', global_prompt: '', timeline: { duration: 5, segments: [{ id: 's1', start: 0, end: 5, text: 'solo text' }] } },
 			caps
 		);
-		const wire = buildDirectorSubmission(v, caps);
+		const wire = buildDirectorSubmission(v, caps)[0];
 		expect(wire.segments[0].prompt).toBe('solo text');
 	});
 
@@ -1568,7 +1601,7 @@ describe('buildDirectorSubmission', () => {
 			},
 			caps
 		);
-		const wire = buildDirectorSubmission(v, caps);
+		const wire = buildDirectorSubmission(v, caps)[0];
 		const joined = wire.segments.map((s) => s.prompt).join(' ');
 		expect(joined.match(/anchor/g)).toHaveLength(1);
 		expect(wire.segments.map((s) => s.prompt)).toEqual(['anchor. first', 'second', 'third']);
@@ -1589,7 +1622,7 @@ describe('buildDirectorSubmission', () => {
 			},
 			wanCaps
 		);
-		const wire = buildDirectorSubmission(v, wanCaps);
+		const wire = buildDirectorSubmission(v, wanCaps)[0];
 		expect(wire.mode).toBe('director');
 		expect(wire.settings).toEqual({
 			fps: 16,
@@ -1645,7 +1678,7 @@ describe('buildDirectorSubmission', () => {
 			},
 			wanCaps
 		);
-		const wire = buildDirectorSubmission(v, wanCaps);
+		const wire = buildDirectorSubmission(v, wanCaps)[0];
 		expect(wire.settings.continuation).toEqual({ source: 'tail_frames', overlap_frames: 9, stitch: false });
 	});
 
@@ -1662,7 +1695,7 @@ describe('buildDirectorSubmission', () => {
 			},
 			wanCaps
 		);
-		const wire = buildDirectorSubmission(v, wanCaps);
+		const wire = buildDirectorSubmission(v, wanCaps)[0];
 		expect(wire.media).toEqual([
 			{ id: 'm-1', role: 'first', segment_id: 'c1', at: 0, strength: 0.7, media: media('/kf.png') },
 			{ id: 'm-2', role: 'first', segment_id: 'c2', at: 0, strength: 1, media: media('/other.png') }
@@ -1693,7 +1726,7 @@ describe('buildDirectorSubmission', () => {
 			wanCaps
 		);
 		expect(v.mode).toBe('director');
-		const wire = buildDirectorSubmission(v, wanCaps);
+		const wire = buildDirectorSubmission(v, wanCaps)[0];
 		expect(wire.mode).toBe('director');
 		expect(wire.media).toEqual([
 			{ id: 'm-1', role: 'first', segment_id: 'c1', at: 0, strength: 1, media: media('/kf.png') },
@@ -1706,7 +1739,7 @@ describe('buildDirectorSubmission', () => {
 			{ mode: 'director', chain: { segments: [{ id: 'c1', prompt: 'a' }, { id: 'c2', prompt: 'b' }] } },
 			wanCaps
 		);
-		const wire = buildDirectorSubmission(v, wanCaps);
+		const wire = buildDirectorSubmission(v, wanCaps)[0];
 		expect(wire.segments.every((s) => !('sub_type' in s))).toBe(true);
 	});
 
@@ -1724,7 +1757,7 @@ describe('buildDirectorSubmission', () => {
 			},
 			wanCaps
 		);
-		const wire = buildDirectorSubmission(v, wanCaps);
+		const wire = buildDirectorSubmission(v, wanCaps)[0];
 		expect(wire.segments[0]).not.toHaveProperty('sub_type');
 		expect(wire.segments[1]).toMatchObject({ sub_type: 't2v' });
 		expect(wire.segments[2]).not.toHaveProperty('sub_type');
@@ -1736,7 +1769,7 @@ describe('buildDirectorSubmission', () => {
 		// re-checks ambiguity defensively rather than trusting its input blindly.
 		const v = normalizeDirectorValue({ mode: 'director', chain: { segments: [{ id: 'c1', prompt: 'a' }] } }, wanCaps);
 		v.chain.segments[0] = { ...v.chain.segments[0], keyframe: media('/kf.png'), sub_type_override: 't2v' };
-		const wire = buildDirectorSubmission(v, wanCaps);
+		const wire = buildDirectorSubmission(v, wanCaps)[0];
 		expect(wire.segments[0]).not.toHaveProperty('sub_type');
 	});
 
@@ -1767,7 +1800,7 @@ describe('buildDirectorSubmission', () => {
 				},
 				hybridCaps
 			);
-			const wire = buildDirectorSubmission(v, hybridCaps);
+			const wire = buildDirectorSubmission(v, hybridCaps)[0];
 
 			// The opening start image keeps role "first"; every placed keyframe is a
 			// segment-less "keyframe" entry positioned by `at`, numbered after it.
@@ -1794,7 +1827,7 @@ describe('buildDirectorSubmission', () => {
 				},
 				hybridCaps
 			);
-			expect(buildDirectorSubmission(v, hybridCaps).audio[0].role).toBe('condition');
+			expect(buildDirectorSubmission(v, hybridCaps)[0].audio[0].role).toBe('condition');
 		});
 
 		it('emits nothing for unused keyframe/audio sections', () => {
@@ -1802,7 +1835,7 @@ describe('buildDirectorSubmission', () => {
 				{ mode: 'director', chain: { fps: 16, segments: [{ id: 'c1', prompt: 'a shot', duration: 2 }] } },
 				hybridCaps
 			);
-			const wire = buildDirectorSubmission(v, hybridCaps);
+			const wire = buildDirectorSubmission(v, hybridCaps)[0];
 			expect(wire.media).toEqual([]);
 			expect(wire.audio).toEqual([]);
 		});
@@ -1820,7 +1853,7 @@ describe('buildDirectorSubmission', () => {
 				},
 				wanCapsLocal
 			);
-			const wire = buildDirectorSubmission(stale, wanCapsLocal);
+			const wire = buildDirectorSubmission(stale, wanCapsLocal)[0];
 			expect(wire.media).toEqual([]);
 			expect(wire.audio).toEqual([]);
 		});
@@ -1840,7 +1873,9 @@ describe('buildDirectorSubmission', () => {
 			},
 			wanCaps
 		);
-		expect(JSON.stringify(buildDirectorSubmission(v, wanCaps))).toBe(
+		const wireDocs = buildDirectorSubmission(v, wanCaps);
+		expect(wireDocs).toHaveLength(1);
+		expect(JSON.stringify(wireDocs[0])).toBe(
 			'{"schema_version":1,"mode":"t2v","settings":{"fps":16,"duration":2.5,"seed":-1},' +
 				'"segments":[{"id":"seg-1","prompt":"anchor. shot one","negative_prompt":"","start":0,"end":2.5,' +
 				'"frames":null,"seed":null,"steps":null,"cfg":null,"loras":null}],"media":[],"audio":[],"ic_lora":[]}'
@@ -1864,7 +1899,9 @@ describe('buildDirectorSubmission', () => {
 			},
 			wanCaps
 		);
-		expect(JSON.stringify(buildDirectorSubmission(v, wanCaps))).toBe(
+		const wireDocs = buildDirectorSubmission(v, wanCaps);
+		expect(wireDocs).toHaveLength(1);
+		expect(JSON.stringify(wireDocs[0])).toBe(
 			'{"schema_version":1,"mode":"director","settings":{"fps":16,"duration":5,"seed":-1,' +
 				'"continuation":{"source":"tail_frames","overlap_frames":4,"stitch":true}},' +
 				'"segments":[{"id":"c1","prompt":"anchor. shot one","negative_prompt":"","start":null,"end":null,' +
@@ -1887,20 +1924,20 @@ describe('buildDirectorSubmission', () => {
 			},
 			caps
 		);
-		expect(JSON.stringify(buildDirectorSubmission(v, caps).audio)).toBe(
+		expect(JSON.stringify(buildDirectorSubmission(v, caps)[0].audio)).toBe(
 			'[{"id":"a1","start":0,"trim_start":0.5,"length":4,"media":{"path":"/aud.mp3"}}]'
 		);
 	});
 
 	it('never includes ui in the wire doc', () => {
 		const v = { ...base('t2v'), ui: { zoom: 5 } };
-		const wire = buildDirectorSubmission(v, caps);
+		const wire = buildDirectorSubmission(v, caps)[0];
 		expect((wire as unknown as { ui?: unknown }).ui).toBeUndefined();
 	});
 
 	it('seed is always -1', () => {
 		for (const mode of ['t2v', 'i2v', 'flf', 'director'] as const) {
-			const wire = buildDirectorSubmission(base(mode), caps);
+			const wire = buildDirectorSubmission(base(mode), caps)[0];
 			expect(wire.settings.seed).toBe(-1);
 		}
 	});
@@ -1967,7 +2004,7 @@ describe('applyDirectorOperations', () => {
 		expect(next.timeline.fps).toBe(30);
 		expect(next.chain.fps).toBe(30);
 		expect(next.simple.duration).toBe(8);
-		expect(next.timeline.duration).toBe(8);
+		expect(next.timeline.shots[0].duration).toBe(8);
 	});
 
 	it('set_settings with only fps leaves duration untouched (partial merge)', () => {
@@ -2047,7 +2084,7 @@ describe('applyDirectorOperations', () => {
 		it('appends a new segment when the id is unknown, defaulting start/end to the full timeline range', () => {
 			const v = normalizeDirectorValue({ timeline: { duration: 10 } }, caps);
 			const next = applyDirectorOperations(v, [{ op: 'upsert_segment', segment: { id: 's1', prompt: 'a shot' } }], caps);
-			expect(next.timeline.segments).toEqual([
+			expect(next.timeline.shots[0].segments).toEqual([
 				expect.objectContaining({ id: 's1', text: 'a shot', start: 0, end: 10 })
 			]);
 		});
@@ -2058,7 +2095,7 @@ describe('applyDirectorOperations', () => {
 				caps
 			);
 			const next = applyDirectorOperations(v, [{ op: 'upsert_segment', segment: { id: 's1', end: 8 } }], caps);
-			expect(next.timeline.segments).toEqual([
+			expect(next.timeline.shots[0].segments).toEqual([
 				expect.objectContaining({ id: 's1', text: 'first', start: 0, end: 8 })
 			]);
 		});
@@ -2070,7 +2107,7 @@ describe('applyDirectorOperations', () => {
 				[{ op: 'upsert_segment', segment: { id: 's1', frames: 48, steps: 20, cfg: 4, seed: 1, negative_prompt: 'x' } }],
 				caps
 			);
-			expect(next.timeline.segments).toEqual([expect.objectContaining({ id: 's1', text: '', start: 0, end: 10 })]);
+			expect(next.timeline.shots[0].segments).toEqual([expect.objectContaining({ id: 's1', text: '', start: 0, end: 10 })]);
 		});
 	});
 
@@ -2131,7 +2168,7 @@ describe('applyDirectorOperations', () => {
 			caps
 		);
 		const afterTimeline = applyDirectorOperations(timelineV, [{ op: 'remove_segment', id: 's1' }], caps);
-		expect(afterTimeline.timeline.segments.map((s) => s.id)).toEqual(['s2']);
+		expect(afterTimeline.timeline.shots[0].segments.map((s) => s.id)).toEqual(['s2']);
 
 		const chainV = normalizeDirectorValue(
 			{ mode: 'director', chain: { segments: [{ id: 'c1', prompt: 'a' }, { id: 'c2', prompt: 'b' }] } },
@@ -2155,7 +2192,7 @@ describe('applyDirectorOperations', () => {
 			caps
 		);
 		const next = applyDirectorOperations(v, [{ op: 'reorder_segments', ids: ['s3', 's1'] }], caps);
-		expect(next.timeline.segments.map((s) => s.id)).toEqual(['s3', 's1', 's2']);
+		expect(next.timeline.shots[0].segments.map((s) => s.id)).toEqual(['s3', 's1', 's2']);
 	});
 
 	it('reorder_segments ignores ids that do not exist in the list', () => {
@@ -2164,7 +2201,7 @@ describe('applyDirectorOperations', () => {
 			caps
 		);
 		const next = applyDirectorOperations(v, [{ op: 'reorder_segments', ids: ['ghost', 's2', 's1'] }], caps);
-		expect(next.timeline.segments.map((s) => s.id)).toEqual(['s2', 's1']);
+		expect(next.timeline.shots[0].segments.map((s) => s.id)).toEqual(['s2', 's1']);
 	});
 
 	describe('upsert_media role mapping', () => {
@@ -2198,7 +2235,7 @@ describe('applyDirectorOperations', () => {
 				],
 				caps
 			);
-			expect(next.timeline.keyframes).toEqual([
+			expect(next.timeline.shots[0].keyframes).toEqual([
 				{ id: 'k1', start: 0, role: 'first', strength: 1, media: { path: '/a.png' } },
 				{ id: 'k2', start: 3, role: 'free', strength: 0.5, media: { path: '/b.png' } }
 			]);
@@ -2210,8 +2247,8 @@ describe('applyDirectorOperations', () => {
 				caps
 			);
 			const next = applyDirectorOperations(v, [{ op: 'upsert_media', media: { id: 'k1', role: 'first', path: '/new.png' } }], caps);
-			expect(next.timeline.keyframes).toHaveLength(1);
-			expect(next.timeline.keyframes[0]).toEqual({ id: 'k1', start: 0, role: 'first', strength: 1, media: { path: '/new.png' } });
+			expect(next.timeline.shots[0].keyframes).toHaveLength(1);
+			expect(next.timeline.shots[0].keyframes[0]).toEqual({ id: 'k1', start: 0, role: 'first', strength: 1, media: { path: '/new.png' } });
 		});
 
 		it('chain director with keyframes anywhere: role "keyframe" upserts a placed keyframe by id', () => {
@@ -2301,7 +2338,7 @@ describe('applyDirectorOperations', () => {
 			caps
 		);
 		const next = applyDirectorOperations(v, [{ op: 'remove_media', id: 'k1' }], caps);
-		expect(next.timeline.keyframes).toEqual([]);
+		expect(next.timeline.shots[0].keyframes).toEqual([]);
 
 		const i2v = normalizeDirectorValue({ mode: 'i2v', simple: { start_image: { path: '/s.png' } } }, caps);
 		const i2vAfter = applyDirectorOperations(i2v, [{ op: 'remove_media', id: 'anything' }], caps);
@@ -2382,7 +2419,40 @@ describe('applyDirectorSegmentPrompt', () => {
 		);
 		const next = applyDirectorSegmentPrompt(v, caps, { segmentId: 's1', segmentIndex: 0, content: 'new text' });
 		expect(next).not.toBeNull();
-		expect(next!.timeline.segments).toEqual([expect.objectContaining({ id: 's1', start: 2, end: 6, text: 'new text' })]);
+		expect(next!.timeline.shots[0].segments).toEqual([expect.objectContaining({ id: 's1', start: 2, end: 6, text: 'new text' })]);
+	});
+
+	it('shotId given, 2-shot document: resolves strictly within that shot, never touching a same-id beat in another shot', () => {
+		const v: VideoDirectorValue = {
+			...normalizeDirectorValue({}, caps),
+			mode: 'director',
+			timeline: {
+				fps: 24,
+				shots: [
+					{ id: 'shot-1', duration: 3, continue_from_previous: false, segments: [{ id: 's1', start: 0, end: 3, text: 'first', prompt_segments: [] }], keyframes: [], audio: [], ic_lora: [] },
+					{ id: 'shot-2', duration: 3, continue_from_previous: false, segments: [{ id: 's1', start: 0, end: 3, text: 'second', prompt_segments: [] }], keyframes: [], audio: [], ic_lora: [] }
+				]
+			}
+		};
+		const next = applyDirectorSegmentPrompt(v, caps, { segmentId: 's1', segmentIndex: 0, content: 'edited', shotId: 'shot-2' });
+		expect(next).not.toBeNull();
+		expect(next!.timeline.shots[0].segments[0].text).toBe('first'); // shot 1 untouched
+		expect(next!.timeline.shots[1].segments[0].text).toBe('edited');
+	});
+
+	it('shotId given but unknown: returns null rather than guessing another shot', () => {
+		const v: VideoDirectorValue = {
+			...normalizeDirectorValue({}, caps),
+			mode: 'director',
+			timeline: {
+				fps: 24,
+				shots: [
+					{ id: 'shot-1', duration: 3, continue_from_previous: false, segments: [{ id: 's1', start: 0, end: 3, text: 'first', prompt_segments: [] }], keyframes: [], audio: [], ic_lora: [] }
+				]
+			}
+		};
+		const next = applyDirectorSegmentPrompt(v, caps, { segmentId: 's1', segmentIndex: 0, content: 'edited', shotId: 'ghost-shot' });
+		expect(next).toBeNull();
 	});
 
 	it('id miss, valid index: falls back to the segment at that position', () => {
@@ -2420,7 +2490,7 @@ describe('applyDirectorSegmentPrompt', () => {
 		);
 		const next = applyDirectorSegmentPrompt(chainDoc, wanCaps, { segmentId: 'c1', segmentIndex: 0, content: 'chain wins' });
 		expect(next!.chain.segments[0].prompt).toBe('chain wins');
-		expect(next!.timeline.segments[0].text).toBe('unrelated');
+		expect(next!.timeline.shots[0].segments[0].text).toBe('unrelated');
 	});
 });
 
@@ -2516,7 +2586,7 @@ describe('applyDirectorOperations (chain composer ops)', () => {
 				[{ op: 'upsert_audio', audio: { id: 'audio_1', role: 'mux', path: '/waves.mp3', length: 5 } }],
 				caps
 			);
-			expect(next.timeline.audio).toEqual([
+			expect(next.timeline.shots[0].audio).toEqual([
 				{ id: 'audio_1', start: 0, trim_start: 0, length: 5, media: { path: '/waves.mp3' }, role: 'mux' }
 			]);
 			expect(next.chain.audio).toEqual([]);
@@ -3254,8 +3324,8 @@ describe('seedDirectorPromptFromLegacyText', () => {
 		const timelineCaps = parseDirectorCapabilities(RAW_CAPS)!;
 		const seeded = seedDirectorPromptFromLegacyText(undefined, timelineCaps, 'legacy timeline prompt');
 		expect(seeded).not.toBeNull();
-		expect(seeded!.timeline.segments).toHaveLength(1);
-		expect(seeded!.timeline.segments[0].text).toBe('legacy timeline prompt');
+		expect(seeded!.timeline.shots[0].segments).toHaveLength(1);
+		expect(seeded!.timeline.shots[0].segments[0].text).toBe('legacy timeline prompt');
 		expect(validateDirector(seeded!, timelineCaps).ok).toBe(true);
 	});
 
@@ -3362,38 +3432,38 @@ describe('buildDirectorSubmission: per-shot references', () => {
 
 	it('emits a resolved-path selection as {path}', () => {
 		const doc = twoShotChainDoc({ references: [{ path: '/ref1.png' }] }, refsCaps);
-		const wire = buildDirectorSubmission(doc, refsCaps);
+		const wire = buildDirectorSubmission(doc, refsCaps)[0];
 		expect(wire.segments[0].references).toEqual([{ path: '/ref1.png' }]);
 		expect(wire.segments[1].references).toBeUndefined();
 	});
 
 	it('emits a form-pool selection as {form_media: {field, path}} verbatim -- no path resolution at build time', () => {
 		const doc = twoShotChainDoc({ references: [{ form_media: { field: 'references', path: '/pool/a.png' } }] }, refsCaps);
-		const wire = buildDirectorSubmission(doc, refsCaps);
+		const wire = buildDirectorSubmission(doc, refsCaps)[0];
 		expect(wire.segments[0].references).toEqual([{ form_media: { field: 'references', path: '/pool/a.png' } }]);
 	});
 
 	it('omits references on a shot with no explicit selection -- absent means the whole pool', () => {
 		const doc = twoShotChainDoc({}, refsCaps);
-		const wire = buildDirectorSubmission(doc, refsCaps);
+		const wire = buildDirectorSubmission(doc, refsCaps)[0];
 		expect(wire.segments[0].references).toBeUndefined();
 	});
 
 	it('never emits references when the capability is null', () => {
 		const doc = twoShotChainDoc({ references: [{ path: '/ref1.png' }] }, wanCaps);
-		const wire = buildDirectorSubmission(doc, wanCaps);
+		const wire = buildDirectorSubmission(doc, wanCaps)[0];
 		expect(wire.segments[0].references).toBeUndefined();
 	});
 
 	it('never emits settings.continuation when continuation is disabled -- the backend hard-rejects it', () => {
 		const doc = twoShotChainDoc({}, refsCaps);
-		const wire = buildDirectorSubmission(doc, refsCaps);
+		const wire = buildDirectorSubmission(doc, refsCaps)[0];
 		expect(wire.settings).not.toHaveProperty('continuation');
 	});
 
 	it('a non-refs chain mode still emits settings.continuation as before', () => {
 		const doc = twoShotChainDoc({}, wanCaps);
-		const wire = buildDirectorSubmission(doc, wanCaps);
+		const wire = buildDirectorSubmission(doc, wanCaps)[0];
 		expect(wire.settings).toHaveProperty('continuation');
 	});
 
@@ -3420,7 +3490,7 @@ describe('buildDirectorSubmission: per-shot references', () => {
 			},
 			timelineRefsCaps
 		);
-		const wire = buildDirectorSubmission(doc, timelineRefsCaps);
+		const wire = buildDirectorSubmission(doc, timelineRefsCaps)[0];
 		expect(wire.segments[0].references).toEqual([{ path: '/r.png' }]);
 		expect(wire.segments[1].references).toBeUndefined();
 	});
@@ -3475,7 +3545,7 @@ describe('references on single-shot t2v/i2v/flf documents', () => {
 	it('a t2v single shot (no edge media) still emits its per-shot selection on the wire', () => {
 		const doc = oneShotChainDoc({ references: [{ path: '/ref.png' }] });
 		expect(deriveDirectorMode(doc, refsCaps)).toBe('t2v');
-		const wire = buildDirectorSubmission(doc, refsCaps);
+		const wire = buildDirectorSubmission(doc, refsCaps)[0];
 		expect(wire.mode).toBe('t2v');
 		expect(wire.segments[0].references).toEqual([{ path: '/ref.png' }]);
 	});
@@ -3483,7 +3553,7 @@ describe('references on single-shot t2v/i2v/flf documents', () => {
 	it('an i2v single shot (leading keyframe + references) emits both', () => {
 		const doc = oneShotChainDoc({ keyframe: media('/start.png'), references: [{ path: '/ref.png' }] });
 		expect(deriveDirectorMode(doc, refsCaps)).toBe('i2v');
-		const wire = buildDirectorSubmission(doc, refsCaps);
+		const wire = buildDirectorSubmission(doc, refsCaps)[0];
 		expect(wire.mode).toBe('i2v');
 		expect(wire.segments[0].references).toEqual([{ path: '/ref.png' }]);
 	});
@@ -3520,7 +3590,7 @@ describe('references on single-shot t2v/i2v/flf documents', () => {
 			timelineRefsCaps
 		);
 		expect(deriveDirectorMode(doc, timelineRefsCaps)).toBe('t2v');
-		const wire = buildDirectorSubmission(doc, timelineRefsCaps);
+		const wire = buildDirectorSubmission(doc, timelineRefsCaps)[0];
 		expect(wire.mode).toBe('t2v');
 		expect(wire.segments[0].references).toEqual([{ path: '/r.png' }]);
 	});
@@ -3569,7 +3639,7 @@ describe('applyDirectorOperations: upsert_segment references', () => {
 			ltxCaps
 		);
 		const next = applyDirectorOperations(doc, [{ op: 'upsert_segment', segment: { id: 's1', references: [{ path: '/r.png' }] } }], ltxCaps);
-		expect(next.timeline.segments[0].references).toEqual([{ path: '/r.png' }]);
+		expect(next.timeline.shots[0].segments[0].references).toEqual([{ path: '/r.png' }]);
 	});
 });
 
@@ -3580,7 +3650,7 @@ describe('deriveDirectorMode / buildDirectorSubmission: references is conditioni
 		const base = normalizeDirectorValue({ mode: 'director' }, refsCaps);
 		const doc = { ...base, chain: { ...base.chain, segments: [chainSegment({ id: 'c1', references: [{ path: '/ref.png' }] })] } };
 		expect(deriveDirectorMode(doc, refsCaps)).toBe('t2v');
-		expect(buildDirectorSubmission(doc, refsCaps).segments[0].references).toEqual([{ path: '/ref.png' }]);
+		expect(buildDirectorSubmission(doc, refsCaps)[0].segments[0].references).toEqual([{ path: '/ref.png' }]);
 	});
 
 	it('a lone segment with a leading keyframe AND references still derives i2v, not director', () => {
@@ -3593,5 +3663,232 @@ describe('deriveDirectorMode / buildDirectorSubmission: references is conditioni
 			}
 		};
 		expect(deriveDirectorMode(doc, refsCaps)).toBe('i2v');
+	});
+});
+
+// ─── W2: timeline shots -- lift, idempotence, per-shot submission/validation/ops ───
+
+describe('normalizeDirectorValue: timeline shots[] lift (W2)', () => {
+	const caps = parseDirectorCapabilities(RAW_CAPS)!;
+
+	it('lifts a legacy flat timeline (no shots[]) into one shot with the fixed id "shot-1"', () => {
+		const v = normalizeDirectorValue(
+			{
+				mode: 'director',
+				timeline: {
+					duration: 8,
+					fps: 30,
+					segments: [{ id: 's1', start: 0, end: 8, text: 'legacy' }],
+					keyframes: [{ id: 'k1', start: 0, role: 'first', strength: 1, media: { path: '/a.png' } }],
+					audio: [{ id: 'a1', start: 0, trim_start: 0, length: 8, media: { path: '/a.wav' } }],
+					ic_lora: [{ id: 'i1', lora: { model: 'x', strength: 1 }, ref_media: null, strength: 1 }]
+				}
+			},
+			caps
+		);
+		expect(v.timeline.fps).toBe(30);
+		expect(v.timeline.shots).toHaveLength(1);
+		const shot = v.timeline.shots[0];
+		expect(shot.id).toBe('shot-1');
+		expect(shot.duration).toBe(8);
+		expect(shot.continue_from_previous).toBe(false);
+		expect(shot.segments).toEqual([expect.objectContaining({ id: 's1', text: 'legacy' })]);
+		expect(shot.keyframes).toHaveLength(1);
+		expect(shot.audio).toHaveLength(1);
+		expect(shot.ic_lora).toHaveLength(1);
+	});
+
+	it('is idempotent on an already-lifted single-shot document: byte-stable, never re-lifted, id preserved', () => {
+		const once = normalizeDirectorValue({ mode: 'director', timeline: { duration: 8, segments: [{ id: 's1', start: 0, end: 8, text: 'x' }] } }, caps);
+		const twice = normalizeDirectorValue(once, caps);
+		expect(JSON.stringify(twice)).toBe(JSON.stringify(once));
+		expect(twice.timeline.shots).toHaveLength(1);
+		expect(twice.timeline.shots[0].id).toBe('shot-1');
+	});
+
+	it('is idempotent on a genuine multi-shot document: ids and shot count survive re-normalization untouched', () => {
+		const raw = {
+			mode: 'director',
+			timeline: {
+				fps: 24,
+				shots: [
+					{ id: 'shot-a', duration: 3, continue_from_previous: false, segments: [{ id: 's1', start: 0, end: 3, text: 'first' }], keyframes: [], audio: [], ic_lora: [] },
+					{ id: 'shot-b', duration: 4, continue_from_previous: true, segments: [{ id: 's2', start: 0, end: 4, text: 'second' }], keyframes: [], audio: [], ic_lora: [] }
+				]
+			}
+		};
+		const once = normalizeDirectorValue(raw, caps);
+		expect(once.timeline.shots.map((s) => s.id)).toEqual(['shot-a', 'shot-b']);
+		expect(once.timeline.shots[1].continue_from_previous).toBe(true);
+		const twice = normalizeDirectorValue(once, caps);
+		expect(JSON.stringify(twice)).toBe(JSON.stringify(once));
+		expect(twice.timeline.shots.map((s) => s.id)).toEqual(['shot-a', 'shot-b']);
+	});
+});
+
+describe('buildDirectorSubmission: multi-shot LTX timeline (W2)', () => {
+	const caps = parseDirectorCapabilities(RAW_CAPS)!;
+	const wanCapsLocal = parseDirectorCapabilities(WAN_RAW_CAPS)!;
+
+	it('a chain document still returns exactly one wire doc, with no `shot` provenance key', () => {
+		const v = normalizeDirectorValue({ mode: 'director', chain: { segments: [{ id: 'c1', prompt: 'a', duration: 3 }] } }, wanCapsLocal);
+		const docs = buildDirectorSubmission(v, wanCapsLocal);
+		expect(docs).toHaveLength(1);
+		expect(docs[0].shot).toBeUndefined();
+	});
+
+	it('a single-shot timeline document returns one doc with no `shot` provenance key', () => {
+		const v = normalizeDirectorValue(
+			{ mode: 'director', global_prompt: 'p', timeline: { duration: 5, segments: [{ id: 's1', start: 0, end: 5, text: 'x' }] } },
+			caps
+		);
+		const docs = buildDirectorSubmission(v, caps);
+		expect(docs).toHaveLength(1);
+		expect(docs[0].shot).toBeUndefined();
+	});
+
+	it('a genuine 2-shot timeline document returns 2 wire docs, each with its own duration, ic_lora and shot provenance', () => {
+		const doc: VideoDirectorValue = {
+			...normalizeDirectorValue({}, caps),
+			mode: 'director',
+			global_prompt: 'anchor',
+			timeline: {
+				fps: 24,
+				shots: [
+					{
+						id: 'shot-1',
+						title: 'Opening',
+						duration: 3,
+						continue_from_previous: false,
+						segments: [{ id: 's1', start: 0, end: 3, text: 'first shot', prompt_segments: [] }],
+						keyframes: [],
+						audio: [],
+						ic_lora: [{ id: 'ic-1', lora: { model: 'style-a', strength: 1 }, ref_media: null, strength: 0.5 }]
+					},
+					{
+						id: 'shot-2',
+						duration: 4,
+						continue_from_previous: false,
+						segments: [{ id: 's2', start: 0, end: 4, text: 'second shot', prompt_segments: [] }],
+						keyframes: [],
+						audio: [],
+						ic_lora: [{ id: 'ic-2', lora: { model: 'style-b', strength: 1 }, ref_media: null, strength: 0.8 }]
+					}
+				]
+			}
+		};
+		const docs = buildDirectorSubmission(doc, caps);
+		expect(docs).toHaveLength(2);
+
+		expect(docs[0].shot).toEqual({ id: 'shot-1', index: 0, count: 2, title: 'Opening' });
+		expect(docs[1].shot).toEqual({ id: 'shot-2', index: 1, count: 2 });
+
+		expect(docs[0].settings.duration).toBe(3);
+		expect(docs[1].settings.duration).toBe(4);
+
+		// Each shot's own ic_lora only -- never merged/duplicated across docs.
+		expect(docs[0].ic_lora).toEqual([{ id: 'ic-1', lora: { model: 'style-a', strength: 1 }, reference: null, strength: 0.5 }]);
+		expect(docs[1].ic_lora).toEqual([{ id: 'ic-2', lora: { model: 'style-b', strength: 1 }, reference: null, strength: 0.8 }]);
+
+		expect(docs[0].segments[0].prompt).toContain('first shot');
+		expect(docs[1].segments[0].prompt).toContain('second shot');
+	});
+});
+
+describe('validateDirector: multi-shot timeline reasons (W2)', () => {
+	const caps = parseDirectorCapabilities(RAW_CAPS)!;
+
+	function twoShotDoc(shot2Overrides: Partial<DirectorTimelineShot>): VideoDirectorValue {
+		return {
+			...normalizeDirectorValue({}, caps),
+			mode: 'director',
+			global_prompt: 'anchor',
+			timeline: {
+				fps: 24,
+				shots: [
+					{ id: 'shot-1', duration: 3, continue_from_previous: false, segments: [{ id: 's1', start: 0, end: 3, text: 'a', prompt_segments: [] }], keyframes: [], audio: [], ic_lora: [] },
+					{
+						id: 'shot-2',
+						duration: 3,
+						continue_from_previous: false,
+						segments: [{ id: 's2', start: 0, end: 3, text: 'b', prompt_segments: [] }],
+						keyframes: [],
+						audio: [],
+						ic_lora: [],
+						...shot2Overrides
+					}
+				]
+			}
+		};
+	}
+
+	it('a shot with continue_from_previous: true reports "Shot 2 needs its previous shot" (no runs map exists yet)', () => {
+		const doc = twoShotDoc({ continue_from_previous: true });
+		const result = validateDirector(doc, caps);
+		expect(result.reasons).toContain('Shot 2 needs its previous shot');
+	});
+
+	it('a 2-shot document prefixes a per-shot reason with "Shot N: "', () => {
+		const doc = twoShotDoc({ keyframes: [{ id: 'k1', start: 0, role: 'first', strength: 1, media: null }] });
+		const result = validateDirector(doc, caps);
+		expect(result.reasons).toContain('Shot 2: Keyframe missing media');
+	});
+
+	it('regression: the equivalent SINGLE-shot document keeps the OLD unprefixed reason', () => {
+		// A 'free' keyframe (unlike an unfilled 'first'/'last' edge, which
+		// derives as "no edge at all" -- deriveDirectorMode/singleShotEdges)
+		// always forces `director` mode, same as the pre-W2 single-shot suite
+		// above (~line 1110) already relied on.
+		const v = normalizeDirectorValue(
+			{
+				mode: 'director',
+				global_prompt: 'p',
+				timeline: { keyframes: [{ id: 'k1', start: 0, role: 'free', strength: 1, media: null }] }
+			},
+			caps
+		);
+		const result = validateDirector(v, caps);
+		expect(result.reasons).toContain('Keyframe missing media');
+		expect(result.reasons.some((r) => r.startsWith('Shot'))).toBe(false);
+	});
+});
+
+describe('applyDirectorOperations: shot-scoped timeline ops (W2 shot_id)', () => {
+	const caps = parseDirectorCapabilities(RAW_CAPS)!;
+
+	function twoShotDoc(): VideoDirectorValue {
+		return {
+			...normalizeDirectorValue({}, caps),
+			timeline: {
+				fps: 24,
+				shots: [
+					{ id: 'shot-1', duration: 3, continue_from_previous: false, segments: [{ id: 's1', start: 0, end: 3, text: 'a', prompt_segments: [] }], keyframes: [], audio: [], ic_lora: [] },
+					{ id: 'shot-2', duration: 3, continue_from_previous: false, segments: [{ id: 's1', start: 0, end: 3, text: 'b', prompt_segments: [] }], keyframes: [], audio: [], ic_lora: [] }
+				]
+			}
+		};
+	}
+
+	it('upsert_segment with shot_id naming shot 2 only touches shot 2\'s beat list', () => {
+		const doc = twoShotDoc();
+		const next = applyDirectorOperations(
+			doc,
+			[{ op: 'upsert_segment', segment: { id: 's1', prompt: 'edited' }, shot_id: 'shot-2' }],
+			caps
+		);
+		expect(next.timeline.shots[0].segments[0].text).toBe('a'); // shot 1 untouched
+		expect(next.timeline.shots[1].segments[0].text).toBe('edited');
+	});
+
+	it('the same op WITHOUT shot_id is a no-op on a 2-shot document (ambiguous -- never guesses the first shot)', () => {
+		const doc = twoShotDoc();
+		const next = applyDirectorOperations(doc, [{ op: 'upsert_segment', segment: { id: 's1', prompt: 'edited' } }], caps);
+		expect(JSON.stringify(next)).toBe(JSON.stringify(doc));
+	});
+
+	it('regression: on a SINGLE-shot document the same op WITHOUT shot_id still applies (unambiguous fallback)', () => {
+		const v = normalizeDirectorValue({ mode: 'director', global_prompt: 'p', timeline: { segments: [{ id: 's1', start: 0, end: 5, text: 'a' }] } }, caps);
+		const next = applyDirectorOperations(v, [{ op: 'upsert_segment', segment: { id: 's1', prompt: 'edited' } }], caps);
+		expect(next.timeline.shots[0].segments[0].text).toBe('edited');
 	});
 });

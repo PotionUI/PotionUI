@@ -1,36 +1,27 @@
 <script lang="ts">
-	// `.dh-row` + `.cap-strip` from console.html. Pixel geometry and copy come
-	// from the template literally; only the semantic tokens back the colors.
-	//
-	// Maintainer ruling: no preset/model chip and no "Generate film" button in
-	// the console -- the page's own Generate control outside the Director is
-	// the only way to generate a film. Header is exactly: title · `n shots ·
-	// t s` · readiness · capability strip; the right-side actions render ONLY
-	// while shots are checked (Clear · `queued n` · disabled "Generate n
-	// selected" -- per-shot generation is W3, the button never fires yet,
-	// `queuedCount` stays 0 until W3 wires a real run queue). Nothing checked
-	// -> no actions at all, not even a disabled one.
+	// `.cap-strip` from console.html, WITHOUT a title of its own -- maintainer
+	// ruling (09-04, "I don't want to have two headers"): VideoDirectorEditor.
+	// svelte's own `<header>` carries the ONE "Video Director" title and mounts
+	// this as its informational strip -- `n shots · t s` · readiness ·
+	// capability chips -- with a spacer before the chips so a flex-1 wrapper
+	// around this component pushes them to the header's right edge, next to
+	// the Variables button. The console itself (ShotConsole.svelte) renders no
+	// header row at all any more; it starts at the film rows. No Generate
+	// control of any kind here either (per the separate "there is no such
+	// thing as 'Generate n selected'" ruling -- the generation panel always
+	// decides about the generation; the checked-shot count/Clear readout
+	// lives in ShotConsole.svelte, above the shot stack, not here).
 	import type { ConsoleHeader as ConsoleHeaderModel } from './consoleModel';
 	import ConsoleIcon, { type ConsoleIconName } from './ConsoleIcon.svelte';
 
 	let {
-		header,
-		checkedCount,
-		queuedCount = 0,
-		onGenerateSelected,
-		onClearChecked
+		header
 	}: {
 		header: ConsoleHeaderModel;
-		checkedCount: number;
-		queuedCount?: number;
-		onGenerateSelected: () => void;
-		onClearChecked: () => void;
 	} = $props();
 </script>
 
-<div class="flex flex-wrap items-center gap-2.5">
-	<span class="text-sm font-semibold text-fg" data-testid="director-console-title">{header.title}</span>
-
+<div class="flex w-full flex-wrap items-center gap-2.5">
 	<span class="font-mono text-[11px] tabular-nums text-fg-subtle">
 		{header.shotCount} shot{header.shotCount === 1 ? '' : 's'} · {header.totalSeconds.toFixed(1)} s
 	</span>
@@ -45,6 +36,8 @@
 		{header.readiness.text}
 	</span>
 
+	<div class="flex-1"></div>
+
 	<div class="flex flex-wrap items-center gap-1.5">
 		{#each header.capChips as chip (chip.text)}
 			<span
@@ -57,28 +50,4 @@
 			</span>
 		{/each}
 	</div>
-
-	<div class="flex-1"></div>
-
-	{#if checkedCount > 0}
-		<div class="flex items-center gap-2.5">
-			<button
-				type="button"
-				class="border-none bg-none p-0 text-xs text-fg-subtle underline decoration-line-strong hover:text-fg"
-				onclick={onClearChecked}
-			>
-				Clear
-			</button>
-			<span class="whitespace-nowrap font-mono text-[10.5px] tabular-nums text-fg-subtle">queued {queuedCount}</span>
-			<button
-				type="button"
-				class="inline-flex h-[27px] items-center justify-center gap-1.5 rounded bg-accent px-3 text-xs font-semibold text-accent-contrast disabled:cursor-not-allowed disabled:opacity-40"
-				disabled
-				title="Per-shot generation lands in the next wave"
-				onclick={onGenerateSelected}
-			>
-				Generate {checkedCount} selected
-			</button>
-		</div>
-	{/if}
 </div>

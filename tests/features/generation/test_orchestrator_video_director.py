@@ -324,6 +324,108 @@ class TestFormSeedOverride:
         assert 'settings' not in raw_doc
 
 
+class TestPerShotCompileWiring:
+    """The Video Director console's "Generate n selected": the normalized
+    document's own `render: {scope, shot_ids}` (see
+    src.features.video_director.normalize._normalize_render) decides whether
+    `compile_shot_plan` runs at all -- these tests cover only the wiring
+    (when it's called, with what, and that its result is what replaces
+    `form_data['video_director']`), not compilation itself
+    (tests/features/video_director/test_compile.py owns that)."""
+
+    @pytest.mark.asyncio
+    async def test_shots_scope_compiles_and_replaces_form_data(
+        self, orchestrator, mock_generation_repo
+    ):
+        raw_doc = {'schema_version': 1, 'mode': 'director', 'segments': [{'id': 'seg-1'}, {'id': 'seg-2'}]}
+        normalized = {
+            'schema_version': 1, 'mode': 'director', 'segments': [{'id': 'seg-1'}, {'id': 'seg-2'}],
+            'render': {'scope': 'shots', 'shot_ids': ['seg-2']},
+        }
+        compiled = {'schema_version': 1, 'mode': 'director', 'segments': [{'id': 'seg-2'}], 'compiled': True}
+        request = _request({'video_director': raw_doc})
+
+        with patch(
+            'src.features.generation.orchestrator.normalize_video_director', return_value=normalized,
+        ), patch(
+            'src.features.generation.orchestrator.compile_shot_plan', return_value=compiled,
+        ) as mock_compile, patch(
+            'src.features.generation.orchestrator.generate_ulid', return_value='gen_shots_1'
+        ):
+            await orchestrator.start_generation(request, 'user_123')
+
+        mock_compile.assert_called_once_with(normalized, ['seg-2'])
+        assert request.form_data['video_director'] == compiled
+
+        gen_arg = mock_generation_repo.create.call_args[0][0]
+        assert gen_arg.form_data['video_director'] == compiled
+
+    @pytest.mark.asyncio
+    async def test_film_scope_never_compiles(
+        self, orchestrator, mock_generation_repo
+    ):
+        raw_doc = {'schema_version': 1, 'mode': 'director', 'segments': [{'id': 'seg-1'}]}
+        normalized = {
+            'schema_version': 1, 'mode': 'director', 'segments': [{'id': 'seg-1'}],
+            'render': {'scope': 'film', 'shot_ids': []},
+        }
+        request = _request({'video_director': raw_doc})
+
+        with patch(
+            'src.features.generation.orchestrator.normalize_video_director', return_value=normalized,
+        ), patch(
+            'src.features.generation.orchestrator.compile_shot_plan',
+        ) as mock_compile, patch(
+            'src.features.generation.orchestrator.generate_ulid', return_value='gen_film_1'
+        ):
+            await orchestrator.start_generation(request, 'user_123')
+
+        mock_compile.assert_not_called()
+        assert request.form_data['video_director'] == normalized
+
+    @pytest.mark.asyncio
+    async def test_absent_render_key_never_compiles(
+        self, orchestrator, mock_generation_repo
+    ):
+        raw_doc = {'schema_version': 1, 'mode': 't2v', 'segments': []}
+        normalized = {'schema_version': 1, 'mode': 't2v', 'segments': []}
+        request = _request({'video_director': raw_doc})
+
+        with patch(
+            'src.features.generation.orchestrator.normalize_video_director', return_value=normalized,
+        ), patch(
+            'src.features.generation.orchestrator.compile_shot_plan',
+        ) as mock_compile, patch(
+            'src.features.generation.orchestrator.generate_ulid', return_value='gen_norender_1'
+        ):
+            await orchestrator.start_generation(request, 'user_123')
+
+        mock_compile.assert_not_called()
+        assert request.form_data['video_director'] == normalized
+
+    @pytest.mark.asyncio
+    async def test_compile_error_propagates_and_nothing_is_persisted(
+        self, orchestrator, mock_generation_repo, mock_backend_registry
+    ):
+        normalized = {
+            'schema_version': 1, 'mode': 'director', 'segments': [{'id': 'seg-1'}],
+            'render': {'scope': 'shots', 'shot_ids': ['seg-1']},
+        }
+        request = _request({'video_director': {'schema_version': 1, 'mode': 'director', 'segments': []}})
+
+        with patch(
+            'src.features.generation.orchestrator.normalize_video_director', return_value=normalized,
+        ), patch(
+            'src.features.generation.orchestrator.compile_shot_plan',
+            side_effect=VideoDirectorValidationError(['shot 1 needs its previous shot']),
+        ):
+            with pytest.raises(VideoDirectorValidationError):
+                await orchestrator.start_generation(request, 'user_123')
+
+        mock_generation_repo.create.assert_not_called()
+        mock_backend_registry.select_backend_for_generation.assert_not_called()
+
+
 class TestPromptExpansionBypass:
     def test_expansion_bypassed_when_document_present(self, orchestrator):
         request = _request({'video_director': {'mode': 't2v'}, 'quantity': 4, 'seed': 1})

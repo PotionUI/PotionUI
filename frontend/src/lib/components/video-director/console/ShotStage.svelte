@@ -56,7 +56,7 @@
 	let railSelection: RailSelectionId | null = $derived(
 		selection && selection.shotId === shot.id ? { kind: selection.kind === 'beat' ? 'shot' : selection.kind, id: selection.id } : null
 	);
-	let stageModel = $derived(deriveStageModel(doc, caps, railSelection, formData));
+	let stageModel = $derived(deriveStageModel(doc, caps, railSelection, formData, shot.id));
 
 	function formatSeconds(n: number): string {
 		return n.toFixed(1);
@@ -113,11 +113,11 @@
 	{#if activeTab === 'selection'}
 		{#if capText}<div class="stage-cap">{capText}</div>{/if}
 		{#if stageModel.selected.kind === 'shot'}
-			<StageBeat model={stageModel.selected} {doc} {caps} {onDoc} />
+			<StageBeat model={stageModel.selected} {doc} {caps} timelineShotId={shot.id} {onDoc} />
 		{:else if stageModel.selected.kind === 'keyframe'}
-			<StageKeyframe model={stageModel.selected} {doc} {caps} {formData} {onDoc} />
+			<StageKeyframe model={stageModel.selected} {doc} {caps} timelineShotId={shot.id} {formData} {onDoc} />
 		{:else if stageModel.selected.kind === 'audio'}
-			<StageAudio model={stageModel.selected} {doc} {caps} {formData} {onDoc} />
+			<StageAudio model={stageModel.selected} {doc} {caps} timelineShotId={shot.id} {formData} {onDoc} />
 		{:else}
 			<StageGlobalFallback globalPromptText={stageModel.globalPrompt} />
 		{/if}
@@ -126,7 +126,7 @@
 	{:else if activeTab === 'references'}
 		<StageReferencesTab {doc} {caps} {formData} shotId={shot.id} {onDoc} />
 	{:else if activeTab === 'ic_lora'}
-		<StageIcLora {doc} {formData} {presetId} {onDoc} />
+		<StageIcLora {doc} timelineShotId={shot.id} {formData} {presetId} {onDoc} />
 	{/if}
 </div>
 

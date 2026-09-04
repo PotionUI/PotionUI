@@ -359,6 +359,13 @@ def serialize_progress_output(output: ProgressGenerationOutput, ctx: SerializeCo
         result['current_step_num'] = output.current_step_num
     if hasattr(output, 'total_steps'):
         result['total_steps'] = output.total_steps
+    # Video Director: which segment/shot this progress update belongs to, for
+    # a film-scoped chain/window generation (see
+    # ProgressGenerationOutput.segment_id) -- lets the console light up the
+    # active row of a continuous render. Omitted (not just null) for every
+    # non-Director progress output.
+    if getattr(output, 'segment_id', None):
+        result['segment_id'] = output.segment_id
     if hasattr(output, 'created_at'):
         result['created_at'] = output.created_at
     if hasattr(output, 'completed_at'):

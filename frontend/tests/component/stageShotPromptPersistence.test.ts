@@ -57,7 +57,10 @@ function baseDoc(): VideoDirectorValue {
 		negative_prompt: '',
 		negative_prompt_segments: [],
 		simple: { duration: 5, fps: 24, start_image: null, first_frame: null, last_frame: null },
-		timeline: { duration: 5, fps: 24, segments: [], keyframes: [], audio: [], ic_lora: [] },
+		timeline: {
+			fps: 24,
+			shots: [{ id: 'shot-1', duration: 5, continue_from_previous: false, segments: [], keyframes: [], audio: [], ic_lora: [] }]
+		},
 		chain: { fps: 16, segments: [], continuation: { overlap_frames: 0, stitch: true }, keyframes: [], audio: [] }
 	};
 }
@@ -74,6 +77,8 @@ function blankChainSegment(id: string, duration: number, overrides: Partial<Chai
 		last_keyframe: null,
 		last_keyframe_strength: 1,
 		sub_type_override: null,
+		steps: null,
+		cfg: null,
 		...overrides
 	};
 }
@@ -122,7 +127,8 @@ function wanCaps(): DirectorCapabilities {
 				defaultSegmentDuration: 5,
 				continuation: null,
 				maxOverlapFrames: 81,
-				continuationDisabled: false
+				continuationDisabled: false,
+				fpsLocked: false
 			}
 		},
 		enabledModes: ['director'],
@@ -176,6 +182,10 @@ async function driveShotEdit(
 			model,
 			doc,
 			caps,
+			// Chain routing ignores this (a chain shot's prompt IS its own
+			// segment, addressed directly by `model.id`) -- every call site
+			// here drives a chain doc's 'chain-1' shot.
+			timelineShotId: 'chain-1',
 			onDoc: (next: VideoDirectorValue) => {
 				emitted = next;
 			}
@@ -220,7 +230,8 @@ describe('StageShot -> onDoc: a typed shot prompt reaches the document', () => {
 		expect(validation.ok).toBe(true);
 
 		const submission = buildDirectorSubmission(normalized, caps);
-		expect(submission.segments[0].prompt).toContain('a lighthouse at dusk');
+		expect(submission).toHaveLength(1);
+		expect(submission[0].segments[0].prompt).toContain('a lighthouse at dusk');
 	});
 
 	it('video (non-refs, Wan-style) profile: same chain', async () => {
@@ -252,7 +263,8 @@ describe('StageShot -> onDoc: a typed shot prompt reaches the document', () => {
 		expect(validation.ok).toBe(true);
 
 		const submission = buildDirectorSubmission(normalized, caps);
-		expect(submission.segments[0].prompt).toContain('a lighthouse at dusk');
+		expect(submission).toHaveLength(1);
+		expect(submission[0].segments[0].prompt).toContain('a lighthouse at dusk');
 	});
 });
 

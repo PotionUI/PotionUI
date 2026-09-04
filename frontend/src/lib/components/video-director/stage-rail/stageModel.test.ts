@@ -31,6 +31,7 @@ function baseModeCap(overrides: Partial<DirectorModeCapability> = {}): DirectorM
 		continuation: null,
 		maxOverlapFrames: null,
 		continuationDisabled: false,
+		fpsLocked: false,
 		...overrides
 	};
 }
@@ -44,7 +45,10 @@ function baseDoc(): VideoDirectorValue {
 		negative_prompt: '',
 		negative_prompt_segments: [],
 		simple: { duration: 5, fps: 24, start_image: null, first_frame: null, last_frame: null },
-		timeline: { duration: 5, fps: 24, segments: [], keyframes: [], audio: [], ic_lora: [] },
+		timeline: {
+			fps: 24,
+			shots: [{ id: 'shot-1', duration: 5, continue_from_previous: false, segments: [], keyframes: [], audio: [], ic_lora: [] }]
+		},
 		chain: { fps: 16, segments: [], continuation: { overlap_frames: 0, stitch: true }, keyframes: [], audio: [] }
 	};
 }
@@ -61,6 +65,8 @@ function chainSegment(id: string, prompt: string, duration: number, overrides: P
 		last_keyframe: null,
 		last_keyframe_strength: 1,
 		sub_type_override: null,
+		steps: null,
+		cfg: null,
 		...overrides
 	};
 }
@@ -435,7 +441,10 @@ describe('deriveStageModel — chain-edge keyframe mirrors (unified with the sho
 describe('deriveStageModel — timeline edge allowances (t2v-only / i2v-only, no free placement)', () => {
 	function singleBlockDoc(): VideoDirectorValue {
 		const doc = baseDoc();
-		doc.timeline = { duration: 4, fps: 25, segments: [tlSegment('tl-1', 'x', 0, 4)], keyframes: [], audio: [], ic_lora: [] };
+		doc.timeline = {
+			fps: 25,
+			shots: [{ id: 'tl-shot', duration: 4, continue_from_previous: false, segments: [tlSegment('tl-1', 'x', 0, 4)], keyframes: [], audio: [], ic_lora: [] }]
+		};
 		return doc;
 	}
 
@@ -498,16 +507,22 @@ describe('deriveStageModel — LTX profile (timeline)', () => {
 	it('an existing keyframe landing exactly on a block boundary takes the gate', () => {
 		const doc = baseDoc();
 		doc.timeline = {
-			duration: 11.88,
 			fps: 25,
-			segments: [
-				tlSegment('tl-1', 'Rain on the neon sign', 0, 4.2),
-				tlSegment('tl-2', 'Past the noodle window', 4.2, 8.6),
-				tlSegment('tl-3', 'The sign goes out', 8.6, 11.88)
-			],
-			keyframes: [{ id: 'tl-kf-2', start: 4.2, role: 'free', strength: 1, media: { path: 'window.png' } } satisfies DirectorKeyframe],
-			audio: [],
-			ic_lora: []
+			shots: [
+				{
+					id: 'tl-shot',
+					duration: 11.88,
+					continue_from_previous: false,
+					segments: [
+						tlSegment('tl-1', 'Rain on the neon sign', 0, 4.2),
+						tlSegment('tl-2', 'Past the noodle window', 4.2, 8.6),
+						tlSegment('tl-3', 'The sign goes out', 8.6, 11.88)
+					],
+					keyframes: [{ id: 'tl-kf-2', start: 4.2, role: 'free', strength: 1, media: { path: 'window.png' } } satisfies DirectorKeyframe],
+					audio: [],
+					ic_lora: []
+				}
+			]
 		};
 		const model = deriveStageModel(doc, ltxCaps(), { kind: 'shot', id: 'tl-2' });
 		const shot = model.selected as StageShotModel;
@@ -518,12 +533,18 @@ describe('deriveStageModel — LTX profile (timeline)', () => {
 	it('a single block spanning the whole video offers a well on BOTH edges (the flf shape)', () => {
 		const doc = baseDoc();
 		doc.timeline = {
-			duration: 4.06,
 			fps: 25,
-			segments: [tlSegment('tl-only', 'Handheld push down the stall row', 0, 4.06)],
-			keyframes: [],
-			audio: [],
-			ic_lora: []
+			shots: [
+				{
+					id: 'tl-shot',
+					duration: 4.06,
+					continue_from_previous: false,
+					segments: [tlSegment('tl-only', 'Handheld push down the stall row', 0, 4.06)],
+					keyframes: [],
+					audio: [],
+					ic_lora: []
+				}
+			]
 		};
 		const model = deriveStageModel(doc, ltxCaps(), { kind: 'shot', id: 'tl-only' });
 		const shot = model.selected as StageShotModel;
@@ -540,7 +561,12 @@ describe('deriveStageModel — LTX profile (timeline)', () => {
 		const caps = ltxCaps();
 		caps.modes.director = baseModeCap({ keyframes: 'none', maxKeyframes: 8 });
 		const doc = baseDoc();
-		doc.timeline = { duration: 4.06, fps: 25, segments: [tlSegment('tl-only', 'x', 0, 4.06)], keyframes: [], audio: [], ic_lora: [] };
+		doc.timeline = {
+			fps: 25,
+			shots: [
+				{ id: 'tl-shot', duration: 4.06, continue_from_previous: false, segments: [tlSegment('tl-only', 'x', 0, 4.06)], keyframes: [], audio: [], ic_lora: [] }
+			]
+		};
 		const shot = deriveStageModel(doc, caps, { kind: 'shot', id: 'tl-only' }).selected as StageShotModel;
 		expect(shot.leadingGate.kind).toBe('well');
 		expect(shot.trailingGate.kind).toBe('well');
@@ -619,17 +645,17 @@ describe('withChainLeadingMedia / withTimelineKeyframeMedia / withIcLoraPatch', 
 
 	it('mints a new timeline keyframe and later clears it', () => {
 		const doc = baseDoc();
-		const withKf = withTimelineKeyframeMedia(doc, 'new-kf', 'first', 0, { path: 'a.png' });
-		expect(withKf.timeline.keyframes).toHaveLength(1);
-		expect(withKf.timeline.keyframes[0]).toEqual({ id: 'new-kf', start: 0, role: 'first', strength: 1, media: { path: 'a.png' } });
-		const cleared = withTimelineKeyframeMedia(withKf, 'new-kf', 'first', 0, null);
-		expect(cleared.timeline.keyframes).toHaveLength(0);
+		const withKf = withTimelineKeyframeMedia(doc, 'shot-1', 'new-kf', 'first', 0, { path: 'a.png' });
+		expect(withKf.timeline.shots[0].keyframes).toHaveLength(1);
+		expect(withKf.timeline.shots[0].keyframes[0]).toEqual({ id: 'new-kf', start: 0, role: 'first', strength: 1, media: { path: 'a.png' } });
+		const cleared = withTimelineKeyframeMedia(withKf, 'shot-1', 'new-kf', 'first', 0, null);
+		expect(cleared.timeline.shots[0].keyframes).toHaveLength(0);
 	});
 
 	it('upserts an IC-LoRA entry by id', () => {
 		const doc = baseDoc();
-		const next = withIcLoraPatch(doc, 'ic-1', { lora: { model: 'ltx-2-detailer', strength: 0.65 } });
-		expect(next.timeline.ic_lora).toEqual([{ id: 'ic-1', lora: { model: 'ltx-2-detailer', strength: 0.65 }, ref_media: null, strength: 1 }]);
+		const next = withIcLoraPatch(doc, 'shot-1', 'ic-1', { lora: { model: 'ltx-2-detailer', strength: 0.65 } });
+		expect(next.timeline.shots[0].ic_lora).toEqual([{ id: 'ic-1', lora: { model: 'ltx-2-detailer', strength: 0.65 }, ref_media: null, strength: 1 }]);
 	});
 });
 
@@ -648,12 +674,12 @@ describe('withShotReferences', () => {
 		expect(next.chain.segments[1].references).toBeUndefined();
 	});
 
-	it('writes onto a timeline segment under non-segment-routing caps', () => {
+	it("writes onto a timeline shot's first beat under non-segment-routing caps -- `id` names the SHOT, not the beat", () => {
 		const doc = baseDoc();
-		doc.timeline.segments = [tlSegment('s1', 'a', 0, 5)];
+		doc.timeline = { ...doc.timeline, shots: [{ ...doc.timeline.shots[0], segments: [tlSegment('s1', 'a', 0, 5)] }] };
 		const caps: DirectorCapabilities = { ...wanCaps(), segmentRouting: false };
-		const next = withShotReferences(doc, caps, 's1', [{ path: '/pool/b.png' }]);
-		expect(next.timeline.segments[0].references).toEqual([{ path: '/pool/b.png' }]);
+		const next = withShotReferences(doc, caps, 'shot-1', [{ path: '/pool/b.png' }]);
+		expect(next.timeline.shots[0].segments[0].references).toEqual([{ path: '/pool/b.png' }]);
 	});
 });
 

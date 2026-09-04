@@ -2306,40 +2306,21 @@ button:focus-visible, textarea:focus-visible, input:focus-visible {
 .rail-search {
       margin: 0 12px 10px;
       display: flex;
-      flex-direction: column;
-      gap: 6px;
+      align-items: center;
+      gap: 8px;
     }
 
-.rail-search select {
-      width: 100%;
-      height: 30px;
-      padding: 0 28px 0 10px;
-      border: 1px solid rgb(var(--line));
-      border-radius: 8px;
-      color: rgb(var(--fg-muted));
-      background: rgb(var(--surface-2));
-      font-size: 11px;
-      appearance: none;
-      background-image: linear-gradient(45deg, transparent 50%, rgb(var(--fg-subtle)) 50%), linear-gradient(135deg, rgb(var(--fg-subtle)) 50%, transparent 50%);
-      background-position: calc(100% - 14px) 12px, calc(100% - 10px) 12px;
-      background-size: 4px 4px, 4px 4px;
-      background-repeat: no-repeat;
-      cursor: pointer;
-    }
-
-.rail-search select:focus-visible {
-      border-color: rgb(var(--signal));
-      outline: none;
-    }
-
+/* Search field: the mock's .new-chat-button "raised field" treatment. */
 .rail-search input {
-      width: 100%;
-      height: 30px;
-      padding: 0 10px;
-      border: 1px solid rgb(var(--line));
-      border-radius: 8px;
+      flex: 1;
+      min-width: 0;
+      height: 38px;
+      padding: 0 12px;
+      border: 1px solid rgb(var(--line-strong));
+      border-radius: 10px;
       color: rgb(var(--fg));
       background: rgb(var(--surface-2));
+      box-shadow: inset 0 1px rgba(255,255,255,.025);
       font-size: 11px;
     }
 
@@ -2349,6 +2330,46 @@ button:focus-visible, textarea:focus-visible, input:focus-visible {
 
 .rail-search input:focus-visible {
       border-color: rgb(var(--signal));
+      outline: none;
+    }
+
+/* Conversation-type select: the mock's .model-button treatment + .chevron icon. */
+.rail-search-select {
+      position: relative;
+      flex: 0 0 auto;
+      width: 104px;
+    }
+
+.rail-search select {
+      width: 100%;
+      height: 34px;
+      padding: 0 24px 0 10px;
+      border: 1px solid rgb(var(--line));
+      border-radius: 9px;
+      color: rgb(var(--fg-muted));
+      background: color-mix(in srgb, rgb(var(--surface-1)) 55%, rgb(var(--surface-2)));
+      font-size: 11px;
+      appearance: none;
+      cursor: pointer;
+      transition: 120ms ease;
+    }
+
+.rail-search select:hover, .rail-search select:focus-visible {
+      color: rgb(var(--fg));
+      border-color: rgb(var(--line-strong));
+      background: rgb(var(--surface-3));
+      outline: none;
+    }
+
+.rail-search-select .chevron {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      width: 12px;
+      height: 12px;
+      transform: translateY(-50%);
+      color: rgb(var(--fg-subtle));
+      pointer-events: none;
     }
 
 /* Per-session delete affordance, revealed on hover — the mock's rail has no

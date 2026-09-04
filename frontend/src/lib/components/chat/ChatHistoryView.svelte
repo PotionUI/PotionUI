@@ -133,7 +133,7 @@
 				bind:value={search}
 				on:input={handleSearchInput}
 			/>
-			{#if $chatModes.modes.length > 1}
+			<span class="rail-search-select">
 				<select
 					aria-label="Conversation type"
 					value={modeFilter ?? ''}
@@ -144,7 +144,8 @@
 						<option value={mode.id}>{mode.name}</option>
 					{/each}
 				</select>
-			{/if}
+				<svg class="icon chevron"><use href="#i-chevron" /></svg>
+			</span>
 		</div>
 	{/if}
 

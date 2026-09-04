@@ -615,15 +615,15 @@ class TestContainerKindsRoundTrip:
         assert group["label"] == "Models"
         assert group["children"][0]["name"] == "checkpoint"
 
-    def test_section_becomes_an_accordion_with_collapsed_config(self, dest_root):
+    def test_section_becomes_a_section_with_collapsed_config(self, dest_root):
         result = self._emit(dest_root, [SectionItem(title="Advanced", collapsed=True, items=[self._steps_field()])])
         fields = yaml.safe_load(
             (result.preset_dir / "modes" / result.mode / "tabs" / "generation.yml").read_text()
         )["fields"]
-        accordion = next(f for f in fields if f["type"] == "accordion")
-        assert accordion["label"] == "Advanced"
-        assert accordion["configuration"]["collapsed"] is True
-        assert accordion["children"][0]["name"] == "steps"
+        section = next(f for f in fields if f["type"] == "section")
+        assert section["label"] == "Advanced"
+        assert section["configuration"]["collapsed"] is True
+        assert section["children"][0]["name"] == "steps"
 
     def test_header_becomes_a_header_field_with_no_value(self, dest_root):
         result = self._emit(dest_root, [HeaderItem(text="Sampling")])
@@ -643,10 +643,10 @@ class TestContainerKindsRoundTrip:
         fields = yaml.safe_load(
             (result.preset_dir / "modes" / result.mode / "tabs" / "generation.yml").read_text()
         )["fields"]
-        accordion = next(f for f in fields if f["type"] == "accordion")
-        group = accordion["children"][0]
+        section = next(f for f in fields if f["type"] == "section")
+        group = section["children"][0]
         row = group["children"][0]
-        assert accordion["type"] == "accordion" and group["type"] == "group" and row["type"] == "row"
+        assert section["type"] == "section" and group["type"] == "group" and row["type"] == "row"
         assert {c["name"] for c in row["children"]} == {"steps", "cfg"}
 
 
@@ -832,22 +832,22 @@ class TestDefaultFormAndHistory:
         assert items[0].kind == "field" and items[0].field_name == "resolution"
         assert len(items[0].mappings) == 2
         assert {m.transform for m in items[0].mappings} == {"split_wh_width", "split_wh_height"}
-        models_group = next(i for i in items if i.kind == "group")
-        assert models_group.title == "Models"
-        assert [f.field_name for f in models_group.items] == ["checkpoint"]
+        models_section = next(i for i in items if i.kind == "section")
+        assert models_section.title == "Models"
+        assert [f.field_name for f in models_section.items] == ["checkpoint"]
         assert {i.field_name for i in items if i.kind == "field"} == {"resolution", "steps", "cfg"}
         assert {h.field for h in history} == {"resolution", "checkpoint", "steps", "cfg"}
         assert next(h for h in history if h.field == "resolution").format == "wxh"
         assert next(h for h in history if h.field == "checkpoint").format == "model_name"
 
-    def test_flux_subgraph_default_form_groups_three_model_loaders(self):
+    def test_flux_subgraph_default_form_sections_three_model_loaders(self):
         workflow = parse_api_workflow(_load("flux_subgraph_api.json"))
         analysis = suggest_fields(workflow)
         form = build_default_form(analysis)
-        models_group = next(i for i in form.tabs[0].items if i.kind == "group")
-        assert {f.field_name for f in models_group.items} == {"diffusion_model", "clip", "vae"}
+        models_section = next(i for i in form.tabs[0].items if i.kind == "section")
+        assert {f.field_name for f in models_section.items} == {"diffusion_model", "clip", "vae"}
         # Subgraph node ids survive into the mappings, same as field_mappings.
-        assert any(m.node_id.startswith("92:") for f in models_group.items for m in f.mappings)
+        assert any(m.node_id.startswith("92:") for f in models_section.items for m in f.mappings)
 
     def test_krea2_real_all_in_one_node_has_no_obvious_fields(self):
         """No KSampler for structural detection to key off (see

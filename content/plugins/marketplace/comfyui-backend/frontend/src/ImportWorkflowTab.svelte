@@ -1091,7 +1091,7 @@
 				<button type="button" onclick={() => addItemToContainer(items, 'field')} data-add-kind="field">{@render icon('arrow-right')}Field<span class="type-tag">input</span></button>
 				<button type="button" onclick={() => addItemToContainer(items, 'row')} data-add-kind="row">{@render icon('columns')}Row<span class="type-tag">layout</span></button>
 				<button type="button" onclick={() => addItemToContainer(items, 'group')} data-add-kind="group">{@render icon('folder')}Group<span class="type-tag">layout</span></button>
-				<button type="button" onclick={() => addItemToContainer(items, 'section')} data-add-kind="section">{@render icon('layers')}Section<span class="type-tag">accordion</span></button>
+				<button type="button" onclick={() => addItemToContainer(items, 'section')} data-add-kind="section">{@render icon('layers')}Section<span class="type-tag">section</span></button>
 				<button type="button" onclick={() => addItemToContainer(items, 'header')} data-add-kind="header">{@render icon('heading')}Header<span class="type-tag">display</span></button>
 			</div>
 		{/if}

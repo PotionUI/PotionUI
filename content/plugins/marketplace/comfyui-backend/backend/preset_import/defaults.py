@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Dict, List
 
-from .schema import FieldItem, FieldMapping, FormTab, GroupItem, ImportForm, HistoryEntry, Item
+from .schema import FieldItem, FieldMapping, FormTab, ImportForm, HistoryEntry, Item, SectionItem
 from .suggest import AnalyzeResult, InputCandidate
 
 _FOUNDATIONAL_ROLES = frozenset({"seed", "prompt_positive", "prompt_negative", "batch_size"})
@@ -113,7 +113,7 @@ def _build_tab_items(candidates: List[InputCandidate]) -> List[Item]:
 
     model_candidates = [c for role in _MODEL_ROLES for c in by_role.get(role, [])]
     if model_candidates:
-        items.append(GroupItem(title="Models", items=[_model_item(c) for c in model_candidates]))
+        items.append(SectionItem(title="Models", items=[_model_item(c) for c in model_candidates]))
 
     for c in by_role.get("image", []):
         items.append(_image_item(c))
@@ -129,7 +129,7 @@ def build_default_form(analysis: AnalyzeResult) -> ImportForm:
     """One tab per distinct `suggested_tab` an obvious candidate carries
     (falling back to "Generation" for a candidate with none, or when the
     workflow has no ComfyUI groups at all), each holding that tab's obvious
-    fields - resolution merged into one field, model loaders grouped.
+    fields - resolution merged into one field, model loaders in a Models section.
 
     A detected LoRA chain (`analysis.lora_chain`) never becomes a field here:
     turning it into a `lora_picker` is now the wizard's explicit "Convert to

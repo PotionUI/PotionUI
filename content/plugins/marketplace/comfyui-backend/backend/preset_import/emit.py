@@ -305,7 +305,7 @@ def _item_to_field_yaml(item: Item) -> Dict[str, Any]:
         return {"type": "group", "label": item.title, "children": [_item_to_field_yaml(child) for child in item.items]}
     if item.kind == "section":
         return {
-            "type": "accordion",
+            "type": "section",
             "label": item.title,
             "configuration": {"collapsed": item.collapsed},
             "children": [_item_to_field_yaml(child) for child in item.items],

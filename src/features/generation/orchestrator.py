@@ -711,13 +711,6 @@ class GenerationOrchestrator:
 
             logger.debug(f"Selected backend: {backend.name} (engine={backend.engine})")
 
-            # Now that the executing backend is known, rewrite each model reference into
-            # the engine-native string that backend expects. Values that are not model
-            # references (legacy paths, preset defaults) pass through untouched.
-            request.form_data = resolve_form_model_refs(
-                request.form_data or {}, backend.backend_id
-            )
-
             # Generate unique ID for this generation
             generation_id = generate_ulid()
             logger.debug(f"Generated generation_id: {generation_id}")
@@ -783,6 +776,18 @@ class GenerationOrchestrator:
                 # Update request with potentially modified (and re-validated) form_data
                 request.form_data = form_data
 
+            # Rewrite each model reference into the engine-native string the selected
+            # backend expects, before anything is persisted: a ModelRefNotAvailableError /
+            # ModelDigestConflictError here still surfaces as the same 4xx with no
+            # orphaned 'pending' row. The record persisted below keeps the form contract
+            # (`model:<id>` refs, same shape `bind_form` and the before_start hook saw) so
+            # history/reuse/bundle export can replay it against any backend; only
+            # `request.form_data`, applied after persistence, carries the resolved values
+            # the pipeline/backend actually consume.
+            resolved_form_data = resolve_form_model_refs(
+                request.form_data or {}, backend.backend_id
+            )
+
             # Create database record (`mode` was already resolved above, for bind_form)
             prompt_state = getattr(request, 'prompt_state', None)
 
@@ -807,6 +812,10 @@ class GenerationOrchestrator:
             )
             generation_repo.create(db_generation)
             logger.debug(f"Created database record for generation {generation_id}")
+
+            # Only now hand the pipeline/backend path the engine-native form_data;
+            # the persisted record above already captured the form-contract version.
+            request.form_data = resolved_form_data
 
             # Persist the router's decision trace for the history detail
             # "Routing" section. `decision` is only set when a router is

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { MODEL_REF_PREFIX, refFor, matchesStoredValue, findModelForValue } from './modelRef';
+import {
+	MODEL_REF_PREFIX,
+	refFor,
+	matchesStoredValue,
+	findModelForValue,
+	legacyValuesNeedingLookup
+} from './modelRef';
 
 describe('refFor', () => {
 	it('prefers a model:<id> ref when the model has an id', () => {
@@ -52,5 +58,32 @@ describe('findModelForValue', () => {
 
 	it('returns undefined when nothing matches', () => {
 		expect(findModelForValue(`${MODEL_REF_PREFIX}missing`, [{ id: '1' }])).toBeUndefined();
+	});
+});
+
+describe('legacyValuesNeedingLookup', () => {
+	it('skips model:<id> refs - those are hydrated by id, not by filename', () => {
+		expect(legacyValuesNeedingLookup([`${MODEL_REF_PREFIX}abc`], [], new Set())).toEqual([]);
+	});
+
+	it('returns a legacy value not yet resolved in models', () => {
+		const path = 'models/loras/krea2/detail_slider_krea2_loraholic.safetensors';
+		expect(legacyValuesNeedingLookup([path], [], new Set())).toEqual([path]);
+	});
+
+	it('excludes a legacy value already resolved against models', () => {
+		const path = 'models/loras/krea2/x.safetensors';
+		const models = [{ filename: 'x.safetensors' }];
+		expect(legacyValuesNeedingLookup([path], models, new Set())).toEqual([]);
+	});
+
+	it('excludes a value already attempted', () => {
+		const path = 'models/loras/krea2/x.safetensors';
+		expect(legacyValuesNeedingLookup([path], [], new Set([path]))).toEqual([]);
+	});
+
+	it('drops nullish/empty entries and dedupes repeats', () => {
+		const path = 'models/loras/krea2/x.safetensors';
+		expect(legacyValuesNeedingLookup([path, path, '', null, undefined], [], new Set())).toEqual([path]);
 	});
 });

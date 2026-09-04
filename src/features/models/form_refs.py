@@ -82,6 +82,30 @@ def collect_model_ids(form_data: Any) -> List[str]:
     return found
 
 
+def substitute_strings(form_data: Any, mapping: Dict[str, str]) -> Any:
+    """Rewrite every string in `form_data` that is a key in `mapping` to its value,
+    walking dicts/lists/tuples like `collect_model_ids`. A string not in `mapping`
+    passes through untouched.
+
+    Shared by the generation bundle export (`model:<id>` -> portable filename, so a
+    bundle carries no instance-local ids) and import (filename -> `model:<id>`, once
+    a bundle-listed filename resolves to exactly one local model).
+    """
+
+    def walk(node: Any) -> Any:
+        if isinstance(node, str):
+            return mapping.get(node, node)
+        if isinstance(node, dict):
+            return {key: walk(value) for key, value in node.items()}
+        if isinstance(node, list):
+            return [walk(item) for item in node]
+        if isinstance(node, tuple):
+            return tuple(walk(item) for item in node)
+        return node
+
+    return walk(form_data)
+
+
 def resolve_form_model_refs(form_data: Any, backend_id: str) -> Any:
     """Rewrite every `model:<id>` into the ref this backend needs.
 

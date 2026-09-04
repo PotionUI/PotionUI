@@ -35,6 +35,29 @@ def test_duplicate_references_collected_once_in_first_seen_order():
     assert fr.collect_model_ids(form) == ["m2", "m1"]
 
 
+def test_substitute_strings_rewrites_mapped_values_through_nested_shapes():
+    form = {
+        "checkpoint": fr.make_model_ref("m1"),
+        "loras": [{"model": fr.make_model_ref("m2"), "strength": 0.8}],
+    }
+    mapping = {fr.make_model_ref("m1"): "checkpoint.safetensors", fr.make_model_ref("m2"): "lora.safetensors"}
+
+    result = fr.substitute_strings(form, mapping)
+
+    assert result == {
+        "checkpoint": "checkpoint.safetensors",
+        "loras": [{"model": "lora.safetensors", "strength": 0.8}],
+    }
+
+
+def test_substitute_strings_leaves_unmapped_values_untouched():
+    form = {"checkpoint": fr.make_model_ref("m1"), "strength": 0.8, "count": 3}
+
+    result = fr.substitute_strings(form, {})
+
+    assert result == form
+
+
 @patch.object(fr, "model_availability_repo")
 def test_unindexed_backend_falls_back_to_the_model_index(repo):
     """A configured-but-unindexed backend has no rows, but it does hold models.

@@ -242,6 +242,30 @@ class TestExportImportRoundTrip:
         self.param_repo.create_batch(gen_id, "seed", seeds)
         return gen_id
 
+    def _create_generation_with_form_data(self, form_data, seed=1):
+        from src.features.generation.records import Generation, File
+        from src.platform.util.ids import generate_ulid
+
+        gen_id = generate_ulid()
+        self.generation_repo.create(Generation(
+            id=gen_id,
+            preset_id="preset-1",
+            form_data=form_data,
+            user_id=self.user_id,
+            mode="txt2img",
+            form_name="default",
+        ))
+        self.generation_repo.add_file(gen_id, File(
+            file_path=f"generations/2026-01-01/{gen_id}/0.png",
+            file_type="IMAGE",
+            user_id=self.user_id,
+            is_final=True,
+            width=512,
+            height=512,
+        ))
+        self.param_repo.create_batch(gen_id, "seed", [seed])
+        return gen_id
+
     def _add_model(self, gen_id, filename="checkpoint.safetensors", sha256="abc123"):
         from src.features.models.records import Model
         from src.platform.util.ids import generate_ulid
@@ -349,6 +373,77 @@ class TestExportImportRoundTrip:
         result = import_archive.import_bundle(zip_bytes)
 
         assert any("digest does not match" in w for w in result["warnings"])
+
+    def test_export_rewrites_model_refs_to_filenames(self):
+        from src.features.models.form_refs import make_model_ref
+        from src.platform.util.ids import generate_ulid
+
+        model_id = generate_ulid()
+        lora_id = generate_ulid()
+        with self.db.get_cursor() as cursor:
+            for mid, filename, sha in (
+                (model_id, "checkpoint.safetensors", "digest-1"),
+                (lora_id, "lora.safetensors", "digest-2"),
+            ):
+                cursor.execute("""
+                    INSERT INTO models (id, filename, file_path, file_size, model_type, sha256)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (mid, filename, f"/models/{filename}", 1024, "checkpoint", sha))
+
+        gen_id = self._create_generation_with_form_data({
+            "prompt": "a cat",
+            "seed": -1,
+            "diffusion_model": make_model_ref(model_id),
+            "loras": [{"model": make_model_ref(lora_id), "strength": 0.8}],
+            "unresolvable": make_model_ref("does-not-exist"),
+        })
+
+        archive = self._make_archive()
+        zip_bytes, _ = archive.export_bundle(gen_id, self.user_id)
+
+        envelope = self._extract_envelope(zip_bytes)
+        form_data = envelope["generation"]["form_data"]
+        assert form_data["diffusion_model"] == "checkpoint.safetensors"
+        assert form_data["loras"] == [{"model": "lora.safetensors", "strength": 0.8}]
+        assert form_data["unresolvable"] == make_model_ref("does-not-exist")
+
+    def test_import_rewrites_unambiguous_filename_matches_to_model_refs(self):
+        from src.features.models.form_refs import make_model_ref
+
+        export_gen_id = self._create_generation_with_form_data({
+            "prompt": "a cat",
+            "seed": 1,
+            "diffusion_model": "checkpoint.safetensors",
+        })
+        self._add_model(export_gen_id, filename="checkpoint.safetensors", sha256="digest-1")
+        export_archive = self._make_archive()
+        zip_bytes, _ = export_archive.export_bundle(export_gen_id, self.user_id)
+
+        # Importing instance: exactly one local model with the same filename.
+        import_archive = self._make_archive()
+        result = import_archive.import_bundle(zip_bytes)
+
+        candidates = self.model_repo.get_by_filename("checkpoint.safetensors")
+        assert len(candidates) == 1
+        assert result["reuse"]["form_data"]["diffusion_model"] == make_model_ref(candidates[0].id)
+
+    def test_import_leaves_filename_when_no_local_match(self):
+        export_gen_id = self._create_generation_with_form_data({
+            "prompt": "a cat",
+            "seed": 1,
+            "diffusion_model": "checkpoint.safetensors",
+        })
+        self._add_model(export_gen_id, filename="checkpoint.safetensors", sha256="digest-1")
+        export_archive = self._make_archive()
+        zip_bytes, _ = export_archive.export_bundle(export_gen_id, self.user_id)
+
+        with self.db.get_cursor() as cursor:
+            cursor.execute("DELETE FROM models WHERE filename = ?", ("checkpoint.safetensors",))
+
+        import_archive = self._make_archive()
+        result = import_archive.import_bundle(zip_bytes)
+
+        assert result["reuse"]["form_data"]["diffusion_model"] == "checkpoint.safetensors"
 
     def test_export_raises_not_found_for_generation_owned_by_another_user(self):
         gen_id = self._create_generation_with_seed_batch([1])

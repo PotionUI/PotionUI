@@ -41,3 +41,23 @@ export function findModelForValue<T extends ModelRefCandidate>(
 ): T | undefined {
 	return list.find((m) => matchesStoredValue(m, storedValue));
 }
+
+/**
+ * Legacy (non-`model:`) stored values from `storedValues` that still need a
+ * filename lookup: already resolved against `models` or already attempted
+ * (per `attempted`, keyed by the raw stored value) are excluded.
+ */
+export function legacyValuesNeedingLookup(
+	storedValues: Iterable<string | null | undefined>,
+	models: ModelRefCandidate[],
+	attempted: ReadonlySet<string>
+): string[] {
+	const result: string[] = [];
+	for (const value of new Set(storedValues)) {
+		if (!value || value.startsWith(MODEL_REF_PREFIX)) continue;
+		if (attempted.has(value)) continue;
+		if (models.some((model) => matchesStoredValue(model, value))) continue;
+		result.push(value);
+	}
+	return result;
+}

@@ -24,7 +24,14 @@
 	import { placeholderTint } from '$lib/utils/placeholderTint';
 	import { Button, IconButton, Switch } from '$lib/components/ui';
 	import type { Model as ModelBase, LoraPickerItem } from '$lib/types/models';
-	import { refFor, matchesStoredValue, MODEL_REF_PREFIX } from '$lib/utils/modelRef';
+	import {
+		refFor,
+		matchesStoredValue,
+		findModelForValue,
+		legacyValuesNeedingLookup,
+		MODEL_REF_PREFIX
+	} from '$lib/utils/modelRef';
+	import { buildModelSearchRequest } from '$lib/utils/modelSearchParams';
 	import { toggleModelFavoriteOptimistic } from '$lib/utils/modelFavorite';
 	import {
 		parseStrengthInput,
@@ -156,6 +163,7 @@
 	// those ids directly because the selected LoRA may not be on the first page.
 	let mounted = false;
 	const requestedModelIds = new Set<string>();
+	const requestedLegacyValues = new Set<string>();
 
 	async function hydrateStoredModel(id: string) {
 		try {
@@ -171,6 +179,30 @@
 		}
 	}
 
+	// Legacy value (file_path or bare filename) pre-dating the `model:<id>`
+	// migration - what generation records stored before it. Resolve against the
+	// same preset-scoped source the picker itself uses (mirrors ModelField's
+	// fetchSelectedModel).
+	async function hydrateLegacyModel(storedValue: string) {
+		try {
+			const filename = storedValue.split('/').pop() || storedValue;
+			const request = buildModelSearchRequest({ modelType, presetId, searchQuery: filename, limit: 10 });
+			const response =
+				request.kind === 'preset'
+					? await api.getPresetModels(request.presetId, request.modelType, request.search, request.opts)
+					: await api.getModels(request.params);
+			const list = (response.data?.models || []) as Model[];
+			const found = findModelForValue(storedValue, list);
+			if (mounted && found) {
+				mergeModels([found]);
+			} else if (mounted) {
+				logger.warn(`[LoraPickerField] Could not resolve stored model reference ${storedValue}`);
+			}
+		} catch (error) {
+			logger.error(`[LoraPickerField] Failed to resolve stored model reference ${storedValue}:`, error);
+		}
+	}
+
 	function hydrateStoredModels(storedValues: string[]) {
 		for (const storedValue of new Set(storedValues)) {
 			if (!storedValue?.startsWith(MODEL_REF_PREFIX)) continue;
@@ -178,6 +210,10 @@
 			if (!id || requestedModelIds.has(id) || models.some((model) => model.id === id)) continue;
 			requestedModelIds.add(id);
 			void hydrateStoredModel(id);
+		}
+		for (const storedValue of legacyValuesNeedingLookup(storedValues, models, requestedLegacyValues)) {
+			requestedLegacyValues.add(storedValue);
+			void hydrateLegacyModel(storedValue);
 		}
 	}
 

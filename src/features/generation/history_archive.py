@@ -517,6 +517,34 @@ class GenerationHistoryArchive:
 
         return zip_buffer.getvalue(), "potionui-export.zip"
 
+    @staticmethod
+    def _portable_form_data(form_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Model ulids are instance-local: a bundled `form_data` carrying a
+        `model:<id>` ref (see src.features.models.form_refs) would mean nothing on
+        another instance. Rewrite each ref to that model's filename instead, which
+        the bundle's own `models` list already ships for exactly this purpose. An
+        id that no longer resolves locally is left as-is."""
+        from src.features.models.form_refs import collect_model_ids, make_model_ref, substitute_strings
+
+        model_ids = collect_model_ids(form_data)
+        if not model_ids:
+            return form_data
+
+        from src.features.models.repository import model_repo
+
+        filename_by_ref: Dict[str, str] = {}
+        for model_id in model_ids:
+            try:
+                model = model_repo.get_by_id(model_id, include_providers=False, include_tags=False)
+            except Exception:
+                model = None
+            if model and model.filename:
+                filename_by_ref[make_model_ref(model_id)] = model.filename
+
+        if not filename_by_ref:
+            return form_data
+        return substitute_strings(form_data, filename_by_ref)
+
     def _build_bundle_envelope(self, generation: Generation, user_id: str) -> Dict[str, Any]:
         """Portable envelope for one generation - schema/kind/schema_version, a
         `generation` payload another instance can reuse to reproduce the run, the
@@ -553,6 +581,7 @@ class GenerationHistoryArchive:
         form_data = deepcopy(generation.form_data) if isinstance(generation.form_data, dict) else {}
         if parameters and 'seed' in parameters[0]:
             form_data['seed'] = parameters[0]['seed']
+        form_data = self._portable_form_data(form_data)
 
         models = generation_model_repo.get_by_generation(generation.id)
         models_payload = [
@@ -706,14 +735,21 @@ class GenerationHistoryArchive:
 
     def _check_bundle_environment(
         self, generation: Dict[str, Any], models: List[Dict[str, Any]]
-    ) -> Tuple[bool, List[str]]:
+    ) -> Tuple[bool, List[str], Dict[str, str]]:
         """Environment checks -> warnings, never a hard failure: a preset not
         installed here, or a model missing / digest-mismatched locally. Matched
         by (model_type, filename) - the same cross-instance model identity used
         everywhere else (see docs/models.md). `backend_id` is deliberately not
         part of the bundle at all - it is instance-specific and never checked.
+
+        Also returns `local_id_by_filename`: the bundle-listed filenames found
+        locally, mapped to that model's id, so `import_bundle` can turn them back
+        into `model:<id>` refs without a second `get_by_filename` pass. The
+        `models` table is unique on (model_type, filename), so a match is never
+        ambiguous.
         """
         warnings: List[str] = []
+        local_id_by_filename: Dict[str, str] = {}
 
         preset_id = generation.get("preset_id")
         preset_available = False
@@ -747,6 +783,8 @@ class GenerationHistoryArchive:
                 warnings.append(f"Model '{label}' ({model_type}) was not found locally")
                 continue
 
+            local_id_by_filename[filename] = candidates[0].id
+
             expected_sha256 = model.get("sha256")
             local_sha256 = candidates[0].sha256
             if expected_sha256 and local_sha256 and expected_sha256 != local_sha256:
@@ -754,7 +792,7 @@ class GenerationHistoryArchive:
                     f"Model '{label}' is present locally but its digest does not match the exported copy"
                 )
 
-        return preset_available, warnings
+        return preset_available, warnings, local_id_by_filename
 
     def import_bundle(self, content: bytes) -> Dict[str, Any]:
         """Parse an uploaded generation bundle into a reuse payload.
@@ -783,13 +821,23 @@ class GenerationHistoryArchive:
         generation = self._validate_bundle_envelope(document)
         models = document.get("models") or []
 
-        preset_available, warnings = self._check_bundle_environment(generation, models)
+        preset_available, warnings, local_id_by_filename = self._check_bundle_environment(generation, models)
+
+        form_data = generation.get("form_data")
+        if local_id_by_filename:
+            from src.features.models.form_refs import make_model_ref, substitute_strings
+
+            ref_by_filename = {
+                filename: make_model_ref(model_id)
+                for filename, model_id in local_id_by_filename.items()
+            }
+            form_data = substitute_strings(form_data, ref_by_filename)
 
         reuse = {
             "preset_id": generation.get("preset_id"),
             "mode": generation.get("mode"),
             "form_name": generation.get("form_name"),
-            "form_data": generation.get("form_data"),
+            "form_data": form_data,
             "prompt_state": generation.get("prompt_state"),
         }
 

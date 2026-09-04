@@ -559,6 +559,35 @@ class ModelRepository:
             cursor.execute("DELETE FROM models WHERE id = ?", (model_id,))
             return cursor.rowcount > 0
 
+    def delete_unclaimed_orphans(self, model_ids: List[str]) -> int:
+        """Hard-delete rows in `model_ids` that are unreachable and safe to drop.
+
+        Only a backend-reported row - created by `BackendModelIndexer._create_model`,
+        `file_path IS NULL` - can qualify; a depot scan's row always has a local
+        `file_path` and is never touched here. The remaining guards keep the
+        `ON DELETE CASCADE` on `providers`/`generation_models`/`model_availability`
+        from silently erasing something worth keeping: a model must currently hold
+        no backend claim, no provider info, and no generation-history link.
+        """
+        if not model_ids:
+            return 0
+
+        from src.platform.database.database import db
+        with db.get_cursor() as cursor:
+            placeholders = ",".join("?" for _ in model_ids)
+            cursor.execute(
+                f"""
+                DELETE FROM models
+                WHERE id IN ({placeholders})
+                  AND file_path IS NULL
+                  AND NOT EXISTS (SELECT 1 FROM model_availability WHERE model_availability.model_id = models.id)
+                  AND NOT EXISTS (SELECT 1 FROM providers WHERE providers.model_id = models.id)
+                  AND NOT EXISTS (SELECT 1 FROM generation_models WHERE generation_models.model_id = models.id)
+                """,
+                tuple(model_ids),
+            )
+            return cursor.rowcount
+
     def upsert(self, model: Model) -> Model:
         """Insert or update model based on file path"""
         existing = self.get_by_file_path(model.file_path, include_providers=False)

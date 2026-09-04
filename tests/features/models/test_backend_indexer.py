@@ -33,6 +33,16 @@ class FakeModelRepo:
         self.models.append(model)
         return model
 
+    def delete_unclaimed_orphans(self, model_ids):
+        """Mirrors the real repo's guard: only a row with no local file qualifies."""
+        removed = 0
+        for model_id in list(model_ids):
+            match = next((m for m in self.models if m.id == model_id), None)
+            if match is not None and match.file_path is None:
+                self.models.remove(match)
+                removed += 1
+        return removed
+
 
 class FakeAvailabilityRepo:
     def __init__(self):
@@ -42,6 +52,9 @@ class FakeAvailabilityRepo:
     def upsert(self, availability):
         self.rows[(availability.model_id, availability.backend_id)] = availability
         return availability
+
+    def get_for_backend(self, backend_id):
+        return [row for key, row in self.rows.items() if key[1] == backend_id]
 
     def delete_for_backend(self, backend_id, keep_model_ids=None):
         stale = [
@@ -252,6 +265,56 @@ async def test_no_digest_from_either_side_is_not_a_conflict():
 
     assert result.digest_conflicts == []
     assert avail.rows[("m1", "comfy1")].confidence == "reported"
+
+
+@pytest.mark.asyncio
+async def test_identity_remap_orphans_the_old_row_and_merges_onto_the_new_one():
+    """A folder->model_type remap (e.g. ComfyUI's `clip` folder starting to report as
+    `text_encoder`) must not leave the old identity's row behind: the depot row for
+    the new identity should gain the claim, and the stale row - now unreachable,
+    no local file, no other backend - must be hard-deleted."""
+    depot_row = FakeModel("depot1", "text_encoder", "x.safetensors", file_path="models/text_encoders/x.safetensors")
+    idx, models, avail = indexer([depot_row])
+    backend = make_backend([BackendModel("clip", "x.safetensors", "x.safetensors", size=1)], backend_id="comfy1")
+
+    first = await idx.index_backend(backend)
+    assert first.created == 1
+    assert len(models.models) == 2
+    stale_row = next(m for m in models.models if m.id != "depot1")
+
+    async def _list():
+        return [BackendModel("text_encoder", "x.safetensors", "x.safetensors", size=1)]
+    backend.list_models = _list
+
+    second = await idx.index_backend(backend)
+
+    assert second.matched == 1
+    assert second.orphans_removed == 1
+    assert avail.rows[("depot1", "comfy1")].ref == "x.safetensors"
+    assert stale_row.id not in {m.id for m in models.models}
+    assert models.models == [depot_row]
+
+
+@pytest.mark.asyncio
+async def test_orphan_candidate_with_a_local_file_path_survives():
+    """A row that happens to lose this backend's claim but still has a local file
+    (a depot scan's row, or a model downloaded after the fact) must never be
+    hard-deleted - only a backend-created, file-less row qualifies."""
+    local_row = FakeModel("m1", "lora", "kept.safetensors", file_path="models/loras/kept.safetensors")
+    idx, models, avail = indexer([local_row])
+    backend = make_backend([BackendModel("lora", "kept.safetensors", "kept.safetensors", size=1)])
+
+    await idx.index_backend(backend)
+
+    async def _empty():
+        return []
+    backend.list_models = _empty
+
+    result = await idx.index_backend(backend)
+
+    assert result.removed == 1
+    assert result.orphans_removed == 0
+    assert models.models == [local_row]
 
 
 @pytest.mark.asyncio

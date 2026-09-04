@@ -256,3 +256,28 @@ async def test_connection_error_raises_not_silent_empty_list():
 def test_supports_model_listing_is_true():
     backend = make_backend()
     assert backend.supports_model_listing() is True
+
+
+@pytest.mark.asyncio
+async def test_clip_and_text_encoders_folders_merge_into_text_encoder_type():
+    """Both folders must land on `text_encoder`, the same model_type the core
+    depot and every ComfyUI preset's CLIP field use - not the ComfyUI-only
+    `clip` type, which the presets never select and the depot never reports."""
+    backend = make_backend()
+    routes = {
+        f"{BASE}/models": FakeResponse(["text_encoders", "clip"]),
+        f"{BASE}/experiment/models/text_encoders": FakeResponse(
+            [{"name": "qwen_2.5_vl_7b_fp8_scaled.safetensors", "pathIndex": 0, "size": 1}]
+        ),
+        f"{BASE}/experiment/models/clip": FakeResponse(
+            [{"name": "clip_l.safetensors", "pathIndex": 0, "size": 2}]
+        ),
+    }
+    patcher, _session = patch_session(routes)
+    with patcher:
+        results = await backend.list_models()
+
+    assert len(results) == 2
+    assert all(entry.model_type == "text_encoder" for entry in results)
+    filenames = {entry.filename for entry in results}
+    assert filenames == {"qwen_2.5_vl_7b_fp8_scaled.safetensors", "clip_l.safetensors"}

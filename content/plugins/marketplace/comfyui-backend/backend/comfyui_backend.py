@@ -33,19 +33,20 @@ logger = logging.getLogger(__name__)
 # for, so a custom-node folder we don't recognise is silently skipped, and a
 # folder we know about but the server doesn't have is skipped too.
 #
-# `clip` and `text_encoders` both map to `clip` and are merged into one listing.
+# `clip`, `text_encoders` and `clip_vision` all map to `text_encoder` (one home for a
+# conditioning encoder - see src/platform/filesystem/model_types.py) and merge into one listing.
 FOLDER_TO_MODEL_TYPE = {
     "checkpoints": "checkpoint",
     "loras": "lora",
     "vae": "vae",
-    "text_encoders": "clip",
-    "clip": "clip",
+    "text_encoders": "text_encoder",
+    "clip": "text_encoder",
     "diffusion_models": "diffusion_model",
     "unet": "unet",
     "upscale_models": "upscaler",
     "embeddings": "embedding",
     "controlnet": "controlnet",
-    "clip_vision": "clip_vision",
+    "clip_vision": "text_encoder",
 }
 
 

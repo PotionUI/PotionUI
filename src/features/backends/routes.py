@@ -456,7 +456,8 @@ class BackendController(BaseController):
                 data=result.to_dict(),
                 message=(
                     f"Indexed {result.listed} models from '{backend.name}': "
-                    f"{result.created} new, {result.matched} matched, {result.removed} removed"
+                    f"{result.created} new, {result.matched} matched, {result.removed} removed, "
+                    f"{result.orphans_removed} orphans removed"
                 )
             )
 

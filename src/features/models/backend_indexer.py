@@ -70,6 +70,7 @@ class IndexResult:
     created: int = 0
     matched: int = 0
     removed: int = 0
+    orphans_removed: int = 0
     size_conflicts: List[SizeConflict] = field(default_factory=list)
     digest_conflicts: List[DigestConflict] = field(default_factory=list)
     ambiguous: List[str] = field(default_factory=list)
@@ -81,6 +82,7 @@ class IndexResult:
             "created": self.created,
             "matched": self.matched,
             "removed": self.removed,
+            "orphans_removed": self.orphans_removed,
             "size_conflicts": [c.__dict__ for c in self.size_conflicts],
             "digest_conflicts": [c.__dict__ for c in self.digest_conflicts],
             "ambiguous": self.ambiguous,
@@ -112,6 +114,7 @@ class BackendModelIndexer:
             f"[BACKEND_INDEX] {backend.name} reported {len(entries)} models"
         )
 
+        previously_claimed = {a.model_id for a in self.availability.get_for_backend(backend.backend_id)}
         by_identity = self._group_by_identity(entries, result)
         index = self._existing_by_identity()
         seen_model_ids: Set[str] = set()
@@ -145,9 +148,18 @@ class BackendModelIndexer:
             backend.backend_id, keep_model_ids=seen_model_ids
         )
 
+        # A model this backend just stopped claiming may have been the only backend
+        # that ever claimed it (e.g. its identity's model_type just got remapped, as
+        # `FOLDER_TO_MODEL_TYPE` changes do). Such a row - no local file, no other
+        # claim - is unreachable and would otherwise linger in the library forever.
+        lost_claims = previously_claimed - seen_model_ids
+        if lost_claims:
+            result.orphans_removed = self.models.delete_unclaimed_orphans(list(lost_claims))
+
         logger.info(
             f"[BACKEND_INDEX] {backend.name}: {result.created} new, {result.matched} matched, "
-            f"{result.removed} stale removed, {len(result.size_conflicts)} size conflicts"
+            f"{result.removed} stale removed, {result.orphans_removed} orphans removed, "
+            f"{len(result.size_conflicts)} size conflicts"
         )
         return result
 

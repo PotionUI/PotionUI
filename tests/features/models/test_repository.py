@@ -291,3 +291,72 @@ class TestModelRepository(PersistenceTestBase):
         fetched = self.repository.get_by_id(model.id, include_providers=False, include_tags=False)
         self.assertTrue(fetched.is_available)
         self.assertIsNone(fetched.unavailable_at)
+
+    def _create_remote_model(self, filename: str = "orphan.safetensors", model_type: str = "clip") -> Model:
+        """A backend-reported row - no local file, the only kind `delete_unclaimed_orphans`
+        may ever remove."""
+        model = Model(filename=filename, file_path=None, model_type=model_type)
+        return self.repository.create(model)
+
+    def test_delete_unclaimed_orphans_removes_a_fileless_unreferenced_row(self):
+        orphan = self._create_remote_model()
+
+        removed = self.repository.delete_unclaimed_orphans([orphan.id])
+
+        self.assertEqual(removed, 1)
+        self.assertIsNone(self.repository.get_by_id(orphan.id))
+
+    def test_delete_unclaimed_orphans_spares_a_row_with_a_local_file_path(self):
+        local_model = self._create_model(file_path="/models/loras/kept.safetensors")
+
+        removed = self.repository.delete_unclaimed_orphans([local_model.id])
+
+        self.assertEqual(removed, 0)
+        self.assertIsNotNone(self.repository.get_by_id(local_model.id))
+
+    def test_delete_unclaimed_orphans_spares_a_row_still_claimed_by_a_backend(self):
+        orphan = self._create_remote_model()
+        with self.db.get_cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO backends (id, name, engine) VALUES (?, ?, ?)",
+                ("be1", "Test Backend", "comfyui"),
+            )
+            cursor.execute(
+                "INSERT INTO model_availability (id, model_id, backend_id, ref) VALUES (?, ?, ?, ?)",
+                ("ma1", orphan.id, "be1", "orphan.safetensors"),
+            )
+
+        removed = self.repository.delete_unclaimed_orphans([orphan.id])
+
+        self.assertEqual(removed, 0)
+        self.assertIsNotNone(self.repository.get_by_id(orphan.id))
+
+    def test_delete_unclaimed_orphans_spares_a_row_with_provider_info(self):
+        orphan = self._create_remote_model()
+        with self.db.get_cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO providers (id, model_id, provider) VALUES (?, ?, ?)",
+                ("p1", orphan.id, "civitai"),
+            )
+
+        removed = self.repository.delete_unclaimed_orphans([orphan.id])
+
+        self.assertEqual(removed, 0)
+        self.assertIsNotNone(self.repository.get_by_id(orphan.id))
+
+    def test_delete_unclaimed_orphans_spares_a_row_with_generation_history(self):
+        orphan = self._create_remote_model()
+        with self.db.get_cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO generations (id, form_data) VALUES (?, ?)",
+                ("gen1", "{}"),
+            )
+            cursor.execute(
+                "INSERT INTO generation_models (id, generation_id, model_id) VALUES (?, ?, ?)",
+                ("gm1", "gen1", orphan.id),
+            )
+
+        removed = self.repository.delete_unclaimed_orphans([orphan.id])
+
+        self.assertEqual(removed, 0)
+        self.assertIsNotNone(self.repository.get_by_id(orphan.id))

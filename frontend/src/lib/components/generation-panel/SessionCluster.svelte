@@ -30,6 +30,7 @@
 	import { activeWorkspaceDirtyQuery, answerWorkspaceDirtyQuery } from '$lib/stores/workspaceDirtyQuery';
 	import { toasts } from '$lib/stores/toast';
 	import { timeAgo } from '$lib/utils/relativeTime';
+	import Tooltip from '$lib/components/Tooltip.svelte';
 	import SessionPopoverContent from './SessionPopoverContent.svelte';
 	import ConfirmModal from '$lib/components/modals/ConfirmModal.svelte';
 	import SessionSaveModal from '$lib/components/session/SessionSaveModal.svelte';
@@ -792,16 +793,17 @@
 	     unavailable"): real contract (session-edit-survives-tab-switch.spec.ts,
 	     button[aria-label="Save session"] etc.) matches on the attribute, not
 	     on visible text, so an icon-only button satisfies it unchanged. -->
-	<button
-		type="button"
-		class="session-save-button"
-		disabled={!sessionControlsEnabled}
-		aria-label={saveCellAriaLabel}
-		title={saveCellAriaLabel}
-		on:click={handleSaveCellClick}
-	>
-		<svg class="icon"><use href="#i-save" /></svg>
-	</button>
+	<Tooltip text={saveCellAriaLabel} position="top" delay={150}>
+		<button
+			type="button"
+			class="session-save-button"
+			disabled={!sessionControlsEnabled}
+			aria-label={saveCellAriaLabel}
+			on:click={handleSaveCellClick}
+		>
+			<svg class="icon"><use href="#i-save" /></svg>
+		</button>
+	</Tooltip>
 
 	{#if open}
 		<!-- role="menu" (not the mock's role="dialog"): keeps the existing

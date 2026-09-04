@@ -1,5 +1,12 @@
 <script lang="ts">
+	import { getContext } from 'svelte';
+	import { INSIDE_TOOLTIP_CONTEXT_KEY } from '../tooltipContext';
 	import type { MarkState } from './barState';
+
+	// Drops the native `title` fallback when a real Tooltip already wraps
+	// this button (GenerationPanel.svelte) — otherwise the browser's native
+	// tooltip and the app's rendered one would both show on hover.
+	const insideTooltip = getContext<boolean | undefined>(INSIDE_TOOLTIP_CONTEXT_KEY) === true;
 
 	// Ported from generation-panel-concept.html's `.generate-button` (lines
 	// 254-284, 464-479): the button IS a labeled pill (mark + "Generate"/
@@ -29,7 +36,7 @@
 	{disabled}
 	on:click={onclick}
 	aria-label={label}
-	title={label}
+	title={insideTooltip ? undefined : label}
 >
 	<span class="generate-mark" aria-hidden="true">
 		<svg viewBox="0 0 48 48" fill="none">

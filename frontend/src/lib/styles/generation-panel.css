@@ -344,6 +344,16 @@ button.session-row:hover, .session-row.is-current { background: rgb(var(--surfac
 
 /* additions */
 
+/* The mock's own CSS tooltip (`content: attr(data-tooltip)`, positioned
+   relative to the button alone) rendered in the wrong place once this
+   docked bar was `position: fixed` with its own stacking context —
+   superseded by the app's real Tooltip component (GenerationPanel.svelte),
+   which computes a `position: fixed` rect from the trigger's live bounding
+   box instead. Neutralized here rather than deleted from the generated
+   block, per the port rules. */
+& .icon-button::after,
+& .mode-button::after { content: none; display: none; }
+
 /* Maintainer ruling: the OUTER `.generation-panel` is a plain full-width
    strip — fixed, flush to the bottom edge, surface-1 background, a top
    border, no floating inset/margin/radius/card-shadow. `.panel-bar` is

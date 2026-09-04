@@ -7,6 +7,7 @@
 	import { parseTemplateMarkers } from '$lib/utils/templateProcessor';
 	import { contributionsForSlot } from '$lib/extensions/extensionSlots';
 	import { resolvePluginComponent } from '$lib/plugin-api/componentResolver';
+	import Tooltip from './Tooltip.svelte';
 	import GenerationPanelIconSprite from './generation-panel/GenerationPanelIconSprite.svelte';
 	import GenerateMark from './generation-panel/GenerateMark.svelte';
 	import PanelReadoutCell from './generation-panel/PanelReadoutCell.svelte';
@@ -530,60 +531,74 @@
 
 		<section class="commands" aria-label="Generation actions">
 			<div class="utility-cluster">
-				<button
-					type="button"
-					class="icon-button"
-					data-tooltip="Generation settings"
-					aria-label="Generation settings"
-					aria-expanded={activeDrawer === 'settings'}
-					disabled={!$$slots.settings}
-					on:click={() => toggleDrawer('settings')}
-				>
-					<svg class="icon"><use href="#i-sliders" /></svg>
-				</button>
-				<button
-					type="button"
-					class="icon-button"
-					data-tooltip="Last generations"
-					aria-label="Last generations"
-					aria-expanded={activeDrawer === 'lastGenerations'}
-					disabled={!$$slots.lastGenerations}
-					on:click={() => toggleDrawer('lastGenerations')}
-				>
-					<svg class="icon"><use href="#i-history" /></svg>
-				</button>
-				{#each $panelModeContributions as modeContrib (pluginDrawerId(modeContrib))}
+				<!-- Real Tooltip component here, not the mock's CSS `::after`
+					(`data-tooltip` + `content: attr(...)`, neutralized in the
+					ported stylesheet): that pseudo-element is positioned
+					relative to the button alone, and inside this docked
+					`position: fixed` strip it rendered in the wrong place.
+					Tooltip computes its own fixed position from the trigger's
+					live bounding rect, so it's correct regardless of the
+					strip's own stacking context. -->
+				<Tooltip text="Generation settings" position="top" delay={150}>
 					<button
 						type="button"
 						class="icon-button"
-						data-tooltip={modeContrib.label || modeContrib.component}
-						aria-label={modeContrib.label || modeContrib.component}
-						aria-expanded={activeDrawer === pluginDrawerId(modeContrib)}
-						on:click={() => toggleDrawer(pluginDrawerId(modeContrib))}
+						aria-label="Generation settings"
+						aria-expanded={activeDrawer === 'settings'}
+						disabled={!$$slots.settings}
+						on:click={() => toggleDrawer('settings')}
 					>
-						<svg class="icon"><use href="#i-extension" /></svg>
+						<svg class="icon"><use href="#i-sliders" /></svg>
 					</button>
+				</Tooltip>
+				<Tooltip text="Last generations" position="top" delay={150}>
+					<button
+						type="button"
+						class="icon-button"
+						aria-label="Last generations"
+						aria-expanded={activeDrawer === 'lastGenerations'}
+						disabled={!$$slots.lastGenerations}
+						on:click={() => toggleDrawer('lastGenerations')}
+					>
+						<svg class="icon"><use href="#i-history" /></svg>
+					</button>
+				</Tooltip>
+				{#each $panelModeContributions as modeContrib (pluginDrawerId(modeContrib))}
+					<Tooltip text={modeContrib.label || modeContrib.component} position="top" delay={150}>
+						<button
+							type="button"
+							class="icon-button"
+							aria-label={modeContrib.label || modeContrib.component}
+							aria-expanded={activeDrawer === pluginDrawerId(modeContrib)}
+							on:click={() => toggleDrawer(pluginDrawerId(modeContrib))}
+						>
+							<svg class="icon"><use href="#i-extension" /></svg>
+						</button>
+					</Tooltip>
 				{/each}
 			</div>
 			<div class="run-cluster">
-				<button
-					type="button"
-					class="mode-button {modeChromeActive ? 'is-continuous' : ''} {modeChromeGlyph === 'stopping' ? 'is-stopping' : ''}"
-					data-tooltip={modeChromeTooltip}
-					aria-label={modeChromeTooltip}
-					aria-pressed={$generationMode === 'forever'}
-					disabled={modeChromeDisabled}
-					on:click={handleModeChromeClick}
-				>
-					<svg class="icon"><use href="#{modeChromeSpriteId}" /></svg>
-				</button>
-				<GenerateMark
-					state={markState}
-					disabled={markState === 'disabled'}
-					label={markLabel}
-					shortcut={markState !== 'running' ? $shortcutLabels['start_generation'] : undefined}
-					onclick={handleMarkClick}
-				/>
+				<Tooltip text={modeChromeTooltip} position="top" delay={150}>
+					<button
+						type="button"
+						class="mode-button {modeChromeActive ? 'is-continuous' : ''} {modeChromeGlyph === 'stopping' ? 'is-stopping' : ''}"
+						aria-label={modeChromeTooltip}
+						aria-pressed={$generationMode === 'forever'}
+						disabled={modeChromeDisabled}
+						on:click={handleModeChromeClick}
+					>
+						<svg class="icon"><use href="#{modeChromeSpriteId}" /></svg>
+					</button>
+				</Tooltip>
+				<Tooltip text={markLabel} kbd={markState !== 'running' ? $shortcutLabels['start_generation'] : undefined} position="top" delay={150}>
+					<GenerateMark
+						state={markState}
+						disabled={markState === 'disabled'}
+						label={markLabel}
+						shortcut={markState !== 'running' ? $shortcutLabels['start_generation'] : undefined}
+						onclick={handleMarkClick}
+					/>
+				</Tooltip>
 			</div>
 		</section>
 	</div>

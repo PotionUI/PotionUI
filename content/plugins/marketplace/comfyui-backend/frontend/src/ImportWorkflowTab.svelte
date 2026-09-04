@@ -37,6 +37,34 @@
 		{ value: 'seed', label: 'Seed' }
 	];
 
+	// Curated for the tabs shipped presets actually use (see defaults.py's
+	// build_default_form) - a symbol exists in this file's sprite for each,
+	// under its own `ti-` namespace so a name here never collides with the
+	// generic `icon()` snippet's UI-chrome sprite (e.g. `sliders` already
+	// names an unrelated glyph there).
+	const TAB_ICON_OPTIONS = [
+		{ value: '', label: 'None' },
+		{ value: 'generation', label: 'Generation' },
+		{ value: 'settings', label: 'Settings' },
+		{ value: 'lora', label: 'LoRA' },
+		{ value: 'model', label: 'Model' },
+		{ value: 'image', label: 'Image' },
+		{ value: 'video', label: 'Video' },
+		{ value: 'film', label: 'Film' },
+		{ value: 'sparkles', label: 'Sparkles' },
+		{ value: 'embedding', label: 'Embedding' },
+		{ value: 'sliders', label: 'Sliders' },
+		{ value: 'face', label: 'Face' },
+		{ value: 'warning', label: 'Warning' },
+		{ value: 'information-circle', label: 'Info' }
+	];
+
+	const TAB_DISPLAY_OPTIONS = [
+		{ value: 'icon_only', label: 'Icon only' },
+		{ value: 'icon_label', label: 'Icon + label' },
+		{ value: 'label', label: 'Label only' }
+	];
+
 	const FORMAT_OPTIONS = [
 		{ value: 'as_is', label: 'As-is' },
 		{ value: 'number', label: 'Number' },
@@ -70,7 +98,7 @@
 	}
 
 	function emptyForm() {
-		return { tabs: [{ id: 'generation', label: 'Generation', icon: null, items: [] }], lora_chain: null };
+		return { tabs: [{ id: 'generation', label: 'Generation', icon: null, icon_display: 'label', items: [] }], lora_chain: null };
 	}
 
 	let form = $state(emptyForm());
@@ -231,7 +259,13 @@
 	}
 
 	function hydrateTab(t) {
-		return { id: t.id || uid('tab'), label: t.label || 'Tab', icon: t.icon ?? null, items: (t.items || []).map(hydrateItem) };
+		const icon = t.icon ?? null;
+		// A draft saved before icon_display existed carries no such key -
+		// fall back to the same icon-implies-icon_only rule the schema's
+		// FormTab validator applies server-side, so an old sidecar still
+		// loads with a sane display mode.
+		const icon_display = t.icon_display ?? (icon ? 'icon_only' : 'label');
+		return { id: t.id || uid('tab'), label: t.label || 'Tab', icon, icon_display, items: (t.items || []).map(hydrateItem) };
 	}
 
 	function hydrateForm(raw) {
@@ -263,7 +297,13 @@
 
 	function dehydrateForm() {
 		return {
-			tabs: form.tabs.map((t) => ({ id: t.id, label: t.label, icon: t.icon ?? null, items: t.items.map(dehydrateItem) })),
+			tabs: form.tabs.map((t) => ({
+				id: t.id,
+				label: t.label,
+				icon: t.icon ?? null,
+				icon_display: t.icon_display || (t.icon ? 'icon_only' : 'label'),
+				items: t.items.map(dehydrateItem)
+			})),
 			lora_chain: form.lora_chain
 				? { replaced_node_ids: [...form.lora_chain.replaced_node_ids], kept_node_ids: [...form.lora_chain.kept_node_ids] }
 				: null
@@ -450,8 +490,22 @@
 			n += 1;
 			id = `tab_${n}`;
 		}
-		form.tabs.push({ id, label: `Tab ${form.tabs.length + 1}`, icon: null, items: [] });
+		form.tabs.push({ id, label: `Tab ${form.tabs.length + 1}`, icon: null, icon_display: 'label', items: [] });
 		activeTabId = id;
+	}
+
+	// Picking an icon on a label-only tab switches it to icon_only (there's
+	// now something for icon_only to show); clearing the icon always drops
+	// back to label - mirrors FormTab._icon_display_needs_an_icon server-side.
+	function setTabIcon(tab, value) {
+		const icon = value || null;
+		if (!icon) tab.icon_display = 'label';
+		else if (tab.icon_display === 'label') tab.icon_display = 'icon_only';
+		tab.icon = icon;
+	}
+
+	function setTabDisplay(tab, value) {
+		tab.icon_display = value;
 	}
 
 	function moveTab(index, dir) {
@@ -1162,6 +1216,10 @@
 	<svg class="icon" width={size} height={size} viewBox="0 0 24 24" aria-hidden="true"><use href={`#i-${name}`}></use></svg>
 {/snippet}
 
+{#snippet tabIcon(name, size = 13)}
+	<svg class="icon" width={size} height={size} viewBox="0 0 24 24" aria-hidden="true"><use href={`#ti-${name}`}></use></svg>
+{/snippet}
+
 {#snippet addMenu(items, isRoot = false)}
 	<div class="di-add-wrap" data-add-root={isRoot ? 'true' : undefined}>
 		<button type="button" class="di-add-field" onclick={(e) => toggleAddMenu(items, e.currentTarget)} data-action="open-add-menu">
@@ -1396,6 +1454,24 @@
 		<symbol id="i-heading" viewBox="0 0 24 24"><path d="M6 4v16M18 4v16M6 12h12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></symbol>
 		<symbol id="i-inbox" viewBox="0 0 24 24"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" /><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" /></symbol>
 		<symbol id="i-sliders" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round" /><line x1="4" y1="10" x2="4" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round" /><line x1="12" y1="21" x2="12" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round" /><line x1="12" y1="8" x2="12" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round" /><line x1="20" y1="21" x2="20" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round" /><line x1="20" y1="12" x2="20" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round" /><line x1="1" y1="14" x2="7" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round" /><line x1="9" y1="8" x2="15" y2="8" stroke="currentColor" stroke-width="2" stroke-linecap="round" /><line x1="17" y1="16" x2="23" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round" /></symbol>
+
+		<!-- Tab-icon picker set, mirroring frontend/src/lib/utils/IconLibrary.ts's
+		     paths under a `ti-` id namespace (kept separate from the `i-` UI-chrome
+		     set above, which already has an unrelated glyph named "sliders") so
+		     the designer's preview matches the core TabsField render exactly. -->
+		<symbol id="ti-generation" viewBox="0 0 24 24"><path d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></symbol>
+		<symbol id="ti-settings" viewBox="0 0 24 24"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></symbol>
+		<symbol id="ti-lora" viewBox="0 0 24 24"><path d="m21 7.5-2.25-1.313M21 7.5v2.25m0-2.25-2.25 1.313M3 7.5l2.25-1.313M3 7.5l2.25 1.313M3 7.5v2.25m9 3 2.25-1.313M12 12.75l-2.25-1.313M12 12.75V15m0 6.75 2.25-1.313M12 21.75V19.5m0 2.25-2.25-1.313m0-16.875L12 2.25l2.25 1.313M21 14.25v2.25l-2.25 1.313m-13.5 0L3 16.5v-2.25" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></symbol>
+		<symbol id="ti-model" viewBox="0 0 24 24"><path d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></symbol>
+		<symbol id="ti-image" viewBox="0 0 24 24"><path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></symbol>
+		<symbol id="ti-video" viewBox="0 0 24 24"><path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></symbol>
+		<symbol id="ti-film" viewBox="0 0 24 24"><path d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></symbol>
+		<symbol id="ti-sparkles" viewBox="0 0 24 24"><path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></symbol>
+		<symbol id="ti-embedding" viewBox="0 0 24 24"><path d="M7.5 7.5h-.75A2.25 2.25 0 0 0 4.5 9.75v7.5a2.25 2.25 0 0 0 2.25 2.25h7.5a2.25 2.25 0 0 0 2.25-2.25v-7.5a2.25 2.25 0 0 0-2.25-2.25h-.75m-6 3.75 3 3m0 0 3-3m-3 3V1.5m6 9h.75a2.25 2.25 0 0 1 2.25 2.25v7.5a2.25 2.25 0 0 1-2.25 2.25h-7.5a2.25 2.25 0 0 1-2.25-2.25v-.75" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></symbol>
+		<symbol id="ti-sliders" viewBox="0 0 24 24"><path d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></symbol>
+		<symbol id="ti-face" viewBox="0 0 24 24"><path d="M15.182 15.182a4.5 4.5 0 0 1-6.364 0M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM9.75 9.75c0 .414-.168.75-.375.75S9 10.164 9 9.75 9.168 9 9.375 9s.375.336.375.75Zm-.375 0h.008v.015h-.008V9.75Zm5.625 0c0 .414-.168.75-.375.75s-.375-.336-.375-.75.168-.75.375-.75.375.336.375.75Zm-.375 0h.008v.015h-.008V9.75Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></symbol>
+		<symbol id="ti-warning" viewBox="0 0 24 24"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></symbol>
+		<symbol id="ti-information-circle" viewBox="0 0 24 24"><path d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></symbol>
 	</defs>
 </svg>
 
@@ -1611,6 +1687,9 @@
 									ondrop={(e) => handleTabDrop(e, tab.id)}
 									data-tab-id={tab.id}
 								>
+									{#if tab.icon}
+										{@render tabIcon(tab.icon)}
+									{/if}
 									{#if renamingTabId === tab.id}
 										<input
 											class="di-tab-rename"
@@ -1650,6 +1729,30 @@
 											<button type="button" onclick={() => { renamingTabId = tab.id; tabPopoverId = null; }} data-action="rename-tab">{@render icon('pencil')}Rename</button>
 											<button type="button" disabled={ti === 0} onclick={() => { moveTab(ti, -1); tabPopoverId = null; }} data-action="move-tab-left">{@render icon('arrow-left')}Move left</button>
 											<button type="button" disabled={ti === form.tabs.length - 1} onclick={() => { moveTab(ti, 1); tabPopoverId = null; }} data-action="move-tab-right">{@render icon('arrow-right')}Move right</button>
+											<hr />
+											<div class="popover-label">Icon</div>
+											<select
+												class="tab-popover-select"
+												value={tab.icon ?? ''}
+												onchange={(e) => setTabIcon(tab, e.currentTarget.value)}
+												data-action="tab-icon"
+											>
+												{#each TAB_ICON_OPTIONS as opt}
+													<option value={opt.value}>{opt.label}</option>
+												{/each}
+											</select>
+											<div class="popover-label">Display</div>
+											<select
+												class="tab-popover-select"
+												value={tab.icon_display}
+												disabled={!tab.icon}
+												onchange={(e) => setTabDisplay(tab, e.currentTarget.value)}
+												data-action="tab-display"
+											>
+												{#each TAB_DISPLAY_OPTIONS as opt}
+													<option value={opt.value}>{opt.label}</option>
+												{/each}
+											</select>
 											<hr />
 											<button type="button" class="danger" disabled={form.tabs.length <= 1} onclick={() => { deleteTab(ti); tabPopoverId = null; }} data-action="delete-tab">{@render icon('x')}Delete tab</button>
 										</div>
@@ -2911,7 +3014,7 @@
 		position: absolute;
 		top: calc(100% + 4px);
 		left: 0;
-		width: 150px;
+		width: 168px;
 		border: 1px solid rgb(var(--line-strong, 43 46 53));
 		border-radius: 8px;
 		padding: 4px;
@@ -2953,6 +3056,21 @@
 	}
 	.tab-popover button.danger {
 		color: rgb(var(--danger, 255 138 138));
+	}
+	.tab-popover-select {
+		box-sizing: border-box;
+		width: 100%;
+		height: 24px;
+		margin: 0 0 4px;
+		border-radius: 4px;
+		border: 1px solid rgb(var(--line-strong, 43 46 53));
+		background: rgb(var(--surface-2, 31 33 38));
+		color: rgb(var(--fg, 232 234 237));
+		font-size: 11px;
+		padding: 0 6px;
+	}
+	.tab-popover-select:disabled {
+		opacity: 0.5;
 	}
 
 	/* ---- History step ---- */

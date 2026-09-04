@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from backend.preset_import.defaults import _lora_item
+from backend.preset_import.defaults import _lora_item, _model_item
 from backend.preset_import.emit import EmittedPreset, PresetEmitError, emit_preset
 from backend.preset_import.parser import parse_api_workflow
 from backend.preset_import.schema import FormTab, ImportForm, LoraChainSelection
@@ -412,6 +412,45 @@ class TestImageModeRequiresImageChoice:
                 workflow, form, [], model_family="NoImageTest", variant="v1",
                 display_name="No Image Test", dest_root=dest_root,
             )
+
+
+class TestTabIconEmission:
+    def _tab_from_form_yml(self, preset_dir: Path, mode: str) -> dict:
+        form_yml = yaml.safe_load((preset_dir / "modes" / mode / "form.yml").read_text())
+        return form_yml["fields"][0]["children"][0]
+
+    def test_tab_icon_and_display_are_written_to_form_yml(self, dest_root):
+        workflow = parse_api_workflow(_load("sdxl_basic_api.json"))
+        analysis = suggest_fields(workflow)
+        checkpoint = next(c for c in analysis.candidates if c.role == "checkpoint")
+        tab = FormTab(
+            id="generation", label="Generation", icon="lora", icon_display="icon_label",
+            items=[_model_item(checkpoint)],
+        )
+        form = ImportForm(tabs=[tab])
+
+        result = emit_preset(
+            workflow, form, [], model_family="TabIconTest", variant="v1",
+            display_name="Tab Icon Test", dest_root=dest_root,
+        )
+
+        tab_yaml = self._tab_from_form_yml(result.preset_dir, result.mode)
+        assert tab_yaml["configuration"]["icon"] == "lora"
+        assert tab_yaml["configuration"]["icon_display"] == "icon_label"
+
+    def test_tab_with_no_icon_emits_label_display(self, dest_root):
+        workflow = parse_api_workflow(_load("sdxl_basic_api.json"))
+        analysis = suggest_fields(workflow)
+        form = form_from_roles(analysis, {"checkpoint"})
+
+        result = emit_preset(
+            workflow, form, [], model_family="TabNoIconTest", variant="v1",
+            display_name="Tab No Icon Test", dest_root=dest_root,
+        )
+
+        tab_yaml = self._tab_from_form_yml(result.preset_dir, result.mode)
+        assert "icon" not in tab_yaml["configuration"]
+        assert tab_yaml["configuration"]["icon_display"] == "label"
 
 
 class TestEndToEndRenderAndLint:

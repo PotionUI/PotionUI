@@ -174,9 +174,14 @@ def build_default_form(analysis: AnalyzeResult) -> ImportForm:
         by_tab["Generation"] = []
 
     tabs: List[FormTab] = []
-    for label in tab_order:
+    for index, label in enumerate(tab_order):
         items = _build_tab_items(by_tab[label])
-        tabs.append(FormTab(id=_tab_id(label), label=label, items=items))
+        # Shipped-preset convention (`grep -rh 'icon: "' content/presets/marketplace
+        # --include=form.yml`): the leading tab gets the "generation" icon, an
+        # "Advanced" tab gets "settings"; every other tab starts iconless (the
+        # FormTab validator then forces its icon_display to "label").
+        icon = "settings" if label == "Advanced" else ("generation" if index == 0 else None)
+        tabs.append(FormTab(id=_tab_id(label), label=label, icon=icon, items=items))
 
     return ImportForm(tabs=tabs)
 

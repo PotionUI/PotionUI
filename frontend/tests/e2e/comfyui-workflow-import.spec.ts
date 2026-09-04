@@ -137,6 +137,17 @@ test('Admin > Plugins > ComfyUI Backend - import a workflow through the wizard i
 		const fieldCountBefore = await fieldsList.count();
 		expect(fieldCountBefore).toBeGreaterThan(0);
 
+		// Tab icon + display mode: the popover's Icon/Display selects, and the
+		// icon that shows up next to the tab's own label once one is picked.
+		await originalTab.locator('[data-action="tab-menu"]').click();
+		const iconPopover = page.locator('.tab-popover');
+		await iconPopover.locator('select[data-action="tab-icon"]').selectOption('lora');
+		await iconPopover.locator('select[data-action="tab-display"]').selectOption('icon_label');
+		await wizard.locator('.di-left-title').click(); // dismiss the popover (outside click)
+		await expect(iconPopover).toHaveCount(0);
+		await expect(originalTab.locator('use[href="#ti-lora"]')).toHaveCount(1);
+		await screenshot(page, JOURNEY, '03a-wizard-tab-icon');
+
 		await fieldsList.first().locator('button[data-action="move-to-tab-menu"]').click();
 		await page.locator(`.tab-popover button[data-target-tab="${newTabId}"]`).click();
 		// Moving a field switches the view to the tab it landed on.
@@ -177,6 +188,12 @@ test('Admin > Plugins > ComfyUI Backend - import a workflow through the wizard i
 		await expect(wizard.locator('[data-import-lint]')).toBeVisible({ timeout: 15000 });
 		await screenshot(page, JOURNEY, '06-wizard-done');
 		await expect(wizard.locator('[data-import-lint]')).toContainText('imported');
+
+		// The picked icon + display mode landed on the emitted preset's tab -
+		// `configuration.icon`/`icon_display` (see backend/preset_import/emit.py).
+		const formYml = readFileSync(resolve(createdPresetDir, 'imported/modes/txt2img/form.yml'), 'utf-8');
+		expect(formYml).toContain('icon: lora');
+		expect(formYml).toContain('icon_display: icon_label');
 
 		const openLink = wizard.locator('a[data-import-open-preset]');
 		await expect(openLink).toBeVisible();

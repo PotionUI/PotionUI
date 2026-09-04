@@ -349,7 +349,7 @@ def _build_form_files(form: ImportForm, mode: str) -> Tuple[Dict[str, Dict[str, 
             fields = list(_FOUNDATIONAL_GENERATION_FIELDS) + fields
 
         tab_files[filename] = {"fields": fields}
-        tab_config: Dict[str, Any] = {"icon_display": "icon_only"}
+        tab_config: Dict[str, Any] = {"icon_display": tab.icon_display}
         if tab.icon:
             tab_config["icon"] = tab.icon
         tabs_yaml.append(

@@ -105,7 +105,17 @@ class FormTab(BaseModel):
     id: str
     label: str
     icon: Optional[str] = None
+    icon_display: Literal["icon_only", "icon_label", "label"] = "icon_only"
     items: List[Item] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _icon_display_needs_an_icon(self) -> "FormTab":
+        # Core TabsField renders icon_only/icon_label by pulling `configuration.icon`
+        # - with no icon there is nothing for either mode to show but the tab's
+        # first letter, so a tab with no icon is always forced to plain-label.
+        if self.icon is None and self.icon_display != "label":
+            self.icon_display = "label"
+        return self
 
 
 class LoraChainSelection(BaseModel):

@@ -33,7 +33,7 @@ from backend.preset_import.schema import (
     parse_history,
     validate_against_workflow,
 )
-from backend.preset_import.suggest import suggest_fields
+from backend.preset_import.suggest import AnalyzeResult, InputCandidate, suggest_fields
 
 FIXTURES = Path(__file__).parent / "fixtures"
 REPO_ROOT = Path(__file__).resolve().parents[5]
@@ -127,6 +127,22 @@ class TestPydanticShapeValidation:
     def test_parse_history_wraps_pydantic_error(self):
         with pytest.raises(PresetEmitError):
             parse_history([{"field": "x", "label": "X", "format": "jinja"}])
+
+    def test_tab_with_no_icon_is_forced_to_label_display(self):
+        """`icon_display` defaults to "icon_only", but that's meaningless
+        with no icon to show - a tab with none is always normalized to
+        plain-label, whatever display mode the payload asked for."""
+        tab = FormTab.model_validate({"id": "t", "label": "T", "icon_display": "icon_label"})
+        assert tab.icon is None
+        assert tab.icon_display == "label"
+
+    def test_tab_with_an_icon_keeps_its_requested_display(self):
+        tab = FormTab.model_validate({"id": "t", "label": "T", "icon": "lora", "icon_display": "icon_label"})
+        assert tab.icon_display == "icon_label"
+
+    def test_tab_icon_display_defaults_to_icon_only_when_icon_is_set(self):
+        tab = FormTab.model_validate({"id": "t", "label": "T", "icon": "lora"})
+        assert tab.icon_display == "icon_only"
 
 
 class TestWorkflowLevelValidation:
@@ -425,7 +441,9 @@ class TestPromptsAreNeverFormFields:
 
         all_field_names = {f.field_name for tab in form.tabs for f in tab.items if f.kind == "field"}
         assert "prompt" not in all_field_names
-        assert form.tabs == [FormTab(id="generation", label="Generation", items=[])]
+        assert form.tabs == [
+            FormTab(id="generation", label="Generation", icon="generation", icon_display="icon_only", items=[])
+        ]
         assert history == []
 
     def test_ltx25_real_export_also_has_no_prompt_role_field_in_default_form(self):
@@ -828,6 +846,10 @@ class TestDefaultFormAndHistory:
         history = build_default_history(form, analysis)
 
         assert [t.id for t in form.tabs] == ["generation"]
+        # The leading tab gets a "generation" icon (rendered icon_only) so it
+        # isn't left blank in the emitted preset's tab strip.
+        assert form.tabs[0].icon == "generation"
+        assert form.tabs[0].icon_display == "icon_only"
         items = form.tabs[0].items
         assert items[0].kind == "field" and items[0].field_name == "resolution"
         assert len(items[0].mappings) == 2
@@ -958,6 +980,37 @@ class TestDefaultFormAndHistory:
         assert [t.id for t in form.tabs] == ["generation"]
         assert form.tabs[0].items == []
         assert history == []
+
+    def test_advanced_tab_gets_settings_icon_other_tabs_stay_iconless(self):
+        """Only the leading tab and one explicitly labeled "Advanced" get a
+        default icon (per the shipped-preset convention) - a third tab with
+        neither distinction starts iconless, forcing its icon_display down
+        to "label" (see `FormTab._icon_display_needs_an_icon`)."""
+        def candidate(tab: str, role: str, name: str) -> InputCandidate:
+            return InputCandidate(
+                node_id="1", class_type="X", node_title=None, input_name=name,
+                current_value=1, value_type="int", suggested_field_type="number",
+                suggested_field_name=name, suggested_label=name, role=role,
+                obvious=True, suggested_tab=tab,
+            )
+
+        analysis = AnalyzeResult(
+            candidates=[
+                candidate("Generation", "steps", "steps"),
+                candidate("Advanced", "cfg", "cfg"),
+                candidate("Extra", "denoise", "denoise"),
+            ],
+            mode="txt2img", node_count=1, sampler_node_id=None, lora_chain=None,
+        )
+        form = build_default_form(analysis)
+
+        by_label = {t.label: t for t in form.tabs}
+        assert by_label["Generation"].icon == "generation"
+        assert by_label["Generation"].icon_display == "icon_only"
+        assert by_label["Advanced"].icon == "settings"
+        assert by_label["Advanced"].icon_display == "icon_only"
+        assert by_label["Extra"].icon is None
+        assert by_label["Extra"].icon_display == "label"
 
 
 # ----------------------------------------------------------------------

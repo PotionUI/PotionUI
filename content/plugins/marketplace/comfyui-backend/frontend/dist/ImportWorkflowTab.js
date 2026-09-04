@@ -6494,6 +6494,18 @@ var icon = ($$anchor, name = noop, $$arg1) => {
   });
   append($$anchor, svg_1);
 };
+var tabIcon = ($$anchor, name = noop, $$arg1) => {
+  let size = derived_safe_equal(() => fallback($$arg1?.(), 13));
+  var svg_2 = root_1();
+  var use_1 = child(svg_2);
+  reset(svg_2);
+  template_effect(() => {
+    set_attribute2(svg_2, "width", get(size));
+    set_attribute2(svg_2, "height", get(size));
+    set_attribute2(use_1, "href", `#ti-${name()}`);
+  });
+  append($$anchor, svg_2);
+};
 var root = from_svg(`<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>`);
 var root_1 = from_svg(`<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use></use></svg>`);
 var root_2 = from_html(`<div class="di-add-menu svelte-10v1sym"><button type="button" data-add-kind="field" class="svelte-10v1sym"><!>Field<span class="type-tag svelte-10v1sym">input</span></button> <button type="button" data-add-kind="row" class="svelte-10v1sym"><!>Row<span class="type-tag svelte-10v1sym">layout</span></button> <button type="button" data-add-kind="group" class="svelte-10v1sym"><!>Group<span class="type-tag svelte-10v1sym">layout</span></button> <button type="button" data-add-kind="section" class="svelte-10v1sym"><!>Section<span class="type-tag svelte-10v1sym">section</span></button> <button type="button" data-add-kind="header" class="svelte-10v1sym"><!>Header<span class="type-tag svelte-10v1sym">display</span></button></div>`);
@@ -6542,8 +6554,8 @@ var root_44 = from_html(`<button type="button" class="iconbtn di-add-arrow svelt
 var root_45 = from_html(`<div><span class="di-row-name mono svelte-10v1sym"> </span> <!> <div class="di-row-trail svelte-10v1sym"><!></div></div>`);
 var root_46 = from_html(`<div class="di-group-h svelte-10v1sym"> <span class="cls mono svelte-10v1sym"> </span></div> <!>`, 1);
 var root_47 = from_html(`<input class="di-tab-rename svelte-10v1sym" type="text"/>`);
-var root_48 = from_html(`<div class="tab-popover svelte-10v1sym"><button type="button" data-action="rename-tab" class="svelte-10v1sym"><!>Rename</button> <button type="button" data-action="move-tab-left" class="svelte-10v1sym"><!>Move left</button> <button type="button" data-action="move-tab-right" class="svelte-10v1sym"><!>Move right</button> <hr class="svelte-10v1sym"/> <button type="button" class="danger svelte-10v1sym" data-action="delete-tab"><!>Delete tab</button></div>`);
-var root_49 = from_html(`<span role="tab" tabindex="0"><!> <span class="kb svelte-10v1sym" role="button" tabindex="0" title="Tab options" data-action="tab-menu"><!></span> <!></span>`);
+var root_48 = from_html(`<div class="tab-popover svelte-10v1sym"><button type="button" data-action="rename-tab" class="svelte-10v1sym"><!>Rename</button> <button type="button" data-action="move-tab-left" class="svelte-10v1sym"><!>Move left</button> <button type="button" data-action="move-tab-right" class="svelte-10v1sym"><!>Move right</button> <hr class="svelte-10v1sym"/> <div class="popover-label svelte-10v1sym">Icon</div> <select class="tab-popover-select svelte-10v1sym" data-action="tab-icon"></select> <div class="popover-label svelte-10v1sym">Display</div> <select class="tab-popover-select svelte-10v1sym" data-action="tab-display"></select> <hr class="svelte-10v1sym"/> <button type="button" class="danger svelte-10v1sym" data-action="delete-tab"><!>Delete tab</button></div>`);
+var root_49 = from_html(`<span role="tab" tabindex="0"><!> <!> <span class="kb svelte-10v1sym" role="button" tabindex="0" title="Tab options" data-action="tab-menu"><!></span> <!></span>`);
 var root_50 = from_html(`<div class="di-empty svelte-10v1sym"><!> <div class="di-empty-text svelte-10v1sym">Drop inputs here or click Add on the left</div></div>`);
 var root_51 = from_html(`<option></option>`);
 var root_52 = from_html(`<h3 class="svelte-10v1sym">Design the form</h3> <p class="desc svelte-10v1sym">Pick which workflow inputs become fields, then arrange them into tabs. Anything left unmapped keeps the value baked into the workflow.</p> <div class="detected-strip svelte-10v1sym" data-import-detected=""><span class="chip chip-info svelte-10v1sym" data-import-format=""> </span> <span class="dim svelte-10v1sym">\xB7</span> <span class="mono svelte-10v1sym"> </span> <!> <!> <span class="strip-end chat-hint-group svelte-10v1sym"><!> <button type="button" class="link-btn svelte-10v1sym">Change workflow</button></span></div> <div class="designer svelte-10v1sym"><div class="di-left svelte-10v1sym" data-import-form-inputs=""><div class="di-left-title svelte-10v1sym">Workflow inputs</div> <!> <div class="di-search svelte-10v1sym"><input type="text" placeholder="Search inputs\u2026" class="svelte-10v1sym"/></div> <!></div> <div class="di-right svelte-10v1sym"><div class="di-tabs svelte-10v1sym" data-import-form-tabs=""><!> <span class="di-tab-add svelte-10v1sym" role="button" tabindex="0" data-action="add-tab"><!>Add tab</span></div> <div class="di-field-list svelte-10v1sym" data-import-form-items=""><!> <!> <!></div></div></div> <div class="name-grid svelte-10v1sym"><div class="field svelte-10v1sym"><label for="import-model-family" class="svelte-10v1sym">Model family</label> <input id="import-model-family" type="text" list="import-model-family-list" placeholder="e.g. SDXL" class="svelte-10v1sym"/> <datalist id="import-model-family-list"></datalist></div> <div class="field svelte-10v1sym"><label for="import-variant" class="svelte-10v1sym">Variant</label> <input id="import-variant" type="text" placeholder="imported" class="svelte-10v1sym"/></div> <div class="field svelte-10v1sym"><label for="import-display-name" class="svelte-10v1sym">Display name</label> <input id="import-display-name" type="text" placeholder="e.g. SDXL - My workflow" class="svelte-10v1sym"/></div></div>`, 1);
@@ -6574,10 +6586,10 @@ var root_76 = from_html(`<button type="button" class="btn btn-primary svelte-10v
 var root_77 = from_html(`<button type="button" class="btn btn-primary svelte-10v1sym" data-import-continue-history="">Continue</button>`);
 var root_78 = from_html(`<button type="button" class="btn btn-primary svelte-10v1sym" data-import-create=""> </button>`);
 var root_79 = from_html(`<!> <div class="footer-spacer svelte-10v1sym"></div> <!>`, 1);
-var root_80 = from_html(`<svg style="display:none" aria-hidden="true"><defs><symbol id="i-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline></symbol><symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4" fill="none" stroke="currentColor" stroke-width="2"></path></symbol><symbol id="i-arrow-right" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><polyline points="12 5 19 12 12 19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline></symbol><symbol id="i-arrow-left" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><polyline points="12 19 5 12 12 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline></symbol><symbol id="i-grip" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.4" fill="currentColor"></circle><circle cx="9" cy="12" r="1.4" fill="currentColor"></circle><circle cx="9" cy="18" r="1.4" fill="currentColor"></circle><circle cx="15" cy="6" r="1.4" fill="currentColor"></circle><circle cx="15" cy="12" r="1.4" fill="currentColor"></circle><circle cx="15" cy="18" r="1.4" fill="currentColor"></circle></symbol><symbol id="i-chevron-up" viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline></symbol><symbol id="i-chevron-down" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline></symbol><symbol id="i-x" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line></symbol><symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6" fill="currentColor"></circle><circle cx="12" cy="12" r="1.6" fill="currentColor"></circle><circle cx="19" cy="12" r="1.6" fill="currentColor"></circle></symbol><symbol id="i-plus" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line></symbol><symbol id="i-pencil" viewBox="0 0 24 24"><path d="M12 20h9" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="i-columns" viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="16" rx="1" fill="none" stroke="currentColor" stroke-width="2"></rect><rect x="14" y="4" width="7" height="16" rx="1" fill="none" stroke="currentColor" stroke-width="2"></rect></symbol><symbol id="i-folder" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path></symbol><symbol id="i-layers" viewBox="0 0 24 24"><polygon points="12 2 2 7 12 12 22 7 12 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></polygon><polyline points="2 17 12 22 22 17" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></polyline><polyline points="2 12 12 17 22 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></polyline></symbol><symbol id="i-heading" viewBox="0 0 24 24"><path d="M6 4v16M18 4v16M6 12h12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></symbol><symbol id="i-inbox" viewBox="0 0 24 24"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></polyline><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path></symbol><symbol id="i-sliders" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="4" y1="10" x2="4" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="12" y1="21" x2="12" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="12" y1="8" x2="12" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="20" y1="21" x2="20" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="20" y1="12" x2="20" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="1" y1="14" x2="7" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="9" y1="8" x2="15" y2="8" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="17" y1="16" x2="23" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line></symbol></defs></svg> <div class="wizard svelte-10v1sym" data-import-wizard=""><div class="wiz-rail svelte-10v1sym"><div data-wiz-step="source"><div class="wiz-num svelte-10v1sym"><!></div> <div class="wiz-text svelte-10v1sym"><div class="wiz-label svelte-10v1sym">Source</div> <!></div></div> <div data-wiz-step="form"><div class="wiz-num svelte-10v1sym"><!></div> <div class="wiz-text svelte-10v1sym"><div class="wiz-label svelte-10v1sym">Form</div> <div class="wiz-sub svelte-10v1sym"> </div></div></div> <div data-wiz-step="history"><div class="wiz-num svelte-10v1sym"><!></div> <div class="wiz-text svelte-10v1sym"><div class="wiz-label svelte-10v1sym">History</div> <!></div></div> <div data-wiz-step="requirements"><div class="wiz-num svelte-10v1sym"><!></div> <div class="wiz-text svelte-10v1sym"><div class="wiz-label svelte-10v1sym">Requirements</div> <!></div></div> <div data-wiz-step="done"><div class="wiz-num svelte-10v1sym"><!></div> <div class="wiz-text svelte-10v1sym"><div class="wiz-label svelte-10v1sym">Done</div></div></div></div> <div class="wiz-body svelte-10v1sym"><div class="wiz-content svelte-10v1sym"><!> <!></div> <div class="wiz-footer svelte-10v1sym"><!></div></div></div>`, 1);
+var root_80 = from_html(`<svg style="display:none" aria-hidden="true"><defs><symbol id="i-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline></symbol><symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4" fill="none" stroke="currentColor" stroke-width="2"></path></symbol><symbol id="i-arrow-right" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><polyline points="12 5 19 12 12 19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline></symbol><symbol id="i-arrow-left" viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><polyline points="12 19 5 12 12 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline></symbol><symbol id="i-grip" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.4" fill="currentColor"></circle><circle cx="9" cy="12" r="1.4" fill="currentColor"></circle><circle cx="9" cy="18" r="1.4" fill="currentColor"></circle><circle cx="15" cy="6" r="1.4" fill="currentColor"></circle><circle cx="15" cy="12" r="1.4" fill="currentColor"></circle><circle cx="15" cy="18" r="1.4" fill="currentColor"></circle></symbol><symbol id="i-chevron-up" viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline></symbol><symbol id="i-chevron-down" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></polyline></symbol><symbol id="i-x" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line></symbol><symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6" fill="currentColor"></circle><circle cx="12" cy="12" r="1.6" fill="currentColor"></circle><circle cx="19" cy="12" r="1.6" fill="currentColor"></circle></symbol><symbol id="i-plus" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line></symbol><symbol id="i-pencil" viewBox="0 0 24 24"><path d="M12 20h9" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="i-columns" viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="16" rx="1" fill="none" stroke="currentColor" stroke-width="2"></rect><rect x="14" y="4" width="7" height="16" rx="1" fill="none" stroke="currentColor" stroke-width="2"></rect></symbol><symbol id="i-folder" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path></symbol><symbol id="i-layers" viewBox="0 0 24 24"><polygon points="12 2 2 7 12 12 22 7 12 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></polygon><polyline points="2 17 12 22 22 17" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></polyline><polyline points="2 12 12 17 22 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></polyline></symbol><symbol id="i-heading" viewBox="0 0 24 24"><path d="M6 4v16M18 4v16M6 12h12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></symbol><symbol id="i-inbox" viewBox="0 0 24 24"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></polyline><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path></symbol><symbol id="i-sliders" viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="4" y1="10" x2="4" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="12" y1="21" x2="12" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="12" y1="8" x2="12" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="20" y1="21" x2="20" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="20" y1="12" x2="20" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="1" y1="14" x2="7" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="9" y1="8" x2="15" y2="8" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line><line x1="17" y1="16" x2="23" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line></symbol><symbol id="ti-generation" viewBox="0 0 24 24"><path d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="ti-settings" viewBox="0 0 24 24"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="ti-lora" viewBox="0 0 24 24"><path d="m21 7.5-2.25-1.313M21 7.5v2.25m0-2.25-2.25 1.313M3 7.5l2.25-1.313M3 7.5l2.25 1.313M3 7.5v2.25m9 3 2.25-1.313M12 12.75l-2.25-1.313M12 12.75V15m0 6.75 2.25-1.313M12 21.75V19.5m0 2.25-2.25-1.313m0-16.875L12 2.25l2.25 1.313M21 14.25v2.25l-2.25 1.313m-13.5 0L3 16.5v-2.25" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="ti-model" viewBox="0 0 24 24"><path d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="ti-image" viewBox="0 0 24 24"><path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="ti-video" viewBox="0 0 24 24"><path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="ti-film" viewBox="0 0 24 24"><path d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="ti-sparkles" viewBox="0 0 24 24"><path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="ti-embedding" viewBox="0 0 24 24"><path d="M7.5 7.5h-.75A2.25 2.25 0 0 0 4.5 9.75v7.5a2.25 2.25 0 0 0 2.25 2.25h7.5a2.25 2.25 0 0 0 2.25-2.25v-7.5a2.25 2.25 0 0 0-2.25-2.25h-.75m-6 3.75 3 3m0 0 3-3m-3 3V1.5m6 9h.75a2.25 2.25 0 0 1 2.25 2.25v7.5a2.25 2.25 0 0 1-2.25 2.25h-7.5a2.25 2.25 0 0 1-2.25-2.25v-.75" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="ti-sliders" viewBox="0 0 24 24"><path d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="ti-face" viewBox="0 0 24 24"><path d="M15.182 15.182a4.5 4.5 0 0 1-6.364 0M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM9.75 9.75c0 .414-.168.75-.375.75S9 10.164 9 9.75 9.168 9 9.375 9s.375.336.375.75Zm-.375 0h.008v.015h-.008V9.75Zm5.625 0c0 .414-.168.75-.375.75s-.375-.336-.375-.75.168-.75.375-.75.375.336.375.75Zm-.375 0h.008v.015h-.008V9.75Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="ti-warning" viewBox="0 0 24 24"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol><symbol id="ti-information-circle" viewBox="0 0 24 24"><path d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></symbol></defs></svg> <div class="wizard svelte-10v1sym" data-import-wizard=""><div class="wiz-rail svelte-10v1sym"><div data-wiz-step="source"><div class="wiz-num svelte-10v1sym"><!></div> <div class="wiz-text svelte-10v1sym"><div class="wiz-label svelte-10v1sym">Source</div> <!></div></div> <div data-wiz-step="form"><div class="wiz-num svelte-10v1sym"><!></div> <div class="wiz-text svelte-10v1sym"><div class="wiz-label svelte-10v1sym">Form</div> <div class="wiz-sub svelte-10v1sym"> </div></div></div> <div data-wiz-step="history"><div class="wiz-num svelte-10v1sym"><!></div> <div class="wiz-text svelte-10v1sym"><div class="wiz-label svelte-10v1sym">History</div> <!></div></div> <div data-wiz-step="requirements"><div class="wiz-num svelte-10v1sym"><!></div> <div class="wiz-text svelte-10v1sym"><div class="wiz-label svelte-10v1sym">Requirements</div> <!></div></div> <div data-wiz-step="done"><div class="wiz-num svelte-10v1sym"><!></div> <div class="wiz-text svelte-10v1sym"><div class="wiz-label svelte-10v1sym">Done</div></div></div></div> <div class="wiz-body svelte-10v1sym"><div class="wiz-content svelte-10v1sym"><!> <!></div> <div class="wiz-footer svelte-10v1sym"><!></div></div></div>`, 1);
 var $$css = {
   hash: "svelte-10v1sym",
-  code: ".dim.svelte-10v1sym {color:rgb(var(--fg-subtle, 122 128 144));}.mono.svelte-10v1sym {font-family:ui-monospace, SFMono-Regular, Menlo, monospace;font-variant-numeric:tabular-nums;}.link-btn.svelte-10v1sym {padding:0;border:none;background:transparent;color:rgb(var(--signal, 91 157 255));font-size:12px;cursor:pointer;}.link-btn.svelte-10v1sym:hover {text-decoration:underline;}.wizard.svelte-10v1sym {display:flex;width:100%;max-width:none;border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--surface-1, 22 24 28));min-height:480px;}.wiz-rail.svelte-10v1sym {width:190px;flex-shrink:0;border-right:1px solid rgb(var(--line, 36 38 44));padding:24px 18px;}.wiz-step.svelte-10v1sym {display:flex;align-items:flex-start;gap:10px;position:relative;padding-bottom:26px;}.wiz-step.svelte-10v1sym:last-child {padding-bottom:0;}.wiz-step.svelte-10v1sym:not(:last-child)::after {content:'';position:absolute;left:10px;top:24px;bottom:4px;width:1px;background:rgb(var(--line-strong, 43 46 53));}.wiz-num.svelte-10v1sym {width:21px;height:21px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:700;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;}.wiz-step.done.svelte-10v1sym .wiz-num:where(.svelte-10v1sym) {background:rgb(var(--success, 61 214 140));color:rgb(var(--canvas, 12 13 15));}.wiz-step.current.svelte-10v1sym .wiz-num:where(.svelte-10v1sym) {border:2px solid rgb(var(--signal, 91 157 255));color:rgb(var(--signal, 91 157 255));}.wiz-step.upcoming.svelte-10v1sym .wiz-num:where(.svelte-10v1sym) {border:1px solid rgb(var(--line-strong, 43 46 53));color:rgb(var(--fg-subtle, 122 128 144));}.wiz-text.svelte-10v1sym {padding-top:1px;min-width:0;}.wiz-label.svelte-10v1sym {font-size:12.5px;font-weight:600;color:rgb(var(--fg, 232 234 237));}.wiz-step.upcoming.svelte-10v1sym .wiz-label:where(.svelte-10v1sym) {color:rgb(var(--fg-subtle, 122 128 144));font-weight:500;}.wiz-sub.svelte-10v1sym {font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));margin-top:2px;}.wiz-body.svelte-10v1sym {flex:1;min-width:0;display:flex;flex-direction:column;}.wiz-content.svelte-10v1sym {flex:1;padding:24px 28px;overflow-y:auto;}.wiz-content.svelte-10v1sym h3:where(.svelte-10v1sym) {font-size:15px;font-weight:600;margin:0 0 4px;color:rgb(var(--fg, 232 234 237));}.wiz-content.svelte-10v1sym .desc:where(.svelte-10v1sym) {font-size:12px;color:rgb(var(--fg-subtle, 122 128 144));margin:0 0 16px;max-width:640px;}.edit-banner.svelte-10v1sym {padding:8px 12px;margin-bottom:16px;border-radius:6px;background:rgb(var(--signal, 91 157 255) / 0.08);border:1px solid rgb(var(--signal, 91 157 255) / 0.25);color:rgb(var(--fg-muted, 169 174 184));font-size:12px;}.edit-banner.svelte-10v1sym strong:where(.svelte-10v1sym) {color:rgb(var(--fg, 232 234 237));font-weight:600;}.wiz-footer.svelte-10v1sym {border-top:1px solid rgb(var(--line, 36 38 44));padding:12px 20px;display:flex;align-items:center;gap:10px;}.footer-spacer.svelte-10v1sym {flex:1;}.dropzone.svelte-10v1sym {display:flex;flex-direction:column;border:1px dashed rgb(var(--line-strong, 43 46 53));border-radius:6px;background:rgb(var(--surface-2, 31 33 38) / 0.4);transition:border-color 0.1s ease, background-color 0.1s ease;}.dropzone.dragover.svelte-10v1sym {border-color:rgb(var(--signal, 91 157 255));background:rgb(var(--signal, 91 157 255) / 0.06);}.dropzone.svelte-10v1sym textarea:where(.svelte-10v1sym) {width:100%;box-sizing:border-box;padding:10px 12px;color:rgb(var(--fg, 232 234 237));background:transparent;border:none;resize:vertical;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;font-size:12px;line-height:1.6;}.dropzone.svelte-10v1sym textarea:where(.svelte-10v1sym):focus {outline:none;}.dropzone-footer.svelte-10v1sym {display:flex;align-items:center;gap:6px;padding:8px 12px;border-top:1px solid rgb(var(--line, 36 38 44));font-size:12px;}.file-input-hidden.svelte-10v1sym {display:none;}.detected-strip.svelte-10v1sym {display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 12px;border-radius:6px;background:rgb(var(--canvas, 12 13 15));border:1px solid rgb(var(--line, 36 38 44));margin-bottom:14px;font-size:12px;color:rgb(var(--fg-muted, 169 174 184));}.strip-end.svelte-10v1sym {margin-left:auto;}.chat-hint-group.svelte-10v1sym {display:flex;align-items:center;gap:8px;}.chip.svelte-10v1sym {font-size:9.5px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;padding:2px 6px;border-radius:3px;display:inline-flex;align-items:center;gap:4px;white-space:nowrap;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;flex-shrink:0;}.chip-info.svelte-10v1sym {background:rgb(var(--info, 91 157 255) / 0.13);color:rgb(var(--info, 91 157 255));}.chip-mute.svelte-10v1sym {background:rgb(var(--surface-3, 39 42 49));color:rgb(var(--fg-subtle, 122 128 144));}.chip-warn.svelte-10v1sym {background:rgb(var(--warning, 255 197 61) / 0.13);color:rgb(var(--warning, 255 197 61));}.chip-violet.svelte-10v1sym {background:rgb(var(--violet, 144 133 233) / 0.16);color:rgb(var(--violet, 144 133 233));}.well.svelte-10v1sym {background:rgb(var(--surface-2, 31 33 38));border-radius:6px;padding:12px 14px;display:flex;gap:10px;align-items:flex-start;font-size:12px;color:rgb(var(--fg-muted, 169 174 184));margin-bottom:14px;}.req-list.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--canvas, 12 13 15));overflow:hidden;}.req-row.svelte-10v1sym {display:flex;align-items:flex-start;gap:10px;padding:10px 12px;}.req-row.svelte-10v1sym + .req-row:where(.svelte-10v1sym) {border-top:1px solid rgb(var(--line, 36 38 44));}.req-dot.svelte-10v1sym {width:8px;height:8px;border-radius:50%;margin-top:5px;flex-shrink:0;}.req-dot.ok.svelte-10v1sym {background:rgb(var(--success, 61 214 140));}.req-dot.missing.svelte-10v1sym {background:rgb(var(--danger, 255 138 138));}.req-name.svelte-10v1sym {font-size:12.5px;font-weight:600;color:rgb(var(--fg, 232 234 237));}.req-detail.svelte-10v1sym {font-size:12px;color:rgb(var(--fg-muted, 169 174 184));}.req-hint.svelte-10v1sym {font-size:11.5px;color:rgb(var(--fg-subtle, 122 128 144));margin-top:2px;}.req-empty.svelte-10v1sym {padding:12px 14px;border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;color:rgb(var(--fg-subtle, 122 128 144));font-size:12px;}.req-loading.svelte-10v1sym {display:flex;align-items:center;gap:8px;padding:12px 0;color:rgb(var(--fg-muted, 169 174 184));font-size:12px;}.spinner.svelte-10v1sym {width:13px;height:13px;border-radius:50%;border:2px solid rgb(var(--line-strong, 43 46 53));border-top-color:rgb(var(--signal, 91 157 255));\n		animation: svelte-10v1sym-spin 0.7s linear infinite;}\n	@keyframes svelte-10v1sym-spin {\n		to {\n			transform: rotate(360deg);\n		}\n	}.lint-block.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--canvas, 12 13 15));padding:14px 16px;}.lint-path.svelte-10v1sym {font-size:12px;color:rgb(var(--fg-muted, 169 174 184));margin:0 0 12px;}.lint-warn.svelte-10v1sym {border-left:2px solid rgb(var(--warning, 255 197 61));padding-left:10px;margin-bottom:8px;}.lint-warn.svelte-10v1sym:last-child {margin-bottom:0;}.lint-warn-title.svelte-10v1sym {font-size:11.5px;font-weight:600;color:rgb(var(--warning, 255 197 61));margin-bottom:2px;}.lint-warn-body.svelte-10v1sym {font-size:12px;color:rgb(var(--fg-muted, 169 174 184));}.message.svelte-10v1sym {padding:10px 14px;border-radius:6px;font-size:12px;}.message.svelte-10v1sym ul:where(.svelte-10v1sym) {margin:4px 0 0;padding-left:18px;}.message-error.svelte-10v1sym {margin:0 0 12px;color:rgb(var(--danger, 255 138 138));background:rgb(var(--danger, 255 138 138) / 0.1);border:1px solid rgb(var(--danger, 255 138 138) / 0.25);}.message-success.svelte-10v1sym {margin:0;color:rgb(var(--success, 61 214 140));background:rgb(var(--success, 61 214 140) / 0.1);border:1px solid rgb(var(--success, 61 214 140) / 0.25);}.message-title.svelte-10v1sym {margin:0 0 4px;font-weight:600;}.btn.svelte-10v1sym {height:30px;padding:0 14px;border-radius:4px;font-size:12.5px;font-weight:600;display:inline-flex;align-items:center;gap:6px;border:1px solid transparent;cursor:pointer;white-space:nowrap;font-family:inherit;text-decoration:none;}.btn[disabled].svelte-10v1sym {opacity:0.45;cursor:not-allowed;}.btn-primary.svelte-10v1sym {background:rgb(var(--accent, 255 255 255));color:rgb(var(--accent-contrast, 22 22 22));}.btn-primary.svelte-10v1sym:hover:not([disabled]) {background:rgb(var(--accent-hover, 230 230 230));}.btn-secondary.svelte-10v1sym {background:rgb(var(--surface-1, 22 24 28));border-color:rgb(var(--line-strong, 43 46 53));color:rgb(var(--fg-muted, 169 174 184));}.btn-secondary.svelte-10v1sym:hover:not([disabled]) {color:rgb(var(--fg, 232 234 237));background:rgb(var(--surface-2, 31 33 38));}.iconbtn.svelte-10v1sym {width:22px;height:22px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;color:rgb(var(--fg-subtle, 122 128 144));background:transparent;border:1px solid transparent;cursor:pointer;flex-shrink:0;}.iconbtn.svelte-10v1sym:hover,\n	.iconbtn.active.svelte-10v1sym {color:rgb(var(--fg, 232 234 237));background:rgb(var(--surface-2, 31 33 38));}.iconbtn.svelte-10v1sym:disabled {opacity:0.4;cursor:not-allowed;}.drag-handle.svelte-10v1sym {display:inline-flex;cursor:grab;flex-shrink:0;}.drag-handle.svelte-10v1sym:active {cursor:grabbing;}.name-grid.svelte-10v1sym {display:grid;grid-template-columns:repeat(3, 1fr);gap:12px;margin-top:16px;}.field.svelte-10v1sym label:where(.svelte-10v1sym) {display:block;font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));margin-bottom:5px;}.field.svelte-10v1sym input[type='text']:where(.svelte-10v1sym) {box-sizing:border-box;width:100%;height:30px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:12.5px;padding:0 9px;font-family:inherit;}.field.svelte-10v1sym input[type='text']:where(.svelte-10v1sym):focus {outline:none;border-color:rgb(var(--signal, 91 157 255));}\n\n	/* ---- Form designer: two panes ---- */.designer.svelte-10v1sym {display:flex;gap:14px;align-items:flex-start;}.di-left.svelte-10v1sym {width:40%;flex-shrink:0;border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--canvas, 12 13 15));overflow:hidden;}.di-left-title.svelte-10v1sym {padding:10px 12px 8px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;color:rgb(var(--fg-muted, 169 174 184));}.di-search.svelte-10v1sym {padding:0 10px 10px;}.di-search.svelte-10v1sym input:where(.svelte-10v1sym) {width:100%;box-sizing:border-box;height:28px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:12px;padding:0 9px;}.di-group-h.svelte-10v1sym {padding:7px 12px;background:rgb(var(--surface-1, 22 24 28));border-top:1px solid rgb(var(--line, 36 38 44));border-bottom:1px solid rgb(var(--line, 36 38 44));font-size:11.5px;font-weight:600;color:rgb(var(--fg, 232 234 237));}.di-group-h.svelte-10v1sym .cls:where(.svelte-10v1sym) {font-size:10px;font-weight:400;color:rgb(var(--fg-subtle, 122 128 144));margin-left:4px;}.di-row.svelte-10v1sym {display:flex;align-items:center;gap:8px;padding:7px 12px;}.di-row.svelte-10v1sym + .di-row:where(.svelte-10v1sym) {border-top:1px solid rgb(var(--line, 36 38 44) / 0.5);}.di-row-name.svelte-10v1sym {font-size:11px;color:rgb(var(--fg, 232 234 237));flex-shrink:0;width:76px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}.di-row-value.svelte-10v1sym {font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}.di-row.mapped.svelte-10v1sym .di-row-name:where(.svelte-10v1sym),\n	.di-row.mapped.svelte-10v1sym .di-row-value:where(.svelte-10v1sym) {color:rgb(var(--fg-disabled, 92 98 112));}.di-row-trail.svelte-10v1sym {flex-shrink:0;width:22px;display:flex;align-items:center;justify-content:center;}.di-add-arrow.svelte-10v1sym {color:rgb(var(--signal, 91 157 255));}.lora-chain-card.svelte-10v1sym {border-bottom:1px solid rgb(var(--line, 36 38 44));}.lora-chain-actions.svelte-10v1sym {padding:8px 12px;border-top:1px solid rgb(var(--line, 36 38 44) / 0.5);}.lock-badge.svelte-10v1sym {display:inline-flex;align-items:center;gap:4px;font-size:9px;text-transform:uppercase;letter-spacing:0.05em;color:rgb(var(--fg-disabled, 92 98 112));flex-shrink:0;white-space:nowrap;}.di-right.svelte-10v1sym {flex:1;min-width:0;border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--surface-1, 22 24 28));overflow:hidden;display:flex;flex-direction:column;}.di-tabs.svelte-10v1sym {display:flex;align-items:center;gap:2px;padding:8px 10px 0;border-bottom:1px solid rgb(var(--line, 36 38 44));flex-wrap:wrap;}.di-tab.svelte-10v1sym {display:flex;align-items:center;gap:6px;padding:7px 10px;border-radius:4px 4px 0 0;font-size:12px;font-weight:500;color:rgb(var(--fg-muted, 169 174 184));cursor:pointer;position:relative;}.di-tab.active.svelte-10v1sym {background:rgb(var(--signal, 91 157 255) / 0.1);color:rgb(var(--signal, 91 157 255));}.di-tab.drop-target.svelte-10v1sym {box-shadow:inset 0 0 0 1px rgb(var(--signal, 91 157 255));background:rgb(var(--signal, 91 157 255) / 0.08);}.di-tab.svelte-10v1sym .kb:where(.svelte-10v1sym) {width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;color:rgb(var(--fg-subtle, 122 128 144));border-radius:3px;}.di-tab.svelte-10v1sym .kb:where(.svelte-10v1sym):hover {background:rgb(var(--surface-3, 39 42 49));color:rgb(var(--fg, 232 234 237));}.di-tab-rename.svelte-10v1sym {height:20px;width:90px;border-radius:3px;border:1px solid rgb(var(--signal, 91 157 255) / 0.4);background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:12px;padding:0 6px;}.di-tab-add.svelte-10v1sym {padding:7px 10px;color:rgb(var(--fg-subtle, 122 128 144));font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;}.di-tab-add.svelte-10v1sym:hover {color:rgb(var(--fg, 232 234 237));}.di-field-list.svelte-10v1sym {padding:12px;display:flex;flex-direction:column;gap:8px;flex:1;}.di-field-card.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--canvas, 12 13 15));padding:9px 10px;}.di-field-top.svelte-10v1sym {display:flex;align-items:center;gap:8px;flex-wrap:wrap;row-gap:6px;}.di-field-label.svelte-10v1sym {width:110px;flex-shrink:0;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:12px;font-weight:500;padding:0 8px;}.di-field-type.svelte-10v1sym {width:100px;flex-shrink:0;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg-muted, 169 174 184));font-size:11px;padding:0 6px;}.di-field-default.svelte-10v1sym {flex:1 1 90px;min-width:90px;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:11.5px;padding:0 8px;}.di-field-actions.svelte-10v1sym {display:flex;align-items:center;gap:1px;flex-shrink:0;}.di-mapping.svelte-10v1sym {margin-top:6px;padding-left:24px;}.di-mapping.svelte-10v1sym .line:where(.svelte-10v1sym) {font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));}.di-mapping.svelte-10v1sym .arrow:where(.svelte-10v1sym) {color:rgb(var(--fg-disabled, 92 98 112));margin-right:3px;}.di-suggest.svelte-10v1sym {display:flex;align-items:flex-start;gap:8px;margin-top:6px;padding:6px 8px 6px 24px;}.di-suggest-rows.svelte-10v1sym {display:flex;flex-direction:column;gap:4px;flex:1;min-width:0;}.di-suggest-row.svelte-10v1sym {display:flex;align-items:center;gap:8px;flex-wrap:wrap;}.di-suggest-text.svelte-10v1sym {font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));}.di-suggest-map.svelte-10v1sym {flex-shrink:0;height:20px;padding:0 8px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:10.5px;font-weight:600;cursor:pointer;}.di-suggest-map.svelte-10v1sym:hover {border-color:rgb(var(--line-hover, 58 62 70));background:rgb(var(--surface-3, 39 42 49));}.di-suggest-dismiss.svelte-10v1sym {flex-shrink:0;width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;border-radius:4px;color:rgb(var(--fg-disabled, 92 98 112));background:none;border:none;cursor:pointer;}.di-suggest-dismiss.svelte-10v1sym:hover {color:rgb(var(--fg-muted, 169 174 184));background:rgb(var(--surface-3, 39 42 49));}.di-add-wrap.svelte-10v1sym {position:relative;}.di-add-field.svelte-10v1sym {display:flex;align-items:center;justify-content:center;gap:6px;height:34px;width:100%;border:1px dashed rgb(var(--line-strong, 43 46 53));border-radius:6px;font-size:11.5px;color:rgb(var(--fg-muted, 169 174 184));background:none;cursor:pointer;}.di-add-field.svelte-10v1sym:hover {color:rgb(var(--fg, 232 234 237));}.di-add-menu.svelte-10v1sym {\n		/* Positioned by the `floating` action (position: fixed, inline top/left) -\n		   these are just its pre-mount fallback. */position:absolute;top:calc(100% + 4px);left:0;width:168px;border:1px solid rgb(var(--line-strong, 43 46 53));border-radius:8px;padding:4px;background:rgb(var(--surface-1, 22 24 28));box-shadow:var(--shadow-floating, 0 4px 16px rgb(0 0 0 / 0.5));z-index:1000;}.di-add-menu.svelte-10v1sym button:where(.svelte-10v1sym) {display:flex;width:100%;align-items:center;gap:8px;border-radius:5px;padding:6px 8px;font-size:12px;color:rgb(var(--fg-muted, 169 174 184));background:none;border:none;text-align:left;cursor:pointer;}.di-add-menu.svelte-10v1sym button:where(.svelte-10v1sym):hover {color:rgb(var(--fg, 232 234 237));background:rgb(var(--surface-3, 39 42 49));}.di-add-menu.svelte-10v1sym .type-tag:where(.svelte-10v1sym) {margin-left:auto;font-size:8.5px;color:rgb(var(--fg-disabled, 92 98 112));font-family:ui-monospace, SFMono-Regular, Menlo, monospace;}.di-container.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--surface-2, 31 33 38) / 0.4);}.di-container-head.svelte-10v1sym {display:flex;align-items:center;gap:8px;padding:8px 10px;flex-wrap:wrap;}.di-container-title.svelte-10v1sym {flex-shrink:0;width:130px;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:12px;font-weight:600;padding:0 8px;}.di-container-spacer.svelte-10v1sym {flex:1;}.di-container-actions.svelte-10v1sym {display:flex;align-items:center;gap:1px;flex-shrink:0;}.di-container-body.svelte-10v1sym {padding:0 10px 10px;display:flex;flex-direction:column;gap:8px;}.di-container.collapsed.svelte-10v1sym .di-container-body:where(.svelte-10v1sym) {display:none;}.di-chevron.svelte-10v1sym {display:inline-flex;transition:transform 0.12s;}.di-chevron.collapsed.svelte-10v1sym {transform:rotate(-90deg);}.di-row-cols.svelte-10v1sym {display:grid;gap:8px;min-width:0;}.di-row-cols.svelte-10v1sym > * {min-width:0;}.di-row-cols.svelte-10v1sym .di-field-card {overflow:hidden;}.di-row-cols.svelte-10v1sym .di-field-top {flex-wrap:wrap;}.di-col-control.svelte-10v1sym {display:flex;align-items:center;gap:5px;}.di-col-control.svelte-10v1sym .lbl:where(.svelte-10v1sym) {font-size:10px;color:rgb(var(--fg-subtle, 122 128 144));margin-right:2px;}.di-col-btn.svelte-10v1sym {width:22px;height:22px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg-muted, 169 174 184));font-size:11px;font-weight:600;cursor:pointer;}.di-col-btn.active.svelte-10v1sym {background:rgb(var(--signal, 91 157 255) / 0.15);color:rgb(var(--signal, 91 157 255));border-color:rgb(var(--signal, 91 157 255) / 0.4);}.di-header-card.svelte-10v1sym {display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--surface-2, 31 33 38) / 0.4);}.di-header-input.svelte-10v1sym {flex:1;min-width:0;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:12.5px;font-weight:600;padding:0 8px;}.di-empty.svelte-10v1sym {flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:40px 20px;text-align:center;}.di-empty.svelte-10v1sym .icon {color:rgb(var(--fg-disabled, 92 98 112));}.di-empty-text.svelte-10v1sym {font-size:12px;color:rgb(var(--fg-subtle, 122 128 144));}.di-mapedit.svelte-10v1sym {margin-top:8px;padding-top:10px;border-top:1px dashed rgb(var(--line, 36 38 44));}.di-mapedit-label.svelte-10v1sym {font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));margin-bottom:6px;}.di-mapedit-list.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:4px;overflow:hidden;}.di-mapedit-row.svelte-10v1sym {display:flex;align-items:center;gap:8px;padding:6px 9px;font-size:11px;flex-wrap:wrap;}.di-mapedit-node.svelte-10v1sym,\n	.di-mapedit-input.svelte-10v1sym {white-space:nowrap;}.di-mapedit-row.svelte-10v1sym + .di-mapedit-row:where(.svelte-10v1sym) {border-top:1px solid rgb(var(--line, 36 38 44));}.di-mapedit-row.selected.svelte-10v1sym {background:rgb(var(--signal, 91 157 255) / 0.08);}.di-mapedit-row.svelte-10v1sym input[type='checkbox']:where(.svelte-10v1sym) {accent-color:rgb(var(--signal, 91 157 255));}.di-mapedit-node.svelte-10v1sym {color:rgb(var(--fg-subtle, 122 128 144));}.di-mapedit-input.svelte-10v1sym {color:rgb(var(--fg, 232 234 237));}.di-mapedit-taken.svelte-10v1sym {margin-left:auto;font-size:10px;color:rgb(var(--fg-disabled, 92 98 112));}.di-mapedit-transform.svelte-10v1sym {margin-left:auto;flex:1 1 100%;}.di-mapedit-transform.svelte-10v1sym select:where(.svelte-10v1sym) {box-sizing:border-box;width:100%;height:24px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:11px;padding:0 6px;}.tab-popover.svelte-10v1sym {\n		/* Positioned by the `floating` action (position: fixed, inline top/left) -\n		   these are just its pre-mount fallback. */position:absolute;top:calc(100% + 4px);left:0;width:150px;border:1px solid rgb(var(--line-strong, 43 46 53));border-radius:8px;padding:4px;background:rgb(var(--surface-1, 22 24 28));box-shadow:var(--shadow-floating, 0 4px 16px rgb(0 0 0 / 0.5));z-index:1000;}.tab-popover.svelte-10v1sym button:where(.svelte-10v1sym) {display:flex;width:100%;align-items:center;gap:8px;border-radius:5px;padding:6px 8px;font-size:12px;color:rgb(var(--fg-muted, 169 174 184));background:none;border:none;text-align:left;cursor:pointer;}.tab-popover.svelte-10v1sym button:where(.svelte-10v1sym):hover:not(:disabled) {color:rgb(var(--fg, 232 234 237));background:rgb(var(--surface-3, 39 42 49));}.tab-popover.svelte-10v1sym .popover-label:where(.svelte-10v1sym) {font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));padding:4px 8px 2px;}.tab-popover.svelte-10v1sym button:where(.svelte-10v1sym):disabled {opacity:0.4;cursor:not-allowed;}.tab-popover.svelte-10v1sym hr:where(.svelte-10v1sym) {border:none;border-top:1px solid rgb(var(--line, 36 38 44));margin:4px 2px;}.tab-popover.svelte-10v1sym button.danger:where(.svelte-10v1sym) {color:rgb(var(--danger, 255 138 138));}\n\n	/* ---- History step ---- */.hist-designer.svelte-10v1sym {display:flex;gap:14px;align-items:flex-start;}.hist-left.svelte-10v1sym {width:58%;flex-shrink:0;}.hist-right.svelte-10v1sym {flex:1;min-width:0;}.pane-title.svelte-10v1sym {padding:0 0 8px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;color:rgb(var(--fg-muted, 169 174 184));display:flex;align-items:center;gap:8px;}.pane-title.svelte-10v1sym .n:where(.svelte-10v1sym) {font-weight:400;color:rgb(var(--fg-disabled, 92 98 112));text-transform:none;letter-spacing:0;}.hist-table.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--canvas, 12 13 15));overflow:hidden;}.hist-head.svelte-10v1sym {display:grid;grid-template-columns:40px 18px 1.3fr 1.05fr 1.05fr;align-items:center;gap:10px;padding:7px 12px;background:rgb(var(--surface-1, 22 24 28));border-bottom:1px solid rgb(var(--line, 36 38 44));font-size:9.5px;text-transform:uppercase;letter-spacing:0.06em;color:rgb(var(--fg-subtle, 122 128 144));}.hist-row.svelte-10v1sym {display:grid;grid-template-columns:40px 18px 1.3fr 1.05fr 1.05fr;align-items:center;gap:10px;padding:8px 12px;}.hist-row.svelte-10v1sym + .hist-row:where(.svelte-10v1sym) {border-top:1px solid rgb(var(--line, 36 38 44) / 0.6);}.hist-row.locked.svelte-10v1sym {background:rgb(var(--surface-1, 22 24 28) / 0.5);}.hist-reorder.svelte-10v1sym {display:flex;gap:2px;}.hist-row.svelte-10v1sym input[type='checkbox']:where(.svelte-10v1sym) {accent-color:rgb(var(--signal, 91 157 255));width:14px;height:14px;}.hist-field.svelte-10v1sym {min-width:0;display:flex;flex-direction:column;gap:1px;}.hist-field-label.svelte-10v1sym {font-size:12px;font-weight:500;color:rgb(var(--fg, 232 234 237));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}.hist-row.off.svelte-10v1sym .hist-field-label:where(.svelte-10v1sym) {color:rgb(var(--fg-subtle, 122 128 144));}.hist-field-name.svelte-10v1sym {font-size:9.5px;color:rgb(var(--fg-subtle, 122 128 144));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}.hist-label-input.svelte-10v1sym {width:100%;box-sizing:border-box;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:11.5px;padding:0 8px;}.hist-label-input.svelte-10v1sym:disabled {background:transparent;border-color:transparent;color:rgb(var(--fg-disabled, 92 98 112));padding-left:0;}.hist-value-select.svelte-10v1sym {width:100%;box-sizing:border-box;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg-muted, 169 174 184));font-size:11px;padding:0 6px;}.hist-value-select.svelte-10v1sym:disabled {opacity:0.5;}.hist-jinja-row.svelte-10v1sym {grid-column:1 / -1;margin:2px 0 0 58px;display:flex;align-items:center;gap:8px;}.hist-jinja-row.svelte-10v1sym .lbl:where(.svelte-10v1sym) {font-size:10px;color:rgb(var(--fg-subtle, 122 128 144));flex-shrink:0;}.hist-jinja-input.svelte-10v1sym {flex:1;box-sizing:border-box;height:26px;border-radius:4px;border:1px solid rgb(var(--signal, 91 157 255) / 0.4);background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:11px;padding:0 8px;}.hist-jinja-out.svelte-10v1sym {font-size:10px;color:rgb(var(--fg-subtle, 122 128 144));flex-shrink:0;}.hist-jinja-out.svelte-10v1sym .v:where(.svelte-10v1sym) {color:rgb(var(--success, 61 214 140));}.preview-card.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--surface-2, 31 33 38));overflow:hidden;box-shadow:var(--shadow-raised, inset 0 1px 0 rgb(255 255 255 / 0.04));}.preview-head.svelte-10v1sym {display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid rgb(var(--line, 36 38 44));}.preview-head.svelte-10v1sym .t:where(.svelte-10v1sym) {display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:rgb(var(--fg, 232 234 237));}.preview-head.svelte-10v1sym .t:where(.svelte-10v1sym) .icon {color:rgb(var(--success, 61 214 140));}.preview-grid.svelte-10v1sym {display:grid;grid-template-columns:1fr 1fr;gap:1px;background:rgb(var(--line, 36 38 44));}.preview-cell.svelte-10v1sym {background:rgb(var(--surface-2, 31 33 38));padding:10px;min-width:0;}.preview-cell.span2.svelte-10v1sym {grid-column:1 / -1;}.preview-k.svelte-10v1sym {font-size:9.5px;text-transform:uppercase;letter-spacing:0.06em;color:rgb(var(--fg-disabled, 92 98 112));margin-bottom:4px;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;}.preview-v.svelte-10v1sym {font-size:11.5px;font-weight:600;color:rgb(var(--fg, 232 234 237));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;}.preview-v.wrap.svelte-10v1sym {white-space:normal;overflow:visible;text-overflow:clip;}.preview-chips.svelte-10v1sym {display:flex;flex-wrap:wrap;gap:4px;margin-top:2px;}.preview-empty.svelte-10v1sym {padding:20px 16px;text-align:center;}.preview-empty.svelte-10v1sym .icon {color:rgb(var(--fg-disabled, 92 98 112));margin:0 auto 8px;}.preview-empty-text.svelte-10v1sym {font-size:11.5px;color:rgb(var(--fg-subtle, 122 128 144));max-width:260px;margin:0 auto;}.icon {stroke:currentColor;fill:none;flex:none;display:block;}"
+  code: ".dim.svelte-10v1sym {color:rgb(var(--fg-subtle, 122 128 144));}.mono.svelte-10v1sym {font-family:ui-monospace, SFMono-Regular, Menlo, monospace;font-variant-numeric:tabular-nums;}.link-btn.svelte-10v1sym {padding:0;border:none;background:transparent;color:rgb(var(--signal, 91 157 255));font-size:12px;cursor:pointer;}.link-btn.svelte-10v1sym:hover {text-decoration:underline;}.wizard.svelte-10v1sym {display:flex;width:100%;max-width:none;border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--surface-1, 22 24 28));min-height:480px;}.wiz-rail.svelte-10v1sym {width:190px;flex-shrink:0;border-right:1px solid rgb(var(--line, 36 38 44));padding:24px 18px;}.wiz-step.svelte-10v1sym {display:flex;align-items:flex-start;gap:10px;position:relative;padding-bottom:26px;}.wiz-step.svelte-10v1sym:last-child {padding-bottom:0;}.wiz-step.svelte-10v1sym:not(:last-child)::after {content:'';position:absolute;left:10px;top:24px;bottom:4px;width:1px;background:rgb(var(--line-strong, 43 46 53));}.wiz-num.svelte-10v1sym {width:21px;height:21px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:700;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;}.wiz-step.done.svelte-10v1sym .wiz-num:where(.svelte-10v1sym) {background:rgb(var(--success, 61 214 140));color:rgb(var(--canvas, 12 13 15));}.wiz-step.current.svelte-10v1sym .wiz-num:where(.svelte-10v1sym) {border:2px solid rgb(var(--signal, 91 157 255));color:rgb(var(--signal, 91 157 255));}.wiz-step.upcoming.svelte-10v1sym .wiz-num:where(.svelte-10v1sym) {border:1px solid rgb(var(--line-strong, 43 46 53));color:rgb(var(--fg-subtle, 122 128 144));}.wiz-text.svelte-10v1sym {padding-top:1px;min-width:0;}.wiz-label.svelte-10v1sym {font-size:12.5px;font-weight:600;color:rgb(var(--fg, 232 234 237));}.wiz-step.upcoming.svelte-10v1sym .wiz-label:where(.svelte-10v1sym) {color:rgb(var(--fg-subtle, 122 128 144));font-weight:500;}.wiz-sub.svelte-10v1sym {font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));margin-top:2px;}.wiz-body.svelte-10v1sym {flex:1;min-width:0;display:flex;flex-direction:column;}.wiz-content.svelte-10v1sym {flex:1;padding:24px 28px;overflow-y:auto;}.wiz-content.svelte-10v1sym h3:where(.svelte-10v1sym) {font-size:15px;font-weight:600;margin:0 0 4px;color:rgb(var(--fg, 232 234 237));}.wiz-content.svelte-10v1sym .desc:where(.svelte-10v1sym) {font-size:12px;color:rgb(var(--fg-subtle, 122 128 144));margin:0 0 16px;max-width:640px;}.edit-banner.svelte-10v1sym {padding:8px 12px;margin-bottom:16px;border-radius:6px;background:rgb(var(--signal, 91 157 255) / 0.08);border:1px solid rgb(var(--signal, 91 157 255) / 0.25);color:rgb(var(--fg-muted, 169 174 184));font-size:12px;}.edit-banner.svelte-10v1sym strong:where(.svelte-10v1sym) {color:rgb(var(--fg, 232 234 237));font-weight:600;}.wiz-footer.svelte-10v1sym {border-top:1px solid rgb(var(--line, 36 38 44));padding:12px 20px;display:flex;align-items:center;gap:10px;}.footer-spacer.svelte-10v1sym {flex:1;}.dropzone.svelte-10v1sym {display:flex;flex-direction:column;border:1px dashed rgb(var(--line-strong, 43 46 53));border-radius:6px;background:rgb(var(--surface-2, 31 33 38) / 0.4);transition:border-color 0.1s ease, background-color 0.1s ease;}.dropzone.dragover.svelte-10v1sym {border-color:rgb(var(--signal, 91 157 255));background:rgb(var(--signal, 91 157 255) / 0.06);}.dropzone.svelte-10v1sym textarea:where(.svelte-10v1sym) {width:100%;box-sizing:border-box;padding:10px 12px;color:rgb(var(--fg, 232 234 237));background:transparent;border:none;resize:vertical;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;font-size:12px;line-height:1.6;}.dropzone.svelte-10v1sym textarea:where(.svelte-10v1sym):focus {outline:none;}.dropzone-footer.svelte-10v1sym {display:flex;align-items:center;gap:6px;padding:8px 12px;border-top:1px solid rgb(var(--line, 36 38 44));font-size:12px;}.file-input-hidden.svelte-10v1sym {display:none;}.detected-strip.svelte-10v1sym {display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 12px;border-radius:6px;background:rgb(var(--canvas, 12 13 15));border:1px solid rgb(var(--line, 36 38 44));margin-bottom:14px;font-size:12px;color:rgb(var(--fg-muted, 169 174 184));}.strip-end.svelte-10v1sym {margin-left:auto;}.chat-hint-group.svelte-10v1sym {display:flex;align-items:center;gap:8px;}.chip.svelte-10v1sym {font-size:9.5px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;padding:2px 6px;border-radius:3px;display:inline-flex;align-items:center;gap:4px;white-space:nowrap;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;flex-shrink:0;}.chip-info.svelte-10v1sym {background:rgb(var(--info, 91 157 255) / 0.13);color:rgb(var(--info, 91 157 255));}.chip-mute.svelte-10v1sym {background:rgb(var(--surface-3, 39 42 49));color:rgb(var(--fg-subtle, 122 128 144));}.chip-warn.svelte-10v1sym {background:rgb(var(--warning, 255 197 61) / 0.13);color:rgb(var(--warning, 255 197 61));}.chip-violet.svelte-10v1sym {background:rgb(var(--violet, 144 133 233) / 0.16);color:rgb(var(--violet, 144 133 233));}.well.svelte-10v1sym {background:rgb(var(--surface-2, 31 33 38));border-radius:6px;padding:12px 14px;display:flex;gap:10px;align-items:flex-start;font-size:12px;color:rgb(var(--fg-muted, 169 174 184));margin-bottom:14px;}.req-list.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--canvas, 12 13 15));overflow:hidden;}.req-row.svelte-10v1sym {display:flex;align-items:flex-start;gap:10px;padding:10px 12px;}.req-row.svelte-10v1sym + .req-row:where(.svelte-10v1sym) {border-top:1px solid rgb(var(--line, 36 38 44));}.req-dot.svelte-10v1sym {width:8px;height:8px;border-radius:50%;margin-top:5px;flex-shrink:0;}.req-dot.ok.svelte-10v1sym {background:rgb(var(--success, 61 214 140));}.req-dot.missing.svelte-10v1sym {background:rgb(var(--danger, 255 138 138));}.req-name.svelte-10v1sym {font-size:12.5px;font-weight:600;color:rgb(var(--fg, 232 234 237));}.req-detail.svelte-10v1sym {font-size:12px;color:rgb(var(--fg-muted, 169 174 184));}.req-hint.svelte-10v1sym {font-size:11.5px;color:rgb(var(--fg-subtle, 122 128 144));margin-top:2px;}.req-empty.svelte-10v1sym {padding:12px 14px;border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;color:rgb(var(--fg-subtle, 122 128 144));font-size:12px;}.req-loading.svelte-10v1sym {display:flex;align-items:center;gap:8px;padding:12px 0;color:rgb(var(--fg-muted, 169 174 184));font-size:12px;}.spinner.svelte-10v1sym {width:13px;height:13px;border-radius:50%;border:2px solid rgb(var(--line-strong, 43 46 53));border-top-color:rgb(var(--signal, 91 157 255));\n		animation: svelte-10v1sym-spin 0.7s linear infinite;}\n	@keyframes svelte-10v1sym-spin {\n		to {\n			transform: rotate(360deg);\n		}\n	}.lint-block.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--canvas, 12 13 15));padding:14px 16px;}.lint-path.svelte-10v1sym {font-size:12px;color:rgb(var(--fg-muted, 169 174 184));margin:0 0 12px;}.lint-warn.svelte-10v1sym {border-left:2px solid rgb(var(--warning, 255 197 61));padding-left:10px;margin-bottom:8px;}.lint-warn.svelte-10v1sym:last-child {margin-bottom:0;}.lint-warn-title.svelte-10v1sym {font-size:11.5px;font-weight:600;color:rgb(var(--warning, 255 197 61));margin-bottom:2px;}.lint-warn-body.svelte-10v1sym {font-size:12px;color:rgb(var(--fg-muted, 169 174 184));}.message.svelte-10v1sym {padding:10px 14px;border-radius:6px;font-size:12px;}.message.svelte-10v1sym ul:where(.svelte-10v1sym) {margin:4px 0 0;padding-left:18px;}.message-error.svelte-10v1sym {margin:0 0 12px;color:rgb(var(--danger, 255 138 138));background:rgb(var(--danger, 255 138 138) / 0.1);border:1px solid rgb(var(--danger, 255 138 138) / 0.25);}.message-success.svelte-10v1sym {margin:0;color:rgb(var(--success, 61 214 140));background:rgb(var(--success, 61 214 140) / 0.1);border:1px solid rgb(var(--success, 61 214 140) / 0.25);}.message-title.svelte-10v1sym {margin:0 0 4px;font-weight:600;}.btn.svelte-10v1sym {height:30px;padding:0 14px;border-radius:4px;font-size:12.5px;font-weight:600;display:inline-flex;align-items:center;gap:6px;border:1px solid transparent;cursor:pointer;white-space:nowrap;font-family:inherit;text-decoration:none;}.btn[disabled].svelte-10v1sym {opacity:0.45;cursor:not-allowed;}.btn-primary.svelte-10v1sym {background:rgb(var(--accent, 255 255 255));color:rgb(var(--accent-contrast, 22 22 22));}.btn-primary.svelte-10v1sym:hover:not([disabled]) {background:rgb(var(--accent-hover, 230 230 230));}.btn-secondary.svelte-10v1sym {background:rgb(var(--surface-1, 22 24 28));border-color:rgb(var(--line-strong, 43 46 53));color:rgb(var(--fg-muted, 169 174 184));}.btn-secondary.svelte-10v1sym:hover:not([disabled]) {color:rgb(var(--fg, 232 234 237));background:rgb(var(--surface-2, 31 33 38));}.iconbtn.svelte-10v1sym {width:22px;height:22px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;color:rgb(var(--fg-subtle, 122 128 144));background:transparent;border:1px solid transparent;cursor:pointer;flex-shrink:0;}.iconbtn.svelte-10v1sym:hover,\n	.iconbtn.active.svelte-10v1sym {color:rgb(var(--fg, 232 234 237));background:rgb(var(--surface-2, 31 33 38));}.iconbtn.svelte-10v1sym:disabled {opacity:0.4;cursor:not-allowed;}.drag-handle.svelte-10v1sym {display:inline-flex;cursor:grab;flex-shrink:0;}.drag-handle.svelte-10v1sym:active {cursor:grabbing;}.name-grid.svelte-10v1sym {display:grid;grid-template-columns:repeat(3, 1fr);gap:12px;margin-top:16px;}.field.svelte-10v1sym label:where(.svelte-10v1sym) {display:block;font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));margin-bottom:5px;}.field.svelte-10v1sym input[type='text']:where(.svelte-10v1sym) {box-sizing:border-box;width:100%;height:30px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:12.5px;padding:0 9px;font-family:inherit;}.field.svelte-10v1sym input[type='text']:where(.svelte-10v1sym):focus {outline:none;border-color:rgb(var(--signal, 91 157 255));}\n\n	/* ---- Form designer: two panes ---- */.designer.svelte-10v1sym {display:flex;gap:14px;align-items:flex-start;}.di-left.svelte-10v1sym {width:40%;flex-shrink:0;border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--canvas, 12 13 15));overflow:hidden;}.di-left-title.svelte-10v1sym {padding:10px 12px 8px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;color:rgb(var(--fg-muted, 169 174 184));}.di-search.svelte-10v1sym {padding:0 10px 10px;}.di-search.svelte-10v1sym input:where(.svelte-10v1sym) {width:100%;box-sizing:border-box;height:28px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:12px;padding:0 9px;}.di-group-h.svelte-10v1sym {padding:7px 12px;background:rgb(var(--surface-1, 22 24 28));border-top:1px solid rgb(var(--line, 36 38 44));border-bottom:1px solid rgb(var(--line, 36 38 44));font-size:11.5px;font-weight:600;color:rgb(var(--fg, 232 234 237));}.di-group-h.svelte-10v1sym .cls:where(.svelte-10v1sym) {font-size:10px;font-weight:400;color:rgb(var(--fg-subtle, 122 128 144));margin-left:4px;}.di-row.svelte-10v1sym {display:flex;align-items:center;gap:8px;padding:7px 12px;}.di-row.svelte-10v1sym + .di-row:where(.svelte-10v1sym) {border-top:1px solid rgb(var(--line, 36 38 44) / 0.5);}.di-row-name.svelte-10v1sym {font-size:11px;color:rgb(var(--fg, 232 234 237));flex-shrink:0;width:76px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}.di-row-value.svelte-10v1sym {font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}.di-row.mapped.svelte-10v1sym .di-row-name:where(.svelte-10v1sym),\n	.di-row.mapped.svelte-10v1sym .di-row-value:where(.svelte-10v1sym) {color:rgb(var(--fg-disabled, 92 98 112));}.di-row-trail.svelte-10v1sym {flex-shrink:0;width:22px;display:flex;align-items:center;justify-content:center;}.di-add-arrow.svelte-10v1sym {color:rgb(var(--signal, 91 157 255));}.lora-chain-card.svelte-10v1sym {border-bottom:1px solid rgb(var(--line, 36 38 44));}.lora-chain-actions.svelte-10v1sym {padding:8px 12px;border-top:1px solid rgb(var(--line, 36 38 44) / 0.5);}.lock-badge.svelte-10v1sym {display:inline-flex;align-items:center;gap:4px;font-size:9px;text-transform:uppercase;letter-spacing:0.05em;color:rgb(var(--fg-disabled, 92 98 112));flex-shrink:0;white-space:nowrap;}.di-right.svelte-10v1sym {flex:1;min-width:0;border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--surface-1, 22 24 28));overflow:hidden;display:flex;flex-direction:column;}.di-tabs.svelte-10v1sym {display:flex;align-items:center;gap:2px;padding:8px 10px 0;border-bottom:1px solid rgb(var(--line, 36 38 44));flex-wrap:wrap;}.di-tab.svelte-10v1sym {display:flex;align-items:center;gap:6px;padding:7px 10px;border-radius:4px 4px 0 0;font-size:12px;font-weight:500;color:rgb(var(--fg-muted, 169 174 184));cursor:pointer;position:relative;}.di-tab.active.svelte-10v1sym {background:rgb(var(--signal, 91 157 255) / 0.1);color:rgb(var(--signal, 91 157 255));}.di-tab.drop-target.svelte-10v1sym {box-shadow:inset 0 0 0 1px rgb(var(--signal, 91 157 255));background:rgb(var(--signal, 91 157 255) / 0.08);}.di-tab.svelte-10v1sym .kb:where(.svelte-10v1sym) {width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;color:rgb(var(--fg-subtle, 122 128 144));border-radius:3px;}.di-tab.svelte-10v1sym .kb:where(.svelte-10v1sym):hover {background:rgb(var(--surface-3, 39 42 49));color:rgb(var(--fg, 232 234 237));}.di-tab-rename.svelte-10v1sym {height:20px;width:90px;border-radius:3px;border:1px solid rgb(var(--signal, 91 157 255) / 0.4);background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:12px;padding:0 6px;}.di-tab-add.svelte-10v1sym {padding:7px 10px;color:rgb(var(--fg-subtle, 122 128 144));font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;}.di-tab-add.svelte-10v1sym:hover {color:rgb(var(--fg, 232 234 237));}.di-field-list.svelte-10v1sym {padding:12px;display:flex;flex-direction:column;gap:8px;flex:1;}.di-field-card.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--canvas, 12 13 15));padding:9px 10px;}.di-field-top.svelte-10v1sym {display:flex;align-items:center;gap:8px;flex-wrap:wrap;row-gap:6px;}.di-field-label.svelte-10v1sym {width:110px;flex-shrink:0;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:12px;font-weight:500;padding:0 8px;}.di-field-type.svelte-10v1sym {width:100px;flex-shrink:0;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg-muted, 169 174 184));font-size:11px;padding:0 6px;}.di-field-default.svelte-10v1sym {flex:1 1 90px;min-width:90px;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:11.5px;padding:0 8px;}.di-field-actions.svelte-10v1sym {display:flex;align-items:center;gap:1px;flex-shrink:0;}.di-mapping.svelte-10v1sym {margin-top:6px;padding-left:24px;}.di-mapping.svelte-10v1sym .line:where(.svelte-10v1sym) {font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));}.di-mapping.svelte-10v1sym .arrow:where(.svelte-10v1sym) {color:rgb(var(--fg-disabled, 92 98 112));margin-right:3px;}.di-suggest.svelte-10v1sym {display:flex;align-items:flex-start;gap:8px;margin-top:6px;padding:6px 8px 6px 24px;}.di-suggest-rows.svelte-10v1sym {display:flex;flex-direction:column;gap:4px;flex:1;min-width:0;}.di-suggest-row.svelte-10v1sym {display:flex;align-items:center;gap:8px;flex-wrap:wrap;}.di-suggest-text.svelte-10v1sym {font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));}.di-suggest-map.svelte-10v1sym {flex-shrink:0;height:20px;padding:0 8px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:10.5px;font-weight:600;cursor:pointer;}.di-suggest-map.svelte-10v1sym:hover {border-color:rgb(var(--line-hover, 58 62 70));background:rgb(var(--surface-3, 39 42 49));}.di-suggest-dismiss.svelte-10v1sym {flex-shrink:0;width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;border-radius:4px;color:rgb(var(--fg-disabled, 92 98 112));background:none;border:none;cursor:pointer;}.di-suggest-dismiss.svelte-10v1sym:hover {color:rgb(var(--fg-muted, 169 174 184));background:rgb(var(--surface-3, 39 42 49));}.di-add-wrap.svelte-10v1sym {position:relative;}.di-add-field.svelte-10v1sym {display:flex;align-items:center;justify-content:center;gap:6px;height:34px;width:100%;border:1px dashed rgb(var(--line-strong, 43 46 53));border-radius:6px;font-size:11.5px;color:rgb(var(--fg-muted, 169 174 184));background:none;cursor:pointer;}.di-add-field.svelte-10v1sym:hover {color:rgb(var(--fg, 232 234 237));}.di-add-menu.svelte-10v1sym {\n		/* Positioned by the `floating` action (position: fixed, inline top/left) -\n		   these are just its pre-mount fallback. */position:absolute;top:calc(100% + 4px);left:0;width:168px;border:1px solid rgb(var(--line-strong, 43 46 53));border-radius:8px;padding:4px;background:rgb(var(--surface-1, 22 24 28));box-shadow:var(--shadow-floating, 0 4px 16px rgb(0 0 0 / 0.5));z-index:1000;}.di-add-menu.svelte-10v1sym button:where(.svelte-10v1sym) {display:flex;width:100%;align-items:center;gap:8px;border-radius:5px;padding:6px 8px;font-size:12px;color:rgb(var(--fg-muted, 169 174 184));background:none;border:none;text-align:left;cursor:pointer;}.di-add-menu.svelte-10v1sym button:where(.svelte-10v1sym):hover {color:rgb(var(--fg, 232 234 237));background:rgb(var(--surface-3, 39 42 49));}.di-add-menu.svelte-10v1sym .type-tag:where(.svelte-10v1sym) {margin-left:auto;font-size:8.5px;color:rgb(var(--fg-disabled, 92 98 112));font-family:ui-monospace, SFMono-Regular, Menlo, monospace;}.di-container.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--surface-2, 31 33 38) / 0.4);}.di-container-head.svelte-10v1sym {display:flex;align-items:center;gap:8px;padding:8px 10px;flex-wrap:wrap;}.di-container-title.svelte-10v1sym {flex-shrink:0;width:130px;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:12px;font-weight:600;padding:0 8px;}.di-container-spacer.svelte-10v1sym {flex:1;}.di-container-actions.svelte-10v1sym {display:flex;align-items:center;gap:1px;flex-shrink:0;}.di-container-body.svelte-10v1sym {padding:0 10px 10px;display:flex;flex-direction:column;gap:8px;}.di-container.collapsed.svelte-10v1sym .di-container-body:where(.svelte-10v1sym) {display:none;}.di-chevron.svelte-10v1sym {display:inline-flex;transition:transform 0.12s;}.di-chevron.collapsed.svelte-10v1sym {transform:rotate(-90deg);}.di-row-cols.svelte-10v1sym {display:grid;gap:8px;min-width:0;}.di-row-cols.svelte-10v1sym > * {min-width:0;}.di-row-cols.svelte-10v1sym .di-field-card {overflow:hidden;}.di-row-cols.svelte-10v1sym .di-field-top {flex-wrap:wrap;}.di-col-control.svelte-10v1sym {display:flex;align-items:center;gap:5px;}.di-col-control.svelte-10v1sym .lbl:where(.svelte-10v1sym) {font-size:10px;color:rgb(var(--fg-subtle, 122 128 144));margin-right:2px;}.di-col-btn.svelte-10v1sym {width:22px;height:22px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg-muted, 169 174 184));font-size:11px;font-weight:600;cursor:pointer;}.di-col-btn.active.svelte-10v1sym {background:rgb(var(--signal, 91 157 255) / 0.15);color:rgb(var(--signal, 91 157 255));border-color:rgb(var(--signal, 91 157 255) / 0.4);}.di-header-card.svelte-10v1sym {display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--surface-2, 31 33 38) / 0.4);}.di-header-input.svelte-10v1sym {flex:1;min-width:0;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:12.5px;font-weight:600;padding:0 8px;}.di-empty.svelte-10v1sym {flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:40px 20px;text-align:center;}.di-empty.svelte-10v1sym .icon {color:rgb(var(--fg-disabled, 92 98 112));}.di-empty-text.svelte-10v1sym {font-size:12px;color:rgb(var(--fg-subtle, 122 128 144));}.di-mapedit.svelte-10v1sym {margin-top:8px;padding-top:10px;border-top:1px dashed rgb(var(--line, 36 38 44));}.di-mapedit-label.svelte-10v1sym {font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));margin-bottom:6px;}.di-mapedit-list.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:4px;overflow:hidden;}.di-mapedit-row.svelte-10v1sym {display:flex;align-items:center;gap:8px;padding:6px 9px;font-size:11px;flex-wrap:wrap;}.di-mapedit-node.svelte-10v1sym,\n	.di-mapedit-input.svelte-10v1sym {white-space:nowrap;}.di-mapedit-row.svelte-10v1sym + .di-mapedit-row:where(.svelte-10v1sym) {border-top:1px solid rgb(var(--line, 36 38 44));}.di-mapedit-row.selected.svelte-10v1sym {background:rgb(var(--signal, 91 157 255) / 0.08);}.di-mapedit-row.svelte-10v1sym input[type='checkbox']:where(.svelte-10v1sym) {accent-color:rgb(var(--signal, 91 157 255));}.di-mapedit-node.svelte-10v1sym {color:rgb(var(--fg-subtle, 122 128 144));}.di-mapedit-input.svelte-10v1sym {color:rgb(var(--fg, 232 234 237));}.di-mapedit-taken.svelte-10v1sym {margin-left:auto;font-size:10px;color:rgb(var(--fg-disabled, 92 98 112));}.di-mapedit-transform.svelte-10v1sym {margin-left:auto;flex:1 1 100%;}.di-mapedit-transform.svelte-10v1sym select:where(.svelte-10v1sym) {box-sizing:border-box;width:100%;height:24px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:11px;padding:0 6px;}.tab-popover.svelte-10v1sym {\n		/* Positioned by the `floating` action (position: fixed, inline top/left) -\n		   these are just its pre-mount fallback. */position:absolute;top:calc(100% + 4px);left:0;width:168px;border:1px solid rgb(var(--line-strong, 43 46 53));border-radius:8px;padding:4px;background:rgb(var(--surface-1, 22 24 28));box-shadow:var(--shadow-floating, 0 4px 16px rgb(0 0 0 / 0.5));z-index:1000;}.tab-popover.svelte-10v1sym button:where(.svelte-10v1sym) {display:flex;width:100%;align-items:center;gap:8px;border-radius:5px;padding:6px 8px;font-size:12px;color:rgb(var(--fg-muted, 169 174 184));background:none;border:none;text-align:left;cursor:pointer;}.tab-popover.svelte-10v1sym button:where(.svelte-10v1sym):hover:not(:disabled) {color:rgb(var(--fg, 232 234 237));background:rgb(var(--surface-3, 39 42 49));}.tab-popover.svelte-10v1sym .popover-label:where(.svelte-10v1sym) {font-size:10.5px;color:rgb(var(--fg-subtle, 122 128 144));padding:4px 8px 2px;}.tab-popover.svelte-10v1sym button:where(.svelte-10v1sym):disabled {opacity:0.4;cursor:not-allowed;}.tab-popover.svelte-10v1sym hr:where(.svelte-10v1sym) {border:none;border-top:1px solid rgb(var(--line, 36 38 44));margin:4px 2px;}.tab-popover.svelte-10v1sym button.danger:where(.svelte-10v1sym) {color:rgb(var(--danger, 255 138 138));}.tab-popover-select.svelte-10v1sym {box-sizing:border-box;width:100%;height:24px;margin:0 0 4px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:11px;padding:0 6px;}.tab-popover-select.svelte-10v1sym:disabled {opacity:0.5;}\n\n	/* ---- History step ---- */.hist-designer.svelte-10v1sym {display:flex;gap:14px;align-items:flex-start;}.hist-left.svelte-10v1sym {width:58%;flex-shrink:0;}.hist-right.svelte-10v1sym {flex:1;min-width:0;}.pane-title.svelte-10v1sym {padding:0 0 8px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;color:rgb(var(--fg-muted, 169 174 184));display:flex;align-items:center;gap:8px;}.pane-title.svelte-10v1sym .n:where(.svelte-10v1sym) {font-weight:400;color:rgb(var(--fg-disabled, 92 98 112));text-transform:none;letter-spacing:0;}.hist-table.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--canvas, 12 13 15));overflow:hidden;}.hist-head.svelte-10v1sym {display:grid;grid-template-columns:40px 18px 1.3fr 1.05fr 1.05fr;align-items:center;gap:10px;padding:7px 12px;background:rgb(var(--surface-1, 22 24 28));border-bottom:1px solid rgb(var(--line, 36 38 44));font-size:9.5px;text-transform:uppercase;letter-spacing:0.06em;color:rgb(var(--fg-subtle, 122 128 144));}.hist-row.svelte-10v1sym {display:grid;grid-template-columns:40px 18px 1.3fr 1.05fr 1.05fr;align-items:center;gap:10px;padding:8px 12px;}.hist-row.svelte-10v1sym + .hist-row:where(.svelte-10v1sym) {border-top:1px solid rgb(var(--line, 36 38 44) / 0.6);}.hist-row.locked.svelte-10v1sym {background:rgb(var(--surface-1, 22 24 28) / 0.5);}.hist-reorder.svelte-10v1sym {display:flex;gap:2px;}.hist-row.svelte-10v1sym input[type='checkbox']:where(.svelte-10v1sym) {accent-color:rgb(var(--signal, 91 157 255));width:14px;height:14px;}.hist-field.svelte-10v1sym {min-width:0;display:flex;flex-direction:column;gap:1px;}.hist-field-label.svelte-10v1sym {font-size:12px;font-weight:500;color:rgb(var(--fg, 232 234 237));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}.hist-row.off.svelte-10v1sym .hist-field-label:where(.svelte-10v1sym) {color:rgb(var(--fg-subtle, 122 128 144));}.hist-field-name.svelte-10v1sym {font-size:9.5px;color:rgb(var(--fg-subtle, 122 128 144));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}.hist-label-input.svelte-10v1sym {width:100%;box-sizing:border-box;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:11.5px;padding:0 8px;}.hist-label-input.svelte-10v1sym:disabled {background:transparent;border-color:transparent;color:rgb(var(--fg-disabled, 92 98 112));padding-left:0;}.hist-value-select.svelte-10v1sym {width:100%;box-sizing:border-box;height:26px;border-radius:4px;border:1px solid rgb(var(--line-strong, 43 46 53));background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg-muted, 169 174 184));font-size:11px;padding:0 6px;}.hist-value-select.svelte-10v1sym:disabled {opacity:0.5;}.hist-jinja-row.svelte-10v1sym {grid-column:1 / -1;margin:2px 0 0 58px;display:flex;align-items:center;gap:8px;}.hist-jinja-row.svelte-10v1sym .lbl:where(.svelte-10v1sym) {font-size:10px;color:rgb(var(--fg-subtle, 122 128 144));flex-shrink:0;}.hist-jinja-input.svelte-10v1sym {flex:1;box-sizing:border-box;height:26px;border-radius:4px;border:1px solid rgb(var(--signal, 91 157 255) / 0.4);background:rgb(var(--surface-2, 31 33 38));color:rgb(var(--fg, 232 234 237));font-size:11px;padding:0 8px;}.hist-jinja-out.svelte-10v1sym {font-size:10px;color:rgb(var(--fg-subtle, 122 128 144));flex-shrink:0;}.hist-jinja-out.svelte-10v1sym .v:where(.svelte-10v1sym) {color:rgb(var(--success, 61 214 140));}.preview-card.svelte-10v1sym {border:1px solid rgb(var(--line, 36 38 44));border-radius:6px;background:rgb(var(--surface-2, 31 33 38));overflow:hidden;box-shadow:var(--shadow-raised, inset 0 1px 0 rgb(255 255 255 / 0.04));}.preview-head.svelte-10v1sym {display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid rgb(var(--line, 36 38 44));}.preview-head.svelte-10v1sym .t:where(.svelte-10v1sym) {display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:rgb(var(--fg, 232 234 237));}.preview-head.svelte-10v1sym .t:where(.svelte-10v1sym) .icon {color:rgb(var(--success, 61 214 140));}.preview-grid.svelte-10v1sym {display:grid;grid-template-columns:1fr 1fr;gap:1px;background:rgb(var(--line, 36 38 44));}.preview-cell.svelte-10v1sym {background:rgb(var(--surface-2, 31 33 38));padding:10px;min-width:0;}.preview-cell.span2.svelte-10v1sym {grid-column:1 / -1;}.preview-k.svelte-10v1sym {font-size:9.5px;text-transform:uppercase;letter-spacing:0.06em;color:rgb(var(--fg-disabled, 92 98 112));margin-bottom:4px;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;}.preview-v.svelte-10v1sym {font-size:11.5px;font-weight:600;color:rgb(var(--fg, 232 234 237));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;}.preview-v.wrap.svelte-10v1sym {white-space:normal;overflow:visible;text-overflow:clip;}.preview-chips.svelte-10v1sym {display:flex;flex-wrap:wrap;gap:4px;margin-top:2px;}.preview-empty.svelte-10v1sym {padding:20px 16px;text-align:center;}.preview-empty.svelte-10v1sym .icon {color:rgb(var(--fg-disabled, 92 98 112));margin:0 auto 8px;}.preview-empty-text.svelte-10v1sym {font-size:11.5px;color:rgb(var(--fg-subtle, 122 128 144));max-width:260px;margin:0 auto;}.icon {stroke:currentColor;fill:none;flex:none;display:block;}"
 };
 function ImportWorkflowTab($$anchor, $$props) {
   if (new.target) return createClassComponent({ component: ImportWorkflowTab, ...$$anchor });
@@ -7162,6 +7174,27 @@ function ImportWorkflowTab($$anchor, $$props) {
     { value: "split_wh_height", label: "Split W\xD7H \u2192 height" },
     { value: "seed", label: "Seed" }
   ];
+  const TAB_ICON_OPTIONS = [
+    { value: "", label: "None" },
+    { value: "generation", label: "Generation" },
+    { value: "settings", label: "Settings" },
+    { value: "lora", label: "LoRA" },
+    { value: "model", label: "Model" },
+    { value: "image", label: "Image" },
+    { value: "video", label: "Video" },
+    { value: "film", label: "Film" },
+    { value: "sparkles", label: "Sparkles" },
+    { value: "embedding", label: "Embedding" },
+    { value: "sliders", label: "Sliders" },
+    { value: "face", label: "Face" },
+    { value: "warning", label: "Warning" },
+    { value: "information-circle", label: "Info" }
+  ];
+  const TAB_DISPLAY_OPTIONS = [
+    { value: "icon_only", label: "Icon only" },
+    { value: "icon_label", label: "Icon + label" },
+    { value: "label", label: "Label only" }
+  ];
   const FORMAT_OPTIONS = [
     { value: "as_is", label: "As-is" },
     { value: "number", label: "Number" },
@@ -7188,7 +7221,13 @@ function ImportWorkflowTab($$anchor, $$props) {
   function emptyForm() {
     return {
       tabs: [
-        { id: "generation", label: "Generation", icon: null, items: [] }
+        {
+          id: "generation",
+          label: "Generation",
+          icon: null,
+          icon_display: "label",
+          items: []
+        }
       ],
       lora_chain: null
     };
@@ -7320,10 +7359,13 @@ function ImportWorkflowTab($$anchor, $$props) {
     return field;
   }
   function hydrateTab(t) {
+    const icon2 = t.icon ?? null;
+    const icon_display = t.icon_display ?? (icon2 ? "icon_only" : "label");
     return {
       id: t.id || uid2("tab"),
       label: t.label || "Tab",
-      icon: t.icon ?? null,
+      icon: icon2,
+      icon_display,
       items: (t.items || []).map(hydrateItem)
     };
   }
@@ -7373,6 +7415,7 @@ function ImportWorkflowTab($$anchor, $$props) {
         id: t.id,
         label: t.label,
         icon: t.icon ?? null,
+        icon_display: t.icon_display || (t.icon ? "icon_only" : "label"),
         items: t.items.map(dehydrateItem)
       })),
       lora_chain: get(form).lora_chain ? {
@@ -7556,9 +7599,19 @@ function ImportWorkflowTab($$anchor, $$props) {
       id,
       label: `Tab ${get(form).tabs.length + 1}`,
       icon: null,
+      icon_display: "label",
       items: []
     });
     set(activeTabId, id, true);
+  }
+  function setTabIcon(tab, value) {
+    const icon2 = value || null;
+    if (!icon2) tab.icon_display = "label";
+    else if (tab.icon_display === "label") tab.icon_display = "icon_only";
+    tab.icon = icon2;
+  }
+  function setTabDisplay(tab, value) {
+    tab.icon_display = value;
   }
   function moveTab(index2, dir) {
     const j = index2 + dir;
@@ -8439,7 +8492,7 @@ function ImportWorkflowTab($$anchor, $$props) {
       }
       append($$anchor2, fragment_17);
     };
-    var consequent_44 = ($$anchor2) => {
+    var consequent_45 = ($$anchor2) => {
       var fragment_20 = root_52();
       var div_50 = sibling(first_child(fragment_20), 4);
       var span_14 = child(div_50);
@@ -8675,6 +8728,15 @@ function ImportWorkflowTab($$anchor, $$props) {
         var node_74 = child(span_28);
         {
           var consequent_41 = ($$anchor4) => {
+            tabIcon($$anchor4, () => get(tab).icon);
+          };
+          if_block(node_74, ($$render) => {
+            if (get(tab).icon) $$render(consequent_41);
+          });
+        }
+        var node_75 = sibling(node_74, 2);
+        {
+          var consequent_42 = ($$anchor4) => {
             var input_7 = root_47();
             remove_input_defaults(input_7);
             template_effect(() => set_value(input_7, get(tab).label));
@@ -8694,37 +8756,71 @@ function ImportWorkflowTab($$anchor, $$props) {
             template_effect(() => set_text(text_34, get(tab).label));
             append($$anchor4, text_34);
           };
-          if_block(node_74, ($$render) => {
-            if (get(renamingTabId) === get(tab).id) $$render(consequent_41);
+          if_block(node_75, ($$render) => {
+            if (get(renamingTabId) === get(tab).id) $$render(consequent_42);
             else $$render(alternate_4, -1);
           });
         }
-        var span_29 = sibling(node_74, 2);
-        var node_75 = child(span_29);
-        icon(node_75, () => "more", () => 11);
+        var span_29 = sibling(node_75, 2);
+        var node_76 = child(span_29);
+        icon(node_76, () => "more", () => 11);
         reset(span_29);
-        var node_76 = sibling(span_29, 2);
+        var node_77 = sibling(span_29, 2);
         {
-          var consequent_42 = ($$anchor4) => {
+          var consequent_43 = ($$anchor4) => {
             var div_63 = root_48();
             var button_29 = child(div_63);
-            var node_77 = child(button_29);
-            icon(node_77, () => "pencil");
+            var node_78 = child(button_29);
+            icon(node_78, () => "pencil");
             next();
             reset(button_29);
             var button_30 = sibling(button_29, 2);
-            var node_78 = child(button_30);
-            icon(node_78, () => "arrow-left");
+            var node_79 = child(button_30);
+            icon(node_79, () => "arrow-left");
             next();
             reset(button_30);
             var button_31 = sibling(button_30, 2);
-            var node_79 = child(button_31);
-            icon(node_79, () => "arrow-right");
+            var node_80 = child(button_31);
+            icon(node_80, () => "arrow-right");
             next();
             reset(button_31);
-            var button_32 = sibling(button_31, 4);
-            var node_80 = child(button_32);
-            icon(node_80, () => "x");
+            var select_2 = sibling(button_31, 6);
+            each(select_2, 21, () => TAB_ICON_OPTIONS, index, ($$anchor5, opt) => {
+              var option_2 = root_7();
+              var text_35 = child(option_2, true);
+              reset(option_2);
+              var option_2_value = {};
+              template_effect(() => {
+                set_text(text_35, get(opt).label);
+                if (option_2_value !== (option_2_value = get(opt).value)) {
+                  option_2.value = (option_2.__value = get(opt).value) ?? "";
+                }
+              });
+              append($$anchor5, option_2);
+            });
+            reset(select_2);
+            var select_2_value;
+            init_select(select_2);
+            var select_3 = sibling(select_2, 4);
+            each(select_3, 21, () => TAB_DISPLAY_OPTIONS, index, ($$anchor5, opt) => {
+              var option_3 = root_7();
+              var text_36 = child(option_3, true);
+              reset(option_3);
+              var option_3_value = {};
+              template_effect(() => {
+                set_text(text_36, get(opt).label);
+                if (option_3_value !== (option_3_value = get(opt).value)) {
+                  option_3.value = (option_3.__value = get(opt).value) ?? "";
+                }
+              });
+              append($$anchor5, option_3);
+            });
+            reset(select_3);
+            var select_3_value;
+            init_select(select_3);
+            var button_32 = sibling(select_3, 4);
+            var node_81 = child(button_32);
+            icon(node_81, () => "x");
             next();
             reset(button_32);
             reset(div_63);
@@ -8735,6 +8831,13 @@ function ImportWorkflowTab($$anchor, $$props) {
             template_effect(() => {
               button_30.disabled = get(ti) === 0;
               button_31.disabled = get(ti) === get(form).tabs.length - 1;
+              if (select_2_value !== (select_2_value = get(tab).icon ?? "")) {
+                select_2.value = (select_2.__value = get(tab).icon ?? "") ?? "", select_option(select_2, get(tab).icon ?? "");
+              }
+              select_3.disabled = !get(tab).icon;
+              if (select_3_value !== (select_3_value = get(tab).icon_display)) {
+                select_3.value = (select_3.__value = get(tab).icon_display) ?? "", select_option(select_3, get(tab).icon_display);
+              }
               button_32.disabled = get(form).tabs.length <= 1;
             });
             delegated("click", div_63, (e) => e.stopPropagation());
@@ -8751,14 +8854,16 @@ function ImportWorkflowTab($$anchor, $$props) {
               moveTab(get(ti), 1);
               set(tabPopoverId, null);
             });
+            delegated("change", select_2, (e) => setTabIcon(get(tab), e.currentTarget.value));
+            delegated("change", select_3, (e) => setTabDisplay(get(tab), e.currentTarget.value));
             delegated("click", button_32, () => {
               deleteTab(get(ti));
               set(tabPopoverId, null);
             });
             append($$anchor4, div_63);
           };
-          if_block(node_76, ($$render) => {
-            if (get(tabPopoverId) === get(tab).id) $$render(consequent_42);
+          if_block(node_77, ($$render) => {
+            if (get(tabPopoverId) === get(tab).id) $$render(consequent_43);
           });
         }
         reset(span_28);
@@ -8794,32 +8899,32 @@ function ImportWorkflowTab($$anchor, $$props) {
         append($$anchor3, span_28);
       });
       var span_30 = sibling(node_73, 2);
-      var node_81 = child(span_30);
-      icon(node_81, () => "plus", () => 11);
+      var node_82 = child(span_30);
+      icon(node_82, () => "plus", () => 11);
       next();
       reset(span_30);
       reset(div_62);
       var div_64 = sibling(div_62, 2);
-      var node_82 = child(div_64);
+      var node_83 = child(div_64);
       {
-        var consequent_43 = ($$anchor3) => {
+        var consequent_44 = ($$anchor3) => {
           var div_65 = root_50();
-          var node_83 = child(div_65);
-          icon(node_83, () => "inbox", () => 24);
+          var node_84 = child(div_65);
+          icon(node_84, () => "inbox", () => 24);
           next(2);
           reset(div_65);
           append($$anchor3, div_65);
         };
-        if_block(node_82, ($$render) => {
-          if (get(activeTab).items.length === 0) $$render(consequent_43);
+        if_block(node_83, ($$render) => {
+          if (get(activeTab).items.length === 0) $$render(consequent_44);
         });
       }
-      var node_84 = sibling(node_82, 2);
-      each(node_84, 19, () => get(activeTab).items, (it) => it._id, ($$anchor3, it, index2) => {
+      var node_85 = sibling(node_83, 2);
+      each(node_85, 19, () => get(activeTab).items, (it) => it._id, ($$anchor3, it, index2) => {
         anyItem($$anchor3, () => get(it), () => get(activeTab).items, () => get(index2));
       });
-      var node_85 = sibling(node_84, 2);
-      addMenu(node_85, () => get(activeTab).items, () => true);
+      var node_86 = sibling(node_85, 2);
+      addMenu(node_86, () => get(activeTab).items, () => true);
       reset(div_64);
       reset(div_61);
       reset(div_51);
@@ -8829,14 +8934,14 @@ function ImportWorkflowTab($$anchor, $$props) {
       remove_input_defaults(input_8);
       var datalist = sibling(input_8, 2);
       each(datalist, 21, () => get(families), index, ($$anchor3, f) => {
-        var option_2 = root_51();
-        var option_2_value = {};
+        var option_4 = root_51();
+        var option_4_value = {};
         template_effect(() => {
-          if (option_2_value !== (option_2_value = get(f))) {
-            option_2.value = (option_2.__value = get(f)) ?? "";
+          if (option_4_value !== (option_4_value = get(f))) {
+            option_4.value = (option_4.__value = get(f)) ?? "";
           }
         });
-        append($$anchor3, option_2);
+        append($$anchor3, option_4);
       });
       reset(datalist);
       reset(div_67);
@@ -8867,112 +8972,112 @@ function ImportWorkflowTab($$anchor, $$props) {
       bind_value(input_10, () => get(displayName), ($$value) => set(displayName, $$value));
       append($$anchor2, fragment_20);
     };
-    var consequent_48 = ($$anchor2) => {
-      var fragment_28 = root_59();
-      var div_70 = sibling(first_child(fragment_28), 4);
+    var consequent_49 = ($$anchor2) => {
+      var fragment_29 = root_59();
+      var div_70 = sibling(first_child(fragment_29), 4);
       var div_71 = child(div_70);
       var div_72 = child(div_71);
       var span_31 = sibling(child(div_72));
-      var text_35 = child(span_31, true);
+      var text_37 = child(span_31, true);
       reset(span_31);
       reset(div_72);
       var div_73 = sibling(div_72, 2);
       var div_74 = sibling(child(div_73), 2);
       var input_11 = sibling(child(div_74), 3);
       var span_32 = sibling(input_11);
-      var node_86 = child(span_32);
-      icon(node_86, () => "lock", () => 10);
+      var node_87 = child(span_32);
+      icon(node_87, () => "lock", () => 10);
       next();
       reset(span_32);
       reset(div_74);
       var div_75 = sibling(div_74, 2);
       var input_12 = sibling(child(div_75), 3);
       var span_33 = sibling(input_12);
-      var node_87 = child(span_33);
-      icon(node_87, () => "lock", () => 10);
+      var node_88 = child(span_33);
+      icon(node_88, () => "lock", () => 10);
       next();
       reset(span_33);
       reset(div_75);
       var div_76 = sibling(div_75, 2);
       var input_13 = sibling(child(div_76), 3);
       var span_34 = sibling(input_13);
-      var node_88 = child(span_34);
-      icon(node_88, () => "lock", () => 10);
+      var node_89 = child(span_34);
+      icon(node_89, () => "lock", () => 10);
       next();
       reset(span_34);
       reset(div_76);
       var div_77 = sibling(div_76, 2);
       var input_14 = sibling(child(div_77), 3);
       var span_35 = sibling(input_14);
-      var node_89 = child(span_35);
-      icon(node_89, () => "lock", () => 10);
+      var node_90 = child(span_35);
+      icon(node_90, () => "lock", () => 10);
       next();
       reset(span_35);
       reset(div_77);
-      var node_90 = sibling(div_77, 2);
-      each(node_90, 19, () => get(historyRows), (row) => row.field_name, ($$anchor3, row, index2) => {
+      var node_91 = sibling(div_77, 2);
+      each(node_91, 19, () => get(historyRows), (row) => row.field_name, ($$anchor3, row, index2) => {
         const f = user_derived(() => fieldForRow(get(row)));
         var div_78 = root_54();
         let classes_9;
         var div_79 = child(div_78);
         var button_33 = child(div_79);
-        var node_91 = child(button_33);
-        icon(node_91, () => "chevron-up", () => 10);
+        var node_92 = child(button_33);
+        icon(node_92, () => "chevron-up", () => 10);
         reset(button_33);
         var button_34 = sibling(button_33, 2);
-        var node_92 = child(button_34);
-        icon(node_92, () => "chevron-down", () => 10);
+        var node_93 = child(button_34);
+        icon(node_93, () => "chevron-down", () => 10);
         reset(button_34);
         reset(div_79);
         var input_15 = sibling(div_79, 2);
         remove_input_defaults(input_15);
         var div_80 = sibling(input_15, 2);
         var span_36 = child(div_80);
-        var text_36 = child(span_36, true);
+        var text_38 = child(span_36, true);
         reset(span_36);
         var span_37 = sibling(span_36, 2);
-        var text_37 = child(span_37, true);
+        var text_39 = child(span_37, true);
         reset(span_37);
         reset(div_80);
         var input_16 = sibling(div_80, 2);
         remove_input_defaults(input_16);
-        var select_2 = sibling(input_16, 2);
-        each(select_2, 21, () => FORMAT_OPTIONS, index, ($$anchor4, opt) => {
-          var option_3 = root_7();
-          var text_38 = child(option_3, true);
-          reset(option_3);
-          var option_3_value = {};
+        var select_4 = sibling(input_16, 2);
+        each(select_4, 21, () => FORMAT_OPTIONS, index, ($$anchor4, opt) => {
+          var option_5 = root_7();
+          var text_40 = child(option_5, true);
+          reset(option_5);
+          var option_5_value = {};
           template_effect(() => {
-            set_text(text_38, get(opt).label);
-            if (option_3_value !== (option_3_value = get(opt).value)) {
-              option_3.value = (option_3.__value = get(opt).value) ?? "";
+            set_text(text_40, get(opt).label);
+            if (option_5_value !== (option_5_value = get(opt).value)) {
+              option_5.value = (option_5.__value = get(opt).value) ?? "";
             }
           });
-          append($$anchor4, option_3);
+          append($$anchor4, option_5);
         });
-        reset(select_2);
-        var select_2_value;
-        init_select(select_2);
-        var node_93 = sibling(select_2, 2);
+        reset(select_4);
+        var select_4_value;
+        init_select(select_4);
+        var node_94 = sibling(select_4, 2);
         {
-          var consequent_45 = ($$anchor4) => {
+          var consequent_46 = ($$anchor4) => {
             var div_81 = root_53();
             var input_17 = sibling(child(div_81), 2);
             remove_input_defaults(input_17);
             var span_38 = sibling(input_17, 2);
             var span_39 = sibling(child(span_38));
-            var text_39 = child(span_39, true);
+            var text_41 = child(span_39, true);
             reset(span_39);
             reset(span_38);
             reset(div_81);
-            template_effect(($0) => set_text(text_39, $0), [
+            template_effect(($0) => set_text(text_41, $0), [
               () => get(f) ? formatPreviewValue(get(f), "jinja", get(row).template) : ""
             ]);
             bind_value(input_17, () => get(row).template, ($$value) => get(row).template = $$value);
             append($$anchor4, div_81);
           };
-          if_block(node_93, ($$render) => {
-            if (get(row).enabled && get(row).format === "jinja") $$render(consequent_45);
+          if_block(node_94, ($$render) => {
+            if (get(row).enabled && get(row).format === "jinja") $$render(consequent_46);
           });
         }
         reset(div_78);
@@ -8980,12 +9085,12 @@ function ImportWorkflowTab($$anchor, $$props) {
           ($0) => {
             classes_9 = set_class(div_78, 1, "hist-row svelte-10v1sym", null, classes_9, { off: !get(row).enabled });
             set_attribute2(div_78, "data-history-row", get(row).field_name);
-            set_text(text_36, get(f)?.label || get(row).field_name);
-            set_text(text_37, $0);
+            set_text(text_38, get(f)?.label || get(row).field_name);
+            set_text(text_39, $0);
             input_16.disabled = !get(row).enabled;
-            select_2.disabled = !get(row).enabled;
-            if (select_2_value !== (select_2_value = get(row).format)) {
-              select_2.value = (select_2.__value = get(row).format) ?? "", select_option(select_2, get(row).format);
+            select_4.disabled = !get(row).enabled;
+            if (select_4_value !== (select_4_value = get(row).format)) {
+              select_4.value = (select_4.__value = get(row).format) ?? "", select_option(select_4, get(row).format);
             }
           },
           [
@@ -8996,7 +9101,7 @@ function ImportWorkflowTab($$anchor, $$props) {
         delegated("click", button_34, () => moveHistoryRow(get(index2), 1));
         bind_checked(input_15, () => get(row).enabled, ($$value) => get(row).enabled = $$value);
         bind_value(input_16, () => get(row).label, ($$value) => get(row).label = $$value);
-        delegated("change", select_2, (e) => onFormatChange(get(row), e.currentTarget.value));
+        delegated("change", select_4, (e) => onFormatChange(get(row), e.currentTarget.value));
         append($$anchor3, div_78);
       });
       reset(div_73);
@@ -9005,53 +9110,53 @@ function ImportWorkflowTab($$anchor, $$props) {
       var div_83 = sibling(child(div_82), 2);
       var div_84 = child(div_83);
       var div_85 = child(div_84);
-      var node_94 = child(div_85);
-      icon(node_94, () => "sliders", () => 14);
+      var node_95 = child(div_85);
+      icon(node_95, () => "sliders", () => 14);
       next();
       reset(div_85);
       next(2);
       reset(div_84);
       var div_86 = sibling(div_84, 2);
-      var node_95 = sibling(child(div_86), 8);
-      each(node_95, 17, () => get(historyRows).filter((r) => r.enabled), (row) => row.field_name, ($$anchor3, row) => {
+      var node_96 = sibling(child(div_86), 8);
+      each(node_96, 17, () => get(historyRows).filter((r) => r.enabled), (row) => row.field_name, ($$anchor3, row) => {
         const f = user_derived(() => fieldForRow(get(row)));
-        var fragment_29 = comment();
-        var node_96 = first_child(fragment_29);
+        var fragment_30 = comment();
+        var node_97 = first_child(fragment_30);
         {
-          var consequent_46 = ($$anchor4) => {
+          var consequent_47 = ($$anchor4) => {
             var div_87 = root_56();
             var div_88 = child(div_87);
-            var text_40 = child(div_88, true);
+            var text_42 = child(div_88, true);
             reset(div_88);
             var div_89 = sibling(div_88, 2);
             each(div_89, 21, () => get(f).default, index, ($$anchor5, chipItem) => {
               var span_40 = root_55();
-              var text_41 = child(span_40, true);
+              var text_43 = child(span_40, true);
               reset(span_40);
-              template_effect(($0) => set_text(text_41, $0), [
+              template_effect(($0) => set_text(text_43, $0), [
                 () => typeof get(chipItem) === "object" ? get(chipItem)?.name || JSON.stringify(get(chipItem)) : get(chipItem)
               ]);
               append($$anchor5, span_40);
             });
             reset(div_89);
             reset(div_87);
-            template_effect(() => set_text(text_40, get(row).label));
+            template_effect(() => set_text(text_42, get(row).label));
             append($$anchor4, div_87);
           };
           var d_2 = user_derived(() => get(row).format === "list" && get(f) && Array.isArray(get(f).default));
           var alternate_5 = ($$anchor4) => {
             var div_90 = root_57();
             var div_91 = child(div_90);
-            var text_42 = child(div_91, true);
+            var text_44 = child(div_91, true);
             reset(div_91);
             var div_92 = sibling(div_91);
-            var text_43 = child(div_92, true);
+            var text_45 = child(div_92, true);
             reset(div_92);
             reset(div_90);
             template_effect(
               ($0) => {
-                set_text(text_42, get(row).label);
-                set_text(text_43, $0);
+                set_text(text_44, get(row).label);
+                set_text(text_45, $0);
               },
               [
                 () => get(f) ? formatPreviewValue(get(f), get(row).format, get(row).template) : ""
@@ -9059,55 +9164,55 @@ function ImportWorkflowTab($$anchor, $$props) {
             );
             append($$anchor4, div_90);
           };
-          if_block(node_96, ($$render) => {
-            if (get(d_2)) $$render(consequent_46);
+          if_block(node_97, ($$render) => {
+            if (get(d_2)) $$render(consequent_47);
             else $$render(alternate_5, -1);
           });
         }
-        append($$anchor3, fragment_29);
+        append($$anchor3, fragment_30);
       });
       reset(div_86);
-      var node_97 = sibling(div_86, 2);
+      var node_98 = sibling(div_86, 2);
       {
-        var consequent_47 = ($$anchor3) => {
+        var consequent_48 = ($$anchor3) => {
           var div_93 = root_58();
-          var node_98 = child(div_93);
-          icon(node_98, () => "inbox", () => 20);
+          var node_99 = child(div_93);
+          icon(node_99, () => "inbox", () => 20);
           next(2);
           reset(div_93);
           append($$anchor3, div_93);
         };
         var d_3 = user_derived(() => get(historyRows).filter((r) => r.enabled).length === 0);
-        if_block(node_97, ($$render) => {
-          if (get(d_3)) $$render(consequent_47);
+        if_block(node_98, ($$render) => {
+          if (get(d_3)) $$render(consequent_48);
         });
       }
       reset(div_83);
       reset(div_82);
       reset(div_70);
-      template_effect(() => set_text(text_35, get(historyRows).length + 4));
-      append($$anchor2, fragment_28);
+      template_effect(() => set_text(text_37, get(historyRows).length + 4));
+      append($$anchor2, fragment_29);
     };
-    var consequent_55 = ($$anchor2) => {
-      var fragment_30 = root_67();
-      var node_99 = sibling(first_child(fragment_30), 6);
+    var consequent_56 = ($$anchor2) => {
+      var fragment_31 = root_67();
+      var node_100 = sibling(first_child(fragment_31), 6);
       {
-        var consequent_49 = ($$anchor3) => {
+        var consequent_50 = ($$anchor3) => {
           var div_94 = root_60();
           append($$anchor3, div_94);
         };
-        var consequent_50 = ($$anchor3) => {
+        var consequent_51 = ($$anchor3) => {
           var p_3 = root_61();
-          var text_44 = child(p_3, true);
+          var text_46 = child(p_3, true);
           reset(p_3);
-          template_effect(() => set_text(text_44, get(requirementsError)));
+          template_effect(() => set_text(text_46, get(requirementsError)));
           append($$anchor3, p_3);
         };
-        var consequent_53 = ($$anchor3) => {
-          var fragment_31 = comment();
-          var node_100 = first_child(fragment_31);
+        var consequent_54 = ($$anchor3) => {
+          var fragment_32 = comment();
+          var node_101 = first_child(fragment_32);
           {
-            var consequent_51 = ($$anchor4) => {
+            var consequent_52 = ($$anchor4) => {
               var div_95 = root_62();
               append($$anchor4, div_95);
             };
@@ -9118,176 +9223,176 @@ function ImportWorkflowTab($$anchor, $$props) {
                 var div_98 = child(div_97);
                 var div_99 = sibling(div_98, 2);
                 var div_100 = child(div_99);
-                var text_45 = child(div_100);
+                var text_47 = child(div_100);
                 reset(div_100);
                 var div_101 = sibling(div_100, 2);
-                var text_46 = child(div_101, true);
+                var text_48 = child(div_101, true);
                 reset(div_101);
-                var node_101 = sibling(div_101, 2);
+                var node_102 = sibling(div_101, 2);
                 {
-                  var consequent_52 = ($$anchor6) => {
+                  var consequent_53 = ($$anchor6) => {
                     var div_102 = root_63();
-                    var text_47 = child(div_102, true);
+                    var text_49 = child(div_102, true);
                     reset(div_102);
-                    template_effect(() => set_text(text_47, get(r).hint));
+                    template_effect(() => set_text(text_49, get(r).hint));
                     append($$anchor6, div_102);
                   };
-                  if_block(node_101, ($$render) => {
-                    if (get(r).status !== "ok" && get(r).hint) $$render(consequent_52);
+                  if_block(node_102, ($$render) => {
+                    if (get(r).status !== "ok" && get(r).hint) $$render(consequent_53);
                   });
                 }
                 reset(div_99);
                 reset(div_97);
                 template_effect(() => {
                   set_class(div_98, 1, `req-dot ${get(r).status === "ok" ? "ok" : "missing"}`, "svelte-10v1sym");
-                  set_text(text_45, `${get(r).type ?? ""}: ${get(r).name ?? ""}`);
-                  set_text(text_46, get(r).detail);
+                  set_text(text_47, `${get(r).type ?? ""}: ${get(r).name ?? ""}`);
+                  set_text(text_48, get(r).detail);
                 });
                 append($$anchor5, div_97);
               });
               reset(div_96);
               append($$anchor4, div_96);
             };
-            if_block(node_100, ($$render) => {
-              if (get(requirementsResults).length === 0) $$render(consequent_51);
+            if_block(node_101, ($$render) => {
+              if (get(requirementsResults).length === 0) $$render(consequent_52);
               else $$render(alternate_6, -1);
             });
           }
-          append($$anchor3, fragment_31);
+          append($$anchor3, fragment_32);
         };
-        if_block(node_99, ($$render) => {
-          if (get(requirementsLoading)) $$render(consequent_49);
-          else if (get(requirementsError)) $$render(consequent_50, 1);
-          else if (get(requirementsResults)) $$render(consequent_53, 2);
+        if_block(node_100, ($$render) => {
+          if (get(requirementsLoading)) $$render(consequent_50);
+          else if (get(requirementsError)) $$render(consequent_51, 1);
+          else if (get(requirementsResults)) $$render(consequent_54, 2);
         });
       }
-      var node_102 = sibling(node_99, 2);
+      var node_103 = sibling(node_100, 2);
       {
-        var consequent_54 = ($$anchor3) => {
+        var consequent_55 = ($$anchor3) => {
           var p_4 = root_66();
-          var text_48 = child(p_4, true);
+          var text_50 = child(p_4, true);
           reset(p_4);
-          template_effect(() => set_text(text_48, get(createError)));
+          template_effect(() => set_text(text_50, get(createError)));
           append($$anchor3, p_4);
         };
-        if_block(node_102, ($$render) => {
-          if (get(createError)) $$render(consequent_54);
+        if_block(node_103, ($$render) => {
+          if (get(createError)) $$render(consequent_55);
         });
       }
-      append($$anchor2, fragment_30);
+      append($$anchor2, fragment_31);
     };
-    var consequent_59 = ($$anchor2) => {
-      var fragment_32 = root_72();
-      var p_5 = sibling(first_child(fragment_32), 2);
-      var text_49 = child(p_5);
+    var consequent_60 = ($$anchor2) => {
+      var fragment_33 = root_72();
+      var p_5 = sibling(first_child(fragment_33), 2);
+      var text_51 = child(p_5);
       reset(p_5);
       var div_103 = sibling(p_5, 2);
       var p_6 = child(div_103);
       var span_41 = sibling(child(p_6));
-      var text_50 = child(span_41, true);
+      var text_52 = child(span_41, true);
       reset(span_41);
       reset(p_6);
-      var node_103 = sibling(p_6, 2);
+      var node_104 = sibling(p_6, 2);
       {
-        var consequent_56 = ($$anchor3) => {
+        var consequent_57 = ($$anchor3) => {
           var div_104 = root_69();
           var ul = sibling(child(div_104), 2);
           each(ul, 21, () => get(createResult).lint.errors, index, ($$anchor4, err) => {
             var li = root_68();
-            var text_51 = child(li, true);
+            var text_53 = child(li, true);
             reset(li);
-            template_effect(() => set_text(text_51, get(err)));
+            template_effect(() => set_text(text_53, get(err)));
             append($$anchor4, li);
           });
           reset(ul);
           reset(div_104);
           append($$anchor3, div_104);
         };
-        if_block(node_103, ($$render) => {
-          if (get(createResult).lint.errors.length > 0) $$render(consequent_56);
-        });
-      }
-      var node_104 = sibling(node_103, 2);
-      {
-        var consequent_57 = ($$anchor3) => {
-          var fragment_33 = comment();
-          var node_105 = first_child(fragment_33);
-          each(node_105, 17, () => get(createResult).lint.warnings, index, ($$anchor4, warn) => {
-            var div_105 = root_70();
-            var div_106 = sibling(child(div_105), 2);
-            var text_52 = child(div_106, true);
-            reset(div_106);
-            reset(div_105);
-            template_effect(() => set_text(text_52, get(warn)));
-            append($$anchor4, div_105);
-          });
-          append($$anchor3, fragment_33);
-        };
         if_block(node_104, ($$render) => {
-          if (get(createResult).lint.warnings.length > 0) $$render(consequent_57);
+          if (get(createResult).lint.errors.length > 0) $$render(consequent_57);
         });
       }
-      var node_106 = sibling(node_104, 2);
+      var node_105 = sibling(node_104, 2);
       {
         var consequent_58 = ($$anchor3) => {
+          var fragment_34 = comment();
+          var node_106 = first_child(fragment_34);
+          each(node_106, 17, () => get(createResult).lint.warnings, index, ($$anchor4, warn) => {
+            var div_105 = root_70();
+            var div_106 = sibling(child(div_105), 2);
+            var text_54 = child(div_106, true);
+            reset(div_106);
+            reset(div_105);
+            template_effect(() => set_text(text_54, get(warn)));
+            append($$anchor4, div_105);
+          });
+          append($$anchor3, fragment_34);
+        };
+        if_block(node_105, ($$render) => {
+          if (get(createResult).lint.warnings.length > 0) $$render(consequent_58);
+        });
+      }
+      var node_107 = sibling(node_105, 2);
+      {
+        var consequent_59 = ($$anchor3) => {
           var p_7 = root_71();
           append($$anchor3, p_7);
         };
-        if_block(node_106, ($$render) => {
-          if (get(createResult).lint.errors.length === 0 && get(createResult).lint.warnings.length === 0) $$render(consequent_58);
+        if_block(node_107, ($$render) => {
+          if (get(createResult).lint.errors.length === 0 && get(createResult).lint.warnings.length === 0) $$render(consequent_59);
         });
       }
       reset(div_103);
       template_effect(() => {
-        set_text(text_49, `It's ready in Presets${get(requirementsMissingCount) > 0 ? ` \u2014 the ${get(requirementsMissingCount)} missing requirement${get(requirementsMissingCount) === 1 ? "" : "s"} from the last step won't block it from opening, only from running.` : "."}`);
-        set_text(text_50, get(createResult).path);
+        set_text(text_51, `It's ready in Presets${get(requirementsMissingCount) > 0 ? ` \u2014 the ${get(requirementsMissingCount)} missing requirement${get(requirementsMissingCount) === 1 ? "" : "s"} from the last step won't block it from opening, only from running.` : "."}`);
+        set_text(text_52, get(createResult).path);
       });
-      append($$anchor2, fragment_32);
+      append($$anchor2, fragment_33);
     };
     if_block(node_55, ($$render) => {
       if (get(step) === 1) $$render(consequent_30);
-      else if (get(step) === 2) $$render(consequent_44, 1);
-      else if (get(step) === 3) $$render(consequent_48, 2);
-      else if (get(step) === 4) $$render(consequent_55, 3);
-      else if (get(step) === 5 && get(createResult)) $$render(consequent_59, 4);
+      else if (get(step) === 2) $$render(consequent_45, 1);
+      else if (get(step) === 3) $$render(consequent_49, 2);
+      else if (get(step) === 4) $$render(consequent_56, 3);
+      else if (get(step) === 5 && get(createResult)) $$render(consequent_60, 4);
     });
   }
   reset(div_44);
   var div_107 = sibling(div_44, 2);
-  var node_107 = child(div_107);
+  var node_108 = child(div_107);
   {
-    var consequent_60 = ($$anchor2) => {
-      var fragment_34 = root_73();
-      var button_35 = first_child(fragment_34);
+    var consequent_61 = ($$anchor2) => {
+      var fragment_35 = root_73();
+      var button_35 = first_child(fragment_35);
       var a_1 = sibling(button_35, 4);
       template_effect(() => set_attribute2(a_1, "href", `/admin?tab=presets&preset=${get(createResult)?.preset_id ?? ""}`));
       delegated("click", button_35, importAnother);
-      append($$anchor2, fragment_34);
+      append($$anchor2, fragment_35);
     };
     var alternate_7 = ($$anchor2) => {
-      var fragment_35 = root_79();
-      var node_108 = first_child(fragment_35);
+      var fragment_36 = root_79();
+      var node_109 = first_child(fragment_36);
       {
-        var consequent_61 = ($$anchor3) => {
+        var consequent_62 = ($$anchor3) => {
           var button_36 = root_74();
           template_effect(() => button_36.disabled = get(analyzing) || get(creating));
           delegated("click", button_36, goBack);
           append($$anchor3, button_36);
         };
-        if_block(node_108, ($$render) => {
-          if (get(step) > 1) $$render(consequent_61);
+        if_block(node_109, ($$render) => {
+          if (get(step) > 1) $$render(consequent_62);
         });
       }
-      var node_109 = sibling(node_108, 4);
+      var node_110 = sibling(node_109, 4);
       {
-        var consequent_62 = ($$anchor3) => {
+        var consequent_63 = ($$anchor3) => {
           var button_37 = root_75();
-          var text_53 = child(button_37, true);
+          var text_55 = child(button_37, true);
           reset(button_37);
           template_effect(
             ($0) => {
               button_37.disabled = $0;
-              set_text(text_53, get(analyzing) ? "Analyzing\u2026" : "Continue");
+              set_text(text_55, get(analyzing) ? "Analyzing\u2026" : "Continue");
             },
             [
               () => get(analyzing) || get(editLoading) || !(get(analysis) && get(workflowJson)) && !get(rawText).trim()
@@ -9296,39 +9401,39 @@ function ImportWorkflowTab($$anchor, $$props) {
           delegated("click", button_37, handleSourceContinue);
           append($$anchor3, button_37);
         };
-        var consequent_63 = ($$anchor3) => {
+        var consequent_64 = ($$anchor3) => {
           var button_38 = root_76();
           template_effect(() => button_38.disabled = !get(canContinueForm));
           delegated("click", button_38, goToHistory);
           append($$anchor3, button_38);
         };
-        var consequent_64 = ($$anchor3) => {
+        var consequent_65 = ($$anchor3) => {
           var button_39 = root_77();
           delegated("click", button_39, goToRequirementsStep);
           append($$anchor3, button_39);
         };
-        var consequent_65 = ($$anchor3) => {
+        var consequent_66 = ($$anchor3) => {
           var button_40 = root_78();
-          var text_54 = child(button_40, true);
+          var text_56 = child(button_40, true);
           reset(button_40);
           template_effect(() => {
             button_40.disabled = get(creating);
-            set_text(text_54, get(creating) ? get(editPresetId) ? "Updating\u2026" : "Creating\u2026" : get(editPresetId) ? "Update preset" : "Continue");
+            set_text(text_56, get(creating) ? get(editPresetId) ? "Updating\u2026" : "Creating\u2026" : get(editPresetId) ? "Update preset" : "Continue");
           });
           delegated("click", button_40, runCreate);
           append($$anchor3, button_40);
         };
-        if_block(node_109, ($$render) => {
-          if (get(step) === 1) $$render(consequent_62);
-          else if (get(step) === 2) $$render(consequent_63, 1);
-          else if (get(step) === 3) $$render(consequent_64, 2);
-          else if (get(step) === 4) $$render(consequent_65, 3);
+        if_block(node_110, ($$render) => {
+          if (get(step) === 1) $$render(consequent_63);
+          else if (get(step) === 2) $$render(consequent_64, 1);
+          else if (get(step) === 3) $$render(consequent_65, 2);
+          else if (get(step) === 4) $$render(consequent_66, 3);
         });
       }
-      append($$anchor2, fragment_35);
+      append($$anchor2, fragment_36);
     };
-    if_block(node_107, ($$render) => {
-      if (get(step) === 5) $$render(consequent_60);
+    if_block(node_108, ($$render) => {
+      if (get(step) === 5) $$render(consequent_61);
       else $$render(alternate_7, -1);
     });
   }

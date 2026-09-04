@@ -117,10 +117,22 @@ test('floating workbench opens at the docked size and resizes from its own handl
 	await expect(header).toBeVisible();
 	const headerBox = await header.boundingBox();
 	expect(headerBox).not.toBeNull();
+	// The stage keeps its set height unless the window would not fit above
+	// the panel, in which case it is reduced through the same setting.
 	const openedSliderHeight = await readSliderHeight(page);
-	expect(openedSliderHeight).toBe(dockedSliderHeight);
-	const bodyAvailable = openedBox!.height - headerBox!.height;
-	expect(Math.abs(bodyAvailable - openedSliderHeight)).toBeLessThanOrEqual(SIZE_TOLERANCE_PX);
+	expect(openedSliderHeight).toBeLessThanOrEqual(dockedSliderHeight);
+	expect(openedBox!.height).toBeGreaterThanOrEqual(openedSliderHeight + headerBox!.height - SIZE_TOLERANCE_PX);
+
+	// Never a scrollbar inside the window: it takes the workbench's full
+	// natural height, and the whole window sits above the Generation Panel.
+	const scroll = await overlay.evaluate((el) => {
+		const body = el.querySelector('[data-testid="floating-workbench-header"] + div') as HTMLElement;
+		return { scrollHeight: body.scrollHeight, clientHeight: body.clientHeight, overflowY: getComputedStyle(body).overflowY };
+	});
+	expect(scroll.overflowY).not.toBe('auto');
+	expect(scroll.scrollHeight).toBeLessThanOrEqual(scroll.clientHeight + 1);
+	const viewport = page.viewportSize()!;
+	expect(openedBox!.y + openedBox!.height).toBeLessThanOrEqual(viewport.height - 73);
 
 	// The overlay must stop above the Generation Panel (bottom-[73px]), so at
 	// the mark's own screen position nothing from the overlay (its backdrop

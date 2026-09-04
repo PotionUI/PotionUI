@@ -22,7 +22,7 @@
 	// The window's size is the workbench's own settings, not something this
 	// overlay invents: height comes from `tab.workbenchMaxHeight` (the same
 	// value the workbench's own height slider sets — Workbench.svelte) plus
-	// this window's header chrome, and width from `tab.workbenchFloatingWidth`
+	// the workbench's own controls and this window's header, and width from `tab.workbenchFloatingWidth`
 	// (set by GenerationPanels from the inline pane's measured width the
 	// first time it opens, and from then on by this window's own resize
 	// handles). The workbench renders at its own `workbenchMaxHeight` — this
@@ -67,7 +67,22 @@
 	let overlayWidth = $state(0);
 	let overlayHeight = $state(0);
 	let headerHeight = $state(48);
-	let windowHeight = $derived(headerHeight + bodyHeight);
+	// The window never scrolls: it takes the workbench's full natural height
+	// (stage + its own controls). When that does not fit above the panel, the
+	// stage is reduced through the same setting the slider edits until it does.
+	let bodyEl: HTMLDivElement | undefined = $state();
+	let bodyNaturalHeight = $state(0);
+	$effect(() => {
+		if (!bodyEl || !overlayHeight) return;
+		const available = overlayHeight - OVERLAY_PADDING - headerHeight;
+		const excess = bodyNaturalHeight - available;
+		if (excess > 0 && bodyHeight > MIN_HEIGHT) {
+			const fitted = Math.max(MIN_HEIGHT, bodyHeight - excess);
+			if (fitted !== bodyHeight) {
+				onWorkbenchHeightChange(new CustomEvent('heightChange', { detail: String(fitted) }));
+			}
+		}
+	});
 
 	function bounds(): FloatingWorkbenchBounds {
 		return {
@@ -178,7 +193,7 @@
 >
 	<div
 		class="relative flex flex-col rounded-xl bg-surface-1 shadow-overlay"
-		style="width: {width}px; height: {windowHeight}px; max-width: 100%; max-height: 100%;"
+		style="width: {width}px; max-width: 100%; max-height: 100%;"
 		role="dialog"
 		aria-label="Workbench"
 		tabindex="-1"
@@ -196,7 +211,7 @@
 				<IconButton icon="close" label="Close floating workbench" onclick={onClose} />
 			</Tooltip>
 		</div>
-		<div class="min-h-0 flex-1 overflow-y-auto p-4">
+		<div bind:this={bodyEl} bind:clientHeight={bodyNaturalHeight} class="p-4">
 			<GenerationWorkbenchPane
 				{tab}
 				{onWorkbenchPrevious}

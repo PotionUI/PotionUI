@@ -12,6 +12,11 @@
       to { opacity: 1; transform: translateY(0); }
     }
 
+@keyframes questionIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
 @keyframes inspectorIn {
       from { opacity: 0; transform: translateX(12px); }
       to { opacity: 1; transform: translateX(0); }
@@ -1120,6 +1125,141 @@ button:focus-visible, textarea:focus-visible, input:focus-visible {
       line-height: 1.35;
     }
 
+.question-dock-wrap {
+      position: relative;
+      flex: 0 0 auto;
+      padding: 0 22px;
+      background: linear-gradient(to bottom, transparent, color-mix(in srgb, rgb(var(--surface-1)) 72%, transparent));
+    }
+
+.question-dock {
+      width: min(100%, 750px);
+      margin: 0 auto;
+      overflow: hidden;
+      border: 1px solid rgb(var(--line-strong));
+      border-radius: 14px;
+      background: rgb(var(--surface-2));
+      box-shadow: 0 12px 34px rgba(0,0,0,.2), inset 0 1px rgba(255,255,255,.025);
+      animation: questionIn 180ms cubic-bezier(.2,.8,.2,1);
+    }
+
+.question-head {
+      min-height: 38px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 11px;
+      border-bottom: 1px solid rgb(var(--line));
+      background: color-mix(in srgb, rgb(var(--surface-1)) 55%, rgb(var(--surface-2)));
+    }
+
+.question-indicator {
+      width: 20px;
+      height: 20px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgb(var(--line-strong));
+      border-radius: 6px;
+      background: rgb(var(--surface-3));
+      color: rgb(var(--fg));
+    }
+
+.question-indicator .icon { width: 11px; height: 11px; }
+
+.question-head strong { font-size: 10px; font-weight: 650; }
+
+.question-progress { margin-left: auto; color: rgb(var(--fg-subtle)); font-family: "IBM Plex Mono", monospace; font-size: 8px; letter-spacing: .05em; text-transform: uppercase; }
+
+.question-body { padding: 11px; }
+
+.question-text { margin: 0; color: rgb(var(--fg)); font-size: 12px; font-weight: 590; line-height: 1.45; }
+
+.question-context { margin: 4px 0 0; color: rgb(var(--fg-subtle)); font-size: 9px; line-height: 1.4; }
+
+.question-options {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+.question-option {
+      min-height: 38px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 9px;
+      border: 1px solid rgb(var(--line));
+      border-radius: 8px;
+      background: color-mix(in srgb, rgb(var(--surface-1)) 55%, rgb(var(--surface-2)));
+      color: rgb(var(--fg-muted));
+      cursor: pointer;
+      text-align: left;
+      font-size: 10px;
+      line-height: 1.35;
+      transition: 120ms ease;
+    }
+
+.question-option:hover { border-color: rgb(var(--line-strong)); background: rgb(var(--surface-3)); color: rgb(var(--fg)); }
+
+.question-option.is-selected { border-color: color-mix(in srgb, rgb(var(--signal)) 58%, rgb(var(--line-strong))); background: rgb(rgb(var(--signal)) / 0.11); color: rgb(var(--fg)); }
+
+.question-radio {
+      width: 13px;
+      height: 13px;
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      border: 1px solid rgb(var(--fg-subtle));
+      border-radius: 50%;
+    }
+
+.question-option.is-selected .question-radio { border-color: rgb(var(--signal)); }
+
+.question-option.is-selected .question-radio::after { content: ""; width: 5px; height: 5px; border-radius: 50%; background: rgb(var(--signal)); }
+
+.question-other-field {
+      margin-top: 7px;
+      padding: 7px 9px;
+      border: 1px solid rgb(var(--line-strong));
+      border-radius: 8px;
+      background: rgb(var(--canvas));
+    }
+
+.question-other-field input {
+      width: 100%;
+      height: 25px;
+      padding: 0;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: rgb(var(--fg));
+      font-size: 11px;
+    }
+
+.question-other-field input::placeholder { color: rgb(var(--fg-subtle)); }
+
+.question-footer {
+      min-height: 43px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 9px 8px 11px;
+      border-top: 1px solid rgb(var(--line));
+    }
+
+.question-queued { min-width: 0; flex: 1; color: rgb(var(--fg-subtle)); font-family: "IBM Plex Mono", monospace; font-size: 8px; }
+
+.question-secondary, .question-answer { min-height: 28px; padding: 0 10px; border-radius: 7px; cursor: pointer; font-size: 9px; font-weight: 650; }
+
+.question-secondary { border: 1px solid transparent; background: transparent; color: rgb(var(--fg-subtle)); }
+
+.question-secondary:hover { border-color: rgb(var(--line)); background: rgb(var(--surface-3)); color: rgb(var(--fg)); }
+
+.question-answer { min-width: 64px; border: 0; background: rgb(var(--accent)); color: rgb(var(--accent-contrast)); }
+
+.question-answer:disabled { background: rgb(var(--surface-3)); color: rgb(var(--fg-subtle)); cursor: default; }
+
 .composer-wrap {
       position: relative;
       flex: 0 0 auto;
@@ -1685,11 +1825,11 @@ button:focus-visible, textarea:focus-visible, input:focus-visible {
       animation: inspectorIn 190ms cubic-bezier(.25,1,.5,1);
     }
 
-.conversation.memory-open .messages, .conversation.memory-open .composer-wrap {
+.conversation.memory-open .messages, .conversation.memory-open .question-dock-wrap, .conversation.memory-open .composer-wrap {
       margin-right: 332px;
     }
 
-.messages, .composer-wrap {
+.messages, .question-dock-wrap, .composer-wrap {
       transition: margin-right 190ms cubic-bezier(.25,1,.5,1);
     }
 
@@ -1945,6 +2085,9 @@ button:focus-visible, textarea:focus-visible, input:focus-visible {
   .composer-wrap {
         padding: 8px 10px 10px;
       }
+  .question-dock-wrap {
+        padding: 0 10px;
+      }
   .header-title p, .send-hint, .context-detail, .context-separator {
         display: none;
       }
@@ -2037,10 +2180,17 @@ button:focus-visible, textarea:focus-visible, input:focus-visible {
   .media-action-row {
         margin-top: 7px;
       }
+  .question-options {
+        grid-template-columns: 1fr;
+      }
+  .question-head, .question-body {
+        padding-left: 9px;
+        padding-right: 9px;
+      }
 }
 
 @media (max-width: 1155px) {
-  .conversation.memory-open .messages, .conversation.memory-open .composer-wrap {
+  .conversation.memory-open .messages, .conversation.memory-open .question-dock-wrap, .conversation.memory-open .composer-wrap {
         margin-right: 0;
       }
   .memory-backdrop {

@@ -9,7 +9,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 
 const { default: ChatMessage } = await import('../../src/lib/components/ChatMessage.svelte');
-const { default: ApprovalDock } = await import('../../src/lib/components/chat/ApprovalDock.svelte');
+const { default: QuestionDock } = await import('../../src/lib/components/chat/QuestionDock.svelte');
 const { createClassComponent } = await import('svelte/legacy');
 
 function mount(component: unknown, props: Record<string, unknown>) {
@@ -51,7 +51,7 @@ describe('IMPROVED rows render inline markdown', () => {
 
 describe('docked question text renders inline markdown', () => {
 	it('renders bold instead of literal ** in the current question', () => {
-		const target = mount(ApprovalDock, {
+		const target = mount(QuestionDock, {
 			messages: [
 				{
 					id: 'msg-1',
@@ -68,7 +68,9 @@ describe('docked question text renders inline markdown', () => {
 		});
 
 		expect(target.textContent).not.toContain('**rain**');
-		const strong = target.querySelector('strong');
+		// Scoped to .question-text: the dock's own header also carries a
+		// (non-markdown) <strong>, so a bare `strong` selector would match that first.
+		const strong = target.querySelector('.question-text strong');
 		expect(strong?.textContent).toBe('rain');
 	});
 });

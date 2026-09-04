@@ -16,7 +16,6 @@
 	 */
 	import { slide } from 'svelte/transition';
 	import { logger } from '$lib/utils/logger';
-	import { processMarkdown } from '$lib/utils/markdown';
 	import type { UnifiedChatMessageData, ToolExecution } from '$lib/types/chat';
 	import { chatModes } from '$lib/stores/chatModes';
 	import { deriveApprovalQueue } from '$lib/chat/approvalQueue';
@@ -27,7 +26,6 @@
 		buildDirectorChangeGroups,
 		deriveCompactSummary
 	} from '$lib/chat/approvalPreview';
-	import { composeQuestionAnswer, deriveQuestionQueue, dismissedQuestions } from '$lib/chat/questionQueue';
 	import { Badge } from '$lib/components/ui';
 	import BaseModal from '$lib/components/modals/BaseModal.svelte';
 	import ApprovalArgTree from './approval/ApprovalArgTree.svelte';
@@ -38,8 +36,6 @@
 	export let onResolved:
 		| ((data: { messageId: string } & ApprovalResolution) => void)
 		| undefined = undefined;
-	/** Sends a docked question's answer as a normal user turn (see UnifiedAIChat's sendMessage). */
-	export let onAnswerQuestion: ((text: string) => void | Promise<void>) | undefined = undefined;
 
 	const ITEM_PREVIEW_COUNT = 5;
 	const MAX_PIPS = 6;
@@ -57,43 +53,6 @@
 	$: nextEntry = queue[1] ?? null;
 	// A fresh current entry resets any stale expand/error state from the last one.
 	$: current, ((itemsExpanded = false), (detailExpanded = false), (sheetOpen = false), (expandedBlocks = new Set()), (error = null));
-
-	// Questions rank below approvals — approvals gate side effects, questions
-	// are optional — so they only ever surface once the approval queue drains.
-	$: questionQueue = deriveQuestionQueue(messages, $dismissedQuestions);
-	$: currentQuestion = current ? null : (questionQueue[0] ?? null);
-
-	const OTHER_OPTION = '\x00OTHER\x00';
-	let selectedOption: string | null = null;
-	let otherText = '';
-	// A fresh current question resets any stale selection from the last one.
-	$: currentQuestion, ((selectedOption = null), (otherText = ''));
-
-	$: answerText =
-		selectedOption && selectedOption !== OTHER_OPTION ? selectedOption : otherText.trim();
-	$: canAnswer = !!currentQuestion && answerText.length > 0;
-
-	function selectOption(option: string) {
-		selectedOption = selectedOption === option ? null : option;
-	}
-
-	async function answerQuestion() {
-		if (!currentQuestion || !canAnswer) return;
-		const quoted = composeQuestionAnswer(currentQuestion.text, answerText);
-		dismissedQuestions.dismiss(currentQuestion.messageId, currentQuestion.index);
-		await onAnswerQuestion?.(quoted);
-	}
-
-	function skipQuestion() {
-		if (!currentQuestion) return;
-		dismissedQuestions.dismiss(currentQuestion.messageId, currentQuestion.index);
-	}
-
-	function skipAllQuestions() {
-		for (const entry of questionQueue) {
-			dismissedQuestions.dismiss(entry.messageId, entry.index);
-		}
-	}
 
 	function labelFor(name: string): string {
 		const info = $chatModes.toolsCatalog.find((t) => t.name === name);
@@ -536,89 +495,4 @@
 			</div>
 		</svelte:fragment>
 	</BaseModal>
-{:else if currentQuestion}
-	<div class="flex-shrink-0 border-t border-line-strong/60 bg-surface-1 p-2.5" transition:slide={{ duration: 150 }}>
-		<div class="flex items-center gap-2">
-			<span class="w-1.5 h-1.5 rounded-full bg-signal flex-shrink-0" aria-hidden="true"></span>
-			<span class="font-mono text-2xs font-medium uppercase tracking-[0.07em] text-fg-subtle tabular-nums">
-				Question {currentQuestion.index + 1} of {currentQuestion.total}
-			</span>
-		</div>
-		<div class="mt-0.5 font-mono text-2xs text-fg-subtle">
-			from reply{#if currentQuestion.messageTimestamp} · {formatTime(currentQuestion.messageTimestamp)}{/if}
-		</div>
-
-		<div class="mt-2 text-sm text-fg leading-snug">{@html processMarkdown(currentQuestion.text)}</div>
-
-		{#if currentQuestion.options.length}
-			<div class="mt-2 flex flex-wrap gap-1.5">
-				{#each currentQuestion.options as option}
-					<button
-						type="button"
-						class="px-2.5 py-1 text-xs font-medium rounded border transition-colors {selectedOption === option
-							? 'border-signal bg-signal/10 text-signal'
-							: 'border-line text-fg-muted hover:border-line-hover'}"
-						aria-pressed={selectedOption === option}
-						on:click={() => selectOption(option)}
-					>
-						{option}
-					</button>
-				{/each}
-				<button
-					type="button"
-					class="px-2.5 py-1 text-xs font-medium rounded border transition-colors {selectedOption === OTHER_OPTION
-						? 'border-signal bg-signal/10 text-signal'
-						: 'border-line text-fg-muted hover:border-line-hover'}"
-					aria-pressed={selectedOption === OTHER_OPTION}
-					on:click={() => selectOption(OTHER_OPTION)}
-				>
-					Other…
-				</button>
-			</div>
-		{/if}
-
-		{#if !currentQuestion.options.length || selectedOption === OTHER_OPTION}
-			<input
-				type="text"
-				bind:value={otherText}
-				placeholder="Type your answer…"
-				class="mt-2 w-full text-sm bg-canvas border border-line rounded px-2.5 py-1.5 text-fg placeholder-fg-subtle focus:outline-none focus:border-line-strong"
-				on:keydown={(e) => e.key === 'Enter' && answerQuestion()}
-			/>
-		{/if}
-
-		<div class="mt-2.5 flex items-center justify-between gap-2">
-			<span class="font-mono text-2xs text-fg-subtle truncate">
-				{#if questionQueue.length > 1}{questionQueue.length - 1} more queued{/if}
-			</span>
-			<div class="flex items-center gap-2 flex-shrink-0">
-				{#if questionQueue.length > 1}
-					<button
-						type="button"
-						class="px-3 py-1.5 text-xs font-medium text-fg-muted border border-line-strong rounded hover:bg-surface-2 transition-colors"
-						on:click={skipAllQuestions}
-					>
-						Skip all
-					</button>
-				{/if}
-				<button
-					type="button"
-					class="px-3 py-1.5 text-xs font-medium text-fg-muted border border-line-strong rounded hover:bg-surface-2 transition-colors"
-					on:click={skipQuestion}
-				>
-					Skip
-				</button>
-				<button
-					type="button"
-					disabled={!canAnswer}
-					class="px-3.5 py-1.5 text-xs font-medium rounded transition-colors {canAnswer
-						? 'text-accent-contrast bg-accent hover:bg-accent-hover'
-						: 'text-fg-disabled bg-surface-2 cursor-not-allowed'}"
-					on:click={answerQuestion}
-				>
-					Answer
-				</button>
-			</div>
-		</div>
-	</div>
 {/if}

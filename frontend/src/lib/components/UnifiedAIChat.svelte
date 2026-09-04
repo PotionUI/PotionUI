@@ -23,6 +23,7 @@
 	import { authStore } from '$lib/stores/auth';
 	import ChatInput from '$lib/components/chat/ChatInput.svelte';
 	import ApprovalDock from '$lib/components/chat/ApprovalDock.svelte';
+	import QuestionDock from '$lib/components/chat/QuestionDock.svelte';
 	import ChatContextStrip from '$lib/components/chat/ChatContextStrip.svelte';
 	import { deriveContextStripModel, deriveTabSwitchDivider } from '$lib/chat/contextStrip';
 	import ChatThinkingBubble from '$lib/components/chat/ChatThinkingBubble.svelte';
@@ -1727,18 +1728,16 @@
 			</div>
 		</div>
 
-		<!-- Approval/question dock: docked above the composer whenever a tool execution is
-		     pending approval or the latest reply came with docked questions. Approvals rank
-		     first inside the dock itself (they gate side effects); questions are optional. -->
-		{#if pendingApprovalQueue.length > 0 || pendingQuestionQueue.length > 0}
+		<!-- Approval dock: docked above the composer whenever a tool execution is
+		     pending approval. Ranks above the question dock — approvals gate side
+		     effects, questions are optional, so questions only surface once this
+		     queue drains (see the `:else if` below). -->
+		{#if pendingApprovalQueue.length > 0}
 			<div class="chat-overlay-col">
-				<ApprovalDock
-					{messages}
-					sessionId={sessionId || ''}
-					onResolved={handleToolApprovalResolved}
-					onAnswerQuestion={(text) => sendMessage(text)}
-				/>
+				<ApprovalDock {messages} sessionId={sessionId || ''} onResolved={handleToolApprovalResolved} />
 			</div>
+		{:else if pendingQuestionQueue.length > 0}
+			<QuestionDock {messages} onAnswerQuestion={(text) => sendMessage(text)} />
 		{/if}
 
 		<!-- Error display -->

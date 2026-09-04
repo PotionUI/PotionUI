@@ -921,6 +921,14 @@
 
 	const TEXT_FIELD_TYPES = new Set(['textbox', 'string']);
 
+	// `field_type`s whose `default` must land as a native int/float/bool -
+	// see `schema._typed_default` (backend/preset_import/schema.py), which
+	// this table mirrors so the wizard never hands the backend a string it
+	// would just reject.
+	const INT_FIELD_TYPES = new Set(['integer', 'stepper', 'seed']);
+	const NUMERIC_FIELD_TYPES = new Set(['number', 'slider']);
+	const BOOL_FIELD_TYPES = new Set(['checkbox', 'boolean', 'gate']);
+
 	// A field's `config` (and often `default`) is shaped for its old
 	// `field_type` - carrying it across a type change is how a `select`'s
 	// 700-entry `options` list survives into a `lora_picker` as a broken
@@ -983,6 +991,31 @@
 				item._wh = { width: Number(m[1]), height: Number(m[2]) };
 				item.default = whToDefault(item._wh);
 			}
+			return;
+		}
+		const trimmed = text.trim();
+		if (INT_FIELD_TYPES.has(item.field_type) || NUMERIC_FIELD_TYPES.has(item.field_type)) {
+			if (trimmed === '') {
+				item.default = null;
+				return;
+			}
+			const n = Number(trimmed);
+			// Unparsable, or a fraction typed into a whole-number field -
+			// leave the previous default alone rather than clobbering it
+			// with 0 (coerceToNumber's own fallback, right for a type
+			// change, wrong for an in-place edit).
+			if (!Number.isFinite(n) || (INT_FIELD_TYPES.has(item.field_type) && !Number.isInteger(n))) return;
+			item.default = coerceToNumber(trimmed);
+			return;
+		}
+		if (BOOL_FIELD_TYPES.has(item.field_type)) {
+			if (trimmed === '') {
+				item.default = null;
+				return;
+			}
+			const lowered = trimmed.toLowerCase();
+			if (lowered !== 'true' && lowered !== 'false' && lowered !== '1' && lowered !== '0') return;
+			item.default = coerceToBoolean(lowered);
 			return;
 		}
 		item.default = text;
@@ -1397,7 +1430,14 @@
 			<select class="di-field-type" value={item.field_type} onchange={(e) => changeFieldType(item, e.currentTarget.value)} aria-label="Field type">
 				{#each fieldTypeOptionsFor(item.field_type) as opt}<option value={opt}>{opt}</option>{/each}
 			</select>
-			<input class="di-field-default" type="text" value={displayDefault(item)} oninput={(e) => setDefaultFromText(item, e.currentTarget.value)} aria-label="Default value" />
+			<input
+				class="di-field-default"
+				type="text"
+				inputmode={INT_FIELD_TYPES.has(item.field_type) || NUMERIC_FIELD_TYPES.has(item.field_type) ? 'decimal' : undefined}
+				value={displayDefault(item)}
+				oninput={(e) => setDefaultFromText(item, e.currentTarget.value)}
+				aria-label="Default value"
+			/>
 			<div class="di-field-actions">
 				<button
 					type="button"

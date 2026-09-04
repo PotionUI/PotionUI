@@ -62,6 +62,13 @@ _OBVIOUS_ROLES = frozenset(
 
 _PROMPT_LINK_KINDS = frozenset({"prompt_positive", "prompt_negative"})
 
+# A `min`/`max` this large in an INT/FLOAT `/object_info` spec is ComfyUI's
+# own "effectively unbounded" sentinel (e.g. PrimitiveInt's ±2^63), not a
+# real slider bound - it survives the JSON round trip through the browser
+# rounded to a nearby float (9223372036854776000), which is worse than no
+# bound at all. `step` is unaffected.
+_UNBOUNDED_BOUND_MAGNITUDE = 2**31
+
 # Fallback (name-based) prompt detection - see `_fallback_prompt_roles`'s
 # docstring for why this is the one deliberate exception to this module's
 # "structural, not name-based" rule.
@@ -691,11 +698,19 @@ def _enrich_with_object_info(
                     candidate.suggested_config = {"options": list(type_spec)}
         elif type_spec in ("INT", "FLOAT"):
             numeric_config = {k: config[k] for k in ("min", "max", "step") if k in config}
+            for bound_key in ("min", "max"):
+                bound = numeric_config.get(bound_key)
+                if isinstance(bound, (int, float)) and abs(bound) >= _UNBOUNDED_BOUND_MAGNITUDE:
+                    del numeric_config[bound_key]
             if numeric_config:
                 # The server's own bounds are authoritative over this
                 # importer's generic slider guess.
                 candidate.suggested_config = {**candidate.suggested_config, **numeric_config}
-                if candidate.suggested_field_type == "number":
+                if (
+                    candidate.suggested_field_type == "number"
+                    and "min" in numeric_config
+                    and "max" in numeric_config
+                ):
                     candidate.suggested_field_type = "slider"
         elif type_spec == "BOOLEAN":
             candidate.suggested_field_type = "checkbox"

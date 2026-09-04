@@ -22,7 +22,7 @@ import yaml
 from backend.preset_import.defaults import _lora_item, _model_item
 from backend.preset_import.emit import EmittedPreset, PresetEmitError, emit_preset
 from backend.preset_import.parser import parse_api_workflow
-from backend.preset_import.schema import FormTab, ImportForm, LoraChainSelection
+from backend.preset_import.schema import FormTab, ImportForm, LoraChainSelection, parse_form
 from backend.preset_import.suggest import suggest_fields
 
 from ._form_helpers import form_from_roles
@@ -671,6 +671,52 @@ class TestSwitchLoraEmission:
         update_input = next(m for m in manipulations if m.get("type") == "update_node_input")
         assert update_input["node_id"] == "3"  # spliced right before the sampler
         assert "30" in update_input["input_value"][0]  # falls back to the switch when no LoRAs are chosen
+
+
+class TestTypedFieldDefaultsInGenerationYml:
+    """Reproduces a real reported import: the wizard's default-editing input
+    hands back plain text, so re-typing an integer field's default (e.g.
+    steps 20 -> 4) sends `default: "4"` (a str) in the `form` payload -
+    `parse_form`/`emit_preset` must write it into generation.yml as a native
+    int, or preset lint rejects the emitted preset outright."""
+
+    def test_string_default_on_an_integer_field_is_written_as_a_native_int(self, dest_root):
+        workflow = parse_api_workflow(_load("sdxl_basic_api.json"))
+        analysis = suggest_fields(workflow)
+        form = form_from_roles(analysis, {"checkpoint", "steps"})
+        raw = form.model_dump(mode="json")
+        steps_field = next(f for f in raw["tabs"][0]["items"] if f.get("field_name") == "steps")
+        # Simulate the wizard's own default-editing input handing back plain
+        # text for an admin-edited default on what the admin turned into an
+        # integer field.
+        steps_field["field_type"] = "integer"
+        steps_field["default"] = "4"
+
+        coerced_form = parse_form(raw)
+        result = emit_preset(
+            workflow, coerced_form, [], model_family="TypedDefaultTest", variant="v1",
+            display_name="Typed Default Test", dest_root=dest_root,
+        )
+
+        generation_form = yaml.safe_load(
+            (result.preset_dir / "modes" / result.mode / "tabs" / "generation.yml").read_text()
+        )
+        steps = next(f for f in generation_form["fields"] if f.get("name") == "steps")
+        assert steps["default"] == 4
+        assert isinstance(steps["default"], int)
+        assert not isinstance(steps["default"], bool)
+
+    def test_unparsable_default_is_rejected_before_anything_is_written(self, dest_root):
+        workflow = parse_api_workflow(_load("sdxl_basic_api.json"))
+        analysis = suggest_fields(workflow)
+        form = form_from_roles(analysis, {"checkpoint", "steps"})
+        raw = form.model_dump(mode="json")
+        steps_field = next(f for f in raw["tabs"][0]["items"] if f.get("field_name") == "steps")
+        steps_field["field_type"] = "integer"
+        steps_field["default"] = "not-a-number"
+
+        with pytest.raises(PresetEmitError, match="steps"):
+            parse_form(raw)
 
 
 class TestSubgraphIdsSurvive:

@@ -38,6 +38,7 @@ from .schema import (
     ImportForm,
     Item,
     PresetEmitError,
+    _typed_default,
     all_field_items,
     validate_against_workflow,
 )
@@ -297,8 +298,9 @@ def _item_to_field_yaml(item: Item) -> Dict[str, Any]:
     `schema.iter_field_items`'s docstring for why."""
     if item.kind == "field":
         field: Dict[str, Any] = {"name": item.field_name, "type": item.field_type, "label": item.label}
-        if item.default is not None:
-            field["default"] = _yaml_value(item.default)
+        default = _typed_default(item.field_type, item.field_name, item.default)
+        if default is not None:
+            field["default"] = _yaml_value(default)
         if item.config:
             field["configuration"] = dict(item.config)
         return field

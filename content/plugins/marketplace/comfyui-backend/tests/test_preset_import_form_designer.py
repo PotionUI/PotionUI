@@ -145,6 +145,66 @@ class TestPydanticShapeValidation:
         assert tab.icon_display == "icon_only"
 
 
+class TestTypedDefaultCoercion:
+    """A `FieldItem.default` must land as the native Python type its
+    `field_type` requires (`src/features/presets/schema.py`'s
+    `_validate_typed_default`, i.e. preset lint) - the wizard's own
+    default-editing input hands back plain text, so a re-typed default
+    would otherwise survive as a string. See `schema._typed_default`."""
+
+    def _field(self, field_type, default):
+        return FieldItem.model_validate(
+            {"field_name": "x", "field_type": field_type, "label": "X", "default": default}
+        )
+
+    @pytest.mark.parametrize("field_type", ["integer", "stepper", "seed"])
+    def test_numeric_string_becomes_int(self, field_type):
+        field = self._field(field_type, "4")
+        assert field.default == 4
+        assert isinstance(field.default, int)
+
+    @pytest.mark.parametrize("field_type", ["integer", "stepper", "seed"])
+    def test_whole_float_becomes_int(self, field_type):
+        field = self._field(field_type, 4.0)
+        assert field.default == 4
+        assert isinstance(field.default, int)
+
+    @pytest.mark.parametrize("field_type", ["integer", "stepper", "seed"])
+    def test_fractional_value_is_rejected(self, field_type):
+        with pytest.raises(ValidationError):
+            self._field(field_type, 4.5)
+
+    @pytest.mark.parametrize("field_type", ["integer", "stepper", "seed"])
+    def test_unparsable_string_is_rejected(self, field_type):
+        with pytest.raises(ValidationError):
+            self._field(field_type, "not-a-number")
+
+    @pytest.mark.parametrize("field_type", ["number", "slider"])
+    def test_numeric_string_becomes_int_or_float(self, field_type):
+        int_field = self._field(field_type, "4")
+        assert int_field.default == 4
+        assert isinstance(int_field.default, int)
+        float_field = self._field(field_type, "4.5")
+        assert float_field.default == 4.5
+        assert isinstance(float_field.default, float)
+
+    @pytest.mark.parametrize("field_type", ["checkbox", "boolean", "gate"])
+    def test_boolean_strings_are_coerced(self, field_type):
+        assert self._field(field_type, "true").default is True
+        assert self._field(field_type, "0").default is False
+
+    @pytest.mark.parametrize("field_type", ["checkbox", "boolean", "gate"])
+    def test_unrecognized_boolean_string_is_rejected(self, field_type):
+        with pytest.raises(ValidationError):
+            self._field(field_type, "maybe")
+
+    def test_none_default_stays_none(self):
+        assert self._field("integer", None).default is None
+
+    def test_non_numeric_field_type_is_left_alone(self):
+        assert self._field("string", "hello").default == "hello"
+
+
 class TestWorkflowLevelValidation:
     """The checks pydantic alone can't make: a field's mappings actually
     exist on the workflow it's imported against."""

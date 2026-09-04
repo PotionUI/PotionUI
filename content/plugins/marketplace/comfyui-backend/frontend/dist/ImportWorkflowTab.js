@@ -6935,16 +6935,20 @@ function ImportWorkflowTab($$anchor, $$props) {
     }
     reset(div_3);
     template_effect(
-      ($0) => {
+      ($0, $1) => {
         set_attribute2(div_3, "data-field-name", item().field_name);
         if (select_value !== (select_value = item().field_type)) {
           select.value = (select.__value = item().field_type) ?? "", select_option(select, item().field_type);
         }
-        set_value(input_1, $0);
+        set_attribute2(input_1, "inputmode", $0);
+        set_value(input_1, $1);
         classes = set_class(button_8, 1, "iconbtn svelte-10v1sym", null, classes, { active: get(expandedFieldId) === item()._id });
         set_attribute2(button_8, "aria-expanded", get(expandedFieldId) === item()._id);
       },
-      [() => displayDefault(item())]
+      [
+        () => INT_FIELD_TYPES.has(item().field_type) || NUMERIC_FIELD_TYPES.has(item().field_type) ? "decimal" : void 0,
+        () => displayDefault(item())
+      ]
     );
     event("dragstart", span, (e) => handleItemDragStart(e, item()._id));
     event("dragend", span, handleItemDragEnd);
@@ -7978,6 +7982,9 @@ function ImportWorkflowTab($$anchor, $$props) {
     return Boolean(value);
   }
   const TEXT_FIELD_TYPES = /* @__PURE__ */ new Set(["textbox", "string"]);
+  const INT_FIELD_TYPES = /* @__PURE__ */ new Set(["integer", "stepper", "seed"]);
+  const NUMERIC_FIELD_TYPES = /* @__PURE__ */ new Set(["number", "slider"]);
+  const BOOL_FIELD_TYPES = /* @__PURE__ */ new Set(["checkbox", "boolean", "gate"]);
   function configForTypeChange(item, newType) {
     if (newType === "lora_picker") {
       const prevName = looksLikeFilename(item.default) ? item.default : null;
@@ -8043,6 +8050,27 @@ function ImportWorkflowTab($$anchor, $$props) {
         item._wh = { width: Number(m[1]), height: Number(m[2]) };
         item.default = whToDefault(item._wh);
       }
+      return;
+    }
+    const trimmed = text2.trim();
+    if (INT_FIELD_TYPES.has(item.field_type) || NUMERIC_FIELD_TYPES.has(item.field_type)) {
+      if (trimmed === "") {
+        item.default = null;
+        return;
+      }
+      const n = Number(trimmed);
+      if (!Number.isFinite(n) || INT_FIELD_TYPES.has(item.field_type) && !Number.isInteger(n)) return;
+      item.default = coerceToNumber(trimmed);
+      return;
+    }
+    if (BOOL_FIELD_TYPES.has(item.field_type)) {
+      if (trimmed === "") {
+        item.default = null;
+        return;
+      }
+      const lowered = trimmed.toLowerCase();
+      if (lowered !== "true" && lowered !== "false" && lowered !== "1" && lowered !== "0") return;
+      item.default = coerceToBoolean(lowered);
       return;
     }
     item.default = text2;

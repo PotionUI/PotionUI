@@ -199,6 +199,17 @@ test('Admin > Plugins > ComfyUI Backend - import a workflow through the wizard i
 		await checkpointCard.locator('.di-field-type').selectOption('lora_picker');
 		await screenshot(page, JOURNEY, '03d-wizard-field-type-reset');
 
+		// Re-typing an integer field's default through the wizard's own text
+		// input must reach the emitted preset as a native int, not the string
+		// the input hands back - a wizard-authored default of "4" once
+		// survived verbatim into generation.yml as `default: '4'`, which
+		// preset lint rejects outright (see schema._typed_default).
+		const stepsCard = wizard.locator('.di-field-card[data-field-name="steps"]');
+		await expect(stepsCard).toHaveCount(1);
+		await stepsCard.locator('.di-field-type').selectOption('integer');
+		await stepsCard.locator('.di-field-default').fill('4');
+		await expect(stepsCard.locator('.di-field-default')).toHaveValue('4');
+
 		await wizard.locator('#import-model-family').fill(familyId);
 		await wizard.locator('#import-display-name').fill('E2E imported SDXL');
 		await wizard.locator('button[data-import-continue-form]').click();
@@ -240,6 +251,14 @@ test('Admin > Plugins > ComfyUI Backend - import a workflow through the wizard i
 		expect(checkpointFieldYml).toContain('max_items: 6');
 		expect(checkpointFieldYml).toMatch(/default:\s*\n\s*-\s*model: models\/loras\/sdxlBase_v10\.safetensors/);
 		expect(checkpointFieldYml).not.toContain('options');
+
+		// The "steps" field's re-typed default (integer, text "4") landed as
+		// a native int - not the string a wizard regression once wrote.
+		const stepsTabYml = tabYamls.find((y) => y.includes('name: steps'));
+		expect(stepsTabYml, 'no tab file defines the "steps" field').toBeTruthy();
+		const stepsFieldYml = extractFieldBlock(stepsTabYml!, 'steps');
+		expect(stepsFieldYml).toContain('type: integer');
+		expect(stepsFieldYml).toMatch(/default: 4\s*$/m);
 
 		const openLink = wizard.locator('a[data-import-open-preset]');
 		await expect(openLink).toBeVisible();

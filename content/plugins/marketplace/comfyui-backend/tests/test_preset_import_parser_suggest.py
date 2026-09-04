@@ -541,6 +541,74 @@ class TestModelFileComboEnrichment:
         assert candidate.suggested_folder is None  # unknown folder - no comfyui_model requirement guessed
 
 
+class TestUnboundedIntSentinelIsDropped:
+    """A live server's `/object_info` for an INT/FLOAT input sometimes
+    declares ComfyUI's own "effectively unbounded" sentinel (PrimitiveInt's
+    `value` is ±2^63) rather than real slider bounds - `_enrich_with_object_info`
+    must drop it instead of baking a ~9.2e18 min/max into the field, and must
+    only promote a `number` guess to `slider` when real bounds survive on
+    both ends. See `suggest._UNBOUNDED_BOUND_MAGNITUDE`."""
+
+    def test_sentinel_min_max_dropped_field_type_unchanged(self):
+        workflow = parse_api_workflow(
+            {"1": {"class_type": "PrimitiveInt", "inputs": {"value": 4}, "_meta": {"title": "Steps Value"}}}
+        )
+        object_info = {
+            "PrimitiveInt": {
+                "input": {
+                    "required": {
+                        "value": ["INT", {"min": -9223372036854775808, "max": 9223372036854775807}]
+                    }
+                }
+            }
+        }
+        analysis = suggest_fields(workflow, object_info=object_info)
+        candidate = next(c for c in analysis.candidates if c.node_id == "1" and c.input_name == "value")
+
+        assert "min" not in candidate.suggested_config
+        assert "max" not in candidate.suggested_config
+        # PrimitiveInt's catalog entry already declares field: integer -
+        # never touched by the number->slider promotion in the first place.
+        assert candidate.suggested_field_type == "integer"
+
+    def test_one_sided_sentinel_drops_only_that_bound_and_skips_promotion(self):
+        """A `number` guess (no catalog field type) must not become a
+        `slider` when only one bound survives - a slider with a sentinel
+        max and a real min is worse than a plain number input."""
+        workflow = parse_api_workflow(
+            {"1": {"class_type": "MyCustomIntNode", "inputs": {"amount": 4}, "_meta": {"title": "Amount"}}}
+        )
+        object_info = {
+            "MyCustomIntNode": {
+                "input": {"required": {"amount": ["INT", {"min": 0, "max": 9223372036854775807, "step": 1}]}}
+            }
+        }
+        analysis = suggest_fields(workflow, object_info=object_info)
+        candidate = next(c for c in analysis.candidates if c.node_id == "1" and c.input_name == "amount")
+
+        assert candidate.suggested_config.get("min") == 0
+        assert "max" not in candidate.suggested_config
+        assert candidate.suggested_config.get("step") == 1
+        assert candidate.suggested_field_type == "number"
+
+    def test_real_bounds_still_apply_and_promote_number_to_slider(self):
+        """Confirms the guard above is keyed on the sentinel magnitude, not
+        "never take bounds from object_info" - real, reasonable bounds still
+        win and still promote a `number` guess to `slider`."""
+        workflow = parse_api_workflow(
+            {"1": {"class_type": "MyCustomStepsNode", "inputs": {"steps": 20}, "_meta": {"title": "Steps"}}}
+        )
+        object_info = {
+            "MyCustomStepsNode": {"input": {"required": {"steps": ["INT", {"min": 1, "max": 150, "step": 1}]}}}
+        }
+        analysis = suggest_fields(workflow, object_info=object_info)
+        candidate = next(c for c in analysis.candidates if c.node_id == "1" and c.input_name == "steps")
+
+        assert candidate.suggested_config["min"] == 1
+        assert candidate.suggested_config["max"] == 150
+        assert candidate.suggested_field_type == "slider"
+
+
 class TestOffChainLoraNode:
     """A `lora`-category node the detected chain doesn't include - see
     `suggest._off_chain_lora_candidates`."""

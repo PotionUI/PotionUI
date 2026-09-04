@@ -57,6 +57,80 @@ class FieldMapping(BaseModel):
     transform: Literal["none", "strip_model_prefix", "split_wh_width", "split_wh_height", "seed"] = "none"
 
 
+# Field types whose `default` must be a specific native Python type for
+# `src/features/presets/schema.py`'s `_validate_typed_default` (preset lint)
+# to accept it - see `_typed_default`. Kept in sync with that module's
+# `_BOOL_FIELD_TYPES`/`_NUMERIC_FIELD_TYPES`/`_INTEGER_FIELD_TYPES`, plus
+# `stepper`/`seed` pinned to `int` (lint accepts either int or float for
+# them, but nothing in this importer ever produces a fractional stepper or
+# seed default) and `gate` treated like `checkbox` (lint doesn't check a
+# gate's default type at all, but a stray string default is never right).
+_INT_FIELD_TYPES = frozenset({"integer", "stepper", "seed"})
+_NUMERIC_FIELD_TYPES = frozenset({"number", "slider"})
+_BOOL_FIELD_TYPES = frozenset({"checkbox", "boolean", "gate"})
+_TRUE_STRINGS = frozenset({"true", "1"})
+_FALSE_STRINGS = frozenset({"false", "0"})
+
+
+def _typed_default(field_type: str, field_name: str, value: Any) -> Any:
+    """Coerce `value` to the native Python type `field_type` requires,
+    raising `PresetEmitError` (naming the field and the offending value)
+    when it can't be. Every `default` reaching a preset.yml or its
+    `import.json` sidecar goes through this - the wizard's default-editing
+    input (`ImportWorkflowTab.svelte`'s `setDefaultFromText`) hands back
+    plain text, so an admin editing e.g. an integer field's default leaves
+    it a str unless something coerces it back before it's written."""
+    if value is None:
+        return None
+
+    if field_type in _BOOL_FIELD_TYPES:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in _TRUE_STRINGS:
+                return True
+            if lowered in _FALSE_STRINGS:
+                return False
+        raise PresetEmitError(f"field '{field_name}' ({field_type}): default {value!r} is not a boolean")
+
+    if field_type in _INT_FIELD_TYPES:
+        if not isinstance(value, bool):
+            if isinstance(value, int):
+                return value
+            if isinstance(value, float) and value.is_integer():
+                return int(value)
+            if isinstance(value, str):
+                text = value.strip()
+                try:
+                    return int(text)
+                except ValueError:
+                    try:
+                        as_float = float(text)
+                    except ValueError:
+                        as_float = None
+                    if as_float is not None and as_float.is_integer():
+                        return int(as_float)
+        raise PresetEmitError(f"field '{field_name}' ({field_type}): default {value!r} is not a whole number")
+
+    if field_type in _NUMERIC_FIELD_TYPES:
+        if not isinstance(value, bool):
+            if isinstance(value, (int, float)):
+                return value
+            if isinstance(value, str):
+                text = value.strip()
+                try:
+                    return int(text)
+                except ValueError:
+                    try:
+                        return float(text)
+                    except ValueError:
+                        pass
+        raise PresetEmitError(f"field '{field_name}' ({field_type}): default {value!r} is not a number")
+
+    return value
+
+
 class FieldItem(BaseModel):
     kind: Literal["field"] = "field"
     field_name: str
@@ -65,6 +139,14 @@ class FieldItem(BaseModel):
     default: Any = None
     config: Optional[Dict[str, Any]] = None
     mappings: List[FieldMapping] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _default_matches_field_type(self) -> "FieldItem":
+        # Coerced here (not just at emit time) so a re-edited-then-reloaded
+        # preset's `import.json` sidecar (`form.model_dump()`, written
+        # straight from this model) never carries an untyped default either.
+        self.default = _typed_default(self.field_type, self.field_name, self.default)
+        return self
 
 
 class RowItem(BaseModel):

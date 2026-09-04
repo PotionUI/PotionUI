@@ -72,15 +72,23 @@
 	// stage is reduced through the same setting the slider edits until it does.
 	let bodyEl: HTMLDivElement | undefined = $state();
 	let bodyNaturalHeight = $state(0);
+	// The fit is a courtesy on open, never a fight: once the user has sized
+	// this window by hand it is theirs (the handles already clamp to the
+	// overlay), and a shrink that did not bring the content down (fixed-height
+	// content) is not repeated — otherwise a finished generation could walk
+	// the stage down to its minimum one step per re-measure.
+	let userSized = $state(false);
+	let naturalAfterLastFit = Infinity;
 	$effect(() => {
-		if (!bodyEl || !overlayHeight) return;
+		if (!bodyEl || !overlayHeight || userSized) return;
 		const available = overlayHeight - OVERLAY_PADDING - headerHeight;
 		const excess = bodyNaturalHeight - available;
-		if (excess > 0 && bodyHeight > MIN_HEIGHT) {
-			const fitted = Math.max(MIN_HEIGHT, bodyHeight - excess);
-			if (fitted !== bodyHeight) {
-				onWorkbenchHeightChange(new CustomEvent('heightChange', { detail: String(fitted) }));
-			}
+		if (excess <= 0 || bodyHeight <= MIN_HEIGHT) return;
+		if (bodyNaturalHeight >= naturalAfterLastFit) return;
+		const fitted = Math.max(MIN_HEIGHT, bodyHeight - excess);
+		if (fitted !== bodyHeight) {
+			naturalAfterLastFit = bodyNaturalHeight;
+			onWorkbenchHeightChange(new CustomEvent('heightChange', { detail: String(fitted) }));
 		}
 	});
 
@@ -137,6 +145,7 @@
 			{ dx, dy },
 			bounds()
 		);
+		userSized = true;
 		if (resizeAxis !== 'height') onResizeWidth(next.width);
 		if (resizeAxis !== 'width') {
 			onWorkbenchHeightChange(new CustomEvent('heightChange', { detail: String(next.height) }));

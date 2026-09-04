@@ -1124,6 +1124,12 @@
 			segmentIndex: number;
 			segmentId: string;
 			content: string;
+			/** Video Director timeline style only: which shot `segmentId` (a
+			 * beat) belongs to -- parsed off the tag by markdown.ts's
+			 * `parseToolActions` (`ToolAction.shotId`). See
+			 * `applyDirectorSegmentPrompt`'s own doc comment in
+			 * utils/videoDirector.ts for the resolution rule this mirrors. */
+			shotId?: string;
 		},
 		messageId: string,
 		actionIndex: number
@@ -1136,8 +1142,16 @@
 			const doc = normalizeDirectorValue(tab.videoDirector, videoDirectorCaps);
 			// Resolve id-first/index-fallback against the SAME pre-apply list
 			// applyDirectorSegmentPrompt targets, so the applied-marker lands on
-			// the segment it actually wrote to.
-			const list = videoDirectorCaps.segmentRouting ? doc.chain.segments : doc.timeline.segments;
+			// the segment it actually wrote to. Timeline routing (W2): once the
+			// tag names a shot, resolve strictly within that shot's own beat
+			// list (a beat id is only unique WITHIN its shot); otherwise flatten
+			// every shot's beats in shot order, same as
+			// applyDirectorSegmentPrompt's own fallback.
+			const list: { id: string }[] = videoDirectorCaps.segmentRouting
+				? doc.chain.segments
+				: action.shotId
+					? (doc.timeline.shots.find((shot) => shot.id === action.shotId)?.segments ?? [])
+					: doc.timeline.shots.flatMap((shot) => shot.segments);
 			const byId = list.findIndex((s) => s.id === action.segmentId);
 			const idx = byId !== -1 ? byId : action.segmentIndex >= 0 && action.segmentIndex < list.length ? action.segmentIndex : -1;
 			const next = applyDirectorSegmentPrompt(doc, videoDirectorCaps, action);
@@ -1502,9 +1516,7 @@
 	}
 
 	function scrollToBottom() {
-		if (messagesContainerRef) {
-			messagesContainerRef.scrollTop = messagesContainerRef.scrollHeight;
-		}
+		if (messagesContainerRef) jumpTo(messagesContainerRef, messagesContainerRef.scrollHeight);
 	}
 
 	// Both hosts gate this component behind a Svelte {#if}, so this container
@@ -1531,14 +1543,26 @@
 		wasPinnedToBottom = scrollHeight - scrollTop - clientHeight < 40;
 	}
 
+	// Programmatic positioning must never animate: the transcript's CSS
+	// smooth-scrolling is for the reader's own wheel, while opening the panel
+	// or loading a conversation has to land on the latest messages already
+	// there, not visibly scroll down to them.
+	function jumpTo(node: HTMLElement, top: number) {
+		const previous = node.style.scrollBehavior;
+		node.style.scrollBehavior = 'auto';
+		node.scrollTop = top;
+		node.style.scrollBehavior = previous;
+	}
+
 	function preserveScrollAcrossHiding(node: HTMLElement) {
 		wasCollapsed = true;
+		if (node.clientHeight > 0) jumpTo(node, node.scrollHeight);
 		const observer = new ResizeObserver(() => {
 			const collapsed = node.clientHeight === 0;
 			if (!collapsed && wasCollapsed) {
 				// Reading at the bottom is the resting state, and messages can
 				// arrive while hidden, so being pinned wins over the old offset.
-				node.scrollTop = wasPinnedToBottom ? node.scrollHeight : lastScrollTop;
+				jumpTo(node, wasPinnedToBottom ? node.scrollHeight : lastScrollTop);
 			}
 			wasCollapsed = collapsed;
 		});

@@ -440,6 +440,9 @@
 		</aside>
 	{/if}
 
+	<!-- `.panel-bar` is purely a width container (maintainer ruling — no
+		border/background/shadow of its own); the progress track traces the
+		docked strip's own top edge. -->
 	<div
 		class="progress-track"
 		role="progressbar"
@@ -637,26 +640,25 @@
 </div>
 
 <style>
-	/* `--dock-height`: the panel's own height — the mock's own `.panel-bar`
+	/* `--dock-height`: the strip's own height — the mock's `.panel-bar`
 	   natural height (min-height: 82px, generation-panel-concept.html;
 	   `generation-three-pane-integration.html` reserves the same
-	   `--dock-height: 82px`), no extra padding beyond what the mock's bar
-	   already has (maintainer ruling — the outer container is the pre-port
-	   docked bar again: fixed, full-width, flush to the bottom edge, on the
-	   order of the old 73px bar, not a wider slab; see the additions
-	   override in generation-panel.css). Declared at :root (not scoped to
-	   `.generation-panel`) so sibling surfaces that used to hardcode the old
-	   73px bar height — FloatingWorkbench's modal overlay, the three-pane
-	   workspace's own bottom padding, the drawer's own `bottom` offset —
-	   read the one value instead of drifting from it independently. */
+	   `--dock-height: 82px`). `.panel-bar` fills the strip exactly
+	   (maintainer ruling — it's a width container only, no border/shadow/
+	   inset of its own; see the additions override in generation-panel.css).
+	   Declared at :root (not scoped to `.generation-panel`) so sibling
+	   surfaces that used to hardcode the old 73px bar height —
+	   FloatingWorkbench's modal overlay, the three-pane workspace's own
+	   bottom padding, the drawer's own `bottom` offset — read the one value
+	   instead of drifting from it independently. */
 	:global(:root) {
 		--dock-height: 82px;
 	}
 
 	@media (max-width: 720px) {
 		:global(:root) {
-			/* Same ratio to the default as before (168/112): the mock's own
-			   narrow-layout drawer offset scaled onto the new base height. */
+			/* The mock's own narrow-layout drawer offset (168px at its 112px
+			   default) scaled onto this base, same ratio. */
 			--dock-height: 123px;
 		}
 	}

@@ -344,14 +344,16 @@ button.session-row:hover, .session-row.is-current { background: rgb(var(--surfac
 
 /* additions */
 
-/* Maintainer ruling: the OUTER container stays the pre-port docked bar —
-   fixed, full-width, flush to the bottom edge, no floating inset/margin/
-   radius/card-shadow. Only what's INSIDE it (status block, context rail,
-   commands, popovers, drawer) keeps the mock's styling. Overrides the
-   generated `&{...}` block above (same selector, later in the cascade wins)
-   rather than editing it, per the port rules. `--dock-height` (declared at
-   :root in GenerationPanel.svelte) is now the bar's actual height, not just
-   a clearance figure other consumers reserve — one number, one direction. */
+/* Maintainer ruling: the OUTER `.generation-panel` is a plain full-width
+   strip — fixed, flush to the bottom edge, surface-1 background, a top
+   border, no floating inset/margin/radius/card-shadow. `.panel-bar` is
+   purely a WIDTH container inside it — no border, background, shadow or
+   blur of its own — narrowed below the mock's own `max-width: 1800px`
+   (generation-panel-concept.html line 133) to the width its content
+   actually needs, so status/context-rail/commands sit close together
+   instead of spread across an ultra-wide strip. Overrides the generated
+   `&{...}`/`.panel-bar{...}` blocks above (same selectors, later in the
+   cascade wins) rather than editing them, per the port rules. */
 & {
   position: fixed;
   z-index: 30;
@@ -362,6 +364,11 @@ button.session-row:hover, .session-row.is-current { background: rgb(var(--surfac
   height: var(--dock-height);
   max-width: none;
   margin: 0;
+  /* `.panel-bar`'s own max-width/margin:auto below only centers it once
+     it's narrower than its container — this is what actually keeps it off
+     the strip's edges at ordinary (sub-1400px) viewport widths, standing in
+     for the mock's own `right/left: 18px` on its outer shell. */
+  padding: 0 18px;
   overflow: visible;
   border: 0;
   border-top: 1px solid rgb(var(--line-strong));
@@ -371,7 +378,16 @@ button.session-row:hover, .session-row.is-current { background: rgb(var(--surfac
   backdrop-filter: none;
 }
 
-.panel-bar { height: 100%; }
+.panel-bar {
+  height: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
 
 /* The drawer anchors against the dock's real height instead of the mock's
    own literal 112px (that number assumed the floating card's 18px margin +

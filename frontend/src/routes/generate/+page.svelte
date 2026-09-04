@@ -26,6 +26,7 @@
 	import { resolveNegativeApplicability } from '$lib/generation/negativeApplied';
 	import { leadIndex } from '$lib/generation/leadFile';
 	import { toggleFloatingForm } from '$lib/generation/floatingForm';
+	import { toggleFloatingWorkbench } from '$lib/generation/floatingWorkbench';
 	let generationPanelRef: GenerationPanel | undefined;
 	import { normalizeFileType } from '$lib/utils/fileType';
 	import { galleryTotal } from '$lib/components/workbench/workbenchGallery';
@@ -318,6 +319,9 @@
 		});
 		keybindingsStore.registerHandler('toggle_floating_form', () => {
 			tabsStore.updateTab(activeTabId, toggleFloatingForm(currentTab));
+		});
+		keybindingsStore.registerHandler('toggle_floating_workbench', () => {
+			tabsStore.updateTab(activeTabId, toggleFloatingWorkbench(currentTab));
 		});
 
 		// Load presets
@@ -673,6 +677,7 @@
 		keybindingsStore.unregisterHandler('close_tab');
 		keybindingsStore.unregisterHandler('toggle_left_panel');
 		keybindingsStore.unregisterHandler('toggle_floating_form');
+		keybindingsStore.unregisterHandler('toggle_floating_workbench');
 		keybindingsStore.unregisterHandler('toggle_last_generations');
 	});
 

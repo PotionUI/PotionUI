@@ -96,6 +96,7 @@ function createTabsStore() {
 					negativeSegmentsCollapsed: p.negativeSegmentsCollapsed,
 					sectionCollapsed: p.sectionCollapsed,
 					workbenchMaxHeight: p.workbenchMaxHeight || '600',
+					workbenchFloatingWidth: p.workbenchFloatingWidth,
 					leftPanelWidth: p.leftPanelWidth || 380,
 					leftPanelCollapsed: p.leftPanelCollapsed ?? false,
 					// Unsaved-tab content — overwritten by restoreTabSessions

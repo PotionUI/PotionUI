@@ -8,10 +8,13 @@
 	import GenerationWorkbenchPane from './GenerationWorkbenchPane.svelte';
 	import PromptSection from './PromptSection.svelte';
 	import FloatingGenerationForm from './FloatingGenerationForm.svelte';
+	import FloatingWorkbench from './FloatingWorkbench.svelte';
+	import { Kbd } from '$lib/components/ui';
 	import { PROMPT_PANEL_MIN_WIDTH } from '$lib/stores/generationLayout';
 	import { tabsStore } from '$lib/stores/tabs';
 	import { shortcutLabels } from '$lib/stores/keybindings';
 	import { closeFloatingForm } from '$lib/generation/floatingForm';
+	import { closeFloatingWorkbench } from '$lib/generation/floatingWorkbench';
 	import type { Tab } from '$lib/types/tabs';
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';
 	import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
@@ -80,8 +83,25 @@
 	$: formPanelWidth = tab.leftPanelCollapsed ? '0.75rem' : `min(${leftPanelWidth}px, 45vw)`;
 	$: floatingPresetName = presets.find((p) => p.id === tab.selectedPreset)?.name;
 
+	// The floating workbench (FE-179) opens at the inline pane's own width —
+	// captured here (the pane container's width doesn't change when its
+	// content swaps to the "floating" placeholder) the first time it opens,
+	// then persisted so later opens reuse it instead of re-measuring.
+	let measuredPaneWidth = 0;
+	$: if (tab.workbenchFloating && !tab.workbenchFloatingWidth && measuredPaneWidth > 0) {
+		tabsStore.updateTab(tab.id, { workbenchFloatingWidth: String(Math.round(measuredPaneWidth)) });
+	}
+
 	function closeFloatingGenerationForm() {
 		tabsStore.updateTab(tab.id, closeFloatingForm(tab));
+	}
+
+	function closeFloatingGenerationWorkbench() {
+		tabsStore.updateTab(tab.id, closeFloatingWorkbench());
+	}
+
+	function resizeFloatingGenerationWorkbench(width: number) {
+		tabsStore.updateTab(tab.id, { workbenchFloatingWidth: String(Math.round(width)) });
 	}
 
 	function promptWidthForClientX(clientX: number): number {
@@ -232,23 +252,19 @@
 		</button>
 
 		<!-- Right Panel: Workbench only (full height for portrait media) -->
-		<div class="flex-1 min-w-[320px] overflow-y-auto p-4">
+		<div
+			class="flex-1 min-w-[320px] overflow-y-auto p-4"
+			data-testid="workbench-pane"
+			bind:clientWidth={measuredPaneWidth}
+		>
 			{#if isActive}
-				<GenerationWorkbenchPane
-					{tab}
-					{onWorkbenchPrevious}
-					{onWorkbenchNext}
-					{onWorkbenchHeightChange}
-					{onMoveToWorkbench}
-				/>
-			{/if}
-		</div>
-	{:else}
-		<!-- Right Panel: Workbench + Prompts -->
-		<div class="flex-1 min-w-0 flex flex-col overflow-hidden">
-			<!-- Workbench Area -->
-			<div class="flex-1 min-h-0 overflow-y-auto p-4">
-				{#if isActive}
+				{#if tab.workbenchFloating}
+					<div class="flex h-full items-center justify-center gap-2 text-fg-subtle">
+						<span class="text-sm">Workbench is floating</span>
+						<Kbd keys={$shortcutLabels['toggle_floating_workbench'] || 'W'} />
+						<span class="text-sm">to dock</span>
+					</div>
+				{:else}
 					<GenerationWorkbenchPane
 						{tab}
 						{onWorkbenchPrevious}
@@ -256,6 +272,34 @@
 						{onWorkbenchHeightChange}
 						{onMoveToWorkbench}
 					/>
+				{/if}
+			{/if}
+		</div>
+	{:else}
+		<!-- Right Panel: Workbench + Prompts -->
+		<div class="flex-1 min-w-0 flex flex-col overflow-hidden">
+			<!-- Workbench Area -->
+			<div
+				class="flex-1 min-h-0 overflow-y-auto p-4"
+				data-testid="workbench-pane"
+				bind:clientWidth={measuredPaneWidth}
+			>
+				{#if isActive}
+					{#if tab.workbenchFloating}
+						<div class="flex h-40 items-center justify-center gap-2 text-fg-subtle">
+							<span class="text-sm">Workbench is floating</span>
+							<Kbd keys={$shortcutLabels['toggle_floating_workbench'] || 'W'} />
+							<span class="text-sm">to dock</span>
+						</div>
+					{:else}
+						<GenerationWorkbenchPane
+							{tab}
+							{onWorkbenchPrevious}
+							{onWorkbenchNext}
+							{onWorkbenchHeightChange}
+							{onMoveToWorkbench}
+						/>
+					{/if}
 				{/if}
 
 				{#if !promptless}
@@ -288,6 +332,19 @@
 		width={leftPanelWidth}
 		onClose={closeFloatingGenerationForm}
 		closeShortcut={$shortcutLabels['toggle_floating_form']}
+	/>
+{/if}
+
+{#if tab.workbenchFloating}
+	<FloatingWorkbench
+		{tab}
+		{onWorkbenchPrevious}
+		{onWorkbenchNext}
+		{onWorkbenchHeightChange}
+		{onMoveToWorkbench}
+		onClose={closeFloatingGenerationWorkbench}
+		onResizeWidth={resizeFloatingGenerationWorkbench}
+		closeShortcut={$shortcutLabels['toggle_floating_workbench']}
 	/>
 {/if}
 

@@ -47,6 +47,10 @@ export interface PersistedTab {
 	 *  matching field on `SessionData`/`Tab`. */
 	sectionCollapsed?: Record<string, boolean>;
 	workbenchMaxHeight?: string;
+	/** Width of the floating workbench window (FE-179), set from the inline
+	 *  pane's measured width the first time it opens and from then on by the
+	 *  window's own resize handles. See the matching field on `Tab` below. */
+	workbenchFloatingWidth?: string;
 	leftPanelWidth?: number;
 	leftPanelCollapsed?: boolean;
 	// Content fields — the actual prompt/form state, persisted so an unsaved
@@ -364,6 +368,17 @@ export interface Tab {
 	 *  set when it opens, cleared when it closes. Deliberately absent from
 	 *  PersistedTab, same tier as `formFloating`. */
 	formFloatingRestoreCollapsed?: boolean;
+	/** Whether the workbench is showing as a floating overlay above the
+	 *  Generation Panel (`toggle_floating_workbench` keybinding, default `w`)
+	 *  — see `$lib/generation/floatingWorkbench.ts`. Deliberately absent from
+	 *  PersistedTab, same tier as `formFloating`: a reload never reopens it. */
+	workbenchFloating?: boolean;
+	/** Width of the floating workbench window — set from the inline pane's
+	 *  measured width the first time it opens, then from the window's own
+	 *  resize handles. Unlike `workbenchFloating` this DOES persist
+	 *  (`PersistedTab`, same tier as `workbenchMaxHeight`): a reload should
+	 *  reopen the float at the size the user left it. */
+	workbenchFloatingWidth?: string;
 	// Per-tab panel layout (two/three panes) and the three-pane prompt pane width.
 	layoutMode: GenerationLayoutMode;
 	promptPanelWidth: number;

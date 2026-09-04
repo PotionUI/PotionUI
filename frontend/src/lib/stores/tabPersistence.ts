@@ -50,6 +50,7 @@ export function toPersistedTab(t: Tab): PersistedTab {
 		negativeSegmentsCollapsed: t.negativeSegmentsCollapsed,
 		sectionCollapsed: t.sectionCollapsed,
 		workbenchMaxHeight: t.workbenchMaxHeight,
+		workbenchFloatingWidth: t.workbenchFloatingWidth,
 		leftPanelWidth: t.leftPanelWidth,
 		leftPanelCollapsed: t.leftPanelCollapsed,
 		// Unsaved-tab content — a tab bound to a saved session

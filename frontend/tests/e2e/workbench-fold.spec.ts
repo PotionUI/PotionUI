@@ -120,6 +120,16 @@ test('folding the docked workbench pane persists, frees space for prompts, and c
 
 	// Expand via the rail's own button.
 	await page.getByRole('button', { name: 'Expand workbench' }).click();
+
+	// A plain click on the prompts/workbench resize handle folds the pane too
+	// (a drag beyond a few pixels still resizes); the rail expands it back.
+	const handle = page.locator('[data-testid="prompts-workbench-handle"]');
+	await expect(handle).toBeVisible();
+	await handle.click();
+	await expect(page.getByRole('button', { name: 'Expand workbench' })).toBeVisible();
+	await expect(handle).toHaveCount(0);
+	await page.getByRole('button', { name: 'Expand workbench' }).click();
+	await expect(handle).toBeVisible();
 	const expandedBox = await workbenchPane.boundingBox();
 	expect(expandedBox).not.toBeNull();
 	expect(expandedBox!.width).toBeGreaterThan(RAIL_MAX_WIDTH_PX);

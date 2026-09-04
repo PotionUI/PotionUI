@@ -131,11 +131,19 @@
 		tabsStore.updateTab(tab.id, { promptPanelWidth: Math.round(nextWidth) });
 	}
 
+	// A press on the handle that never travels is a click: it folds the
+	// workbench instead of resizing, so the same strip does both jobs.
+	const RESIZE_CLICK_SLOP_PX = 4;
+	let promptResizeStartX = 0;
+	let promptResizeMoved = false;
+
 	function startPromptResize(event: PointerEvent) {
 		event.preventDefault();
 		isResizingPrompt = true;
+		promptResizeStartX = event.clientX;
+		promptResizeMoved = false;
 		document.addEventListener('pointermove', handlePromptResize);
-		document.addEventListener('pointerup', stopPromptResize);
+		document.addEventListener('pointerup', finishPromptResize);
 		document.addEventListener('pointercancel', stopPromptResize);
 		document.body.style.cursor = 'col-resize';
 		document.body.style.userSelect = 'none';
@@ -143,6 +151,8 @@
 
 	function handlePromptResize(event: PointerEvent) {
 		if (!isResizingPrompt || !promptPaneEl) return;
+		if (Math.abs(event.clientX - promptResizeStartX) > RESIZE_CLICK_SLOP_PX) promptResizeMoved = true;
+		if (!promptResizeMoved) return;
 		setPromptWidth(event.clientX - promptPaneEl.getBoundingClientRect().left);
 	}
 
@@ -156,10 +166,16 @@
 		if (!isResizingPrompt) return;
 		isResizingPrompt = false;
 		document.removeEventListener('pointermove', handlePromptResize);
-		document.removeEventListener('pointerup', stopPromptResize);
+		document.removeEventListener('pointerup', finishPromptResize);
 		document.removeEventListener('pointercancel', stopPromptResize);
 		document.body.style.cursor = '';
 		document.body.style.userSelect = '';
+	}
+
+	function finishPromptResize() {
+		const wasResizing = isResizingPrompt;
+		stopPromptResize();
+		if (wasResizing && !promptResizeMoved) toggleWorkbenchCollapsed();
 	}
 
 	onDestroy(stopPromptResize);
@@ -256,16 +272,18 @@
 
 		{#if !tab.workbenchCollapsed}
 			<!-- Prompts/Workbench Resize Handle -->
-			<button
-				type="button"
-				class="resize-handle flex-shrink-0 w-1 bg-line hover:bg-line-hover cursor-col-resize transition-colors relative group"
-				on:pointerdown={startPromptResize}
-				on:keydown={handlePromptResizeKeydown}
-				aria-label="Resize prompt panel"
-				title="Drag to resize prompts and workbench"
-			>
-				<div class="absolute inset-y-0 -left-1 -right-1 group-hover:bg-line-hover/20"></div>
-			</button>
+			<Tooltip text="Drag to resize · click to collapse" kbd={$shortcutLabels['toggle_workbench_panel']} position="left" delay={150} wrapperClass="flex h-full flex-shrink-0">
+				<button
+					type="button"
+					class="resize-handle h-full flex-shrink-0 w-1 bg-line hover:bg-line-hover cursor-col-resize transition-colors relative group"
+					on:pointerdown={startPromptResize}
+					on:keydown={handlePromptResizeKeydown}
+					aria-label="Resize prompt panel"
+					data-testid="prompts-workbench-handle"
+				>
+					<div class="absolute inset-y-0 -left-1 -right-1 group-hover:bg-line-hover/20"></div>
+				</button>
+			</Tooltip>
 		{/if}
 
 		<!-- Right Panel: Workbench only (full height for portrait media) -->

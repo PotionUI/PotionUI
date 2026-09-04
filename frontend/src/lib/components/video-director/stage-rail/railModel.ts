@@ -279,6 +279,23 @@ export function resizeTimelineBlockEdge(
 		: trimSegmentRight(seg.start, seg.end, (proposedSeconds - seg.end) * 1, 1, rightBound);
 }
 
+/** Converts a chain shot's LOCAL time (0..that shot's own generated length,
+ * INCLUDING any leading overlap it inherits from a continue join -- the same
+ * coordinate `stageModel.ts`'s `chainLandingWindow`/`StageKeyframeModel
+ * .atSeconds` and shotRailModel.ts's rail both already use) back to the
+ * chain's FILM/output time `chain.keyframes[].at` is stored in. Inverse of
+ * `chainLandingWindow`'s own local-frame math -- shared by ShotConsole.svelte
+ * (rail drag) and StageKeyframe.svelte (Time field / Snap chips) so a
+ * snapped/typed/dragged value can never resolve to a different shot's window
+ * (maintainer bug report, 09-04). */
+export function chainFilmSecondsFromLocal(rail: RailModel, blockIndex: number, localSeconds: number): number {
+	const block = rail.shots[blockIndex];
+	const fps = rail.fps;
+	const localFrame = Math.round(localSeconds * fps);
+	const outputFrame = Math.max(0, localFrame - block.overlapInFrames);
+	return block.startSeconds + (fps > 0 ? outputFrame / fps : 0);
+}
+
 /** Repositions one 'anywhere' chain keyframe -- the only field a rail drag
  * changes on it. Pure; returns a new document, never mutates `doc`. */
 export function withChainKeyframeAt(doc: VideoDirectorValue, id: string, atSeconds: number): VideoDirectorValue {

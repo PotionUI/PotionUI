@@ -723,6 +723,25 @@ export function isChainEdgeKeyframeId(id: string): boolean {
 	return parseChainEdgeKeyframeId(id) != null;
 }
 
+/** Same idea for a TIMELINE shot's own first/last edge -- unlike a chain
+ * segment (whose `keyframe`/`last_keyframe` are always-present fields, so
+ * the id is always deterministic), a `DirectorTimelineShot`'s edge is a
+ * `DirectorKeyframe` row with `role: 'first'|'last'` that may not exist yet.
+ * This is the id the rail anchor mark carries -- and the id
+ * `withTimelineKeyframeMedia` mints the row under -- for a shot whose edge
+ * has no row yet (an EMPTY well, `role` looked up on the shot, never by id,
+ * so a historical document's own real id for that role still resolves fine
+ * once one exists -- see shotRailModel.ts's `deriveTimelineShotRail`). */
+export function timelineEdgeKeyframeId(edge: 'first' | 'last', shotId: string): string {
+	return `timeline-edge-${edge}:${shotId}`;
+}
+
+export function parseTimelineEdgeKeyframeId(id: string): { edge: 'first' | 'last'; shotId: string } | null {
+	const m = /^timeline-edge-(first|last):(.+)$/.exec(id);
+	if (!m) return null;
+	return { edge: m[1] as 'first' | 'last', shotId: m[2] };
+}
+
 // ─── Chain keyframe window ───────────────────────────────────────────────────
 
 /**

@@ -182,6 +182,7 @@ function mount(props: {
 	selection: ConsoleSelection;
 	presetId?: string;
 	formData?: Record<string, unknown> | null;
+	onDoc?: (next: VideoDirectorValue) => void;
 }) {
 	const target = document.createElement('div');
 	document.body.appendChild(target);
@@ -195,7 +196,7 @@ function mount(props: {
 			formData: props.formData ?? null,
 			presetId: props.presetId ?? 'preset-1',
 			selection: props.selection,
-			onDoc: () => {}
+			onDoc: props.onDoc ?? (() => {})
 		}
 	});
 	return {
@@ -342,6 +343,92 @@ describe('ShotStage chain edge keyframe (09-04 bug regression)', () => {
 		const text = mounted.text();
 		expect(text).toContain('End');
 		expect(text).toContain('end_frame.png');
+	});
+
+	// Maintainer bug (09-04): "click on the 'start' frame -- I can't add
+	// anything there". Root cause: `rail.keyframes` (railModel.ts's
+	// `deriveChainRail`) only mirrors an edge once it ALREADY has media, so
+	// `buildKeyframeModel`'s guard on that list returned null for an empty
+	// edge and the stage fell through to the Global-prompt fallback. Fixed
+	// by resolving a chain-edge selection straight from the segment/block,
+	// independent of that mirror.
+	it('an EMPTY START anchor selects and shows a media well; picking one sets segment.keyframe', async () => {
+		const doc = chainDoc(); // no keyframe on chain-1 by default
+		let emitted: VideoDirectorValue | null = null;
+		mounted = mount({
+			shot: baseShot({ id: 'chain-1' }),
+			doc,
+			caps: chainCaps(),
+			selection: { shotId: 'chain-1', kind: 'keyframe', id: chainEdgeKeyframeId('first', 'chain-1') },
+			formData: { start_image: { path: '/pool/a.png', type: 'image', url: '/pool/a.png' } },
+			onDoc: (next) => {
+				emitted = next;
+			}
+		});
+
+		// The well renders (empty state) instead of falling back to the
+		// Global-prompt panel.
+		expect(mounted.target.querySelector('.stage-kf')).not.toBeNull();
+		expect(mounted.target.querySelector('.stage-kf-img.empty')).not.toBeNull();
+		expect(mounted.text()).toContain('Start');
+
+		// Strength disabled until an image exists; no Remove for an empty well.
+		const strengthInput = mounted.target.querySelector<HTMLInputElement>('.strength-slider');
+		expect(strengthInput?.disabled).toBe(true);
+		expect(Array.from(mounted.target.querySelectorAll('button')).some((b) => b.textContent?.trim() === 'Remove')).toBe(false);
+
+		// Simulate a pick via the form's reference pool (DirectorMediaSlot's
+		// "From form" list) -- avoids driving a real file-upload control.
+		const buttonsBefore = mounted.target.querySelectorAll('button').length;
+		const fromFormBtn = Array.from(mounted.target.querySelectorAll<HTMLButtonElement>('button')).find((b) =>
+			b.textContent?.includes('From form')
+		);
+		expect(fromFormBtn).toBeTruthy();
+		fromFormBtn!.click();
+		await Promise.resolve();
+
+		const buttonsAfter = Array.from(mounted.target.querySelectorAll<HTMLButtonElement>('button'));
+		expect(buttonsAfter.length).toBeGreaterThan(buttonsBefore);
+		const optionBtn = buttonsAfter[buttonsAfter.length - 1];
+		optionBtn.click();
+		await Promise.resolve();
+
+		expect(emitted).not.toBeNull();
+		const seg = emitted!.chain.segments.find((s) => s.id === 'chain-1')!;
+		expect(seg.keyframe).toEqual({ form_ref: { field: 'start_image', path: '/pool/a.png' } });
+	});
+
+	// Maintainer bug (09-04): "I'm on the first shot and I can 'snap' a
+	// keyframe to the end which will be... the last shot". The keyframe
+	// stage's "Snap to" landmarks (and its Time field) must be shot-local:
+	// this shot's own Start(0)/End(its own duration) only, never a landmark
+	// from another shot in the same film.
+	it('a 2-shot film, shot 1 selected: snap landmarks are exactly Start/End of shot 1, nothing from shot 2', () => {
+		const doc = chainDoc();
+		doc.chain = {
+			fps: 16,
+			segments: [
+				chainSegment('chain-1', 'first shot', 3), // 48 frames @16fps
+				chainSegment('chain-2', 'second shot', 4) // 64 frames -- must never leak in
+			],
+			continuation: { overlap_frames: 0, stitch: true },
+			keyframes: [{ id: 'kf-1', at: 1.5, strength: 1, media: null }], // lands in shot 1 (0..3s)
+			audio: []
+		};
+		const caps: DirectorCapabilities = {
+			...chainCaps(),
+			modes: { director: { ...chainCaps().modes.director!, keyframes: 'anywhere', maxKeyframes: 8 } }
+		};
+		mounted = mount({
+			shot: baseShot({ id: 'chain-1' }),
+			doc,
+			caps,
+			selection: { shotId: 'chain-1', kind: 'keyframe', id: 'kf-1' }
+		});
+
+		const chips = Array.from(mounted.target.querySelectorAll<HTMLButtonElement>('.snap-chip'));
+		const labels = chips.map((c) => c.textContent?.replace(/\s+/g, ' ').trim());
+		expect(labels).toEqual(['Start 0.00s', 'End 3.00s']);
 	});
 });
 

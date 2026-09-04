@@ -58,8 +58,18 @@
 		return Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
 	}
 
+	// Maintainer bug (09-04): the hover insert-cue tracked the pointer over
+	// existing beats too, sitting visually on top of (and, before this fix,
+	// occasionally the click target instead of) the block underneath. The
+	// cue now hides entirely whenever the pointer sits over a real beat --
+	// `pointer-events: none` on the cue itself already keeps IT out of hit
+	// testing, so `e.target` here is always the real element beneath it.
+	function isOverBeat(e: Event): boolean {
+		return (e.target as HTMLElement).closest('.beat-b, .beat-edge') != null;
+	}
+
 	function handlePointerMove(e: PointerEvent) {
-		if (dragging || !canAdd) {
+		if (dragging || !canAdd || isOverBeat(e)) {
 			hoverFraction = null;
 			return;
 		}
@@ -71,7 +81,10 @@
 	}
 
 	function handleLaneClick(e: MouseEvent) {
-		if (!canAdd) return;
+		// Belt-and-suspenders: `selectBeat`'s own `stopPropagation()` already
+		// keeps a beat click from reaching here, but the insert must never
+		// fire off a beat regardless of how the click got here.
+		if (!canAdd || isOverBeat(e)) return;
 		const fraction = fractionFromClientX(e.clientX);
 		if (fraction == null) return;
 		onAdd(snapFraction(fraction));
@@ -170,6 +183,7 @@
 		position: absolute;
 		top: 0;
 		bottom: 0;
+		z-index: 2;
 		display: flex;
 		flex-direction: column;
 		justify-content: center;
@@ -237,6 +251,7 @@
 	.insert-cue {
 		position: absolute;
 		top: -26px;
+		z-index: 1;
 		transform: translateX(-50%);
 		display: flex;
 		flex-direction: column;

@@ -24,7 +24,8 @@
 	import type { StageKeyframeModel } from './stageModel';
 	import { withChainKeyframeMedia, withTimelineKeyframeMedia, withKeyframeStrength, withChainEdgeKeyframeMedia, withChainEdgeKeyframeStrength, mediaFileLabel } from './stageModel';
 	import { isChainEdgeKeyframeId, resolveDirectorMediaDisplay } from '$lib/utils/videoDirector';
-	import { withChainKeyframeAt, withTimelineKeyframeAt, isKeyframeLocked } from './railModel';
+	import { withChainKeyframeAt, withTimelineKeyframeAt, isKeyframeLocked, deriveRailModel, chainFilmSecondsFromLocal } from './railModel';
+	import { clamp } from '../timelineCore';
 	import DirectorMediaSlot from '../DirectorMediaSlot.svelte';
 
 	let {
@@ -65,7 +66,23 @@
 		}
 	}
 	function applyTime(seconds: number) {
-		onDoc(isChain ? withChainKeyframeAt(doc, model.id, seconds) : withTimelineKeyframeAt(doc, timelineShotId, model.id, seconds));
+		// `seconds` is always shot-local here (the Time field/Snap chips both
+		// read `model.atSeconds`/`model.snapTargets`, which are shot-local --
+		// see stageModel.ts's own doc comment). A chain 'anywhere' keyframe's
+		// storage (`chain.keyframes[].at`) is FILM time, so it's converted
+		// back through the same landing shot's own window and clamped to
+		// [0, that shot's own length] first -- a snapped/typed value can then
+		// never resolve into a different shot (maintainer bug report, 09-04).
+		if (isChain) {
+			if (!model.landing) return; // locked edges never reach here (see `locked` below)
+			const rail = deriveRailModel(doc, caps);
+			const clamped = clamp(seconds, 0, rail.fps > 0 ? model.landing.localTotalFrames / rail.fps : 0);
+			onDoc(withChainKeyframeAt(doc, model.id, chainFilmSecondsFromLocal(rail, model.landing.shotIndex, clamped)));
+		} else {
+			const rail = deriveRailModel(doc, caps, timelineShotId);
+			const clamped = clamp(seconds, 0, rail.fps > 0 ? model.totalFrames / rail.fps : 0);
+			onDoc(withTimelineKeyframeAt(doc, timelineShotId, model.id, clamped));
+		}
 	}
 	function setTime(e: Event) {
 		const seconds = parseFloat((e.currentTarget as HTMLInputElement).value);
@@ -129,6 +146,8 @@
 					max="1"
 					step="0.01"
 					class="strength-slider"
+					disabled={!model.media}
+					title={model.media ? undefined : 'Attach an image first'}
 					value={model.strength}
 					oninput={(e) => setStrength(parseFloat((e.currentTarget as HTMLInputElement).value))}
 				/>
@@ -139,12 +158,14 @@
 			<span class="fl">Source</span>
 			<span class="fv">{sourceLabel}</span>
 		</div>
-		<div class="stage-actions">
-			<button type="button" class="btn" onclick={remove}>
-				<svg class="icon" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M6 18L18 6M6 6l12 12" /></svg>
-				Remove
-			</button>
-		</div>
+		{#if model.media}
+			<div class="stage-actions">
+				<button type="button" class="btn" onclick={remove}>
+					<svg class="icon" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M6 18L18 6M6 6l12 12" /></svg>
+					Remove
+				</button>
+			</div>
+		{/if}
 	</div>
 </div>
 
@@ -252,6 +273,10 @@
 	.strength-slider {
 		width: 140px;
 		accent-color: rgb(var(--signal));
+	}
+	.strength-slider:disabled {
+		opacity: 0.4;
+		cursor: not-allowed;
 	}
 	.strength-value {
 		font-size: 11.5px;

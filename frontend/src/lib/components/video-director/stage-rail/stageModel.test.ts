@@ -259,14 +259,24 @@ describe('deriveStageModel — H3 profile (keyframes anywhere)', () => {
 		expect(shot.leadingGate.kind).toBe('well');
 	});
 
-	it('landing window: 11.24s lands in shot 2 at local frame 153/201', () => {
+	it('landing window: 11.24s lands in shot 2 at local frame 153/201 -- atFrame/totalFrames/atSeconds read shot-local (09-04 fix), not film-wide', () => {
 		const model = deriveStageModel(h3Doc(), h3Caps(), { kind: 'keyframe', id: 'kf-3' });
 		const kf = model.selected as StageKeyframeModel;
 		expect(kf.kind).toBe('keyframe');
-		expect(kf.atFrame).toBe(281);
-		expect(kf.totalFrames).toBe(417);
 		expect(kf.landing).toEqual({ shotIndex: 1, shotLabel: 'The wok prompt', localFrame: 153, localTotalFrames: 201 });
+		// atFrame/totalFrames now mirror the landing window exactly -- the
+		// SAME shot-local coordinate the rail (shotRailModel.ts) already
+		// draws this keyframe at, not the film-wide frame/total.
+		expect(kf.atFrame).toBe(153);
+		expect(kf.totalFrames).toBe(201);
+		expect(kf.atSeconds).toBeCloseTo(153 / 25, 5);
 		expect(kf.snapped).toBe(false);
+		// Snap landmarks are this shot's own Start/End only (maintainer bug
+		// report, 09-04: snapping must never reach into another shot).
+		expect(kf.snapTargets).toEqual([
+			{ label: 'Start', atSeconds: 0 },
+			{ label: 'End', atSeconds: 201 / 25 }
+		]);
 	});
 });
 
@@ -416,8 +426,13 @@ describe('deriveStageModel — chain-edge keyframe mirrors (unified with the sho
 		// The well (StageShot's leadingGate) reflects the same clear.
 		const shot = deriveStageModel(cleared, h3VideoCaps(), { kind: 'shot', id: 'h3-1' }).selected as StageShotModel;
 		expect(shot.leadingGate).toEqual(expect.objectContaining({ kind: 'well', media: null }));
-		// And the lane no longer mirrors it.
-		expect(deriveStageModel(cleared, h3VideoCaps(), { kind: 'keyframe', id: chainEdgeKeyframeId('first', 'h3-1') }).selected.kind).toBe('empty');
+		// The lane keeps resolving the edge too (09-04 fix): an empty edge
+		// stays a selectable, pickable well rather than falling back to
+		// 'empty' the moment its media is cleared.
+		const kf = deriveStageModel(cleared, h3VideoCaps(), { kind: 'keyframe', id: chainEdgeKeyframeId('first', 'h3-1') })
+			.selected as StageKeyframeModel;
+		expect(kf.kind).toBe('keyframe');
+		expect(kf.media).toBeNull();
 	});
 
 	it('filling via withChainTrailingMedia (the well setter) is exactly what the lane-side model reads back', () => {
@@ -428,11 +443,29 @@ describe('deriveStageModel — chain-edge keyframe mirrors (unified with the sho
 		expect(kf.media).toEqual({ path: 'end2.png' });
 	});
 
-	it('a dangling chain-edge selection (the well was never filled) falls back to empty', () => {
+	// Maintainer bug (09-04): "click on the 'start' frame -- I can't add
+	// anything there". A chain edge that was never filled must still
+	// resolve to the keyframe panel (an empty well to pick into), never
+	// silently fall back to the Global-prompt panel -- that fallback used to
+	// be the ONLY thing an empty edge selection resolved to.
+	it('an unfilled chain-edge selection resolves to an empty keyframe well, not the empty/global fallback', () => {
 		const doc = baseDoc();
 		doc.chain = { fps: 25, segments: [chainSegment('h3-1', 'x', 145 / 25)], continuation: { overlap_frames: 17, stitch: true }, keyframes: [], audio: [] };
-		expect(deriveStageModel(doc, h3VideoCaps(), { kind: 'keyframe', id: chainEdgeKeyframeId('first', 'h3-1') }).selected.kind).toBe('empty');
-		expect(deriveStageModel(doc, h3VideoCaps(), { kind: 'keyframe', id: chainEdgeKeyframeId('last', 'h3-1') }).selected.kind).toBe('empty');
+		const first = deriveStageModel(doc, h3VideoCaps(), { kind: 'keyframe', id: chainEdgeKeyframeId('first', 'h3-1') }).selected;
+		const last = deriveStageModel(doc, h3VideoCaps(), { kind: 'keyframe', id: chainEdgeKeyframeId('last', 'h3-1') }).selected;
+		expect(first.kind).toBe('keyframe');
+		expect(last.kind).toBe('keyframe');
+		expect((first as StageKeyframeModel).media).toBeNull();
+		expect((first as StageKeyframeModel).role).toBe('first');
+		expect((last as StageKeyframeModel).role).toBe('last');
+	});
+
+	it('a chain-edge selection naming an unknown segment still returns empty (no block/segment to resolve against)', () => {
+		const doc = baseDoc();
+		doc.chain = { fps: 25, segments: [chainSegment('h3-1', 'x', 145 / 25)], continuation: { overlap_frames: 17, stitch: true }, keyframes: [], audio: [] };
+		expect(deriveStageModel(doc, h3VideoCaps(), { kind: 'keyframe', id: chainEdgeKeyframeId('first', 'ghost-segment') }).selected.kind).toBe(
+			'empty'
+		);
 	});
 });
 

@@ -210,6 +210,27 @@ describe('ShotRail keyframes lane', () => {
 		free.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
 		expect(onMoveKeyframe).toHaveBeenCalledWith('kf-free-1', 32.7 / 100 * 5.5 - 0.25);
 	});
+
+	// Maintainer bug (09-04): the hover insert-cue tracked the pointer over
+	// the START anchor too, sitting on top of it (and stealing the click)
+	// even though the cue carries `pointer-events: none`. Hovering an
+	// existing mark must show no cue, and clicking it must only select --
+	// never insert a new keyframe underneath it.
+	it('hovering the START anchor shows no insert cue; clicking it selects without inserting', () => {
+		const onSelect = vi.fn();
+		const onAddKeyframe = vi.fn();
+		mountRail({ rail: buildRail(), onSelect, onAddKeyframe });
+		const anchor = target.querySelector('.kf-anchor') as HTMLElement;
+		expect(anchor.getAttribute('style')).toMatch(/left:\s*0/);
+
+		anchor.dispatchEvent(new PointerEvent('pointermove', { clientX: 0, bubbles: true }));
+		flushSync();
+		expect(target.querySelector('.kf-lane .insert-cue')).toBeNull();
+
+		anchor.click();
+		expect(onSelect).toHaveBeenCalledWith({ shotId: 'shot-1', kind: 'keyframe', id: 'kf-start' });
+		expect(onAddKeyframe).not.toHaveBeenCalled();
+	});
 });
 
 describe('ShotRail add column', () => {

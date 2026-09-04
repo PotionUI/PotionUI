@@ -44,7 +44,7 @@
 import type { VideoDirectorValue, DirectorCapabilities, DirectorMediaValue, DirectorTimelineShot } from '$lib/types/videoDirector';
 import type { MediaRef } from '$lib/types/tabs';
 import { deriveRailModel, deriveShotLabel, type RailModel } from '../stage-rail/railModel';
-import { resolveDirectorMediaDisplay, chainEdgeKeyframeId } from '$lib/utils/videoDirector';
+import { resolveDirectorMediaDisplay, chainEdgeKeyframeId, timelineEdgeKeyframeId, resolveDirectorEdgeAllowances } from '$lib/utils/videoDirector';
 import { clamp } from '../timelineCore';
 
 export interface RailTick {
@@ -351,17 +351,50 @@ function deriveTimelineShotRail(
 
 	let keyframesLane: ShotRailModel['lanes']['keyframes'] = null;
 	if (rail.lanes.keyframes) {
-		const marks: RailKeyframeMark[] = shot.keyframes.map((kf) => {
-			const kind: RailKeyframeMark['kind'] = kf.role === 'first' ? 'start' : kf.role === 'last' ? 'end' : 'free';
-			return {
+		const marks: RailKeyframeMark[] = shot.keyframes
+			.filter((kf) => kf.role === 'free')
+			.map((kf) => ({
 				id: kf.id,
-				kind,
+				kind: 'free' as const,
 				atPercent: durationSeconds > 0 ? clamp((kf.start / durationSeconds) * 100, 0, 100) : 0,
 				thumbUrl: thumbUrlFor(kf.media, formData),
-				label: kind === 'start' ? 'START' : kind === 'end' ? 'END' : formatFreeKeyframeLabel(kf.start),
+				label: formatFreeKeyframeLabel(kf.start),
 				empty: kf.media == null
-			};
-		});
+			}));
+
+		// START/END anchors always render when this mode's capability opens
+		// that edge, EMPTY or not (mirrors the chain anchor's own well --
+		// maintainer bug report, 09-04: an empty edge must still be
+		// clickable so the stage can offer a media pick). A row is looked up
+		// by ROLE, never by id -- a historical document's own id for that
+		// role (e.g. the toModelessDirectorValue fold-in's 'kf-first') still
+		// resolves; an edge with no row at all uses the deterministic
+		// placeholder id, which `withTimelineKeyframeMedia` then mints the
+		// new row under on first pick.
+		const edgeAllowances = resolveDirectorEdgeAllowances(caps);
+		if (edgeAllowances.leadingEdgeAllowed) {
+			const existing = shot.keyframes.find((kf) => kf.role === 'first');
+			marks.push({
+				id: existing?.id ?? timelineEdgeKeyframeId('first', shot.id),
+				kind: 'start',
+				atPercent: 0,
+				thumbUrl: thumbUrlFor(existing?.media ?? null, formData),
+				label: 'START',
+				empty: (existing?.media ?? null) == null
+			});
+		}
+		if (edgeAllowances.trailingEdgeAllowed) {
+			const existing = shot.keyframes.find((kf) => kf.role === 'last');
+			marks.push({
+				id: existing?.id ?? timelineEdgeKeyframeId('last', shot.id),
+				kind: 'end',
+				atPercent: 100,
+				thumbUrl: thumbUrlFor(existing?.media ?? null, formData),
+				label: 'END',
+				empty: (existing?.media ?? null) == null
+			});
+		}
+
 		const freeCount = marks.filter((m) => m.kind === 'free').length;
 		const cap = dc?.maxKeyframes ?? null;
 		keyframesLane = { marks, count: freeCount, cap, canAdd: rail.freePlacementActive && (cap == null || freeCount < cap) };

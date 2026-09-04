@@ -50,8 +50,21 @@
 		return Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
 	}
 
+	// Maintainer bug (09-04): "hard to click on this first keyframe as it's
+	// 'under' the dynamic keyframe that is following the cursor" -- the
+	// insert cue is drawn after the marks in the template, so on the same
+	// stacking context it painted over the START anchor/free diamond/thumb
+	// even though it's `pointer-events: none`. The cue now also hides
+	// entirely whenever the pointer sits over a real mark (mirrors
+	// RailPromptLane's `isOverBeat`), and the marks get an explicit
+	// `z-index` above the cue so this can't regress if the markup order
+	// changes again.
+	function isOverMark(e: Event): boolean {
+		return (e.target as HTMLElement).closest('.kf-anchor, .kf-free, .kf-thumb40') != null;
+	}
+
 	function handlePointerMove(e: PointerEvent) {
-		if (dragging || !canAdd) {
+		if (dragging || !canAdd || isOverMark(e)) {
 			hoverFraction = null;
 			return;
 		}
@@ -63,7 +76,10 @@
 	}
 
 	function handleLaneClick(e: MouseEvent) {
-		if (!canAdd) return;
+		// Belt-and-suspenders: `selectMark`'s own `stopPropagation()` already
+		// keeps a mark click from reaching here, but the insert must never
+		// fire off a mark regardless of how the click got here.
+		if (!canAdd || isOverMark(e)) return;
 		const fraction = fractionFromClientX(e.clientX);
 		if (fraction == null) return;
 		onAdd(snapFraction(fraction));
@@ -174,6 +190,7 @@
 	.kf-anchor {
 		position: absolute;
 		top: 10px;
+		z-index: 2;
 		width: 40px;
 		height: 40px;
 		border-radius: 4px;
@@ -199,6 +216,7 @@
 	.kf-free {
 		position: absolute;
 		top: 0;
+		z-index: 2;
 		width: 10px;
 		height: 10px;
 		padding: 0;
@@ -215,6 +233,7 @@
 	.kf-thumb40 {
 		position: absolute;
 		top: 18px;
+		z-index: 2;
 		width: 40px;
 		height: 40px;
 		padding: 0;
@@ -239,6 +258,7 @@
 	.insert-cue.in-lane {
 		position: absolute;
 		top: 2px;
+		z-index: 1;
 		transform: translateX(-50%);
 		display: flex;
 		flex-direction: column;

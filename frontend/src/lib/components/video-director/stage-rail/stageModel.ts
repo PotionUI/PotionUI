@@ -74,6 +74,7 @@ import {
 	isChainEdgeKeyframeId,
 	mapTimelineShot,
 	parseChainEdgeKeyframeId,
+	parseTimelineEdgeKeyframeId,
 	resolveDirectorEdgeAllowances,
 	type DirectorEdgeAllowances
 } from '$lib/utils/videoDirector';
@@ -704,6 +705,33 @@ function chainLandingWindow(rail: RailModel, atSeconds: number): StageKeyframeLa
 	};
 }
 
+/** Shot-local "Snap to" landmarks for a chain shot's own keyframe stage --
+ * Start (0) and End (this shot's own render length), never a target from
+ * another shot (maintainer bug report, 09-04). A chain shot is one segment
+ * with no beats of its own to add landmarks for (unlike a timeline shot,
+ * whose per-shot `RailModel` -- already shot-scoped, see deriveRailModel's
+ * own doc comment -- contributes its own beat boundaries here for free). */
+function chainShotLocalSnapTargets(block: RailShotBlock, fps: number): RailSnapTarget[] {
+	return [
+		{ label: 'Start', atSeconds: 0 },
+		{ label: 'End', atSeconds: fps > 0 ? block.totalFrames / fps : 0 }
+	];
+}
+
+function snapToTargets(atSeconds: number, targets: RailSnapTarget[]): { snapped: boolean; label: string | null } {
+	let best: RailSnapTarget | null = null;
+	let bestDist = Infinity;
+	for (const target of targets) {
+		const dist = Math.abs(target.atSeconds - atSeconds);
+		if (dist < bestDist) {
+			bestDist = dist;
+			best = target;
+		}
+	}
+	if (best && bestDist <= SNAP_EPSILON_SECONDS) return { snapped: true, label: best.label };
+	return { snapped: false, label: null };
+}
+
 /** Fills/clears the chain-edge mirror's real storage -- the same
  * `withChainLeadingMedia`/`withChainTrailingMedia` the shot-edit well itself
  * calls, so editing from the rail lane and editing from the well are the
@@ -733,53 +761,109 @@ function buildKeyframeModel(
 	keyframeId: string,
 	timelineShot: DirectorTimelineShot | null
 ): StageKeyframeModel | null {
-	const railKf = rail.keyframes.find((k) => k.id === keyframeId);
-	if (!railKf) return null;
 	const directorCap = caps.modes.director;
 	if (rail.routing === 'chain') {
+		// Chain edges are checked BEFORE the generic `rail.keyframes` guard
+		// below: that mirror list only ever carries an edge once it already
+		// has media (railModel.ts's `deriveChainRail`), so an EMPTY well's
+		// click would otherwise resolve to nothing and the stage would fall
+		// through to the Global-prompt fallback (maintainer bug report,
+		// 09-04) -- position is computed straight from the block instead.
 		const parsedEdge = parseChainEdgeKeyframeId(keyframeId);
 		if (parsedEdge) {
 			const isFirst = parsedEdge.edge === 'first';
-			const segment = doc.chain.segments.find((s) => s.id === parsedEdge.segmentId);
-			const media = isFirst ? (segment?.keyframe ?? null) : (segment?.last_keyframe ?? null);
+			const segmentIdx = doc.chain.segments.findIndex((s) => s.id === parsedEdge.segmentId);
+			const segment = segmentIdx === -1 ? null : doc.chain.segments[segmentIdx];
+			const block = rail.shots[segmentIdx];
+			if (!segment || !block) return null;
+			const media = isFirst ? segment.keyframe : segment.last_keyframe;
 			return {
 				kind: 'keyframe',
 				id: keyframeId,
 				label: mediaFileLabel(media) ?? (isFirst ? 'Leading frame' : 'Trailing frame'),
 				media,
-				strength: (isFirst ? segment?.keyframe_strength : segment?.last_keyframe_strength) ?? 1,
-				atSeconds: railKf.atSeconds,
-				atFrame: railKf.atFrame,
-				totalFrames: rail.totalFrames,
+				strength: (isFirst ? segment.keyframe_strength : segment.last_keyframe_strength) ?? 1,
+				// Shot-local (0..this shot's own render length), matching the
+				// rail's own local ruler (shotRailModel.ts) -- NOT the block's
+				// film-time offset. Locked, so there's nothing to snap.
+				atSeconds: isFirst ? 0 : block.totalFrames / rail.fps,
+				atFrame: isFirst ? 0 : block.totalFrames,
+				totalFrames: block.totalFrames,
 				snapped: true,
 				snappedToLabel: isFirst ? 'Start' : 'End',
-				snapTargets: rail.snapTargets,
+				snapTargets: chainShotLocalSnapTargets(block, rail.fps),
 				landing: null,
 				maxKeyframes: rail.maxKeyframes ?? directorCap?.maxKeyframes ?? 8,
 				countOfKeyframes: rail.keyframes.length,
 				role: isFirst ? 'first' : 'last'
 			};
 		}
+		const railKf = rail.keyframes.find((k) => k.id === keyframeId);
+		if (!railKf) return null;
 		const kf = doc.chain.keyframes.find((k) => k.id === keyframeId);
 		if (!kf) return null;
+		// Maintainer bug (09-04): "I'm on the first shot and I can 'snap' a
+		// keyframe to the end which will be... the last shot". The Time
+		// field and "Snap to" chips must read in the SAME shot-local frame
+		// this keyframe actually landed in (chainLandingWindow -- already the
+		// rail's own local coordinate: 0 at the start of the shot's own
+		// render, including any inherited overlap), never the whole film's
+		// Start/Join/End -- a snap can then never move the keyframe out of
+		// its own shot.
+		const landing = chainLandingWindow(rail, railKf.atSeconds);
+		const block = landing ? rail.shots[landing.shotIndex] : null;
+		const localAtSeconds = rail.fps > 0 ? landing!.localFrame / rail.fps : 0;
+		const localSnapTargets = block ? chainShotLocalSnapTargets(block, rail.fps) : rail.snapTargets;
+		const localSnap = block ? snapToTargets(localAtSeconds, localSnapTargets) : { snapped: railKf.snapped, label: railKf.snappedToLabel };
 		return {
 			kind: 'keyframe',
 			id: kf.id,
 			label: mediaFileLabel(kf.media) ?? 'Keyframe',
 			media: kf.media,
 			strength: kf.strength,
-			atSeconds: railKf.atSeconds,
-			atFrame: railKf.atFrame,
-			totalFrames: rail.totalFrames,
-			snapped: railKf.snapped,
-			snappedToLabel: railKf.snappedToLabel,
-			snapTargets: rail.snapTargets,
-			landing: chainLandingWindow(rail, railKf.atSeconds),
+			atSeconds: block ? localAtSeconds : railKf.atSeconds,
+			atFrame: landing?.localFrame ?? railKf.atFrame,
+			totalFrames: landing?.localTotalFrames ?? rail.totalFrames,
+			snapped: localSnap.snapped,
+			snappedToLabel: localSnap.label,
+			snapTargets: localSnapTargets,
+			landing,
 			maxKeyframes: rail.maxKeyframes ?? directorCap?.maxKeyframes ?? 8,
 			countOfKeyframes: rail.keyframes.length,
 			role: 'keyframe'
 		};
 	}
+	// A timeline shot's first/last edge is a `DirectorKeyframe` row that may
+	// not exist yet (unlike a chain segment's always-present field) -- the
+	// rail anchor still carries a stable placeholder id for the empty case
+	// (shotRailModel.ts's `deriveTimelineShotRail`), which never appears in
+	// `timelineShot.keyframes` until a pick mints it. Same bug/fix shape as
+	// the chain edge above: resolve position from the shot itself rather
+	// than requiring an existing row.
+	const parsedTimelineEdge = parseTimelineEdgeKeyframeId(keyframeId);
+	if (parsedTimelineEdge && timelineShot && timelineShot.id === parsedTimelineEdge.shotId) {
+		const isFirst = parsedTimelineEdge.edge === 'first';
+		const existing = timelineShot.keyframes.find((k) => k.role === parsedTimelineEdge.edge);
+		return {
+			kind: 'keyframe',
+			id: keyframeId,
+			label: mediaFileLabel(existing?.media ?? null) ?? (isFirst ? 'Start frame' : 'End frame'),
+			media: existing?.media ?? null,
+			strength: existing?.strength ?? 1,
+			atSeconds: isFirst ? 0 : timelineShot.duration,
+			atFrame: isFirst ? 0 : rail.totalFrames,
+			totalFrames: rail.totalFrames,
+			snapped: true,
+			snappedToLabel: isFirst ? 'Start' : 'End',
+			snapTargets: rail.snapTargets,
+			landing: null,
+			maxKeyframes: rail.maxKeyframes ?? directorCap?.maxKeyframes ?? 8,
+			countOfKeyframes: rail.keyframes.length,
+			role: parsedTimelineEdge.edge
+		};
+	}
+	const railKf = rail.keyframes.find((k) => k.id === keyframeId);
+	if (!railKf) return null;
 	const kf = timelineShot?.keyframes.find((k) => k.id === keyframeId);
 	if (!kf) return null;
 	return {

@@ -37,7 +37,7 @@
 		resizeTimelineBlockEdge,
 		withTimelineSegmentEdge,
 		isKeyframeLocked,
-		type RailModel
+		chainFilmSecondsFromLocal
 	} from '../stage-rail/railModel';
 	import { withAddedShot, withDuplicatedShot, withRemovedShot, withAddedAudio, withSeamKind } from '../stage-rail/stageModel';
 	import { mintId, clamp } from '../timelineCore';
@@ -201,19 +201,6 @@
 	// document writes below still go through the same idiom every other
 	// `with*` setter in this feature uses (immutable, mirrors an existing
 	// field), never a forked shape.
-
-	/** Converts a chain shot's LOCAL time (0..segment.duration, i.e. that
-	 * shot's own generation window, INCLUDING any leading overlap it inherits
-	 * -- see shotRailModel.ts's header note) back to the chain's FILM/output
-	 * time `chain.keyframes[].at` is stored in. Inverse of
-	 * `chainLandingShotIndex` + the local-frame math in shotRailModel.ts. */
-	function chainFilmSecondsFromLocal(rail: RailModel, blockIndex: number, localSeconds: number): number {
-		const block = rail.shots[blockIndex];
-		const fps = rail.fps;
-		const localFrame = Math.round(localSeconds * fps);
-		const outputFrame = Math.max(0, localFrame - block.overlapInFrames);
-		return block.startSeconds + (fps > 0 ? outputFrame / fps : 0);
-	}
 
 	/** Inserts a new timed prompt beat at `atSeconds` on the named shot,
 	 * clamped into the open gap around it (never overlapping a neighbour) --

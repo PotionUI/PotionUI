@@ -19,6 +19,7 @@ import torch
 from src.pipelines.outputs import GalleryGenerationOutput, ParamGenerationOutput
 from src.platform.runtime.native.errors import DecodeNumericsError, SamplingNumericsError
 from src.pipelines.contracts import IOType, PipeInput
+from src.pipelines.pipes.generator.chain_video_wan22 import geometry as chain_geometry
 from src.pipelines.pipes.generator.chain_video_wan22.main import GeneratorWanChainVideoPipe
 
 
@@ -838,6 +839,95 @@ def test_segment_metadata_records_per_segment_executed_geometry():
     assert params["segment_emitted_frames"] == [13, 13, 13]
     assert params["segment_context_trimmed"] == [False, False, False]
     assert params["segment_overlap_dropped_at_stitch"] == [0, 12, 0]
+
+
+# -- parity with chain_video_wan22/geometry.py (DIR-06) ---------------------
+# `main.py` splits a "chain" segment's net contribution across TWO possible
+# stages -- a pre-decode trim (`segment_context_trimmed`) or a stitch-time
+# join drop (`segment_overlap_dropped_at_stitch`) -- while `geometry.py`'s
+# `resolve_window_geometry` (the planner `compile.py` calls without a model
+# loaded) reports a SINGLE `overlap_frames` per segment representing the net
+# of whichever stage actually drops it. These tests prove the two can never
+# drift: reconstructing the pre-trim total and the net contribution from the
+# generator's own emitted metadata must equal the geometry module's
+# `frames`/`overlap_frames`/`emitted_frames` for every segment.
+
+def _assert_executed_geometry_matches_the_planner(doc, motion_latent_count, params):
+    settings = {**doc["settings"], "timing_profile": {"motion_latent_count": motion_latent_count}}
+    plan = chain_geometry.resolve_window_geometry(doc["segments"], settings)
+    default_overlap, _stitch = chain_geometry.resolve_continuation(doc["settings"])
+    tail_count = chain_geometry.tail_frame_count(default_overlap, motion_latent_count)
+
+    emitted = params["segment_emitted_frames"]
+    trimmed = params["segment_context_trimmed"]
+    dropped_at_stitch = params["segment_overlap_dropped_at_stitch"]
+    assert len(plan) == len(emitted) == len(trimmed) == len(dropped_at_stitch)
+
+    for i, geom in enumerate(plan):
+        # The full decoded length before EITHER trim stage ran -- reconstructed
+        # by adding back the pre-decode trim only when that stage is the one
+        # that actually happened for this segment.
+        pre_trim_total = emitted[i] + (tail_count if trimmed[i] else 0)
+        # What this segment actually contributes to the stitched result, net
+        # of whichever stage dropped its overlap.
+        net_contributed = emitted[i] - dropped_at_stitch[i]
+        assert pre_trim_total == geom.frames, f"segment {i}: pre-trim total frames"
+        assert net_contributed == geom.emitted_frames, f"segment {i}: net emitted frames"
+        assert (pre_trim_total - net_contributed) == geom.overlap_frames, f"segment {i}: overlap frames"
+
+
+def test_generator_and_geometry_module_agree_on_80_80_80_motion_2():
+    doc = _document(n_segments=3, frames=80, start_on_seg0=False,
+                     continuation={"source": "tail_frames", "overlap_frames": 4, "stitch": True})
+    doc["segments"][2]["sub_type"] = "t2v"
+    pipe = _pipe(document=doc, motion_latent_count=2)
+    pi = _inputs(model=_bundle(in_dim=36), model_t2v=_bundle(in_dim=16, dual=False), conditioning=_cond(3))
+
+    emitted = []
+    p1, p2, p3, p4 = _patches()
+    with p1, p2, p3, p4, _no_stitch():
+        pipe.process(pi, lambda o: emitted.append(o))
+
+    params = {o.name: o.values for o in emitted if isinstance(o, ParamGenerationOutput)}
+    assert params["segment_emitted_frames"] == [81, 77, 81]  # the reported case
+    _assert_executed_geometry_matches_the_planner(doc, 2, params)
+
+
+def test_generator_and_geometry_module_agree_on_80_80_80_motion_1():
+    doc = _document(n_segments=3, frames=80, start_on_seg0=False,
+                     continuation={"source": "tail_frames", "overlap_frames": 4, "stitch": True})
+    doc["segments"][2]["sub_type"] = "t2v"
+    pipe = _pipe(document=doc, motion_latent_count=1)  # the absent-config fallback value
+    pi = _inputs(model=_bundle(in_dim=36), model_t2v=_bundle(in_dim=16, dual=False), conditioning=_cond(3))
+
+    emitted = []
+    p1, p2, p3, p4 = _patches()
+    with p1, p2, p3, p4, _no_stitch():
+        pipe.process(pi, lambda o: emitted.append(o))
+
+    params = {o.name: o.values for o in emitted if isinstance(o, ParamGenerationOutput)}
+    assert params["segment_emitted_frames"] == [81, 80, 81]  # the reported case
+    _assert_executed_geometry_matches_the_planner(doc, 1, params)
+
+
+def test_generator_and_geometry_module_agree_on_an_untrimmed_short_window_continuation():
+    # Same fixture as test_untrimmable_segment_keeps_full_output_and_overlap:
+    # the window is too short to trim pre-decode, so the join drops the
+    # overlap at the stitch step instead -- the geometry module's single
+    # `overlap_frames` must still equal the net of the two stages.
+    doc = _document(n_segments=2, frames=13, continuation={"source": None, "overlap_frames": 12, "stitch": True})
+    pipe = _pipe(document=doc, motion_latent_count=4)
+    pi = _inputs(model=_bundle(in_dim=36), conditioning=_cond(2), image=[torch.rand(8, 8, 3)])
+
+    emitted = []
+    p1, p2, p3, p4 = _patches()
+    with p1, p2, p3, p4, _no_stitch():
+        pipe.process(pi, lambda o: emitted.append(o))
+
+    params = {o.name: o.values for o in emitted if isinstance(o, ParamGenerationOutput)}
+    assert params["segment_context_trimmed"] == [False, False]
+    assert params["segment_overlap_dropped_at_stitch"] == [0, 12]
+    _assert_executed_geometry_matches_the_planner(doc, 4, params)
 
 
 # -- LoRA patch / unpatch ---------------------------------------------------

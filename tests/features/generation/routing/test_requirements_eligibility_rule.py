@@ -10,13 +10,14 @@ from unittest.mock import Mock
 
 import pytest
 
+from src.features.backends.base_backend import ExecutionDeviceEvidence
 from src.features.generation.routing.contracts import Candidate, RoutingContext, RoutingRequest
 from src.features.generation.routing.rules import RequirementsEligibility
 from src.features.presets.requirements.builtin import register_builtin_requirement_checkers
 from src.features.presets.requirements.context_builder import build_requirement_context_for_backend
-from src.features.presets.requirements.contracts import RequirementBackendInfo
+from src.features.presets.requirements.contracts import RequirementBackendInfo, RequirementResult
 from src.features.presets.requirements.evaluator import RequirementsCache
-from src.platform.plugins.requirement_checkers import requirement_checker_registry
+from src.platform.plugins.requirement_checkers import RequirementCheckerRegistration, requirement_checker_registry
 
 
 def _candidates(*backend_ids):
@@ -110,9 +111,10 @@ class TestRequirementsEligibility:
 
 
 class _FakeGpuMonitor:
-    def __init__(self, total_vram_mb: int, available: bool = True):
+    def __init__(self, total_vram_mb: int, available: bool = True, device_index: int = 0):
         self.available = available
         self._total_vram_mb = total_vram_mb
+        self.device_index = device_index
 
     def get_total_vram(self) -> int:
         return self._total_vram_mb
@@ -134,10 +136,12 @@ class TestRequirementsEligibilityWithRealVramMinGb:
         preset = Mock(id="native-preset", requirements=[{"type": "vram_min_gb", "gb": 16}])
         gpu_monitor = _FakeGpuMonitor(total_vram_mb=8 * 1024)  # 8 GB - below the 16 GB floor
         local_info = RequirementBackendInfo(
-            id="native-local", engine="native", driver="native", execution_device="this_host_gpu",
+            id="native-local", engine="native", driver="native",
+            execution_device=ExecutionDeviceEvidence(kind="this_host_gpu", gpu_index=0),
         )
         remote_info = RequirementBackendInfo(
-            id="native-remote-1", engine="native", driver="native.remote", execution_device="remote",
+            id="native-remote-1", engine="native", driver="native.remote",
+            execution_device=ExecutionDeviceEvidence(kind="remote"),
         )
         host_ctx = build_requirement_context_for_backend(preset, None, gpu_monitor, None)
         backend_ctxs = {
@@ -169,7 +173,8 @@ class TestRequirementsEligibilityWithRealVramMinGb:
         preset = Mock(id="comfy-preset", requirements=[{"type": "vram_min_gb", "gb": 16}])
         gpu_monitor = _FakeGpuMonitor(total_vram_mb=24 * 1024)  # plenty, but irrelevant here
         comfy_info = RequirementBackendInfo(
-            id="comfy-worker", engine="comfyui", driver="comfyui", execution_device="unestablished",
+            id="comfy-worker", engine="comfyui", driver="comfyui",
+            execution_device=ExecutionDeviceEvidence(kind="unestablished"),
         )
         host_ctx = build_requirement_context_for_backend(preset, None, gpu_monitor, None)
         backend_ctxs = {"comfy-worker": build_requirement_context_for_backend(preset, None, gpu_monitor, comfy_info)}
@@ -184,3 +189,140 @@ class TestRequirementsEligibilityWithRealVramMinGb:
 
         assert not result[0].dropped
         assert result[0].reasons[-1] == "requirements satisfied"
+
+
+class _AlwaysMissingHostChecker:
+    """A "host"-scoped checker (the default) whose verdict is always
+    "missing" - simulates a missing host-wide binary/package."""
+
+    type = "routing_test_missing_host"
+    schema = None
+
+    async def check(self, spec, ctx):
+        return RequirementResult(status="missing", detail="absent on this host")
+
+
+class _BackendScopedMissingOnChecker:
+    """A "backend"-scoped checker whose verdict is "missing" for whichever
+    backend ids `spec["missing_on"]` names, "ok" otherwise."""
+
+    type = "routing_test_backend_scoped"
+    schema = None
+    scope = "backend"
+
+    async def check(self, spec, ctx):
+        backend_id = ctx.backend.id if ctx.backend else None
+        if backend_id in spec.get("missing_on", []):
+            return RequirementResult(status="missing", detail=f"absent on {backend_id}")
+        return RequirementResult(status="ok", detail=f"present on {backend_id}")
+
+
+class TestRequirementsEligibilityRealCacheProjection:
+    """Regression cover for the routing projection bug: `peek_backend_missing`
+    used to read the merged per-backend cache entry with no scope filter, so
+    one host-scoped miss (evaluated once, shared by every backend) dropped
+    every backend of the engine identically. These fixtures go through the
+    REAL `RequirementsCache` and the REAL `RequirementsEligibility` rule (no
+    mocked cache) so the projection itself is exercised, not a stand-in."""
+
+    def setup_method(self):
+        for checker_cls in (_AlwaysMissingHostChecker, _BackendScopedMissingOnChecker):
+            if requirement_checker_registry.get(checker_cls.type) is None:
+                requirement_checker_registry.register(
+                    RequirementCheckerRegistration(type_name=checker_cls.type, checker=checker_cls(), source="test")
+                )
+
+    @staticmethod
+    async def _cache_for(preset, backend_ids):
+        host_ctx = build_requirement_context_for_backend(preset, None, None, None)
+        backend_ctxs = {
+            bid: build_requirement_context_for_backend(
+                preset, None, None, RequirementBackendInfo(id=bid, engine="comfyui", driver="comfyui")
+            )
+            for bid in backend_ids
+        }
+        cache = RequirementsCache()
+        await cache.get_or_evaluate_for_backends(requirement_checker_registry, preset, host_ctx, backend_ctxs)
+        return cache
+
+    @pytest.mark.asyncio
+    async def test_host_scoped_miss_never_narrows_both_backends_stay_eligible(self):
+        preset = Mock(id="host-miss-preset", requirements=[{"type": _AlwaysMissingHostChecker.type}])
+        cache = await self._cache_for(preset, ["comfy_a", "comfy_b"])
+
+        candidates = _candidates("comfy_a", "comfy_b")
+        ctx = RoutingContext(backend_registry=Mock(), requirements_cache=cache)
+        request = RoutingRequest(engine="comfyui", preset=preset, form_data={})
+
+        result = await RequirementsEligibility().apply(candidates, request, ctx)
+
+        assert not any(c.dropped for c in result)
+        # the host miss is still visible everywhere else - only routing's
+        # projection must hide it.
+        assert cache.peek_summary(preset, backend_id="comfy_a")["summary"]["missing"] == 1
+        assert cache.peek_summary(preset, backend_id="comfy_b")["summary"]["missing"] == 1
+        assert cache.peek_host_summary(requirement_checker_registry, preset)["summary"]["missing"] == 1
+
+    @pytest.mark.asyncio
+    async def test_backend_scoped_miss_excludes_only_that_backend(self):
+        preset = Mock(
+            id="backend-miss-preset",
+            requirements=[{"type": _BackendScopedMissingOnChecker.type, "missing_on": ["comfy_a"]}],
+        )
+        cache = await self._cache_for(preset, ["comfy_a", "comfy_b"])
+
+        candidates = _candidates("comfy_a", "comfy_b")
+        ctx = RoutingContext(backend_registry=Mock(), requirements_cache=cache)
+        request = RoutingRequest(engine="comfyui", preset=preset, form_data={})
+
+        result = await RequirementsEligibility().apply(candidates, request, ctx)
+
+        by_id = {c.backend_id: c for c in result}
+        assert by_id["comfy_a"].dropped
+        assert not by_id["comfy_b"].dropped
+
+    @pytest.mark.asyncio
+    async def test_mixed_host_and_backend_miss_excludes_only_the_backend_scoped_one(self):
+        preset = Mock(
+            id="mixed-miss-preset",
+            requirements=[
+                {"type": _AlwaysMissingHostChecker.type},
+                {"type": _BackendScopedMissingOnChecker.type, "missing_on": ["comfy_a"]},
+            ],
+        )
+        cache = await self._cache_for(preset, ["comfy_a", "comfy_b"])
+
+        candidates = _candidates("comfy_a", "comfy_b")
+        ctx = RoutingContext(backend_registry=Mock(), requirements_cache=cache)
+        request = RoutingRequest(engine="comfyui", preset=preset, form_data={})
+
+        result = await RequirementsEligibility().apply(candidates, request, ctx)
+
+        by_id = {c.backend_id: c for c in result}
+        assert by_id["comfy_a"].dropped
+        assert not by_id["comfy_b"].dropped
+
+    @pytest.mark.asyncio
+    async def test_optional_miss_stays_eligible_and_cold_backend_is_unknown_with_real_cache(self):
+        preset = Mock(
+            id="optional-and-cold-preset",
+            requirements=[
+                {"type": _BackendScopedMissingOnChecker.type, "missing_on": ["comfy_a"], "optional": True},
+            ],
+        )
+        # Only "comfy_a" gets evaluated into the cache - "comfy_b" stays cold.
+        cache = await self._cache_for(preset, ["comfy_a"])
+
+        candidates = _candidates("comfy_a", "comfy_b")
+        scheduled = []
+        ctx = RoutingContext(backend_registry=Mock(), requirements_cache=cache, schedule_background=scheduled.append)
+        request = RoutingRequest(engine="comfyui", preset=preset, form_data={})
+
+        result = await RequirementsEligibility().apply(candidates, request, ctx)
+
+        by_id = {c.backend_id: c for c in result}
+        assert not by_id["comfy_a"].dropped  # optional miss never drops
+        assert not by_id["comfy_b"].dropped  # never evaluated -> unknown, kept
+        assert "not yet checked" in by_id["comfy_b"].reasons[-1]
+        assert len(scheduled) == 1
+        scheduled[0].close()  # never awaited by design here - avoid the GC warning

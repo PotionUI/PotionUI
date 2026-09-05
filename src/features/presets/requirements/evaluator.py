@@ -337,12 +337,17 @@ class RequirementsCache:
     def peek_backend_missing(
         self, registry: RequirementCheckerRegistry, preset: PresetTemplate, backend_id: str
     ) -> Optional[List[str]]:
-        """The names of `backend_id`'s hard-missing (non-optional) entries
-        from its last cached evaluation, or `None` if it has never been
-        evaluated - the routing-eligibility check
-        (`GenerationOrchestrator._narrow_backends_by_requirements`) treats
-        `None` as "unknown" (kept as a candidate, with a background refresh
-        scheduled) rather than as "no misses". Never triggers an evaluation."""
+        """The names of `backend_id`'s hard-missing (non-optional),
+        BACKEND-scoped entries from its last cached evaluation, or `None` if
+        it has never been evaluated - the routing-eligibility check
+        (`src.features.generation.routing.rules.RequirementsEligibility`)
+        treats `None` as "unknown" (kept as a candidate, with a background
+        refresh scheduled) rather than as "no misses". A host-scoped miss is
+        excluded here even though it's present in `entry.results` (merged
+        with the backend's own results) - it would exclude every backend of
+        the engine identically, so it's the requirements panel's job to
+        surface it, not routing's (see `entry_scope`). Never triggers an
+        evaluation."""
         with self._lock:
             entry = self._by_key.get(self._key(preset, backend_id))
         if entry is None:
@@ -350,7 +355,9 @@ class RequirementsCache:
         return [
             describe_requirement_entry(registry, spec)
             for spec, result in zip(preset.requirements or [], entry.results)
-            if result.status == "missing" and not spec.get("optional", False)
+            if result.status == "missing"
+            and not spec.get("optional", False)
+            and entry_scope(registry, spec) == "backend"
         ]
 
     async def get_or_evaluate(

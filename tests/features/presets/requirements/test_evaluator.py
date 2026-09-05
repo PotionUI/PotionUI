@@ -287,6 +287,17 @@ class _HostChecker:
         return RequirementResult(status="ok", detail="host fine")
 
 
+class _MissingHostChecker:
+    """A "host"-scoped checker (the default) whose verdict is always
+    "missing" - lets a test simulate a host-wide binary/package miss."""
+
+    type = "missing-host-type"
+    schema = None
+
+    async def check(self, spec, ctx):
+        return RequirementResult(status="missing", detail="absent on this host")
+
+
 class _BackendChecker:
     """A "backend"-scoped checker whose answer depends on `ctx.backend.id` -
     "ok" for `ok_backend_id`, "missing" for anything else."""
@@ -504,3 +515,41 @@ class TestRequirementsCacheForBackends:
         await cache.get_or_evaluate_for_backends(registry, preset, _ctx(), {"b2": _backend_ctx("b2")})
 
         assert cache.peek_backend_missing(registry, preset, "b2") == []
+
+    @pytest.mark.asyncio
+    async def test_peek_backend_missing_excludes_host_scoped_misses(self):
+        """A host-scoped requirement's miss is evaluated once and merged
+        into every backend's cached entry (see `full_results`) - it must
+        NOT be projected into `peek_backend_missing`, or one missing
+        host-wide binary would look like a per-backend miss on every
+        backend of the engine."""
+        registry = _registry(_MissingHostChecker())
+        cache = RequirementsCache()
+        preset = _preset(requirements=[{"type": "missing-host-type"}])
+
+        await cache.get_or_evaluate_for_backends(
+            registry, preset, _ctx(), {"b1": _backend_ctx("b1"), "b2": _backend_ctx("b2")},
+        )
+
+        # The host miss is still visible everywhere else...
+        assert cache.peek_summary(preset, backend_id="b1")["summary"]["missing"] == 1
+        assert cache.peek_host_summary(registry, preset)["summary"]["missing"] == 1
+        # ...but never narrows routing eligibility via peek_backend_missing.
+        assert cache.peek_backend_missing(registry, preset, "b1") == []
+        assert cache.peek_backend_missing(registry, preset, "b2") == []
+
+    @pytest.mark.asyncio
+    async def test_peek_backend_missing_mixed_host_and_backend_miss(self):
+        """A host-scoped miss plus a genuinely backend-scoped miss on one
+        backend: only the backend-scoped one is projected, and only for the
+        backend it's actually missing on."""
+        registry = _registry(_MissingHostChecker(), _BackendChecker(ok_backend_id="b1"))
+        cache = RequirementsCache()
+        preset = _preset(requirements=[{"type": "missing-host-type"}, {"type": "backend-type"}])
+
+        await cache.get_or_evaluate_for_backends(
+            registry, preset, _ctx(), {"b1": _backend_ctx("b1"), "b2": _backend_ctx("b2")},
+        )
+
+        assert cache.peek_backend_missing(registry, preset, "b1") == []
+        assert cache.peek_backend_missing(registry, preset, "b2") == ["backend-type"]

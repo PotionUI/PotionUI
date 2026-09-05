@@ -30,7 +30,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 import yaml
 
-from .node_catalog import get_catalog
+from .node_catalog import get_catalog, resolve_model_folder
 from .parser import Workflow
 from .schema import (
     FieldItem,
@@ -257,10 +257,18 @@ def _infer_requirements(
     seen: set = set()
 
     def _add_model(folder: str, name: Any, *, optional: bool = False) -> None:
-        if not isinstance(name, str) or not name or (folder, name) in seen:
+        if not isinstance(name, str) or not name:
             return
-        seen.add((folder, name))
-        entry: Dict[str, Any] = {"type": "comfyui_model", "folder": folder, "name": name}
+        # A catalog `InputSpec.folder`/candidate `suggested_folder` names the
+        # ordinary folder regardless of which specific file got selected -
+        # redirect to the ComfyUI-GGUF alias when this particular file is a
+        # `.gguf` one, so the emitted requirement's `folder` is the listing
+        # key that actually carries it (see node_catalog.resolve_model_folder).
+        resolved_folder = resolve_model_folder(folder, name)
+        if (resolved_folder, name) in seen:
+            return
+        seen.add((resolved_folder, name))
+        entry: Dict[str, Any] = {"type": "comfyui_model", "folder": resolved_folder, "name": name}
         if optional:
             entry["optional"] = True
         requirements.append(entry)

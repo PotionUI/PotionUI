@@ -41,6 +41,14 @@ from src.plugin_api.presets import (
     RequirementResult,
 )
 
+from .preset_import.node_catalog import GGUF_FOLDER_ALIAS
+
+# `GGUF_FOLDER_ALIAS` (physical folder -> ComfyUI-GGUF alias) reversed, so a
+# requirement's `folder` can be translated back to the physical directory
+# for user-facing text regardless of which one it actually names - see
+# `_physical_folder`.
+_PHYSICAL_FOLDER_BY_ALIAS: Dict[str, str] = {alias: physical for physical, alias in GGUF_FOLDER_ALIAS.items()}
+
 _REQUEST_TIMEOUT_SECONDS = 5.0
 _CACHE_TTL_SECONDS = 60.0
 # `/object_info` on a big custom-node install can take several seconds to
@@ -184,6 +192,28 @@ def _model_present(name: str, names: List[str]) -> bool:
     return any(_basename(candidate) == wanted for candidate in names)
 
 
+def _gguf_fallback_folder(folder: str) -> Optional[str]:
+    """The other listing key worth also trying before giving up on `folder`:
+    its ComfyUI-GGUF alias when `folder` is the ordinary directory (a
+    requirement recorded before this alias-awareness existed, or one this
+    importer's own resolution missed), or the ordinary directory when
+    `folder` is itself the alias (defense in depth - `emit._infer_requirements`
+    already records the alias directly for a known `.gguf` file, so the
+    primary lookup below should already succeed in that case). `None` for
+    any folder with no known GGUF counterpart either way - no extra fetch,
+    ordinary folder behavior unchanged."""
+    return GGUF_FOLDER_ALIAS.get(folder) or _PHYSICAL_FOLDER_BY_ALIAS.get(folder)
+
+
+def _physical_folder(folder: str) -> str:
+    """`folder` for user-facing text. `unet_gguf`/`clip_gguf` are ComfyUI-GGUF's
+    own `folder_paths` registrations, not real `models/` subdirectories - a
+    missing-model hint must always name the physical directory
+    (`diffusion_models`/`text_encoders`) an admin would actually go looking
+    in, never an alias that doesn't exist as a directory on disk."""
+    return _PHYSICAL_FOLDER_BY_ALIAS.get(folder, folder)
+
+
 class ComfyUINodeChecker:
     type = "comfyui_node"
     schema = ComfyUINodeRequirementSchema
@@ -238,13 +268,35 @@ class ComfyUIModelChecker:
         except (aiohttp.ClientError, asyncio.TimeoutError) as e:
             return RequirementResult(status="unknown", detail=f"backend unreachable at {base_url}: {e}")
 
+        physical = _physical_folder(parsed.folder)
         if _model_present(parsed.name, names):
-            return RequirementResult(status="ok", detail=f"'{parsed.name}' present in {parsed.folder}")
+            return RequirementResult(status="ok", detail=f"'{parsed.name}' present in {physical}")
 
+        # Try the ComfyUI-GGUF counterpart listing before giving up - see
+        # `_gguf_fallback_folder`. A backend without the ComfyUI-GGUF custom
+        # node simply doesn't have this folder at all, so the fallback
+        # fetch 404s/errors exactly like any other unknown folder would;
+        # that failure is silently treated the same as "not present there
+        # either", never surfaced as its own `unknown` result.
+        fallback_folder = _gguf_fallback_folder(parsed.folder)
+        if fallback_folder:
+            try:
+                fallback_names = await _fetch_model_names(backend_id, base_url, fallback_folder)
+            except (aiohttp.ClientError, asyncio.TimeoutError):
+                fallback_names = []
+            if _model_present(parsed.name, fallback_names):
+                return RequirementResult(
+                    status="ok",
+                    detail=f"'{parsed.name}' present in {physical} (via ComfyUI-GGUF's {fallback_folder} listing)",
+                )
+
+        hint = parsed.hint or f"Put {parsed.name} in ComfyUI's models/{physical}"
+        if parsed.name.lower().endswith(".gguf") and parsed.hint is None:
+            hint += " (needs the ComfyUI-GGUF custom node installed to be recognized as a .gguf file)"
         return RequirementResult(
             status="missing",
-            detail=f"'{parsed.name}' not found in this ComfyUI server's {parsed.folder} folder",
-            hint=parsed.hint or f"Put {parsed.name} in ComfyUI's models/{parsed.folder}",
+            detail=f"'{parsed.name}' not found in this ComfyUI server's {physical} folder",
+            hint=hint,
             action=RequirementAction(kind="open_downloader", payload={"query": parsed.name}),
         )
 

@@ -17,7 +17,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
-from .node_catalog import MODEL_FILE_BY_INPUT_NAME, NodeCatalog, NodeEntry, get_catalog
+from .node_catalog import MODEL_FILE_BY_INPUT_NAME, NodeCatalog, NodeEntry, get_catalog, resolve_model_folder
 from .parser import Workflow, WorkflowNode
 
 # `MODEL_FILE_BY_INPUT_NAME` extended with names this module can afford to be
@@ -774,7 +774,12 @@ def _enrich_with_object_info(
                     candidate.suggested_field_type = "model"
                     candidate.suggested_config = {"model_type": model_type, "allow_info_modal": True}
                     candidate.suggested_transform = "strip_model_prefix"
-                    candidate.suggested_folder = folder
+                    # A GGUF loader's own selected file (or, on a GGUF CLIP
+                    # loader that can mix an ordinary and a GGUF encoder
+                    # across its own separate clip_name*/inputs, THIS
+                    # input's own selection) is invisible under the ordinary
+                    # folder name - see node_catalog.resolve_model_folder.
+                    candidate.suggested_folder = resolve_model_folder(folder, candidate.current_value)
                 else:
                     # The real option list replaces a generic "select" guess's
                     # config outright - a static `file:` pointer and a live

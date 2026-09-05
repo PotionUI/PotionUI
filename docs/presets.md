@@ -1918,6 +1918,23 @@ If you already have a working ComfyUI graph, don't hand-write the preset — imp
    `GET /models/{folder}` live, so a missing custom node or model file surfaces on the preset's
    Requirements panel instead of as a mid-generation pipeline error.
 
+   **GGUF model folders.** This is compatibility with an already-configured ComfyUI server running
+   the [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF) custom node — it does not add native
+   GGUF loading, model conversion or download, a format-filter UI redesign, benchmarking, or
+   automatic custom-node installation of any kind. ComfyUI-GGUF registers `unet_gguf`/`clip_gguf`
+   as separate folder names for the *same* on-disk directory as `diffusion_models`/`text_encoders`,
+   filtered to the `.gguf` files ComfyUI's own ordinary listing excludes — a UNET/CLIP loader's
+   `.gguf` selection (`UnetLoaderGGUF`/`UnetLoaderGGUFAdvanced`, or a GGUF CLIP loader's own
+   `clip_name`/`clip_name1..4` input, which can independently hold an ordinary encoder or a GGUF
+   one) is recognized by its file extension and its `comfyui_model` requirement — in analyze
+   suggestions, the Requirements-preview step, and the emitted/reloaded preset — names whichever
+   listing actually carries it, never the ordinary one a `.gguf` file is invisible under. The
+   Requirements panel's own live check also tries the other listing before reporting a file
+   missing, so a preset saved before this existed still resolves correctly against a real server;
+   its missing-model guidance always names the physical `models/diffusion_models` or
+   `models/text_encoders` directory, never `unet_gguf`/`clip_gguf` as if they were real
+   subdirectories to create.
+
    `GET /presets/imported/{id}/source` returns the stored `form`/`history` (from the
    preset's `import.json` sidecar, or `default_form`/`default_history` for a preset imported before
    the sidecar carried them) so the wizard can reopen an imported preset exactly as it was built.

@@ -35,13 +35,22 @@ logger = logging.getLogger(__name__)
 #
 # `clip`, `text_encoders` and `clip_vision` all map to `text_encoder` (one home for a
 # conditioning encoder - see src/platform/filesystem/model_types.py) and merge into one listing.
+#
+# `unet_gguf`/`clip_gguf` are the ComfyUI-GGUF custom node's own folder_paths
+# keys (see preset_import.node_catalog.GGUF_FOLDER_ALIAS) - separate names
+# for the SAME on-disk directory as diffusion_models/text_encoders, filtered
+# to the .gguf files the ordinary listing excludes. Mapping them to the same
+# model_type merges their entries into the same listing as their ordinary
+# counterpart, exactly like clip/text_encoders/clip_vision already do.
 FOLDER_TO_MODEL_TYPE = {
     "checkpoints": "checkpoint",
     "loras": "lora",
     "vae": "vae",
     "text_encoders": "text_encoder",
     "clip": "text_encoder",
+    "clip_gguf": "text_encoder",
     "diffusion_models": "diffusion_model",
+    "unet_gguf": "diffusion_model",
     "unet": "unet",
     "upscale_models": "upscaler",
     "embeddings": "embedding",

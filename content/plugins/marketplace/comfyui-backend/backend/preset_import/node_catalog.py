@@ -158,6 +158,49 @@ MODEL_FILE_BY_INPUT_NAME: Dict[str, Tuple[str, str]] = {
     "style_model_name": ("style_model", "style_models"),
 }
 
+# ComfyUI-GGUF (github.com/city96/ComfyUI-GGUF) registers `unet_gguf`/
+# `clip_gguf` as separate `folder_paths` keys pointing at the SAME on-disk
+# directory as `diffusion_models`/`text_encoders`, filtered to the `.gguf`
+# files ComfyUI's own `supported_pt_extensions` excludes from the ordinary
+# listing - a `.gguf` file is invisible under the ordinary folder name and
+# only ever shows up under its alias, on both `GET /models` discovery
+# (`comfyui_backend.FOLDER_TO_MODEL_TYPE`) and a `comfyui_model` requirement
+# check (`requirements.ComfyUIModelChecker`). This is the physical folder ->
+# alias direction; `resolve_model_folder` below is the one place that reads
+# it to decide which listing key an actual selected filename belongs under.
+GGUF_FOLDER_ALIAS: Dict[str, str] = {
+    "diffusion_models": "unet_gguf",
+    "text_encoders": "clip_gguf",
+}
+
+
+def resolve_model_folder(folder: Optional[str], filename: Any) -> Optional[str]:
+    """`folder` redirected to its `GGUF_FOLDER_ALIAS` counterpart when
+    `filename` is a `.gguf` file - the one rule both the catalog-driven and
+    object_info-enriched model-file candidates go through
+    (`emit._infer_requirements`, `suggest._enrich_with_object_info`) so a
+    GGUF loader's file (UnetLoaderGGUF/Advanced, or a GGUF CLIP loader's
+    per-input selection - CLIPLoaderGGUF/DualCLIPLoaderGGUF/
+    TripleCLIPLoaderGGUF/QuadrupleCLIPLoaderGGUF, which can mix an ordinary
+    encoder and a GGUF one across their own separate `clip_name`/
+    `clip_name1..4` inputs) is looked up under the listing that actually
+    carries it, never the ordinary one that silently omits it.
+
+    A file's own extension is the only signal available at this layer -
+    neither this importer's structural analysis nor its emitted preset ever
+    fetch a live `/models/{folder}` listing (that happens only in
+    `requirements.ComfyUIModelChecker`, which has its own live-listing
+    fallback for a requirement recorded under the wrong folder, e.g. by a
+    preset emitted before this existed). `folder`/`filename` that don't
+    match anything here (no known alias, or not a `.gguf` name) pass through
+    unchanged - ordinary folder behavior for every non-GGUF model file."""
+    if folder is None:
+        return None
+    alias = GGUF_FOLDER_ALIAS.get(folder)
+    if alias and isinstance(filename, str) and filename.lower().endswith(".gguf"):
+        return alias
+    return folder
+
 _DEFAULT_CATALOG_PATH = Path(__file__).with_name("node_catalog.yml")
 
 

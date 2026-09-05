@@ -24,6 +24,14 @@
 <div class="flex w-full flex-wrap items-center gap-2.5">
 	<span class="font-mono text-[11px] tabular-nums text-fg-subtle">
 		{header.shotCount} shot{header.shotCount === 1 ? '' : 's'} · {header.totalSeconds.toFixed(1)} s
+		{#if !header.totalQualified}
+			<span
+				class="ml-1 inline-flex items-center rounded border border-line-strong px-[5px] py-px font-mono text-[9.5px] uppercase tracking-[0.04em] text-fg-subtle"
+				title="Motion latents unknown -- showing the requested total, not the generator's real output"
+			>
+				requested
+			</span>
+		{/if}
 	</span>
 
 	<span

@@ -59,6 +59,7 @@ function header(overrides: Partial<ConsoleHeaderModel> = {}): ConsoleHeaderModel
 	return {
 		shotCount: 3,
 		totalSeconds: 14,
+		totalQualified: true,
 		capChips: [{ text: 'Audio' }],
 		readiness: { ok: true, text: 'Ready' },
 		...overrides

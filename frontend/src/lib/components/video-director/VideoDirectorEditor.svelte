@@ -64,6 +64,7 @@
 	let header: ConsoleHeaderModel = $state({
 		shotCount: 0,
 		totalSeconds: 0,
+		totalQualified: true,
 		capChips: [],
 		readiness: { ok: true, text: 'Ready' }
 	});

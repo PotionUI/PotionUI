@@ -75,7 +75,7 @@
 		// never resolve into a different shot (maintainer bug report, 09-04).
 		if (isChain) {
 			if (!model.landing) return; // locked edges never reach here (see `locked` below)
-			const rail = deriveRailModel(doc, caps, undefined, resolveDirectorTimingProfile(caps, formData, doc));
+			const rail = deriveRailModel(doc, caps, undefined, resolveDirectorTimingProfile(caps, formData));
 			const clamped = clamp(seconds, 0, rail.fps > 0 ? model.landing.localTotalFrames / rail.fps : 0);
 			onDoc(withChainKeyframeAt(doc, model.id, chainFilmSecondsFromLocal(rail, model.landing.shotIndex, clamped)));
 		} else {

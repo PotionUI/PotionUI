@@ -509,22 +509,31 @@ export function parseDirectorCapabilities(raw: unknown): DirectorCapabilities | 
  * Resolves the live Wan timing profile (`motion_latent_count`) a chain
  * document's family-aware rail geometry needs -- the frontend counterpart of
  * `src/features/generation/orchestrator.py`'s `timing_capability` handling,
- * using the SAME undefined-only-default semantics: a live sibling form value
- * (`caps.timing.motionLatentCountField` read off `formData`, the generate
- * form's own field values -- NOT part of the video_director document) wins
- * whenever present, including the UI's own default (e.g. 2 for
- * `svi_motion_latent_count`); when it's genuinely absent, a reopened/restored
- * document's own persisted `chain.timingProfile` (see that field's doc
- * comment) is preferred over the capability's static default, since it
- * reflects a real past value rather than a guess; only when NEITHER is
- * available does the capability's `motionLatentCountDefault` apply. `null`
- * when the preset declares no `timing` capability at all (every family
- * besides Wan today) -- an explicit "unknown", never a guessed number.
+ * using the EXACT SAME two-branch, undefined-only-default rule: a live
+ * sibling form value (`caps.timing.motionLatentCountField` read off
+ * `formData`, the generate form's own field values -- NOT part of the
+ * video_director document) wins whenever present, including the UI's own
+ * default (e.g. 2 for `svi_motion_latent_count`); when it's genuinely
+ * absent, the capability's static `motionLatentCountDefault` applies --
+ * exactly what the orchestrator does, no third source. `null` when the
+ * preset declares no `timing` capability at all (every family besides Wan
+ * today) -- an explicit "unknown", never a guessed number.
+ *
+ * Deliberately does NOT fall back to a document's own persisted
+ * `chain.timingProfile`: the real round-trip channel for a reopened tab is
+ * `formData` itself (`collectTabSessionData`/`buildSessionRestoreTabPatch`,
+ * $lib/utils/sessionTabState.ts / sessionRestore.ts, persist and restore
+ * `tab.formData` and `tab.videoDirector` TOGETHER as one unit), so a
+ * restored session's `svi_motion_latent_count` already reaches this
+ * function through the SAME live-form-value branch a fresh session uses --
+ * there is no separate "reopened document" case to handle. A past render's
+ * `chain.timingProfile` (if a document happens to carry one) must never
+ * override what the NEXT request will actually resolve to; `buildDirectorSubmission`
+ * never sends it, and the orchestrator never reads it back.
  */
 export function resolveDirectorTimingProfile(
 	caps: DirectorCapabilities,
-	formData: Record<string, unknown> | null | undefined,
-	doc?: VideoDirectorValue | null
+	formData: Record<string, unknown> | null | undefined
 ): { motionLatentCount: number } | null {
 	const timing = caps.timing;
 	if (!timing) return null;
@@ -532,7 +541,6 @@ export function resolveDirectorTimingProfile(
 	if (typeof liveValue === 'number' && Number.isFinite(liveValue)) {
 		return { motionLatentCount: liveValue };
 	}
-	if (doc?.chain.timingProfile) return doc.chain.timingProfile;
 	return { motionLatentCount: timing.motionLatentCountDefault };
 }
 

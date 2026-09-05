@@ -181,6 +181,13 @@ export interface ConsoleJoin {
 export interface ConsoleHeader {
 	shotCount: number;
 	totalSeconds: number;
+	/** False when ANY shot's own geometry is unqualified (see
+	 * `ConsoleShot.timingQualified`'s own doc comment) -- summing a raw
+	 * approximation into a whole-film total doesn't make the total any more
+	 * exact, so this total needs the same "requested" qualifier the
+	 * individual shot does. Always true when every shot is qualified
+	 * (every family besides an un-profiled Wan). */
+	totalQualified: boolean;
 	capChips: Array<{ icon?: string; text: string }>;
 	readiness: { ok: boolean; text: string };
 }
@@ -281,6 +288,7 @@ function buildHeader(
 	return {
 		shotCount,
 		totalSeconds,
+		totalQualified: rail.shots.every((s) => s.timingQualified),
 		capChips: buildCapChips(doc, caps, rail),
 		readiness: { ok: result.ok, text: result.ok ? 'Ready' : (result.reasons[0] ?? 'Not ready') }
 	};
@@ -787,7 +795,7 @@ export function deriveConsoleModel(
 	// H3 and legacy chain families ignore it entirely (see railModel.ts's
 	// `deriveChainRail`); a `null` result (no `timing` capability, no live or
 	// persisted value) keeps the raw axis, marked unqualified.
-	const timingProfile = resolveDirectorTimingProfile(caps, formData, doc);
+	const timingProfile = resolveDirectorTimingProfile(caps, formData);
 	const rail = deriveRailModel(doc, caps, undefined, timingProfile);
 	const resolvedGenerationContext = generationContext ?? EMPTY_GENERATION_CONTEXT;
 

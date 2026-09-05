@@ -926,7 +926,7 @@ export function deriveStageModel(
 	formData?: Record<string, unknown> | null,
 	timelineShotId?: string
 ): StageModel {
-	const rail = deriveRailModel(doc, caps, timelineShotId, resolveDirectorTimingProfile(caps, formData, doc));
+	const rail = deriveRailModel(doc, caps, timelineShotId, resolveDirectorTimingProfile(caps, formData));
 	const timelineShot = caps.segmentRouting ? null : (doc.timeline.shots.find((s) => s.id === timelineShotId) ?? doc.timeline.shots[0] ?? null);
 	let selected: StageSelected | null = null;
 

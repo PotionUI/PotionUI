@@ -77,7 +77,7 @@ function blankChainSegment(id: string, duration: number, overrides: Partial<Chai
 	};
 }
 
-function wan808080Doc(overrides: { overlapFrames?: number; timingProfile?: { motionLatentCount: number } | null } = {}): VideoDirectorValue {
+function wan808080Doc(overrides: { overlapFrames?: number; stitch?: boolean } = {}): VideoDirectorValue {
 	return {
 		schema_version: 1,
 		mode: 'director',
@@ -97,10 +97,9 @@ function wan808080Doc(overrides: { overlapFrames?: number; timingProfile?: { mot
 				blankChainSegment('seg-b', 80 / 16),
 				blankChainSegment('seg-c', 80 / 16, { sub_type_override: 't2v' })
 			],
-			continuation: { overlap_frames: overrides.overlapFrames ?? 4, stitch: true },
+			continuation: { overlap_frames: overrides.overlapFrames ?? 4, stitch: overrides.stitch ?? true },
 			keyframes: [],
-			audio: [],
-			timingProfile: overrides.timingProfile ?? null
+			audio: []
 		}
 	};
 }
@@ -208,36 +207,12 @@ describe('Video Director editor renders the live Wan timing profile end to end',
 		expect(target.textContent).not.toContain('77 new');
 	});
 
-	it('a reopened document with no live form value falls back to its own persisted timing profile, not the capability default', async () => {
-		const caps = resolveDirectorCapabilities(WAN_PRESET_RAW, 'video')!;
-		const target = document.createElement('div');
-		document.body.appendChild(target);
-		const instance = createClassComponent({
-			component: VideoDirectorEditor as never,
-			target,
-			props: {
-				// overlap_frames=8 this time so motion 3 (persisted) and the
-				// capability's motion-1 default land on genuinely different
-				// numbers (73 vs 80) rather than coincidentally agreeing.
-				value: wan808080Doc({ overlapFrames: 8, timingProfile: { motionLatentCount: 3 } }),
-				capabilities: caps,
-				presetId: 'wan-test',
-				// No 'svi_motion_latent_count' key at all -- genuinely absent
-				// from the bound form, the same as a plain page load before
-				// the field has a value.
-				formData: {},
-				onChange: () => {}
-			}
-		});
-		cleanup = () => instance.$destroy();
-		await settle();
-		expandShotB(target);
-		await settle();
-		// tailCount(8, motion=3) = min(8, 9) = 8 -> contributed 73, not the
-		// capability-default motion=1 result (tailCount=1 -> contributed 80).
-		expect(target.textContent).toContain('73 new');
-		expect(target.textContent).not.toContain('80 new');
-	});
+	// The "reopened document" case used to live here as a synthetic
+	// `chain.timingProfile` fixture. That field is informational only now
+	// (see `resolveDirectorTimingProfile`'s doc comment) -- the REAL
+	// round-trip proof, through the actual `collectTabSessionData`/
+	// `buildSessionRestoreTabPatch` tab-session machinery, lives in
+	// `src/lib/utils/directorTimingSessionRestore.test.ts`.
 
 	it('an unqualified Wan shot (no timing capability at all) shows the raw duration with a "requested" qualifier', async () => {
 		const noTimingRaw = { ...WAN_PRESET_RAW, timing: undefined };
@@ -258,9 +233,69 @@ describe('Video Director editor renders the live Wan timing profile end to end',
 		});
 		cleanup = () => instance.$destroy();
 		await settle();
+		// The header's own film-total qualifier -- visible immediately, no
+		// need to expand a shot. Scoped to the <header> element specifically:
+		// the default-expanded first shot's OWN ShotCard qualifier would also
+		// satisfy a page-wide "requested" search, so this must check the
+		// header in isolation to actually prove ConsoleHeader renders one.
+		expect(target.querySelector('header')?.textContent).toContain('requested');
 		expandShotB(target);
 		await settle();
 		expect(target.textContent).toContain('requested');
 		expect(target.textContent).not.toContain('77 new');
+	});
+
+	it('a qualified motion-2 session shows no "requested" marker anywhere, including the header total', async () => {
+		const caps = resolveDirectorCapabilities(WAN_PRESET_RAW, 'video')!;
+		const target = document.createElement('div');
+		document.body.appendChild(target);
+		const instance = createClassComponent({
+			component: VideoDirectorEditor as never,
+			target,
+			props: {
+				value: wan808080Doc(),
+				capabilities: caps,
+				presetId: 'wan-test',
+				formData: { svi_motion_latent_count: 2 },
+				onChange: () => {}
+			}
+		});
+		cleanup = () => instance.$destroy();
+		await settle();
+		expect(target.textContent).toContain('14.9 s');
+		expect(target.textContent).not.toContain('requested');
+	});
+
+	it('stitch: false renders the untrimmed segment\'s full on-disk length, not the stitched-join amount', async () => {
+		const caps = resolveDirectorCapabilities(WAN_PRESET_RAW, 'video')!;
+		const doc = wan808080Doc({ stitch: false });
+		// Shrink seg-b to a short (untrimmed) window so stitch actually
+		// changes the numbers -- see resolveWanSegmentGeometry's own
+		// stitch=false unit tests for why the 80/80/80 film alone doesn't.
+		doc.chain = { ...doc.chain, segments: doc.chain.segments.map((s) => (s.id === 'seg-b' ? { ...s, duration: 5 / 16 } : s)) };
+		const target = document.createElement('div');
+		document.body.appendChild(target);
+		const instance = createClassComponent({
+			component: VideoDirectorEditor as never,
+			target,
+			props: {
+				value: doc,
+				capabilities: caps,
+				presetId: 'wan-test',
+				formData: { svi_motion_latent_count: 2 },
+				onChange: () => {}
+			}
+		});
+		cleanup = () => instance.$destroy();
+		await settle();
+		expandShotB(target);
+		await settle();
+		// seg-b: frames snap(5)=5, context=min(4,81)=4, 5 is not > 4+1 ->
+		// untrimmed; stitch=false means no join drop -> full 5 frames, no
+		// "new" overlap-in figure at all (hasOverlapIn still true, but
+		// newFrames === contributedFrames === totalFrames here).
+		expect(target.textContent).toContain('5 / 81 frames');
+		expect(target.textContent).toContain('5 new');
+		expect(target.textContent).not.toContain('1 new');
 	});
 });

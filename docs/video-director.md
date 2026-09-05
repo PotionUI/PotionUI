@@ -592,19 +592,42 @@ contributed `[17,5,12]` there since neither continuation lands in the short bran
 produces contributed `[81,1,76]`, not the `[81,1,80]` a contributed-only chain would give).
 This is driven by a `timingProfile` resolved by `resolveDirectorTimingProfile`
 (`frontend/src/lib/utils/videoDirector.ts`) — the frontend counterpart of the
-orchestrator's own `timing_capability` handling: a live sibling form value
-(`caps.timing.motionLatentCountField`, read off the generate form's `formData`, e.g. the
-UI's own default of 2 for `svi_motion_latent_count`) wins whenever present; absent, a
-reopened/restored document's own persisted `chain.timingProfile` is preferred over the
-capability's static default; only when neither is available does the capability default
-apply. `deriveRailModel`/`deriveChainRail` accept this profile as an explicit parameter,
-threaded down from every caller that has `formData` in scope (`deriveConsoleModel`,
-`deriveStageModel`, `deriveShotRail`, and the console's own keyframe-placement handlers). A
-`family === "wan"` document with no resolvable profile (a preset instance that hasn't wired
-the `timing` capability, or truly nothing to resolve from) keeps the raw axis, and every
-block carries `timingQualified: false` — surfaced in `ShotCard`/`ShotRow` as a visible
-"requested" qualifier next to the frame/duration figures, rather than a falsely-precise
-emitted number.
+orchestrator's own `timing_capability` handling, using the EXACT SAME two-branch rule, no
+third source: a live sibling form value (`caps.timing.motionLatentCountField`, read off the
+generate form's `formData`, e.g. the UI's own default of 2 for `svi_motion_latent_count`)
+wins whenever present; absent, the capability's static `motionLatentCountDefault` applies.
+There is deliberately no fallback to a document's own persisted `chain.timingProfile` (that
+field, if a document carries one, is round-trip/informational only) — the REAL channel for
+a reopened tab is `formData` itself, persisted and restored alongside `videoDirector` as
+one unit by the actual tab-session machinery (`collectTabSessionData`/
+`buildSessionRestoreTabPatch`, `frontend/src/lib/utils/sessionTabState.ts` /
+`sessionRestore.ts`), so a restored session's `svi_motion_latent_count` already reaches the
+resolver through the SAME live-form-value branch a fresh session uses; a past render's
+profile embedded in a document must never override what the NEXT request resolves to, and
+`buildDirectorSubmission` never sends it. `deriveRailModel`/`deriveChainRail` accept this
+profile as an explicit parameter, threaded down from every caller that has `formData` in
+scope (`deriveConsoleModel`, `deriveStageModel`, `deriveShotRail`, and the console's own
+keyframe-placement handlers). A `family === "wan"` document with no resolvable profile (a
+preset instance that hasn't wired the `timing` capability, or truly nothing to resolve
+from) keeps the raw axis, and every block carries `timingQualified: false` — surfaced in
+`ShotCard`/`ShotRow`, and rolled up into the film-total header (`ConsoleHeader`'s
+`totalQualified`, false the moment any one shot is unqualified — summing an approximation
+doesn't make the total any more exact), as a visible "requested" qualifier next to the
+frame/duration figures, rather than a falsely-precise emitted number.
+
+`resolveWanSegmentGeometry` also takes the document's `chain.continuation.stitch` flag,
+mirroring the backend exactly: a pre-decode front trim (the "long enough" branch above)
+happens unconditionally regardless of `stitch` (the generator's own per-segment loop runs
+it either way), but the "too short to trim" branch's overlap is only dropped when `stitch`
+is true — that drop happens at the generator's FINAL mux step, which simply never runs when
+`stitch` is false, so the segment keeps its full aligned length as its contribution instead
+(`[81, 5]` t2v/chain, motion 2, overlap 4: `stitch: true` contributes `[81, 1]`; `stitch:
+false` contributes `[81, 5]`). `onDiskFrames` — what the NEXT segment's own context can draw
+on — is unaffected by `stitch` either way, since the tail-conditioning read happens during
+generation, before the stitch step ever runs. A seam's hatched "shared frames" shoulder is
+only drawn when a join will actually run (`overlapFrames > 0`) — an unstitched short
+continuation is still a `'continue'` seam (it IS conditioned on the previous tail), just
+with nothing left to visually hatch over.
 - **`settings.duration`**, **`needs_t2v_set`**/**`needs_i2v_set`**, and
   `media_images`/`media_videos`/`media_placements` are all recomputed from the compiled
   span alone, exactly as `normalize_video_director` computes them for a whole film.

@@ -498,20 +498,29 @@ interface WanSegmentGeometry {
  * previous segment's tail than that segment actually has ON DISK (its own
  * `onDiskFrames`, NOT its raw aligned `frames` -- a segment that was itself
  * pre-trimmed has a SHORTER real tail to hand off, which is what makes this
- * genuinely sequential rather than a single closed-form overlap). When
- * `frames > context + 1` the front is pre-trimmed (`overlapFrames = context`,
- * `onDiskFrames = frames - context`); otherwise the window is too short to
- * trim without emptying it, so it stays on disk at its full `frames` and the
- * overlap is dropped at the final stitch instead (`overlapFrames =
- * min(context, frames - 1)`, `onDiskFrames = frames` unchanged). Either way
- * this segment CONTRIBUTES `frames - overlapFrames` to the stitched result. */
+ * genuinely sequential rather than a single closed-form overlap).
+ *
+ * When `frames > context + 1` the front is pre-trimmed AT GENERATION TIME,
+ * regardless of `stitch` (`main.py`'s per-segment loop runs this
+ * unconditionally): `overlapFrames = context`, `onDiskFrames = frames -
+ * context`. Otherwise the window is too short to trim without emptying it,
+ * so it stays on disk at its full `frames`; the overlap is dropped at the
+ * FINAL STITCH instead, which only runs when `stitch` is true (`main.py`
+ * only appends a joined output when `stitch_enabled`) -- with `stitch`
+ * false there is no final mux to drop it from, so the segment keeps its
+ * full aligned length: `overlapFrames = stitch ? min(context, frames - 1) :
+ * 0`, `onDiskFrames = frames` unchanged either way (the tail-conditioning
+ * read for the NEXT segment happens during generation, before the stitch
+ * step ever runs, so `stitch` never affects it). Either way this segment
+ * CONTRIBUTES `frames - overlapFrames` to the stitched result. */
 export function resolveWanSegmentGeometry(
 	requestedFrames: number,
 	isContinue: boolean,
 	overlapFramesSetting: number,
 	continuationSource: 'tail_frames' | 'last_frame' | undefined,
 	motionLatentCount: number,
-	previousOnDiskFrames: number | null
+	previousOnDiskFrames: number | null,
+	stitch: boolean
 ): WanSegmentGeometry {
 	const frames = wanSnapFrameCount(requestedFrames);
 	if (!isContinue) return { frames, overlapFrames: 0, onDiskFrames: frames };
@@ -521,7 +530,7 @@ export function resolveWanSegmentGeometry(
 	if (frames > context + 1) {
 		return { frames, overlapFrames: context, onDiskFrames: frames - context };
 	}
-	return { frames, overlapFrames: Math.min(context, frames - 1), onDiskFrames: frames };
+	return { frames, overlapFrames: stitch ? Math.min(context, frames - 1) : 0, onDiskFrames: frames };
 }
 
 /** The resolved Wan timing profile a caller passes into `deriveRailModel`/
@@ -582,7 +591,8 @@ function deriveChainRail(
 						overlapSetting,
 						directorCap?.continuation?.source,
 						wanMotionLatentCount,
-						previousWanOnDiskFrames
+						previousWanOnDiskFrames,
+						chain.continuation.stitch
 					)
 				: null;
 		const totalFrames = h3Geometry ? h3Geometry.frames : wanGeometry ? wanGeometry.frames : requestedFrames;
@@ -622,6 +632,11 @@ function deriveChainRail(
 
 		if (index > 0) {
 			const atFrame = startFrame;
+			// A shoulder is only drawn when a join will actually run: for Wan
+			// with `stitch` disabled, an untrimmed continuation's overlap is 0
+			// (see resolveWanSegmentGeometry) even though it IS a 'continue'
+			// seam -- there is nothing shared to hatch over.
+			const hasShoulder = isContinue && overlapInFrames > 0;
 			seams.push({
 				id: `seam-${chain.segments[index - 1].id}-${segment.id}`,
 				beforeShotIndex: index - 1,
@@ -629,8 +644,8 @@ function deriveChainRail(
 				overlapFrames: overlapInFrames,
 				atFrame,
 				atSeconds: framesToSeconds(atFrame, fps),
-				shoulderStartFrame: isContinue ? atFrame - overlapInFrames : null,
-				shoulderStartSeconds: isContinue ? framesToSeconds(atFrame - overlapInFrames, fps) : null
+				shoulderStartFrame: hasShoulder ? atFrame - overlapInFrames : null,
+				shoulderStartSeconds: hasShoulder ? framesToSeconds(atFrame - overlapInFrames, fps) : null
 			});
 		}
 

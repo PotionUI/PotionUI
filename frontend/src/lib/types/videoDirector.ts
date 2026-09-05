@@ -225,14 +225,15 @@ export interface VideoDirectorValue {
 		audio: DirectorAudioSegment[];
 		/** Mirrors the backend's `settings.timing_profile` (see
 		 * `src.pipelines.pipes.generator.chain_video_wan22.geometry`'s module
-		 * docstring): a generation-time pipe config value (Wan's
-		 * `motion_latent_count`) the orchestrator attaches onto a normalized
-		 * document from the bound form. Nothing in this editor currently
-		 * WRITES this field from a live `svi_motion_latent_count` value (see
-		 * `resolveDirectorTimingProfile` in `$lib/utils/videoDirector` for the
-		 * live-form half of the resolution) -- this is the round-trip half:
-		 * parsed if a reopened/restored document happens to carry it, `null`
-		 * for every fresh document. */
+		 * docstring) purely for round-trip fidelity with a wire document --
+		 * INFORMATIONAL ONLY, never read by `resolveDirectorTimingProfile` or
+		 * fed into the rail. The real live-value channel for a reopened tab is
+		 * `formData` (`svi_motion_latent_count`), persisted and restored
+		 * alongside this document as one unit (see
+		 * `resolveDirectorTimingProfile`'s own doc comment) -- a past render's
+		 * profile here must never override what the NEXT request resolves to,
+		 * and nothing in this editor currently writes this field from a live
+		 * value. Parsed if a document happens to carry one, `null` otherwise. */
 		timingProfile?: { motionLatentCount: number } | null;
 	};
 	ui?: VideoDirectorUiState;

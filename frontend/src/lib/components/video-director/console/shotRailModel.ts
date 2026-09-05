@@ -427,7 +427,7 @@ export function deriveShotRail(
 	shotId: string,
 	formData?: Record<string, unknown> | null
 ): ShotRailModel {
-	const rail = deriveRailModel(doc, caps, shotId, resolveDirectorTimingProfile(caps, formData, doc));
+	const rail = deriveRailModel(doc, caps, shotId, resolveDirectorTimingProfile(caps, formData));
 	if (rail.routing === 'chain') return deriveChainShotRail(doc, caps, rail, shotId, formData);
 	const shot = doc.timeline.shots.find((s) => s.id === shotId) ?? doc.timeline.shots[0];
 	if (!shot) return emptyShotRail();

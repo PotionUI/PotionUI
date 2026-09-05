@@ -810,57 +810,57 @@ describe('deriveRailModel — MiniMax-H3 family geometry parity with the Python 
 
 describe('resolveWanSegmentGeometry — parity with the Python planner', () => {
 	it('three 80-frame requests, motion 2, matches the reported [81, 77, 81]', () => {
-		const a = resolveWanSegmentGeometry(80, false, 4, 'tail_frames', 2, null);
-		const b = resolveWanSegmentGeometry(80, true, 4, 'tail_frames', 2, a.frames - a.overlapFrames);
-		const c = resolveWanSegmentGeometry(80, false, 4, 'tail_frames', 2, b.frames - b.overlapFrames);
+		const a = resolveWanSegmentGeometry(80, false, 4, 'tail_frames', 2, null, true);
+		const b = resolveWanSegmentGeometry(80, true, 4, 'tail_frames', 2, a.frames - a.overlapFrames, true);
+		const c = resolveWanSegmentGeometry(80, false, 4, 'tail_frames', 2, b.frames - b.overlapFrames, true);
 		expect([a.frames, b.frames, c.frames]).toEqual([81, 81, 81]);
 		expect([a.overlapFrames, b.overlapFrames, c.overlapFrames]).toEqual([0, 4, 0]);
 		expect([a.frames - a.overlapFrames, b.frames - b.overlapFrames, c.frames - c.overlapFrames]).toEqual([81, 77, 81]);
 	});
 
 	it('three 80-frame requests, motion 1 (the absent-config fallback), matches the reported [81, 80, 81]', () => {
-		const b = resolveWanSegmentGeometry(80, true, 4, 'tail_frames', 1, 81);
+		const b = resolveWanSegmentGeometry(80, true, 4, 'tail_frames', 1, 81, true);
 		expect(b.frames).toBe(81);
 		expect(b.overlapFrames).toBe(1);
 		expect(b.frames - b.overlapFrames).toBe(80);
 	});
 
 	it('a fresh cut never carries overlap-in, regardless of motion latents', () => {
-		const cut = resolveWanSegmentGeometry(80, false, 4, 'tail_frames', 4, null);
+		const cut = resolveWanSegmentGeometry(80, false, 4, 'tail_frames', 4, null, true);
 		expect(cut.overlapFrames).toBe(0);
 		expect(cut.frames - cut.overlapFrames).toBe(cut.frames);
 	});
 
 	it('last_frame source pins the overlap to one frame regardless of the configured overlap or motion latents', () => {
-		const geometry = resolveWanSegmentGeometry(80, true, 4, 'last_frame', 4, 81);
+		const geometry = resolveWanSegmentGeometry(80, true, 4, 'last_frame', 4, 81, true);
 		expect(geometry.overlapFrames).toBe(1);
 	});
 
 	it('a short window clamps its overlap so at least one frame remains, even with an ample previous tail', () => {
-		const geometry = resolveWanSegmentGeometry(5, true, 8, 'tail_frames', 4, 81);
+		const geometry = resolveWanSegmentGeometry(5, true, 8, 'tail_frames', 4, 81, true);
 		expect(geometry.frames).toBe(5);
 		expect(geometry.overlapFrames).toBe(4);
 	});
 
 	it('frames off the 1+4k lattice snap up (ties round down)', () => {
-		expect(resolveWanSegmentGeometry(80, false, 4, 'tail_frames', 1, null).frames).toBe(81);
-		expect(resolveWanSegmentGeometry(130, false, 4, 'tail_frames', 1, null).frames).toBe(129);
-		expect(resolveWanSegmentGeometry(3, false, 4, 'tail_frames', 1, null).frames).toBe(1);
+		expect(resolveWanSegmentGeometry(80, false, 4, 'tail_frames', 1, null, true).frames).toBe(81);
+		expect(resolveWanSegmentGeometry(130, false, 4, 'tail_frames', 1, null, true).frames).toBe(129);
+		expect(resolveWanSegmentGeometry(3, false, 4, 'tail_frames', 1, null, true).frames).toBe(1);
 	});
 
 	// DIR-07's available-tail clamp: a continuation can never replay more of
 	// the previous segment's tail than that segment actually has on disk.
 	it('a 1-frame opener followed by a 13-frame continuation yields overlap 1, not tailCount', () => {
-		const opener = resolveWanSegmentGeometry(1, false, 4, 'tail_frames', 4, null);
+		const opener = resolveWanSegmentGeometry(1, false, 4, 'tail_frames', 4, null, true);
 		expect(opener.frames).toBe(1);
-		const continuation = resolveWanSegmentGeometry(13, true, 4, 'tail_frames', 4, opener.frames - opener.overlapFrames);
+		const continuation = resolveWanSegmentGeometry(13, true, 4, 'tail_frames', 4, opener.frames - opener.overlapFrames, true);
 		// tailCount here would otherwise be 4 (wanTailFrameCount(4, 4) = 4),
 		// but the opener only has 1 frame available to replay.
 		expect(continuation.overlapFrames).toBe(1);
 	});
 
 	it('an ample previous tail does not additionally constrain the overlap beyond tailCount/frames-1', () => {
-		const geometry = resolveWanSegmentGeometry(80, true, 4, 'tail_frames', 2, 1000);
+		const geometry = resolveWanSegmentGeometry(80, true, 4, 'tail_frames', 2, 1000, true);
 		expect(geometry.overlapFrames).toBe(4); // unchanged from the motion-2 case above
 	});
 
@@ -870,9 +870,9 @@ describe('resolveWanSegmentGeometry — parity with the Python planner', () => {
 	// (short-window) branch keeps its full aligned length on disk even
 	// though its OWN overlap is dropped later, at the final stitch.
 	it('[17, 17, 17] with overlap 12, motion 4 matches the generator: contributed [17, 5, 12]', () => {
-		const a = resolveWanSegmentGeometry(17, false, 12, 'tail_frames', 4, null);
-		const b = resolveWanSegmentGeometry(17, true, 12, 'tail_frames', 4, a.onDiskFrames);
-		const c = resolveWanSegmentGeometry(17, true, 12, 'tail_frames', 4, b.onDiskFrames);
+		const a = resolveWanSegmentGeometry(17, false, 12, 'tail_frames', 4, null, true);
+		const b = resolveWanSegmentGeometry(17, true, 12, 'tail_frames', 4, a.onDiskFrames, true);
+		const c = resolveWanSegmentGeometry(17, true, 12, 'tail_frames', 4, b.onDiskFrames, true);
 		expect([a.frames, b.frames, c.frames]).toEqual([17, 17, 17]);
 		expect([a.onDiskFrames, b.onDiskFrames, c.onDiskFrames]).toEqual([17, 5, 12]);
 		expect([a.frames - a.overlapFrames, b.frames - b.overlapFrames, c.frames - c.overlapFrames]).toEqual([17, 5, 12]);
@@ -883,17 +883,48 @@ describe('resolveWanSegmentGeometry — parity with the Python planner', () => {
 		// 12+1): onDiskFrames stays 5 (unchanged), but overlapFrames (dropped
 		// at the final stitch, not pre-decode) is 4, so contributedFrames is
 		// only 1 -- the two numbers genuinely diverge here.
-		const opener = resolveWanSegmentGeometry(81, false, 12, 'tail_frames', 4, null);
-		const short = resolveWanSegmentGeometry(5, true, 12, 'tail_frames', 4, opener.onDiskFrames);
+		const opener = resolveWanSegmentGeometry(81, false, 12, 'tail_frames', 4, null, true);
+		const short = resolveWanSegmentGeometry(5, true, 12, 'tail_frames', 4, opener.onDiskFrames, true);
 		expect(short.onDiskFrames).toBe(5);
 		expect(short.frames - short.overlapFrames).toBe(1); // contributed
 		expect(short.onDiskFrames).not.toBe(short.frames - short.overlapFrames);
 
-		const correct = resolveWanSegmentGeometry(81, true, 12, 'tail_frames', 4, short.onDiskFrames);
-		const wrong = resolveWanSegmentGeometry(81, true, 12, 'tail_frames', 4, short.frames - short.overlapFrames);
+		const correct = resolveWanSegmentGeometry(81, true, 12, 'tail_frames', 4, short.onDiskFrames, true);
+		const wrong = resolveWanSegmentGeometry(81, true, 12, 'tail_frames', 4, short.frames - short.overlapFrames, true);
 		expect(correct.overlapFrames).toBe(5); // context = min(12, onDiskFrames=5) = 5
 		expect(wrong.overlapFrames).toBe(1); // context = min(12, contributed=1) = 1 -- WRONG
 		expect(correct.overlapFrames).not.toBe(wrong.overlapFrames);
+	});
+
+	// stitch=false: the final mux that would otherwise drop an untrimmed
+	// segment's overlap never runs, so it keeps its full on-disk length as
+	// its contribution too -- onDiskFrames is UNCHANGED either way (the tail
+	// handed to the next segment during generation never depends on stitch).
+	describe('stitch=false: an untrimmed segment keeps its full length; a pre-trimmed one is unaffected', () => {
+		it('[81, 5] t2v/chain, motion 2, overlap 4: stitch=true -> contributed [81, 1]; stitch=false -> [81, 5]', () => {
+			const openerTrue = resolveWanSegmentGeometry(80, false, 4, 'tail_frames', 2, null, true);
+			const stitchedTrue = resolveWanSegmentGeometry(5, true, 4, 'tail_frames', 2, openerTrue.onDiskFrames, true);
+			expect(stitchedTrue.frames - stitchedTrue.overlapFrames).toBe(1);
+
+			const openerFalse = resolveWanSegmentGeometry(80, false, 4, 'tail_frames', 2, null, false);
+			const stitchedFalse = resolveWanSegmentGeometry(5, true, 4, 'tail_frames', 2, openerFalse.onDiskFrames, false);
+			expect(stitchedFalse.overlapFrames).toBe(0);
+			expect(stitchedFalse.frames - stitchedFalse.overlapFrames).toBe(5);
+		});
+
+		it('onDiskFrames (what the NEXT segment can draw on) is identical regardless of stitch', () => {
+			const withStitch = resolveWanSegmentGeometry(5, true, 4, 'tail_frames', 2, 81, true);
+			const withoutStitch = resolveWanSegmentGeometry(5, true, 4, 'tail_frames', 2, 81, false);
+			expect(withStitch.onDiskFrames).toBe(5);
+			expect(withoutStitch.onDiskFrames).toBe(5);
+		});
+
+		it('a pre-trimmed (long enough) segment contributes the same amount whether or not stitch is enabled', () => {
+			const trimmedTrue = resolveWanSegmentGeometry(80, true, 4, 'tail_frames', 2, 81, true);
+			const trimmedFalse = resolveWanSegmentGeometry(80, true, 4, 'tail_frames', 2, 81, false);
+			expect(trimmedTrue.overlapFrames).toBe(trimmedFalse.overlapFrames);
+			expect(trimmedTrue.onDiskFrames).toBe(trimmedFalse.onDiskFrames);
+		});
 	});
 });
 
@@ -994,11 +1025,41 @@ describe('deriveRailModel — Wan family with a known timing profile (live wirin
 		expect(model.seams[1].overlapFrames).toBe(0);
 	});
 
-	it('stitch: false leaves the per-segment geometry unchanged (stitch only governs the generator’s own final mux, not this timeline)', () => {
+	it('stitch: false does not change THIS 80/80/80 film (every continuation here is pre-trimmed at generation time regardless of stitch)', () => {
 		const on = deriveRailModel(wan808080Doc(true), wan808080Caps(), undefined, { motionLatentCount: 2 });
 		const off = deriveRailModel(wan808080Doc(false), wan808080Caps(), undefined, { motionLatentCount: 2 });
 		expect(off.shots.map((s) => s.contributedFrames)).toEqual(on.shots.map((s) => s.contributedFrames));
 		expect(off.totalFrames).toBe(on.totalFrames);
+	});
+
+	// stitch DOES change the rail for a film with an untrimmed (short-window)
+	// continuation: with no final mux to drop its overlap from, it keeps its
+	// full on-disk length as its contribution.
+	it('[81, 5] t2v/chain, motion 2, overlap 4: stitch=true contributes [81, 1]; stitch=false contributes [81, 5]', () => {
+		function shortDoc(stitch: boolean): VideoDirectorValue {
+			const doc = baseDoc();
+			doc.chain = {
+				fps: 16,
+				segments: [chainSegment('seg-a', 'a', 80 / 16, 't2v'), chainSegment('seg-b', 'b', 5 / 16)],
+				continuation: { overlap_frames: 4, stitch },
+				keyframes: [],
+				audio: [],
+				timingProfile: null
+			};
+			return doc;
+		}
+		const stitched = deriveRailModel(shortDoc(true), wan808080Caps(), undefined, { motionLatentCount: 2 });
+		expect(stitched.shots.map((s) => s.contributedFrames)).toEqual([81, 1]);
+		expect(stitched.seams[0].overlapFrames).toBe(4);
+		expect(stitched.seams[0].shoulderStartFrame).not.toBeNull();
+
+		const unstitched = deriveRailModel(shortDoc(false), wan808080Caps(), undefined, { motionLatentCount: 2 });
+		expect(unstitched.shots.map((s) => s.contributedFrames)).toEqual([81, 5]);
+		// No join runs, so there is nothing to hatch over -- even though this
+		// IS a 'continue' seam (it's still conditioned on the previous tail).
+		expect(unstitched.seams[0].kind).toBe('continue');
+		expect(unstitched.seams[0].overlapFrames).toBe(0);
+		expect(unstitched.seams[0].shoulderStartFrame).toBeNull();
 	});
 
 	it('a short-window continuation clamps against the available previous tail, not a fixed tailCount', () => {
@@ -1105,11 +1166,14 @@ describe('resolveDirectorTimingProfile', () => {
 		expect(resolveDirectorTimingProfile(noTiming, { svi_motion_latent_count: 2 })).toBeNull();
 	});
 
-	it('a reopened/restored document with no live form value falls back to the document’s own persisted profile', () => {
-		const doc = wan808080Doc();
-		doc.chain = { ...doc.chain, timingProfile: { motionLatentCount: 3 } };
-		expect(resolveDirectorTimingProfile(timingCaps(), {}, doc)).toEqual({ motionLatentCount: 3 });
-		// ...but a live form value still wins over the persisted one.
-		expect(resolveDirectorTimingProfile(timingCaps(), { svi_motion_latent_count: 2 }, doc)).toEqual({ motionLatentCount: 2 });
+	// A document's own `chain.timingProfile` (if it carries one) is
+	// INFORMATIONAL ONLY -- the real round-trip channel for a reopened tab is
+	// `formData` itself, restored alongside the document as one unit (see
+	// sessionRestoreTimingProfile.test.ts for that proof through the real
+	// tab-session machinery). Passing only two arguments here is itself part
+	// of the contract: there is no third "document" parameter to feed a
+	// persisted profile through any more.
+	it('a document carrying its own chain.timingProfile never overrides the resolved value -- only formData and the capability default matter', () => {
+		expect(resolveDirectorTimingProfile(timingCaps(), {})).toEqual({ motionLatentCount: 1 }); // capability default, not any document value
 	});
 });

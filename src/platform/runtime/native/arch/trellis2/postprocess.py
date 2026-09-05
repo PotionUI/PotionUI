@@ -13,7 +13,7 @@ upstream                             here
 ``cumesh.uv_unwrap``                 ``xatlas.parametrize``
 ``nvdiffrast.rasterize/interpolate`` :mod:`.uv_raster`
 ``flex_gemm`` ``grid_sample_3d``     ``sparse3d.sparse_grid_sample_3d``
-``cumesh.cuBVH.unsigned_distance``   brute-force closest point (opt-in, below)
+``cumesh.cuBVH.unsigned_distance``   ``cKDTree`` + exact kernel (opt-in, below)
 ``cv2.inpaint``                      ``cv2`` when importable, else push-pull fill
 ===================================  ===========================================
 
@@ -41,13 +41,17 @@ Divergences worth knowing about:
   are still closed.
 * **Projection to the source surface is off by default.** Upstream corrects
   decimation error by pushing every baked texel back onto the pre-decimation
-  mesh with a CUDA BVH. There is no CPU equivalent: without an acceleration
-  structure the query is points x triangles, and a 2048² bake against a 1M-face
-  mesh is ~4M x 1M pair tests — hours, not the ~60s that would make it worth
-  having by default. ``project_to_source=True`` runs a brute-force torch query
-  (exact, chunked, no extra dependency) and is worth it for small bakes. The
-  default takes texel positions from the decimated surface, where the error is
-  bounded by the decimation error itself.
+  mesh with a CUDA BVH. The CPU stand-in indexes the source triangles with
+  ``scipy.spatial.cKDTree`` and runs the exact point-triangle kernel on a
+  provably sufficient candidate set (see :func:`_project_to_source`), which is
+  what makes ``project_to_source=True`` usable rather than quadratic —
+  ``trimesh.proximity`` would do the same job but needs ``rtree``, a native
+  dependency this project does not carry. It is still a CPU query against a
+  full-resolution mesh, so a 2048² bake against a 1M-face source stays a
+  minutes-scale operation and stays opt-in. Without SciPy the fallback is the
+  exhaustive points x triangles scan — same answer, far slower. The default
+  takes texel positions from the decimated surface, where the error is bounded
+  by the decimation error itself.
 * **Texture format.** trimesh 4.12's glTF exporter takes ``extension_webp``, so
   textures are embedded as WebP (about a third the bytes of PNG) and the GLB
   declares ``EXT_texture_webp``. Consumers must understand that extension —
@@ -350,26 +354,103 @@ def _closest_point_on_triangles(points: torch.Tensor, tris: torch.Tensor) -> tor
     return candidates.reshape(points.shape[0], -1, 3)[torch.arange(points.shape[0]), best]
 
 
+def _morton_order(points: np.ndarray) -> np.ndarray:
+    """Indices visiting ``points`` along a Z-order curve.
+
+    Batches are compared against the union of their members' candidate
+    triangles, so the union is only small when the batch is spatially tight.
+    Query points arrive in UV-atlas order, which is unrelated to 3D locality.
+    """
+    lo = points.min(axis=0)
+    span = np.maximum(points.max(axis=0) - lo, 1e-12)
+    grid = np.clip((points - lo) / span * 1023.0, 0, 1023).astype(np.uint64)
+    key = np.zeros(points.shape[0], dtype=np.uint64)
+    for bit in range(10):
+        for axis in range(3):
+            key |= ((grid[:, axis] >> np.uint64(bit)) & np.uint64(1)) << np.uint64(3 * bit + axis)
+    return np.argsort(key, kind="stable")
+
+
+def _source_spatial_index(tris: np.ndarray):
+    """KD-trees over ``tris`` ``[T, 3, 3]``, or ``None`` when SciPy is absent.
+
+    Returns a tree over the triangle corners, a tree over the triangle bounding
+    sphere centres, and the largest bounding sphere radius in the mesh.
+    """
+    try:
+        from scipy.spatial import cKDTree
+    except ImportError:
+        return None
+    centres = tris.mean(axis=1, dtype=np.float64)
+    radii = np.linalg.norm(tris - centres[:, None, :], axis=2).max(axis=1)
+    return cKDTree(tris.reshape(-1, 3)), cKDTree(centres), float(radii.max())
+
+
+def _project_exhaustive(positions: torch.Tensor, tris: torch.Tensor, budget: int) -> torch.Tensor:
+    chunk = max(1, budget // max(1, tris.shape[0]))
+    return torch.cat(
+        [_closest_point_on_triangles(positions[i : i + chunk], tris) for i in range(0, positions.shape[0], chunk)]
+    )
+
+
 def _project_to_source(
     positions: torch.Tensor,
     source_vertices: np.ndarray,
     source_faces: np.ndarray,
     budget: int = 4_000_000,
+    point_batch: int = 1024,
 ) -> torch.Tensor:
-    """Brute-force stand-in for upstream's CUDA BVH closest-point query.
+    """CPU stand-in for upstream's CUDA BVH closest-point query.
 
-    ``trimesh.proximity`` would need ``rtree``, an extra native dependency, to do
-    no better: the cost is quadratic either way, which is exactly why this is
-    opt-in. Chunked over query points so peak memory stays near ``budget``
-    point-triangle pairs.
+    ``trimesh.proximity`` needs ``rtree``, a native dependency this project does
+    not carry, so the acceleration structure is built here from
+    ``scipy.spatial.cKDTree`` (already a hard dependency) and the exact
+    point-triangle kernel then runs on candidates only. Without SciPy the
+    fallback is the exhaustive point-times-triangle scan, chunked so peak memory
+    stays near ``budget`` point-triangle pairs; it is the same answer, slowly,
+    never an approximation.
+
+    The candidate set is exact rather than heuristic. The distance ``d0`` from a
+    query point to its nearest triangle corner bounds the distance to the
+    nearest triangle from above, and a triangle enclosed by a sphere of centre
+    ``c`` and radius ``r`` is no nearer than ``|p - c| - r``, so every triangle
+    that could hold the closest point satisfies ``|p - c| <= d0 + r_max``. A ball
+    query of that radius over the bounding sphere centres therefore contains
+    every minimiser, and the kernel's arg-min over it (candidates stay in
+    ascending face order) picks the same face and corner the exhaustive scan
+    would.
     """
-    tris = torch.from_numpy(
-        np.ascontiguousarray(source_vertices[source_faces], dtype=np.float32)
-    ).to(positions.device)
-    chunk = max(1, budget // max(1, tris.shape[0]))
-    return torch.cat(
-        [_closest_point_on_triangles(positions[i : i + chunk], tris) for i in range(0, positions.shape[0], chunk)]
-    )
+    tris_np = np.ascontiguousarray(source_vertices[source_faces], dtype=np.float32)
+    tris = torch.from_numpy(tris_np).to(positions.device)
+    if positions.shape[0] == 0:
+        return positions.new_zeros((0, 3))
+
+    index = _source_spatial_index(tris_np) if tris.shape[0] else None
+    if index is None:
+        return _project_exhaustive(positions, tris, budget)
+    corner_tree, centre_tree, max_radius = index
+
+    query = positions.detach().to("cpu", torch.float64).numpy()
+    # d0 is a geometric bound; the kernel works in float32, so widen it enough
+    # that rounding cannot drop a triangle that ties for nearest.
+    radius = corner_tree.query(query, workers=-1)[0] * (1.0 + 1e-6) + max_radius + 1e-6
+
+    out = positions.new_empty((positions.shape[0], 3))
+    order = _morton_order(query)
+    pending = [order[i : i + point_batch] for i in range(0, order.shape[0], point_batch)]
+    while pending:
+        batch = pending.pop()
+        balls = centre_tree.query_ball_point(query[batch], radius[batch], workers=-1)
+        candidates = np.unique(np.concatenate([np.asarray(b, dtype=np.int64) for b in balls]))
+        if batch.shape[0] > 1 and candidates.shape[0] * batch.shape[0] > budget:
+            half = batch.shape[0] // 2
+            pending.extend([batch[:half], batch[half:]])
+            continue
+        rows = torch.from_numpy(batch).to(positions.device)
+        out[rows] = _closest_point_on_triangles(
+            positions[rows], tris[torch.from_numpy(candidates).to(positions.device)]
+        )
+    return out
 
 
 def _resolve_volume_geometry(

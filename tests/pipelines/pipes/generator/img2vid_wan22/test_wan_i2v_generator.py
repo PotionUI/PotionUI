@@ -108,7 +108,7 @@ class _FakeSpec:
     latent_format: dict = field(default_factory=lambda: {"latent_channels": 16, "format": "wan21"})
 
 
-def _bundle(in_dim=36):
+def _bundle(in_dim=36, img_emb=None):
     vae = SimpleNamespace(
         compute_dtype=torch.float32, move_to=lambda d: None, offload=lambda: None,
         module=SimpleNamespace(
@@ -118,9 +118,16 @@ def _bundle(in_dim=36):
     )
     return SimpleNamespace(
         high_dit=SimpleNamespace(compute_dtype=torch.float32, spec=_FakeSpec(),
-                                 module=SimpleNamespace(patch_size=(1, 2, 2), in_dim=in_dim)),
+                                 module=SimpleNamespace(patch_size=(1, 2, 2), in_dim=in_dim, img_emb=img_emb)),
         low_dit=SimpleNamespace(), vae=vae, spec=_FakeSpec(), is_dual_expert=True,
     )
+
+
+def _fake_img_emb(flf=False):
+    """A classic Wan i2v checkpoint's img_emb (CLIP-vision projector) --
+    ``emb_pos`` is only populated for the first-last-frame (FLF) variant, see
+    arch/wan/model.py's MLPProj."""
+    return SimpleNamespace(emb_pos=SimpleNamespace() if flf else None)
 
 
 def _pipe(**over):
@@ -276,15 +283,71 @@ def test_a14b_i2v_model_in_dim_36_proceeds():
     assert ctx.extra.forward.router.high.module.in_dim == 36
 
 
-def test_ti2v_5b_model_in_flf_mode_also_raises():
+# -- classic Wan i2v (CLIP-vision img_emb) shares in_dim=36 but is rejected -
+#
+# See src/pipelines/pipes/_shared/generation/wan_i2v_contract.py: a classic
+# checkpoint (with or without the FLF emb_pos table) needs clip_fea this
+# concat-only generator never supplies.
+
+def _classic_i2v_pipe_input(flf_end_image=False, flf_emb_pos=False):
+    bundle = _bundle(in_dim=36, img_emb=_fake_img_emb(flf=flf_emb_pos))
+    inp = {
+        "model": bundle,
+        "conditioning": [SimpleNamespace(embeds={"context": torch.ones(1, 4, 8)}, n_embeds=None)],
+        "image": [torch.rand(64, 64, 3)],
+        "seed": [1],
+    }
+    if flf_end_image:
+        inp["end_image"] = [torch.rand(64, 64, 3)]
+    return bundle, PipeInput(input=inp)
+
+
+@pytest.mark.parametrize("mode_end_image,mode_match,flf_emb_pos", [
+    (False, "i2v", False),  # classic i2v, no emb_pos, standalone i2v mode
+    (False, "i2v", True),   # classic FLF2V checkpoint loaded into i2v mode
+    (True, "flf", False),   # classic i2v checkpoint (no emb_pos) fed an end_image
+    (True, "flf", True),    # classic FLF2V checkpoint, flf mode
+])
+def test_classic_clip_vision_i2v_raises_before_any_vae_or_concat_work(mode_end_image, mode_match, flf_emb_pos):
+    bundle, pipe_input = _classic_i2v_pipe_input(flf_end_image=mode_end_image, flf_emb_pos=flf_emb_pos)
+    calls = {"vae_move_to": 0, "vae_encode": 0, "vae_offload": 0}
+    bundle.vae.move_to = lambda d: calls.__setitem__("vae_move_to", calls["vae_move_to"] + 1)
+    bundle.vae.offload = lambda: calls.__setitem__("vae_offload", calls["vae_offload"] + 1)
+    bundle.vae.module.encode = lambda px: (calls.__setitem__("vae_encode", calls["vae_encode"] + 1) or None)
+    with patch("src.pipelines.pipes.generator.img2vid_wan22.main.build_i2v_concat") as mock_concat, \
+         patch("src.pipelines.pipes.generator.img2vid_wan22.main.denoise") as mock_denoise:
+        with pytest.raises(ValueError, match=mode_match):
+            _pipe(device="cpu").build_context(pipe_input)
+        mock_concat.assert_not_called()
+        mock_denoise.assert_not_called()
+    assert calls == {"vae_move_to": 0, "vae_encode": 0, "vae_offload": 0}
+
+
+def test_ti2v_5b_model_in_flf_mode_also_raises_before_any_vae_or_concat_work():
     """Same rejection reached through the FLF path (end_image provided) --
     one generator instance covers both i2v and flf (see the module docstring
-    / pipeline.yml)."""
+    / pipeline.yml) -- must reject before touching the VAE or building the
+    concat here too, not just before sampling."""
     import pytest
-    pi = _pipe_input(in_dim=48)
-    pi.input["end_image"] = [torch.rand(64, 64, 3)]
-    with pytest.raises(ValueError, match="flf"):
-        _pipe(device="cpu").build_context(pi)
+    bundle = _bundle(in_dim=48)
+    calls = {"vae_move_to": 0, "vae_encode": 0, "vae_offload": 0}
+    bundle.vae.move_to = lambda d: calls.__setitem__("vae_move_to", calls["vae_move_to"] + 1)
+    bundle.vae.offload = lambda: calls.__setitem__("vae_offload", calls["vae_offload"] + 1)
+    bundle.vae.module.encode = lambda px: (calls.__setitem__("vae_encode", calls["vae_encode"] + 1) or None)
+    pipe_input = PipeInput(input={
+        "model": bundle,
+        "conditioning": [SimpleNamespace(embeds={"context": torch.ones(1, 4, 8)}, n_embeds=None)],
+        "image": [torch.rand(64, 64, 3)],
+        "end_image": [torch.rand(64, 64, 3)],
+        "seed": [1],
+    })
+    with patch("src.pipelines.pipes.generator.img2vid_wan22.main.build_i2v_concat") as mock_concat, \
+         patch("src.pipelines.pipes.generator.img2vid_wan22.main.denoise") as mock_denoise:
+        with pytest.raises(ValueError, match="flf"):
+            _pipe(device="cpu").build_context(pipe_input)
+        mock_concat.assert_not_called()
+        mock_denoise.assert_not_called()
+    assert calls == {"vae_move_to": 0, "vae_encode": 0, "vae_offload": 0}
 
 
 def test_build_context_snaps_resolution_and_frames():

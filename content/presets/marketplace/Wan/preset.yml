@@ -22,9 +22,11 @@ media:
       mode: "video"
 
 # Hardware guidance (docs/user/hardware-requirements.md): 12 GB covers the
-# 5B ti2v variant this preset also serves (the realistic small-card option);
-# 16 GB+ is recommended for the 14B dual-expert path (measured 15.2 GB peak
-# on a 32 GB card for a short low-res clip).
+# 5B ti2v variant this preset also serves in TEXT-TO-VIDEO ONLY (the realistic
+# small-card option; no separate 5B peak has been measured); 16 GB+ is
+# recommended for the 14B dual-expert path (measured 15.2 GB peak on a 32 GB
+# card for the t2v expert pair, a short low-res clip -- see docs/models/wan.md's
+# mode support matrix).
 requires:
   min_vram_gb: 12
   recommended_vram_gb: 16

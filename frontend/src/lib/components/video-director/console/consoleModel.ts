@@ -533,6 +533,22 @@ function chainSpanCoveredByChecked(
 	}
 }
 
+/** The "missing" join's own sentence, naming `fromShot`'s number -- two
+ * genuinely different problems, so two different messages: a predecessor
+ * that never rendered truly "has no output yet" (the pre-existing wording),
+ * but a predecessor that IS 'done' and still leaves this seam "missing" (the
+ * done-but-not-covered-by-checked case `chainSpanCoveredByChecked` catches)
+ * has output -- what it lacks is a REUSABLE handoff, so the fix is including/
+ * rerendering it in the same span, not waiting on a render that already
+ * happened. Telling the user "no output yet" there names the wrong problem
+ * and points at the wrong fix. */
+function chainMissingPredecessorSentence(fromShotNumber: string, fromShotId: string, runs: Record<string, DirectorRunState> | null | undefined): string {
+	const predecessorHasOutput = runs?.[fromShotId]?.status === 'done';
+	return predecessorHasOutput
+		? `Shot ${fromShotNumber} must be rendered in the same span as this shot.`
+		: `Shot ${fromShotNumber} has no output yet.`;
+}
+
 function buildChainJoins(
 	doc: VideoDirectorValue,
 	rail: RailModel,
@@ -561,7 +577,7 @@ function buildChainJoins(
 				beforeShotId: toShot.id,
 				kind: 'missing',
 				label: 'MISSING PREDECESSOR',
-				sentence: `Shot ${shotNumber(seam.beforeShotIndex)} has no output yet.`,
+				sentence: chainMissingPredecessorSentence(shotNumber(seam.beforeShotIndex), fromShot.id, runs),
 				control: { kind: 'missing', spanShotIds: chainSpanFromFreshCut(doc, rail, seam.beforeShotIndex + 1) },
 				overlapFrames: null
 			};

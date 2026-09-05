@@ -578,10 +578,13 @@ describe('deriveConsoleModel — W3 missing-predecessor join (chain)', () => {
 		expect(model.joins[0].control).toEqual({ kind: 'missing', spanShotIds: ['s1', 's2'] });
 	});
 
-	it('checked + predecessor IS done but not itself checked: still "missing" -- a done run is not a reusable native handoff, so submitting s2 alone would resubmit it as a rejected span start', () => {
+	it('checked + predecessor IS done but not itself checked: still "missing" -- a done run is not a reusable native handoff, so submitting s2 alone would resubmit it as a rejected span start. The sentence says s1 needs to be IN the span, never "no output yet" (which would be false)', () => {
 		const runs: Record<string, DirectorRunState> = { s1: run({ status: 'done', finishedAt: 1000 }) };
 		const model = deriveConsoleModel(wanDoc(), wanCaps(), { activeShotId: null }, null, runs, new Set(['s2']));
-		expect(model.joins[0]).toMatchObject({ kind: 'missing' });
+		expect(model.joins[0]).toMatchObject({
+			kind: 'missing',
+			sentence: 'Shot 01 must be rendered in the same span as this shot.'
+		});
 		expect(model.joins[0].control).toEqual({ kind: 'missing', spanShotIds: ['s1', 's2'] });
 	});
 

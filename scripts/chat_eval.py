@@ -42,7 +42,13 @@ returns a ``pending_approval`` preview. ``run`` never calls the
 tool-approval endpoint, so those calls always stay a dry preview. The one
 builtin tool that mutates state WITHOUT an approval gate is ``write_memory``
 (see ``docs/chat-memory.md``); it is excluded from every session's
-``enabled_tools`` for that reason (``_DRY_RUN_EXCLUDED_TOOLS``).
+``enabled_tools`` for that reason (``_DRY_RUN_EXCLUDED_TOOLS``). ``run``
+never calls this repository's own inference code directly, but an
+explicitly selected ``native`` configuration's checkpoint IS loaded lazily
+by the backend itself on first use, in-process, exactly as it would for any
+other real chat turn — this command doesn't add inference, it just doesn't
+avoid the inference the backend would run anyway for the config the caller
+named.
 
 ``--variant compact|large`` runs the same scenarios again against a SECOND
 configuration for comparison, using an EXPLICIT ``provider_options.context_window``
@@ -58,6 +64,23 @@ under an auto-clone; pass ``--variant-config <id>`` naming an existing,
 separately configured comparison configuration instead (used as-is, no
 clone, no window override, no deletion).
 
+Artifacts (``run`` only)
+------------------------
+Every scenario run against every config/variant gets its OWN artifact file —
+``<transcripts_dir>/<run_id>/<variant or 'base'>/<config_id>/<scenario_id>.json``,
+where ``run_id`` is unique per ``cmd_run`` invocation — so a base+variant
+comparison never has one config's evidence silently overwrite the other's
+(the pre-fix behavior: every config/variant wrote the SAME
+``{scenario_id}.live.json``, so after a base+variant run both report rows
+pointed at whichever config ran last). The artifact holds the RAW per-turn
+evidence — the exact request payload sent and the exact raw SSE text/parsed
+events received for every turn, including any error — alongside the
+reconstructed ``transcript`` (the same shape ``evaluate_transcript`` scores).
+A report row's ``transcript`` field names its own artifact file, and
+re-loading that file and re-running ``evaluate_transcript`` on its
+``transcript`` key reproduces that row's exact ``checks``/``passed`` — see
+``tests/scripts/test_chat_eval_cli.py``'s base+variant test.
+
 Report JSON schema (both entry points write the same shape; see
 ``build_report``)
 ------------------------------------------------------------------------
@@ -72,11 +95,11 @@ Report JSON schema (both entry points write the same shape; see
         {
           "scenario": "<scenario id>",
           "scenario_version": 2,
-          "transcript": "<fixture path>" | "<saved live transcript path>" | null,
+          "transcript": "<fixture path>" | "<saved live ARTIFACT path>" | null,
           "variant": "compact" | "large" | "variant-config" | null,
-          "http_completed": true | false | null,   # null: never attempted (unsupported live)
+          "http_completed": true | false | null,   # null: never attempted (unsupported live, or replay)
           "passed": true | false,                  # task correctness (evaluate_transcript), not just HTTP success
-          "checks": [{"check": "...", "passed": true, "detail": "..."}],
+          "checks": [{"check": "...", "passed": true, "detail": "...", "unverified": false}],
           "provider": {"unverified": true} |
                       {"config_id": "...", "type": "...", "model": "...",
                        "is_default": bool, "unverified": false},
@@ -88,21 +111,46 @@ Report JSON schema (both entry points write the same shape; see
                        "memory_tokens": int, "history_tokens": int, "unverified": false},
           "tokens": {"input": {"value": int|null, "unverified": bool},
                      "output": {"value": int|null, "unverified": bool}},
-          "tool_rounds": int,       # turns that used at least one tool (coarse — see note below)
-          "tool_executions": int,   # total individual tool calls, across all turns
+          "turns_with_tools": int,     # user turns that used >=1 tool (coarse — see note below)
+          "tool_executions": int,      # total individual tool calls, across all turns
+          "actual_rounds": {"value": int|null, "unverified": bool},
+          "tool_durations_ms": [{"tool": "...", "duration_ms": int, "measured": true}],
+          "behavior_trace_steps": {"value": [{"step": "...", "duration_ms": int}]|null, "measured": bool},
           "errors": ["..."],
           "latency_ms": {"value": null, "unverified": true},
           "memory_mb": {"value": null, "unverified": true}
         }
       ],
-      "summary": {"total": int, "passed": int, "failed": int}
+      "summary": {"total": int, "passed": int, "failed": int, "unsupported": int}
     }
 
-``tool_rounds`` counts TURNS that used at least one tool, not the exact
-intra-turn tool-loop iteration count — deriving the latter would need parsing
-the interleaved ``status``/``tool_start`` event sequence, which this report
-does not attempt. ``tool_executions`` is the precise total of individual tool
-calls and is reported separately so the two are never conflated.
+``turns_with_tools`` counts USER TURNS that used at least one tool — a
+coarse measure, kept separate from ``tool_executions`` (the precise total
+count of individual tool calls) so the two are never conflated.
+``actual_rounds`` is the exact count of real tool-loop decision rounds
+(one LLM call that may dispatch one or more tool calls) — computable and
+``unverified: false`` for a ``replay`` canned transcript (authored with one
+assistant tool-calls message per real round), but ALWAYS ``unverified: true``
+for a ``run`` live capture: the live SSE wire protocol emits exactly one
+``status: thinking`` event per TURN, not per round (see
+``src/features/chat/conversation.py``), so there is no reliable signal to
+recover real intra-turn round boundaries from — reporting "unverified" beats
+silently deriving a value from the folded per-turn tool-call grouping that
+might read as a pass when the real round count was actually higher. A
+scenario's ``max_tool_rounds`` check is likewise reported ``unverified``
+(see ``evaluate_transcript``'s ``round_boundaries_known``) rather than scored
+against that same unreliable grouping when evaluating a live capture.
+``tool_durations_ms``/``behavior_trace_steps`` retain the REAL, backend-measured
+per-tool and per-phase timings the persisted ``assistant_message`` already
+carries (from its last turn, when there is more than one) — labeled
+``measured: true`` because, unlike ``latency_ms``/``memory_mb`` below, this
+is an actual number the backend reported, not something this script inferred.
+
+The summary distinguishes ``unsupported`` (a scenario whose fixture declares
+``live_supported: false``, reported but never actually attempted) from
+``failed`` (a scenario that WAS attempted — replay's canned transcript, or a
+live-supported scenario driven for real — and did not pass); ``passed`` +
+``failed`` + ``unsupported`` always sums to ``total``.
 
 ``"unverified": true`` (or a per-field ``{"value": ..., "unverified": true}``
 pair) marks a metric this run could not actually measure — never a silently
@@ -119,8 +167,10 @@ import argparse
 import json
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
+import uuid
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -174,13 +224,23 @@ def _unverified_tokens_block() -> Dict[str, Any]:
     }
 
 
+def _unverified_actual_rounds() -> Dict[str, Any]:
+    return {"value": None, "unverified": True}
+
+
+def _unverified_behavior_trace_steps() -> Dict[str, Any]:
+    return {"value": None, "measured": False}
+
+
 def _empty_result(scenario_id: str, scenario_version: Any, variant: Optional[str], check: str, detail: str) -> Dict[str, Any]:
     return {
         "scenario": scenario_id, "scenario_version": scenario_version, "transcript": None, "variant": variant,
         "http_completed": None, "passed": False,
-        "checks": [{"check": check, "passed": False, "detail": detail}],
+        "checks": [{"check": check, "passed": False, "detail": detail, "unverified": False}],
         "provider": _unverified_block(), "thinking_mode": None, "context": _unverified_block(),
-        "tokens": _unverified_tokens_block(), "tool_rounds": 0, "tool_executions": 0,
+        "tokens": _unverified_tokens_block(), "turns_with_tools": 0, "tool_executions": 0,
+        "actual_rounds": _unverified_actual_rounds(), "tool_durations_ms": [],
+        "behavior_trace_steps": _unverified_behavior_trace_steps(),
         "errors": [detail], "latency_ms": {"value": None, "unverified": True}, "memory_mb": {"value": None, "unverified": True},
     }
 
@@ -189,14 +249,33 @@ def _empty_result(scenario_id: str, scenario_version: Any, variant: Optional[str
 # replay
 # --------------------------------------------------------------------------
 
+def _turns_with_tools_count(messages: List[Dict[str, Any]]) -> int:
+    """User turns (delimited by ``role: "user"`` messages) that used at least
+    one tool anywhere before the next user message — a coarse per-TURN
+    measure, distinct from ``actual_rounds`` (the exact per-ROUND count)."""
+    count = 0
+    turn_has_tool = False
+    started = False
+    for message in messages:
+        if message.get("role") == "user":
+            if started and turn_has_tool:
+                count += 1
+            turn_has_tool, started = False, True
+        elif message.get("role") == "assistant" and message.get("tool_calls"):
+            turn_has_tool = True
+    if started and turn_has_tool:
+        count += 1
+    return count
+
+
 def _replay_result(scenario_id: str, scenario: Dict[str, Any], tool_schemas: Dict[str, Dict]) -> Dict[str, Any]:
     transcript_path = fixtures.TRANSCRIPTS_DIR / f"{scenario_id}.good.json"
     transcript = fixtures.load_transcript(transcript_path)
     evaluation = evaluate_transcript(scenario, transcript, tool_schemas)
-    tool_rounds = sum(
-        1 for m in transcript["messages"]
-        if m.get("role") == "assistant" and m.get("tool_calls")
-    )
+    # A canned fixture is authored with one assistant tool-calls message per
+    # REAL tool-loop round, so this count is precise (unverified: False) —
+    # unlike a live capture, where the wire protocol can't tell rounds apart.
+    actual_rounds = sum(1 for m in transcript["messages"] if m.get("role") == "assistant" and m.get("tool_calls"))
     tool_executions = sum(len(m.get("tool_calls") or []) for m in transcript["messages"] if m.get("role") == "assistant")
     errors = [
         m.get("content", "")
@@ -215,24 +294,33 @@ def _replay_result(scenario_id: str, scenario: Dict[str, Any], tool_schemas: Dic
         "thinking_mode": None,
         "context": _unverified_block(),
         "tokens": _unverified_tokens_block(),
-        "tool_rounds": tool_rounds,
+        "turns_with_tools": _turns_with_tools_count(transcript["messages"]),
         "tool_executions": tool_executions,
+        "actual_rounds": {"value": actual_rounds, "unverified": False},
+        "tool_durations_ms": [],
+        "behavior_trace_steps": _unverified_behavior_trace_steps(),
         "errors": errors,
         "latency_ms": {"value": None, "unverified": True},
         "memory_mb": {"value": None, "unverified": True},
     }
 
 
+def _is_unsupported(result: Dict[str, Any]) -> bool:
+    return any(c["check"] == "live_supported" and not c["passed"] for c in result["checks"])
+
+
 def build_report(mode: str, results: List[Dict[str, Any]]) -> Dict[str, Any]:
     total = len(results)
+    unsupported = sum(1 for r in results if _is_unsupported(r))
     passed = sum(1 for r in results if r["passed"])
+    failed = total - passed - unsupported
     return {
         "version": REPORT_VERSION,
         "generated_at": _now_iso(),
         "mode": mode,
         "app_commit": _git_commit(),
         "results": results,
-        "summary": {"total": total, "passed": passed, "failed": total - passed},
+        "summary": {"total": total, "passed": passed, "failed": failed, "unsupported": unsupported},
     }
 
 
@@ -260,15 +348,17 @@ def cmd_replay(args: argparse.Namespace) -> int:
     _emit_report(report, args.out)
 
     for r in results:
-        status = "PASS" if r["passed"] else "FAIL"
+        status = "UNSUPPORTED" if _is_unsupported(r) else ("PASS" if r["passed"] else "FAIL")
         print(f"[{status}] {r['scenario']}")
-        if not r["passed"]:
-            for check in r["checks"]:
-                if not check["passed"]:
-                    print(f"    - {check['check']}: {check['detail']}")
+        for check in r["checks"]:
+            if not check["passed"] or check.get("unverified"):
+                tag = "unverified" if check.get("unverified") else "failed"
+                print(f"    - ({tag}) {check['check']}: {check['detail']}")
 
-    print(f"\n{report['summary']['passed']}/{report['summary']['total']} scenarios passed")
-    return 0 if report["summary"]["failed"] == 0 else 1
+    summary = report["summary"]
+    print(f"\n{summary['passed']}/{summary['total']} scenarios passed "
+          f"({summary['failed']} failed, {summary['unsupported']} unsupported)")
+    return 0 if summary["failed"] == 0 else 1
 
 
 def _emit_report(report: Dict[str, Any], out: Optional[str]) -> None:
@@ -384,6 +474,10 @@ def turn_transcript_messages(
                 "name": te.get("tool_name"),
                 "content": result.get("data") or result.get("error") or "",
                 "outcome": _outcome_from_tool_execution(te),
+                # Retained (not read by evaluator.py's checks) so a report can
+                # surface the backend's own REAL per-tool timing instead of
+                # discarding it - see _run_scenario_live's tool_durations_ms.
+                "duration_ms": te.get("duration_ms"),
             })
 
     messages.append({"role": "assistant", "content": assistant_message.get("content") or ""})
@@ -442,10 +536,18 @@ def clone_config_request_body(config: Dict[str, Any], context_window: int) -> Di
     }
 
 
+def _artifact_path(transcripts_dir: Path, run_id: str, variant: Optional[str], config_id: str, scenario_id: str) -> Path:
+    """A unique path per (run, config/variant, scenario) — never shared, so a
+    base+variant comparison can't have one config's evidence silently
+    overwrite the other's (every run used to write the SAME
+    ``{scenario_id}.live.json`` regardless of which config produced it)."""
+    return transcripts_dir / run_id / (variant or "base") / config_id / f"{scenario_id}.json"
+
+
 def _run_scenario_live(
     base_url: str, token: Optional[str], config: Dict[str, Any], scenario_id: str,
     scenario: Dict[str, Any], variant: Optional[str], tool_schemas: Dict[str, Dict],
-    transcripts_dir: Path,
+    transcripts_dir: Path, run_id: str,
 ) -> Dict[str, Any]:
     if not scenario.get("live_supported"):
         result = _empty_result(
@@ -471,8 +573,8 @@ def _run_scenario_live(
 
     context_metadata = scenario.get("live_context_metadata")
     all_messages: List[Dict[str, Any]] = []
-    tool_rounds = 0
-    tool_executions_count = 0
+    all_executions: List[Dict[str, Any]] = []
+    turns_evidence: List[Dict[str, Any]] = []
     errors: List[str] = []
     last_assistant: Optional[Dict[str, Any]] = None
 
@@ -480,11 +582,13 @@ def _run_scenario_live(
         payload: Dict[str, Any] = {"content": turn_text}
         if context_metadata is not None:
             payload["context_metadata"] = context_metadata
-        text = _http_text("POST", f"{base_url}/api/chat/sessions/{session_id}/messages/stream", token, payload)
-        events = parse_sse_events(text)
+        raw_text = _http_text("POST", f"{base_url}/api/chat/sessions/{session_id}/messages/stream", token, payload)
+        events = parse_sse_events(raw_text)
         error_event = next((e for e in events if e["event"] == "error"), None)
-        if error_event is not None:
-            errors.append(f"turn {turn_text!r}: {json.dumps(error_event.get('data'))}")
+        turn_error = json.dumps(error_event.get("data")) if error_event is not None else None
+        turns_evidence.append({"request": payload, "raw_sse_text": raw_text, "events": events, "error": turn_error})
+        if turn_error is not None:
+            errors.append(f"turn {turn_text!r}: {turn_error}")
             continue
 
         turn_messages, assistant_message = turn_transcript_messages(turn_text, events)
@@ -493,35 +597,42 @@ def _run_scenario_live(
             errors.append(f"turn {turn_text!r}: no 'done' event received")
             continue
         last_assistant = assistant_message
-        executions = assistant_message.get("tool_executions") or []
-        tool_executions_count += len(executions)
-        if executions:
-            tool_rounds += 1
+        all_executions.extend(assistant_message.get("tool_executions") or [])
 
     http_completed = not errors
-    transcripts_dir.mkdir(parents=True, exist_ok=True)
     transcript_record = {"version": 1, "scenario": scenario_id, "messages": all_messages}
-    transcript_path = transcripts_dir / f"{scenario_id}.live.json"
-    transcript_path.write_text(json.dumps(transcript_record, indent=2) + "\n")
+    artifact_path = _artifact_path(transcripts_dir, run_id, variant, config["id"], scenario_id)
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    artifact = {
+        "version": 1, "run_id": run_id, "scenario": scenario_id,
+        "config_id": config.get("id"), "variant": variant,
+        "turns": turns_evidence,
+        "transcript": transcript_record,
+    }
+    artifact_path.write_text(json.dumps(artifact, indent=2) + "\n")
 
     if http_completed:
-        evaluation = evaluate_transcript(scenario, transcript_record, tool_schemas)
+        # The live wire protocol doesn't expose real intra-turn round
+        # boundaries (see evaluate_transcript's docstring) - never score
+        # max_tool_rounds as if the folded per-turn grouping were reliable.
+        evaluation = evaluate_transcript(scenario, transcript_record, tool_schemas, round_boundaries_known=False)
         task_passed = evaluation.passed
         checks = [asdict(r) for r in evaluation.results]
     else:
         task_passed = False
-        checks = [{"check": "http_completed", "passed": False, "detail": "; ".join(errors)}]
+        checks = [{"check": "http_completed", "passed": False, "detail": "; ".join(errors), "unverified": False}]
 
     behavior_trace = ((last_assistant or {}).get("metadata") or {}).get("behavior_trace") or {}
     ledger = behavior_trace.get("context_ledger") or {}
     budget = ledger.get("budget") or {}
     prompt_tokens = (last_assistant or {}).get("prompt_tokens")
     completion_tokens = (last_assistant or {}).get("completion_tokens")
+    behavior_trace_steps = behavior_trace.get("steps")
 
     return {
         "scenario": scenario_id,
         "scenario_version": scenario["version"],
-        "transcript": str(transcript_path),
+        "transcript": str(artifact_path),
         "variant": variant,
         "http_completed": http_completed,
         "passed": task_passed,
@@ -546,8 +657,22 @@ def _run_scenario_live(
             "input": {"value": prompt_tokens, "unverified": prompt_tokens is None},
             "output": {"value": completion_tokens, "unverified": completion_tokens is None},
         },
-        "tool_rounds": tool_rounds,
-        "tool_executions": tool_executions_count,
+        "turns_with_tools": _turns_with_tools_count(all_messages),
+        "tool_executions": len(all_executions),
+        # Never derived from the folded per-turn tool_calls grouping - see
+        # evaluate_transcript's round_boundaries_known and this script's
+        # module docstring.
+        "actual_rounds": _unverified_actual_rounds(),
+        "tool_durations_ms": [
+            {"tool": te.get("tool_name"), "duration_ms": te.get("duration_ms"), "measured": True}
+            for te in all_executions if te.get("duration_ms") is not None
+        ],
+        # Real, backend-measured phase timings from the LAST turn's persisted
+        # behavior_trace (present when the provider/mode records one).
+        "behavior_trace_steps": (
+            {"value": behavior_trace_steps, "measured": True} if behavior_trace_steps
+            else _unverified_behavior_trace_steps()
+        ),
         "errors": errors,
         "latency_ms": {"value": None, "unverified": True},
         "memory_mb": {"value": None, "unverified": True},
@@ -570,8 +695,9 @@ def cmd_run(args: argparse.Namespace) -> int:
             "     clone of --config with an explicit provider_options.context_window test budget,\n"
             "     run the same scenarios against it, then delete the clone - the caller's own config\n"
             "     is never mutated. --variant-config <id> uses an existing separate config instead.\n"
-            "  4. Save each live transcript to a file and write a report JSON referencing it\n"
-            "     (see this script's module docstring for the schema).",
+            "  4. Save each scenario's raw request/SSE evidence and reconstructed transcript to its\n"
+            "     own artifact file (never shared across configs/variants/scenarios) and write a\n"
+            "     report JSON referencing it (see this script's module docstring for the schema).",
             file=sys.stderr,
         )
         return 2
@@ -588,6 +714,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     tool_schemas = tool_snapshot.schemas_by_name()
     transcripts_dir = Path(args.transcripts_dir)
+    run_id = f"{int(time.time())}-{uuid.uuid4().hex[:8]}"
 
     try:
         config = _resolve_config(args.base_url, args.token, args.config)
@@ -628,7 +755,7 @@ def cmd_run(args: argparse.Namespace) -> int:
                 try:
                     results.append(_run_scenario_live(
                         args.base_url, args.token, cfg, scenario_id, selected[scenario_id],
-                        variant_label, tool_schemas, transcripts_dir,
+                        variant_label, tool_schemas, transcripts_dir, run_id,
                     ))
                 except _HttpError as e:
                     results.append(_empty_result(scenario_id, selected[scenario_id]["version"], variant_label, "live_run", str(e)))
@@ -642,8 +769,12 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     report = build_report("run", results)
     _emit_report(report, args.out)
-    print(f"\n{report['summary']['passed']}/{report['summary']['total']} scenario run(s) passed")
-    return 0 if report["summary"]["failed"] == 0 else 1
+    summary = report["summary"]
+    print(
+        f"\n{summary['passed']}/{summary['total']} scenario run(s) passed "
+        f"({summary['failed']} failed, {summary['unsupported']} unsupported)"
+    )
+    return 0 if summary["failed"] == 0 else 1
 
 
 # --------------------------------------------------------------------------

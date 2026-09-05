@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "scenario": "tool_error_recovery",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Find me my last 3 forest generations."
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "search_gallery",
+          "arguments": {
+            "queries": [
+              "forest"
+            ],
+            "limit": 3
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "search_gallery",
+      "content": "{\"error\": \"gallery_index_rebuilding\"}",
+      "outcome": "error"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "search_gallery",
+          "arguments": {
+            "queries": [
+              "forest"
+            ],
+            "limit": 3
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "search_gallery",
+      "content": "{\"status\": \"pending_approval\"}",
+      "outcome": "pending_approval"
+    },
+    {
+      "role": "assistant",
+      "content": "Still working on it - here's what I have so far."
+    }
+  ]
+}

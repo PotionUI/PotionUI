@@ -27,7 +27,7 @@ out of scope (see ``docs/chat-evaluation.md``'s rubric section).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 
 @dataclass
@@ -35,6 +35,14 @@ class CheckResult:
     check: str
     passed: bool
     detail: str
+    # True for a check this evaluator genuinely cannot decide (e.g. a
+    # constraint the argument validator doesn't implement, or a round-count
+    # check against a live capture whose wire protocol doesn't expose real
+    # round boundaries — see ``evaluate_transcript``'s ``round_boundaries_known``).
+    # An unverified result is reported but never gates ``ScenarioEvaluation.passed``
+    # and is excluded from ``.failures()`` — reporting "unverified" is the
+    # honest alternative to silently deriving a passing (or failing) value.
+    unverified: bool = False
 
 
 @dataclass
@@ -44,7 +52,7 @@ class ScenarioEvaluation:
     results: List[CheckResult] = field(default_factory=list)
 
     def failures(self) -> List[CheckResult]:
-        return [r for r in self.results if not r.passed]
+        return [r for r in self.results if not r.passed and not r.unverified]
 
 
 # --------------------------------------------------------------------------
@@ -100,20 +108,54 @@ def _validate_numeric_bounds(name: str, value: Any, prop_schema: Dict[str, Any],
     return errors
 
 
-def _validate_arguments(schema: Dict[str, Any], arguments: Dict[str, Any], path: str = "") -> List[str]:
-    """Minimal JSON-Schema-subset validator: type, required, enum, numeric
-    bounds, and recursion into nested objects/arrays-of-objects.
+def _validate_array_length(name: str, value: List[Any], prop_schema: Dict[str, Any], path: str) -> List[str]:
+    """``minItems``/``maxItems`` on an array property (e.g. ``propose_form_changes.ops``,
+    which real-schema-requires at least one op — an empty ``ops: []`` must fail)."""
+    errors = []
+    min_items = prop_schema.get("minItems")
+    max_items = prop_schema.get("maxItems")
+    if min_items is not None and len(value) < min_items:
+        errors.append(f"{path}{name}: has {len(value)} item(s), below minItems {min_items}")
+    if max_items is not None and len(value) > max_items:
+        errors.append(f"{path}{name}: has {len(value)} item(s), above maxItems {max_items}")
+    return errors
 
-    Deliberately not a full draft validator (no ``oneOf``/``$ref``/format) —
-    the tool schemas in this codebase are simple object/array/string/enum
-    shapes, and a stricter validator would need constant upkeep for every
-    schema feature a tool never actually uses. ``bool`` is never accepted for
-    a declared ``integer``/``number`` property even though Python's ``bool``
-    is a subtype of ``int`` (see ``_type_ok``).
+
+# Schema keywords this validator actually understands and checks. A property
+# schema carrying any OTHER JSON-Schema constraint keyword (``pattern``,
+# ``format``, ``uniqueItems``, ``const``, ``multipleOf``, ...) is not silently
+# treated as satisfied — see ``_unhandled_constraints`` and its use in
+# ``_check_tool_validity``, which marks the whole check ``unverified`` rather
+# than claiming a constraint it never actually evaluated.
+_HANDLED_CONSTRAINT_KEYWORDS = {
+    "type", "enum", "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum",
+    "minItems", "maxItems", "properties", "required", "items", "description",
+    "default", "title",
+}
+
+
+def _unhandled_constraints(prop_schema: Dict[str, Any]) -> List[str]:
+    return sorted(set(prop_schema.keys()) - _HANDLED_CONSTRAINT_KEYWORDS)
+
+
+def _validate_arguments(
+    schema: Dict[str, Any], arguments: Dict[str, Any], path: str = "",
+) -> Tuple[List[str], List[str]]:
+    """Minimal JSON-Schema-subset validator: type, required, enum, numeric
+    bounds, array length (``minItems``/``maxItems``), and recursion into
+    nested objects/arrays-of-objects. Returns ``(errors, unverified_notes)`` —
+    ``unverified_notes`` names every property whose schema carries a
+    constraint keyword this validator does not implement (see
+    ``_HANDLED_CONSTRAINT_KEYWORDS``), so an unimplemented constraint is
+    surfaced rather than silently treated as satisfied.
+
+    ``bool`` is never accepted for a declared ``integer``/``number`` property
+    even though Python's ``bool`` is a subtype of ``int`` (see ``_type_ok``).
     """
     errors: List[str] = []
+    unverified: List[str] = []
     if not isinstance(arguments, dict):
-        return [f"{path or '<args>'}: expected an object, got {type(arguments).__name__}"]
+        return [f"{path or '<args>'}: expected an object, got {type(arguments).__name__}"], []
 
     properties = schema.get("properties") or {}
     required = schema.get("required") or []
@@ -125,6 +167,9 @@ def _validate_arguments(schema: Dict[str, Any], arguments: Dict[str, Any], path:
         prop_schema = properties.get(name)
         if prop_schema is None:
             continue  # additionalProperties are allowed unless a tool says otherwise
+        unhandled = _unhandled_constraints(prop_schema)
+        if unhandled:
+            unverified.append(f"{path}{name}: constraint(s) {unhandled} are not implemented by this validator")
         if not _type_ok(value, prop_schema.get("type")):
             errors.append(f"{path}{name}: expected type {prop_schema.get('type')}, got {type(value).__name__}")
             continue
@@ -135,18 +180,27 @@ def _validate_arguments(schema: Dict[str, Any], arguments: Dict[str, Any], path:
 
         prop_type = prop_schema.get("type")
         types = prop_type if isinstance(prop_type, list) else [prop_type]
+        if "array" in types and isinstance(value, list):
+            errors.extend(_validate_array_length(name, value, prop_schema, path))
         if "object" in types and isinstance(value, dict) and prop_schema.get("properties"):
-            errors.extend(_validate_arguments(prop_schema, value, path=f"{path}{name}."))
+            sub_errors, sub_unverified = _validate_arguments(prop_schema, value, path=f"{path}{name}.")
+            errors.extend(sub_errors)
+            unverified.extend(sub_unverified)
         if "array" in types and isinstance(value, list):
             item_schema = prop_schema.get("items") or {}
             item_type = item_schema.get("type")
             item_types = item_type if isinstance(item_type, list) else [item_type]
+            item_unhandled = _unhandled_constraints(item_schema)
+            if item_unhandled:
+                unverified.append(f"{path}{name}[items]: constraint(s) {item_unhandled} are not implemented by this validator")
             for i, item in enumerate(value):
                 if "object" in item_types and isinstance(item, dict):
-                    errors.extend(_validate_arguments(item_schema, item, path=f"{path}{name}[{i}]."))
+                    sub_errors, sub_unverified = _validate_arguments(item_schema, item, path=f"{path}{name}[{i}].")
+                    errors.extend(sub_errors)
+                    unverified.extend(sub_unverified)
                 elif item_type is not None and not _type_ok(item, item_type):
                     errors.append(f"{path}{name}[{i}]: expected type {item_type}, got {type(item).__name__}")
-    return errors
+    return errors, unverified
 
 
 def _assistant_tool_calls(transcript: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -176,6 +230,7 @@ def _check_tool_validity(
     somewhere in the registry.
     """
     errors = []
+    unverified_notes = []
     for entry in _assistant_tool_calls(transcript):
         call = entry["call"]
         name = call.get("name")
@@ -190,16 +245,18 @@ def _check_tool_validity(
             errors.append(f"tool call at message {entry['message_index']}: unknown tool '{name}'")
             continue
         params = schema["function"].get("parameters", {})
-        errors.extend(
-            f"tool call at message {entry['message_index']} ({name}): {e}"
-            for e in _validate_arguments(params, call.get("arguments") or {})
-        )
+        arg_errors, arg_unverified = _validate_arguments(params, call.get("arguments") or {})
+        errors.extend(f"tool call at message {entry['message_index']} ({name}): {e}" for e in arg_errors)
+        unverified_notes.extend(f"tool call at message {entry['message_index']} ({name}): {n}" for n in arg_unverified)
     passed = not errors
-    return CheckResult(
-        "tool_calls_valid",
-        passed,
-        "all tool calls are available to this scenario and schema-valid" if passed else "; ".join(errors),
-    )
+    is_unverified = bool(unverified_notes)
+    if passed and not is_unverified:
+        detail = "all tool calls are available to this scenario and schema-valid"
+    elif passed:
+        detail = "no violation found, but " + "; ".join(unverified_notes)
+    else:
+        detail = "; ".join(errors) + (("; " + "; ".join(unverified_notes)) if unverified_notes else "")
+    return CheckResult("tool_calls_valid", passed, detail, unverified=is_unverified and passed)
 
 
 # --------------------------------------------------------------------------
@@ -365,11 +422,21 @@ def _check_dry_run_never_enqueues(transcript: Dict[str, Any], params: Dict[str, 
     return CheckResult(f"dry_run_never_enqueues:{tool}", passed, detail)
 
 
+# Outcomes a call after the last error can carry that do NOT count as
+# recovery: still no evidence of success (None), still failing (error), or
+# evidence the action was explicitly NOT carried out (pending_approval —
+# still just waiting, stale/rejected — actively not applied). A recovery
+# claim needs a POSITIVELY successful outcome, never one of these.
+_NON_RECOVERY_OUTCOMES = {"error", None, "pending_approval", "stale", "rejected"}
+
+
 def _check_error_then_recovery(transcript: Dict[str, Any], params: Dict[str, Any]) -> CheckResult:
     """``{tool, acknowledgement_keywords, max_repeats?}``: after the LAST error
-    from ``tool``, either a later successful call to it or a final answer that
-    acknowledges the issue (contains one of ``acknowledgement_keywords``);
-    and the tool isn't retried more than ``max_repeats`` (default 2) times.
+    from ``tool``, either a POSITIVELY successful later call to it (never a
+    rejected/stale/pending_approval outcome — see ``_NON_RECOVERY_OUTCOMES``)
+    or a final answer that acknowledges the issue (contains one of
+    ``acknowledgement_keywords``); and the tool isn't retried more than
+    ``max_repeats`` (default 2) times.
 
     A success recorded BEFORE the last error does not count as recovery — a
     transcript that succeeds, then fails again, and stops there has not
@@ -385,15 +452,15 @@ def _check_error_then_recovery(transcript: Dict[str, Any], params: Dict[str, Any
     if repeats > max_repeats:
         return CheckResult(f"error_then_recovery:{tool}", False, f"'{tool}' retried {repeats} times, limit {max_repeats}")
     last_error_idx = error_indices[-1]
-    success_after_error = any(m.get("outcome") not in ("error", None) for m in tool_msgs[last_error_idx + 1:])
+    success_after_error = any(m.get("outcome") not in _NON_RECOVERY_OUTCOMES for m in tool_msgs[last_error_idx + 1:])
     answer = (_final_answer(transcript) or "").lower()
     acknowledged = any(k.lower() in answer for k in params.get("acknowledgement_keywords", []))
     passed = success_after_error or acknowledged
     return CheckResult(
         f"error_then_recovery:{tool}", passed,
-        "recovered via a successful call after the last error" if success_after_error
+        "recovered via a positively successful call after the last error" if success_after_error
         else ("recovered via an acknowledging final answer" if acknowledged
-              else "no successful call after the last error, and no acknowledging final answer"),
+              else "no positively successful call after the last error, and no acknowledging final answer"),
     )
 
 
@@ -429,16 +496,40 @@ def evaluate_transcript(
     scenario: Dict[str, Any],
     transcript: Dict[str, Any],
     tool_schemas: Dict[str, Dict],
+    round_boundaries_known: bool = True,
 ) -> ScenarioEvaluation:
-    """Run the structural checks plus the scenario's declared checks."""
+    """Run the structural checks plus the scenario's declared checks.
+
+    ``round_boundaries_known`` (default ``True``, the case for every canned
+    fixture, which is authored with one assistant tool-calls message per
+    real tool-loop round) must be passed ``False`` when scoring a transcript
+    whose per-turn tool calls were folded from a source that doesn't expose
+    real intra-turn round boundaries (the live SSE wire protocol emits one
+    "thinking" status per TURN, not per round — see
+    ``scripts/chat_eval.py``'s ``turn_transcript_messages``). In that case a
+    scenario's ``max_tool_rounds`` check is replaced with an ``unverified``
+    result instead of being computed against the folded (and therefore
+    unreliable) grouping — reporting "we can't tell" beats silently deriving
+    a value that might read as a pass when the real round count was higher.
+    """
     results = [_check_tool_validity(transcript, tool_schemas, scenario.get("tool_names"))]
     for check in scenario.get("checks", []):
         check = dict(check)
         check_type = check.pop("type")
+        if check_type == "max_tool_rounds" and not round_boundaries_known:
+            results.append(CheckResult(
+                "max_tool_rounds", False,
+                "intra-turn tool-loop round boundaries are not exposed by the live SSE wire "
+                "protocol (one 'thinking' status per turn, not per round) - this check cannot "
+                "be evaluated against a live capture and is reported unverified rather than "
+                "derived from the folded per-turn tool-call grouping",
+                unverified=True,
+            ))
+            continue
         handler = _CHECKS.get(check_type)
         if handler is None:
             results.append(CheckResult(check_type, False, f"unknown check type '{check_type}'"))
             continue
         results.append(handler(transcript, check))
-    passed = all(r.passed for r in results)
+    passed = all(r.passed for r in results if not r.unverified)
     return ScenarioEvaluation(scenario_id=scenario.get("id", "<unknown>"), passed=passed, results=results)

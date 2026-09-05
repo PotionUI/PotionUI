@@ -53,7 +53,20 @@ vocabulary (`tool_call_present`, `final_answer_contains_all`,
 of scenario: every tool call names a tool available to THAT scenario (not
 just anything in the registry) with schema-valid arguments — type, required,
 enum, numeric bounds (`minimum`/`maximum`/`exclusiveMinimum`/`exclusiveMaximum`),
-and nested object/array shapes, checked against the tool's real JSON schema.
+array length (`minItems`/`maxItems`), and nested object/array shapes, checked
+against the tool's real JSON schema. `error_then_recovery` requires a
+POSITIVELY successful call after the last error — never a `pending_approval`/
+`stale`/`rejected` outcome, which is evidence the action wasn't actually
+carried out, not evidence of recovery. A property schema carrying a
+constraint this validator doesn't implement (`pattern`, `format`,
+`uniqueItems`, `const`, ...) is never silently treated as satisfied — the
+whole `tool_calls_valid` check is marked `unverified` instead when that
+happens and no violation was otherwise found (see `_HANDLED_CONSTRAINT_KEYWORDS`).
+A `CheckResult` carrying `unverified: true` is reported but never gates
+`ScenarioEvaluation.passed` — used for a constraint the validator can't
+decide, and for `max_tool_rounds` when scoring a live capture whose wire
+protocol doesn't expose real round boundaries (see `evaluate_transcript`'s
+`round_boundaries_known`).
 
 ## Running it
 
@@ -73,7 +86,15 @@ this is what a CI-adjacent sanity check would run. `--scenario <id>` (repeatable
 restricts to specific scenarios; `--out <path>` writes the report JSON to a
 file instead of printing it to stdout.
 
-The pytest suite covers the same fixtures plus negative cases:
+The pytest suite covers the same fixtures plus negative cases, including
+`test_long_history_budget_pressure.py`, which proves the
+`long_history_latest_question` scenario's history genuinely exceeds a stated
+compact capacity through the SAME accounting the app uses
+(`src.features.llm.context_budget.enforce_budget`) — the scenario's
+`context.budget_pressure` block states its capacity assumption explicitly
+(`capacity_tokens`, `capacity_source`, `reserve_tokens`) rather than relying
+on a prose label, and the test asserts real trimming occurs while the
+current turn's own question survives it:
 
 ```bash
 PYTHONPATH=./venv/lib/python3.12/site-packages:. python -m pytest tests/evaluation/chat -q --no-cov
@@ -102,18 +123,30 @@ outcome reachable only through the approval endpoint `run` never calls) can't
 be faithfully reproduced against a real backend's real state — running it
 anyway and hoping the checks happen to pass would be dishonest. Those
 scenarios are reported instead: `http_completed: null`, `passed: false`, and
-a `live_supported` check carrying the fixture's own `live_unsupported_reason`.
-For a supported scenario, the raw SSE event stream for each turn is captured,
-converted into the same transcript shape `evaluator.py` scores (from the
-turn's persisted `done` event — the same `assistant_message.tool_executions`
-`chatStream.ts`'s `applyDone` reads, not the incremental `tool_start`/`tool_end`
-deltas meant for live UI rendering), saved to a file under `--transcripts-dir`,
-and scored with the exact same `evaluate_transcript` checks `replay` uses —
-the report's `transcript` field names that saved file, never the bare string
-`"live"`. `http_completed` (did every turn finish without an HTTP/stream
-error) is reported separately from `passed` (did the captured transcript pass
-its scenario's checks) — a turn can complete successfully over HTTP and still
-fail a task check, and that distinction must survive into the report.
+a `live_supported` check carrying the fixture's own `live_unsupported_reason`
+— counted in the report's `summary.unsupported`, distinct from
+`summary.failed` (a scenario that WAS attempted and did not pass).
+
+For a supported scenario, EVERY turn's raw evidence is captured — the exact
+request payload sent and the exact raw SSE text/parsed events received,
+including any error — and saved alongside the reconstructed transcript (the
+same shape `evaluator.py` scores, built from the turn's persisted `done`
+event's `assistant_message.tool_executions` — the same record `chatStream.ts`'s
+`applyDone` reads, not the incremental `tool_start`/`tool_end` deltas meant
+for live UI rendering) into ONE artifact file per scenario run:
+`<transcripts_dir>/<run_id>/<variant or 'base'>/<config_id>/<scenario_id>.json`,
+where `run_id` is unique per `run` invocation. This means a base+variant
+comparison of the SAME scenario always gets two SEPARATE artifact files —
+earlier this command wrote every config/variant's evidence to the same
+`{scenario_id}.live.json`, so a comparison run silently had the later
+config's evidence overwrite the earlier one's. The report's `transcript`
+field names a row's own artifact file, and re-loading that file's
+`transcript` key and re-running `evaluate_transcript` on it reproduces that
+row's exact score (see `tests/scripts/test_chat_eval_cli.py`'s
+`TestBaseAndVariantProduceDistinctArtifacts`). `http_completed` (did every
+turn finish without an HTTP/stream error) is reported separately from
+`passed` (did the captured transcript pass its scenario's checks) — a turn
+can complete successfully over HTTP and still fail a task check.
 
 Every mutating tool a scenario can reach (`update_form_settings`,
 `start_generation`, `propose_form_changes`, `run_generation`, ...) is already
@@ -122,9 +155,12 @@ approval-gated in the real tool loop — its `execute()` only returns a
 those calls always stay a dry preview; nothing is ever applied. The one
 builtin tool that mutates state *without* an approval gate is `write_memory`
 (see `docs/chat-memory.md`) — it is excluded from every session's
-`enabled_tools` for that reason. `run` never touches this repository's own
-inference code and never loads a model; the selected configuration's provider
-must already be running.
+`enabled_tools` for that reason. `run` never calls this repository's own
+inference code directly, but an explicitly selected `native` configuration's
+checkpoint IS loaded lazily by the backend itself on first use, in-process,
+exactly as it would for any other real chat turn — this command doesn't add
+inference, it just doesn't avoid the inference the backend would run anyway
+for the configuration the caller named.
 
 `--variant compact|large` runs the same scenarios again against a SECOND
 configuration, using an **explicit** `provider_options.context_window` test
@@ -147,25 +183,41 @@ Both entry points write the same JSON shape (documented in full in
 scenario carrying `http_completed` (HTTP/stream success; always `null` in
 `replay`, since no HTTP call happens there) separately from `passed` (task
 correctness — did the transcript pass `evaluate_transcript`'s checks) plus
-the individual `checks`, and, when known, the provider identity (`config_id`/
-`type`/`model`/`is_default` — no fabricated "revision" field; LLM
-configurations don't have one), effective `thinking_mode`, the context
-ledger's `capacity_tokens` / `capacity_source` / `accounting_tier` (the
-ledger's `accounting` field: `"estimate"`, `"chat_template"`, ... — see
-`src/features/llm/context_budget.py`) and its `measured` qualifier (whether
-that tier came from an exact chat-template recount or a fragment estimate),
-plus component sizes (system prompt, tool schemas, memory, history),
-input/output token counts, `tool_rounds` (turns that used at least one tool —
-a coarse measure) separately from `tool_executions` (the precise total count
-of individual tool calls), and any errors. A metric this run could not
-actually measure is marked `"unverified": true` (or, for a value that might
-legitimately be a known `null`, a `{"value": ..., "unverified": bool}` pair —
-used for token counts and latency/memory) rather than silently defaulted to
-`0`/`None` and presented as a known value. Every field is unverified in
-`replay` mode; in `run` mode, latency/memory always are (the HTTP round trip
-exposes neither the backend's own timing nor its RSS), and any per-field
-value the provider itself didn't report is marked unverified rather than
-guessed.
+the individual `checks` (each with its own `unverified` flag), and, when
+known, the provider identity (`config_id`/`type`/`model`/`is_default` — no
+fabricated "revision" field; LLM configurations don't have one), effective
+`thinking_mode`, the context ledger's `capacity_tokens` / `capacity_source` /
+`accounting_tier` (the ledger's `accounting` field: `"estimate"`,
+`"chat_template"`, ... — see `src/features/llm/context_budget.py`) and its
+`measured` qualifier (whether that tier came from an exact chat-template
+recount or a fragment estimate), plus component sizes (system prompt, tool
+schemas, memory, history), input/output token counts, `turns_with_tools`
+(user turns that used at least one tool — a coarse measure) separately from
+`tool_executions` (the precise total count of individual tool calls), and
+`actual_rounds` (the exact count of real tool-loop decision rounds) —
+`unverified: false` for `replay`'s canned transcripts (authored with one
+assistant tool-calls message per real round) but ALWAYS `unverified: true`
+for a live `run` capture, because the live SSE wire protocol emits one
+`status: thinking` event per TURN, not per round, so real round boundaries
+can't be recovered from it; `max_tool_rounds` itself is likewise reported
+`unverified` rather than scored against the unreliable per-turn grouping when
+checking a live capture. `tool_durations_ms` and `behavior_trace_steps`
+retain the REAL, backend-measured per-tool and per-phase timings the
+persisted `assistant_message` already carries (labeled `measured: true`,
+unlike the always-unverified `latency_ms`/`memory_mb` below, which this
+script has no way to measure itself). The summary distinguishes
+`unsupported` (a scenario reported but never attempted, because its fixture
+isn't `live_supported`) from `failed` (a scenario that WAS attempted and did
+not pass) — `passed + failed + unsupported == total` always.
+
+A metric this run could not actually measure is marked `"unverified": true`
+(or, for a value that might legitimately be a known `null`, a
+`{"value": ..., "unverified": bool}` pair — used for token counts and
+latency/memory) rather than silently defaulted to `0`/`None` and presented as
+a known value. Every field is unverified in `replay` mode; in `run` mode,
+latency/memory always are (the HTTP round trip exposes neither the backend's
+own timing nor its RSS), and any per-field value the provider itself didn't
+report is marked unverified rather than guessed.
 
 ## Human review rubric
 

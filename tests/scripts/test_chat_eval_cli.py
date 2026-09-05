@@ -159,7 +159,83 @@ class TestRunVariantNeverMutatesUserConfig:
         report = json.loads((tmp_path / "report.json").read_text())
         variants_seen = {r["variant"] for r in report["results"]}
         assert None in variants_seen and "compact" in variants_seen
-        assert exit_code != 0  # tool_error_recovery is live_supported=false -> reported, never passed
+        # tool_error_recovery is live_supported=false -> reported unsupported,
+        # never counted as a failed task, so a scenario-only-unsupported run
+        # exits clean.
+        assert exit_code == 0
+        assert report["summary"]["unsupported"] == 2
+        assert report["summary"]["failed"] == 0
+
+
+class TestBaseAndVariantProduceDistinctArtifacts:
+    """A base+variant run over the SAME scenario must write two SEPARATE
+    artifact files (the pre-fix bug: both wrote the same {scenario}.live.json,
+    so the base row's evidence was silently overwritten by the variant's),
+    and re-scoring each artifact independently must reproduce that row's own
+    reported score - proving the artifact IS what got scored, not something
+    reconstructed differently after the fact.
+    """
+
+    def test_distinct_artifacts_and_reproducible_re_scoring(self, monkeypatch, tmp_path):
+        config = _config_response(config_id="cfg-1")
+        clone = _config_response(config_id="cfg-clone", name=f"{config['name']} [chat-eval 4096-token test budget]")
+
+        base_done = json.dumps({"assistant_message": {
+            "content": "Yes - 30 steps with dpmpp_2m and cfg 5.5 is a solid starting point.",
+        }})
+        # Deliberately fails the scenario's own final_answer_contains_all
+        # check (missing "dpmpp_2m") so the two rows have DIFFERENT scores.
+        variant_done = json.dumps({"assistant_message": {
+            "content": "Sure, that sounds like a reasonable setup overall.",
+        }})
+
+        def responder(method, url, payload):
+            if method == "GET" and url.endswith("/api/llm/configurations/cfg-1"):
+                return json.dumps({"success": True, "data": config})
+            if method == "GET" and url.endswith("/api/llm/configurations/cfg-clone"):
+                return json.dumps({"success": True, "data": clone})
+            if method == "POST" and url.endswith("/api/llm/configurations"):
+                return json.dumps({"success": True, "data": {"id": "cfg-clone"}})
+            if method == "DELETE" and url.endswith("/api/llm/configurations/cfg-clone"):
+                return json.dumps({"success": True, "data": {"id": "cfg-clone"}})
+            if method == "POST" and url.endswith("/api/chat/sessions"):
+                session_id = "sess-base" if payload["llm_config_id"] == "cfg-1" else "sess-variant"
+                return json.dumps({"success": True, "data": {"id": session_id}})
+            if method == "POST" and "/messages/stream" in url:
+                return f"event: done\ndata: {base_done}\n\n" if "sess-base" in url else f"event: done\ndata: {variant_done}\n\n"
+            raise AssertionError(f"unexpected call: {method} {url}")
+
+        _install_fake_http(monkeypatch, responder)
+
+        args = chat_eval.build_parser().parse_args([
+            "run", "--config", "cfg-1", "--variant", "compact",
+            "--scenario", "factual_answer_context",
+            "--transcripts-dir", str(tmp_path / "transcripts"),
+            "--out", str(tmp_path / "report.json"),
+        ])
+        chat_eval.cmd_run(args)
+
+        report = json.loads((tmp_path / "report.json").read_text())
+        base_row = next(r for r in report["results"] if r["variant"] is None)
+        variant_row = next(r for r in report["results"] if r["variant"] == "compact")
+
+        assert base_row["transcript"] != variant_row["transcript"], "base and variant must not share one artifact path"
+        assert Path(base_row["transcript"]).is_file()
+        assert Path(variant_row["transcript"]).is_file()
+        assert base_row["passed"] is True
+        assert variant_row["passed"] is False
+
+        from tests.evaluation.chat import fixtures as chat_fixtures, tool_snapshot
+        from tests.evaluation.chat.evaluator import evaluate_transcript
+
+        scenario = chat_fixtures.load_all_scenarios()["factual_answer_context"]
+        tool_schemas = tool_snapshot.schemas_by_name()
+        for row in (base_row, variant_row):
+            artifact = json.loads(Path(row["transcript"]).read_text())
+            assert artifact["turns"], "raw per-turn evidence (request + raw SSE + events) must be preserved"
+            assert artifact["turns"][0]["raw_sse_text"], "the exact raw SSE text as received must be preserved"
+            re_scored = evaluate_transcript(scenario, artifact["transcript"], tool_schemas, round_boundaries_known=False)
+            assert re_scored.passed == row["passed"], "re-scoring the saved artifact must reproduce its own row's score"
 
 
 class TestSseParsing:
@@ -195,7 +271,10 @@ class TestTurnTranscriptFromDoneEvent:
         messages, assistant_message = chat_eval.turn_transcript_messages("What model am I using?", events)
         assert messages[0] == {"role": "user", "content": "What model am I using?"}
         assert messages[1]["tool_calls"] == [{"name": "get_active_models", "arguments": {}}]
-        assert messages[2] == {"role": "tool", "name": "get_active_models", "content": "{\"models\": []}", "outcome": "ok"}
+        assert messages[2] == {
+            "role": "tool", "name": "get_active_models", "content": "{\"models\": []}",
+            "outcome": "ok", "duration_ms": None,
+        }
         assert messages[3]["content"] == "You're generating with JuggernautXL v9."
         assert assistant_message["content"] == "You're generating with JuggernautXL v9."
 

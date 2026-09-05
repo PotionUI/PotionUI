@@ -52,6 +52,32 @@ class TestFixtureSchemas:
                 assert scenario.get("live_unsupported_reason"), f"'{scenario_id}' is not live_supported but has no live_unsupported_reason"
 
 
+class TestRoundBoundariesUnknown:
+    """When ``round_boundaries_known=False`` (a live capture), max_tool_rounds
+    must be reported unverified rather than scored against the (unreliable,
+    for a live capture) per-turn tool-call grouping."""
+
+    def test_max_tool_rounds_is_unverified_and_does_not_gate_passed(self, scenarios, tool_schemas):
+        # read_form_state's checks include {"type": "max_tool_rounds", "max": 1}.
+        transcript = fixtures.load_transcript(fixtures.TRANSCRIPTS_DIR / "read_form_state.good.json")
+        scenario = fixtures.scenario_for_transcript(transcript)
+
+        known = evaluate_transcript(scenario, transcript, tool_schemas, round_boundaries_known=True)
+        unknown = evaluate_transcript(scenario, transcript, tool_schemas, round_boundaries_known=False)
+
+        known_rounds_check = next(r for r in known.results if r.check == "max_tool_rounds")
+        assert known_rounds_check.unverified is False
+
+        unknown_rounds_check = next(r for r in unknown.results if r.check == "max_tool_rounds")
+        assert unknown_rounds_check.unverified is True
+        assert unknown_rounds_check.passed is False  # not "known passing" - just excluded from the gate
+
+        # Excluded from failures() and from the passed gate - a scenario that
+        # would otherwise pass isn't failed merely for an unmeasurable check.
+        assert unknown_rounds_check not in unknown.failures()
+        assert unknown.passed == known.passed
+
+
 class TestGoodTranscriptsPass:
     """Every '<scenario>.good' transcript satisfies its own scenario's checks."""
 
@@ -115,3 +141,19 @@ class TestNegativeFixturesFailTheirIntendedCheck:
         validity = next(r for r in result.results if r.check == "tool_calls_valid")
         assert not validity.passed, "expected tool validity to fail a rating above the schema's maximum"
         assert "maximum" in validity.detail
+
+    def test_minitems_violation_fails_tool_validity(self, scenarios, tool_schemas):
+        """propose_form_changes.ops has a real schema minItems of 1; an empty list must fail."""
+        result, _ = _evaluate("bad_minitems_violation", scenarios, tool_schemas)
+        assert not result.passed
+        validity = next(r for r in result.results if r.check == "tool_calls_valid")
+        assert not validity.passed, "expected tool validity to fail an empty ops array against minItems=1"
+        assert "minItems" in validity.detail
+
+    def test_recovery_via_pending_approval_is_not_positive_success(self, scenarios, tool_schemas):
+        """A pending_approval (or stale/rejected) outcome after an error is not
+        recovery - only a positively successful call counts."""
+        result, _ = _evaluate("bad_recovery_via_pending_approval", scenarios, tool_schemas)
+        assert not result.passed
+        recovery = next(r for r in result.results if r.check.startswith("error_then_recovery"))
+        assert not recovery.passed, "expected recovery check to fail when the only post-error outcome is pending_approval"

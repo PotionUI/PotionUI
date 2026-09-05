@@ -1956,6 +1956,28 @@ If you already have a working ComfyUI graph, don't hand-write the preset — imp
    names its path so the previous preset's content can be moved back to the target directory by
    hand.
 
+   **Exact large integers.** A browser's own `JSON.parse`/`JSON.stringify` silently rounds an
+   integer literal outside JavaScript's safe range (`Number.MAX_SAFE_INTEGER`, `+/-(2**53-1)`) to
+   the nearest representable double - a large seed or other oversized literal in a pasted/uploaded
+   workflow is exactly the kind of value that hits this the moment client code touches it as a
+   parsed object, well before any network request. `analyze`/`requirements`/`import` accept an
+   additional `workflow_text` request field alongside `workflow` - the exact source text, never
+   parsed into a JS object - which is authoritative over `workflow` for every literal value when
+   given (re-decoded server-side with the stdlib `json` module, whose default integer parsing is
+   already exact at any size); `workflow` alone still works exactly as before for a caller that
+   never sends `workflow_text`. Symmetrically, every response that might echo a literal value
+   pulled from a parsed workflow (a candidate's `current_value`, a generated field's `default`,
+   the stored `workflow` dict itself) replaces any integer outside that same safe range with
+   `{"__exact_int__": "<digits>"}` - a plain string a browser's `JSON.parse` reproduces exactly,
+   never converts to a number and re-rounds. `GET .../presets/imported/{id}/source` additionally
+   returns `workflow_text` - the stored workflow file's exact text, never round-tripped through
+   `json.loads`/`json.dumps` at all - for the wizard's edit/modify flow to keep and resubmit
+   unchanged instead of re-serializing the (now correctly tagged, but still JS-object) `workflow`
+   field. `POST .../presets/imported/{id}/reload` needs none of this: it always re-reads its own
+   stored file server-side and never receives a workflow from the client at all, so it was already
+   exact. None of this repairs a preset already saved with a rounded value from before this existed
+   - only the transport for a workflow still in flight through the wizard.
+
    **Schema consistency.** `analyze`/`source` resolve a reachable ComfyUI backend's `object_info`
    once and classify every candidate from it (which inputs are prompts, which are model files and
    under which `models/` folder); the response carries that classification's own

@@ -78,6 +78,57 @@ def _parse_workflow(raw_workflow: Dict[str, Any]) -> Workflow:
         raise HTTPException(status_code=400, detail=str(e))
 
 
+def _resolve_workflow_json(workflow: Dict[str, Any], workflow_text: Optional[str]) -> Dict[str, Any]:
+    """The dict every import endpoint actually parses: `workflow_text` (see
+    `AnalyzeWorkflowRequest.workflow_text`) when the caller sent one, else
+    the plain `workflow` dict, unchanged, for a caller that didn't. The
+    `json` stdlib decoder's default integer parsing is already exact for an
+    arbitrarily large literal (only a value with a decimal point or exponent
+    becomes a `float`) - no `parse_int` override needed, just a decoder that
+    never touched JavaScript."""
+    if workflow_text is None:
+        return workflow
+    try:
+        parsed = json.loads(workflow_text)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"workflow_text is not valid JSON: {e}")
+    if not isinstance(parsed, dict):
+        raise HTTPException(status_code=400, detail="workflow_text must decode to a JSON object.")
+    return parsed
+
+
+# JavaScript's `Number` is an IEEE-754 double: an integer literal is only
+# exactly representable up to this magnitude (`Number.MAX_SAFE_INTEGER`,
+# 2**53-1) - anything beyond it silently rounds the instant a browser's own
+# `JSON.parse` touches it. Every response below that might echo a literal
+# value straight out of a parsed workflow (a candidate's `current_value`, a
+# generated field's `default`, the stored workflow dict itself) is walked
+# through `_make_json_safe` before it leaves this process, so an oversized
+# int is never handed to the client as a raw JSON number for its own
+# JSON.parse to mangle.
+_JS_MAX_SAFE_INTEGER = (1 << 53) - 1
+
+
+def _make_json_safe(value: Any) -> Any:
+    """Recursively replace any `int` outside JS's safe integer range with
+    `{"__exact_int__": "<digits>"}` - a plain JSON string survives a
+    browser's JSON.parse byte-for-byte, unlike a JSON number in that range.
+    `bool` is checked first since `bool` is an `int` subclass in Python.
+    Not a regex/string rewrite: this walks the already-decoded Python value
+    tree (ints are still real Python ints here, exact at any size), so it
+    can never misidentify a numeric-looking string or mis-tag a value nested
+    inside one."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and not (-_JS_MAX_SAFE_INTEGER <= value <= _JS_MAX_SAFE_INTEGER):
+        return {"__exact_int__": str(value)}
+    if isinstance(value, dict):
+        return {key: _make_json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_make_json_safe(item) for item in value]
+    return value
+
+
 @dataclass
 class _ConfiguredBackendConfig:
     """Duck-types the `.config.get_base_url()` shape `backend.requirements`'s
@@ -231,10 +282,27 @@ async def clear_vram(current_user=Depends(get_current_admin_user)):
 
 class AnalyzeWorkflowRequest(BaseModel):
     workflow: Dict[str, Any]
+    # The exact source text of the same workflow - byte-for-byte as pasted or
+    # uploaded, never round-tripped through the browser's own JSON.parse/
+    # JSON.stringify. `workflow` above has already made that round trip by
+    # the time it reaches this request body, which silently rounds any
+    # integer literal outside JS's safe range (Number.MAX_SAFE_INTEGER,
+    # +/-(2**53-1)) to the nearest representable double - a workflow seed or
+    # other large literal is exactly the kind of value that lands there.
+    # `workflow_text`, when given, is authoritative over `workflow` for
+    # every literal value: it is re-decoded server-side with the stdlib
+    # `json` module, whose default integer parsing keeps an arbitrarily
+    # large literal exact (see `_resolve_workflow_json`). Optional and
+    # purely additive - an existing dict-only client (this field didn't
+    # exist before) is unaffected and keeps working exactly as before.
+    workflow_text: Optional[str] = None
 
 
 class ImportWorkflowRequest(BaseModel):
     workflow: Dict[str, Any]
+    # See `AnalyzeWorkflowRequest.workflow_text` - same authoritative-when-
+    # present contract, resolved by the same `_resolve_workflow_json`.
+    workflow_text: Optional[str] = None
     # Raw dicts, not typed as ImportForm/List[HistoryEntry] directly: a bad
     # shape here is turned into a 400 with a clear message by
     # `schema.parse_form`/`parse_history` (see the module's own
@@ -280,19 +348,19 @@ async def analyze_workflow(
     """Parse a ComfyUI Export (API) workflow and suggest form fields for its
     configurable node inputs, for the import UI to let an admin tick which
     ones become preset form fields."""
-    workflow = _parse_workflow(body.workflow)
+    workflow = _parse_workflow(_resolve_workflow_json(body.workflow, body.workflow_text))
 
     resolved = await _resolve_analysis(workflow)
     default_form = build_default_form(resolved.analysis)
     default_history = build_default_history(default_form, resolved.analysis)
-    return {
+    return _make_json_safe({
         **resolved.analysis.to_dict(),
         "format": "api",
         "object_info_used": resolved.object_info is not None,
         "schema_fingerprint": resolved.fingerprint,
         "default_form": default_form.model_dump(mode="json"),
         "default_history": [entry.model_dump(mode="json") for entry in default_history],
-    }
+    })
 
 
 @router.post("/presets/import/requirements")
@@ -305,7 +373,7 @@ async def preview_workflow_requirements(
     the admin has chosen as form fields - the import wizard's Requirements
     step, run before the preset itself exists so there is nothing yet for
     the core preset-requirements evaluator to check against."""
-    workflow = _parse_workflow(body.workflow)
+    workflow = _parse_workflow(_resolve_workflow_json(body.workflow, body.workflow_text))
 
     resolved = await _resolve_analysis(workflow)
     entries = _infer_requirements(
@@ -350,7 +418,7 @@ async def import_workflow(
     """Write a lint-clean preset directory under content/presets/local from a
     ComfyUI Export (API) workflow plus the admin's `form`/`history` (see
     /presets/import/analyze's default_form/default_history)."""
-    workflow = _parse_workflow(body.workflow)
+    workflow = _parse_workflow(_resolve_workflow_json(body.workflow, body.workflow_text))
     resolved = await _resolve_analysis(workflow)
 
     try:
@@ -485,8 +553,8 @@ def _find_imported_preset(preset_id: str) -> Optional[_ImportedPresetEntry]:
     return None
 
 
-def _read_stored_workflow(entry: _ImportedPresetEntry) -> Dict[str, Any]:
-    """The raw workflow JSON this preset was built from. A preset imported
+def _resolve_stored_workflow_path(entry: _ImportedPresetEntry) -> Path:
+    """The workflow file this preset was built from. A preset imported
     before this importer dropped UI-format support may still have a kept
     `<mode>.ui.json` alongside the converted `<mode>.json` - that file is
     still preferred here (same historical source the preset was built from),
@@ -501,9 +569,29 @@ def _read_stored_workflow(entry: _ImportedPresetEntry) -> Dict[str, Any]:
     source_path = ui_path if ui_path.is_file() else api_path
     if not source_path.is_file():
         raise HTTPException(status_code=404, detail="This preset's source workflow file is missing.")
+    return source_path
+
+
+def _read_stored_workflow_text(entry: _ImportedPresetEntry) -> str:
+    """The stored workflow file's exact text - never round-tripped through
+    `json.loads`/`json.dumps`, so an integer literal outside JS's safe range
+    survives verbatim. This is what `/source` hands back as `workflow_text`
+    for the wizard's edit/modify flow to resubmit unchanged, instead of
+    re-`JSON.stringify`ing an already-rounded parsed object (see
+    `_make_json_safe` / docs/presets.md's "Exact large integers" note)."""
+    source_path = _resolve_stored_workflow_path(entry)
     try:
-        return json.loads(source_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as e:
+        return source_path.read_text(encoding="utf-8")
+    except OSError as e:
+        raise HTTPException(status_code=400, detail=f"Could not read the stored workflow: {e}")
+
+
+def _read_stored_workflow(entry: _ImportedPresetEntry) -> Dict[str, Any]:
+    """The raw workflow JSON this preset was built from - see
+    `_read_stored_workflow_text` for the exact-text counterpart."""
+    try:
+        return json.loads(_read_stored_workflow_text(entry))
+    except json.JSONDecodeError as e:
         raise HTTPException(status_code=400, detail=f"Could not read the stored workflow: {e}")
 
 
@@ -543,7 +631,11 @@ async def get_imported_preset_source(preset_id: str, current_user=Depends(get_cu
     if entry is None:
         raise HTTPException(status_code=404, detail="Imported preset not found.")
 
-    raw_workflow = _read_stored_workflow(entry)
+    workflow_text = _read_stored_workflow_text(entry)
+    try:
+        raw_workflow = json.loads(workflow_text)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"Could not read the stored workflow: {e}")
     workflow = _parse_workflow(raw_workflow)
 
     resolved = await _resolve_analysis(workflow)
@@ -561,8 +653,13 @@ async def get_imported_preset_source(preset_id: str, current_user=Depends(get_cu
     except PresetEmitError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    return {
+    return _make_json_safe({
         "workflow": raw_workflow,
+        # The exact stored bytes, for the wizard to keep and resubmit as
+        # `workflow_text` on "Update preset" instead of re-serializing
+        # `workflow` above (which this same response has already tagged any
+        # oversized literal in) - see `_read_stored_workflow_text`.
+        "workflow_text": workflow_text,
         **analysis.to_dict(),
         "format": "api",
         "object_info_used": resolved.object_info is not None,
@@ -572,7 +669,7 @@ async def get_imported_preset_source(preset_id: str, current_user=Depends(get_cu
         "display_name": entry.preset_yml.get("name", entry.variant),
         "form": form.model_dump(mode="json"),
         "history": [e.model_dump(mode="json") for e in history],
-    }
+    })
 
 
 @router.post("/presets/imported/{preset_id}/reload")

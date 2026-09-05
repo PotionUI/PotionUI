@@ -63,6 +63,7 @@ from vendor.gpl.comfyui.z_image.layers import (
 
 from ...attention import attention as _dispatch_attention
 from ...base import NativeArchModule
+from ...cache_identity import identity_usable, tensor_identity
 from .config import ZImageConfig
 
 # vendor/gpl/comfyui/z_image/layers.py must not import src (layering guard) —
@@ -93,6 +94,11 @@ class _Geometry:
     guidance branches, and only the captions differ between them. Each caption
     carries the weight revision in its own key too, so a branch refined under
     superseded weights can never answer even while its geometry entry lives.
+
+    ``context`` is pinned alongside each refined caption. ``tensor_identity``
+    already rejects a stale entry after an in-place write; pinning additionally
+    stops a freed caption's address being re-let to a new tensor that would then
+    present the same identity.
     """
 
     __slots__ = ("cap_rope", "img_rope", "joint_rope", "captions")
@@ -236,22 +242,29 @@ class ZImageDiT(NativeArchModule):
         steps: a step-windowed adapter applies and restores DURING a run, so a
         value captured once at run start would answer with a caption refined by
         weights that are no longer in effect.
+
+        ``bsz``, ``cap_len``, the device and the compute dtype are absent from the
+        key ON PURPOSE — the geometry entry these captions hang off is already
+        keyed on all four. Move the captions out from under it and they have to
+        come back.
         """
         cache = getattr(self, "run_cache", None)
         revision = cache.revision if cache is not None else 0
-        key = (revision, context.data_ptr(), tuple(context.shape), context.dtype,
-               context.device, bsz, cap_len, dtype)
-        hit = geometry.captions.get(key)
-        if hit is not None:
-            return hit.cap
+        identity = tensor_identity(context)
+        key = (revision, identity) if identity_usable(identity) else None
+        if key is not None:
+            hit = geometry.captions.get(key)
+            if hit is not None:
+                return hit.cap
 
         cap = self.cap_embedder(context)
         cap = self._pad_tokens(cap, self.cap_pad_token)
         for layer in self.context_refiner:
             cap = layer(cap, geometry.cap_rope, None)
-        while len(geometry.captions) >= self._CAPTION_SLOTS:
-            del geometry.captions[next(iter(geometry.captions))]
-        geometry.captions[key] = _RefinedCaption(cap, context)
+        if key is not None:
+            while len(geometry.captions) >= self._CAPTION_SLOTS:
+                del geometry.captions[next(iter(geometry.captions))]
+            geometry.captions[key] = _RefinedCaption(cap, context)
         return cap
 
     # -- forward ------------------------------------------------------------

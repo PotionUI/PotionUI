@@ -16,6 +16,7 @@ from __future__ import annotations
 import torch
 
 from src.platform.runtime.native.arch.z_image.model import ZImageDiT
+from src.platform.runtime.native.cache_identity import tensor_identity
 from src.platform.runtime.native.engine import RunCache
 
 from .test_z_image_model import ZTINY, _build
@@ -323,6 +324,74 @@ def test_a_new_geometry_is_built_when_the_token_grid_changes():
     _run(m, _latent(1, 8, 8), [ctx])
 
     assert counts.rope == 4
+
+
+# -- caption identity -------------------------------------------------------
+
+
+def test_an_in_place_write_to_the_caption_is_not_a_hit():
+    """``context.mul_(2)`` leaves address, shape, dtype and device untouched.
+
+    Nothing in the sampling path writes to conditioning mid-run, but the key must
+    not be the thing standing between that and a silently wrong image.
+    """
+    m = _build()
+    x = _latent(1, 16, 16)
+    ctx = _context(3)
+    _attach(m)
+    counts = _Counts(m)
+
+    with torch.no_grad():
+        before = m(x, torch.full((1,), 0.5), ctx)
+        ctx.mul_(2.0)
+        after = m(x, torch.full((1,), 0.5), ctx)
+
+    assert counts.cap_embedder == 2
+    assert not torch.allclose(before, after)
+
+
+def test_two_strided_views_of_one_storage_are_not_the_same_caption():
+    """Same address, same shape, different stride, different elements."""
+    m = _build()
+    x = _latent(1, 16, 16)
+    square = torch.randn(1, ZTINY["cap_feat_dim"], ZTINY["cap_feat_dim"])
+    transposed = square.transpose(1, 2)
+    assert square.data_ptr() == transposed.data_ptr()
+    assert square.shape == transposed.shape
+    assert square.stride() != transposed.stride()
+    _attach(m)
+    counts = _Counts(m)
+
+    with torch.no_grad():
+        a = m(x, torch.full((1,), 0.5), square)
+        b = m(x, torch.full((1,), 0.5), transposed)
+
+    assert counts.cap_embedder == 2
+    assert not torch.allclose(a, b)
+
+
+def test_an_inference_tensor_caption_still_caches():
+    """The real path's conditioning IS inference tensors — the cache must not die.
+
+    Native text encoders encode under ``inference_mode`` and the engine's cond
+    move is a no-op ``.to()`` when device and dtype already match, so the DiT is
+    handed inference tensors. They carry no version counter; treating that as
+    unidentifiable would leave the cache dead in production while every test built
+    on plain tensors kept passing.
+    """
+    with torch.inference_mode():
+        ctx = _context(3)
+    assert ctx.is_inference()
+    assert tensor_identity(ctx) is not None
+
+    m = _build()
+    x = _latent(1, 16, 16)
+    _attach(m)
+    counts = _Counts(m)
+
+    _run(m, x, [ctx])
+
+    assert counts.cap_embedder == 1
 
 
 # -- retention --------------------------------------------------------------

@@ -154,9 +154,11 @@ def stitch_segments(
     chain_video_wan22/main.py) derives each join's value from that segment's
     OWN executed geometry -- one segment's overlap must never leak onto
     another join. Raises `ValueError` if `segment_paths` is empty, if
-    `overlaps` isn't exactly `len(segment_paths) - 1` long, or if any
-    non-first segment has fewer frames than its own join's overlap (nothing
-    would be left to include from it after the blended region).
+    `overlaps` isn't exactly `len(segment_paths) - 1` long, if any non-first
+    segment has fewer frames than its own join's overlap (nothing would be
+    left to include from it after the blended region), or if a join's
+    overlap exceeds the frames accumulated so far (a caller bug -- silently
+    clipping here would discard footage instead of crossfading it).
 
     When every join's overlap is 0, this first tries an ffmpeg concat-demuxer
     stream-copy (see `_can_stream_copy`/`_stream_copy_concat`) -- no decode,
@@ -195,6 +197,18 @@ def stitch_segments(
             raise ValueError(
                 f"stitch_segments: segment {i} ({path}) has only {len(segment)} frame(s), "
                 f"not enough to drop its {overlap}-frame join overlap"
+            )
+        if len(frames) < overlap:
+            # A slice-assign of frames[-overlap:] would silently clip to
+            # whatever's accumulated instead of raising -- crossfading fewer
+            # frames than the caller asked for and discarding the rest of
+            # the incoming segment's replayed context as if it were real
+            # content. The caller's overlap must never exceed what's
+            # actually there to blend against.
+            raise ValueError(
+                f"stitch_segments: join {i} overlap ({overlap}) exceeds the {len(frames)} "
+                f"frame(s) accumulated so far -- would silently discard footage instead "
+                f"of crossfading it"
             )
         frames[-overlap:] = _crossfade_overlap(frames[-overlap:], segment[:overlap])
         frames.extend(segment[overlap:])

@@ -103,6 +103,20 @@ def test_overlaps_length_must_match_join_count():
                          frame_reader=reader, encode=lambda f, p, fps: None)
 
 
+def test_overlap_exceeding_accumulated_frames_raises_instead_of_truncating():
+    # segment 0 has only 1 frame accumulated, but the join into segment 1
+    # claims a 12-frame overlap -- a caller bug (e.g. main.py assuming a
+    # short opener supplied a full tail_count of context). Silently slicing
+    # frames[-12:] on a 1-frame list would clip to just that 1 frame and
+    # discard the rest of segment 1's content instead of crossfading it; this
+    # must raise instead.
+    segments_frames = {"a.mp4": [10], "b.mp4": list(range(20, 33))}  # b has 13 frames
+    reader = _reader_factory(segments_frames)
+    with pytest.raises(ValueError, match="exceeds the 1 frame"):
+        stitch_segments(list(segments_frames), overlaps=[12], out_path="o.mp4", fps=24,
+                         frame_reader=reader, encode=lambda f, p, fps: None)
+
+
 def test_each_join_uses_its_own_overlap_independently():
     # Three segments: join 1 (a->b) overlaps=2 and crossfades; join 2 (b->c)
     # overlaps=0 and is a plain concatenation. Neither join's value leaks into

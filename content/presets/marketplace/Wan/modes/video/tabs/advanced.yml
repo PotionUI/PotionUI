@@ -60,6 +60,33 @@ fields:
             - { label: "Model default (shift)", value: "" }
             - { label: "Beta", value: "beta" }
             - { label: "Exponential", value: "exponential" }
+            - { label: "Linear-quadratic", value: "linear_quadratic" }
+
+      # Linear-quadratic-only params (LTX-lineage ramp: linear for the first
+      # `linear_steps`, quadratic for the tail). Hidden unless that scheduler is
+      # picked; ignored outright by 'manual_sigmas' below, same as the scheduler
+      # select itself.
+      - type: "row"
+        children:
+          - name: "linear_quadratic_threshold_noise"
+            type: "slider"
+            label: "Threshold noise"
+            default: 0.025
+            configuration: {min: 0.001, max: 0.5, step: 0.001}
+            reactions:
+              - when: { field: "schedule", equals: "linear_quadratic" }
+                then: { set_visibility: true }
+              - when: { field: "schedule", not_equals: "linear_quadratic" }
+                then: { set_visibility: false }
+          - name: "linear_quadratic_linear_steps"
+            type: "number"
+            label: "Linear steps (optional)"
+            configuration: {min: 1, step: 1, placeholder: "steps // 2"}
+            reactions:
+              - when: { field: "schedule", equals: "linear_quadratic" }
+                then: { set_visibility: true }
+              - when: { field: "schedule", not_equals: "linear_quadratic" }
+                then: { set_visibility: false }
 
       - name: "manual_sigmas"
         type: "textbox"
@@ -197,6 +224,33 @@ fields:
             type: "slider"
             label: "Sigma end"
             default: 0.0
+            configuration: {min: 0.0, max: 1.0, step: 0.05}
+
+  - type: "section"
+    label: "Detail warp (sigma daemon)"
+    audience: "advanced"
+    children:
+      # Bumps mid-trajectory sigmas up (positive) or down (negative) over a
+      # start/end window of the run's fraction, a structure/fine-detail lever
+      # independent of which scheduler built the base sigmas above -- it still
+      # applies on top of 'manual_sigmas' (only the scheduler PICK loses to a
+      # manual list; this warp does not). Strength 0 = off.
+      - type: "row"
+        children:
+          - name: "detail_strength"
+            type: "slider"
+            label: "Strength"
+            default: 0.0
+            configuration: {min: -0.3, max: 0.3, step: 0.01}
+          - name: "detail_start"
+            type: "slider"
+            label: "Window start"
+            default: 0.1
+            configuration: {min: 0.0, max: 1.0, step: 0.05}
+          - name: "detail_end"
+            type: "slider"
+            label: "Window end"
+            default: 0.9
             configuration: {min: 0.0, max: 1.0, step: 0.05}
 
   - type: "section"

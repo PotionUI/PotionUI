@@ -259,6 +259,18 @@
           "type": "bool",
           "value": true
         },
+        "detail_end": {
+          "type": "float",
+          "value": 0.9
+        },
+        "detail_start": {
+          "type": "float",
+          "value": 0.1
+        },
+        "detail_strength": {
+          "type": "float",
+          "value": 0.0
+        },
         "expert_boundary": {
           "type": "str",
           "value": ""
@@ -326,6 +338,14 @@
         "schedule": {
           "type": "str",
           "value": ""
+        },
+        "schedule_options.linear_steps": {
+          "type": "NoneType",
+          "value": null
+        },
+        "schedule_options.threshold_noise": {
+          "type": "float",
+          "value": 0.025
         },
         "slg_layers": {
           "type": "str",

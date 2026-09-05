@@ -4,8 +4,8 @@ Anima/Flux/SDXL use on their own Advanced tabs, followed by feature blocks.
 Long-video RoPE (RIFLEx) is the only block with a genuine checkbox enable --
 it renders as a `gate` field (the collapsible-with-real-boolean idiom, matching
 the SDXL ADM/SAG gates). The other blocks (Expert switching, NAG, CFG-Zero*,
-APG, SLG, FreeInit, Step cache) switch on a param value rather than a
-checkbox, so they stay plain sections.
+APG, SLG, Detail warp, FreeInit, Step cache) switch on a param value rather
+than a checkbox, so they stay plain sections.
 
 The assertions run through the same path that serves `GET /api/presets/{id}/form`
 (PresetTemplateLoader -> PresetFormSerializer.process_form_fields) since a tab
@@ -30,6 +30,8 @@ EXPECTED_FIELD_NAMES = {
     "sampler",
     "cfg",
     "schedule",
+    "linear_quadratic_threshold_noise",
+    "linear_quadratic_linear_steps",
     "manual_sigmas",
     "expert_boundary_preset",
     "expert_switch_step",
@@ -45,6 +47,9 @@ EXPECTED_FIELD_NAMES = {
     "slg_layers",
     "slg_sigma_start",
     "slg_sigma_end",
+    "detail_strength",
+    "detail_start",
+    "detail_end",
     "freeinit_iterations",
     "freeinit_cutoff",
     "freeinit_order",
@@ -63,6 +68,7 @@ EXPECTED_TOP_LEVEL_TYPES = [
     "section",
     "section",
     "section",
+    "section",
     "gate",
     "section",
 ]
@@ -74,12 +80,13 @@ EXPECTED_TOP_LEVEL_TITLES = [
     "CFG-Zero*",
     "Adaptive Projected Guidance (APG)",
     "Skip-Layer Guidance (SLG)",
+    "Detail warp (sigma daemon)",
     "FreeInit (temporal flicker) -- text-to-video only",
     "Long-video RoPE (RIFLEx)",
     "Step cache (FBCache)",
 ]
 
-EXPECTED_TOP_LEVEL_NAMES = [None, None, None, None, None, None, None, "riflex", None]
+EXPECTED_TOP_LEVEL_NAMES = [None, None, None, None, None, None, None, None, "riflex", None]
 
 
 @pytest.fixture(scope="module")
@@ -130,7 +137,11 @@ def test_advanced_tab_top_level_shape(advanced_tab):
 def test_sampling_section_is_first_and_orders_steps_sampler_cfg(advanced_tab):
     sampling = advanced_tab["children"][0]
     assert sampling["title"] == "Sampling"
-    assert _all_field_names(sampling) == {"steps", "sampler", "cfg", "schedule", "manual_sigmas"}
+    assert _all_field_names(sampling) == {
+        "steps", "sampler", "cfg", "schedule",
+        "linear_quadratic_threshold_noise", "linear_quadratic_linear_steps",
+        "manual_sigmas",
+    }
     assert [c.get("name") for c in sampling["children"][:3]] == ["steps", "sampler", "cfg"]
 
 

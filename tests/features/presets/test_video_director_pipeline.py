@@ -134,9 +134,9 @@ DOC_CHAIN_MIXED = {
 def wan_template():
     loader = PresetTemplateLoader(["content/presets"])
     loader.load_presets()
-    template = next((p for p in loader.presets if "native/Wan" in str(p.path)), None)
+    template = next((p for p in loader.presets if str(p.path).rstrip("/").endswith("/Wan")), None)
     if template is None:
-        pytest.skip("native/Wan preset not present")
+        pytest.skip("Wan preset not present")
     return template
 
 
@@ -534,9 +534,9 @@ DOC_DIRECTOR_LTX_MIXED_REFS = {
 def ltx_template():
     loader = PresetTemplateLoader(["content/presets"])
     loader.load_presets()
-    template = next((p for p in loader.presets if str(p.path).endswith("native/LTX-2")), None)
+    template = next((p for p in loader.presets if str(p.path).rstrip("/").endswith("/LTX-2")), None)
     if template is None:
-        pytest.skip("native/LTX-2 preset not present")
+        pytest.skip("LTX-2 preset not present")
     return template
 
 

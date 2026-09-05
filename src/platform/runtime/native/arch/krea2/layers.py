@@ -419,15 +419,23 @@ class Attention(nn.Module):
         # ``SingleStreamBlock.forward``), so only the text portion of the key/value set
         # changes between the two passes. Blend happens on the raw attention output,
         # before the sigmoid gate and ``wo`` projection -- same point Wan/LTX blend at.
+        # Only the negative TEXT rows are projected here: the image rows of the negative
+        # sequence ARE ``x``'s image rows, and ``Krea2.run_blocks`` builds ``nag_freqs``
+        # as ``[zeros(neg_txt) | pos[txt_len:]]``, so its image slice is bit-identical to
+        # ``freqs``' -- the positive pass's post-rope ``k``/``v`` image rows are reusable
+        # verbatim. Reuse is scoped to this call; nothing is retained on the module.
+        # Change either positional convention and this equality must be re-proven.
         if nag_ctx is not None and _nag_active(nag):
             img_len = x.shape[1] - txt_len
+            neg_txt_len = nag_ctx.shape[1]
             q_img = q[:, :, -img_len:, :]
-            x_neg = torch.cat([nag_ctx, x[:, -img_len:]], dim=1)
-            k_neg = rearrange(self.wk(x_neg), "B L (H D) -> B H L D", H=self.kvheads)
-            v_neg = rearrange(self.wv(x_neg), "B L (H D) -> B H L D", H=self.kvheads)
-            k_neg = self.qknorm.knorm(k_neg)
+            k_txt = rearrange(self.wk(nag_ctx), "B L (H D) -> B H L D", H=self.kvheads)
+            v_txt = rearrange(self.wv(nag_ctx), "B L (H D) -> B H L D", H=self.kvheads)
+            k_txt = self.qknorm.knorm(k_txt)
             if nag_freqs is not None:
-                k_neg = apply_rope_inplace(k_neg, nag_freqs)
+                k_txt = apply_rope_inplace(k_txt, nag_freqs[:, :neg_txt_len])
+            k_neg = torch.cat([k_txt, k[:, :, -img_len:, :]], dim=2)
+            v_neg = torch.cat([v_txt, v[:, :, -img_len:, :]], dim=2)
             neg_img = _sdpa_gqa(q_img, k_neg, v_neg, self.heads, self.kvheads, nag_mask)
             pos_img = out[:, -img_len:, :]
             blended = apply_nag(pos_img, neg_img, nag["scale"], nag.get("tau", 3.5), nag.get("alpha", 0.5))

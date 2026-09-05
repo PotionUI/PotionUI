@@ -41,7 +41,8 @@
 	import { keybindingsStore } from '$lib/stores/keybindings';
 	import { isMobile, viewportWidth } from '$lib/stores/viewport';
 	import { settingsPaneWidth } from '$lib/stores/generationLayout';
-	import { resolveDirectorCapabilities, normalizeDirectorValue, validateDirector, buildDirectorSubmission, representativeDirectorPrompt, dereferenceFormMediaRefs, seedDirectorPromptFromLegacyText } from '$lib/utils/videoDirector';
+	import { resolveDirectorCapabilities, normalizeDirectorValue, validateDirector, buildDirectorSubmission, dereferenceFormMediaRefs, seedDirectorPromptFromLegacyText } from '$lib/utils/videoDirector';
+	import { assembleDirectorRequest } from '$lib/generation/requestAssembly';
 	import {
 		directorShotInputIdentity,
 		directorPredecessorShotId,
@@ -50,9 +51,9 @@
 	} from '$lib/utils/directorInputIdentity';
 	import { planDirectorSelection } from '$lib/utils/directorPlanner';
 	import { runDirectorDependencyPlan, type DirectorShotSubmitOutcome, type DirectorShotTerminalOutcome } from '$lib/utils/directorDependencyRunner';
-	import { resolvePredecessorFrame, type PredecessorOutputLike } from '$lib/utils/directorContinuation';
+	import type { PredecessorOutputLike } from '$lib/utils/directorContinuation';
 	import { peekGenerationOutputs, setGenerationUnsubscribeHandler } from '$lib/generation/messages/generationOutputs';
-	import type { VideoDirectorWireDoc, VideoDirectorValue, DirectorMediaValue } from '$lib/types/videoDirector';
+	import type { VideoDirectorWireDoc, VideoDirectorValue } from '$lib/types/videoDirector';
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';
 	import { resolveMusicDirectorCapabilities, normalizeMusicDirectorValue, validateMusicDirector, buildMusicDirectorSubmission } from '$lib/utils/musicDirector';
 	import type { MusicDirectorCapabilities } from '$lib/types/musicDirector';
@@ -625,6 +626,36 @@
 		!!musicDirectorCaps &&
 		!!currentTab.selectedMode &&
 		(musicDirectorCaps.presetModes === null || musicDirectorCaps.presetModes.includes(currentTab.selectedMode));
+
+	// The memory advisory preview's form_data snapshot - assembled through the
+	// SAME pure helper (requestAssembly.ts) `startGeneration()` calls below, so
+	// the estimate's active loader set reflects whichever Director sub-type/
+	// shots are actually selected right now, not the tab's raw form_data alone
+	// (which never carries a resolved video_director/music_director document -
+	// that only ever gets built at submission time). A request that isn't
+	// ready to submit yet (predecessor output not available, invalid document)
+	// reports `previewUnresolvedReason` instead of a form_data guess -
+	// MemoryAdvisoryLine renders that directly and never calls the network.
+	$: previewDirectorChecked = directorCheckedByTab[currentTab.id] ?? new Set<string>();
+	$: previewAssembly = assembleDirectorRequest({
+		formData: currentTab.formData,
+		videoDirectorActive,
+		videoDirectorCaps,
+		videoDirectorValue: currentTab.videoDirector,
+		directorRuns: currentTab.directorRuns,
+		directorChecked: previewDirectorChecked,
+		predecessorOutputs: videoDirectorActive ? snapshotDirectorGenerationOutputs(currentTab.directorRuns) : null,
+		musicDirectorActive,
+		musicDirectorCaps,
+		musicDirectorValue: currentTab.musicDirector
+	});
+	$: previewFormData =
+		previewAssembly.kind === 'video' && previewAssembly.ok
+			? previewAssembly.formData
+			: previewAssembly.kind === 'music'
+				? previewAssembly.formData
+				: currentTab.formData;
+	$: previewUnresolvedReason = previewAssembly.kind === 'video' && !previewAssembly.ok ? previewAssembly.reason : null;
 
 	// `Tab.videoDirector` is a field of its own — modeState.ts never routes it
 	// through the per-mode prompt cache — so a mode that only just gained
@@ -1316,104 +1347,55 @@
 		let directorValueForRuns: VideoDirectorValue | null = null;
 
 		if (videoDirectorActive && videoDirectorCaps) {
-			// Video Director mode: the structured multi-mode editor (tab.videoDirector)
-			// is normalized then mapped to the backend wire contract and attached to
-			// form_data.video_director; the pipeline reads it from there.
-			const doc = normalizeDirectorValue(currentTab.videoDirector, videoDirectorCaps);
-			directorValueForRuns = doc;
 			// The console's own transient row-checkbox selection (ShotConsole,
 			// mirrored up via onCheckedChange) -- empty means "the whole film",
 			// same as before the console had checkboxes at all.
 			const directorChecked = directorCheckedByTab[activeTabId] ?? new Set<string>();
-			// Same scoped gate as the Generate button's own readiness check
-			// above (directorPlanner.ts) -- defends against a stale `canGenerate`
-			// (e.g. a selection change that hasn't re-run the reactive block yet).
-			const plan = planDirectorSelection(doc, videoDirectorCaps, currentTab.directorRuns, directorChecked);
-			if (plan.blockingReasons.length > 0) {
-				toasts.error(plan.blockingReasons[0] || 'Video Director is not ready to generate.');
+			// Shared with the memory-preview feed (requestAssembly.ts) so the
+			// estimate's active loader set matches what this submission
+			// actually builds -- see that module's doc comment.
+			const assembled = assembleDirectorRequest({
+				formData: currentTab.formData,
+				videoDirectorActive,
+				videoDirectorCaps,
+				videoDirectorValue: currentTab.videoDirector,
+				directorRuns: currentTab.directorRuns,
+				directorChecked,
+				predecessorOutputs: snapshotDirectorGenerationOutputs(currentTab.directorRuns),
+				musicDirectorActive: false,
+				musicDirectorCaps: null,
+				musicDirectorValue: null
+			});
+			if (assembled.kind === 'video' && !assembled.ok) {
+				toasts.error(assembled.reason);
 				return;
 			}
-			const isChainDoc = videoDirectorCaps.segmentRouting;
-			const targetShotIds = plan.shotsToSubmit;
-
-			let wireDoc: VideoDirectorWireDoc;
-			if (isChainDoc) {
-				// Wan/H3 routed chain -- ONE generation covers every targeted shot
-				// at once; its own continuation is server-side, in-process,
-				// within that single generation, so there is no "remaining
-				// shots" follow-up for a chain doc at all.
-				wireDoc = buildDirectorSubmission(doc, videoDirectorCaps, directorChecked)[0];
-				primaryDirectorShotIds = targetShotIds;
-			} else {
-				// LTX timeline -- one generation PER shot. The primary is
-				// always `targetShotIds[0]` (the film's own shot order, which
-				// `planDirectorSelection` already guarantees puts every
-				// predecessor before its dependant), so if IT continues from a
-				// predecessor, that predecessor can only be OUTSIDE this
-				// selection -- already done (directorPlanner.ts's own
-				// "predecessorDone" gate above already required that, or this
-				// plan would have been blocked). Resolve it here so the primary
-				// shot's own request carries it too, instead of only ever fixing
-				// this for `submitVideoDirectorShots`'s contextual path.
-				const primaryShotId = targetShotIds[0];
-				directorRemainingShotIds = targetShotIds.slice(1);
-				const predecessorId = directorPredecessorShotId(doc, videoDirectorCaps, primaryShotId);
-				let predecessorFrame: DirectorMediaValue | null = null;
-				if (predecessorId) {
-					const resolved = resolvePredecessorFrame(
-						doc,
-						videoDirectorCaps,
-						primaryShotId,
-						currentTab.directorRuns,
-						snapshotDirectorGenerationOutputs(currentTab.directorRuns)
-					);
-					if (!resolved.ok) {
-						toasts.error(resolved.reason);
-						return;
-					}
-					predecessorFrame = resolved.media;
-				}
-				wireDoc = buildDirectorSubmission(
-					doc,
-					videoDirectorCaps,
-					new Set([primaryShotId]),
-					predecessorFrame ? { [primaryShotId]: predecessorFrame } : undefined
-				)[0];
-				primaryDirectorShotIds = [primaryShotId];
-			}
-			// A media entry may point at the form's own media-loader field(s)
-			// (Stage B reference media) rather than embedding its own copy --
-			// resolve those live, right before the request is built. The server
-			// contract (form_data.video_director) never sees `form_ref`.
-			const { doc: resolvedWireDoc, errors: formRefErrors } = dereferenceFormMediaRefs(wireDoc, currentTab.formData);
-			if (formRefErrors.length > 0) {
-				toasts.error(
-					`Video Director references media that's no longer on the form: ${formRefErrors.join('; ')}`
-				);
+			if (assembled.kind !== 'video' || !assembled.ok) {
+				// Unreachable given the `videoDirectorActive && videoDirectorCaps`
+				// guard above -- narrows the type for the assignments below.
 				return;
 			}
-			formDataForRequest = {
-				...currentTab.formData,
-				video_director: resolvedWireDoc
-			};
-
-			// A representative positive prompt so the standard validation/record path is satisfied.
-			promptsArray = [{ positive: representativeDirectorPrompt(doc, videoDirectorCaps), negative: doc.negative_prompt || '' }];
+			formDataForRequest = assembled.formData;
+			promptsArray = assembled.prompts;
+			primaryDirectorShotIds = assembled.primaryShotIds;
+			directorRemainingShotIds = assembled.remainingShotIds;
+			directorValueForRuns = assembled.directorValue;
 		} else if (musicDirectorActive && musicDirectorCaps) {
-			// Music Director mode: the structured composition editor (tab.musicDirector)
-			// is normalized then mapped to the backend wire contract and attached to
-			// form_data.music_director; the pipeline reads it from there. Unlike Video
-			// Director there is no whole-form reference pool to dereference -- the
-			// document's `references` are already the resolved shape.
-			const doc = normalizeMusicDirectorValue(currentTab.musicDirector, musicDirectorCaps);
-			const wireDoc = buildMusicDirectorSubmission(doc, musicDirectorCaps);
-			formDataForRequest = {
-				...currentTab.formData,
-				music_director: wireDoc
-			};
-
-			// A representative positive prompt so the standard validation/record path is satisfied.
-			promptsArray = [{ positive: doc.description, negative: '' }];
+			const assembled = assembleDirectorRequest({
+				formData: currentTab.formData,
+				videoDirectorActive: false,
+				videoDirectorCaps: null,
+				videoDirectorValue: null,
+				directorRuns: null,
+				directorChecked: new Set(),
+				predecessorOutputs: null,
+				musicDirectorActive,
+				musicDirectorCaps,
+				musicDirectorValue: currentTab.musicDirector
+			});
+			if (assembled.kind !== 'music') return; // unreachable given the guard above
+			formDataForRequest = assembled.formData;
+			promptsArray = assembled.prompts;
 		} else if (promptRelayActive) {
 			// Prompt Relay mode: prompts + duration live on the timeline editor (tab.promptRelay).
 			// The pipeline reads them from form_data via get_form('custom', ['timeline'|'global_prompt']).
@@ -2138,9 +2120,10 @@
 			presetVersion={currentTabPresetVersion}
 			availableModes={activeTabModes}
 			multiBackend={currentTabHasMultipleBackends}
-			formData={currentTab.formData}
+			formData={previewFormData}
 			formVariant={currentTab.selectedVariant ?? undefined}
 			backendId={currentTab.selectedBackendId ?? null}
+			formDataUnresolvedReason={previewUnresolvedReason}
 			on:generationcomplete={() => lastGenerationsRefreshSignal++}
 		>
 			<GenerationSettingsPanel

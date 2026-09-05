@@ -25,7 +25,7 @@ function result(checkpointEstimateGb: number | null): any {
 	};
 }
 
-function baseInput(overrides: Partial<{ presetId: string | null; formData: Record<string, unknown> }> = {}) {
+function baseInput(overrides: Partial<{ presetId: string | null; mode: string; formData: Record<string, unknown> }> = {}) {
 	return {
 		presetId: 'preset_1',
 		mode: 'txt2img',
@@ -116,6 +116,29 @@ describe('createMemoryAdvisoryController', () => {
 		vi.advanceTimersByTime(400);
 		await vi.waitFor(() => expect(get(controller).status).toBe('ready'));
 		expect(get(controller)).toMatchObject({ result: { estimate: { checkpoint_estimate_gb: 7 } } });
+
+		controller.dispose();
+	});
+
+	it('a mode change alone (image -> video, same preset/form_data) is a NEW input, never treated as the stale image estimate', async () => {
+		let resolveImage: (v: any) => void = () => {};
+		mockPreview.mockImplementationOnce(() => new Promise((resolve) => (resolveImage = resolve)));
+		const controller = createMemoryAdvisoryController();
+
+		controller.refresh(baseInput({ mode: 'txt2img' }));
+		vi.advanceTimersByTime(400);
+		await vi.waitFor(() => expect(mockPreview).toHaveBeenCalledTimes(1));
+
+		// Same preset id, same form_data - ONLY mode changes.
+		controller.refresh(baseInput({ mode: 'video' }));
+		expect(get(controller).status).toBe('loading');
+
+		// The stale image-mode response arrives late - must never publish
+		// under the video-mode identity.
+		resolveImage(result(1));
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(get(controller)).toMatchObject({ status: 'loading', result: null });
 
 		controller.dispose();
 	});

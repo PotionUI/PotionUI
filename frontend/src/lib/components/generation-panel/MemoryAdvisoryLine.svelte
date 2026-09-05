@@ -14,6 +14,13 @@
 	export let formName: string | undefined = undefined;
 	export let formData: Record<string, unknown> = {};
 	export let backendId: string | null | undefined = undefined;
+	// Set by the page when its OWN Director-request assembly (requestAssembly.ts,
+	// the same pure helper Generate calls) reports the request isn't ready to
+	// submit yet (a Video Director document not ready, or a continuation shot
+	// whose predecessor output isn't available) - never sent to the network in
+	// that case; the request could not even be BUILT, so there is nothing for
+	// the server to estimate against.
+	export let unresolvedReason: string | null = null;
 
 	const controller = createMemoryAdvisoryController();
 	let state: MemoryAdvisoryState = { status: 'idle', result: null, error: null };
@@ -26,8 +33,10 @@
 
 	// The controller itself dedupes an unchanged input and debounces a burst
 	// of changes into one request - this just reports every input change,
-	// on every render, with no loop-guard needed here.
-	$: controller.refresh({ presetId, mode, formName, formData, backendId });
+	// on every render, with no loop-guard needed here. An unresolved request
+	// resets the controller to idle (never issues a network call) - its own
+	// line is rendered directly below, bypassing `deriveLine`/`state` entirely.
+	$: controller.refresh(unresolvedReason ? { presetId: null, formData: {} } : { presetId, mode, formName, formData, backendId });
 
 	function formatGb(value: number): string {
 		return `${value.toFixed(1)} GB`;
@@ -43,8 +52,10 @@
 		state.result.budget.configured_gb != null &&
 		state.result.estimate.checkpoint_estimate_gb > state.result.budget.configured_gb;
 
-	$: line = deriveLine(state);
-	$: tooltipText = state.status === 'ready' && state.result ? deriveTooltip(state.result) : '';
+	$: line = unresolvedReason
+		? `Estimate unavailable: the request could not be resolved (${unresolvedReason})`
+		: deriveLine(state);
+	$: tooltipText = !unresolvedReason && state.status === 'ready' && state.result ? deriveTooltip(state.result) : '';
 
 	function deriveLine(s: MemoryAdvisoryState): string | null {
 		if (s.status === 'loading') return 'Estimating GPU memory…';

@@ -127,6 +127,16 @@ describe('MemoryAdvisoryLine', () => {
 		expect(api.api.previewGenerationMemory).not.toHaveBeenCalled();
 	});
 
+	it('renders the unresolved reason directly and never calls the network when the page reports the request could not be assembled', async () => {
+		mounted = mount({ unresolvedReason: "Its previous shot's output is not available" });
+		await vi.waitFor(() => {}, { timeout: 1 }).catch(() => {});
+
+		const text = mounted.line()?.textContent ?? '';
+		expect(text).toContain('Estimate unavailable: the request could not be resolved');
+		expect(text).toContain("Its previous shot's output is not available");
+		expect(api.api.previewGenerationMemory).not.toHaveBeenCalled();
+	});
+
 	it('renders the checkpoint-based estimate and device evidence, never "lower bound" or "at least"', async () => {
 		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 		vi.mocked(api.api.previewGenerationMemory).mockResolvedValue(response(known()));

@@ -57,6 +57,12 @@ const NOTHING_OWNED_KEY = '';
 function inputKey(input: MemoryAdvisoryInput): string {
 	return JSON.stringify({
 		presetId: input.presetId,
+		// `mode` is part of the identity, not just the wire request `run()`
+		// sends: switching image -> video on the same preset/form_data (a
+		// mode change with no other field touched) must own a NEW key, or
+		// the stale image estimate would be treated as still current once
+		// video's response arrives.
+		mode: input.mode ?? null,
 		formName: input.formName ?? null,
 		backendId: input.backendId ?? null,
 		formData: input.formData

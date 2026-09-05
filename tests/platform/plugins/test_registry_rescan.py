@@ -239,6 +239,45 @@ class RescanReconciliationTests(unittest.TestCase):
         self.assertIn("author", self.registry.get_plugin_error("turns-bad"))
         self.assertNoResidue("turns-bad")
 
+    def test_a_manifest_rewritten_mid_scan_cannot_look_unchanged_next_scan(self):
+        """The fingerprint must describe the bytes that were actually parsed.
+
+        If it were taken from a second read of the file, an edit landing between
+        the loader's read and that one would stamp the new file's hash onto the
+        old file's registrations - and the following scan, parsing the new file,
+        would match that hash and keep the old handler live under the new
+        manifest.
+        """
+        self._enabled_plugin("racy")
+        loader = self.registry.loader
+        original_load = loader._load_manifest
+        swapped = []
+
+        def load_then_rewrite(manifest_path, plugin_dir, source):
+            manifest = original_load(manifest_path, plugin_dir, source)
+            if manifest is not None and manifest.id == "racy" and not swapped:
+                swapped.append(True)
+                self._write_plugin("racy", handler="handlers.second", version="2.0.0")
+            return manifest
+
+        loader._load_manifest = load_then_rewrite
+        try:
+            self.registry.discover_plugins()
+        finally:
+            loader._load_manifest = original_load
+
+        self.assertEqual(swapped, [True])
+        # The scan parsed the old manifest, so the old handler is what is live.
+        self.assertEqual(self._ran(), "first")
+
+        changes = self.registry.discover_plugins()
+
+        self.assertEqual(changes.changed, ["racy"])
+        self.assertEqual(self._ran(), "second")
+        self.assertEqual(len(self.registry.hook_chain._handlers[HOOK]), 1)
+        self.assertEqual(self.registry.get_plugin("racy").version, "2.0.0")
+        self.assertFullyRegistered("racy")
+
     # -- removed ----------------------------------------------------------
 
     def test_removed_manifest_drops_the_plugin_and_everything_it_owned(self):

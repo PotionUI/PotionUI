@@ -5,6 +5,7 @@ This module handles the discovery and loading of plugins from both marketplace
 and local directories. It parses plugin manifests and loads Python modules.
 """
 
+import hashlib
 import re
 import sys
 import shutil
@@ -127,6 +128,13 @@ class PluginManifest:
     # discovered (so it's visible/manageable in the admin UI) but the
     # registry puts it straight into PluginState.ERROR with this message.
     validation_error: Optional[str] = None
+
+    # sha256 of the exact manifest bytes this object was parsed from. It must
+    # come from the loader's own read, never a later re-read: a manifest
+    # rewritten between the two would stamp the new file's hash onto the old
+    # file's parsed content, and the next scan would then read that hash back
+    # as "unchanged" while the registrations still belong to the old version.
+    content_hash: str = ""
 
 
 class PluginLoader:
@@ -273,9 +281,27 @@ class PluginLoader:
         Returns:
             Parsed (or error-tagged) PluginManifest, or None if unusable
         """
+        payload = manifest_path.read_bytes()
+
+        manifest = self._manifest_from_bytes(payload, manifest_path, plugin_dir, source)
+        if manifest is not None:
+            manifest.content_hash = hashlib.sha256(payload).hexdigest()
+        return manifest
+
+    def _manifest_from_bytes(
+        self,
+        payload: bytes,
+        manifest_path: Path,
+        plugin_dir: Path,
+        source: str
+    ) -> Optional[PluginManifest]:
+        """Parse one already-read manifest file. See `_load_manifest`.
+
+        Takes the bytes rather than the path so the caller can hash exactly what
+        was parsed - the file is read once per discovery, never twice.
+        """
         try:
-            with open(manifest_path, 'r') as f:
-                raw = yaml.safe_load(f)
+            raw = yaml.safe_load(payload)
         except yaml.YAMLError as e:
             logger.error(f"YAML parsing error in {manifest_path}: {e}")
             return self._build_error_manifest(

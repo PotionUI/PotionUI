@@ -175,6 +175,15 @@ class PluginRegistry:
 
         Runs with `self._lock` held: it calls the lock-free enable/disable
         internals directly, never the public methods.
+
+        Lifecycle events: an unchanged plugin sees no transition at all - no
+        teardown, no re-enable, and none of the `plugin.enable`/`plugin.disable`
+        hooks a user-driven toggle fires. A changed plugin is rebuilt through
+        the registry's own teardown and enable transaction, which likewise fires
+        no user-facing transition events; those belong to the admin actions in
+        `src.features.plugins.operations.lifecycle`. `scan_plugins` fires the
+        per-process boot hook for a plugin the rescan brought back up, because
+        its modules were evicted with the teardown.
         """
         logger.info("Starting plugin discovery...")
 
@@ -220,22 +229,23 @@ class PluginRegistry:
         return changes
 
     def _manifest_fingerprint(self, manifest: PluginManifest) -> str:
-        """Identity of a discovered manifest: where it was found, plus the bytes
-        of the manifest file.
+        """Identity of a discovered manifest: where it was found, plus
+        `content_hash` - the hash of the exact bytes the loader parsed it from.
+
+        Reading the file again here would be wrong, not merely wasteful. A
+        manifest rewritten between the loader's read and ours would stamp the
+        new file's hash onto the old file's registrations, and the next scan
+        would match that hash, take the unchanged branch, and leave the previous
+        version's handlers and routes live under the new manifest.
 
         A plugin's Python sources are deliberately not hashed - a code-only edit
         is picked up by `reload_plugin`, not by a rescan, so editing a handler
         never tears down a running plugin behind the admin's back.
         """
-        try:
-            payload = manifest.manifest_path.read_bytes()
-        except OSError:
-            payload = b""
-
         digest = hashlib.sha256()
         digest.update(str(manifest.plugin_dir).encode("utf-8", "replace"))
         digest.update(b"\0")
-        digest.update(payload)
+        digest.update(manifest.content_hash.encode("ascii"))
         return digest.hexdigest()
 
     def _admit_plugin(self, manifest: PluginManifest, fingerprint: str) -> None:

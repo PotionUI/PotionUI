@@ -399,10 +399,37 @@ def _source_spatial_index(tris: np.ndarray):
     return cKDTree(tris.reshape(-1, 3)), cKDTree(centres), float(radii.max())
 
 
+def _closest_over_triangle_chunks(points: torch.Tensor, tris: torch.Tensor, budget: int) -> torch.Tensor:
+    """:func:`_closest_point_on_triangles` reduced over ``tris`` in slices of at
+    most ``budget`` point-triangle pairs.
+
+    Bit-identical to the single-call form. Each slice's winner is scored with
+    the same ``(candidate - p)**2`` sum the kernel minimises internally, so the
+    cross-slice comparison sees the values a single arg-min would have compared,
+    and keeping the incumbent on equality preserves its lowest-face-index
+    tie-break.
+    """
+    step = max(1, budget // max(1, points.shape[0]))
+    best = best_sq = None
+    for start in range(0, tris.shape[0], step):
+        found = _closest_point_on_triangles(points, tris[start : start + step])
+        found_sq = (found - points).pow(2).sum(-1)
+        if best is None:
+            best, best_sq = found, found_sq
+            continue
+        closer = found_sq < best_sq
+        best = torch.where(closer.unsqueeze(-1), found, best)
+        best_sq = torch.where(closer, found_sq, best_sq)
+    return best
+
+
 def _project_exhaustive(positions: torch.Tensor, tris: torch.Tensor, budget: int) -> torch.Tensor:
     chunk = max(1, budget // max(1, tris.shape[0]))
     return torch.cat(
-        [_closest_point_on_triangles(positions[i : i + chunk], tris) for i in range(0, positions.shape[0], chunk)]
+        [
+            _closest_over_triangle_chunks(positions[i : i + chunk], tris, budget)
+            for i in range(0, positions.shape[0], chunk)
+        ]
     )
 
 
@@ -432,6 +459,14 @@ def _project_to_source(
     every minimiser, and the kernel's arg-min over it (candidates stay in
     ascending face order) picks the same face and corner the exhaustive scan
     would.
+
+    ``budget`` bounds discovery as well as the kernel. A ball can be broad — far
+    query points, or one outsized triangle inflating ``r_max`` — so each batch is
+    first *counted* (``return_length``, which allocates no neighbour lists) and
+    halved until the counts sum inside the budget; only then are the lists
+    materialised, and the union is re-checked against the budget before the
+    kernel runs. A lone point still over budget skips materialisation entirely
+    and is scanned against the whole mesh in triangle slices.
     """
     tris_np = np.ascontiguousarray(source_vertices[source_faces], dtype=np.float32)
     tris = torch.from_numpy(tris_np).to(positions.device)
@@ -453,13 +488,26 @@ def _project_to_source(
     pending = [order[i : i + point_batch] for i in range(0, order.shape[0], point_batch)]
     while pending:
         batch = pending.pop()
+        found = int(centre_tree.query_ball_point(query[batch], radius[batch], workers=-1, return_length=True).sum())
+        if batch.shape[0] > 1 and found > budget:
+            half = batch.shape[0] // 2
+            pending.extend([batch[:half], batch[half:]])
+            continue
+        rows = torch.from_numpy(batch).to(positions.device)
+        if found > budget:
+            # One point whose ball alone outruns the budget: materialising it
+            # would cost `found` Python entries for a set that is by then most
+            # of the mesh, so scan the whole mesh in triangle slices instead.
+            # Peak stays at `budget` pairs and the answer is the same one the
+            # candidate set would have given.
+            out[rows] = _closest_over_triangle_chunks(positions[rows], tris, budget)
+            continue
         balls = centre_tree.query_ball_point(query[batch], radius[batch], workers=-1)
         candidates = np.unique(np.concatenate([np.asarray(b, dtype=np.int64) for b in balls]))
         if batch.shape[0] > 1 and candidates.shape[0] * batch.shape[0] > budget:
             half = batch.shape[0] // 2
             pending.extend([batch[:half], batch[half:]])
             continue
-        rows = torch.from_numpy(batch).to(positions.device)
         out[rows] = _closest_point_on_triangles(
             positions[rows], tris[torch.from_numpy(candidates).to(positions.device)]
         )

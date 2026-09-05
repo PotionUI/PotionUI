@@ -15,6 +15,8 @@ import trimesh
 
 from src.platform.runtime.native.arch.trellis2 import postprocess
 from src.platform.runtime.native.arch.trellis2.postprocess import (
+    _closest_over_triangle_chunks,
+    _closest_point_on_triangles,
     _project_exhaustive,
     _project_to_source,
     _source_spatial_index,
@@ -27,8 +29,9 @@ def _tris(vertices, faces):
 
 
 def _reference(positions, vertices, faces):
-    """The pre-acceleration behaviour: one chunk against every triangle."""
-    return _project_exhaustive(positions, _tris(vertices, faces), budget=1 << 40)
+    """Ground truth: one kernel call against every triangle, no chunking and no
+    index, so nothing the code under test does can shift it."""
+    return _closest_point_on_triangles(positions, _tris(vertices, faces))
 
 
 def _assert_matches_exhaustive(positions, vertices, faces, **kwargs):
@@ -227,3 +230,121 @@ def test_projection_is_opt_in_and_changes_nothing_but_the_sampled_positions(text
     projected_rgb = np.asarray(projected.visual.material.baseColorTexture)[..., :3].astype(np.int16)
     assert not np.array_equal(plain_rgb, projected_rgb)
     assert np.abs(plain_rgb - projected_rgb).mean() < 8
+
+
+def _broad_ball_mesh():
+    """An icosphere plus one triangle big enough that ``r_max`` alone makes every
+    ball query cover the entire mesh — the shape that makes candidate discovery,
+    not the kernel, the thing that blows up."""
+    vertices, faces = _sphere(subdivisions=2)
+    huge = np.array([[-60.0, -60.0, -60.0], [60.0, -55.0, -58.0], [-58.0, 60.0, 61.0]], dtype=np.float32)
+    return (
+        np.concatenate([vertices, huge]),
+        np.concatenate([faces, np.arange(vertices.shape[0], vertices.shape[0] + 3)[None, :]]),
+    )
+
+
+class _CountingTree:
+    """Wraps a ``cKDTree`` and records how many neighbour entries were actually
+    materialised, as opposed to merely counted."""
+
+    def __init__(self, tree):
+        self._tree = tree
+        self.materialised = 0
+
+    def query(self, *args, **kwargs):
+        return self._tree.query(*args, **kwargs)
+
+    def query_ball_point(self, points, radius, **kwargs):
+        result = self._tree.query_ball_point(points, radius, **kwargs)
+        if not kwargs.get("return_length"):
+            self.materialised += int(sum(len(entry) for entry in result))
+        return result
+
+
+def _instrumented_projection(monkeypatch, positions, vertices, faces, budget, point_batch):
+    """Run the projection with the neighbour lists and the kernel both counted."""
+    trees = []
+    real_index = postprocess._source_spatial_index
+
+    def wrapped_index(tris):
+        index = real_index(tris)
+        if index is None:
+            return None
+        corner_tree, centre_tree, max_radius = index
+        counting = _CountingTree(centre_tree)
+        trees.append(counting)
+        return corner_tree, counting, max_radius
+
+    pairs = []
+    real_kernel = postprocess._closest_point_on_triangles
+
+    def wrapped_kernel(batch_points, batch_tris):
+        pairs.append(batch_points.shape[0] * batch_tris.shape[0])
+        return real_kernel(batch_points, batch_tris)
+
+    monkeypatch.setattr(postprocess, "_source_spatial_index", wrapped_index)
+    monkeypatch.setattr(postprocess, "_closest_point_on_triangles", wrapped_kernel)
+    got = postprocess._project_to_source(
+        positions, vertices, faces, budget=budget, point_batch=point_batch
+    )
+    return got, trees[0].materialised, pairs
+
+
+def test_a_broad_ball_never_materialises_more_than_the_budget(monkeypatch):
+    """Every point sees the whole mesh, so the old order of work would have
+    retained ``points x faces`` neighbour entries before any budget check."""
+    vertices, faces = _broad_ball_mesh()
+    rng = np.random.default_rng(19)
+    points = torch.from_numpy((rng.normal(scale=6.0, size=(64, 3))).astype(np.float32))
+    budget = 200
+
+    got, materialised, pairs = _instrumented_projection(
+        monkeypatch, points, vertices, faces, budget=budget, point_batch=64
+    )
+
+    assert materialised <= budget
+    assert max(pairs) <= budget
+    assert torch.equal(got, _reference(points, vertices, faces))
+
+
+def test_a_single_point_over_budget_skips_materialising_its_ball(monkeypatch):
+    """One point whose ball is most of the mesh cannot be split any further, so
+    the list must never be built; the mesh is scanned in triangle slices."""
+    vertices, faces = _broad_ball_mesh()
+    points = torch.tensor([[14.0, -9.0, 3.0]], dtype=torch.float32)
+    budget = 32
+
+    got, materialised, pairs = _instrumented_projection(
+        monkeypatch, points, vertices, faces, budget=budget, point_batch=1
+    )
+
+    assert faces.shape[0] > budget
+    assert materialised == 0
+    assert max(pairs) <= budget
+    assert len(pairs) > 1
+    assert torch.equal(got, _reference(points, vertices, faces))
+
+
+def test_triangle_slicing_matches_a_single_kernel_call_including_ties():
+    """The slice-by-slice reduction is the reference for the over-budget path, so
+    it has to agree bit for bit — tie-break included."""
+    vertices = np.array(
+        [
+            [-1.0, -1.0, 1.0], [1.0, -1.0, 1.0], [0.0, 1.0, 1.0],
+            [-1.0, -1.0, -1.0], [1.0, -1.0, -1.0], [0.0, 1.0, -1.0],
+            [0.0, 0.0, 3.0], [2.0, 0.0, 0.0],
+        ],
+        dtype=np.float32,
+    )
+    faces = np.array([[0, 1, 2], [3, 4, 5], [0, 1, 6], [1, 4, 7], [2, 5, 6]], dtype=np.int64)
+    tris = _tris(vertices, faces)
+    rng = np.random.default_rng(23)
+    points = torch.from_numpy(
+        np.concatenate([np.zeros((1, 3)), rng.normal(scale=1.5, size=(60, 3))]).astype(np.float32)
+    )
+
+    expected = _closest_point_on_triangles(points, tris)
+    for budget in (1, 2, 61, 122, 1 << 20):
+        assert torch.equal(_closest_over_triangle_chunks(points, tris, budget), expected)
+        assert torch.equal(_project_exhaustive(points, tris, budget), expected)

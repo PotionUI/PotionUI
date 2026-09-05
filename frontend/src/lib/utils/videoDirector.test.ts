@@ -1943,6 +1943,74 @@ describe('buildDirectorSubmission', () => {
 	});
 });
 
+describe('buildDirectorSubmission: LTX timeline predecessor frame (continuation join)', () => {
+	const caps = parseDirectorCapabilities(RAW_CAPS)!;
+
+	function twoShotDoc(shot2Overrides: Partial<DirectorTimelineShot> = {}): VideoDirectorValue {
+		return {
+			...normalizeDirectorValue({}, caps),
+			mode: 'director',
+			global_prompt: 'anchor',
+			timeline: {
+				fps: 24,
+				shots: [
+					{ id: 'shot-1', duration: 3, continue_from_previous: false, segments: [{ id: 's1', start: 0, end: 3, text: 'a', prompt_segments: [] }], keyframes: [], audio: [], ic_lora: [] },
+					{
+						id: 'shot-2',
+						duration: 3,
+						continue_from_previous: true,
+						segments: [{ id: 's2', start: 0, end: 3, text: 'b', prompt_segments: [] }],
+						keyframes: [],
+						audio: [],
+						ic_lora: [],
+						...shot2Overrides
+					}
+				]
+			}
+		};
+	}
+
+	it('with no predecessorFrames map, a continued shot builds exactly as before -- empty media (pre-fix behaviour)', () => {
+		const wireDocs = buildDirectorSubmission(twoShotDoc(), caps);
+		expect(wireDocs[1].media).toEqual([]);
+	});
+
+	it('injects the resolved predecessor frame as role "first" at t=0 on the continued shot only', () => {
+		const predecessorMedia = { path: 'generations/gen-a/1.mp4', relative_path: 'generations/gen-a/1.mp4', url: 'generations/gen-a/1.mp4', type: 'video' };
+		const wireDocs = buildDirectorSubmission(twoShotDoc(), caps, undefined, { 'shot-2': predecessorMedia });
+
+		expect(wireDocs[0].media).toEqual([]); // shot-1 (no predecessor) untouched
+		expect(wireDocs[1].media).toEqual([
+			{ id: 'm-1', role: 'first', segment_id: 's2', at: 0, strength: 1, media: predecessorMedia }
+		]);
+	});
+
+	it('a checked-shot-only submission still carries that one shot\'s resolved predecessor frame', () => {
+		const predecessorMedia = { path: 'generations/gen-a/1.mp4', type: 'video' };
+		const wireDocs = buildDirectorSubmission(twoShotDoc(), caps, new Set(['shot-2']), { 'shot-2': predecessorMedia });
+		expect(wireDocs).toHaveLength(1);
+		expect(wireDocs[0].media).toEqual([
+			{ id: 'm-1', role: 'first', segment_id: 's2', at: 0, strength: 1, media: predecessorMedia }
+		]);
+	});
+
+	it('an explicit start keyframe on the same shot wins over an inherited predecessor frame (defensive tie-break for a document that bypassed validateDirector)', () => {
+		const predecessorMedia = { path: 'generations/gen-a/1.mp4', type: 'video' };
+		const explicitStart = { path: '/explicit-start.png' };
+		const doc = twoShotDoc({ keyframes: [{ id: 'k1', start: 0, role: 'first', strength: 1, media: explicitStart }] });
+		const wireDocs = buildDirectorSubmission(doc, caps, undefined, { 'shot-2': predecessorMedia });
+		expect(wireDocs[1].media).toEqual([
+			{ id: 'm-1', role: 'first', segment_id: 's2', at: 0, strength: 1, media: explicitStart }
+		]);
+	});
+
+	it('a non-continuation shot is never given a predecessor frame even if the map (mistakenly) carries an entry for it', () => {
+		const predecessorMedia = { path: 'generations/gen-a/1.mp4', type: 'video' };
+		const wireDocs = buildDirectorSubmission(twoShotDoc(), caps, undefined, { 'shot-1': predecessorMedia });
+		expect(wireDocs[0].media).toEqual([]);
+	});
+});
+
 describe('representativeDirectorPrompt', () => {
 	const caps = parseDirectorCapabilities(RAW_CAPS)!;
 	const wanCaps = parseDirectorCapabilities(WAN_RAW_CAPS)!;
@@ -3826,6 +3894,24 @@ describe('validateDirector: multi-shot timeline reasons (W2)', () => {
 		const doc = twoShotDoc({ continue_from_previous: true });
 		const result = validateDirector(doc, caps);
 		expect(result.reasons).toContain('Shot 2 needs its previous shot');
+	});
+
+	it('a continued shot with its own explicit start keyframe is rejected -- the two both want the first-role media slot', () => {
+		const doc = twoShotDoc({
+			continue_from_previous: true,
+			keyframes: [{ id: 'k1', start: 0, role: 'first', strength: 1, media: { path: '/explicit-start.png' } }]
+		});
+		const result = validateDirector(doc, caps, { 'shot-1': { status: 'done' } });
+		expect(result.reasons).toContain('Shot 2: A continued shot cannot also have its own start keyframe');
+	});
+
+	it('a continued shot with an EMPTY start keyframe slot (no media yet) does not trip the conflict reason', () => {
+		const doc = twoShotDoc({
+			continue_from_previous: true,
+			keyframes: [{ id: 'k1', start: 0, role: 'first', strength: 1, media: null }]
+		});
+		const result = validateDirector(doc, caps, { 'shot-1': { status: 'done' } });
+		expect(result.reasons).not.toContain('Shot 2: A continued shot cannot also have its own start keyframe');
 	});
 
 	it('a 2-shot document prefixes a per-shot reason with "Shot N: "', () => {

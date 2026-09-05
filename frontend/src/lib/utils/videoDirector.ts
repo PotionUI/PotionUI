@@ -1537,6 +1537,15 @@ export function validateDirector(
 						const predecessorId = i > 0 ? shots[i - 1].id : null;
 						const predecessorDone = predecessorId != null && runs?.[predecessorId]?.status === 'done';
 						if (!predecessorDone) reasons.push(`Shot ${i + 1} needs its previous shot`);
+						// An explicit start keyframe and an inherited predecessor
+						// frame both want the same `first`-role media slot -- rather
+						// than pick a silent winner (buildTimelineShotWireDoc's own
+						// fallback for a document that bypassed this check), a fresh
+						// submission must resolve the conflict explicitly by removing
+						// one of the two.
+						if (shot.keyframes.some((k) => k.role === 'first' && k.media)) {
+							reasons.push(`${prefix}A continued shot cannot also have its own start keyframe`);
+						}
 					}
 				});
 				validateSegmentReferences(
@@ -1615,13 +1624,25 @@ function emptyWireSegment(
  * (already shot-local time, no rebasing needed), and the doc carries a `shot`
  * provenance key when the film has more than one shot (a lone shot's doc is
  * indistinguishable from the pre-W2 shape, unaffected replay per PLAN.md §B).
+ *
+ * `predecessorFrame` is `resolvePredecessorFrame`'s (directorContinuation.ts)
+ * resolved media for a `continue_from_previous` shot -- `null`/omitted for
+ * every other shot, or when the caller couldn't resolve one (a caller must
+ * not submit an unready continuation shot at all; this function does not
+ * re-check readiness). An explicit `first`-role keyframe on the SAME shot
+ * always wins over an inherited predecessor frame (`validateDirector`
+ * rejects that combination outright for a fresh submission -- see its
+ * "start keyframe on a continued shot" reason -- so this only matters for a
+ * pre-existing/chat-authored document that bypassed validation; silently
+ * dropping the join there would be worse than keeping the keyframe).
  */
 function buildTimelineShotWireDoc(
 	value: VideoDirectorValue,
 	caps: DirectorCapabilities,
 	shot: DirectorTimelineShot,
 	index: number,
-	count: number
+	count: number,
+	predecessorFrame?: DirectorMediaValue | null
 ): VideoDirectorWireDoc {
 	const fps = value.timeline.fps;
 	const duration = shot.duration;
@@ -1650,6 +1671,11 @@ function buildTimelineShotWireDoc(
 
 	const media: WireMedia[] = [];
 	let mIdx = 0;
+	const hasExplicitFirstKeyframe = shot.keyframes.some((k) => k.role === 'first' && k.media);
+	if (shot.continue_from_previous && predecessorFrame && !hasExplicitFirstKeyframe) {
+		mIdx += 1;
+		media.push({ id: `m-${mIdx}`, role: 'first', segment_id: firstSegId, at: 0, strength: 1, media: predecessorFrame });
+	}
 	for (const kf of shot.keyframes) {
 		if (!kf.media) continue;
 		mIdx += 1;
@@ -1716,11 +1742,19 @@ function buildTimelineShotWireDoc(
  * the array down to the checked shots, keeping each doc otherwise identical
  * (same `index`/`count` provenance as the full film) since nothing about a
  * timeline shot's own doc depends on which of its SIBLINGS also got picked.
+ *
+ * `predecessorFrames` (TIMELINE documents only) maps a `continue_from_previous`
+ * shot's own id to the media `resolvePredecessorFrame` (directorContinuation.ts)
+ * resolved for it -- the caller is responsible for only ever populating an
+ * entry once that shot is actually ready to inherit one (this function does
+ * not re-check readiness); a shot with no entry here builds exactly as
+ * before (empty `media` for that role, same pre-fix behaviour).
  */
 export function buildDirectorSubmission(
 	rawValue: VideoDirectorValue,
 	caps: DirectorCapabilities,
-	checkedShotIds?: Iterable<string>
+	checkedShotIds?: Iterable<string>,
+	predecessorFrames?: Record<string, DirectorMediaValue> | null
 ): VideoDirectorWireDoc[] {
 	const value = toModelessDirectorValue(rawValue, caps);
 	const mode = deriveDirectorMode(value, caps);
@@ -1804,7 +1838,9 @@ export function buildDirectorSubmission(
 				];
 			}
 			const shots = value.timeline.shots;
-			const docs = shots.map((shot, index) => buildTimelineShotWireDoc(value, caps, shot, index, shots.length));
+			const docs = shots.map((shot, index) =>
+				buildTimelineShotWireDoc(value, caps, shot, index, shots.length, predecessorFrames?.[shot.id] ?? null)
+			);
 			if (!checked || checked.size === 0) return docs;
 			return docs.filter((_doc, index) => checked.has(shots[index].id));
 		}

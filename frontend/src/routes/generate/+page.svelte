@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { tabsStore, activeTab, generatingTab, isActiveTabGenerating } from '$lib/stores/tabs';
-	import type { PromptTabData, DirectorRunState } from '$lib/types/tabs';
+	import type { PromptTabData, DirectorRunState, Tab } from '$lib/types/tabs';
 	import { authStore } from '$lib/stores/auth';
 	import { api, type GenerationRequest, type PromptPair } from '$lib/services/api';
 	import { buildSegmentsPayload, buildVariablesPayload } from '$lib/utils/generationOrchestrator';
@@ -41,6 +41,8 @@
 	import { resolveDirectorCapabilities, normalizeDirectorValue, validateDirector, buildDirectorSubmission, representativeDirectorPrompt, dereferenceFormMediaRefs, seedDirectorPromptFromLegacyText } from '$lib/utils/videoDirector';
 	import { directorShotInputIdentity, directorPredecessorShotId } from '$lib/utils/directorInputIdentity';
 	import { planDirectorSelection } from '$lib/utils/directorPlanner';
+	import { runDirectorDependencyPlan } from '$lib/utils/directorDependencyRunner';
+	import { peekGenerationOutputs } from '$lib/generation/messages/generationOutputs';
 	import type { VideoDirectorWireDoc, VideoDirectorValue } from '$lib/types/videoDirector';
 	import type { DirectorCapabilities } from '$lib/types/videoDirector';
 	import { resolveMusicDirectorCapabilities, normalizeMusicDirectorValue, validateMusicDirector, buildMusicDirectorSubmission } from '$lib/utils/musicDirector';
@@ -112,6 +114,124 @@
 	}
 
 	/**
+	 * Submits one Video Director wire doc (already built, form-ref-resolved
+	 * by the caller is NOT assumed -- this does that too) as a real
+	 * generation, and records `shotsForDoc`'s `directorRuns`/`directorRunLinks`
+	 * once it's queued. Factored out of `submitVideoDirectorShots` so the
+	 * LTX timeline path below can submit shots one at a time, gated by
+	 * `directorDependencyRunner.ts`, instead of firing every wire doc in one
+	 * un-gated loop.
+	 */
+	async function submitOneDirectorWireDoc(
+		tabId: string,
+		tab: Tab,
+		doc: VideoDirectorValue,
+		caps: DirectorCapabilities,
+		wireDoc: VideoDirectorWireDoc,
+		shotsForDoc: string[]
+	): Promise<void> {
+		const { doc: resolvedDoc, errors } = dereferenceFormMediaRefs(wireDoc, tab.formData);
+		if (errors.length > 0) {
+			toasts.error(`Video Director references media that's no longer on the form: ${errors.join('; ')}`);
+			return;
+		}
+		const positive = resolvedDoc.segments[0]?.prompt ?? '';
+		const negative = resolvedDoc.segments[0]?.negative_prompt ?? '';
+		const variablesResult = buildVariablesPayload(tab);
+		const request: GenerationRequest = {
+			preset_id: tab.selectedPreset!,
+			prompts: [{ positive, negative }],
+			mode: tab.selectedMode ?? undefined,
+			form_name: tab.selectedVariant ?? undefined,
+			form_data: { ...tab.formData, video_director: resolvedDoc },
+			backend_id: tab.selectedBackendId ?? undefined,
+			tag_ids: tab.autoTagIds?.length ? tab.autoTagIds : undefined,
+			collection_ids: tab.autoCollectionIds?.length ? tab.autoCollectionIds : undefined,
+			variables: variablesResult.variables,
+			tab_id: tab.id,
+			source_prompt_id: tab.sourcePromptId ?? undefined,
+			prompt_state: {
+				prompt: tab.prompt,
+				negativePrompt: tab.negativePrompt,
+				promptSegments: tab.promptSegments,
+				negativePromptSegments: tab.negativePromptSegments,
+				promptTabs: tab.promptTabs,
+				activePromptTab: tab.activePromptTab,
+				promptRelay: tab.promptRelay,
+				videoDirector: tab.videoDirector
+			},
+			segments: buildSegmentsPayload(tab, presetVars[tab.selectedPreset!]?.num_prompts || 1)
+		};
+		try {
+			const response = await api.startGeneration(request);
+			if (response.success && response.data) {
+				const { generation_id, queue_position } = response.data;
+				const isQueued = queue_position !== null && queue_position !== undefined;
+				const liveTab = $tabsStore.tabs.find((t) => t.id === tabId) || tab;
+				tabsStore.updateTab(tabId, {
+					generation: {
+						...liveTab.generation,
+						queue: [
+							...(liveTab.generation.queue || []),
+							{ generation_id, queue_position: queue_position ?? null, status: isQueued ? 'pending' : 'running' }
+						]
+					},
+					directorRuns: {
+						...(liveTab.directorRuns || {}),
+						...buildDirectorRunEntries(
+							shotsForDoc,
+							generation_id,
+							isQueued ? 'queued' : 'generating',
+							doc,
+							caps,
+							tab.formData,
+							liveTab.directorRuns
+						)
+					},
+					directorRunLinks: {
+						...(liveTab.directorRunLinks || {}),
+						[generation_id]: shotsForDoc
+					}
+				});
+				if (ws) {
+					ws.subscribe(generation_id, (message: WebSocketMessage) => handleGenerationMessage(message));
+				}
+			} else {
+				toasts.error('Shot failed to start.');
+			}
+		} catch (error) {
+			console.error('Failed to start Video Director shot generation:', error);
+			toasts.error('Shot failed to start.');
+		}
+	}
+
+	/** Resolves once `shotId`'s own `directorRuns` entry (for `tabId`) reaches
+	 *  a terminal status -- driven by the same WebSocket
+	 *  `generation_complete`/`generation_error` handling that writes
+	 *  `directorRuns` (complete.ts/error.ts), never polled. Only ever awaited
+	 *  by `directorDependencyRunner.ts` for a shot THIS session just
+	 *  submitted, so a pre-existing terminal status on subscribe (the common
+	 *  case -- most runs finish long before anything awaits them) resolves
+	 *  immediately. */
+	function waitForDirectorShotTerminal(tabId: string, shotId: string): Promise<'done' | 'failed'> {
+		return new Promise((resolve) => {
+			let unsubscribe: () => void = () => {};
+			let settled = false;
+			unsubscribe = tabsStore.subscribe((state) => {
+				const status = state.tabs.find((t) => t.id === tabId)?.directorRuns?.[shotId]?.status;
+				if (!settled && (status === 'done' || status === 'failed')) {
+					settled = true;
+					resolve(status);
+					// `unsubscribe` isn't assigned yet the first time this runs
+					// (subscribe() invokes synchronously with the current value) --
+					// defer past that assignment instead of unsubscribing inline.
+					Promise.resolve().then(() => unsubscribe());
+				}
+			});
+		});
+	}
+
+	/**
 	 * Submits exactly `shotIds` (in the order given) for `tabId`'s Video
 	 * Director document -- backs the Shot Console's two contextual generate
 	 * actions (PLAN.md §C W3): a failed row's Retry (one id) and a broken
@@ -137,93 +257,49 @@
 			return;
 		}
 
-		const checked = new Set(shotIds);
-		const wireDocs = buildDirectorSubmission(doc, caps, checked);
-		if (wireDocs.length === 0) return;
-		const isChainDoc = caps.segmentRouting;
 		const targetShotIds = plan.shotsToSubmit;
-		// A chain doc is ONE generation covering every targeted shot at once;
-		// a timeline doc is one generation PER shot, same order the docs came
-		// back in.
-		const shotIdCoverage: string[][] = isChainDoc ? [targetShotIds] : targetShotIds.map((id) => [id]);
+		if (targetShotIds.length === 0) return;
 
-		for (let i = 0; i < wireDocs.length; i++) {
-			const wireDoc = wireDocs[i];
-			const shotsForDoc = shotIdCoverage[i] ?? [];
-			const { doc: resolvedDoc, errors } = dereferenceFormMediaRefs(wireDoc, tab.formData);
-			if (errors.length > 0) {
-				toasts.error(`Video Director references media that's no longer on the form: ${errors.join('; ')}`);
-				continue;
-			}
-			const positive = resolvedDoc.segments[0]?.prompt ?? '';
-			const negative = resolvedDoc.segments[0]?.negative_prompt ?? '';
-			const variablesResult = buildVariablesPayload(tab);
-			const request: GenerationRequest = {
-				preset_id: tab.selectedPreset,
-				prompts: [{ positive, negative }],
-				mode: tab.selectedMode ?? undefined,
-				form_name: tab.selectedVariant ?? undefined,
-				form_data: { ...tab.formData, video_director: resolvedDoc },
-				backend_id: tab.selectedBackendId ?? undefined,
-				tag_ids: tab.autoTagIds?.length ? tab.autoTagIds : undefined,
-				collection_ids: tab.autoCollectionIds?.length ? tab.autoCollectionIds : undefined,
-				variables: variablesResult.variables,
-				tab_id: tab.id,
-				source_prompt_id: tab.sourcePromptId ?? undefined,
-				prompt_state: {
-					prompt: tab.prompt,
-					negativePrompt: tab.negativePrompt,
-					promptSegments: tab.promptSegments,
-					negativePromptSegments: tab.negativePromptSegments,
-					promptTabs: tab.promptTabs,
-					activePromptTab: tab.activePromptTab,
-					promptRelay: tab.promptRelay,
-					videoDirector: tab.videoDirector
-				},
-				segments: buildSegmentsPayload(tab, presetVars[tab.selectedPreset]?.num_prompts || 1)
-			};
-			try {
-				const response = await api.startGeneration(request);
-				if (response.success && response.data) {
-					const { generation_id, queue_position } = response.data;
-					const isQueued = queue_position !== null && queue_position !== undefined;
-					const liveTab = $tabsStore.tabs.find((t) => t.id === tabId) || tab;
-					tabsStore.updateTab(tabId, {
-						generation: {
-							...liveTab.generation,
-							queue: [
-								...(liveTab.generation.queue || []),
-								{ generation_id, queue_position: queue_position ?? null, status: isQueued ? 'pending' : 'running' }
-							]
-						},
-						directorRuns: {
-							...(liveTab.directorRuns || {}),
-							...buildDirectorRunEntries(
-								shotsForDoc,
-								generation_id,
-								isQueued ? 'queued' : 'generating',
-								doc,
-								caps,
-								tab.formData,
-								liveTab.directorRuns
-							)
-						},
-						directorRunLinks: {
-							...(liveTab.directorRunLinks || {}),
-							[generation_id]: shotsForDoc
-						}
-					});
-					if (ws) {
-						ws.subscribe(generation_id, (message: WebSocketMessage) => handleGenerationMessage(message));
-					}
-				} else {
-					toasts.error('Shot failed to start.');
-				}
-			} catch (error) {
-				console.error('Failed to start Video Director shot generation:', error);
-				toasts.error('Shot failed to start.');
-			}
+		if (caps.segmentRouting) {
+			// Wan/H3 routed chain -- ONE generation covers every targeted shot
+			// at once; its own continuation is server-side, in-process, within
+			// that single generation, so there is nothing to wait on between
+			// shots here (unlike the LTX timeline branch below).
+			const wireDocs = buildDirectorSubmission(doc, caps, new Set(shotIds));
+			if (wireDocs.length === 0) return;
+			await submitOneDirectorWireDoc(tabId, tab, doc, caps, wireDocs[0], targetShotIds);
+			return;
 		}
+
+		// LTX timeline -- one generation PER shot, in dependency order. A
+		// continuation shot whose own predecessor is ALSO in this batch must
+		// wait for that predecessor's generation to actually finish (and
+		// inherit ITS resolved output) before submitting -- see
+		// directorDependencyRunner.ts.
+		await runDirectorDependencyPlan(targetShotIds, doc, caps, {
+			getRuns: () => $tabsStore.tabs.find((t) => t.id === tabId)?.directorRuns,
+			getOutputs: () => {
+				const runs = $tabsStore.tabs.find((t) => t.id === tabId)?.directorRuns;
+				if (!runs) return null;
+				const byGenerationId: Record<string, ReturnType<typeof peekGenerationOutputs>> = {};
+				for (const run of Object.values(runs)) {
+					if (run.generationId) byGenerationId[run.generationId] = peekGenerationOutputs(run.generationId);
+				}
+				return byGenerationId;
+			},
+			submit: async (shotId, predecessorFrame) => {
+				const liveTab = $tabsStore.tabs.find((t) => t.id === tabId) || tab;
+				const predecessorFrames = predecessorFrame ? { [shotId]: predecessorFrame } : undefined;
+				const wireDocs = buildDirectorSubmission(doc, caps, new Set([shotId]), predecessorFrames);
+				if (wireDocs.length === 0) return;
+				await submitOneDirectorWireDoc(tabId, liveTab, doc, caps, wireDocs[0], [shotId]);
+			},
+			waitForTerminal: (shotId) => waitForDirectorShotTerminal(tabId, shotId),
+			onBlocked: (shotId, reason) => {
+				const index = targetShotIds.indexOf(shotId);
+				toasts.error(index >= 0 && targetShotIds.length > 1 ? `Shot ${index + 1}: ${reason}` : reason);
+			}
+		});
 	}
 
 	// Bumped whenever the active tab's generation completes, so the "last

@@ -192,6 +192,12 @@ export function planDirectorSelection(
 			if (!predecessorDone && !predecessorSelected) {
 				reasons.push('needs its previous shot');
 			}
+			// Mirrors `validateDirector`'s same check (videoDirector.ts) -- an
+			// explicit start keyframe and an inherited predecessor frame both
+			// want the same `first`-role media slot.
+			if (shot.keyframes.some((k) => k.role === 'first' && k.media)) {
+				reasons.push('cannot also have its own start keyframe');
+			}
 		}
 
 		const ready = reasons.length === 0;

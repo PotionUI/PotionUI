@@ -43,12 +43,17 @@ An admin config may set ``provider_options.thinking`` to explicitly toggle a
 compatible chat template's thinking/reasoning switch: ``true``/``false``
 requests it on or off, and leaving the key unset (the default) keeps the
 template's own default behavior. Support is a property of the checkpoint's
-LOADED chat template, never of its name or parameter count: a template counts
-as compatible only when its source contains the literal ``enable_thinking``
-variable (the shape the Qwen3 family template uses) — see
-``NativeLLMClient._supports_thinking``. When a mode is requested against an
-incompatible template, the kwarg is never sent (nothing is silently
-half-applied); every response instead reports ``LLMResponse.thinking_mode``
+LOADED chat template, never of its name or parameter count: the template
+actually resolved for a request — a plain string as-is, or a dict-of-templates
+checkpoint's ``"default"`` entry (see ``NativeLLMClient._selected_chat_template``,
+matching how ``apply_chat_template`` itself resolves ``tokenizer.chat_template``
+when this client never passes a ``chat_template=`` override) — counts as
+compatible only when ``enable_thinking`` appears as a live Jinja variable
+reference inside a ``{{ ... }}``/``{% ... %}`` block, never inside a
+``{# ... #}`` comment or as literal prompt text (see
+``NativeLLMClient._supports_thinking``). When a mode is requested against an
+incompatible or unresolved template, the kwarg is never sent (nothing is
+silently half-applied); every response instead reports ``LLMResponse.thinking_mode``
 (and the streaming ``"usage"`` event carries the same key) as
 ``{"requested": <bool>, "effective": "unsupported"}``, so a caller can never
 mistake "ignored" for "applied". ``NativeLLMClient._chat_template_kwargs`` is
@@ -65,6 +70,7 @@ import base64
 import io
 import json
 import logging
+import re
 import threading
 import uuid
 import weakref
@@ -103,6 +109,16 @@ _LIFECYCLE_KEY_PREFIX = "native/llm/"
 # the same file (a different consumer, a different in-memory form).
 _LIFECYCLE_TE_KEY_PREFIX = "native/llm-te/"
 _SENTINEL = object()
+
+# `_supports_thinking`'s referenced-switch detection: a name only counts as a
+# real Jinja variable reference inside a `{{ ... }}` expression or a
+# `{% ... %}` statement — never inside a `{# ... #}` comment (stripped first,
+# so a fake `{% ... %}`-shaped fragment written INSIDE a comment can never be
+# mistaken for real code) and never in literal template text outside any
+# block.
+_JINJA_COMMENT_RE = re.compile(r"\{#.*?#\}", re.DOTALL)
+_JINJA_BLOCK_RE = re.compile(r"\{\{.*?\}\}|\{%.*?%\}", re.DOTALL)
+_ENABLE_THINKING_REFERENCE_RE = re.compile(r"\benable_thinking\b")
 
 
 def _is_oom(error: BaseException) -> bool:
@@ -684,16 +700,51 @@ class NativeLLMClient:
             raise ValueError(f"Native LLM provider: could not decode the attached image: {e}") from e
 
     @staticmethod
-    def _supports_thinking(tokenizer: Any) -> bool:
-        """Whether *tokenizer*'s loaded chat template can toggle explicit
-        thinking — detected from the ``enable_thinking`` variable appearing in
-        the template SOURCE actually loaded with this checkpoint (the Qwen3
-        family's template shape), never inferred from the model name or
-        parameter count: a Qwen3-named checkpoint with a stripped/custom
-        template is correctly reported unsupported, and a future family whose
-        template happens to use the same variable is correctly supported."""
+    def _selected_chat_template(tokenizer: Any) -> Optional[str]:
+        """The template source that will actually run for a call this client
+        makes, resolved the same way ``apply_chat_template`` resolves
+        ``tokenizer.chat_template`` when no ``chat_template=`` kwarg is
+        passed (this client never passes one — every call site below omits
+        it, always letting the tokenizer pick its own default): a plain
+        string template is used as-is; a checkpoint shipping several named
+        templates (transformers' dict-of-templates convention, keyed by
+        template name) resolves to its ``"default"`` entry, if any. Anything
+        else — no template at all, or a dict with no ``"default"`` key —
+        is unresolved (``None``): this never guesses which named template a
+        future ``chat_template=`` caller might select.
+        """
         template = getattr(tokenizer, "chat_template", None)
-        return isinstance(template, str) and "enable_thinking" in template
+        if isinstance(template, str):
+            return template
+        if isinstance(template, dict):
+            default = template.get("default")
+            return default if isinstance(default, str) else None
+        return None
+
+    @staticmethod
+    def _supports_thinking(tokenizer: Any) -> bool:
+        """Whether the chat template THIS request will actually run
+        references ``enable_thinking`` as a real Jinja variable — resolved
+        via ``_selected_chat_template`` (so a dict-of-templates checkpoint is
+        judged by the template that actually runs, not by treating the whole
+        dict as unsupported), and detected only inside a live ``{{ ... }}``
+        expression or ``{% ... %}`` statement, never inside a ``{# ... #}``
+        comment (stripped first) or in literal prompt text — a
+        commented-out or documentation-only mention of the name must never
+        be reported as an active switch. Never inferred from the model name
+        or parameter count: a Qwen3-named checkpoint with a stripped/custom
+        template is correctly reported unsupported, and a future family
+        whose template happens to reference the same variable is correctly
+        supported. An unresolved template is conservatively unsupported.
+        """
+        template = NativeLLMClient._selected_chat_template(tokenizer)
+        if template is None:
+            return False
+        without_comments = _JINJA_COMMENT_RE.sub("", template)
+        return any(
+            _ENABLE_THINKING_REFERENCE_RE.search(block.group(0))
+            for block in _JINJA_BLOCK_RE.finditer(without_comments)
+        )
 
     @staticmethod
     def _thinking_setting(config: LLMConfig) -> Optional[bool]:

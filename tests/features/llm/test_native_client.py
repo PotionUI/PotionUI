@@ -266,6 +266,17 @@ QWEN3_THINKING_TEMPLATE = (
 # A template with no thinking switch at all (the fixture's own tiny template
 # shape, and most non-Qwen3 chat templates).
 PLAIN_TEMPLATE = "{% for m in messages %}{{ m.role }}: {{ m.content }}\n{% endfor %}"
+# `enable_thinking` mentioned only inside a Jinja comment — never a live
+# reference, must never be reported supported.
+COMMENT_ONLY_TEMPLATE = "{# enable_thinking is not actually used below #}" + PLAIN_TEMPLATE
+# `enable_thinking` mentioned only as literal prompt text (outside any
+# `{{ }}`/`{% %}` block) — also never a live reference.
+LITERAL_TEXT_ONLY_TEMPLATE = "Note to the model: enable_thinking is not a real setting here.\n" + PLAIN_TEMPLATE
+# transformers' dict-of-templates convention: a checkpoint may ship several
+# named templates keyed by name, resolved to the "default" entry when no
+# `chat_template=` override is passed (this client never passes one).
+DICT_TEMPLATE_COMPATIBLE_DEFAULT = {"default": QWEN3_THINKING_TEMPLATE, "tool_use": PLAIN_TEMPLATE}
+DICT_TEMPLATE_INCOMPATIBLE_DEFAULT = {"default": PLAIN_TEMPLATE, "tool_use": QWEN3_THINKING_TEMPLATE}
 
 
 class _RecordingTokenizer:
@@ -315,6 +326,33 @@ def fake_native_model(tmp_path, monkeypatch):
     return "thinking-tiny"
 
 
+class TestSelectedChatTemplate:
+    """`_selected_chat_template` resolves `tokenizer.chat_template` the same
+    way `apply_chat_template` resolves it when no `chat_template=` override
+    is passed (this client never passes one)."""
+
+    def test_string_template_is_used_as_is(self):
+        assert NativeLLMClient._selected_chat_template(
+            _RecordingTokenizer(QWEN3_THINKING_TEMPLATE)
+        ) == QWEN3_THINKING_TEMPLATE
+
+    def test_dict_resolves_to_the_default_key(self):
+        assert NativeLLMClient._selected_chat_template(
+            _RecordingTokenizer(DICT_TEMPLATE_COMPATIBLE_DEFAULT)
+        ) == QWEN3_THINKING_TEMPLATE
+
+    def test_dict_without_default_is_unresolved(self):
+        assert NativeLLMClient._selected_chat_template(
+            _RecordingTokenizer({"tool_use": QWEN3_THINKING_TEMPLATE})
+        ) is None
+
+    def test_missing_template_is_unresolved(self):
+        assert NativeLLMClient._selected_chat_template(_RecordingTokenizer(None)) is None
+
+    def test_no_chat_template_attribute_is_unresolved(self):
+        assert NativeLLMClient._selected_chat_template(object()) is None
+
+
 class TestSupportsThinking:
     def test_true_when_template_declares_enable_thinking(self):
         assert NativeLLMClient._supports_thinking(_RecordingTokenizer(QWEN3_THINKING_TEMPLATE)) is True
@@ -330,6 +368,38 @@ class TestSupportsThinking:
         the checkpoint name, so a Qwen3-named but template-less double is
         still reported unsupported."""
         assert NativeLLMClient._supports_thinking(_RecordingTokenizer(None)) is False
+
+    def test_comment_only_mention_is_unsupported(self):
+        """`enable_thinking` written inside a `{# ... #}` comment is never a
+        live reference — the bug this guards: a comment mentioning the name
+        while the template consumes nothing must not report supported."""
+        assert NativeLLMClient._supports_thinking(_RecordingTokenizer(COMMENT_ONLY_TEMPLATE)) is False
+
+    def test_literal_text_only_mention_is_unsupported(self):
+        """`enable_thinking` appearing as plain prompt text, outside any
+        `{{ }}`/`{% %}` block, is never a live reference either."""
+        assert NativeLLMClient._supports_thinking(_RecordingTokenizer(LITERAL_TEXT_ONLY_TEMPLATE)) is False
+
+    def test_dict_of_templates_resolves_to_the_default_entry(self):
+        """A checkpoint shipping several named templates (transformers'
+        dict-of-templates convention) is judged by its `"default"` entry —
+        the one that actually runs when no `chat_template=` override is
+        passed — not by treating the whole dict as unsupported."""
+        assert NativeLLMClient._supports_thinking(
+            _RecordingTokenizer(DICT_TEMPLATE_COMPATIBLE_DEFAULT)
+        ) is True
+
+    def test_dict_of_templates_unsupported_when_the_default_entry_lacks_it(self):
+        """The SELECTED template governs, even when a different named entry
+        in the same dict does reference the switch."""
+        assert NativeLLMClient._supports_thinking(
+            _RecordingTokenizer(DICT_TEMPLATE_INCOMPATIBLE_DEFAULT)
+        ) is False
+
+    def test_dict_with_no_default_entry_is_unresolved_and_unsupported(self):
+        assert NativeLLMClient._supports_thinking(
+            _RecordingTokenizer({"tool_use": QWEN3_THINKING_TEMPLATE})
+        ) is False
 
 
 class TestThinkingSetting:
@@ -504,6 +574,34 @@ class TestPreflightAndGenerateAgreeOnThinkingKwargs:
 
         assert checkpoint.tokenizer.template_calls == [{}, {}]
         assert response.thinking_mode == {"requested": True, "effective": "unsupported"}
+
+    @pytest.mark.parametrize(
+        "template,expect_kwargs,expect_effective",
+        [
+            (COMMENT_ONLY_TEMPLATE, {}, "unsupported"),
+            (LITERAL_TEXT_ONLY_TEMPLATE, {}, "unsupported"),
+            (DICT_TEMPLATE_COMPATIBLE_DEFAULT, {"enable_thinking": True}, True),
+            (DICT_TEMPLATE_INCOMPATIBLE_DEFAULT, {}, "unsupported"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_both_sites_agree_across_the_selection_and_reference_fixtures(
+        self, client, fake_native_model, monkeypatch, template, expect_kwargs, expect_effective
+    ):
+        path, is_te = client._resolve_model(fake_native_model)
+        checkpoint = _thinking_checkpoint(template)
+        client._checkpoint_refs[client._cache_key(path, is_te)] = weakref.ref(checkpoint)
+        monkeypatch.setattr(NativeLLMClient, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
+        config = _config(fake_native_model, provider_options={"thinking": True})
+
+        preflight_counter = client.messages_token_counter(config)
+        preflight_counter(config.system_message, [{"role": "user", "content": "hi"}])
+        response = await client.generate_with_history(
+            [{"role": "user", "content": "hi"}], config, config.system_message
+        )
+
+        assert checkpoint.tokenizer.template_calls == [expect_kwargs, expect_kwargs]
+        assert response.thinking_mode == {"requested": True, "effective": expect_effective}
 
 
 # --- model-lifecycle integration ------------------------------------------

@@ -19,8 +19,9 @@
 
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import type { PreChatAction } from '$lib/types/llm';
-	import { Badge, Input } from '$lib/components/ui';
+	import type { NativeCheckpoint, PreChatAction } from '$lib/types/llm';
+	import { api } from '$lib/services/api/index';
+	import { Badge, Input, Spinner } from '$lib/components/ui';
 	import { DetailSection } from '$lib/components/detail';
 	import { coerceProviderOptionText } from './llmProviderOptions';
 
@@ -57,6 +58,7 @@
 		{ value: 'openai', label: 'OpenAI' },
 		{ value: 'anthropic', label: 'Anthropic' },
 		{ value: 'ollama', label: 'Ollama' },
+		{ value: 'native', label: 'Native' },
 		{ value: 'local', label: 'Local' }
 	];
 
@@ -89,6 +91,17 @@
 		]}
 	};
 
+	// Native-provider options that don't depend on the selected checkpoint
+	// (quantization does — see quantOptions below — so it's rendered separately).
+	const nativeOptions = {
+		thinking: { default: null, type: 'select', label: 'Thinking mode', description: 'Applies to templates with an enable_thinking switch, e.g. Qwen3; other models keep their default.', options: [
+			{ value: null, label: 'Model default' },
+			{ value: true, label: 'Enabled' },
+			{ value: false, label: 'Disabled' }
+		]},
+		context_window: { default: null, type: 'number', label: 'Context window (tokens)', description: 'The capacity the context budget preflight uses for this config — not a promise the model actually fits that many tokens. Leave blank for a conservative unknown-capacity default.' }
+	};
+
 	const isPanel = $derived(layout === 'panel');
 	// Regular label in the wide pane; mono micro-label (`.label`, app.css) in the modal.
 	const labelClass = $derived(isPanel ? 'block text-sm font-medium text-fg-muted mb-1' : 'label');
@@ -109,6 +122,65 @@
 		draft.provider_options.pre_chat_actions[actionId] = checked;
 		draft.provider_options = { ...draft.provider_options };
 	}
+
+	// -- Native provider: checkpoint picker -------------------------------
+
+	let nativeCheckpoints = $state<NativeCheckpoint[]>([]);
+	let nativeCheckpointsLoading = $state(false);
+	let nativeCheckpointsError = $state<string | null>(null);
+	let nativeCheckpointsLoaded = $state(false);
+
+	async function loadNativeCheckpoints() {
+		nativeCheckpointsLoading = true;
+		nativeCheckpointsError = null;
+		try {
+			const response = await api.listNativeCheckpoints();
+			if (response.success && response.data) {
+				nativeCheckpoints = response.data;
+			} else {
+				nativeCheckpointsError = response.message || 'Failed to load checkpoints.';
+			}
+		} catch (error) {
+			nativeCheckpointsError = 'Failed to reach the server to list checkpoints.';
+		} finally {
+			nativeCheckpointsLoading = false;
+			nativeCheckpointsLoaded = true;
+		}
+	}
+
+	// Fetched once, the first time this form is showing a native config —
+	// never re-fetched on every keystroke, and never blocks switching AWAY
+	// from native and back.
+	$effect(() => {
+		if (draft.type === 'native' && !nativeCheckpointsLoaded && !nativeCheckpointsLoading) {
+			loadNativeCheckpoints();
+		}
+	});
+
+	// The checkpoint entry backing the currently saved/selected `draft.model`,
+	// when the list has loaded and it's still in it.
+	const selectedCheckpoint = $derived(
+		nativeCheckpoints.find((c) => c.name === draft.model) ?? null
+	);
+	// True once the list has loaded and the saved value isn't in it (deleted
+	// from disk, or never matched — e.g. a typo). The value is NEVER
+	// silently replaced or cleared here; it's kept and explained instead.
+	const savedCheckpointMissing = $derived(
+		nativeCheckpointsLoaded && !nativeCheckpointsError && !!draft.model && !selectedCheckpoint
+	);
+	// Options rendered in the checkpoint <select> — the saved value is pinned
+	// to the top when it isn't (or is no longer) one of the listed entries,
+	// so the select's bound value always matches a real <option> and the
+	// admin sees exactly what's saved rather than a blank picker.
+	const checkpointSelectOptions = $derived(
+		savedCheckpointMissing
+			? [{ name: draft.model, supported: true, reason: null as string | null, missing: true }, ...nativeCheckpoints.map((c) => ({ ...c, missing: false }))]
+			: nativeCheckpoints.map((c) => ({ ...c, missing: false }))
+	);
+	// Quantization choices come ONLY from the selected checkpoint's own
+	// `quant_modes` — never a fixed list, since what a checkpoint can be
+	// loaded as depends on what native.py's loader actually supports for it.
+	const quantOptions = $derived(selectedCheckpoint?.quant_modes ?? []);
 </script>
 
 {#snippet section(title: string, isFirst: boolean, body: Snippet, headerExtra?: Snippet)}
@@ -143,8 +215,39 @@
 				</select>
 			</div>
 			<div>
-				<label for="{idPrefix}-model" class={labelClass}>Model <span class="text-danger">*</span></label>
-				<Input id="{idPrefix}-model" type="text" bind:value={draft.model} placeholder="e.g. gpt-4o, claude-sonnet-4-20250514" />
+				<label for="{idPrefix}-model" class={labelClass}>{draft.type === 'native' ? 'Checkpoint' : 'Model'} <span class="text-danger">*</span></label>
+				{#if draft.type === 'native'}
+					{#if nativeCheckpointsLoading}
+						<div class="input flex items-center gap-2 text-fg-subtle text-sm">
+							<Spinner size="sm" /> Loading checkpoints…
+						</div>
+					{:else if nativeCheckpointsError}
+						<div class="space-y-1.5">
+							<p class="text-sm text-danger">{nativeCheckpointsError}</p>
+							<button type="button" class="text-xs text-signal hover:underline" onclick={loadNativeCheckpoints}>
+								Retry
+							</button>
+						</div>
+					{:else if checkpointSelectOptions.length === 0}
+						<p class="input text-sm text-fg-subtle">No checkpoints found under models/llm/. Add one, then reopen this form.</p>
+					{:else}
+						<select id="{idPrefix}-model" class="input" bind:value={draft.model}>
+							<option value="" disabled>Select a checkpoint…</option>
+							{#each checkpointSelectOptions as cp}
+								<option value={cp.name} disabled={!cp.supported}>
+									{cp.name}{cp.missing ? ' (no longer listed)' : !cp.supported ? ` — ${cp.reason}` : ''}
+								</option>
+							{/each}
+						</select>
+					{/if}
+					{#if savedCheckpointMissing}
+						<p class="text-xs text-warning/70 mt-1">
+							The saved checkpoint "{draft.model}" is no longer listed under models/llm/ — kept as-is; pick a different one below to replace it.
+						</p>
+					{/if}
+				{:else}
+					<Input id="{idPrefix}-model" type="text" bind:value={draft.model} placeholder="e.g. gpt-4o, claude-sonnet-4-20250514" />
+				{/if}
 			</div>
 		</div>
 		<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -241,14 +344,14 @@
 	</p>
 {/snippet}
 
-{#snippet ollamaFields()}
+{#snippet optionsFields(opts: Record<string, any>, namespace: string)}
 	<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-		{#each Object.entries(ollamaOptions) as [key, opt]}
+		{#each Object.entries(opts) as [key, opt]}
 			<div>
-				<label for="{idPrefix}-ollama-{key}" class={labelClass}>{opt.label}</label>
+				<label for="{idPrefix}-{namespace}-{key}" class={labelClass}>{opt.label}</label>
 				{#if opt.type === 'select' && 'options' in opt}
 					<select
-						id="{idPrefix}-ollama-{key}"
+						id="{idPrefix}-{namespace}-{key}"
 						class="input text-sm"
 						value={draft.provider_options[key] ?? opt.default}
 						onchange={(e) => {
@@ -256,6 +359,7 @@
 							let value: any = target.value;
 							if (value === 'true') value = true;
 							else if (value === 'false') value = false;
+							else if (value === '' && opt.default === null) value = null;
 							else if (!isNaN(Number(value))) value = Number(value);
 							setProviderOption(key, value, value === opt.default);
 						}}
@@ -266,7 +370,7 @@
 					</select>
 				{:else if opt.type === 'number'}
 					<input
-						id="{idPrefix}-ollama-{key}"
+						id="{idPrefix}-{namespace}-{key}"
 						type="number"
 						class="input text-sm"
 						value={draft.provider_options[key] ?? ''}
@@ -283,7 +387,7 @@
 					/>
 				{:else}
 					<input
-						id="{idPrefix}-ollama-{key}"
+						id="{idPrefix}-{namespace}-{key}"
 						type="text"
 						class="input text-sm"
 						value={draft.provider_options[key] ?? ''}
@@ -301,6 +405,55 @@
 				<p class="text-xs text-fg-subtle mt-1">{opt.description}</p>
 			</div>
 		{/each}
+	</div>
+{/snippet}
+
+{#snippet ollamaFields()}
+	{@render optionsFields(ollamaOptions, 'ollama')}
+{/snippet}
+
+{#snippet nativeFields()}
+	{@render optionsFields(nativeOptions, 'native')}
+	<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+		<div>
+			<label for="{idPrefix}-native-quantization" class={labelClass}>Quantization</label>
+			<select
+				id="{idPrefix}-native-quantization"
+				class="input text-sm"
+				disabled={quantOptions.length === 0}
+				value={draft.provider_options.quantization ?? 'none'}
+				onchange={(e) => {
+					const value = (e.target as HTMLSelectElement).value;
+					setProviderOption('quantization', value, value === 'none');
+				}}
+			>
+				{#if quantOptions.length === 0}
+					<option value="none">none</option>
+				{:else}
+					{#each quantOptions as mode}
+						<option value={mode}>{mode}</option>
+					{/each}
+				{/if}
+			</select>
+			<p class="text-xs text-fg-subtle mt-1">
+				{quantOptions.length === 0 ? 'Select a supported checkpoint to see its quantization choices.' : 'Load modes this checkpoint can be quantized to.'}
+			</p>
+		</div>
+		<div>
+			<span class={labelClass}>Checkpoint metadata</span>
+			<div class="flex flex-wrap items-center gap-2 h-[38px]">
+				{#if selectedCheckpoint}
+					<Badge variant={selectedCheckpoint.vision ? 'success' : 'neutral'} size="sm">
+						{selectedCheckpoint.vision ? 'Vision' : 'Text only'}
+					</Badge>
+					{#if selectedCheckpoint.shared_te}
+						<Badge variant="neutral" size="sm">Shared text encoder</Badge>
+					{/if}
+				{:else}
+					<span class="text-xs text-fg-subtle">Select a checkpoint above to see its capabilities.</span>
+				{/if}
+			</div>
+		</div>
 	</div>
 {/snippet}
 
@@ -337,6 +490,9 @@
 	{@render section('Capabilities', false, capabilityFields)}
 	{#if draft.type === 'ollama'}
 		{@render section('Ollama Options', false, ollamaFields)}
+	{/if}
+	{#if draft.type === 'native'}
+		{@render section('Native Options', false, nativeFields)}
 	{/if}
 	{#if preChatActions.length > 0}
 		{@render section('Pre-Chat Actions', false, preChatFields)}

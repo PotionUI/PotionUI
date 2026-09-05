@@ -1,7 +1,7 @@
 export interface LLMConfig {
 	id: string;
 	name: string;
-	type: 'ollama' | 'openai';
+	type: 'ollama' | 'openai' | 'native';
 	enabled: boolean;
 	base_url: string;
 	/** Whether a key is stored server-side. The key itself is never returned. */
@@ -15,7 +15,7 @@ export interface LLMConfig {
 	/** Extracts durable user facts from the transcript into memory notes. Default true. */
 	memory_reflection?: boolean;
 	is_default?: boolean;
-	provider_options?: OllamaOptions | OpenAIOptions | Record<string, unknown>;
+	provider_options?: OllamaOptions | OpenAIOptions | NativeOptions | Record<string, unknown>;
 }
 
 /**
@@ -68,6 +68,34 @@ export interface OpenAIOptions {
 	seed?: number;                 // Random seed for deterministic output
 	stop?: string[];               // Stop sequences (up to 4)
 	logit_bias?: Record<string, number>;  // Token bias
+}
+
+/**
+ * Native-provider-specific options.
+ */
+export interface NativeOptions {
+	/** null/unset = the loaded chat template's own default. */
+	thinking?: boolean | null;
+	quantization?: 'none' | 'int8' | 'nf4';
+	/** Context-window capacity (tokens) the budget preflight is told to use — see docs/user/admin.md. */
+	context_window?: number;
+}
+
+/**
+ * One entry from `GET /api/llm/native/checkpoints` — an HF-layout checkpoint
+ * directory (or an adopted single-file text encoder, `shared_te: true`)
+ * under `models/llm/`. `supported: false` entries are listed (with `reason`)
+ * so the admin can see why a directory doesn't qualify, not silently hidden.
+ */
+export interface NativeCheckpoint {
+	name: string;
+	path: string;
+	model_type: string | null;
+	supported: boolean;
+	vision: boolean;
+	reason?: string | null;
+	quant_modes: string[];
+	shared_te: boolean;
 }
 
 /**

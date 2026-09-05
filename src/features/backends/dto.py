@@ -27,6 +27,10 @@ class BackendCreateRequest(BaseModel):
     enabled: bool = Field(default=True, description="Whether the backend is enabled")
     priority: int = Field(default=1, description="Priority for backend selection (higher = preferred)")
     timeout_seconds: int = Field(default=300, description="Timeout for generation requests")
+    scheduling_policy: str = Field(default="fifo", description="'fifo' or 'fair' - see docs/backends.md 'Scheduling policy'")
+    scheduling_max_consecutive_same_model: int = Field(
+        default=3, ge=1, description="Fair policy only: consecutive same-model jobs allowed before yielding"
+    )
 
 
 class BackendUpdateRequest(BaseModel):
@@ -43,6 +47,10 @@ class BackendUpdateRequest(BaseModel):
     enabled: Optional[bool] = Field(None, description="Whether the backend is enabled")
     priority: Optional[int] = Field(None, description="Priority for backend selection")
     timeout_seconds: Optional[int] = Field(None, description="Timeout for generation requests")
+    scheduling_policy: Optional[str] = Field(None, description="'fifo' or 'fair' - see docs/backends.md 'Scheduling policy'")
+    scheduling_max_consecutive_same_model: Optional[int] = Field(
+        None, ge=1, description="Fair policy only: consecutive same-model jobs allowed before yielding"
+    )
 
 
 class AttentionBackendRequest(BaseModel):

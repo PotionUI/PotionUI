@@ -159,6 +159,34 @@
 	</div>
 {/snippet}
 
+{#snippet schedulingFields()}
+	<div class="space-y-4">
+		<div>
+			<label for="{idPrefix}-scheduling-policy" class={labelClass}>Policy</label>
+			<select id="{idPrefix}-scheduling-policy" bind:value={draft.scheduling_policy} class="input">
+				<option value="fifo">FIFO</option>
+				<option value="fair">Fair</option>
+			</select>
+			<p class="text-xs text-fg-subtle mt-1">
+				FIFO runs jobs in arrival order. Fair rotates between users after each job and prefers jobs
+				for the model already loaded, up to the allowance, before reloading.
+			</p>
+		</div>
+		{#if draft.scheduling_policy === 'fair'}
+			<div>
+				<label for="{idPrefix}-scheduling-allowance" class={labelClass}>Max Consecutive Same-Model Jobs</label>
+				<input
+					id="{idPrefix}-scheduling-allowance"
+					type="number"
+					bind:value={draft.scheduling_max_consecutive_same_model}
+					class="input font-mono tabular-nums"
+					min="1"
+				/>
+			</div>
+		{/if}
+	</div>
+{/snippet}
+
 {#snippet behaviorFields()}
 	<div class="space-y-4">
 		<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -191,4 +219,5 @@
 		{@render section('Connection', false, connectionFields)}
 	{/if}
 	{@render section('Behavior', false, behaviorFields)}
+	{@render section('Scheduling', false, schedulingFields)}
 </div>

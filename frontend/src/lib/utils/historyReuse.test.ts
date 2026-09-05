@@ -36,7 +36,9 @@ function makeBackend(id: string): Backend {
 		enabled: true,
 		is_default: false,
 		priority: 0,
-		timeout_seconds: 60
+		timeout_seconds: 60,
+		scheduling_policy: 'fifo',
+		scheduling_max_consecutive_same_model: 3
 	};
 }
 

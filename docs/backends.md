@@ -201,6 +201,8 @@ grouped by engine. For each one you set:
 - **default** — the preferred backend for its engine. `POST /api/backends/{id}/set-default` makes a
   backend the default for its engine, clearing the flag on its siblings.
 - **timeout_seconds** — per-generation request timeout.
+- **scheduling_policy** / **scheduling_max_consecutive_same_model** — FIFO or fair dispatch order
+  among this backend's own queued work; see [Scheduling policy](#scheduling-policy) below.
 - connection fields, if the engine has any.
 
 Two backends of the same engine are a normal setup: a ComfyUI Desktop instance for local work and a
@@ -303,6 +305,61 @@ ComfyUI server is down — the pipes would not exist. The failure is loud by des
 
 `backend_id` on the generation request is unchanged and remains optional. It exists so a user with
 two ComfyUI backends can pin a run to a specific one.
+
+## Scheduling policy
+
+Backend selection (above) picks *which* backend runs a generation; scheduling picks *when*, among
+everything already queued for that one backend. Every backend still executes exactly one generation
+at a time (`src/features/generation/queue.py`) — scheduling only decides which pending item gets that
+slot next, via a per-backend `scheduling_policy` setting, editable in Admin → Backends' "Scheduling"
+group for every engine (it is a `BaseBackendConfig` field, not an engine-specific one):
+
+- **`fifo`** (default) — arrival order. Exactly the behaviour before this setting existed: a backend
+  with a single user, or with no reason to care which user goes next, is unaffected either way.
+- **`fair`** — round-robins between users, with a model-affinity override: `scheduling_max_consecutive_same_model`
+  (an integer, default 3) caps how many jobs for the backend's currently loaded model may run
+  back-to-back before a waiting job for a *different* model is forced to the front regardless of
+  whose turn it is.
+
+The algorithm (`src/features/generation/scheduling.py`, `select_next`) is a pure function of the
+pending set and a small per-backend state (a rotation cursor, the loaded model, and a consecutive-hit
+counter) — no timers, no estimated durations, nothing that claims to know how long a reload costs.
+For each idle backend:
+
+1. Group its pending items by user, preserving each user's own arrival order.
+2. Compute rotation order: users who have pending work, ordered starting right after whichever user
+   was served last, wrapping around. A brand-new arrival is appended to this ordering when first
+   seen, but a user already due for a turn keeps that turn — a late arrival never queue-jumps someone
+   already waiting.
+3. If the backend has a loaded model and hasn't hit the allowance, scan rotation order for the first
+   user whose *head* job wants that model, and dispatch it instead of strict rotation — this is what
+   lets a same-model job from a different user cut in line ahead of a different-model job from a user
+   earlier in rotation.
+4. Otherwise (no match, or the allowance is used up) dispatch the rotation's first ready user's job,
+   and reset the consecutive-model counter — this is a policy-forced switch of turn, not a
+   continuation, even if the new job happens to want the same model.
+
+Worked example (allowance 2): user 1 is running model X and has 3 more X jobs queued; user 2 queues a
+model Y job; user 3 queues a model X job. Dispatch order after the running job: user 3's X job (same
+model, other user), then two more of user 1's X jobs (using up the allowance), then user 2's Y job,
+then user 1's last X job.
+
+A generation's `model_key` — what "the same model" means for the affinity check — is stamped by the
+orchestrator at enqueue time (`GenerationOrchestrator._resolve_model_key`): the first `model:<id>`
+reference found anywhere in the bound form (same generic walk `collect_model_ids` uses for model-
+access enforcement, so no preset field name is hardcoded), or the preset id if the form carries no
+model reference at all. Two generations against the same checkpoint always compare equal regardless
+of which backend resolves that reference to which on-disk path.
+
+`GenerationQueue.position()`, `pending_items()` and `snapshot()` report the *projected* dispatch
+order for each backend — a pure simulation (`scheduling.project_order`) over the same real state
+`select_next` reads, so a fair backend's reported queue positions match what will actually run. A
+FIFO backend's reporting is unchanged (arrival order).
+
+There is no throughput measurement or reload-cost estimate anywhere in this — a fair backend
+trades some users' wait time for fewer model reloads on the assumption that a reload is expensive
+relative to a turn; whether that trade is worth it for a given deployment's models and users is an
+admin's call, made by choosing `fifo` or `fair` and the allowance, not something this code verifies.
 
 ## Runtime classes
 

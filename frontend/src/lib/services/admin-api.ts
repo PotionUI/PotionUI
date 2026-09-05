@@ -524,6 +524,13 @@ export interface Backend {
 	is_default: boolean;
 	priority: number;
 	timeout_seconds: number;
+	/** 'fifo' (arrival order) or 'fair' (round-robins users, prefers the
+	 * loaded model up to the allowance) — see docs/backends.md "Scheduling
+	 * policy". */
+	scheduling_policy: string;
+	/** Fair policy only: consecutive same-model jobs allowed before yielding
+	 * to a waiting job for a different model. */
+	scheduling_max_consecutive_same_model: number;
 	/** Whether this backend has everything it needs to actually run (see
 	 * `BaseBackendConfig.is_configured`) — distinct from `enabled`. A
 	 * `native.remote` backend can be saved with no worker connected yet;

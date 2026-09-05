@@ -11,6 +11,7 @@ import logging
 from typing import Any, Callable, Dict, List, Optional
 
 from src.features.generation.queue import GenerationQueue, QueuedGeneration
+from src.features.generation.scheduling import SchedulingPolicy
 from src.features.generation.status_tracker import (
     GenerationState,
     GenerationStatusTracker,
@@ -31,6 +32,7 @@ class QueueDispatcher:
         self,
         status_tracker: GenerationStatusTracker,
         dispatch: Callable[..., Any],
+        policy_for: Optional[Callable[[str], SchedulingPolicy]] = None,
     ):
         """Initialize the dispatcher.
 
@@ -39,13 +41,18 @@ class QueueDispatcher:
             dispatch: Coroutine that starts a generation on its backend, called
                 with (generation_id, request, backend, db_generation,
                 output_callback). Supplied by the orchestrator.
+            policy_for: Resolves a backend id to its configured
+                `SchedulingPolicy` (FIFO or fair). `None` (most tests) makes
+                every backend FIFO, matching pre-fair-scheduling behaviour.
+                Supplied by the composition root, which reads it off the
+                backend's persisted settings.
         """
         self.status_tracker = status_tracker
         self._dispatch = dispatch
 
         # Nothing executes directly any more: work is enqueued, and the queue
         # dispatches it when the target backend's single slot frees up.
-        self.queue = GenerationQueue(dispatch=self._dispatch_queued)
+        self.queue = GenerationQueue(dispatch=self._dispatch_queued, policy_for=policy_for)
         # Set by the controller; pushes `queue_update` to a generation's WS
         # subscribers when its position changes or it starts running.
         self._queue_listener: Optional[Callable[[str, Dict[str, Any]], Any]] = None

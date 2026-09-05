@@ -33,7 +33,18 @@ class BackendStatus(str, Enum):
 
 # Fields every backend has, regardless of engine. Everything else a config class
 # declares is engine-specific and is described to the admin UI via engine_fields().
-BASE_CONFIG_FIELDS = frozenset({"id", "name", "engine", "driver", "enabled", "priority", "timeout_seconds"})
+BASE_CONFIG_FIELDS = frozenset({
+    "id", "name", "engine", "driver", "enabled", "priority", "timeout_seconds",
+    "scheduling_policy", "scheduling_max_consecutive_same_model",
+})
+
+# Mirrors src.features.generation.scheduling.SCHEDULING_POLICIES. Duplicated
+# rather than imported: importing that module here would pull in the whole
+# `generation` package's __init__ (which imports the orchestrator, which
+# imports backends), risking a features-to-features import cycle back into
+# this module. The values are part of the queue's own dispatch contract and
+# essentially permanent, so the duplication is cheap to keep in sync.
+_SCHEDULING_POLICIES = ("fifo", "fair")
 
 
 class BaseBackendConfig(BaseModel):
@@ -60,6 +71,36 @@ class BaseBackendConfig(BaseModel):
     enabled: bool = Field(default=True, description="Whether this backend is enabled")
     priority: int = Field(default=1, description="Priority for backend selection (higher = higher priority)")
     timeout_seconds: int = Field(default=300, description="Timeout for generation requests")
+    # Every engine gets the same scheduling knobs - which pending generation
+    # this backend's single execution slot goes to next is a queue concern,
+    # not an engine concern. See docs/backends.md "Scheduling policy" and
+    # src.features.generation.scheduling.
+    scheduling_policy: str = Field(
+        default="fifo",
+        title="Scheduling Policy",
+        description=(
+            "FIFO runs jobs in arrival order. Fair rotates between users after "
+            "each job and prefers jobs for the model already loaded, up to the "
+            "allowance, before reloading."
+        ),
+        json_schema_extra={"options": list(_SCHEDULING_POLICIES)},
+    )
+    scheduling_max_consecutive_same_model: int = Field(
+        default=3,
+        ge=1,
+        title="Max Consecutive Same-Model Jobs",
+        description=(
+            "Fair policy only: how many jobs for the model already loaded may "
+            "run back-to-back before yielding to a waiting job for a different model."
+        ),
+    )
+
+    @field_validator("scheduling_policy")
+    @classmethod
+    def _validate_scheduling_policy(cls, v: str) -> str:
+        if v not in _SCHEDULING_POLICIES:
+            raise ValueError(f"scheduling_policy must be one of {_SCHEDULING_POLICIES}, got {v!r}")
+        return v
 
     # Human-readable engine name for the admin UI. Subclasses may override.
     engine_label: ClassVar[Optional[str]] = None

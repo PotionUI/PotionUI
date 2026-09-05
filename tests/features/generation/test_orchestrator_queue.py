@@ -9,6 +9,7 @@ backend rather than corrupting the first, and completing one starts the next.
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
 
+from src.features.generation.queue import QueuedGeneration
 from src.features.generation.status_tracker import GenerationState
 
 
@@ -252,7 +253,7 @@ class TestQueueingThroughTheOrchestrator:
             'queue_position': 0,
         }
 
-    async def test_started_at_is_only_set_on_dispatch(self, orchestrator, repo):
+    async def test_started_at_is_only_set_on_dispatch(self, orchestrator, backends, repo):
         await _start(orchestrator, 'tab_a', 'gen_1')
         await _start(orchestrator, 'tab_b', 'gen_2')
 
@@ -260,3 +261,35 @@ class TestQueueingThroughTheOrchestrator:
         # its eventual duration must not include the wait.
         assert orchestrator.status_tracker.get('gen_1').started_at is not None
         assert orchestrator.status_tracker.get('gen_2').started_at is None
+
+    async def test_enqueued_item_carries_the_forms_model_reference_as_its_key(
+        self, orchestrator, backends, repo
+    ):
+        """The scheduling "fair" policy's model affinity keys off `model_key`,
+        stamped at enqueue from whatever `model:<id>` reference the bound form
+        carries - see GenerationOrchestrator._resolve_model_key."""
+        request = _request('tab_a')
+        request.form_data = {'checkpoint': 'model:sdxl-base', 'steps': 20}
+
+        with patch(
+            'src.features.generation.orchestrator.QueuedGeneration', side_effect=QueuedGeneration
+        ) as spy, patch(
+            # Resolving `model:<id>` into a backend-native path needs an
+            # availability row this test doesn't set up; irrelevant to what's
+            # under test here, so pass the form through unchanged.
+            'src.features.generation.orchestrator.resolve_form_model_refs',
+            side_effect=lambda form_data, backend_id: form_data,
+        ), patch('src.features.generation.orchestrator.generate_ulid', return_value='gen_1'):
+            await orchestrator.start_generation(request, 'user_1')
+
+        assert spy.call_args.kwargs['model_key'] == 'sdxl-base'
+
+    async def test_enqueued_item_falls_back_to_the_preset_id_with_no_model_reference(
+        self, orchestrator, backends, repo
+    ):
+        with patch(
+            'src.features.generation.orchestrator.QueuedGeneration', side_effect=QueuedGeneration
+        ) as spy:
+            await _start(orchestrator, 'tab_a', 'gen_1')
+
+        assert spy.call_args.kwargs['model_key'] == 'p'

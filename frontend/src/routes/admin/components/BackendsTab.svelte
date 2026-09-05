@@ -126,7 +126,9 @@
 			driver,
 			enabled: true,
 			priority: 1,
-			timeout_seconds: 300
+			timeout_seconds: 300,
+			scheduling_policy: 'fifo',
+			scheduling_max_consecutive_same_model: 3
 		};
 		return applyEngineDefaults(data, driver);
 	}
@@ -165,7 +167,9 @@
 			engine: source.engine,
 			enabled: source.enabled,
 			priority: source.priority,
-			timeout_seconds: source.timeout_seconds
+			timeout_seconds: source.timeout_seconds,
+			scheduling_policy: source.scheduling_policy,
+			scheduling_max_consecutive_same_model: source.scheduling_max_consecutive_same_model
 		};
 		if (opts.includeDriver) payload.driver = source.driver;
 		for (const field of fieldsFor(source.driver ?? '')) {

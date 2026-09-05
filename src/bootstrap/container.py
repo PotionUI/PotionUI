@@ -87,6 +87,7 @@ from src.features.system_monitor import SystemMonitorCoordinator
 from src.features.fields.field_factory import FieldFactory
 from src.platform.filesystem import FileStore
 from src.features.generation.orchestrator import GenerationOrchestrator
+from src.features.generation.scheduling import SchedulingPolicy
 from src.features.generation.routing.registry import build_routing_rules
 from src.features.generation.routing.router import GenerationRouter
 from src.features.generation.output_processor import OutputProcessor
@@ -991,6 +992,22 @@ def build_container() -> AppContainer:
     )
     media_index_controller = MediaIndexController(media_indexer)
 
+    def _scheduling_policy_for(backend_id: str) -> SchedulingPolicy:
+        """Read a backend's persisted scheduling settings for the queue.
+
+        `get_backend` returns `None` for an id the config store doesn't know
+        (e.g. a backend deleted after a generation was already queued against
+        it) - FIFO is the safe default rather than raising, since the queue
+        will simply fail to find that backend's items runnable either way.
+        """
+        backend_config = backend_registry.backend_config_store.get_backend(backend_id)
+        if backend_config is None:
+            return SchedulingPolicy()
+        return SchedulingPolicy(
+            name=backend_config.scheduling_policy,
+            max_consecutive_same_model=backend_config.scheduling_max_consecutive_same_model,
+        )
+
     generation_orchestrator = GenerationOrchestrator(
         pipeline_builder, backend_registry, connection_hub, settings, output_processor,
         preset_template_loader, status_tracker=generation_status_tracker,
@@ -1002,6 +1019,7 @@ def build_container() -> AppContainer:
         media_indexer=media_indexer,
         gpu_monitor=gpu_monitor,
         router=None,  # Will be set after model_index_manager is created - see docs/generation-routing.md
+        scheduling_policy_for=_scheduling_policy_for,
     )
 
     # Initialize generation history manager

@@ -53,6 +53,7 @@ from src.features.generation.output_processor import OutputProcessor
 from src.features.generation.output_bridge import OutputBridge
 from src.features.generation.queue import QueuedGeneration
 from src.features.generation.queue_dispatcher import QueueDispatcher
+from src.features.generation.scheduling import SchedulingPolicy
 from src.features.generation.prompt_expansion import PromptExpander
 from src.features.generation.notifier import GenerationNotifier
 from src.features.generation.status_tracker import (
@@ -363,6 +364,7 @@ class GenerationOrchestrator:
         media_indexer: Optional['MediaIndexer'] = None,
         gpu_monitor: Optional['GpuMonitor'] = None,
         router: Optional['GenerationRouter'] = None,
+        scheduling_policy_for: Optional[Callable[[str], SchedulingPolicy]] = None,
     ):
         """
         Initialize the generation orchestrator.
@@ -407,6 +409,10 @@ class GenerationOrchestrator:
                 `backend_registry.select_backend_for_generation` with no
                 narrowing, exactly as if the engine had only ever had one
                 backend.
+            scheduling_policy_for: Resolves a backend id to its configured
+                `SchedulingPolicy` (FIFO or fair), passed straight through to
+                the `QueueDispatcher`/`GenerationQueue`. `None` (most existing
+                tests) makes every backend FIFO.
         """
         self.pipeline_builder = pipeline_builder
         self.preset_template_loader = preset_template_loader
@@ -438,6 +444,7 @@ class GenerationOrchestrator:
         self._queue_dispatcher = QueueDispatcher(
             status_tracker=self.status_tracker,
             dispatch=self._start_generation,
+            policy_for=scheduling_policy_for,
         )
         self._prompt_expander = PromptExpander(plugin_registry=plugin_registry)
         self._notifier = GenerationNotifier(notification_manager=notification_manager)
@@ -474,6 +481,24 @@ class GenerationOrchestrator:
         except Exception:
             logger.debug("before_start: VRAM read failed", exc_info=True)
             return None, None
+
+    @staticmethod
+    def _resolve_model_key(bound, preset_id: str) -> str:
+        """The model identity a queued generation is scheduled against (the
+        "fair" policy's affinity key - see `docs/backends.md` "Scheduling
+        policy").
+
+        Reuses `collect_model_ids`, the same generic `model:<id>` walk
+        `_enforce_model_access` uses, so this makes no assumption about which
+        field a preset calls its checkpoint/base-model picker: the first
+        `model:<id>` reference found anywhere in the bound form, in the
+        form's own field order, is the primary model. A preset with no model
+        picker at all (or one whose model is baked into the preset rather
+        than user-selected) falls back to the preset id - coarser, but still
+        distinguishes presets that plainly target different models.
+        """
+        model_ids = collect_model_ids(bound.values)
+        return model_ids[0] if model_ids else preset_id
 
     def _enforce_model_access(self, bound, user_id: str) -> None:
         """Verify every `model:<id>` reference in `bound.values` is one
@@ -929,6 +954,7 @@ class GenerationOrchestrator:
                 backend_id=backend.backend_id,
                 user_id=user_id,
                 tab_id=getattr(request, 'tab_id', None),
+                model_key=self._resolve_model_key(bound, request.preset_id),
                 payload={
                     'request': request,
                     'backend': backend,

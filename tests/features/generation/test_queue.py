@@ -4,10 +4,11 @@ import asyncio
 import unittest
 
 from src.features.generation.queue import GenerationQueue, QueuedGeneration
+from src.features.generation.scheduling import SchedulingPolicy
 
 
-def _item(gid, backend="native", tab=None, user="u1") -> QueuedGeneration:
-    return QueuedGeneration(generation_id=gid, backend_id=backend, tab_id=tab, user_id=user)
+def _item(gid, backend="native", tab=None, user="u1", model=None) -> QueuedGeneration:
+    return QueuedGeneration(generation_id=gid, backend_id=backend, tab_id=tab, user_id=user, model_key=model)
 
 
 class TestGenerationQueue(unittest.IsolatedAsyncioTestCase):
@@ -179,6 +180,93 @@ class TestGenerationQueue(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(snap["running"], {"native": "a"})
         self.assertEqual([p["generation_id"] for p in snap["pending"]], ["b"])
         self.assertEqual(snap["pending"][0]["tab_id"], "t9")
+
+
+class TestFairSchedulingThroughTheRealQueue(unittest.IsolatedAsyncioTestCase):
+    """`scheduling.py`'s own tests pin the selector in isolation; these pin it
+    wired into the real queue - `_pump`'s per-backend selection, the busy-slot
+    dance, and `position()`/`pending_items()`/`snapshot()` reporting the
+    projected order rather than raw arrival order."""
+
+    async def asyncSetUp(self):
+        self.dispatched = []
+        self.queue = GenerationQueue(
+            dispatch=self._dispatch,
+            policy_for=lambda backend_id: SchedulingPolicy(name="fair", max_consecutive_same_model=2),
+        )
+
+    async def _dispatch(self, item: QueuedGeneration) -> None:
+        self.dispatched.append(item.generation_id)
+
+    async def test_the_maintainers_worked_example(self):
+        """user 1 running X, 3 more X jobs queued; user 2 queues a Y job; user 3
+        queues an X job; allowance 2. Expected order after the running job:
+        user 3's X (same model, other user), then up to the allowance of user
+        1's remaining X jobs, then user 2's Y, then the last of user 1's X."""
+        await self.queue.enqueue(_item("running", user="u1", model="X"))
+        self.assertEqual(self.dispatched, ["running"], "the running job dispatches immediately, backend was idle")
+
+        for gid, user, model in [
+            ("u1_a", "u1", "X"), ("u1_b", "u1", "X"), ("u1_c", "u1", "X"),
+            ("u2_a", "u2", "Y"), ("u3_a", "u3", "X"),
+        ]:
+            await self.queue.enqueue(_item(gid, user=user, model=model))
+
+        self.assertEqual(
+            [i.generation_id for i in self.queue.pending_items()],
+            ["u3_a", "u1_a", "u1_b", "u2_a", "u1_c"],
+            "pending()/position() must reflect the projected dispatch order, not arrival order",
+        )
+        self.assertEqual(self.queue.position("u3_a"), 0)
+        self.assertEqual(self.queue.position("u2_a"), 3)
+
+        expected = ["running", "u3_a", "u1_a", "u1_b", "u2_a", "u1_c"]
+        last = "running"
+        for next_id in expected[1:]:
+            await self.queue.release("native", last)
+            self.assertEqual(self.dispatched[-1], next_id)
+            last = next_id
+
+    async def test_fifo_is_unaffected_when_no_model_key_is_involved(self):
+        """Same shape of input, but a plain FIFO policy: order is arrival order."""
+        fifo_queue = GenerationQueue(dispatch=self._dispatch, policy_for=lambda backend_id: SchedulingPolicy())
+        for gid, user in [("a", "u1"), ("b", "u1"), ("c", "u2")]:
+            await fifo_queue.enqueue(_item(gid, user=user))
+
+        self.assertEqual([i.generation_id for i in fifo_queue.pending_items()], ["b", "c"])
+
+    async def test_cancelling_the_next_turn_job_passes_the_turn_correctly(self):
+        await self.queue.enqueue(_item("running", user="u1"))
+        await self.queue.enqueue(_item("u1_next", user="u1"))
+        await self.queue.enqueue(_item("u2_due", user="u2"))
+        await self.queue.enqueue(_item("u3_after", user="u3"))
+
+        self.assertTrue(await self.queue.cancel("u2_due"))
+        await self.queue.release("native", "running")
+
+        self.assertEqual(self.dispatched[-1], "u3_after", "u2 was skipped, not u1 re-served")
+
+    async def test_dispatch_failure_does_not_burn_the_other_users_turn(self):
+        async def flaky(item: QueuedGeneration) -> None:
+            if item.generation_id == "u2_fails":
+                raise RuntimeError("boom")
+            self.dispatched.append(item.generation_id)
+
+        q = GenerationQueue(
+            dispatch=flaky,
+            policy_for=lambda backend_id: SchedulingPolicy(name="fair", max_consecutive_same_model=2),
+        )
+        await q.enqueue(_item("running", user="u1"))
+        await q.enqueue(_item("u2_fails", user="u2"))
+        await q.enqueue(_item("u3_next", user="u3"))
+
+        # Releasing "running" makes u2's job runnable; it fails immediately, so
+        # the same pump keeps going and hands the freed slot straight to u3 -
+        # the failure must free the slot without also stranding u3 behind it.
+        await q.release("native", "running")
+
+        self.assertEqual(self.dispatched, ["running", "u3_next"])
+        self.assertEqual(q.running_generation_id("native"), "u3_next")
 
 
 if __name__ == "__main__":

@@ -31,8 +31,11 @@ _STDERR_TAIL_BYTES = 8192
 
 
 class _StderrTail:
-    """Continuously drains a pipe on a background thread, keeping only the
-    last `max_bytes`.
+    """Continuously drains a pipe on a background thread, RETAINING only the
+    last `max_bytes` (default :data:`_STDERR_TAIL_BYTES`). Each individual
+    ``read()`` is chunked at 64 KiB -- a separate, transient buffer that is
+    never itself retained -- so the bound above describes the tail this
+    keeps, not this thread's whole working set.
 
     ffmpeg logs progress/diagnostics to stderr as it runs; a plain
     ``stderr=PIPE`` left unread until :meth:`close`/:meth:`abort` fills the
@@ -46,6 +49,7 @@ class _StderrTail:
         self._max_bytes = max_bytes
         self._buf = bytearray()
         self._lock = threading.Lock()
+        self.finished = False
         self._thread = threading.Thread(
             target=self._drain, args=(stream,), daemon=True,
         )
@@ -71,6 +75,14 @@ class _StderrTail:
 
     def join(self, timeout: Optional[float] = None) -> None:
         self._thread.join(timeout=timeout)
+
+    def mark_finished(self) -> None:
+        """Record that the owning writer is done with this reader -- set
+        unconditionally by :meth:`StreamingMp4Writer._finalize_streams` after
+        :meth:`join`, regardless of whether the drain thread actually exited
+        within the bounded wait, so a caller can tell finalisation RAN even
+        if the thread itself is still winding down."""
+        self.finished = True
 
 
 class StreamingMp4Writer:
@@ -131,7 +143,13 @@ class StreamingMp4Writer:
             self._proc.kill()
             self._reap()
             raise RuntimeError("ffmpeg encode timed out after 600s")
-        self._stderr_tail.join(timeout=_ABORT_WAIT_TIMEOUT)
+        finally:
+            # Reached on the success path AND the timeout's raise above (a
+            # `finally` runs before an exception in the `except` clause it
+            # guards propagates) -- ffmpeg has already been waited/killed/
+            # reaped by this point either way, so it is safe to close the
+            # streams here.
+            self._finalize_streams()
         if returncode != 0:
             msg = self._stderr_tail.tail().decode("utf-8", errors="replace")[-2000:]
             raise RuntimeError(f"ffmpeg encode failed (exit {returncode}): {msg}")
@@ -158,17 +176,38 @@ class StreamingMp4Writer:
             except subprocess.TimeoutExpired:
                 self._proc.kill()
         self._reap()
-        try:
-            if self._proc.stdin is not None and not self._proc.stdin.closed:
-                self._proc.stdin.close()
-        except (BrokenPipeError, OSError):
-            pass
-        self._stderr_tail.join(timeout=_ABORT_WAIT_TIMEOUT)
+        self._finalize_streams()
 
     def _reap(self) -> None:
         try:
             self._proc.wait(timeout=_ABORT_WAIT_TIMEOUT)
         except subprocess.TimeoutExpired:  # pragma: no cover - a killed process not reaping is a hang, not a retry case
+            pass
+
+    def _finalize_streams(self) -> None:
+        """Release everything this writer's process streams hold, once
+        ffmpeg itself has stopped producing (the caller has already waited,
+        killed and reaped it). The ONE shared path reached from every
+        terminal operation -- close()'s success path AND its timeout branch,
+        abort(), and _raise_with_stderr()'s mid-encode failure -- so a
+        retained writer/Popen never keeps stdin or stderr open past its own
+        terminal call.
+
+        Each step is independent and best-effort: the drain-thread join and
+        each stream's close run in their own try/scope, so one failing can
+        never skip the others or mask whatever exception the caller is
+        already raising around this call."""
+        self._stderr_tail.join(timeout=_ABORT_WAIT_TIMEOUT)
+        self._stderr_tail.mark_finished()
+        try:
+            if self._proc.stdin is not None and not self._proc.stdin.closed:
+                self._proc.stdin.close()
+        except (BrokenPipeError, OSError):
+            pass
+        try:
+            if self._proc.stderr is not None and not self._proc.stderr.closed:
+                self._proc.stderr.close()
+        except OSError:
             pass
 
     def _raise_with_stderr(self, prefix: str) -> None:
@@ -178,7 +217,7 @@ class StreamingMp4Writer:
             except subprocess.TimeoutExpired:
                 self._proc.kill()
                 self._reap()
-        self._stderr_tail.join(timeout=_ABORT_WAIT_TIMEOUT)
+        self._finalize_streams()
         msg = self._stderr_tail.tail().decode("utf-8", errors="replace")[-2000:]
         raise RuntimeError(f"{prefix} (exit {self._proc.returncode}): {msg}")
 

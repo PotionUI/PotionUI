@@ -107,11 +107,17 @@ def test_context_manager_aborts_on_exception(ffmpeg_stub):
 # `close()` timeout is not practical in a test.
 
 class _NoOpStderrTail:
+    def __init__(self):
+        self.finished = False
+
     def join(self, timeout=None):
         pass
 
     def tail(self):
         return b""
+
+    def mark_finished(self):
+        self.finished = True
 
 
 class _FakeProc:
@@ -121,6 +127,7 @@ class _FakeProc:
         self.waits = 0
         self.returncode = None
         self.stdin = None
+        self.stderr = None
 
     def poll(self):
         return self.returncode
@@ -327,9 +334,13 @@ class _StdinEnd:
 class _StderrEnd:
     def __init__(self, channel):
         self._channel = channel
+        self.closed = False
 
     def read(self, n: int = 65536) -> bytes:
         return self._channel.read(n)
+
+    def close(self):
+        self.closed = True
 
 
 class _FloodingFakeProc:
@@ -452,3 +463,146 @@ def test_abort_completes_within_the_bounded_wait_when_stdin_flush_would_block():
     if "error" in box:
         raise box["error"]
     assert proc._returncode == -15
+
+
+# -- _finalize_streams: one shared path, reached on every terminal branch ----
+# Each fixture below is a tiny process double covering exactly one of
+# close()'s success and nonzero-exit outcomes, close()'s timeout branch (the
+# concrete bug: it used to raise BEFORE ever reaching the join), and
+# abort() -- asserting stdin AND stderr are both closed and the reader is
+# marked finished on every one of them.
+
+class _TrackedStream:
+    def __init__(self):
+        self.closed = False
+
+    def close(self):
+        self.closed = True
+
+
+class _CleanExitProc:
+    """A process that has already exited with `returncode` by the time
+    `wait()` is first called -- models close()'s success and nonzero-exit
+    paths."""
+
+    def __init__(self, returncode: int):
+        self.stdin = _TrackedStream()
+        self.stderr = _TrackedStream()
+        self.returncode = returncode
+
+    def poll(self):
+        return self.returncode
+
+    def wait(self, timeout=None):
+        return self.returncode
+
+
+def _finalize_writer(proc, stderr_chunks=()):
+    writer = object.__new__(encode.StreamingMp4Writer)
+    writer._proc = proc
+    writer._stderr_tail = encode._StderrTail(_FiniteStream(list(stderr_chunks)))
+    return writer
+
+
+def test_close_success_finalizes_both_streams_and_marks_reader_finished():
+    proc = _CleanExitProc(returncode=0)
+    writer = _finalize_writer(proc)
+
+    writer.close()
+
+    assert proc.stdin.closed
+    assert proc.stderr.closed
+    assert writer._stderr_tail.finished
+
+
+def test_close_nonzero_exit_still_finalizes_streams_before_raising():
+    proc = _CleanExitProc(returncode=1)
+    writer = _finalize_writer(proc, stderr_chunks=[b"boom"])
+
+    with pytest.raises(RuntimeError, match="exit 1"):
+        writer.close()
+
+    assert proc.stdin.closed
+    assert proc.stderr.closed
+    assert writer._stderr_tail.finished
+
+
+class _TimesOutOnceProc:
+    """The FIRST `wait()` (close()'s own 600s wait) times out; the SECOND
+    (the `_reap()` call after `kill()`) succeeds -- models the exact
+    regression this fix targets: finalisation must still run even though
+    close()'s timeout branch raises."""
+
+    def __init__(self):
+        self.stdin = _TrackedStream()
+        self.stderr = _TrackedStream()
+        self.returncode = None
+        self._raised_once = False
+
+    def poll(self):
+        return self.returncode
+
+    def wait(self, timeout=None):
+        if not self._raised_once:
+            self._raised_once = True
+            raise subprocess.TimeoutExpired(cmd="ffmpeg", timeout=timeout)
+        return self.returncode
+
+    def kill(self):
+        self.returncode = -9
+
+
+def test_close_timeout_still_finalizes_streams_before_the_original_error():
+    proc = _TimesOutOnceProc()
+    writer = _finalize_writer(proc)
+
+    with pytest.raises(RuntimeError, match="timed out"):
+        writer.close()
+
+    assert proc.stdin.closed
+    assert proc.stderr.closed
+    assert writer._stderr_tail.finished
+
+
+class _StillRunningProc:
+    """A process that is running (`poll()` -> None) until `terminate()`."""
+
+    def __init__(self):
+        self.stdin = _TrackedStream()
+        self.stderr = _TrackedStream()
+        self.returncode = None
+
+    def poll(self):
+        return self.returncode
+
+    def terminate(self):
+        self.returncode = -15
+
+    def wait(self, timeout=None):
+        return self.returncode
+
+    def kill(self):  # pragma: no cover - terminate() already exits this fake
+        self.returncode = -9
+
+
+def test_abort_finalizes_both_streams_and_marks_reader_finished():
+    proc = _StillRunningProc()
+    writer = _finalize_writer(proc)
+
+    writer.abort()
+
+    assert proc.stdin.closed
+    assert proc.stderr.closed
+    assert writer._stderr_tail.finished
+
+
+def test_raise_with_stderr_finalizes_both_streams_before_raising():
+    proc = _CleanExitProc(returncode=1)
+    writer = _finalize_writer(proc, stderr_chunks=[b"died"])
+
+    with pytest.raises(RuntimeError, match="ffmpeg died mid-encode"):
+        writer._raise_with_stderr("ffmpeg died mid-encode")
+
+    assert proc.stdin.closed
+    assert proc.stderr.closed
+    assert writer._stderr_tail.finished

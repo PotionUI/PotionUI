@@ -313,7 +313,9 @@ class FlowMatchGeneratorPipe(Img2ImgGeneratorMixin, BaseGeneratorPipe):
             completed = True
         finally:
             self._lora_window_hook = None
-            hook.close()
+            # This scope is the hook's last owner: no sampler dispatch follows it,
+            # and a sampler can exit without ever reaching on_end (see close()).
+            hook.close(final=True)
         # The item finished, so the sampler ran — if it never started the hook,
         # this pipe's sampling call did not forward extra_step_hooks() and the
         # window was silently ignored. A LoRA the preset asked to switch off

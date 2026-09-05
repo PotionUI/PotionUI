@@ -499,20 +499,11 @@ def test_a_failed_close_is_retried_rather_than_reported_successful(monkeypatch):
     assert not _is_patched(module, baseline)
 
 
-def test_a_close_that_fails_twice_poisons_the_wrapper_so_the_next_request_reloads(monkeypatch):
-    """The end of the retry chain: nothing else will ever come back for it.
-
-    ``on_end`` closes and the generator's ``finally`` closes again, so one
-    failure is retried. When the retry fails too the windowed patches stay in a
-    module the loader's stamp calls the bare base stack — and that module is
-    shared through the MODELS cache. It must be refused there, not sampled.
-    """
-    import src.platform.runtime.native.lora.step_window as step_window
+def _cached_dit_and_lifecycle(dit):
+    """A real ModelLifecycle holding ``dit``, with the healthy-reuse control
+    already asserted — so a later "it reloaded" cannot pass because something
+    unrelated evicted the entry."""
     from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
-
-    module = _build()
-    baseline = _target_weight(module).clone()
-    dit = _dit(module)
 
     models = ModelLifecycle(gpu_monitor=None, settings=None)
     key, fingerprint = "native/dit/tiny.safetensors", "tiny.safetensors|float32"
@@ -524,29 +515,78 @@ def test_a_close_that_fails_twice_poisons_the_wrapper_so_the_next_request_reload
 
     assert models.acquire(key, fingerprint, _load) is dit
     assert models.acquire(key, fingerprint, _load) is dit, "control: a healthy entry is reused"
+    return models, key, fingerprint, _load, loads
 
-    hook = LoraStepWindowHook(dit, [(_kohya_lora(), 1.0, LoraStepWindow(1, 4))])
-    hook.on_start(4)
-    assert _is_patched(module, baseline)
+
+def test_a_run_that_never_reached_on_end_poisons_a_failed_final_close(monkeypatch):
+    """The exit no attempt count can see: the owner's close is the ONLY one.
+
+    ``euler_cfg_pp`` dispatches ``on_start`` and then allocates ``s_in`` before
+    the ``try`` guarding its loop, so a failure in between applies a window and
+    leaves without ever reaching ``on_end``. ``generation_scope``'s ``finally``
+    then closes once; if that restore fails, nothing else is coming, and the
+    patched DiT is still sitting in the MODELS cache under the loader's stamp.
+
+    Driven through the REAL ``generation_scope`` on the real Flux generator pipe,
+    and answered by a REAL ``ModelLifecycle``.
+    """
+    from types import SimpleNamespace
+
+    import src.platform.runtime.native.lora.step_window as step_window
+    from src.pipelines.pipes.generator.flux.main import GeneratorFluxPipe
+
+    module = _build()
+    baseline = _target_weight(module).clone()
+    dit = _dit(module)
+    models, key, fingerprint, load, loads = _cached_dit_and_lifecycle(dit)
+
+    pipe = GeneratorFluxPipe(config=GeneratorFluxPipe.get_default_config())
+    ctx = SimpleNamespace(extra={
+        "lora_window_stack": [(_kohya_lora(), 1.0, LoraStepWindow(1, 4))],
+        "generator": SimpleNamespace(dit=dit),
+    })
 
     monkeypatch.setattr(step_window, "restore_lora_state",
                         _half_restore(lambda: module.img_in.weight.data))
     with pytest.raises(RuntimeError, match="restore died"):
-        hook.close()  # on_end's attempt, which the sampler swallows
-    assert dit.unusable_reason is None, "one failure is still retryable"
+        with pipe.generation_scope(ctx, 0):
+            pipe._lora_window_hook.on_start(4)
+            assert _is_patched(module, baseline), "sanity: the window is on when the run dies"
+            raise RuntimeError("the sampler died before on_end")
 
-    with pytest.raises(RuntimeError, match="restore died"):
-        hook.close()  # the generator's finally: the retry
-    assert dit.unusable_reason is not None
-
+    assert dit.unusable_reason is not None, "the sole close was the final one: it must poison"
     assert _is_patched(module, baseline), "sanity: the poisoned module really is still patched"
-    fresh = models.acquire(key, fingerprint, _load)
+    fresh = models.acquire(key, fingerprint, load)
     assert fresh is not dit, "the next request must never be handed the poisoned wrapper"
     assert len(loads) == 2, "it must be a real reload, not a hit"
 
 
+def test_a_swallowed_on_end_failure_stays_retryable(monkeypatch):
+    """``on_end``'s close is not final: the sampler swallows its exception and
+    the owner's close still gets a turn, so it must not poison on its own."""
+    import src.platform.runtime.native.lora.step_window as step_window
+
+    module = _build()
+    baseline = _target_weight(module).clone()
+    dit = _dit(module)
+    hook = LoraStepWindowHook(dit, [(_kohya_lora(), 1.0, LoraStepWindow(1, 4))])
+    hook.on_start(4)
+
+    monkeypatch.setattr(step_window, "restore_lora_state",
+                        _half_restore(lambda: module.img_in.weight.data))
+    with pytest.raises(RuntimeError, match="restore died"):
+        hook.on_end()
+    assert dit.unusable_reason is None, "one non-final failure is still retryable"
+
+    monkeypatch.undo()
+    hook.close(final=True)
+    assert dit.unusable_reason is None
+    assert not _is_patched(module, baseline)
+
+
 def test_a_retried_close_that_succeeds_leaves_the_wrapper_usable(monkeypatch):
-    """The repair path f932b13 exists for: a retry that works must not poison."""
+    """The repair path f932b13 exists for: a retry that works must not poison,
+    and the owner's own successful final close must not either."""
     import src.platform.runtime.native.lora.step_window as step_window
 
     module = _build()

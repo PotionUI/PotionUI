@@ -167,7 +167,6 @@ class LoraStepWindowHook(BaseStepHook):
         self._applied: Tuple[int, ...] = ()
         self._dirty = False
         self._closed = False
-        self._failed_closes = 0
         self._total_steps = 0
         #: Whether a sampler ever dispatched to this hook. False after a
         #: completed generation means the sampling call never received the hook,
@@ -191,7 +190,7 @@ class LoraStepWindowHook(BaseStepHook):
     def on_end(self) -> None:
         self.close()
 
-    def close(self) -> None:
+    def close(self, final: bool = False) -> None:
         """Restore the module to its pre-hook LoRA state.
 
         Idempotent on SUCCESS only: ``_closed`` is set after the restore returns,
@@ -199,14 +198,21 @@ class LoraStepWindowHook(BaseStepHook):
         and open so the next ``close`` retries it, and the exception propagates —
         a half-restored shared model must never be reported as cleanly closed.
 
-        The generator dispatches ``on_end`` and then closes again from its
-        ``finally``, so a first failure is genuinely retried; the sampler swallows
-        the ``on_end`` one. When the retry fails too, nothing else will ever come
-        back for this module: the windowed patches stay in weights the loader's
-        stamp says are the bare base stack, and the DiT is shared through the
-        MODELS cache. That is the point where the wrapper is declared unusable
-        (:meth:`NativeModel.mark_unusable`) so the next acquisition reloads the
-        checkpoint instead of sampling it.
+        ``final`` is the caller declaring itself the LAST owner of this hook:
+        nothing will retry after it, so a failure there leaves windowed patches
+        sitting in weights the loader's stamp calls the bare base stack, on a DiT
+        shared through the MODELS cache. That is where the wrapper is declared
+        unusable (:meth:`NativeModel.mark_unusable`), so the next acquisition
+        reloads the checkpoint instead of sampling it. Only the owning ``finally``
+        passes it — ``on_end`` does not, because the sampler swallows its
+        exception and the owner's close still gets a turn.
+
+        Whether the sampler reached ``on_end`` at all is exactly what must not be
+        assumed: a sampler that dispatches ``on_start`` before the ``try`` guarding
+        its loop (``euler_cfg_pp`` allocates ``s_in`` between the two) can apply a
+        window and then leave without an ``on_end``, so the owner's close is the
+        only one there ever was. Counting attempts would read that as a first,
+        retryable failure and leave the wrapper unmarked.
         """
         if self._closed:
             return
@@ -221,11 +227,8 @@ class LoraStepWindowHook(BaseStepHook):
             # run-scoped work nothing is going to ask for again — the run is over.
             self._restore("windowed LoRA restored at run end")
         except Exception as exc:
-            self._failed_closes += 1
-            if self._failed_closes > 1:
-                self._dit.mark_unusable(
-                    f"a windowed LoRA could not be removed after {self._failed_closes} attempts: {exc}"
-                )
+            if final:
+                self._dit.mark_unusable(f"a windowed LoRA could not be removed: {exc}")
             raise
         self._closed = True
 

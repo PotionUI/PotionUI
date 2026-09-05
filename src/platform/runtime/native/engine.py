@@ -381,6 +381,9 @@ class NativeModel:
         self.device = device
         self.weight_revision = next(_weight_revisions)
         self.effective_revision = self.weight_revision
+        # Set by mark_unusable() when a failed weight mutation could not be rolled
+        # back. None = the weights match some nameable adapter stack.
+        self.unusable_reason: str | None = None
         # Set when this component is placed with PARTIAL residency (some leaves on
         # the GPU, the rest streamed from pinned CPU RAM). ``None`` = all-or-nothing
         # residency via ``move_to``. See ``memory/partial.py``.
@@ -426,6 +429,18 @@ class NativeModel:
             self.kind, self.effective_revision, reason,
         )
         return self.effective_revision
+
+    def mark_unusable(self, reason: str) -> None:
+        """Declare that what is patched into this component matches no stack.
+
+        Reached only when a mutation failed AND the rollback to a known state
+        failed too, so nothing can name what the weights now hold. A marked
+        wrapper must never be sampled: the loaders refuse it on the next acquire
+        (``_shared/generation/loader_lifecycle.sync_loras``) and drop its cache
+        entry, so the following request re-reads the checkpoint from disk.
+        """
+        self.unusable_reason = reason
+        logger.error("[NATIVE] %s marked UNUSABLE, will be reloaded: %s", self.kind, reason)
 
     def _reclaim_host_after_teardown(self, pinned_gb: float) -> None:
         """Return the host pages a partial-residency teardown vacated to the OS.

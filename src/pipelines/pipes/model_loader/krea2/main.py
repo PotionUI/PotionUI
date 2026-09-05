@@ -67,6 +67,7 @@ from src.pipelines.pipes._shared.generation.loader_helpers import (
     vram_budget as _vram_budget_fn,
 )
 from src.pipelines.pipes._shared.generation.loader_lifecycle import (
+    NO_LORAS,
     Component,
     ComponentLifecycle,
     sync_loras as _sync_loras,
@@ -199,7 +200,7 @@ class ModelLoaderKrea2Pipe(BaseModelLoaderPipe):
         vae_fp = f"{vae_path}|{dtype}"
         # Baked entries only: a windowed LoRA is never patched into the cached
         # DiT, so including it here would stamp weights that aren't there.
-        lora_fp = "+".join(f"{l['file_path']}@{l['weight']}" for l in loras) or "none"
+        lora_fp = "+".join(f"{l['file_path']}@{l['weight']}" for l in loras) or NO_LORAS
         # LoRA-INDEPENDENT: the DiT cache identity is path+dtype only, so a
         # different LoRA stack is a cache HIT reusing the resident weights;
         # _sync_loras reconciles the applied stack in place rather than reloading.
@@ -247,7 +248,7 @@ class ModelLoaderKrea2Pipe(BaseModelLoaderPipe):
 
         vae_model = lifecycle.acquire(vae)
         dit_model = lifecycle.acquire(dit)
-        self._sync_loras(dit_model, loras, lora_fp)
+        self._sync_loras(dit_model, loras, lora_fp, lifecycle, dit)
         self._sync_lora_windows(dit_model, window_fp)
         bundle = Krea2ModelBundle(
             # `te` stays unset (never acquired) unless/until the deferred
@@ -282,8 +283,15 @@ class ModelLoaderKrea2Pipe(BaseModelLoaderPipe):
         _apply_loras_to(dit_model, loras, _LOG_TAG)
 
     @staticmethod
-    def _sync_loras(dit_model: NativeModel, loras: List[Dict[str, Any]], lora_fp: str) -> None:
-        _sync_loras(dit_model, loras, lora_fp, ModelLoaderKrea2Pipe._apply_loras)
+    def _sync_loras(
+        dit_model: NativeModel,
+        loras: List[Dict[str, Any]],
+        lora_fp: str,
+        lifecycle: Optional[ComponentLifecycle] = None,
+        component: Optional[Component] = None,
+    ) -> None:
+        _sync_loras(dit_model, loras, lora_fp, ModelLoaderKrea2Pipe._apply_loras,
+                    lifecycle=lifecycle, component=component)
 
     @staticmethod
     def _sync_lora_windows(dit_model: NativeModel, window_fp: str) -> None:

@@ -167,6 +167,7 @@ class LoraStepWindowHook(BaseStepHook):
         self._applied: Tuple[int, ...] = ()
         self._dirty = False
         self._closed = False
+        self._failed_closes = 0
         self._total_steps = 0
         #: Whether a sampler ever dispatched to this hook. False after a
         #: completed generation means the sampling call never received the hook,
@@ -197,18 +198,35 @@ class LoraStepWindowHook(BaseStepHook):
         never before it is attempted. A restore that raises leaves the hook dirty
         and open so the next ``close`` retries it, and the exception propagates —
         a half-restored shared model must never be reported as cleanly closed.
+
+        The generator dispatches ``on_end`` and then closes again from its
+        ``finally``, so a first failure is genuinely retried; the sampler swallows
+        the ``on_end`` one. When the retry fails too, nothing else will ever come
+        back for this module: the windowed patches stay in weights the loader's
+        stamp says are the bare base stack, and the DiT is shared through the
+        MODELS cache. That is the point where the wrapper is declared unusable
+        (:meth:`NativeModel.mark_unusable`) so the next acquisition reloads the
+        checkpoint instead of sampling it.
         """
         if self._closed:
             return
         if not self._dirty:
             self._closed = True
             return
-        # A FRESH epoch, not the pre-apply value. Restoring from the base snapshot
-        # is believed exact, but "believed" is not "verified" across the
-        # quantised runtime-delta path, and a wrong reuse here is a silently
-        # wrong image. A fresh epoch costs at most a recompute of run-scoped work
-        # nothing is going to ask for again — the run is over.
-        self._restore("windowed LoRA restored at run end")
+        try:
+            # A FRESH epoch, not the pre-apply value. Restoring from the base
+            # snapshot is believed exact, but "believed" is not "verified" across
+            # the quantised runtime-delta path, and a wrong reuse here is a
+            # silently wrong image. A fresh epoch costs at most a recompute of
+            # run-scoped work nothing is going to ask for again — the run is over.
+            self._restore("windowed LoRA restored at run end")
+        except Exception as exc:
+            self._failed_closes += 1
+            if self._failed_closes > 1:
+                self._dit.mark_unusable(
+                    f"a windowed LoRA could not be removed after {self._failed_closes} attempts: {exc}"
+                )
+            raise
         self._closed = True
 
     def _restore(self, reason: str) -> None:

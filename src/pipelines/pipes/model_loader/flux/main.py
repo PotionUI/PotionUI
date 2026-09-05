@@ -48,6 +48,7 @@ from src.pipelines.pipes._shared.generation.loader_helpers import (
     vram_budget as _vram_budget_fn,
 )
 from src.pipelines.pipes._shared.generation.loader_lifecycle import (
+    NO_LORAS,
     Component,
     ComponentLifecycle,
     sync_loras as _sync_loras,
@@ -153,7 +154,7 @@ class ModelLoaderFluxPipe(BaseModelLoaderPipe):
         te_key = f"native/te/{te_path}|{clip_l_path or ''}"
         te_fp = f"{te_key}|{dtype}"
         vae_fp = f"{vae_path}|{dtype}"
-        lora_fp = "+".join(f"{l['file_path']}@{l['weight']}" for l in loras) or "none"
+        lora_fp = "+".join(f"{l['file_path']}@{l['weight']}" for l in loras) or NO_LORAS
         # LoRA-INDEPENDENT: the DiT cache identity is path+dtype only, so a
         # different LoRA stack is a cache HIT reusing the resident weights;
         # _sync_loras reconciles the applied stack in place rather than reloading.
@@ -203,7 +204,7 @@ class ModelLoaderFluxPipe(BaseModelLoaderPipe):
         # cache. See model_loader/krea2 for the full rationale.
         vae_model = lifecycle.acquire(vae)
         dit_model = lifecycle.acquire(dit)
-        self._sync_loras(dit_model, loras, lora_fp)
+        self._sync_loras(dit_model, loras, lora_fp, lifecycle, dit)
         bundle = FluxModelBundle(dit=dit_model, te=None, vae=vae_model, te_cache_key=te_key)
         clip = FluxClipTextEncoder(
             device=device, model_fingerprint=f"{te_fp}|{dit_fp}",
@@ -221,5 +222,12 @@ class ModelLoaderFluxPipe(BaseModelLoaderPipe):
         _apply_loras_to(dit_model, loras, "MODEL LOADER FLUX")
 
     @staticmethod
-    def _sync_loras(dit_model: NativeModel, loras: List[Dict[str, Any]], lora_fp: str) -> None:
-        _sync_loras(dit_model, loras, lora_fp, ModelLoaderFluxPipe._apply_loras)
+    def _sync_loras(
+        dit_model: NativeModel,
+        loras: List[Dict[str, Any]],
+        lora_fp: str,
+        lifecycle: Optional[ComponentLifecycle] = None,
+        component: Optional[Component] = None,
+    ) -> None:
+        _sync_loras(dit_model, loras, lora_fp, ModelLoaderFluxPipe._apply_loras,
+                    lifecycle=lifecycle, component=component)

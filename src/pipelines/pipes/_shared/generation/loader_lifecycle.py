@@ -92,6 +92,13 @@ class ComponentLifecycle:
             estimated_vram_gb=component.estimated_vram_gb,
         )
 
+    def discard(self, component: Component) -> None:
+        """Drop ``component``'s cache entry so the next acquire loads it from
+        disk again, for a caller that has found the cached value unusable."""
+        evict = getattr(self._models, "evict_dead_weight", None)
+        if callable(evict):
+            evict(component.key)
+
     def deferred_module(self, component: Component) -> Callable[[], Any]:
         """The acquire as a thunk yielding the loaded ``module``, for a
         component whose consumer decides whether it is ever needed. Nothing is
@@ -99,11 +106,20 @@ class ComponentLifecycle:
         return lambda: self.acquire(component).module
 
 
+#: The ``lora_fp`` stamp of a DiT carrying no adapters at all — what a family
+#: builds for an empty stack, and what :func:`sync_loras` re-stamps after it has
+#: rolled a failed reconciliation back to the base checkpoint weights.
+NO_LORAS = "none"
+
+
 def sync_loras(
     dit_model: NativeModel,
     loras: List[Dict[str, Any]],
     lora_fp: str,
     apply: Callable[[NativeModel, List[Dict[str, Any]]], None],
+    *,
+    lifecycle: Optional[ComponentLifecycle] = None,
+    component: Optional[Component] = None,
 ) -> None:
     """Reconcile a (possibly cache-HIT, already-patched) DiT's applied LoRA
     stack with the requested one, in place — never re-reads the checkpoint.
@@ -119,15 +135,58 @@ def sync_loras(
     means a cache HIT with a different LoRA request; a cache MISS whose loader
     already applied and stamped the correct stack never reaches the branch.
 
-    The revision bump precedes the mutation so an ``apply`` that raises midway
-    (leaving a stripped or half-patched module, with the stamp deliberately
-    left stale so the next call retries) still cannot serve a cache keyed on
-    the pre-mutation weights.
+    The stamp is CLEARED before the first mutation and only written once the
+    requested stack is fully applied, so a reconciliation that dies midway can
+    never be mistaken for a completed one. That is the whole failure the stamp
+    exists to prevent: stamps are compared, not verified, so a module left
+    stripped or half-patched while still labelled ``A`` makes the next request
+    for ``A`` a silent no-op that samples weights nobody asked for.
+
+    A failure is then rolled back to the base checkpoint weights (``remove_loras``
+    undoes exactly the deltas that were recorded, partial applications included)
+    and re-stamped :data:`NO_LORAS`, so the next request for any stack — the one
+    that just failed, or the one that was resident before it — reapplies from a
+    known state. If the rollback itself fails there is no known state left to
+    name: the wrapper is marked unusable (refused at the top of this function)
+    and its cache entry dropped, forcing a fresh read from disk rather than a
+    generation on weights that match no request.
+
+    Every path that changes the weights bumps the revision first, so a cache
+    keyed on the pre-mutation weights is invalidated even when the mutation
+    raises (see :meth:`NativeModel.bump_weight_revision`).
     """
+    if dit_model.unusable_reason is not None:
+        raise RuntimeError(
+            f"native DiT is unusable and must be reloaded: {dit_model.unusable_reason}"
+        )
     if getattr(dit_model, "_active_lora_fp", None) == lora_fp:
         return
     dit_model.bump_weight_revision(f"lora stack -> {lora_fp}")
-    remove_loras(dit_model.module)
-    if loras:
-        apply(dit_model, loras)
+    dit_model._active_lora_fp = None  # noqa: SLF001 - the loader's stamp, not the wrapper's private state
+    try:
+        remove_loras(dit_model.module)
+        if loras:
+            apply(dit_model, loras)
+    except Exception:
+        _roll_back_to_base_weights(dit_model, lifecycle, component)
+        raise
     dit_model._active_lora_fp = lora_fp  # noqa: SLF001 - the loader's stamp, not the wrapper's private state
+
+
+def _roll_back_to_base_weights(
+    dit_model: NativeModel,
+    lifecycle: Optional[ComponentLifecycle],
+    component: Optional[Component],
+) -> None:
+    """Strip whatever a failed :func:`sync_loras` left behind, or give up on the
+    wrapper entirely. Never raises — the reconciliation's own error is the one
+    the caller must see."""
+    dit_model.bump_weight_revision("lora reconciliation failed -> unpatching to base weights")
+    try:
+        remove_loras(dit_model.module)
+    except Exception as exc:
+        dit_model.mark_unusable(f"a failed LoRA reconciliation could not be rolled back: {exc}")
+        if lifecycle is not None and component is not None:
+            lifecycle.discard(component)
+        return
+    dit_model._active_lora_fp = NO_LORAS  # noqa: SLF001 - the loader's stamp, not the wrapper's private state

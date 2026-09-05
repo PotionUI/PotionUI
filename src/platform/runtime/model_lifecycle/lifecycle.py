@@ -397,6 +397,18 @@ class ModelLifecycle:
     ) -> Any:
         with self._lock:
             entry = self._entries.get(key)
+            unusable = getattr(entry.value, "unusable_reason", None) if entry is not None else None
+            if unusable is not None:
+                # A component that failed a weight mutation AND its rollback
+                # holds weights matching no request (see NativeModel.mark_unusable).
+                # A matching fingerprint says nothing about that, so refuse the
+                # entry before it can be handed out and reload from disk instead.
+                logger.warning(
+                    f"[MODEL_LIFECYCLE] key='{key}' is marked UNUSABLE ({unusable}); "
+                    f"evicting and reloading rather than serving it"
+                )
+                self._evict_entry(key)
+                entry = None
             if entry is not None and entry.fingerprint == fingerprint:
                 entry.last_used = time.monotonic()
                 self._hits += 1

@@ -21,6 +21,7 @@ from src.pipelines.pipes.model_loader.flux.main import ModelLoaderFluxPipe
 from src.pipelines.pipes.model_loader.krea2.main import ModelLoaderKrea2Pipe
 
 _LORA_A = {"file_path": "a.safetensors", "weight": 0.8}
+_LORA_B = {"file_path": "b.safetensors", "weight": 0.8}
 
 
 @pytest.fixture(autouse=True)
@@ -115,12 +116,15 @@ def test_adapter_change_on_a_cache_hit_dit_forces_a_cold_start(fake_lora_io, bef
     assert _resume_step(gen, cond) is None
 
 
-def test_failed_reconciliation_revises_and_leaves_the_stamp_stale(monkeypatch):
-    """(e) A half-applied stack must not keep serving the old trajectory.
+def test_failed_reconciliation_revises_and_re_stamps_the_rolled_back_stack(monkeypatch):
+    """(e) A half-applied stack must not keep serving the old trajectory, and
+    must not keep the old stack's NAME either.
 
-    The loader's rollback contract is unchanged: ``_active_lora_fp`` is NOT
-    advanced past a raising ``_apply_loras``, so the next call retries the whole
-    reconciliation.
+    The reconciliation rolls back to the bare checkpoint, so the stamp reads the
+    empty stack — never the stack that was resident before the failure, which
+    would make the next request for it a no-op comparison against weights that
+    no longer carry it (see ``test_lora_sync_recovery.py`` for the same contract
+    checked on real weights).
     """
     monkeypatch.setattr("src.pipelines.pipes._shared.generation.loader_lifecycle.remove_loras", lambda m: None)
 
@@ -129,14 +133,14 @@ def test_failed_reconciliation_revises_and_leaves_the_stamp_stale(monkeypatch):
 
     monkeypatch.setattr(ModelLoaderFluxPipe, "_apply_loras", staticmethod(_boom))
 
-    dit = _cached_dit("none")
+    dit = _cached_dit("a.safetensors@0.8")
     gen = _generator(dit)
     cond = {"context": torch.randn(1, 4, 8)}
     _prime(gen, cond)
     revision = dit.weight_revision
 
     with pytest.raises(RuntimeError, match="unreadable LoRA"):
-        ModelLoaderFluxPipe._sync_loras(dit, [_LORA_A], "a.safetensors@0.8")
+        ModelLoaderFluxPipe._sync_loras(dit, [_LORA_B], "b.safetensors@0.8")
 
     assert dit.weight_revision > revision
     assert dit._active_lora_fp == "none"

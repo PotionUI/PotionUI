@@ -27,7 +27,7 @@
 	import { resolveNegativeApplicability } from '$lib/generation/negativeApplied';
 	import { reconcileTabGenerations } from '$lib/generation/restore/reconcile';
 	import { ensureSubscribed, releaseSubscription, clearSubscriptionOwner } from '$lib/generation/restore/subscriptions';
-	import { retireConfirmedCancellations } from '$lib/generation/cancelRetirement';
+	import { retireConfirmedCancellations, applyConfirmedCancellations } from '$lib/generation/cancelRetirement';
 	import { toggleFloatingForm } from '$lib/generation/floatingForm';
 	import { toggleFloatingWorkbench } from '$lib/generation/floatingWorkbench';
 	let generationPanelRef: GenerationPanel | undefined;
@@ -1738,54 +1738,34 @@
 	async function cancelGeneration() {
 		const currentGen = generation.currentGeneration;
 		if (!currentGen || !currentGen.id) return;
+		// Captured BEFORE the await -- a tab switch, close, or a newer
+		// generation this tab adopts while the request is in flight must
+		// never redirect the completion below onto whatever `activeTabId`/
+		// `currentTab` happen to be once it resolves. See cancelRetirement.ts.
+		const targetTabId = activeTabId;
+		const cancelledId = currentGen.id;
 
 		try {
-			await api.cancelGeneration(currentGen.id);
+			await api.cancelGeneration(cancelledId);
 
-			tabsStore.updateTab(activeTabId, {
-				activeGenerationId: null,
-				generation: {
-					...currentTab.generation,
-					isGenerating: false,
-					currentGeneration: null,
-					currentProgress: null,
-					queue: (currentTab.generation.queue || []).filter((q) => q.generation_id !== currentGen.id)
-				}
-			});
-
-			// Server-confirmed cancel -- resolve any Director run it covers and
-			// retire its cache/subscription/retired-marker, same as the live
-			// generation_cancelled event does (see cancelRetirement.ts).
-			retireConfirmedCancellations([currentGen.id], { tabsStore, unsubscribe: unsubscribeGeneration });
+			applyConfirmedCancellations(tabsStore, targetTabId, [cancelledId]);
+			// Resolve any Director run it covers and retire its cache/
+			// subscription/retired-marker, same as the live generation_cancelled
+			// event does.
+			retireConfirmedCancellations([cancelledId], { tabsStore, unsubscribe: unsubscribeGeneration });
 		} catch (error) {
 			console.error('Failed to cancel generation:', error);
 		}
 	}
 
 	async function clearGenerationQueue() {
+		// Captured BEFORE the await -- see cancelGeneration above.
+		const targetTabId = activeTabId;
 		try {
-			const response = await api.clearGenerationQueue(activeTabId);
+			const response = await api.clearGenerationQueue(targetTabId);
 			const cancelledIds = new Set(response.success ? response.data?.cancelled || [] : []);
 
-			const latestTab = $tabsStore.tabs.find((t) => t.id === activeTabId) || currentTab;
-			const remainingQueue = (latestTab.generation.queue || []).filter(
-				(q) => !cancelledIds.has(q.generation_id)
-			);
-			const currentGenCancelled =
-				latestTab.generation.currentGeneration?.generation_id &&
-				cancelledIds.has(latestTab.generation.currentGeneration.generation_id);
-
-			tabsStore.updateTab(activeTabId, {
-				...(currentGenCancelled ? { activeGenerationId: null } : {}),
-				generation: {
-					...latestTab.generation,
-					queue: remainingQueue,
-					...(currentGenCancelled
-						? { isGenerating: false, currentGeneration: null, currentProgress: null }
-						: {})
-				}
-			});
-
+			applyConfirmedCancellations(tabsStore, targetTabId, cancelledIds);
 			// Only the ids the backend actually confirmed cancelled -- an id it
 			// did not report back stays completely untouched.
 			retireConfirmedCancellations(cancelledIds, { tabsStore, unsubscribe: unsubscribeGeneration });

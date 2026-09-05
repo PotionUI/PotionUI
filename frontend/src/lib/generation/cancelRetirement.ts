@@ -1,11 +1,36 @@
-// Retirement for a MANUAL, page-initiated cancel (the Cancel button and
-// "clear queue" action in routes/generate/+page.svelte), as distinct from
-// the live `generation_cancelled` WebSocket event `messages/error.ts`
-// handles. The page already updates its own tab's `activeGenerationId` and
-// `generation.queue` directly for a cancel request the backend confirms --
-// that stays in the page (this module is not a replacement for it). What
-// the page used to skip was everything `messages/error.ts` does for the
-// SAME terminal outcome: resolving a covered Director run, and retiring the
+// Retirement AND tab-state completion for a MANUAL, page-initiated cancel
+// (the Cancel button and "clear queue" action in
+// routes/generate/+page.svelte), as distinct from the live
+// `generation_cancelled` WebSocket event `messages/error.ts` handles.
+//
+// Both page commands are async: `cancelGeneration`/`clearGenerationQueue`
+// call the backend, then write into "the tab" once it answers. Between the
+// call and the answer, the user can switch tabs (the reactive `activeTabId`/
+// `currentTab` the page used to read AFTER the await would then name a
+// DIFFERENT tab), close the original tab entirely, or the original tab can
+// submit/adopt a newer generation while the old one's cancellation is still
+// in flight. The page's job is to capture the target tab id and the
+// cancelled generation id(s) BEFORE its `await`, then hand them to the pure
+// functions here, which re-read that EXACT tab's latest state (never a
+// fallback to `activeTabId`/`currentTab`) before writing anything:
+// `applyConfirmedCancellations` is a no-op if the tab no longer exists, and
+// only clears the tab's active-generation display if that tab's
+// `activeGenerationId` still IS one of the confirmed ids -- a newer
+// generation the tab has since submitted or adopted is left completely
+// untouched, including its queue, progress and media. This mirrors today's
+// existing behavior for the "next queued run gets adopted" case: a cancel
+// only ever CLEARS `activeGenerationId` here (never adopts a successor
+// itself), leaving the tab orphaned so `ownership.ts`'s `resolveOwnership`
+// adopts the next queued run cold off its own next live event, exactly as
+// it already does for every other termination path.
+//
+// `retireConfirmedCancellations` (below) is unaffected by any of this --
+// resource retirement is scoped to the GENERATION id via
+// `tabClaimedGenerationIds` across every tab, not to one particular tab, so
+// a closed or switched-away-from original tab still gets its cancelled
+// generation's cache/subscription cleaned up correctly. What the page used
+// to skip entirely was everything `messages/error.ts` does for the SAME
+// terminal outcome: resolving a covered Director run, and retiring the
 // generation's cached outputs/WebSocket subscription/retired-marker through
 // `generationOutputs.ts`'s `retireGeneration` (dropping straight to
 // `ws.unsubscribe` bypassed both the subscription bookkeeping in
@@ -38,6 +63,50 @@ export interface CancelRetirementDeps {
 	 *  use. */
 	unsubscribe: (generationId: string) => void;
 	now?: () => number;
+}
+
+/**
+ * Completes a MANUAL cancel/queue-clear command against the ORIGINAL
+ * target tab's latest state -- called with a `targetTabId` the caller
+ * captured BEFORE its `await api.cancelGeneration(...)`/
+ * `api.clearGenerationQueue(...)`, never the page's live `activeTabId`.
+ *
+ * - The tab no longer existing (closed while the request was in flight) is
+ *   a pure no-op here: no write, no fallback to another tab. The generation
+ *   resource itself still gets cleaned up -- that is
+ *   `retireConfirmedCancellations`'s job, called separately, scoped to the
+ *   id rather than to this tab.
+ * - `confirmedIds` is filtered from `generation.queue` unconditionally (a
+ *   confirmed-cancelled id has nothing left to wait for, active display or
+ *   not).
+ * - The active-generation display (`activeGenerationId`, `isGenerating`,
+ *   `currentGeneration`, `currentProgress`) is cleared ONLY if the tab's
+ *   CURRENT `activeGenerationId` is still one of `confirmedIds` -- if the
+ *   tab has since submitted or adopted a different generation, that
+ *   display, its progress and its media are left completely untouched.
+ */
+export function applyConfirmedCancellations(
+	tabsStore: CancelRetirementTabsStore,
+	targetTabId: string,
+	confirmedIds: Iterable<string>
+): void {
+	const ids = confirmedIds instanceof Set ? confirmedIds : new Set(confirmedIds);
+	if (ids.size === 0) return;
+
+	const tab = get(tabsStore).tabs.find((t) => t.id === targetTabId);
+	if (!tab) return;
+
+	const activeCancelled = tab.activeGenerationId !== null && ids.has(tab.activeGenerationId);
+	tabsStore.updateTab(targetTabId, {
+		...(activeCancelled ? { activeGenerationId: null } : {}),
+		generation: {
+			...tab.generation,
+			queue: (tab.generation.queue || []).filter((q) => !ids.has(q.generation_id)),
+			...(activeCancelled
+				? { isGenerating: false, currentGeneration: null, currentProgress: null }
+				: {})
+		}
+	});
 }
 
 /**

@@ -13,7 +13,7 @@ import {
 	resetGenerationOutputsRetirementForTests
 } from '$lib/generation/messages/generationOutputs';
 import type { DirectorRunState } from '$lib/types/tabs';
-import { retireConfirmedCancellations } from './cancelRetirement';
+import { retireConfirmedCancellations, applyConfirmedCancellations } from './cancelRetirement';
 
 function defaultTabId(): string {
 	return get(tabsStore).tabs[0].id;
@@ -200,5 +200,170 @@ describe('retireConfirmedCancellations', () => {
 		// A different (still-open) tab claims 'gen-shared' as its own active
 		// generation -- retirement must leave its cache alone.
 		expect(isGenerationOutputsRetired('gen-shared')).toBe(false);
+	});
+});
+
+describe('applyConfirmedCancellations', () => {
+	beforeEach(() => {
+		tabsStore.reset();
+	});
+
+	it('a normal single-tab cancel clears the active display and removes the queue entry', () => {
+		const tabId = defaultTabId();
+		tabsStore.updateTab(tabId, {
+			activeGenerationId: 'gen-1',
+			generation: {
+				...currentTab(tabId).generation,
+				isGenerating: true,
+				currentGeneration: { id: 'gen-1', generation_id: 'gen-1', status: 'running' },
+				currentProgress: { step: 'sampling', progress: 0.5 },
+				queue: [{ generation_id: 'gen-1', queue_position: null, status: 'running' }]
+			}
+		});
+
+		applyConfirmedCancellations(tabsStore, tabId, ['gen-1']);
+
+		const tab = currentTab(tabId);
+		expect(tab.activeGenerationId).toBeNull();
+		expect(tab.generation.isGenerating).toBe(false);
+		expect(tab.generation.currentGeneration).toBeNull();
+		expect(tab.generation.currentProgress).toBeNull();
+		expect(tab.generation.queue).toEqual([]);
+	});
+
+	it('writes into the ORIGINAL tab, not whichever tab is active by completion time (deferred single cancel)', () => {
+		const tabA = defaultTabId();
+		const tabB = tabsStore.addTabWithData('Tab B', {
+			activeGenerationId: 'gen-b',
+			generation: {
+				...currentTab(tabA).generation,
+				isGenerating: true,
+				currentGeneration: { id: 'gen-b', generation_id: 'gen-b', status: 'running' }
+			}
+		});
+		tabsStore.updateTab(tabA, { activeGenerationId: 'gen-a' });
+		// The user switched tabs while the cancel request for tab A's
+		// generation was still in flight.
+		tabsStore.setActiveTab(tabB);
+
+		applyConfirmedCancellations(tabsStore, tabA, ['gen-a']);
+
+		expect(currentTab(tabA).activeGenerationId).toBeNull();
+		// Tab B -- now the active tab -- is completely untouched.
+		const tab = currentTab(tabB);
+		expect(tab.activeGenerationId).toBe('gen-b');
+		expect(tab.generation.isGenerating).toBe(true);
+		expect(tab.generation.currentGeneration?.id).toBe('gen-b');
+	});
+
+	it('writes into the ORIGINAL tab for a deferred queue-clear too', () => {
+		const tabA = defaultTabId();
+		const tabB = tabsStore.addTabWithData('Tab B', {
+			generation: {
+				...currentTab(tabA).generation,
+				queue: [{ generation_id: 'gen-b', queue_position: 0, status: 'pending' }]
+			}
+		});
+		tabsStore.updateTab(tabA, {
+			generation: {
+				...currentTab(tabA).generation,
+				queue: [{ generation_id: 'gen-a', queue_position: 0, status: 'pending' }]
+			}
+		});
+		tabsStore.setActiveTab(tabB);
+
+		applyConfirmedCancellations(tabsStore, tabA, ['gen-a']);
+
+		expect(currentTab(tabA).generation.queue).toEqual([]);
+		expect(currentTab(tabB).generation.queue).toEqual([
+			{ generation_id: 'gen-b', queue_position: 0, status: 'pending' }
+		]);
+	});
+
+	it('is a no-op, not a fallback write elsewhere, when the target tab was closed while the request was in flight', () => {
+		const tabA = defaultTabId();
+		// Tab B has its OWN distinguishing live generation -- a fallback to
+		// "some other tab" instead of a true no-op would corrupt it.
+		const tabB = tabsStore.addTabWithData('Tab B', {
+			activeGenerationId: 'gen-b',
+			generation: {
+				...currentTab(tabA).generation,
+				isGenerating: true,
+				currentGeneration: { id: 'gen-b', generation_id: 'gen-b', status: 'running' },
+				queue: [{ generation_id: 'gen-b-queued', queue_position: 0, status: 'pending' }]
+			}
+		});
+		const beforeB = currentTab(tabB);
+		tabsStore.removeTab(tabA);
+
+		expect(() => applyConfirmedCancellations(tabsStore, tabA, ['gen-1'])).not.toThrow();
+
+		const state = get(tabsStore);
+		expect(state.tabs.find((t) => t.id === tabA)).toBeUndefined();
+		expect(state.tabs).toHaveLength(1);
+		expect(currentTab(tabB)).toEqual(beforeB);
+	});
+
+	it('keeps a newer generation the tab has since adopted -- only the old confirmed id is removed from the queue', () => {
+		const tabId = defaultTabId();
+		tabsStore.updateTab(tabId, {
+			activeGenerationId: 'gen-new',
+			generation: {
+				...currentTab(tabId).generation,
+				isGenerating: true,
+				currentGeneration: { id: 'gen-new', generation_id: 'gen-new', status: 'running' },
+				currentProgress: { step: 'sampling', progress: 0.2 },
+				queue: [{ generation_id: 'gen-old', queue_position: null, status: 'running' }]
+			}
+		});
+
+		// 'gen-old' is the id the original cancel request targeted -- by the
+		// time it resolves, this tab has already moved on to 'gen-new'.
+		applyConfirmedCancellations(tabsStore, tabId, ['gen-old']);
+
+		const tab = currentTab(tabId);
+		expect(tab.activeGenerationId).toBe('gen-new');
+		expect(tab.generation.isGenerating).toBe(true);
+		expect(tab.generation.currentGeneration?.id).toBe('gen-new');
+		expect(tab.generation.currentProgress).toEqual({ step: 'sampling', progress: 0.2 });
+		expect(tab.generation.queue).toEqual([]);
+	});
+
+	it('removes only the confirmed ids from a queue with unconfirmed entries', () => {
+		const tabId = defaultTabId();
+		tabsStore.updateTab(tabId, {
+			generation: {
+				...currentTab(tabId).generation,
+				queue: [
+					{ generation_id: 'gen-a', queue_position: 0, status: 'pending' },
+					{ generation_id: 'gen-b', queue_position: 1, status: 'pending' },
+					{ generation_id: 'gen-c', queue_position: 2, status: 'pending' }
+				]
+			}
+		});
+
+		applyConfirmedCancellations(tabsStore, tabId, ['gen-a', 'gen-b']);
+
+		expect(currentTab(tabId).generation.queue).toEqual([
+			{ generation_id: 'gen-c', queue_position: 2, status: 'pending' }
+		]);
+	});
+
+	it('changes nothing when the confirmed-id set is empty (a failed/rejected API response)', () => {
+		const tabId = defaultTabId();
+		tabsStore.updateTab(tabId, {
+			activeGenerationId: 'gen-1',
+			generation: {
+				...currentTab(tabId).generation,
+				isGenerating: true,
+				currentGeneration: { id: 'gen-1', generation_id: 'gen-1', status: 'running' },
+				queue: [{ generation_id: 'gen-2', queue_position: 0, status: 'pending' }]
+			}
+		});
+		const before = currentTab(tabId);
+
+		applyConfirmedCancellations(tabsStore, tabId, []);
+
+		expect(currentTab(tabId)).toEqual(before);
 	});
 });

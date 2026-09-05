@@ -15,7 +15,22 @@ export interface LoraDiagnosticModel {
 	unmatched_keys?: number | null;
 	ignored?: string[] | null;
 	unmatched_sample?: string[] | null;
+	/**
+	 * WHY a zero-effect adapter had no effect, when that isn't a key-mapping
+	 * failure -- today only `"window_not_reached"` (a step-windowed LoRA
+	 * whose selected step range never overlaps the run's own step count, so
+	 * it was never even attempted, not just unmatched). `null`/absent means
+	 * the evidence came from a real key-mapping attempt and
+	 * `unmatched_keys`/`ignored` already say everything there is to say.
+	 */
+	reason?: string | null;
 }
+
+/** Human label for a `reason` this module doesn't otherwise describe via
+ * `unmatched_keys`/`ignored` alone. */
+const REASON_LABELS: Record<string, string> = {
+	window_not_reached: "selected step window never overlapped the run's steps"
+};
 
 export type LoraDiagnosticTone = 'danger' | 'warning';
 
@@ -42,6 +57,9 @@ export function describeLoraDiagnostic(model: LoraDiagnosticModel): LoraDiagnost
 	if (!zeroEffect && unmatchedKeys <= 0 && ignored.length === 0) return null;
 
 	const reasons: string[] = [];
+	if (model.reason && REASON_LABELS[model.reason]) {
+		reasons.push(REASON_LABELS[model.reason]);
+	}
 	if (unmatchedKeys > 0) {
 		reasons.push(`${unmatchedKeys} key${unmatchedKeys === 1 ? '' : 's'} unmatched`);
 	}

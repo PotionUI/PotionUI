@@ -449,6 +449,8 @@ def serialize_models_output(output: ModelsGenerationOutput, ctx: SerializeContex
                 model_data['source_id'] = str(model.source_id)
             if getattr(model, 'unmatched_sample', None):
                 model_data['unmatched_sample'] = [str(item) for item in model.unmatched_sample]
+            if getattr(model, 'reason', None):
+                model_data['reason'] = str(model.reason)
             models_data.append(model_data)
 
         result['artifact_data']['models'] = models_data

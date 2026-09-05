@@ -273,6 +273,13 @@ class ModelGenerationOutput(GenerationOutput):
     # this file's stems failed to resolve, for diagnosing WHY without
     # replaying the request.
     unmatched_sample: List[str] = None
+    # Distinguishes WHY a zero-effect adapter had no effect when that is not
+    # a key-mapping failure -- today only "window_not_reached" (a step-window
+    # LoRA whose selected window never overlaps this run's own step count;
+    # see LoraStepWindowHook._warn_unreachable). None (the common case) means
+    # the evidence came from a real map_lora_keys attempt and
+    # unmatched_keys/ignored already say everything there is to say.
+    reason: str = None
 
 @dataclass
 class ModelsGenerationOutput(GenerationOutput):

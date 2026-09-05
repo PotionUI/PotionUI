@@ -31,6 +31,7 @@ from src.platform.runtime.native.arch.flux.model import Flux
 from src.platform.runtime.native.base import load_into_module
 from src.platform.runtime.native.detect.registry import match_model_spec
 from src.platform.runtime.native.engine import NativeModel
+from src.platform.runtime.native.lora import apply_loras
 from src.platform.runtime.native.lora.step_window import LoraStepWindow
 from vendor.gpl.comfyui.ops import pick_operations
 
@@ -43,9 +44,11 @@ TINY = {
     "theta": 2000, "patch_size": 1, "qkv_bias": False, "guidance_embed": False,
 }
 STEM = "lora_unet_double_blocks_0_img_attn_qkv"
+QKV = "double_blocks.0.img_attn.qkv"
 
 VALID = "/m/valid.safetensors"
 BOGUS = "/m/bogus.safetensors"
+VALID_UNREACHED = "/m/valid_unreached.safetensors"
 
 
 def _build_dit() -> torch.nn.Module:
@@ -84,9 +87,17 @@ class _SteppingGenerator:
     """A generator whose ``sample`` drives the real sampler hook protocol,
     exactly as the real euler loop does — see ``test_krea2_step_windowed_lora.py``."""
 
+    instances: list["_SteppingGenerator"] = []
+
     def __init__(self, dit, te, vae, device_plan=None, **_):
         self.dit = dit
         self.spec = _FakeSpec()
+        # Captured mid-run (right after on_start, i.e. entering step 0) so a
+        # test can prove an "unreachable window" adapter never patched
+        # anything DURING sampling, not just that step-window's usual
+        # end-of-run restore leaves nothing resident afterward.
+        self.mid_run_weight: "torch.Tensor | None" = None
+        _SteppingGenerator.instances.append(self)
 
     def snap_resolution(self, width, height):
         return width, height
@@ -98,6 +109,7 @@ class _SteppingGenerator:
         steps, hooks = kw["steps"], kw["hooks"]
         for hook in hooks:
             hook.on_start(steps)
+        self.mid_run_weight = dict(self.dit.module.named_modules())[QKV].weight.detach().clone()
         for i in range(steps):
             for hook in hooks:
                 hook.on_step(i, steps, torch.zeros(1), 1.0, None)
@@ -158,11 +170,13 @@ class _Recorder:
 
 @pytest.fixture(autouse=True)
 def _fakes(monkeypatch):
+    _SteppingGenerator.instances.clear()
     monkeypatch.setattr(f"{_FLOW}.make_device_plan", lambda **_: None)
     monkeypatch.setattr(f"{_FLOW}.NativeGenerator", _SteppingGenerator)
     files = {
         VALID: _kohya_lora(STEM, seed=1),
         BOGUS: _kohya_lora("lora_unet_totally_bogus", seed=2),
+        VALID_UNREACHED: _kohya_lora(STEM, seed=3),
     }
     monkeypatch.setattr(
         "src.pipelines.pipes._shared.generation.loader_helpers.load_torch_file",
@@ -212,3 +226,41 @@ def test_fully_matched_window_emits_no_diagnostics():
 
     assert rec.warnings == []
     assert rec.model_artifacts == []
+
+
+def test_window_entirely_beyond_the_run_reports_zero_effect_with_a_distinct_reason():
+    """Reducing sampling steps below an existing adapter's window must not
+    silently drop it from the generation's report: it's a real zero-effect
+    outcome for the run as scheduled, just for a different reason than a
+    dead key dialect -- and it must never have touched the weights."""
+    rec = _Recorder()
+    pipe = _make_pipe(steps=4, preview=False)
+
+    pipe.process(_pipe_input([
+        _entry(1, 4, VALID),              # reachable control: applies for real
+        _entry(10, 12, VALID_UNREACHED),  # starts after step 4: never reached
+    ]), rec.outputs)
+
+    # Only the control's delta may ever have landed on the shared QKV target.
+    (gen,) = _SteppingGenerator.instances
+    control_only = _build_dit()
+    apply_loras(control_only, [(_kohya_lora(STEM, seed=1), 1.0)])
+    expected = dict(control_only.named_modules())[QKV].weight.detach()
+    assert torch.allclose(gen.mid_run_weight, expected, atol=1e-6), (
+        "the unreachable window's adapter must never patch anything, even mid-run"
+    )
+
+    assert len(rec.warnings) == 1
+    (artifact,) = rec.model_artifacts
+    serialized = serialize_models_output(artifact, SerializeContext(generation_id="test"))
+    models = {m["name"]: m for m in serialized["artifact_data"]["models"]}
+
+    control = models["valid"]
+    assert control["zero_effect"] is False
+    assert control.get("reason") is None
+
+    unreached = models["valid_unreached"]
+    assert unreached["zero_effect"] is True
+    assert unreached["reason"] == "window_not_reached"
+    assert not unreached.get("unmatched_keys")
+    assert unreached["source_id"] != control["source_id"]

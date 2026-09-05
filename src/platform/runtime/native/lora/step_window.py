@@ -305,6 +305,19 @@ class LoraStepWindowHook(BaseStepHook):
         self._dirty = False
 
     def _warn_unreachable(self) -> None:
+        """Log AND record a bounded evidence entry for a window that starts
+        past this run's own step schedule — the file is never even handed to
+        ``apply_loras_with_report`` (``_sync`` only ever applies indices in
+        ``_active_at``'s result, and this index never appears there for any
+        step of THIS run), so unlike a mapping failure there is no real
+        ``unmatched_keys``/``ignored`` to report; ``reason="window_not_reached"``
+        says why zero effect here means something different from a dead key
+        dialect. Recorded into ``history`` (merged, not overwritten) so a
+        generation whose step count was reduced below an existing adapter's
+        window still reports that adapter as having no effect, instead of the
+        stack silently reading as fully applied because ``apply_loras_with_report``
+        was simply never asked about it.
+        """
         for index, entry in enumerate(self._loras):
             window = entry[2]
             if window.start > self._total_steps:
@@ -312,6 +325,15 @@ class LoraStepWindowHook(BaseStepHook):
                     "LoRA #%d window (%s) starts past the run's %d step(s) — it will never apply",
                     index, window.describe(), self._total_steps,
                 )
+                unreached = AdapterApplication(
+                    source=_entry_source(entry, index),
+                    matched_params=0,
+                    unmatched_keys=0,
+                    unmatched_sample=(),
+                    ignored=(),
+                    reason="window_not_reached",
+                )
+                self.history = _merge_reports(self.history, (unreached,))
 
     def _active_at(self, step_index: int) -> Tuple[int, ...]:
         return tuple(i for i, entry in enumerate(self._loras)

@@ -274,6 +274,7 @@ def emit_lora_application_diagnostics(
             ignored=[f"{ic.kind}×{ic.count}" for ic in r.ignored] or None,
             source_id=_bounded_source_id(r.source),
             unmatched_sample=list(r.unmatched_sample) or None,
+            reason=r.reason,
         )
         for r in reports
     ]))

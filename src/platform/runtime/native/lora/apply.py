@@ -94,6 +94,16 @@ class AdapterApplication:
     ``ignored`` never implies the ignored math (DoRA magnitude, at present)
     WAS applied — only that the file carried it and it was dropped; the
     weights this reports on are patched with the plain-LoRA delta only.
+
+    ``reason`` distinguishes WHY a zero-effect adapter had no effect, for a
+    caller whose evidence is not itself the output of a real ``map_lora_keys``
+    call — today only the step-window hook's "the selected window never
+    overlaps this run's steps" case (see
+    ``LoraStepWindowHook._warn_unreachable``): the file's keys were never
+    even mapped/attempted, so ``unmatched_keys``/``ignored`` staying at their
+    zero defaults must not read as "every key matched". ``None`` (the normal
+    case) means the evidence came from a real mapping attempt and
+    ``unmatched_keys``/``ignored`` already say everything there is to say.
     """
 
     source: str
@@ -101,6 +111,7 @@ class AdapterApplication:
     unmatched_keys: int
     unmatched_sample: Tuple[str, ...]
     ignored: Tuple[IgnoredContribution, ...]
+    reason: "str | None" = None
 
     @property
     def zero_effect(self) -> bool:

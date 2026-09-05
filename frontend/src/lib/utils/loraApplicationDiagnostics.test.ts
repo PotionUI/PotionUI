@@ -47,4 +47,16 @@ describe('describeLoraDiagnostic', () => {
 		});
 		expect(diag?.reason).toBe('2 keys unmatched · dora_scale×1');
 	});
+
+	it('labels a window-not-reached adapter distinctly from an unmatched-key one', () => {
+		const diag = describeLoraDiagnostic({
+			zero_effect: true,
+			unmatched_keys: 0,
+			reason: 'window_not_reached'
+		});
+		expect(diag).not.toBeNull();
+		expect(diag?.tone).toBe('danger');
+		expect(diag?.label).toBe('No effect');
+		expect(diag?.reason).toBe("selected step window never overlapped the run's steps");
+	});
 });

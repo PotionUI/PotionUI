@@ -13,6 +13,7 @@
 				unmatched_keys?: number | null;
 				ignored?: string[] | null;
 				unmatched_sample?: string[] | null;
+				reason?: string | null;
 			}>;
 		};
 	};

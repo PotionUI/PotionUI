@@ -27,6 +27,7 @@ from src.pipelines.pipes.generator.trellis2.main import GeneratorTrellis2Pipe
 from src.platform.runtime.native.arch.trellis2.config import SSFlowConfig
 from src.platform.runtime.native.arch.trellis2.image_to_mesh import MeshVolume
 from src.platform.runtime.native.arch.trellis2.octree_vae import FdgDecoderOutput
+from src.platform.runtime.native.errors import SamplingCancelled
 from src.platform.runtime.native.sparse3d import SparseTensor
 
 LATENT_CHANNELS = 32
@@ -201,7 +202,7 @@ def _config(**over):
     return config
 
 
-def _run_pipe(config=None, images=None, bundle=None, seeds=None):
+def _run_pipe(config=None, images=None, bundle=None, seeds=None, is_cancelled=None):
     pipe = GeneratorTrellis2Pipe(config or _config())
     payload = {
         "model": bundle if bundle is not None else _FakeBundle(),
@@ -211,7 +212,8 @@ def _run_pipe(config=None, images=None, bundle=None, seeds=None):
         payload["seed"] = seeds
 
     emitted = []
-    out = pipe.process(PipeInput(input=payload), emitted.append)
+    kwargs = {} if is_cancelled is None else {"is_cancelled": is_cancelled}
+    out = pipe.process(PipeInput(input=payload), emitted.append, **kwargs)
     return out, emitted
 
 
@@ -358,6 +360,74 @@ def test_every_image_produces_its_own_mesh(recorded_run, exported):
     out, _ = _run_pipe(images=[Image.new("RGB", (8, 8))] * 3)
     assert len(out.output["mesh"]) == 3
     assert len(set(out.output["mesh"])) == 3
+
+
+# -- cancellation -------------------------------------------------------------
+
+
+def test_the_cancellation_probe_is_threaded_into_the_cascade(recorded_run, exported):
+    """The pipe must hand ``run_image_to_mesh`` the actual probe it was given
+    -- a generic ``lambda: False`` wired in independently would pass every
+    other assertion here while never being cancellable in practice."""
+    probe = lambda: False
+    _run_pipe(is_cancelled=probe)
+    assert recorded_run[0]["is_cancelled"] is probe
+
+
+def test_cancellation_before_the_first_image_never_runs_the_cascade(recorded_run, exported):
+    pipe = GeneratorTrellis2Pipe(_config())
+    payload = {"model": _FakeBundle(), "image": [Image.new("RGB", (8, 8))]}
+    emitted = []
+    with pytest.raises(SamplingCancelled):
+        pipe.process(PipeInput(input=payload), emitted.append, is_cancelled=lambda: True)
+
+    assert recorded_run == []
+    assert exported == []
+    assert not any(isinstance(o, GalleryGenerationOutput) for o in emitted)
+
+
+def test_cancellation_before_export_never_bakes_and_emits_no_gallery(recorded_run, exported):
+    """Cancellation observed right after the cascade finishes must stop
+    before the bake, not after — the bake is the expensive, uninterruptible
+    call this boundary exists to avoid paying for."""
+    pipe = GeneratorTrellis2Pipe(_config())
+    payload = {"model": _FakeBundle(), "image": [Image.new("RGB", (8, 8))]}
+    emitted = []
+    with pytest.raises(SamplingCancelled):
+        pipe.process(
+            PipeInput(input=payload), emitted.append,
+            is_cancelled=lambda: len(recorded_run) >= 1,
+        )
+
+    assert len(recorded_run) == 1
+    assert exported == []
+    assert not any(isinstance(o, GalleryGenerationOutput) for o in emitted)
+
+
+def test_cancellation_between_images_discards_the_completed_bake_and_emits_no_gallery(
+    recorded_run, exported,
+):
+    pipe = GeneratorTrellis2Pipe(_config())
+    payload = {"model": _FakeBundle(), "image": [Image.new("RGB", (8, 8))] * 2}
+    emitted = []
+    with pytest.raises(SamplingCancelled):
+        pipe.process(
+            PipeInput(input=payload), emitted.append,
+            is_cancelled=lambda: len(exported) >= 1,
+        )
+
+    assert len(recorded_run) == 1  # the second image's cascade never started
+    assert len(exported) == 1  # the first image's bake did run
+    assert not any(isinstance(o, GalleryGenerationOutput) for o in emitted)
+    assert not Path(exported[0]["out_path"]).exists()  # discarded, not left on disk
+
+
+def test_ordinary_generation_is_unaffected_when_never_cancelled(recorded_run, exported):
+    out, emitted = _run_pipe(images=[Image.new("RGB", (8, 8))] * 2, is_cancelled=lambda: False)
+    assert len(out.output["mesh"]) == 2
+    gallery = [o for o in emitted if isinstance(o, GalleryGenerationOutput)]
+    assert len(gallery) == 1
+    assert len(gallery[0].meshes) == 2
 
 
 # -- end to end -------------------------------------------------------------

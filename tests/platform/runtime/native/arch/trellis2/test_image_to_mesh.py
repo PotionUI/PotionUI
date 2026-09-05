@@ -24,6 +24,7 @@ from src.platform.runtime.native.arch.trellis2.config import (
     TEX_SLAT_NORMALIZATION,
 )
 from src.platform.runtime.native.arch.trellis2.octree_vae import FdgDecoderOutput
+from src.platform.runtime.native.errors import SamplingCancelled
 from src.platform.runtime.native.sparse3d import SparseTensor
 
 LATENT_CHANNELS = 32
@@ -465,6 +466,50 @@ def test_an_empty_sparse_structure_is_reported_rather_than_decoded():
 
     with pytest.raises(ValueError, match="empty volume"):
         _run(_components(ss_vae=_Empty()), tier="1024")
+
+
+# -- cancellation -------------------------------------------------------
+
+
+def test_cancellation_during_sparse_structure_stops_before_the_decoder_runs():
+    components = _components()
+    with pytest.raises(SamplingCancelled):
+        _run(components, tier="1024", is_cancelled=lambda: len(components.ss_flow.conds) >= 1)
+
+    assert components.ss_vae.placements == []
+    assert components.shape_flow_lr.placements == []
+    assert components.tex_flow.placements == []
+    assert components.tex_decoder.guides == []
+
+
+def test_cancellation_during_the_shape_stage_stops_before_the_hr_pass_and_texture():
+    components = _components()
+    with pytest.raises(SamplingCancelled):
+        _run(
+            components, tier="1024",
+            is_cancelled=lambda: len(components.shape_flow_lr.conds) >= 1,
+        )
+
+    # The sparse-structure stage ran to completion (it preceded cancellation).
+    assert len(components.ss_flow.conds) == 2
+    # Neither the cascade's upsample step nor the HR pass ever started.
+    assert components.shape_decoder.upsample_calls == []
+    assert components.shape_flow_hr.placements == []
+    assert components.tex_flow.placements == []
+    assert components.tex_decoder.guides == []
+
+
+def test_cancellation_during_the_texture_stage_stops_before_decode():
+    components = _components()
+    with pytest.raises(SamplingCancelled):
+        _run(components, tier="1024", is_cancelled=lambda: len(components.tex_flow.conds) >= 1)
+
+    # Both shape passes ran to completion (they preceded cancellation).
+    assert len(components.shape_flow_lr.conds) == 2
+    assert len(components.shape_flow_hr.conds) == 2
+    # Neither decoder ran the final decode/mesh-extraction step.
+    assert components.shape_decoder.resolutions == []
+    assert components.tex_decoder.guides == []
 
 
 def test_the_same_seed_reproduces_the_same_run():

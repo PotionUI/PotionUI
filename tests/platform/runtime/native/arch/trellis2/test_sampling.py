@@ -19,6 +19,7 @@ from src.platform.runtime.native.arch.trellis2.sampling import (
     sample_flow_stage,
     stage_timesteps,
 )
+from src.platform.runtime.native.errors import SamplingCancelled
 from src.platform.runtime.native.sparse3d import SparseTensor
 
 
@@ -304,18 +305,19 @@ def test_rescale_of_zero_leaves_the_plain_cfg_combination():
     assert torch.allclose(out, theirs, atol=1e-6)
 
 
-def test_cancellation_stops_the_loop():
+def test_cancellation_raises_instead_of_returning_a_partial_sample():
     settings = StageSampling(
         steps=8, guidance_strength=1.0, guidance_rescale=0.0,
         guidance_interval=(0.0, 1.0), rescale_t=1.0,
     )
     model = _DenseModel()
     seen: list[int] = []
-    sample_flow_stage(
-        model, torch.zeros(1, 8, 2, 2, 2), torch.randn(1, 4, 16), torch.zeros(1, 4, 16),
-        settings, on_step=lambda step, total: seen.append(step),
-        is_cancelled=lambda: len(seen) >= 3,
-    )
+    with pytest.raises(SamplingCancelled):
+        sample_flow_stage(
+            model, torch.zeros(1, 8, 2, 2, 2), torch.randn(1, 4, 16), torch.zeros(1, 4, 16),
+            settings, on_step=lambda step, total: seen.append(step),
+            is_cancelled=lambda: len(seen) >= 3,
+        )
     assert seen == [0, 1, 2]
 
 

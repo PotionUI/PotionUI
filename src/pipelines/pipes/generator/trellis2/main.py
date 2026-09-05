@@ -20,12 +20,22 @@ before the bake so the two phases never overlap.
 ``xatlas`` is CPU-only and scales worse than linearly — roughly 12s at 50k
 faces, many minutes at 200k — so the default here is far below upstream's
 GPU-sized 1M. See ``arch/trellis2/postprocess.py``'s module docstring.
+
+**Cancellation is checked at cooperative boundaries, not inside the bake.**
+``is_cancelled`` is polled before each image starts, threaded into the cascade
+so its sampling loops can stop mid-step, and polled again before the bake --
+the one call in this pipe (``postprocess_to_glb``) that cannot be interrupted.
+A cancellation observed while it runs only takes effect once it returns; the
+finished export is discarded rather than reaching the gallery. Nothing here
+kills the process or touches the environment -- see
+:class:`~src.platform.runtime.native.errors.SamplingCancelled`.
 """
 
 from __future__ import annotations
 
+import os
 import tempfile
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 import torch
 
@@ -49,6 +59,7 @@ from src.pipelines.outputs import (
 from src.platform.runtime.native.arch.trellis2.config import STAGE_SAMPLING, StageSampling
 from src.platform.runtime.native.arch.trellis2.image_to_mesh import run_image_to_mesh
 from src.platform.runtime.native.arch.trellis2.postprocess import postprocess_to_glb
+from src.platform.runtime.native.errors import SamplingCancelled
 from src.platform.util.latents import generate_seed
 
 #: Stage key -> the line shown while it runs. ``shape_lr``/``shape_hr`` are the
@@ -167,7 +178,13 @@ class GeneratorTrellis2Pipe(BasePipe):
 
     # -- run ---------------------------------------------------------------
 
-    def process(self, pipe_input: PipeInput, generation_outputs: callable) -> PipeOutput:
+    def process(
+            self,
+            pipe_input: PipeInput,
+            generation_outputs: callable,
+            is_cancelled: Optional[Callable[[], bool]] = None,
+    ) -> PipeOutput:
+        is_cancelled = is_cancelled or (lambda: False)
         images = pipe_input.input.get("image") or []
         if not images:
             raise ValueError("generator/trellis2 needs a source image, but none was provided")
@@ -186,6 +203,9 @@ class GeneratorTrellis2Pipe(BasePipe):
         meshes: List[MeshGenerationOutput] = []
 
         for index, (image, seed) in enumerate(zip(images, seeds)):
+            if is_cancelled():
+                self._abort_cancelled(mesh_paths)
+
             generation_outputs(SeedGenerationOutput(index=index, seed=seed))
             volume = run_image_to_mesh(
                 components,
@@ -197,12 +217,18 @@ class GeneratorTrellis2Pipe(BasePipe):
                 remove_background=bool(self.config.get("remove_background", False)),
                 max_num_tokens=int(self.config.get("max_num_tokens", 49152)),
                 progress=self._progress(generation_outputs, index, len(images)),
+                is_cancelled=is_cancelled,
             )
 
             # The models are back on CPU by now, but their freed blocks are
             # still in torch's cache; the bake wants that memory back.
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+
+            if is_cancelled():
+                # postprocess_to_glb is not itself interruptible -- this is the
+                # last cooperative boundary before paying for it.
+                self._abort_cancelled(mesh_paths)
 
             generation_outputs(ProgressGenerationOutput(
                 state="Baking PBR materials", icon=Icon(name="cube", effect="pulse"),
@@ -218,6 +244,9 @@ class GeneratorTrellis2Pipe(BasePipe):
                 face_count=int(volume.faces.shape[0]),
             ))
 
+        if is_cancelled():
+            self._abort_cancelled(mesh_paths)
+
         generation_outputs(GalleryGenerationOutput(images=[], meshes=meshes))
         generation_outputs(ProgressGenerationOutput(
             state="Reconstructed the mesh" if len(meshes) == 1
@@ -227,6 +256,22 @@ class GeneratorTrellis2Pipe(BasePipe):
         return PipeOutput(output={"mesh": mesh_paths, "seed": seeds})
 
     # -- helpers -----------------------------------------------------------
+
+    @staticmethod
+    def _abort_cancelled(mesh_paths: List[str]) -> None:
+        """Cancellation observed at a cooperative boundary: discard bakes this
+        run will never reference and raise the established signal.
+
+        No gallery is emitted for a cancelled run, so any ``.glb`` already
+        baked for a prior image in this batch is now unreachable -- best-effort
+        deleted here rather than left on disk.
+        """
+        for path in mesh_paths:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        raise SamplingCancelled()
 
     def _seeds(self, pipe_input: PipeInput, count: int) -> List[int]:
         """One seed per image: the wired ``seed`` input, else the config's.
@@ -284,6 +329,12 @@ class GeneratorTrellis2Pipe(BasePipe):
         token-budget degrade is not the tier that was asked for — passing the
         requested tier instead would sample the attribute volume off-grid and
         texture the mesh with the wrong voxels.
+
+        ``postprocess_to_glb`` is a single uninterruptible native call — it
+        takes no cancellation probe and does not poll one internally. A
+        cancellation requested while it runs is only observed at the caller's
+        next cooperative boundary, once this returns; it does not stop the
+        call, kill the process, or touch the environment.
         """
         out_path = tempfile.NamedTemporaryFile(suffix=".glb", delete=False).name
         try:

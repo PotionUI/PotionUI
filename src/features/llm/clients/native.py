@@ -116,6 +116,60 @@ _SENTINEL = object()
 _STOP_WAIT_TIMEOUT_SECONDS = 5.0
 
 
+class _CheckpointGate:
+    """Serializes every native-LLM turn against ONE shared checkpoint.
+
+    `ModelLifecycle.acquire()` hands out the SAME `_LoadedCheckpoint` (and its
+    live `torch.nn.Module`) to every concurrent caller with a matching
+    fingerprint — there is no per-checkpoint execution gate at that layer. A
+    turn moves the model to CUDA, runs `generate()` on it, and moves it back
+    to CPU; two turns overlapping on the same checkpoint would race that
+    placement (turn A's teardown moving the model to CPU while turn B is
+    still mid-forward-pass on CUDA). This lock is that gate: `_leased` holds
+    it for the turn's FULL lifetime (acquire, placement, generation, offload,
+    `end_lease`), so overlapping turns on the same checkpoint queue instead
+    of interleaving.
+    """
+
+    __slots__ = ("lock", "refcount")
+
+    def __init__(self) -> None:
+        self.lock = asyncio.Lock()
+        self.refcount = 0
+
+
+# Keyed by (id(ModelLifecycle), cache_key) rather than just cache_key: two
+# `NativeLLMClient` instances constructed against the SAME `ModelLifecycle`
+# (the production shape is one client per process, but tests build several
+# against one shared manager) must serialize on the SAME gate, since the
+# shared mutable resource is the checkpoint cached IN THAT LIFECYCLE, not in
+# either client. A module-level registry (not an attribute on one client
+# instance) is what makes that sharing possible without either client
+# needing a reference to the other. Bounded by refcounting — an entry is
+# created on first interest (holder or waiter) and dropped once the last
+# holder/waiter is gone, never left to accumulate for checkpoints nobody is
+# using any more. Mutated only from synchronous, non-`await`-ing sections
+# below, so plain dict operations are safe under the single-threaded event
+# loop with no additional lock.
+_EXECUTION_GATES: Dict[tuple, "_CheckpointGate"] = {}
+
+
+def _acquire_execution_gate(models: "ModelLifecycle", key: str) -> tuple[tuple, "_CheckpointGate"]:
+    identity = (id(models), key)
+    gate = _EXECUTION_GATES.get(identity)
+    if gate is None:
+        gate = _CheckpointGate()
+        _EXECUTION_GATES[identity] = gate
+    gate.refcount += 1
+    return identity, gate
+
+
+def _release_execution_gate(identity: tuple, gate: "_CheckpointGate") -> None:
+    gate.refcount -= 1
+    if gate.refcount <= 0:
+        _EXECUTION_GATES.pop(identity, None)
+
+
 def _is_oom(error: BaseException) -> bool:
     return isinstance(error, RuntimeError) and "out of memory" in str(error).lower()
 
@@ -621,66 +675,85 @@ class NativeLLMClient:
         would otherwise inherit that stale tag and get owner-swept for real.
         Caught by test_native_client_lifecycle_interactions.py before this
         explicit clear was added; keep it.
+
+        The turn's FULL lifetime — acquire, placement, whatever the caller
+        does with the yielded checkpoint, offload, `end_lease()` — runs under
+        a per-checkpoint `_CheckpointGate` (see its docstring): concurrent
+        turns on the SAME checkpoint queue on this lock rather than racing
+        its CUDA placement, so a waiter is queued here BEFORE anything below
+        pins, loads, or leases the checkpoint. Waiting is a plain `async with`
+        acquire — never a blocking join — so a cancelled waiter that never
+        got the lock releases nothing it doesn't hold; a cancelled or
+        failing HOLDER still runs this function's own `finally` (offload,
+        then `end_lease`) before the `async with` releases the gate, giving
+        the required release order (generation work incl. the streaming
+        worker-exit wait → offload → end_lease → gate release) for free from
+        the block nesting, not from extra bookkeeping.
         """
         import torch
 
         models = self._models()
-        models.begin_generation(None)
-        lease_id = f"native-llm-{uuid.uuid4().hex}"
-        models.begin_lease(lease_id)
         key = self._cache_key(path, is_te)
-        checkpoint: Optional[_LoadedCheckpoint] = None
-        device = "cpu"
-        manage_device = False
+        gate_id, gate = _acquire_execution_gate(models, key)
         try:
-            checkpoint = await asyncio.to_thread(self._acquire, path, config, is_te)
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            # A quantized checkpoint is already GPU-resident (device_map) and
-            # must never be moved across the lease boundary — bnb modules don't
-            # round-trip to CPU. It stays put; eviction (not offload) reclaims it.
-            manage_device = device != "cpu" and not checkpoint.quantized
-            if manage_device:
+            async with gate.lock:
+                models.begin_generation(None)
+                lease_id = f"native-llm-{uuid.uuid4().hex}"
+                models.begin_lease(lease_id)
+                checkpoint: Optional[_LoadedCheckpoint] = None
+                device = "cpu"
+                manage_device = False
                 try:
-                    await asyncio.to_thread(checkpoint.model.to, device)
-                except RuntimeError as e:
-                    if not _is_oom(e):
-                        raise
-                    torch.cuda.empty_cache()
-                    logger.warning(
-                        "[NativeLLM] native LLM fell back to CPU for this turn: CUDA OOM "
-                        "during placement — free VRAM or run the Clear VRAM action"
-                    )
-                    device = "cpu"
-                    manage_device = False
-                else:
-                    # Registered ONLY once actually CUDA-resident, so a
-                    # DiT load's own VRAM admission can reclaim this checkpoint
-                    # even if the restore below is ever bypassed.
-                    self._note_resident(checkpoint, key, device)
-            yield checkpoint, device
+                    checkpoint = await asyncio.to_thread(self._acquire, path, config, is_te)
+                    device = "cuda" if torch.cuda.is_available() else "cpu"
+                    # A quantized checkpoint is already GPU-resident (device_map) and
+                    # must never be moved across the lease boundary — bnb modules don't
+                    # round-trip to CPU. It stays put; eviction (not offload) reclaims it.
+                    manage_device = device != "cpu" and not checkpoint.quantized
+                    if manage_device:
+                        try:
+                            await asyncio.to_thread(checkpoint.model.to, device)
+                        except RuntimeError as e:
+                            if not _is_oom(e):
+                                raise
+                            torch.cuda.empty_cache()
+                            logger.warning(
+                                "[NativeLLM] native LLM fell back to CPU for this turn: CUDA OOM "
+                                "during placement — free VRAM or run the Clear VRAM action"
+                            )
+                            device = "cpu"
+                            manage_device = False
+                        else:
+                            # Registered ONLY once actually CUDA-resident, so a
+                            # DiT load's own VRAM admission can reclaim this checkpoint
+                            # even if the restore below is ever bypassed.
+                            self._note_resident(checkpoint, key, device)
+                    yield checkpoint, device
+                finally:
+                    if checkpoint is not None and manage_device:
+                        try:
+                            await asyncio.to_thread(checkpoint.model.to, "cpu")
+                            torch.cuda.empty_cache()
+                            self._note_offloaded(checkpoint)
+                        except Exception:
+                            # A checkpoint that CANNOT be verified off the GPU
+                            # must never be left as a zombie CUDA-resident cache entry
+                            # with no further recovery path (the bug this guards:
+                            # "cache_entries=1 ... pinned_cum_gb=0.000" while VRAM
+                            # stayed ~full) — evict it outright rather than only warn.
+                            # The residency handle (if registered) still lets a DiT
+                            # load's admission control reclaim it via note_resident's
+                            # last-registered state, but invalidate() is the
+                            # deterministic guarantee.
+                            logger.warning(
+                                "[NativeLLM] failed to move checkpoint back to CPU after lease; "
+                                "evicting the cache entry key='%s' so it can't be left GPU-resident",
+                                key, exc_info=True,
+                            )
+                            models.invalidate(key)
+                    models.end_lease(lease_id)
         finally:
-            if checkpoint is not None and manage_device:
-                try:
-                    await asyncio.to_thread(checkpoint.model.to, "cpu")
-                    torch.cuda.empty_cache()
-                    self._note_offloaded(checkpoint)
-                except Exception:
-                    # A checkpoint that CANNOT be verified off the GPU
-                    # must never be left as a zombie CUDA-resident cache entry
-                    # with no further recovery path (the bug this guards:
-                    # "cache_entries=1 ... pinned_cum_gb=0.000" while VRAM
-                    # stayed ~full) — evict it outright rather than only warn.
-                    # The residency handle (if registered) still lets a DiT
-                    # load's admission control reclaim it via note_resident's
-                    # last-registered state, but invalidate() is the
-                    # deterministic guarantee.
-                    logger.warning(
-                        "[NativeLLM] failed to move checkpoint back to CPU after lease; "
-                        "evicting the cache entry key='%s' so it can't be left GPU-resident",
-                        key, exc_info=True,
-                    )
-                    models.invalidate(key)
-            models.end_lease(lease_id)
+            _release_execution_gate(gate_id, gate)
 
     # -- prompt / chat-template assembly --------------------------------
 

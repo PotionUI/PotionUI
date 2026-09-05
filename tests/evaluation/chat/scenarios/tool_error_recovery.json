@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "id": "tool_error_recovery",
+  "title": "A tool error followed by a justified recovery",
+  "mode": "generation",
+  "tool_names": [
+    "search_gallery"
+  ],
+  "context": {},
+  "user_turns": [
+    "Find me my last 3 forest generations."
+  ],
+  "canned_tool_responses": {},
+  "checks": [
+    {
+      "type": "error_then_recovery",
+      "tool": "search_gallery",
+      "acknowledgement_keywords": [
+        "a moment",
+        "retried",
+        "tried again"
+      ],
+      "max_repeats": 2
+    },
+    {
+      "type": "final_answer_contains_all",
+      "keywords": [
+        "forest"
+      ]
+    },
+    {
+      "type": "max_tool_rounds",
+      "max": 2
+    }
+  ]
+}

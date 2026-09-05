@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "id": "comfyui_propose_form_changes_applied",
+  "title": "ComfyUI import mapping via propose_form_changes, applied outcome",
+  "mode": "comfyui-import",
+  "tool_names": [
+    "propose_form_changes",
+    "get_workflow_inputs"
+  ],
+  "context": {
+    "comfyui_import": {
+      "draft_id": "draft-9f2c",
+      "form_revision": 3,
+      "candidates": [
+        {
+          "node_id": "12",
+          "class_type": "KSampler",
+          "input_name": "seed",
+          "value_type": "INT"
+        }
+      ]
+    }
+  },
+  "user_turns": [
+    "Map the KSampler's seed input to a form field called Seed."
+  ],
+  "canned_tool_responses": {},
+  "checks": [
+    {
+      "type": "tool_call_present",
+      "tool": "propose_form_changes"
+    },
+    {
+      "type": "truthful_apply_status",
+      "tool": "propose_form_changes",
+      "forbidden_claims": [
+        "i'll apply this once",
+        "pending your approval still"
+      ]
+    },
+    {
+      "type": "final_answer_contains_all",
+      "keywords": [
+        "Seed"
+      ]
+    },
+    {
+      "type": "max_tool_rounds",
+      "max": 1
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "scenario": "factual_answer_context",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Given cfg 5.5, steps 30 and sampler dpmpp_2m, is this a reasonable starting point for a photoreal SDXL portrait?"
+    },
+    {
+      "role": "assistant",
+      "content": "Yes - 30 steps with dpmpp_2m and cfg 5.5 is a solid, mid-range starting point for a photoreal SDXL portrait. You could drop cfg slightly (4.5-5) for a softer, more natural skin look."
+    }
+  ]
+}

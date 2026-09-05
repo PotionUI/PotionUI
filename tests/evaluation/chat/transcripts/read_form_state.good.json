@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "scenario": "read_form_state",
+  "messages": [
+    {
+      "role": "user",
+      "content": "What steps and seed am I currently using?"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "get_form_state",
+          "arguments": {}
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "get_form_state",
+      "content": "{\"preset_id\": \"sdxl/base\", \"mode\": \"txt2img\", \"fields\": {\"steps\": {\"value\": 28}, \"seed\": {\"value\": 12345}}}",
+      "outcome": "ok"
+    },
+    {
+      "role": "assistant",
+      "content": "You're currently at 28 steps with seed 12345."
+    }
+  ]
+}

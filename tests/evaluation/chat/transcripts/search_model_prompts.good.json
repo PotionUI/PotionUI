@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "scenario": "search_model_prompts",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Give me some prompt ideas for my cyberpunk city LoRA - neon lighting, rain streets."
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "search_model_prompts",
+          "arguments": {
+            "queries": [
+              "cyberpunk city",
+              "neon lighting",
+              "rain streets"
+            ],
+            "model_id": "loras/cyberpunkCity_v2"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "search_model_prompts",
+      "content": "{\"results\": [{\"concept\": \"neon lighting\", \"prompt\": \"neon-drenched alley, magenta and cyan reflections on wet asphalt\"}, {\"concept\": \"rain streets\", \"prompt\": \"rain-slicked street, puddle reflections of towering neon signs\"}]}",
+      "outcome": "ok"
+    },
+    {
+      "role": "assistant",
+      "content": "A couple of strong directions from community examples: neon-drenched alleys with magenta/cyan reflections, and rain-slicked streets with puddle reflections of the neon signage above."
+    }
+  ]
+}

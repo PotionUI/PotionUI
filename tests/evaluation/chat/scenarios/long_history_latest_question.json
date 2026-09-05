@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "id": "long_history_latest_question",
+  "title": "Long history plus a new current question - the latest question must be answered, not an earlier one",
+  "mode": "generation",
+  "tool_names": [],
+  "context": {},
+  "user_turns": [
+    "Why does raising cfg above 8 give me crunchy artifacts on SDXL?",
+    "And should I use dpmpp_2m or euler_a for portraits?",
+    "Actually, forget all that - what upscaler should I use for a 2x video upscale?"
+  ],
+  "canned_tool_responses": {},
+  "checks": [
+    {
+      "type": "latest_question_reflected",
+      "keywords": [
+        "upscaler",
+        "2x"
+      ]
+    }
+  ]
+}

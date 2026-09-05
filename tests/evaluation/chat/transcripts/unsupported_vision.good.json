@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "scenario": "unsupported_vision",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Here's a screenshot of my error, [image attached] - can you tell me what's wrong?"
+    },
+    {
+      "role": "assistant",
+      "content": "This model doesn't support image input, so I can't see the screenshot you attached. Could you paste the error text instead?"
+    }
+  ]
+}

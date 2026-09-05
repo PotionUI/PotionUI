@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "id": "enhancement_request",
+  "title": "Prompt enhancement request via enhance_prompt",
+  "mode": "generation",
+  "tool_names": [
+    "enhance_prompt"
+  ],
+  "context": {},
+  "user_turns": [
+    "Enhance my prompt: a lone astronaut on mars."
+  ],
+  "canned_tool_responses": {},
+  "checks": [
+    {
+      "type": "tool_call_present",
+      "tool": "enhance_prompt",
+      "args_contains": {
+        "brief": "a lone astronaut on mars"
+      }
+    },
+    {
+      "type": "final_answer_contains_all",
+      "keywords": [
+        "astronaut",
+        "mars"
+      ]
+    },
+    {
+      "type": "max_tool_rounds",
+      "max": 1
+    }
+  ]
+}

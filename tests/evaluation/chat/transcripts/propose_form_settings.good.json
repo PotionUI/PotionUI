@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "scenario": "propose_form_settings",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Bump the steps to 35 and randomize the seed."
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "update_form_settings",
+          "arguments": {
+            "changes": [
+              {
+                "field_name": "steps",
+                "value": 35,
+                "reason": "More refinement per the request"
+              },
+              {
+                "field_name": "seed",
+                "value": -1,
+                "reason": "Randomize as requested"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "update_form_settings",
+      "content": "{\"status\": \"pending_approval\", \"changes\": [{\"field_name\": \"steps\", \"value\": 35}, {\"field_name\": \"seed\", \"value\": -1}]}",
+      "outcome": "pending_approval"
+    },
+    {
+      "role": "assistant",
+      "content": "I've proposed setting steps to 35 and randomizing the seed - approve the change to apply it."
+    }
+  ]
+}

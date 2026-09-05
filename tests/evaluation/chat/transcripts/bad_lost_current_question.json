@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "scenario": "long_history_latest_question",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Why does raising cfg above 8 give me crunchy artifacts on SDXL?"
+    },
+    {
+      "role": "assistant",
+      "content": "High cfg over-sharpens SDXL's guidance, which shows up as crunchy, over-saturated detail - try staying in the 4-7 range."
+    },
+    {
+      "role": "user",
+      "content": "And should I use dpmpp_2m or euler_a for portraits?"
+    },
+    {
+      "role": "assistant",
+      "content": "dpmpp_2m tends to give smoother skin tones for portraits; euler_a is a bit noisier but faster to preview with."
+    },
+    {
+      "role": "user",
+      "content": "Actually, forget all that - what upscaler should I use for a 2x video upscale?"
+    },
+    {
+      "role": "assistant",
+      "content": "To recap on cfg: keep it under 8 to avoid the crunchy artifacts we discussed, and dpmpp_2m is the safer sampler choice for portraits."
+    }
+  ]
+}

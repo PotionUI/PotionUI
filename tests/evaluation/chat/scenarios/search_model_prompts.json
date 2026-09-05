@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "id": "search_model_prompts",
+  "title": "Model-specific prompt research via search_model_prompts",
+  "mode": "generation",
+  "tool_names": [
+    "search_model_prompts"
+  ],
+  "context": {
+    "form_facts": {
+      "model": {
+        "modelPath": "loras/cyberpunkCity_v2"
+      }
+    }
+  },
+  "user_turns": [
+    "Give me some prompt ideas for my cyberpunk city LoRA - neon lighting, rain streets."
+  ],
+  "canned_tool_responses": {},
+  "checks": [
+    {
+      "type": "tool_call_present",
+      "tool": "search_model_prompts",
+      "args_contains": {
+        "model_id": "loras/cyberpunkCity_v2"
+      }
+    },
+    {
+      "type": "final_answer_contains_all",
+      "keywords": [
+        "neon",
+        "rain"
+      ]
+    },
+    {
+      "type": "max_tool_rounds",
+      "max": 1
+    }
+  ]
+}

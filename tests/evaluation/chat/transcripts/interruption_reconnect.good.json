@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "scenario": "interruption_reconnect",
+  "messages": [
+    {
+      "role": "user",
+      "content": "What model am I generating with right now?"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "get_active_models",
+          "arguments": {}
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "get_active_models",
+      "content": "{\"models\": [{\"model_id\": \"sdxl/juggernautXL_v9\", \"name\": \"JuggernautXL v9\", \"type\": \"checkpoint\"}]}",
+      "outcome": "ok"
+    },
+    {
+      "role": "system",
+      "content": "connection dropped after seq 3 and reconnected; replayed from the last acknowledged event, no re-emit"
+    },
+    {
+      "role": "assistant",
+      "content": "You're generating with JuggernautXL v9."
+    }
+  ]
+}

@@ -236,6 +236,14 @@ immediately before an attached resource chip (forward-delete gap, unhandled)"
 documents a known gap and fails by design until forward-delete is handled.
 
 
+## Chat and tool evaluation pack
+
+`tests/evaluation/chat/` + `scripts/chat_eval.py` — reproducible scenario
+fixtures and a replayable report format for comparing chat workflows across
+explicitly selected model configurations. Fully offline by default
+(`python scripts/chat_eval.py`, no args); see `docs/chat-evaluation.md` for
+the layout, the two entry points, and the report schema.
+
 ## Install matrix (`./potionui start`; CI runs `remote` for real, `local`/`hybrid`/`worker` stay local-only)
 
 `tests/install/run.py` proves `./potionui start` actually works for each

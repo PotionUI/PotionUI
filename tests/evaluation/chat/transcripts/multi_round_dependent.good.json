@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "scenario": "multi_round_dependent",
+  "messages": [
+    {
+      "role": "user",
+      "content": "What model am I using, and can you find some good prompts for it?"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "get_active_models",
+          "arguments": {}
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "get_active_models",
+      "content": "{\"models\": [{\"model_id\": \"loras/duskCity_v3\", \"name\": \"Dusk City v3\", \"type\": \"lora\"}]}",
+      "outcome": "ok"
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "search_model_prompts",
+          "arguments": {
+            "queries": [
+              "dusk cityscape"
+            ],
+            "model_id": "loras/duskCity_v3"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "search_model_prompts",
+      "content": "{\"results\": [{\"concept\": \"dusk cityscape\", \"prompt\": \"dusk skyline, warm amber windows against a cooling blue sky\"}]}",
+      "outcome": "ok"
+    },
+    {
+      "role": "assistant",
+      "content": "You're using the Dusk City v3 LoRA. A good starting prompt: a dusk skyline with warm amber windows set against a cooling blue sky."
+    }
+  ]
+}

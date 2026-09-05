@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "id": "read_form_state",
+  "title": "Reading current form/model facts via get_form_state",
+  "mode": "generation",
+  "tool_names": [
+    "get_form_state"
+  ],
+  "context": {
+    "active_preset": {
+      "id": "sdxl/base",
+      "name": "SDXL Base"
+    },
+    "form_facts": {
+      "steps": 28,
+      "seed": 12345,
+      "width": 832,
+      "height": 1216
+    }
+  },
+  "user_turns": [
+    "What steps and seed am I currently using?"
+  ],
+  "canned_tool_responses": {
+    "get_form_state": {
+      "preset_id": "sdxl/base",
+      "mode": "txt2img",
+      "fields": {
+        "steps": {
+          "value": 28
+        },
+        "seed": {
+          "value": 12345
+        }
+      }
+    }
+  },
+  "checks": [
+    {
+      "type": "tool_call_present",
+      "tool": "get_form_state"
+    },
+    {
+      "type": "final_answer_contains_all",
+      "keywords": [
+        "28",
+        "12345"
+      ]
+    },
+    {
+      "type": "max_tool_rounds",
+      "max": 1
+    }
+  ]
+}

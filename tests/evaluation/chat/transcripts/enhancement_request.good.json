@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "scenario": "enhancement_request",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Enhance my prompt: a lone astronaut on mars."
+    },
+    {
+      "role": "assistant",
+      "content": "",
+      "tool_calls": [
+        {
+          "name": "enhance_prompt",
+          "arguments": {
+            "brief": "a lone astronaut on mars",
+            "n_candidates": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "name": "enhance_prompt",
+      "content": "{\"candidates\": [\"a lone astronaut standing atop a rust-red dune on Mars, Earth a pale dot in a butterscotch sky, dust caught mid-drift in low gravity\"]}",
+      "outcome": "ok"
+    },
+    {
+      "role": "assistant",
+      "content": "Here's an enhanced version: \"a lone astronaut standing atop a rust-red dune on Mars, Earth a pale dot in a butterscotch sky, dust caught mid-drift in low gravity.\""
+    }
+  ]
+}

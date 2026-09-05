@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "id": "factual_answer_context",
+  "title": "Factual answer from context already supplied, no tool call needed",
+  "mode": "generation",
+  "tool_names": [],
+  "context": {
+    "active_preset": {
+      "id": "sdxl/base",
+      "name": "SDXL Base"
+    },
+    "form_facts": {
+      "width": 1024,
+      "height": 1024,
+      "steps": 30,
+      "cfg": 5.5,
+      "sampler": "dpmpp_2m",
+      "seed": 482913
+    }
+  },
+  "user_turns": [
+    "Given cfg 5.5, steps 30 and sampler dpmpp_2m, is this a reasonable starting point for a photoreal SDXL portrait?"
+  ],
+  "canned_tool_responses": {},
+  "checks": [
+    {
+      "type": "final_answer_contains_all",
+      "keywords": [
+        "30",
+        "dpmpp_2m"
+      ]
+    },
+    {
+      "type": "max_tool_rounds",
+      "max": 0
+    }
+  ]
+}

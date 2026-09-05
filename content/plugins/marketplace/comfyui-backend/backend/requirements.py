@@ -66,12 +66,29 @@ class _SingleFlightTTLCache:
     `evaluate_preset_requirements` runs every `requirements:` entry
     concurrently, so without this an N-entry preset would fire N parallel
     fetches of the identical listing. Shared module-level instances below
-    back both checkers."""
+    back both checkers.
+
+    The in-flight fetch is a real `asyncio.Task` the cache itself owns and
+    drives to completion, never a waiter: each caller only ever
+    `asyncio.shield()`s it, so cancelling (or timing out) one caller's own
+    await - `preview_workflow_requirements`'s per-entry budget, a checker's
+    own `timeout_s`, or simply the caller's coroutine being cancelled some
+    other way - can never cancel the fetch every other concurrent caller
+    for the same key is also relying on (a *raw* task, awaited directly, IS
+    cancelled transitively when the awaiting coroutine is - see
+    `asyncio.Task.cancel`'s own documented behaviour of cancelling whatever
+    inner future it's currently suspended on). TTL publication and
+    `_inflight` removal happen exactly once, from the task's own
+    `add_done_callback` - a completion boundary independent of whether any
+    waiter is still around to see it, which is also what makes sure a
+    cancelled/failed fetch's exception is always retrieved (never surfaces
+    as an "exception was never retrieved" warning) and is never cached as
+    if it were a real listing."""
 
     def __init__(self, ttl_seconds: float):
         self._ttl = ttl_seconds
         self._ready: Dict[Any, Tuple[float, Any]] = {}
-        self._inflight: Dict[Any, "asyncio.Future[Any]"] = {}
+        self._inflight: Dict[Any, "asyncio.Task[Any]"] = {}
         self._lock = asyncio.Lock()
 
     async def get_or_fetch(self, key: Any, fetch: Callable[[], Awaitable[Any]]) -> Any:
@@ -85,22 +102,31 @@ class _SingleFlightTTLCache:
             cached = self._get_ready(key)
             if cached is not None:
                 return cached
-            future = self._inflight.get(key)
-            if future is None:
-                future = asyncio.ensure_future(fetch())
-                self._inflight[key] = future
+            task = self._inflight.get(key)
+            if task is None:
+                task = asyncio.ensure_future(fetch())
+                self._inflight[key] = task
+                task.add_done_callback(lambda t, key=key: self._on_fetch_done(key, t))
 
-        try:
-            value = await future
-        finally:
-            async with self._lock:
-                # Only the caller that actually owns this future clears it -
-                # a late arrival that reused it must not clear a newer one.
-                if self._inflight.get(key) is future:
-                    del self._inflight[key]
+        return await asyncio.shield(task)
 
-        self._ready[key] = (time.monotonic() + self._ttl, value)
-        return value
+    def _on_fetch_done(self, key: Any, task: "asyncio.Task[Any]") -> None:
+        # Only the fetch that owns this key's current slot may retire it -
+        # a key's in-flight task is never replaced while still running, but
+        # this guard costs nothing and matches the same defensive check the
+        # single caller-driven cleanup used before.
+        if self._inflight.get(key) is task:
+            del self._inflight[key]
+        if task.cancelled() or task.exception() is not None:
+            # `task.exception()` also retrieves it here (short-circuited
+            # away entirely when `cancelled()` is true, since calling
+            # `.exception()` on a cancelled task itself raises
+            # CancelledError) - a cancelled or failed fetch is never
+            # published as a listing, and this is the one place its
+            # outcome is ever inspected, so it can never go unretrieved
+            # even if every external waiter departed before this ran.
+            return
+        self._ready[key] = (time.monotonic() + self._ttl, task.result())
 
     def _get_ready(self, key: Any) -> Optional[Any]:
         entry = self._ready.get(key)

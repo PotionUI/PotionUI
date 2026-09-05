@@ -1,22 +1,35 @@
 """Tests for the audio_trim pipe: the `(start, duration)` window contract
 (pinned via `compute_trim_window`, so the arithmetic is checkable without a
 real audio file), clamping to the source's real length, the empty-window
-degenerate case, mono/stereo channel preservation, and that the emitted
+degenerate case, mono/stereo channel preservation, that the emitted
 `AudioGenerationOutput` metadata matches what was ACTUALLY written to disk -
-not just what the pipe claims.
+not just what the pipe claims - and that the sample *precision* of the
+source survives the trim (`resolve_trim_io_policy`'s read-dtype/write-subtype
+table), not just the frame count.
 """
 
+import numpy as np
 import soundfile as sf
 
 from src.pipelines.contracts import IOType, PipeInput
 from src.pipelines.outputs import AudioGenerationOutput
-from src.pipelines.pipes.audio_trim.main import AudioTrimPipe, compute_trim_window
+from src.pipelines.pipes.audio_trim import main as audio_trim_main
+from src.pipelines.pipes.audio_trim.main import AudioTrimPipe, compute_trim_window, resolve_trim_io_policy
 from tests.fixtures.audio_fixtures import build_minimal_wav
 
 
 def _write_wav(tmp_path, name="source.wav", **kwargs):
     path = tmp_path / name
     path.write_bytes(build_minimal_wav(**kwargs))
+    return str(path)
+
+
+def _write_precise_wav(tmp_path, data, sample_rate, subtype, name="precise_source.wav"):
+    """Write `data` (float64/float32 in [-1, 1], mono 1-D or stereo 2-D) as a
+    real `.wav` with an explicit `subtype`, so the source SoundFile really
+    reports that subtype - not a stand-in for it."""
+    path = tmp_path / name
+    sf.write(str(path), data, sample_rate, subtype=subtype)
     return str(path)
 
 
@@ -262,3 +275,262 @@ def test_config_spec_matches_contract():
     assert specs["duration_seconds"].default == 10.0
     assert specs["start_seconds"].min_value == 0.0
     assert specs["duration_seconds"].min_value == 0.0
+
+
+# -- resolve_trim_io_policy: pinned subtype -> (read_dtype, write_subtype) ------
+
+def test_policy_pcm16_passthrough():
+    assert resolve_trim_io_policy("PCM_16") == ("int16", "PCM_16")
+
+
+def test_policy_pcm24_widens_read_keeps_write_subtype():
+    assert resolve_trim_io_policy("PCM_24") == ("int32", "PCM_24")
+
+
+def test_policy_pcm32():
+    assert resolve_trim_io_policy("PCM_32") == ("int32", "PCM_32")
+
+
+def test_policy_float():
+    assert resolve_trim_io_policy("FLOAT") == ("float32", "FLOAT")
+
+
+def test_policy_double():
+    assert resolve_trim_io_policy("DOUBLE") == ("float64", "DOUBLE")
+
+
+def test_policy_pcm_u8_widens_to_pcm16():
+    assert resolve_trim_io_policy("PCM_U8") == ("int16", "PCM_16")
+
+
+def test_policy_pcm_s8_widens_to_pcm16():
+    assert resolve_trim_io_policy("PCM_S8") == ("int16", "PCM_16")
+
+
+def test_policy_unknown_subtype_falls_back_to_float_not_silent_pcm16():
+    """Bite-check: an unrecognised (compressed/companded) source subtype must
+    not silently fall back to the old PCM_16 default - it gets the documented
+    FLOAT fallback instead."""
+    read_dtype, write_subtype = resolve_trim_io_policy("VORBIS")
+    assert (read_dtype, write_subtype) == ("float32", "FLOAT")
+    assert write_subtype != "PCM_16"
+
+
+def test_policy_falls_back_to_float_when_chosen_subtype_unsupported_for_wav(monkeypatch):
+    """Even a subtype the table knows about (PCM_24) must fall back to FLOAT
+    if this libsndfile build can't write that subtype into a `.wav`
+    container - simulated here via a monkeypatched `check_format`."""
+    real_check_format = audio_trim_main.sf.check_format
+
+    def fake_check_format(fmt, subtype=None, endian=None):
+        if subtype == "PCM_24":
+            return False
+        return real_check_format(fmt, subtype, endian)
+
+    monkeypatch.setattr(audio_trim_main.sf, "check_format", fake_check_format)
+    assert resolve_trim_io_policy("PCM_24") == ("float32", "FLOAT")
+
+
+# -- end-to-end: sample precision survives the trim, not just the frame count --
+
+def test_pcm24_low_amplitude_samples_are_bit_identical_to_source_window(tmp_path):
+    """Bite-check: at this amplitude (2e-5), 16-bit PCM's resolution
+    (~3.05e-5) can't represent the signal at all - a `subtype`-less
+    `sf.write` (the old behaviour) quantizes every sample to 0. This must
+    fail red against that code and pass once the trim preserves PCM_24."""
+    sample_rate = 8000
+    t = np.arange(int(2.0 * sample_rate)) / sample_rate
+    full = (2e-5 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+    source = _write_precise_wav(tmp_path, full, sample_rate, subtype="PCM_24")
+
+    pipe = _pipe(start_seconds=0.5, duration_seconds=1.0)
+    result = pipe.process(PipeInput(input={"audio": [source]}), lambda o: None)
+    out_path = result.output["audio"][0]
+
+    assert sf.info(out_path).subtype == "PCM_24"
+
+    start_frame, end_frame = compute_trim_window(0.5, 1.0, sample_rate, len(full))
+    with sf.SoundFile(source) as src:
+        src.seek(start_frame)
+        expected = src.read(frames=end_frame - start_frame, dtype="int32", always_2d=False)
+    with sf.SoundFile(out_path) as out:
+        actual = out.read(dtype="int32", always_2d=False)
+
+    assert np.array_equal(actual, expected)
+    # And it is not the all-zero quantization a PCM_16 write would produce.
+    assert np.any(actual != 0)
+
+
+def test_pcm32_samples_are_bit_identical_to_source_window(tmp_path):
+    sample_rate = 8000
+    t = np.arange(int(1.0 * sample_rate)) / sample_rate
+    full = (2e-5 * np.sin(2 * np.pi * 220 * t)).astype(np.float32)
+    source = _write_precise_wav(tmp_path, full, sample_rate, subtype="PCM_32")
+
+    pipe = _pipe(start_seconds=0.2, duration_seconds=0.5)
+    result = pipe.process(PipeInput(input={"audio": [source]}), lambda o: None)
+    out_path = result.output["audio"][0]
+
+    assert sf.info(out_path).subtype == "PCM_32"
+
+    start_frame, end_frame = compute_trim_window(0.2, 0.5, sample_rate, len(full))
+    with sf.SoundFile(source) as src:
+        src.seek(start_frame)
+        expected = src.read(frames=end_frame - start_frame, dtype="int32", always_2d=False)
+    with sf.SoundFile(out_path) as out:
+        actual = out.read(dtype="int32", always_2d=False)
+
+    assert np.array_equal(actual, expected)
+
+
+def test_float_samples_are_bit_identical_to_source_window(tmp_path):
+    sample_rate = 8000
+    t = np.arange(int(1.0 * sample_rate)) / sample_rate
+    full = (2e-5 * np.sin(2 * np.pi * 330 * t)).astype(np.float32)
+    source = _write_precise_wav(tmp_path, full, sample_rate, subtype="FLOAT")
+
+    pipe = _pipe(start_seconds=0.1, duration_seconds=0.4)
+    result = pipe.process(PipeInput(input={"audio": [source]}), lambda o: None)
+    out_path = result.output["audio"][0]
+
+    assert sf.info(out_path).subtype == "FLOAT"
+
+    start_frame, end_frame = compute_trim_window(0.1, 0.4, sample_rate, len(full))
+    expected = full[start_frame:end_frame]
+    with sf.SoundFile(out_path) as out:
+        actual = out.read(dtype="float32", always_2d=False)
+
+    assert np.array_equal(actual, expected)
+
+
+def test_double_samples_are_bit_identical_to_source_window(tmp_path):
+    sample_rate = 8000
+    t = np.arange(int(1.0 * sample_rate)) / sample_rate
+    full = (2e-5 * np.sin(2 * np.pi * 550 * t)).astype(np.float64)
+    source = _write_precise_wav(tmp_path, full, sample_rate, subtype="DOUBLE")
+
+    pipe = _pipe(start_seconds=0.3, duration_seconds=0.2)
+    result = pipe.process(PipeInput(input={"audio": [source]}), lambda o: None)
+    out_path = result.output["audio"][0]
+
+    assert sf.info(out_path).subtype == "DOUBLE"
+
+    start_frame, end_frame = compute_trim_window(0.3, 0.2, sample_rate, len(full))
+    expected = full[start_frame:end_frame]
+    with sf.SoundFile(out_path) as out:
+        actual = out.read(dtype="float64", always_2d=False)
+
+    assert np.array_equal(actual, expected)
+
+
+def test_pcm16_source_remains_pcm16_after_trim(tmp_path):
+    sample_rate = 8000
+    t = np.arange(int(1.0 * sample_rate)) / sample_rate
+    full = (0.5 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+    source = _write_precise_wav(tmp_path, full, sample_rate, subtype="PCM_16")
+
+    pipe = _pipe(start_seconds=0.1, duration_seconds=0.3)
+    result = pipe.process(PipeInput(input={"audio": [source]}), lambda o: None)
+    out_path = result.output["audio"][0]
+
+    assert sf.info(out_path).subtype == "PCM_16"
+
+
+def test_stereo_high_precision_subtype_preserves_both_channels_exactly(tmp_path):
+    sample_rate = 8000
+    t = np.arange(int(1.0 * sample_rate)) / sample_rate
+    left = (2e-5 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+    right = (2e-5 * np.sin(2 * np.pi * 660 * t)).astype(np.float32)
+    full = np.stack([left, right], axis=1)
+    source = _write_precise_wav(tmp_path, full, sample_rate, subtype="PCM_24")
+
+    pipe = _pipe(start_seconds=0.25, duration_seconds=0.5)
+    result = pipe.process(PipeInput(input={"audio": [source]}), lambda o: None)
+    out_path = result.output["audio"][0]
+
+    info = sf.info(out_path)
+    assert info.subtype == "PCM_24"
+    assert info.channels == 2
+
+    start_frame, end_frame = compute_trim_window(0.25, 0.5, sample_rate, len(full))
+    with sf.SoundFile(source) as src:
+        src.seek(start_frame)
+        expected = src.read(frames=end_frame - start_frame, dtype="int32", always_2d=True)
+    with sf.SoundFile(out_path) as out:
+        actual = out.read(dtype="int32", always_2d=True)
+
+    assert np.array_equal(actual, expected)
+
+
+def test_window_boundary_is_exact_against_a_direct_source_slice(tmp_path):
+    """Every sample of the trimmed output must equal the direct numpy slice
+    of the source array at [start_frame:end_frame] - not an off-by-one
+    window, not a resampled/interpolated approximation."""
+    sample_rate = 1000
+    full = np.linspace(-2e-5, 2e-5, num=3000, dtype=np.float32)
+    source = _write_precise_wav(tmp_path, full, sample_rate, subtype="FLOAT")
+
+    pipe = _pipe(start_seconds=0.777, duration_seconds=1.111)
+    result = pipe.process(PipeInput(input={"audio": [source]}), lambda o: None)
+    out_path = result.output["audio"][0]
+
+    start_frame, end_frame = compute_trim_window(0.777, 1.111, sample_rate, len(full))
+    expected = full[start_frame:end_frame]
+    with sf.SoundFile(out_path) as out:
+        actual = out.read(dtype="float32", always_2d=False)
+
+    assert len(actual) == end_frame - start_frame
+    assert np.array_equal(actual, expected)
+
+
+def test_unsupported_wav_subtype_source_falls_back_to_float_end_to_end(tmp_path, monkeypatch):
+    """A source subtype the policy table doesn't know (a companded codec,
+    here simulated with a synthetic subtype string) must produce a FLOAT
+    `.wav`, never crash and never silently downgrade to PCM_16."""
+    sample_rate = 8000
+    t = np.arange(int(0.5 * sample_rate)) / sample_rate
+    full = (0.1 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+    source = _write_precise_wav(tmp_path, full, sample_rate, subtype="PCM_16")
+
+    real_sound_file = audio_trim_main.sf.SoundFile
+
+    class FakeSubtypeSoundFile:
+        """Wraps a real, *read-mode* SoundFile but reports a synthetic,
+        unknown subtype - the source file itself stays perfectly real and
+        readable. `sf.write`'s own internal `SoundFile(..., 'w', ...)` calls
+        (positional/keyword args beyond a bare path) pass straight through
+        to the real class so the write path under test is untouched."""
+
+        def __new__(cls, path, *args, **kwargs):
+            if args or kwargs:
+                return real_sound_file(path, *args, **kwargs)
+            return super().__new__(cls)
+
+        def __init__(self, path):
+            self._inner = real_sound_file(path)
+
+        def __enter__(self):
+            self._inner.__enter__()
+            return self
+
+        def __exit__(self, *exc_info):
+            return self._inner.__exit__(*exc_info)
+
+        def __getattr__(self, item):
+            return getattr(self._inner, item)
+
+        def __len__(self):
+            return len(self._inner)
+
+        @property
+        def subtype(self):
+            return "SYNTHETIC_CODEC"
+
+    monkeypatch.setattr(audio_trim_main.sf, "SoundFile", FakeSubtypeSoundFile)
+
+    pipe = _pipe(start_seconds=0.1, duration_seconds=0.2)
+    result = pipe.process(PipeInput(input={"audio": [source]}), lambda o: None)
+    out_path = result.output["audio"][0]
+    monkeypatch.undo()  # inspect the real output file, not through the fake
+
+    assert sf.info(out_path).subtype == "FLOAT"

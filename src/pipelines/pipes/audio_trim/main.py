@@ -36,6 +36,34 @@ The output is always a `.wav` - deterministic and lossless, regardless of the
 source's own container - preserving the source's sample rate and channel
 count exactly (channel count falls out of the array shape `soundfile` reads;
 it is never resampled or downmixed here).
+
+"Lossless" also has to hold at the sample level, not just the frame boundary:
+`soundfile`'s own WAV write default is `PCM_16`, so reading a higher-precision
+source as `float32` and writing it back with no explicit `subtype` silently
+quantizes `PCM_24`/`PCM_32`/`FLOAT`/`DOUBLE` sources down to 16 bits. To avoid
+that, the source's own `SoundFile.subtype` picks both the read dtype (wide
+enough to hold the subtype exactly) and the write subtype (round-tripping the
+source's own precision), via one explicit policy:
+
+============  ===========  =============
+source        read dtype   write subtype
+============  ===========  =============
+PCM_16        int16        PCM_16
+PCM_24        int32        PCM_24
+PCM_32        int32        PCM_32
+FLOAT         float32      FLOAT
+DOUBLE        float64      DOUBLE
+PCM_U8        int16        PCM_16   (lossless widening, not a passthrough)
+PCM_S8        int16        PCM_16   (lossless widening, not a passthrough)
+anything else float32      FLOAT    (compressed/companded codecs - no
+                                      lossless integer form, so this is a
+                                      documented fallback, never a silent
+                                      PCM_16 downgrade)
+============  ===========  =============
+
+The chosen write subtype is also checked against `sf.check_format('WAV', ...)`
+before use (a source subtype the installed libsndfile can decode but not
+re-encode into a `.wav` container) and falls back to `FLOAT` if unsupported.
 """
 
 import tempfile
@@ -54,6 +82,32 @@ from src.pipelines.contracts import (
     logger,
 )
 from src.pipelines.outputs import AudioGenerationOutput, Icon, Progress, ProgressGenerationOutput
+
+
+# source subtype -> (read dtype, write subtype). See the module docstring
+# table this pins. Keys are `soundfile.SoundFile.subtype` strings; a subtype
+# not listed here (a compressed/companded codec) uses `_FALLBACK_IO_POLICY`.
+_SUBTYPE_IO_POLICY: Dict[str, Tuple[str, str]] = {
+    "PCM_16": ("int16", "PCM_16"),
+    "PCM_24": ("int32", "PCM_24"),
+    "PCM_32": ("int32", "PCM_32"),
+    "FLOAT": ("float32", "FLOAT"),
+    "DOUBLE": ("float64", "DOUBLE"),
+    "PCM_U8": ("int16", "PCM_16"),
+    "PCM_S8": ("int16", "PCM_16"),
+}
+_FALLBACK_IO_POLICY: Tuple[str, str] = ("float32", "FLOAT")
+
+
+def resolve_trim_io_policy(subtype: str) -> Tuple[str, str]:
+    """Source `subtype` -> `(read_dtype, write_subtype)`, per the module
+    docstring's policy table. Falls back to `_FALLBACK_IO_POLICY` for a
+    source subtype not in `_SUBTYPE_IO_POLICY`, and again if the chosen write
+    subtype turns out to be unsupported for a `.wav` container."""
+    read_dtype, write_subtype = _SUBTYPE_IO_POLICY.get(subtype, _FALLBACK_IO_POLICY)
+    if not sf.check_format("WAV", write_subtype):
+        read_dtype, write_subtype = _FALLBACK_IO_POLICY
+    return read_dtype, write_subtype
 
 
 def compute_trim_window(start_seconds: float, duration_seconds: float,
@@ -120,6 +174,7 @@ class AudioTrimPipe(BasePipe):
             channels = source.channels
             total_frames = len(source)
             source_duration = total_frames / sample_rate if sample_rate else 0.0
+            read_dtype, write_subtype = resolve_trim_io_policy(source.subtype)
 
             start_frame, end_frame = compute_trim_window(
                 start_seconds, duration_seconds, sample_rate, total_frames
@@ -141,10 +196,10 @@ class AudioTrimPipe(BasePipe):
                 ))
 
             source.seek(start_frame)
-            data = source.read(frames=frame_count, dtype="float32", always_2d=False)
+            data = source.read(frames=frame_count, dtype=read_dtype, always_2d=False)
 
         out_path = tempfile.NamedTemporaryFile(suffix=".wav", delete=False).name
-        sf.write(out_path, data, samplerate=sample_rate)
+        sf.write(out_path, data, samplerate=sample_rate, subtype=write_subtype)
 
         kept_duration = frame_count / sample_rate if sample_rate else 0.0
         generation_outputs(ProgressGenerationOutput(

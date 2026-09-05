@@ -19,6 +19,8 @@ from src.features.chat.reflection import (
 from src.features.chat.repository import ChatRepository
 from src.features.chat.runtime import ChatRuntime
 from src.features.chat.modes import ChatModeRegistry, build_generation_mode
+from src.features.llm.gateway import LLMGateway
+from src.features.llm.repository import LLMConfig
 from tests.fixtures.persistence_base import PersistenceTestBase
 
 
@@ -771,3 +773,142 @@ class TestReflectionSmallCapacityBudget(PersistenceTestBase):
         assert "y" * 3000 not in transcript
         stored = self.chat_repo.get_session(session_id).metadata["memory_reflection"]
         assert stored["pending_backlog"] is True
+
+
+def _dense_messages_counter(chars_per_token: float, overhead_tokens: int = 0):
+    """A whole-request counter denser than the fallback chars/token estimate
+    (`context_budget.DEFAULT_CHARS_PER_TOKEN`), with a fixed template
+    overhead standing in for real chat-template framing - the two things
+    `_resolve_span_budget`'s old prompt-only estimate couldn't see."""
+    def _count(system_message, messages, tool_schemas=None):
+        text = (system_message or "") + "".join(m.get("content", "") for m in messages)
+        return math.ceil(len(text) / chars_per_token) + overhead_tokens
+    return _count
+
+
+class _FakeNativeSend:
+    """Stands in for `NativeLLMClient.generate_with_history` behind a real
+    `LLMGateway` - records the fully-prepared (post budget-enforcement)
+    request and replays queued responses."""
+
+    def __init__(self):
+        self.calls = []
+        self._responses = []
+
+    def queue(self, content_or_exc) -> None:
+        self._responses.append(content_or_exc)
+
+    async def __call__(self, messages, config, system_message, image_data=None, options_override=None):
+        self.calls.append({"system_message": system_message, "messages": messages})
+        item = self._responses.pop(0) if self._responses else "[]"
+        if isinstance(item, BaseException):
+            raise item
+        return SimpleNamespace(content=item)
+
+
+class TestReflectionRealGatewayBudget(PersistenceTestBase):
+    """Sizes a span through the REAL `LLMGateway.estimate_context_budget` -
+    the exact whole-request check the final send enforces - rather than an
+    independent estimate. A real `LLMGateway` with a fake native provider
+    client (no model) proves a non-trivial configured system message and
+    real chat-template overhead - both invisible to a prompt-only estimate -
+    correctly shrink an oversized candidate to one that actually reaches
+    the provider, and that successive passes make monotonic progress."""
+
+    def setUp(self):
+        super().setUp()
+        self.chat_repo = ChatRepository()
+        self.user_id = self.create_test_user()
+
+    def tearDown(self):
+        try:
+            with self.db.get_cursor() as cursor:
+                cursor.execute("DELETE FROM chat_messages")
+                cursor.execute("DELETE FROM chat_sessions")
+                cursor.execute("DELETE FROM users")
+        except Exception:
+            pass
+        super().tearDown()
+
+    def _build_gateway_and_config(self):
+        gateway = LLMGateway(llm_repository=Mock())
+        # A non-trivial configured system message - invisible to an estimate
+        # that only prices the fixed reflection prompt's own text.
+        system_message = "You are a strict, formatting-conscious assistant. " * 10
+        config = LLMConfig(
+            id="llm-1", name="Reflect Test", type="native", enabled=True,
+            base_url="http://internal", model="native-model",
+            system_message=system_message, disable_system_prompt=False,
+            memory_reflection=True, provider_options={"context_window": 2000},
+            max_tokens=2000,
+        )
+        gateway.repository.get_configuration.return_value = config
+        # Denser than DEFAULT_CHARS_PER_TOKEN (3.5) - the naive tokens->chars
+        # conversion in `_resolve_span_budget`'s estimate over-allows at this
+        # ratio, so the real recount must reject the first candidate and the
+        # shrink loop must actually run, not just a better initial guess.
+        gateway._native.token_counter = Mock(return_value=lambda text: math.ceil(len(text) / 2.0))
+        gateway._native.messages_token_counter = Mock(
+            return_value=_dense_messages_counter(2.0, overhead_tokens=300)
+        )
+        sender = _FakeNativeSend()
+        gateway._native.generate_with_history = sender
+        return gateway, config, sender
+
+    def _runtime_with_session(self, gateway, turns):
+        runtime = ChatRuntime(
+            chat_repository=self.chat_repo,
+            llm_service=gateway,
+            response_processor=Mock(),
+            plugin_registry=Mock(),
+            chat_mode_registry=_mode_registry(),
+        )
+        runtime.llm_memory_repository = Mock()
+        session = self.chat_repo.create_session(user_id=self.user_id, llm_config_id="llm-1")
+        for role, content in turns:
+            self.chat_repo.add_message(session_id=session.id, role=role, content=content)
+        return runtime, session.id
+
+    def test_oversized_estimate_shrinks_to_a_span_the_real_gateway_accepts(self):
+        asyncio.run(self._async_shrinks_to_viable_span())
+
+    async def _async_shrinks_to_viable_span(self):
+        gateway, config, sender = self._build_gateway_and_config()
+        runtime, session_id = self._runtime_with_session(gateway, [
+            ("user", "q0 " + "z" * 100), ("assistant", "a0 " + "z" * 100),
+            ("user", "q1 " + "z" * 100), ("assistant", "a1 " + "z" * 100),
+            ("user", "q2 " + "z" * 100), ("assistant", "a2 " + "z" * 100),
+            ("user", "q3 " + "z" * 100), ("assistant", "a3 " + "z" * 100),
+        ])
+
+        with patch("src.features.chat.reflection.memory_operations") as mock_ops:
+            mock_ops.write_note.return_value = Mock()
+            sender.queue("[]")
+
+            saved = await runtime.reflection_generator.reflect(session_id)
+
+        assert saved == []
+        # The request actually reached the fake provider - a candidate the
+        # real gateway rejected would have raised inside `reflect()` and
+        # never gotten this far (no coverage claimed, no call recorded).
+        assert len(sender.calls) == 1
+        sent = sender.calls[0]
+        # Independent confirmation: recomputing the real gateway's own
+        # budget check on the EXACT request sent must not raise.
+        gateway.estimate_context_budget(
+            config, sent["system_message"], sent["messages"],
+            options_override={"max_tokens": 800, "temperature": 0.2, "think": False},
+        )
+
+        stored = self.chat_repo.get_session(session_id).metadata.get("memory_reflection")
+        assert stored is not None
+        first_position = (stored["reflected_up_to_seq"], stored["reflected_up_to_offset"])
+
+        # A follow-up pass makes monotonic progress - it must cover strictly
+        # more than the first, never re-request the identical, already
+        # covered span forever.
+        sender.queue("[]")
+        await runtime.reflection_generator.reflect(session_id, require_threshold=False)
+        stored2 = self.chat_repo.get_session(session_id).metadata["memory_reflection"]
+        second_position = (stored2["reflected_up_to_seq"], stored2["reflected_up_to_offset"])
+        assert second_position > first_position

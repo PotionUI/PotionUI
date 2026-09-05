@@ -70,6 +70,7 @@ from ...attention import attention as _dispatch_attention
 # SDPA on (B, H, L, D) -- see the fallback comment in MiniMaxH3Attention.
 _fallback_sdpa = F.scaled_dot_product_attention
 from ...base import NativeArchModule
+from ...sampling.step_cache import GroupedProbe
 from ...sla_attn import SlaAttnContext
 from ...sol_attn import SolAttnContext
 from ...sparse_attn import sparse_attention
@@ -586,6 +587,7 @@ class MiniMaxH3Model(NativeArchModule):
 
     def _process_transformer_blocks(self, hidden_states: Tensor, temb: Tensor, adaln_indices: Tensor,
                                      rotary_emb: tuple[Tensor, Tensor],
+                                     video_indices: Tensor, audio_indices: Tensor,
                                      step_cache=None,
                                      sparse_attn: SolAttnContext | SlaAttnContext | None = None,
                                      seq_chunk_rows: int = 0,
@@ -593,12 +595,17 @@ class MiniMaxH3Model(NativeArchModule):
         """Run the block stack, optionally gated by FBCache (see
         ``sampling/step_cache.py``).
 
-        The probe is block-0's output over the WHOLE packed sequence, which
-        already covers video, audio and text rows in one tensor — H3 runs a
-        single stream, so there is nothing to concatenate the way LTX's
-        separate video/audio streams need. A skip returns straight after block
-        0, so blocks 1..N *and* the final layer are bypassed; ``forward``
-        replays the cached ``(video, audio)`` pair instead.
+        H3 runs video, audio and text as ONE packed sequence, so block-0's
+        output covers all three at once — but only the two generated
+        modalities are what the cache is predicting, and they are wildly
+        different sizes. The probe therefore gathers the video and audio rows
+        into their own :class:`GroupedProbe` groups, each gated on its own
+        threshold, and leaves the text rows out entirely: text is pinned for
+        the whole trajectory, so folding those rows into a pooled mean would
+        damp every step's drift toward zero and skip on the strength of rows
+        that could not have moved. A skip returns straight after block 0, so
+        blocks 1..N *and* the final layer are bypassed; ``forward`` replays
+        the cached ``(video, audio)`` pair instead.
 
         ``sparse_attn`` reaches only this stack. The token refiner's blocks run
         a short text-only sequence with no rotary embedding and no packed
@@ -616,7 +623,10 @@ class MiniMaxH3Model(NativeArchModule):
         for i, block in enumerate(self.blocks):
             hidden_states = block(hidden_states, temb, adaln_indices, rotary_emb, sparse_attn, seq_chunk_rows)
             if i == 0 and step_cache is not None:
-                probe = hidden_states
+                probe = GroupedProbe(
+                    video=hidden_states.index_select(1, video_indices),
+                    audio=hidden_states.index_select(1, audio_indices),
+                )
                 if may_skip and step_cache.should_skip(probe):
                     return hidden_states, probe, True
         return hidden_states, probe, False
@@ -719,7 +729,8 @@ class MiniMaxH3Model(NativeArchModule):
         sparse_attn_ctx = kwargs.pop("sparse_attn_ctx", None)
         seq_chunk_rows = kwargs.pop("seq_chunk_rows", 0)
         packed, probe, skipped = self._process_transformer_blocks(
-            packed, temb, adaln_indices, rotary_emb, step_cache=step_cache, sparse_attn=sparse_attn_ctx,
+            packed, temb, adaln_indices, rotary_emb, video_indices, audio_indices,
+            step_cache=step_cache, sparse_attn=sparse_attn_ctx,
             seq_chunk_rows=seq_chunk_rows,
         )
         if skipped:

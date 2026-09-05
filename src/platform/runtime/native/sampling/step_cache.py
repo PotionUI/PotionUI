@@ -29,12 +29,64 @@ handed; it is pure state + a float comparison so it unit-tests without a model.
 from __future__ import annotations
 
 import logging
+from collections import OrderedDict
 
 import torch
 
 logger = logging.getLogger(__name__)
 
 Tensor = torch.Tensor
+
+
+class GroupedProbe:
+    """A block-0 probe split into per-modality row groups, each gated on its own.
+
+    One flattened probe lets a big modality hide a small one. A multimodal
+    forward whose short audio stream moved sharply while its much larger video
+    stream held still averages out under the threshold — the step skips and
+    replays a stale audio velocity — and the converse hides a changed video
+    behind a stable audio track. Condition and text rows make it worse: they
+    are pinned across the trajectory, so every one of them drags the pooled
+    mean toward zero.
+
+    Each group is compared against the previous step's group of the same name,
+    and a step may only be skipped when EVERY group passes the threshold.
+    Groups passed as ``None`` or with no elements are dropped, so an absent
+    audio track leaves the video group gating alone; a probe with no group at
+    all never skips.
+    """
+
+    __slots__ = ("groups",)
+
+    def __init__(self, **groups: Tensor | None) -> None:
+        self.groups: dict[str, Tensor] = {
+            name: t for name, t in groups.items() if t is not None and t.numel() > 0
+        }
+
+    def detach(self) -> "GroupedProbe":
+        return GroupedProbe(**{name: t.detach() for name, t in self.groups.items()})
+
+
+_SINGLE_GROUP = ""
+
+
+def _probe_groups(probe) -> dict[str, Tensor]:
+    """Normalize a probe to name -> tensor. A bare tensor is one anonymous
+    group, which is what every single-stream arch hands in."""
+    if isinstance(probe, GroupedProbe):
+        return probe.groups
+    return {_SINGLE_GROUP: probe}
+
+
+def _relative_change(cur: Tensor, ref: Tensor) -> Tensor:
+    """Per-sample ``mean|cur - ref| / (mean|ref| + eps)`` in fp32, reduced over
+    every dim except the batch dim — shape ``(B,)``."""
+    cur = cur.detach().float()
+    ref = ref.float()
+    reduce_dims = tuple(range(1, cur.ndim))
+    num = (cur - ref).abs().mean(dim=reduce_dims)
+    den = ref.abs().mean(dim=reduce_dims) + 1e-8
+    return num / den
 
 
 def _detach_tree(output):
@@ -85,7 +137,9 @@ class FirstBlockCache:
         self.warmup_steps = int(warmup_steps)
         self.max_consecutive_skips = int(max_consecutive_skips)
 
-        self.prev_probe: Tensor | None = None       # block-0 output of last computed step
+        # block-0 output of the last computed step: a bare tensor from a
+        # single-stream arch, a GroupedProbe from a multimodal one.
+        self.prev_probe: Tensor | GroupedProbe | None = None
         self.cached_output: Tensor | None = None     # full model output of last computed step
         self.skips_in_a_row = 0
         self.steps_seen = 0                           # computed + skipped, this branch
@@ -98,52 +152,64 @@ class FirstBlockCache:
     def enabled(self) -> bool:
         return self.rel_threshold > 0.0
 
-    def should_skip(self, probe: Tensor) -> bool:
+    def should_skip(self, probe: Tensor | GroupedProbe) -> bool:
         """Return whether this step may reuse the cached output.
 
         Pure read — never mutates state (the arch calls :meth:`record_skip` or
         :meth:`record_compute` to commit the decision). ``False`` during warmup,
-        when there is no cached probe yet, when the probe shape changed
-        (resolution change invalidates the cache), or when the consecutive-skip
-        ceiling is hit. Otherwise skip iff the block-0 relative change is below
-        ``rel_threshold`` for EVERY sample in the batch (see
-        :meth:`relative_change` — a batch-pooled mean would let one stable
-        high-magnitude sample mask an arbitrarily changed low-magnitude one).
-        The relative change is computed in fp32 regardless of the model's
-        compute dtype so the gate is stable under bf16/fp16.
+        when there is no cached probe yet, when the probe's groups or their
+        shapes changed (a resolution change, or a modality appearing or
+        vanishing, invalidates the cache), or when the consecutive-skip ceiling
+        is hit. Otherwise skip iff the block-0 relative change is below
+        ``rel_threshold`` for EVERY sample in the batch, in EVERY group of a
+        :class:`GroupedProbe` (see :meth:`relative_changes` — a pooled mean
+        lets one stable high-magnitude sample, or one stable large modality,
+        mask an arbitrarily changed small one). The relative change is computed
+        in fp32 regardless of the model's compute dtype so the gate is stable
+        under bf16/fp16.
         """
         if not self.enabled:
             return False
         if self.prev_probe is None or self.cached_output is None:
             return False
-        if probe.shape != self.prev_probe.shape:
+        cur = _probe_groups(probe)
+        prev = _probe_groups(self.prev_probe)
+        if not cur or cur.keys() != prev.keys():
+            return False
+        if any(cur[name].shape != prev[name].shape for name in cur):
             return False
         if self.steps_seen < self.warmup_steps:
             return False
         if self.skips_in_a_row >= self.max_consecutive_skips:
             return False
-        rel = self.relative_change(probe)
-        return bool((rel < self.rel_threshold).all())
+        # A non-finite ratio (a probe that went NaN/inf) fails this comparison,
+        # so a poisoned step computes rather than skipping.
+        return all(bool((rel < self.rel_threshold).all()) for rel in self.relative_changes(probe).values())
+
+    def relative_changes(self, probe: Tensor | GroupedProbe) -> dict[str, Tensor]:
+        """Per-group, per-sample ``mean|probe - prev_probe| / (mean|prev_probe|
+        + eps)`` in fp32, each reduced over every dim except the batch dim (dim
+        0) — a ``(B,)`` tensor per group.
+
+        Per-sample, not a single batch-pooled scalar: a quantity>1 generation
+        runs several independent trajectories through one forward, and pooling
+        their block-0 drift into one mean lets a stable high-magnitude sample
+        hide an arbitrarily large relative change in a low-magnitude sample,
+        corrupting BOTH when the pooled mean stays under threshold (see the
+        failure scenario in
+        ``test_should_skip_requires_every_sample_below_threshold``). The
+        per-group split is the same argument one axis up, across modalities
+        rather than across batch rows — see :class:`GroupedProbe`.
+        """
+        prev = _probe_groups(self.prev_probe)
+        return {name: _relative_change(t, prev[name]) for name, t in _probe_groups(probe).items()}
 
     def relative_change(self, probe: Tensor) -> Tensor:
-        """Per-sample ``mean|probe - prev_probe| / (mean|prev_probe| + eps)``,
-        in fp32, reduced over every dim except the batch dim (dim 0) — shape
-        ``(B,)``. Per-sample, not a single batch-pooled scalar: a quantity>1
-        generation runs several independent trajectories through one forward,
-        and pooling their block-0 drift into one mean lets a stable
-        high-magnitude sample hide an arbitrarily large relative change in a
-        low-magnitude sample, corrupting BOTH when the pooled mean stays under
-        threshold (see the failure scenario in
-        ``test_should_skip_requires_every_sample_below_threshold``).
-        """
+        """The single-group form of :meth:`relative_changes` — ``(B,)`` for a
+        bare-tensor probe."""
         prev = self.prev_probe
-        assert prev is not None
-        cur = probe.detach().float()
-        ref = prev.float()
-        reduce_dims = tuple(range(1, cur.ndim))
-        num = (cur - ref).abs().mean(dim=reduce_dims)
-        den = ref.abs().mean(dim=reduce_dims) + 1e-8
-        return num / den
+        assert isinstance(prev, torch.Tensor)
+        return _relative_change(probe, prev)
 
     def record_skip(self) -> Tensor:
         """Commit a skip and return the cached output to reuse."""
@@ -153,7 +219,7 @@ class FirstBlockCache:
         self.steps_seen += 1
         return self.cached_output
 
-    def record_compute(self, probe: Tensor, output) -> None:
+    def record_compute(self, probe: Tensor | GroupedProbe, output) -> None:
         """Commit a real compute: refresh the probe/output anchors.
 
         ``output`` is whatever the arch forward returns — a single tensor for
@@ -183,12 +249,20 @@ class StepCacheSet:
     and capped so a misbehaving caller cannot mint an unbounded number of them;
     the cap allows every guidance branch times a couple of routed networks. All
     branches share the same options.
+
+    At capacity the least-recently-used cache is EVICTED and the new identity
+    gets an empty one. Handing back some other identity's warmed cache instead
+    would defeat the keying outright — the new network would replay a velocity
+    it never produced — so the cap costs a cold start, never a wrong output.
     """
 
     def __init__(self, options: dict | None = None, max_branches: int = 8) -> None:
         self.options = normalize_options(options)
         self.max_branches = max_branches
-        self._caches: dict[object, FirstBlockCache] = {}
+        self._caches: OrderedDict[object, FirstBlockCache] = OrderedDict()
+        # Counters of evicted caches, so a run report still accounts for every
+        # step this set ever gated.
+        self._evicted = {"computed": 0, "skipped": 0}
 
     @property
     def enabled(self) -> bool:
@@ -196,18 +270,20 @@ class StepCacheSet:
 
     def for_branch(self, key: object) -> FirstBlockCache:
         cache = self._caches.get(key)
-        if cache is None:
-            if len(self._caches) >= self.max_branches:
-                # Reuse an existing cache rather than grow unbounded; branch keys
-                # are a tiny fixed set (cond/uncond) so this is a safety net only.
-                return next(iter(self._caches.values()))
-            cache = FirstBlockCache(**self.options)
-            self._caches[key] = cache
+        if cache is not None:
+            self._caches.move_to_end(key)
+            return cache
+        if len(self._caches) >= self.max_branches:
+            _, dropped = self._caches.popitem(last=False)
+            self._evicted["computed"] += dropped.steps_computed
+            self._evicted["skipped"] += dropped.steps_skipped
+        cache = FirstBlockCache(**self.options)
+        self._caches[key] = cache
         return cache
 
     def totals(self) -> dict[str, int]:
-        computed = sum(c.steps_computed for c in self._caches.values())
-        skipped = sum(c.steps_skipped for c in self._caches.values())
+        computed = self._evicted["computed"] + sum(c.steps_computed for c in self._caches.values())
+        skipped = self._evicted["skipped"] + sum(c.steps_skipped for c in self._caches.values())
         return {"computed": computed, "skipped": skipped}
 
 

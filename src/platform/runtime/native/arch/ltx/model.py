@@ -64,6 +64,7 @@ from vendor.gpl.comfyui.ltx.rope import CompressedTimestep, apply_rotary_emb
 from ...attention import attention as _dispatch_attention
 from ...base import NativeArchModule
 from ...nag import apply_nag
+from ...sampling.step_cache import GroupedProbe
 from .config import LTXAVConfig
 
 
@@ -940,7 +941,8 @@ class LTXAVModel(NativeArchModule):
     def _process_transformer_blocks(self, x, context, attention_mask, timestep, pe,
                                      nag_context=None, nag=None, step_cache=None,
                                      nag_attention_mask=None,
-                                     stg_skip_blocks=None, disable_cross_modal=False):
+                                     stg_skip_blocks=None, disable_cross_modal=False,
+                                     n_extra: int = 0):
         vx, ax = x
         v_context, a_context = context
         v_context_neg, a_context_neg = nag_context if nag_context is not None else (None, None)
@@ -965,13 +967,17 @@ class LTXAVModel(NativeArchModule):
         # ``forward``, separate from the video ``sigma``), so audio state can
         # drift even while the video probe stays stable — a video-only probe
         # would let a changed audio track go undetected and reuse a stale
-        # audio velocity. The probe is therefore both streams' block-0 output,
-        # flattened per-sample and concatenated (``ax`` may be zero-length —
-        # no audio track — in which case this degrades to the video-only
-        # probe exactly). A skip bypasses blocks 1..N; the caller (forward)
-        # then returns the whole cached output structure. ``probe``/
-        # ``skipped`` are returned so forward can record on a real compute
-        # and short-circuit on a skip.
+        # audio velocity. Concatenating the two into one flat probe only moves
+        # the blind spot: the streams differ in size by an order of magnitude,
+        # and a pooled mean lets the larger one hold the ratio under threshold
+        # while the smaller one moves freely. Each stream is therefore its own
+        # :class:`GroupedProbe` group, gated independently. ``ax`` may be
+        # zero-length (no audio track) and the appended conditioning tokens at
+        # the tail of ``vx`` are not generated output; both are left out, and a
+        # group with nothing in it drops away rather than gating on emptiness.
+        # A skip bypasses blocks 1..N; the caller (forward) then returns the
+        # whole cached output structure. ``probe``/``skipped`` are returned so
+        # forward can record on a real compute and short-circuit on a skip.
         probe = None
         for i, block in enumerate(self.transformer_blocks):
             # Per-block a2v / v2a cross-attn gating: disabled when
@@ -996,9 +1002,7 @@ class LTXAVModel(NativeArchModule):
                 skip_self_attn=skip_self_attn,
             )
             if i == 0 and step_cache is not None:
-                probe = vx.flatten(1) if ax.numel() == 0 else torch.cat(
-                    [vx.flatten(1), ax.flatten(1).to(vx.dtype)], dim=1
-                )
+                probe = GroupedProbe(video=vx[:, :vx.shape[1] - n_extra] if n_extra else vx, audio=ax)
                 if step_cache.should_skip(probe):
                     return vx, ax, probe, True
         return vx, ax, probe, False
@@ -1094,8 +1098,9 @@ class LTXAVModel(NativeArchModule):
         nag_attention_mask = self._prepare_attention_mask(nag_attention_mask, input_dtype)
         attention_mask = self._prepare_attention_mask(attention_mask, input_dtype)
         pe = self._prepare_positional_embeddings(pixel_coords, frame_rate, input_dtype)
-        # FBCache (video stream gates it; output caching caches the whole variadic
-        # return so both streams are byte-identical on a skip). See step_cache.py.
+        # FBCache (each generated stream gates it independently; output caching
+        # caches the whole variadic return so both streams are byte-identical on
+        # a skip). See step_cache.py.
         step_cache = kwargs.get("step_cache")
         # MultiModalGuider hooks (see _process_transformer_blocks for semantics):
         stg_skip_blocks = kwargs.get("stg_skip_blocks")
@@ -1104,7 +1109,8 @@ class LTXAVModel(NativeArchModule):
             [vx, ax], context_list, attention_mask, timestep_list, pe,
             nag_context=nag_context_list, nag=nag, step_cache=step_cache,
             nag_attention_mask=nag_attention_mask,
-            stg_skip_blocks=stg_skip_blocks, disable_cross_modal=disable_cross_modal)
+            stg_skip_blocks=stg_skip_blocks, disable_cross_modal=disable_cross_modal,
+            n_extra=n_extra)
         if skipped:
             return step_cache.record_skip()
         out = self._process_output(vx, ax, embedded[0], embedded[1], orig_shape, n_extra=n_extra)

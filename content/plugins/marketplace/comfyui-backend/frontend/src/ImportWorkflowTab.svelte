@@ -19,7 +19,7 @@
 	// same sessionStorage key and asks the host to switch here - see that
 	// component's own header comment for why sessionStorage/a window event
 	// rather than shared module state.
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { floating } from './floating.js';
 
 	let { pluginId = 'comfyui-backend', plugin = null } = $props();
@@ -76,6 +76,18 @@
 
 	/** @type {1 | 2 | 3 | 4 | 5} */
 	let step = $state(1);
+
+	// Bumped whenever the current source is retired (a new file picked, an
+	// edit load started, "Change workflow", "Import another", or teardown).
+	// Every async response boundary below (file read, edit-source load,
+	// analyze, requirements preview, create) captures this value before
+	// awaiting and checks it before writing - a response for a source no
+	// longer current is dropped instead of clobbering whatever replaced it.
+	let sourceToken = 0;
+	// sourceToken value the in-flight/last requirements request belongs to,
+	// so goToRequirementsStep's "already have it" guard isn't fooled by a
+	// retired source's requirementsLoading/requirementsResults.
+	let requirementsToken = null;
 
 	// ---- Editing an existing imported preset (null = a brand-new import) ----
 	let editPresetId = $state(null);
@@ -1278,13 +1290,19 @@
 		if (pendingEditId) startEdit(pendingEditId);
 	});
 
+	onDestroy(() => {
+		sourceToken += 1;
+	});
+
 	async function startEdit(presetId) {
+		const token = ++sourceToken;
 		editPresetId = presetId;
 		editLoading = true;
 		analyzeError = '';
 		try {
 			const res = await fetch(`${API_BASE}/presets/imported/${presetId}/source`, { credentials: 'include', headers: authHeaders() });
 			const payload = await res.json().catch(() => null);
+			if (token !== sourceToken) return;
 			if (!res.ok) {
 				analyzeError = payload?.detail || payload?.message || `Could not load this preset (${res.status})`;
 				editPresetId = null;
@@ -1298,16 +1316,19 @@
 			initializeFormAndHistory(payload);
 			step = 1;
 		} catch (e) {
+			if (token !== sourceToken) return;
 			analyzeError = 'Could not reach the server.';
 			editPresetId = null;
 		} finally {
-			editLoading = false;
+			if (token === sourceToken) editLoading = false;
 		}
 	}
 
 	function readFile(file) {
+		const token = ++sourceToken;
 		const reader = new FileReader();
 		reader.onload = (e) => {
+			if (token !== sourceToken) return;
 			rawText = e.target?.result ?? '';
 			analyzeError = '';
 		};
@@ -1357,6 +1378,7 @@
 			analyzeError = 'That is not valid JSON.';
 			return;
 		}
+		const token = sourceToken;
 		analyzing = true;
 		try {
 			const res = await fetch(`${API_BASE}/presets/import/analyze`, {
@@ -1366,6 +1388,7 @@
 				body: JSON.stringify({ workflow: parsed })
 			});
 			const payload = await res.json().catch(() => null);
+			if (token !== sourceToken) return;
 			if (!res.ok) {
 				analyzeError = payload?.detail || payload?.message || `Analyze failed (${res.status})`;
 				return;
@@ -1375,13 +1398,15 @@
 			initializeFormAndHistory(payload);
 			step = 2;
 		} catch (e) {
+			if (token !== sourceToken) return;
 			analyzeError = 'Could not reach the server.';
 		} finally {
-			analyzing = false;
+			if (token === sourceToken) analyzing = false;
 		}
 	}
 
 	function changeWorkflow() {
+		sourceToken += 1;
 		step = 1;
 		analysis = null;
 		workflowJson = null;
@@ -1390,19 +1415,24 @@
 		historyRows = [];
 		historyBuilt = false;
 		initialHistoryDefault = [];
-		requirementsResults = null;
+		requirementsToken = null;
+		requirementsLoading = false;
 		requirementsError = '';
+		requirementsResults = null;
 		createResult = null;
 		createError = '';
 	}
 
 	async function goToRequirementsStep() {
 		step = 4;
-		if (requirementsResults || requirementsLoading) return;
+		const ownsCurrent = requirementsToken === sourceToken;
+		if (ownsCurrent && (requirementsResults || requirementsLoading)) return;
 		await runRequirementsPreview();
 	}
 
 	async function runRequirementsPreview() {
+		const token = sourceToken;
+		requirementsToken = token;
 		requirementsLoading = true;
 		requirementsError = '';
 		try {
@@ -1413,15 +1443,17 @@
 				body: JSON.stringify({ workflow: workflowJson })
 			});
 			const payload = await res.json().catch(() => null);
+			if (token !== sourceToken) return;
 			if (!res.ok) {
 				requirementsError = payload?.detail || payload?.message || `Requirements check failed (${res.status})`;
 				return;
 			}
 			requirementsResults = payload.results ?? [];
 		} catch (e) {
+			if (token !== sourceToken) return;
 			requirementsError = 'Could not reach the server.';
 		} finally {
-			requirementsLoading = false;
+			if (token === sourceToken) requirementsLoading = false;
 		}
 	}
 
@@ -1433,6 +1465,11 @@
 
 	async function runCreate() {
 		if (!analysis || !workflowJson || creating) return;
+		// The server-side create must never be replayed, cancelled or undone
+		// because the view moved on (Import another / teardown) while it was
+		// in flight - only whether its result gets applied/announced is
+		// gated on still owning this source when the response lands.
+		const token = sourceToken;
 		createError = '';
 		creating = true;
 		try {
@@ -1451,6 +1488,7 @@
 				})
 			});
 			const payload = await res.json().catch(() => null);
+			if (token !== sourceToken) return;
 			if (!res.ok) {
 				createError = payload?.detail || payload?.message || `Import failed (${res.status})`;
 				return;
@@ -1458,9 +1496,10 @@
 			createResult = payload;
 			step = 5;
 		} catch (e) {
+			if (token !== sourceToken) return;
 			createError = 'Could not reach the server.';
 		} finally {
-			creating = false;
+			if (token === sourceToken) creating = false;
 		}
 	}
 
@@ -1469,6 +1508,7 @@
 	}
 
 	function importAnother() {
+		sourceToken += 1;
 		step = 1;
 		editPresetId = null;
 		editLoading = false;
@@ -1489,6 +1529,7 @@
 		historyRows = [];
 		historyBuilt = false;
 		initialHistoryDefault = [];
+		requirementsToken = null;
 		requirementsLoading = false;
 		requirementsError = '';
 		requirementsResults = null;

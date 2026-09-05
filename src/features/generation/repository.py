@@ -93,11 +93,17 @@ class GenerationRepository:
         used_phrasebook_value_id: Optional[str] = None,
         system_tag: Optional[str] = None,
         generation_ids: Optional[List[str]] = None,
+        tag_ids: Optional[List[str]] = None,
+        collection_id: Optional[str] = None,
     ) -> Tuple[List[str], List[Any]]:
         """Build WHERE conditions + params shared by get_all and count_by_status.
 
         `alias` is the table alias used in the enclosing query (e.g. 'g').
         Returns (conditions, params) in matching order.
+
+        Every condition is a scalar predicate on the `generations` row - tag and
+        collection membership are semi-joins, not JOINs - so the result set is one
+        row per generation and neither caller needs DISTINCT to undo fan-out.
         """
         a = f"{alias}." if alias else ""
         conditions: List[str] = []
@@ -164,6 +170,25 @@ class GenerationRepository:
             )""")
             params.append(used_phrasebook_value_id)
 
+        if tag_ids:
+            placeholders = ','.join('?' * len(tag_ids))
+            conditions.append(f"""{a}id IN (
+                SELECT gt.generation_id FROM generation_tags gt
+                WHERE gt.tag_id IN ({placeholders})
+                GROUP BY gt.generation_id
+                HAVING COUNT(DISTINCT gt.tag_id) = ?
+            )""")
+            params.extend(tag_ids)
+            params.append(len(tag_ids))
+
+        if collection_id:
+            conditions.append(f"""EXISTS (
+                SELECT 1 FROM collection_generations cg
+                WHERE cg.generation_id = {a}id
+                AND cg.collection_id = ?
+            )""")
+            params.append(collection_id)
+
         if system_tag:
             conditions.append(f"""EXISTS (
                 SELECT 1 FROM media_system_tags mst
@@ -224,10 +249,15 @@ class GenerationRepository:
         return conditions, params
 
     def _resolve_sort(self, sort_by: Optional[str], sort_dir: Optional[str]) -> str:
-        """Return a safe ORDER BY clause from whitelisted inputs."""
+        """Return a safe ORDER BY clause from whitelisted inputs.
+
+        `g.id` breaks ties in the same direction: `created_at` has one-second
+        resolution, so a burst of generations shares a value and LIMIT/OFFSET
+        paging would otherwise drop or repeat rows between pages.
+        """
         column = _SORT_COLUMNS.get((sort_by or 'created_at'), _SORT_COLUMNS['created_at'])
         direction = 'ASC' if (sort_dir or 'desc').lower() == 'asc' else 'DESC'
-        return f" ORDER BY {column} {direction}"
+        return f" ORDER BY {column} {direction}, g.id {direction}"
 
     # --- Listing ----------------------------------------------------------------
 
@@ -247,22 +277,7 @@ class GenerationRepository:
                 sort_by: Optional[str] = None, sort_dir: Optional[str] = None) -> List[Generation]:
         """Get all generations with optional filtering, searching and sorting."""
 
-        joins = ""
-        conditions: List[str] = []
-        params: List[Any] = []
-
-        if tag_ids:
-            joins += " INNER JOIN generation_tags gt ON g.id = gt.generation_id"
-            placeholders = ','.join('?' * len(tag_ids))
-            conditions.append(f"gt.tag_id IN ({placeholders})")
-            params.extend(tag_ids)
-
-        if collection_id:
-            joins += " INNER JOIN collection_generations cg ON g.id = cg.generation_id"
-            conditions.append("cg.collection_id = ?")
-            params.append(collection_id)
-
-        filter_conditions, filter_params = self._build_filters(
+        conditions, params = self._build_filters(
             'g', user_id=user_id, status=status, media_type=media_type,
             created_from=created_from, created_to=created_to,
             completed_from=completed_from, completed_to=completed_to,
@@ -270,17 +285,12 @@ class GenerationRepository:
             min_rating=min_rating, favorites_only=favorites_only,
             used_phrasebook_value_id=used_phrasebook_value_id,
             system_tag=system_tag, generation_ids=generation_ids,
+            tag_ids=tag_ids, collection_id=collection_id,
         )
-        conditions.extend(filter_conditions)
-        params.extend(filter_params)
 
-        query = f"SELECT DISTINCT g.* FROM generations g{joins}"
+        query = "SELECT g.* FROM generations g"
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
-
-        if tag_ids:
-            query += " GROUP BY g.id HAVING COUNT(DISTINCT gt.tag_id) = ?"
-            params.append(len(tag_ids))
 
         query += self._resolve_sort(sort_by, sort_dir)
 
@@ -321,24 +331,7 @@ class GenerationRepository:
                         system_tag: Optional[str] = None) -> int:
         """Count generations matching the same filters as get_all (for pagination total)."""
 
-        joins = ""
-        conditions: List[str] = []
-        params: List[Any] = []
-        needs_group = False
-
-        if tag_ids:
-            joins += " INNER JOIN generation_tags gt ON g.id = gt.generation_id"
-            placeholders = ','.join('?' * len(tag_ids))
-            conditions.append(f"gt.tag_id IN ({placeholders})")
-            params.extend(tag_ids)
-            needs_group = True
-
-        if collection_id:
-            joins += " INNER JOIN collection_generations cg ON g.id = cg.generation_id"
-            conditions.append("cg.collection_id = ?")
-            params.append(collection_id)
-
-        filter_conditions, filter_params = self._build_filters(
+        conditions, params = self._build_filters(
             'g', user_id=user_id, status=status, media_type=media_type,
             created_from=created_from, created_to=created_to,
             completed_from=completed_from, completed_to=completed_to,
@@ -346,23 +339,12 @@ class GenerationRepository:
             min_rating=min_rating, favorites_only=favorites_only,
             used_phrasebook_value_id=used_phrasebook_value_id,
             system_tag=system_tag,
+            tag_ids=tag_ids, collection_id=collection_id,
         )
-        conditions.extend(filter_conditions)
-        params.extend(filter_params)
 
-        inner = f"SELECT g.id FROM generations g{joins}"
+        query = "SELECT COUNT(*) FROM generations g"
         if conditions:
-            inner += " WHERE " + " AND ".join(conditions)
-
-        if needs_group:
-            inner += " GROUP BY g.id HAVING COUNT(DISTINCT gt.tag_id) = ?"
-            params.append(len(tag_ids))
-            query = f"SELECT COUNT(*) FROM ({inner})"
-        else:
-            # DISTINCT guards against row fan-out from a collection join
-            query = f"SELECT COUNT(DISTINCT g.id) FROM generations g{joins}"
-            if conditions:
-                query += " WHERE " + " AND ".join(conditions)
+            query += " WHERE " + " AND ".join(conditions)
 
         from src.platform.database.database import db
         with db.get_cursor() as cursor:

@@ -442,6 +442,9 @@
 	// could have finished, failed, or a Director shot could have been
 	// resubmitted while this client was disconnected.
 	let restoreInFlight = false;
+	// Retired in onDestroy before the socket disconnects, so a late restore
+	// response from a torn-down page writes and subscribes nothing.
+	const restoreController = new AbortController();
 
 	// Settings pane width: fixed per viewport tier, not user-resizable.
 	$: leftPanelWidth = settingsPaneWidth($viewportWidth);
@@ -815,6 +818,7 @@
 					: [];
 				return reconcileTabGenerations(tab.id, api, tabsStore, {
 					extraCandidateIds,
+					signal: restoreController.signal,
 					onSubscribe: (generationId) => {
 						ws?.subscribe(generationId, (message: WebSocketMessage) => {
 							handleGenerationMessage(message);
@@ -826,6 +830,7 @@
 	}
 
 	onDestroy(() => {
+		restoreController.abort();
 		if (ws) {
 			ws.disconnect();
 		}

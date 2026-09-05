@@ -132,3 +132,33 @@ def _iter_tensors(module: nn.Module):
     for name, b in module.named_buffers():
         if b is not None:
             yield name, b
+
+
+def release_derived_caches(module: nn.Module) -> int:
+    """Release every placement-derived cache under ``module``; return bytes freed.
+
+    Some arch submodules cache tensors derived from the current device/dtype/
+    shape (RoPE tables keyed on a signature that includes device) in plain
+    instance attributes rather than parameters/buffers, so they never show up
+    to ``nn.Module._apply`` on their own — a submodule that owns such a cache
+    implements ``release_derived_caches(self) -> int`` and calls it from its
+    own ``_apply`` override to drop the cache on every device/dtype move.
+
+    Placement paths that move weights without going through ``_apply`` at all
+    — streamed offload and partial residency, ``memory/partial.py`` — must
+    call this walker explicitly instead, or a cache built while the model was
+    GPU-resident stays reachable after the model reports itself offloaded.
+    Duck-typed on purpose: a cache owner need not subclass ``NativeArchModule``.
+    ``module`` itself is duck-typed too (only ``.modules()`` is required) so a
+    lightweight test double without the full ``nn.Module`` surface is simply a
+    no-op here rather than an ``AttributeError``.
+    """
+    iter_modules = getattr(module, "modules", None)
+    if not callable(iter_modules):
+        return 0
+    released = 0
+    for m in iter_modules():
+        release = getattr(m, "release_derived_caches", None)
+        if callable(release):
+            released += release() or 0
+    return released

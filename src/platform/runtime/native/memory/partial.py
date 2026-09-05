@@ -46,6 +46,8 @@ import torch.nn as nn
 from vendor.gpl.comfyui.ops import CastWeightBiasOp
 from src.platform.observability.profiling import add_pinned_bytes, get_profiler
 
+from ..base import release_derived_caches
+
 logger = logging.getLogger(__name__)
 
 # These three module-level flags each guard a warning whose underlying cause
@@ -372,6 +374,12 @@ class ModuleStreamer:
             else:
                 # Resident (incl. the fixed non-streamable tensors): move to GPU.
                 _move_own_tensors(module, device, pin=False)
+        # The moves above touch each leaf's own tensors directly, never `root`'s
+        # `_apply` -- so a device-derived cache the root (or a submodule) owns
+        # in plain attributes (e.g. LTX's RoPE tables) never sees its own
+        # `_apply` override fire here and would otherwise carry a stale
+        # placement signature into this residency.
+        release_derived_caches(self.root)
         self._streamed_bytes = streamed_bytes
         self._pinned = can_pin
         self._active = True

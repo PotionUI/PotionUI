@@ -68,6 +68,15 @@ from ...sampling.step_cache import GroupedProbe
 from .config import LTXAVConfig
 
 
+def _cached_tensor_bytes(value: object) -> int:
+    """Total byte size of every tensor nested in a cache value (tuple/list/tensor)."""
+    if isinstance(value, Tensor):
+        return value.numel() * value.element_size()
+    if isinstance(value, (tuple, list)):
+        return sum(_cached_tensor_bytes(v) for v in value)
+    return 0
+
+
 def _nag_active(nag: dict | None) -> bool:
     return bool(nag) and float(nag.get("scale", 1.0)) > 1.0
 
@@ -317,9 +326,20 @@ class Embeddings1DConnector(nn.Module):
         self._pe_cache_key: tuple | None = None
         self._pe_cache: tuple | None = None
 
-    def _apply(self, fn, recurse: bool = True):
+    def release_derived_caches(self) -> int:
+        """Drop the connector's freqs-cis cache; return its released byte count.
+
+        Called by ``_apply`` (a normal device/dtype move) and, explicitly, by
+        placement paths that move weights around it without going through
+        ``_apply`` at all (streamed offload / partial residency).
+        """
+        released = _cached_tensor_bytes(self._pe_cache)
         self._pe_cache_key = None
         self._pe_cache = None
+        return released
+
+    def _apply(self, fn, recurse: bool = True):
+        self.release_derived_caches()
         return super()._apply(fn, recurse=recurse)
 
     def _freqs_cis(self, seq_len: int, device, dtype):
@@ -623,9 +643,20 @@ class LTXAVModel(NativeArchModule):
         self._pe_cache_key: tuple | None = None
         self._pe_cache: list | None = None
 
-    def _apply(self, fn, recurse: bool = True):
+    def release_derived_caches(self) -> int:
+        """Drop the per-generation positional-embedding cache; return bytes freed.
+
+        Called by ``_apply`` (a normal device/dtype move) and, explicitly, by
+        placement paths that move weights around it without going through
+        ``_apply`` at all (streamed offload / partial residency).
+        """
+        released = _cached_tensor_bytes(self._pe_cache)
         self._pe_cache_key = None
         self._pe_cache = None
+        return released
+
+    def _apply(self, fn, recurse: bool = True):
+        self.release_derived_caches()
         return super()._apply(fn, recurse=recurse)
 
     def _init_audio(self, config, dtype, device, opk):

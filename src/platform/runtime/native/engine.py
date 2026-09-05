@@ -36,7 +36,7 @@ from typing import Any, Callable, Literal, Sequence
 import numpy as np
 import torch
 
-from .base import load_into_module
+from .base import load_into_module, release_derived_caches
 from .detect.registry import ModelSpec, match_model_spec
 from .detect.unet_detect import detect_unet_config
 from .errors import HostMemoryExhaustedError, NativeEngineUnsupportedError
@@ -651,6 +651,14 @@ class NativeModel:
             pinned_gb = self._streamer.pinned_gb
             self._streamer.teardown()
             get_profiler().mark("streamer.teardown", kind=self.kind)
+            # teardown() moves leaf weights back to CPU directly (no root .to()
+            # call), so the root's own _apply override never runs either — a
+            # derived cache (e.g. LTX's RoPE tables) would otherwise keep CUDA
+            # tensors reachable through a wrapper that now reports itself offloaded.
+            if self.module is not None:
+                released = release_derived_caches(self.module)
+                if released:
+                    get_profiler().mark("streamer.release_derived_caches", kind=self.kind, released_gb=released / (1024 ** 3))
             get_residency_registry().note_offloaded(self)
             self.device = "cpu"
             # This early-return branch bypasses move_to() entirely, so its

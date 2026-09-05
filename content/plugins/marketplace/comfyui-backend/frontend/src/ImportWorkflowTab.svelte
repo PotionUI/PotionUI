@@ -118,6 +118,14 @@
 	// true blocks every later "Continue", etc). It also retires the current
 	// draft identity - any propose_form_changes result stamped with the
 	// draft_id this replaces is reported stale, never applied.
+	//
+	// It also invalidates a COMPLETED analysis: `analysis`/`workflowJson`
+	// are nulled unconditionally, so handleSourceContinue's "already
+	// analyzed, just advance" shortcut can only fire when the source truly
+	// hasn't changed since that analysis - i.e. plain Back navigation, which
+	// never calls this. A source change after a completed analyze (edit the
+	// textarea again, pick another file) must re-analyze, not reuse the old
+	// result under the new source's identity.
 	function retireSource() {
 		sourceToken += 1;
 		draftId = mintDraftId();
@@ -126,6 +134,9 @@
 		requirementsToken = null;
 		requirementsLoading = false;
 		creating = false;
+		analysis = null;
+		workflowJson = null;
+		pendingFileRead = false;
 	}
 
 	// ---- Editing an existing imported preset (null = a brand-new import) ----
@@ -140,6 +151,12 @@
 	let analyzeError = $state('');
 	let analysis = $state(null);
 	let workflowJson = $state(null);
+	// True from the moment a file is picked/dropped until its FileReader
+	// settles (or the source is retired again) - the selected file, not
+	// whatever the textarea still shows, owns the source while this is true,
+	// so Continue must not analyze the stale textarea value out from under
+	// a read that hasn't landed yet.
+	let pendingFileRead = $state(false);
 
 	// ---- Step 2: Form ----
 	let _uidCounter = 0;
@@ -1533,20 +1550,27 @@
 	function readFile(file) {
 		retireSource();
 		const token = sourceToken;
+		pendingFileRead = true;
 		const reader = new FileReader();
 		reader.onload = (e) => {
 			if (token !== sourceToken) return;
+			pendingFileRead = false;
 			rawText = e.target?.result ?? '';
 			analyzeError = '';
+		};
+		reader.onerror = () => {
+			if (token !== sourceToken) return;
+			pendingFileRead = false;
+			analyzeError = 'Could not read that file - try selecting it again.';
 		};
 		reader.readAsText(file);
 	}
 
 	// A keystroke or paste in the source textarea is itself a source change:
-	// it must retire whatever analyze/edit-load is in flight for the text it
-	// is replacing, the same as picking a new file does, so a stale response
-	// can neither land on top of what's now on screen nor leave the UI stuck
-	// mid-loading.
+	// it must retire whatever analyze/edit-load (or still-pending file read)
+	// belonged to the text it is replacing, the same as picking a new file
+	// does, so a stale response can neither land on top of what's now on
+	// screen nor leave the UI stuck mid-loading.
 	function handleSourceTextInput() {
 		retireSource();
 		analyzeError = '';
@@ -1578,6 +1602,12 @@
 	// touching "Change workflow"), just advance - no need to re-hit
 	// /analyze for a workflow already in hand.
 	function handleSourceContinue() {
+		// Belt-and-braces alongside the button's own `disabled` - a picked
+		// file that hasn't finished reading owns the source; the textarea's
+		// current value belongs to whatever was retired when it was picked
+		// and must not be analyzed out from under the read that's replacing
+		// it.
+		if (pendingFileRead) return;
 		if (analysis && workflowJson) {
 			step = 2;
 			return;
@@ -1625,8 +1655,6 @@
 	function changeWorkflow() {
 		retireSource();
 		step = 1;
-		analysis = null;
-		workflowJson = null;
 		form = emptyForm();
 		activeTabId = 'generation';
 		historyRows = [];
@@ -1734,8 +1762,6 @@
 		editPresetId = null;
 		rawText = '';
 		analyzeError = '';
-		analysis = null;
-		workflowJson = null;
 		form = emptyForm();
 		activeTabId = 'generation';
 		leftSearch = '';
@@ -2626,8 +2652,8 @@
 				{/if}
 				<div class="footer-spacer"></div>
 				{#if step === 1}
-					<button type="button" class="btn btn-primary" disabled={analyzing || editLoading || (!(analysis && workflowJson) && !rawText.trim())} onclick={handleSourceContinue} data-import-analyze>
-						{analyzing ? 'Analyzing…' : 'Continue'}
+					<button type="button" class="btn btn-primary" disabled={analyzing || editLoading || pendingFileRead || (!(analysis && workflowJson) && !rawText.trim())} onclick={handleSourceContinue} data-import-analyze>
+						{analyzing ? 'Analyzing…' : pendingFileRead ? 'Reading file…' : 'Continue'}
 					</button>
 				{:else if step === 2}
 					<button type="button" class="btn btn-primary" disabled={!canContinueForm} onclick={goToHistory} data-import-continue-form>Continue</button>

@@ -306,7 +306,7 @@ describe('ImportWorkflowTab source lifetime (real compiled dist)', () => {
 		unmount(instance);
 	});
 
-	it('releases the stuck `analyzing` flag when a file is picked mid-analyze, and Continue re-analyzes the newly selected file', async () => {
+	it('picking a file mid-analyze releases `analyzing` but gates Continue on the pending read, not the stale textarea value', async () => {
 		const analyzeCalls: Array<{ resolve: (v: Response) => void; body: any }> = [];
 		const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
 			if (url === '/api/fields/types') return jsonResponse({ success: true, data: [] });
@@ -336,22 +336,26 @@ describe('ImportWorkflowTab source lifetime (real compiled dist)', () => {
 		expect(analyzeCalls).toHaveLength(1);
 		expect(continueBtn.disabled).toBe(true); // "Analyzing..."
 
-		// Pick a file (B) while A's analyze is still in flight.
+		// Pick a file (B) while A's analyze is still in flight - `analyzing`
+		// is released immediately (it's no longer this source's problem),
+		// but Continue must stay disabled: the textarea still shows A's
+		// stale text and B's read hasn't landed yet.
 		const fileInput = el.querySelector<HTMLInputElement>('input[type="file"]')!;
 		selectFile(fileInput, 'file-b.json');
 		await settle();
-
-		// Continue must be usable again right away - not stuck waiting on a
-		// request for a source the user has already moved past.
-		expect(continueBtn.disabled).toBe(false);
+		expect(continueBtn.disabled).toBe(true); // "Reading file..."
+		expect(analyzeCalls).toHaveLength(1); // no request fired for A's stale text
 
 		// A's analyze resolves late - must not advance past step 1.
 		analyzeCalls[0].resolve(jsonResponse(ANALYZE_A));
 		await settle();
 		expect(el.querySelector('[data-wiz-step="source"]')?.className).toContain('current');
+		expect(analyzeCalls).toHaveLength(1);
 
+		// B's read lands - only now is Continue usable again.
 		FakeFileReader.instances[0].complete(JSON.stringify({ marker: 'B' }));
 		await settle();
+		expect(continueBtn.disabled).toBe(false);
 		expect(textarea.value).toBe(JSON.stringify({ marker: 'B' }));
 
 		continueBtn.click();
@@ -454,5 +458,140 @@ describe('ImportWorkflowTab source lifetime (real compiled dist)', () => {
 		expect(analyzeCalls[0].body.workflow.marker).toBe('B');
 
 		unmount(instance);
+	});
+
+	it('an unchanged Back+Continue reuses the completed analysis, but pasting new text afterward forces a fresh analyze', async () => {
+		const analyzeCalls: Array<{ body: any }> = [];
+		const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+			if (url === '/api/fields/types') return jsonResponse({ success: true, data: [] });
+			if (url === '/api/plugins/comfyui-backend/presets/families') return jsonResponse({ families: [] });
+			if (url === '/api/plugins/comfyui-backend/presets/import/analyze') {
+				const body = JSON.parse(String(init?.body));
+				analyzeCalls.push({ body });
+				return jsonResponse(body.workflow.marker === 'A' ? ANALYZE_A : ANALYZE_B);
+			}
+			throw new Error(`Unexpected fetch: ${url}`);
+		});
+		vi.stubGlobal('fetch', fetchMock);
+
+		const el = target();
+		const instance = mount(ImportWorkflowTab, { target: el, props: { pluginId: 'comfyui-backend' } });
+		await settle();
+
+		// Step 1's dropzone/textarea/Continue are torn down and recreated by
+		// the wizard's `{#if step === 1}` block on every trip away from and
+		// back to step 1 - always re-query rather than caching a reference,
+		// or a later interaction silently hits a detached node.
+		const textareaEl = () => el.querySelector<HTMLTextAreaElement>('textarea[data-import-json-input]')!;
+		const continueEl = () => el.querySelector<HTMLButtonElement>('button[data-import-analyze]')!;
+
+		textareaEl().value = JSON.stringify({ marker: 'A' });
+		textareaEl().dispatchEvent(new Event('input', { bubbles: true }));
+		await settle();
+		continueEl().click();
+		await settle();
+		expect(analyzeCalls).toHaveLength(1);
+		expect(el.querySelector('[data-wiz-step="form"]')?.className).toContain('current');
+
+		// Control: Back, then Continue with no textarea edit reuses A's
+		// completed analysis - no new request.
+		clickByText(el, 'Back');
+		await settle();
+		expect(el.querySelector('[data-wiz-step="source"]')?.className).toContain('current');
+		continueEl().click();
+		await settle();
+		expect(analyzeCalls).toHaveLength(1);
+		expect(el.querySelector('[data-wiz-step="form"]')?.className).toContain('current');
+
+		// Back again, then paste B before continuing - the completed A
+		// analysis must not be reused under B's identity.
+		clickByText(el, 'Back');
+		await settle();
+		textareaEl().value = JSON.stringify({ marker: 'B' });
+		textareaEl().dispatchEvent(new Event('input', { bubbles: true }));
+		await settle();
+		continueEl().click();
+		await settle();
+		expect(analyzeCalls).toHaveLength(2);
+		expect(analyzeCalls[1].body.workflow.marker).toBe('B');
+
+		unmount(instance);
+	});
+
+	it('completing A, going Back, and picking a new file re-analyzes the file instead of reusing A', async () => {
+		const analyzeCalls: Array<{ body: any }> = [];
+		const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+			if (url === '/api/fields/types') return jsonResponse({ success: true, data: [] });
+			if (url === '/api/plugins/comfyui-backend/presets/families') return jsonResponse({ families: [] });
+			if (url === '/api/plugins/comfyui-backend/presets/import/analyze') {
+				const body = JSON.parse(String(init?.body));
+				analyzeCalls.push({ body });
+				return jsonResponse(body.workflow.marker === 'A' ? ANALYZE_A : ANALYZE_B);
+			}
+			throw new Error(`Unexpected fetch: ${url}`);
+		});
+		vi.stubGlobal('fetch', fetchMock);
+		vi.stubGlobal('FileReader', FakeFileReader);
+
+		const el = target();
+		const instance = mount(ImportWorkflowTab, { target: el, props: { pluginId: 'comfyui-backend' } });
+		await settle();
+
+		// See the previous test - step 1's controls are recreated on every
+		// trip back to step 1, so always re-query rather than caching them.
+		const textareaEl = () => el.querySelector<HTMLTextAreaElement>('textarea[data-import-json-input]')!;
+		const continueEl = () => el.querySelector<HTMLButtonElement>('button[data-import-analyze]')!;
+
+		textareaEl().value = JSON.stringify({ marker: 'A' });
+		textareaEl().dispatchEvent(new Event('input', { bubbles: true }));
+		await settle();
+		continueEl().click();
+		await settle();
+		expect(analyzeCalls).toHaveLength(1);
+		expect(el.querySelector('[data-wiz-step="form"]')?.className).toContain('current');
+
+		clickByText(el, 'Back');
+		await settle();
+
+		const fileInput = el.querySelector<HTMLInputElement>('input[type="file"]')!;
+		selectFile(fileInput, 'file-b.json');
+		await settle();
+		expect(continueEl().disabled).toBe(true); // pending read - not the reused-A shortcut either
+
+		FakeFileReader.instances[0].complete(JSON.stringify({ marker: 'B' }));
+		await settle();
+		expect(continueEl().disabled).toBe(false);
+
+		continueEl().click();
+		await settle();
+		expect(analyzeCalls).toHaveLength(2);
+		expect(analyzeCalls[1].body.workflow.marker).toBe('B');
+
+		unmount(instance);
+	});
+
+	it('tearing down the component while a file read is pending does not throw, and the late completion is a silent no-op', async () => {
+		const fetchMock = vi.fn(async (url: string) => {
+			if (url === '/api/fields/types') return jsonResponse({ success: true, data: [] });
+			if (url === '/api/plugins/comfyui-backend/presets/families') return jsonResponse({ families: [] });
+			throw new Error(`Unexpected fetch: ${url}`);
+		});
+		vi.stubGlobal('fetch', fetchMock);
+		vi.stubGlobal('FileReader', FakeFileReader);
+
+		const el = target();
+		const instance = mount(ImportWorkflowTab, { target: el, props: { pluginId: 'comfyui-backend' } });
+		await settle();
+
+		const fileInput = el.querySelector<HTMLInputElement>('input[type="file"]')!;
+		selectFile(fileInput, 'file-a.json');
+		await settle();
+		expect(FakeFileReader.instances).toHaveLength(1);
+
+		expect(() => unmount(instance)).not.toThrow();
+
+		// The read settles after teardown - onDestroy already retired the
+		// source, so this must be inert rather than reviving torn-down state.
+		expect(() => FakeFileReader.instances[0].complete(JSON.stringify({ marker: 'A' }))).not.toThrow();
 	});
 });

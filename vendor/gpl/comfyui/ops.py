@@ -1085,8 +1085,28 @@ class Fp8ScaledLinear(manual_cast.Linear):
         dtype/device/cuda-ness throughout (``sample``'s).
 
         A non-quantised layer inside a mixed fp8 checkpoint (``weight_scale``
-        is ``None``), or an actual nvfp4 layer (out of scope here — untouched,
-        see :class:`Nvfp4Linear`), takes the base no-op passthrough.
+        is ``None``), an actual nvfp4 layer (out of scope here — untouched,
+        see :class:`Nvfp4Linear`), or a leaf currently owned by something that
+        registered its OWN forward hooks on it (``LayerPrefetcher`` installs a
+        pre/post hook pair per streamed leaf — see ``memory/partial.py``),
+        takes the base no-op passthrough. The hook check is deliberately a
+        plain ``nn.Module`` introspection (``_forward_pre_hooks``/
+        ``_forward_hooks``), not a ``LayerPrefetcher`` import: calling
+        ``_forward_scaled_mm``/``F.linear`` directly (as the prepared path
+        does, to amortise preparation across chunks) never goes through
+        ``nn.Module.__call__``, so whatever hooks a leaf carries — a
+        prefetcher's execution-order recording, its consume/stage-successor/
+        restore choreography, or any future hook-based owner — would silently
+        never fire for a chunked call. Rather than replicate ``__call__``'s
+        hook machinery here, a hooked leaf simply keeps going through the
+        ordinary per-chunk ``self(x_chunk)`` dispatch it always had — correct,
+        merely un-amortised, for exactly as long as it carries hooks (gone
+        again the moment a ``ModuleStreamer.teardown()`` removes them). An
+        INT8 (int8_tensorwise, plain or ConvRot) layer with ``weight_scale``
+        set is NOT excluded here: it fails ``_scaled_mm``'s ``weight_dtype``
+        precondition (its storage is ``int8``, not ``float8_e4m3fn``) and so
+        always takes the dequant branch below, prepared once same as fp8.
+
         Otherwise: when the opt-in fp8 GEMM gate is on AND every fast-path
         precondition holds for ``sample`` (mirroring
         ``forward_comfy_cast_weights``'s own check, reading ``sample.is_cuda``
@@ -1094,30 +1114,63 @@ class Fp8ScaledLinear(manual_cast.Linear):
         ``allow_weight_staging=True`` a streamed leaf needs) AND staging that
         weight and validating its scale both succeed, the prepared operand is
         that ONE staged fp8 weight + its validated scale, reused by every
-        chunk's ``_forward_scaled_mm`` call — each chunk still does its own
-        input quantisation and (for a branchable LoRA delta) output-side add,
-        since both are chunk-content-dependent; nothing whole-sequence is
+        chunk's ``_forward_scaled_mm`` call — each chunk still applies its own
+        AWQ pre-scale (if any — see below), does its own input quantisation,
+        and (for a branchable LoRA delta) its own output-side add, since all
+        three are chunk-content-dependent; nothing whole-sequence is
         quantised. A kernel-level rejection on a specific chunk (rare — the
-        gate/precondition/staging checks already passed) falls back to the
-        ordinary single-call dispatch for JUST that chunk, never retried or
-        cached for the rest of this context.
+        gate/precondition/staging checks already passed) releases the staged
+        weight/scale for this context BEFORE attempting anything else (so a
+        peak moment never holds the staged copy, a second staging attempt,
+        and a dense weight at once), then downgrades the REST of this
+        context's chunks — the rejected one included, reprocessed now — to a
+        single dequant operand, prepared once at that point and reused for
+        whatever chunks remain; it is never retried against the fast path
+        again within this context.
 
-        Otherwise (gate off, ineligible, or staging/scale failed) the prepared
-        operand is :meth:`_prepare_dequant_operand`'s effective weight/bias,
-        computed once and reused via a plain ``F.linear`` per chunk.
+        Otherwise (gate off, ineligible, or staging/scale failed up front)
+        the prepared operand is :meth:`_prepare_dequant_operand`'s effective
+        weight/bias, computed once (lazily, on first use) and reused via a
+        plain ``F.linear`` per chunk.
 
-        Either way, nothing is cached beyond this ``with`` block — the staged
-        weight or dequantised weight/bias lives only in this generator's own
-        locals and the small closure handed to the caller, both released when
-        the block exits (normally, or via an exception unwinding through it);
-        the layer's own storage/pinning/prefetch state is never touched.
+        AWQ ``pre_quant_scale`` activation smoothing, when loaded, is applied
+        to every chunk on EITHER branch — cast to ``sample``'s dtype/device
+        once here (chunk-independent), multiplied into each chunk's
+        activation inside the runner (chunk-dependent, so it cannot be
+        precomputed further) — matching
+        ``forward_comfy_cast_weights``'s unconditional entry-point multiply
+        exactly once per call, never skipped and never doubled by a
+        kernel-rejection downgrade (the downgrade re-multiplies the ORIGINAL
+        chunk, it does not re-enter ``forward_comfy_cast_weights``).
+
+        Nothing is cached beyond this ``with`` block: every staged/dequantised
+        tensor and the AWQ scale live only in one plain ``dict`` local to this
+        generator, closed over by the small runner handed to the caller.
+        ``finally: state.clear()`` drops every reference in it — the staged
+        weight, its scale, and any dequant operand computed along the way —
+        the instant the block exits, whether normally or via an exception
+        unwinding through it; the layer's own storage/pinning/prefetch state
+        is never touched. A caller that keeps the yielded runner past this
+        ``with`` block (a misuse this contract does not support) gets a
+        cleared, inert ``state`` on its next call rather than a silently
+        stale operand.
         """
-        if self.weight_scale is None or getattr(self, "_is_nvfp4", False):
+        if self.weight_scale is None or getattr(self, "_is_nvfp4", False) \
+                or self._forward_pre_hooks or self._forward_hooks:
             yield self
             return
         dtype, device = sample.dtype, sample.device
-        fast_weight = None
-        w_scale = None
+        nb = self.stream_non_blocking
+        state: dict = {
+            "pre_quant_scale": None,
+            "fast_weight": None, "w_scale": None,
+            "dequant_weight": None, "dequant_bias": None, "dequant_dt": None,
+            "downgraded": False,
+        }
+        if self.pre_quant_scale is not None:
+            state["pre_quant_scale"] = cast_to(self.pre_quant_scale, dtype, device, non_blocking=nb)
+
+        use_fast = False
         if _fp8_matmul_enabled():
             reject_reason = _scaled_mm_fast_path_reject_reason(
                 weight_dtype=self.weight.dtype,
@@ -1131,34 +1184,66 @@ class Fp8ScaledLinear(manual_cast.Linear):
                 allow_weight_staging=True,
             )
             if reject_reason is None:
-                fast_weight = self._stage_scaled_mm_weight(device)
-                if fast_weight is not None:
-                    w_scale = self._cached_scaled_mm_scale("weight", self.weight_scale, device)
-                    if w_scale is None:
-                        fast_weight = None
-        try:
-            if fast_weight is not None:
-                def _run_fast(x_chunk: torch.Tensor, w=fast_weight) -> torch.Tensor:
-                    out = self._forward_scaled_mm(x_chunk, weight=w)
-                    if out is not None:
-                        return out
-                    # Kernel-level rejection for this one chunk (mixed-device
-                    # operand, capability probe rollback, ...) -- the ordinary
-                    # per-call path re-decides and re-stages/dequants for just
-                    # this chunk; the rest of the loop still uses `w`.
-                    return self.forward_comfy_cast_weights(x_chunk)
-                yield _PreparedLinearOperand(_run_fast)
-            else:
-                weight, bias, dt = self._prepare_dequant_operand(dtype, device)
+                fw = self._stage_scaled_mm_weight(device)
+                if fw is not None:
+                    ws = self._cached_scaled_mm_scale("weight", self.weight_scale, device)
+                    if ws is not None:
+                        state["fast_weight"] = fw
+                        state["w_scale"] = ws
+                        use_fast = True
+                    # `prepared_linear` is a generator (this whole function is
+                    # suspended at the `yield` below for the entire `with`
+                    # block): a bare local variable here would keep its
+                    # tensor alive in this frame regardless of what happens
+                    # to `state` -- the ONE place ownership is meant to live.
+                    # Rebinding to `None` drops that extra reference; a plain
+                    # `del` would work too but risks `UnboundLocalError` on a
+                    # path where the name was never assigned.
+                    ws = None
+                fw = None
 
-                def _run_dequant(x_chunk: torch.Tensor, w=weight, b=bias, dt=dt) -> torch.Tensor:
-                    if x_chunk.dtype is not dt:
-                        x_chunk = x_chunk.to(dt)
-                    return F.linear(x_chunk, w, b)
-                yield _PreparedLinearOperand(_run_dequant)
+        def _apply_pre_quant_scale(x_chunk: torch.Tensor) -> torch.Tensor:
+            pqs = state["pre_quant_scale"]
+            return x_chunk * pqs if pqs is not None else x_chunk
+
+        def _prepare_dequant_once() -> tuple[torch.Tensor, "torch.Tensor | None", torch.dtype]:
+            if state["dequant_weight"] is None:
+                weight, bias, dt = self._prepare_dequant_operand(dtype, device)
+                state["dequant_weight"] = weight
+                state["dequant_bias"] = bias
+                state["dequant_dt"] = dt
+            return state["dequant_weight"], state["dequant_bias"], state["dequant_dt"]
+
+        def _run_dequant(x_chunk: torch.Tensor) -> torch.Tensor:
+            weight, bias, dt = _prepare_dequant_once()
+            scaled = _apply_pre_quant_scale(x_chunk)
+            if scaled.dtype is not dt:
+                scaled = scaled.to(dt)
+            return F.linear(scaled, weight, bias)
+
+        def _run_fast(x_chunk: torch.Tensor) -> torch.Tensor:
+            if state["downgraded"]:
+                return _run_dequant(x_chunk)
+            scaled = _apply_pre_quant_scale(x_chunk)
+            out = self._forward_scaled_mm(scaled, weight=state["fast_weight"])
+            if out is not None:
+                return out
+            # Kernel-level rejection for this chunk: release the staged
+            # weight/scale BEFORE the dense fallback allocates anything (never
+            # hold the packed copy, a second stage attempt, AND a dense
+            # weight at once), and permanently downgrade this context to
+            # dequant -- this chunk is reprocessed now, every later chunk in
+            # the loop goes straight to `_run_dequant` without ever retrying
+            # `_forward_scaled_mm` again.
+            state["fast_weight"] = None
+            state["w_scale"] = None
+            state["downgraded"] = True
+            return _run_dequant(x_chunk)
+
+        try:
+            yield _PreparedLinearOperand(_run_fast if use_fast else _run_dequant)
         finally:
-            fast_weight = None
-            w_scale = None
+            state.clear()
 
     def _stage_scaled_mm_weight(self, device: "torch.device | str") -> "torch.Tensor | None":
         """Resident/prefetched weight as-is (no copy); otherwise an on-demand

@@ -12,6 +12,8 @@ raise the streamed working set) and is neither touched nor tested here.
 
 from __future__ import annotations
 
+import gc
+import weakref
 from unittest.mock import patch
 
 import pytest
@@ -252,44 +254,68 @@ def test_fp8_fast_path_stages_weight_once_but_kernel_runs_once_per_chunk(monkeyp
     assert len(kernel_calls) == 6
 
 
-def test_fp8_fast_path_kernel_rejection_on_one_chunk_falls_back_for_that_chunk_only(monkeypatch):
+def _computing_scaled_mm(calls: list):
+    """A fake ``torch._scaled_mm`` that COMPUTES a nonzero result from the
+    actual operands it receives -- unlike ``torch.zeros(...)``, a wrong or
+    zeroed staged operand changes this result, so an output comparison
+    against it actually proves something about VALUES, not just shapes."""
+    def fake(a, b, *, scale_a, scale_b, out_dtype, bias=None):
+        calls.append(1)
+        out = (a.to(torch.float32) * scale_a.to(torch.float32)) @ (b.to(torch.float32) * scale_b.to(torch.float32))
+        if bias is not None:
+            out = out + bias.to(torch.float32)
+        return out.to(out_dtype)
+    return fake
+
+
+def test_fp8_fast_path_kernel_rejection_downgrades_whole_projection_to_dequant(monkeypatch):
+    """A kernel-level rejection releases the loop's staged weight/scale
+    BEFORE any fallback allocation and permanently downgrades the REST of
+    that projection's chunks (the rejected one included) to a single dequant
+    operand -- it is never retried against the fast path again in this
+    context (see prepared_linear's docstring). Rejecting the very FIRST
+    kernel call of qkv_proj's loop makes this unambiguous: every one of its 3
+    chunks must go through dequant, while out_proj's own (separate) loop,
+    untouched, stays on the fast path."""
     attn = _fp8_attn()
     _stub_attention_core(monkeypatch)
-    stage_calls_for = _install_fake_cuda_residency(
-        monkeypatch, streamed=[attn.qkv_proj.weight, attn.out_proj.weight],
-    )
+    _install_fake_cuda_residency(monkeypatch, streamed=[attn.qkv_proj.weight, attn.out_proj.weight])
     monkeypatch.setenv(NATIVE_FP8_MATMUL_ENV, "on")
     x = torch.randn(1, 9, 16, dtype=torch.bfloat16)
 
-    qkv_dequant_calls = _spy(monkeypatch, attn.qkv_proj, "forward_comfy_cast_weights")
+    qkv_dequant_prep_calls = _spy(monkeypatch, attn.qkv_proj, "_prepare_dequant_operand")
 
-    # qkv_proj's loop runs first (3 chunks -> kernel calls starting at 1), so
-    # rejecting calls #2 AND #3 hits exactly the middle chunk's own attempt
-    # AND its fallback's retry (forward_comfy_cast_weights re-decides fresh
-    # and would otherwise self-heal on a transient one-shot failure) --
-    # forcing a genuine rejection for that one chunk, while leaving the third
-    # chunk's call (#4, reusing the loop's shared operand) to succeed.
-    call_n = {"n": 0}
+    kernel_calls: list = []
+    real_kernel = _computing_scaled_mm(kernel_calls)
 
     def _flaky_scaled_mm(a, b, *, scale_a, scale_b, out_dtype, bias=None):
-        call_n["n"] += 1
-        if call_n["n"] in (2, 3):
+        if len(kernel_calls) == 0:  # reject only the very first attempt
+            kernel_calls.append(1)
             raise RuntimeError("simulated kernel-level rejection")
-        return torch.zeros(a.shape[0], b.shape[1], dtype=out_dtype)
+        return real_kernel(a, b, scale_a=scale_a, scale_b=scale_b, out_dtype=out_dtype, bias=bias)
 
-    with patch.object(wo, "_scaled_mm_supported", return_value=True), \
-         patch("torch._scaled_mm", side_effect=_flaky_scaled_mm):
+    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    monkeypatch.setattr(torch, "_scaled_mm", _flaky_scaled_mm)
+    with torch.no_grad():
         out = attn(x, None, None, seq_chunk_rows=4)
 
-    # The loop's own prepared operand was staged for the whole loop (chunks 0
-    # and 2 reuse it with no staging of their own -- proven by test above);
-    # the rejected middle chunk's OWN fallback dispatch (a normal, independent
-    # single-call attempt, same as the non-chunked contract) is the only
-    # source of additional staging here.
-    assert len(_fp8_stage_calls(stage_calls_for, attn.qkv_proj.weight)) >= 1
-    # Exactly the rejected chunk fell back to the ordinary per-call dispatch.
-    assert len(qkv_dequant_calls) == 1
-    assert out.shape == (1, 9, 16)
+    # ONE dequant preparation for the whole downgraded loop, not once per
+    # remaining chunk (2 more chunks after the rejected one).
+    assert len(qkv_dequant_prep_calls) == 1
+    # qkv_proj's kernel is never retried after the rejection (1 call, then
+    # dequant for all 3 chunks); out_proj's own 3 chunks stay on the fast
+    # path untouched -- 4 real kernel invocations total, not 6.
+    assert len(kernel_calls) == 4
+
+    # Value check, not just shape: the downgraded qkv_proj must match a
+    # fully-dequantised (gate off) reference exactly (dequant math is
+    # deterministic and identical either way); rebuild the model with the
+    # SAME weights since the one under test now carries fast-path mock state.
+    monkeypatch.delenv(NATIVE_FP8_MATMUL_ENV, raising=False)
+    ref_attn = _fp8_attn()
+    with torch.no_grad():
+        dense_reference = ref_attn(x, None, None, seq_chunk_rows=4)
+    torch.testing.assert_close(out.float(), dense_reference.float(), rtol=0.2, atol=0.15)
 
 
 def test_fp8_fast_path_staging_failure_falls_back_to_dequant_for_the_whole_projection(monkeypatch):
@@ -317,3 +343,208 @@ def test_fp8_fast_path_staging_failure_falls_back_to_dequant_for_the_whole_proje
     # ONE dequant preparation for the whole loop -- not one per chunk, and the
     # kernel (asserted via the side_effect above) was never reached.
     assert len(dequant_calls) == 1
+
+
+# --- prefetch ownership: never a silent hook bypass -------------------------
+
+def test_prepared_linear_bails_to_passthrough_when_leaf_has_forward_hooks(monkeypatch):
+    """A leaf under prefetch ownership (LayerPrefetcher installs its own
+    pre/post forward hooks per streamed leaf -- memory/partial.py) must NOT
+    have its chunks routed through a prepared/cached operand: calling
+    _forward_scaled_mm/F.linear directly never goes through
+    nn.Module.__call__, so those hooks (execution-order recording, consume/
+    stage-successor/restore) would silently never fire. A hooked leaf keeps
+    going through the ordinary per-chunk self(x_chunk) dispatch instead --
+    proven here by a plain forward-pre-hook (standing in for LayerPrefetcher's
+    own, without importing memory/partial.py into this ops-level test) that
+    fires once per chunk only if `proj(x_chunk) is attn.qkv_proj(x_chunk)`,
+    i.e. only if dispatch actually goes through `__call__`."""
+    attn = _fp8_attn()
+    _stub_attention_core(monkeypatch)
+    _install_fake_cuda_residency(monkeypatch, streamed=[attn.qkv_proj.weight, attn.out_proj.weight])
+    monkeypatch.setenv(NATIVE_FP8_MATMUL_ENV, "on")
+    x = torch.randn(1, 9, 16, dtype=torch.bfloat16)
+
+    hook_calls: list = []
+    attn.qkv_proj.register_forward_pre_hook(lambda mod, args: hook_calls.append(1))
+
+    dequant_prep_calls = _spy(monkeypatch, attn.qkv_proj, "_prepare_dequant_operand")
+    stage_calls = _spy(monkeypatch, attn.qkv_proj, "_stage_scaled_mm_weight")
+
+    kernel_calls: list = []
+
+    def _fake_scaled_mm(a, b, *, scale_a, scale_b, out_dtype, bias=None):
+        kernel_calls.append(1)
+        return torch.zeros(a.shape[0], b.shape[1], dtype=out_dtype)
+
+    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    monkeypatch.setattr(torch, "_scaled_mm", _fake_scaled_mm)
+    with torch.no_grad():
+        attn(x, None, None, seq_chunk_rows=4)  # 3 chunks
+
+    # The hook fired once per chunk -> dispatch genuinely went through
+    # nn.Module.__call__ for every chunk, never bypassing it.
+    assert len(hook_calls) == 3
+    # Ordinary per-chunk dispatch: staged/prepared ONCE would be the
+    # optimisation this hooked leaf must NOT get -- it re-decides every
+    # chunk, exactly like a leaf never wrapped in prepared_linear at all.
+    assert len(stage_calls) == 3
+    assert len(dequant_prep_calls) == 0  # eligible + staged every time, no dequant needed
+    # qkv_proj's 3 chunks (unamortised, hooked) + out_proj's own 3 chunks
+    # (amortised, NOT hooked -- unaffected by qkv_proj's hook) both reach the
+    # kernel: 6 real GEMM calls total, not 3.
+    assert len(kernel_calls) == 6
+
+
+def test_prepared_linear_resumes_amortising_once_hooks_are_removed(monkeypatch):
+    """Once whatever attached the hooks removes them (e.g. a real
+    ModuleStreamer.teardown()), the SAME leaf goes back to the amortised
+    prepared path -- the bail is scoped to "currently hooked", not a
+    permanent downgrade."""
+    attn = _fp8_attn()
+    _stub_attention_core(monkeypatch)
+    _install_fake_cuda_residency(monkeypatch, streamed=[attn.qkv_proj.weight, attn.out_proj.weight])
+    monkeypatch.setenv(NATIVE_FP8_MATMUL_ENV, "on")
+    x = torch.randn(1, 9, 16, dtype=torch.bfloat16)
+
+    handle = attn.qkv_proj.register_forward_pre_hook(lambda mod, args: None)
+    handle.remove()  # hooks gone before the forward even runs
+
+    stage_calls = _spy(monkeypatch, attn.qkv_proj, "_stage_scaled_mm_weight")
+    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    monkeypatch.setattr(torch, "_scaled_mm", lambda a, b, **kw: torch.zeros(a.shape[0], b.shape[1], dtype=kw["out_dtype"]))
+    with torch.no_grad():
+        attn(x, None, None, seq_chunk_rows=4)
+
+    assert len(stage_calls) == 1  # amortised again: staged once for the whole loop
+
+
+# --- numeric parity: prepared chunked path vs. the original per-chunk path -
+
+def test_fp8_fast_path_prepared_chunked_matches_original_per_chunk_dispatch_by_value(monkeypatch):
+    """The prepared path must be numerically transparent: chunking qkv_proj
+    through prepared_linear must produce the SAME values as calling the real,
+    unmodified per-chunk dispatch (self.qkv_proj(x_chunk) for each chunk,
+    exactly what ran before this feature existed) -- using a kernel fake that
+    COMPUTES from its actual operands, so a wrong or zeroed staged operand
+    would show up as a real numeric mismatch, not just a shape match."""
+    attn = _fp8_attn()
+    _install_fake_cuda_residency(monkeypatch, streamed=[attn.qkv_proj.weight])
+    monkeypatch.setenv(NATIVE_FP8_MATMUL_ENV, "on")
+    x = torch.randn(1, 9, 16, dtype=torch.bfloat16)
+    chunks = list(x.split(4, dim=1))  # 4, 4, 1 -- ragged tail
+
+    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+
+    original_calls: list = []
+    monkeypatch.setattr(torch, "_scaled_mm", _computing_scaled_mm(original_calls))
+    with torch.no_grad():
+        original_per_chunk = torch.cat([attn.qkv_proj(c) for c in chunks], dim=1)
+
+    prepared_calls: list = []
+    monkeypatch.setattr(torch, "_scaled_mm", _computing_scaled_mm(prepared_calls))
+    with torch.no_grad(), attn.qkv_proj.prepared_linear(x) as proj:
+        prepared_chunked = torch.cat([proj(c) for c in chunks], dim=1)
+
+    assert len(original_calls) == 3   # the real per-chunk path: 1 kernel call per chunk
+    assert len(prepared_calls) == 3   # the prepared path: same -- only staging is amortised
+    torch.testing.assert_close(prepared_chunked.float(), original_per_chunk.float(), rtol=1e-4, atol=1e-4)
+
+
+# --- staged-operand lifetime: weakref-tracked, never retained past release --
+
+def _spy_stage_with_weakrefs(monkeypatch, leaf) -> list:
+    """Wrap `leaf`'s `_stage_scaled_mm_weight` to record a weakref (never the
+    tensor itself) of every genuinely-staged (non-resident) result."""
+    refs: list[weakref.ReferenceType] = []
+    real_stage = wo.Fp8ScaledLinear._stage_scaled_mm_weight
+
+    def _spy(self, device):
+        result = real_stage(self, device)
+        if self is leaf and result is not None and result is not self.weight:
+            refs.append(weakref.ref(result))
+        return result
+
+    monkeypatch.setattr(wo.Fp8ScaledLinear, "_stage_scaled_mm_weight", _spy)
+    return refs
+
+
+def test_staged_operand_weakref_dies_at_the_attention_core_boundary(monkeypatch):
+    """qkv_proj's prepared context exits (and its staged weight is released)
+    BEFORE the attention core ever runs -- _chunked_qkv's `with` block closes
+    before returning q/k/v to `forward`, strictly before `sparse_attention`/
+    `_dispatch_attention` is reached."""
+    attn = _fp8_attn()
+    _stub_attention_core(monkeypatch)
+    _install_fake_cuda_residency(monkeypatch, streamed=[attn.qkv_proj.weight, attn.out_proj.weight])
+    monkeypatch.setenv(NATIVE_FP8_MATMUL_ENV, "on")
+    x = torch.randn(1, 9, 16, dtype=torch.bfloat16)
+
+    refs = _spy_stage_with_weakrefs(monkeypatch, attn.qkv_proj)
+    seen_alive_at_dispatch: list[bool] = []
+
+    def _recording_dispatch(q, k, v, ctx):
+        gc.collect()
+        seen_alive_at_dispatch.append(any(r() is not None for r in refs))
+        return None  # dense fallback, same as the real seam on this CPU box
+
+    monkeypatch.setattr(model_module, "sparse_attention", _recording_dispatch)
+    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    monkeypatch.setattr(torch, "_scaled_mm", _computing_scaled_mm([]))
+    with torch.no_grad():
+        attn(x, None, None, seq_chunk_rows=4)
+
+    assert refs                                   # a genuine stage did happen
+    assert seen_alive_at_dispatch == [False]       # already dead by the attention core
+
+
+def test_staged_operand_weakref_dies_at_context_exit(monkeypatch):
+    attn = _fp8_attn()
+    _install_fake_cuda_residency(monkeypatch, streamed=[attn.qkv_proj.weight])
+    monkeypatch.setenv(NATIVE_FP8_MATMUL_ENV, "on")
+    x = torch.randn(1, 9, 16, dtype=torch.bfloat16)
+    chunks = list(x.split(4, dim=1))
+
+    refs = _spy_stage_with_weakrefs(monkeypatch, attn.qkv_proj)
+    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    monkeypatch.setattr(torch, "_scaled_mm", _computing_scaled_mm([]))
+
+    with torch.no_grad(), attn.qkv_proj.prepared_linear(x) as proj:
+        for c in chunks:
+            proj(c)
+        gc.collect()
+        assert all(r() is not None for r in refs)  # still alive INSIDE the block
+
+    gc.collect()
+    assert refs and all(r() is None for r in refs)  # dead once the block exits
+
+
+def test_staged_operand_weakref_dies_before_dense_fallback_on_kernel_rejection(monkeypatch):
+    attn = _fp8_attn()
+    _install_fake_cuda_residency(monkeypatch, streamed=[attn.qkv_proj.weight])
+    monkeypatch.setenv(NATIVE_FP8_MATMUL_ENV, "on")
+    x = torch.randn(1, 9, 16, dtype=torch.bfloat16)
+    chunks = list(x.split(4, dim=1))
+
+    refs = _spy_stage_with_weakrefs(monkeypatch, attn.qkv_proj)
+    dead_before_dequant: list[bool] = []
+    real_prepare = wo.Fp8ScaledLinear._prepare_dequant_operand
+
+    def _spy_prepare(self, dtype, device):
+        gc.collect()
+        dead_before_dequant.append(all(r() is None for r in refs))
+        return real_prepare(self, dtype, device)
+
+    monkeypatch.setattr(wo.Fp8ScaledLinear, "_prepare_dequant_operand", _spy_prepare)
+    monkeypatch.setattr(wo, "_scaled_mm_supported", lambda: True)
+    monkeypatch.setattr(
+        torch, "_scaled_mm",
+        lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("simulated kernel-level rejection")),
+    )
+
+    with torch.no_grad(), attn.qkv_proj.prepared_linear(x) as proj:
+        for c in chunks:
+            proj(c)
+
+    assert refs                                # a genuine stage did happen (then got rejected)
+    assert dead_before_dequant == [True]       # dead by the time the dense fallback ran

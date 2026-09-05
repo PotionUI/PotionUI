@@ -8,9 +8,13 @@ generated on the matching checkpoint SET: a fresh ``t2v`` shot on the plain
 image; ``chain`` on the i2v experts conditioned on the PREVIOUS segment's tail
 frames. Both bundles arrive as separate optional inputs (``model`` = i2v set,
 ``model_t2v`` = t2v set); a chain that opens on a t2v shot and continues as i2v
-uses both. Segments are optionally stitched into one continuous video by
-dropping each non-first segment's leading overlap frames
-(`stitch.stitch_segments`).
+uses both. Segments are optionally stitched into one continuous video
+(`stitch.stitch_segments`) with a PER-JOIN overlap: a fresh t2v/i2v/flf cut or
+an already-trimmed chain continuation joins at 0 (it shares no duplicated
+frames with what came before it); an untrimmed chain continuation (its
+window too short to trim without emptying it) still carries the previous
+segment's replayed tail on disk, so its join drops that once. One segment's
+trim state never changes another segment's join.
 
 Segments may swap in a different LoRA stack per expert mid-chain -- patched onto
 the live experts of whichever set the segment runs on, and un-patched back to
@@ -546,9 +550,16 @@ class GeneratorWanChainVideoPipe(BasePipe):
 
         segment_paths: List[str] = []
         segment_seeds: List[int] = []
+        # Per-segment executed geometry, index-aligned with segment_paths --
+        # segment_overlap_dropped_at_stitch[0] is always 0 (segment 0 has no
+        # join before it); segment_overlap_dropped_at_stitch[i] (i > 0) is
+        # what THIS segment's own join drops, derived only from its own
+        # sub_type and trim outcome, never from another segment's.
+        segment_emitted_frames: List[int] = []
+        segment_context_trimmed: List[bool] = []
+        segment_overlap_dropped_at_stitch: List[int] = []
         prev_tail: Optional[np.ndarray] = None
         prev_latent_tail: Optional[torch.Tensor] = None
-        chain_trimmed = False
         progress = ProgressEmitter(generation_outputs, title=self.name)
         n = len(segments)
         cancelled = False
@@ -684,11 +695,27 @@ class GeneratorWanChainVideoPipe(BasePipe):
                 # A chain segment's front is locked to the previous segment's tail
                 # (rolling hand-off), not the chain's original frame; drop it from
                 # the emitted clip so the part starts on real new content.
+                context_trimmed = False
                 if sub_type == "chain":
                     context_prefix = tail_count
                     if frames_px.shape[0] > context_prefix + 1:
                         frames_px = frames_px[context_prefix:]
-                        chain_trimmed = True
+                        context_trimmed = True
+
+                # This segment's OWN join overlap -- what the stitcher must drop
+                # from ITS head, derived only from ITS sub_type/trim outcome.
+                # Segment 0 has no join before it. A fresh cut (t2v/i2v/flf) and
+                # an already-trimmed chain continuation share no duplicated
+                # frames with the previous segment, so both join at 0. An
+                # untrimmed chain continuation (the window was too short to trim
+                # without emptying it -- see the guard above) still carries the
+                # previous segment's replayed tail on disk: the join drops that
+                # once, capped so at least one of this segment's own frames
+                # survives. Some other segment's trim state never reaches here.
+                if i == 0 or sub_type != "chain" or context_trimmed:
+                    join_overlap = 0
+                else:
+                    join_overlap = min(tail_count, frames_px.shape[0] - 1)
 
                 # Keep a tail after every segment so the NEXT segment can continue
                 # from it if it resolves to 'chain'.
@@ -700,6 +727,9 @@ class GeneratorWanChainVideoPipe(BasePipe):
 
                 segment_paths.append(out_path)
                 segment_seeds.append(seed_i)
+                segment_emitted_frames.append(int(frames_px.shape[0]))
+                segment_context_trimmed.append(context_trimmed)
+                segment_overlap_dropped_at_stitch.append(join_overlap)
         except Exception as exc:
             if isinstance(exc, SamplingNumericsError):
                 # A watchdog trip several steps into segment i's OWN sampling
@@ -713,11 +743,11 @@ class GeneratorWanChainVideoPipe(BasePipe):
 
         final_paths = list(segment_paths)
         if not cancelled and stitch_enabled and len(segment_paths) > 1:
-            # Trimmed continuations no longer reproduce the previous tail, so they
-            # abut with no overlap to drop; only the un-trimmed path keeps one.
-            stitch_overlap = 0 if chain_trimmed else default_overlap
+            # Per-join overlaps, one per non-first segment -- each already
+            # derived from that segment's OWN sub_type/trim outcome above.
+            join_overlaps = segment_overlap_dropped_at_stitch[1:]
             stitched_path = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
-            stitch_segments(segment_paths, stitch_overlap, stitched_path, fps)
+            stitch_segments(segment_paths, join_overlaps, stitched_path, fps)
             final_paths.append(stitched_path)
 
         # Every segment (and the stitched result) is generated
@@ -726,6 +756,12 @@ class GeneratorWanChainVideoPipe(BasePipe):
         emit_gallery(generation_outputs, images=[], seeds=None, videos=final_paths, video_resolution=(width, height))
         generation_outputs(ParamGenerationOutput(name="seed", values=[base_seed]))
         generation_outputs(ParamGenerationOutput(name="segment_seed", values=segment_seeds))
+        # Executed geometry, one entry per segment -- what DIR-06's compiler/rail
+        # side needs to reconcile a planned chain against what actually ran.
+        generation_outputs(ParamGenerationOutput(name="segment_emitted_frames", values=segment_emitted_frames))
+        generation_outputs(ParamGenerationOutput(name="segment_context_trimmed", values=segment_context_trimmed))
+        generation_outputs(ParamGenerationOutput(
+            name="segment_overlap_dropped_at_stitch", values=segment_overlap_dropped_at_stitch))
 
         return PipeOutput(output={"video": final_paths})
 

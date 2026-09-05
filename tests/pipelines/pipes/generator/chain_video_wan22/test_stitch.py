@@ -40,7 +40,7 @@ def test_crossfades_the_overlap_of_non_first_segments():
         captured["out_path"] = out_path
         captured["fps"] = fps
 
-    stitch_segments(list(segments_frames), overlap=2, out_path="out.mp4", fps=24,
+    stitch_segments(list(segments_frames), overlaps=[2], out_path="out.mp4", fps=24,
                      frame_reader=reader, encode=fake_encode)
 
     values = captured["frames"][:, 0, 0, 0].tolist()
@@ -57,7 +57,7 @@ def test_crossfade_endpoint_weights_are_linear():
     segments_frames = {"a.mp4": [0, 0, 0], "b.mp4": [100, 100, 100, 100]}
     reader = _reader_factory(segments_frames)
     captured = {}
-    stitch_segments(list(segments_frames), overlap=3, out_path="o.mp4", fps=24,
+    stitch_segments(list(segments_frames), overlaps=[3], out_path="o.mp4", fps=24,
                      frame_reader=reader, encode=lambda f, p, fps: captured.update(frames=f))
     assert captured["frames"][:, 0, 0, 0].tolist() == [25, 50, 75, 100]
 
@@ -66,7 +66,7 @@ def test_zero_overlap_keeps_every_frame():
     segments_frames = {"a.mp4": [1, 2], "b.mp4": [3, 4]}
     reader = _reader_factory(segments_frames)
     captured = {}
-    stitch_segments(list(segments_frames), overlap=0, out_path="o.mp4", fps=24,
+    stitch_segments(list(segments_frames), overlaps=[0], out_path="o.mp4", fps=24,
                      frame_reader=reader, encode=lambda f, p, fps: captured.update(frames=f))
     assert captured["frames"][:, 0, 0, 0].tolist() == [1, 2, 3, 4]
 
@@ -75,9 +75,9 @@ def test_single_segment_no_dropping():
     segments_frames = {"only.mp4": [5, 6, 7]}
     reader = _reader_factory(segments_frames)
     captured = {}
-    stitch_segments(list(segments_frames), overlap=4, out_path="o.mp4", fps=24,
+    stitch_segments(list(segments_frames), overlaps=[], out_path="o.mp4", fps=24,
                      frame_reader=reader, encode=lambda f, p, fps: captured.update(frames=f))
-    # Only segment 0 -> never trimmed, even though overlap (4) exceeds its length.
+    # A single segment has no join at all -- overlaps is empty, nothing dropped.
     assert captured["frames"][:, 0, 0, 0].tolist() == [5, 6, 7]
 
 
@@ -85,14 +85,44 @@ def test_overlap_larger_than_non_first_segment_raises():
     segments_frames = {"a.mp4": [1, 2, 3], "b.mp4": [4, 5]}  # only 2 frames, overlap=3
     reader = _reader_factory(segments_frames)
     with pytest.raises(ValueError, match="not enough"):
-        stitch_segments(list(segments_frames), overlap=3, out_path="o.mp4", fps=24,
+        stitch_segments(list(segments_frames), overlaps=[3], out_path="o.mp4", fps=24,
                          frame_reader=reader, encode=lambda f, p, fps: None)
 
 
 def test_empty_segment_paths_raises():
     with pytest.raises(ValueError, match="at least one"):
-        stitch_segments([], overlap=2, out_path="o.mp4", fps=24,
+        stitch_segments([], overlaps=[], out_path="o.mp4", fps=24,
                          frame_reader=lambda p: iter([]), encode=lambda f, p, fps: None)
+
+
+def test_overlaps_length_must_match_join_count():
+    segments_frames = {"a.mp4": [1, 2], "b.mp4": [3, 4], "c.mp4": [5, 6]}
+    reader = _reader_factory(segments_frames)
+    with pytest.raises(ValueError, match="expected 2 overlap"):
+        stitch_segments(list(segments_frames), overlaps=[0], out_path="o.mp4", fps=24,
+                         frame_reader=reader, encode=lambda f, p, fps: None)
+
+
+def test_each_join_uses_its_own_overlap_independently():
+    # Three segments: join 1 (a->b) overlaps=2 and crossfades; join 2 (b->c)
+    # overlaps=0 and is a plain concatenation. Neither join's value leaks into
+    # the other.
+    segments_frames = {
+        "a.mp4": [0, 0, 0],             # 3 frames; join 1 replaces its last 2
+        "b.mp4": [100, 100, 100, 100],  # first 2 crossfade with a's tail [0, 0]
+        "c.mp4": [9, 9],                # join 2 overlap=0 -> appended untouched
+    }
+    reader = _reader_factory(segments_frames)
+    captured = {}
+    stitch_segments(list(segments_frames), overlaps=[2, 0], out_path="o.mp4", fps=24,
+                     frame_reader=reader, encode=lambda f, p, fps: captured.update(frames=f))
+
+    values = captured["frames"][:, 0, 0, 0].tolist()
+    # Join 1: a's last 2 frames ([0, 0]) crossfade with b's first 2 ([100, 100]),
+    # alpha 1/3, 2/3 -> 33, 67, replacing them in place (a's own first frame, at
+    # index 0, is untouched); then b's remaining frames are appended whole.
+    # Join 2 (overlap=0): c is appended whole, untouched by join 1's overlap.
+    assert values == [0, 33, 67, 100, 100, 9, 9]
 
 
 def test_sequential_reader_never_holds_two_segments_open():
@@ -106,7 +136,7 @@ def test_sequential_reader_never_holds_two_segments_open():
             yield np.full((1, 1, 3), v, dtype=np.uint8)
         order.append(("close", path))
 
-    stitch_segments(["a.mp4", "b.mp4", "c.mp4"], overlap=0, out_path="o.mp4", fps=24,
+    stitch_segments(["a.mp4", "b.mp4", "c.mp4"], overlaps=[0, 0], out_path="o.mp4", fps=24,
                      frame_reader=reader, encode=lambda f, p, fps: None)
 
     assert order == [
@@ -163,7 +193,7 @@ def test_zero_overlap_uses_stream_copy_when_ffmpeg_available_and_fps_match(monke
     def fail_encode(*a, **kw):
         raise AssertionError("encode must not run on the stream-copy path")
 
-    result = stitch_segments([seg0, seg1], overlap=0, out_path=out_path, fps=24.0,
+    result = stitch_segments([seg0, seg1], overlaps=[0], out_path=out_path, fps=24.0,
                               frame_reader=fail_reader, encode=fail_encode)
 
     assert result == out_path
@@ -188,7 +218,7 @@ def test_stream_copy_command_is_concat_demuxer_with_stream_copy(monkeypatch, tmp
     seg1.write_bytes(b"b")
     out_path = tmp_path / "out.mp4"
 
-    stitch_segments([seg0, seg1], overlap=0, out_path=out_path, fps=30.0,
+    stitch_segments([seg0, seg1], overlaps=[0], out_path=out_path, fps=30.0,
                      frame_reader=lambda p: iter([]), encode=lambda f, p, fps: None)
 
     cmd = captured["cmd"]
@@ -209,7 +239,7 @@ def test_ffmpeg_missing_falls_back_to_frame_accurate_path(monkeypatch, tmp_path)
     segments_frames = {"a.mp4": [1, 2], "b.mp4": [3, 4]}
     reader = _reader_factory(segments_frames)
     captured = {}
-    stitch_segments(list(segments_frames), overlap=0, out_path=tmp_path / "o.mp4", fps=24.0,
+    stitch_segments(list(segments_frames), overlaps=[0], out_path=tmp_path / "o.mp4", fps=24.0,
                      frame_reader=reader, encode=lambda f, p, fps: captured.update(frames=f))
 
     assert captured["frames"][:, 0, 0, 0].tolist() == [1, 2, 3, 4]
@@ -236,7 +266,7 @@ def test_mismatched_fps_segment_falls_back_to_frame_accurate_path(monkeypatch, t
     segments_frames = {"a.mp4": [1, 2], "b.mp4": [3, 4]}
     reader = _reader_factory(segments_frames)
     captured = {}
-    stitch_segments(list(segments_frames), overlap=0, out_path=tmp_path / "o.mp4", fps=24.0,
+    stitch_segments(list(segments_frames), overlaps=[0], out_path=tmp_path / "o.mp4", fps=24.0,
                      frame_reader=reader, encode=lambda f, p, fps: captured.update(frames=f))
 
     assert captured["frames"][:, 0, 0, 0].tolist() == [1, 2, 3, 4]
@@ -258,7 +288,7 @@ def test_unprobeable_segment_falls_back_to_frame_accurate_path(monkeypatch, tmp_
     segments_frames = {"a.mp4": [1, 2], "b.mp4": [3, 4]}
     reader = _reader_factory(segments_frames)
     captured = {}
-    stitch_segments(list(segments_frames), overlap=0, out_path=tmp_path / "o.mp4", fps=24.0,
+    stitch_segments(list(segments_frames), overlaps=[0], out_path=tmp_path / "o.mp4", fps=24.0,
                      frame_reader=reader, encode=lambda f, p, fps: captured.update(frames=f))
 
     assert captured["frames"][:, 0, 0, 0].tolist() == [1, 2, 3, 4]
@@ -277,7 +307,7 @@ def test_ffmpeg_concat_failure_falls_back_to_frame_accurate_path(monkeypatch, tm
     segments_frames = {"a.mp4": [1, 2], "b.mp4": [3, 4]}
     reader = _reader_factory(segments_frames)
     captured = {}
-    stitch_segments(list(segments_frames), overlap=0, out_path=tmp_path / "o.mp4", fps=24.0,
+    stitch_segments(list(segments_frames), overlaps=[0], out_path=tmp_path / "o.mp4", fps=24.0,
                      frame_reader=reader, encode=lambda f, p, fps: captured.update(frames=f))
 
     assert captured["frames"][:, 0, 0, 0].tolist() == [1, 2, 3, 4]
@@ -294,7 +324,7 @@ def test_overlap_nonzero_never_attempts_stream_copy(monkeypatch, tmp_path):
     segments_frames = {"a.mp4": [0, 0, 0], "b.mp4": [100, 100, 100, 100]}
     reader = _reader_factory(segments_frames)
     captured = {}
-    stitch_segments(list(segments_frames), overlap=3, out_path=tmp_path / "o.mp4", fps=24.0,
+    stitch_segments(list(segments_frames), overlaps=[3], out_path=tmp_path / "o.mp4", fps=24.0,
                      frame_reader=reader, encode=lambda f, p, fps: captured.update(frames=f))
 
     assert captured["frames"][:, 0, 0, 0].tolist() == [25, 50, 75, 100]
@@ -320,7 +350,7 @@ def test_real_ffmpeg_stream_copy_concatenates_two_segments(tmp_path):
     def fail(*a, **kw):
         raise AssertionError("decode/encode path must not run when stream-copy succeeds")
 
-    stitch_segments([seg0, seg1], overlap=0, out_path=out_path, fps=10.0,
+    stitch_segments([seg0, seg1], overlaps=[0], out_path=out_path, fps=10.0,
                      frame_reader=fail, encode=fail)
 
     cv2 = pytest.importorskip("cv2", reason="cv2 not available in this environment", exc_type=ImportError)
@@ -367,7 +397,7 @@ def test_real_cv2_default_reader_drops_overlap(tmp_path):
 
     out_path = tmp_path / "stitched.mp4"
     captured = {}
-    stitch_segments([seg0, seg1], overlap=2, out_path=out_path, fps=10.0,
+    stitch_segments([seg0, seg1], overlaps=[2], out_path=out_path, fps=10.0,
                      encode=lambda frames, p, fps: captured.update(frames=frames))
 
     # seg0 kept whole (3 frames), seg1 drops its first 2 -> 1 frame. Total 4.

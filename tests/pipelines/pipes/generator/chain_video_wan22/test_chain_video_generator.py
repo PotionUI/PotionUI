@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
-from typing import List
+from typing import Dict, List
 from unittest.mock import patch
 
 import numpy as np
@@ -185,7 +185,7 @@ def _patches(fake_decode=None, fake_build=None, denoise_side_effect=None):
     )
 
 
-def _no_stitch(out_fn=lambda paths, overlap, out, fps: out):
+def _no_stitch(out_fn=lambda paths, overlaps, out, fps: out):
     return patch("src.pipelines.pipes.generator.chain_video_wan22.main.stitch_segments", side_effect=out_fn)
 
 
@@ -319,7 +319,7 @@ def test_n_segments_produce_n_plus_stitched_videos():
     pi = _inputs(model=_bundle(in_dim=36), conditioning=_cond(3), image=[torch.rand(8, 8, 3)])
     emitted = []
     p1, p2, p3, p4 = _patches()
-    with p1, p2, p3, p4, _no_stitch(lambda paths, overlap, out, fps: (Path(out).write_bytes(b"stitched"), out)[1]):
+    with p1, p2, p3, p4, _no_stitch(lambda paths, overlaps, out, fps: (Path(out).write_bytes(b"stitched"), out)[1]):
         result = pipe.process(pi, lambda o: emitted.append(o))
 
     assert len(result.output["video"]) == 4  # 3 segments + 1 stitched
@@ -639,7 +639,7 @@ def test_trimmed_continuations_stitch_with_zero_overlap():
     with p1, p2, p3, p4, _no_stitch() as mock_stitch:
         pipe.process(pi, lambda o: None)
 
-    assert mock_stitch.call_args.args[1] == 0
+    assert mock_stitch.call_args.args[1] == [0, 0]
 
 
 def test_untrimmable_segment_keeps_full_output_and_overlap():
@@ -659,7 +659,7 @@ def test_untrimmable_segment_keeps_full_output_and_overlap():
         pipe.process(pi, lambda o: None)
 
     assert counts[1] == 13                         # not trimmed
-    assert mock_stitch.call_args.args[1] == 12     # overlap-drop retained
+    assert mock_stitch.call_args.args[1] == [12]    # overlap-drop retained
 
 
 def test_chain_after_t2v_opener_locks_onto_openers_tail_not_first_frame():
@@ -704,7 +704,140 @@ def test_last_frame_continuation_source_uses_single_frame_overlap():
     assert captured[1].shape[0] == 1  # 'last_frame' source caps the motion tail to 1
     # The continuation is context-trimmed, so it no longer reproduces the tail:
     # the stitcher concatenates with zero overlap.
-    assert mock_stitch.call_args.args[1] == 0
+    assert mock_stitch.call_args.args[1] == [0]
+
+
+# -- per-join stitch overlap: real generator -> real stitch, fake IO --------
+#
+# These run the ACTUAL stitch_segments algorithm (crossfade / plain-concat
+# logic in stitch.py) against what the generator actually emitted per
+# segment, without real ffmpeg/cv2: encode_frames_to_mp4 is faked to record
+# each segment's full frame array keyed by its temp path, and the pipe's
+# stitch_segments call is redirected to the real implementation with a
+# frame_reader/encode that read/write those same in-memory arrays (ffmpeg's
+# stream-copy path is forced off via shutil.which so the frame-accurate path
+# always runs). This proves the join overlap the pipe computes end-to-end --
+# resulting frame count and boundary pixel values -- not just the argument it
+# passes to a mocked stitcher.
+
+def _stitch_with_recorded_frames():
+    frames_by_path: Dict[str, np.ndarray] = {}
+
+    def fake_encode(frames, path, fps):
+        frames_by_path[str(path)] = frames
+
+    def real_stitch_side_effect(paths, overlaps, out_path, fps):
+        from src.pipelines.pipes.generator.chain_video_wan22.stitch import stitch_segments as real_stitch
+        with patch("src.pipelines.pipes.generator.chain_video_wan22.stitch.shutil.which", return_value=None):
+            return real_stitch(
+                [str(p) for p in paths], overlaps, out_path, fps,
+                frame_reader=lambda p: iter(frames_by_path[str(p)]),
+                encode=lambda frames, out, fps: frames_by_path.__setitem__("__stitched__", frames),
+            )
+
+    return frames_by_path, fake_encode, real_stitch_side_effect
+
+
+def test_all_fresh_segments_stitch_with_no_dropped_frames():
+    # Two fresh cuts, no chain segment anywhere in the run. Before the
+    # per-join fix, a run with no TRIMMED chain segment fell back to the
+    # configured default_overlap (4 here) applied to EVERY join regardless of
+    # sub_type, silently cropping frames a fresh cut never shared with its
+    # neighbour (the "two fresh shots -> fewer frames than the sum" bug).
+    doc = _document(n_segments=2, frames=13, start_on_seg0=False,
+                     continuation={"source": None, "overlap_frames": 4, "stitch": True})
+    doc["segments"][1]["sub_type"] = "t2v"  # forced fresh cut, not the default chain
+    pipe = _pipe(document=doc)
+    pi = _inputs(model_t2v=_bundle(in_dim=16, dual=False), conditioning=_cond(2))
+
+    frames_by_path, fake_encode, real_stitch = _stitch_with_recorded_frames()
+    _, p2, p3, p4 = _patches()
+    with patch("src.pipelines.pipes.generator.chain_video_wan22.main.encode_frames_to_mp4", side_effect=fake_encode), \
+         p2, p3, p4, \
+         patch("src.pipelines.pipes.generator.chain_video_wan22.main.stitch_segments", side_effect=real_stitch):
+        pipe.process(pi, lambda o: None)
+
+    stitched = frames_by_path["__stitched__"]
+    assert stitched.shape[0] == 26  # 13 + 13, nothing dropped
+    # seg-0 decode base=10 (frames 10..22); seg-1 decode base=20 (frames 20..32).
+    assert stitched[12, 0, 0, 0] == 22  # seg-0's own last frame, untouched
+    assert stitched[13, 0, 0, 0] == 20  # seg-1's own first frame, untouched -- no crossfade
+
+
+def test_fresh_cut_after_untrimmed_continuation_is_not_cropped_by_its_join():
+    # fresh(t2v) -> continued(chain, untrimmed) -> fresh(t2v). seg-1's window
+    # is short enough that its generator-side trim is skipped (frames_px.shape
+    # <= context_prefix + 1, same setup as
+    # test_untrimmable_segment_keeps_full_output_and_overlap): overlap_frames=12,
+    # motion_latent_count=4 -> tail_count=12; a 13-frame window stays untrimmed.
+    # seg-1's own join must drop its context once (12); seg-2's join, being a
+    # fresh cut, must stay 0 -- unaffected by seg-1's untrimmed state elsewhere.
+    doc = _document(n_segments=3, frames=13, start_on_seg0=False,
+                     continuation={"source": None, "overlap_frames": 12, "stitch": True})
+    doc["segments"][2]["sub_type"] = "t2v"  # forced fresh cut after the continuation
+    pipe = _pipe(document=doc, motion_latent_count=4)
+    pi = _inputs(model=_bundle(in_dim=36), model_t2v=_bundle(in_dim=16, dual=False), conditioning=_cond(3))
+
+    frames_by_path, fake_encode, real_stitch = _stitch_with_recorded_frames()
+    _, p2, p3, p4 = _patches()
+    with patch("src.pipelines.pipes.generator.chain_video_wan22.main.encode_frames_to_mp4", side_effect=fake_encode), \
+         p2, p3, p4, \
+         patch("src.pipelines.pipes.generator.chain_video_wan22.main.stitch_segments", side_effect=real_stitch):
+        pipe.process(pi, lambda o: None)
+
+    stitched = frames_by_path["__stitched__"]
+    # seg-0: base=10 (10..22, 13 frames). seg-1 (chain, untrimmed): base=20
+    # (20..32, 13 frames), join drops 12 -> only its own last raw frame (32)
+    # survives past the crossfade. seg-2 (forced fresh): base=30 (30..42, 13
+    # frames), join=0 -> appended whole, untouched.
+    assert stitched.shape[0] == 27  # 13 + (13 - 12) + 13
+    assert stitched[0, 0, 0, 0] == 10    # seg-0's first frame, untouched
+    assert stitched[13, 0, 0, 0] == 32   # seg-1's own last frame, past the crossfade
+    assert stitched[14, 0, 0, 0] == 30   # seg-2's first frame -- NOT cropped by seg-1's join
+
+
+def test_fresh_cut_before_untrimmed_continuation_is_not_cropped_by_its_join():
+    # fresh(t2v) -> fresh(t2v) -> continued(chain, untrimmed). Same geometry as
+    # above, reversed: the continuation now comes AFTER the forced fresh cut,
+    # proving the fresh join (seg-0 -> seg-1) isn't cropped by the untrimmed
+    # continuation's join (seg-1 -> seg-2) that comes later in the same run.
+    doc = _document(n_segments=3, frames=13, start_on_seg0=False,
+                     continuation={"source": None, "overlap_frames": 12, "stitch": True})
+    doc["segments"][1]["sub_type"] = "t2v"  # forced fresh cut before the continuation
+    pipe = _pipe(document=doc, motion_latent_count=4)
+    pi = _inputs(model=_bundle(in_dim=36), model_t2v=_bundle(in_dim=16, dual=False), conditioning=_cond(3))
+
+    frames_by_path, fake_encode, real_stitch = _stitch_with_recorded_frames()
+    _, p2, p3, p4 = _patches()
+    with patch("src.pipelines.pipes.generator.chain_video_wan22.main.encode_frames_to_mp4", side_effect=fake_encode), \
+         p2, p3, p4, \
+         patch("src.pipelines.pipes.generator.chain_video_wan22.main.stitch_segments", side_effect=real_stitch):
+        pipe.process(pi, lambda o: None)
+
+    stitched = frames_by_path["__stitched__"]
+    # seg-0: base=10 (10..22). seg-1 (forced fresh): base=20 (20..32), join=0.
+    # seg-2 (chain, untrimmed): base=30 (30..42), join drops 12.
+    assert stitched.shape[0] == 27  # 13 + 13 + (13 - 12)
+    assert stitched[13, 0, 0, 0] == 20   # seg-1's first frame -- NOT cropped by seg-2's later join
+    assert stitched[26, 0, 0, 0] == 42   # seg-2's own last frame, past the crossfade
+
+
+def test_segment_metadata_records_per_segment_executed_geometry():
+    doc = _document(n_segments=3, frames=13, start_on_seg0=False,
+                     continuation={"source": None, "overlap_frames": 12, "stitch": True})
+    doc["segments"][2]["sub_type"] = "t2v"
+    pipe = _pipe(document=doc, motion_latent_count=4)
+    pi = _inputs(model=_bundle(in_dim=36), model_t2v=_bundle(in_dim=16, dual=False), conditioning=_cond(3))
+
+    emitted = []
+    p1, p2, p3, p4 = _patches()
+    with p1, p2, p3, p4, _no_stitch():
+        pipe.process(pi, lambda o: emitted.append(o))
+
+    params = {o.name: o.values for o in emitted if isinstance(o, ParamGenerationOutput)}
+    assert params["segment_emitted_frames"] == [13, 13, 13]
+    assert params["segment_context_trimmed"] == [False, False, False]
+    assert params["segment_overlap_dropped_at_stitch"] == [0, 12, 0]
 
 
 # -- LoRA patch / unpatch ---------------------------------------------------

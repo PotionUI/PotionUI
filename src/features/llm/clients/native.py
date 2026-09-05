@@ -77,7 +77,7 @@ import uuid
 import weakref
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Callable, Dict, List, Optional
 
 from src.features.llm.clients.base import LLMResponse
 from src.features.llm.context_budget import MessagesCounter, TokenCounter
@@ -170,6 +170,73 @@ def _release_execution_gate(identity: tuple, gate: "_CheckpointGate") -> None:
         _EXECUTION_GATES.pop(identity, None)
 
 
+class _LeaseHandoff:
+    """Mutable box `_leased` yields alongside `(checkpoint, device)`: lets a
+    caller whose own bounded wait for a background worker times out transfer
+    ownership of this turn's teardown (offload, `end_lease`, execution-gate
+    release) to a supervised cleanup, instead of letting `_leased`'s own
+    `finally` race a background thread that may still be running
+    `generate()` on the shared checkpoint — the bug this closes: before this,
+    a caller returning past its stop bound let `_leased` immediately move
+    the checkpoint to CPU and end its lease while the worker was possibly
+    still mid-forward-pass.
+
+    `_leased` sets `teardown` (a closure over that call's checkpoint/lease/
+    gate state) before it yields. A caller decides to hand off by calling
+    `defer()` — the ONLY thing that flips `taken_over` — so `_leased`'s
+    `finally` can trust the flag unconditionally once it observes it, and
+    the SAME `teardown` closure is what eventually runs the cleanup, whether
+    `_leased` calls it directly (no hand-off) or a supervisor task does
+    (after hand-off) — the release order (worker exit → offload →
+    `end_lease` → gate) holds either way; only WHEN it runs moves.
+    """
+
+    __slots__ = ("teardown", "taken_over", "_registry")
+
+    def __init__(self, registry: "set[asyncio.Task]") -> None:
+        self.teardown: Optional[Callable[[], Any]] = None
+        self.taken_over = False
+        self._registry = registry
+
+    def defer(self, worker_done: threading.Event, model_name: str, key: str) -> None:
+        """Hands this turn's teardown to a background supervisor. Must be
+        called before the caller's `async with self._leased(...)` block
+        exits (i.e. from inside the still-running generator), so `_leased`'s
+        `finally` observes `taken_over` before it would otherwise run its
+        own teardown."""
+        self.taken_over = True
+        task = asyncio.create_task(_supervised_teardown(self.teardown, worker_done, model_name, key))
+        # Holding the task is what keeps it from being garbage-collected
+        # mid-flight — a fire-and-forget `create_task` with nothing else
+        # referencing it is eligible for GC before it runs. Self-pruning via
+        # the done-callback keeps this bounded to turns actually in a
+        # handed-off state right now, never accumulating finished ones.
+        self._registry.add(task)
+        task.add_done_callback(self._registry.discard)
+
+
+async def _supervised_teardown(
+    teardown: Callable[[], Any], worker_done: threading.Event, model_name: str, key: str
+) -> None:
+    """Waits UNBOUNDED for a handed-off streaming worker to actually exit,
+    then runs the deferred `_leased` teardown (offload, `end_lease`, gate
+    release) in that order — the checkpoint stays leased and gated, and any
+    other turn on it stays queued, for the whole wait.
+
+    This cannot kill a stuck worker: a C/CUDA call that genuinely never
+    returns holds the lease and the execution gate indefinitely. That is the
+    one residual this design accepts rather than papering over — visible as
+    a checkpoint that never becomes evictable again and as this function's
+    own completion log line never appearing.
+    """
+    await asyncio.to_thread(worker_done.wait)
+    await teardown()
+    logger.info(
+        "[NativeLLM] supervised cleanup for '%s' (%s) completed now that the "
+        "streaming worker exited", model_name, key,
+    )
+
+
 def _is_oom(error: BaseException) -> bool:
     return isinstance(error, RuntimeError) and "out of memory" in str(error).lower()
 
@@ -246,6 +313,13 @@ class NativeLLMClient:
         # `token_counter` needs to decide whether a real tokenizer is free to
         # use or budgeting must fall back to the chars-per-token estimate.
         self._checkpoint_refs: Dict[str, "weakref.ReferenceType[_LoadedCheckpoint]"] = {}
+        # Holds every in-flight supervised teardown this client has handed a
+        # turn to (see `_LeaseHandoff.defer`) — per-client, not module-level,
+        # since it exists only to keep a fire-and-forget task alive, never to
+        # coordinate across clients (the execution gate already does that).
+        # Bounded and self-pruning: entries are removed by their own
+        # done-callback the moment the supervised cleanup finishes.
+        self._supervised_teardowns: "set[asyncio.Task]" = set()
 
     # -- ModelLifecycle plumbing --------------------------------
 
@@ -681,14 +755,23 @@ class NativeLLMClient:
         a per-checkpoint `_CheckpointGate` (see its docstring): concurrent
         turns on the SAME checkpoint queue on this lock rather than racing
         its CUDA placement, so a waiter is queued here BEFORE anything below
-        pins, loads, or leases the checkpoint. Waiting is a plain `async with`
-        acquire — never a blocking join — so a cancelled waiter that never
-        got the lock releases nothing it doesn't hold; a cancelled or
-        failing HOLDER still runs this function's own `finally` (offload,
-        then `end_lease`) before the `async with` releases the gate, giving
-        the required release order (generation work incl. the streaming
-        worker-exit wait → offload → end_lease → gate release) for free from
-        the block nesting, not from extra bookkeeping.
+        pins, loads, or leases the checkpoint. A cancelled waiter that never
+        got the lock releases nothing it doesn't hold (see the `except` right
+        after acquiring it below).
+
+        The lock is acquired MANUALLY here (not via `async with`) because
+        release can no longer be tied to this generator's own control flow:
+        a caller (`stream_with_history`) whose own bounded wait for a
+        background worker times out can hand this turn's teardown — offload,
+        `end_lease`, gate release, all three, in that order — to a
+        supervised cleanup that runs later, once the worker actually exits,
+        rather than let this function's `finally` race a still-running
+        `generate()` call by tearing the checkpoint down immediately (see
+        `_LeaseHandoff`, yielded as the third value below). Either way the
+        SAME `_teardown` closure is what performs that work exactly once —
+        called directly from this function's `finally` when nobody hands
+        off, or later by `_supervised_teardown` when they do — so the
+        release order holds regardless of which path runs it.
         """
         import torch
 
@@ -696,64 +779,75 @@ class NativeLLMClient:
         key = self._cache_key(path, is_te)
         gate_id, gate = _acquire_execution_gate(models, key)
         try:
-            async with gate.lock:
-                models.begin_generation(None)
-                lease_id = f"native-llm-{uuid.uuid4().hex}"
-                models.begin_lease(lease_id)
-                checkpoint: Optional[_LoadedCheckpoint] = None
-                device = "cpu"
-                manage_device = False
-                try:
-                    checkpoint = await asyncio.to_thread(self._acquire, path, config, is_te)
-                    device = "cuda" if torch.cuda.is_available() else "cpu"
-                    # A quantized checkpoint is already GPU-resident (device_map) and
-                    # must never be moved across the lease boundary — bnb modules don't
-                    # round-trip to CPU. It stays put; eviction (not offload) reclaims it.
-                    manage_device = device != "cpu" and not checkpoint.quantized
-                    if manage_device:
-                        try:
-                            await asyncio.to_thread(checkpoint.model.to, device)
-                        except RuntimeError as e:
-                            if not _is_oom(e):
-                                raise
-                            torch.cuda.empty_cache()
-                            logger.warning(
-                                "[NativeLLM] native LLM fell back to CPU for this turn: CUDA OOM "
-                                "during placement — free VRAM or run the Clear VRAM action"
-                            )
-                            device = "cpu"
-                            manage_device = False
-                        else:
-                            # Registered ONLY once actually CUDA-resident, so a
-                            # DiT load's own VRAM admission can reclaim this checkpoint
-                            # even if the restore below is ever bypassed.
-                            self._note_resident(checkpoint, key, device)
-                    yield checkpoint, device
-                finally:
-                    if checkpoint is not None and manage_device:
-                        try:
-                            await asyncio.to_thread(checkpoint.model.to, "cpu")
-                            torch.cuda.empty_cache()
-                            self._note_offloaded(checkpoint)
-                        except Exception:
-                            # A checkpoint that CANNOT be verified off the GPU
-                            # must never be left as a zombie CUDA-resident cache entry
-                            # with no further recovery path (the bug this guards:
-                            # "cache_entries=1 ... pinned_cum_gb=0.000" while VRAM
-                            # stayed ~full) — evict it outright rather than only warn.
-                            # The residency handle (if registered) still lets a DiT
-                            # load's admission control reclaim it via note_resident's
-                            # last-registered state, but invalidate() is the
-                            # deterministic guarantee.
-                            logger.warning(
-                                "[NativeLLM] failed to move checkpoint back to CPU after lease; "
-                                "evicting the cache entry key='%s' so it can't be left GPU-resident",
-                                key, exc_info=True,
-                            )
-                            models.invalidate(key)
-                    models.end_lease(lease_id)
-        finally:
+            await gate.lock.acquire()
+        except BaseException:
             _release_execution_gate(gate_id, gate)
+            raise
+
+        models.begin_generation(None)
+        lease_id = f"native-llm-{uuid.uuid4().hex}"
+        models.begin_lease(lease_id)
+        checkpoint: Optional[_LoadedCheckpoint] = None
+        device = "cpu"
+        manage_device = False
+        handoff = _LeaseHandoff(self._supervised_teardowns)
+
+        async def _teardown() -> None:
+            if checkpoint is not None and manage_device:
+                try:
+                    await asyncio.to_thread(checkpoint.model.to, "cpu")
+                    torch.cuda.empty_cache()
+                    self._note_offloaded(checkpoint)
+                except Exception:
+                    # A checkpoint that CANNOT be verified off the GPU
+                    # must never be left as a zombie CUDA-resident cache entry
+                    # with no further recovery path (the bug this guards:
+                    # "cache_entries=1 ... pinned_cum_gb=0.000" while VRAM
+                    # stayed ~full) — evict it outright rather than only warn.
+                    # The residency handle (if registered) still lets a DiT
+                    # load's admission control reclaim it via note_resident's
+                    # last-registered state, but invalidate() is the
+                    # deterministic guarantee.
+                    logger.warning(
+                        "[NativeLLM] failed to move checkpoint back to CPU after lease; "
+                        "evicting the cache entry key='%s' so it can't be left GPU-resident",
+                        key, exc_info=True,
+                    )
+                    models.invalidate(key)
+            models.end_lease(lease_id)
+            gate.lock.release()
+            _release_execution_gate(gate_id, gate)
+
+        handoff.teardown = _teardown
+        try:
+            checkpoint = await asyncio.to_thread(self._acquire, path, config, is_te)
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            # A quantized checkpoint is already GPU-resident (device_map) and
+            # must never be moved across the lease boundary — bnb modules don't
+            # round-trip to CPU. It stays put; eviction (not offload) reclaims it.
+            manage_device = device != "cpu" and not checkpoint.quantized
+            if manage_device:
+                try:
+                    await asyncio.to_thread(checkpoint.model.to, device)
+                except RuntimeError as e:
+                    if not _is_oom(e):
+                        raise
+                    torch.cuda.empty_cache()
+                    logger.warning(
+                        "[NativeLLM] native LLM fell back to CPU for this turn: CUDA OOM "
+                        "during placement — free VRAM or run the Clear VRAM action"
+                    )
+                    device = "cpu"
+                    manage_device = False
+                else:
+                    # Registered ONLY once actually CUDA-resident, so a
+                    # DiT load's own VRAM admission can reclaim this checkpoint
+                    # even if the restore below is ever bypassed.
+                    self._note_resident(checkpoint, key, device)
+            yield checkpoint, device, handoff
+        finally:
+            if not handoff.taken_over:
+                await _teardown()
 
     # -- prompt / chat-template assembly --------------------------------
 
@@ -984,7 +1078,10 @@ class NativeLLMClient:
         import torch
 
         path, is_te = self._resolve_model(config.model)
-        async with self._leased(path, config, is_te) as (checkpoint, device):
+        # The buffered path has no long-lived background worker to outlive a
+        # stop bound, so it never hands teardown off — `_leased`'s third
+        # yielded value is unused here.
+        async with self._leased(path, config, is_te) as (checkpoint, device, _handoff):
             if image_data and not checkpoint.vision:
                 raise ValueError(
                     f"Native LLM provider: '{config.model}' ({checkpoint.model_type}) has no "
@@ -1037,7 +1134,8 @@ class NativeLLMClient:
         from transformers import StoppingCriteria, StoppingCriteriaList, TextIteratorStreamer
 
         path, is_te = self._resolve_model(config.model)
-        async with self._leased(path, config, is_te) as (checkpoint, device):
+        key = self._cache_key(path, is_te)
+        async with self._leased(path, config, is_te) as (checkpoint, device, handoff):
             if image_data and not checkpoint.vision:
                 raise ValueError(
                     f"Native LLM provider: '{config.model}' ({checkpoint.model_type}) has no "
@@ -1105,11 +1203,21 @@ class NativeLLMClient:
                     stop_requested.set()
                     finished = await asyncio.to_thread(worker_done.wait, _STOP_WAIT_TIMEOUT_SECONDS)
                     if not finished:
+                        # The worker is STILL running past the bound — this
+                        # generator returning now must never mean `_leased`
+                        # offloads the checkpoint and ends the lease out from
+                        # under it. Hand the turn's teardown to a supervised
+                        # cleanup that waits the rest of the way (unbounded)
+                        # instead: the checkpoint stays leased and gated
+                        # until that cleanup actually runs.
                         logger.warning(
-                            "[NativeLLM] streaming worker for '%s' did not exit within %.1fs of a "
-                            "requested stop; releasing the turn anyway",
-                            config.model, _STOP_WAIT_TIMEOUT_SECONDS,
+                            "[NativeLLM] streaming worker for '%s' (%s) did not exit within "
+                            "%.1fs of a requested stop; handing this turn's teardown to a "
+                            "supervised cleanup instead of releasing the checkpoint out "
+                            "from under it",
+                            config.model, key, _STOP_WAIT_TIMEOUT_SECONDS,
                         )
+                        handoff.defer(worker_done, config.model, key)
 
             if errors:
                 error = errors[0]

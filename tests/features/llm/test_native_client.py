@@ -423,9 +423,10 @@ class TestStreamWithHistoryConsumerCancellation:
 
     @pytest.mark.asyncio
     async def test_bounded_wait_gives_up_and_logs_when_worker_outlives_the_bound(
-        self, client, native_checkpoint, monkeypatch, caplog
+        self, client, models_manager, native_checkpoint, monkeypatch, caplog
     ):
         name, path = native_checkpoint
+        key = f"native/llm/{path}"
         config = _config(name)
         checkpoint = client._acquire(path, config)
 
@@ -449,17 +450,32 @@ class TestStreamWithHistoryConsumerCancellation:
                 # (much larger) delay the fake worker takes to actually exit —
                 # this is the whole point of the bounded wait.
                 await asyncio.wait_for(agen.aclose(), timeout=2)
-        finally:
-            # Let the still-running fake worker actually finish before the
-            # test ends, so it never leaks a live background thread touching
-            # this test's checkpoint into later teardown.
+
+            # aclose() returning past the bound must NEVER mean the checkpoint
+            # was torn down while the fake worker is still (deliberately)
+            # running — that ownership is handed to a supervised cleanup
+            # instead, so the lease and the execution gate stay held.
+            assert models_manager._entries[key].leased_by, (
+                "the lease must still be held while the worker is still running"
+            )
+            assert key not in models_manager._evictable_keys()
+
+            # Let the still-running fake worker actually finish, then give
+            # the supervised cleanup a bounded moment to run its teardown.
             deadline = time.monotonic() + 5
             while "worker_returning_after_stop" not in events and time.monotonic() < deadline:
                 await asyncio.sleep(0.02)
-            await agen.aclose()
+            assert "worker_returning_after_stop" in events
+
+            deadline = time.monotonic() + 5
+            while models_manager._entries[key].leased_by and time.monotonic() < deadline:
+                await asyncio.sleep(0.02)
+        finally:
+            await agen.aclose()  # no-op if already closed
 
         assert any("did not exit" in r.message for r in caplog.records)
-        assert "worker_returning_after_stop" in events
+        assert not models_manager._entries[key].leased_by
+        assert key in models_manager._evictable_keys()
 
 
 # --- tool calling: always prompt-injected ---------------------------------
@@ -1670,7 +1686,7 @@ async def test_leased_quantized_checkpoint_is_never_moved(client, native_checkpo
     checkpoint = _stub_checkpoint(quantized=True)
     monkeypatch.setattr(NativeLLMClient, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
 
-    async with client._leased(path, _config(name)) as (ck, device):
+    async with client._leased(path, _config(name)) as (ck, device, _handoff):
         assert ck is checkpoint
         assert device == "cuda"
     assert checkpoint.model.moves == []
@@ -1685,7 +1701,7 @@ async def test_leased_unquantized_checkpoint_moves_to_gpu_and_back(client, nativ
     checkpoint = _stub_checkpoint(quantized=False)
     monkeypatch.setattr(NativeLLMClient, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
 
-    async with client._leased(path, _config(name)) as (_ck, device):
+    async with client._leased(path, _config(name)) as (_ck, device, _handoff):
         assert device == "cuda"
         assert checkpoint.model.moves == ["cuda"]
     assert checkpoint.model.moves == ["cuda", "cpu"]
@@ -1707,7 +1723,7 @@ async def test_leased_falls_back_to_cpu_on_placement_oom(client, native_checkpoi
     monkeypatch.setattr(NativeLLMClient, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
 
     with caplog.at_level("WARNING"):
-        async with client._leased(path, _config(name)) as (ck, device):
+        async with client._leased(path, _config(name)) as (ck, device, _handoff):
             assert ck is checkpoint
             assert device == "cpu"
 
@@ -1807,7 +1823,7 @@ async def test_leased_cpu_restore_failure_evicts_the_cache_entry(client, models_
     checkpoint.model.to = _raise_on_cpu_return
 
     with caplog.at_level("WARNING"):
-        async with client._leased(path, _config(name)) as (ck, device):
+        async with client._leased(path, _config(name)) as (ck, device, _handoff):
             assert ck is checkpoint
             assert device == "cuda"
             assert key in models_manager._entries
@@ -1851,7 +1867,7 @@ async def test_leased_registers_and_clears_residency_for_an_unquantized_checkpoi
     monkeypatch.setattr(NativeLLMClient, "_build", lambda self, p, load_kwargs: checkpoint)
     calls = _fake_residency_module(monkeypatch)
 
-    async with client._leased(path, _config(name)) as (ck, device):
+    async with client._leased(path, _config(name)) as (ck, device, _handoff):
         assert device == "cuda"
         assert len(calls["resident"]) == 1
         assert calls["resident"][0][1] == "cuda"

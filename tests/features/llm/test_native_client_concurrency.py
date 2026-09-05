@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import time
 
 import pytest
 import torch
@@ -35,6 +36,8 @@ from src.features.llm.clients.native import NativeLLMClient, _LoadedCheckpoint
 from src.platform.runtime.model_lifecycle.lifecycle import ModelLifecycle
 from tests.features.llm.test_native_client import (
     _config,
+    _fake_streaming_generate,
+    _NEWLINE_TOKEN_ID,
     client,
     models_manager,
     native_checkpoint,
@@ -74,6 +77,32 @@ class _FakeTensor:
 
     def __getitem__(self, _item):
         return self
+
+
+class _CpuPinnedTensor:
+    """Wraps a REAL CPU tensor (from the real `native_checkpoint` tokenizer's
+    `_apply_template` output) but makes `.to(device)` a harmless no-op — the
+    supervised-teardown tests below force `torch.cuda.is_available()` True
+    so `_leased` takes its `manage_device` placement branch on the
+    checkpoint's `.model`, but a real prompt tensor's own `.to("cuda")` call
+    inside `stream_with_history` would hit an actual (absent) CUDA device.
+    Everything else (`.shape`, indexing, decode) delegates straight to the
+    wrapped real tensor, so `TextIteratorStreamer`/the real tokenizer's
+    `decode()` keep working exactly as they do in the unforced-CUDA
+    cancellation tests `_fake_streaming_generate` (reused here) was
+    originally written for."""
+
+    def __init__(self, tensor):
+        self._tensor = tensor
+
+    def to(self, *_a, **_k):
+        return self
+
+    def __getattr__(self, name):
+        return getattr(self._tensor, name)
+
+    def __getitem__(self, item):
+        return self._tensor[item]
 
 
 class _MinimalTokenizer:
@@ -591,3 +620,201 @@ class TestExecutionGateBookkeeping:
                     t.cancel()
 
         assert identity not in native_module._EXECUTION_GATES
+
+
+def _install_supervised_teardown_fixture(
+    checkpoint: _LoadedCheckpoint,
+    monkeypatch,
+    *,
+    tokens: tuple = (_NEWLINE_TOKEN_ID,) * 3,
+    delay_after_stop: float = 0.3,
+) -> list:
+    """Wires a REAL checkpoint's model to drive the REAL
+    `TextIteratorStreamer`/`StoppingCriteriaList` via `_fake_streaming_generate`
+    (imported from `test_native_client.py`) while forcing device placement
+    through a recording no-op `.to()`, and wraps `_apply_template`'s real
+    output tensors in `_CpuPinnedTensor` so `stream_with_history`'s own
+    `.to(device)` on the prompt tensor stays safe once CUDA is spoofed
+    available. Returns the shared `events` list both the model and the
+    `.to()` recorder append to."""
+    events: list = []
+
+    def _recording_to(device, *_a, **_k):
+        events.append(f"to:{device}")
+        return checkpoint.model
+
+    monkeypatch.setattr(checkpoint.model, "to", _recording_to)
+    monkeypatch.setattr(
+        checkpoint.model, "generate",
+        _fake_streaming_generate(
+            tokens=tokens, poll_interval=0.005, delay_after_stop=delay_after_stop, events=events,
+        ),
+    )
+
+    real_apply_template = NativeLLMClient._apply_template
+
+    def _wrapped_apply_template(checkpoint_arg, chat, image, template_kwargs):
+        result = real_apply_template(checkpoint_arg, chat, image, template_kwargs)
+        return {k: (_CpuPinnedTensor(v) if hasattr(v, "to") else v) for k, v in result.items()}
+
+    monkeypatch.setattr(NativeLLMClient, "_apply_template", staticmethod(_wrapped_apply_template))
+    return events
+
+
+class TestSupervisedTeardownOnStopTimeout:
+    """The consumer's bounded worker-exit wait giving up must never let
+    `_leased` offload, `end_lease`, or release the execution gate while the
+    streaming worker is still running past the bound (see `_LeaseHandoff`/
+    `_supervised_teardown`, `src/features/llm/clients/native.py`): teardown
+    is handed to a supervised cleanup that waits the REST of the way
+    unbounded, then runs the SAME offload/end_lease/gate-release exactly
+    once, only once the worker has actually exited."""
+
+    @pytest.mark.asyncio
+    async def test_caller_returns_within_bound_while_teardown_waits_for_the_real_worker(
+        self, client, models_manager, native_checkpoint, monkeypatch
+    ):
+        name, path = native_checkpoint
+        key = f"native/llm/{path}"
+        identity = (id(models_manager), key)
+        config = _config(name)
+        checkpoint = client._acquire(path, config)
+        monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+        monkeypatch.setattr(native_module, "_STOP_WAIT_TIMEOUT_SECONDS", 0.02)
+        events = _install_supervised_teardown_fixture(checkpoint, monkeypatch)
+
+        agen = client.stream_with_history([{"role": "user", "content": "hi"}], config, config.system_message)
+        try:
+            first = await asyncio.wait_for(agen.__anext__(), timeout=_BOUND)
+            assert first["type"] == "token"
+            assert "to:cuda" in events
+
+            # aclose() itself must return within the (shortened) bound, not
+            # the much larger delay the fake worker takes to actually exit —
+            # the whole point of the consumer's bounded wait.
+            await asyncio.wait_for(agen.aclose(), timeout=2)
+
+            # Returning past the bound must NOT mean the checkpoint was torn
+            # down — the worker is still (deliberately) running, so no CPU
+            # move, no end_lease, and no gate release have happened yet.
+            assert "to:cpu" not in events
+            assert models_manager._entries[key].leased_by
+            assert identity in native_module._EXECUTION_GATES
+
+            deadline = time.monotonic() + _BOUND
+            while "worker_returning_after_stop" not in events and time.monotonic() < deadline:
+                await asyncio.sleep(0.02)
+            assert "worker_returning_after_stop" in events
+
+            # The supervised cleanup gets a bounded moment (well past the
+            # worker's own exit) to actually run once the worker is done.
+            deadline = time.monotonic() + _BOUND
+            while "to:cpu" not in events and time.monotonic() < deadline:
+                await asyncio.sleep(0.02)
+        finally:
+            await agen.aclose()  # no-op if already closed
+
+        assert "to:cpu" in events
+        assert not models_manager._entries[key].leased_by
+        assert key in models_manager._evictable_keys()
+        assert identity not in native_module._EXECUTION_GATES
+        assert len(client._supervised_teardowns) == 0
+
+    @pytest.mark.asyncio
+    async def test_second_caller_waits_for_the_supervised_cleanup_before_proceeding(
+        self, client, models_manager, native_checkpoint, monkeypatch
+    ):
+        name, path = native_checkpoint
+        config = _config(name)
+        checkpoint = client._acquire(path, config)
+        monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+        monkeypatch.setattr(native_module, "_STOP_WAIT_TIMEOUT_SECONDS", 0.02)
+        events = _install_supervised_teardown_fixture(checkpoint, monkeypatch)
+
+        agen = client.stream_with_history([{"role": "user", "content": "hi"}], config, config.system_message)
+        second_task = None
+        try:
+            first = await asyncio.wait_for(agen.__anext__(), timeout=_BOUND)
+            assert first["type"] == "token"
+            await asyncio.wait_for(agen.aclose(), timeout=2)
+
+            async def _second_call():
+                collected = []
+                async for event in client.stream_with_history(
+                    [{"role": "user", "content": "second"}], config, config.system_message,
+                ):
+                    collected.append(event)
+                return collected
+
+            second_task = asyncio.create_task(_second_call())
+            await asyncio.sleep(0.2)
+            assert not second_task.done(), (
+                "a second caller on the same checkpoint must wait for the "
+                "supervised cleanup, not run concurrently with the abandoned worker"
+            )
+
+            second_events = await asyncio.wait_for(second_task, timeout=_BOUND)
+            # Warm reuse of the SAME checkpoint still works once the
+            # supervised cleanup has run — a plain, uneventful turn.
+            assert second_events[-1]["type"] == "usage"
+        finally:
+            if second_task is not None and not second_task.done():
+                second_task.cancel()
+            await agen.aclose()
+
+        assert "to:cpu" in events
+
+    @pytest.mark.asyncio
+    async def test_cancelling_an_unrelated_waiter_leaves_a_pending_supervisor_intact(
+        self, client, models_manager, native_checkpoint, monkeypatch
+    ):
+        name, path = native_checkpoint
+        key = f"native/llm/{path}"
+        config = _config(name)
+        checkpoint = client._acquire(path, config)
+        monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+        monkeypatch.setattr(native_module, "_STOP_WAIT_TIMEOUT_SECONDS", 0.02)
+        events = _install_supervised_teardown_fixture(checkpoint, monkeypatch)
+
+        agen = client.stream_with_history([{"role": "user", "content": "hi"}], config, config.system_message)
+        waiter_task = None
+        try:
+            first = await asyncio.wait_for(agen.__anext__(), timeout=_BOUND)
+            assert first["type"] == "token"
+            await asyncio.wait_for(agen.aclose(), timeout=2)
+            assert len(client._supervised_teardowns) == 1
+
+            async def _waiter():
+                async for _event in client.stream_with_history(
+                    [{"role": "user", "content": "waiter"}], config, config.system_message,
+                ):
+                    pass
+
+            waiter_task = asyncio.create_task(_waiter())
+            await asyncio.sleep(0.2)
+            assert not waiter_task.done(), "a queued waiter must not run ahead of the pending supervisor"
+
+            waiter_task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await waiter_task
+            waiter_task = None
+
+            # Cancelling an unrelated queued waiter must never disturb the
+            # PENDING supervisor — it's still tracked, and still completes
+            # once the abandoned worker actually exits.
+            assert len(client._supervised_teardowns) == 1
+
+            deadline = time.monotonic() + _BOUND
+            while "worker_returning_after_stop" not in events and time.monotonic() < deadline:
+                await asyncio.sleep(0.02)
+            deadline = time.monotonic() + _BOUND
+            while models_manager._entries[key].leased_by and time.monotonic() < deadline:
+                await asyncio.sleep(0.02)
+        finally:
+            if waiter_task is not None and not waiter_task.done():
+                waiter_task.cancel()
+            await agen.aclose()
+
+        assert not models_manager._entries[key].leased_by
+        assert key in models_manager._evictable_keys()
+        assert len(client._supervised_teardowns) == 0

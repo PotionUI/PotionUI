@@ -5,12 +5,13 @@ import { logger, getErrorMessage } from '$lib/utils/logger';
  * Manages download state for the admin panel downloader.
  */
 
-import { writable, derived } from 'svelte/store';
+import { writable, derived, get } from 'svelte/store';
 import type { Writable } from 'svelte/store';
 import { api } from '$lib/services/api/index';
 import { getBackends } from '$lib/services/admin-api';
 import {
 	downloaderWebSocket,
+	downloaderConnectionState,
 	type DownloadProgressUpdate,
 	type DownloadStatusUpdate
 } from '$lib/services/downloaderWebsocket';
@@ -188,9 +189,80 @@ function formatEta(download: Download): string {
 
 // Store implementation
 function createDownloadStore() {
-	// WebSocket callbacks cleanup
-	let progressUnsubscribe: (() => void) | null = null;
-	let statusUnsubscribe: (() => void) | null = null;
+	// WebSocket callback cleanup. Arrays (not single fields) so a second
+	// initializeWebSocket() before a cleanup keeps every prior handle instead
+	// of leaking the ones a reassignment would have dropped.
+	let progressUnsubscribes: Array<() => void> = [];
+	let statusUnsubscribes: Array<() => void> = [];
+	let connectionUnsubscribes: Array<() => void> = [];
+
+	// Bumped on every initializeWebSocket()/cleanupWebSocket() so an in-flight
+	// read or a callback registered under a retired mount can tell it no
+	// longer owns the store and must not publish.
+	let sessionToken = 0;
+
+	// Monotonic clock recording every local mutation to a download (WS event
+	// or a queue/pause/resume/cancel/retry/delete command), keyed by id, so a
+	// delayed list snapshot can tell whether its own view of an id is stale.
+	let seqCounter = 0;
+	interface Touch {
+		seq: number;
+		deleted: boolean;
+		/** Fields to reapply on top of whatever row a merge finds - carries a
+		 * WS-delivered field update through even when it arrives before the id
+		 * has ever appeared in a list response. */
+		patch?: Partial<Download>;
+	}
+	const perIdSeq = new Map<string, Touch>();
+	let lastListSeqApplied = -1;
+	let lastAppliedCountsSeq = -1;
+	let countsInFlight: Promise<void> | null = null;
+
+	function touchId(id: string, opts: { deleted?: boolean; patch?: Partial<Download> } = {}): void {
+		perIdSeq.set(id, { seq: ++seqCounter, deleted: !!opts.deleted, patch: opts.patch });
+	}
+
+	function computeCountsFrom(list: Download[]): DownloadCounts {
+		const counts: DownloadCounts = {};
+		for (const d of list) {
+			counts[d.status] = (counts[d.status] ?? 0) + 1;
+		}
+		return counts;
+	}
+
+	// Reconciles a list response issued at `seqAtIssue` against everything
+	// that has happened locally since: an id touched after issue keeps its
+	// current (already-newer) row instead of the snapshot's, a row the
+	// snapshot doesn't know about yet but that was queued/touched since issue
+	// is kept, and one deleted since issue is dropped.
+	function mergeListSnapshot(incoming: Download[], seqAtIssue: number): Download[] {
+		const current = get(downloads);
+		const currentById = new Map(current.map((d) => [d.id, d] as const));
+		const seen = new Set<string>();
+		const merged: Download[] = [];
+
+		for (const row of incoming) {
+			seen.add(row.id);
+			const touch = perIdSeq.get(row.id);
+			if (touch && touch.seq > seqAtIssue) {
+				if (touch.deleted) continue;
+				const base = currentById.get(row.id) ?? row;
+				merged.push(touch.patch ? { ...base, ...touch.patch } : base);
+			} else {
+				merged.push(row);
+			}
+		}
+
+		for (const row of current) {
+			if (seen.has(row.id)) continue;
+			const touch = perIdSeq.get(row.id);
+			if (touch && touch.seq > seqAtIssue && !touch.deleted) {
+				merged.unshift(touch.patch ? { ...row, ...touch.patch } : row);
+			}
+		}
+
+		return merged;
+	}
 
 	return {
 		// Expose stores
@@ -213,53 +285,81 @@ function createDownloadStore() {
 		formatEta,
 		formatTimestamp,
 
-		// Initialize WebSocket handlers
-		initializeWebSocket(): void {
-			progressUnsubscribe = downloaderWebSocket.onDownloadProgress((update: DownloadProgressUpdate) => {
-				downloads.update((currentDownloads) =>
-					currentDownloads.map((d) =>
-						d.id === update.download_id
-							? {
-									...d,
-									progress: update.progress,
-									downloaded_bytes: update.downloaded_bytes,
-									total_bytes: update.total_bytes,
-									speed_bytes_per_sec: update.speed_bytes_per_sec
-								}
-							: d
-					)
-				);
-			});
+		// Initialize WebSocket handlers. Idempotent: a second call before a
+		// cleanup bumps the session so the first call's callbacks and any
+		// reads it started stop publishing, while every unsubscribe handle
+		// (old and new) is kept so cleanupWebSocket() still removes them all.
+		initializeWebSocket(): number {
+			sessionToken += 1;
+			const token = sessionToken;
 
-			statusUnsubscribe = downloaderWebSocket.onDownloadStatus((update: DownloadStatusUpdate) => {
-				downloads.update((currentDownloads) =>
-					currentDownloads.map((d) =>
-						d.id === update.download_id
-							? {
-									...d,
-									status: update.status as DownloadStatus,
-									error_message: update.error || null
-								}
-							: d
-					)
-				);
+			progressUnsubscribes.push(
+				downloaderWebSocket.onDownloadProgress((update: DownloadProgressUpdate) => {
+					if (token !== sessionToken) return;
+					const patch: Partial<Download> = {
+						progress: update.progress,
+						downloaded_bytes: update.downloaded_bytes,
+						total_bytes: update.total_bytes,
+						speed_bytes_per_sec: update.speed_bytes_per_sec
+					};
+					touchId(update.download_id, { patch });
+					downloads.update((currentDownloads) =>
+						currentDownloads.map((d) => (d.id === update.download_id ? { ...d, ...patch } : d))
+					);
+				})
+			);
 
-				this.loadCounts();
-			});
+			statusUnsubscribes.push(
+				downloaderWebSocket.onDownloadStatus((update: DownloadStatusUpdate) => {
+					if (token !== sessionToken) return;
+					const patch: Partial<Download> = {
+						status: update.status as DownloadStatus,
+						error_message: update.error || null
+					};
+					touchId(update.download_id, { patch });
+					downloads.update((currentDownloads) =>
+						currentDownloads.map((d) => (d.id === update.download_id ? { ...d, ...patch } : d))
+					);
 
-			downloaderWebSocket.subscribeToAllDownloads();
+					void this.loadCounts();
+				})
+			);
+
+			// Re-subscribes on every transition to 'connected', including the
+			// first - a reconnect drops the server-side subscription, so this
+			// re-issues it and refreshes the list once to pick up whatever
+			// happened while disconnected (the very first connect skips the
+			// refresh; the view's own onMount already loads the list).
+			let sawConnected = false;
+			connectionUnsubscribes.push(
+				downloaderConnectionState.subscribe((state) => {
+					if (token !== sessionToken) return;
+					if (state !== 'connected') return;
+					downloaderWebSocket.subscribeToAllDownloads();
+					if (sawConnected) {
+						void this.loadDownloads();
+					}
+					sawConnected = true;
+				})
+			);
+
+			return token;
 		},
 
 		// Cleanup WebSocket handlers
 		cleanupWebSocket(): void {
-			if (progressUnsubscribe) {
-				progressUnsubscribe();
-				progressUnsubscribe = null;
-			}
-			if (statusUnsubscribe) {
-				statusUnsubscribe();
-				statusUnsubscribe = null;
-			}
+			sessionToken += 1;
+			for (const unsubscribe of progressUnsubscribes) unsubscribe();
+			for (const unsubscribe of statusUnsubscribes) unsubscribe();
+			for (const unsubscribe of connectionUnsubscribes) unsubscribe();
+			progressUnsubscribes = [];
+			statusUnsubscribes = [];
+			connectionUnsubscribes = [];
+			// Drop the in-flight counts request's slot (its own token check
+			// still stops it from publishing) so a fresh mount's loadCounts()
+			// starts its own fetch instead of silently coalescing onto - and
+			// getting no publication from - a retired session's abandoned one.
+			countsInFlight = null;
 		},
 
 		// Load downloads from API
@@ -269,6 +369,8 @@ function createDownloadStore() {
 			limit = 50,
 			offset = 0
 		): Promise<void> {
+			const token = sessionToken;
+			const seqAtIssue = seqCounter;
 			loading.set(true);
 			error.set(null);
 
@@ -284,50 +386,81 @@ function createDownloadStore() {
 				const response = await api.getClient().get(`/api/downloads?${searchParams}`);
 				const data = response.data;
 
+				if (token !== sessionToken) return; // retired: view was torn down or replaced meanwhile
+
 				if (data.success && data.data) {
-					downloads.set(data.data.downloads || []);
-					downloadCounts.set(data.data.counts || {});
+					if (seqAtIssue >= lastListSeqApplied) {
+						const incoming: Download[] = data.data.downloads || [];
+						const merged = mergeListSnapshot(incoming, seqAtIssue);
+						const changedSince = Array.from(perIdSeq.values()).some((t) => t.seq > seqAtIssue);
+						downloads.set(merged);
+						downloadCounts.set(changedSince ? computeCountsFrom(merged) : data.data.counts || {});
+						lastListSeqApplied = seqAtIssue;
+					}
 				} else {
 					throw new Error(data.message || 'Failed to load downloads');
 				}
 			} catch (err: unknown) {
-				error.set(getErrorMessage(err));
+				if (token === sessionToken) {
+					error.set(getErrorMessage(err));
+				}
 				logger.error('Failed to load downloads:', err);
 			} finally {
-				loading.set(false);
+				if (token === sessionToken) {
+					loading.set(false);
+				}
 			}
 		},
 
-		// Load counts only
+		// Load counts only. Concurrent calls coalesce onto one in-flight
+		// request/publication; a response older than the newest one already
+		// applied is dropped instead of overwriting it.
 		async loadCounts(): Promise<void> {
-			try {
-				const response = await api.getClient().get('/api/downloads?limit=0');
-				const data = response.data;
-				if (data.success && data.data) {
-					downloadCounts.set(data.data.counts || {});
+			if (countsInFlight) return countsInFlight;
+
+			const token = sessionToken;
+			const seqAtIssue = seqCounter;
+
+			countsInFlight = (async () => {
+				try {
+					const response = await api.getClient().get('/api/downloads?limit=0');
+					const data = response.data;
+					if (token !== sessionToken) return;
+					if (seqAtIssue < lastAppliedCountsSeq) return;
+					if (data.success && data.data) {
+						downloadCounts.set(data.data.counts || {});
+						lastAppliedCountsSeq = seqAtIssue;
+					}
+				} catch (err) {
+					logger.error('Failed to load download counts:', err);
+				} finally {
+					countsInFlight = null;
 				}
-			} catch (err) {
-				logger.error('Failed to load download counts:', err);
-			}
+			})();
+
+			return countsInFlight;
 		},
 
 		// Load settings
 		async loadSettings(): Promise<void> {
+			const token = sessionToken;
 			try {
 				const response = await api.getClient().get('/api/downloads/settings');
 				const data = response.data;
+				if (token !== sessionToken) return;
 
 				if (data.success && data.data) {
 					downloadSettings.set(data.data);
 				}
 			} catch (err: unknown) {
-				error.set(getErrorMessage(err));
+				if (token === sessionToken) error.set(getErrorMessage(err));
 				logger.error('Failed to load download settings:', err);
 			}
 		},
 
 		// Update settings
 		async updateSettings(settings: Partial<DownloadSettings>): Promise<boolean> {
+			const token = sessionToken;
 			loading.set(true);
 			error.set(null);
 
@@ -336,24 +469,26 @@ function createDownloadStore() {
 				const data = response.data;
 
 				if (data.success && data.data) {
-					downloadSettings.set(data.data);
+					if (token === sessionToken) downloadSettings.set(data.data);
 					return true;
 				} else {
 					throw new Error(data.message || 'Failed to update settings');
 				}
 			} catch (err: unknown) {
-				error.set(getErrorMessage(err));
+				if (token === sessionToken) error.set(getErrorMessage(err));
 				logger.error('Failed to update download settings:', err);
 				return false;
 			} finally {
-				loading.set(false);
+				if (token === sessionToken) loading.set(false);
 			}
 		},
 
 		// Load configured native.remote backends the Downloader can target
 		async loadRemoteBackends(): Promise<void> {
+			const token = sessionToken;
 			try {
 				const response = await getBackends();
+				if (token !== sessionToken) return;
 				if (response.success && response.data) {
 					remoteBackends.set(
 						response.data
@@ -371,6 +506,7 @@ function createDownloadStore() {
 			url: string,
 			options?: QueueModelDownloadOptions
 		): Promise<Download | null> {
+			const token = sessionToken;
 			loading.set(true);
 			error.set(null);
 
@@ -379,18 +515,21 @@ function createDownloadStore() {
 				const data = response.data;
 
 				if (data.success && data.data) {
-					downloads.update((d) => [data.data, ...d]);
+					if (token === sessionToken) {
+						touchId(data.data.id);
+						downloads.update((d) => [data.data, ...d]);
+					}
 					downloaderWebSocket.subscribeToDownload(data.data.id);
 					return data.data;
 				} else {
 					throw new Error(data.message || 'Failed to queue download');
 				}
 			} catch (err: unknown) {
-				error.set(getErrorMessage(err));
+				if (token === sessionToken) error.set(getErrorMessage(err));
 				logger.error('Failed to queue model download:', err);
 				return null;
 			} finally {
-				loading.set(false);
+				if (token === sessionToken) loading.set(false);
 			}
 		},
 
@@ -402,6 +541,7 @@ function createDownloadStore() {
 				filename?: string;
 			}
 		): Promise<Download | null> {
+			const token = sessionToken;
 			loading.set(true);
 			error.set(null);
 
@@ -410,18 +550,21 @@ function createDownloadStore() {
 				const data = response.data;
 
 				if (data.success && data.data) {
-					downloads.update((d) => [data.data, ...d]);
+					if (token === sessionToken) {
+						touchId(data.data.id);
+						downloads.update((d) => [data.data, ...d]);
+					}
 					downloaderWebSocket.subscribeToDownload(data.data.id);
 					return data.data;
 				} else {
 					throw new Error(data.message || 'Failed to queue download');
 				}
 			} catch (err: unknown) {
-				error.set(getErrorMessage(err));
+				if (token === sessionToken) error.set(getErrorMessage(err));
 				logger.error('Failed to queue media download:', err);
 				return null;
 			} finally {
-				loading.set(false);
+				if (token === sessionToken) loading.set(false);
 			}
 		},
 
@@ -430,6 +573,7 @@ function createDownloadStore() {
 			repoId: string,
 			options?: QueueHfRepoDownloadOptions
 		): Promise<Download | null> {
+			const token = sessionToken;
 			loading.set(true);
 			error.set(null);
 
@@ -440,37 +584,44 @@ function createDownloadStore() {
 				const data = response.data;
 
 				if (data.success && data.data) {
-					downloads.update((d) => [data.data, ...d]);
+					if (token === sessionToken) {
+						touchId(data.data.id);
+						downloads.update((d) => [data.data, ...d]);
+					}
 					downloaderWebSocket.subscribeToDownload(data.data.id);
 					return data.data;
 				} else {
 					throw new Error(data.message || 'Failed to queue download');
 				}
 			} catch (err: unknown) {
-				error.set(getErrorMessage(err));
+				if (token === sessionToken) error.set(getErrorMessage(err));
 				logger.error('Failed to queue HF repo download:', err);
 				return null;
 			} finally {
-				loading.set(false);
+				if (token === sessionToken) loading.set(false);
 			}
 		},
 
 		// Pause download
 		async pauseDownload(downloadId: string): Promise<boolean> {
+			const token = sessionToken;
 			try {
 				const response = await api.getClient().post(`/api/downloads/${downloadId}/pause`);
 				const data = response.data;
 
 				if (data.success) {
-					downloads.update((d) =>
-						d.map((dl) => (dl.id === downloadId ? { ...dl, status: 'paused' } : dl))
-					);
+					if (token === sessionToken) {
+						touchId(downloadId, { patch: { status: 'paused' } });
+						downloads.update((d) =>
+							d.map((dl) => (dl.id === downloadId ? { ...dl, status: 'paused' } : dl))
+						);
+					}
 					return true;
 				} else {
 					throw new Error(data.message || 'Failed to pause download');
 				}
 			} catch (err: unknown) {
-				error.set(getErrorMessage(err));
+				if (token === sessionToken) error.set(getErrorMessage(err));
 				logger.error('Failed to pause download:', err);
 				return false;
 			}
@@ -478,20 +629,24 @@ function createDownloadStore() {
 
 		// Resume download
 		async resumeDownload(downloadId: string): Promise<boolean> {
+			const token = sessionToken;
 			try {
 				const response = await api.getClient().post(`/api/downloads/${downloadId}/resume`);
 				const data = response.data;
 
 				if (data.success) {
-					downloads.update((d) =>
-						d.map((dl) => (dl.id === downloadId ? { ...dl, status: 'pending' } : dl))
-					);
+					if (token === sessionToken) {
+						touchId(downloadId, { patch: { status: 'pending' } });
+						downloads.update((d) =>
+							d.map((dl) => (dl.id === downloadId ? { ...dl, status: 'pending' } : dl))
+						);
+					}
 					return true;
 				} else {
 					throw new Error(data.message || 'Failed to resume download');
 				}
 			} catch (err: unknown) {
-				error.set(getErrorMessage(err));
+				if (token === sessionToken) error.set(getErrorMessage(err));
 				logger.error('Failed to resume download:', err);
 				return false;
 			}
@@ -499,20 +654,24 @@ function createDownloadStore() {
 
 		// Cancel download
 		async cancelDownload(downloadId: string): Promise<boolean> {
+			const token = sessionToken;
 			try {
 				const response = await api.getClient().post(`/api/downloads/${downloadId}/cancel`);
 				const data = response.data;
 
 				if (data.success) {
-					downloads.update((d) =>
-						d.map((dl) => (dl.id === downloadId ? { ...dl, status: 'cancelled' } : dl))
-					);
+					if (token === sessionToken) {
+						touchId(downloadId, { patch: { status: 'cancelled' } });
+						downloads.update((d) =>
+							d.map((dl) => (dl.id === downloadId ? { ...dl, status: 'cancelled' } : dl))
+						);
+					}
 					return true;
 				} else {
 					throw new Error(data.message || 'Failed to cancel download');
 				}
 			} catch (err: unknown) {
-				error.set(getErrorMessage(err));
+				if (token === sessionToken) error.set(getErrorMessage(err));
 				logger.error('Failed to cancel download:', err);
 				return false;
 			}
@@ -520,22 +679,26 @@ function createDownloadStore() {
 
 		// Retry download
 		async retryDownload(downloadId: string): Promise<boolean> {
+			const token = sessionToken;
 			try {
 				const response = await api.getClient().post(`/api/downloads/${downloadId}/retry`);
 				const data = response.data;
 
 				if (data.success) {
-					downloads.update((d) =>
-						d.map((dl) =>
-							dl.id === downloadId ? { ...dl, status: 'pending', error_message: null } : dl
-						)
-					);
+					if (token === sessionToken) {
+						touchId(downloadId, { patch: { status: 'pending', error_message: null } });
+						downloads.update((d) =>
+							d.map((dl) =>
+								dl.id === downloadId ? { ...dl, status: 'pending', error_message: null } : dl
+							)
+						);
+					}
 					return true;
 				} else {
 					throw new Error(data.message || 'Failed to retry download');
 				}
 			} catch (err: unknown) {
-				error.set(getErrorMessage(err));
+				if (token === sessionToken) error.set(getErrorMessage(err));
 				logger.error('Failed to retry download:', err);
 				return false;
 			}
@@ -543,18 +706,22 @@ function createDownloadStore() {
 
 		// Delete download
 		async deleteDownload(downloadId: string): Promise<boolean> {
+			const token = sessionToken;
 			try {
 				const response = await api.getClient().delete(`/api/downloads/${downloadId}`);
 				const data = response.data;
 
 				if (data.success) {
-					downloads.update((d) => d.filter((dl) => dl.id !== downloadId));
+					if (token === sessionToken) {
+						touchId(downloadId, { deleted: true });
+						downloads.update((d) => d.filter((dl) => dl.id !== downloadId));
+					}
 					return true;
 				} else {
 					throw new Error(data.message || 'Failed to delete download');
 				}
 			} catch (err: unknown) {
-				error.set(getErrorMessage(err));
+				if (token === sessionToken) error.set(getErrorMessage(err));
 				logger.error('Failed to delete download:', err);
 				return false;
 			}
@@ -562,19 +729,25 @@ function createDownloadStore() {
 
 		// Clear completed downloads
 		async clearCompleted(): Promise<boolean> {
+			const token = sessionToken;
 			try {
 				const response = await api.getClient().post('/api/downloads/clear-completed');
 				const data = response.data;
 
 				if (data.success) {
-					downloads.update((d) => d.filter((dl) => dl.status !== 'completed'));
-					this.loadCounts();
+					if (token === sessionToken) {
+						for (const dl of get(downloads)) {
+							if (dl.status === 'completed') touchId(dl.id, { deleted: true });
+						}
+						downloads.update((d) => d.filter((dl) => dl.status !== 'completed'));
+						void this.loadCounts();
+					}
 					return true;
 				} else {
 					throw new Error(data.message || 'Failed to clear completed');
 				}
 			} catch (err: unknown) {
-				error.set(getErrorMessage(err));
+				if (token === sessionToken) error.set(getErrorMessage(err));
 				logger.error('Failed to clear completed downloads:', err);
 				return false;
 			}
@@ -588,6 +761,10 @@ function createDownloadStore() {
 		// Reset store
 		reset(): void {
 			this.cleanupWebSocket();
+			perIdSeq.clear();
+			lastListSeqApplied = -1;
+			lastAppliedCountsSeq = -1;
+			countsInFlight = null;
 			downloads.set([]);
 			downloadCounts.set({});
 			downloadSettings.set(null);

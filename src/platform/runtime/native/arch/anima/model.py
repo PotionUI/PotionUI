@@ -60,7 +60,7 @@ Returns velocity ``(B, out_channels=16, T, H, W)``.
 
 from __future__ import annotations
 
-from typing import Any, Optional, Tuple
+from typing import Any, NamedTuple, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -106,6 +106,26 @@ def _pad_to_patch_size(img: Tensor, patch_size: Tuple[int, int, int]) -> Tensor:
     if not any(pad):
         return img
     return F.pad(img, pad, mode="circular")
+
+
+class _FusedText(NamedTuple):
+    """A cached fused cross-attention context plus the tensors its key names.
+
+    Holding the sources is what makes ``data_ptr`` identity a sound key: while an
+    entry lives its source tensors cannot be freed, so no later tensor can be
+    allocated at one of those addresses and be mistaken for it.
+    """
+
+    fused: Tensor
+    context: Tensor
+    t5xxl_ids: Tensor
+    t5xxl_weights: Optional[Tensor]
+
+
+def _tensor_id(t: Optional[Tensor]):
+    if t is None:
+        return None
+    return (t.data_ptr(), tuple(t.shape), t.dtype, t.device)
 
 
 # ---------------------------------------------------------------------------
@@ -178,6 +198,39 @@ class Anima(NativeArchModule):
         """Run the in-model LLMAdapter: Qwen3 hidden + T5 ids -> cross-attn context."""
         return self.llm_adapter(source_hidden_states, target_input_ids)
 
+    def _fuse_text(self, x: Tensor, context: Tensor, t5xxl_ids: Tensor,
+                   t5xxl_weights: Optional[Tensor]) -> Tensor:
+        """LLMAdapter fusion, prompt weights, zero-pad to 512 — the DiT's context.
+
+        Every input here is a property of the guidance branch, never of the latent
+        or the timestep, so the whole thing is recomputed identically at every
+        step of a run. When the engine has attached a ``run_cache``
+        (``NativeGenerator.sample``), compute it once per branch and reuse the
+        result; the key carries that cache's weight revision so an in-place
+        adapter change can never be answered from a stale entry. The blocks only
+        read the context, so handing them the same tensor object each step is
+        byte-for-byte the recompute.
+        """
+        cache = getattr(self, "run_cache", None)
+        key = None
+        if cache is not None:
+            key = (
+                "anima.fused_text", cache.revision, x.dtype, x.device,
+                _tensor_id(context), _tensor_id(t5xxl_ids), _tensor_id(t5xxl_weights),
+            )
+            hit = cache.get(key)
+            if hit is not None:
+                return hit.fused
+
+        crossattn = self.preprocess_text_embeds(context.to(dtype=x.dtype), t5xxl_ids.to(device=x.device))
+        if t5xxl_weights is not None:
+            crossattn = crossattn * t5xxl_weights.unsqueeze(-1).to(crossattn)
+        if crossattn.shape[1] < 512:
+            crossattn = F.pad(crossattn, (0, 0, 0, 512 - crossattn.shape[1]))
+        if key is not None:
+            cache.put(key, _FusedText(crossattn, context, t5xxl_ids, t5xxl_weights))
+        return crossattn
+
     # -- forward ------------------------------------------------------------
 
     def forward(self, x: Tensor, timestep: Tensor, context: Tensor, y: Optional[Tensor] = None,
@@ -187,11 +240,7 @@ class Anima(NativeArchModule):
         # Fuse the text context through the LLMAdapter (ComfyUI's extra_conds).
         crossattn = context
         if t5xxl_ids is not None:
-            crossattn = self.preprocess_text_embeds(context.to(dtype=x.dtype), t5xxl_ids.to(device=x.device))
-            if t5xxl_weights is not None:
-                crossattn = crossattn * t5xxl_weights.unsqueeze(-1).to(crossattn)
-            if crossattn.shape[1] < 512:
-                crossattn = F.pad(crossattn, (0, 0, 0, 512 - crossattn.shape[1]))
+            crossattn = self._fuse_text(x, context, t5xxl_ids, t5xxl_weights)
 
         # Anima overrides ModelSamplingDiscreteFlow's default multiplier to 1.0
         # (supported_models.py: sampling_settings["multiplier"] == 1.0), so

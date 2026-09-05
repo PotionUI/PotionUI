@@ -29,6 +29,7 @@ from __future__ import annotations
 import itertools
 import logging
 import os
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Literal, Sequence
 
@@ -260,6 +261,45 @@ def _latent_frames(shape) -> int:
 # freed module, and a per-instance counter restarting at 0 could hand a recycled
 # ``id`` + counter pair back to a cache as a stale HIT.
 _weight_revisions = itertools.count(1)
+
+
+class RunCache:
+    """Bounded, run-scoped store for forward work that does not vary by step.
+
+    A denoise runs the DiT forward once per step per guidance branch, and part of
+    that forward can depend only on the branch's conditioning — Anima fuses its
+    text context through an in-model adapter, which is recomputed identically
+    every step (``arch/anima/model.py``). An arch looks for ``run_cache`` on
+    itself, so a family that has nothing step-invariant to hoist is unaffected.
+
+    ``revision`` is the DiT's :attr:`NativeModel.weight_revision` at run start:
+    every key must carry it, so a value computed before an in-place adapter
+    reconciliation can never answer a lookup made after one.
+
+    Capacity is the number of guidance branches a run can have; a further
+    distinct key evicts the oldest rather than growing. The engine drops the
+    whole cache at run end, so no entry outlives the run that keyed it.
+    """
+
+    def __init__(self, revision: int, max_entries: int = 2) -> None:
+        self.revision = revision
+        self.max_entries = max_entries
+        self._entries: dict[tuple, Any] = {}
+
+    def get(self, key: tuple) -> Any:
+        return self._entries.get(key)
+
+    def put(self, key: tuple, value: Any) -> Any:
+        if key not in self._entries and len(self._entries) >= self.max_entries:
+            del self._entries[next(iter(self._entries))]
+        self._entries[key] = value
+        return value
+
+    def clear(self) -> None:
+        self._entries.clear()
+
+    def __len__(self) -> int:
+        return len(self._entries)
 
 
 class NativeModel:
@@ -571,6 +611,9 @@ class NativeModel:
             except Exception:  # pragma: no cover - best-effort eviction
                 logger.debug("native model streamer teardown failed", exc_info=True)
         if self.module is not None:
+            cache = getattr(self.module, "run_cache", None)
+            if cache is not None:
+                cache.clear()
             try:
                 self.module.to("cpu")
             except Exception:  # pragma: no cover - best-effort eviction
@@ -1512,62 +1555,84 @@ class NativeGenerator:
 
         merged_settings = self._sampling_settings_for(guidance_options, schedule_settings)
 
-        # Spectral Progressive Diffusion (opt-in prototype): run early steps at a
-        # reduced latent resolution and grow. Image families only (4D latent,
-        # constant shift); txt2img only (no init_latent). Mutually exclusive with
-        # warm-start (a different-resolution trajectory can't be resumed) and with
-        # an explicit sigma list (this path builds its own schedule and has no
-        # way to honour a caller-supplied one). When the config is absent this
-        # whole block is skipped and the run is unchanged.
-        sp_config = None
-        if sigmas_tensor is None:
-            sp_config = self._spectral_progressive_config(
-                spectral_progressive, init_latent, latents, merged_settings)
-        if sp_config is not None:
-            return self._sample_spectral_progressive(
-                model_forward, latents, cond, uncond, steps=effective_steps, sampler=sampler,
-                merged_settings=merged_settings, cfg_scale=cfg_scale, opts=opts,
-                seed_noise=seed_noise, hooks=hooks, is_cancelled=is_cancelled,
-                sampler_options=sampler_options, sp_config=sp_config,
+        with self._run_cache():
+            # Spectral Progressive Diffusion (opt-in prototype): run early steps at a
+            # reduced latent resolution and grow. Image families only (4D latent,
+            # constant shift); txt2img only (no init_latent). Mutually exclusive with
+            # warm-start (a different-resolution trajectory can't be resumed) and with
+            # an explicit sigma list (this path builds its own schedule and has no
+            # way to honour a caller-supplied one). When the config is absent this
+            # whole block is skipped and the run is unchanged.
+            sp_config = None
+            if sigmas_tensor is None:
+                sp_config = self._spectral_progressive_config(
+                    spectral_progressive, init_latent, latents, merged_settings)
+            if sp_config is not None:
+                return self._sample_spectral_progressive(
+                    model_forward, latents, cond, uncond, steps=effective_steps, sampler=sampler,
+                    merged_settings=merged_settings, cfg_scale=cfg_scale, opts=opts,
+                    seed_noise=seed_noise, hooks=hooks, is_cancelled=is_cancelled,
+                    sampler_options=sampler_options, sp_config=sp_config,
+                )
+
+            # Trajectory warm-start ("iterate mode"): resume from a cached mid-run
+            # latent when the conditioning barely changed. txt2img + euler only (the
+            # only path that reproduces a bit-identical tail); an explicit noise tensor
+            # (not seed-derived) can't be keyed, so warm-start is disabled there too.
+            # An explicit sigma list is folded into the schedule signature (see
+            # ``schedule_signature``'s ``explicit_sigmas``) so a cached plan from a
+            # derived schedule of the same nominal length can never cross-resume with
+            # an explicit-list run, in either direction.
+            resume, run_hooks = self._plan_warm_start(
+                warm_start and noise is None, sampler, init_latent, cond, uncond, seed,
+                latents_shape, effective_steps, image_seq_len, hooks, merged_settings,
+                opts, sampler_options, step_cache_options, sigmas=sigmas_tensor,
             )
 
-        # Trajectory warm-start ("iterate mode"): resume from a cached mid-run
-        # latent when the conditioning barely changed. txt2img + euler only (the
-        # only path that reproduces a bit-identical tail); an explicit noise tensor
-        # (not seed-derived) can't be keyed, so warm-start is disabled there too.
-        # An explicit sigma list is folded into the schedule signature (see
-        # ``schedule_signature``'s ``explicit_sigmas``) so a cached plan from a
-        # derived schedule of the same nominal length can never cross-resume with
-        # an explicit-list run, in either direction.
-        resume, run_hooks = self._plan_warm_start(
-            warm_start and noise is None, sampler, init_latent, cond, uncond, seed,
-            latents_shape, effective_steps, image_seq_len, hooks, merged_settings,
-            opts, sampler_options, step_cache_options, sigmas=sigmas_tensor,
-        )
+            latent = denoise(
+                model_forward,
+                latents,
+                cond,
+                uncond,
+                steps=effective_steps,
+                sampler_name=sampler,
+                sampling_settings=merged_settings,
+                guidance_scale=cfg_scale,
+                image_seq_len=image_seq_len,
+                hooks=run_hooks,
+                is_cancelled=is_cancelled,
+                seed_noise=seed_noise,
+                denoise_strength=denoise_strength,
+                cfg_zero_star=opts.get("cfg_zero_star", True),
+                zero_init_steps=opts.get("zero_init_steps", 0),
+                sampler_options=sampler_options,
+                step_cache_options=step_cache_options,
+                resume=resume,
+                sigmas=sigmas_tensor,
+            )
+            self._release_dit_after_sampling()
+            return latent
 
-        latent = denoise(
-            model_forward,
-            latents,
-            cond,
-            uncond,
-            steps=effective_steps,
-            sampler_name=sampler,
-            sampling_settings=merged_settings,
-            guidance_scale=cfg_scale,
-            image_seq_len=image_seq_len,
-            hooks=run_hooks,
-            is_cancelled=is_cancelled,
-            seed_noise=seed_noise,
-            denoise_strength=denoise_strength,
-            cfg_zero_star=opts.get("cfg_zero_star", True),
-            zero_init_steps=opts.get("zero_init_steps", 0),
-            sampler_options=sampler_options,
-            step_cache_options=step_cache_options,
-            resume=resume,
-            sigmas=sigmas_tensor,
-        )
-        self._release_dit_after_sampling()
-        return latent
+    @contextmanager
+    def _run_cache(self):
+        """Attach a fresh :class:`RunCache` to the DiT module for one run.
+
+        Carried on the module rather than threaded through the conditioning dict
+        because each family's ``_make_forward`` decides which conditioning keys
+        reach its arch, and the arch that reads this one (Anima) overrides
+        ``_make_forward`` in its own pipe. Always detached: an entry that outlived
+        its run would hold conditioning-sized tensors alive behind a cached module
+        and could answer a lookup made after an in-place weight change.
+        """
+        module = self.dit.module
+        module.run_cache = RunCache(self.dit.weight_revision)
+        try:
+            yield
+        finally:
+            cache = getattr(module, "run_cache", None)
+            if cache is not None:
+                cache.clear()
+            module.run_cache = None
 
     def _release_dit_after_sampling(self) -> None:
         """Tear down the DiT's sampling placement at the end of a run.

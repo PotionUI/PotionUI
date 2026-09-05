@@ -45,9 +45,10 @@
 		applyDurableRecovery,
 		needsDurableRecovery,
 		findTurnAssistantMessage,
-		isRecoveryStillCurrent,
 		finishTurnIfCurrent,
-		settleUnrecoverable
+		settleUnrecoverable,
+		ownSession,
+		type OwnedSessionController
 	} from '$lib/utils/chatStream';
 	import {
 		resolveDirectorCapabilities,
@@ -645,7 +646,12 @@
 		loadRecentSessions();
 	}
 
-	async function startNewSession() {
+	/** Returns the created session's id, or null on failure — the caller
+	 * (sendMessage) uses the RETURNED id as its turn's owned session identity,
+	 * never a later read of `$chatSession.sessionId`: the store's current
+	 * session could already have moved on to something else by the time any
+	 * subsequent `await` in the caller resolves. */
+	async function startNewSession(): Promise<string | null> {
 		try {
 			// Subtractive tool filter: omit enabled_tools when everything is on;
 			// send the reduced list when the user unticked tools; [] disables all.
@@ -671,12 +677,15 @@
 				});
 				saveCurrentSessionId();
 				recentSessions = [response.data, ...recentSessions];
+				return response.data.id;
 			} else {
 				chatSession.patch({ error: 'Failed to create chat session' });
+				return null;
 			}
 		} catch (err) {
 			logger.error('Failed to create session:', err);
 			chatSession.patch({ error: 'Failed to create chat session' });
+			return null;
 		}
 	}
 
@@ -809,6 +818,15 @@
 	 * over its own token accumulator; a reattach replays tokens from the start,
 	 * so accumulating from '' reconstructs the same content the live path built.
 	 *
+	 * Every publication goes through `owned` (see `ownSession`), never the raw
+	 * `chatSession` store directly: `owned`'s captured {sessionId, turnSeq}
+	 * identity was fixed when the controller (sendMessage/reattachToTurn)
+	 * claimed this turn, and every one of `owned`'s methods re-checks that
+	 * identity against the store's CURRENT state before applying anything —
+	 * so a stream event that arrives after the user switched sessions, or
+	 * after a newer turn started in the same one, is silently dropped instead
+	 * of corrupting whatever now owns the UI.
+	 *
 	 * `overflow`/`replay_snapshot`/`no_active_turn` mean the locally accumulated
 	 * text can no longer be trusted to be the whole reply: either events were
 	 * dropped in transit, or this reconnect's expected prefix was compacted
@@ -816,11 +834,8 @@
 	 * `done`/`error` know whether to trust their own payload or reconcile
 	 * against the durable persisted message once the turn is no longer live.
 	 */
-	function createStreamEventHandler(
-		sessionId: string,
-		turnSeq: number,
-		initialUserMessageId?: string
-	) {
+	function createStreamEventHandler(owned: OwnedSessionController, initialUserMessageId?: string) {
+		const sessionId = owned.captured.sessionId;
 		let streamedContent = '';
 		let lastSeq: number | undefined;
 		let partial = false;
@@ -833,18 +848,19 @@
 
 		// Fetches the persisted assistant message that answers THIS turn's user
 		// message (never "the last assistant message in the session" — see
-		// findTurnAssistantMessage) and, if the session/turn this handler was
-		// created for is still the one the store is showing, replaces the
-		// streaming/partial placeholder with it. The only way to recover the
-		// real reply once no more stream events are coming (a turn that
+		// findTurnAssistantMessage) and, if `owned` is still current, replaces
+		// the streaming/partial placeholder with it. The only way to recover
+		// the real reply once no more stream events are coming (a turn that
 		// finished and was evicted) or once a gap or a truncated reference
-		// makes the accumulated text unreliable. Never re-runs a tool or
-		// re-invokes the stream: this is a read-only GET through the existing
-		// session/messages path. Idempotent per handler instance (`recovered`
-		// guards a second call).
+		// makes the accumulated text unreliable. Read-only (a GET through the
+		// existing session/messages path) — never re-runs a tool or re-invokes
+		// the stream, and skips the fetch entirely once already known stale.
+		// Idempotent per handler instance (`recovered` guards a second call).
 		async function recoverDurableMessage() {
 			if (recovered) return;
 			recovered = true;
+			if (!owned.isCurrent()) return; // don't even bother with a doomed fetch
+
 			let matched: ChatMessageResponse | null = null;
 			try {
 				const response = await api.getChatSession(sessionId);
@@ -855,16 +871,12 @@
 				logger.error('Failed to recover the persisted reply after a stream gap:', err);
 			}
 
-			const current = get(chatSession);
-			if (!isRecoveryStillCurrent(current, { sessionId, turnSeq })) {
-				// A different session, or a newer turn in this same one, now
-				// owns the UI — publishing this recovery would overwrite it
-				// with a retired turn's content. Drop it silently.
-				return;
-			}
+			// Re-check after the await: staleness can newly occur during the
+			// fetch itself, not just before it.
+			if (!owned.isCurrent()) return;
 
 			if (matched) {
-				chatSession.updateMessages((msgs) => applyDurableRecovery(msgs, mapPersistedMessage(matched!)));
+				owned.updateMessages((msgs) => applyDurableRecovery(msgs, mapPersistedMessage(matched!)));
 				return;
 			}
 
@@ -877,10 +889,9 @@
 			// flagged partial so the incomplete-reply affordance doesn't
 			// silently vanish. Preserve a more specific error already set by
 			// the triggering event over this generic one.
-			chatSession.updateMessages((msgs) => settleUnrecoverable(msgs));
-			chatSession.patch({
-				error: current.error || 'The full reply could not be recovered.'
-			});
+			const currentError = get(chatSession).error;
+			owned.updateMessages((msgs) => settleUnrecoverable(msgs));
+			owned.patch({ error: currentError || 'The full reply could not be recovered.' });
 		}
 
 		const handleEvent = async (event: { type: string; data: any }) => {
@@ -891,20 +902,24 @@
 			// complete even with no replay_snapshot/overflow ever seen.
 			if (event.data?.truncated) partial = true;
 
+			// Drop every event outright once this turn is no longer current —
+			// applying/scrolling for a retired turn, or spending a recovery
+			// fetch on one, would only corrupt or waste effort on whatever now
+			// owns the UI. `owned`'s own methods would no-op anyway, but this
+			// also skips e.g. an unnecessary recoverDurableMessage() GET.
+			if (!owned.isCurrent()) return;
+
 			if (event.type === 'message_created') {
 				userMessageId = event.data?.user_message_id || userMessageId;
 			} else if (event.type === 'token') {
 				streamedContent += event.data.content;
-				chatSession.applyStreamEvent(event, { accumulated: streamedContent });
-				scrollToBottom();
+				if (owned.applyStreamEvent(event, { accumulated: streamedContent })) scrollToBottom();
 			} else if (event.type === 'tool_start') {
-				chatSession.applyStreamEvent(event);
-				scrollToBottom();
+				if (owned.applyStreamEvent(event)) scrollToBottom();
 			} else if (event.type === 'tool_end') {
-				chatSession.applyStreamEvent(event);
+				owned.applyStreamEvent(event);
 			} else if (event.type === 'status') {
-				chatSession.applyStreamEvent(event);
-				scrollToBottom();
+				if (owned.applyStreamEvent(event)) scrollToBottom();
 			} else if (event.type === 'replay_snapshot') {
 				// This reconnect's expected prefix was compacted away; the
 				// snapshot's own bounded text replaces our accumulator so later
@@ -912,8 +927,7 @@
 				// message is flagged partial until done/error/recovery settles it.
 				streamedContent = event.data?.text_so_far || '';
 				partial = true;
-				chatSession.applyStreamEvent(event);
-				scrollToBottom();
+				if (owned.applyStreamEvent(event)) scrollToBottom();
 			} else if (event.type === 'overflow') {
 				// Some live events were dropped for this connection. Nothing is
 				// durably persisted yet for a still-running turn, so recovery
@@ -928,7 +942,7 @@
 				// local content right before recovery replaces it anyway.
 				// Skip straight to recovery instead of flashing that state.
 				if (!event.data?.truncated) {
-					chatSession.applyStreamEvent(event);
+					owned.applyStreamEvent(event);
 				}
 				selectedImageData = null;
 				if (needsDurableRecovery('done', partial)) await recoverDurableMessage();
@@ -940,13 +954,13 @@
 				}
 			} else if (event.type === 'generation_cancelled') {
 				// The turn was stopped; drop the streaming placeholder like an error.
-				chatSession.applyStreamEvent({ type: 'error', data: {} });
+				owned.applyStreamEvent({ type: 'error', data: {} });
 			} else if (event.type === 'error') {
-				chatSession.patch({ error: event.data.message || 'Streaming error' });
+				owned.patch({ error: event.data.message || 'Streaming error' });
 				if (needsDurableRecovery('error', partial)) {
 					await recoverDurableMessage();
 				} else {
-					chatSession.applyStreamEvent(event);
+					owned.applyStreamEvent(event);
 				}
 			} else if (event.type === 'no_active_turn') {
 				// Reattached to a turn that already finished and was evicted from
@@ -964,9 +978,9 @@
 	// assistant placeholder and replay the turn's events into it.
 	async function reattachToTurn(sessionId: string, afterSeq?: number, initialUserMessageId?: string) {
 		const turnSeq = chatSession.beginTurn();
-		const captured = { sessionId, turnSeq };
+		const owned = ownSession(chatSession, { sessionId, turnSeq });
 		chatSession.patch({ isGenerating: true, error: '' });
-		chatSession.addMessage({
+		owned.addMessage({
 			role: 'assistant',
 			content: '',
 			timestamp: Date.now(),
@@ -976,7 +990,7 @@
 		scrollToBottom();
 
 		try {
-			const { handleEvent } = createStreamEventHandler(sessionId, turnSeq, initialUserMessageId);
+			const { handleEvent } = createStreamEventHandler(owned, initialUserMessageId);
 			await api.reattachChatMessageStream(sessionId, handleEvent, { afterSeq });
 		} catch (err) {
 			logger.error('Failed to reattach to in-flight turn:', err);
@@ -985,7 +999,7 @@
 			// showing — a delayed recovery elsewhere, or a fresh send that
 			// started meanwhile, must not have this stale controller drop its
 			// (unrelated) streaming placeholder or clear its isGenerating.
-			const applied = finishTurnIfCurrent(chatSession, captured, (msgs) =>
+			const applied = finishTurnIfCurrent(chatSession, owned.captured, (msgs) =>
 				// Drop a still-empty placeholder (e.g. the turn had already
 				// finished and was evicted, so nothing was replayed).
 				msgs.filter(
@@ -1057,23 +1071,29 @@
 		const resourceRefs = options.resourceRefs || [];
 		const attachedResources = options.attachedResources || [];
 
+		// Ownership is established here, before session creation or any other
+		// await, and never re-derived from the store afterward. `turnSeq` is
+		// allocated immediately (it doesn't depend on which session exists).
+		// `sessionId` is either the one already selected when the user pressed
+		// send (read synchronously, right now), or — if a session still needs
+		// to be created — the id THAT call returns, taken directly: re-reading
+		// `$chatSession.sessionId` once that await resolves would pick up
+		// whatever session is current AT THAT LATER MOMENT, which the user
+		// could have already switched away from.
+		const turnSeq = chatSession.beginTurn();
 		chatSession.patch({ error: '', isGenerating: true });
-		// Set once the turn's placeholder/identity exist (below); every effect
-		// after that point is guarded through it — see finishTurnIfCurrent.
-		// Null while nothing has been claimed yet (e.g. session creation still
-		// failed), when there's nothing turn-specific to protect.
-		let captured: { sessionId: string; turnSeq: number } | null = null;
+
+		let ownedSessionId = $chatSession.sessionId;
+		if (!ownedSessionId) {
+			ownedSessionId = await startNewSession();
+			if (!ownedSessionId) {
+				chatSession.patch({ isGenerating: false });
+				return;
+			}
+		}
+		const owned = ownSession(chatSession, { sessionId: ownedSessionId, turnSeq });
 
 		try {
-			// Create session if not exists
-			if (!$chatSession.sessionId) {
-				await startNewSession();
-				if (!$chatSession.sessionId) {
-					chatSession.patch({ isGenerating: false });
-					return;
-				}
-			}
-
 			// Auto-attach last generated image only when it changes
 			let autoAttachedImage: typeof selectedImageData = null;
 			if (alwaysAttachLastImage && !selectedImageData && supportsVision) {
@@ -1109,10 +1129,10 @@
 					? { resources: attachedResources.map((r) => ({ uri: r.uri, title: r.label })) }
 					: undefined
 			};
-			chatSession.addMessage(tempUserMessage);
-
-			await tick();
-			scrollToBottom();
+			if (owned.addMessage(tempUserMessage)) {
+				await tick();
+				scrollToBottom();
+			}
 
 			// Build context_metadata so LLM tools have access to form state.
 			// In Video Director mode "segment #N" means a shot (get_video_director),
@@ -1172,24 +1192,25 @@
 			Object.assign(contextMetadata, collectProvidedContext());
 
 			// Add streaming assistant placeholder
-			const turnSeq = chatSession.beginTurn();
-			captured = { sessionId: $chatSession.sessionId!, turnSeq };
-			chatSession.addMessage({
-				role: 'assistant' as const,
-				content: '',
-				timestamp: Date.now(),
-				isStreaming: true
-			});
-			await tick();
-			scrollToBottom();
+			if (
+				owned.addMessage({
+					role: 'assistant' as const,
+					content: '',
+					timestamp: Date.now(),
+					isStreaming: true
+				})
+			) {
+				await tick();
+				scrollToBottom();
+			}
 
 			try {
 				// No initial user message id: this turn's user message doesn't
 				// exist yet server-side — the handler learns it from this same
 				// turn's own message_created event before any recovery could run.
-				const { handleEvent } = createStreamEventHandler($chatSession.sessionId!, turnSeq);
+				const { handleEvent } = createStreamEventHandler(owned);
 				await api.sendChatMessageStream(
-					$chatSession.sessionId!,
+					owned.captured.sessionId,
 					{
 						content: instruction,
 						imageData: effectiveImageData?.relative_path || effectiveImageData?.path || undefined,
@@ -1200,16 +1221,26 @@
 				);
 			} catch (err: any) {
 				logger.error('Stream error, falling back to non-streaming:', err);
+				// Nothing here may run for a turn that's no longer current — not
+				// the placeholder cleanup, and especially not the non-streaming
+				// fallback below: that fallback RE-SENDS the instruction to the
+				// LLM (a genuine model re-run, not just a state publication), so
+				// starting it at all for a retired turn would duplicate work
+				// against whatever now owns the UI, using this turn's stale
+				// instruction/session under a session id nobody asked for.
+				if (!owned.isCurrent()) return;
+
 				// Remove streaming placeholder
-				chatSession.updateMessages((msgs) =>
+				owned.updateMessages((msgs) =>
 					msgs.filter(
 						(m, idx) => !(idx === msgs.length - 1 && m.role === 'assistant' && m.isStreaming)
 					)
 				);
 
-				// Fallback to non-streaming
+				// Fallback to non-streaming — always against THIS turn's owned
+				// session id, never a re-read of the store's current one.
 				try {
-					const response = await api.sendChatMessage($chatSession.sessionId!, {
+					const response = await api.sendChatMessage(owned.captured.sessionId, {
 						content: instruction,
 						imageData: effectiveImageData?.relative_path || effectiveImageData?.path || undefined,
 						timeoutSeconds: selectedConfig?.timeout,
@@ -1217,10 +1248,13 @@
 						resources: resourceRefs
 					});
 
+					// Re-check: staleness can newly occur during this await too.
+					if (!owned.isCurrent()) return;
+
 					if (response.success && response.data) {
 						const userMsg = response.data.user_message;
 						const assistantMsg = response.data.assistant_message;
-						chatSession.updateMessages((msgs) => {
+						owned.updateMessages((msgs) => {
 							const updatedMessages = msgs.map((m, idx) => {
 								if (idx === msgs.length - 1 && m.role === 'user') {
 									return {
@@ -1257,32 +1291,22 @@
 						});
 						selectedImageData = null;
 					} else {
-						chatSession.patch({ error: response.error || 'Failed to send message' });
+						owned.patch({ error: response.error || 'Failed to send message' });
 					}
 				} catch (fallbackErr: any) {
-					chatSession.patch({ error: fallbackErr.message || 'Failed to send message' });
+					if (owned.isCurrent()) {
+						owned.patch({ error: fallbackErr.message || 'Failed to send message' });
+					}
 				}
 			}
 		} catch (err: any) {
 			logger.error('Error sending message:', err);
-			// Guarded like the finally below: a stale controller (this send's
-			// session/turn is no longer current) must not publish its own
-			// error over whatever now owns the UI.
-			if (!captured || isRecoveryStillCurrent(get(chatSession), captured)) {
-				chatSession.patch({ error: err.message || 'Failed to send message' });
-			}
+			owned.patch({ error: err.message || 'Failed to send message' });
 		} finally {
-			// Only if THIS send's session/turn is still current. When it never
-			// got far enough to claim one (e.g. session creation itself
-			// failed), there's nothing turn-specific to protect — just clear
-			// isGenerating directly.
-			let applied: boolean;
-			if (captured) {
-				applied = finishTurnIfCurrent(chatSession, captured);
-			} else {
-				chatSession.patch({ isGenerating: false });
-				applied = true;
-			}
+			// Only if THIS send's session/turn is still current — a stale
+			// controller must not clear isGenerating or scroll/focus for
+			// whatever now owns the UI.
+			const applied = finishTurnIfCurrent(chatSession, owned.captured);
 			if (applied) {
 				await tick();
 				scrollToBottom();

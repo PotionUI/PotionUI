@@ -423,7 +423,80 @@ export function isRecoveryStillCurrent(
  * store as well as the real `chatSession` singleton. */
 export interface TurnFinishableStore extends Readable<{ sessionId: string | null; turnSeq: number }> {
 	updateMessages(fn: (messages: UnifiedChatMessageData[]) => UnifiedChatMessageData[]): void;
-	patch(partial: { isGenerating?: boolean }): void;
+	patch(partial: { isGenerating?: boolean; error?: string }): void;
+}
+
+/**
+ * The subset of the chatSession store's interface a turn controller
+ * publishes through — everything `ownSession` wraps with the ownership
+ * check.
+ */
+export interface ChatSessionLikeStore extends TurnFinishableStore {
+	addMessage(message: UnifiedChatMessageData): void;
+	applyStreamEvent(event: { type: string; data: any }, opts?: { accumulated?: string }): void;
+}
+
+/** A `ChatSessionLikeStore` facade whose every mutating call is a no-op once
+ * its captured turn is no longer current — see `ownSession`. */
+export interface OwnedSessionController {
+	readonly captured: { sessionId: string; turnSeq: number };
+	/** Re-checked fresh on every call — never cached. */
+	isCurrent(): boolean;
+	patch(partial: { isGenerating?: boolean; error?: string }): boolean;
+	addMessage(message: UnifiedChatMessageData): boolean;
+	updateMessages(fn: (messages: Messages) => Messages): boolean;
+	applyStreamEvent(event: { type: string; data: any }, opts?: { accumulated?: string }): boolean;
+}
+
+/**
+ * Scope a chat session store to one turn's ownership: every mutating call
+ * becomes a no-op — returning `false` instead of applying — once
+ * `isRecoveryStillCurrent(get(store), captured)` is false.
+ *
+ * A turn controller (the live-send path, `reattachToTurn`) makes MANY
+ * publications over its lifetime: the optimistic user message, the streaming
+ * placeholder, every SSE event's reducer application, the transport-failure
+ * fallback's own updates, the terminal cleanup. By the time any one of these
+ * runs, the user could have switched sessions or started a newer turn in the
+ * same one — checking this once at the top and trusting it for everything
+ * that follows is exactly the bug this closes (Codex found the INNER
+ * catch's fallback path and individual stream-event application both
+ * skipping the check entirely). Wrapping the store once, here, means every
+ * call site gets the guard automatically instead of one being missed.
+ *
+ * Returns `false` from a call instead of throwing — the caller can use that
+ * to skip its own dependent effects (e.g. not scrolling to a message that
+ * was never actually applied) without a try/catch.
+ */
+export function ownSession(
+	store: ChatSessionLikeStore,
+	captured: { sessionId: string; turnSeq: number }
+): OwnedSessionController {
+	const isCurrent = () => isRecoveryStillCurrent(get(store), captured);
+	return {
+		captured,
+		isCurrent,
+		patch(partial) {
+			if (!isCurrent()) return false;
+			store.patch(partial);
+			return true;
+		},
+		addMessage(message) {
+			if (!isCurrent()) return false;
+			store.addMessage(message);
+			return true;
+		},
+		updateMessages(fn) {
+			if (!isCurrent()) return false;
+			store.updateMessages(fn);
+			return true;
+		},
+		applyStreamEvent(event, opts) {
+			if (!isCurrent()) return false;
+			store.applyStreamEvent(event, opts);
+			return true;
+		}
+	};
 }
 
 /**

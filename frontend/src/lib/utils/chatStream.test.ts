@@ -14,6 +14,7 @@ import {
 	findTurnAssistantMessage,
 	isRecoveryStillCurrent,
 	finishTurnIfCurrent,
+	ownSession,
 	mergeTraceTimeline,
 	hydrateTraceSteps,
 	formatContextLedgerSummary,
@@ -700,6 +701,250 @@ describe('finishTurnIfCurrent (against the real chatSession store)', () => {
 		const state = get(chatSession);
 		expect(state.isGenerating).toBe(true);
 		expect(state.messages).toHaveLength(2); // neither placeholder was dropped
+	});
+});
+
+describe('sendMessage ownership (mirrors the real controller in UnifiedAIChat.svelte)', () => {
+	// A hand-rolled mirror of sendMessage's ownership-relevant control flow,
+	// against the REAL chatSession store, with fake transports standing in
+	// for api.sendChatMessageStream / api.sendChatMessage / session creation.
+	// Mirrors the fixed shape exactly: {sessionId, turnSeq} is established
+	// before any await (session creation's result is used directly, never a
+	// later re-read of the store); every publication and every outbound
+	// request's session id goes through `owned`/`owned.captured.sessionId`;
+	// the non-streaming fallback is gated on `owned.isCurrent()` BEFORE it is
+	// even started, both before and after its own await.
+	async function send(
+		instruction: string,
+		transports: {
+			createSession?: () => Promise<string | null>;
+			sendStream?: (sessionId: string, onEvent: (e: { type: string; data: any }) => void) => Promise<void>;
+			sendFallback?: (
+				sessionId: string,
+				content: string
+			) => Promise<{ success: boolean; data?: { id: string; content: string }; error?: string }>;
+		}
+	): Promise<void> {
+		const turnSeq = chatSession.beginTurn();
+		chatSession.patch({ error: '', isGenerating: true });
+
+		let ownedSessionId = get(chatSession).sessionId;
+		if (!ownedSessionId) {
+			ownedSessionId = transports.createSession ? await transports.createSession() : null;
+			if (!ownedSessionId) {
+				chatSession.patch({ isGenerating: false });
+				return;
+			}
+		}
+		const owned = ownSession(chatSession, { sessionId: ownedSessionId, turnSeq });
+
+		try {
+			owned.addMessage({ role: 'user', content: instruction, timestamp: Date.now() });
+			owned.addMessage({ role: 'assistant', content: '', timestamp: Date.now(), isStreaming: true });
+
+			try {
+				await transports.sendStream?.(owned.captured.sessionId, (event) => {
+					// Mirrors handleEvent's shape: drop outright once retired.
+					if (!owned.isCurrent()) return;
+					if (event.type === 'token') {
+						owned.applyStreamEvent(event, { accumulated: event.data.content });
+					} else {
+						owned.applyStreamEvent(event);
+					}
+				});
+			} catch (err) {
+				// The fallback RE-RUNS the model — must not even start for a
+				// retired turn.
+				if (!owned.isCurrent()) return;
+				owned.updateMessages((msgs) =>
+					msgs.filter((m, idx) => !(idx === msgs.length - 1 && m.role === 'assistant' && m.isStreaming))
+				);
+				if (!transports.sendFallback) return;
+
+				try {
+					const response = await transports.sendFallback(owned.captured.sessionId, instruction);
+					if (!owned.isCurrent()) return; // staleness can newly occur during this await too
+
+					if (response.success && response.data) {
+						owned.updateMessages((msgs) => [
+							...msgs,
+							{ id: response.data!.id, role: 'assistant' as const, content: response.data!.content, timestamp: Date.now() }
+						]);
+					} else {
+						owned.patch({ error: response.error || 'Failed to send message' });
+					}
+				} catch (fallbackErr: any) {
+					if (owned.isCurrent()) {
+						owned.patch({ error: fallbackErr.message || 'Failed to send message' });
+					}
+				}
+			}
+		} finally {
+			finishTurnIfCurrent(chatSession, owned.captured);
+		}
+	}
+
+	beforeEach(() => {
+		chatSession.reset();
+	});
+
+	it('control: an ordinary, unchanged-turn send behaves normally end to end', async () => {
+		chatSession.patch({ sessionId: 'A' });
+		await send('hi', {
+			sendStream: async (_sessionId, onEvent) => {
+				onEvent({ type: 'token', data: { content: 'Hello' } });
+				onEvent({ type: 'done', data: { assistant_message: { id: 'a1', content: 'Hello' } } });
+			}
+		});
+
+		const state = get(chatSession);
+		expect(state.isGenerating).toBe(false);
+		expect(state.messages).toHaveLength(2);
+		expect(state.messages[1]).toMatchObject({ id: 'a1', content: 'Hello', isStreaming: false });
+	});
+
+	it('drops a late token arriving after the user switched to a different session', () => {
+		chatSession.patch({ sessionId: 'A' });
+		let deliverEvent: ((e: { type: string; data: any }) => void) | undefined;
+		// Never resolves — the test drives events into it manually.
+		const sendPromise = send('hello from A', {
+			sendStream: (_sessionId, onEvent) => {
+				deliverEvent = onEvent;
+				return new Promise<void>(() => {});
+			}
+		});
+		void sendPromise;
+		expect(deliverEvent).toBeDefined();
+
+		// The user switches to session B — a real session switch replaces the
+		// message list wholesale (chatSession.loadedSession), so B starts
+		// clean, not appended after A's own messages — and starts its own
+		// turn there.
+		chatSession.beginTurn();
+		chatSession.patch({ sessionId: 'B', isGenerating: true, error: '', messages: [] });
+		chatSession.addMessage({ role: 'assistant', content: '', timestamp: 2, isStreaming: true });
+
+		// A's retained handler now receives a late token.
+		deliverEvent!({ type: 'token', data: { content: 'A late token' } });
+
+		const state = get(chatSession);
+		expect(state.sessionId).toBe('B');
+		expect(state.messages).toHaveLength(1);
+		expect(state.messages[0].content).toBe(''); // B's placeholder untouched
+	});
+
+	it('never starts the non-streaming fallback, and leaves B untouched, when the transport rejects after a session switch', async () => {
+		chatSession.patch({ sessionId: 'A' });
+		let rejectStream: ((err: Error) => void) | undefined;
+		let fallbackCalls = 0;
+
+		const sendPromise = send('hello from A', {
+			sendStream: () => new Promise<void>((_resolve, reject) => (rejectStream = reject)),
+			sendFallback: async () => {
+				fallbackCalls += 1;
+				return { success: true, data: { id: 'a-fallback', content: 'should never happen' } };
+			}
+		});
+
+		// The user switches to B (a real switch replaces the message list
+		// wholesale) and starts its own turn there before A's stream
+		// transport ever settles.
+		chatSession.beginTurn();
+		chatSession.patch({ sessionId: 'B', isGenerating: true, error: '', messages: [] });
+		chatSession.addMessage({ role: 'user', content: 'B question', timestamp: 1 });
+		chatSession.addMessage({ role: 'assistant', content: '', timestamp: 2, isStreaming: true });
+
+		rejectStream!(new Error('network down'));
+		await sendPromise;
+
+		expect(fallbackCalls).toBe(0); // never re-ran the model for a retired turn
+		const state = get(chatSession);
+		expect(state.sessionId).toBe('B');
+		expect(state.messages).toHaveLength(2);
+		expect(state.messages[0].content).toBe('B question'); // not replaced with A's instruction
+		expect(state.messages[1].isStreaming).toBe(true); // B's placeholder untouched
+	});
+
+	it('drops a fallback SUCCESS response arriving after a newer turn started in the same session', async () => {
+		chatSession.patch({ sessionId: 'A' });
+		let rejectStream: ((err: Error) => void) | undefined;
+		let resolveFallback: ((v: { success: boolean; data?: { id: string; content: string } }) => void) | undefined;
+
+		const sendPromise = send('hello', {
+			sendStream: () => new Promise<void>((_resolve, reject) => (rejectStream = reject)),
+			sendFallback: () => new Promise((resolve) => (resolveFallback = resolve))
+		});
+
+		rejectStream!(new Error('boom'));
+		// Let the catch block run far enough to actually issue the fallback
+		// call (a variable number of microtask hops — poll rather than guess).
+		while (!resolveFallback) await Promise.resolve();
+
+		// A newer turn starts in the SAME session while the fallback is
+		// still in flight.
+		chatSession.beginTurn();
+		chatSession.patch({ isGenerating: true, error: '' });
+		chatSession.addMessage({ role: 'assistant', content: '', timestamp: 2, isStreaming: true });
+
+		resolveFallback!({ success: true, data: { id: 'late-fallback', content: 'should never appear' } });
+		await sendPromise;
+
+		const state = get(chatSession);
+		// A's own placeholder was already removed by A's own (still-current at
+		// the time) catch-block cleanup, before the newer turn ever started —
+		// only A's user message (never touched — same session, no switch) and
+		// the newer turn's own placeholder remain. The late fallback SUCCESS
+		// must not have appended its content anywhere.
+		expect(state.messages).toHaveLength(2);
+		expect(state.messages[0].content).toBe('hello');
+		expect(state.messages[1].content).toBe('');
+		expect(state.messages.some((m) => m.id === 'late-fallback')).toBe(false);
+	});
+
+	it('drops a fallback FAILURE arriving after a newer turn started in the same session', async () => {
+		chatSession.patch({ sessionId: 'A' });
+		let rejectStream: ((err: Error) => void) | undefined;
+		let rejectFallback: ((err: Error) => void) | undefined;
+
+		const sendPromise = send('hello', {
+			sendStream: () => new Promise<void>((_resolve, reject) => (rejectStream = reject)),
+			sendFallback: () => new Promise((_resolve, reject) => (rejectFallback = reject))
+		});
+
+		rejectStream!(new Error('boom'));
+		while (!rejectFallback) await Promise.resolve();
+
+		chatSession.beginTurn();
+		chatSession.patch({ isGenerating: true, error: '' });
+
+		rejectFallback!(new Error('also boom'));
+		await sendPromise;
+
+		const state = get(chatSession);
+		expect(state.error).toBe(''); // not overwritten by the retired turn's failure
+	});
+
+	it('stays attached to its own newly-created session identity, never one the store shows once creation resolves', async () => {
+		// No session exists yet — createSession simulates the async round trip
+		// WITHOUT itself publishing to the store (isolating exactly what
+		// sendMessage's own ownership handling does with the returned id).
+		let resolveCreate: ((id: string) => void) | undefined;
+		const sendPromise = send('first message ever', {
+			createSession: () => new Promise<string>((resolve) => (resolveCreate = resolve)),
+			sendStream: async (_sessionId, onEvent) => onEvent({ type: 'done', data: {} })
+		});
+
+		// While creation is still pending, the user switches to an existing
+		// session C — its own conversation must never be touched by this send.
+		chatSession.patch({ sessionId: 'C', messages: [{ role: 'user', content: 'C question', timestamp: 1 }] });
+
+		resolveCreate!('NEW'); // creation resolves; the store never adopts 'NEW' as current
+		await sendPromise;
+
+		const state = get(chatSession);
+		expect(state.sessionId).toBe('C');
+		expect(state.messages).toHaveLength(1);
+		expect(state.messages[0].content).toBe('C question');
 	});
 });
 

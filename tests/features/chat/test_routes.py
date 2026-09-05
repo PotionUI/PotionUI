@@ -935,6 +935,68 @@ class TestChatController:
         assert "".join(chunks) == ""
 
 
+class TestReattachStreamCursor:
+    """reattach_stream forwards after_seq to the turn so a reconnecting client
+    only replays what it doesn't already have."""
+
+    @pytest.fixture
+    def mock_chat_manager(self):
+        manager = Mock()
+        manager.chat_mode_registry.get.return_value = None
+        return manager
+
+    @pytest.fixture
+    def controller(self, mock_chat_manager):
+        return ChatController(chat_runtime=mock_chat_manager, turn_registry=ChatTurnRegistry())
+
+    @pytest.fixture
+    def sample_user(self):
+        return User(
+            id="user-123", username="testuser", email="test@example.com",
+            password_hash="hash", account_type="USER",
+        )
+
+    @staticmethod
+    def _parse_sse(full_output: str):
+        events = []
+        for block in full_output.split("\n\n"):
+            if not block.strip():
+                continue
+            lines = block.split("\n")
+            event_type = lines[0][len("event: "):]
+            data = json.loads(lines[1][len("data: "):])
+            events.append((event_type, data))
+        return events
+
+    @pytest.mark.asyncio
+    async def test_after_seq_replays_only_newer_events(
+        self, controller, mock_chat_manager, sample_user
+    ):
+        mock_chat_manager.get_session.return_value = Mock(id="session-123")
+
+        async def factory():
+            yield {"event": "token", "data": {"content": "a"}}
+            yield {"event": "token", "data": {"content": "b"}}
+            yield {"event": "done", "data": {}}
+
+        turn = controller.turn_registry.start("session-123", "user-123", factory)
+        await turn.done.wait()
+
+        # after_seq omitted: the full replay, as before this change.
+        full = await controller.reattach_stream("session-123", sample_user)
+        full_chunks = [c async for c in full.body_iterator]
+        full_events = self._parse_sse("".join(full_chunks))
+        assert [e for e, _ in full_events] == ["token", "token", "done"]
+
+        # after_seq = the first event's seq: only the later two replay.
+        first_seq = turn.events[0]["seq"]
+        partial = await controller.reattach_stream("session-123", sample_user, after_seq=first_seq)
+        partial_chunks = [c async for c in partial.body_iterator]
+        partial_events = self._parse_sse("".join(partial_chunks))
+        assert [e for e, _ in partial_events] == ["token", "done"]
+        assert partial_events[0][1]["content"] == "b"
+
+
 class TestChatModesEndpoints:
     """Tests for GET /api/chat/modes and mode-filtered GET /api/chat/tools."""
 

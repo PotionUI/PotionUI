@@ -79,7 +79,10 @@ class TestTurnRegistryMechanics:
         await asyncio.wait_for(turn.done.wait(), timeout=2)
 
         replayed = [ev async for ev in turn.stream()]
-        assert replayed == events
+        # Every event now carries a monotonic replay ``seq`` in addition to
+        # the original event/data fields.
+        assert [{k: v for k, v in ev.items() if k != "seq"} for ev in replayed] == events
+        assert [ev["seq"] for ev in replayed] == [1, 2, 3]
 
     @pytest.mark.asyncio
     async def test_midflight_subscriber_gets_replay_then_live(self):
@@ -182,6 +185,180 @@ class TestTurnRegistryMechanics:
 
         assert registry.active("s1") is None
         assert registry.get("s1") is turn
+
+    @pytest.mark.asyncio
+    async def test_replay_is_read_only_and_never_reruns_the_factory(self):
+        """Attaching subscribers (including after completion) must not re-invoke
+        the stream factory — replay is pure fan-out, never a re-execution."""
+        registry = ChatTurnRegistry()
+        calls = {"n": 0}
+
+        def factory():
+            calls["n"] += 1
+            return _make_stream([
+                {"event": "tool_start", "data": {"tool_name": "delete_thing"}},
+                {"event": "tool_end", "data": {"tool_name": "delete_thing", "success": True}},
+                {"event": "done", "data": {}},
+            ])
+
+        turn = registry.start("s1", "u1", factory)
+
+        # A subscriber attaches mid-turn...
+        mid_stream = turn.stream()
+        await mid_stream.__anext__()
+        await mid_stream.aclose()
+
+        await asyncio.wait_for(turn.done.wait(), timeout=2)
+
+        # ...and two more attach after it's finished (a reload, then another tab).
+        _ = [ev async for ev in turn.stream()]
+        _ = [ev async for ev in turn.stream()]
+
+        assert calls["n"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Bounded replay buffer: caps, compaction, and reconnect cursors
+# ---------------------------------------------------------------------------
+
+class TestBoundedReplayBuffer:
+    @pytest.mark.asyncio
+    async def test_retained_buffer_plateaus_as_events_grow(self):
+        """Retained event count and serialized bytes must stay bounded even as
+        a turn emits far more events than the caps allow."""
+        registry = ChatTurnRegistry(max_events_per_turn=20, max_replay_bytes_per_turn=10_000)
+        events = [{"event": "token", "data": {"content": "x" * 20}} for _ in range(500)]
+        events.append({"event": "done", "data": {}})
+
+        turn = registry.start("s1", "u1", lambda: _make_stream(events))
+        await asyncio.wait_for(turn.done.wait(), timeout=5)
+
+        assert len(turn.events) <= 21  # cap + at most one compaction marker
+        assert turn._total_bytes <= 10_000 + 8_500  # cap + one marker's own size
+
+    @pytest.mark.asyncio
+    async def test_essential_events_survive_compaction(self):
+        """tool_start/tool_end/done are never dropped even when far more token
+        deltas than the cap have been emitted around them."""
+        registry = ChatTurnRegistry(max_events_per_turn=10, max_replay_bytes_per_turn=10_000)
+        events = [{"event": "tool_start", "data": {"tool_name": "search"}}]
+        events += [{"event": "token", "data": {"content": "y"}} for _ in range(200)]
+        events.append({"event": "tool_end", "data": {"tool_name": "search", "success": True}})
+        events.append({"event": "done", "data": {}})
+
+        turn = registry.start("s1", "u1", lambda: _make_stream(events))
+        await asyncio.wait_for(turn.done.wait(), timeout=5)
+
+        kinds = [e["event"] for e in turn.events]
+        assert "tool_start" in kinds
+        assert "tool_end" in kinds
+        assert kinds[-1] == "done"
+
+    @pytest.mark.asyncio
+    async def test_reconnect_after_compaction_gets_snapshot_then_resumes(self):
+        """A subscriber whose cursor predates the compacted prefix gets a
+        ``replay_snapshot`` marker (with the dropped text and a cursor) instead
+        of a silent gap, followed by the events still retained."""
+        registry = ChatTurnRegistry(max_events_per_turn=5, max_replay_bytes_per_turn=100_000)
+        gate = asyncio.Event()
+
+        async def factory_gen():
+            for i in range(20):
+                yield {"event": "token", "data": {"content": f"t{i}-"}}
+            await gate.wait()
+            yield {"event": "done", "data": {}}
+
+        turn = registry.start("s1", "u1", factory_gen)
+        while turn._compacted_through == 0:
+            await asyncio.sleep(0)
+
+        # The turn is still running (blocked on the gate), so read only the
+        # replay batch a fresh subscriber is pre-loaded with — iterating
+        # ``stream()`` itself would wait forever for the not-yet-sent sentinel.
+        sub = turn.add_subscriber(after_seq=0)
+        replayed = []
+        while not sub.queue.empty():
+            replayed.append(sub.queue.get_nowait())
+        assert replayed[0]["event"] == "replay_snapshot"
+        assert replayed[0]["seq"] == turn._compacted_through
+        assert "t0-" in replayed[0]["data"]["text_so_far"]
+        assert replayed[0]["data"]["cursor"] == turn._compacted_through
+
+        gate.set()
+        await asyncio.wait_for(turn.done.wait(), timeout=2)
+
+        # A subscriber already past the marker's cursor never sees it again.
+        # The turn is finished now, so a full stream() replay terminates.
+        caught_up = [ev async for ev in turn.stream(after_seq=turn._compacted_through)]
+        assert all(ev["event"] != "replay_snapshot" for ev in caught_up)
+        assert caught_up[-1]["event"] == "done"
+
+    @pytest.mark.asyncio
+    async def test_slow_subscriber_gets_overflow_marker_without_blocking_producer(self):
+        """A subscriber that never reads must not block the producer; once it
+        does read, it gets an explicit overflow marker instead of silence."""
+        registry = ChatTurnRegistry(subscriber_queue_maxsize=3)
+
+        async def factory_gen():
+            yield {"event": "token", "data": {"content": "0"}}
+            await asyncio.sleep(0)  # deterministic handoff: let the subscriber attach and read this one
+            for i in range(1, 60):
+                yield {"event": "token", "data": {"content": str(i)}}
+            yield {"event": "done", "data": {}}
+
+        turn = registry.start("s1", "u1", factory_gen)
+
+        # Force subscription (add_subscriber runs on the first __anext__), then
+        # stop reading — a stalled browser tab, from the producer's view.
+        stream = turn.stream()
+        first = await stream.__anext__()
+        assert first["event"] == "token"
+
+        # The producer must finish the whole turn without ever blocking on us,
+        # even though nothing further is read from `stream` until it's done.
+        await asyncio.wait_for(turn.done.wait(), timeout=5)
+
+        collected = [ev async for ev in stream]
+        assert any(ev["event"] == "overflow" for ev in collected)
+        assert collected[-1]["event"] == "done"
+
+    @pytest.mark.asyncio
+    async def test_finished_turn_evicted_after_ttl(self):
+        """A finished turn past its TTL is reclaimed at the next lifecycle
+        boundary, independent of the count cap."""
+        registry = ChatTurnRegistry(finished_turn_ttl_seconds=0)
+        turn = registry.start("s1", "u1", lambda: _make_stream([{"event": "done", "data": {}}]))
+        await asyncio.wait_for(turn.done.wait(), timeout=2)
+
+        # _finish() already triggered a reclamation pass via the on-change hook.
+        assert registry.get("s1") is None
+
+    @pytest.mark.asyncio
+    async def test_pathological_group_reclaimed_once_all_finish(self):
+        """When every retained turn is still running past the count cap, the
+        eviction is a no-op — but once they finish, a later lifecycle boundary
+        (not a new start()) reclaims them down to the cap."""
+        registry = ChatTurnRegistry(max_retained_turns=2)
+        gates = [asyncio.Event() for _ in range(3)]
+
+        async def slow(i):
+            yield {"event": "token", "data": {"content": "x"}}
+            await gates[i].wait()
+            yield {"event": "done", "data": {}}
+
+        turns = [registry.start(f"s{i}", "u1", lambda i=i: slow(i)) for i in range(3)]
+        while any(not t.events for t in turns):
+            await asyncio.sleep(0)
+
+        # All three still running: over the cap of 2, but nothing to evict yet.
+        assert len(registry._turns) == 3
+
+        for i, gate in enumerate(gates):
+            gate.set()
+            await asyncio.wait_for(turns[i].done.wait(), timeout=2)
+
+        # Each finish() ran a reclamation pass; the group is back under the cap.
+        assert len(registry._turns) <= 2
 
 
 # ---------------------------------------------------------------------------

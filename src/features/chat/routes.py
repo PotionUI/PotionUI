@@ -360,10 +360,15 @@ class ChatController(BaseController):
 
         return self._sse_response(turn.stream())
 
-    async def reattach_stream(self, session_id: str, user: User) -> StreamingResponse:
+    async def reattach_stream(
+        self, session_id: str, user: User, after_seq: Optional[int] = None
+    ) -> StreamingResponse:
         """Subscribe to the session's in-flight (or just-finished) turn.
 
-        Used on reload to resume a live response. Auth mirrors the other chat
+        Used on reload to resume a live response. ``after_seq``, when given, is
+        the highest event sequence number the client already has — only newer
+        events are replayed (transparently including a snapshot marker if the
+        client's prefix was since compacted away). Auth mirrors the other chat
         routes: ``get_session`` raises if the user can't access the session.
         """
         try:
@@ -383,7 +388,7 @@ class ChatController(BaseController):
                 yield {"event": "no_active_turn", "data": {}}
             return self._sse_response(none_active())
 
-        return self._sse_response(turn.stream())
+        return self._sse_response(turn.stream(after_seq=after_seq))
 
     async def cancel_turn(self, session_id: str, user: User) -> APIResponse:
         """Explicitly stop the session's in-flight turn (the stop button)."""
@@ -851,10 +856,11 @@ def build_router(container: "AppContainer") -> APIRouter:
     @router.get("/sessions/{session_id}/messages/stream", summary="Reattach to an in-flight turn (SSE)")
     async def reattach_stream(
         session_id: str,
+        after_seq: Optional[int] = None,
         current_user: User = Depends(get_current_active_user)
     ):
         """Resume the live stream of a turn already running for this session."""
-        return await controller.reattach_stream(session_id, current_user)
+        return await controller.reattach_stream(session_id, current_user, after_seq=after_seq)
 
     @router.post("/sessions/{session_id}/turn/cancel", response_model=APIResponse, summary="Cancel the in-flight turn")
     async def cancel_turn(

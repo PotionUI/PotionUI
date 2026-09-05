@@ -69,6 +69,8 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import concurrent.futures
+import contextvars
 import io
 import json
 import logging
@@ -236,6 +238,75 @@ async def _supervised_teardown(
         "[NativeLLM] supervised cleanup for '%s' (%s) completed now that the "
         "streaming worker exited", model_name, key,
     )
+
+
+def _submit_cancellable(fn: Callable[[], Any]) -> "tuple[asyncio.Future, Any, threading.Event, list]":
+    """Submits `fn` to the CURRENT event loop's default executor — the same
+    executor `asyncio.to_thread(fn)` would use, resolved and lazily created
+    exactly the way `loop.run_in_executor(None, ...)` does, so a test can
+    still control it via `loop.set_default_executor` — and returns
+    `(async_future, raw_future, done, outcome)`:
+
+    * `async_future` — await this for the normal result, identical to
+      `await asyncio.to_thread(fn)`.
+    * `raw_future` — the underlying `concurrent.futures.Future`. Its OWN
+      `.cancel()` is the only reliable way to learn whether `fn` ever
+      actually started: by the time a caller's `except CancelledError`
+      block runs, asyncio's task-cancellation machinery has USUALLY already
+      called `.cancel()` on `async_future` itself (that's how the exception
+      got raised into the `await` in the first place), so `async_future`
+      already reports itself cancelled regardless of what `fn` is doing —
+      its own `.cancel()` return value is meaningless by then.
+      `raw_future.cancel()` returns True only if `fn` was still PENDING
+      (never dequeued to run) and is now guaranteed to NEVER run; it
+      returns False if `fn` is already running or already finished, in
+      which case `done` below WILL eventually be set and the real outcome
+      must be awaited, never assumed.
+    * `done` / `outcome` — set / appended to from INSIDE `fn`'s own wrapper
+      once it actually returns or raises, independent of whatever happens
+      to `async_future` — the only way to observe a cancelled await's real
+      result once cancellation has already discarded it there. `outcome`
+      holds one `("ok", value)` or `("error", exception)` tuple.
+
+    Every cancellable `_leased`/`_teardown`/`generate_with_history` boundary
+    (acquire, device placement, offload, the buffered generation call) goes
+    through this so a cancellation can distinguish "never started — nothing
+    is left running" from "already running — the real outcome must still be
+    waited for", rather than assuming a cancelled await means the work
+    stopped.
+    """
+    loop = asyncio.get_running_loop()
+    executor = loop._default_executor  # noqa: SLF001 - mirrors BaseEventLoop.run_in_executor exactly
+    if executor is None:
+        executor = concurrent.futures.ThreadPoolExecutor(thread_name_prefix="asyncio")
+        loop._default_executor = executor
+
+    done = threading.Event()
+    outcome: list = []
+    # `asyncio.to_thread` copies the CURRENT context and runs `fn` via
+    # `ctx.run(...)` — a plain `executor.submit(fn)` would NOT, leaving `fn`
+    # running with an executor-thread-local default context instead of the
+    # caller's own. `models.acquire()`'s "mark this entry as leased"
+    # bookkeeping reads `_active_lease_id` (a contextvar `begin_lease` just
+    # set on THIS context) — without copying it here, every acquire/
+    # placement/offload call submitted through this helper would silently
+    # see no active lease at all.
+    ctx = contextvars.copy_context()
+
+    def _wrapped():
+        try:
+            value = ctx.run(fn)
+        except BaseException as e:  # noqa: BLE001 - relayed via `outcome`/re-raised below
+            outcome.append(("error", e))
+            done.set()
+            raise
+        outcome.append(("ok", value))
+        done.set()
+        return value
+
+    raw_future = executor.submit(_wrapped)
+    async_future = asyncio.wrap_future(raw_future, loop=loop)
+    return async_future, raw_future, done, outcome
 
 
 def _is_oom(error: BaseException) -> bool:
@@ -773,6 +844,18 @@ class NativeLLMClient:
         called directly from this function's `finally` when nobody hands
         off, or later by `_supervised_teardown` when they do — so the
         release order holds regardless of which path runs it.
+
+        `await`ing an executor call does NOT stop it: `asyncio.to_thread`/
+        `loop.run_in_executor` only stop US from awaiting the future — the
+        executor thread keeps running the real call regardless of a
+        cancellation reaching that await. This function's own acquire and
+        placement calls, and `_teardown`'s offload call, ALL go through
+        `_submit_cancellable` instead of `asyncio.to_thread` for exactly
+        that reason: a cancellation at any of the three boundaries below
+        never assumes the call actually stopped, and never lets the lease
+        or the gate release while that call might still be running (see
+        each boundary's own comment for how it resolves once the real
+        result is known).
         """
         import torch
 
@@ -795,10 +878,57 @@ class NativeLLMClient:
 
         async def _teardown() -> None:
             if checkpoint is not None and manage_device:
+                offload_future, offload_raw, offload_done, offload_outcome = _submit_cancellable(
+                    lambda: checkpoint.model.to("cpu")
+                )
                 try:
-                    await asyncio.to_thread(checkpoint.model.to, "cpu")
-                    torch.cuda.empty_cache()
-                    self._note_offloaded(checkpoint)
+                    await offload_future
+                except asyncio.CancelledError:
+                    if offload_raw.cancel():
+                        # Never started — the model never left the device;
+                        # nothing to wait for, fall through to the release
+                        # below as if no offload had been attempted. This
+                        # intentionally does NOT re-raise: `_teardown` is
+                        # cleanup, not primary control flow, and there is
+                        # genuinely nothing left running to justify leaving
+                        # `end_lease`/the gate unreleased.
+                        pass
+                    else:
+                        # Already running — must not skip end_lease/gate
+                        # release just because THIS await was cancelled; a
+                        # further supervisor finishes them once the move
+                        # actually lands, so a stray SECOND cancellation
+                        # here can never strand the checkpoint leased and
+                        # gated forever.
+                        async def _finish_after_late_offload() -> None:
+                            await asyncio.to_thread(offload_done.wait)
+                            outcome, _value = offload_outcome[0]
+                            if outcome == "ok":
+                                torch.cuda.empty_cache()
+                                self._note_offloaded(checkpoint)
+                            else:
+                                logger.warning(
+                                    "[NativeLLM] failed to move checkpoint back to CPU "
+                                    "after lease; evicting the cache entry key='%s' so "
+                                    "it can't be left GPU-resident",
+                                    key, exc_info=offload_outcome[0][1],
+                                )
+                                models.invalidate(key)
+                            models.end_lease(lease_id)
+                            gate.lock.release()
+                            _release_execution_gate(gate_id, gate)
+
+                        task = asyncio.create_task(_finish_after_late_offload())
+                        self._supervised_teardowns.add(task)
+                        task.add_done_callback(self._supervised_teardowns.discard)
+                        logger.warning(
+                            "[NativeLLM] offloading '%s' (%s) back to CPU was cancelled "
+                            "while the move was still running; the lease and execution "
+                            "gate stay held until a supervised cleanup observes it "
+                            "actually finish",
+                            config.model, key,
+                        )
+                        return
                 except Exception:
                     # A checkpoint that CANNOT be verified off the GPU
                     # must never be left as a zombie CUDA-resident cache entry
@@ -815,21 +945,99 @@ class NativeLLMClient:
                         key, exc_info=True,
                     )
                     models.invalidate(key)
+                else:
+                    torch.cuda.empty_cache()
+                    self._note_offloaded(checkpoint)
             models.end_lease(lease_id)
             gate.lock.release()
             _release_execution_gate(gate_id, gate)
 
         handoff.teardown = _teardown
         try:
-            checkpoint = await asyncio.to_thread(self._acquire, path, config, is_te)
+            acquire_future, acquire_raw, acquire_done, acquire_outcome = _submit_cancellable(
+                lambda: self._acquire(path, config, is_te)
+            )
+            try:
+                checkpoint = await acquire_future
+            except asyncio.CancelledError:
+                if not acquire_raw.cancel():
+                    # Already running — the loader may still publish a
+                    # checkpoint after we're gone. A late arrival must be
+                    # torn down properly (never left leaked/leased forever)
+                    # rather than the `finally` below ending the lease and
+                    # releasing the gate on a `checkpoint` that is still
+                    # `None` only because we haven't SEEN the loader's
+                    # result yet.
+                    async def _finish_after_late_acquire() -> None:
+                        nonlocal checkpoint
+                        await asyncio.to_thread(acquire_done.wait)
+                        outcome, value = acquire_outcome[0]
+                        if outcome == "ok":
+                            checkpoint = value
+                        # Placement never ran for this cancelled turn —
+                        # `manage_device` stays at its default (False), so
+                        # `_teardown` below just ends the lease and releases
+                        # the gate, leaving a successfully-loaded checkpoint
+                        # as an ordinary warm, evictable, unleased entry.
+                        await _teardown()
+
+                    handoff.taken_over = True
+                    task = asyncio.create_task(_finish_after_late_acquire())
+                    self._supervised_teardowns.add(task)
+                    task.add_done_callback(self._supervised_teardowns.discard)
+                    logger.warning(
+                        "[NativeLLM] acquiring '%s' (%s) was cancelled while the loader "
+                        "was still running; handing this turn's teardown to a "
+                        "supervised cleanup instead of ending the lease before the "
+                        "checkpoint is ever accounted for",
+                        config.model, key,
+                    )
+                raise
             device = "cuda" if torch.cuda.is_available() else "cpu"
             # A quantized checkpoint is already GPU-resident (device_map) and
             # must never be moved across the lease boundary — bnb modules don't
             # round-trip to CPU. It stays put; eviction (not offload) reclaims it.
             manage_device = device != "cpu" and not checkpoint.quantized
             if manage_device:
+                place_future, place_raw, place_done, place_outcome = _submit_cancellable(
+                    lambda: checkpoint.model.to(device)
+                )
                 try:
-                    await asyncio.to_thread(checkpoint.model.to, device)
+                    await place_future
+                except asyncio.CancelledError:
+                    if place_raw.cancel():
+                        # Never started — the model never left the CPU;
+                        # nothing to offload, so `_teardown` (run
+                        # synchronously below, since this turn was never
+                        # handed off) must not attempt a pointless move.
+                        manage_device = False
+                    else:
+                        # Already running — the move may still land after
+                        # we're gone. Register residency (or fall back to
+                        # CPU on a late failure) only once the REAL outcome
+                        # is known, then tear down.
+                        async def _finish_after_late_placement() -> None:
+                            nonlocal manage_device
+                            await asyncio.to_thread(place_done.wait)
+                            outcome, _value = place_outcome[0]
+                            if outcome == "ok":
+                                self._note_resident(checkpoint, key, device)
+                            else:
+                                manage_device = False
+                            await _teardown()
+
+                        handoff.taken_over = True
+                        task = asyncio.create_task(_finish_after_late_placement())
+                        self._supervised_teardowns.add(task)
+                        task.add_done_callback(self._supervised_teardowns.discard)
+                        logger.warning(
+                            "[NativeLLM] placing '%s' (%s) on %s was cancelled while the "
+                            "move was still running; handing this turn's teardown to a "
+                            "supervised cleanup instead of moving it back before that "
+                            "move actually lands",
+                            config.model, key, device,
+                        )
+                    raise
                 except RuntimeError as e:
                     if not _is_oom(e):
                         raise
@@ -1132,40 +1340,38 @@ class NativeLLMClient:
             template_kwargs, thinking_mode = self._chat_template_kwargs(checkpoint, config)
             eos_ids = self._eos_token_ids(checkpoint)
 
-            # `asyncio.to_thread(_run)` being cancelled only stops US from
-            # awaiting it — the executor thread keeps running `generate()`
-            # unobserved. `worker_done` is how the `finally` below tells a
-            # genuine cancellation (thread still running) apart from a
-            # completed call (success or a raised RuntimeError, either of
-            # which already ran `_run()` to completion before we get here).
-            worker_done = threading.Event()
-
             def _run():
-                try:
-                    inputs = self._apply_template(checkpoint, chat, image, template_kwargs)
-                    inputs = {k: v.to(device) for k, v in inputs.items() if hasattr(v, "to")}
-                    with torch.no_grad():
-                        output_ids = checkpoint.model.generate(**inputs, **gen_kwargs)
-                    prompt_len = inputs["input_ids"].shape[-1]
-                    completion_ids = output_ids[:, prompt_len:]
-                    text = checkpoint.tokenizer.decode(completion_ids[0], skip_special_tokens=True)
-                    last_token_id = None
-                    if completion_ids.shape[-1] > 0:
-                        try:
-                            last_token_id = int(completion_ids[0, -1].item())
-                        except (AttributeError, TypeError, IndexError):
-                            # A test double's tensor stand-in supports the
-                            # shape/slicing bookkeeping this method needs but
-                            # not real value extraction — degrade to "unknown
-                            # last token" rather than let a diagnostic-only
-                            # computation break generation itself.
-                            last_token_id = None
-                    return text, prompt_len, int(completion_ids.shape[-1]), last_token_id
-                finally:
-                    worker_done.set()
+                inputs = self._apply_template(checkpoint, chat, image, template_kwargs)
+                inputs = {k: v.to(device) for k, v in inputs.items() if hasattr(v, "to")}
+                with torch.no_grad():
+                    output_ids = checkpoint.model.generate(**inputs, **gen_kwargs)
+                prompt_len = inputs["input_ids"].shape[-1]
+                completion_ids = output_ids[:, prompt_len:]
+                text = checkpoint.tokenizer.decode(completion_ids[0], skip_special_tokens=True)
+                last_token_id = None
+                if completion_ids.shape[-1] > 0:
+                    try:
+                        last_token_id = int(completion_ids[0, -1].item())
+                    except (AttributeError, TypeError, IndexError):
+                        # A test double's tensor stand-in supports the
+                        # shape/slicing bookkeeping this method needs but
+                        # not real value extraction — degrade to "unknown
+                        # last token" rather than let a diagnostic-only
+                        # computation break generation itself.
+                        last_token_id = None
+                return text, prompt_len, int(completion_ids.shape[-1]), last_token_id
+
+            # `_submit_cancellable`, not a bare `asyncio.to_thread(_run)`:
+            # our await being cancelled only stops US from awaiting it — the
+            # executor call keeps running `generate()` unobserved. `run_done`
+            # is how the `finally` below tells a genuine cancellation (the
+            # call still running, or about to) apart from a completed call
+            # (success or a raised RuntimeError, either of which already ran
+            # `_run()` to completion before we get here).
+            run_future, run_raw, run_done, run_outcome = _submit_cancellable(_run)
 
             try:
-                content, prompt_tokens, completion_tokens, last_token_id = await asyncio.to_thread(_run)
+                content, prompt_tokens, completion_tokens, last_token_id = await run_future
             except RuntimeError as e:
                 if _is_oom(e):
                     torch.cuda.empty_cache()
@@ -1173,16 +1379,15 @@ class NativeLLMClient:
                         f"Native LLM provider: ran out of GPU memory generating with '{config.model}'"
                     ) from e
                 raise
-            finally:
-                # Reached with `worker_done` still unset ONLY on a genuine
-                # cancellation of the awaited `to_thread` — success and the
-                # RuntimeError branch above both already ran `_run()` to
-                # completion, so `worker_done` is already set by the time
-                # either is reached. Hand this turn's teardown to a
-                # supervised cleanup instead of letting `_leased` offload the
-                # checkpoint and end the lease while `generate()` may still
-                # be running in the executor thread.
-                if not worker_done.is_set():
+            except asyncio.CancelledError:
+                if run_raw.cancel():
+                    # Never started — a busy executor can cancel a still-
+                    # PENDING submission outright, in which case `_run`
+                    # never runs at all and would never set `run_done`
+                    # itself; settle it ourselves so nothing ever waits on
+                    # a call that will never happen.
+                    run_done.set()
+                else:
                     logger.warning(
                         "[NativeLLM] generation for '%s' (%s) was cancelled while the "
                         "background worker was still running; handing this turn's "
@@ -1190,7 +1395,8 @@ class NativeLLMClient:
                         "checkpoint out from under it",
                         config.model, key,
                     )
-                    handoff.defer(worker_done, config.model, key)
+                    handoff.defer(run_done, config.model, key)
+                raise
 
         completion = self._completion_outcome(
             last_token_id, completion_tokens, gen_kwargs["max_new_tokens"], eos_ids
@@ -1374,6 +1580,31 @@ class NativeLLMClient:
         image_data: Optional[str] = None,
         options_override: Optional[Dict[str, Any]] = None,
     ) -> AsyncGenerator[dict, None]:
+        """Owns an explicit close scope over the inner `stream_with_history`
+        generator instead of an unowned `async for` — a bare `async for`
+        gives NO guarantee that closing (or abandoning) THIS wrapper while
+        it's suspended at a yielded token also closes the generator it's
+        iterating; Python only calls `aclose()` on that inner generator if
+        something explicitly does so, never automatically just because the
+        outer loop was left via an exception. Without this, awaiting the
+        wrapper's own `aclose()` could return before `stream_with_history`'s
+        cooperative stop / supervised hand-off (LLM-06/LLM-07) ever even
+        started, leaving the inner generator to eventual — and
+        unsynchronized — garbage collection instead.
+
+        `inner.aclose()` runs from `finally`, so it fires on every exit path
+        — normal exhaustion, an error propagating out of the loop, an early
+        close, and cancellation alike — exactly once (closing an already-
+        exhausted generator is a documented no-op). This only ends THIS
+        wrapper's consumption of the inner stream; it makes no claim about
+        having stopped the worker itself — that promise, and its own
+        held-until-actual-exit lease/gate ownership, belong entirely to
+        `stream_with_history`'s own machinery, unchanged here.
+        """
         merged_system_message = self._inject_tools_into_system_message(system_message, tools)
-        async for event in self.stream_with_history(messages, config, merged_system_message, image_data, options_override):
-            yield event
+        inner = self.stream_with_history(messages, config, merged_system_message, image_data, options_override)
+        try:
+            async for event in inner:
+                yield event
+        finally:
+            await inner.aclose()

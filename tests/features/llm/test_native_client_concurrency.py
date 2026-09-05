@@ -25,6 +25,7 @@ pytest.
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import threading
 import time
 
@@ -944,6 +945,349 @@ class TestBufferedCancellationRetainsOwnership:
                 second_task.cancel()
 
         assert "A:to:cpu" in events
+        assert not models_manager._entries[key].leased_by
+        assert key in models_manager._evictable_keys()
+        assert len(client._supervised_teardowns) == 0
+
+
+class TestLifecycleCancellationBoundaries:
+    """`_leased`/`_teardown`/`generate_with_history` each submit blocking
+    calls (acquire, device placement, offload, the buffered generation
+    itself) to an executor via `_submit_cancellable`
+    (`src/features/llm/clients/native.py`) instead of a bare
+    `asyncio.to_thread`, because `await`ing an executor call does NOT stop
+    it — the underlying thread keeps running regardless of a cancellation
+    reaching that await. Each test here cancels at exactly one of those
+    boundaries while a barrier keeps the real call genuinely still running
+    (or, for the pending-future case, genuinely still queued), then proves
+    the lease/gate are never released before the real call's outcome is
+    known, a second caller on the same checkpoint queues rather than races
+    it, and a subsequent call still succeeds once everything settles."""
+
+    @pytest.mark.asyncio
+    async def test_cancelling_during_acquisition_defers_and_finishes_the_late_checkpoint(
+        self, client, models_manager, native_checkpoint, monkeypatch
+    ):
+        name, path = native_checkpoint
+        key = f"native/llm/{path}"
+        config = _config(name)
+
+        started = threading.Event()
+        release = threading.Event()
+        checkpoint_holder: list = []
+
+        def _slow_build(self, p, load_kwargs):
+            started.set()
+            release.wait(timeout=_BOUND)
+            checkpoint = _gated_checkpoint("LATE", [])
+            checkpoint.model.release.set()  # generate() itself is not under test here
+            checkpoint_holder.append(checkpoint)
+            return checkpoint
+
+        monkeypatch.setattr(NativeLLMClient, "_build", _slow_build)
+
+        task = asyncio.create_task(client.generate_with_history(
+            [{"role": "user", "content": "hi"}], config, config.system_message,
+        ))
+        second_task = None
+        try:
+            await asyncio.wait_for(asyncio.to_thread(started.wait, _BOUND), timeout=_BOUND + 1)
+
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+            # The loader is STILL (deliberately) running — a second caller
+            # on the same checkpoint must queue behind the gate rather than
+            # trigger a second concurrent load.
+            second_task = asyncio.create_task(client.generate_with_history(
+                [{"role": "user", "content": "second"}], config, config.system_message,
+            ))
+            await asyncio.sleep(0.2)
+            assert not second_task.done()
+
+            release.set()
+            response = await asyncio.wait_for(second_task, timeout=_BOUND)
+            assert response.provider_id == "native"
+        finally:
+            release.set()
+            if second_task is not None and not second_task.done():
+                second_task.cancel()
+
+        assert len(checkpoint_holder) == 1, (
+            "the late loader must run exactly once — a second concurrent load would "
+            "mean the second caller never actually queued behind the gate"
+        )
+        assert not models_manager._entries[key].leased_by
+        assert key in models_manager._evictable_keys()
+        assert len(client._supervised_teardowns) == 0
+
+    @pytest.mark.asyncio
+    async def test_cancelling_during_placement_defers_and_finishes_the_late_move(
+        self, client, models_manager, native_checkpoint, monkeypatch
+    ):
+        name, path = native_checkpoint
+        key = f"native/llm/{path}"
+        config = _config(name)
+        monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+
+        events: list = []
+        checkpoint = _gated_checkpoint("A", events)
+        checkpoint.model.release.set()  # generate() itself is not under test here
+        monkeypatch.setattr(NativeLLMClient, "_build", lambda self, p, load_kwargs: checkpoint)
+
+        started = threading.Event()
+        release = threading.Event()
+        real_to = checkpoint.model.to
+        cuda_entries = 0
+
+        def _slow_to(device):
+            nonlocal cuda_entries
+            if device == "cuda":
+                cuda_entries += 1
+                started.set()
+                release.wait(timeout=_BOUND)
+            return real_to(device)
+
+        monkeypatch.setattr(checkpoint.model, "to", _slow_to)
+
+        task = asyncio.create_task(client.generate_with_history(
+            [{"role": "user", "content": "hi"}], config, config.system_message,
+        ))
+        second_task = None
+        try:
+            await asyncio.wait_for(asyncio.to_thread(started.wait, _BOUND), timeout=_BOUND + 1)
+
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+            # Placement is STILL (deliberately) running — a second caller
+            # must queue behind the gate rather than reuse a model that
+            # hasn't finished moving yet. `not second_task.done()` alone
+            # would not prove that (it would ALSO hold if the second call
+            # simply raced onto the SAME shared `.to("cuda")` barrier
+            # independently of the gate); `cuda_entries` staying at 1 is
+            # what actually proves the second call hasn't even reached its
+            # own placement attempt.
+            second_task = asyncio.create_task(client.generate_with_history(
+                [{"role": "user", "content": "second"}], config, config.system_message,
+            ))
+            await asyncio.sleep(0.2)
+            assert not second_task.done()
+            assert cuda_entries == 1, "a queued second caller must not have attempted its own placement yet"
+
+            release.set()
+            response = await asyncio.wait_for(second_task, timeout=_BOUND)
+            assert response.provider_id == "native"
+        finally:
+            release.set()
+            if second_task is not None and not second_task.done():
+                second_task.cancel()
+
+        assert "cuda" in checkpoint.model.moves
+        assert "cpu" in checkpoint.model.moves
+        assert not models_manager._entries[key].leased_by
+        assert key in models_manager._evictable_keys()
+        assert len(client._supervised_teardowns) == 0
+
+    @pytest.mark.asyncio
+    async def test_cancelling_during_teardowns_offload_still_ends_the_lease_after_it_finishes(
+        self, client, models_manager, native_checkpoint, monkeypatch
+    ):
+        name, path = native_checkpoint
+        key = f"native/llm/{path}"
+        config = _config(name)
+        monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+
+        events: list = []
+        checkpoint = _gated_checkpoint("A", events)
+        monkeypatch.setattr(NativeLLMClient, "_build", lambda self, p, load_kwargs: checkpoint)
+        # `generate()` itself must return immediately — only the OFFLOAD
+        # move back to CPU is made to block, via the barrier below.
+        checkpoint.model.release.set()
+
+        started = threading.Event()
+        release = threading.Event()
+        real_to = checkpoint.model.to
+
+        def _slow_to(device):
+            if device == "cpu":
+                started.set()
+                release.wait(timeout=_BOUND)
+            return real_to(device)
+
+        monkeypatch.setattr(checkpoint.model, "to", _slow_to)
+
+        task = asyncio.create_task(client.generate_with_history(
+            [{"role": "user", "content": "hi"}], config, config.system_message,
+        ))
+        second_task = None
+        try:
+            await asyncio.wait_for(asyncio.to_thread(started.wait, _BOUND), timeout=_BOUND + 1)
+
+            task.cancel()
+            # `_teardown`'s own cancellation handling deliberately does NOT
+            # re-raise once it has handed the pending offload to a
+            # supervisor (see its docstring) — cleanup, not primary control
+            # flow — so the outer task may complete normally (its result
+            # already computed) or, depending on exactly where cancellation
+            # landed, still surface as cancelled. Either is acceptable here;
+            # what matters is the lease/gate state asserted below.
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+            # The offload is STILL (deliberately) running — the lease and
+            # gate must stay held, so a second caller on the same
+            # checkpoint queues rather than reusing a model that hasn't
+            # actually finished moving back to CPU yet.
+            second_task = asyncio.create_task(client.generate_with_history(
+                [{"role": "user", "content": "second"}], config, config.system_message,
+            ))
+            await asyncio.sleep(0.2)
+            assert not second_task.done()
+            assert models_manager._entries[key].leased_by
+
+            release.set()
+            response = await asyncio.wait_for(second_task, timeout=_BOUND)
+            assert response.provider_id == "native"
+        finally:
+            release.set()
+            if second_task is not None and not second_task.done():
+                second_task.cancel()
+
+        assert checkpoint.model.moves.count("cpu") >= 1
+        assert not models_manager._entries[key].leased_by
+        assert key in models_manager._evictable_keys()
+        assert len(client._supervised_teardowns) == 0
+
+    @pytest.mark.asyncio
+    async def test_cancelling_before_the_buffered_worker_starts_settles_worker_done_itself(
+        self, client, models_manager, native_checkpoint, monkeypatch
+    ):
+        """A one-worker executor already occupied by something else means
+        the buffered path's own `_run` submission sits PENDING, never
+        dequeued. Cancelling while it's still pending must settle its own
+        completion signal itself — nothing will ever call `_run`, so
+        nothing else ever will — instead of spawning a supervisor that
+        would wait forever on an event that never fires."""
+        name, path = native_checkpoint
+        key = f"native/llm/{path}"
+        config = _config(name)
+
+        events: list = []
+        checkpoint = _gated_checkpoint("A", events)
+        checkpoint.model.release.set()  # the subsequent call's own generate() must complete
+        monkeypatch.setattr(NativeLLMClient, "_build", lambda self, p, load_kwargs: checkpoint)
+
+        occupy_started = threading.Event()
+        occupy_release = threading.Event()
+        one_worker = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+
+        def _occupy():
+            occupy_started.set()
+            occupy_release.wait(timeout=_BOUND)
+
+        real_build_chat = NativeLLMClient._build_chat
+
+        def _patched_build_chat(self, messages, system_message, image_data):
+            result = real_build_chat(self, messages, system_message, image_data)
+            # `_leased`'s own acquire/placement (no CUDA here, so no
+            # placement submission at all) have already gone through the
+            # ORIGINAL default executor by this point — occupying the
+            # (one-worker) executor only NOW means `_run`'s later
+            # submission, not the acquire, is what ends up genuinely
+            # pending.
+            asyncio.get_running_loop().set_default_executor(one_worker)
+            one_worker.submit(_occupy)
+            assert occupy_started.wait(timeout=_BOUND), "the occupying task never started"
+            return result
+
+        monkeypatch.setattr(NativeLLMClient, "_build_chat", _patched_build_chat)
+
+        task = asyncio.create_task(client.generate_with_history(
+            [{"role": "user", "content": "hi"}], config, config.system_message,
+        ))
+        try:
+            # Bounded moment for the coroutine to run all the way to
+            # `_run`'s (now-pending) submission and suspend awaiting it —
+            # nothing else is left for it to do before that point.
+            await asyncio.sleep(0.2)
+            assert not task.done()
+
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+            # Never started: no supervisor should ever have been spawned,
+            # and the lease/gate must release promptly rather than hang
+            # forever waiting on a call that will never happen.
+            assert len(client._supervised_teardowns) == 0
+            assert not models_manager._entries[key].leased_by
+            assert key in models_manager._evictable_keys()
+            assert "A:generate:started" not in events
+        finally:
+            occupy_release.set()
+            one_worker.shutdown(wait=False)
+
+        # Restore ONLY `_build_chat` (not `_build`, and not the
+        # `native_checkpoint` fixture's own patches sharing this same
+        # `monkeypatch` fixture) — `monkeypatch.undo()` would revert all of
+        # them at once.
+        monkeypatch.setattr(NativeLLMClient, "_build_chat", real_build_chat)
+        asyncio.get_running_loop().set_default_executor(
+            concurrent.futures.ThreadPoolExecutor(thread_name_prefix="asyncio")
+        )
+        response = await client.generate_with_history(
+            [{"role": "user", "content": "second"}], config, config.system_message,
+        )
+        assert response.provider_id == "native"
+
+
+class TestStreamWithToolsCloseScope:
+    """`stream_with_tools` must own an explicit close scope over the inner
+    `stream_with_history` generator — a bare `async for` gives no guarantee
+    that closing the WRAPPER also closes what it's iterating, so awaiting
+    the wrapper's `aclose()` while suspended at a yielded token must still
+    reach `stream_with_history`'s existing cooperative stop and supervised
+    hand-off (LLM-06/LLM-07) before returning."""
+
+    @pytest.mark.asyncio
+    async def test_closing_the_wrapper_reaches_the_inner_streams_cooperative_stop(
+        self, client, models_manager, native_checkpoint, monkeypatch
+    ):
+        name, path = native_checkpoint
+        key = f"native/llm/{path}"
+        config = _config(name)
+        checkpoint = client._acquire(path, config)
+
+        events: list = []
+        monkeypatch.setattr(
+            checkpoint.model, "generate",
+            _fake_streaming_generate(
+                tokens=(_NEWLINE_TOKEN_ID,) * 200, poll_interval=0.01,
+                delay_after_stop=0.05, events=events,
+            ),
+        )
+
+        agen = client.stream_with_tools(
+            [{"role": "user", "content": "hi"}], config, config.system_message,
+        )
+        try:
+            first = await asyncio.wait_for(agen.__anext__(), timeout=_BOUND)
+            assert first["type"] == "token"
+
+            await asyncio.wait_for(agen.aclose(), timeout=_BOUND)
+        finally:
+            await agen.aclose()  # no-op if already closed
+
+        # The wrapper's own aclose() must have reached all the way into
+        # `stream_with_history`'s stopping_criteria seam (never a bare,
+        # unowned abandonment of the inner generator to eventual GC).
+        assert "worker_saw_stop" in events
+        assert "worker_returning_after_stop" in events
         assert not models_manager._entries[key].leased_by
         assert key in models_manager._evictable_keys()
         assert len(client._supervised_teardowns) == 0

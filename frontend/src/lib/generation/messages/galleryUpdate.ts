@@ -1,6 +1,6 @@
 import { generationMessageRegistry } from '$lib/registries/generationMessageRegistry';
 import { directorShotIdsFor, withDirectorRunPoster } from './directorRuns';
-import { isTabsCurrentGeneration } from './ownership';
+import { resolveOwnership } from './ownership';
 import { peekGenerationOutputs, setGenerationOutputs } from './generationOutputs';
 
 // Gallery updates can contain any combination of images, videos, and audio.
@@ -186,14 +186,18 @@ generationMessageRegistry.register('gallery_update', {
 		const directorPosterUrl = nextVideos[0]?.originalUrl ?? nextVideos[0]?.url ?? null;
 
 		// The tab's shared batch*/workbenchTotal only ever reflect the
-		// generation currently owning the display.
-		const isOwner = isTabsCurrentGeneration(targetTab, ctx.generationId);
+		// generation currently owning the display -- a queued generation whose
+		// own gallery_update proves it's running adopts an orphaned tab on the
+		// spot (see ownership.ts).
+		const { isOwner, adopted } = resolveOwnership(targetTab, ctx.generationId);
 
 		ctx.tabsStore.updateTab(targetTabId, {
+			...(adopted ? { activeGenerationId: adopted.activeGenerationId } : {}),
 			...(isOwner
 				? {
 						generation: {
 							...targetTab.generation,
+							...(adopted ? adopted.generation : {}),
 							batchImages: nextImages,
 							batchVideos: nextVideos,
 							batchAudios: nextAudios,

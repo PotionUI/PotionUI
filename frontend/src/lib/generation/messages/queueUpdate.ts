@@ -1,5 +1,6 @@
 import { generationMessageRegistry } from '$lib/registries/generationMessageRegistry';
 import type { QueuedGeneration } from '$lib/types/tabs';
+import { isOrphanedTab, isTabsCurrentGeneration, beginGenerationOwnership } from './ownership';
 
 // Backend queue position/status change for a generation this tab has enqueued
 // (subscribed exactly like a running generation via `subscribe_generation`).
@@ -30,9 +31,18 @@ generationMessageRegistry.register('queue_update', {
 				? [...existingQueue, updatedEntry]
 				: existingQueue.map((q, i) => (i === entryIndex ? updatedEntry : q));
 
+		// Live adoption (see ownership.ts): a queued generation the backend just
+		// promoted to running takes over an orphaned tab's display on the
+		// spot -- a 'pending' update never adopts.
+		const shouldAdopt =
+			status === 'running' && !isTabsCurrentGeneration(ctx.tab, generationId) && isOrphanedTab(ctx.tab);
+		const adopted = shouldAdopt ? beginGenerationOwnership(generationId) : null;
+
 		ctx.tabsStore.updateTab(ctx.tabId, {
+			...(adopted ? { activeGenerationId: adopted.activeGenerationId } : {}),
 			generation: {
 				...ctx.tab.generation,
+				...(adopted ? adopted.generation : {}),
 				queue: nextQueue
 			}
 		});

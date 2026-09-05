@@ -1,7 +1,7 @@
 import { generationMessageRegistry, type GenerationMessageHandler } from '$lib/registries/generationMessageRegistry';
 import { playGenerationErrorSound } from '$lib/utils/generationSounds';
 import { directorShotIdsFor, withDirectorRunTerminal, withoutDirectorRunLink } from './directorRuns';
-import { isTabsCurrentGeneration, withoutQueueEntry } from './ownership';
+import { isTabsCurrentGeneration, withoutQueueEntry, nextQueueCandidate, beginGenerationOwnership } from './ownership';
 import { takeGenerationOutputs } from './generationOutputs';
 
 // Handles both 'generation_error' and 'generation_cancelled' - moved verbatim
@@ -28,9 +28,9 @@ const handler: GenerationMessageHandler = {
 		// own run must still resolve.
 		const directorShotIds = directorShotIdsFor(targetTab, ctx.generationId);
 
-		const generationPatch: Record<string, unknown> = {
-			queue: withoutQueueEntry(targetTab.generation.queue, ctx.generationId)
-		};
+		const remainingQueue = withoutQueueEntry(targetTab.generation.queue, ctx.generationId);
+		const generationPatch: Record<string, unknown> = { queue: remainingQueue };
+		let nextActiveGenerationId: string | null = null;
 
 		// The rest of this generation's state (display, progress, timers) only
 		// ever belongs to the tab if this generation currently owns the shared
@@ -60,10 +60,21 @@ const handler: GenerationMessageHandler = {
 				workbenchIndex: totalItems > 0 ? 0 : targetTab.generation.workbenchIndex,
 				workbenchTotal: totalItems
 			});
+
+			// Live adoption (see ownership.ts): the outgoing owner is gone --
+			// hand the display to whichever queued generation should take over
+			// next, cold (an older run a newer one's cancellation left running
+			// takes precedence -- see nextQueueCandidate).
+			const next = nextQueueCandidate(remainingQueue);
+			if (next) {
+				const adopted = beginGenerationOwnership(next.generation_id);
+				Object.assign(generationPatch, adopted.generation);
+				nextActiveGenerationId = adopted.activeGenerationId;
+			}
 		}
 
 		ctx.tabsStore.updateTab(targetTabId, {
-			...(isOwner ? { activeGenerationId: null } : {}),
+			...(isOwner ? { activeGenerationId: nextActiveGenerationId } : {}),
 			generation: {
 				...targetTab.generation,
 				...generationPatch

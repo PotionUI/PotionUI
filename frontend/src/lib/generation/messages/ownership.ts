@@ -3,12 +3,28 @@
 // signal (`findTabByGenerationId`: the tab's `currentGeneration` OR an entry
 // in `generation.queue`), so a tab can receive events for several
 // generations at once (one running/displayed, others queued or backgrounded
-// -- e.g. a Video Director multi-shot submission). Every handler that writes
-// the tab's SHARED workbench display (activeGenerationId, isGenerating,
+// -- e.g. a Video Director multi-shot submission, or a second Generate click
+// while the first is still running). Every handler that writes the tab's
+// SHARED workbench display (activeGenerationId, isGenerating,
 // currentGeneration, currentProgress, current media, totalTime, workbench
-// indices, pipeTimers) must gate that write on this check first, or a
+// indices, pipeTimers) must gate that write on ownership first, or a
 // non-owning generation's event clobbers what's actually being shown.
-import type { Tab, QueuedGeneration } from '$lib/types/tabs';
+//
+// PRECEDENCE / live adoption: `activeGenerationId` always names the tab's one
+// live owner, and nothing here ever displaces it while it stays live -- that
+// mirrors the Generate call site (routes/generate/+page.svelte's
+// `startGeneration`), where the NEWEST submission always claims
+// `activeGenerationId` even while an older run continues in the background
+// via `generation.queue`. This module only ever acts on an ORPHANED tab (no
+// live owner): when the owner terminates and another generation is still
+// queued/running (an older run a newer one's cancellation left behind, or
+// simply next in line), or when a queued generation's own event proves it is
+// now running while nobody owns the display, that generation is adopted as
+// the new owner -- COLD: a fresh `currentGeneration`, no inherited progress,
+// media or timers from either the outgoing owner or its own time spent
+// backgrounded, indices at 0. The events that follow for it (progress,
+// gallery output, ...) fill it in exactly as they would for any other owner.
+import type { Tab, GenerationState, QueuedGeneration } from '$lib/types/tabs';
 
 export function isTabsCurrentGeneration(
 	tab: Pick<Tab, 'activeGenerationId' | 'generation'>,
@@ -30,4 +46,78 @@ export function withoutQueueEntry(
 	const existing = queue || [];
 	if (!generationId) return existing;
 	return existing.filter((q) => q.generation_id !== generationId);
+}
+
+/** A tab with no live owner: nothing currently occupies `activeGenerationId`,
+ *  and whatever `currentGeneration` is left over (if any) is already
+ *  terminal -- a stale 'completed'/'failed' snapshot, not a run in flight. */
+export function isOrphanedTab(tab: Pick<Tab, 'activeGenerationId' | 'generation'>): boolean {
+	if (tab.activeGenerationId) return false;
+	const status = tab.generation.currentGeneration?.status;
+	return !status || status === 'completed' || status === 'failed';
+}
+
+/** Picks which queued generation should take over as owner when the current
+ *  one terminates: one the backend has already promoted to 'running' wins
+ *  outright (this is how an older run that kept going through a newer one's
+ *  cancellation re-becomes the visible owner); failing that, the lowest
+ *  `queue_position`; failing that, simple queue order. */
+export function nextQueueCandidate(queue: QueuedGeneration[] | undefined): QueuedGeneration | null {
+	const entries = queue || [];
+	if (entries.length === 0) return null;
+	const running = entries.find((q) => q.status === 'running');
+	if (running) return running;
+	const positioned = entries.filter((q) => q.queue_position !== null);
+	if (positioned.length > 0) {
+		return positioned.reduce((a, b) => (a.queue_position! <= b.queue_position! ? a : b));
+	}
+	return entries[0];
+}
+
+/** The patch that makes `generationId` the tab's new owner from a cold
+ *  start. Never carries over the outgoing owner's (or this generation's own
+ *  prior background) progress, media or timers -- the events that follow
+ *  fill those in exactly as for any other owner. */
+export function beginGenerationOwnership(
+	generationId: string,
+	now: () => number = Date.now
+): { activeGenerationId: string; generation: Partial<GenerationState> } {
+	return {
+		activeGenerationId: generationId,
+		generation: {
+			isGenerating: true,
+			currentGeneration: { id: generationId, generation_id: generationId, status: 'running' },
+			currentProgress: null,
+			routingBackend: null,
+			startedAt: now(),
+			totalTime: null,
+			batchImages: [],
+			batchVideos: [],
+			batchAudios: [],
+			batchMeshes: [],
+			workbenchIndex: 0,
+			workbenchTotal: 0,
+			pipeTimers: {}
+		}
+	};
+}
+
+/** Resolves ownership for an event whose generation id might not (yet) be
+ *  `activeGenerationId`: adopts it on the spot when the tab is orphaned and
+ *  this id is one it has enqueued (proof the backend is treating it as a
+ *  live run) -- for handlers whose message type is only ever sent for a
+ *  pending/running generation (`generation_status`, `workbench_update`,
+ *  `gallery_update`, `timer_update`). `queue_update` gates this itself on the
+ *  message's own reported status instead, since a 'pending' queue_update
+ *  must never adopt (see `queueUpdate.ts`). */
+export function resolveOwnership(
+	tab: Pick<Tab, 'activeGenerationId' | 'generation'>,
+	generationId: string | undefined
+): { isOwner: boolean; adopted: ReturnType<typeof beginGenerationOwnership> | null } {
+	if (!generationId) return { isOwner: false, adopted: null };
+	if (isTabsCurrentGeneration(tab, generationId)) return { isOwner: true, adopted: null };
+	if (!isOrphanedTab(tab)) return { isOwner: false, adopted: null };
+	const inQueue = (tab.generation.queue || []).some((q) => q.generation_id === generationId);
+	if (!inQueue) return { isOwner: false, adopted: null };
+	return { isOwner: true, adopted: beginGenerationOwnership(generationId) };
 }

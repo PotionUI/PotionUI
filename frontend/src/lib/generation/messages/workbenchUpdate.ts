@@ -1,5 +1,5 @@
 import { generationMessageRegistry } from '$lib/registries/generationMessageRegistry';
-import { isTabsCurrentGeneration } from './ownership';
+import { resolveOwnership } from './ownership';
 
 // Moved verbatim from generate/+page.svelte handleGenerationMessage's
 // 'workbench_update' case (image/video/audio branching).
@@ -8,11 +8,24 @@ generationMessageRegistry.register('workbench_update', {
 	handle(message: any, ctx) {
 		// The live in-progress preview is the tab's shared display -- a
 		// background/queued generation's preview has nowhere to render and
-		// must never overwrite the one actually shown.
-		if (!isTabsCurrentGeneration(ctx.tab, ctx.generationId)) return;
+		// must never overwrite the one actually shown, UNLESS the tab has no
+		// live owner at all, in which case this generation adopts it on the
+		// spot (see ownership.ts).
+		const { isOwner, adopted } = resolveOwnership(ctx.tab, ctx.generationId);
+		if (!isOwner) return;
 
 		const targetTabId = ctx.tabId;
-		const targetTab = ctx.tab;
+		// Fold the adoption in locally so every branch below (each ending its
+		// own `updateTab` call) builds on the fresh owner state rather than
+		// whatever the tab looked like before this event.
+		const targetTab = adopted
+			? {
+					...ctx.tab,
+					activeGenerationId: adopted.activeGenerationId,
+					generation: { ...ctx.tab.generation, ...adopted.generation }
+				}
+			: ctx.tab;
+		const activeIdPatch = adopted ? { activeGenerationId: adopted.activeGenerationId } : {};
 
 		const imageData = message.image;
 		const videoPath = message.path;
@@ -40,6 +53,7 @@ generationMessageRegistry.register('workbench_update', {
 			};
 
 			ctx.tabsStore.updateTab(targetTabId, {
+				...activeIdPatch,
 				generation: {
 					...targetTab.generation,
 					currentGeneration: {
@@ -67,6 +81,7 @@ generationMessageRegistry.register('workbench_update', {
 			};
 
 			ctx.tabsStore.updateTab(targetTabId, {
+				...activeIdPatch,
 				generation: {
 					...targetTab.generation,
 					currentGeneration: {
@@ -97,6 +112,7 @@ generationMessageRegistry.register('workbench_update', {
 			};
 
 			ctx.tabsStore.updateTab(targetTabId, {
+				...activeIdPatch,
 				generation: {
 					...targetTab.generation,
 					currentGeneration: {
@@ -136,6 +152,7 @@ generationMessageRegistry.register('workbench_update', {
 			}
 
 			ctx.tabsStore.updateTab(targetTabId, {
+				...activeIdPatch,
 				generation: {
 					...targetTab.generation,
 					currentGeneration: {
@@ -166,6 +183,7 @@ generationMessageRegistry.register('workbench_update', {
 			};
 
 			ctx.tabsStore.updateTab(targetTabId, {
+				...activeIdPatch,
 				generation: {
 					...targetTab.generation,
 					currentGeneration: {

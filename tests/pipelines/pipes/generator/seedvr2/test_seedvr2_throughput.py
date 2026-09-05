@@ -312,3 +312,75 @@ def test_video_ladder_gives_up_and_raises_when_even_batch_one_ooms(monkeypatch):
     assert gen.batch_calls[0] == 5
     assert gen.batch_calls[-1] == 1
     assert gen.released >= 1
+
+
+# -- video path: audio mux outcome wiring ------------------------------------
+#
+# `_process_video` delegates the video/audio split to
+# `seedvr2.encode.encode_video_with_audio`; these tests check the PIPE's side
+# of that boundary -- that a mux failure surfaces as a durable warning output
+# and that the profiler mark carries the actual outcome, not the requested
+# `keep_audio` bool -- by faking the whole encode/mux function, not ffmpeg.
+
+def _wire_fake_audio_outcome(monkeypatch, *, audio_outcome, omitted_reason=None):
+    from src.pipelines.pipes.generator.seedvr2 import encode as enc
+
+    def _fake(frames_arr, out_path, fps, *, source_audio_path, keep_audio, encode_video, **_kw):
+        encode_video(frames_arr, out_path, fps=fps, audio=None)
+        video_path = f"{out_path}.audio.mp4" if audio_outcome == enc.AUDIO_MUXED else out_path
+        return enc.VideoAudioResult(
+            video_path=video_path, audio_outcome=audio_outcome, omitted_reason=omitted_reason,
+        )
+
+    monkeypatch.setattr(enc, "encode_video_with_audio", _fake)
+    return enc
+
+
+def test_video_mux_failure_emits_durable_warning_and_reports_actual_outcome(monkeypatch):
+    from src.pipelines.outputs import ProgressGenerationOutput
+
+    gen = _FakeGen(oom_at_or_above=999)
+    _wire(monkeypatch, gen)
+    enc = _wire_fake_audio_outcome(
+        monkeypatch, audio_outcome="mux_failed", omitted_reason="synthetic mux failure",
+    )
+    rec = _RecordingProfiler()
+    monkeypatch.setattr(m, "get_profiler", lambda: rec)
+    pipe = GeneratorSeedVR2Pipe(_base_config(batch_size=5, keep_audio=True))
+
+    outputs = []
+    pipe.process(_video_input(), outputs.append)
+
+    warnings = [
+        o for o in outputs
+        if isinstance(o, ProgressGenerationOutput) and o.icon and o.icon.name == "alert-triangle"
+    ]
+    assert warnings, "a mux failure must surface a durable alert-triangle progress warning"
+
+    encode_marks = [fields for event, fields in rec.events if event == "seedvr2.encode_mp4"]
+    assert encode_marks and encode_marks[0]["audio"] == enc.AUDIO_MUX_FAILED
+    assert encode_marks[0]["audio"] != True  # noqa: E712 -- must not regress to the requested bool
+
+
+def test_video_mux_success_reports_muxed_with_no_warning(monkeypatch):
+    from src.pipelines.outputs import ProgressGenerationOutput
+
+    gen = _FakeGen(oom_at_or_above=999)
+    _wire(monkeypatch, gen)
+    enc = _wire_fake_audio_outcome(monkeypatch, audio_outcome="muxed")
+    rec = _RecordingProfiler()
+    monkeypatch.setattr(m, "get_profiler", lambda: rec)
+    pipe = GeneratorSeedVR2Pipe(_base_config(batch_size=5, keep_audio=True))
+
+    outputs = []
+    out = pipe.process(_video_input(), outputs.append)
+
+    warnings = [
+        o for o in outputs
+        if isinstance(o, ProgressGenerationOutput) and o.icon and o.icon.name == "alert-triangle"
+    ]
+    assert not warnings
+
+    encode_marks = [fields for event, fields in rec.events if event == "seedvr2.encode_mp4"]
+    assert encode_marks and encode_marks[0]["audio"] == enc.AUDIO_MUXED
+    assert out.output["video"][0].endswith(".audio.mp4")

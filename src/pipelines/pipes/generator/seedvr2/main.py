@@ -813,6 +813,10 @@ class GeneratorSeedVR2Pipe(BasePipe):
         import tempfile
 
         from src.pipelines.pipes.generator.seedvr2 import batching as B
+        from src.pipelines.pipes.generator.seedvr2.encode import (
+            AUDIO_MUX_FAILED,
+            encode_video_with_audio,
+        )
         from src.pipelines.pipes._shared.media.video_encode import encode_frames_to_mp4
         from src.pipelines.pipes._shared.media.video_read import read_video_frames
 
@@ -933,25 +937,34 @@ class GeneratorSeedVR2Pipe(BasePipe):
                 pass
             raise
 
-        # 9. Re-encode at the source fps; pass the source audio through when present.
-        #    Stack the uint8 frames into one (T,H,W,3) array and hand that straight
-        #    to the encoder, avoiding a per-frame PIL round-trip over the whole clip.
+        # 9. Re-encode at the source fps, then mux the source audio through as a
+        #    SEPARATE step when present -- see `encode.encode_video_with_audio` for
+        #    why the video encode and the audio mux are never allowed to share one
+        #    failure path. Stack the uint8 frames into one (T,H,W,3) array and hand
+        #    that straight to the encoder, avoiding a per-frame PIL round-trip.
         out_path = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
         frames_arr = np.stack(out_frames, axis=0)
         t_enc = time.perf_counter()
-        try:
-            encode_frames_to_mp4(frames_arr, out_path, fps=fps, audio=(video_path if keep_audio else None))
-        except RuntimeError:
-            if keep_audio:
-                logger.warning("[GENERATOR SEEDVR2] audio mux failed — re-encoding without audio", exc_info=True)
-                encode_frames_to_mp4(frames_arr, out_path, fps=fps, audio=None)
-            else:
-                raise
+        encode_result = encode_video_with_audio(
+            frames_arr, out_path, fps,
+            source_audio_path=video_path, keep_audio=keep_audio,
+            encode_video=encode_frames_to_mp4,
+        )
+        out_path = encode_result.video_path
+        if encode_result.audio_outcome == AUDIO_MUX_FAILED:
+            logger.warning(
+                "[GENERATOR SEEDVR2] audio mux failed — keeping video without audio (%s)",
+                encode_result.omitted_reason,
+            )
+            progress.state(
+                "Audio mux failed — output has no audio track",
+                icon=Icon(name="alert-triangle"),
+            )
         get_profiler().mark(
             "seedvr2.encode_mp4", seconds=time.perf_counter() - t_enc,
             frames=int(frames_arr.shape[0]),
             height=int(frames_arr.shape[1]), width=int(frames_arr.shape[2]),
-            audio=bool(keep_audio),
+            audio=encode_result.audio_outcome,
         )
 
         out_h, out_w = out_frames[0].shape[0], out_frames[0].shape[1]

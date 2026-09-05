@@ -110,6 +110,10 @@ _LIFECYCLE_KEY_PREFIX = "native/llm/"
 # the same file (a different consumer, a different in-memory form).
 _LIFECYCLE_TE_KEY_PREFIX = "native/llm-te/"
 _SENTINEL = object()
+# How long a cooperative stop (consumer `aclose()`/cancellation) waits for the
+# streaming worker thread to actually exit before the lease releases anyway —
+# see `stream_with_history`.
+_STOP_WAIT_TIMEOUT_SECONDS = 5.0
 
 
 def _is_oom(error: BaseException) -> bool:
@@ -957,7 +961,7 @@ class NativeLLMClient:
         options_override: Optional[Dict[str, Any]] = None,
     ) -> AsyncGenerator[dict, None]:
         import torch
-        from transformers import TextIteratorStreamer
+        from transformers import StoppingCriteria, StoppingCriteriaList, TextIteratorStreamer
 
         path, is_te = self._resolve_model(config.model)
         async with self._leased(path, config, is_te) as (checkpoint, device):
@@ -977,26 +981,62 @@ class NativeLLMClient:
             streamer = TextIteratorStreamer(checkpoint.tokenizer, skip_prompt=True, skip_special_tokens=True)
             errors: List[BaseException] = []
             completion_tokens_box = [0]
+            worker_done = threading.Event()
+            stop_requested = threading.Event()
+
+            class _StopRequested(StoppingCriteria):
+                def __call__(self, *_args, **_kwargs) -> bool:
+                    return stop_requested.is_set()
+
+            stopping_criteria = StoppingCriteriaList([_StopRequested()])
+            existing_stopping_criteria = gen_kwargs.pop("stopping_criteria", None)
+            if existing_stopping_criteria:
+                stopping_criteria.extend(existing_stopping_criteria)
 
             def _run():
                 try:
                     with torch.no_grad():
-                        output_ids = checkpoint.model.generate(**inputs, streamer=streamer, **gen_kwargs)
+                        output_ids = checkpoint.model.generate(
+                            **inputs, streamer=streamer, stopping_criteria=stopping_criteria, **gen_kwargs
+                        )
                     completion_tokens_box[0] = int(output_ids.shape[-1]) - prompt_tokens
                 except BaseException as e:  # noqa: BLE001 - relayed to the caller below
                     errors.append(e)
+                finally:
+                    # Always end the streamer from here, on success AND failure —
+                    # the consumer's `next()` loop below only ever wakes on the
+                    # sentinel `end()` enqueues; `generate()`'s own normal-path
+                    # `end()` call never fires when it raises before returning.
+                    streamer.end()
+                    worker_done.set()
 
             thread = threading.Thread(target=_run, daemon=True)
             thread.start()
 
-            stream_iter = iter(streamer)
-            while True:
-                text = await asyncio.to_thread(next, stream_iter, _SENTINEL)
-                if text is _SENTINEL:
-                    break
-                if text:
-                    yield {"type": "token", "content": text}
-            thread.join()
+            try:
+                stream_iter = iter(streamer)
+                while True:
+                    text = await asyncio.to_thread(next, stream_iter, _SENTINEL)
+                    if text is _SENTINEL:
+                        break
+                    if text:
+                        yield {"type": "token", "content": text}
+            finally:
+                # Runs on normal completion, on `aclose()`/GC (GeneratorExit),
+                # and on cancellation of the awaited `to_thread` alike. A
+                # cooperative stop through `stopping_criteria` beats a bare
+                # `thread.join()`: it lets the worker unwind `generate()`
+                # properly instead of leaving it running unobserved after this
+                # generator has already moved on.
+                if not worker_done.is_set():
+                    stop_requested.set()
+                    finished = await asyncio.to_thread(worker_done.wait, _STOP_WAIT_TIMEOUT_SECONDS)
+                    if not finished:
+                        logger.warning(
+                            "[NativeLLM] streaming worker for '%s' did not exit within %.1fs of a "
+                            "requested stop; releasing the turn anyway",
+                            config.model, _STOP_WAIT_TIMEOUT_SECONDS,
+                        )
 
             if errors:
                 error = errors[0]

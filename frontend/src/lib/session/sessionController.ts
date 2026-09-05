@@ -630,12 +630,19 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 	 * Drops the view state a command raised for a context the user has left.
 	 * `sessionBusy()` gates tab adoption and the session controls, so a delete
 	 * still waiting on the old preset's server would otherwise hold the new
-	 * context hostage to a response that may never come.
+	 * context hostage to a response that may never come. The quick-save flag is
+	 * the console bar's "Saving…" readout and belongs here for the same reason:
+	 * left standing it describes a save of a session the new context no longer
+	 * has selected. Retiring a handle never cancels the request behind it — the
+	 * `finally` blocks still run, and finding their handle gone is exactly what
+	 * stops them lowering a flag a newer command has since raised.
 	 */
 	function retireCommandView() {
+		quickSaveInFlight = null;
 		saveAsInFlight = null;
 		deleteInFlight = null;
 		restoreInFlight = null;
+		isQuickSaving = false;
 		isSaving = false;
 		isDeleteLoading = false;
 		isRestoringVersion = false;

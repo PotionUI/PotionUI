@@ -1215,6 +1215,91 @@ describe('createSessionController', () => {
 		expect(get(controller.state).isSessionLoading).toBe(false);
 	});
 
+	// The quick-save flag is the console bar's "Saving…" readout. Left behind by
+	// a context switch it describes a save the user can no longer see, against a
+	// session that is no longer selected.
+	it('is not left saving by a quick save the context switch retired', async () => {
+		await bootWithDirtySession();
+		const stalled = deferred<{ success: boolean; data: Session }>();
+		harness.api.updateSession.mockReturnValue(stalled.promise as never);
+
+		const saving = controller.quickSave();
+		await settle();
+		expect(get(controller.state).isQuickSaving).toBe(true);
+
+		harness.api.getSessionsForPreset.mockResolvedValue({ success: true, data: [] });
+		controller.setContext(context({ presetId: OTHER_PRESET_ID }));
+		await settle();
+
+		// Usable before the old save has answered at all.
+		let state = get(controller.state);
+		expect(state.isQuickSaving).toBe(false);
+		expect(state.isSessionLoading).toBe(false);
+
+		stalled.resolve({ success: true, data: makeSession(SESSION_A, { name: 'version 1' }) });
+		await settle();
+
+		state = get(controller.state);
+		expect(state.isQuickSaving).toBe(false);
+		// Retiring the view never undoes the server operation, and never lets it
+		// write the state of the context it was retired from.
+		expect(state.currentSession?.name).not.toBe('version 1');
+		expect(await saving).toBe(true);
+	});
+
+	// A mode change rather than a preset change: quick save refuses a session
+	// belonging to another preset outright, so the same-preset context switch is
+	// the one that can have two quick saves alive across it.
+	it('does not let a retired quick save lower the flag of one issued in the new context', async () => {
+		await bootWithDirtySession();
+		const stalled = deferred<{ success: boolean; data: Session }>();
+		const replacement = deferred<{ success: boolean; data: Session }>();
+		let call = 0;
+		harness.api.updateSession.mockImplementation(
+			(() => (call++ === 0 ? stalled.promise : replacement.promise)) as never
+		);
+
+		void controller.quickSave();
+		await settle();
+
+		controller.setContext(context({ currentMode: 'video' }));
+		await settle();
+		expect(get(controller.state).isQuickSaving).toBe(false);
+
+		void controller.quickSave();
+		await settle();
+		expect(get(controller.state).isQuickSaving).toBe(true);
+
+		stalled.resolve({ success: true, data: makeSession(SESSION_A, { name: 'version 1' }) });
+		await settle();
+		expect(get(controller.state).isQuickSaving).toBe(true);
+
+		replacement.resolve({ success: true, data: makeSession(SESSION_A, { name: 'version 2' }) });
+		await settle();
+		expect(get(controller.state).isQuickSaving).toBe(false);
+	});
+
+	it('keeps the quick-save flag raised until the save completes under an unchanged context', async () => {
+		await bootWithDirtySession();
+		const stalled = deferred<{ success: boolean; data: Session }>();
+		harness.api.updateSession.mockReturnValue(stalled.promise as never);
+
+		void controller.quickSave();
+		await settle();
+		expect(get(controller.state).isQuickSaving).toBe(true);
+
+		// Selecting nothing new and switching nothing: the flag belongs to the
+		// context that is still on screen.
+		harness.tabs.edit(draft('still editing'));
+		await settle();
+		expect(get(controller.state).isQuickSaving).toBe(true);
+
+		stalled.resolve({ success: true, data: makeSession(SESSION_A, { name: 'version 1' }) });
+		await settle();
+		expect(get(controller.state).isQuickSaving).toBe(false);
+		expect(get(controller.state).currentSession?.name).toBe('version 1');
+	});
+
 	it('is not left saving by a save-as the context switch retired', async () => {
 		await bootWithDirtySession();
 		const stalled = deferred<{ success: boolean; data: Session }>();

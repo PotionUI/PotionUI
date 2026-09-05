@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { directorShotInputIdentity, directorPredecessorShotId, hasVersionedShotIdentity } from './directorInputIdentity';
+import {
+	directorShotInputIdentity,
+	directorPredecessorShotId,
+	directorPredecessorOutputKey,
+	hasVersionedShotIdentity,
+	isUnverifiedShotIdentity,
+	NATIVE_CONTINUATION_OUTPUT_KEY
+} from './directorInputIdentity';
 import type {
 	VideoDirectorValue,
 	DirectorCapabilities,
@@ -289,7 +296,12 @@ describe('directorShotInputIdentity', () => {
 		expect(after).not.toBe(before);
 	});
 
-	it('a "whole" pool on a field this mode does NOT declare as a reference field is ignored', () => {
+	it('a formData field change on ANY field is honored, not just declared reference fields -- the whole form reaches the request', () => {
+		// Superseded rule: this used to be filtered to `caps.referenceFields`.
+		// `request.form_data` is `{...tab.formData, video_director: ...}`
+		// (routes/generate/+page.svelte) -- EVERY key reaches the request, under
+		// whatever name this preset's own form uses, so narrowing to a
+		// caps-declared allowlist missed real inputs (steps/cfg/seed/model/...).
 		const doc = baseValue();
 		const caps = chainCaps({ references: 'whole', referenceFields: ['references'] });
 		const before = directorShotInputIdentity(doc, 's2', { caps, formData: { unrelated_field: [{ path: '/r1.png' }] } });
@@ -297,7 +309,148 @@ describe('directorShotInputIdentity', () => {
 			caps,
 			formData: { unrelated_field: [{ path: '/r1.png' }, { path: '/r2.png' }] }
 		});
-		expect(after).toBe(before);
+		expect(after).not.toBe(before);
+	});
+
+	// ─── Effective generation form settings (steps/cfg/seed/model/...) ────────
+
+	it('changes when a generation form field the request actually sends changes (steps, cfg, seed, model -- whatever this preset names them)', () => {
+		const doc = baseValue();
+		const caps = chainCaps();
+		const before = directorShotInputIdentity(doc, 's2', { caps, formData: { steps: 20, cfg: 7, seed: 42, model: 'sdxl-base' } });
+		const after = directorShotInputIdentity(doc, 's2', { caps, formData: { steps: 30, cfg: 7, seed: 42, model: 'sdxl-base' } });
+		expect(after).not.toBe(before);
+	});
+
+	it('the stale video_director key already present in formData is excluded (the live document is hashed separately, not re-hashed from a stale form snapshot)', () => {
+		const doc = baseValue();
+		const caps = chainCaps();
+		const withoutKey = directorShotInputIdentity(doc, 's2', { caps, formData: { steps: 20 } });
+		const withStaleDirectorKey = directorShotInputIdentity(doc, 's2', {
+			caps,
+			formData: { steps: 20, video_director: { anything: 'a stale, unrelated snapshot' } }
+		});
+		expect(withStaleDirectorKey).toBe(withoutKey);
+	});
+
+	// ─── Chain continuation geometry ───────────────────────────────────────────
+
+	it('changes when chain.continuation.overlap_frames changes, for every shot in the chain', () => {
+		const doc = baseValue();
+		const caps = chainCaps();
+		const beforeS2 = directorShotInputIdentity(doc, 's2', { caps, formData: null });
+		const edited = baseValue();
+		edited.chain.continuation = { overlap_frames: 24, stitch: true };
+		expect(directorShotInputIdentity(edited, 's2', { caps, formData: null })).not.toBe(beforeS2);
+	});
+
+	it('chain continuation geometry never leaks into a TIMELINE shot\'s identity', () => {
+		const doc = baseValue();
+		const caps = timelineCaps();
+		const before = directorShotInputIdentity(doc, 't1', { caps, formData: null });
+		const edited = baseValue();
+		edited.chain.continuation = { overlap_frames: 999, stitch: false };
+		expect(directorShotInputIdentity(edited, 't1', { caps, formData: null })).toBe(before);
+	});
+
+	// ─── Bounded regardless of payload size ────────────────────────────────────
+
+	it('a directly embedded (non-form_ref) media payload never blows up the identity size or appears verbatim', () => {
+		const doc = baseValue();
+		const hugePayload = 'A'.repeat(50000);
+		doc.chain.segments[1] = { ...doc.chain.segments[1], keyframe: { path: hugePayload, type: 'image' } as any };
+		const caps = chainCaps();
+		const identity = directorShotInputIdentity(doc, 's2', { caps, formData: null });
+		expect(identity).not.toBeNull();
+		expect(identity!.length).toBeLessThan(2200);
+		expect(identity).not.toContain(hugePayload);
+	});
+
+	it('stays bounded even when the total payload is large from MANY small fields, not one huge one', () => {
+		const doc = baseValue();
+		const caps = chainCaps();
+		const bigFormData: Record<string, unknown> = {};
+		for (let i = 0; i < 500; i++) bigFormData[`field_${i}`] = `value-${i}`;
+		const identity = directorShotInputIdentity(doc, 's2', { caps, formData: bigFormData });
+		expect(identity).not.toBeNull();
+		expect(identity!.length).toBeLessThan(2200);
+	});
+
+	// ─── Media revision identity: same path, different content ────────────────
+
+	it('a form_ref resolving to the SAME path but different revision evidence (a replaced file) IS a change', () => {
+		const doc = baseValue();
+		doc.chain.segments[1] = { ...doc.chain.segments[1], keyframe: { form_ref: { field: 'reference_image', path: 'same.png' } } };
+		const caps = chainCaps();
+		const before = directorShotInputIdentity(doc, 's2', {
+			caps,
+			formData: { reference_image: { path: 'same.png', metadata: { size: 1000, width: 512, height: 512 } } }
+		});
+		const after = directorShotInputIdentity(doc, 's2', {
+			caps,
+			formData: { reference_image: { path: 'same.png', metadata: { size: 2048, width: 768, height: 768 } } }
+		});
+		expect(before).not.toBeNull();
+		expect(after).not.toBe(before);
+	});
+
+	it('a form_ref at the same path with the SAME revision evidence is unchanged', () => {
+		const doc = baseValue();
+		doc.chain.segments[1] = { ...doc.chain.segments[1], keyframe: { form_ref: { field: 'reference_image', path: 'same.png' } } };
+		const caps = chainCaps();
+		const revisioned = { path: 'same.png', metadata: { size: 1000, width: 512, height: 512 } };
+		const a = directorShotInputIdentity(doc, 's2', { caps, formData: { reference_image: revisioned } });
+		const b = directorShotInputIdentity(doc, 's2', { caps, formData: { reference_image: { ...revisioned } } });
+		expect(a).toBe(b);
+	});
+
+	it('a form_ref with NO revision evidence at all is flagged unverified, not silently asserted fresh', () => {
+		const doc = baseValue();
+		doc.chain.segments[1] = { ...doc.chain.segments[1], keyframe: { form_ref: { field: 'reference_image', path: 'same.png' } } };
+		const caps = chainCaps();
+		const identity = directorShotInputIdentity(doc, 's2', { caps, formData: { reference_image: { path: 'same.png' } } });
+		expect(identity).not.toBeNull();
+		expect(hasVersionedShotIdentity(identity)).toBe(true);
+		expect(isUnverifiedShotIdentity(identity)).toBe(true);
+	});
+
+	it('a form_ref WITH revision evidence (size) is verified, not flagged unverified', () => {
+		const doc = baseValue();
+		doc.chain.segments[1] = { ...doc.chain.segments[1], keyframe: { form_ref: { field: 'reference_image', path: 'same.png' } } };
+		const caps = chainCaps();
+		const identity = directorShotInputIdentity(doc, 's2', {
+			caps,
+			formData: { reference_image: { path: 'same.png', metadata: { size: 1000 } } }
+		});
+		expect(isUnverifiedShotIdentity(identity)).toBe(false);
+	});
+
+	it('an inline data: payload alongside a stable path is real revision evidence (digested, not the pointer\'s bare path alone)', () => {
+		const doc = baseValue();
+		doc.chain.segments[1] = { ...doc.chain.segments[1], keyframe: { form_ref: { field: 'reference_image', path: 'same.png' } } };
+		const caps = chainCaps();
+		const before = directorShotInputIdentity(doc, 's2', {
+			caps,
+			formData: { reference_image: { path: 'same.png', data: 'data:image/png;base64,AAAA' } }
+		});
+		const after = directorShotInputIdentity(doc, 's2', {
+			caps,
+			formData: { reference_image: { path: 'same.png', data: 'data:image/png;base64,BBBB' } }
+		});
+		expect(isUnverifiedShotIdentity(before)).toBe(false);
+		expect(after).not.toBe(before);
+		expect(before).not.toContain('AAAA');
+		expect(after).not.toContain('BBBB');
+	});
+});
+
+describe('directorPredecessorOutputKey', () => {
+	it('chain routing has no discrete consumed output -- always the native-continuation sentinel, never the shot id', () => {
+		expect(directorPredecessorOutputKey(chainCaps(), 's1')).toBe(NATIVE_CONTINUATION_OUTPUT_KEY);
+	});
+
+	it('timeline routing uses the predecessor\'s own shot id (matches directorContinuation.ts\'s resolvePredecessorFrame)', () => {
+		expect(directorPredecessorOutputKey(timelineCaps(), 't1')).toBe('t1');
 	});
 });
 

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { deriveConsoleModel } from './consoleModel';
 import { resolveDirectorCapabilities } from '$lib/utils/videoDirector';
-import { directorShotInputIdentity } from '$lib/utils/directorInputIdentity';
+import { directorShotInputIdentity, directorPredecessorOutputKey } from '$lib/utils/directorInputIdentity';
 import type { VideoDirectorValue, DirectorCapabilities, DirectorModeCapability, ChainSegment } from '$lib/types/videoDirector';
 import type { DirectorRunState } from '$lib/types/tabs';
 
@@ -502,7 +502,7 @@ describe('deriveConsoleModel — W3 dependency badges (chain: continue join betw
 		const s1Hash = directorShotInputIdentity(doc, 's1', { caps: wanCaps(), formData: null });
 		const runs: Record<string, DirectorRunState> = {
 			s1: run({ status: 'done', finishedAt: 1000, inputsHash: s1Hash, generationId: 'gen-1' }),
-			s2: run({ status: 'done', finishedAt: 2000, predecessorRef: { generationId: 'gen-1', outputKey: 's1' } })
+			s2: run({ status: 'done', finishedAt: 2000, predecessorRef: { generationId: 'gen-1', outputKey: directorPredecessorOutputKey(wanCaps(), 's1') } })
 		};
 		const model = deriveConsoleModel(doc, wanCaps(), { activeShotId: null }, null, runs);
 		expect(model.shots[1].badge).toBe('continuous');
@@ -516,7 +516,7 @@ describe('deriveConsoleModel — W3 dependency badges (chain: continue join betw
 			// earlier gen-1, so its stamped predecessorRef no longer matches,
 			// even though s1's document content itself never changed.
 			s1: run({ status: 'done', finishedAt: 3000, inputsHash: s1Hash, generationId: 'gen-1-retry' }),
-			s2: run({ status: 'done', finishedAt: 2000, predecessorRef: { generationId: 'gen-1', outputKey: 's1' } })
+			s2: run({ status: 'done', finishedAt: 2000, predecessorRef: { generationId: 'gen-1', outputKey: directorPredecessorOutputKey(wanCaps(), 's1') } })
 		};
 		const model = deriveConsoleModel(doc, wanCaps(), { activeShotId: null }, null, runs);
 		expect(model.shots[1].badge).toBe('stale');
@@ -527,7 +527,7 @@ describe('deriveConsoleModel — W3 dependency badges (chain: continue join betw
 		const staleHash = directorShotInputIdentity(doc, 's1', { caps: wanCaps(), formData: null }) + '-old';
 		const runs: Record<string, DirectorRunState> = {
 			s1: run({ status: 'done', finishedAt: 1000, inputsHash: staleHash, generationId: 'gen-1' }),
-			s2: run({ status: 'done', finishedAt: 2000, predecessorRef: { generationId: 'gen-1', outputKey: 's1' } })
+			s2: run({ status: 'done', finishedAt: 2000, predecessorRef: { generationId: 'gen-1', outputKey: directorPredecessorOutputKey(wanCaps(), 's1') } })
 		};
 		const model = deriveConsoleModel(doc, wanCaps(), { activeShotId: null }, null, runs);
 		expect(model.shots[1].badge).toBe('stale');
@@ -538,7 +538,7 @@ describe('deriveConsoleModel — W3 dependency badges (chain: continue join betw
 		const runs: Record<string, DirectorRunState> = {
 			// A bare JSON.stringify, the retired directorShotFingerprint's shape -- no version prefix.
 			s1: run({ status: 'done', finishedAt: 1000, inputsHash: JSON.stringify(doc.chain.segments[0]), generationId: 'gen-1' }),
-			s2: run({ status: 'done', finishedAt: 2000, predecessorRef: { generationId: 'gen-1', outputKey: 's1' } })
+			s2: run({ status: 'done', finishedAt: 2000, predecessorRef: { generationId: 'gen-1', outputKey: directorPredecessorOutputKey(wanCaps(), 's1') } })
 		};
 		const model = deriveConsoleModel(doc, wanCaps(), { activeShotId: null }, null, runs);
 		expect(model.shots[1].badge).toBe('unverified');

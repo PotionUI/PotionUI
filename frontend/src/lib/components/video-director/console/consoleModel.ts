@@ -113,7 +113,9 @@ import {
 } from '$lib/utils/videoDirector';
 import {
 	directorShotInputIdentity,
+	directorPredecessorOutputKey,
 	hasVersionedShotIdentity,
+	isUnverifiedShotIdentity,
 	type DirectorShotIdentityContext
 } from '$lib/utils/directorInputIdentity';
 
@@ -355,13 +357,18 @@ function hasReusableNativeHandoff(_predecessorRun: DirectorRunState | null | und
  * on this shot's own run) -- either missing (an old stored run, or one from
  * before this shot had a predecessor at all) can't be trusted to answer "did
  * the predecessor change since", so that reads 'unverified' rather than
- * risking a false 'continuous'. With both present, 'stale' fires on EITHER
- * signal: the predecessor's live document has drifted from what its own run
- * captured, or the predecessor was regenerated under a different generation
- * since this run's `predecessorRef` was stamped (catches a same-input
- * regenerate producing a different output, which a content diff alone can't
- * see, and is exact where the retired `finishedAt`-ordering heuristic was
- * only a guess). */
+ * risking a false 'continuous'. A versioned but UNVERIFIED identity on
+ * either side (`isUnverifiedShotIdentity` -- some media in it had no
+ * revision evidence beyond a bare path) reads the same way: an unchanged
+ * string there is "no evidence either way", never proof of freshness. With
+ * both present and verified, 'stale' fires on EITHER signal: the
+ * predecessor's live document has drifted from what its own run captured, or
+ * the predecessor was regenerated under a different generation (or, for a
+ * chain shot, its `outputKey` no longer matches what a chain dependency
+ * actually is -- see `directorPredecessorOutputKey`) since this run's
+ * `predecessorRef` was stamped (catches a same-input regenerate producing a
+ * different output, which a content diff alone can't see, and is exact where
+ * the retired `finishedAt`-ordering heuristic was only a guess). */
 function dependentBadge(
 	doc: VideoDirectorValue,
 	predecessorId: string,
@@ -375,10 +382,13 @@ function dependentBadge(
 	const ownRun = runs?.[shotId];
 	if (!ownRun || ownRun.status !== 'done') return reusableHandoff ? 'input-ready' : 'needs-previous';
 	if (!hasVersionedShotIdentity(predecessorRun.inputsHash) || !ownRun.predecessorRef) return 'unverified';
+	if (isUnverifiedShotIdentity(predecessorRun.inputsHash)) return 'unverified';
 	const predecessorLiveIdentity = directorShotInputIdentity(doc, predecessorId, identityCtx);
+	if (predecessorLiveIdentity != null && isUnverifiedShotIdentity(predecessorLiveIdentity)) return 'unverified';
 	const predecessorEditedSinceItsRun = predecessorLiveIdentity != null && predecessorLiveIdentity !== predecessorRun.inputsHash;
 	const predecessorResultChanged =
-		ownRun.predecessorRef.generationId !== predecessorRun.generationId || ownRun.predecessorRef.outputKey !== predecessorId;
+		ownRun.predecessorRef.generationId !== predecessorRun.generationId ||
+		ownRun.predecessorRef.outputKey !== directorPredecessorOutputKey(identityCtx.caps, predecessorId);
 	return predecessorEditedSinceItsRun || predecessorResultChanged ? 'stale' : 'continuous';
 }
 

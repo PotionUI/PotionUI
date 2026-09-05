@@ -39,7 +39,7 @@
 	import { isMobile, viewportWidth } from '$lib/stores/viewport';
 	import { settingsPaneWidth } from '$lib/stores/generationLayout';
 	import { resolveDirectorCapabilities, normalizeDirectorValue, validateDirector, buildDirectorSubmission, representativeDirectorPrompt, dereferenceFormMediaRefs, seedDirectorPromptFromLegacyText } from '$lib/utils/videoDirector';
-	import { directorShotInputIdentity, directorPredecessorShotId } from '$lib/utils/directorInputIdentity';
+	import { directorShotInputIdentity, directorPredecessorShotId, directorPredecessorOutputKey } from '$lib/utils/directorInputIdentity';
 	import { planDirectorSelection } from '$lib/utils/directorPlanner';
 	import { runDirectorDependencyPlan } from '$lib/utils/directorDependencyRunner';
 	import { peekGenerationOutputs } from '$lib/generation/messages/generationOutputs';
@@ -107,7 +107,9 @@
 				posterUrl: null,
 				inputsHash: directorShotInputIdentity(doc, shotId, { caps, formData }),
 				predecessorRef:
-					predecessorId && predecessorRun ? { generationId: predecessorRun.generationId, outputKey: predecessorId } : null
+					predecessorId && predecessorRun
+						? { generationId: predecessorRun.generationId, outputKey: directorPredecessorOutputKey(caps, predecessorId) }
+						: null
 			};
 		}
 		return entries;

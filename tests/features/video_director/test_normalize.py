@@ -1,6 +1,7 @@
 import copy
 
 import pytest
+from PIL import Image
 
 from src.features.video_director.normalize import (
     VideoDirectorValidationError,
@@ -10,6 +11,35 @@ from src.features.video_director.normalize import (
 )
 
 _LIMITS = {"default_duration": 5, "default_fps": 24, "max_duration": 30}
+
+
+def _write_test_video(path, colors, size: int = 32, fps: float = 10.0) -> None:
+    """Write a tiny mp4 with one solid-color frame per entry in `colors` (RGB).
+    Mirrors `tests/pipelines/pipes/_shared/media/test_frame_extract.py`'s
+    fixture writer -- same cv2 idiom, this test file's own copy."""
+    cv2 = pytest.importorskip("cv2", reason="cv2 not available in this environment", exc_type=ImportError)
+    import numpy as np
+
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    writer = cv2.VideoWriter(str(path), fourcc, fps, (size, size))
+    assert writer.isOpened(), "cv2.VideoWriter failed to open -- codec unavailable in this environment"
+    try:
+        for r, g, b in colors:
+            frame_bgr = np.zeros((size, size, 3), dtype="uint8")
+            frame_bgr[:, :, 0] = b
+            frame_bgr[:, :, 1] = g
+            frame_bgr[:, :, 2] = r
+            writer.write(frame_bgr)
+    finally:
+        writer.release()
+
+    cv2 = pytest.importorskip("cv2")
+    cap = cv2.VideoCapture(str(path))
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    ret, _ = cap.read()
+    cap.release()
+    if not ret or total < len(colors):
+        pytest.skip("cv2 VideoWriter/VideoCapture round-trip not functional in this environment")
 
 # The `director` mode is capability-shaped: LTX runs it as a single keyframe/
 # audio timeline (no segment_routing); Wan runs it as a routed multi-segment
@@ -550,18 +580,85 @@ def test_image_typed_keyframe_still_accepted(storage_dir):
     assert len(out["media"]) == 1
 
 
-def test_video_typed_first_rejected(storage_dir):
+def test_video_typed_first_rejected_outside_timeline_director(storage_dir):
+    # A video-typed 'first' is only a valid continuation reference in a
+    # timeline director shot (see the test_director_timeline_continuation_*
+    # tests below) -- i2v has no predecessor-shot join, so it stays the v1
+    # cut rejection. Asserts the exact message (not loose substrings) since
+    # pytest's own tmp_path directory name embeds this test's name, which
+    # would otherwise make a substring check on "first"/"video" pass for the
+    # wrong reason.
     (storage_dir / "clip.mp4").write_bytes(b"fake-video")
     doc = _base_doc(
-        "director",
-        segments=[{"id": "seg-1", "prompt": "a", "start": 0.0, "end": 5.0}],
+        "i2v",
         media=[{"id": "m-1", "role": "first", "segment_id": "seg-1", "at": None, "strength": 1.0,
                 "media": {"relative_path": "clip.mp4", "type": "video"}}],
     )
     with pytest.raises(VideoDirectorValidationError) as excinfo:
         normalize_video_director(doc, LTX_CAPS, str(storage_dir))
-    assert "first" in str(excinfo.value)
-    assert "video" in str(excinfo.value)
+    assert "media[0]: first media type 'video' is not supported -- only image media is supported today" in str(excinfo.value)
+
+
+def test_director_timeline_continuation_first_resolves_to_last_frame(storage_dir):
+    # A timeline director shot's video-typed 'first' entry (the predecessor
+    # shot's own rendered output, see frontend/src/lib/utils/
+    # directorContinuation.ts) must be placed as the LEADING frame using the
+    # video's LAST decoded frame, not its first.
+    _write_test_video(
+        storage_dir / "predecessor.mp4",
+        colors=[(255, 0, 0), (0, 255, 0), (0, 0, 255)],  # red, green, blue (last)
+    )
+    doc = _base_doc(
+        "director",
+        segments=[{"id": "seg-1", "prompt": "a", "start": 0.0, "end": 5.0}],
+        media=[{"id": "m-1", "role": "first", "segment_id": "seg-1", "at": None, "strength": 1.0,
+                "media": {"relative_path": "predecessor.mp4", "type": "video"}}],
+    )
+    out = normalize_video_director(doc, LTX_CAPS, str(storage_dir))
+
+    assert len(out["media_images"]) == 1
+    resolved_path = out["media_images"][0]
+    assert resolved_path != str(storage_dir / "predecessor.mp4")
+    assert out["media_placements"] == [
+        {"source": "image", "index": 0, "frame": "first", "strength": 1.0, "role": "keyframe"},
+    ]
+
+    # mp4v is lossy, so compare with tolerance rather than exact equality
+    # (mirrors tests/pipelines/pipes/_shared/media/test_frame_extract.py).
+    placed = Image.open(resolved_path).convert("RGB")
+    r, g, b = placed.getpixel((placed.width // 2, placed.height // 2))
+    assert r < 40 and g < 40 and b > 200  # the video's LAST frame (blue), not the first (red)
+
+
+def test_director_timeline_continuation_first_image_typed_unchanged(storage_dir):
+    # An image-typed 'first' on a timeline director shot must still resolve
+    # to its own path verbatim -- the new video-typed branch must not touch
+    # the pre-existing image path.
+    doc = _base_doc(
+        "director",
+        segments=[{"id": "seg-1", "prompt": "a", "start": 0.0, "end": 5.0}],
+        media=[{"id": "m-1", "role": "first", "segment_id": "seg-1", "at": None, "strength": 1.0,
+                "media": {"relative_path": "image.png", "type": "image"}}],
+    )
+    out = normalize_video_director(doc, LTX_CAPS, str(storage_dir))
+    assert out["media_images"] == [str(storage_dir / "image.png")]
+
+
+def test_director_timeline_continuation_unreadable_video_raises_explicit_error(storage_dir):
+    # A continuation join must fail the generation explicitly, never
+    # silently fall back to a fresh cut, when the referenced video can't
+    # actually be decoded.
+    (storage_dir / "broken.mp4").write_bytes(b"not-a-real-video-file")
+    doc = _base_doc(
+        "director",
+        segments=[{"id": "seg-1", "prompt": "a", "start": 0.0, "end": 5.0}],
+        media=[{"id": "m-1", "role": "first", "segment_id": "seg-1", "at": None, "strength": 1.0,
+                "media": {"relative_path": "broken.mp4", "type": "video"}}],
+    )
+    with pytest.raises(VideoDirectorValidationError) as excinfo:
+        normalize_video_director(doc, LTX_CAPS, str(storage_dir))
+    assert "continuation video" in str(excinfo.value)
+    assert "could not be read" in str(excinfo.value)
 
 
 def test_video_typed_last_rejected(storage_dir):
@@ -1183,7 +1280,7 @@ def _media_entry(role, path, media_type="image", at=None, strength=1.0):
             "strength": strength, "media": {"path": path, "type": media_type}}
 
 
-def test_derive_media_images_order_first_last_keyframes_sorted_by_at():
+def test_derive_media_images_order_first_last_keyframes_sorted_by_at(tmp_path):
     media = [
         _media_entry("first", "/first.png"),
         _media_entry("last", "/last.png", strength=0.9),
@@ -1191,11 +1288,11 @@ def test_derive_media_images_order_first_last_keyframes_sorted_by_at():
         _media_entry("keyframe", "/kf_early.png", at=2.0, strength=0.7),
         _media_entry("keyframe", "/kf_video.mp4", media_type="video", at=4.0, strength=0.5),
     ]
-    derived = derive_ltx_media_fields(media, [], fps=25)
+    derived = derive_ltx_media_fields(media, [], fps=25, storage_path=tmp_path)
     assert derived["media_images"] == ["/first.png", "/last.png", "/kf_early.png", "/kf_late.png"]
 
 
-def test_derive_media_placements_index_alignment_and_frame_rounding():
+def test_derive_media_placements_index_alignment_and_frame_rounding(tmp_path):
     media = [
         _media_entry("first", "/first.png"),
         _media_entry("last", "/last.png", strength=0.9),
@@ -1205,7 +1302,7 @@ def test_derive_media_placements_index_alignment_and_frame_rounding():
     ]
     ic_lora = [{"id": "ic1", "lora": {"model": "/lora.safetensors", "strength": 0.6},
                 "reference": {"path": "/ref.mp4", "type": "video"}, "strength": 0.75}]
-    derived = derive_ltx_media_fields(media, ic_lora, fps=25)
+    derived = derive_ltx_media_fields(media, ic_lora, fps=25, storage_path=tmp_path)
 
     assert derived["media_placements"] == [
         {"source": "image", "index": 0, "frame": "first", "strength": 1.0, "role": "keyframe"},
@@ -1217,19 +1314,19 @@ def test_derive_media_placements_index_alignment_and_frame_rounding():
     assert derived["media_videos"] == ["/ref.mp4"]
 
 
-def test_derive_media_fields_empty_for_t2v_shape():
-    assert derive_ltx_media_fields([], [], fps=24) == {
+def test_derive_media_fields_empty_for_t2v_shape(tmp_path):
+    assert derive_ltx_media_fields([], [], fps=24, storage_path=tmp_path) == {
         "media_images": [], "media_videos": [], "media_placements": [],
     }
 
 
-def test_derive_media_ic_lora_image_reference_routes_to_media_images():
+def test_derive_media_ic_lora_image_reference_routes_to_media_images(tmp_path):
     # An image-typed ic_lora reference must NOT go through the video loader
     # (cv2-backed `_load_video_frames`, which cannot read a still image) --
     # it routes into media_images/source="image" like any other still.
     ic_lora = [{"id": "ic1", "lora": {"model": "/lora.safetensors", "strength": 0.6},
                 "reference": {"path": "/ref.png", "type": "image"}, "strength": 0.8}]
-    derived = derive_ltx_media_fields([], ic_lora, fps=25)
+    derived = derive_ltx_media_fields([], ic_lora, fps=25, storage_path=tmp_path)
 
     assert derived["media_images"] == ["/ref.png"]
     assert derived["media_videos"] == []
@@ -1238,20 +1335,20 @@ def test_derive_media_ic_lora_image_reference_routes_to_media_images():
     ]
 
 
-def test_derive_media_ic_lora_reference_defaults_to_image_when_type_absent():
+def test_derive_media_ic_lora_reference_defaults_to_image_when_type_absent(tmp_path):
     # Mirrors _normalize_media's own first/last/keyframe default: a MediaRef
     # with no `type` is image-typed, not video-typed -- MediaLoaderField
     # always stamps an explicit `type` from the detected mime, so an absent
     # `type` here means "not a video", never "assume video".
     ic_lora = [{"id": "ic1", "lora": {"model": "/lora.safetensors", "strength": 0.6},
                 "reference": {"path": "/ref.png"}, "strength": 1.0}]
-    derived = derive_ltx_media_fields([], ic_lora, fps=25)
+    derived = derive_ltx_media_fields([], ic_lora, fps=25, storage_path=tmp_path)
 
     assert derived["media_images"] == ["/ref.png"]
     assert derived["media_videos"] == []
 
 
-def test_derive_media_mixed_first_frame_image_and_both_reference_types():
+def test_derive_media_mixed_first_frame_image_and_both_reference_types(tmp_path):
     # first-frame image (keyframe) + an image ic_lora reference + a video
     # ic_lora reference, in ic_lora document order video-then-image, to prove
     # index alignment doesn't depend on ic_lora list order: the image
@@ -1265,7 +1362,7 @@ def test_derive_media_mixed_first_frame_image_and_both_reference_types():
         {"id": "ic-image", "lora": {"model": "/lora2.safetensors", "strength": 1.0},
          "reference": {"path": "/still.png", "type": "image"}, "strength": 0.9},
     ]
-    derived = derive_ltx_media_fields(media, ic_lora, fps=25)
+    derived = derive_ltx_media_fields(media, ic_lora, fps=25, storage_path=tmp_path)
 
     assert derived["media_images"] == ["/first.png", "/still.png"]
     assert derived["media_videos"] == ["/clip.mp4"]

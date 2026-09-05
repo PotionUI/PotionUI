@@ -11,7 +11,13 @@ and the pipes that consume it:
 it never talks to models or the filesystem beyond resolving media paths, and it
 never knows about specific model families - what's allowed in a given mode
 comes entirely from the `capabilities` dict derived from the preset's
-`vars.video_director`.
+`vars.video_director`. The one exception is `derive_ltx_media_fields`'s
+handling of a timeline shot's video-typed continuation reference, which reads
+the referenced video file to extract and cache its last frame as an image (see
+that function's docstring) -- there is no way to turn a rendered video output
+into the image-typed leading-frame conditioning LTX's loader accepts without
+decoding it somewhere, and this is the single gate the document already
+passes through.
 
 Like `src/features/prompt/expander.py`, this is intentionally a bag of plain
 functions rather than a class: there is no state to carry between calls, and a
@@ -22,6 +28,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from src.pipelines.pipes._shared.media.frame_extract import extract_frame
 from src.platform.util.latents import generate_seed
 from src.platform.util.path_resolution import apply_preset_mode_overlay, resolve_media_ref as _resolve_media_ref
 
@@ -276,7 +283,7 @@ def normalize_video_director(
             out["segments"], out["media"], continuation_disabled=chain_continuation_disabled,
         ))
 
-    out.update(derive_ltx_media_fields(out["media"], out["ic_lora"], out["settings"].get("fps")))
+    out.update(derive_ltx_media_fields(out["media"], out["ic_lora"], out["settings"].get("fps"), storage_path))
 
     return out
 
@@ -296,23 +303,64 @@ def _media_ref_is_image(media_ref: Optional[Dict[str, Any]]) -> bool:
     return ((media_ref or {}).get("type") or "image") != "video"
 
 
+def _extract_last_video_frame_as_image(video_path: str, storage_path: Path) -> str:
+    """Extract `video_path`'s (already resolved to an existing file inside
+    `storage_path`) LAST frame and write it to a cached PNG under the storage
+    root, returning that PNG's absolute path -- the shape
+    `derive_ltx_media_fields` needs to place a director timeline shot's
+    continuation reference (its predecessor shot's own rendered output
+    video, see `frontend/src/lib/utils/directorContinuation.ts`) exactly
+    like an image-typed 'first' entry.
+
+    Delegates the actual decode to `extract_frame` (`_shared/media/
+    frame_extract.py`, shared with `video_frame_extractor` and the RIFE/FLF
+    pipes that already extract a clip's last frame for chained conditioning)
+    rather than re-deriving cv2 seek/fallback logic here. Cached by a digest
+    of the source path + size + mtime so re-normalizing the same submission
+    doesn't re-decode or accumulate duplicate files. Raises
+    `VideoDirectorValidationError` if the file can't be opened or has no
+    readable frames -- a continuation join must fail the generation
+    explicitly, never silently fall back to a fresh cut.
+    """
+    import hashlib
+
+    stat = Path(video_path).stat()
+    digest = hashlib.sha1(f"{video_path}:{stat.st_size}:{stat.st_mtime_ns}".encode("utf-8")).hexdigest()[:24]
+    cache_dir = storage_path / "generations" / "_director_continuation"
+    cached_path = cache_dir / f"{digest}.png"
+    if cached_path.exists():
+        return str(cached_path)
+
+    try:
+        frame = extract_frame(video_path, index=-1)
+    except ValueError as exc:
+        raise VideoDirectorValidationError([f"media: continuation video {video_path!r} could not be read: {exc}"]) from exc
+
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    frame.save(cached_path)
+    return str(cached_path)
+
+
 def derive_ltx_media_fields(
-    media: List[Dict[str, Any]], ic_lora: List[Dict[str, Any]], fps: Any
+    media: List[Dict[str, Any]], ic_lora: List[Dict[str, Any]], fps: Any, storage_path: Optional[Path] = None
 ) -> Dict[str, Any]:
     """Precompute the three lists the native LTX-2 pipeline
-    (`content/presets/marketplace/LTX-2/standard/modes/video/pipeline.yml`) needs but can no
+    (`content/presets/marketplace/LTX-2/modes/video/pipeline.yml`) needs but can no
     longer build itself: the strict/native template evaluator requires
     `@loop`'s `items:` to already BE a list, so the imperative
     `{% set ns = namespace() %}{% for %}...{{ ns.items | tojson }}` idiom that
     used to build one at render time can't run anymore (the boundary owns
     materialization, the YAML stays declarative).
 
-    `media_images`: ordered list of resolved paths for image-typed 'first',
+    `media_images`: ordered list of resolved paths for 'first' (image-typed
+    as-is; video-typed -- a director timeline shot's continuation reference,
+    already validated to only occur there, see `_normalize_media` -- resolved
+    to its LAST decoded frame via `_extract_last_video_frame_as_image`),
     then image-typed 'last', then image-typed 'keyframe' entries sorted by
     `at` (stable sort keeps original order for ties), then image-typed
-    `ic_lora[].reference` entries (document order). Video-typed first/last/
-    keyframe entries are the v1 cut documented in the pipeline header comment
-    -- dropped here, not loaded, not placed.
+    `ic_lora[].reference` entries (document order). Video-typed 'last'/
+    'keyframe' entries are the v1 cut documented in the pipeline header
+    comment -- dropped here, not loaded, not placed.
 
     `media_videos`: ordered list of resolved paths for video-typed
     `ic_lora[].reference` entries (document order) -- IC-LoRA reference clips
@@ -333,14 +381,31 @@ def derive_ltx_media_fields(
     media type rather than being hardcoded to "video".
     """
 
-    firsts = [m for m in media if m.get("role") == "first" and _media_ref_is_image(m.get("media"))]
+    firsts = [m for m in media if m.get("role") == "first" and m.get("media") is not None]
     lasts = [m for m in media if m.get("role") == "last" and _media_ref_is_image(m.get("media"))]
     keyframes = sorted(
         (m for m in media if m.get("role") == "keyframe" and _media_ref_is_image(m.get("media"))),
         key=lambda m: m.get("at") or 0,
     )
 
-    media_images = [m["media"]["path"] for m in firsts + lasts + keyframes]
+    def _first_path(m: Dict[str, Any]) -> str:
+        media_ref = m["media"]
+        if _media_ref_is_image(media_ref):
+            return media_ref["path"]
+        if storage_path is None:
+            # Every caller that can ever hand this function a video-typed
+            # 'first' entry (a timeline director shot, gated by
+            # `_normalize_media`'s `video_first_is_continuation`) also has a
+            # storage path to cache the extracted frame under -- the only
+            # caller that doesn't (`compile_shot_plan`, chain-style-only) can
+            # never produce one (see that module's docstring). Reaching here
+            # means a caller-contract was violated, not a user input problem.
+            raise VideoDirectorValidationError(
+                ["media: continuation video 'first' entry requires a storage path to resolve"]
+            )
+        return _extract_last_video_frame_as_image(media_ref["path"], storage_path)
+
+    media_images = [_first_path(m) for m in firsts] + [m["media"]["path"] for m in lasts + keyframes]
 
     placements: List[Dict[str, Any]] = []
     index = 0
@@ -957,12 +1022,25 @@ def _normalize_media(
 
         media_ref = _resolve_media_ref(item.get("media"), storage_path, context, errors)
 
-        # `derive_ltx_media_fields` only ever LOADS image-typed keyframe/first/
-        # last entries (see its docstring) -- a video-typed one used to pass
+        # `derive_ltx_media_fields` only ever LOADS image-typed keyframe/last
+        # entries (see its docstring) -- a video-typed one used to pass
         # validation, then get silently dropped at pipeline-build time with no
         # feedback to the caller. Reject it here instead: video keyframes/
-        # first/last frames aren't implemented (v1 cut).
-        if role in {"keyframe", "first", "last"} and media_ref is not None and not _media_ref_is_image(media_ref):
+        # last frames aren't implemented (v1 cut). A video-typed 'first' is
+        # the one exception: in a timeline director shot it's a continuation
+        # reference -- the predecessor shot's own rendered output video (see
+        # frontend/src/lib/utils/directorContinuation.ts) -- and
+        # `derive_ltx_media_fields` loads its LAST frame as the leading-frame
+        # conditioning instead of dropping it. Outside timeline_style
+        # (i2v/flf/chain) there is no predecessor-shot join, so a video-typed
+        # 'first' there stays rejected same as before.
+        video_first_is_continuation = role == "first" and timeline_style
+        if (
+            role in {"keyframe", "first", "last"}
+            and media_ref is not None
+            and not _media_ref_is_image(media_ref)
+            and not video_first_is_continuation
+        ):
             errors.append(
                 f"{context}: {role} media type {media_ref.get('type')!r} is not supported -- "
                 "only image media is supported today"

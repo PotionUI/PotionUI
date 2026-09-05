@@ -99,19 +99,24 @@
 # `@loop`s below just replay these three precomputed lists verbatim; there is
 # no separate Jinja-side filter to keep in sync.
 #
-# -- v1 cut: image-only keyframe/first/last media --
+# -- v1 cut: image-only keyframe/last media --
 # MediaRef carries an optional `type` (frontend/src/lib/types/tabs.ts).
-# Keyframe clips (video-typed first/last/keyframe media) are allowed by the
+# Keyframe clips (video-typed last/keyframe media) are allowed by the
 # document schema and by generator/video_ltx's `media_placements` contract
 # (`source: "image"|"video"`), but wiring a video-typed keyframe through this
 # pipeline would mean interleaving TWO different media_loader outputs into
-# ONE placement's index space depending on its type -- video-typed
-# first/last/keyframe entries are dropped here (not loaded, not placed) to
-# keep the index math simple. IC-LoRA `reference` entries are NOT subject to
-# this cut -- both image- and video-typed references are routed (see the
-# index-alignment note above); only the "keyframe" (first/last/keyframe
-# role) side stays image-only. Revisit if keyframe video clips become a real
-# feature request.
+# ONE placement's index space depending on its type -- video-typed last/
+# keyframe entries are dropped here (not loaded, not placed) to keep the
+# index math simple. A video-typed 'first' entry is the one exception: a
+# director-timeline shot that continues from its predecessor carries the
+# predecessor's own rendered output video as its 'first' entry (see
+# frontend/src/lib/utils/directorContinuation.ts); derive_ltx_media_fields
+# resolves that to the video's LAST decoded frame and feeds it into
+# media_images exactly like an image-typed 'first', so it never widens
+# generator/video_ltx's index math. IC-LoRA `reference` entries are NOT
+# subject to this cut either -- both image- and video-typed references are
+# routed (see the index-alignment note above). Revisit if keyframe/last
+# video clips become a real feature request.
 #
 # -- audio routing --
 # doc.audio can only be non-empty in director mode (normalize.py rejects

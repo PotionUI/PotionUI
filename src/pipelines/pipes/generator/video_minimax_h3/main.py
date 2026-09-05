@@ -1594,8 +1594,14 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             # it enters the multistep history unchanged, because it is the
             # model's most recent real output and the sample it moved is real
             # too (samplers.py, `_MultistepStepper`).
+            video_velocity = video_pred[n_cv:].float()
+            video_sample = video_rows[n_cv:].float()
+            # Taken BEFORE the row update below: x0 is only this step's estimate
+            # while it pairs this step's velocity and timestep with the sample
+            # the stepper was handed, not the one it produced.
+            video_x0 = data_estimate(video_velocity, video_t, video_sample) if len(hooks) > 1 else None
             video_rows[n_cv:] = video_stepper.step(
-                video_pred[n_cv:].float(), video_t, video_rows[n_cv:].float(),
+                video_velocity, video_t, video_sample,
                 video_schedule.sigmas[step_index], video_schedule.sigmas[step_index + 1],
             ).to(c.dtype)
             audio_rows[n_ca:] = audio_stepper.step(
@@ -1603,8 +1609,7 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
                 audio_schedule.sigmas[step_index], audio_schedule.sigmas[step_index + 1],
             ).to(c.dtype)
 
-            if len(hooks) > 1:  # a preview hook is registered
-                video_x0 = data_estimate(video_pred[n_cv:].float(), video_t, video_rows[n_cv:].float())
+            if video_x0 is not None:  # a preview hook is registered
                 video_x0_5d = unpatchify_video_rows(
                     video_x0, num_latent_frames=num_latent_frames, latent_height=c.latent_height,
                     latent_width=c.latent_width, channels=VIDEO_LATENT_CHANNELS, patch_size=PATCH_SIZE,

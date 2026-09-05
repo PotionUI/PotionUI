@@ -27,6 +27,7 @@ from src.pipelines.pipes.generator.video_minimax_h3.layout import (
     build_packed_sequence,
     build_ref2va_packed_sequence,
     build_row_timesteps,
+    unpatchify_video_rows,
 )
 from src.pipelines.pipes.generator.video_minimax_h3.main import (
     GeneratorMinimaxH3Pipe,
@@ -2419,3 +2420,137 @@ def test_the_image_only_reference_path_is_unchanged(tmp_path):
     assert [tuple(l.shape) for l in current.condition_latents] == [tuple(l.shape) for l in legacy_latents]
     assert all(torch.equal(a, b) for a, b in zip(current.condition_latents, legacy_latents))
     assert current.condition_audio_rows is None
+
+
+# -- live preview x0 -----------------------------------------------------------
+
+def _run_generate_one_with_preview(steps: int):
+    """Run `generate_one` with previews ON. Returns
+    `(pipe, seen_forward, seen_x0, seen_previewed_steps)` where `seen_forward`
+    holds the `(video rows, video timestep)` every DiT call was handed (rows
+    cloned -- the loop mutates that tensor in place), `seen_x0` the x0 the
+    preview hook received on every step, and `seen_previewed_steps` the step
+    indices whose x0 actually reached the emit callback."""
+    from src.pipelines.pipes.generator.video_minimax_h3 import main as h3_main
+
+    video_patch_dim = 24 * PATCH[0] * PATCH[1] * PATCH[2]
+    base_forward = _fake_dit_module(video_patch_dim)
+    seen_forward: list = []
+
+    def forward(**kwargs):
+        # The LAST video row is always a generated one, so its timestep is the
+        # step's video timestep and never a condition row's noise-aug value.
+        row_timestep = kwargs["timestep"][kwargs["timestep_indices"][kwargs["video_indices"][-1]]]
+        seen_forward.append((kwargs["hidden_states"][0].clone(), float(row_timestep)))
+        return base_forward(**kwargs)
+
+    class _FakeVideoVae:
+        latents_mean = torch.zeros(24)
+        latents_std = torch.ones(24)
+
+        def decode(self, z):
+            b, c, f, h, w = z.shape
+            return torch.rand(b, 3, f, h, w)
+
+    bundle = SimpleNamespace(
+        spec=SimpleNamespace(family="minimax_h3", variant="h3", sampling_settings={},
+                             latent_format={"format": "minimax_h3", "latent_channels": 24}),
+        dit=SimpleNamespace(compute_dtype=torch.float32, estimated_vram_gb=0.0, module=forward,
+                            move_to=lambda d: None, offload=lambda: None),
+        video_vae=SimpleNamespace(module=_FakeVideoVae(), compute_dtype=torch.float32,
+                                  move_to=lambda d: None, offload=lambda: None),
+        audio_vae=SimpleNamespace(module=_fake_audio_vae_module(), move_to=lambda d: None, offload=lambda: None),
+        te=None, te_cache_key=None,
+    )
+    ctx = GeneratorContext(quantity=1, input_seeds=[7], extra=_MiniMaxH3Ctx(
+        bundle=bundle, conditioning=[_fake_conditioning(3)], steps=steps,
+        height=32, width=32, frames=22, num_latent_frames=2, latent_height=2, latent_width=2,
+        num_audio_latents=2, device="cpu", dtype=torch.float32, spec=bundle.spec,
+        keyframe_images=[], keyframe_anchors=(), audio_source="generate", decode=False,
+    ))
+
+    seen_x0: list = []
+    seen_previewed_steps: list = []
+    real_make_preview_hook = h3_main.make_preview_hook
+
+    def recording_make_preview_hook(spec, emit, **kwargs):
+        hook = real_make_preview_hook(spec, emit, **kwargs)
+        assert hook is not None, "the fake 24-channel spec must resolve H3's preview factors"
+        cadence_on_step, emit_callback = hook.on_step, hook._callback
+
+        def on_step(step_index, total_steps, x, sigma, denoised_x0):
+            seen_x0.append((step_index, denoised_x0.clone()))
+            cadence_on_step(step_index, total_steps, x, sigma, denoised_x0)
+
+        def callback(image, step_index):
+            seen_previewed_steps.append(step_index)
+            emit_callback(image, step_index)
+
+        hook.on_step, hook._callback = on_step, callback
+        return hook
+
+    pipe = GeneratorMinimaxH3Pipe({
+        **GeneratorMinimaxH3Pipe.get_default_config(), "preview": True, "steps": steps,
+    })
+    pipe._audio_results = []
+    progress = ProgressEmitter([].append, title="test")
+    with patch.object(h3_main, "make_preview_hook", recording_make_preview_hook):
+        pipe._last_result = pipe.generate_one(ctx, 0, 7, progress)
+    return pipe, seen_forward, seen_x0, seen_previewed_steps
+
+
+def test_preview_x0_pairs_the_velocity_with_the_sample_the_stepper_was_handed():
+    """The x0 shipped to the preview hook on step k must be
+    `x_k + (1 - t_k)*v_k` -- this step's velocity and timestep against the
+    sample that PRODUCED that velocity. Taking it after the stepper has
+    written the row slice pairs `v_k` with `x_(k+1)` instead, which is not the
+    denoised estimate of any step."""
+    steps = 6
+    _, seen_forward, seen_x0, _ = _run_generate_one_with_preview(steps)
+
+    assert len(seen_forward) == steps
+    assert [step_index for step_index, _ in seen_x0] == list(range(steps))
+
+    for step_index, got in seen_x0:
+        pre_update_rows, video_t = seen_forward[step_index]
+        velocity = pre_update_rows * 0.1  # the fake DiT's transfer function
+        expected = unpatchify_video_rows(
+            pre_update_rows + (1.0 - video_t) * velocity,
+            num_latent_frames=2, latent_height=2, latent_width=2, channels=24, patch_size=PATCH,
+        )
+        torch.testing.assert_close(got, expected, rtol=0, atol=0)
+        assert got.shape == (1, 24, 2, 2, 2)
+
+        if step_index + 1 < steps:  # ...and it is NOT the post-update pairing
+            post_update_rows, _ = seen_forward[step_index + 1]
+            stale = unpatchify_video_rows(
+                post_update_rows + (1.0 - video_t) * velocity,
+                num_latent_frames=2, latent_height=2, latent_width=2, channels=24, patch_size=PATCH,
+            )
+            assert not torch.allclose(got, stale)
+
+
+def test_preview_cadence_and_output_survive_the_pre_update_x0():
+    """Computing x0 before the row update must not move the preview cadence
+    (first step, every fifth, last step) or change what the run generates."""
+    steps = 6
+    previewed, _, _, seen_previewed_steps = _run_generate_one_with_preview(steps)
+    assert seen_previewed_steps == [0, 4, 5]
+
+    plain, _ = _run_generate_one({}, steps=steps, ctx_overrides={"decode": False})
+    torch.testing.assert_close(previewed._last_result, plain._last_result, rtol=0, atol=0)
+
+
+def test_the_preview_disabled_path_computes_no_x0():
+    """`preview: False` registers no preview hook, so the loop must not run
+    `data_estimate` at all -- the estimate is preview-only work."""
+    from src.pipelines.pipes.generator.video_minimax_h3 import main as h3_main
+
+    steps = 4
+    with patch.object(h3_main, "data_estimate", wraps=h3_main.data_estimate) as spy:
+        _run_generate_one({}, steps=steps, ctx_overrides={"decode": False})
+    assert spy.call_count == 0
+
+    with patch.object(h3_main, "data_estimate", wraps=h3_main.data_estimate) as spy:
+        _run_generate_one_with_preview(steps)
+    assert spy.call_count == steps

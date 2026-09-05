@@ -49,13 +49,23 @@ def orchestrator(backends):
     from src.features.generation.orchestrator import GenerationOrchestrator
     from src.features.generation.pipeline_builder import BuiltPipeline, PipelineBuilder
 
+    def _build_pipeline(*, form_data=None, **_kwargs):
+        # A `model_loader/*` pipe carrying whatever form_data this build was
+        # called with, so `_resolve_model_key`'s enqueue-time build sees any
+        # `model:<id>` reference a test's request.form_data sets up, exactly
+        # as a real preset's loader pipe would surface it in its config.
+        return BuiltPipeline(
+            generation_id='x',
+            preset_id='p',
+            preset_template=Mock(version='1.0.0'),
+            pipes=[
+                {'name': 'generator', 'enabled': True, 'config': {}},
+                {'name': 'model_loader/x', 'enabled': True, 'config': dict(form_data or {})},
+            ],
+        )
+
     builder = Mock(spec=PipelineBuilder)
-    builder.build_pipeline = Mock(return_value=BuiltPipeline(
-        generation_id='x',
-        preset_id='p',
-        preset_template=Mock(version='1.0.0'),
-        pipes=[{'name': 'generator', 'config': {}}],
-    ))
+    builder.build_pipeline = Mock(side_effect=_build_pipeline)
 
     registry = Mock(spec=BackendRegistry)
     registry.select_backend_for_generation = Mock(
@@ -266,9 +276,10 @@ class TestQueueingThroughTheOrchestrator:
         self, orchestrator, backends, repo
     ):
         """The scheduling "fair" policy's model affinity keys off `model_key`,
-        stamped at enqueue from the form's checkpoint-class `model:<id>`
-        reference (resolved via the model index) - see
-        GenerationOrchestrator._resolve_model_key."""
+        stamped at enqueue from the checkpoint-class `model:<id>` reference an
+        active loader pipe's config carries (resolved via the model index) -
+        see GenerationOrchestrator._resolve_model_key and
+        src.features.generation.model_identity.resolve_model_identity."""
         from src.features.models.records import Model
 
         request = _request('tab_a')
@@ -353,3 +364,32 @@ class TestQueueingThroughTheOrchestrator:
             await orchestrator.start_generation(request, 'user_1')
 
         assert spy.call_args.kwargs['model_key'] is None
+
+    async def test_a_pipeline_build_failure_at_enqueue_disables_affinity_without_failing_the_generation(
+        self, orchestrator, backends, repo
+    ):
+        """The enqueue-time pipeline build (model identity only) is best-
+        effort: a failure there must not surface as a generation failure -
+        the separate dispatch-time build (still called afterwards, with
+        `generation_id` set) is what actually reports build errors."""
+        from src.features.generation.pipeline_builder import BuiltPipeline
+
+        def _build_pipeline(*, generation_id=None, **_kwargs):
+            if generation_id is None:
+                raise ValueError("boom")
+            return BuiltPipeline(
+                generation_id=generation_id,
+                preset_id='p',
+                preset_template=Mock(version='1.0.0'),
+                pipes=[],
+            )
+
+        orchestrator.pipeline_builder.build_pipeline = Mock(side_effect=_build_pipeline)
+
+        with patch(
+            'src.features.generation.orchestrator.QueuedGeneration', side_effect=QueuedGeneration
+        ) as spy:
+            result = await _start(orchestrator, 'tab_a', 'gen_1')
+
+        assert spy.call_args.kwargs['model_key'] is None
+        assert result['status']['status'] == 'running'

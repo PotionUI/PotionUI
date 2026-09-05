@@ -362,18 +362,36 @@ front, since the allowance is spent and Y is the only job waiting for something 
 three X jobs in order (a fresh streak: nothing else is left waiting once Y has gone, so the allowance
 never forces another yield, even once the counter climbs past it again on the third of these).
 
-A generation's `model_key` — what "the same model" means for the affinity check — is stamped by the
-orchestrator at enqueue time (`GenerationOrchestrator._resolve_model_key`): every `model:<id>`
-reference in the bound form (the same generic walk `collect_model_ids` uses for model-access
-enforcement) is looked up in the model index, and the first whose `model_type` is one the depot
-taxonomy uses for a base/checkpoint weight file (`checkpoint`, `diffusion_model`, `unet`) wins — a
-LoRA, VAE, text encoder, ControlNet or other auxiliary reference never counts, regardless of which
-form field it came from or how early it appears. A generation with no such reference — no model
-picker, one whose model is baked into the preset, or a reference the index can't resolve — gets
-`model_key=None`: affinity is disabled for it and the fair policy schedules it by rotation alone.
-The preset id is never used as a fallback (two presets can target the same checkpoint, which a
-preset-id key would hide from the scheduler). This is a scheduling hint, not a residency claim — a
-match says two jobs *want* the same model, not that it is actually resident in VRAM.
+A generation's `model_key` — what "the same model" means for the affinity check — is a conservative
+load-compatibility signature stamped by the orchestrator at enqueue time
+(`GenerationOrchestrator._resolve_model_key`, delegating the actual computation to
+`src/features/generation/model_identity.py`'s `resolve_model_identity`). The bound form (still
+carrying `model:<id>` references) is run through the same `PipelineBuilder` the dispatcher uses to
+build the same pipes the request would actually run, and only the processed pipes that are both
+*enabled* and belong to a model-loading pipe family (`model_loader`, `checkpoint_loader` — the same
+grouping `PIPE_FAMILY_TITLES` in `src/pipelines/contracts.py` uses for the "Loading model" display
+title) contribute: a preset can carry a pipe that echoes the same `model:<id>` references purely for
+tracking or display regardless of whether the loader that would really load them is enabled — Wan's
+`param_emitter` is always enabled and unconditionally lists all four Wan22 expert refs even when only
+one loader's `enabled:` gate is true — so trusting any active pipe would let a disabled, unused
+selection leak into the key, or key two jobs the same when they need different loader sets. Every
+`model:<id>` reference inside an active loader pipe's config is looked up in the model index; the
+ones whose `model_type` is one the depot taxonomy uses for a base/checkpoint weight file
+(`checkpoint`, `diffusion_model`, `unet`) become identity, keyed by digest (or id, for a model not yet
+hashed) — a LoRA, VAE, text encoder, ControlNet or other auxiliary reference must still resolve to
+count as "known" but never contributes identity itself. The signature folds together the sorted set of
+checkpoint identities across every active loader pipe plus any load-relevant setting those same pipes'
+configs expose (`dtype`, any `quant*`-named key), so the same weights loaded under a different dtype
+or quantization scheme key differently. Affinity is disabled (`model_key=None`) whenever the
+identity can't be derived with confidence: the pipeline fails to build at enqueue time, any referenced
+id inside an active loader pipe doesn't resolve in the model index, or no checkpoint-class reference
+exists among the active loader pipes at all (no model picker, one whose model is baked into the
+preset). The preset id is never used as a fallback (two presets can target the same checkpoint, which
+a preset-id key would hide from the scheduler). This is a scheduling hint, not a residency claim — a
+match says two jobs *want* the same model, not that it is actually resident in VRAM. What the
+algorithm above calls a backend's "currently loaded model" is likewise only the `model_key` of the
+last job dispatched to it, tracked as a hint for the affinity check — never a claim of actual VRAM
+residency.
 
 `GenerationQueue.position()`, `pending_items()` and `snapshot()` report the *projected* global
 dispatch order — a pure simulation (`scheduling.project_order`) over the same real state

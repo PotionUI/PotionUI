@@ -75,6 +75,7 @@ from src.platform.settings.settings import Settings
 from src.platform.plugins.hooks import HookContext, await_hook_blocking_waits
 from src.features.generation.hooks import GENERATION_HOOKS
 from src.features.presets import PresetTemplateLoader
+from src.features.presets.templates import PresetTemplate
 from src.features.video_director import apply_preset_mode_overlay, compile_shot_plan, normalize_video_director
 from src.features.music_director import (
     apply_preset_mode_overlay as apply_music_director_mode_overlay,
@@ -482,40 +483,51 @@ class GenerationOrchestrator:
             logger.debug("before_start: VRAM read failed", exc_info=True)
             return None, None
 
-    # The depot taxonomy's model types that name a base/checkpoint weight file
-    # a native or ComfyUI loader actually loads as THE model - as opposed to a
-    # LoRA, VAE, text encoder, ControlNet or other auxiliary reference that
-    # rides alongside it. See `src.platform.filesystem.model_types`.
-    _BASE_MODEL_TYPES = frozenset({"checkpoint", "diffusion_model", "unet"})
-
-    @staticmethod
-    def _resolve_model_key(bound) -> Optional[str]:
+    def _resolve_model_key(
+        self,
+        bound,
+        preset_template: PresetTemplate,
+        mode: str,
+        user_id: Optional[str],
+    ) -> Optional[str]:
         """The model identity a queued generation is scheduled against (the
         "fair" policy's affinity key - see `docs/backends.md` "Scheduling
         policy"). A hint for scheduling only - it says nothing about what is
         actually resident in VRAM.
 
-        Reuses `collect_model_ids`, the same generic `model:<id>` walk
-        `_enforce_model_access` uses, but unlike that walk this cannot stop at
-        the first reference found: a preset's field order says nothing about
-        which reference is the checkpoint, so the first ref could just as
-        easily be a LoRA or VAE. Each id is looked up in the model index and
-        the first whose `model_type` is one of `_BASE_MODEL_TYPES` wins,
-        keyed by its digest (or its id, for a model not yet hashed) - never by
-        field name. A generation with no such reference (no model picker, one
-        whose model is baked into the preset, or a reference the index can't
-        resolve) gets `model_key=None`: affinity is disabled for it and the
-        fair policy schedules it by rotation alone. The preset id is
-        deliberately never used as a fallback - two presets can target the
-        same checkpoint, and a preset id would hide that from the scheduler.
+        The bound form (still carrying `model:<id>` references, not yet
+        rewritten to an engine-native path) is built through the same
+        `PipelineBuilder` the dispatcher uses, so the identity comes from the
+        pipes that will *actually* run - which loader is enabled - rather
+        than the raw form: a preset's field order says nothing about which
+        reference is the checkpoint, and a disabled loader's unused selection
+        must never leak into the key. See
+        `src.features.generation.model_identity.resolve_model_identity` for
+        the signature itself. A pipeline that fails to build here (e.g. the
+        preset later raises a template error the dispatch-time build will
+        surface properly) disables affinity for this generation rather than
+        failing enqueue - the dispatch-time build still reports the failure
+        as today.
         """
         from src.features.models.repository import model_repo
+        from src.features.generation.model_identity import resolve_model_identity
 
-        for model_id in collect_model_ids(bound.values):
-            model = model_repo.get_by_id(model_id, include_providers=False, include_tags=False)
-            if model is not None and model.model_type in GenerationOrchestrator._BASE_MODEL_TYPES:
-                return model.sha256 or model_id
-        return None
+        try:
+            built = self.pipeline_builder.build_pipeline(
+                preset_id=preset_template,
+                form_data=bound.values,
+                mode=mode,
+                form_name=bound.form_name,
+                user_id=user_id,
+            )
+        except Exception:
+            logger.debug("Model-identity pipeline build failed; affinity disabled", exc_info=True)
+            return None
+
+        return resolve_model_identity(
+            built.pipes,
+            lambda model_id: model_repo.get_by_id(model_id, include_providers=False, include_tags=False),
+        )
 
     def _enforce_model_access(self, bound, user_id: str) -> None:
         """Verify every `model:<id>` reference in `bound.values` is one
@@ -1008,7 +1020,7 @@ class GenerationOrchestrator:
                 backend_id=backend.backend_id,
                 user_id=user_id,
                 tab_id=getattr(request, 'tab_id', None),
-                model_key=self._resolve_model_key(bound),
+                model_key=self._resolve_model_key(bound, preset_template, mode, user_id),
                 payload={
                     'request': request,
                     'backend': backend,

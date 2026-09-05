@@ -248,6 +248,264 @@ def test_inject_tools_into_system_message_noop_without_tools():
     assert NativeLLMClient._inject_tools_into_system_message("base prompt", []) == "base prompt"
 
 
+# --- explicit thinking mode -------------------------------------------------
+#
+# Doubles only, deliberately: a real HF checkpoint load goes through
+# `_build` -> `transformers.AutoModelForCausalLM.from_pretrained`, which pulls
+# in `accelerate` — broken in this container by a numpy dist-info overlay
+# (see docs/testing-notes.md) independent of anything this card touches.
+# These tests exercise the thinking-mode contract with a tokenizer double and
+# an `_acquire` stub instead, so they run clean regardless of that trap.
+
+# A real Qwen3 template fragment (abbreviated) — the shape `_supports_thinking`
+# must detect: the literal `enable_thinking` variable in the template source.
+QWEN3_THINKING_TEMPLATE = (
+    "{%- if enable_thinking is defined and enable_thinking is false %}"
+    "{{- '<think>\\n\\n</think>\\n\\n' }}{%- endif -%}"
+)
+# A template with no thinking switch at all (the fixture's own tiny template
+# shape, and most non-Qwen3 chat templates).
+PLAIN_TEMPLATE = "{% for m in messages %}{{ m.role }}: {{ m.content }}\n{% endfor %}"
+
+
+class _RecordingTokenizer:
+    """Tokenizer double recording every ``apply_chat_template`` kwargs call."""
+
+    def __init__(self, chat_template):
+        self.chat_template = chat_template
+        self.template_calls: list = []
+
+    def apply_chat_template(self, chat, add_generation_prompt=True, tokenize=False, **kwargs):
+        self.template_calls.append(kwargs)
+        return "PROMPT_TEXT"
+
+    def __call__(self, text, return_tensors=None):
+        if return_tensors == "pt":
+            return {"input_ids": torch.tensor([[1, 2, 3]])}
+        return {"input_ids": [1, 2, 3]}
+
+    def decode(self, ids, skip_special_tokens=True):
+        return "the answer"
+
+
+class _RecordingGenModel:
+    def generate(self, input_ids, **gen_kwargs):
+        return torch.cat([input_ids, torch.tensor([[9, 9]])], dim=-1)
+
+
+def _thinking_checkpoint(chat_template):
+    from src.features.llm.clients.native import _LoadedCheckpoint
+
+    return _LoadedCheckpoint(
+        model=_RecordingGenModel(), tokenizer=_RecordingTokenizer(chat_template),
+        vision=False, model_type="qwen3", quantized=False,
+    )
+
+
+@pytest.fixture
+def fake_native_model(tmp_path, monkeypatch):
+    """An empty `models/llm/<name>/` directory — enough for `_resolve_model`
+    to resolve a real path without loading any weights (the checkpoint itself
+    is supplied by monkeypatching `_acquire`, never `_build`)."""
+    import src.features.llm.native_library as native_library_module
+
+    d = tmp_path / "llm" / "thinking-tiny"
+    d.mkdir(parents=True)
+    monkeypatch.setattr(native_library_module, "_models_dir", lambda: tmp_path)
+    return "thinking-tiny"
+
+
+class TestSupportsThinking:
+    def test_true_when_template_declares_enable_thinking(self):
+        assert NativeLLMClient._supports_thinking(_RecordingTokenizer(QWEN3_THINKING_TEMPLATE)) is True
+
+    def test_false_when_template_has_no_switch(self):
+        assert NativeLLMClient._supports_thinking(_RecordingTokenizer(PLAIN_TEMPLATE)) is False
+
+    def test_false_when_tokenizer_has_no_chat_template_attribute(self):
+        assert NativeLLMClient._supports_thinking(object()) is False
+
+    def test_never_consults_model_name_or_config(self):
+        """Support is read off the loaded template only — never inferred from
+        the checkpoint name, so a Qwen3-named but template-less double is
+        still reported unsupported."""
+        assert NativeLLMClient._supports_thinking(_RecordingTokenizer(None)) is False
+
+
+class TestThinkingSetting:
+    def test_none_when_provider_options_absent(self):
+        assert NativeLLMClient._thinking_setting(_config("m")) is None
+
+    def test_none_when_key_absent(self):
+        config = _config("m", provider_options={"quantization": "none"})
+        assert NativeLLMClient._thinking_setting(config) is None
+
+    def test_true_when_enabled(self):
+        config = _config("m", provider_options={"thinking": True})
+        assert NativeLLMClient._thinking_setting(config) is True
+
+    def test_false_is_distinct_from_unset(self):
+        config = _config("m", provider_options={"thinking": False})
+        assert NativeLLMClient._thinking_setting(config) is False
+
+
+class TestChatTemplateKwargs:
+    def test_unset_passes_no_kwarg_and_reports_template_default(self):
+        checkpoint = _thinking_checkpoint(QWEN3_THINKING_TEMPLATE)
+        kwargs, meta = NativeLLMClient._chat_template_kwargs(checkpoint, _config("m"))
+        assert kwargs == {}
+        assert meta == {"requested": None, "effective": "template_default"}
+
+    def test_enabled_on_supported_template(self):
+        checkpoint = _thinking_checkpoint(QWEN3_THINKING_TEMPLATE)
+        config = _config("m", provider_options={"thinking": True})
+        kwargs, meta = NativeLLMClient._chat_template_kwargs(checkpoint, config)
+        assert kwargs == {"enable_thinking": True}
+        assert meta == {"requested": True, "effective": True}
+
+    def test_disabled_on_supported_template(self):
+        checkpoint = _thinking_checkpoint(QWEN3_THINKING_TEMPLATE)
+        config = _config("m", provider_options={"thinking": False})
+        kwargs, meta = NativeLLMClient._chat_template_kwargs(checkpoint, config)
+        assert kwargs == {"enable_thinking": False}
+        assert meta == {"requested": False, "effective": False}
+
+    def test_requested_on_unsupported_template_is_never_silently_applied(self):
+        checkpoint = _thinking_checkpoint(PLAIN_TEMPLATE)
+        config = _config("m", provider_options={"thinking": True})
+        kwargs, meta = NativeLLMClient._chat_template_kwargs(checkpoint, config)
+        assert kwargs == {}
+        assert meta == {"requested": True, "effective": "unsupported"}
+
+
+class TestApplyTemplateThreadsKwargs:
+    def test_enable_thinking_reaches_apply_chat_template(self):
+        checkpoint = _thinking_checkpoint(QWEN3_THINKING_TEMPLATE)
+        NativeLLMClient._apply_template(
+            checkpoint, [{"role": "user", "content": "hi"}], None, {"enable_thinking": True}
+        )
+        assert checkpoint.tokenizer.template_calls == [{"enable_thinking": True}]
+
+    def test_no_kwargs_when_unset(self):
+        checkpoint = _thinking_checkpoint(QWEN3_THINKING_TEMPLATE)
+        NativeLLMClient._apply_template(checkpoint, [{"role": "user", "content": "hi"}], None, {})
+        assert checkpoint.tokenizer.template_calls == [{}]
+
+
+class TestGenerateWithHistoryReportsThinkingMode:
+    """End to end through the real `generate_with_history` entry point (the
+    actual generate call site, not a controller double), with `_acquire`
+    stubbed so no real checkpoint loads."""
+
+    @pytest.mark.asyncio
+    async def test_unset_reports_template_default_and_no_kwarg(self, client, fake_native_model, monkeypatch):
+        checkpoint = _thinking_checkpoint(QWEN3_THINKING_TEMPLATE)
+        monkeypatch.setattr(NativeLLMClient, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
+        config = _config(fake_native_model)
+
+        response = await client.generate_with_history(
+            [{"role": "user", "content": "hi"}], config, config.system_message
+        )
+
+        assert checkpoint.tokenizer.template_calls == [{}]
+        assert response.thinking_mode == {"requested": None, "effective": "template_default"}
+
+    @pytest.mark.asyncio
+    async def test_enabled_reaches_generate_and_is_reported_effective(self, client, fake_native_model, monkeypatch):
+        checkpoint = _thinking_checkpoint(QWEN3_THINKING_TEMPLATE)
+        monkeypatch.setattr(NativeLLMClient, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
+        config = _config(fake_native_model, provider_options={"thinking": True})
+
+        response = await client.generate_with_history(
+            [{"role": "user", "content": "hi"}], config, config.system_message
+        )
+
+        assert checkpoint.tokenizer.template_calls == [{"enable_thinking": True}]
+        assert response.thinking_mode == {"requested": True, "effective": True}
+
+    @pytest.mark.asyncio
+    async def test_requested_on_unsupported_template_never_claims_effective(self, client, fake_native_model, monkeypatch):
+        checkpoint = _thinking_checkpoint(PLAIN_TEMPLATE)
+        monkeypatch.setattr(NativeLLMClient, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
+        config = _config(fake_native_model, provider_options={"thinking": True})
+
+        response = await client.generate_with_history(
+            [{"role": "user", "content": "hi"}], config, config.system_message
+        )
+
+        assert checkpoint.tokenizer.template_calls == [{}]
+        assert response.thinking_mode == {"requested": True, "effective": "unsupported"}
+
+    @pytest.mark.asyncio
+    async def test_two_configs_sharing_a_warm_checkpoint_never_bleed_thinking_mode(
+        self, client, fake_native_model, monkeypatch
+    ):
+        """Same checkpoint object reused across two turns with different
+        configs (the real warm-checkpoint-reuse shape) — each turn's
+        `enable_thinking` must come from ITS config, never a value left over
+        from the previous turn on the shared checkpoint."""
+        checkpoint = _thinking_checkpoint(QWEN3_THINKING_TEMPLATE)
+        monkeypatch.setattr(NativeLLMClient, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
+        enabled_config = _config(fake_native_model, id="cfg-a", provider_options={"thinking": True})
+        disabled_config = _config(fake_native_model, id="cfg-b", provider_options={"thinking": False})
+
+        await client.generate_with_history([{"role": "user", "content": "hi"}], enabled_config, enabled_config.system_message)
+        await client.generate_with_history([{"role": "user", "content": "hi"}], disabled_config, disabled_config.system_message)
+
+        assert checkpoint.tokenizer.template_calls == [{"enable_thinking": True}, {"enable_thinking": False}]
+
+
+class TestPreflightAndGenerateAgreeOnThinkingKwargs:
+    """`messages_token_counter` (the budget preflight's chat-template count,
+    called from `LLMGateway.accounting_inputs_for`) and `generate_with_history`
+    (the real send) must compute `enable_thinking` through the exact same
+    `_chat_template_kwargs` call — proven here by warming the SAME checkpoint
+    object for both paths and comparing what each one actually sent to
+    `apply_chat_template`."""
+
+    @pytest.mark.asyncio
+    async def test_identical_kwargs_reach_both_apply_chat_template_call_sites(
+        self, client, fake_native_model, monkeypatch
+    ):
+        path, is_te = client._resolve_model(fake_native_model)
+        checkpoint = _thinking_checkpoint(QWEN3_THINKING_TEMPLATE)
+        client._checkpoint_refs[client._cache_key(path, is_te)] = weakref.ref(checkpoint)
+        monkeypatch.setattr(NativeLLMClient, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
+        config = _config(fake_native_model, provider_options={"thinking": True})
+
+        preflight_counter = client.messages_token_counter(config)
+        assert preflight_counter is not None
+        preflight_counter(config.system_message, [{"role": "user", "content": "hi"}])
+
+        await client.generate_with_history(
+            [{"role": "user", "content": "hi"}], config, config.system_message
+        )
+
+        assert checkpoint.tokenizer.template_calls == [
+            {"enable_thinking": True},
+            {"enable_thinking": True},
+        ]
+
+    @pytest.mark.asyncio
+    async def test_both_sites_agree_an_unsupported_request_is_never_applied(
+        self, client, fake_native_model, monkeypatch
+    ):
+        path, is_te = client._resolve_model(fake_native_model)
+        checkpoint = _thinking_checkpoint(PLAIN_TEMPLATE)
+        client._checkpoint_refs[client._cache_key(path, is_te)] = weakref.ref(checkpoint)
+        monkeypatch.setattr(NativeLLMClient, "_acquire", lambda self, p, cfg, is_te=False: checkpoint)
+        config = _config(fake_native_model, provider_options={"thinking": True})
+
+        preflight_counter = client.messages_token_counter(config)
+        preflight_counter(config.system_message, [{"role": "user", "content": "hi"}])
+        response = await client.generate_with_history(
+            [{"role": "user", "content": "hi"}], config, config.system_message
+        )
+
+        assert checkpoint.tokenizer.template_calls == [{}, {}]
+        assert response.thinking_mode == {"requested": True, "effective": "unsupported"}
+
+
 # --- model-lifecycle integration ------------------------------------------
 
 @pytest.mark.asyncio

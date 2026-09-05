@@ -327,6 +327,7 @@ class ConversationRunner:
                 image_base64=image_base64,
                 context_ledger=context_ledger,
                 tool_failures=getattr(llm_response, "tool_failures", None),
+                thinking_mode=getattr(llm_response, "thinking_mode", None),
             ),
         }
 
@@ -618,6 +619,7 @@ class ConversationRunner:
         tool_executions: List[ToolExecution] = []
         rescues: Optional[List[Dict[str, Any]]] = None
         tool_failures: Optional[Any] = None
+        thinking_mode: Optional[Dict[str, Any]] = None
         usage_data: Dict[str, Any] = {}
 
         _thinking_start = time.monotonic()
@@ -684,6 +686,7 @@ class ConversationRunner:
                             tool_executions = event["data"]["tool_executions"]
                             rescues = event["data"].get("rescues")
                             tool_failures = event["data"].get("tool_failures")
+                            thinking_mode = event["data"].get("thinking_mode")
                             if not full_content:
                                 full_content = event["data"].get("full_content", "")
                             # Extract token usage from done event
@@ -732,6 +735,7 @@ class ConversationRunner:
                                 "prompt_tokens": event.get("prompt_tokens"),
                                 "completion_tokens": event.get("completion_tokens"),
                             }
+                            thinking_mode = event.get("thinking_mode")
 
             step_records.append({
                 "step": "answering",
@@ -761,6 +765,7 @@ class ConversationRunner:
                     image_base64=image_base64,
                     context_ledger=context_ledger,
                     tool_failures=tool_failures,
+                    thinking_mode=thinking_mode,
                 ),
             }
 
@@ -1153,6 +1158,7 @@ class ConversationRunner:
         image_base64: Optional[str] = None,
         context_ledger: Optional[Dict[str, Any]] = None,
         tool_failures: Optional[Any] = None,
+        thinking_mode: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Assemble the persisted per-message behavior-trace manifest.
 
@@ -1168,6 +1174,11 @@ class ConversationRunner:
         ``execute_with_tools``/``execute_with_tools_stream``), read via
         ``getattr``/``.get`` with a ``None`` default so a response object that
         doesn't carry the attribute yet degrades cleanly rather than raising.
+
+        ``thinking_mode`` is the same pass-through for the native provider's
+        explicit thinking-mode outcome (``LLMResponse.thinking_mode`` — see
+        ``NativeLLMClient._chat_template_kwargs``): ``None`` for any provider
+        that doesn't report it.
         """
         session_metadata = getattr(session, 'metadata', None) or {}
         system_prompt_source = (
@@ -1184,6 +1195,7 @@ class ConversationRunner:
             "tools_used": [te.tool_name for te in tool_executions],
             "rescues": rescues,
             "tool_failures": tool_failures,
+            "thinking_mode": thinking_mode,
             "token_counts": {"prompt": prompt_tokens, "completion": completion_tokens},
             "steps": steps,
             "image_attached": {

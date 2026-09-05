@@ -1748,6 +1748,70 @@ class TestSendMessageStreamBehaviorTrace(BaseStreamingTest):
         assert step_names == ["loading_memory", "thinking", "answering"]
 
     @pytest.mark.asyncio
+    async def test_thinking_mode_persisted_without_tools_from_usage_event(self):
+        """The no-tools streaming path carries `thinking_mode` on the final
+        `stream_with_history` "usage" event (see `NativeLLMClient.
+        stream_with_history`) exactly like `tokens_used`; it must reach the
+        persisted trace the same way `test_behavior_trace_persisted_without_tools`
+        proves the token counts do."""
+        self._setup(resources=None, tool_executions=None, llm_content="just an answer")
+
+        async def _gen():
+            yield {"type": "token", "content": "just an answer"}
+            yield {
+                "type": "usage",
+                "tokens_used": 5, "prompt_tokens": 3, "completion_tokens": 2,
+                "thinking_mode": {"requested": False, "effective": False},
+            }
+
+        self.mock_llm.stream_with_history = Mock(return_value=_gen())
+
+        await collect_stream(
+            self.manager.send_message_stream(
+                session_id="session-123", user_id="user-123", content="hello",
+            )
+        )
+
+        second_call = self.mock_repo.add_message.call_args_list[1][1]
+        trace = second_call["metadata"]["behavior_trace"]
+        assert trace["thinking_mode"] == {"requested": False, "effective": False}
+
+    @pytest.mark.asyncio
+    async def test_thinking_mode_persisted_with_tools_from_done_event(self):
+        """The tool-loop streaming path carries `thinking_mode` on the `done`
+        event's data (see `ToolExecutor._usage_fields`/`_done_data`) exactly
+        like `tool_failures`."""
+        te = self._make_tool_execution("get_data")
+        self._setup(resources=None, tool_executions=[te], pre_chat=False)
+
+        async def _mock_execute_with_tools_stream(*args, **kwargs):
+            yield {"type": "tool_start", "data": {"tool_name": "get_data", "arguments": {}}}
+            yield {"type": "tool_end", "data": {"tool_name": "get_data", "success": True, "duration_ms": 1}}
+            yield {"type": "token", "data": {"content": "answer"}}
+            yield {
+                "type": "done",
+                "data": {
+                    "tool_executions": [te], "full_content": "answer",
+                    "tokens_used": 30, "prompt_tokens": 20, "completion_tokens": 10,
+                    "thinking_mode": {"requested": True, "effective": "unsupported"},
+                },
+            }
+
+        self.manager.tool_executor.execute_with_tools_stream = Mock(
+            side_effect=_mock_execute_with_tools_stream
+        )
+
+        await collect_stream(
+            self.manager.send_message_stream(
+                session_id="session-123", user_id="user-123", content="hello",
+            )
+        )
+
+        second_call = self.mock_repo.add_message.call_args_list[1][1]
+        trace = second_call["metadata"]["behavior_trace"]
+        assert trace["thinking_mode"] == {"requested": True, "effective": "unsupported"}
+
+    @pytest.mark.asyncio
     async def test_behavior_trace_records_image_attached_in_stream(self):
         """Streaming path: an attached image should be recorded in the trace
         as attached + its size, never the base64 payload itself."""

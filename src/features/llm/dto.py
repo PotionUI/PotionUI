@@ -1,7 +1,7 @@
 """LLM Data Transfer Objects for API requests and responses."""
 
 from typing import Dict, List, Optional, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 
 # ============================================================================
@@ -25,6 +25,26 @@ class LLMConfigRequest(BaseModel):
     disable_system_prompt: bool = False
     memory_reflection: bool = True
     provider_options: Optional[Dict[str, Any]] = None
+
+    @model_validator(mode="after")
+    def _validate_native_thinking(self) -> "LLMConfigRequest":
+        """``provider_options.thinking`` (the native provider's explicit
+        thinking-mode toggle — see ``NativeLLMClient._chat_template_kwargs``)
+        accepts only ``null``/omitted, ``true``, or ``false``. Checked only
+        for ``type == "native"``: every other provider leaves
+        ``provider_options`` as an unvalidated free-form dict, and this key
+        is meaningless to them."""
+        if self.type != "native" or not self.provider_options:
+            return self
+        if "thinking" not in self.provider_options:
+            return self
+        value = self.provider_options["thinking"]
+        if value is not None and not isinstance(value, bool):
+            raise ValueError(
+                "provider_options.thinking must be true, false, or omitted (null) "
+                f"for a 'native' config, got {value!r}"
+            )
+        return self
 
 
 # ============================================================================

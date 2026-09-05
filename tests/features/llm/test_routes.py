@@ -11,6 +11,7 @@ it exactly like the previous manager mock, without the controller holding a
 stateful collaborator it doesn't need.
 """
 
+import pydantic
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 
@@ -118,6 +119,39 @@ def sample_llm_config():
         max_tokens=1000,
         timeout=30,
     )
+
+
+class TestLLMConfigRequestNativeThinkingValidation:
+    """`provider_options.thinking` is validated at the DTO layer (pydantic
+    raises before a route handler ever runs), scoped to `type == "native"` —
+    every other provider's `provider_options` stays an unvalidated free-form
+    dict."""
+
+    @staticmethod
+    def _request(**overrides):
+        defaults = dict(
+            name="Native Test", type="native", enabled=True, base_url="",
+            model="qwen3-tiny", system_message="You are helpful.",
+        )
+        defaults.update(overrides)
+        return LLMConfigRequest(**defaults)
+
+    def test_unset_is_valid(self):
+        self._request()  # no provider_options at all
+
+    @pytest.mark.parametrize("value", [None, True, False])
+    def test_null_or_bool_is_valid(self, value):
+        self._request(provider_options={"thinking": value})
+
+    @pytest.mark.parametrize("value", ["true", 1, 0, "enabled", [], {}])
+    def test_non_bool_non_null_is_rejected(self, value):
+        with pytest.raises(pydantic.ValidationError, match="provider_options.thinking"):
+            self._request(provider_options={"thinking": value})
+
+    def test_invalid_value_on_non_native_type_is_not_checked(self):
+        """The key is native-specific; other providers' free-form
+        provider_options are left alone regardless of what's in them."""
+        self._request(type="ollama", provider_options={"thinking": "not-a-bool"})
 
 
 class TestLLMController:

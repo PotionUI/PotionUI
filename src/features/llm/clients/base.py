@@ -21,6 +21,14 @@ class LLMResponse(BaseModel):
     # ToolExecutor._ToolCallGuard); same dict[str, int] | None shape the
     # streaming `done` events carry under the same key.
     tool_failures: Optional[dict] = None
+    # Explicit thinking-mode outcome for providers whose chat template can
+    # toggle it (currently the native provider only — see
+    # `NativeLLMClient._chat_template_kwargs`): {"requested": None|bool,
+    # "effective": "template_default"|"unsupported"|bool}. `effective` is
+    # "unsupported" whenever a mode was requested but the loaded chat
+    # template has no `enable_thinking` switch, so a requested mode is never
+    # silently claimed as applied. `None` for providers that don't report it.
+    thinking_mode: Optional[Dict[str, Any]] = None
 
 
 class LLMClient(Protocol):

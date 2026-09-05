@@ -688,6 +688,7 @@ class TestSendMessageBehaviorTrace:
         mock_llm_response.completion_tokens = 5
         mock_llm_response.rescues = None
         mock_llm_response.tool_failures = None
+        mock_llm_response.thinking_mode = None
         self.mock_llm.generate_with_history.return_value = mock_llm_response
 
         note = Mock()
@@ -727,10 +728,31 @@ class TestSendMessageBehaviorTrace:
         assert trace["token_counts"] == {"prompt": 10, "completion": 5}
         assert trace["image_attached"] == {"attached": False, "base64_size_kb": None}
         assert trace["tool_failures"] is None
+        assert trace["thinking_mode"] is None
         assert "context_ledger" in trace
         step_names = [s["step"] for s in trace["steps"]]
         assert step_names == ["loading_memory", "thinking"]
         assert all(s["duration_ms"] >= 0 for s in trace["steps"])
+
+    @pytest.mark.asyncio
+    async def test_thinking_mode_persisted_from_the_llm_response(self):
+        """`LLMResponse.thinking_mode` (the native provider's explicit
+        thinking-mode outcome — see `NativeLLMClient._chat_template_kwargs`)
+        is forwarded into the persisted behavior trace exactly like
+        `rescues`/`tool_failures`, so an admin can see which mode actually
+        applied to a turn."""
+        self._setup_session_and_messages()
+        self.mock_llm.generate_with_history.return_value.thinking_mode = {
+            "requested": True, "effective": True,
+        }
+
+        await self.manager.send_message(
+            session_id="session-123", user_id="user-123", content="Hello",
+        )
+
+        second_call = self.mock_repo.add_message.call_args_list[1][1]
+        trace = second_call["metadata"]["behavior_trace"]
+        assert trace["thinking_mode"] == {"requested": True, "effective": True}
 
     @pytest.mark.asyncio
     async def test_behavior_trace_records_image_attached_with_size(self):

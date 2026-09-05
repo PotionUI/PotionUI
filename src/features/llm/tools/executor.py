@@ -197,13 +197,17 @@ class _StreamToolCallFilter:
 
 
 def _usage_fields(usage: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """The three token-count keys a `done` event carries, from either a
-    provider response or a stream's usage event."""
+    """The token-count and thinking-mode keys a `done` event carries, from
+    either a provider response or a stream's usage event. `thinking_mode` is
+    `None` for any provider that doesn't report it (see
+    `LLMResponse.thinking_mode`); a rescue's fallback message never reaches
+    here since callers only merge this in on a genuine LLM completion."""
     usage = usage or {}
     return {
         "tokens_used": usage.get("tokens_used"),
         "prompt_tokens": usage.get("prompt_tokens"),
         "completion_tokens": usage.get("completion_tokens"),
+        "thinking_mode": usage.get("thinking_mode"),
     }
 
 
@@ -243,6 +247,7 @@ class _BufferedTurnSource:
                 "tokens_used": response.tokens_used,
                 "prompt_tokens": response.prompt_tokens,
                 "completion_tokens": response.completion_tokens,
+                "thinking_mode": getattr(response, "thinking_mode", None),
             },
             response=response,
         )

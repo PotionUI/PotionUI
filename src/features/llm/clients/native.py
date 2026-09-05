@@ -38,6 +38,24 @@ structured/native tool-call decoding via ``transformers``, which would be a
 separate, model-specific undertaking. Admin configs for this provider should
 set ``provider_options.force_prompt_tools = true`` so the tool executor uses
 its buffered legacy path, the best-tested path for XML-embedded tool calls.
+
+An admin config may set ``provider_options.thinking`` to explicitly toggle a
+compatible chat template's thinking/reasoning switch: ``true``/``false``
+requests it on or off, and leaving the key unset (the default) keeps the
+template's own default behavior. Support is a property of the checkpoint's
+LOADED chat template, never of its name or parameter count: a template counts
+as compatible only when its source contains the literal ``enable_thinking``
+variable (the shape the Qwen3 family template uses) — see
+``NativeLLMClient._supports_thinking``. When a mode is requested against an
+incompatible template, the kwarg is never sent (nothing is silently
+half-applied); every response instead reports ``LLMResponse.thinking_mode``
+(and the streaming ``"usage"`` event carries the same key) as
+``{"requested": <bool>, "effective": "unsupported"}``, so a caller can never
+mistake "ignored" for "applied". ``NativeLLMClient._chat_template_kwargs`` is
+the single place this is computed, called identically by the real generate
+path and by ``messages_token_counter``'s budget-preflight count, so the
+token estimate the ledger reports and the request actually sent can never
+disagree about which mode was in effect.
 """
 
 from __future__ import annotations
@@ -500,7 +518,10 @@ class NativeLLMClient:
 
         def _count(system_message: Optional[str], messages: List[Dict[str, Any]]) -> int:
             chat, _image = self._build_chat(list(messages), system_message, None)
-            prompt_text = tokenizer.apply_chat_template(chat, add_generation_prompt=True, tokenize=False)
+            template_kwargs, _thinking_meta = self._chat_template_kwargs(checkpoint, config)
+            prompt_text = tokenizer.apply_chat_template(
+                chat, add_generation_prompt=True, tokenize=False, **template_kwargs
+            )
             encoded = tokenizer(prompt_text, return_tensors=None)
             ids = encoded["input_ids"] if isinstance(encoded, dict) else encoded.input_ids
             if ids and isinstance(ids[0], list):
@@ -642,6 +663,45 @@ class NativeLLMClient:
         except Exception as e:
             raise ValueError(f"Native LLM provider: could not decode the attached image: {e}") from e
 
+    @staticmethod
+    def _supports_thinking(tokenizer: Any) -> bool:
+        """Whether *tokenizer*'s loaded chat template can toggle explicit
+        thinking — detected from the ``enable_thinking`` variable appearing in
+        the template SOURCE actually loaded with this checkpoint (the Qwen3
+        family's template shape), never inferred from the model name or
+        parameter count: a Qwen3-named checkpoint with a stripped/custom
+        template is correctly reported unsupported, and a future family whose
+        template happens to use the same variable is correctly supported."""
+        template = getattr(tokenizer, "chat_template", None)
+        return isinstance(template, str) and "enable_thinking" in template
+
+    @staticmethod
+    def _thinking_setting(config: LLMConfig) -> Optional[bool]:
+        """The admin's requested thinking mode from
+        ``provider_options.thinking`` — ``None`` (unset, distinct from
+        ``False``) means "leave the template's own default in place"."""
+        value = (config.provider_options or {}).get("thinking")
+        return None if value is None else bool(value)
+
+    @staticmethod
+    def _chat_template_kwargs(checkpoint: "_LoadedCheckpoint", config: LLMConfig) -> tuple[Dict[str, Any], Dict[str, Any]]:
+        """The ``apply_chat_template`` kwargs for *config*'s thinking-mode
+        setting against *checkpoint*'s loaded template, and the
+        ``thinking_mode`` metadata to report on the response — the ONE place
+        this is computed, called identically from the budget preflight's
+        ``messages_token_counter`` and from the real generate path
+        (``_apply_template``), so the two can never disagree about what was
+        sent. A requested mode the loaded template cannot honor is never
+        passed through silently: ``effective`` comes back ``"unsupported"``
+        rather than mirroring the request.
+        """
+        requested = NativeLLMClient._thinking_setting(config)
+        if requested is None:
+            return {}, {"requested": None, "effective": "template_default"}
+        if not NativeLLMClient._supports_thinking(checkpoint.tokenizer):
+            return {}, {"requested": requested, "effective": "unsupported"}
+        return {"enable_thinking": requested}, {"requested": requested, "effective": requested}
+
     def _build_chat(
         self,
         messages: List[Dict[str, str]],
@@ -665,8 +725,10 @@ class NativeLLMClient:
         return chat, image
 
     @staticmethod
-    def _apply_template(checkpoint: _LoadedCheckpoint, chat: list, image: Any) -> Dict[str, Any]:
-        prompt_text = checkpoint.tokenizer.apply_chat_template(chat, add_generation_prompt=True, tokenize=False)
+    def _apply_template(checkpoint: _LoadedCheckpoint, chat: list, image: Any, template_kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        prompt_text = checkpoint.tokenizer.apply_chat_template(
+            chat, add_generation_prompt=True, tokenize=False, **template_kwargs
+        )
         if checkpoint.vision:
             return dict(checkpoint.tokenizer(text=[prompt_text], images=[image] if image is not None else None, return_tensors="pt"))
         return dict(checkpoint.tokenizer(prompt_text, return_tensors="pt"))
@@ -741,9 +803,10 @@ class NativeLLMClient:
                 )
             chat, image = self._build_chat(messages, system_message, image_data)
             gen_kwargs = self._generation_kwargs(config, options_override)
+            template_kwargs, thinking_mode = self._chat_template_kwargs(checkpoint, config)
 
             def _run():
-                inputs = self._apply_template(checkpoint, chat, image)
+                inputs = self._apply_template(checkpoint, chat, image, template_kwargs)
                 inputs = {k: v.to(device) for k, v in inputs.items() if hasattr(v, "to")}
                 with torch.no_grad():
                     output_ids = checkpoint.model.generate(**inputs, **gen_kwargs)
@@ -770,6 +833,7 @@ class NativeLLMClient:
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             finish_reason="stop",
+            thinking_mode=thinking_mode,
         )
 
     async def stream_with_history(
@@ -792,8 +856,9 @@ class NativeLLMClient:
                 )
             chat, image = self._build_chat(messages, system_message, image_data)
             gen_kwargs = self._generation_kwargs(config, options_override)
+            template_kwargs, thinking_mode = self._chat_template_kwargs(checkpoint, config)
 
-            inputs = await asyncio.to_thread(self._apply_template, checkpoint, chat, image)
+            inputs = await asyncio.to_thread(self._apply_template, checkpoint, chat, image, template_kwargs)
             inputs = {k: v.to(device) for k, v in inputs.items() if hasattr(v, "to")}
             prompt_tokens = int(inputs["input_ids"].shape[-1])
 
@@ -833,6 +898,7 @@ class NativeLLMClient:
             completion_tokens = completion_tokens_box[0]
             yield {
                 "type": "usage",
+                "thinking_mode": thinking_mode,
                 "tokens_used": prompt_tokens + completion_tokens,
                 "prompt_tokens": prompt_tokens,
                 "completion_tokens": completion_tokens,

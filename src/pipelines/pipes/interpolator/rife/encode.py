@@ -49,6 +49,10 @@ class _StderrTail:
         self._max_bytes = max_bytes
         self._buf = bytearray()
         self._lock = threading.Lock()
+        # Set from INSIDE `_drain`'s own `finally`, never assigned by a
+        # caller -- this must reflect whether the drain loop actually
+        # exited, not merely that finalisation was requested. A join that
+        # times out leaves this False; only the thread itself sets it True.
         self.finished = False
         self._thread = threading.Thread(
             target=self._drain, args=(stream,), daemon=True,
@@ -68,21 +72,23 @@ class _StderrTail:
                         del self._buf[:overflow]
         except (OSError, ValueError):  # pragma: no cover - stream torn down mid-read
             pass
+        finally:
+            self.finished = True
 
     def tail(self) -> bytes:
         with self._lock:
             return bytes(self._buf)
 
-    def join(self, timeout: Optional[float] = None) -> None:
+    def join(self, timeout: Optional[float] = None) -> bool:
+        """Wait up to `timeout` for the drain thread to exit. Returns
+        whether it actually did -- a caller must not treat a timed-out join
+        as the thread having finished; check :attr:`finished` (or
+        :meth:`is_alive`) for the real outcome."""
         self._thread.join(timeout=timeout)
+        return not self._thread.is_alive()
 
-    def mark_finished(self) -> None:
-        """Record that the owning writer is done with this reader -- set
-        unconditionally by :meth:`StreamingMp4Writer._finalize_streams` after
-        :meth:`join`, regardless of whether the drain thread actually exited
-        within the bounded wait, so a caller can tell finalisation RAN even
-        if the thread itself is still winding down."""
-        self.finished = True
+    def is_alive(self) -> bool:
+        return self._thread.is_alive()
 
 
 class StreamingMp4Writer:
@@ -184,7 +190,7 @@ class StreamingMp4Writer:
         except subprocess.TimeoutExpired:  # pragma: no cover - a killed process not reaping is a hang, not a retry case
             pass
 
-    def _finalize_streams(self) -> None:
+    def _finalize_streams(self) -> bool:
         """Release everything this writer's process streams hold, once
         ffmpeg itself has stopped producing (the caller has already waited,
         killed and reaped it). The ONE shared path reached from every
@@ -196,9 +202,19 @@ class StreamingMp4Writer:
         Each step is independent and best-effort: the drain-thread join and
         each stream's close run in their own try/scope, so one failing can
         never skip the others or mask whatever exception the caller is
-        already raising around this call."""
-        self._stderr_tail.join(timeout=_ABORT_WAIT_TIMEOUT)
-        self._stderr_tail.mark_finished()
+        already raising around this call.
+
+        Returns whether the drain thread actually exited within the bounded
+        wait -- ``_StderrTail.join()``'s own result, reported rather than
+        assumed. A caller never treats a timed-out join as the reader having
+        finished: :attr:`_StderrTail.finished` is set only by the thread
+        itself, from inside :meth:`_StderrTail._drain`'s own ``finally``."""
+        joined = self._stderr_tail.join(timeout=_ABORT_WAIT_TIMEOUT)
+        if not joined:
+            logger.warning(
+                "[INTERPOLATOR RIFE] stderr drain thread did not exit within "
+                "the %ss bounded wait", _ABORT_WAIT_TIMEOUT,
+            )
         try:
             if self._proc.stdin is not None and not self._proc.stdin.closed:
                 self._proc.stdin.close()
@@ -209,6 +225,7 @@ class StreamingMp4Writer:
                 self._proc.stderr.close()
         except OSError:
             pass
+        return joined
 
     def _raise_with_stderr(self, prefix: str) -> None:
         if self._proc.poll() is None:

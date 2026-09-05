@@ -1,4 +1,4 @@
-import { createRegistry } from './registry';
+import { createRegistry, CORE_OWNER, pluginOwner } from './registry';
 import { resolvePluginComponent } from '$lib/plugin-api/componentResolver';
 
 /**
@@ -31,15 +31,19 @@ function registerChatToolRenderer(
 	entry: { component: any } | { pluginId: string; asset: string }
 ): void {
 	if ('component' in entry) {
-		registry.register(toolName, { kind: 'static', component: entry.component });
+		registry.register(toolName, { kind: 'static', component: entry.component }, CORE_OWNER);
 	} else {
-		registry.register(toolName, { kind: 'lazy', pluginId: entry.pluginId, asset: entry.asset });
+		registry.register(
+			toolName,
+			{ kind: 'lazy', pluginId: entry.pluginId, asset: entry.asset },
+			pluginOwner(entry.pluginId)
+		);
 		resolvedCache.delete(toolName);
 	}
 }
 
-function unregisterChatToolRenderer(toolName: string): void {
-	registry.unregister(toolName);
+function unregisterChatToolRenderer(toolName: string, owner?: string): void {
+	registry.unregister(toolName, owner);
 	resolvedCache.delete(toolName);
 }
 

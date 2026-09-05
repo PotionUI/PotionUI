@@ -3,7 +3,7 @@
 	import { authStore } from '$lib/stores/auth';
 	import { keybindingsStore, shortcutLabels } from '$lib/stores/keybindings';
 	import { chatPanelStore, isChatPanelOpen } from '$lib/stores/chatPanel';
-	import { pluginStore, pluginNavItems } from '$lib/stores/plugins';
+	import { pluginNavItems } from '$lib/stores/plugins';
 	import { onMount } from 'svelte';
 	import { iconPaths } from '$lib/utils/IconLibrary';
 	import Tooltip from './Tooltip.svelte';
@@ -12,6 +12,7 @@
 	import QuickActions from './QuickActions.svelte';
 	import UserMenu from './UserMenu.svelte';
 	import { contributionsForSlot } from '$lib/extensions/extensionSlots';
+	import { refreshPluginExtensions } from '$lib/plugin-api/extensionRefresh';
 	import { api } from '$lib/services/api/index';
 	import { setupCompletionPing } from '$lib/stores/setupCompletion';
 
@@ -60,11 +61,7 @@
 	);
 
 	onMount(async () => {
-		await Promise.all([
-			pluginStore.loadPluginPages(),
-			pluginStore.loadPluginQuickActions(),
-			pluginStore.loadSidebarWidgets()
-		]);
+		await refreshPluginExtensions();
 	});
 
 	interface NavItem {

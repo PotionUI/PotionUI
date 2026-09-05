@@ -15,7 +15,7 @@ export interface SlotContribution {
 
 const allContributions = writable<SlotContribution[]>([]);
 
-/** Replaces the full contribution set (called once by `stores/extensions.ts` on init). */
+/** Replaces the full contribution set (called by `plugin-api/extensionRefresh.ts` on every refresh). */
 export function setContributions(contributions: SlotContribution[]): void {
 	allContributions.set(contributions);
 }

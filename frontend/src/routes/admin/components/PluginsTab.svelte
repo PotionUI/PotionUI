@@ -12,6 +12,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte';
 	import { pluginCategories, resolveCategory } from '$lib/plugins/categories';
 	import { resolvePluginComponent } from '$lib/plugin-api/componentResolver';
+	import { refreshPluginExtensions } from '$lib/plugin-api/extensionRefresh';
 	import { pluginDetailTabsFor, isPluginDetailTab, hasHiddenAdminTabs, ADMIN_PLUGIN_TABS_HOOK, type PluginDetailTabId } from './pluginDetailTabs';
 
 	let selectedPluginId: string | null = null;
@@ -41,7 +42,7 @@
 	];
 
 	onMount(async () => {
-		await Promise.all([pluginStore.loadPlugins(), pluginStore.loadFrontendHooks()]);
+		await Promise.all([pluginStore.loadPlugins(), refreshPluginExtensions()]);
 		window.addEventListener('keydown', handleGlobalKeydown);
 		window.addEventListener('potionui:switch-plugin-tab', handleSwitchPluginTab as EventListener);
 	});
@@ -81,6 +82,7 @@
 		const result = await pluginStore.scanPlugins();
 		scanning = false;
 		if (result) {
+			await refreshPluginExtensions();
 			scanResult = result;
 			setTimeout(() => {
 				scanResult = null;
@@ -88,8 +90,10 @@
 		}
 	}
 
-	function togglePlugin(plugin: Plugin) {
-		pluginStore.togglePlugin(plugin.id, !plugin.enabled);
+	async function togglePlugin(plugin: Plugin) {
+		if (await pluginStore.togglePlugin(plugin.id, !plugin.enabled)) {
+			await refreshPluginExtensions();
+		}
 	}
 
 	// Select a plugin for the detail pane - fetches full details (settings

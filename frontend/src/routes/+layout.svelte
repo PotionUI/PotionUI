@@ -9,8 +9,7 @@
 	import { init as initKeyboard, destroy as destroyKeyboard } from '$lib/services/keyboard';
 	import { registerComponent } from '$lib/plugin-api/componentRegistry';
 	import { initHostApi } from '$lib/plugin-api/host';
-	import { initFieldTypes } from '$lib/stores/fieldTypes';
-	import { initExtensions } from '$lib/stores/extensions';
+	import { refreshPluginExtensions } from '$lib/plugin-api/extensionRefresh';
 	import { canInstall, initPwaInstall, promptInstall } from '$lib/stores/pwaInstall';
 	import ToastContainer from '$lib/components/ToastContainer.svelte';
 	import ConfirmHost from '$lib/components/modals/ConfirmHost.svelte';
@@ -99,7 +98,7 @@
 		registerComponent('PromptModelField', promptModelField.default);
 		initHostApi();
 		builtinFields.registerBuiltinFieldComponents();
-		await Promise.all([initFieldTypes(), initExtensions()]);
+		await refreshPluginExtensions();
 		authenticatedRuntimeReady = true;
 	}
 

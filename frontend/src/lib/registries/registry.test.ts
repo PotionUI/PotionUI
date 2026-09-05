@@ -77,3 +77,61 @@ describe('createRegistry', () => {
 		warnSpy.mockRestore();
 	});
 });
+
+describe('createRegistry ownership layers', () => {
+	it('unregistering one owner reveals the registration it shadowed', () => {
+		const registry = createRegistry<string>('test');
+		registry.register('k', 'core-value');
+		registry.register('k', 'plugin-value', 'plugin:a');
+
+		expect(registry.get('k')).toBe('plugin-value');
+
+		registry.unregister('k', 'plugin:a');
+
+		expect(registry.get('k')).toBe('core-value');
+		expect(registry.has('k')).toBe(true);
+	});
+
+	it('unregistering an owner that is not on top leaves the visible value alone', () => {
+		const registry = createRegistry<string>('test');
+		registry.register('k', 'a-value', 'plugin:a');
+		registry.register('k', 'b-value', 'plugin:b');
+
+		registry.unregister('k', 'plugin:a');
+
+		expect(registry.get('k')).toBe('b-value');
+		expect(registry.keys()).toEqual(['k']);
+	});
+
+	it('re-registering an owner replaces its layer and moves it to the top', () => {
+		const registry = createRegistry<string>('test');
+		registry.register('k', 'a-1', 'plugin:a');
+		registry.register('k', 'b-1', 'plugin:b');
+		registry.register('k', 'a-2', 'plugin:a');
+
+		expect(registry.get('k')).toBe('a-2');
+
+		registry.unregister('k', 'plugin:a');
+
+		expect(registry.get('k')).toBe('b-1');
+	});
+
+	it('unregistering without an owner drops every layer for the key', () => {
+		const registry = createRegistry<string>('test');
+		registry.register('k', 'core-value');
+		registry.register('k', 'plugin-value', 'plugin:a');
+
+		registry.unregister('k');
+
+		expect(registry.has('k')).toBe(false);
+	});
+
+	it('unregistering an owner that never registered the key changes nothing', () => {
+		const registry = createRegistry<string>('test');
+		registry.register('k', 'core-value');
+
+		registry.unregister('k', 'plugin:ghost');
+
+		expect(registry.get('k')).toBe('core-value');
+	});
+});

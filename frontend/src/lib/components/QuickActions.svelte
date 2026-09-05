@@ -73,8 +73,8 @@
 	);
 
 	// ---- Source: plugin-contributed actions ----
-	// Loaded via pluginStore.loadPluginQuickActions() (Sidebar.svelte's
-	// onMount), fed by GET /api/plugins/quick-actions - each plugin manifest's
+	// Loaded via refreshPluginExtensions() (Sidebar.svelte's onMount),
+	// fed by GET /api/plugins/quick-actions - each plugin manifest's
 	// `quick_actions[]`. This is the plugin extension point; the palette
 	// itself is core.
 	$: visiblePluginActions = ($pluginQuickActions || []).filter(

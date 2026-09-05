@@ -106,7 +106,7 @@ function toToastType(level: string): ToastType {
 /**
  * Assemble `window.__potionui`. Idempotent - safe to call more than once
  * (each call just re-derives the same bindings), matching the other
- * `+layout.svelte` init calls (`initFieldTypes`, `initExtensions`, etc).
+ * `+layout.svelte` init calls (`refreshPluginExtensions`, etc).
  */
 export function initHostApi(): void {
 	const w = window as unknown as { __potionui?: Partial<PotionUIHostApi> };

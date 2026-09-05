@@ -195,48 +195,6 @@ function createPluginStore() {
 			}
 		},
 
-		// Load plugin pages from API
-		async loadPluginPages(): Promise<void> {
-			try {
-				const response = await api.getClient().get('/api/plugins/pages');
-				const data = response.data;
-
-				if (data.success) {
-					pluginPages.set(Array.isArray(data.data) ? data.data : []);
-				}
-			} catch (err: unknown) {
-				logger.error('Failed to load plugin pages:', err);
-			}
-		},
-
-		// Load quick actions from API
-		async loadPluginQuickActions(): Promise<void> {
-			try {
-				const response = await api.getClient().get('/api/plugins/quick-actions');
-				const data = response.data;
-
-				if (data.success) {
-					pluginQuickActions.set(Array.isArray(data.data) ? data.data : []);
-				}
-			} catch (err: unknown) {
-				logger.error('Failed to load plugin quick actions:', err);
-			}
-		},
-
-		// Load sidebar widgets from API
-		async loadSidebarWidgets(): Promise<void> {
-			try {
-				const response = await api.getClient().get('/api/plugins/sidebar-widgets');
-				const data = response.data;
-
-				if (data.success) {
-					sidebarWidgets.set(Array.isArray(data.data) ? data.data : []);
-				}
-			} catch (err: unknown) {
-				logger.error('Failed to load sidebar widgets:', err);
-			}
-		},
-
 		// Get plugins by hook name
 		getPluginsByHook(hookName: string): PluginHook[] {
 			const hooks = get(frontendHooks);
@@ -257,13 +215,6 @@ function createPluginStore() {
 					plugins.update((currentPlugins) =>
 						currentPlugins.map((p) => (p.id === pluginId ? { ...p, enabled } : p))
 					);
-
-					const currentPlugins = get(plugins);
-					const plugin = currentPlugins.find((p) => p.id === pluginId);
-					if (plugin && (plugin.type === 'frontend-only' || plugin.type === 'full-stack')) {
-						await this.loadFrontendHooks();
-					}
-
 					return true;
 				} else {
 					throw new Error(data.message || `Failed to ${endpoint} plugin`);
@@ -387,15 +338,6 @@ function createPluginStore() {
 			} finally {
 				loading.set(false);
 			}
-		},
-
-		// Initialize store (load plugins, hooks, pages, quick actions, and widgets)
-		async initialize(): Promise<void> {
-			await this.loadPlugins();
-			await this.loadFrontendHooks();
-			await this.loadPluginPages();
-			await this.loadPluginQuickActions();
-			await this.loadSidebarWidgets();
 		},
 
 		// Clear error

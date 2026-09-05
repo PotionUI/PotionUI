@@ -1,4 +1,4 @@
-import { createRegistry } from './registry';
+import { createRegistry, pluginOwner } from './registry';
 import { resolvePluginComponent } from '$lib/plugin-api/componentResolver';
 
 /**
@@ -18,11 +18,11 @@ export interface ModelViewSection {
 const registry = createRegistry<{ pluginId: string; asset: string }>('model-view');
 
 export function registerModelView(pluginId: string, key: string, asset: string): void {
-	registry.register(`${pluginId}:${key}`, { pluginId, asset });
+	registry.register(`${pluginId}:${key}`, { pluginId, asset }, pluginOwner(pluginId));
 }
 
 export function unregisterModelView(pluginId: string, key: string): void {
-	registry.unregister(`${pluginId}:${key}`);
+	registry.unregister(`${pluginId}:${key}`, pluginOwner(pluginId));
 }
 
 /** All registered sections, each resolving its component lazily via componentResolver. */

@@ -1,6 +1,7 @@
 """
 Unit tests for src.features.plugins.operations.
 """
+import os
 import pytest
 from unittest.mock import Mock, MagicMock
 from datetime import datetime
@@ -553,7 +554,7 @@ def test_get_frontend_extensions_excludes_disabled_plugins(mock_plugin_repo, moc
     result = operations.get_frontend_extensions(mock_plugin_repo, mock_plugin_registry)
 
     # Assert
-    assert result == {"renderers": [], "contributions": []}
+    assert result == {"renderers": [], "contributions": [], "revisions": {}}
 
 
 def test_get_frontend_extensions_sorts_contributions_by_order(mock_plugin_repo, mock_plugin_registry, sample_plugin):
@@ -962,3 +963,43 @@ class TestRefreshKnownPluginHooksAgainstRealDatabase(PersistenceTestBase):
         assert len(frontend_hooks) == 1
         assert frontend_hooks[0].plugin_id == "comfyui-backend"
         assert frontend_hooks[0].hook_name == "admin.presets.header-actions"
+
+
+def test_frontend_extensions_revision_changes_when_a_dist_bundle_is_rebuilt(
+    mock_plugin_repo, mock_plugin_registry, sample_plugin, tmp_path
+):
+    """A rebuilt bundle behind an unchanged manifest version still moves the
+    plugin's frontend revision - that is the case module caching would hide."""
+    # Arrange
+    plugin_dir = tmp_path / "example-extensions"
+    dist = plugin_dir / "frontend" / "dist"
+    dist.mkdir(parents=True)
+    manifest_path = plugin_dir / "manifest.yml"
+    manifest_path.write_text("id: test-plugin-1\n")
+    bundle = dist / "FakeArtifact.js"
+    bundle.write_text("export default 1;")
+
+    mock_plugin_repo.get_enabled_plugins.return_value = [sample_plugin]
+    manifest = PluginManifest(
+        id="test-plugin-1",
+        name="Test Plugin",
+        version="1.0.0",
+        description="A test plugin",
+        author="Test Author",
+        plugin_type="full-stack",
+        manifest_path=manifest_path,
+        plugin_dir=plugin_dir,
+        renderers=[{"kind": "history.artifact", "key": "fake_artifact", "component": "FakeArtifact.svelte"}],
+    )
+    mock_plugin_registry.get_plugin.return_value = manifest
+
+    before = operations.get_frontend_extensions(mock_plugin_repo, mock_plugin_registry)["revisions"]
+
+    # Act
+    bundle.write_text("export default 2; // rebuilt")
+    os.utime(bundle, (1_000_000, 1_000_000))
+    after = operations.get_frontend_extensions(mock_plugin_repo, mock_plugin_registry)["revisions"]
+
+    # Assert
+    assert before["test-plugin-1"]
+    assert after["test-plugin-1"] != before["test-plugin-1"]

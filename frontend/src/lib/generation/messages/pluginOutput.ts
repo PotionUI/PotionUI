@@ -1,4 +1,5 @@
 import { generationMessageRegistry } from '$lib/registries/generationMessageRegistry';
+import { pluginOwner } from '$lib/registries/registry';
 
 /**
  * Registers a `generationMessageRegistry` handler for a plugin-declared
@@ -9,18 +10,26 @@ import { generationMessageRegistry } from '$lib/registries/generationMessageRegi
  * renders it via `PluginMessageRenderer` for the resolved `pluginId`/`asset`.
  */
 export function registerPluginOutputHandler(messageType: string, pluginId: string, asset: string): void {
-	generationMessageRegistry.register(messageType, {
-		type: messageType,
-		handle(msg, ctx) {
-			ctx.tabsStore.updateTab(ctx.tabId, {
-				generation: {
-					...ctx.tab.generation,
-					pluginOutputs: {
-						...(ctx.tab.generation.pluginOutputs || {}),
-						[messageType]: { msg, pluginId, asset }
+	generationMessageRegistry.register(
+		messageType,
+		{
+			type: messageType,
+			handle(msg, ctx) {
+				ctx.tabsStore.updateTab(ctx.tabId, {
+					generation: {
+						...ctx.tab.generation,
+						pluginOutputs: {
+							...(ctx.tab.generation.pluginOutputs || {}),
+							[messageType]: { msg, pluginId, asset }
+						}
 					}
-				}
-			});
-		}
-	});
+				});
+			}
+		},
+		pluginOwner(pluginId)
+	);
+}
+
+export function unregisterPluginOutputHandler(messageType: string, pluginId: string): void {
+	generationMessageRegistry.unregister(messageType, pluginOwner(pluginId));
 }

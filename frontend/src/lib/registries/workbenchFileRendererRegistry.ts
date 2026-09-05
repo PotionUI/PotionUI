@@ -1,4 +1,4 @@
-import { createRegistry } from './registry';
+import { createRegistry, CORE_OWNER, pluginOwner } from './registry';
 import { resolvePluginComponent } from '$lib/plugin-api/componentResolver';
 
 /**
@@ -24,15 +24,19 @@ export function registerWorkbenchFileRenderer(
 	entry: { component: any } | { pluginId: string; asset: string }
 ): void {
 	if ('component' in entry) {
-		registry.register(fileType, { kind: 'static', component: entry.component });
+		registry.register(fileType, { kind: 'static', component: entry.component }, CORE_OWNER);
 	} else {
-		registry.register(fileType, { kind: 'lazy', pluginId: entry.pluginId, asset: entry.asset });
+		registry.register(
+			fileType,
+			{ kind: 'lazy', pluginId: entry.pluginId, asset: entry.asset },
+			pluginOwner(entry.pluginId)
+		);
 		resolvedCache.delete(fileType);
 	}
 }
 
-export function unregisterWorkbenchFileRenderer(fileType: string): void {
-	registry.unregister(fileType);
+export function unregisterWorkbenchFileRenderer(fileType: string, owner?: string): void {
+	registry.unregister(fileType, owner);
 	resolvedCache.delete(fileType);
 }
 

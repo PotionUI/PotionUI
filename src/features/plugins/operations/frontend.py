@@ -2,7 +2,9 @@
 Manifest/registry-derived reads for the frontend: quick actions, sidebar
 widgets, renderer/extension-slot contributions, and the hooks catalog.
 """
-from typing import Any, Dict, List
+import hashlib
+from pathlib import Path
+from typing import Any, Dict, Iterator, List
 
 from src.features.plugins.repository import PluginRepository
 from src.platform.plugins.registry import PluginRegistry
@@ -80,16 +82,54 @@ def get_active_sidebar_widgets(repo: PluginRepository, registry: PluginRegistry)
     return widgets
 
 
-def get_frontend_extensions(repo: PluginRepository, registry: PluginRegistry) -> Dict[str, List[Dict[str, Any]]]:
+def _revision_inputs(manifest) -> Iterator[Path]:
+    """The files whose identity a plugin's frontend revision is taken from."""
+    yield manifest.manifest_path
+    try:
+        dist = manifest.plugin_dir / "frontend" / "dist"
+        yield from sorted(path for path in dist.iterdir() if path.is_file())
+    except (OSError, TypeError):
+        return
+
+
+def plugin_frontend_revision(manifest) -> str:
+    """Identity of a plugin's frontend surface: its declared version, its
+    manifest file, and the compiled bundles a browser imports.
+
+    The dist files are stamped in deliberately. A browser caches an imported
+    module by URL for the life of the document, so a rebuilt bundle behind an
+    unchanged manifest version is precisely the case that would otherwise stay
+    invisible until a reload.
+    """
+    digest = hashlib.sha256()
+    digest.update(str(getattr(manifest, "version", "")).encode("utf-8", "replace"))
+
+    for path in _revision_inputs(manifest):
+        try:
+            stat = path.stat()
+        except (OSError, TypeError, AttributeError):
+            continue
+        digest.update(f"\0{path.name}:{stat.st_mtime_ns}:{stat.st_size}".encode("utf-8", "replace"))
+
+    return digest.hexdigest()[:16]
+
+
+def get_frontend_extensions(repo: PluginRepository, registry: PluginRegistry) -> Dict[str, Any]:
     """
     Get manifest-declared `renderers:` and `contributions:` from enabled
     plugins, for the frontend renderer registries (A5) and extension
     slots. Manifest-derived only - no DB tables.
 
     Returns:
-        {"renderers": [...], "contributions": [...]}, each entry
-        annotated with its owning `plugin_id`.
+        {"renderers": [...], "contributions": [...], "revisions": {...}},
+        each renderer/contribution annotated with its owning `plugin_id` and
+        `revisions` mapping every contributing plugin id to its frontend
+        revision (see `plugin_frontend_revision`). This is the only plugin
+        endpoint a non-admin may call, so it has to carry the version signal
+        itself - `GET /api/plugins`, which returns `version`/`updated_at`, is
+        admin-only.
     """
+    revisions: Dict[str, str] = {}
     renderers: List[Dict[str, Any]] = []
     contributions: List[Dict[str, Any]] = []
     enabled_db_plugins = repo.get_enabled_plugins()
@@ -98,6 +138,8 @@ def get_frontend_extensions(repo: PluginRepository, registry: PluginRegistry) ->
         manifest = registry.get_plugin(plugin.id)
         if not manifest:
             continue
+
+        revisions[manifest.id] = plugin_frontend_revision(manifest)
 
         for renderer_def in manifest.renderers:
             renderers.append({
@@ -120,7 +162,7 @@ def get_frontend_extensions(repo: PluginRepository, registry: PluginRegistry) ->
             })
 
     contributions.sort(key=lambda c: c["order"])
-    return {"renderers": renderers, "contributions": contributions}
+    return {"renderers": renderers, "contributions": contributions, "revisions": revisions}
 
 
 def get_hooks_catalog() -> List[Dict[str, Any]]:

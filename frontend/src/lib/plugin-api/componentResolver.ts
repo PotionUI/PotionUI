@@ -22,6 +22,9 @@ import PluginDistHost from '$lib/components/plugins/PluginDistHost.svelte';
 
 const moduleCache = new Map<string, Promise<any>>();
 
+/** plugin id -> the revision its assets are currently served at. */
+const revisions = new Map<string, string>();
+
 /** Wraps a raw plugin dist export in a host-mountable Svelte 5 function component. Exported for direct testing (`pluginDistHostMount.test.ts`) - real callers only reach it through `resolvePluginComponent`. */
 export function _wrapPluginDistComponent(dist: any): any {
 	function PluginComponentHost(anchor: any, props: Record<string, any>) {
@@ -46,28 +49,71 @@ export function _wrapPluginDistComponent(dist: any): any {
 }
 
 /**
+ * Publish the revision each plugin's assets are currently served at (from
+ * `/api/plugins/frontend-extensions`). A browser keeps an imported module for
+ * the life of the document, keyed by URL, so a rebuilt bundle is only
+ * re-imported if its URL moves: the revision goes into both the cache key and
+ * the module URL's query string. Cached modules whose plugin has a different
+ * revision now - or has gone away entirely - are dropped here.
+ */
+export function setPluginRevisions(next: Record<string, string>): void {
+	for (const cacheKey of Array.from(moduleCache.keys())) {
+		const [pluginId, revision] = splitCacheKey(cacheKey);
+		if ((next[pluginId] ?? '') !== revision) moduleCache.delete(cacheKey);
+	}
+
+	revisions.clear();
+	for (const [pluginId, revision] of Object.entries(next)) revisions.set(pluginId, revision);
+}
+
+function cacheKeyFor(pluginId: string, revision: string, componentPath: string): string {
+	return `${pluginId}@${revision}:${componentPath}`;
+}
+
+function splitCacheKey(cacheKey: string): [string, string] {
+	const at = cacheKey.indexOf('@');
+	const colon = cacheKey.indexOf(':', at);
+	return [cacheKey.slice(0, at), cacheKey.slice(at + 1, colon)];
+}
+
+/**
  * Resolve `pluginId`'s compiled asset (e.g. `ExampleStarsField.js`) to its
  * default-exported component class. `assetPath` may be given with a
  * `.svelte` extension (the manifest/hook source form) - it is normalized to
  * `.js` to match the compiled dist output. Returns `null` on any failure
  * (network, missing default export, etc.) instead of throwing, matching the
- * original `PluginSlot` behavior. Results (including failures) are cached
- * per plugin+asset for the lifetime of the page.
+ * original `PluginSlot` behavior.
+ *
+ * Successful resolutions are cached per plugin+revision+asset. A failure is
+ * NOT cached: a plugin whose assets were briefly unreachable (mid-enable, a
+ * dropped request) would otherwise stay broken until a page reload, so the
+ * next caller retries.
  */
 export function resolvePluginComponent(pluginId: string, assetPath: string): Promise<any | null> {
 	const componentPath = assetPath.replace(/\.svelte$/, '.js');
-	const cacheKey = `${pluginId}:${componentPath}`;
+	const revision = revisions.get(pluginId) ?? '';
+	const cacheKey = cacheKeyFor(pluginId, revision, componentPath);
 
-	let cached = moduleCache.get(cacheKey);
-	if (!cached) {
-		cached = loadPluginComponent(pluginId, componentPath);
-		moduleCache.set(cacheKey, cached);
-	}
-	return cached;
+	const cached = moduleCache.get(cacheKey);
+	if (cached) return cached;
+
+	const pending: Promise<any | null> = loadPluginComponent(pluginId, componentPath, revision).then(
+		(component) => {
+			if (component === null && moduleCache.get(cacheKey) === pending) moduleCache.delete(cacheKey);
+			return component;
+		}
+	);
+	moduleCache.set(cacheKey, pending);
+	return pending;
 }
 
-async function loadPluginComponent(pluginId: string, componentPath: string): Promise<any | null> {
-	const moduleUrl = `${api.getBaseURL()}/api/plugins/${pluginId}/assets/${componentPath}`;
+async function loadPluginComponent(
+	pluginId: string,
+	componentPath: string,
+	revision: string
+): Promise<any | null> {
+	const versionQuery = revision ? `?v=${encodeURIComponent(revision)}` : '';
+	const moduleUrl = `${api.getBaseURL()}/api/plugins/${pluginId}/assets/${componentPath}${versionQuery}`;
 
 	try {
 		const module = await import(/* @vite-ignore */ moduleUrl);
@@ -84,7 +130,8 @@ async function loadPluginComponent(pluginId: string, componentPath: string): Pro
 	}
 }
 
-/** Clears the module cache. Test-only escape hatch. */
+/** Clears the module cache and the published revisions. Test-only escape hatch. */
 export function _clearComponentCache(): void {
 	moduleCache.clear();
+	revisions.clear();
 }

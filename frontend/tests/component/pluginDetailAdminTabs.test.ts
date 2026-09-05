@@ -83,6 +83,14 @@ vi.mock('$lib/services/api/index', async () => {
 						};
 					}
 					if (url === `/api/plugins/${apiState.listEntry.id}`) return { data: { success: true, data: apiState.detail } };
+					// The rest of the catalogues one refreshPluginExtensions() snapshot reads.
+					if (url === '/api/plugins/frontend-extensions') {
+						return { data: { success: true, data: { renderers: [], contributions: [], revisions: {} } } };
+					}
+					if (url === '/api/fields/types') return { data: { success: true, data: [] } };
+					if (url === '/api/plugins/pages') return { data: { success: true, data: [] } };
+					if (url === '/api/plugins/quick-actions') return { data: { success: true, data: [] } };
+					if (url === '/api/plugins/sidebar-widgets') return { data: { success: true, data: [] } };
 					throw new Error(`unexpected GET ${url}`);
 				}),
 				post: vi.fn(async () => ({ data: { success: true } }))
@@ -92,7 +100,8 @@ vi.mock('$lib/services/api/index', async () => {
 });
 
 vi.mock('$lib/plugin-api/componentResolver', () => ({
-	resolvePluginComponent: vi.fn(async () => StubComponent)
+	resolvePluginComponent: vi.fn(async () => StubComponent),
+	setPluginRevisions: vi.fn()
 }));
 
 const { default: PluginsTab } = await import('../../src/routes/admin/components/PluginsTab.svelte');

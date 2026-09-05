@@ -2,11 +2,11 @@
  * type -> Svelte field component registry, resolved by `FormField.svelte`
  * instead of the old hardcoded if-chain. An entry is either a `static`
  * component (core field, registered eagerly by `builtin.ts`) or a `lazy`
- * plugin-hosted component (registered by `stores/fieldTypes.ts` once
- * `/api/fields/types` responds), resolved on demand via
+ * plugin-hosted component (registered by
+ * `plugin-api/extensionRefresh.ts` from `/api/fields/types`), resolved on demand via
  * `plugin-api/componentResolver`.
  */
-import { createRegistry } from '$lib/registries/registry';
+import { createRegistry, CORE_OWNER, pluginOwner } from '$lib/registries/registry';
 import { resolvePluginComponent } from '$lib/plugin-api/componentResolver';
 
 export type FieldComponentEntry =
@@ -23,15 +23,15 @@ export function registerFieldComponent(
 	entry: { component: any } | { pluginId: string; asset: string }
 ): void {
 	if ('component' in entry) {
-		registry.register(type, { kind: 'static', component: entry.component });
+		registry.register(type, { kind: 'static', component: entry.component }, CORE_OWNER);
 	} else {
-		registry.register(type, { kind: 'lazy', pluginId: entry.pluginId, asset: entry.asset });
+		registry.register(type, { kind: 'lazy', pluginId: entry.pluginId, asset: entry.asset }, pluginOwner(entry.pluginId));
 		resolvedCache.delete(type);
 	}
 }
 
-export function unregisterFieldComponent(type: string): void {
-	registry.unregister(type);
+export function unregisterFieldComponent(type: string, owner?: string): void {
+	registry.unregister(type, owner);
 	resolvedCache.delete(type);
 }
 

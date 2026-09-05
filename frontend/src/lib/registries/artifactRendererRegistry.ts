@@ -1,4 +1,4 @@
-import { createRegistry } from './registry';
+import { createRegistry, CORE_OWNER, pluginOwner } from './registry';
 import { resolvePluginComponent } from '$lib/plugin-api/componentResolver';
 
 /**
@@ -26,15 +26,19 @@ function registerArtifactRenderer(
 	entry: { component: any } | { pluginId: string; asset: string }
 ): void {
 	if ('component' in entry) {
-		registry.register(artifactType, { kind: 'static', component: entry.component });
+		registry.register(artifactType, { kind: 'static', component: entry.component }, CORE_OWNER);
 	} else {
-		registry.register(artifactType, { kind: 'lazy', pluginId: entry.pluginId, asset: entry.asset });
+		registry.register(
+			artifactType,
+			{ kind: 'lazy', pluginId: entry.pluginId, asset: entry.asset },
+			pluginOwner(entry.pluginId)
+		);
 		resolvedCache.delete(artifactType);
 	}
 }
 
-function unregisterArtifactRenderer(artifactType: string): void {
-	registry.unregister(artifactType);
+function unregisterArtifactRenderer(artifactType: string, owner?: string): void {
+	registry.unregister(artifactType, owner);
 	resolvedCache.delete(artifactType);
 }
 

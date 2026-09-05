@@ -143,12 +143,15 @@ class LoraStepWindowHook(BaseStepHook):
 
     Every boundary that actually changes the patches advances the DiT wrapper's
     ``effective_revision``, which is what run-scoped caches of weight-dependent
-    work key on (``NativeGenerator.RunCache``). ``weight_revision`` is left alone
-    on the success path — it is the cross-run identity, and moving it per step
-    would change the trajectory warm-start key under an unchanged schedule. The
-    one exception is a FAILED apply: a half-patched module is no longer the base
-    stack the loader stamped, so the base identity is forced forward too and can
-    never be reused.
+    work key on (``NativeGenerator.RunCache``). The bump PRECEDES the mutation on
+    both halves — apply and restore alike — because either can fail partway
+    through and the sampler isolates ordinary hook exceptions, so the next forward
+    would otherwise read a cache entry keyed on weights the module no longer has.
+    ``weight_revision`` is left alone on the success path — it is the cross-run
+    identity, and moving it per step would change the trajectory warm-start key
+    under an unchanged schedule. A FAILED apply or restore forces it forward too:
+    a half-patched or half-restored module is no longer the base stack the loader
+    stamped, so no trajectory keyed on that stack may be resumed again.
     """
 
     # Ahead of preview/progress so a step's weights are settled before anything
@@ -188,21 +191,48 @@ class LoraStepWindowHook(BaseStepHook):
         self.close()
 
     def close(self) -> None:
-        """Restore the module to its pre-hook LoRA state. Idempotent."""
+        """Restore the module to its pre-hook LoRA state.
+
+        Idempotent on SUCCESS only: ``_closed`` is set after the restore returns,
+        never before it is attempted. A restore that raises leaves the hook dirty
+        and open so the next ``close`` retries it, and the exception propagates —
+        a half-restored shared model must never be reported as cleanly closed.
+        """
         if self._closed:
             return
-        self._closed = True
         if not self._dirty:
+            self._closed = True
             return
-        restore_lora_state(self._base)
-        self._applied = ()
-        self._dirty = False
         # A FRESH epoch, not the pre-apply value. Restoring from the base snapshot
         # is believed exact, but "believed" is not "verified" across the
         # quantised runtime-delta path, and a wrong reuse here is a silently
         # wrong image. A fresh epoch costs at most a recompute of run-scoped work
         # nothing is going to ask for again — the run is over.
-        self._dit.bump_effective_revision("windowed LoRA restored at run end")
+        self._restore("windowed LoRA restored at run end")
+        self._closed = True
+
+    def _restore(self, reason: str) -> None:
+        """Undo this hook's patches, invalidating BEFORE the first weight moves.
+
+        ``restore_lora_state`` walks Linears one at a time, so a failure partway
+        through leaves a module that is neither the patched nor the base state.
+        The effective bump therefore precedes the attempt, not follows it: the
+        sampler isolates ordinary hook exceptions, so the very next forward can
+        read a run-scoped cache, and an entry keyed on the pre-restore revision
+        would answer it from weights that no longer exist. A failure additionally
+        forces the CROSS-run identity forward for the same reason the failed-apply
+        path does — a half-restored module is not the base stack the loader
+        stamped, so no trajectory keyed on it may ever be resumed. ``_dirty``
+        survives a failure so the next attempt retries the whole restore.
+        """
+        self._dit.bump_effective_revision(reason)
+        try:
+            restore_lora_state(self._base)
+        except Exception:
+            self._dit.bump_weight_revision(f"{reason}: restore failed, module half-restored")
+            raise
+        self._applied = ()
+        self._dirty = False
 
     def _warn_unreachable(self) -> None:
         for index, (_sd, _weight, window) in enumerate(self._loras):
@@ -222,10 +252,7 @@ class LoraStepWindowHook(BaseStepHook):
         if wanted == self._applied:
             return
         if self._dirty:
-            restore_lora_state(self._base)
-            self._applied = ()
-            self._dirty = False
-            self._dit.bump_effective_revision(f"windowed LoRA cleared entering step {step_index}")
+            self._restore(f"windowed LoRA cleared entering step {step_index}")
         if not wanted:
             return
         stack: List[Tuple[Dict[str, torch.Tensor], float]] = [

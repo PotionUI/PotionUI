@@ -405,3 +405,94 @@ def test_a_full_window_cycle_leaves_the_trajectory_key_reusable():
         assert plan() == 4, "an unchanged schedule must still resume after a windowed run"
     finally:
         cache.clear()
+
+
+# --- a restore that fails partway through ---------------------------------
+
+def _half_restore(leaf):
+    """Stand-in for ``restore_lora_state``: moves ONE leaf, then dies.
+
+    That is the shape of a real partial restore — ``_restore_linear_states``
+    walks Linears one at a time — and it leaves a module that is neither the
+    patched nor the base state. ``leaf`` resolves the tensor to corrupt at raise
+    time, since applying a LoRA can rebind ``weight.data``.
+    """
+    def _boom(_snapshot):
+        with torch.no_grad():
+            leaf().add_(1.0)
+        raise RuntimeError("restore died after one leaf")
+
+    return _boom
+
+
+def test_a_partial_restore_cannot_leave_a_usable_cached_value(monkeypatch):
+    """Invalidation must precede the restore, not follow it.
+
+    The sampler isolates hook exceptions, so the forward right after this failure
+    still runs and still reads the run cache.
+    """
+    import src.platform.runtime.native.lora.step_window as step_window
+    from src.platform.runtime.native.engine import RunCache
+
+    module = _build()
+    dit = _dit(module)
+    cache = RunCache(lambda: dit.effective_revision)
+    hook = LoraStepWindowHook(dit, [(_kohya_lora(), 1.0, LoraStepWindow(1, 2))])
+
+    hook.on_start(6)
+    patched, hit = _cached_forward(cache, dit, module)
+    assert hit is False
+    assert _cached_forward(cache, dit, module) == (patched, True)
+
+    monkeypatch.setattr(step_window, "restore_lora_state",
+                        _half_restore(lambda: _target_weight(module)))
+    with pytest.raises(RuntimeError, match="restore died"):
+        hook.on_step(1, 6, None, 0.0, None)  # entering step 2: the window closes
+
+    value, hit = _cached_forward(cache, dit, module)
+    assert hit is False, "a half-restored module must not answer from the patched epoch"
+    assert value != patched
+
+
+def test_a_partial_restore_makes_the_trajectory_key_unreusable(monkeypatch):
+    import src.platform.runtime.native.lora.step_window as step_window
+
+    module = _build()
+    dit = _dit(module)
+    hook = LoraStepWindowHook(dit, [(_kohya_lora(), 1.0, LoraStepWindow(1, 2))])
+    weights = dit.weight_revision
+
+    hook.on_start(6)
+    monkeypatch.setattr(step_window, "restore_lora_state",
+                        _half_restore(lambda: _target_weight(module)))
+    with pytest.raises(RuntimeError, match="restore died"):
+        hook.on_step(1, 6, None, 0.0, None)
+
+    assert dit.weight_revision > weights
+
+
+def test_a_failed_close_is_retried_rather_than_reported_successful(monkeypatch):
+    """A raising close must not mark itself done; the next call finishes the job.
+
+    The corrupted leaf here is one the LoRA does not target, so the retry's own
+    restore math is observable: the windowed patch really does come off.
+    """
+    import src.platform.runtime.native.lora.step_window as step_window
+
+    module = _build()
+    baseline = _target_weight(module).clone()
+    dit = _dit(module)
+    hook = LoraStepWindowHook(dit, [(_kohya_lora(), 1.0, LoraStepWindow(1, 4))])
+
+    hook.on_start(4)
+    assert _is_patched(module, baseline)
+
+    monkeypatch.setattr(step_window, "restore_lora_state",
+                        _half_restore(lambda: module.img_in.weight.data))
+    with pytest.raises(RuntimeError, match="restore died"):
+        hook.close()
+    assert _is_patched(module, baseline), "the failed restore did not put the module back"
+
+    monkeypatch.undo()
+    hook.close()  # the retry the failure left open
+    assert not _is_patched(module, baseline)

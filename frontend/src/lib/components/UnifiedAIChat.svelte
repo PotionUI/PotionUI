@@ -1,10 +1,9 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
 	import { onDestroy, tick } from 'svelte';
-	import { get } from 'svelte/store';
 	import { browser } from '$app/environment';
 	import { storage } from '$lib/utils/storage';
-	import { api, type ChatSessionResponse, type ChatMessageResponse } from '$lib/services/api/index';
+	import { api, type ChatSessionResponse } from '$lib/services/api/index';
 	import ChatMessage from '$lib/components/ChatMessage.svelte';
 	import Logo from '$lib/components/brand/Logo.svelte';
 	import ChatIconSprite from '$lib/components/chat/ChatIconSprite.svelte';
@@ -40,16 +39,13 @@
 	import { applySegmentUpdate } from '$lib/utils/promptSegments';
 	import { lastAppliedSegment } from '$lib/stores/lastAppliedSegment';
 	import { appliedSegmentActions } from '$lib/stores/appliedSegmentActions';
+	import { applyTitle, mapPersistedMessage } from '$lib/utils/chatStream';
 	import {
-		applyTitle,
-		applyDurableRecovery,
-		needsDurableRecovery,
-		findTurnAssistantMessage,
-		finishTurnIfCurrent,
-		settleUnrecoverable,
-		ownSession,
-		type OwnedSessionController
-	} from '$lib/utils/chatStream';
+		sendMessage as turnControllerSendMessage,
+		reattachToTurn as turnControllerReattachToTurn,
+		type TurnControllerDeps,
+		type SendMessagePayload
+	} from '$lib/chat/turnController';
 	import {
 		resolveDirectorCapabilities,
 		normalizeDirectorValue,
@@ -646,68 +642,23 @@
 		loadRecentSessions();
 	}
 
-	/** Returns the created session's id, or null on failure — the caller
-	 * (sendMessage) uses the RETURNED id as its turn's owned session identity,
-	 * never a later read of `$chatSession.sessionId`: the store's current
-	 * session could already have moved on to something else by the time any
-	 * subsequent `await` in the caller resolves. */
-	async function startNewSession(): Promise<string | null> {
-		try {
-			// Subtractive tool filter: omit enabled_tools when everything is on;
-			// send the reduced list when the user unticked tools; [] disables all.
-			const disabled = $chatSession.disabledTools;
-			let enabledToolsPayload: string[] | undefined;
-			if (!enableTools) {
-				enabledToolsPayload = [];
-			} else if (disabled.length > 0) {
-				enabledToolsPayload = visibleTools
-					.map((t) => t.name)
-					.filter((name) => !disabled.includes(name));
-			}
-
-			const response = await api.createChatSession({
-				llm_config_id: selectedConfigId || undefined,
-				mode: $chatSession.mode,
-				enabled_tools: enabledToolsPayload
-			});
-
-			if (response.success && response.data) {
-				chatSession.patch({
-					sessionId: response.data.id
-				});
-				saveCurrentSessionId();
-				recentSessions = [response.data, ...recentSessions];
-				return response.data.id;
-			} else {
-				chatSession.patch({ error: 'Failed to create chat session' });
-				return null;
-			}
-		} catch (err) {
-			logger.error('Failed to create session:', err);
-			chatSession.patch({ error: 'Failed to create chat session' });
-			return null;
-		}
-	}
-
-	/** Map one persisted `ChatMessageResponse` into the shape the message list
-	 * renders. Shared by the session-load path and the stream-recovery path
-	 * (`recoverDurableMessage` in `createStreamEventHandler`) so both produce
-	 * an identical message from the same backend record. */
-	function mapPersistedMessage(msg: ChatMessageResponse): ChatMessageData {
-		const metadata = (msg as any).metadata || {};
-		const toolExecs = metadata.tool_executions || (msg as any).tool_executions || [];
+	/** Builds the dependency object `turnController`'s functions need — the
+	 * real chatSession store and api transports, plus a few UI-only callbacks
+	 * for state this component owns and the controller module has no
+	 * business touching (recentSessions, selectedImageData). */
+	function buildTurnControllerDeps(): TurnControllerDeps {
 		return {
-			id: msg.id,
-			role: msg.role,
-			content: msg.content,
-			timestamp: msg.created_at ? new Date(msg.created_at).getTime() : Date.now(),
-			imageUrl: metadata.image_url || null,
-			tokens_used: msg.tokens_used,
-			prompt_tokens: msg.prompt_tokens,
-			completion_tokens: msg.completion_tokens,
-			tool_executions: toolExecs,
-			sources: toolExecs.flatMap((te: any) => te.result?.sources || []),
-			metadata
+			store: chatSession,
+			api,
+			scrollToBottom,
+			tick,
+			logError: (message, err) => logger.error(message, err),
+			onTitle: (sessionId, name) => {
+				recentSessions = applyTitle(recentSessions, sessionId, name);
+			},
+			onAnswered: () => {
+				selectedImageData = null;
+			}
 		};
 	}
 
@@ -753,7 +704,10 @@
 				if (response.data.active_turn?.status === 'running') {
 					const trailing = loadedMessages[loadedMessages.length - 1];
 					const activeUserMessageId = trailing?.role === 'user' ? trailing.id : undefined;
-					void reattachToTurn(response.data.id, undefined, activeUserMessageId);
+					void turnControllerReattachToTurn(buildTurnControllerDeps(), {
+					sessionId: response.data.id,
+					initialUserMessageId: activeUserMessageId
+				});
 				}
 			} else {
 				chatSession.patch({ error: 'Failed to load session' });
@@ -812,215 +766,6 @@
 		tick().then(scrollToBottom);
 	}
 
-	/**
-	 * One SSE event handler, shared by the live send stream and the reattach
-	 * stream so a reloaded, resumed turn drives the exact same reducers. Closes
-	 * over its own token accumulator; a reattach replays tokens from the start,
-	 * so accumulating from '' reconstructs the same content the live path built.
-	 *
-	 * Every publication goes through `owned` (see `ownSession`), never the raw
-	 * `chatSession` store directly: `owned`'s captured {sessionId, turnSeq}
-	 * identity was fixed when the controller (sendMessage/reattachToTurn)
-	 * claimed this turn, and every one of `owned`'s methods re-checks that
-	 * identity against the store's CURRENT state before applying anything —
-	 * so a stream event that arrives after the user switched sessions, or
-	 * after a newer turn started in the same one, is silently dropped instead
-	 * of corrupting whatever now owns the UI.
-	 *
-	 * `overflow`/`replay_snapshot`/`no_active_turn` mean the locally accumulated
-	 * text can no longer be trusted to be the whole reply: either events were
-	 * dropped in transit, or this reconnect's expected prefix was compacted
-	 * away on the backend. `partial` tracks that state per streamed message so
-	 * `done`/`error` know whether to trust their own payload or reconcile
-	 * against the durable persisted message once the turn is no longer live.
-	 */
-	function createStreamEventHandler(owned: OwnedSessionController, initialUserMessageId?: string) {
-		const sessionId = owned.captured.sessionId;
-		let streamedContent = '';
-		let lastSeq: number | undefined;
-		let partial = false;
-		let recovered = false;
-		// The identity of the turn we're recovering FOR — the user message it
-		// answers. Seeded when already known (reattaching to a turn whose user
-		// message was already visible in the loaded session); otherwise learned
-		// from this turn's own `message_created` event (the live-send path).
-		let userMessageId = initialUserMessageId;
-
-		// Fetches the persisted assistant message that answers THIS turn's user
-		// message (never "the last assistant message in the session" — see
-		// findTurnAssistantMessage) and, if `owned` is still current, replaces
-		// the streaming/partial placeholder with it. The only way to recover
-		// the real reply once no more stream events are coming (a turn that
-		// finished and was evicted) or once a gap or a truncated reference
-		// makes the accumulated text unreliable. Read-only (a GET through the
-		// existing session/messages path) — never re-runs a tool or re-invokes
-		// the stream, and skips the fetch entirely once already known stale.
-		// Idempotent per handler instance (`recovered` guards a second call).
-		async function recoverDurableMessage() {
-			if (recovered) return;
-			recovered = true;
-			if (!owned.isCurrent()) return; // don't even bother with a doomed fetch
-
-			let matched: ChatMessageResponse | null = null;
-			try {
-				const response = await api.getChatSession(sessionId);
-				if (response.success) {
-					matched = findTurnAssistantMessage(response.data?.messages, userMessageId);
-				}
-			} catch (err) {
-				logger.error('Failed to recover the persisted reply after a stream gap:', err);
-			}
-
-			// Re-check after the await: staleness can newly occur during the
-			// fetch itself, not just before it.
-			if (!owned.isCurrent()) return;
-
-			if (matched) {
-				owned.updateMessages((msgs) => applyDurableRecovery(msgs, mapPersistedMessage(matched!)));
-				return;
-			}
-
-			// No durable answer exists for THIS turn (a genuinely failed turn,
-			// or the fetch itself failed) — never substitute an unrelated
-			// message. Settle it as a STOPPED, visibly incomplete response:
-			// whatever content is already showing (a partial snapshot, a
-			// truncated preview, or nothing) is retained, never deleted; it
-			// stops reading as still live (isStreaming: false) and stays
-			// flagged partial so the incomplete-reply affordance doesn't
-			// silently vanish. Preserve a more specific error already set by
-			// the triggering event over this generic one.
-			const currentError = get(chatSession).error;
-			owned.updateMessages((msgs) => settleUnrecoverable(msgs));
-			owned.patch({ error: currentError || 'The full reply could not be recovered.' });
-		}
-
-		const handleEvent = async (event: { type: string; data: any }) => {
-			if (typeof event.data?.seq === 'number') lastSeq = event.data.seq;
-			// An essential event (done/error/tool result/message_created) over
-			// the per-event byte cap arrives as a bounded reference, not its
-			// full body — the message it belongs to can't be trusted as
-			// complete even with no replay_snapshot/overflow ever seen.
-			if (event.data?.truncated) partial = true;
-
-			// Drop every event outright once this turn is no longer current —
-			// applying/scrolling for a retired turn, or spending a recovery
-			// fetch on one, would only corrupt or waste effort on whatever now
-			// owns the UI. `owned`'s own methods would no-op anyway, but this
-			// also skips e.g. an unnecessary recoverDurableMessage() GET.
-			if (!owned.isCurrent()) return;
-
-			if (event.type === 'message_created') {
-				userMessageId = event.data?.user_message_id || userMessageId;
-			} else if (event.type === 'token') {
-				streamedContent += event.data.content;
-				if (owned.applyStreamEvent(event, { accumulated: streamedContent })) scrollToBottom();
-			} else if (event.type === 'tool_start') {
-				if (owned.applyStreamEvent(event)) scrollToBottom();
-			} else if (event.type === 'tool_end') {
-				owned.applyStreamEvent(event);
-			} else if (event.type === 'status') {
-				if (owned.applyStreamEvent(event)) scrollToBottom();
-			} else if (event.type === 'replay_snapshot') {
-				// This reconnect's expected prefix was compacted away; the
-				// snapshot's own bounded text replaces our accumulator so later
-				// token deltas append onto the right base, not a gap — the
-				// message is flagged partial until done/error/recovery settles it.
-				streamedContent = event.data?.text_so_far || '';
-				partial = true;
-				if (owned.applyStreamEvent(event)) scrollToBottom();
-			} else if (event.type === 'overflow') {
-				// Some live events were dropped for this connection. Nothing is
-				// durably persisted yet for a still-running turn, so recovery
-				// happens at done/error below rather than here — fetching now
-				// would find no new message (or, worse, a stale one from a
-				// previous turn) and overwrite live content with it.
-				partial = true;
-			} else if (event.type === 'done') {
-				// A truncated done's own payload has no assistant_message to
-				// finalize from at all (see turns.py's per-event bounding) —
-				// applying it would "finalize" the message on stale/partial
-				// local content right before recovery replaces it anyway.
-				// Skip straight to recovery instead of flashing that state.
-				if (!event.data?.truncated) {
-					owned.applyStreamEvent(event);
-				}
-				selectedImageData = null;
-				if (needsDurableRecovery('done', partial)) await recoverDurableMessage();
-			} else if (event.type === 'title') {
-				// Async LLM-generated session title (arrives after done)
-				const titled = event.data || {};
-				if (titled.session_id && titled.name) {
-					recentSessions = applyTitle(recentSessions, titled.session_id, titled.name);
-				}
-			} else if (event.type === 'generation_cancelled') {
-				// The turn was stopped; drop the streaming placeholder like an error.
-				owned.applyStreamEvent({ type: 'error', data: {} });
-			} else if (event.type === 'error') {
-				owned.patch({ error: event.data.message || 'Streaming error' });
-				if (needsDurableRecovery('error', partial)) {
-					await recoverDurableMessage();
-				} else {
-					owned.applyStreamEvent(event);
-				}
-			} else if (event.type === 'no_active_turn') {
-				// Reattached to a turn that already finished and was evicted from
-				// the backend's retained buffer — no more events are coming;
-				// recover the final reply from the durable path once, and stop.
-				if (needsDurableRecovery('no_active_turn', partial)) await recoverDurableMessage();
-			}
-		};
-
-		return { handleEvent, getLastSeq: () => lastSeq };
-	}
-
-	// Reattach to a turn still running on the backend (page reload mid-response).
-	// The persisted messages already include the user message; we add a streaming
-	// assistant placeholder and replay the turn's events into it.
-	async function reattachToTurn(sessionId: string, afterSeq?: number, initialUserMessageId?: string) {
-		const turnSeq = chatSession.beginTurn();
-		const owned = ownSession(chatSession, { sessionId, turnSeq });
-		chatSession.patch({ isGenerating: true, error: '' });
-		owned.addMessage({
-			role: 'assistant',
-			content: '',
-			timestamp: Date.now(),
-			isStreaming: true
-		});
-		await tick();
-		scrollToBottom();
-
-		try {
-			const { handleEvent } = createStreamEventHandler(owned, initialUserMessageId);
-			await api.reattachChatMessageStream(sessionId, handleEvent, { afterSeq });
-		} catch (err) {
-			logger.error('Failed to reattach to in-flight turn:', err);
-		} finally {
-			// Only if THIS reattach's session/turn is still what the store is
-			// showing — a delayed recovery elsewhere, or a fresh send that
-			// started meanwhile, must not have this stale controller drop its
-			// (unrelated) streaming placeholder or clear its isGenerating.
-			const applied = finishTurnIfCurrent(chatSession, owned.captured, (msgs) =>
-				// Drop a still-empty placeholder (e.g. the turn had already
-				// finished and was evicted, so nothing was replayed).
-				msgs.filter(
-					(m, idx) =>
-						!(
-							idx === msgs.length - 1 &&
-							m.role === 'assistant' &&
-							m.isStreaming &&
-							!m.content &&
-							!m.tool_executions?.length &&
-							!m.trace_steps?.length
-						)
-				)
-			);
-			if (applied) {
-				await tick();
-				scrollToBottom();
-			}
-		}
-	}
-
 	async function handleStop() {
 		const id = $chatSession.sessionId;
 		if (!id) return;
@@ -1062,6 +807,15 @@
 	 * (userInput/userResources, the `/command` gate); this owns everything
 	 * downstream of "an instruction is ready to go out".
 	 */
+	/**
+	 * Send `instruction` as a new turn. Ownership, session creation, the
+	 * streaming/fallback/reattach decision, and every publication's staleness
+	 * guard live in `turnController.sendMessage` (see its own doc comment);
+	 * this wrapper's only job is to compute the UI/segment-specific request
+	 * payload (auto-attach, contextMetadata) and the plugin-only side effects
+	 * (recentSessions, input focus) the controller module has no business
+	 * owning.
+	 */
 	async function sendMessage(
 		instruction: string,
 		options: { resourceRefs?: { uri: string }[]; attachedResources?: ResourceChipData[] } = {}
@@ -1071,69 +825,54 @@
 		const resourceRefs = options.resourceRefs || [];
 		const attachedResources = options.attachedResources || [];
 
-		// Ownership is established here, before session creation or any other
-		// await, and never re-derived from the store afterward. `turnSeq` is
-		// allocated immediately (it doesn't depend on which session exists).
-		// `sessionId` is either the one already selected when the user pressed
-		// send (read synchronously, right now), or — if a session still needs
-		// to be created — the id THAT call returns, taken directly: re-reading
-		// `$chatSession.sessionId` once that await resolves would pick up
-		// whatever session is current AT THAT LATER MOMENT, which the user
-		// could have already switched away from.
-		const turnSeq = chatSession.beginTurn();
-		chatSession.patch({ error: '', isGenerating: true });
-
-		let ownedSessionId = $chatSession.sessionId;
-		if (!ownedSessionId) {
-			ownedSessionId = await startNewSession();
-			if (!ownedSessionId) {
-				chatSession.patch({ isGenerating: false });
-				return;
-			}
-		}
-		const owned = ownSession(chatSession, { sessionId: ownedSessionId, turnSeq });
-
-		try {
-			// Auto-attach last generated image only when it changes
-			let autoAttachedImage: typeof selectedImageData = null;
-			if (alwaysAttachLastImage && !selectedImageData && supportsVision) {
-				const tab = contextTab;
-				const batchImages = tab?.generation?.batchImages;
-				if (batchImages && batchImages.length > 0) {
-					const lastImage = batchImages[batchImages.length - 1];
-					const imagePath = lastImage.originalUrl || lastImage.url;
-					if (imagePath && imagePath !== lastAutoAttachedUrl) {
-						autoAttachedImage = {
-							path: imagePath,
-							relative_path: imagePath,
-							url: imagePath,
-							name: 'last_generated_image',
-							type: 'image'
-						};
-						lastAutoAttachedUrl = imagePath;
-					}
+		// Auto-attach last generated image only when it changes. Computed once,
+		// up front — both the optimistic user message and the request payload
+		// need the SAME `effectiveImageData`, and `lastAutoAttachedUrl`'s
+		// update must only happen once.
+		let autoAttachedImage: typeof selectedImageData = null;
+		if (alwaysAttachLastImage && !selectedImageData && supportsVision) {
+			const tab = contextTab;
+			const batchImages = tab?.generation?.batchImages;
+			if (batchImages && batchImages.length > 0) {
+				const lastImage = batchImages[batchImages.length - 1];
+				const imagePath = lastImage.originalUrl || lastImage.url;
+				if (imagePath && imagePath !== lastAutoAttachedUrl) {
+					autoAttachedImage = {
+						path: imagePath,
+						relative_path: imagePath,
+						url: imagePath,
+						name: 'last_generated_image',
+						type: 'image'
+					};
+					lastAutoAttachedUrl = imagePath;
 				}
 			}
+		}
+		const effectiveImageData = selectedImageData || autoAttachedImage;
 
-			const effectiveImageData = selectedImageData || autoAttachedImage;
+		// Local resource labels let @chips render before the backend echoes
+		// the resolved snapshot back in message metadata.
+		const tempUserMessage: ChatMessageData = {
+			role: 'user',
+			content: instruction,
+			timestamp: Date.now(),
+			imageUrl: effectiveImageData?.url || null,
+			metadata: attachedResources.length
+				? { resources: attachedResources.map((r) => ({ uri: r.uri, title: r.label })) }
+				: undefined
+		};
 
-			// Add user message to UI immediately (include image URL if attached).
-			// Local resource labels let @chips render before the backend echoes
-			// the resolved snapshot back in message metadata.
-			const tempUserMessage: ChatMessageData = {
-				role: 'user',
-				content: instruction,
-				timestamp: Date.now(),
-				imageUrl: effectiveImageData?.url || null,
-				metadata: attachedResources.length
-					? { resources: attachedResources.map((r) => ({ uri: r.uri, title: r.label })) }
-					: undefined
-			};
-			if (owned.addMessage(tempUserMessage)) {
-				await tick();
-				scrollToBottom();
-			}
+		// Subtractive tool filter: omit enabled_tools when everything is on;
+		// send the reduced list when the user unticked tools; [] disables all.
+		const disabledTools = $chatSession.disabledTools;
+		let enabledToolsPayload: string[] | undefined;
+		if (!enableTools) {
+			enabledToolsPayload = [];
+		} else if (disabledTools.length > 0) {
+			enabledToolsPayload = visibleTools.map((t) => t.name).filter((name) => !disabledTools.includes(name));
+		}
 
+		function buildPayload(): SendMessagePayload {
 			// Build context_metadata so LLM tools have access to form state.
 			// In Video Director mode "segment #N" means a shot (get_video_director),
 			// not a global prompt segment, so the global segments never go out as
@@ -1191,128 +930,32 @@
 			// keyed by the provider's own key - never touches segments/form_state.
 			Object.assign(contextMetadata, collectProvidedContext());
 
-			// Add streaming assistant placeholder
-			if (
-				owned.addMessage({
-					role: 'assistant' as const,
-					content: '',
-					timestamp: Date.now(),
-					isStreaming: true
-				})
-			) {
-				await tick();
-				scrollToBottom();
-			}
+			return {
+				content: instruction,
+				imageData: effectiveImageData?.relative_path || effectiveImageData?.path || undefined,
+				contextMetadata,
+				resources: resourceRefs,
+				timeoutSeconds: selectedConfig?.timeout
+			};
+		}
 
-			try {
-				// No initial user message id: this turn's user message doesn't
-				// exist yet server-side — the handler learns it from this same
-				// turn's own message_created event before any recovery could run.
-				const { handleEvent } = createStreamEventHandler(owned);
-				await api.sendChatMessageStream(
-					owned.captured.sessionId,
-					{
-						content: instruction,
-						imageData: effectiveImageData?.relative_path || effectiveImageData?.path || undefined,
-						contextMetadata,
-						resources: resourceRefs
-					},
-					handleEvent
-				);
-			} catch (err: any) {
-				logger.error('Stream error, falling back to non-streaming:', err);
-				// Nothing here may run for a turn that's no longer current — not
-				// the placeholder cleanup, and especially not the non-streaming
-				// fallback below: that fallback RE-SENDS the instruction to the
-				// LLM (a genuine model re-run, not just a state publication), so
-				// starting it at all for a retired turn would duplicate work
-				// against whatever now owns the UI, using this turn's stale
-				// instruction/session under a session id nobody asked for.
-				if (!owned.isCurrent()) return;
-
-				// Remove streaming placeholder
-				owned.updateMessages((msgs) =>
-					msgs.filter(
-						(m, idx) => !(idx === msgs.length - 1 && m.role === 'assistant' && m.isStreaming)
-					)
-				);
-
-				// Fallback to non-streaming — always against THIS turn's owned
-				// session id, never a re-read of the store's current one.
-				try {
-					const response = await api.sendChatMessage(owned.captured.sessionId, {
-						content: instruction,
-						imageData: effectiveImageData?.relative_path || effectiveImageData?.path || undefined,
-						timeoutSeconds: selectedConfig?.timeout,
-						contextMetadata,
-						resources: resourceRefs
-					});
-
-					// Re-check: staleness can newly occur during this await too.
-					if (!owned.isCurrent()) return;
-
-					if (response.success && response.data) {
-						const userMsg = response.data.user_message;
-						const assistantMsg = response.data.assistant_message;
-						owned.updateMessages((msgs) => {
-							const updatedMessages = msgs.map((m, idx) => {
-								if (idx === msgs.length - 1 && m.role === 'user') {
-									return {
-										id: userMsg.id,
-										role: userMsg.role as 'user',
-										content: instruction,
-										timestamp: userMsg.created_at
-											? new Date(userMsg.created_at).getTime()
-											: Date.now(),
-										metadata: (userMsg as any).metadata || m.metadata
-									};
-								}
-								return m;
-							});
-							return [
-								...updatedMessages,
-								{
-									id: assistantMsg.id,
-									role: assistantMsg.role as 'assistant',
-									content: assistantMsg.content,
-									timestamp: assistantMsg.created_at
-										? new Date(assistantMsg.created_at).getTime()
-										: Date.now(),
-									tokens_used: assistantMsg.tokens_used,
-									prompt_tokens: assistantMsg.prompt_tokens,
-									completion_tokens: assistantMsg.completion_tokens,
-									tool_executions:
-										(assistantMsg as any).metadata?.tool_executions ||
-										(assistantMsg as any).tool_executions ||
-										[],
-									metadata: (assistantMsg as any).metadata || undefined
-								}
-							];
-						});
-						selectedImageData = null;
-					} else {
-						owned.patch({ error: response.error || 'Failed to send message' });
-					}
-				} catch (fallbackErr: any) {
-					if (owned.isCurrent()) {
-						owned.patch({ error: fallbackErr.message || 'Failed to send message' });
-					}
-				}
-			}
-		} catch (err: any) {
-			logger.error('Error sending message:', err);
-			owned.patch({ error: err.message || 'Failed to send message' });
-		} finally {
-			// Only if THIS send's session/turn is still current — a stale
-			// controller must not clear isGenerating or scroll/focus for
-			// whatever now owns the UI.
-			const applied = finishTurnIfCurrent(chatSession, owned.captured);
-			if (applied) {
-				await tick();
-				scrollToBottom();
+		await turnControllerSendMessage(buildTurnControllerDeps(), {
+			instruction,
+			tempUserMessage,
+			buildPayload,
+			createSessionPayload: {
+				llm_config_id: selectedConfigId || undefined,
+				mode: $chatSession.mode,
+				enabled_tools: enabledToolsPayload
+			},
+			onSessionCreated: (sessionData) => {
+				saveCurrentSessionId();
+				recentSessions = [sessionData, ...recentSessions];
+			},
+			onSettled: () => {
 				inputRef?.focus();
 			}
-		}
+		});
 	}
 
 	async function handleApplySegmentAction(

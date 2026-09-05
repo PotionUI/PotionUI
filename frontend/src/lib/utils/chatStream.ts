@@ -15,6 +15,7 @@ import type {
 	BehaviorTraceManifest,
 	ContextLedger
 } from '$lib/types/chat';
+import type { ChatMessageResponse } from '$lib/types/api';
 
 type Messages = UnifiedChatMessageData[];
 
@@ -398,6 +399,29 @@ export function findTurnAssistantMessage<T extends { id?: string | null; role: s
 	return next && next.role === 'assistant' ? next : null;
 }
 
+/** Map one persisted `ChatMessageResponse` into the shape the message list
+ * renders. Shared by the session-load path (UnifiedAIChat's `loadSession`)
+ * and the stream-recovery path (`recoverDurableMessage` in
+ * turnController.ts) so both produce an identical message from the same
+ * backend record. */
+export function mapPersistedMessage(msg: ChatMessageResponse): UnifiedChatMessageData {
+	const metadata = (msg as any).metadata || {};
+	const toolExecs = metadata.tool_executions || (msg as any).tool_executions || [];
+	return {
+		id: msg.id,
+		role: msg.role,
+		content: msg.content,
+		timestamp: msg.created_at ? new Date(msg.created_at).getTime() : Date.now(),
+		imageUrl: metadata.image_url || null,
+		tokens_used: msg.tokens_used,
+		prompt_tokens: msg.prompt_tokens,
+		completion_tokens: msg.completion_tokens,
+		tool_executions: toolExecs,
+		sources: toolExecs.flatMap((te: any) => te.result?.sources || []),
+		metadata
+	};
+}
+
 /**
  * Whether a recovery fetch that was started for `expected` (a session id +
  * turn identity, captured when the streaming handler was created) is still
@@ -413,7 +437,7 @@ export function findTurnAssistantMessage<T extends { id?: string | null; role: s
  */
 export function isRecoveryStillCurrent(
 	current: { sessionId: string | null; turnSeq: number },
-	expected: { sessionId: string; turnSeq: number }
+	expected: { sessionId: string | null; turnSeq: number }
 ): boolean {
 	return current.sessionId === expected.sessionId && current.turnSeq === expected.turnSeq;
 }
@@ -421,19 +445,24 @@ export function isRecoveryStillCurrent(
 /** The subset of the chatSession store's own interface a controller's
  * terminal cleanup needs — kept minimal so this is testable against a fake
  * store as well as the real `chatSession` singleton. */
-export interface TurnFinishableStore extends Readable<{ sessionId: string | null; turnSeq: number }> {
+export interface TurnFinishableStore
+	extends Readable<{ sessionId: string | null; turnSeq: number; error: string }> {
 	updateMessages(fn: (messages: UnifiedChatMessageData[]) => UnifiedChatMessageData[]): void;
-	patch(partial: { isGenerating?: boolean; error?: string }): void;
+	/** Matches the fields a turn controller actually patches (including
+	 * `sessionId`, for `startNewSession` adopting a newly created session) —
+	 * a subset of the real chatSession store's own `Partial<ChatConversationState>`. */
+	patch(partial: { isGenerating?: boolean; error?: string; sessionId?: string | null }): void;
 }
 
 /**
  * The subset of the chatSession store's interface a turn controller
  * publishes through — everything `ownSession` wraps with the ownership
- * check.
+ * check, plus `beginTurn` for allocating a new turn's identity.
  */
 export interface ChatSessionLikeStore extends TurnFinishableStore {
 	addMessage(message: UnifiedChatMessageData): void;
 	applyStreamEvent(event: { type: string; data: any }, opts?: { accumulated?: string }): void;
+	beginTurn(): number;
 }
 
 /** A `ChatSessionLikeStore` facade whose every mutating call is a no-op once

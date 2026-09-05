@@ -465,12 +465,29 @@ class _MiniMaxH3Forward:
     step). ``release()`` drops it; the window loop that owns this instance
     (``_sample_window``) calls it in a ``finally`` so nothing outlives the
     window that keyed it -- this is a window-scoped token, never a
-    process-wide cache."""
+    process-wide cache.
+
+    ``weight_revision`` is a zero-argument getter (not a frozen value):
+    H3 has no step-windowed LoRA today, so the DiT's ``effective_revision``
+    cannot actually move within one window, but the model's own staleness
+    check (``PreparedTextContext.is_stale``) is the thing that must stay
+    correct if that ever changes -- reading it fresh on every step, the way
+    ``engine.py``'s ``RunCache`` reads its own revision, costs one attribute
+    lookup and means this adapter never has to be revisited if H3 grows a
+    mid-window adapter mutation later. ``compute_dtype``/``compute_device``
+    are the DiT wrapper's own placement contract (its ``compute_dtype`` and
+    the device the placement that ran just before this forward was built
+    left it on) -- passed straight through to ``forward`` so its staleness
+    check validates against the real compute contract, not a streamed or
+    quantized leaf's resting weight (see ``model.py``'s ``forward``
+    docstring)."""
 
     dit_module: Any
     layout: PackedLayout
     prompt_embeds: Tensor
-    weight_revision: Any = None
+    weight_revision: Optional[Callable[[], Any]] = None
+    compute_dtype: Any = None
+    compute_device: Any = None
     _prepared_context: Any = field(default=None, init=False, repr=False)
 
     def __call__(
@@ -479,16 +496,19 @@ class _MiniMaxH3Forward:
         sparse_attn_ctx: Optional[SolAttnContext | SlaAttnContext] = None,
         seq_chunk_rows: int = 0,
     ) -> tuple[Tensor, Tensor]:
+        current_revision = self.weight_revision() if self.weight_revision is not None else None
         if self._prepared_context is None:
             self._prepared_context = self.dit_module.prepare_text_context(
-                self.prompt_embeds, weight_revision=self.weight_revision,
+                self.prompt_embeds, weight_revision=current_revision,
             )
         video_pred, audio_pred = self.dit_module(
             hidden_states=video_rows[None],
             audio_hidden_states=audio_rows[None],
             encoder_hidden_states=self.prompt_embeds,
             prepared_context=self._prepared_context,
-            weight_revision=self.weight_revision,
+            weight_revision=current_revision,
+            compute_dtype=self.compute_dtype,
+            compute_device=self.compute_device,
             timestep=unique_timesteps,
             timestep_indices=timestep_indices,
             token_tags=self.layout.token_tags,
@@ -1618,9 +1638,19 @@ class GeneratorMinimaxH3Pipe(BaseGeneratorPipe):
             # token-derived reserve cannot see.
             reserve_gb=sparse_attn_reserve,
         )
+        # `c.bundle.dit.device` is the wrapper's OWN placement contract (set by
+        # `move_to`/the streamer's `apply` even under partial residency --
+        # engine.py keeps it as the intended compute device regardless of
+        # which individual leaves are actually resident vs streamed from
+        # pinned CPU), not any one leaf's resting weight -- see model.py's
+        # forward() docstring for why that distinction matters here.
+        dit_device = getattr(c.bundle.dit, "device", None)
         forward = _MiniMaxH3Forward(
             c.bundle.dit.module, layout, prompt_embeds,
-            weight_revision=getattr(c.bundle.dit, "effective_revision", None),
+            # A getter, not a snapshot: see _MiniMaxH3Forward's own docstring.
+            weight_revision=lambda: getattr(c.bundle.dit, "effective_revision", None),
+            compute_dtype=getattr(c.bundle.dit, "compute_dtype", None),
+            compute_device=torch.device(dit_device) if dit_device is not None else None,
         )
 
         reported_total = progress_total if progress_total is not None else num_steps

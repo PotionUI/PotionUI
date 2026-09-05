@@ -221,6 +221,140 @@ def test_is_stale_true_when_the_source_identity_is_unidentifiable():
     assert ctx.is_stale(x, 1, text_embeds.dtype, text_embeds.device) is True
 
 
+def test_is_stale_true_for_a_mismatched_producer_id():
+    from src.platform.runtime.native.cache_identity import tensor_identity
+    x = torch.randn(1, 3, 10)
+    text_embeds = torch.randn(1, 3, 64)
+    ctx = PreparedTextContext(
+        text_embeds=text_embeds, source_identity=tensor_identity(x), weight_revision=1, producer_id=111,
+    )
+    # Same tensor identity, same revision, same dtype/device -- only the
+    # producing model instance differs.
+    assert ctx.is_stale(x, 1, text_embeds.dtype, text_embeds.device, producer_id=222) is True
+    assert ctx.is_stale(x, 1, text_embeds.dtype, text_embeds.device, producer_id=111) is False
+
+
+# --- placement contract: the resting weight is not the compute contract ---
+
+def test_forward_uses_the_callers_compute_dtype_and_device_over_the_resting_weight():
+    """Instrumented placement standing in for two real defects this fixes,
+    neither reachable on a CPU-only CI:
+
+    - a STREAMED leaf's weight (memory/partial.py's `ModuleStreamer`) rests
+      on pinned CPU for the whole placement while every forward casts an
+      ephemeral copy to match the ACTIVATION's device -- the resting
+      weight's own device is therefore not what a call actually computes at;
+    - a QUANTIZED leaf's weight dtype is the STORAGE format, not the
+      dequantized output dtype the compute contract promises.
+
+    `condition_proj.weight` is mutated here to a placement (`meta` device,
+    `int8` dtype) neither streaming nor quantization would leave the SAME
+    model in mid-window, but which is representative of "the resting weight
+    no longer describes what this call computes at" -- the exact class of
+    bug this fixes. This proves the CALLER-supplied `compute_dtype=`/
+    `compute_device=` is what `is_stale` actually validates against (not a
+    silent fallback that happens to agree), by making the fallback's own
+    reading demonstrably wrong first. No real CUDA streaming or quantized
+    kernel runs here -- this is not a substitute for GPU validation.
+    """
+    m = _build_ready(TINY_FULL)
+    layout = _tiny_layout()
+    inputs = _fbcache_inputs(TINY_FULL, layout)
+    prepared = m.prepare_text_context(inputs["encoder_hidden_states"], weight_revision=1)
+    assert prepared.text_embeds.dtype == torch.float32
+    assert prepared.text_embeds.device == torch.device("cpu")
+
+    # Break the resting weight's reported placement -- it no longer
+    # describes the contract `prepared.text_embeds` was actually computed
+    # under, exactly the divergence a streamed/quantized leaf produces.
+    # A fresh Parameter (not `.data =`) -- `set_data` refuses a dtype/device
+    # this different from the tensor it replaces.
+    m.condition_proj.weight = torch.nn.Parameter(
+        torch.zeros_like(m.condition_proj.weight, dtype=torch.int8, device="meta"), requires_grad=False,
+    )
+
+    # The fallback (no explicit override) reads that now-wrong resting
+    # weight and reports staleness -- checked directly, since actually
+    # recomputing through a meta-device weight would raise rather than
+    # demonstrate the point.
+    assert prepared.is_stale(
+        inputs["encoder_hidden_states"], 1, m.condition_proj.weight.dtype, m.condition_proj.weight.device, id(m),
+    ) is True
+
+    # With the caller's authoritative compute contract (what a placement-
+    # aware caller -- `_MiniMaxH3Forward`, via the DiT wrapper's own
+    # `compute_dtype`/`device` -- actually passes), the still-valid context
+    # is correctly reused and the broken weight is never touched.
+    condition_proj_calls = _count_calls(m.condition_proj)
+    _forward_with(
+        m, layout, inputs, torch.tensor([0.2, 0.8]), prepared_context=prepared, weight_revision=1,
+        compute_dtype=torch.float32, compute_device=torch.device("cpu"),
+    )
+    assert condition_proj_calls["n"] == 0
+
+
+def test_forward_with_explicit_compute_dtype_device_matches_uncached_forward():
+    # Parity companion to the reuse test above: the explicit-override path
+    # must still be byte-identical to an uncached forward, not just cheaper.
+    m = _build_ready(TINY_FULL)
+    layout = _tiny_layout()
+    inputs = _fbcache_inputs(TINY_FULL, layout)
+    prepared = m.prepare_text_context(inputs["encoder_hidden_states"], weight_revision=1)
+    ts = torch.tensor([0.3, 0.7])
+
+    baseline = _forward_with(m, layout, inputs, ts)
+    hoisted = _forward_with(
+        m, layout, inputs, ts, prepared_context=prepared, weight_revision=1,
+        compute_dtype=torch.float32, compute_device=torch.device("cpu"),
+    )
+    for a, b in zip(baseline, hoisted):
+        torch.testing.assert_close(a, b)
+
+
+# --- model identity: a context never crosses model instances --------------
+
+def test_forward_recomputes_when_the_prepared_context_was_produced_by_a_different_model_instance():
+    """Two independently-loaded models can share a conditioning tensor's
+    identity, dtype and device (e.g. the same prompt run through two DiT
+    instances) -- without producer identity a context prepared by one would
+    be silently replayed into the other's forward. The documented fallback
+    (a stale/absent token recomputes rather than raising) is what makes this
+    safe: model B recomputes with its OWN weights and gets its OWN answer."""
+    model_a = _build_ready(TINY_FULL)
+    model_b = _build_ready(TINY_FULL)  # independently randomized -- different weights
+    layout = _tiny_layout()
+    inputs = _fbcache_inputs(TINY_FULL, layout)  # ONE shared conditioning tensor object
+
+    prepared_by_a = model_a.prepare_text_context(inputs["encoder_hidden_states"], weight_revision=1)
+
+    b_condition_proj_calls = _count_calls(model_b.condition_proj)
+    ts = torch.tensor([0.2, 0.8])
+    result_with_foreign_context = _forward_with(
+        model_b, layout, inputs, ts, prepared_context=prepared_by_a, weight_revision=1,
+    )
+    assert b_condition_proj_calls["n"] == 1  # recomputed -- never reused model_a's context
+
+    direct_b = _forward_with(model_b, layout, inputs, ts)
+    for a, b in zip(result_with_foreign_context, direct_b):
+        torch.testing.assert_close(a, b)  # b's own weights, not a's
+
+
+def test_bite_check_same_model_instance_reuses_the_context():
+    # BITE CHECK: the test above is not vacuous because of some unrelated
+    # mismatch (e.g. a fresh tensor identity) -- the identical setup with
+    # model_a validating its OWN context really does reuse it.
+    model_a = _build_ready(TINY_FULL)
+    layout = _tiny_layout()
+    inputs = _fbcache_inputs(TINY_FULL, layout)
+    prepared_by_a = model_a.prepare_text_context(inputs["encoder_hidden_states"], weight_revision=1)
+
+    a_condition_proj_calls = _count_calls(model_a.condition_proj)
+    _forward_with(
+        model_a, layout, inputs, torch.tensor([0.2, 0.8]), prepared_context=prepared_by_a, weight_revision=1,
+    )
+    assert a_condition_proj_calls["n"] == 0
+
+
 # --- the cached source tensor is never mutated by the joint blocks --------
 
 def test_prepared_text_embeds_unmutated_across_repeated_forward_calls():

@@ -675,7 +675,7 @@ def _fake_dit_module(video_patch_dim: int, audio_channels: int = 32, seen_step_c
                 timestep_indices, token_tags, position_ids, video_indices, audio_indices, text_indices,
                 num_condition_video_rows=0, num_condition_audio_rows=0,
                 step_cache=None, sparse_attn_ctx=None, seq_chunk_rows=0,
-                prepared_context=None, weight_revision=None):
+                prepared_context=None, weight_revision=None, compute_dtype=None, compute_device=None):
         seen_step_caches.append(step_cache)
         if seen_sol_attn is not None:
             # ONE context is reused across the window and its `dense` flag is
@@ -721,6 +721,58 @@ def test_forward_wrapper_shapes_and_kwargs():
     assert audio_pred.shape == (num_audio_rows, 32)
     torch.testing.assert_close(video_pred, video_rows * 0.1)
     torch.testing.assert_close(audio_pred, audio_rows * -0.2)
+
+
+def test_forward_wrapper_reads_weight_revision_live_not_frozen_at_construction():
+    """`_MiniMaxH3Forward.weight_revision` is a zero-argument getter, read
+    fresh on every step -- H3 has no step-windowed LoRA today (the base
+    adapter stack is only ever reconciled once, at load, before any window
+    runs), so a revision change mid-window cannot actually happen in
+    production yet. But the model's own staleness check
+    (`PreparedTextContext.is_stale`) must stay correct if that ever changes,
+    so this proves the wiring stays live rather than snapshotting the
+    revision once at construction -- a frozen snapshot would keep replaying
+    a `weight_revision` value the model never sees change, silently
+    defeating `is_stale`'s whole point."""
+    num_text_tokens = 3
+    text_tags = torch.full((num_text_tokens,), TEXT_TAG, dtype=torch.long)
+    layout = build_packed_sequence(
+        text_tags, num_latent_frames=2, latent_height=2, latent_width=2, num_audio_latents=2, patch_size=PATCH,
+    )
+    video_patch_dim = 24 * PATCH[0] * PATCH[1] * PATCH[2]
+    seen_forward_revisions: list = []
+    seen_prepare_revisions: list = []
+
+    def prepare_text_context(encoder_hidden_states, weight_revision=None):
+        seen_prepare_revisions.append(weight_revision)
+        return SimpleNamespace(text_embeds=encoder_hidden_states)
+
+    def dit_module(*, hidden_states, audio_hidden_states, weight_revision=None, **kwargs):
+        seen_forward_revisions.append(weight_revision)
+        return hidden_states * 0.1, audio_hidden_states * -0.2
+    dit_module.prepare_text_context = prepare_text_context
+
+    revision_box = {"value": 1}
+    forward = _MiniMaxH3Forward(
+        dit_module, layout, torch.zeros(1, num_text_tokens, 8),
+        weight_revision=lambda: revision_box["value"],
+    )
+    num_video_rows = layout.video_indices.numel()
+    num_audio_rows = layout.audio_indices.numel()
+    video_rows = torch.randn(num_video_rows, video_patch_dim)
+    audio_rows = torch.randn(num_audio_rows, 32)
+    unique_ts, ts_idx = build_row_timesteps(
+        layout.video_indices, layout.audio_indices,
+        num_condition_video_rows=layout.num_condition_video_rows, num_condition_audio_rows=0,
+        num_text_tokens=num_text_tokens, video_timestep=0.5, audio_timestep=0.5,
+        condition_video_timestep=0.999, condition_audio_timestep=1.0,
+    )
+    forward(video_rows, audio_rows, unique_ts, ts_idx)
+    revision_box["value"] = 2  # simulate a mid-window weight mutation
+    forward(video_rows, audio_rows, unique_ts, ts_idx)
+
+    assert seen_forward_revisions == [1, 2]  # NOT [1, 1] -- read live, not frozen
+    assert seen_prepare_revisions == [1]  # the hoist itself still only ran once
 
 
 # -- condition-row freeze ----------------------------------------------------

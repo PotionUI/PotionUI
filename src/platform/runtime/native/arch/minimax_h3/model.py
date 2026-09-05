@@ -461,23 +461,34 @@ class PreparedTextContext:
     :meth:`MiniMaxH3Model.forward` via ``prepared_context=``. ``is_stale``
     is the only thing ``forward`` trusts to decide reuse -- an owner that
     hands back a token from a different conditioning tensor, a different
-    weight revision, or a module now running at a different dtype/device
-    gets silently ignored (falls back to a fresh ``_prepare_context`` call)
-    rather than corrupting the packed sequence.
+    weight revision, a different PRODUCING model instance, or a module now
+    computing at a different dtype/device gets silently ignored (falls back
+    to a fresh ``_prepare_context`` call) rather than corrupting the packed
+    sequence.
+
+    ``producer_id`` (paired with ``weight_revision`` rather than trusted
+    alone -- a garbage-collected model's id can be reused by an unrelated
+    later instance) is ``id()`` of the :class:`MiniMaxH3Model` that computed
+    ``text_embeds``: two independently-loaded models can share a conditioning
+    tensor's identity, dtype and device (e.g. an identical prompt encoded
+    twice), and without this a context prepared by one would be silently
+    replayed into the other's forward.
     """
 
     text_embeds: Tensor
     source_identity: Any
     weight_revision: Any = None
+    producer_id: Any = None
 
     def is_stale(self, encoder_hidden_states: Tensor, weight_revision: Any,
-                 compute_dtype: torch.dtype, compute_device: torch.device) -> bool:
+                 compute_dtype: torch.dtype, compute_device: torch.device, producer_id: Any = None) -> bool:
         current_identity = tensor_identity(encoder_hidden_states)
         if not identity_usable(current_identity, self.source_identity):
             return True
         return (
             current_identity != self.source_identity
             or weight_revision != self.weight_revision
+            or producer_id != self.producer_id
             or self.text_embeds.dtype != compute_dtype
             or self.text_embeds.device != compute_device
         )
@@ -611,14 +622,18 @@ class MiniMaxH3Model(NativeArchModule):
         (one ``_MiniMaxH3Forward`` per window,
         ``pipes/generator/video_minimax_h3``) owns the returned token for the
         life of that window and must not let it outlive it: pass the DiT
-        wrapper's live ``effective_revision`` as ``weight_revision`` so a
-        reused module whose adapters changed between windows can never answer
-        a lookup with stale weights.
+        wrapper's LIVE ``effective_revision`` (read fresh at every call, not
+        snapshotted once) as ``weight_revision`` so a reused module whose
+        adapters change mid-lifetime can never answer a lookup with stale
+        weights. ``producer_id`` is stamped as ``id(self)`` -- this model
+        instance, not the caller's -- so a token can never be replayed into a
+        different model (see :class:`PreparedTextContext`'s docstring).
         """
         return PreparedTextContext(
             text_embeds=self._prepare_context(encoder_hidden_states),
             source_identity=tensor_identity(encoder_hidden_states),
             weight_revision=weight_revision,
+            producer_id=id(self),
         )
 
     def _lookup_adaln_curve(self, timestep: Tensor) -> Tensor:
@@ -782,12 +797,20 @@ class MiniMaxH3Model(NativeArchModule):
         ``prepared_context`` (keyword, optional): a
         :class:`PreparedTextContext` from :meth:`prepare_text_context`,
         replayed in place of a fresh ``_prepare_context`` call when it is
-        still valid for this ``encoder_hidden_states``/``weight_revision``
-        (see :meth:`PreparedTextContext.is_stale`) — a stale or absent token
-        falls back to computing it here, so this argument only ever narrows
-        work, never changes the result. ``weight_revision`` (keyword,
-        optional) is the caller's DiT wrapper revision, compared against the
-        one the token was prepared under.
+        still valid for this ``encoder_hidden_states``/``weight_revision``/
+        ``compute_dtype``/``compute_device`` and this model instance (see
+        :meth:`PreparedTextContext.is_stale`) — a stale or absent token falls
+        back to computing it here, so this argument only ever narrows work,
+        never changes the result. ``weight_revision`` (keyword, optional) is
+        the caller's DiT wrapper revision, read LIVE by the caller (not
+        snapshotted once), compared against the one the token was prepared
+        under. ``compute_dtype``/``compute_device`` (keyword, optional) are
+        the caller's authoritative compute contract (e.g. the DiT wrapper's
+        own ``compute_dtype``/``device``) — default to ``condition_proj.
+        weight``'s own dtype/device for a caller with no placement context of
+        its own, which is wrong for a streamed or quantized leaf (see the
+        comment at the call site below) so a placement-aware caller must pass
+        them explicitly.
         """
         if position_ids.ndim != 2 or position_ids.shape[-1] != 3:
             raise ValueError(f"position_ids must be (seq_len, 3), got {list(position_ids.shape)}")
@@ -804,10 +827,29 @@ class MiniMaxH3Model(NativeArchModule):
         video_embeds, audio_embeds = self._process_input(hidden_states, audio_hidden_states)
         prepared_context: PreparedTextContext | None = kwargs.pop("prepared_context", None)
         weight_revision = kwargs.pop("weight_revision", None)
-        compute_dtype = self.condition_proj.weight.dtype
-        compute_device = self.condition_proj.weight.device
+        # `condition_proj.weight` is RESTING storage, not the compute contract:
+        # under partial residency (memory/partial.py's ModuleStreamer) a
+        # streamed leaf's weight stays on pinned CPU for the whole placement
+        # while every forward casts an ephemeral GPU copy to match the
+        # activation (ops.py's cast_bias_weight), and a quantized leaf's
+        # weight dtype is the STORAGE format, not the dequantized output
+        # dtype -- reading either here would report every streamed/quantized
+        # call as a device/dtype mismatch and defeat the hoist precisely
+        # where it matters most. The caller (one ``_MiniMaxH3Forward`` per
+        # window) knows the real contract -- the DiT wrapper's own
+        # ``compute_dtype``/``device`` (set once at load / by the placement
+        # that just ran, unaffected by a leaf's internal streaming) -- and
+        # passes it as ``compute_dtype=``/``compute_device=``; the resting
+        # weight is only a fallback for a caller with no placement context of
+        # its own (e.g. a direct unit-level forward call).
+        compute_dtype = kwargs.pop("compute_dtype", None)
+        if compute_dtype is None:
+            compute_dtype = self.condition_proj.weight.dtype
+        compute_device = kwargs.pop("compute_device", None)
+        if compute_device is None:
+            compute_device = self.condition_proj.weight.device
         if prepared_context is not None and not prepared_context.is_stale(
-            encoder_hidden_states, weight_revision, compute_dtype, compute_device,
+            encoder_hidden_states, weight_revision, compute_dtype, compute_device, id(self),
         ):
             text_embeds = prepared_context.text_embeds
         else:

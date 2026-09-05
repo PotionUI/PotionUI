@@ -305,4 +305,154 @@ describe('ImportWorkflowTab source lifetime (real compiled dist)', () => {
 
 		unmount(instance);
 	});
+
+	it('releases the stuck `analyzing` flag when a file is picked mid-analyze, and Continue re-analyzes the newly selected file', async () => {
+		const analyzeCalls: Array<{ resolve: (v: Response) => void; body: any }> = [];
+		const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+			if (url === '/api/fields/types') return jsonResponse({ success: true, data: [] });
+			if (url === '/api/plugins/comfyui-backend/presets/families') return jsonResponse({ families: [] });
+			if (url === '/api/plugins/comfyui-backend/presets/import/analyze') {
+				const d = deferred<Response>();
+				analyzeCalls.push({ resolve: d.resolve, body: JSON.parse(String(init?.body)) });
+				return d.promise;
+			}
+			throw new Error(`Unexpected fetch: ${url}`);
+		});
+		vi.stubGlobal('fetch', fetchMock);
+		vi.stubGlobal('FileReader', FakeFileReader);
+
+		const el = target();
+		const instance = mount(ImportWorkflowTab, { target: el, props: { pluginId: 'comfyui-backend' } });
+		await settle();
+
+		const textarea = el.querySelector<HTMLTextAreaElement>('textarea[data-import-json-input]')!;
+		const continueBtn = el.querySelector<HTMLButtonElement>('button[data-import-analyze]')!;
+
+		textarea.value = JSON.stringify({ marker: 'A' });
+		textarea.dispatchEvent(new Event('input', { bubbles: true }));
+		await settle();
+		continueBtn.click();
+		await settle();
+		expect(analyzeCalls).toHaveLength(1);
+		expect(continueBtn.disabled).toBe(true); // "Analyzing..."
+
+		// Pick a file (B) while A's analyze is still in flight.
+		const fileInput = el.querySelector<HTMLInputElement>('input[type="file"]')!;
+		selectFile(fileInput, 'file-b.json');
+		await settle();
+
+		// Continue must be usable again right away - not stuck waiting on a
+		// request for a source the user has already moved past.
+		expect(continueBtn.disabled).toBe(false);
+
+		// A's analyze resolves late - must not advance past step 1.
+		analyzeCalls[0].resolve(jsonResponse(ANALYZE_A));
+		await settle();
+		expect(el.querySelector('[data-wiz-step="source"]')?.className).toContain('current');
+
+		FakeFileReader.instances[0].complete(JSON.stringify({ marker: 'B' }));
+		await settle();
+		expect(textarea.value).toBe(JSON.stringify({ marker: 'B' }));
+
+		continueBtn.click();
+		await settle();
+		expect(analyzeCalls).toHaveLength(2);
+		expect(analyzeCalls[1].body.workflow.marker).toBe('B');
+
+		unmount(instance);
+	});
+
+	it('releases the stuck `analyzing` flag when new text is pasted mid-analyze, and Continue analyzes the pasted text', async () => {
+		const analyzeCalls: Array<{ resolve: (v: Response) => void; body: any }> = [];
+		const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+			if (url === '/api/fields/types') return jsonResponse({ success: true, data: [] });
+			if (url === '/api/plugins/comfyui-backend/presets/families') return jsonResponse({ families: [] });
+			if (url === '/api/plugins/comfyui-backend/presets/import/analyze') {
+				const d = deferred<Response>();
+				analyzeCalls.push({ resolve: d.resolve, body: JSON.parse(String(init?.body)) });
+				return d.promise;
+			}
+			throw new Error(`Unexpected fetch: ${url}`);
+		});
+		vi.stubGlobal('fetch', fetchMock);
+
+		const el = target();
+		const instance = mount(ImportWorkflowTab, { target: el, props: { pluginId: 'comfyui-backend' } });
+		await settle();
+
+		const textarea = el.querySelector<HTMLTextAreaElement>('textarea[data-import-json-input]')!;
+		const continueBtn = el.querySelector<HTMLButtonElement>('button[data-import-analyze]')!;
+
+		textarea.value = JSON.stringify({ marker: 'A' });
+		textarea.dispatchEvent(new Event('input', { bubbles: true }));
+		await settle();
+		continueBtn.click();
+		await settle();
+		expect(analyzeCalls).toHaveLength(1);
+		expect(continueBtn.disabled).toBe(true);
+
+		// Paste B over A while A's analyze is still in flight.
+		textarea.value = JSON.stringify({ marker: 'B' });
+		textarea.dispatchEvent(new Event('input', { bubbles: true }));
+		await settle();
+		expect(continueBtn.disabled).toBe(false);
+
+		// A's analyze resolves late - must not advance past step 1, and must
+		// not clobber the pasted text.
+		analyzeCalls[0].resolve(jsonResponse(ANALYZE_A));
+		await settle();
+		expect(el.querySelector('[data-wiz-step="source"]')?.className).toContain('current');
+		expect(textarea.value).toBe(JSON.stringify({ marker: 'B' }));
+
+		continueBtn.click();
+		await settle();
+		expect(analyzeCalls).toHaveLength(2);
+		expect(analyzeCalls[1].body.workflow.marker).toBe('B');
+
+		unmount(instance);
+	});
+
+	it('a paste after picking a file wins over that file\'s still-pending read', async () => {
+		const analyzeCalls: Array<{ resolve: (v: Response) => void; body: any }> = [];
+		const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+			if (url === '/api/fields/types') return jsonResponse({ success: true, data: [] });
+			if (url === '/api/plugins/comfyui-backend/presets/families') return jsonResponse({ families: [] });
+			if (url === '/api/plugins/comfyui-backend/presets/import/analyze') {
+				const d = deferred<Response>();
+				analyzeCalls.push({ resolve: d.resolve, body: JSON.parse(String(init?.body)) });
+				return d.promise;
+			}
+			throw new Error(`Unexpected fetch: ${url}`);
+		});
+		vi.stubGlobal('fetch', fetchMock);
+		vi.stubGlobal('FileReader', FakeFileReader);
+
+		const el = target();
+		const instance = mount(ImportWorkflowTab, { target: el, props: { pluginId: 'comfyui-backend' } });
+		await settle();
+
+		const fileInput = el.querySelector<HTMLInputElement>('input[type="file"]')!;
+		selectFile(fileInput, 'file-a.json');
+		await settle();
+		expect(FakeFileReader.instances).toHaveLength(1);
+
+		// Paste B directly into the textarea before A's read completes.
+		const textarea = el.querySelector<HTMLTextAreaElement>('textarea[data-import-json-input]')!;
+		textarea.value = JSON.stringify({ marker: 'B' });
+		textarea.dispatchEvent(new Event('input', { bubbles: true }));
+		await settle();
+
+		// A's still-pending read now completes - must not clobber the paste.
+		FakeFileReader.instances[0].complete(JSON.stringify({ marker: 'A-file' }));
+		await settle();
+		expect(textarea.value).toBe(JSON.stringify({ marker: 'B' }));
+
+		const continueBtn = el.querySelector<HTMLButtonElement>('button[data-import-analyze]')!;
+		continueBtn.click();
+		await settle();
+		expect(analyzeCalls).toHaveLength(1);
+		expect(analyzeCalls[0].body.workflow.marker).toBe('B');
+
+		unmount(instance);
+	});
 });

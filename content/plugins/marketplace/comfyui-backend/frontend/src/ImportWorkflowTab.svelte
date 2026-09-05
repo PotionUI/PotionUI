@@ -89,6 +89,26 @@
 	// retired source's requirementsLoading/requirementsResults.
 	let requirementsToken = null;
 
+	// Every user action that changes or discards the current source - typing
+	// or pasting into the source textarea, picking/dropping a new file,
+	// starting an edit-source load, "Change workflow", "Import another", and
+	// component teardown - routes through here. It bumps sourceToken (so any
+	// response already in flight for the retired source is ignored on
+	// arrival by that request's own token check) AND immediately releases
+	// the loading flags the retired request owns, instead of leaving them
+	// stuck until - or unless - that request's `finally` happens to run: a
+	// pending analyze/edit-load/requirements-preview/create for a source the
+	// user has already moved on from must not wedge the UI (analyzing stuck
+	// true blocks every later "Continue", etc).
+	function retireSource() {
+		sourceToken += 1;
+		analyzing = false;
+		editLoading = false;
+		requirementsToken = null;
+		requirementsLoading = false;
+		creating = false;
+	}
+
 	// ---- Editing an existing imported preset (null = a brand-new import) ----
 	let editPresetId = $state(null);
 	let editLoading = $state(false);
@@ -1291,11 +1311,12 @@
 	});
 
 	onDestroy(() => {
-		sourceToken += 1;
+		retireSource();
 	});
 
 	async function startEdit(presetId) {
-		const token = ++sourceToken;
+		retireSource();
+		const token = sourceToken;
 		editPresetId = presetId;
 		editLoading = true;
 		analyzeError = '';
@@ -1325,7 +1346,8 @@
 	}
 
 	function readFile(file) {
-		const token = ++sourceToken;
+		retireSource();
+		const token = sourceToken;
 		const reader = new FileReader();
 		reader.onload = (e) => {
 			if (token !== sourceToken) return;
@@ -1333,6 +1355,16 @@
 			analyzeError = '';
 		};
 		reader.readAsText(file);
+	}
+
+	// A keystroke or paste in the source textarea is itself a source change:
+	// it must retire whatever analyze/edit-load is in flight for the text it
+	// is replacing, the same as picking a new file does, so a stale response
+	// can neither land on top of what's now on screen nor leave the UI stuck
+	// mid-loading.
+	function handleSourceTextInput() {
+		retireSource();
+		analyzeError = '';
 	}
 
 	function handleFileInput(e) {
@@ -1406,7 +1438,7 @@
 	}
 
 	function changeWorkflow() {
-		sourceToken += 1;
+		retireSource();
 		step = 1;
 		analysis = null;
 		workflowJson = null;
@@ -1415,8 +1447,6 @@
 		historyRows = [];
 		historyBuilt = false;
 		initialHistoryDefault = [];
-		requirementsToken = null;
-		requirementsLoading = false;
 		requirementsError = '';
 		requirementsResults = null;
 		createResult = null;
@@ -1508,10 +1538,9 @@
 	}
 
 	function importAnother() {
-		sourceToken += 1;
+		retireSource();
 		step = 1;
 		editPresetId = null;
-		editLoading = false;
 		rawText = '';
 		analyzeError = '';
 		analysis = null;
@@ -1529,11 +1558,8 @@
 		historyRows = [];
 		historyBuilt = false;
 		initialHistoryDefault = [];
-		requirementsToken = null;
-		requirementsLoading = false;
 		requirementsError = '';
 		requirementsResults = null;
-		creating = false;
 		createError = '';
 		createResult = null;
 	}
@@ -1987,7 +2013,7 @@
 							rows="12"
 							placeholder={'{\n  "3": { "class_type": "KSampler", "inputs": { ... } },\n  ...\n}'}
 							bind:value={rawText}
-							oninput={() => (analyzeError = '')}
+							oninput={handleSourceTextInput}
 							data-import-json-input
 						></textarea>
 						<div class="dropzone-footer">

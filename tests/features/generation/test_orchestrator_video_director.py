@@ -324,6 +324,100 @@ class TestFormSeedOverride:
         assert 'settings' not in raw_doc
 
 
+class TestTimingProfileAttachment:
+    """A preset's `video_director.timing` capability names a sibling FORM
+    FIELD (never part of the video_director document) carrying a
+    generation-time pipe config value -- Wan's `motion_latent_count`
+    (`svi_motion_latent_count`, SVI Pro 2.0 continuity). The orchestrator
+    attaches it onto the normalized document's `settings.timing_profile` so
+    `compile_shot_plan` (and a reopened document's rail) read the SAME value
+    the generator itself will use -- see
+    `chain_video_wan22/geometry.py`'s module docstring."""
+
+    def _orchestrator_with_timing_capability(
+        self, mock_pipeline_builder, mock_backend_registry, mock_connection_manager,
+        mock_settings, mock_output_processor, *, timing_capability,
+    ):
+        from src.features.generation.orchestrator import GenerationOrchestrator
+
+        loader = Mock()
+        preset = Mock()
+        preset.engine = 'native'
+        preset.vars = {'video_director': {
+            'family': 'wan', 'modes': {'director': {}}, 'limits': {}, 'timing': timing_capability,
+        }}
+        loader.load_preset_by_id = Mock(return_value=preset)
+        return GenerationOrchestrator(
+            pipeline_builder=mock_pipeline_builder,
+            backend_registry=mock_backend_registry,
+            connection_hub=mock_connection_manager,
+            settings=mock_settings,
+            output_processor=mock_output_processor,
+            preset_template_loader=loader,
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_field_present_on_the_bound_form_is_used_as_is(
+        self, mock_pipeline_builder, mock_backend_registry, mock_connection_manager,
+        mock_settings, mock_output_processor, mock_generation_repo,
+    ):
+        orchestrator = self._orchestrator_with_timing_capability(
+            mock_pipeline_builder, mock_backend_registry, mock_connection_manager,
+            mock_settings, mock_output_processor,
+            timing_capability={'motion_latent_count_field': 'svi_motion_latent_count', 'motion_latent_count_default': 1},
+        )
+        normalized = {'schema_version': 1, 'mode': 'director', 'segments': [{'id': 'seg-1'}], 'settings': {'fps': 16}}
+        request = _request({'video_director': {'schema_version': 1, 'mode': 'director', 'segments': []},
+                             'svi_motion_latent_count': 2})
+
+        with patch(
+            'src.features.generation.orchestrator.normalize_video_director', return_value=normalized,
+        ), patch('src.features.generation.orchestrator.generate_ulid', return_value='gen_timing_1'):
+            await orchestrator.start_generation(request, 'user_123')
+
+        assert request.form_data['video_director']['settings']['timing_profile'] == {'motion_latent_count': 2}
+
+    @pytest.mark.asyncio
+    async def test_a_field_absent_from_the_bound_form_falls_back_to_the_capabilitys_default(
+        self, mock_pipeline_builder, mock_backend_registry, mock_connection_manager,
+        mock_settings, mock_output_processor, mock_generation_repo,
+    ):
+        orchestrator = self._orchestrator_with_timing_capability(
+            mock_pipeline_builder, mock_backend_registry, mock_connection_manager,
+            mock_settings, mock_output_processor,
+            timing_capability={'motion_latent_count_field': 'svi_motion_latent_count', 'motion_latent_count_default': 1},
+        )
+        normalized = {'schema_version': 1, 'mode': 'director', 'segments': [{'id': 'seg-1'}], 'settings': {'fps': 16}}
+        # No 'svi_motion_latent_count' key at all on the bound form -- the
+        # SAME "genuinely absent" case pipeline.yml's own Jinja
+        # `| default(1)` falls back for.
+        request = _request({'video_director': {'schema_version': 1, 'mode': 'director', 'segments': []}})
+
+        with patch(
+            'src.features.generation.orchestrator.normalize_video_director', return_value=normalized,
+        ), patch('src.features.generation.orchestrator.generate_ulid', return_value='gen_timing_2'):
+            await orchestrator.start_generation(request, 'user_123')
+
+        assert request.form_data['video_director']['settings']['timing_profile'] == {'motion_latent_count': 1}
+
+    @pytest.mark.asyncio
+    async def test_no_timing_capability_leaves_settings_untouched(
+        self, orchestrator, mock_generation_repo,
+    ):
+        """`mock_preset_template_loader`'s preset (the default fixture)
+        declares no `timing` key at all -- every preset besides Wan today."""
+        normalized = {'schema_version': 1, 'mode': 't2v', 'segments': [{'id': 'seg-1'}], 'settings': {'fps': 16}}
+        request = _request({'video_director': {'schema_version': 1, 'mode': 't2v', 'segments': []},
+                             'svi_motion_latent_count': 2})
+
+        with patch(
+            'src.features.generation.orchestrator.normalize_video_director', return_value=normalized,
+        ), patch('src.features.generation.orchestrator.generate_ulid', return_value='gen_timing_3'):
+            await orchestrator.start_generation(request, 'user_123')
+
+        assert 'timing_profile' not in request.form_data['video_director']['settings']
+
+
 class TestPerShotCompileWiring:
     """The Video Director console's "Generate n selected": the normalized
     document's own `render: {scope, shot_ids}` (see

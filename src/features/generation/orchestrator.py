@@ -666,6 +666,43 @@ class GenerationOrchestrator:
                     raw_doc, capabilities, storage_dir, request.form_data
                 )
 
+                # A capability-declared `timing` block names a sibling FORM
+                # FIELD -- never part of the video_director document itself --
+                # that carries a generation-time pipe config value whose
+                # effect on the stitched timeline compile_shot_plan (and a
+                # reopened document's rail) need to see. Wan's
+                # `motion_latent_count` (SVI Pro 2.0 continuity, svi_pro.yml)
+                # is the first of these: pipeline.yml binds it straight into
+                # generator/chain_video_wan22's config from
+                # `form.svi_motion_latent_count`, so it never reaches
+                # normalize_video_director on its own. Attach it onto
+                # `settings.timing_profile` here, read from the SAME bound
+                # form `_enforce_model_access` already validated above, using
+                # the SAME undefined-only-default semantics as the preset's
+                # own Jinja default (a field present with any value -- the
+                # UI's own default included -- is used as-is; the field
+                # genuinely absent from the form falls back to
+                # `motion_latent_count_default`) -- so compile.py and a
+                # reopened document's rail read the exact value the generator
+                # itself will use, never a guess. A mode with no `timing`
+                # capability (every family besides Wan today) leaves the
+                # document untouched -- see
+                # `chain_video_wan22/geometry.py`'s module docstring.
+                timing_capability = capabilities.get('timing')
+                if isinstance(timing_capability, dict):
+                    field_name = timing_capability.get('motion_latent_count_field')
+                    if field_name:
+                        value = request.form_data.get(field_name)
+                        if value is None:
+                            value = timing_capability.get('motion_latent_count_default', 1)
+                        normalized_doc = {
+                            **normalized_doc,
+                            'settings': {
+                                **(normalized_doc.get('settings') or {}),
+                                'timing_profile': {'motion_latent_count': value},
+                            },
+                        }
+
                 # A per-shot submission ("Generate n selected" in the Video
                 # Director console): the wire document still carries the
                 # WHOLE film's segments (every position-dependent value --

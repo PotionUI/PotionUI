@@ -44,19 +44,27 @@ from src.features.video_director.normalize import (
     derive_ltx_media_fields,
     wan_model_set_for,
 )
+from src.pipelines.pipes.generator.chain_video_wan22.geometry import (
+    resolve_window_geometry as resolve_wan_window_geometry,
+)
 from src.pipelines.pipes.generator.video_minimax_h3.windows import resolve_window_geometry
 
-# The one family whose stitched timeline this module knows how to derive from
+# The families whose stitched timeline this module knows how to derive from
 # something OTHER than a segment's own raw `frames / fps` -- see
 # `_effective_segment_durations`. Keyed off `family` (the orchestrator's own
 # read of the target preset's `video_director.family` capability, resolved
 # from the SAME preset capabilities block `normalize_video_director` was
-# handed, never guessed from the document's shape); every other family,
-# including Wan and an absent/unknown `family`, keeps the legacy raw-frame
-# axis -- Wan's own effective per-window overlap depends on a pipe-config
-# knob (`motion_latent_count`) that never travels with the Video Director
-# document, so there is no document-only "Wan planner" to call here yet.
+# handed, never guessed from the document's shape); every other family, and
+# an absent/unknown `family`, keeps the legacy raw-frame axis.
 _MINIMAX_H3_FAMILY = "minimax_h3"
+# Wan's own effective per-window overlap ALSO depends on a pipe-config knob
+# (`motion_latent_count`) that never travels with the Video Director document
+# on its own -- `_effective_segment_durations` only takes this branch when the
+# orchestrator has attached an explicit `settings.timing_profile` onto the
+# document (see `chain_video_wan22/geometry.py`'s module docstring); an
+# instance of this family with no profile attached keeps the legacy raw-frame
+# axis exactly like an absent/unknown family, rather than guessing one.
+_WAN_FAMILY = "wan"
 
 
 def _segment_duration(segment: Dict[str, Any], fps: Optional[float]) -> float:
@@ -87,12 +95,25 @@ def _effective_segment_durations(
     a continuation window's leading `overlap_frames` replay the previous
     window's tail rather than adding new footage, and a requested frame count
     that isn't already on the VAE's lattice is snapped up before it ever
-    reaches seconds. Every other family falls back to the legacy raw-frame
-    axis (`_segment_duration`) -- see the module-level `_MINIMAX_H3_FAMILY`
-    comment for why that isn't yet wrong to leave alone for Wan.
+    reaches seconds.
+
+    For the `wan` family, the SAME kind of derivation applies via
+    `chain_video_wan22/geometry.py`'s own `resolve_window_geometry` (the
+    `1 + 4k` lattice and the continuation context-trim), but ONLY when the
+    document already carries an explicit `settings.timing_profile` (see that
+    module's docstring and `_WAN_FAMILY` above) -- a Wan document with no
+    profile attached is "unqualified": falling back to the raw axis here is
+    not a claim that it's correct, only that this module has nothing better
+    to derive it from.
+
+    Every other family, and an unqualified `wan` document, falls back to the
+    legacy raw-frame axis (`_segment_duration`).
     """
-    if family == _MINIMAX_H3_FAMILY and isinstance(fps, (int, float)) and fps > 0:
-        return [geometry.emitted_frames / fps for geometry in resolve_window_geometry(segments, settings)]
+    if isinstance(fps, (int, float)) and fps > 0:
+        if family == _MINIMAX_H3_FAMILY:
+            return [geometry.emitted_frames / fps for geometry in resolve_window_geometry(segments, settings)]
+        if family == _WAN_FAMILY and isinstance(settings.get("timing_profile"), dict):
+            return [geometry.emitted_frames / fps for geometry in resolve_wan_window_geometry(segments, settings)]
     return [_segment_duration(segment, fps) for segment in segments]
 
 

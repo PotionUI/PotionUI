@@ -79,6 +79,32 @@ vars:
   # frontend/src/lib/utils/videoDirector.ts) telling the UI which preset
   # modes should show the Director editor.
   video_director:
+    # Read only by the orchestrator (src/features/generation/orchestrator.py),
+    # never by normalize_video_director itself -- the normalizer stays
+    # family-agnostic (docs/video-director.md's "Per-family interpretation").
+    # Names which family's own window-planner arithmetic
+    # src.features.video_director.compile.compile_shot_plan should use to
+    # derive the stitched timeline a per-shot render's free-floating
+    # keyframes/audio (and settings.duration) are rebased against -- see
+    # compile.py's `_WAN_FAMILY` and chain_video_wan22/geometry.py's
+    # `resolve_window_geometry` (the causal VAE's `1 + 4k` frame lattice and
+    # the continuation context-trim).
+    family: "wan"
+    # Wan's per-window continuation overlap ALSO depends on a
+    # generation-time pipe config value the video_director document never
+    # carries on its own: `motion_latent_count` (SVI Pro 2.0 continuity,
+    # svi_pro.yml's `svi_motion_latent_count` slider, default 2), bound
+    # straight into generator/chain_video_wan22's config by pipeline.yml's
+    # `{{ form.svi_motion_latent_count | default(1) }}`. This block tells the
+    # orchestrator which sibling form field to read that value from (and
+    # what to fall back to when the field is genuinely absent from the bound
+    # form -- the SAME fallback the Jinja default above uses), so it can
+    # attach the value onto the normalized document's own
+    # `settings.timing_profile` -- see orchestrator.py's `timing_capability`
+    # handling and geometry.py's `resolve_motion_latent_count`.
+    timing:
+      motion_latent_count_field: "svi_motion_latent_count"
+      motion_latent_count_default: 1
     preset_modes: ["video"]
     # Resolve each segment to a t2v/i2v/flf/chain sub-type and precompute the
     # needs_t2v_set/needs_i2v_set flags the pipeline branches its two model-set

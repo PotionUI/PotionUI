@@ -7,7 +7,8 @@ import {
 	isKeyframeLocked,
 	withChainKeyframeAt,
 	withTimelineKeyframeAt,
-	withTimelineSegmentEdge
+	withTimelineSegmentEdge,
+	resolveWanSegmentGeometry
 } from './railModel';
 import { chainEdgeKeyframeId, resolveDirectorCapabilities } from '$lib/utils/videoDirector';
 import { withAddedShot, withChainLeadingMedia, withChainTrailingMedia } from './stageModel';
@@ -794,5 +795,85 @@ describe('deriveRailModel — MiniMax-H3 family geometry parity with the Python 
 		// and 17 is an exact-chunk overlap -- the 130-frame case above is
 		// where the two axes actually diverge.
 		expect(model.shots.map((s) => s.contributedFrames)).toEqual([56, 39, 56]);
+	});
+});
+
+// ─── Wan chain geometry: parity with the Python planner (not yet wired) ────
+// `resolveWanSegmentGeometry` is a pure port of
+// `chain_video_wan22/geometry.py`'s `resolve_window_geometry` -- these
+// hardcoded numbers are the SAME ones
+// tests/pipelines/pipes/generator/chain_video_wan22/test_geometry.py asserts
+// against the Python module. It is NOT wired into `deriveChainRail`'s live
+// computation (see railModel.ts's "Wan chain geometry" section for why), so
+// `deriveRailModel` itself still returns the raw axis for a `family: 'wan'`
+// document -- the second describe block below covers that (unqualified)
+// behaviour.
+
+describe('resolveWanSegmentGeometry — parity with the Python planner', () => {
+	it('three 80-frame requests, motion 2, matches the reported [81, 77, 81]', () => {
+		const a = resolveWanSegmentGeometry(80, false, 4, 'tail_frames', 2);
+		const b = resolveWanSegmentGeometry(80, true, 4, 'tail_frames', 2);
+		const c = resolveWanSegmentGeometry(80, false, 4, 'tail_frames', 2);
+		expect([a.frames, b.frames, c.frames]).toEqual([81, 81, 81]);
+		expect([a.overlapFrames, b.overlapFrames, c.overlapFrames]).toEqual([0, 4, 0]);
+		expect([a.frames - a.overlapFrames, b.frames - b.overlapFrames, c.frames - c.overlapFrames]).toEqual([81, 77, 81]);
+	});
+
+	it('three 80-frame requests, motion 1 (the absent-config fallback), matches the reported [81, 80, 81]', () => {
+		const b = resolveWanSegmentGeometry(80, true, 4, 'tail_frames', 1);
+		expect(b.frames).toBe(81);
+		expect(b.overlapFrames).toBe(1);
+		expect(b.frames - b.overlapFrames).toBe(80);
+	});
+
+	it('a fresh cut never carries overlap-in, regardless of motion latents', () => {
+		const cut = resolveWanSegmentGeometry(80, false, 4, 'tail_frames', 4);
+		expect(cut.overlapFrames).toBe(0);
+		expect(cut.frames - cut.overlapFrames).toBe(cut.frames);
+	});
+
+	it('last_frame source pins the overlap to one frame regardless of the configured overlap or motion latents', () => {
+		const geometry = resolveWanSegmentGeometry(80, true, 4, 'last_frame', 4);
+		expect(geometry.overlapFrames).toBe(1);
+	});
+
+	it('a short window clamps its overlap so at least one frame remains', () => {
+		const geometry = resolveWanSegmentGeometry(5, true, 8, 'tail_frames', 4);
+		expect(geometry.frames).toBe(5);
+		expect(geometry.overlapFrames).toBe(4);
+	});
+
+	it('frames off the 1+4k lattice snap up (ties round down)', () => {
+		expect(resolveWanSegmentGeometry(80, false, 4, 'tail_frames', 1).frames).toBe(81);
+		expect(resolveWanSegmentGeometry(130, false, 4, 'tail_frames', 1).frames).toBe(129);
+		expect(resolveWanSegmentGeometry(3, false, 4, 'tail_frames', 1).frames).toBe(1);
+	});
+});
+
+describe('deriveRailModel — Wan family declared but no live timing profile: stays on the raw axis, marked unqualified', () => {
+	function wanFamilyCaps(): DirectorCapabilities {
+		return { ...wanCaps(), family: 'wan' };
+	}
+
+	it('a `family: "wan"` document still reports the raw duration*fps axis (no live channel to a real profile yet)', () => {
+		const model = deriveRailModel(wanDoc(), wanFamilyCaps());
+		// Same numbers `deriveRailModel — Wan chain` already asserts for the
+		// undeclared-family case -- declaring `family: "wan"` alone changes
+		// nothing about the computed geometry today.
+		expect(model.shots.map((s) => s.contributedFrames)).toEqual([49, 65, 33]);
+		expect(model.shots.map((s) => s.totalFrames)).toEqual([49, 81, 33]);
+	});
+
+	it('marks every shot timingQualified: false for the wan family, true when no family is declared', () => {
+		const wanModel = deriveRailModel(wanDoc(), wanFamilyCaps());
+		expect(wanModel.shots.every((s) => s.timingQualified === false)).toBe(true);
+
+		const legacyModel = deriveRailModel(wanDoc(), wanCaps());
+		expect(legacyModel.shots.every((s) => s.timingQualified === true)).toBe(true);
+	});
+
+	it('the minimax_h3 family stays qualified (it computes the real emitted geometry, not a raw approximation)', () => {
+		const model = deriveRailModel(h3Doc(), h3Caps());
+		expect(model.shots.every((s) => s.timingQualified === true)).toBe(true);
 	});
 });

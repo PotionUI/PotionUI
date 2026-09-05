@@ -543,17 +543,40 @@ real emitted total of the FILM's own last shot is not dropped — it is retained
 to that shot's own last decoded frame, mirroring `windows.py`'s `_locate_frame` clamp
 exactly (this is why `normalize_video_director` accepts an `at` slightly past the real
 emitted total in the first place: its own upper bound is the raw, un-snapped duration).
-Every other family (no `family` declared, or any value besides `minimax_h3` — Wan
-included) keeps the legacy raw-frame axis: Wan's own effective per-shot overlap depends on
-a generation-time pipe config value (`motion_latent_count`) that never travels with this
-document, so there is no document-only "Wan planner" to call here yet — the raw axis is the
-existing (unfixed) approximation for Wan, not a claim that it is correct.
+For `family: "wan"`, the compiler derives the same values from
+`chain_video_wan22/geometry.py`'s own `resolve_window_geometry`: the causal VAE's `1 + 4k`
+frame lattice, and a `"chain"` segment's leading overlap frames (the previous segment's
+replayed tail). Wan's real per-segment overlap ALSO depends on `motion_latent_count` — a
+generation-time pipe config value (SVI Pro 2.0 continuity, `svi_pro.yml`'s
+`svi_motion_latent_count` slider) that never lives on the Video Director document on its
+own — so the compiler only takes this path when the document already carries an explicit
+`settings.timing_profile`. That profile is attached by the orchestrator
+(`src/features/generation/orchestrator.py`), which reads a preset's `video_director.timing`
+capability (`motion_latent_count_field` naming the sibling form field to read, and
+`motion_latent_count_default` for when that field is genuinely absent from the bound form —
+the same fallback `pipeline.yml`'s own `{{ form.svi_motion_latent_count | default(1) }}`
+uses) and writes the resolved value onto `settings.timing_profile.motion_latent_count`
+before compiling or persisting anything, so `compile_shot_plan` and a reopened document's
+rail read the exact value the generator itself will use. A `wan`-family document with no
+profile attached (a preset instance that hasn't wired the `timing` capability, or a
+hand-built document) is "unqualified": it keeps the legacy raw-frame axis, which is not a
+claim that axis is correct for it, only that this module has nothing better to derive it
+from without the profile.
 
-The Director console's stage rail (`frontend/.../stage-rail/railModel.ts`) mirrors this: a
-small pure TypeScript port of `resolve_window_geometry`, selected by the same
-`family === "minimax_h3"` read off the parsed capabilities, so a rail block's width and a
-seam's overlap shoulder show the SAME emitted geometry the compiler and generator actually
-run, instead of a raw `Math.round(duration * fps)`.
+Every other family — no `family` declared, or any value besides `minimax_h3`/`wan` — keeps
+the legacy raw-frame axis unconditionally.
+
+The Director console's stage rail (`frontend/.../stage-rail/railModel.ts`) mirrors the
+`minimax_h3` half of this: a small pure TypeScript port of `resolve_window_geometry`,
+selected by `family === "minimax_h3"` read off the parsed capabilities, so a rail block's
+width and a seam's overlap shoulder show the SAME emitted geometry the compiler and
+generator actually run, instead of a raw `Math.round(duration * fps)`. It also carries a
+pure `resolveWanSegmentGeometry` port of the Wan module above, but the live editor
+document has no channel yet to carry a real `timingProfile` value the way the backend's
+`settings.timing_profile` does (nothing in the Director editor's own state currently reads
+`svi_motion_latent_count`) — so every `family === "wan"` rail block stays on the raw axis
+today, marked `timingQualified: false` rather than showing a falsely-precise emitted
+number. Wiring a live `timingProfile` into the editor is follow-up work, not yet done.
 - **`settings.duration`**, **`needs_t2v_set`**/**`needs_i2v_set`**, and
   `media_images`/`media_videos`/`media_placements` are all recomputed from the compiled
   span alone, exactly as `normalize_video_director` computes them for a whole film.

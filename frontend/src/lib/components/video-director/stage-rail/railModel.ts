@@ -88,6 +88,15 @@ export interface RailShotBlock {
 	 * span, as a 0..1 fraction -- only set when overCapBy > 0 (nothing to draw
 	 * otherwise). */
 	capLocalFraction: number | null;
+	/** False when `totalFrames`/`contributedFrames` are a raw `duration * fps`
+	 * approximation this block's family is KNOWN to snap/trim in reality, but
+	 * this rail has nothing to derive the real numbers from (see the Wan
+	 * geometry section below) -- a consumer should show these as "requested"
+	 * with a qualifier rather than as an exact emitted duration. `true`
+	 * everywhere else: the legacy raw axis is genuinely exact for a family
+	 * with no frame-count snap/overlap-trim, and the `minimax_h3` branch
+	 * above computes the real emitted geometry outright. */
+	timingQualified: boolean;
 }
 
 export interface RailSeam {
@@ -430,6 +439,63 @@ function resolveH3SegmentGeometry(
 	return { frames, overlapFrames: h3HeadFramesForLatents(overlapLatents) };
 }
 
+// ─── Wan chain geometry ──────────────────────────────────────────────────────
+// Pure TS port of `resolve_window_geometry`
+// (src/pipelines/pipes/generator/chain_video_wan22/geometry.py) -- NOT yet
+// wired into `deriveChainRail`'s live computation below, unlike the H3
+// section above. Wan's real per-segment overlap depends on
+// `motion_latent_count`, a generation-time pipe config value (SVI Pro 2.0
+// continuity, `svi_pro.yml`'s `svi_motion_latent_count` slider) that the
+// backend now carries on the normalized document as
+// `settings.timing_profile` (see the Python module's docstring and
+// `src/features/generation/orchestrator.py`'s `timing_capability`
+// handling) -- but nothing in the Director editor's own state reads
+// `svi_motion_latent_count` today, so this rail has no live value to feed
+// this function. It is exported and unit-tested on its own (parity with the
+// Python module's numbers) so a future card can wire a real `timingProfile`
+// into `VideoDirectorValue`/`DirectorCapabilities` without re-deriving the
+// arithmetic; until then every `family === 'wan'` shot block stays on the
+// raw axis with `timingQualified: false` (see `RailShotBlock`'s docstring).
+const WAN_FAMILY = 'wan';
+const WAN_TEMPORAL_DOWNSCALE = 4;
+
+/** Snaps `frames` to the nearest `1 + 4k` (ties round down) -- mirrors
+ * `chain_video_wan22/geometry.py`'s own `_snap_frame_count` exactly. */
+function wanSnapFrameCount(frames: number): number {
+	const k = Math.max(0, Math.ceil((frames - 1) / WAN_TEMPORAL_DOWNSCALE - 0.5));
+	return 1 + k * WAN_TEMPORAL_DOWNSCALE;
+}
+
+/** Pixel frames of the previous segment's tail a continuation segment's
+ * front replays -- mirrors `geometry.py`'s `tail_frame_count` exactly. */
+function wanTailFrameCount(defaultOverlap: number, motionLatentCount: number): number {
+	const baseTail = defaultOverlap > 0 ? defaultOverlap : 1;
+	const motionFrames = (motionLatentCount - 1) * WAN_TEMPORAL_DOWNSCALE + 1;
+	return Math.max(1, Math.min(baseTail, motionFrames));
+}
+
+interface WanSegmentGeometry {
+	frames: number;
+	overlapFrames: number;
+}
+
+/** One segment's frame/overlap geometry, mirroring `resolve_window_geometry`'s
+ * per-segment body exactly (lattice snap, tail-frame-count derivation, the
+ * `min(tailCount, frames - 1)` clamp that never empties a segment). */
+export function resolveWanSegmentGeometry(
+	requestedFrames: number,
+	isContinue: boolean,
+	overlapFramesSetting: number,
+	continuationSource: 'tail_frames' | 'last_frame' | undefined,
+	motionLatentCount: number
+): WanSegmentGeometry {
+	const frames = wanSnapFrameCount(requestedFrames);
+	if (!isContinue) return { frames, overlapFrames: 0 };
+	const defaultOverlap = continuationSource === 'last_frame' ? 1 : Math.max(0, overlapFramesSetting);
+	const tailCount = wanTailFrameCount(defaultOverlap, motionLatentCount);
+	return { frames, overlapFrames: Math.min(tailCount, frames - 1) };
+}
+
 function deriveChainRail(
 	doc: VideoDirectorValue,
 	caps: DirectorCapabilities
@@ -440,6 +506,10 @@ function deriveChainRail(
 	const capFrames = directorCap?.maxFramesPerSegment ?? null;
 	const overlapSetting = Math.max(0, chain.continuation.overlap_frames);
 	const isH3 = caps.family === H3_FAMILY;
+	// See the "Wan chain geometry" section above: no live timing profile
+	// reaches this rail yet, so a `family === 'wan'` document stays on the
+	// raw axis below, just marked unqualified rather than shown as exact.
+	const isWan = caps.family === WAN_FAMILY;
 	// MiniMax-H3 refs mode: continuation and the reference pool can't coexist
 	// (normalize.py's `chain_continuation_disabled`) -- every shot is an
 	// independent hard cut, so the structural derivation is overridden rather
@@ -485,7 +555,8 @@ function deriveChainRail(
 			overlapInFrames,
 			capFrames,
 			overCapBy,
-			capLocalFraction
+			capLocalFraction,
+			timingQualified: !isWan
 		});
 
 		if (index > 0) {
@@ -639,7 +710,8 @@ function deriveTimelineRail(
 			// tracked at the RailModel level via totalOverCapBy.
 			capFrames: null,
 			overCapBy: 0,
-			capLocalFraction: null
+			capLocalFraction: null,
+			timingQualified: true
 		};
 	});
 

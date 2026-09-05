@@ -202,50 +202,58 @@ class GeneratorTrellis2Pipe(BasePipe):
         mesh_paths: List[str] = []
         meshes: List[MeshGenerationOutput] = []
 
-        for index, (image, seed) in enumerate(zip(images, seeds)):
+        try:
+            for index, (image, seed) in enumerate(zip(images, seeds)):
+                if is_cancelled():
+                    raise SamplingCancelled()
+
+                generation_outputs(SeedGenerationOutput(index=index, seed=seed))
+                volume = run_image_to_mesh(
+                    components,
+                    image,
+                    tier=tier,
+                    seed=seed,
+                    device=device,
+                    stage_settings=stage_settings,
+                    remove_background=bool(self.config.get("remove_background", False)),
+                    max_num_tokens=int(self.config.get("max_num_tokens", 49152)),
+                    progress=self._progress(generation_outputs, index, len(images)),
+                    is_cancelled=is_cancelled,
+                )
+
+                # The models are back on CPU by now, but their freed blocks are
+                # still in torch's cache; the bake wants that memory back.
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+
+                if is_cancelled():
+                    # postprocess_to_glb is not itself interruptible -- this is
+                    # the last cooperative boundary before paying for it.
+                    raise SamplingCancelled()
+
+                generation_outputs(ProgressGenerationOutput(
+                    state="Baking PBR materials", icon=Icon(name="cube", effect="pulse"),
+                    progress=Progress(index, len(images)),
+                ))
+                mesh_path = self._export(volume)
+                mesh_paths.append(mesh_path)
+                meshes.append(MeshGenerationOutput(
+                    mesh_path=mesh_path,
+                    temporary=False,
+                    seed=seed,
+                    vertex_count=int(volume.vertices.shape[0]),
+                    face_count=int(volume.faces.shape[0]),
+                ))
+
             if is_cancelled():
-                self._abort_cancelled(mesh_paths)
-
-            generation_outputs(SeedGenerationOutput(index=index, seed=seed))
-            volume = run_image_to_mesh(
-                components,
-                image,
-                tier=tier,
-                seed=seed,
-                device=device,
-                stage_settings=stage_settings,
-                remove_background=bool(self.config.get("remove_background", False)),
-                max_num_tokens=int(self.config.get("max_num_tokens", 49152)),
-                progress=self._progress(generation_outputs, index, len(images)),
-                is_cancelled=is_cancelled,
-            )
-
-            # The models are back on CPU by now, but their freed blocks are
-            # still in torch's cache; the bake wants that memory back.
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-
-            if is_cancelled():
-                # postprocess_to_glb is not itself interruptible -- this is the
-                # last cooperative boundary before paying for it.
-                self._abort_cancelled(mesh_paths)
-
-            generation_outputs(ProgressGenerationOutput(
-                state="Baking PBR materials", icon=Icon(name="cube", effect="pulse"),
-                progress=Progress(index, len(images)),
-            ))
-            mesh_path = self._export(volume)
-            mesh_paths.append(mesh_path)
-            meshes.append(MeshGenerationOutput(
-                mesh_path=mesh_path,
-                temporary=False,
-                seed=seed,
-                vertex_count=int(volume.vertices.shape[0]),
-                face_count=int(volume.faces.shape[0]),
-            ))
-
-        if is_cancelled():
-            self._abort_cancelled(mesh_paths)
+                raise SamplingCancelled()
+        except SamplingCancelled:
+            # Whether raised by one of the polls above or propagated straight
+            # out of a sampling stage inside run_image_to_mesh, no gallery
+            # follows: every bake already accumulated in this batch is now
+            # unreachable and would otherwise leak on disk.
+            self._discard_exports(mesh_paths)
+            raise
 
         generation_outputs(GalleryGenerationOutput(images=[], meshes=meshes))
         generation_outputs(ProgressGenerationOutput(
@@ -258,20 +266,19 @@ class GeneratorTrellis2Pipe(BasePipe):
     # -- helpers -----------------------------------------------------------
 
     @staticmethod
-    def _abort_cancelled(mesh_paths: List[str]) -> None:
-        """Cancellation observed at a cooperative boundary: discard bakes this
-        run will never reference and raise the established signal.
+    def _discard_exports(mesh_paths: List[str]) -> None:
+        """Best-effort delete every ``.glb`` this batch has baked so far.
 
-        No gallery is emitted for a cancelled run, so any ``.glb`` already
-        baked for a prior image in this batch is now unreachable -- best-effort
-        deleted here rather than left on disk.
+        Called once, from the single ``except SamplingCancelled`` around the
+        per-image loop, so it runs the same way whether cancellation was
+        caught by one of this pipe's own polls or raised from inside a
+        sampling stage deep in ``run_image_to_mesh``.
         """
         for path in mesh_paths:
             try:
                 os.remove(path)
             except OSError:
                 pass
-        raise SamplingCancelled()
 
     def _seeds(self, pipe_input: PipeInput, count: int) -> List[int]:
         """One seed per image: the wired ``seed`` input, else the config's.

@@ -422,6 +422,38 @@ def test_cancellation_between_images_discards_the_completed_bake_and_emits_no_ga
     assert not Path(exported[0]["out_path"]).exists()  # discarded, not left on disk
 
 
+def test_a_sampling_stage_cancelling_mid_cascade_also_discards_a_prior_image_s_bake(
+    monkeypatch, exported,
+):
+    """``SamplingCancelled`` raised inside ``run_image_to_mesh`` (a stage's own
+    step loop noticing cancellation) propagates straight out of this pipe's
+    per-image loop -- unlike this pipe's own boolean polls, it is never routed
+    through an explicit ``if is_cancelled(): raise`` here. The first image's
+    already-baked ``.glb`` must still be discarded and no gallery emitted, not
+    just left behind because the raise came from somewhere else."""
+    calls = []
+
+    def _run(components, image, **kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            return _cube_volume()
+        raise SamplingCancelled(step_index=3)
+
+    monkeypatch.setattr(generator_main, "run_image_to_mesh", _run)
+
+    pipe = GeneratorTrellis2Pipe(_config())
+    payload = {"model": _FakeBundle(), "image": [Image.new("RGB", (8, 8))] * 2}
+    emitted = []
+    with pytest.raises(SamplingCancelled) as excinfo:
+        pipe.process(PipeInput(input=payload), emitted.append, is_cancelled=lambda: False)
+
+    assert excinfo.value.step_index == 3
+    assert len(calls) == 2
+    assert len(exported) == 1  # only the first image ever reached the bake
+    assert not Path(exported[0]["out_path"]).exists()  # but it's discarded
+    assert not any(isinstance(o, GalleryGenerationOutput) for o in emitted)
+
+
 def test_ordinary_generation_is_unaffected_when_never_cancelled(recorded_run, exported):
     out, emitted = _run_pipe(images=[Image.new("RGB", (8, 8))] * 2, is_cancelled=lambda: False)
     assert len(out.output["mesh"]) == 2

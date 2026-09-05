@@ -10,10 +10,10 @@ right one.
 ChatRuntime stays a single injectable object because its collaborators depend on
 it as one handle. The ChatController reaches through it for several attributes
 (``tool_executor``, ``llm_memory_repository``, ``pre_chat_action_registry``,
-``chat_mode_registry``), and the composition root late-binds most of the tool /
-resource managers onto it *after* construction. The role classes therefore read
-their dependencies back through this manager, so that late binding keeps working
-without re-wiring seven separate objects.
+``chat_mode_registry``), and the role classes read their dependencies back
+through this manager rather than holding seven separate references. Every
+collaborator arrives at construction — `src.bootstrap.composition.chat` builds
+this once the rest of the process exists.
 """
 
 import logging
@@ -73,6 +73,10 @@ class ChatRuntime:
         collection_repository: Optional[Any] = None,
         tag_repository: Optional[Any] = None,
         generation_history_facade: Optional[Any] = None,
+        tool_governance_repository: Optional[Any] = None,
+        generation_repository: Optional[Any] = None,
+        generation_parameter_repository: Optional[Any] = None,
+        generation_model_repository: Optional[Any] = None,
     ):
         """Initialize ChatRuntime.
 
@@ -133,11 +137,11 @@ class ChatRuntime:
         self.collection_repository = collection_repository
         self.tag_repository = tag_repository
         self.generation_history_facade = generation_history_facade
-        # Generation repositories for the @generations resource provider;
-        # late-assigned in the composition root like model_index_manager/preset_manager.
-        self.generation_repository: Optional[Any] = None
-        self.generation_parameter_repository: Optional[Any] = None
-        self.generation_model_repository: Optional[Any] = None
+        self.tool_governance_repository = tool_governance_repository
+        # Generation repositories for the @generations resource provider.
+        self.generation_repository = generation_repository
+        self.generation_parameter_repository = generation_parameter_repository
+        self.generation_model_repository = generation_model_repository
         self.title_generator = ChatTitleGenerator(llm_service, chat_repository)
         # Fire-and-forget title tasks; referenced so they aren't garbage-collected mid-run.
         self._title_tasks: set = set()

@@ -4,12 +4,19 @@
 order and returns them on a typed `AppContainer`. Construction is ordered:
 a singleton may only depend on ones built above it.
 
-Two constructs need care when editing:
+Boundaries that were duplicated or wired in two phases are built by typed
+builders in `src.bootstrap.composition` — a frozen `<Feature>Deps` in, a frozen
+`<Feature>Components` out — and handed to `AppContainer` explicitly. The rest is
+still matched from this function's locals by name.
 
-- Some managers are wired in two phases — they are constructed first and have
-  collaborator references attached afterwards, because the collaborators need
-  the manager itself (a dependency cycle that cannot be resolved at
-  construction time).
+Three constructs need care when editing:
+
+- `generation_orchestrator.router` is assigned after construction. This one is a
+  real cycle, not an ordering artefact: `build_model_index_collaborators` takes a
+  closure over the orchestrator's queue, and the orchestrator's router reads the
+  model index. One of the two edges has to close late.
+- `preset_template_loader.on_presets_changed` is assigned after construction, for
+  the same reason: the prerender queue reads the loader it notifies.
 - `BackendRegistry` receives a factory closure rather than an instance: a
   `GenerationEngine` is created per backend, not once per process.
 
@@ -96,6 +103,8 @@ from src.features.phrasebook.repository import (
 )
 from src.features.chat.repository import ChatRepository
 from src.features.generation.repository import GenerationRepository
+from src.features.generation.model_repository import GenerationModelRepository
+from src.features.generation.parameter_repository import GenerationParameterRepository
 from src.features.generation.run_report_repository import GenerationRunReportRepository
 from src.features.generation.run_report_recorder import RunReportRecorder
 from src.features.segments.repository import (
@@ -104,6 +113,7 @@ from src.features.segments.repository import (
     SegmentTemplateRepository,
 )
 from src.features.llm.gateway import LLMGateway
+from src.bootstrap.composition import ChatDeps, build_chat
 
 if TYPE_CHECKING:
     # Types constructed inside build_container via lazy imports; referenced only
@@ -851,47 +861,8 @@ def build_container() -> AppContainer:
         llm_repository=llm_repository,
     )
 
-    # Initialize chat components (with tool executor and manager references)
-    chat_repository = ChatRepository()
-    response_processor = ResponseProcessor(plugin_registry=plugin_registry)
-    chat_runtime = ChatRuntime(
-        chat_repository=chat_repository,
-        llm_service=llm_service,
-        response_processor=response_processor,
-        plugin_registry=plugin_registry,
-        chat_mode_registry=chat_mode_registry,
-        tool_executor=tool_executor,
-        segment_category_repository=None,  # Will be set after the segment repositories are created
-        saved_segment_repository=None,
-        segment_template_repository=None,
-        model_index_manager=None,  # Will be set after model_index_manager is created
-        preset_manager=None,  # Will be set after preset_manager is created
-        phrasebook_category_repository=phrasebook_category_repo,
-        phrasebook_value_repository=phrasebook_value_repo,
-        phrasebook_search=phrasebook_search,
-        resource_registry=resource_registry,
-        settings=settings,
-    )
-
-    # Initialize pre-chat actions
-    from src.features.chat.pre_chat_actions import PreChatActionRegistry
-    pre_chat_action_registry = PreChatActionRegistry(
-        plugin_registry=plugin_registry,
-        llm_repository=llm_repository,
-    )
-    chat_runtime.pre_chat_action_registry = pre_chat_action_registry
-
-    # Chat controller. Turns are owned by a per-process registry so a client
-    # disconnect (page reload) can't kill an in-flight response.
-    from src.features.chat.routes import ChatController
-    from src.features.chat.turns import ChatTurnRegistry
-    _turn_timeout = 1800
-    try:
-        _turn_timeout = int(settings.get_setting("chat_turn_timeout_seconds", 1800))
-    except (TypeError, ValueError):
-        pass
-    chat_turn_registry = ChatTurnRegistry(turn_timeout_seconds=_turn_timeout)
-    chat_controller = ChatController(chat_runtime, chat_turn_registry)
+    # Chat is built by `build_chat` near the end of this function, once every
+    # domain its tool context reaches exists.
 
     # Developer components
     from src.features.developer.pipes_documenter import PipesDocumenter
@@ -1035,6 +1006,8 @@ def build_container() -> AppContainer:
 
     # Initialize generation history manager
     generation_repository = GenerationRepository()
+    generation_parameter_repository = GenerationParameterRepository()
+    generation_model_repository = GenerationModelRepository()
     run_report_repository = GenerationRunReportRepository()
     run_report_recorder = RunReportRecorder(run_report_repository, file_service)
     generation_history_facade = GenerationHistoryFacade(
@@ -1249,7 +1222,6 @@ def build_container() -> AppContainer:
     library_controller = LibraryController(library_collaborators)
 
     # Inspirations components (cross-user publishing of generations)
-    from src.features.generation.parameter_repository import GenerationParameterRepository
     from src.features.inspirations import InspirationCollaborators, InspirationRepository
     from src.features.inspirations.routes import InspirationController
 
@@ -1257,7 +1229,7 @@ def build_container() -> AppContainer:
     inspiration_collaborators = InspirationCollaborators(
         repository=inspiration_repository,
         generation_repository=generation_repository,
-        generation_parameter_repository=GenerationParameterRepository(),
+        generation_parameter_repository=generation_parameter_repository,
         preset_name_resolver=PresetNameResolver(preset_template_loader),
         preset_template_loader=preset_template_loader,
         field_type_registry=field_type_registry,
@@ -1348,12 +1320,10 @@ def build_container() -> AppContainer:
     )
     prompt_database_controller = PromptDatabaseController(prompt_database)
 
-    # Wire up deferred service references for ChatRuntime's tool context
-    chat_runtime.segment_category_repository = segment_category_repo
-    chat_runtime.saved_segment_repository = saved_segment_repo
-    chat_runtime.segment_template_repository = segment_template_repo
-    chat_runtime.model_index_manager = model_index_manager
-    chat_runtime.preset_manager = preset_manager
+    # The orchestrator and the model index are mutually dependent: the index
+    # asks the orchestrator whether a generation is running (a closure, above),
+    # and the orchestrator's router reads the index. One of the two edges has
+    # to close after construction; this is it.
     generation_orchestrator.router = GenerationRouter(
         build_routing_rules(plugin_registry),
         backend_registry=backend_registry,
@@ -1361,20 +1331,6 @@ def build_container() -> AppContainer:
         model_index=model_index_manager,
         gpu_monitor=gpu_monitor,
     )
-    chat_runtime.prompt_database = prompt_database
-    chat_runtime.generation_orchestrator = generation_orchestrator
-    chat_runtime.llm_memory_repository = llm_memory_repository
-    chat_runtime.media_indexer = media_indexer
-    chat_runtime.tool_governance_repository = tool_governance_repository
-    chat_runtime.collection_repository = collection_repository
-    chat_runtime.tag_repository = tag_repository
-    chat_runtime.generation_history_facade = generation_history_facade
-    # Generation repositories for the @generations resource provider
-    from src.features.generation.model_repository import GenerationModelRepository
-    from src.features.generation.parameter_repository import GenerationParameterRepository
-    chat_runtime.generation_repository = generation_repository
-    chat_runtime.generation_parameter_repository = GenerationParameterRepository()
-    chat_runtime.generation_model_repository = GenerationModelRepository()
 
     # Prompt enhancement pipeline (used by the enhance_prompt tool)
     from src.features.prompt_enhancement import PromptEnhancementCollaborators
@@ -1391,13 +1347,12 @@ def build_container() -> AppContainer:
         feedback_repository=enhancement_feedback_repository,
         preset_manager=preset_manager,
     )
-    chat_runtime.prompt_enhancement_manager = prompt_enhancement_manager
 
     # MCP (Model Context Protocol): per-user tokens exposing the same tool
     # surface a `generation`-mode chat session sees. Built here, after every
     # collaborator the tool context needs (segment/model/preset/prompt
     # database/generation/memory/media managers) is available — the same
-    # ordering constraint chat_runtime's late-bound assignments above solve.
+    # ordering constraint that puts `build_chat` below.
     from src.features.mcp.protocol import McpToolCollaborators
     from src.features.mcp.repository import McpTokenRepository
 
@@ -1425,7 +1380,38 @@ def build_container() -> AppContainer:
         generation_history_facade=generation_history_facade,
     )
 
-    pre_chat_action_registry.discover_actions()
+    chat = build_chat(
+        ChatDeps(
+            llm_service=llm_service,
+            llm_repository=llm_repository,
+            plugin_registry=plugin_registry,
+            settings=settings,
+            chat_mode_registry=chat_mode_registry,
+            resource_registry=resource_registry,
+            tool_executor=tool_executor,
+            tool_governance_repository=tool_governance_repository,
+            phrasebook_category_repository=phrasebook_category_repo,
+            phrasebook_value_repository=phrasebook_value_repo,
+            phrasebook_search=phrasebook_search,
+            segment_category_repository=segment_category_repo,
+            saved_segment_repository=saved_segment_repo,
+            segment_template_repository=segment_template_repo,
+            model_index_manager=model_index_manager,
+            preset_manager=preset_manager,
+            prompt_database=prompt_database,
+            prompt_enhancement_manager=prompt_enhancement_manager,
+            generation_orchestrator=generation_orchestrator,
+            generation_repository=generation_repository,
+            generation_parameter_repository=generation_parameter_repository,
+            generation_model_repository=generation_model_repository,
+            generation_history_facade=generation_history_facade,
+            llm_memory_repository=llm_memory_repository,
+            media_indexer=media_indexer,
+            collection_repository=collection_repository,
+            tag_repository=tag_repository,
+        )
+    )
+    chat.pre_chat_action_registry.discover_actions()
 
     # Stats components (depends on file_preset_repository for preset display names)
     from src.features.stats.repository import StatsRepository
@@ -1477,7 +1463,18 @@ def build_container() -> AppContainer:
         plugin_registry=plugin_registry,
     )
 
-    # Assemble the container from the locals built above (field name == local
-    # variable name). A missing/misnamed field surfaces immediately here.
+    # Assemble the container. Migrated boundaries hand over a typed
+    # `<Feature>Components`; everything else is still matched from the locals
+    # built above by name, where a missing/misnamed field surfaces here.
+    typed = {
+        "chat_repository": chat.chat_repository,
+        "response_processor": chat.response_processor,
+        "chat_runtime": chat.chat_runtime,
+        "chat_turn_registry": chat.chat_turn_registry,
+        "chat_controller": chat.chat_controller,
+    }
     _locals = locals()
-    return AppContainer(**{f.name: _locals[f.name] for f in dataclasses.fields(AppContainer)})
+    return AppContainer(
+        **typed,
+        **{f.name: _locals[f.name] for f in dataclasses.fields(AppContainer) if f.name not in typed},
+    )

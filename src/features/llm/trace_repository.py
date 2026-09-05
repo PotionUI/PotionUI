@@ -133,6 +133,6 @@ class ChatCallTraceRepository:
             return cursor.rowcount
 
 
-# Process-wide singleton, matching the module-level repository instances in
-# src.features.llm.repository (llm_repository, llm_config_repo, ...).
+# Process-wide singleton: the trace collector reaches it from provider clients
+# that have no access to the container.
 chat_call_trace_repository = ChatCallTraceRepository()

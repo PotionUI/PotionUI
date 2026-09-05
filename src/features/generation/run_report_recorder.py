@@ -16,7 +16,6 @@ large to keep at all.
 """
 
 import copy
-import hashlib
 import json
 import logging
 import time
@@ -68,11 +67,10 @@ _ENVELOPE_OVERHEAD_BYTES = 2048
 # templates. Both are bounded before they are ever accounted or stored.
 _IDENTIFIER_CHARS = 120
 _TEXT_CHARS = 2048
-# A plain prefix cut aliases two identifiers that share it into one dictionary
-# key, which reads as an ordinary latest-wins replacement and loses an entry
-# with nothing to show for it. An over-long identifier keeps a prefix plus a
-# digest of the whole string instead, so distinct inputs stay distinct.
-_IDENTIFIER_DIGEST_CHARS = 12
+# Nothing derives a shorter key from an over-long identifier: any formatted
+# stand-in is itself a string a literal identifier could equal, which puts the
+# aliasing back. An identifier past the limit is refused and counted, so every
+# key in a report is the verbatim identifier it came from.
 
 # Distinct plugin message types keep a dict entry each (latest wins), and
 # distinct pipe ids keep a timer each; both dimensions need a count bound of
@@ -117,6 +115,7 @@ class _Accumulator:
     plugin_outputs_bytes: int = 0
     status_history_dropped: int = 0
     pipe_timers_dropped: int = 0
+    texts_truncated: int = 0
     envelope_bytes: int = _ENVELOPE_OVERHEAD_BYTES
     _last_boundary_key: Optional[tuple] = None
 
@@ -151,6 +150,7 @@ def normalize_report(report: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any
     normalized.setdefault("plugin_output_types_dropped", 0)
     normalized.setdefault("status_history_dropped", 0)
     normalized.setdefault("pipe_timers_dropped", 0)
+    normalized.setdefault("texts_truncated", 0)
     return normalized
 
 
@@ -159,19 +159,6 @@ def _json_bytes(value: Any) -> int:
         return len(json.dumps(value, default=str).encode("utf-8"))
     except (TypeError, ValueError):
         return 0
-
-
-def _bounded_key(value: str) -> str:
-    """A dictionary key of bounded length that two distinct identifiers can
-    never share."""
-    if len(value) <= _IDENTIFIER_CHARS:
-        return value
-    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:_IDENTIFIER_DIGEST_CHARS]
-    return f"{value[:_IDENTIFIER_CHARS - _IDENTIFIER_DIGEST_CHARS - 1]}~{digest}"
-
-
-def _bounded_identity(value: Any) -> Any:
-    return _bounded_key(value) if isinstance(value, str) else value
 
 
 def _bounded_text(value: Any):
@@ -184,6 +171,14 @@ def _bounded_text(value: Any):
 
 def _oversized_identifier(value: Any) -> bool:
     return isinstance(value, str) and len(value) > _IDENTIFIER_CHARS
+
+
+def _status_entry(at, pipe_id, step, step_cut, text, text_cut, progress) -> Dict[str, Any]:
+    entry = {"at": at, "pipe_id": pipe_id, "step": step, "message": text, "progress": progress}
+    truncated = [name for name, cut in (("step", step_cut), ("message", text_cut)) if cut]
+    if truncated:
+        entry["truncated"] = truncated
+    return entry
 
 
 class RunReportRecorder:
@@ -222,7 +217,10 @@ class RunReportRecorder:
 
     @staticmethod
     def _touch_pipe_timer(acc: _Accumulator, pipe_id: Any, at: str) -> None:
-        key = _bounded_key(str(pipe_id))
+        key = str(pipe_id)
+        if _oversized_identifier(key):
+            acc.pipe_timers_dropped += 1
+            return
         timer = acc.pipe_timers.get(key)
         if timer is not None:
             timer["ended_at"] = at
@@ -239,29 +237,27 @@ class RunReportRecorder:
     def _record_status_boundary(
         self, acc: _Accumulator, message: Dict[str, Any], pipe_id: Any, at: str
     ) -> None:
+        if _oversized_identifier(pipe_id):
+            acc.status_history_dropped += 1
+            return
+
         step, step_cut = _bounded_text(message.get("current_step"))
         boundary_key = (pipe_id, step)
         if boundary_key == acc._last_boundary_key:
             return
         acc._last_boundary_key = boundary_key
         text, text_cut = _bounded_text(message.get("message"))
-        entry = {
-            "at": at,
-            "pipe_id": _bounded_identity(pipe_id),
-            "step": step,
-            "message": text,
-            "progress": message.get("progress"),
-        }
-        truncated = [name for name, cut in (("step", step_cut), ("message", text_cut)) if cut]
-        if truncated:
-            entry["truncated"] = truncated
-        self._append_status(acc, entry)
+        self._append_status(acc, _status_entry(
+            at, pipe_id, step, step_cut, text, text_cut, message.get("progress")
+        ))
 
     @staticmethod
     def _append_status(acc: _Accumulator, entry: Dict[str, Any]) -> None:
         if not acc.admit(_json_bytes(entry)):
             acc.status_history_dropped += 1
             return
+        if entry.get("truncated"):
+            acc.texts_truncated += 1
         acc.status_history.append(entry)
         if len(acc.status_history) > _STATUS_HISTORY_CAP:
             acc.status_history_truncated = True
@@ -276,13 +272,13 @@ class RunReportRecorder:
         at: str,
     ) -> None:
         artifact_type = message.get("artifact_type")
-        if _oversized_identifier(artifact_type):
+        if _oversized_identifier(artifact_type) or _oversized_identifier(pipe_id):
             acc.artifacts_dropped += 1
             return
 
         entry: Dict[str, Any] = {
             "at": at,
-            "pipe_id": _bounded_identity(pipe_id),
+            "pipe_id": pipe_id,
             "artifact_type": artifact_type,
         }
 
@@ -388,7 +384,11 @@ class RunReportRecorder:
         self._release_data(acc, entry.get("artifact_data"))
 
     def _record_plugin_output(self, acc: _Accumulator, message: Dict[str, Any], at: str) -> None:
-        key = _bounded_key(message["type"])
+        key = message["type"]
+        if _oversized_identifier(key):
+            acc.plugin_output_types_dropped += 1
+            return
+
         previous = acc.plugin_outputs.pop(key, None)
         if previous is not None:
             released = _json_bytes({key: previous})
@@ -400,10 +400,12 @@ class RunReportRecorder:
             acc.plugin_output_types_dropped += 1
             return
 
-        entry: Dict[str, Any] = {
-            "plugin_id": _bounded_identity(message.get("pipe_name") or message.get("output_type")),
-            "at": at,
-        }
+        plugin_id, plugin_id_cut = _bounded_text(
+            message.get("pipe_name") or message.get("output_type")
+        )
+        entry: Dict[str, Any] = {"plugin_id": plugin_id, "at": at}
+        if plugin_id_cut:
+            entry["truncated"] = ["plugin_id"]
 
         payload_bytes = _json_bytes(message)
         if payload_bytes > _PLUGIN_OUTPUT_ITEM_BYTES_CAP:
@@ -424,6 +426,8 @@ class RunReportRecorder:
         acc.plugin_outputs_bytes += size
         if entry.get("omitted") is not None:
             acc.plugin_outputs_omitted += 1
+        if plugin_id_cut:
+            acc.texts_truncated += 1
 
     def flush(
         self,
@@ -449,13 +453,11 @@ class RunReportRecorder:
 
             boundary_key = ("__terminal__", terminal_status)
             if boundary_key != acc._last_boundary_key:
-                self._append_status(acc, {
-                    "at": now_iso(),
-                    "pipe_id": None,
-                    "step": _bounded_text(terminal_status)[0],
-                    "message": _bounded_text(terminal_message)[0],
-                    "progress": None,
-                })
+                step, step_cut = _bounded_text(terminal_status)
+                text, text_cut = _bounded_text(terminal_message)
+                self._append_status(acc, _status_entry(
+                    now_iso(), None, step, step_cut, text, text_cut, None
+                ))
 
             report = {
                 "schema_version": SCHEMA_VERSION,
@@ -474,6 +476,7 @@ class RunReportRecorder:
                 "plugin_outputs_bytes": acc.plugin_outputs_bytes,
                 "status_history_dropped": acc.status_history_dropped,
                 "pipe_timers_dropped": acc.pipe_timers_dropped,
+                "texts_truncated": acc.texts_truncated,
             }
 
         try:

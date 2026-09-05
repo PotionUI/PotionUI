@@ -62,6 +62,7 @@
 			.filter(([, count]) => typeof count === 'number' && count > 0)
 			.map(([label, count]) => `${count} ${label}`)
 	);
+	let textsTruncated = $derived((report as Record<string, number> | null)?.texts_truncated ?? 0);
 
 	function pretty(value: unknown): string {
 		if (value === null || value === undefined) return '';
@@ -92,6 +93,13 @@
 		{#if notRecorded.length > 0}
 			<p class="text-xs text-fg-subtle px-1">
 				Not recorded, over the report's size limits: {notRecorded.join(', ')}.
+			</p>
+		{/if}
+
+		{#if textsTruncated > 0}
+			<p class="text-xs text-fg-subtle px-1">
+				Text shortened on <span class="font-mono tabular-nums">{textsTruncated}</span>
+				{textsTruncated === 1 ? 'entry' : 'entries'}, including any terminal status message.
 			</p>
 		{/if}
 

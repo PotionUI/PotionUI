@@ -227,6 +227,32 @@ describe('GenerationRunReport', () => {
 		expect(mounted.text()).not.toContain('Not recorded');
 	});
 
+	it('reports shortened text alongside the omission summary', async () => {
+		mounted = mount(
+			baseGeneration({ status: 'failed' }),
+			baseReport({
+				schema_version: 2,
+				status_history: [
+					{
+						at: '2026-08-14T00:00:05Z',
+						pipe_id: null,
+						step: 'failed',
+						message: 'X'.repeat(2048),
+						progress: null,
+						truncated: ['message']
+					}
+				],
+				texts_truncated: 1
+			} as never)
+		);
+		await settle();
+
+		const text = mounted.text();
+		expect(text).toContain('Text shortened on');
+		expect(text).toContain('1');
+		expect(text).toContain('terminal status message');
+	});
+
 	it('shows an honest empty message when the report has no recorded entries', async () => {
 		mounted = mount(baseGeneration(), baseReport());
 		await settle();

@@ -7,6 +7,7 @@ in the row, which a mocked store cannot show.
 """
 
 import base64
+import hashlib
 import importlib.util
 import io
 import json
@@ -65,6 +66,9 @@ def _jpeg_base64(size_px: int = 256) -> str:
     buffer = io.BytesIO()
     image.save(buffer, format="JPEG", quality=95)
     return base64.b64encode(buffer.getvalue()).decode("ascii")
+
+
+_LONG_NAME = "T" * 4000
 
 
 def _status_message(pipe_id, step, message="working", progress=0.5):
@@ -379,21 +383,21 @@ class TestEnvelopeBound(RunReportOffloadCase):
     never the recorder's own counters."""
 
     def _adversarial_run(self):
-        long_name = "T" * 4000
+        long_name = _LONG_NAME
         for i in range(3000):
             self.recorder.record_output("gen-1", {
-                "type": f"{i}-{long_name}",
+                "type": f"{i}-{long_name}"[:_IDENTIFIER_CHARS],
                 "pipe_name": long_name,
                 "output_type": long_name,
                 "blob": "b" * 5000,
             })
         for i in range(3000):
             self.recorder.record_output(
-                "gen-1", _status_message(f"{i}-{long_name}", f"{i}-step-{long_name}", long_name)
+                "gen-1", _status_message(f"{i}-{long_name}"[:_IDENTIFIER_CHARS], f"{i}-step-{long_name}", long_name)
             )
         for i in range(400):
             self.recorder.record_output("gen-1", _artifact_message(
-                {"note": "v" * 500}, artifact_type=f"type-{i}", pipe_id=f"{i}-{long_name}"
+                {"note": "v" * 500}, artifact_type=f"type-{i}", pipe_id=f"{i}-{long_name}"[:_IDENTIFIER_CHARS]
             ))
         return self.recorder.flush("gen-1", terminal_status="completed")
 
@@ -419,12 +423,15 @@ class TestEnvelopeBound(RunReportOffloadCase):
         self.assertGreater(saved["plugin_output_types_dropped"], 0)
         self.assertGreater(saved["pipe_timers_dropped"], 0)
 
-    def test_long_identifiers_are_bounded_before_they_are_stored(self):
+    def test_every_stored_key_is_a_verbatim_identifier_within_the_limit(self):
         saved = self._adversarial_run()
+        _sent_types = {f"{i}-{_LONG_NAME}"[:_IDENTIFIER_CHARS] for i in range(3000)}
 
         for key, entry in saved["plugin_outputs"].items():
             self.assertLessEqual(len(key), _IDENTIFIER_CHARS)
-            self.assertLessEqual(len(entry["plugin_id"]), _IDENTIFIER_CHARS)
+            self.assertIn(key, _sent_types)
+            self.assertLessEqual(len(entry["plugin_id"]), _TEXT_CHARS)
+            self.assertEqual(entry["truncated"], ["plugin_id"])
         for pipe_key in saved["pipe_timers"]:
             self.assertLessEqual(len(pipe_key), _IDENTIFIER_CHARS)
 
@@ -503,30 +510,74 @@ class TestFlushReadOwnership(RunReportOffloadCase):
 
 class TestIdentityIsPreserved(RunReportOffloadCase):
 
-    def test_two_message_types_sharing_a_long_prefix_stay_two_entries(self):
+    def test_two_long_message_types_sharing_a_prefix_are_refused_not_aliased(self):
         prefix = "P" * (_IDENTIFIER_CHARS + 200)
 
         self.recorder.record_output("gen-1", {"type": f"{prefix}-alpha", "pipe_name": "p", "n": 1})
         self.recorder.record_output("gen-1", {"type": f"{prefix}-beta", "pipe_name": "p", "n": 2})
         saved = self.recorder.flush("gen-1", terminal_status="completed")
 
-        self.assertEqual(len(saved["plugin_outputs"]), 2)
-        self.assertEqual(saved["plugin_output_types_dropped"], 0)
-        recorded = sorted(entry["message"]["n"] for entry in saved["plugin_outputs"].values())
-        self.assertEqual(recorded, [1, 2])
+        self.assertEqual(saved["plugin_outputs"], {})
+        self.assertEqual(saved["plugin_output_types_dropped"], 2)
 
-    def test_two_pipe_ids_sharing_a_long_prefix_stay_two_timers(self):
+    def test_two_admitted_message_types_sharing_a_prefix_stay_two_entries(self):
+        prefix = "P" * (_IDENTIFIER_CHARS - 1)
+
+        self.recorder.record_output("gen-1", {"type": f"{prefix}a", "pipe_name": "p", "n": 1})
+        self.recorder.record_output("gen-1", {"type": f"{prefix}b", "pipe_name": "p", "n": 2})
+        saved = self.recorder.flush("gen-1", terminal_status="completed")
+
+        self.assertEqual(set(saved["plugin_outputs"]), {f"{prefix}a", f"{prefix}b"})
+        self.assertEqual(saved["plugin_output_types_dropped"], 0)
+
+    def test_a_literal_identifier_shaped_like_a_shortened_key_is_never_aliased(self):
+        """The regression that killed the prefix-plus-digest scheme: whatever
+        an over-long identifier were shortened to is itself a string some other
+        plugin may use verbatim."""
+        overlong = "L" * (_IDENTIFIER_CHARS + 200)
+        digest = hashlib.sha256(overlong.encode("utf-8")).hexdigest()[:12]
+        shortened = f"{overlong[:_IDENTIFIER_CHARS - 13]}~{digest}"
+        self.assertEqual(len(shortened), _IDENTIFIER_CHARS)
+
+        self.recorder.record_output("gen-1", {"type": shortened, "pipe_name": "p", "n": 1})
+        self.recorder.record_output("gen-1", {"type": overlong, "pipe_name": "p", "n": 2})
+        saved = self.recorder.flush("gen-1", terminal_status="completed")
+
+        self.assertEqual(list(saved["plugin_outputs"]), [shortened])
+        self.assertEqual(saved["plugin_outputs"][shortened]["message"]["n"], 1)
+        self.assertEqual(saved["plugin_output_types_dropped"], 1)
+
+    def test_two_long_pipe_ids_sharing_a_prefix_are_refused_not_joined(self):
         prefix = "Q" * (_IDENTIFIER_CHARS + 200)
 
         self.recorder.record_output("gen-1", _status_message(f"{prefix}-one", "loading"))
         self.recorder.record_output("gen-1", _status_message(f"{prefix}-two", "loading"))
         saved = self.recorder.flush("gen-1", terminal_status="completed")
 
-        self.assertEqual(len(saved["pipe_timers"]), 2)
+        self.assertEqual(saved["pipe_timers"], {})
+        self.assertEqual(saved["pipe_timers_dropped"], 2)
+        self.assertEqual(saved["status_history_dropped"], 2)
+
+    def test_two_admitted_pipe_ids_sharing_a_prefix_stay_two_timers(self):
+        prefix = "Q" * (_IDENTIFIER_CHARS - 1)
+
+        self.recorder.record_output("gen-1", _status_message(f"{prefix}a", "loading"))
+        self.recorder.record_output("gen-1", _status_message(f"{prefix}b", "loading"))
+        saved = self.recorder.flush("gen-1", terminal_status="completed")
+
+        self.assertEqual(set(saved["pipe_timers"]), {f"{prefix}a", f"{prefix}b"})
         self.assertEqual(saved["pipe_timers_dropped"], 0)
-        pipe_ids = {entry["pipe_id"] for entry in saved["status_history"] if entry["pipe_id"]}
-        self.assertEqual(len(pipe_ids), 2)
+        pipe_ids = {e["pipe_id"] for e in saved["status_history"] if e["pipe_id"]}
         self.assertEqual(pipe_ids, set(saved["pipe_timers"]))
+
+    def test_an_oversized_pipe_id_on_an_artifact_drops_the_artifact(self):
+        self.recorder.record_output("gen-1", _artifact_message(
+            {"seed": 1}, "seed", pipe_id="Z" * (_IDENTIFIER_CHARS + 1)
+        ))
+        saved = self.recorder.flush("gen-1", terminal_status="completed")
+
+        self.assertEqual(saved["artifacts"], [])
+        self.assertEqual(saved["artifacts_dropped"], 1)
 
     def test_an_artifact_type_a_renderer_looks_up_is_never_rewritten(self):
         self.recorder.record_output("gen-1", _artifact_message({"seed": 1}, "compare_images"))
@@ -547,3 +598,21 @@ class TestIdentityIsPreserved(RunReportOffloadCase):
         self.assertEqual(cut["truncated"], ["step"])
         self.assertEqual(len(cut["step"]), _TEXT_CHARS)
         self.assertNotIn("truncated", whole)
+        self.assertEqual(saved["texts_truncated"], 1)
+
+    def test_a_truncated_terminal_message_is_flagged_too(self):
+        saved = self.recorder.flush(
+            "gen-1", terminal_status="failed", terminal_message="F" * (_TEXT_CHARS + 10)
+        )
+
+        terminal = saved["status_history"][-1]
+        self.assertEqual(terminal["step"], "failed")
+        self.assertEqual(terminal["truncated"], ["message"])
+        self.assertEqual(len(terminal["message"]), _TEXT_CHARS)
+        self.assertEqual(saved["texts_truncated"], 1)
+
+    def test_a_short_terminal_message_carries_no_marker(self):
+        saved = self.recorder.flush("gen-1", terminal_status="failed", terminal_message="boom")
+
+        self.assertNotIn("truncated", saved["status_history"][-1])
+        self.assertEqual(saved["texts_truncated"], 0)

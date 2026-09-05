@@ -80,14 +80,13 @@
 #     the installed diffusers source. Despite living in the file the old
 #     header called a Wan2GP "faithful port", this formula is diffusers-
 #     identical, not a Wan2GP expression that happens to coincide.
-#   * `attention` is our own native seam (`src/platform/runtime/native/attention.py`,
-#     `attention()`), not diffusers' `dispatch_attention_fn`. `_sdpa_gqa`'s
-#     kv-head repeat_interleave-before-attention is the only standard way to
-#     bridge GQA (unequal q/kv head counts) onto an attention primitive that
-#     assumes equal head counts — diffusers instead handles this inside its
-#     own backend dispatch (`enable_gqa=True`), which isn't a shape our seam
-#     accepts. This is integration glue for OUR seam's contract, carrying no
-#     distinctive Wan2GP expression to attribute or replace.
+#   * `attention` is our own native seam (`src/platform/runtime/native/attention.py`),
+#     not diffusers' `dispatch_attention_fn`. GQA (unequal q/kv head counts)
+#     goes through that seam's `grouped_attention()`, which — like diffusers'
+#     own backend dispatch — passes grouped kv heads to backends that take
+#     them (`enable_gqa=True` on torch SDPA) and repeat_interleaves them for
+#     the ones that don't. This is integration glue for OUR seam's contract,
+#     carrying no distinctive Wan2GP expression to attribute or replace.
 #   * FBCache's block-0 probe/skip seam (BE-?, `run_blocks` in model.py) and
 #     the ref_latents in-context edit hook (model.py) are additive to
 #     our sampler/plugin integration; diffusers' upstream carries neither.
@@ -110,7 +109,7 @@ import torch.nn.functional as F
 from einops import rearrange
 from torch import Tensor
 
-from ...attention import attention as _dispatch_attention
+from ...attention import grouped_attention as _dispatch_grouped_attention
 from ...nag import apply_nag
 from vendor.gpl.comfyui.flux.math_ops import rope as _flux_rope
 
@@ -240,18 +239,11 @@ def ref_attn_bias(boosts: list[float], txt_len: int, ref_lens: list[int], tgt_le
 def _sdpa_gqa(q: Tensor, k: Tensor, v: Tensor, heads: int, kvheads: int, mask: Tensor | None) -> Tensor:
     """Attention over head-split tensors with GQA; returns merged ``(B, L, H*D)``.
 
-    ``q`` is ``(B, H, L, D)``, ``k``/``v`` are ``(B, Hkv, L, D)``. kv heads are
-    expanded to query heads (repeat_interleave) so the shared attention seam,
-    which assumes equal head counts, works unchanged. Diffusers' equivalent
-    (``dispatch_attention_fn(..., enable_gqa=...)``) handles GQA inside its own
-    backend instead; this model uses the native engine's shared seam, so GQA
-    is expanded here at the call site.
+    ``q`` is ``(B, H, L, D)``, ``k``/``v`` are ``(B, Hkv, L, D)``. The shared
+    grouped seam hands the kv heads to backends that take them as-is and
+    expands them (repeat_interleave) for the ones that don't.
     """
-    if kvheads != heads:
-        repeat = heads // kvheads
-        k = k.repeat_interleave(repeat, dim=1)
-        v = v.repeat_interleave(repeat, dim=1)
-    out = _dispatch_attention(q, k, v, mask=mask)          # (B, H, L, D)
+    out = _dispatch_grouped_attention(q, k, v, heads=heads, kvheads=kvheads, mask=mask)
     return rearrange(out, "B H L D -> B L (H D)")
 
 

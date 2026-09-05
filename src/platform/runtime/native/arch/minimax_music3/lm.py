@@ -40,7 +40,7 @@ import torch
 import torch.nn as nn
 
 from ...base import NativeArchModule
-from ...text_encoders._functional import optimized_attention
+from ...attention import grouped_attention
 from ._nn import GatedMLP, RMSNorm, apply_rope, module_device
 from .config import MiniMaxMusic3TextEncoderConfig
 from .depth_decoder import DepthDecoderModule
@@ -102,6 +102,19 @@ class _GlobalAttention(nn.Module):
         v = v.view(b, s, self.num_kv_heads, self.head_dim).transpose(1, 2)
         return q, k, v
 
+    def _attend(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor,
+                mask: torch.Tensor | None) -> torch.Tensor:
+        """GQA over head-split q/k/v, merged back to ``[B, S, heads*head_dim]``.
+
+        Pinned to ``sdpa``: this LM has only ever run torch SDPA, and its AR
+        decode is not a place to start taking whichever quantizing kernel the
+        DiT happens to be pinned to — every generated frame conditions on the
+        last one.
+        """
+        out = grouped_attention(q, k, v, heads=self.num_heads, kvheads=self.num_kv_heads,
+                                mask=mask, backend="sdpa")
+        return out.transpose(1, 2).reshape(q.shape[0], -1, self.num_heads * self.head_dim)
+
     def prefill(self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor,
                 cache_k: torch.Tensor, cache_v: torch.Tensor) -> torch.Tensor:
         q, k, v = self._qkv(x)
@@ -109,12 +122,8 @@ class _GlobalAttention(nn.Module):
         length = x.shape[1]
         cache_k[:, :, :length, :] = k.to(cache_k.dtype)
         cache_v[:, :, :length, :] = v.to(cache_v.dtype)
-        rep = self.num_heads // self.num_kv_heads
-        k_rep = k.repeat_interleave(rep, dim=1)
-        v_rep = v.repeat_interleave(rep, dim=1)
         causal = torch.full((length, length), float("-inf"), device=x.device, dtype=x.dtype).triu(1)
-        out = optimized_attention(q, k_rep, v_rep, self.num_heads, mask=causal, skip_reshape=True)
-        return self.o_proj(out)
+        return self.o_proj(self._attend(q, k, v, mask=causal))
 
     def step(self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor,
               cache_k: torch.Tensor, cache_v: torch.Tensor, pos: int) -> torch.Tensor:
@@ -122,14 +131,15 @@ class _GlobalAttention(nn.Module):
         q, k = apply_rope(q, k, cos, sin)
         cache_k[:, :, pos:pos + 1, :] = k.to(cache_k.dtype)
         cache_v[:, :, pos:pos + 1, :] = v.to(cache_v.dtype)
-        rep = self.num_heads // self.num_kv_heads
         # Attends over every filled position, itself included, unmasked: this
         # cache is write-once-per-position (never overwritten out of order),
         # so "everything filled so far" IS the causal prefix — no mask needed.
-        k_all = cache_k[:, :, :pos + 1, :].to(q.dtype).repeat_interleave(rep, dim=1)
-        v_all = cache_v[:, :, :pos + 1, :].to(q.dtype).repeat_interleave(rep, dim=1)
-        out = optimized_attention(q, k_all, v_all, self.num_heads, mask=None, skip_reshape=True)
-        return self.o_proj(out)
+        # Both slices stay views while the cache dtype matches compute (`.to`
+        # returns self then); the whole prefix is only ever copied when it
+        # doesn't, and never expanded on a backend that groups.
+        k_all = cache_k[:, :, :pos + 1, :].to(q.dtype)
+        v_all = cache_v[:, :, :pos + 1, :].to(q.dtype)
+        return self.o_proj(self._attend(q, k_all, v_all, mask=None))
 
 
 class _GlobalBlock(nn.Module):

@@ -17,6 +17,12 @@ failures observed here and is documented at its definition.
 
 Tensor contract
 ---------------
+Grouped-query attention (fewer K/V heads than query heads) has its own entry
+point, :func:`grouped_attention`: backends that consume grouped K/V directly
+(:func:`supports_grouped_kv` — torch SDPA's ``enable_gqa``) get them as-is,
+every other backend gets them expanded with ``repeat_interleave`` first, which
+is what each caller used to do by hand.
+
 ``q``, ``k``, ``v`` are **head-split**: shape ``(B, H, L, D)`` (batch, heads,
 sequence, head-dim) — exactly the layout ``torch.nn.functional.
 scaled_dot_product_attention`` consumes and the layout the Flux DiT already
@@ -289,6 +295,44 @@ def reset_backend_cache() -> None:
     _availability.clear()
     _warned_unavailable.clear()
     _noted_dispatch.clear()
+    _grouped_capability.clear()
+
+
+# Per-backend "can this kernel take K/V with fewer heads than Q, without the
+# caller expanding them first?" — computed once per backend name, never per
+# call (see `supports_grouped_kv`).
+_grouped_capability: dict[str, bool] = {}
+
+
+def _probe_grouped_sdpa() -> bool:
+    """Whether the INSTALLED torch's SDPA takes ``enable_gqa``. Probed by
+    calling it rather than by version number: the kwarg landed in torch 2.5 but
+    a vendored/patched build is the thing that actually decides."""
+    q = torch.zeros(1, 2, 1, 8)
+    kv = torch.zeros(1, 1, 1, 8)
+    try:
+        F.scaled_dot_product_attention(q, kv, kv, enable_gqa=True)
+    except TypeError:
+        return False
+    return True
+
+
+def supports_grouped_kv(backend: str) -> bool:
+    """Whether ``backend`` consumes grouped K/V (``Hkv < H``) directly.
+
+    ``sdpa`` is probed (:func:`_probe_grouped_sdpa`). Every other backend is
+    reported unsupported: flash/sage3/sparge are not installed here to read,
+    and sageattention's own GQA handling lives in its compiled ``_qattn_sm*``
+    extension — the kernel `sageattn` actually dispatches to on the GPUs this
+    runs on — which cannot be inspected or verified from source. Unsupported
+    is never a correctness problem, only an allocation one: those backends get
+    the expanded layout, exactly as before this seam existed.
+    """
+    cached = _grouped_capability.get(backend)
+    if cached is None:
+        cached = _probe_grouped_sdpa() if backend == SDPA else False
+        _grouped_capability[backend] = cached
+    return cached
 
 
 def available_backends(device_index: int | None = None) -> list[str]:
@@ -370,7 +414,14 @@ def _note_dispatch(key: str, fmt: str, *args) -> None:
     logger.info(fmt, *args)
 
 
-def _sdpa(q: Tensor, k: Tensor, v: Tensor, mask: Tensor | None) -> Tensor:
+def _sdpa(q: Tensor, k: Tensor, v: Tensor, mask: Tensor | None, grouped: bool = False) -> Tensor:
+    # `enable_gqa` is only passed on the grouped path: the kwarg does not exist
+    # on every torch this runs against, and `_supports_grouped_kv` is the only
+    # thing that has established it does here.
+    if grouped:
+        return F.scaled_dot_product_attention(
+            q, k, v, attn_mask=mask, dropout_p=0.0, is_causal=False, enable_gqa=True,
+        )
     return F.scaled_dot_product_attention(q, k, v, attn_mask=mask, dropout_p=0.0, is_causal=False)
 
 
@@ -487,25 +538,10 @@ def _sparge(q: Tensor, k: Tensor, v: Tensor) -> Tensor:
     )
 
 
-def attention(
-    q: Tensor,
-    k: Tensor,
-    v: Tensor,
-    *,
-    heads: int | None = None,
-    mask: Tensor | None = None,
-    backend: str | None = None,
-) -> Tensor:
-    """Dispatch scaled-dot-product attention to the selected backend.
-
-    ``q``/``k``/``v``: ``(B, H, L, D)``. Returns ``(B, H, L, D)``. See the module
-    docstring for the full contract. A mask or an fp32 input forces the ``sdpa``
-    path (the accelerated kernels support neither), so the result is backend-
-    independent up to kernel precision.
-    """
-    if heads is not None and q.ndim == 4 and heads != q.shape[1]:
-        raise ValueError(f"heads={heads} disagrees with q.shape[1]={q.shape[1]}")
-
+def _resolve_dispatch(q: Tensor, mask: Tensor | None, backend: str | None) -> str:
+    """The backend this call will ACTUALLY run on: the selected one, or ``sdpa``
+    when the call is mask/dtype/device/shape-constrained past what that kernel
+    accepts. Emits the one-shot dispatch note."""
     # Validate availability against the OPERAND's device, not whatever CUDA
     # device happens to be "current" on this thread — a multi-GPU box (e.g. a
     # text encoder spilled to cuda:1 while the DiT runs on cuda:0) can have a
@@ -538,10 +574,13 @@ def attention(
         _note_dispatch(f"{chosen}->sdpa:{reason}",
                        "attention: %s falls back to sdpa (%s-constrained call, shape %s)",
                        chosen, reason, tuple(q.shape))
-        chosen = SDPA
-    elif accelerated:
+        return SDPA
+    if accelerated:
         _note_dispatch(chosen, "attention: %s kernels in use (shape %s)", chosen, tuple(q.shape))
+    return chosen
 
+
+def _run(chosen: str, q: Tensor, k: Tensor, v: Tensor, mask: Tensor | None, grouped: bool = False) -> Tensor:
     if chosen == FLASH:
         return _flash(q, k, v)
     if chosen == SAGE3:
@@ -550,4 +589,70 @@ def attention(
         return _sparge(q, k, v)
     if chosen in (SAGE2, SAGE):
         return _sage(q, k, v)
+    if grouped:
+        return _sdpa(q, k, v, mask, grouped=True)
     return _sdpa(q, k, v, mask)
+
+
+def attention(
+    q: Tensor,
+    k: Tensor,
+    v: Tensor,
+    *,
+    heads: int | None = None,
+    mask: Tensor | None = None,
+    backend: str | None = None,
+) -> Tensor:
+    """Dispatch scaled-dot-product attention to the selected backend.
+
+    ``q``/``k``/``v``: ``(B, H, L, D)``. Returns ``(B, H, L, D)``. See the module
+    docstring for the full contract. A mask or an fp32 input forces the ``sdpa``
+    path (the accelerated kernels support neither), so the result is backend-
+    independent up to kernel precision. Fewer K/V heads than query heads
+    (grouped-query attention) goes through :func:`grouped_attention` instead.
+    """
+    if heads is not None and q.ndim == 4 and heads != q.shape[1]:
+        raise ValueError(f"heads={heads} disagrees with q.shape[1]={q.shape[1]}")
+
+    return _run(_resolve_dispatch(q, mask, backend), q, k, v, mask)
+
+
+def grouped_attention(
+    q: Tensor,
+    k: Tensor,
+    v: Tensor,
+    *,
+    heads: int | None = None,
+    kvheads: int | None = None,
+    mask: Tensor | None = None,
+    backend: str | None = None,
+) -> Tensor:
+    """Attention with fewer K/V heads than query heads (grouped-query/MQA).
+
+    ``q`` is ``(B, H, L, D)``, ``k``/``v`` are ``(B, Hkv, S, D)`` with ``H``
+    divisible by ``Hkv``; returns ``(B, H, L, D)`` like :func:`attention`.
+
+    Backends that consume grouped K/V directly (:func:`supports_grouped_kv`)
+    get them as-is; every other backend gets the K/V heads expanded to ``H``
+    with ``repeat_interleave`` first, which is what the caller used to do by
+    hand. Both layouts compute the same attention — the expansion is a pure
+    materialization of the same values — so the choice is an allocation
+    question, not a numerical one.
+    """
+    if heads is not None and heads != q.shape[1]:
+        raise ValueError(f"heads={heads} disagrees with q.shape[1]={q.shape[1]}")
+    if kvheads is not None and kvheads != k.shape[1]:
+        raise ValueError(f"kvheads={kvheads} disagrees with k.shape[1]={k.shape[1]}")
+
+    q_heads, kv_heads = q.shape[1], k.shape[1]
+    if q_heads == kv_heads:
+        return attention(q, k, v, mask=mask, backend=backend)
+    if kv_heads == 0 or q_heads % kv_heads:
+        raise ValueError(f"q heads={q_heads} is not a multiple of kv heads={kv_heads}")
+
+    chosen = _resolve_dispatch(q, mask, backend)
+    if supports_grouped_kv(chosen):
+        return _run(chosen, q, k, v, mask, grouped=True)
+
+    repeat = q_heads // kv_heads
+    return _run(chosen, q, k.repeat_interleave(repeat, dim=1), v.repeat_interleave(repeat, dim=1), mask)

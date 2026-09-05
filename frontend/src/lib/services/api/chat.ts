@@ -9,6 +9,37 @@ import type {
 import type { PreChatAction } from '$lib/types/llm';
 import type { ChatMode, ChatToolInfo, MemoryNote, ResourceSuggestion } from '$lib/types/chat';
 
+/** The chat SSE stream's own terminal event types — the ones that mean the
+ * turn is genuinely over (answered, failed, or found already-finished on
+ * reattach). Kept in one place so `readSseStream` and its "closed without
+ * finishing" check below agree on what counts as a real ending. */
+const TERMINAL_SSE_EVENT_TYPES = new Set(['done', 'error', 'no_active_turn', 'generation_cancelled']);
+
+/**
+ * Thrown by `readSseStream` when the HTTP body reaches a clean EOF —
+ * `reader.read()` returning `done`, not a network/transport failure — without
+ * ever delivering one of `TERMINAL_SSE_EVENT_TYPES`. This is NOT a success:
+ * the turn's true outcome is unknown (a proxy or load balancer can close a
+ * still-healthy connection, independent of whatever the backend turn itself
+ * is doing). Callers must treat it exactly like any other transport failure
+ * — see turnController.ts's ambiguous-by-default handling, which already
+ * does the right thing with any thrown error that isn't affirmatively
+ * `notStarted` — while still being able to tell it apart from a generic
+ * network/HTTP error via `isIncompleteStreamError` if they ever need to.
+ */
+export interface IncompleteStreamError {
+	incompleteStream: true;
+}
+
+export function isIncompleteStreamError(err: unknown): boolean {
+	return (
+		typeof err === 'object' &&
+		err !== null &&
+		'incompleteStream' in err &&
+		(err as Record<'incompleteStream', unknown>).incompleteStream === true
+	);
+}
+
 /**
  * Read a fetch Response body as an SSE stream, invoking `onEvent` per event.
  * Shared by the POST send stream and the GET reattach stream so both parse the
@@ -19,6 +50,11 @@ import type { ChatMode, ChatToolInfo, MemoryNote, ResourceSuggestion } from '$li
  * `no_active_turn`/`overflow`) must finish before this function's own promise
  * resolves, so a caller's cleanup in its `finally` block never races ahead of
  * that recovery and undoes it.
+ *
+ * Throws `IncompleteStreamError` if the body closes cleanly before any of
+ * `TERMINAL_SSE_EVENT_TYPES` was ever seen — see its doc comment. A genuine
+ * read failure (the connection actually dropping) already throws its own
+ * generic error out of `reader.read()` and never reaches this check.
  */
 async function readSseStream(
 	response: Response,
@@ -30,6 +66,7 @@ async function readSseStream(
 	const decoder = new TextDecoder();
 	let buffer = '';
 	let currentEventType = 'message';
+	let sawTerminalEvent = false;
 
 	try {
 		while (true) {
@@ -53,6 +90,7 @@ async function readSseStream(
 						currentEventType = 'message';
 						continue;
 					}
+					if (TERMINAL_SSE_EVENT_TYPES.has(currentEventType)) sawTerminalEvent = true;
 					await onEvent?.({ type: currentEventType, data });
 					currentEventType = 'message';
 				}
@@ -60,6 +98,12 @@ async function readSseStream(
 		}
 	} finally {
 		reader.releaseLock();
+	}
+
+	if (!sawTerminalEvent) {
+		throw Object.assign(new Error('Stream closed before a terminal event was delivered'), {
+			incompleteStream: true as const
+		});
 	}
 }
 

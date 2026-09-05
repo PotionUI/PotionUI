@@ -437,11 +437,16 @@ export interface SendMessageParams {
  * No transport in this codebase produces this evidence today — `fetch`
  * rejections and stream-read errors are generic `Error`s with no way to
  * distinguish "never sent" from "sent, then the connection died" — so this
- * mechanism is currently dormant (see `isRequestNotStartedError`'s doc). It
- * exists so a transport that CAN prove pre-send failure (e.g. wrapping
- * `fetch` to detect a connection error strictly before `fetch()` itself
- * resolves any part of the request) has somewhere to plug in without
- * reintroducing an ambiguous "maybe it started" fallback.
+ * mechanism is currently dormant (see `isRequestNotStartedError`'s doc). Note
+ * that a `fetch()` call REJECTING is not, by itself, that proof either: the
+ * browser can have already written the entire request to the wire before
+ * `fetch()`'s own promise settles, so an error caught around a pending
+ * `fetch()` call is exactly as ambiguous as any other transport failure
+ * here. This marker exists for a transport that can prove failure with an
+ * affirmative LOCAL preflight check that fails BEFORE `fetch()` is ever
+ * called at all (e.g. a connectivity check, or request validation) — that
+ * has somewhere to plug in without reintroducing an ambiguous "maybe it
+ * started" fallback.
  */
 export interface RequestNotStartedError {
 	notStarted: true;

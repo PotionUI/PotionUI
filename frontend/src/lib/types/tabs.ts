@@ -232,7 +232,10 @@ export interface GenerationState {
 	workbenchIndex: number;
 	workbenchTotal: number;
 	/** Latest message per plugin-declared `generation.output` message type (A5 renderer extension). */
-	pluginOutputs?: Record<string, { msg: unknown; pluginId: string; asset: string }>;
+	pluginOutputs?: Record<
+		string,
+		{ msg: unknown; pluginId: string; asset: string; generationId: string | undefined }
+	>;
 	/** Generations this tab currently has queued (pending or running) on the backend queue. */
 	queue: QueuedGeneration[];
 	/**

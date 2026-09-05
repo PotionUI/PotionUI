@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Workbench from '$lib/components/Workbench.svelte';
+	import PluginOutputs from '$lib/components/generation/PluginOutputs.svelte';
 	import type { Tab } from '$lib/types/tabs';
 
 	// The workbench, wired the same way at every mount site (mobile Panel 2,
@@ -28,3 +29,5 @@
 	on:heightChange={onWorkbenchHeightChange}
 	on:moveToWorkbench={onMoveToWorkbench}
 />
+
+<PluginOutputs {tab} />

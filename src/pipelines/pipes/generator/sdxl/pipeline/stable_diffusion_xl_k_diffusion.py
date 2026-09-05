@@ -416,6 +416,7 @@ class StableDiffusionXLKDiffusionPipeline(
         callback_on_step_end_tensor_inputs: List[str] = ["latents"],
         sampler: str = "dpmpp_2m",
         scheduler: str = "karras",
+        is_cancelled: Optional[Callable[[], bool]] = None,
         **kwargs,
     ):
         r"""
@@ -565,6 +566,12 @@ class StableDiffusionXLKDiffusionPipeline(
             sampler (`str`, *optional*, defaults to `"dpmpp_2m"`):
                 Choose the sampler to use for generation. Available options are "euler", "euler_ancestral", "heun",
                 "dpm_2", "dpm_2_ancestral", "lms", "dpmpp_2s_ancestral", "dpmpp_sde", "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_3m_sde".
+            is_cancelled (`Callable[[], bool]`, *optional*):
+                Cooperative cancellation probe, checked once per sampling step (in the
+                model-evaluation call and the per-step sampler callback) and between
+                UNet forward passes. Raises `SamplingCancelled` at the next such
+                boundary once it returns `True`; an in-flight UNet forward or VAE
+                decode is never interrupted mid-kernel.
 
         Examples:
 
@@ -822,6 +829,7 @@ class StableDiffusionXLKDiffusionPipeline(
                 inpaint_head_model_path=inpaint_head_model_path,
             ) if (mask_latents is not None and init_latents is not None) else None,
             hooks=hooks,
+            is_cancelled=is_cancelled,
         )
 
         # Create k-diffusion model wrapper
@@ -847,7 +855,8 @@ class StableDiffusionXLKDiffusionPipeline(
         # Setup callback wrapper for diffusers format
         k_callback = SDXLSamplerConfig.create_k_callback(
             callback_on_step_end, callback_on_step_end_tensor_inputs, self,
-            prompt_embeds, negative_prompt_embeds, add_text_embeds, add_time_ids
+            prompt_embeds, negative_prompt_embeds, add_text_embeds, add_time_ids,
+            is_cancelled=is_cancelled,
         )
 
         # Generate sigma schedule
@@ -898,23 +907,27 @@ class StableDiffusionXLKDiffusionPipeline(
                 generator, device, prompt_embeds.dtype, model
             )
 
-        # Run k-diffusion sampling with the chosen sampler
+        # Run k-diffusion sampling with the chosen sampler. `model_wrapper.cleanup()`
+        # (ControlNet GPU/tensor teardown) must run whether sampling finishes,
+        # raises `SamplingCancelled`, or raises anything else -- leaving
+        # ControlNet resident on GPU after a cancelled/failed run would corrupt
+        # the cached pipeline's state for its next generation.
         sampler_func = getattr(k_sampling, f"sample_{sampler}", k_sampling.sample_dpmpp_2m)
-        latents = sampler_func(
-            model,
-            latents,
-            sigmas,
-            callback=k_callback,
-            disable=False
-        )
+        try:
+            latents = sampler_func(
+                model,
+                latents,
+                sigmas,
+                callback=k_callback,
+                disable=False
+            )
+        finally:
+            model_wrapper.cleanup()
 
         # Log final latent stats after sampling (before VAE decode)
         if _debug:
             logger.debug(f"[PIPELINE] Sampling complete. Final latents: min={latents.min():.4f}, "
                          f"max={latents.max():.4f}, std={latents.std():.4f}")
-
-        # Clean up ControlNet-related tensors after generation
-        model_wrapper.cleanup()
 
         # 8. Post-processing
         image = SDXLPostProcessor.decode_latents(

@@ -131,10 +131,17 @@ class SDXLSamplerConfig:
         prompt_embeds: torch.Tensor,
         negative_prompt_embeds: torch.Tensor,
         add_text_embeds: torch.Tensor,
-        add_time_ids: torch.Tensor
+        add_time_ids: torch.Tensor,
+        is_cancelled: Optional[Callable[[], bool]] = None,
     ) -> Optional[Callable]:
         """
         Create a k-diffusion callback wrapper for diffusers format.
+
+        This is the per-step hook every vendored `k_sampling.sample_*` function
+        invokes with `callback={'x', 'i', 'sigma', 'denoised', ...}` right after
+        that step's model evaluation -- the natural boundary to also poll
+        `is_cancelled` and raise `SamplingCancelled`, since none of the vendored
+        sampler loops themselves know about PotionUI's cancellation contract.
 
         Args:
             callback_on_step_end: Optional callback function from pipeline
@@ -144,14 +151,27 @@ class SDXLSamplerConfig:
             negative_prompt_embeds: Negative prompt embeddings tensor
             add_text_embeds: Additional text embeddings tensor
             add_time_ids: Time IDs tensor
+            is_cancelled: Cooperative cancellation probe, polled once per step
 
         Returns:
-            Callback function compatible with k-diffusion samplers, or None
+            Callback function compatible with k-diffusion samplers, or None if
+            neither a progress callback nor a cancellation probe was given
         """
-        if callback_on_step_end is None:
+        if callback_on_step_end is None and is_cancelled is None:
             return None
 
         def k_callback(info):
+            if is_cancelled is not None and is_cancelled():
+                # Deferred: importing the native package (even just its
+                # lightweight, dependency-free errors module) pulls in torch
+                # via its __init__ -- see the matching comment in
+                # src/features/generation/engine.py.
+                from src.platform.runtime.native.errors import SamplingCancelled
+                raise SamplingCancelled(step_index=info["i"])
+
+            if callback_on_step_end is None:
+                return
+
             callback_kwargs = {}
             for k in callback_on_step_end_tensor_inputs:
                 if k == "latents":

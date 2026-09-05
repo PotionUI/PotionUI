@@ -101,6 +101,7 @@ class SDXLModelWrapper:
         ip_adapter_config: Optional[IPAdapterConfig] = None,
         inpaint_config: Optional[InpaintConfig] = None,
         hooks: Optional[List[DenoisingHook]] = None,
+        is_cancelled: Optional[callable] = None,
     ):
         # Core components
         self.unet = unet
@@ -109,6 +110,7 @@ class SDXLModelWrapper:
         self.cross_attention_kwargs = cross_attention_kwargs
         self.num_inference_steps = num_inference_steps
         self.current_step = 0
+        self.is_cancelled = is_cancelled or (lambda: False)
 
         # SDXL additional conditioning
         self.add_text_embeds = add_text_embeds
@@ -284,9 +286,20 @@ class SDXLModelWrapper:
         """
         Apply the SDXL UNet model with hook-based extensible architecture.
 
-        Called by CompVisDenoiser/CompVisVDenoiser from k-diffusion.
-        't' is already the converted timestep (not sigma).
+        Called by CompVisDenoiser/CompVisVDenoiser from k-diffusion, once per
+        sampling step (twice-batched CFG counts as one call here). Checked
+        first, before any tensor work: an already-running UNet forward is
+        never interrupted mid-kernel, so cancellation only takes effect at
+        this per-step boundary.
         """
+        if self.is_cancelled():
+            # Deferred: importing the native package (even just its
+            # lightweight, dependency-free errors module) pulls in torch via
+            # its __init__ -- see the matching comment in
+            # src/features/generation/engine.py.
+            from src.platform.runtime.native.errors import SamplingCancelled
+            raise SamplingCancelled(step_index=self.current_step)
+
         model_dtype = next(self.unet.parameters()).dtype
         latents_input = x.to(model_dtype)
 

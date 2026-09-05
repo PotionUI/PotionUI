@@ -3,6 +3,7 @@ import logging
 import os
 import re
 from pathlib import Path
+from typing import Optional
 
 import torch
 
@@ -638,7 +639,7 @@ class SDXLModel(Model, Text2ImageMixin, Image2ImageMixin):
             logger.debug(f"[MODEL][SDXL] Auto-applied guidance_rescale={guidance_rescale} for {self.model_type_info.model_style} model")
         return guidance_rescale
 
-    def txt2img_controlnet(self, generation_input: GenerationInput, control_images: list, generation_outputs: callable):
+    def txt2img_controlnet(self, generation_input: GenerationInput, control_images: list, generation_outputs: callable, is_cancelled: Optional[callable] = None):
         """
         Generate an image from text using ControlNet with K-Diffusion pipeline.
 
@@ -646,6 +647,7 @@ class SDXLModel(Model, Text2ImageMixin, Image2ImageMixin):
             generation_input: Standard generation input parameters
             control_images: List of control images (PIL Images)
             generation_outputs: Callback for generation outputs
+            is_cancelled: Cooperative cancellation probe, forwarded to the pipeline
         """
         if not self.using_controlnet:
             raise ValueError("[MODEL][SDXL] txt2img_controlnet called but not using controlnet pipeline")
@@ -714,6 +716,7 @@ class SDXLModel(Model, Text2ImageMixin, Image2ImageMixin):
                 callback_on_step_end=step_callback,
                 callback_on_step_end_tensor_inputs=["latents"],
                 clip_skip=generation_input[IOType.CLIP_SKIP],
+                is_cancelled=is_cancelled,
             )
 
         image = output.images[0] if output.images else None
@@ -730,7 +733,7 @@ class SDXLModel(Model, Text2ImageMixin, Image2ImageMixin):
         return ImageGenerationOutput(image=image)
 
     @torch.no_grad()
-    def img2img_controlnet(self, generation_input: GenerationInput, control_images: list, generation_outputs: callable):
+    def img2img_controlnet(self, generation_input: GenerationInput, control_images: list, generation_outputs: callable, is_cancelled: Optional[callable] = None):
         """
         Modify an existing image using ControlNet with K-Diffusion pipeline.
 
@@ -738,6 +741,7 @@ class SDXLModel(Model, Text2ImageMixin, Image2ImageMixin):
             generation_input: Standard generation input parameters
             control_images: List of control images (PIL Images)
             generation_outputs: Callback for generation outputs
+            is_cancelled: Cooperative cancellation probe, forwarded to the pipeline
         """
         if not self.using_controlnet:
             raise ValueError("[MODEL][SDXL] img2img_controlnet called but not using controlnet pipeline")
@@ -808,6 +812,7 @@ class SDXLModel(Model, Text2ImageMixin, Image2ImageMixin):
                 callback_on_step_end=step_callback,
                 callback_on_step_end_tensor_inputs=["latents"],
                 clip_skip=generation_input[IOType.CLIP_SKIP],
+                is_cancelled=is_cancelled,
             )
 
         image = output.images[0] if output.images else None
@@ -822,7 +827,7 @@ class SDXLModel(Model, Text2ImageMixin, Image2ImageMixin):
         return ImageGenerationOutput(image=image)
 
     @torch.no_grad()
-    def txt2img(self, generation_input: GenerationInput, generation_outputs: callable):
+    def txt2img(self, generation_input: GenerationInput, generation_outputs: callable, is_cancelled: Optional[callable] = None):
         """
         Generate an image from text using the loaded pipeline.
         """
@@ -868,6 +873,7 @@ class SDXLModel(Model, Text2ImageMixin, Image2ImageMixin):
         params["callback_on_step_end_tensor_inputs"] = ["latents"]
         params["guidance_rescale"] = guidance_rescale
         params["hooks"] = self.get_ordered_hooks()
+        params["is_cancelled"] = is_cancelled
 
         with torch.no_grad():
             output = self.pipe(**params)
@@ -892,7 +898,7 @@ class SDXLModel(Model, Text2ImageMixin, Image2ImageMixin):
         return ImageGenerationOutput(image=image)
 
     @torch.no_grad()
-    def img2img(self, generation_input: GenerationInput, generation_outputs: callable):
+    def img2img(self, generation_input: GenerationInput, generation_outputs: callable, is_cancelled: Optional[callable] = None):
         """
         Modify an existing image using the loaded pipeline.
         """
@@ -936,6 +942,7 @@ class SDXLModel(Model, Text2ImageMixin, Image2ImageMixin):
         params["guidance_rescale"] = guidance_rescale
         params["hooks"] = self.get_ordered_hooks()
         params["output_type"] = output_type
+        params["is_cancelled"] = is_cancelled
 
         with torch.no_grad():
             output = self.pipe.img2img(**params)

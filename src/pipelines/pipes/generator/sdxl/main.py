@@ -1,4 +1,4 @@
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Callable, Optional
 
 from src.pipelines.models import Model
 from src.pipelines.contracts import BasePipe, logger
@@ -54,7 +54,8 @@ class GeneratorSDXLPipe(BasePipe):
     def process(
             self,
             pipe_input: PipeInput,
-            generation_outputs: callable
+            generation_outputs: callable,
+            is_cancelled: Optional[Callable[[], bool]] = None,
     ) -> PipeOutput:
         """
         Process SDXL generation using refactored modular architecture.
@@ -63,6 +64,20 @@ class GeneratorSDXLPipe(BasePipe):
         - Input validation
         - Parameter adaptation
         - ControlNet orchestration
+
+        ``is_cancelled``, when given, is polled between images in the
+        txt2img/img2img batch loops, raising ``SamplingCancelled`` before the
+        next image starts. It is also forwarded into ``model.txt2img`` /
+        ``model.img2img`` / their ControlNet variants for any model that
+        declares an `is_cancelled` parameter, reaching
+        ``SDXLModelWrapper.apply_model`` and the per-step sampler callback in
+        ``sampler_config.py``, which raise the same exception at the next
+        sampling-step boundary once the probe flips true. An already-executing
+        UNet forward pass or VAE decode is never interrupted mid-kernel --
+        cancellation only takes effect at the next cooperative boundary
+        (between sampling steps, or between images). Cancelling never returns
+        a partial gallery as a successful result; the exception propagates out
+        of `process()` instead, and pipeline cleanup still runs via `finally`.
         """
         # Extract and normalize inputs
         model: Model = pipe_input.input["model"]
@@ -105,30 +120,51 @@ class GeneratorSDXLPipe(BasePipe):
             logger.info(f"[GENERATOR SDXL] Using {len(controlnets)} ControlNet(s) with {len(control_images)} control image(s)")
             model.load_with_controlnet(controlnets, mode=mode)
 
-        # Generate images based on mode
-        if mode == "img2img":
-            mask = pipe_input.input.get("mask")
-            self._ensure_inpaint_head(pipe_input.input.get("ASSETS"), mask)
-            images = self._generate_img2img(
-                model, image, conditioning, seeds,
-                controlnets, control_images,
-                mask,
-                generation_outputs, using_controlnet
-            )
-        else:
-            images = self._generate_txt2img(
-                model, conditioning, seeds,
-                controlnets, control_images,
-                generation_outputs, using_controlnet
-            )
+        # Generate images based on mode. Cleanup must run on cancellation and
+        # on any other failure too -- previously it only ran on the success
+        # path below, leaving the cached pipeline's ControlNet/GPU state dirty
+        # for the next run whenever generation raised.
+        try:
+            if mode == "img2img":
+                mask = pipe_input.input.get("mask")
+                self._ensure_inpaint_head(pipe_input.input.get("ASSETS"), mask)
+                images = self._generate_img2img(
+                    model, image, conditioning, seeds,
+                    controlnets, control_images,
+                    mask,
+                    generation_outputs, using_controlnet,
+                    is_cancelled,
+                )
+            else:
+                images = self._generate_txt2img(
+                    model, conditioning, seeds,
+                    controlnets, control_images,
+                    generation_outputs, using_controlnet,
+                    is_cancelled,
+                )
 
-        emit_gallery(generation_outputs, images)
-
-        # One aggressive cleanup per pipe run; per-image cleanups inside
-        # model.txt2img/img2img are light (no sync/multi-GC) by design.
-        self._aggressive_cleanup(model)
+            emit_gallery(generation_outputs, images)
+        finally:
+            # One aggressive cleanup per pipe run; per-image cleanups inside
+            # model.txt2img/img2img are light (no sync/multi-GC) by design.
+            self._aggressive_cleanup(model)
 
         return PipeOutput(output={"image": [img.image for img in images]})
+
+    @staticmethod
+    def _call_with_cancellation(method: Callable, *args, is_cancelled: Optional[Callable[[], bool]], **kwargs):
+        """Call ``method`` forwarding ``is_cancelled`` only if it declares that parameter.
+
+        `SDXLModel.txt2img`/`img2img`/their ControlNet variants do not accept
+        `is_cancelled` yet; this stays a no-op passthrough until they do, the
+        same signature-introspection convention `GenerationEngine` already uses
+        to decide whether a pipe's `process()` wants the probe.
+        """
+        if is_cancelled is not None:
+            import inspect
+            if 'is_cancelled' in inspect.signature(method).parameters:
+                kwargs['is_cancelled'] = is_cancelled
+        return method(*args, **kwargs)
 
     @staticmethod
     def _ensure_inpaint_head(assets, mask) -> None:
@@ -167,7 +203,8 @@ class GeneratorSDXLPipe(BasePipe):
             control_images: list,
             mask,
             generation_outputs: callable,
-            using_controlnet: bool
+            using_controlnet: bool,
+            is_cancelled: Optional[Callable[[], bool]] = None,
     ) -> list:
         """Generate images using img2img mode"""
         inpaint_mode = self.config.get("inpaint_mode", False)
@@ -179,6 +216,9 @@ class GeneratorSDXLPipe(BasePipe):
 
         results = []
         for img in images:
+            if is_cancelled is not None and is_cancelled():
+                self._raise_sampling_cancelled()
+
             width, height = img.size
 
             # Build generation input
@@ -188,9 +228,14 @@ class GeneratorSDXLPipe(BasePipe):
 
             # Execute generation
             if using_controlnet:
-                output = model.img2img_controlnet(g_input, control_images, generation_outputs)
+                output = self._call_with_cancellation(
+                    model.img2img_controlnet, g_input, control_images, generation_outputs,
+                    is_cancelled=is_cancelled,
+                )
             else:
-                output = model.img2img(g_input, generation_outputs)
+                output = self._call_with_cancellation(
+                    model.img2img, g_input, generation_outputs, is_cancelled=is_cancelled,
+                )
 
             results.append(output)
 
@@ -204,7 +249,8 @@ class GeneratorSDXLPipe(BasePipe):
             controlnets: list,
             control_images: list,
             generation_outputs: callable,
-            using_controlnet: bool
+            using_controlnet: bool,
+            is_cancelled: Optional[Callable[[], bool]] = None,
     ) -> list:
         """Generate images using txt2img mode"""
         logger.debug("[GENERATOR SDXL] txt2img mode")
@@ -213,6 +259,9 @@ class GeneratorSDXLPipe(BasePipe):
 
         results = []
         for idx in range(quantity):
+            if is_cancelled is not None and is_cancelled():
+                self._raise_sampling_cancelled()
+
             # Build generation input
             g_input = self._build_generation_input_txt2img(
                 idx, planned_seeds[idx], conditioning, quantity
@@ -220,13 +269,26 @@ class GeneratorSDXLPipe(BasePipe):
 
             # Execute generation
             if using_controlnet:
-                output = model.txt2img_controlnet(g_input, control_images, generation_outputs)
+                output = self._call_with_cancellation(
+                    model.txt2img_controlnet, g_input, control_images, generation_outputs,
+                    is_cancelled=is_cancelled,
+                )
             else:
-                output = model.txt2img(g_input, generation_outputs)
+                output = self._call_with_cancellation(
+                    model.txt2img, g_input, generation_outputs, is_cancelled=is_cancelled,
+                )
 
             results.append(output)
 
         return results
+
+    @staticmethod
+    def _raise_sampling_cancelled():
+        # Deferred: importing the native package (even just its lightweight,
+        # dependency-free errors module) pulls in torch via its __init__ --
+        # see the matching comment in src/features/generation/engine.py.
+        from src.platform.runtime.native.errors import SamplingCancelled
+        raise SamplingCancelled()
 
     def _build_generation_input_txt2img(
             self,

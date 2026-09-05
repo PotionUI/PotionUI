@@ -71,7 +71,7 @@ export abstract class BaseWebSocket {
 			};
 		} catch (error) {
 			logger.error(`[${this.constructor.name}] Failed to create WebSocket:`, error);
-			this.scheduleReconnect();
+			this.onConstructError(error);
 		}
 	}
 
@@ -112,6 +112,11 @@ export abstract class BaseWebSocket {
 
 	/** Called when the socket closes. Base implementation schedules reconnect. */
 	protected onClose(_event: CloseEvent): void {
+		this.scheduleReconnect();
+	}
+
+	/** Called when `new WebSocket()` itself throws. Base implementation schedules reconnect. */
+	protected onConstructError(_error: unknown): void {
 		this.scheduleReconnect();
 	}
 

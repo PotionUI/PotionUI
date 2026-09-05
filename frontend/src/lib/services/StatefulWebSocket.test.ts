@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { writable, get } from 'svelte/store';
-import { StatefulWebSocket, type ConnectionState } from './StatefulWebSocket';
+import { StatefulWebSocket, WebSocketConnectError, type ConnectionState } from './StatefulWebSocket';
 
 class MockWebSocket {
 	static readonly CONNECTING = 0;
@@ -9,6 +9,8 @@ class MockWebSocket {
 	static readonly CLOSING = 2;
 	static readonly CLOSED = 3;
 	static instances: MockWebSocket[] = [];
+	/** When set, the next `new MockWebSocket()` throws this instead of constructing. */
+	static nextConstructError: Error | null = null;
 
 	readyState = MockWebSocket.CONNECTING;
 	onopen: (() => void) | null = null;
@@ -17,6 +19,11 @@ class MockWebSocket {
 	onclose: ((event: CloseEvent) => void) | null = null;
 
 	constructor(public url: string) {
+		if (MockWebSocket.nextConstructError) {
+			const error = MockWebSocket.nextConstructError;
+			MockWebSocket.nextConstructError = null;
+			throw error;
+		}
 		MockWebSocket.instances.push(this);
 	}
 
@@ -158,5 +165,114 @@ describe('StatefulWebSocket', () => {
 		last.fail(1006);
 		await vi.advanceTimersByTimeAsync(60000);
 		expect(MockWebSocket.instances.length).toBe(6);
+	});
+
+	it('a pending retry cancelled by disconnect() before it fires never creates a socket', async () => {
+		const state = writable<ConnectionState>('disconnected');
+		const socket = new TestSocket(state);
+
+		const connectPromise = socket.connectAsync();
+		MockWebSocket.instances[0].open();
+		await connectPromise;
+
+		// Unsolicited close schedules a retry ...
+		MockWebSocket.instances[0].fail(1006);
+		expect(get(state)).toBe('reconnecting');
+
+		// ... but the caller disconnects before the backoff elapses.
+		socket.disconnect();
+		expect(get(state)).toBe('disconnected');
+
+		const countBefore = MockWebSocket.instances.length;
+		await vi.advanceTimersByTimeAsync(30000);
+		expect(MockWebSocket.instances.length).toBe(countBefore);
+		expect(get(state)).toBe('disconnected');
+	});
+
+	it('coalesces concurrent connectAsync() callers onto one handshake and settles both on open', async () => {
+		const socket = new TestSocket();
+
+		const first = socket.connectAsync();
+		const second = socket.connectAsync();
+
+		expect(MockWebSocket.instances.length).toBe(1);
+
+		MockWebSocket.instances[0].open();
+
+		await expect(first).resolves.toBeUndefined();
+		await expect(second).resolves.toBeUndefined();
+	});
+
+	it('disconnect() during a pending handshake rejects the waiter instead of hanging forever', async () => {
+		const socket = new TestSocket();
+
+		const pending = socket.connectAsync();
+		socket.disconnect();
+
+		await expect(pending).rejects.toBeInstanceOf(WebSocketConnectError);
+	});
+
+	it('a close before the socket ever opened does not reject immediately - it keeps retrying until one succeeds', async () => {
+		const state = writable<ConnectionState>('disconnected');
+		const socket = new TestSocket(state);
+
+		const pending = socket.connectAsync();
+		MockWebSocket.instances[0].fail(1006);
+		expect(get(state)).toBe('reconnecting');
+
+		await vi.advanceTimersByTimeAsync(1000);
+		expect(MockWebSocket.instances.length).toBe(2);
+		MockWebSocket.instances[1].open();
+
+		await expect(pending).resolves.toBeUndefined();
+		expect(get(state)).toBe('connected');
+	});
+
+	it('the WebSocket constructor throwing rejects the waiter immediately, without waiting for the backoff', async () => {
+		const socket = new TestSocket();
+
+		MockWebSocket.nextConstructError = new Error('blocked by browser policy');
+		const pending = socket.connectAsync();
+
+		await expect(pending).rejects.toThrow('blocked by browser policy');
+	});
+
+	it('retry exhaustion rejects a waiter that never saw a successful open', async () => {
+		const socket = new TestSocket();
+
+		const pending = socket.connectAsync();
+		// Attach the rejection expectation now: `pending` rejects mid-loop
+		// (before the final await below runs), which would otherwise surface
+		// as an unhandled promise rejection.
+		const settled = expect(pending).rejects.toBeInstanceOf(WebSocketConnectError);
+
+		for (let i = 0; i < 6; i++) {
+			const last = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+			last.fail(1006);
+			await vi.advanceTimersByTimeAsync(60000);
+		}
+
+		await settled;
+	});
+
+	it('reconnects cleanly after disconnect(), ignoring the abandoned socket', async () => {
+		const state = writable<ConnectionState>('disconnected');
+		const socket = new TestSocket(state);
+
+		const first = socket.connectAsync();
+		const abandoned = MockWebSocket.instances[0];
+		socket.disconnect();
+		await expect(first).rejects.toBeInstanceOf(WebSocketConnectError);
+
+		const second = socket.connectAsync();
+		expect(MockWebSocket.instances.length).toBe(2);
+
+		// The abandoned socket's handlers were detached by disconnect() - this is a no-op.
+		abandoned.open();
+		expect(get(state)).toBe('connecting');
+
+		MockWebSocket.instances[1].open();
+		await expect(second).resolves.toBeUndefined();
+		expect(get(state)).toBe('connected');
 	});
 });

@@ -9,6 +9,9 @@ import types
 
 import pytest
 
+from src.features.backends.backend_config import NativeBackendConfig, NativeRemoteBackendConfig
+from src.features.backends.native_backend import NativeBackend
+from src.features.backends.native_remote_backend import RemoteNativeBackend
 from src.features.generation.memory_advisory import (
     active_model_ids,
     active_loader_settings,
@@ -172,14 +175,30 @@ def test_pinned_components_note_always_present():
 
 
 # -- device evidence -------------------------------------------------------------
+#
+# Real `NativeBackend`/`NativeRemoteBackend` instances (not bare
+# execution_device strings) so `resolve_device_evidence` exercises the
+# REQ-01 `resolve_execution_device()` seam exactly as `preview_memory` calls
+# it, including a `NativeBackend`'s own device/index resolution.
 
-def test_device_evidence_local_reads_gpu_monitor():
-    monitor = types.SimpleNamespace(
-        available=True,
-        get_free_vram=lambda: 8192,
-        get_total_vram=lambda: 24576,
+def _native_backend(device: str) -> NativeBackend:
+    config = NativeBackendConfig(id="native_1", name="Local", device=device, dtype="float32", gpu_max_vram=10)
+    return NativeBackend(config)
+
+
+def _remote_backend() -> RemoteNativeBackend:
+    return RemoteNativeBackend(NativeRemoteBackendConfig(id="remote_1", name="Remote"))
+
+
+def _monitor(free_mb=8192, total_mb=24576, available=True, device_index=0):
+    return types.SimpleNamespace(
+        available=available, device_index=device_index,
+        get_free_vram=lambda: free_mb, get_total_vram=lambda: total_mb,
     )
-    device = resolve_device_evidence("this_host_gpu", monitor)
+
+
+def test_device_evidence_local_reads_gpu_monitor_when_index_matches():
+    device = resolve_device_evidence(_native_backend("cuda:0"), _monitor(device_index=0))
 
     assert device.kind == "local"
     assert device.free_gb == 8.0
@@ -187,34 +206,66 @@ def test_device_evidence_local_reads_gpu_monitor():
     assert device.provenance == "this host's GPU monitor"
 
 
+def test_device_evidence_unknown_when_gpu_index_does_not_match_the_monitor():
+    """A `NativeBackend` configured for cuda:1 must NEVER borrow a monitor
+    bound to GPU 0 - two distinct fake totals (a 24GB "GPU 0" reading vs the
+    backend's own cuda:1) prove nothing is borrowed: the assertion-throwing
+    monitor below must never even be READ from in this case."""
+    monitor = types.SimpleNamespace(
+        available=True, device_index=0,
+        get_free_vram=lambda: (_ for _ in ()).throw(AssertionError("must not be called - index mismatch")),
+        get_total_vram=lambda: (_ for _ in ()).throw(AssertionError("must not be called - index mismatch")),
+    )
+    device = resolve_device_evidence(_native_backend("cuda:1"), monitor)
+
+    assert device.kind == "unknown"
+    assert device.free_gb is None and device.total_gb is None
+    assert "GPU 1" in device.provenance and "GPU 0" in device.provenance
+
+
+def test_device_evidence_cpu_on_a_gpu_host_is_no_gpu_regardless_of_the_monitor():
+    """`NativeBackendConfig(device="cpu")` is definite evidence of no GPU for
+    THIS backend - even when the host's own monitor has a real GPU (proven
+    unread via the assertion-throwing lambdas), it must never be consulted."""
+    monitor = types.SimpleNamespace(
+        available=True, device_index=0,
+        get_free_vram=lambda: (_ for _ in ()).throw(AssertionError("must not be called - backend is cpu")),
+        get_total_vram=lambda: (_ for _ in ()).throw(AssertionError("must not be called - backend is cpu")),
+    )
+    device = resolve_device_evidence(_native_backend("cpu"), monitor)
+
+    assert device.kind == "none"
+    assert device.free_gb is None and device.total_gb is None
+    assert device.provenance == "this backend is configured with no GPU"
+
+
+def test_device_evidence_none_without_a_monitor_on_the_host():
+    device = resolve_device_evidence(_native_backend("cuda:0"), None)
+    assert device.kind == "none"
+    assert device.free_gb is None
+
+    device = resolve_device_evidence(_native_backend("cuda:0"), _monitor(available=False))
+    assert device.kind == "none"
+
+
 def test_device_evidence_remote_never_reads_this_host():
     monitor = types.SimpleNamespace(
-        available=True,
+        available=True, device_index=0,
         get_free_vram=lambda: (_ for _ in ()).throw(AssertionError("must not be called")),
         get_total_vram=lambda: (_ for _ in ()).throw(AssertionError("must not be called")),
     )
-    device = resolve_device_evidence("remote", monitor)
+    device = resolve_device_evidence(_remote_backend(), monitor)
 
     assert device.kind == "remote"
     assert device.free_gb is None and device.total_gb is None
     assert device.provenance == "not reported by the remote worker"
 
 
-def test_device_evidence_none_without_gpu():
-    monitor = types.SimpleNamespace(available=False)
-    device = resolve_device_evidence("this_host_gpu", monitor)
-
-    assert device.kind == "none"
-    assert device.free_gb is None
-
-
 def test_device_evidence_unknown_for_undeclared_execution_device():
-    """A backend that hasn't declared `execution_device` (REQ-01) - e.g. an
-    in-process plugin backend like ComfyUI's, whose actual host is
-    admin-configured and not something a driver NAME can tell you - must
-    report `kind: "unknown"`, never be inferred as local from a driver
-    substring."""
-    device = resolve_device_evidence("unestablished", None)
+    """A test-double backend that doesn't even implement
+    `resolve_execution_device()` (REQ-01) must fall back to "unestablished",
+    never be inferred as local from a driver substring."""
+    device = resolve_device_evidence(types.SimpleNamespace(), None)
     assert device.kind == "unknown"
     assert device.free_gb is None and device.total_gb is None
     assert device.provenance == "execution device not declared by this backend"
@@ -222,32 +273,28 @@ def test_device_evidence_unknown_for_undeclared_execution_device():
 
 def test_device_evidence_unknown_for_comfyui_shaped_backend_with_remote_host():
     """A comfyui-driver backend pointed at a non-local host must never be
-    read as this host's own GPU just because it runs in-process - it has not
-    declared `execution_device` at all. The monitor here returns REAL numbers
-    (not an exception) - a broad `except Exception` around a driver-substring
-    check could otherwise mask a real regression here."""
+    read as this host's own GPU just because it runs in-process - it doesn't
+    implement `resolve_execution_device()` at all. The monitor here returns
+    REAL numbers (not an exception) - a broad `except Exception` around a
+    driver-substring check could otherwise mask a real regression here."""
     comfyui_backend = types.SimpleNamespace(driver="comfyui", host="192.0.2.10")
-    monitor = types.SimpleNamespace(
-        available=True,
-        get_free_vram=lambda: 8192,
-        get_total_vram=lambda: 24576,
-    )
-    execution_device = getattr(comfyui_backend, "execution_device", "unestablished")
+    monitor = _monitor()
 
-    device = resolve_device_evidence(execution_device, monitor)
+    device = resolve_device_evidence(comfyui_backend, monitor)
 
     assert device.kind == "unknown"
     assert device.free_gb is None and device.total_gb is None
 
 
-def test_device_evidence_none_on_read_failure():
+def test_device_evidence_none_on_read_failure_at_a_matching_index():
     monitor = types.SimpleNamespace(
-        available=True,
+        available=True, device_index=0,
         get_free_vram=lambda: (_ for _ in ()).throw(RuntimeError("nvml down")),
         get_total_vram=lambda: 24576,
     )
-    device = resolve_device_evidence("this_host_gpu", monitor)
+    device = resolve_device_evidence(_native_backend("cuda:0"), monitor)
     assert device.kind == "none"
+    assert device.provenance == "could not read this host's GPU"
 
 
 # -- budget evidence ---------------------------------------------------------------

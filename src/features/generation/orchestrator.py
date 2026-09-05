@@ -728,8 +728,7 @@ class GenerationOrchestrator:
             bound.values,
         )
 
-        execution_device = getattr(backend, "execution_device", "unestablished")
-        device = resolve_device_evidence(execution_device, self.gpu_monitor)
+        device = resolve_device_evidence(backend, self.gpu_monitor)
         backend_cap_gb = getattr(backend.config, "gpu_max_vram", None)
         pipe_hints = active_pipe_vram_hints(pipes) if pipes is not None else []
         budget = resolve_budget_evidence(backend_cap_gb, pipe_hints, device)

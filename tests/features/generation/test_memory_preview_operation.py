@@ -11,6 +11,8 @@ import pytest
 from unittest.mock import AsyncMock, Mock, patch
 
 from src.features.backends.backend_config import NativeBackendConfig, NativeRemoteBackendConfig
+from src.features.backends.native_backend import NativeBackend
+from src.features.backends.native_remote_backend import RemoteNativeBackend
 from src.features.generation.pipeline_builder import BuiltPipeline
 from src.features.generation.queue_dispatcher import QueueDispatcher
 
@@ -57,24 +59,20 @@ def _preset_template_loader(engine='native'):
     return loader
 
 
-def _local_backend(gpu_max_vram=10):
-    backend = Mock()
-    backend.backend_id = 'native_1'
-    backend.name = 'Local'
-    backend.engine = 'native'
-    backend.execution_device = 'this_host_gpu'  # NativeBackend's REQ-01 declaration
-    backend.config = NativeBackendConfig(id='native_1', name='Local', device='cpu', dtype='float32', gpu_max_vram=gpu_max_vram)
+def _local_backend(gpu_max_vram=10, device='cuda:0'):
+    """A REAL `NativeBackend` (REQ-01's `resolve_execution_device()` reads
+    `self.config.device` at the INSTANCE level - a bare Mock can't exercise
+    that seam, since `Mock().resolve_execution_device()` returns another
+    Mock, not a real `ExecutionDeviceEvidence`)."""
+    config = NativeBackendConfig(id='native_1', name='Local', device=device, dtype='float32', gpu_max_vram=gpu_max_vram)
+    backend = NativeBackend(config)
     backend.start_generation = AsyncMock()
     return backend
 
 
 def _remote_backend():
-    backend = Mock()
-    backend.backend_id = 'remote_1'
-    backend.name = 'Remote'
-    backend.engine = 'native'
-    backend.execution_device = 'remote'  # RemoteNativeBackend's REQ-01 declaration
-    backend.config = NativeRemoteBackendConfig(id='remote_1', name='Remote')
+    config = NativeRemoteBackendConfig(id='remote_1', name='Remote')
+    backend = RemoteNativeBackend(config)
     backend.start_generation = AsyncMock()
     return backend
 
@@ -98,9 +96,10 @@ def _settings():
     return settings
 
 
-def _gpu_monitor(free_mb=8192, total_mb=24576, available=True):
+def _gpu_monitor(free_mb=8192, total_mb=24576, available=True, device_index=0):
     monitor = Mock()
     monitor.available = available
+    monitor.device_index = device_index
     monitor.get_free_vram = Mock(return_value=free_mb)
     monitor.get_total_vram = Mock(return_value=total_mb)
     return monitor
@@ -210,6 +209,39 @@ async def test_no_gpu_monitor_device_is_none():
         result = await orchestrator.preview_memory(_make_request(), 'user_1')
 
     assert result['device']['kind'] == 'none'
+
+
+@pytest.mark.asyncio
+async def test_cpu_configured_native_backend_reports_no_gpu_end_to_end():
+    """`NativeBackendConfig(device="cpu")` on a host that DOES have a GPU
+    (the monitor below reports real numbers) must never borrow that
+    reading - this backend is definite "no GPU", not "unknown"."""
+    backend = _local_backend(device='cpu')
+    orchestrator = _orchestrator(backend, gpu_monitor=_gpu_monitor(free_mb=8192, total_mb=24576, device_index=0))
+
+    with patch('src.features.models.repository.model_repo', _model_repo_with({})):
+        result = await orchestrator.preview_memory(_make_request(), 'user_1')
+
+    assert result['device'] == {
+        'kind': 'none', 'free_gb': None, 'total_gb': None,
+        'provenance': 'this backend is configured with no GPU',
+    }
+
+
+@pytest.mark.asyncio
+async def test_mismatched_gpu_index_reports_unknown_end_to_end():
+    """A `NativeBackend` configured for cuda:1 must never borrow a monitor
+    bound to GPU 0 - two DISTINCT fake totals (24GB vs 99GB) prove nothing
+    is borrowed: the returned numbers must be null, not either total."""
+    backend = _local_backend(device='cuda:1', gpu_max_vram=99)
+    orchestrator = _orchestrator(backend, gpu_monitor=_gpu_monitor(free_mb=8192, total_mb=24576, device_index=0))
+
+    with patch('src.features.models.repository.model_repo', _model_repo_with({})):
+        result = await orchestrator.preview_memory(_make_request(), 'user_1')
+
+    assert result['device']['kind'] == 'unknown'
+    assert result['device']['free_gb'] is None and result['device']['total_gb'] is None
+    assert 'GPU 1' in result['device']['provenance'] and 'GPU 0' in result['device']['provenance']
 
 
 @pytest.mark.asyncio

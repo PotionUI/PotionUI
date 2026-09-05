@@ -22,6 +22,7 @@ import the orchestrator back.
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
+from src.features.backends.base_backend import ExecutionDeviceEvidence
 from src.features.generation.model_identity import _LOADER_PIPE_FAMILIES
 from src.features.models.form_refs import collect_model_ids
 from src.platform.runtime.gpu import effective_vram_budget_gb
@@ -46,16 +47,25 @@ _VAE_SPATIAL_DOWNSCALE = 8
 # the term is monotone in frame count without pretending to per-model accuracy.
 _NOMINAL_TEMPORAL_DOWNSCALE = 4
 
-# `BaseBackend.execution_device` class-level declarations (REQ-01,
-# src/features/backends/base_backend.py): "this_host_gpu" for NativeBackend,
-# "remote" for RemoteNativeBackend, "unestablished" for InProcessBackend and
-# anything that hasn't opted in (e.g. a plugin backend like ComfyUI's, whose
-# actual host is admin-configured and not something a driver NAME can tell
-# you - a `"remote" in driver` substring check is wrong for exactly that
-# backend, since its driver is literally "comfyui"). Read with a `getattr`
-# default until the attribute lands on every backend.
-_EXECUTION_DEVICE_THIS_HOST = "this_host_gpu"
-_EXECUTION_DEVICE_REMOTE = "remote"
+# `BaseBackend.resolve_execution_device()` (REQ-01,
+# src/features/backends/base_backend.py) is the seam: an INSTANCE's own
+# `ExecutionDeviceEvidence` (kind + gpu_index for "this_host_gpu"), never
+# inferred from a driver NAME (an in-process plugin backend like ComfyUI's
+# can point at a remote host, so its driver string alone says nothing) and
+# never a bare class tag (a `NativeBackend` can be configured for `cpu` or
+# any `cuda:N` - only the INSTANCE knows which).
+_UNESTABLISHED_EVIDENCE = ExecutionDeviceEvidence(kind="unestablished")
+
+
+def _resolve_execution_device_evidence(backend: Any) -> ExecutionDeviceEvidence:
+    """`backend.resolve_execution_device()` when the (possibly `None`, or
+    test-double) instance implements it, else the safe "unestablished"
+    default - the SAME duck-typed fallback
+    `src.features.presets.requirements.context_builder._resolve_execution_device`
+    uses, kept in lockstep rather than re-derived, so a backend/test-double
+    shape that satisfies one satisfies the other."""
+    resolve = getattr(backend, "resolve_execution_device", None)
+    return resolve() if resolve is not None else _UNESTABLISHED_EVIDENCE
 
 
 def _parse_resolution(form_data: Dict[str, Any]) -> Optional[tuple]:
@@ -363,44 +373,77 @@ class BudgetEvidence:
         }
 
 
-def resolve_device_evidence(execution_device: str, gpu_monitor: Optional[Any]) -> DeviceEvidence:
+def resolve_device_evidence(backend: Any, gpu_monitor: Optional[Any]) -> DeviceEvidence:
     """Physical GPU evidence for the backend a preview would route to -
     never this host's reading for a backend that isn't this host, and never
     a configured cap (see `resolve_budget_evidence` for that).
 
-    Driven by the routed backend's `execution_device` class-level
-    declaration (REQ-01), never inferred from its driver NAME: a driver
-    string like "comfyui" says nothing about whether that server is this
-    host or a remote one (it's admin-configured), so a substring check on it
-    would wrongly treat an in-process plugin backend with a remote host as
-    local. `"this_host_gpu"` reads NVML through the shared `GpuMonitor`
-    (never touches CUDA itself) and only yields `kind: "local"` when the
-    monitor actually reports a GPU present; `"remote"` always yields `kind:
-    "remote"` with no numbers - that hardware isn't this process's to read;
-    `"unestablished"` (the default for anything that hasn't declared, e.g. a
-    plugin backend that predates this attribute) yields `kind: "unknown"` -
-    genuinely undetermined, not "no GPU".
+    Reads the routed backend's OWN `resolve_execution_device()` (REQ-01),
+    never inferred from its driver NAME: a driver string like "comfyui" says
+    nothing about whether that server is this host or a remote one (it's
+    admin-configured), so a substring check on it would wrongly treat an
+    in-process plugin backend with a remote host as local.
+
+    - `kind="remote"`: `kind: "remote"`, no numbers - that hardware isn't
+      this process's to read.
+    - `kind="no_gpu"` (a `NativeBackend` explicitly configured with no GPU,
+      e.g. `device="cpu"`): `kind: "none"` - definite evidence, not
+      "unknown".
+    - `kind="this_host_gpu"`, `gpu_index=N`: a LOCAL reading is trusted ONLY
+      when a `GpuMonitor` is wired, available, AND its own bound
+      `device_index` equals `N` - the same guard
+      `build_requirement_context_for_backend` applies. GPU 0's reading is
+      never borrowed for a backend configured at index 1 (or vice versa);
+      a mismatch (or no monitor to confirm against) yields `kind: "unknown"`
+      with a reason naming the indices, never a silent `"none"`.
+    - `kind="unestablished"` (the default for anything that hasn't declared,
+      e.g. a plugin backend that predates this seam): `kind: "unknown"` -
+      genuinely undetermined, not "no GPU".
     """
-    if execution_device == _EXECUTION_DEVICE_REMOTE:
+    evidence = _resolve_execution_device_evidence(backend)
+
+    if evidence.kind == "remote":
         return DeviceEvidence(
             kind="remote", free_gb=None, total_gb=None,
             provenance="not reported by the remote worker",
         )
-    if execution_device == _EXECUTION_DEVICE_THIS_HOST:
-        if gpu_monitor is not None and getattr(gpu_monitor, "available", False):
-            try:
-                free_gb = round(gpu_monitor.get_free_vram() / 1024, 2)
-                total_gb = round(gpu_monitor.get_total_vram() / 1024, 2)
-                return DeviceEvidence(
-                    kind="local", free_gb=free_gb, total_gb=total_gb,
-                    provenance="this host's GPU monitor",
-                )
-            except Exception:
-                pass
+
+    if evidence.kind == "no_gpu":
         return DeviceEvidence(
             kind="none", free_gb=None, total_gb=None,
-            provenance="no GPU reported for this backend",
+            provenance="this backend is configured with no GPU",
         )
+
+    if evidence.kind == "this_host_gpu":
+        if gpu_monitor is None or not getattr(gpu_monitor, "available", False):
+            return DeviceEvidence(
+                kind="none", free_gb=None, total_gb=None,
+                provenance="no GPU detected on this host",
+            )
+        monitor_device_index = getattr(gpu_monitor, "device_index", 0)
+        if evidence.gpu_index != monitor_device_index:
+            # A GPU IS being monitored, just not necessarily this backend's -
+            # never borrow another device's numbers to fill the gap.
+            return DeviceEvidence(
+                kind="unknown", free_gb=None, total_gb=None,
+                provenance=(
+                    f"this backend is configured for GPU {evidence.gpu_index}, but this "
+                    f"host's GPU monitor is bound to GPU {monitor_device_index}"
+                ),
+            )
+        try:
+            free_gb = round(gpu_monitor.get_free_vram() / 1024, 2)
+            total_gb = round(gpu_monitor.get_total_vram() / 1024, 2)
+            return DeviceEvidence(
+                kind="local", free_gb=free_gb, total_gb=total_gb,
+                provenance="this host's GPU monitor",
+            )
+        except Exception:
+            return DeviceEvidence(
+                kind="none", free_gb=None, total_gb=None,
+                provenance="could not read this host's GPU",
+            )
+
     return DeviceEvidence(
         kind="unknown", free_gb=None, total_gb=None,
         provenance="execution device not declared by this backend",

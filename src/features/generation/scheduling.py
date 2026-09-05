@@ -86,11 +86,22 @@ def select_next(
          model, and dispatch it instead of strict rotation (this is what lets
          a same-model job "cut in line" ahead of a different-model job from a
          user earlier in rotation - the worked example's user 3).
-      5. Otherwise (no affinity match, or the allowance is used up) dispatch
-         the rotation's first ready user's head job, and reset the
-         consecutive-model counter - this is a policy-forced switch of whose
-         turn it is, not a continuation, even if the new job happens to want
-         the same model.
+      5. Otherwise, if the allowance IS used up: yield to whoever has waited
+         longest for a different model (or one with no model key at all - an
+         unclassified job never counts as "the same" for this purpose), by
+         enqueue time, ties broken by rotation order - not just the rotation's
+         first user, who may well want the very model that just hit its cap.
+         If nothing else is waiting for anything else, there is no one to
+         yield to: the allowance is "yield when someone else is waiting", not
+         a hard stop, so service of the loaded model simply continues.
+      6. Otherwise (no affinity match under allowance) dispatch the
+         rotation's first ready user's head job.
+
+      The consecutive-model counter itself is never reset because of which of
+      the branches above ran - only because of what actually got dispatched:
+      it increments when the chosen job's model matches what was already
+      loaded, and resets to 1 (with the new model recorded) whenever it
+      doesn't, `None` included.
     """
     candidates = [item for item in pending if item.backend_id == backend_id]
     if not candidates:
@@ -116,22 +127,41 @@ def select_next(
         user for user in (canonical[start:] + canonical[:start]) if user in by_user
     ]
 
-    chosen_user: Optional[str] = None
-    if state.loaded_model_key is not None and state.consecutive_count < policy.max_consecutive_same_model:
+    chosen_item: Optional["QueuedGeneration"] = None
+    under_allowance = (
+        state.loaded_model_key is not None
+        and state.consecutive_count < policy.max_consecutive_same_model
+    )
+    if under_allowance:
         for user in rotation_order:
             if by_user[user][0].model_key == state.loaded_model_key:
-                chosen_user = user
+                chosen_item = by_user[user][0]
                 break
-    affinity_hit = chosen_user is not None
-    if chosen_user is None:
-        chosen_user = rotation_order[0]
+    elif state.loaded_model_key is not None:
+        # Allowance exhausted: force the longest-waiting head job that wants
+        # something other than the loaded model, if one exists.
+        foreign_heads = [
+            by_user[user][0] for user in rotation_order
+            if by_user[user][0].model_key != state.loaded_model_key
+        ]
+        if foreign_heads:
+            rotation_rank = {user: index for index, user in enumerate(rotation_order)}
+            chosen_item = min(
+                foreign_heads,
+                key=lambda item: (item.enqueued_at, rotation_rank[item.user_id]),
+            )
 
-    chosen_item = by_user[chosen_user][0]
+    if chosen_item is None:
+        chosen_item = by_user[rotation_order[0]][0]
+
+    continues_loaded_model = (
+        state.loaded_model_key is not None and chosen_item.model_key == state.loaded_model_key
+    )
     new_state = BackendSchedulingState(
         canonical_users=tuple(canonical),
-        last_served_user=chosen_user,
-        loaded_model_key=state.loaded_model_key if affinity_hit else chosen_item.model_key,
-        consecutive_count=(state.consecutive_count + 1) if affinity_hit else 1,
+        last_served_user=chosen_item.user_id,
+        loaded_model_key=state.loaded_model_key if continues_loaded_model else chosen_item.model_key,
+        consecutive_count=(state.consecutive_count + 1) if continues_loaded_model else 1,
     )
     return chosen_item, new_state
 

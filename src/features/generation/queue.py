@@ -26,7 +26,7 @@ orchestrator calls `release`.
 import asyncio
 import time
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from src.features.generation.scheduling import (
     BackendSchedulingState,
@@ -49,7 +49,11 @@ class QueuedGeneration:
     # The model this generation targets, for the "fair" policy's model
     # affinity - see GenerationOrchestrator._resolve_model_key. Opaque to the
     # queue beyond equality: it is never dereferenced, only compared to the
-    # backend's currently-loaded key.
+    # backend's currently-loaded key. `None` means no checkpoint-class
+    # reference could be resolved - affinity is disabled for that job, not
+    # "falls back to the preset id". A `BackendSchedulingState.loaded_model_key`
+    # match is a scheduling hint, not a claim about what is actually resident
+    # in VRAM.
     model_key: Optional[str] = None
     # Opaque to the queue; handed back to the dispatcher verbatim.
     payload: Any = None
@@ -126,7 +130,7 @@ class GenerationQueue:
         logger.debug(f"[QUEUE] Released backend {backend_id} from {generation_id}")
         await self._pump()
 
-    def _select_ready_item_locked(self) -> Optional[QueuedGeneration]:
+    def _select_ready_item_locked(self) -> Optional[Tuple[QueuedGeneration, str, BackendSchedulingState]]:
         """
         Pick the next item to dispatch, if any backend is both idle and has
         pending work. Must be called with `self._lock` held.
@@ -134,11 +138,13 @@ class GenerationQueue:
         Considers one idle backend per call (the first one, by where its
         earliest pending item sits in `self._pending`); `_pump`'s loop calls
         this repeatedly, so every idle backend with work still gets dispatched
-        in the same `_pump()` invocation. Committing the fairness state here
-        - before `_dispatch` is even awaited - is deliberate: a turn is
-        considered taken the moment it's selected, so a later dispatch
-        failure frees the backend slot without also handing that turn back
-        (see `test_dispatch_failure_does_not_burn_the_other_users_turn`).
+        in the same `_pump()` invocation. Returns `(item, backend_id,
+        next_scheduling_state)` without committing that state - `_pump`
+        commits it only once `_dispatch` has actually succeeded, so a failed
+        dispatch leaves `self._scheduling_state` exactly as it was: the turn
+        it would have taken is not consumed, and the next selection picks up
+        as if the failed job had never been chosen (see
+        `test_a_failed_same_model_dispatch_leaves_scheduling_state_unchanged`).
         """
         backend_id = next(
             (i.backend_id for i in self._pending if i.backend_id not in self._busy),
@@ -150,8 +156,9 @@ class GenerationQueue:
         policy = self._policy_for(backend_id)
         state = self._scheduling_state.get(backend_id, BackendSchedulingState())
         item, new_state = select_next(self._pending, backend_id, policy, state)
-        self._scheduling_state[backend_id] = new_state
-        return item
+        if item is None:
+            return None
+        return item, backend_id, new_state
 
     async def _pump(self, raise_for: Optional[str] = None) -> None:
         """
@@ -165,20 +172,24 @@ class GenerationQueue:
 
         while True:
             async with self._lock:
-                item = self._select_ready_item_locked()
-                if item is None:
+                selection = self._select_ready_item_locked()
+                if selection is None:
                     break
+                item, backend_id, next_state = selection
                 self._pending.remove(item)
-                self._busy[item.backend_id] = item.generation_id
+                self._busy[backend_id] = item.generation_id
 
             try:
                 await self._dispatch(item)
             except Exception as e:
                 # The dispatcher is responsible for marking the generation
-                # FAILED; the queue's only job is to not strand the slot.
+                # FAILED; the queue's only job is to not strand the slot - and
+                # to not commit the fairness state this failed dispatch would
+                # have advanced to, so the turn it would have taken is still up
+                # for grabs on the next iteration.
                 async with self._lock:
-                    if self._busy.get(item.backend_id) == item.generation_id:
-                        del self._busy[item.backend_id]
+                    if self._busy.get(backend_id) == item.generation_id:
+                        del self._busy[backend_id]
 
                 if item.generation_id == raise_for:
                     deferred_error = e
@@ -186,6 +197,9 @@ class GenerationQueue:
                     logger.error(
                         f"[QUEUE] Dispatch of {item.generation_id} failed: {e}", exc_info=True
                     )
+            else:
+                async with self._lock:
+                    self._scheduling_state[backend_id] = next_state
 
         if deferred_error is not None:
             raise deferred_error
@@ -226,30 +240,40 @@ class GenerationQueue:
         return ids
 
     def _projected_pending(self) -> List[QueuedGeneration]:
-        """Pending items ordered by projected dispatch sequence, per backend.
+        """Pending items ordered by projected dispatch sequence.
 
-        Groups `self._pending` by backend (in each backend's first-arrival
-        order, matching pre-fair-scheduling behaviour when only one backend
-        is involved), then simulates each backend's policy forward from its
+        Global position must never make independent backends look like they
+        block each other: grouping every backend's items together (as
+        `scheduling.project_order` needs) and then concatenating group by
+        group would do exactly that for two busy FIFO backends whose items
+        happen to be interleaved by arrival - e.g. [A1, B1, A2] would come
+        back [A1, A2, B1], as if B1 waits behind A2, though A and B run
+        entirely independently.
+
+        Instead: each item keeps the global index (`slot`) it arrived at.
+        Every backend's own items are projected forward from that backend's
         real, persisted scheduling state via `scheduling.project_order` - a
-        pure simulation that never mutates that state. A FIFO backend's items
-        come back untouched; a fair backend's come back in the order they
-        will actually dispatch, so `position()`/`pending_items()`/`snapshot()`
-        agree with what the user will actually see happen.
+        pure simulation that never mutates that state - and the projected
+        items are placed back into that SAME backend's own slots, in order.
+        A FIFO backend's projection is always its own arrival order, so its
+        slots end up holding exactly what they started with; only a fair
+        backend's items actually move, and only among their own slots. The
+        result: an all-FIFO queue reproduces the exact global arrival order,
+        and a fair backend mixed in with FIFO ones reorders only its own
+        items, never anyone else's.
         """
         by_backend: Dict[str, List[QueuedGeneration]] = {}
-        backend_order: List[str] = []
-        for item in self._pending:
-            if item.backend_id not in by_backend:
-                by_backend[item.backend_id] = []
-                backend_order.append(item.backend_id)
-            by_backend[item.backend_id].append(item)
+        slots_by_backend: Dict[str, List[int]] = {}
+        for index, item in enumerate(self._pending):
+            by_backend.setdefault(item.backend_id, []).append(item)
+            slots_by_backend.setdefault(item.backend_id, []).append(index)
 
-        projected: List[QueuedGeneration] = []
-        for backend_id in backend_order:
+        projected: List[Optional[QueuedGeneration]] = [None] * len(self._pending)
+        for backend_id, items in by_backend.items():
             policy = self._policy_for(backend_id)
             state = self._scheduling_state.get(backend_id, BackendSchedulingState())
-            projected.extend(project_order(by_backend[backend_id], policy, state))
+            for slot, projected_item in zip(slots_by_backend[backend_id], project_order(items, policy, state)):
+                projected[slot] = projected_item
         return projected
 
     def position(self, generation_id: str) -> Optional[int]:

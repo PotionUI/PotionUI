@@ -482,23 +482,40 @@ class GenerationOrchestrator:
             logger.debug("before_start: VRAM read failed", exc_info=True)
             return None, None
 
+    # The depot taxonomy's model types that name a base/checkpoint weight file
+    # a native or ComfyUI loader actually loads as THE model - as opposed to a
+    # LoRA, VAE, text encoder, ControlNet or other auxiliary reference that
+    # rides alongside it. See `src.platform.filesystem.model_types`.
+    _BASE_MODEL_TYPES = frozenset({"checkpoint", "diffusion_model", "unet"})
+
     @staticmethod
-    def _resolve_model_key(bound, preset_id: str) -> str:
+    def _resolve_model_key(bound) -> Optional[str]:
         """The model identity a queued generation is scheduled against (the
         "fair" policy's affinity key - see `docs/backends.md` "Scheduling
-        policy").
+        policy"). A hint for scheduling only - it says nothing about what is
+        actually resident in VRAM.
 
         Reuses `collect_model_ids`, the same generic `model:<id>` walk
-        `_enforce_model_access` uses, so this makes no assumption about which
-        field a preset calls its checkpoint/base-model picker: the first
-        `model:<id>` reference found anywhere in the bound form, in the
-        form's own field order, is the primary model. A preset with no model
-        picker at all (or one whose model is baked into the preset rather
-        than user-selected) falls back to the preset id - coarser, but still
-        distinguishes presets that plainly target different models.
+        `_enforce_model_access` uses, but unlike that walk this cannot stop at
+        the first reference found: a preset's field order says nothing about
+        which reference is the checkpoint, so the first ref could just as
+        easily be a LoRA or VAE. Each id is looked up in the model index and
+        the first whose `model_type` is one of `_BASE_MODEL_TYPES` wins,
+        keyed by its digest (or its id, for a model not yet hashed) - never by
+        field name. A generation with no such reference (no model picker, one
+        whose model is baked into the preset, or a reference the index can't
+        resolve) gets `model_key=None`: affinity is disabled for it and the
+        fair policy schedules it by rotation alone. The preset id is
+        deliberately never used as a fallback - two presets can target the
+        same checkpoint, and a preset id would hide that from the scheduler.
         """
-        model_ids = collect_model_ids(bound.values)
-        return model_ids[0] if model_ids else preset_id
+        from src.features.models.repository import model_repo
+
+        for model_id in collect_model_ids(bound.values):
+            model = model_repo.get_by_id(model_id, include_providers=False, include_tags=False)
+            if model is not None and model.model_type in GenerationOrchestrator._BASE_MODEL_TYPES:
+                return model.sha256 or model_id
+        return None
 
     def _enforce_model_access(self, bound, user_id: str) -> None:
         """Verify every `model:<id>` reference in `bound.values` is one
@@ -954,7 +971,7 @@ class GenerationOrchestrator:
                 backend_id=backend.backend_id,
                 user_id=user_id,
                 tab_id=getattr(request, 'tab_id', None),
-                model_key=self._resolve_model_key(bound, request.preset_id),
+                model_key=self._resolve_model_key(bound),
                 payload={
                     'request': request,
                     'backend': backend,

@@ -201,8 +201,11 @@ class TestFairSchedulingThroughTheRealQueue(unittest.IsolatedAsyncioTestCase):
     async def test_the_maintainers_worked_example(self):
         """user 1 running X, 3 more X jobs queued; user 2 queues a Y job; user 3
         queues an X job; allowance 2. Expected order after the running job:
-        user 3's X (same model, other user), then up to the allowance of user
-        1's remaining X jobs, then user 2's Y, then the last of user 1's X."""
+        user 3's X (same model, other user - the allowance is now spent: one
+        running plus this one), then user 2's Y (forced front - the allowance
+        is spent and Y is the only job waiting for something else), then user
+        1's three X jobs as a fresh streak (nothing is left waiting for a
+        different model once Y has gone)."""
         await self.queue.enqueue(_item("running", user="u1", model="X"))
         self.assertEqual(self.dispatched, ["running"], "the running job dispatches immediately, backend was idle")
 
@@ -214,13 +217,13 @@ class TestFairSchedulingThroughTheRealQueue(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(
             [i.generation_id for i in self.queue.pending_items()],
-            ["u3_a", "u1_a", "u1_b", "u2_a", "u1_c"],
+            ["u3_a", "u2_a", "u1_a", "u1_b", "u1_c"],
             "pending()/position() must reflect the projected dispatch order, not arrival order",
         )
         self.assertEqual(self.queue.position("u3_a"), 0)
-        self.assertEqual(self.queue.position("u2_a"), 3)
+        self.assertEqual(self.queue.position("u2_a"), 1)
 
-        expected = ["running", "u3_a", "u1_a", "u1_b", "u2_a", "u1_c"]
+        expected = ["running", "u3_a", "u2_a", "u1_a", "u1_b", "u1_c"]
         last = "running"
         for next_id in expected[1:]:
             await self.queue.release("native", last)
@@ -267,6 +270,95 @@ class TestFairSchedulingThroughTheRealQueue(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(self.dispatched, ["running", "u3_next"])
         self.assertEqual(q.running_generation_id("native"), "u3_next")
+
+    async def test_a_failed_same_model_dispatch_leaves_scheduling_state_unchanged(self):
+        """A same-model job whose dispatch fails must not get to consume the
+        fairness turn it was chosen for: the very next successful selection
+        must behave exactly as if the failed job had never been picked.
+
+        u1 is running X (allowance 2, so one more X may follow before a
+        different model is forced to the front). u2's X job will fail; u3's X
+        job and u4's Y job are also waiting. If the failed dispatch's state
+        were committed anyway, u2's phantom turn would leave the allowance
+        already spent, forcing u4's Y in ahead of u3's still-untouched X job.
+        It must not: u3 (the same-model job that would have gone right after
+        "running" had u2 never existed) goes next, and only then does the
+        allowance actually run out and force u4's Y forward."""
+        async def flaky(item: QueuedGeneration) -> None:
+            if item.generation_id == "u2_fails":
+                raise RuntimeError("boom")
+            self.dispatched.append(item.generation_id)
+
+        q = GenerationQueue(
+            dispatch=flaky,
+            policy_for=lambda backend_id: SchedulingPolicy(name="fair", max_consecutive_same_model=2),
+        )
+        await q.enqueue(_item("running", user="u1", model="X"))
+        await q.enqueue(_item("u2_fails", user="u2", model="X"))
+        await q.enqueue(_item("u3_ok", user="u3", model="X"))
+        await q.enqueue(_item("u4_y", user="u4", model="Y"))
+
+        await q.release("native", "running")
+
+        self.assertEqual(self.dispatched, ["running", "u3_ok"])
+        self.assertEqual(q.running_generation_id("native"), "u3_ok")
+
+        await q.release("native", "u3_ok")
+        self.assertEqual(self.dispatched, ["running", "u3_ok", "u4_y"])
+
+
+class TestProjectedPendingReportingAcrossBackends(unittest.IsolatedAsyncioTestCase):
+    """`pending_items()`/`position()`/`snapshot()` report a GLOBAL order. Two
+    independent backends must never appear to block each other in that
+    report, whatever each one's own scheduling policy does with its own
+    items."""
+
+    async def asyncSetUp(self):
+        self.dispatched = []
+
+    async def _dispatch(self, item: QueuedGeneration) -> None:
+        pass  # never actually runs in these tests - both backends stay busy throughout
+
+    async def test_two_busy_fifo_backends_report_exact_global_arrival_order(self):
+        q = GenerationQueue(dispatch=self._dispatch)
+        await q.enqueue(_item("a_running", backend="A", user="u1"))
+        await q.enqueue(_item("b_running", backend="B", user="u1"))
+
+        # Interleaved arrivals across the two busy backends.
+        await q.enqueue(_item("a1", backend="A", user="u1"))
+        await q.enqueue(_item("b1", backend="B", user="u1"))
+        await q.enqueue(_item("a2", backend="A", user="u1"))
+
+        self.assertEqual(
+            [i.generation_id for i in q.pending_items()],
+            ["a1", "b1", "a2"],
+            "grouping by backend before projecting must never reorder an all-FIFO queue",
+        )
+
+    async def test_a_fair_backend_reorders_only_its_own_items_among_a_fifo_backend(self):
+        q = GenerationQueue(
+            dispatch=self._dispatch,
+            policy_for=lambda backend_id: (
+                SchedulingPolicy(name="fair", max_consecutive_same_model=1) if backend_id == "B" else SchedulingPolicy()
+            ),
+        )
+        await q.enqueue(_item("a_running", backend="A", user="u1"))
+        await q.enqueue(_item("b_running", backend="B", user="u1"))
+
+        # A (FIFO) gets two more arrivals from the same user; B (fair) gets a
+        # second user's job enqueued between them - fair rotation means B's
+        # own two items swap places relative to each other, but A's two items
+        # must keep their exact original global slots either side of B's.
+        await q.enqueue(_item("a1", backend="A", user="u1"))
+        await q.enqueue(_item("b_u1", backend="B", user="u1"))
+        await q.enqueue(_item("a2", backend="A", user="u1"))
+        await q.enqueue(_item("b_u2", backend="B", user="u2"))
+
+        self.assertEqual(
+            [i.generation_id for i in q.pending_items()],
+            ["a1", "b_u2", "a2", "b_u1"],
+            "A's items stay in their own arrival slots; only B's own items reorder among B's slots",
+        )
 
 
 if __name__ == "__main__":

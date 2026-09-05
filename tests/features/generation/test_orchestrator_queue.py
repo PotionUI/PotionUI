@@ -262,15 +262,19 @@ class TestQueueingThroughTheOrchestrator:
         assert orchestrator.status_tracker.get('gen_1').started_at is not None
         assert orchestrator.status_tracker.get('gen_2').started_at is None
 
-    async def test_enqueued_item_carries_the_forms_model_reference_as_its_key(
+    async def test_enqueued_item_carries_the_forms_checkpoint_reference_as_its_key(
         self, orchestrator, backends, repo
     ):
         """The scheduling "fair" policy's model affinity keys off `model_key`,
-        stamped at enqueue from whatever `model:<id>` reference the bound form
-        carries - see GenerationOrchestrator._resolve_model_key."""
+        stamped at enqueue from the form's checkpoint-class `model:<id>`
+        reference (resolved via the model index) - see
+        GenerationOrchestrator._resolve_model_key."""
+        from src.features.models.records import Model
+
         request = _request('tab_a')
         request.form_data = {'checkpoint': 'model:sdxl-base', 'steps': 20}
 
+        checkpoint = Model(id='sdxl-base', model_type='checkpoint', sha256='deadbeef')
         with patch(
             'src.features.generation.orchestrator.QueuedGeneration', side_effect=QueuedGeneration
         ) as spy, patch(
@@ -279,17 +283,73 @@ class TestQueueingThroughTheOrchestrator:
             # under test here, so pass the form through unchanged.
             'src.features.generation.orchestrator.resolve_form_model_refs',
             side_effect=lambda form_data, backend_id: form_data,
+        ), patch(
+            'src.features.models.repository.model_repo.get_by_id', return_value=checkpoint
         ), patch('src.features.generation.orchestrator.generate_ulid', return_value='gen_1'):
             await orchestrator.start_generation(request, 'user_1')
 
-        assert spy.call_args.kwargs['model_key'] == 'sdxl-base'
+        assert spy.call_args.kwargs['model_key'] == 'deadbeef'
 
-    async def test_enqueued_item_falls_back_to_the_preset_id_with_no_model_reference(
+    async def test_enqueued_item_ignores_a_lora_reference_ahead_of_the_checkpoint(
         self, orchestrator, backends, repo
     ):
+        """Field order says nothing about which reference is the checkpoint -
+        a LoRA reference earlier in the form must never win over a checkpoint
+        reference later in it."""
+        from src.features.models.records import Model
+
+        request = _request('tab_a')
+        request.form_data = {'lora': 'model:some-lora', 'checkpoint': 'model:sdxl-base', 'steps': 20}
+
+        records = {
+            'some-lora': Model(id='some-lora', model_type='lora', sha256='lorahash'),
+            'sdxl-base': Model(id='sdxl-base', model_type='checkpoint', sha256='deadbeef'),
+        }
+        with patch(
+            'src.features.generation.orchestrator.QueuedGeneration', side_effect=QueuedGeneration
+        ) as spy, patch(
+            'src.features.generation.orchestrator.resolve_form_model_refs',
+            side_effect=lambda form_data, backend_id: form_data,
+        ), patch(
+            'src.features.models.repository.model_repo.get_by_id',
+            side_effect=lambda model_id, **kw: records.get(model_id),
+        ), patch('src.features.generation.orchestrator.generate_ulid', return_value='gen_1'):
+            await orchestrator.start_generation(request, 'user_1')
+
+        assert spy.call_args.kwargs['model_key'] == 'deadbeef'
+
+    async def test_enqueued_item_resolves_to_none_with_no_checkpoint_reference(
+        self, orchestrator, backends, repo
+    ):
+        """No model picker at all, and (separately) a form whose only
+        reference is auxiliary or unresolvable both disable affinity for the
+        job rather than falling back to the preset id - two presets can
+        target the same checkpoint, so the preset id would hide that."""
         with patch(
             'src.features.generation.orchestrator.QueuedGeneration', side_effect=QueuedGeneration
         ) as spy:
             await _start(orchestrator, 'tab_a', 'gen_1')
 
-        assert spy.call_args.kwargs['model_key'] == 'p'
+        assert spy.call_args.kwargs['model_key'] is None
+
+    async def test_enqueued_item_resolves_to_none_when_only_auxiliary_or_unresolvable_refs_exist(
+        self, orchestrator, backends, repo
+    ):
+        from src.features.models.records import Model
+
+        request = _request('tab_a')
+        request.form_data = {'vae': 'model:some-vae', 'unknown': 'model:missing-id', 'steps': 20}
+
+        records = {'some-vae': Model(id='some-vae', model_type='vae', sha256='vaehash')}
+        with patch(
+            'src.features.generation.orchestrator.QueuedGeneration', side_effect=QueuedGeneration
+        ) as spy, patch(
+            'src.features.generation.orchestrator.resolve_form_model_refs',
+            side_effect=lambda form_data, backend_id: form_data,
+        ), patch(
+            'src.features.models.repository.model_repo.get_by_id',
+            side_effect=lambda model_id, **kw: records.get(model_id),
+        ), patch('src.features.generation.orchestrator.generate_ulid', return_value='gen_1'):
+            await orchestrator.start_generation(request, 'user_1')
+
+        assert spy.call_args.kwargs['model_key'] is None

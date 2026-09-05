@@ -65,8 +65,12 @@ class TestFairPolicyMaintainerExample(unittest.TestCase):
     (already accounted for in the starting state - one X dispatch has
     happened), has 3 more X jobs queued; user 2 queues a Y job; user 3 queues
     an X job. Allowance 2. Expected: user 3's X job cuts in (same model,
-    other user), then user 1 gets up to the allowance of its own remaining X
-    jobs, then a final rotation before reload gives user 1 the last one."""
+    other user - the allowance is now spent: one running plus this one), then
+    user 2's Y job is forced to the front (allowance spent, Y is the only job
+    waiting for something else), then user 1's three X jobs run as a fresh
+    streak - nothing is left waiting for a different model once Y has gone,
+    so the allowance never forces another yield even once the counter climbs
+    past it again."""
 
     def test_dispatch_order_matches_the_worked_example(self):
         pending = [
@@ -84,7 +88,7 @@ class TestFairPolicyMaintainerExample(unittest.TestCase):
 
         order = _run(pending, policy, state)
 
-        self.assertEqual(order, ["u3_a", "u1_a", "u1_b", "u2_a", "u1_c"])
+        self.assertEqual(order, ["u3_a", "u2_a", "u1_a", "u1_b", "u1_c"])
 
 
 class TestFairPolicyGeneral(unittest.TestCase):
@@ -151,6 +155,66 @@ class TestFairPolicyGeneral(unittest.TestCase):
         # u1 just went (consecutive_count already at the cap of 1), so u2 is due
         # next even though u2's job wants the same model; then u1's two remain.
         self.assertEqual(order, ["u2_x", "u1_x1", "u1_x2"])
+
+    def test_allowance_exhausted_yields_to_the_longest_waiting_foreign_job_not_rotations_first(self):
+        """The bug this pins: with the allowance exhausted, picking rotation's
+        first user regardless of what they want can land on ANOTHER same-model
+        job (three continuing X users can keep rotation's front seat occupied
+        by X forever), starving a waiting different-model job indefinitely.
+        3 X-users (u1, u2, u3), 1 Y-user (u4), allowance 2, fresh state. Both
+        of u4's Y jobs must be served - each within the allowance window of
+        their arrival - never skipped in favour of yet another X user."""
+        pending = [
+            _item("u1_a", "u1", model="X"), _item("u2_a", "u2", model="X"),
+            _item("u3_a", "u3", model="X"), _item("u4_a", "u4", model="Y"),
+            _item("u1_b", "u1", model="X"), _item("u2_b", "u2", model="X"),
+            _item("u3_b", "u3", model="X"), _item("u4_b", "u4", model="Y"),
+        ]
+        policy = SchedulingPolicy(name=FAIR, max_consecutive_same_model=2)
+
+        order = _run(pending, policy, BackendSchedulingState())
+
+        self.assertEqual(
+            order,
+            ["u1_a", "u2_a", "u4_a", "u4_b", "u3_a", "u1_b", "u2_b", "u3_b"],
+        )
+        # Neither of u4's jobs waits more than (allowance + 1) dispatches from
+        # when it became the longest-waiting foreign job.
+        self.assertLessEqual(order.index("u4_a"), 3)
+        self.assertLessEqual(order.index("u4_b") - order.index("u4_a"), 1)
+
+    def test_allowance_exhausted_with_nothing_foreign_waiting_keeps_serving_the_loaded_model(self):
+        """Once u4's Y jobs are gone, X has nothing to yield to - the allowance
+        is "yield when someone else is waiting", not a hard cap, so X keeps
+        being served (the counter climbs past `max_consecutive_same_model`
+        instead of forcing a pointless same-model "reset")."""
+        pending = [_item("u1_x", "u1", model="X"), _item("u2_x", "u2", model="X")]
+        policy = SchedulingPolicy(name=FAIR, max_consecutive_same_model=2)
+        # Already at the cap, and nobody is waiting for anything but X.
+        state = BackendSchedulingState(canonical_users=("u1", "u2"), last_served_user="u2", loaded_model_key="X", consecutive_count=2)
+
+        item, new_state = select_next(pending, "native", policy, state)
+
+        self.assertEqual(item.generation_id, "u1_x")
+        self.assertEqual(new_state.loaded_model_key, "X")
+        self.assertEqual(new_state.consecutive_count, 3, "still X, so the streak keeps climbing rather than resetting")
+
+    def test_allowance_exhausted_with_two_foreign_models_picks_the_longer_waiting_one_not_rotations_first(self):
+        """X is at the cap; Y and Z are both waiting for something else. u2's Y
+        job was enqueued before u3's Z job, but rotation order (built from
+        first-seen order, not arrival time) puts u3 ahead of u2 - the longer
+        WAITING job (Y) must still go first, not whichever foreign job
+        happens to be rotation's first."""
+        u2_y = _item("u2_y", "u2", model="Y")  # enqueued first - longest waiting
+        u3_z = _item("u3_z", "u3", model="Z")  # enqueued second, but first-seen (and so rotation-first)
+        u1_x = _item("u1_x", "u1", model="X")
+        pending = [u3_z, u2_y, u1_x]
+        policy = SchedulingPolicy(name=FAIR, max_consecutive_same_model=2)
+        state = BackendSchedulingState(canonical_users=("u1",), last_served_user="u1", loaded_model_key="X", consecutive_count=2)
+
+        order = _run(pending, policy, state)
+
+        self.assertEqual(order[0], "u2_y", "the longer-waiting foreign job (Y), not rotation's first (Z)")
 
     def test_two_backends_are_independent(self):
         pending = [

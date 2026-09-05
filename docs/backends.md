@@ -342,26 +342,47 @@ For each idle backend:
    user whose *head* job wants that model, and dispatch it instead of strict rotation — this is what
    lets a same-model job from a different user cut in line ahead of a different-model job from a user
    earlier in rotation.
-4. Otherwise (no match, or the allowance is used up) dispatch the rotation's first ready user's job,
-   and reset the consecutive-model counter — this is a policy-forced switch of turn, not a
-   continuation, even if the new job happens to want the same model.
+4. Otherwise, if the allowance **is** used up: force the front the head job — of any user, anywhere in
+   rotation — that has waited longest (by enqueue time, ties by rotation order) for anything other than
+   the loaded model (a job with no `model_key` at all counts as "other" here too). The allowance is a
+   promise to whoever's waiting for something else, not a countdown to a forced user-rotation switch —
+   if nobody is waiting for a different model, there is no one to yield to, and service of the loaded
+   model simply continues (the counter keeps climbing past the configured cap).
+5. Otherwise (no match under allowance) dispatch the rotation's first ready user's head job.
+
+The consecutive-model counter itself never resets because of *which* of the branches above fired — only
+because of *what actually got dispatched*: it increments when the chosen job's model matches what was
+already loaded, and resets to 1 (recording the new model) whenever it doesn't, including a job with no
+`model_key`.
 
 Worked example (allowance 2): user 1 is running model X and has 3 more X jobs queued; user 2 queues a
 model Y job; user 3 queues a model X job. Dispatch order after the running job: user 3's X job (same
-model, other user), then two more of user 1's X jobs (using up the allowance), then user 2's Y job,
-then user 1's last X job.
+model, other user — the allowance is now spent, one running plus this one), then user 2's Y job (forced
+front, since the allowance is spent and Y is the only job waiting for something else), then user 1's
+three X jobs in order (a fresh streak: nothing else is left waiting once Y has gone, so the allowance
+never forces another yield, even once the counter climbs past it again on the third of these).
 
 A generation's `model_key` — what "the same model" means for the affinity check — is stamped by the
-orchestrator at enqueue time (`GenerationOrchestrator._resolve_model_key`): the first `model:<id>`
-reference found anywhere in the bound form (same generic walk `collect_model_ids` uses for model-
-access enforcement, so no preset field name is hardcoded), or the preset id if the form carries no
-model reference at all. Two generations against the same checkpoint always compare equal regardless
-of which backend resolves that reference to which on-disk path.
+orchestrator at enqueue time (`GenerationOrchestrator._resolve_model_key`): every `model:<id>`
+reference in the bound form (the same generic walk `collect_model_ids` uses for model-access
+enforcement) is looked up in the model index, and the first whose `model_type` is one the depot
+taxonomy uses for a base/checkpoint weight file (`checkpoint`, `diffusion_model`, `unet`) wins — a
+LoRA, VAE, text encoder, ControlNet or other auxiliary reference never counts, regardless of which
+form field it came from or how early it appears. A generation with no such reference — no model
+picker, one whose model is baked into the preset, or a reference the index can't resolve — gets
+`model_key=None`: affinity is disabled for it and the fair policy schedules it by rotation alone.
+The preset id is never used as a fallback (two presets can target the same checkpoint, which a
+preset-id key would hide from the scheduler). This is a scheduling hint, not a residency claim — a
+match says two jobs *want* the same model, not that it is actually resident in VRAM.
 
-`GenerationQueue.position()`, `pending_items()` and `snapshot()` report the *projected* dispatch
-order for each backend — a pure simulation (`scheduling.project_order`) over the same real state
-`select_next` reads, so a fair backend's reported queue positions match what will actually run. A
-FIFO backend's reporting is unchanged (arrival order).
+`GenerationQueue.position()`, `pending_items()` and `snapshot()` report the *projected* global
+dispatch order — a pure simulation (`scheduling.project_order`) over the same real state
+`select_next` reads, so a fair backend's reported queue positions match what will actually run. This
+projection is per-backend, but the report it produces is global, and independent backends must never
+appear to block each other in it: every item keeps the global arrival slot it queued into, and only a
+fair backend's own items move — among their own slots, per that backend's projection — while a FIFO
+backend's slots always hold exactly what they started with. With every backend FIFO, the report is
+therefore always the exact global arrival order, never grouped by backend.
 
 There is no throughput measurement or reload-cost estimate anywhere in this — a fair backend
 trades some users' wait time for fewer model reloads on the assumption that a reload is expensive

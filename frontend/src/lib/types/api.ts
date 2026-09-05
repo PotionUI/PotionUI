@@ -146,14 +146,19 @@ export interface GenerationQueueSnapshot {
 	running: RunningGenerationSummary[];
 }
 
-/** `POST /api/generations/memory-preview` response - a non-blocking, best-effort
- *  lower-bound estimate for a request that has NOT started. Never a fit verdict:
+/** `POST /api/generations/memory-preview` response - a non-blocking,
+ *  checkpoint-based estimate for a request that has NOT started. Never
+ *  called a "lower bound" or "at least" anywhere: quantization/streaming can
+ *  bring real residency below it, and a component the preset pins outside a
+ *  form picker can push real usage above it. Never a fit verdict either way -
  *  read `coverage`/`uncertainty` alongside `device`/`budget` rather than the
  *  number alone. See docs/user/hardware-requirements.md. */
 export interface MemoryPreviewResult {
 	estimate: {
-		/** GB, or `null` when no active model reference has a known size. */
-		lower_bound_gb: number | null;
+		/** GB, or `null` when no active model reference has a known size, or
+		 *  when the active model set itself could not be resolved (see
+		 *  `coverage.active_set_resolved`). */
+		checkpoint_estimate_gb: number | null;
 		weights_gb: number;
 		activation_gb: number;
 		margin: number;
@@ -162,6 +167,10 @@ export interface MemoryPreviewResult {
 	coverage: {
 		known: Array<{ ref: string; size_gb: number }>;
 		unknown: string[];
+		/** `false` when the request itself couldn't be resolved (e.g. an
+		 *  in-progress or invalid Video/Music Director document, or any other
+		 *  pipeline-build failure) - render this as "the request could not be
+		 *  resolved", never "no model references". */
 		active_set_resolved: boolean;
 		pinned_components_uncounted: boolean;
 		uncertainty: string[];
@@ -173,8 +182,16 @@ export interface MemoryPreviewResult {
 		provenance: string;
 	};
 	budget: {
+		/** The backend-wide budget alone (its `gpu_max_vram`, bounded by
+		 *  `device`'s free VRAM when there is one) - never a per-pipe hint
+		 *  folded in. See `pipe_hints_gb` for those. */
 		configured_gb: number | null;
 		source: string;
+		/** Each ACTIVE pipe's own per-stage `vram_limit_gb` hint (e.g. a tiled
+		 *  detailer's own tile budget), composed against the same backend cap
+		 *  individually - a preset can declare several with different values,
+		 *  so no single entry speaks for the whole request. */
+		pipe_hints_gb: Array<{ pipe: string; hint_gb: number; composed_gb: number | null }>;
 	};
 	backend: {
 		id: string;

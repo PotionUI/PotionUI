@@ -29,6 +29,8 @@ from src.features.generation.websocket_handler import WebSocketHandler
 from src.features.forms.exceptions import FormNotFoundException
 from src.features.forms.binding import FormBindingError
 from src.features.models.exceptions import ModelNotFoundException, ModelAccessDeniedException
+from src.features.backends.backend_registry import NoBackendForEngineError
+from src.features.generation.routing.contracts import NoEligibleBackendError
 from src.features.generation.output_serializer import GenerationOutputSerializer
 from src.features.generation.run_report_recorder import RunReportRecorder
 from src.pipelines.outputs import GenerationOutput
@@ -200,6 +202,16 @@ class GenerationController(BaseController):
                 error="validation_error",
                 message=str(e),
                 status_code=400
+            )
+        except (NoBackendForEngineError, NoEligibleBackendError) as e:
+            # A routing outcome, not an estimate failure: honestly distinct
+            # from `memory_preview_failed` below so a caller (and the
+            # frontend's advisory line) can tell "no backend can run this
+            # right now" apart from "the estimator itself broke".
+            return self.error_response(
+                error="no_eligible_backend",
+                message=str(e),
+                status_code=503
             )
         except Exception as e:
             error_details = traceback.format_exc()

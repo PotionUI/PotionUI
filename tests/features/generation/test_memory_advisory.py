@@ -12,11 +12,12 @@ import pytest
 from src.features.generation.memory_advisory import (
     active_model_ids,
     active_loader_settings,
-    active_pipe_vram_hint_gb,
+    active_pipe_vram_hints,
     estimate_request_memory,
     resolve_budget_evidence,
     resolve_device_evidence,
     DeviceEvidence,
+    PipeVramHint,
 )
 
 GIB = 1024 ** 3
@@ -78,17 +79,19 @@ def test_active_loader_settings_collects_dtype_and_quant():
     assert not any("unrelated" in s for s in settings)
 
 
-def test_active_pipe_vram_hint_ignores_disabled_and_missing():
+def test_active_pipe_vram_hints_ignores_disabled_and_missing_reports_every_active_one():
     pipes = [
-        {"name": "tiled_detailer/sdxl", "enabled": False, "config": {"vram_limit_gb": 8}},
-        {"name": "generator/x", "enabled": True, "config": {}},
-        {"name": "tiled_detailer/sdxl2", "enabled": True, "config": {"vram_limit_gb": 12}},
+        {"name": "tiled_detailer/sdxl", "id": "det1", "enabled": False, "config": {"vram_limit_gb": 8}},
+        {"name": "generator/x", "id": "gen1", "enabled": True, "config": {}},
+        {"name": "tiled_detailer/sdxl2", "id": "det2", "enabled": True, "config": {"vram_limit_gb": 12}},
+        {"name": "model_loader/krea2", "id": "loader1", "enabled": True, "config": {"vram_limit_gb": 6}},
     ]
-    assert active_pipe_vram_hint_gb(pipes) == 12.0
+    hints = active_pipe_vram_hints(pipes)
+    assert hints == [PipeVramHint(pipe="det2", hint_gb=12.0), PipeVramHint(pipe="loader1", hint_gb=6.0)]
 
 
-def test_active_pipe_vram_hint_none_when_absent():
-    assert active_pipe_vram_hint_gb([{"name": "generator/x", "enabled": True, "config": {}}]) is None
+def test_active_pipe_vram_hints_empty_when_absent():
+    assert active_pipe_vram_hints([{"name": "generator/x", "enabled": True, "config": {}}]) == []
 
 
 # -- estimate_request_memory: coverage/known/unknown ----------------------------
@@ -99,19 +102,19 @@ def test_all_sizes_known_no_resolution():
 
     assert result.estimate.weights_gb == pytest.approx(3.0)
     assert result.estimate.activation_gb == 0.0
-    assert result.estimate.lower_bound_gb == pytest.approx(round(3.0 * 1.1, 2))
+    assert result.estimate.checkpoint_estimate_gb == pytest.approx(round(3.0 * 1.1, 2))
     assert {k.ref for k in result.coverage.known} == {"ckpt1", "lora1"}
     assert result.coverage.unknown == []
     assert result.coverage.active_set_resolved is True
 
 
-def test_partially_unknown_sizes_are_a_lower_bound():
+def test_partially_unknown_sizes_still_produce_an_estimate():
     pipes = _pipes(active_refs=["ckpt1", "lora1"])
     result = estimate_request_memory(pipes, _lookup({"ckpt1": 4 * GIB}), {})
 
     assert [k.ref for k in result.coverage.known] == ["ckpt1"]
     assert result.coverage.unknown == ["lora1"]
-    assert result.estimate.lower_bound_gb == pytest.approx(round(4.0 * 1.1, 2))
+    assert result.estimate.checkpoint_estimate_gb == pytest.approx(round(4.0 * 1.1, 2))
     assert any("no indexed file size" in note for note in result.coverage.uncertainty)
 
 
@@ -134,11 +137,11 @@ def test_dtype_quant_settings_surfaced_as_uncertainty():
     assert any("dtype" in note.lower() and "fp8" in note for note in result.coverage.uncertainty)
 
 
-def test_no_model_sizes_resolvable_yields_null_lower_bound():
+def test_no_model_sizes_resolvable_yields_null_estimate():
     pipes = _pipes(active_refs=["ckpt1"])
     result = estimate_request_memory(pipes, _lookup({}), {"resolution": "1024x1024"})
 
-    assert result.estimate.lower_bound_gb is None
+    assert result.estimate.checkpoint_estimate_gb is None
     assert result.coverage.known == []
     assert result.coverage.unknown == ["ckpt1"]
 
@@ -147,17 +150,17 @@ def test_unresolved_active_set_when_pipes_is_none():
     result = estimate_request_memory(None, _lookup({}), {})
 
     assert result.coverage.active_set_resolved is False
-    assert result.estimate.lower_bound_gb is None
+    assert result.estimate.checkpoint_estimate_gb is None
     assert any("could not be resolved" in note for note in result.coverage.uncertainty)
 
 
-def test_activation_term_folds_into_lower_bound_when_weights_known():
+def test_activation_term_folds_into_estimate_when_weights_known():
     pipes = _pipes(active_refs=["ckpt1"])
     no_res = estimate_request_memory(pipes, _lookup({"ckpt1": 1 * GIB}), {})
     with_res = estimate_request_memory(pipes, _lookup({"ckpt1": 1 * GIB}), {"resolution": "1024x1024"})
 
     assert with_res.estimate.activation_gb > 0
-    assert with_res.estimate.lower_bound_gb > no_res.estimate.lower_bound_gb
+    assert with_res.estimate.checkpoint_estimate_gb > no_res.estimate.checkpoint_estimate_gb
 
 
 def test_pinned_components_note_always_present():
@@ -251,28 +254,57 @@ def test_device_evidence_none_on_read_failure():
 
 def test_budget_not_configured_without_any_cap():
     device = DeviceEvidence(kind="local", free_gb=10.0, total_gb=24.0, provenance="x")
-    budget = resolve_budget_evidence(None, None, device)
+    budget = resolve_budget_evidence(None, [], device)
     assert budget.configured_gb is None
     assert budget.source == "not configured"
+    assert budget.pipe_hints_gb == []
 
 
 def test_budget_unbounded_when_no_device_evidence():
     device = DeviceEvidence(kind="remote", free_gb=None, total_gb=None, provenance="x")
-    budget = resolve_budget_evidence(8.0, None, device)
+    budget = resolve_budget_evidence(8.0, [], device)
     assert budget.configured_gb == 8.0
     assert "not bounded by device evidence" in budget.source
 
 
-def test_budget_composes_stricter_cap_bounded_by_device_free():
+def test_budget_bounded_by_device_free_when_cap_exceeds_it():
     device = DeviceEvidence(kind="local", free_gb=6.0, total_gb=24.0, provenance="x")
-    budget = resolve_budget_evidence(8.0, 4.0, device)
-    assert budget.configured_gb == 4.0
-    assert "backend gpu_max_vram" in budget.source
-    assert "preset pipe hint" in budget.source
-    assert "device free VRAM" in budget.source
-
-
-def test_budget_bounded_by_device_free_when_caps_exceed_it():
-    device = DeviceEvidence(kind="local", free_gb=6.0, total_gb=24.0, provenance="x")
-    budget = resolve_budget_evidence(80.0, None, device)
+    budget = resolve_budget_evidence(80.0, [], device)
     assert budget.configured_gb == 6.0
+
+
+def test_budget_configured_gb_never_absorbs_a_pipe_hint():
+    """The whole-request `configured_gb` must reflect ONLY the backend cap
+    (bounded by device evidence) - a per-stage pipe hint, even a stricter
+    one, must never silently lower it. That is what `pipe_hints_gb` is for."""
+    device = DeviceEvidence(kind="local", free_gb=20.0, total_gb=24.0, provenance="x")
+    budget = resolve_budget_evidence(16.0, [PipeVramHint(pipe="detailer", hint_gb=4.0)], device)
+
+    assert budget.configured_gb == 16.0  # backend cap alone, bounded by 20GB free -> 16
+    assert "per-stage" in budget.source
+    assert "not merged into configured_gb" in budget.source
+
+
+def test_budget_reports_each_pipe_hint_composed_individually():
+    """Two active pipes with DIFFERENT hints must both be reported, each
+    composed against the SAME backend cap/device evidence - never collapsed
+    to one arbitrary value."""
+    device = DeviceEvidence(kind="local", free_gb=20.0, total_gb=24.0, provenance="x")
+    budget = resolve_budget_evidence(
+        16.0,
+        [PipeVramHint(pipe="loader1", hint_gb=4.0), PipeVramHint(pipe="detailer1", hint_gb=32.0)],
+        device,
+    )
+
+    assert budget.pipe_hints_gb == [
+        {"pipe": "loader1", "hint_gb": 4.0, "composed_gb": 4.0},  # hint (4) stricter than cap (16)
+        {"pipe": "detailer1", "hint_gb": 32.0, "composed_gb": 16.0},  # cap (16) stricter than hint (32)
+    ]
+
+
+def test_budget_pipe_hints_reported_even_without_a_backend_cap():
+    device = DeviceEvidence(kind="local", free_gb=20.0, total_gb=24.0, provenance="x")
+    budget = resolve_budget_evidence(None, [PipeVramHint(pipe="loader1", hint_gb=4.0)], device)
+
+    assert budget.configured_gb is None
+    assert budget.pipe_hints_gb == [{"pipe": "loader1", "hint_gb": 4.0, "composed_gb": 4.0}]

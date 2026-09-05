@@ -8,8 +8,11 @@ route) for the operation that calls this module, and
 static `requires:` badge and a backend's configured `gpu_max_vram`.
 
 Deliberately conservative in what it claims: `estimate_request_memory` never
-returns a fit verdict, only a lower-bound number plus the coverage/uncertainty
-evidence a caller needs to judge it. The weight-margin/activation-term
+returns a fit verdict, only a checkpoint-based estimate plus the
+coverage/uncertainty evidence a caller needs to judge it - never "a lower
+bound" or "at least", since quantization/streaming can bring real residency
+below it and a preset-pinned component outside the active loader walk can
+push real usage above it. The weight-margin/activation-term
 constants below are also what `GenerationOrchestrator._estimate_generation_vram_gb`
 (the `generation.before_start` hook payload) uses - they live here, and that
 function imports them, rather than the reverse, so this module never has to
@@ -138,12 +141,24 @@ def active_loader_settings(pipes: List[Dict[str, Any]]) -> List[str]:
     return settings
 
 
-def active_pipe_vram_hint_gb(pipes: List[Dict[str, Any]]) -> Optional[float]:
-    """The first explicit `vram_limit_gb` an ENABLED pipe's own config
-    carries, or `None`. A preview build never reaches `NativeBackend
-    .prepare_pipes` (that injection happens downstream, at execution time),
-    so a value found here can only be one a pipe/preset declared itself -
-    e.g. `tiled_detailer/sdxl`'s own default - never a backend's cap."""
+@dataclass
+class PipeVramHint:
+    """One ENABLED pipe's own `vram_limit_gb`, keyed by pipe id/name - plural
+    because these are per-STAGE hints (e.g. a tiled detailer's own tile
+    budget), never a single figure for the whole request. A preview build
+    never reaches `NativeBackend.prepare_pipes` (that injection happens
+    downstream, at execution time), so a value found here can only be one a
+    pipe/preset declared itself - e.g. `tiled_detailer/sdxl`'s own default -
+    never a backend's cap."""
+    pipe: str
+    hint_gb: float
+
+
+def active_pipe_vram_hints(pipes: List[Dict[str, Any]]) -> List[PipeVramHint]:
+    """Every ENABLED pipe's own explicit `vram_limit_gb`, one entry per pipe.
+    Never collapse this into a single number and present it as THE request
+    budget - see `resolve_budget_evidence`'s docstring for why."""
+    hints: List[PipeVramHint] = []
     for pipe in pipes:
         if not pipe.get("enabled"):
             continue
@@ -151,10 +166,10 @@ def active_pipe_vram_hint_gb(pipes: List[Dict[str, Any]]) -> Optional[float]:
         if hint is None:
             continue
         try:
-            return float(hint)
+            hints.append(PipeVramHint(pipe=pipe.get("id") or pipe.get("name") or "", hint_gb=float(hint)))
         except (TypeError, ValueError):
             continue
-    return None
+    return hints
 
 
 @dataclass
@@ -186,7 +201,11 @@ class Coverage:
 
 @dataclass
 class Estimate:
-    lower_bound_gb: Optional[float]
+    # A CHECKPOINT-BASED estimate, never framed as a guaranteed minimum:
+    # quantization/streaming can bring real residency below it, and a
+    # component the preset pins outside a form picker can push real usage
+    # above it. See `estimate_request_memory`'s docstring.
+    checkpoint_estimate_gb: Optional[float]
     weights_gb: float
     activation_gb: float
     margin: float
@@ -194,7 +213,7 @@ class Estimate:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "lower_bound_gb": self.lower_bound_gb,
+            "checkpoint_estimate_gb": self.checkpoint_estimate_gb,
             "weights_gb": self.weights_gb,
             "activation_gb": self.activation_gb,
             "margin": self.margin,
@@ -216,19 +235,28 @@ def estimate_request_memory(
     model_lookup: ModelLookup,
     form_data: Dict[str, Any],
 ) -> MemoryEstimateResult:
-    """Best-effort VRAM need for a request that has NOT started, as a
-    documented LOWER BOUND: (summed on-disk size of every model reference on
-    an ACTIVE loader pipe x weight-load margin) + a resolution/frames-scaled
+    """A CHECKPOINT-BASED estimate of the GPU memory a request that has NOT
+    started would need: (summed on-disk size of every model reference on an
+    ACTIVE loader pipe x weight-load margin) + a resolution/frames-scaled
     sampling activation term.
+
+    Deliberately never called a "lower bound" or "at least" anywhere in this
+    module or its callers: quantization/dtype settings and low-VRAM streaming
+    can bring REAL residency below this number (see `coverage.uncertainty`),
+    while a component the preset pins outside a form picker - never part of
+    the active loader walk - can push real usage ABOVE it. It is a
+    checkpoint-weight-based estimate, not a guarantee in either direction.
 
     `pipes` is the built pipeline's processed pipe list (see
     `PipelineBuilder.build_pipeline`), or `None` when the active model set
-    could not be resolved at all (the build itself failed) - the estimate
-    then carries no known weights and `coverage.active_set_resolved` is False.
+    could not be resolved at all (the build itself failed, including a
+    Video/Music Director document that failed its own preparation) - the
+    estimate then carries no known weights and `coverage.active_set_resolved`
+    is False.
 
-    `lower_bound_gb` is `None` only when nothing is resolvable: no active
-    model reference, or none of their sizes are indexed - weights are the
-    anchor, so an activation term alone would be a meaningless underestimate.
+    `checkpoint_estimate_gb` is `None` only when nothing is resolvable: no
+    active model reference, or none of their sizes are indexed - weights are
+    the anchor, so an activation term alone would be a meaningless number.
     Coverage/uncertainty always describe what was and wasn't counted, so a
     caller never has to infer confidence from the number alone.
     """
@@ -254,7 +282,7 @@ def estimate_request_memory(
 
     weights_gb = round(total_bytes / (1024 ** 3), 2)
     activation_gb = round(_activation_headroom_gb(form_data), 2)
-    lower_bound_gb = (
+    checkpoint_estimate_gb = (
         round(weights_gb * _WEIGHT_LOAD_MARGIN + activation_gb, 2) if known else None
     )
 
@@ -272,7 +300,7 @@ def estimate_request_memory(
     if unknown:
         uncertainty.append(
             f"{len(unknown)} referenced model(s) have no indexed file size "
-            "and are excluded from the lower bound."
+            "and are excluded from the estimate."
         )
     if settings:
         uncertainty.append(
@@ -283,11 +311,11 @@ def estimate_request_memory(
 
     return MemoryEstimateResult(
         estimate=Estimate(
-            lower_bound_gb=lower_bound_gb,
+            checkpoint_estimate_gb=checkpoint_estimate_gb,
             weights_gb=weights_gb,
             activation_gb=activation_gb,
             margin=_WEIGHT_LOAD_MARGIN,
-            basis="sum of known active weights x margin + activation term",
+            basis="sum of known active checkpoint/component weights x load margin + activation term",
         ),
         coverage=Coverage(
             known=known,
@@ -319,9 +347,20 @@ class DeviceEvidence:
 class BudgetEvidence:
     configured_gb: Optional[float]
     source: str
+    # Each ACTIVE pipe's own `vram_limit_gb`, composed with `configured_gb`'s
+    # same backend-cap/device inputs individually - `{pipe, hint_gb,
+    # composed_gb}` per pipe. Deliberately never folded into `configured_gb`
+    # itself: these are per-STAGE hints (e.g. a tiled detailer's own tile
+    # budget), and a preset can declare several with DIFFERENT values, so no
+    # single one of them speaks for the whole request.
+    pipe_hints_gb: List[Dict[str, Any]]
 
     def to_dict(self) -> Dict[str, Any]:
-        return {"configured_gb": self.configured_gb, "source": self.source}
+        return {
+            "configured_gb": self.configured_gb,
+            "source": self.source,
+            "pipe_hints_gb": list(self.pipe_hints_gb),
+        }
 
 
 def resolve_device_evidence(execution_device: str, gpu_monitor: Optional[Any]) -> DeviceEvidence:
@@ -370,39 +409,54 @@ def resolve_device_evidence(execution_device: str, gpu_monitor: Optional[Any]) -
 
 def resolve_budget_evidence(
     backend_cap_gb: Optional[float],
-    pipe_hint_gb: Optional[float],
+    pipe_hints: List[PipeVramHint],
     device: DeviceEvidence,
 ) -> BudgetEvidence:
     """The configured model-loading budget for the backend a preview would
-    route to, composed the same way `effective_vram_budget_gb` (MEM-02)
-    composes it for a real run: the stricter of the backend's `gpu_max_vram`
-    and the preset's own pipe hint, bounded by the device's reported free
-    VRAM when there is one.
+    route to (`configured_gb`), and - SEPARATELY - each active pipe's own
+    `vram_limit_gb` hint composed the same way (`pipe_hints_gb`).
 
-    `configured_gb` is `None` when neither cap is configured. When neither
-    cap is bounded by device evidence (a remote/no-GPU device), the raw
-    stricter cap is reported unbounded rather than dropped - it is still
-    real configuration, just without hardware to check it against.
+    These are not the same number and must never be collapsed into one:
+    `configured_gb` reflects only the backend's own `gpu_max_vram`, bounded
+    by the device's reported free VRAM when there is one (the same
+    `effective_vram_budget_gb` - MEM-02 - composition a real run uses, with
+    no pipe hint folded in) - the budget for the backend as a whole.
+    `pipe_hints_gb` lists each ACTIVE pipe's own per-STAGE hint (e.g. a tiled
+    detailer's own tile budget) composed against that SAME backend cap and
+    device evidence individually, so each entry shows what that one stage
+    would actually be bounded to - never presented as if any single one of
+    them were the whole request's budget.
+
+    `configured_gb` is `None` when the backend has no configured cap at all
+    (`pipe_hints_gb` can still be non-empty in that case). When device
+    evidence is unavailable (a remote/no-GPU/unknown device), a configured
+    cap is reported unbounded rather than dropped - it is still real
+    configuration, just without hardware to check it against.
     """
-    if backend_cap_gb is None and pipe_hint_gb is None:
-        return BudgetEvidence(configured_gb=None, source="not configured")
+    def _compose(hint_gb: Optional[float]) -> Optional[float]:
+        if backend_cap_gb is None and hint_gb is None:
+            return None
+        if device.free_gb is None:
+            caps = [c for c in (backend_cap_gb, hint_gb) if c is not None and c > 0]
+            return round(min(caps), 2) if caps else None
+        return round(effective_vram_budget_gb(backend_cap_gb, hint_gb, device.free_gb), 2)
 
-    if device.free_gb is None:
-        caps = [c for c in (backend_cap_gb, pipe_hint_gb) if c is not None and c > 0]
-        if not caps:
-            return BudgetEvidence(configured_gb=None, source="not configured")
-        return BudgetEvidence(
-            configured_gb=round(min(caps), 2),
-            source="configured cap(s); not bounded by device evidence",
-        )
+    configured_gb = _compose(None)
+    if backend_cap_gb is None:
+        source = "not configured"
+    elif device.free_gb is None:
+        source = "backend gpu_max_vram; not bounded by device evidence"
+    else:
+        source = "backend gpu_max_vram + device free VRAM"
 
-    budget = effective_vram_budget_gb(backend_cap_gb, pipe_hint_gb, device.free_gb)
-    parts = [
-        label for label, cap in (
-            ("backend gpu_max_vram", backend_cap_gb),
-            ("preset pipe hint", pipe_hint_gb),
-        )
-        if cap is not None
+    pipe_hints_gb = [
+        {"pipe": hint.pipe, "hint_gb": hint.hint_gb, "composed_gb": _compose(hint.hint_gb)}
+        for hint in pipe_hints
     ]
-    parts.append("device free VRAM")
-    return BudgetEvidence(configured_gb=round(budget, 2), source=" + ".join(parts))
+    if pipe_hints_gb:
+        source += (
+            f" ({len(pipe_hints_gb)} per-stage pipe hint(s) reported separately in "
+            "pipe_hints_gb, not merged into configured_gb)"
+        )
+
+    return BudgetEvidence(configured_gb=configured_gb, source=source, pipe_hints_gb=pipe_hints_gb)

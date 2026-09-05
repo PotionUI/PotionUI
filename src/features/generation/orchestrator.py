@@ -88,7 +88,7 @@ from src.features.generation.memory_advisory import (
     _activation_headroom_gb,
     _frame_count,
     _parse_resolution,
-    active_pipe_vram_hint_gb,
+    active_pipe_vram_hints,
     estimate_request_memory,
     resolve_budget_evidence,
     resolve_device_evidence,
@@ -154,6 +154,118 @@ def _check_ltx_two_stage_geometry(preset_template, mode: str, form_data: Dict[st
         f"Nearest achievable resolution: {suggested_w}x{suggested_h}. You can also switch Upscale to 2.0x, "
         f"which is always achievable at any resolution."
     )
+
+
+def _prepare_director_form_data(
+    preset_template: PresetTemplate,
+    mode: str,
+    form_data: Dict[str, Any],
+    user_id: Optional[str],
+    settings: Settings,
+) -> Dict[str, Any]:
+    """Pure Video/Music Director canonicalization, shared by `start_generation`
+    and `GenerationOrchestrator.preview_memory` so a preview's active loader
+    set (which the Wan family's `model_loader/wan22` pipes gate on
+    `video_director.needs_t2v_set`/`needs_i2v_set` - see
+    `src.features.video_director.normalize.derive_segment_routing`) is built
+    from the SAME normalized document a real generation would run against,
+    not the raw wire document.
+
+    Validates + canonicalizes `form_data['video_director']`/`['music_director']`
+    against what this preset actually supports, exactly as `start_generation`
+    does before persisting/queuing anything. No enqueue, hook, model load, or
+    persistence here - only dict transforms and a (non-filesystem) storage-path
+    lookup (`Settings.get_file_storage_directory`), so this is safe to call
+    from a preview that must never have a side effect. Returns a NEW dict;
+    `form_data` itself is never mutated.
+
+    Raises:
+        VideoDirectorValidationError / MusicDirectorValidationError: both
+            ValueErrors - a malformed document is a validation failure the
+            caller maps the same way `start_generation` always has (a 400 at
+            the API boundary), never something silently swallowed.
+    """
+    form_data = dict(form_data or {})
+
+    if isinstance(form_data.get('video_director'), dict):
+        capabilities = (preset_template.vars or {}).get('video_director') or {}
+        # A preset's Director capabilities can differ per preset mode
+        # (e.g. MiniMax-H3's `video` vs `refs`) via
+        # `preset_mode_overrides` -- see apply_preset_mode_overlay().
+        capabilities = apply_preset_mode_overlay(capabilities, mode)
+        storage_dir = settings.get_file_storage_directory(user_id)
+        raw_doc = form_data['video_director']
+
+        # The frontend's plain "seed" field (shared with every other
+        # generation mode) still hardcodes -1 into the director document's
+        # own settings.seed, so it never reaches the normalizer. Let an
+        # explicit form seed override the document's -1 here, before
+        # normalization resolves it randomly. A -1/absent form seed changes
+        # nothing: normalize_video_director() still rolls its own.
+        form_seed = form_data.get('seed')
+        if isinstance(form_seed, int) and form_seed != -1:
+            raw_doc = {**raw_doc, 'settings': {**(raw_doc.get('settings') or {}), 'seed': form_seed}}
+
+        normalized_doc = normalize_video_director(raw_doc, capabilities, storage_dir, form_data)
+
+        # A capability-declared `timing` block names a sibling FORM FIELD --
+        # never part of the video_director document itself -- that carries a
+        # generation-time pipe config value the stitched timeline needs to
+        # see. Wan's `motion_latent_count` (SVI Pro 2.0 continuity) is the
+        # first of these -- see the fuller rationale this replaced in
+        # `start_generation`'s git history. A mode with no `timing`
+        # capability leaves the document untouched.
+        timing_capability = capabilities.get('timing')
+        if isinstance(timing_capability, dict):
+            field_name = timing_capability.get('motion_latent_count_field')
+            if field_name:
+                value = form_data.get(field_name)
+                if value is None:
+                    value = timing_capability.get('motion_latent_count_default', 1)
+                normalized_doc = {
+                    **normalized_doc,
+                    'settings': {
+                        **(normalized_doc.get('settings') or {}),
+                        'timing_profile': {'motion_latent_count': value},
+                    },
+                }
+
+        # A per-shot submission ("Generate n selected" in the Video Director
+        # console): the wire document still carries the WHOLE film's
+        # segments, plus `render: {scope: "shots", shot_ids}` naming which
+        # contiguous span to actually execute. Compile that span down AFTER
+        # normalization -- see src/features/video_director/compile.py.
+        # `scope == "film"` (or no `render` key at all) leaves the
+        # normalized document untouched.
+        render = normalized_doc.get('render')
+        if isinstance(render, dict) and render.get('scope') == 'shots':
+            normalized_doc = compile_shot_plan(
+                normalized_doc, render.get('shot_ids') or [], family=capabilities.get('family'),
+            )
+
+        form_data['video_director'] = normalized_doc
+
+    if isinstance(form_data.get('music_director'), dict):
+        music_capabilities = (preset_template.vars or {}).get('music_director') or {}
+        music_capabilities = apply_music_director_mode_overlay(music_capabilities, mode)
+        storage_dir = settings.get_file_storage_directory(user_id)
+        raw_music_doc = form_data['music_director']
+
+        # Same discipline as the Video Director form-seed override above.
+        music_form_seed = form_data.get('seed')
+        if isinstance(music_form_seed, int) and music_form_seed != -1:
+            raw_music_doc = {**raw_music_doc, 'settings': {**(raw_music_doc.get('settings') or {}), 'seed': music_form_seed}}
+
+        music_document = normalize_music_director(raw_music_doc, music_capabilities, storage_dir, form_data)
+        # `compile_sections_to_lyrics` is not wired into the normalizer
+        # itself -- it's a pure function a preset's pipeline calls once its
+        # document is on hand. Every normalized document gets a
+        # `compiled_lyrics` key, always present, so a pipeline.yml can read
+        # `music_director.compiled_lyrics` unconditionally.
+        music_document['compiled_lyrics'] = compile_sections_to_lyrics(music_document.get('sections') or [])
+        form_data['music_director'] = music_document
+
+    return form_data
 
 
 def _estimate_generation_vram_gb(form_data: Any) -> Optional[float]:
@@ -518,20 +630,32 @@ class GenerationOrchestrator:
 
     async def preview_memory(self, request, user_id: str) -> Dict[str, Any]:
         """A non-blocking request memory advisory for a request that has NOT
-        started: binds the form and resolves the backend exactly as
-        `start_generation` does, then reports a lower-bound VRAM estimate
-        plus device/budget evidence - never a fit verdict.
+        started: binds the form, canonicalizes any Video/Music Director
+        document, and resolves the backend exactly as `start_generation`
+        does, then reports a checkpoint-based memory estimate plus
+        device/budget evidence - never a fit verdict.
 
         This method never enqueues, never runs `generation.before_start` or
         any other hook, never loads a model, never allocates GPU memory,
         never mutates a backend or persists a generation record. It reuses
-        only three of `start_generation`'s seams: preset load, `bind_form`,
-        and backend selection (the router when wired, else
-        `backend_registry.select_backend_for_generation`) - none of
-        `start_generation`'s other side-effecting steps (model-access
-        enforcement, Director normalization, origin validation, ...) run
-        here, since a preview reports on a form, not on a submission about to
-        be committed.
+        four of `start_generation`'s seams - preset load, `bind_form`,
+        Director canonicalization (`_prepare_director_form_data`, pure), and
+        backend selection (the router when wired, else
+        `backend_registry.select_backend_for_generation`) - so the pipeline
+        built for the estimate reflects the SAME active loader set a real
+        generation would build (a Wan preset's `model_loader/wan22` pipes
+        gate on the normalized `video_director.needs_t2v_set`/
+        `needs_i2v_set`, which only exist after normalization, not on the raw
+        wire document). None of `start_generation`'s other side-effecting
+        steps (model-access enforcement, origin validation, LTX geometry
+        preflight, ...) run here, since a preview reports on a form, not on a
+        submission about to be committed.
+
+        A Director document that fails its own validation, or a pipeline that
+        fails to build for any other reason, is NOT raised as an HTTP error
+        here (unlike `start_generation`) - the active model set is simply
+        reported unresolved (`coverage.active_set_resolved = False`), since a
+        still-being-edited form is the common case a debounced preview sees.
 
         Raises:
             ValueError: unknown preset (mirrors `start_generation`).
@@ -578,16 +702,22 @@ class GenerationOrchestrator:
             )
 
         try:
+            prepared_form_data = _prepare_director_form_data(
+                preset_template, mode, bound.values, user_id, self.settings
+            )
             built = self.pipeline_builder.build_pipeline(
                 preset_id=preset_template,
-                form_data=bound.values,
+                form_data=prepared_form_data,
                 mode=mode,
                 form_name=bound.form_name,
                 user_id=user_id,
             )
             pipes = built.pipes
         except Exception:
-            logger.debug("preview_memory: pipeline build failed; active model set unresolved", exc_info=True)
+            logger.debug(
+                "preview_memory: Director preparation or pipeline build failed; "
+                "active model set unresolved", exc_info=True,
+            )
             pipes = None
 
         from src.features.models.repository import model_repo
@@ -601,8 +731,8 @@ class GenerationOrchestrator:
         execution_device = getattr(backend, "execution_device", "unestablished")
         device = resolve_device_evidence(execution_device, self.gpu_monitor)
         backend_cap_gb = getattr(backend.config, "gpu_max_vram", None)
-        pipe_hint_gb = active_pipe_vram_hint_gb(pipes) if pipes is not None else None
-        budget = resolve_budget_evidence(backend_cap_gb, pipe_hint_gb, device)
+        pipe_hints = active_pipe_vram_hints(pipes) if pipes is not None else []
+        budget = resolve_budget_evidence(backend_cap_gb, pipe_hints, device)
 
         return {
             'estimate': result.estimate.to_dict(),
@@ -701,141 +831,18 @@ class GenerationOrchestrator:
             # 404-not-403 pattern.
             self._enforce_model_access(bound, user_id)
 
-            # A Video Director document, if present, is untrusted client input:
-            # validate + canonicalize it against what this preset actually
-            # supports before anything is persisted or queued. Raises
-            # VideoDirectorValidationError (a ValueError) which the controller
-            # maps to a 400 - nothing downstream ever sees a malformed document.
-            if isinstance(request.form_data, dict) and isinstance(request.form_data.get('video_director'), dict):
-                capabilities = (preset_template.vars or {}).get('video_director') or {}
-                # A preset's Director capabilities can differ per preset mode
-                # (e.g. MiniMax-H3's `video` vs `refs`) via
-                # `preset_mode_overrides` -- `mode` here is that preset mode,
-                # already resolved above. See apply_preset_mode_overlay().
-                capabilities = apply_preset_mode_overlay(capabilities, mode)
-                storage_dir = self.settings.get_file_storage_directory(user_id)
-                raw_doc = request.form_data['video_director']
-
-                # The frontend's plain "seed" field (shared with every other
-                # generation mode) still hardcodes -1 into the director
-                # document's own settings.seed, so it never reaches the
-                # normalizer. Let an explicit form seed override the
-                # document's -1 here, before normalization resolves it
-                # randomly, so the field a user actually sets is the seed
-                # every mode (including chain, base+index per segment)
-                # ends up using. A -1/absent form seed changes nothing:
-                # normalize_video_director() still rolls its own.
-                form_seed = request.form_data.get('seed')
-                if isinstance(form_seed, int) and form_seed != -1:
-                    raw_doc = {**raw_doc, 'settings': {**(raw_doc.get('settings') or {}), 'seed': form_seed}}
-
-                normalized_doc = normalize_video_director(
-                    raw_doc, capabilities, storage_dir, request.form_data
+            # Video/Music Director documents, if present, are untrusted client
+            # input: validate + canonicalize against what this preset
+            # actually supports before anything is persisted or queued.
+            # Raises VideoDirectorValidationError/MusicDirectorValidationError
+            # (both ValueErrors) which the controller maps to a 400 - nothing
+            # downstream ever sees a malformed document. Shared with
+            # `preview_memory` - see `_prepare_director_form_data`'s docstring
+            # for why that matters for the Wan family's active loader set.
+            if isinstance(request.form_data, dict):
+                request.form_data = _prepare_director_form_data(
+                    preset_template, mode, request.form_data, user_id, self.settings
                 )
-
-                # A capability-declared `timing` block names a sibling FORM
-                # FIELD -- never part of the video_director document itself --
-                # that carries a generation-time pipe config value whose
-                # effect on the stitched timeline compile_shot_plan (and a
-                # reopened document's rail) need to see. Wan's
-                # `motion_latent_count` (SVI Pro 2.0 continuity, svi_pro.yml)
-                # is the first of these: pipeline.yml binds it straight into
-                # generator/chain_video_wan22's config from
-                # `form.svi_motion_latent_count`, so it never reaches
-                # normalize_video_director on its own. Attach it onto
-                # `settings.timing_profile` here, read from the SAME bound
-                # form `_enforce_model_access` already validated above, using
-                # the SAME undefined-only-default semantics as the preset's
-                # own Jinja default (a field present with any value -- the
-                # UI's own default included -- is used as-is; the field
-                # genuinely absent from the form falls back to
-                # `motion_latent_count_default`) -- so compile.py and a
-                # reopened document's rail read the exact value the generator
-                # itself will use, never a guess. A mode with no `timing`
-                # capability (every family besides Wan today) leaves the
-                # document untouched -- see
-                # `chain_video_wan22/geometry.py`'s module docstring.
-                timing_capability = capabilities.get('timing')
-                if isinstance(timing_capability, dict):
-                    field_name = timing_capability.get('motion_latent_count_field')
-                    if field_name:
-                        value = request.form_data.get(field_name)
-                        if value is None:
-                            value = timing_capability.get('motion_latent_count_default', 1)
-                        normalized_doc = {
-                            **normalized_doc,
-                            'settings': {
-                                **(normalized_doc.get('settings') or {}),
-                                'timing_profile': {'motion_latent_count': value},
-                            },
-                        }
-
-                # A per-shot submission ("Generate n selected" in the Video
-                # Director console): the wire document still carries the
-                # WHOLE film's segments (every position-dependent value --
-                # seed, sub_type, packed reference subsets -- is only
-                # correct in that context), plus `render: {scope: "shots",
-                # shot_ids}` naming which contiguous span to actually
-                # execute. Compile that span down AFTER normalization, never
-                # before -- see src/features/video_director/compile.py.
-                # `scope == "film"` (or no `render` key at all) leaves the
-                # normalized document untouched.
-                render = normalized_doc.get('render')
-                if isinstance(render, dict) and render.get('scope') == 'shots':
-                    # `family` (from the SAME post-overlay capabilities block
-                    # normalize_video_director validated the document against,
-                    # never re-derived from the document itself) tells the
-                    # compiler which family's own window-planner arithmetic
-                    # the stitched timeline it rebases keyframes/audio against
-                    # actually follows -- see compile_shot_plan's docstring.
-                    normalized_doc = compile_shot_plan(
-                        normalized_doc, render.get('shot_ids') or [], family=capabilities.get('family'),
-                    )
-
-                request.form_data['video_director'] = normalized_doc
-
-            # A Music Director document, same discipline as Video Director
-            # above: untrusted client input, validated + canonicalized
-            # against what this preset actually supports before anything is
-            # persisted or queued. Raises MusicDirectorValidationError (a
-            # ValueError) which the controller maps to a 400.
-            if isinstance(request.form_data, dict) and isinstance(request.form_data.get('music_director'), dict):
-                music_capabilities = (preset_template.vars or {}).get('music_director') or {}
-                music_capabilities = apply_music_director_mode_overlay(music_capabilities, mode)
-                storage_dir = self.settings.get_file_storage_directory(user_id)
-                raw_music_doc = request.form_data['music_director']
-
-                # Same discipline as the Video Director form-seed override
-                # above: the frontend's plain "seed" field (shared with every
-                # other generation mode) still hardcodes -1 into the document's
-                # own settings.seed, so it never reaches the normalizer. Let an
-                # explicit form seed override the document's -1 here, before
-                # normalization resolves it randomly, so the field a user
-                # actually sets is the seed every reader of the normalized
-                # document (including this preset's own pipeline) sees. A
-                # -1/absent form seed changes nothing: normalize_music_director()
-                # still rolls its own.
-                music_form_seed = request.form_data.get('seed')
-                if isinstance(music_form_seed, int) and music_form_seed != -1:
-                    raw_music_doc = {**raw_music_doc, 'settings': {**(raw_music_doc.get('settings') or {}), 'seed': music_form_seed}}
-
-                music_document = normalize_music_director(
-                    raw_music_doc, music_capabilities, storage_dir, request.form_data
-                )
-                # `compile_sections_to_lyrics` (docs/music-director.md's
-                # `compile: "single_shot"`) is not wired into the normalizer
-                # itself -- it's a pure function a preset's pipeline calls
-                # once its document is on hand. This is that call site: every
-                # normalized document gets a `compiled_lyrics` key, always
-                # present (empty string when `sections` is empty, e.g. a
-                # `t2m` document) so a preset's pipeline.yml can read
-                # `music_director.compiled_lyrics` unconditionally -- Jinja's
-                # StrictUndefined would raise on a missing dict key, not just
-                # a falsy one. A pipeline prefers this over its own plain
-                # lyrics field whenever it's non-empty; see
-                # content/presets/marketplace/MiniMax-Music3/modes/song/pipeline.yml.
-                music_document['compiled_lyrics'] = compile_sections_to_lyrics(music_document.get('sections') or [])
-                request.form_data['music_director'] = music_document
 
             # LTX two-stage upscale geometry: fail fast, before the (expensive)
             # stage-1 render, when the picked resolution/upscale combination

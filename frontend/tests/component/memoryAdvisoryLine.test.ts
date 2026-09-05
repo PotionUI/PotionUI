@@ -4,8 +4,8 @@
 // GPU memory advisory for the current form, driven by the debounced
 // memoryAdvisory.ts controller. Drives the real component with a mocked
 // `previewGenerationMemory` and asserts the rendered copy for a known
-// estimate, a partially-unknown one, a remote backend, and no preset
-// selected at all (nothing rendered).
+// estimate, a partially-unknown one, an unresolved active set, a remote
+// backend, and no preset selected at all (nothing rendered).
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { MemoryPreviewResult } from '$lib/types/api';
 
@@ -25,10 +25,10 @@ function response(data: MemoryPreviewResult) {
 
 function known(): MemoryPreviewResult {
 	return {
-		estimate: { lower_bound_gb: 12.5, weights_gb: 11.36, activation_gb: 1.6, margin: 1.1, basis: 'x' },
+		estimate: { checkpoint_estimate_gb: 12.5, weights_gb: 11.36, activation_gb: 1.6, margin: 1.1, basis: 'x' },
 		coverage: { known: [{ ref: 'ckpt1', size_gb: 11.36 }], unknown: [], active_set_resolved: true, pinned_components_uncounted: true, uncertainty: [] },
 		device: { kind: 'local', free_gb: 20, total_gb: 24, provenance: "this host's GPU monitor" },
-		budget: { configured_gb: 24, source: 'backend gpu_max_vram + device free VRAM' },
+		budget: { configured_gb: 24, source: 'backend gpu_max_vram + device free VRAM', pipe_hints_gb: [] },
 		backend: { id: 'b1', name: 'Local', engine: 'native', driver: 'native.local' }
 	};
 }
@@ -38,32 +38,56 @@ function exceedsBudget(): MemoryPreviewResult {
 	return { ...base, budget: { ...base.budget, configured_gb: 8 } };
 }
 
+function withPipeHints(): MemoryPreviewResult {
+	const base = known();
+	return {
+		...base,
+		budget: {
+			...base.budget,
+			pipe_hints_gb: [
+				{ pipe: 'detailer1', hint_gb: 8, composed_gb: 8 },
+				{ pipe: 'loader1', hint_gb: 32, composed_gb: 24 }
+			]
+		}
+	};
+}
+
 function partiallyUnknown(): MemoryPreviewResult {
 	return {
-		estimate: { lower_bound_gb: null, weights_gb: 0, activation_gb: 0, margin: 1.1, basis: 'x' },
-		coverage: { known: [], unknown: ['ckpt1', 'lora1'], active_set_resolved: true, pinned_components_uncounted: true, uncertainty: ['2 referenced model(s) have no indexed file size and are excluded from the lower bound.'] },
+		estimate: { checkpoint_estimate_gb: null, weights_gb: 0, activation_gb: 0, margin: 1.1, basis: 'x' },
+		coverage: { known: [], unknown: ['ckpt1', 'lora1'], active_set_resolved: true, pinned_components_uncounted: true, uncertainty: ['2 referenced model(s) have no indexed file size and are excluded from the estimate.'] },
 		device: { kind: 'local', free_gb: 20, total_gb: 24, provenance: "this host's GPU monitor" },
-		budget: { configured_gb: 24, source: 'x' },
+		budget: { configured_gb: 24, source: 'x', pipe_hints_gb: [] },
+		backend: { id: 'b1', name: 'Local', engine: 'native', driver: 'native.local' }
+	};
+}
+
+function unresolvedActiveSet(): MemoryPreviewResult {
+	return {
+		estimate: { checkpoint_estimate_gb: null, weights_gb: 0, activation_gb: 0, margin: 1.1, basis: 'x' },
+		coverage: { known: [], unknown: [], active_set_resolved: false, pinned_components_uncounted: true, uncertainty: ['The active model set could not be resolved for this form (pipeline build failed), so no model sizes are counted.'] },
+		device: { kind: 'local', free_gb: 20, total_gb: 24, provenance: "this host's GPU monitor" },
+		budget: { configured_gb: 24, source: 'x', pipe_hints_gb: [] },
 		backend: { id: 'b1', name: 'Local', engine: 'native', driver: 'native.local' }
 	};
 }
 
 function remoteBackend(): MemoryPreviewResult {
 	return {
-		estimate: { lower_bound_gb: 12.5, weights_gb: 11.36, activation_gb: 1.6, margin: 1.1, basis: 'x' },
+		estimate: { checkpoint_estimate_gb: 12.5, weights_gb: 11.36, activation_gb: 1.6, margin: 1.1, basis: 'x' },
 		coverage: { known: [{ ref: 'ckpt1', size_gb: 11.36 }], unknown: [], active_set_resolved: true, pinned_components_uncounted: true, uncertainty: [] },
 		device: { kind: 'remote', free_gb: null, total_gb: null, provenance: 'not reported by the remote worker' },
-		budget: { configured_gb: null, source: 'not configured' },
+		budget: { configured_gb: null, source: 'not configured', pipe_hints_gb: [] },
 		backend: { id: 'r1', name: 'Remote', engine: 'native', driver: 'native.remote' }
 	};
 }
 
 function undeclaredExecutionDeviceBackend(): MemoryPreviewResult {
 	return {
-		estimate: { lower_bound_gb: 12.5, weights_gb: 11.36, activation_gb: 1.6, margin: 1.1, basis: 'x' },
+		estimate: { checkpoint_estimate_gb: 12.5, weights_gb: 11.36, activation_gb: 1.6, margin: 1.1, basis: 'x' },
 		coverage: { known: [{ ref: 'ckpt1', size_gb: 11.36 }], unknown: [], active_set_resolved: true, pinned_components_uncounted: true, uncertainty: [] },
 		device: { kind: 'unknown', free_gb: null, total_gb: null, provenance: 'execution device not declared by this backend' },
-		budget: { configured_gb: null, source: 'not configured' },
+		budget: { configured_gb: null, source: 'not configured', pipe_hints_gb: [] },
 		backend: { id: 'comfy_1', name: 'ComfyUI', engine: 'comfyui', driver: 'comfyui' }
 	};
 }
@@ -103,7 +127,7 @@ describe('MemoryAdvisoryLine', () => {
 		expect(api.api.previewGenerationMemory).not.toHaveBeenCalled();
 	});
 
-	it('renders the estimate and device evidence for a fully known result', async () => {
+	it('renders the checkpoint-based estimate and device evidence, never "lower bound" or "at least"', async () => {
 		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 		vi.mocked(api.api.previewGenerationMemory).mockResolvedValue(response(known()));
 
@@ -111,13 +135,16 @@ describe('MemoryAdvisoryLine', () => {
 		await vi.advanceTimersByTimeAsync(400);
 
 		const text = mounted.line()?.textContent ?? '';
-		expect(text).toContain('Estimated at least ~12.5 GB');
+		expect(text).toContain('Checkpoint-based estimate ~12.5 GB');
 		expect(text).toContain('1 of 1 model size known');
+		expect(text).toContain('runtime use may be lower with quantization or streaming and higher for uncounted components');
 		expect(text).toContain('this GPU reports 20.0 GB free of 24.0 GB');
+		expect(text.toLowerCase()).not.toContain('lower bound');
+		expect(text.toLowerCase()).not.toContain('at least');
 		expect(mounted.line()?.className).toContain('text-fg-subtle');
 	});
 
-	it('warns (text-warning) when the estimate exceeds the configured budget', async () => {
+	it('warns (text-warning) when the estimate is higher than the configured budget', async () => {
 		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 		vi.mocked(api.api.previewGenerationMemory).mockResolvedValue(response(exceedsBudget()));
 
@@ -125,7 +152,7 @@ describe('MemoryAdvisoryLine', () => {
 		await vi.advanceTimersByTimeAsync(400);
 
 		const text = mounted.line()?.textContent ?? '';
-		expect(text).toContain('may exceed the configured VRAM budget');
+		expect(text).toContain('may be higher than the configured VRAM budget');
 		expect(mounted.line()?.className).toContain('text-warning');
 	});
 
@@ -140,7 +167,19 @@ describe('MemoryAdvisoryLine', () => {
 		expect(text).toContain('Estimate unavailable: none of 2 referenced model sizes are indexed');
 	});
 
-	it('reports a remote backend without reading this host\'s GPU numbers', async () => {
+	it('reports the request as unresolved, never "no model references", when the active set could not be built', async () => {
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+		vi.mocked(api.api.previewGenerationMemory).mockResolvedValue(response(unresolvedActiveSet()));
+
+		mounted = mount({});
+		await vi.advanceTimersByTimeAsync(400);
+
+		const text = mounted.line()?.textContent ?? '';
+		expect(text).toContain('Estimate unavailable: the request could not be resolved');
+		expect(text).not.toContain('no model references');
+	});
+
+	it("reports a remote backend without reading this host's GPU numbers", async () => {
 		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 		vi.mocked(api.api.previewGenerationMemory).mockResolvedValue(response(remoteBackend()));
 
@@ -160,5 +199,24 @@ describe('MemoryAdvisoryLine', () => {
 
 		const text = mounted.line()?.textContent ?? '';
 		expect(text).toContain('GPU visibility unknown for this backend');
+	});
+
+	it('shows per-stage pipe hints in the tooltip, scoped separately from the backend budget', async () => {
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+		vi.mocked(api.api.previewGenerationMemory).mockResolvedValue(response(withPipeHints()));
+
+		mounted = mount({});
+		await vi.advanceTimersByTimeAsync(400);
+
+		mounted.line()!.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+		await vi.advanceTimersByTimeAsync(200);
+
+		const tooltip = Array.from(document.body.querySelectorAll('div')).find((el) =>
+			el.textContent?.includes('Per-stage hints')
+		);
+		expect(tooltip, 'tooltip with per-stage hints did not render').toBeTruthy();
+		expect(tooltip!.textContent).toContain('detailer1=8.0 GB');
+		expect(tooltip!.textContent).toContain('loader1=32.0 GB (effective 24.0 GB)');
+		expect(tooltip!.textContent).toContain('not merged into the budget above');
 	});
 });

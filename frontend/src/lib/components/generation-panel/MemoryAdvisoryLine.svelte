@@ -33,15 +33,15 @@
 		return `${value.toFixed(1)} GB`;
 	}
 
-	// `may exceed` is the only case Instrument allows `text-warning` for here -
-	// never a hard red alert, and never blocking: the mark and onGenerate are
-	// completely untouched by this component either way.
+	// `may be higher` is the only case Instrument allows `text-warning` for
+	// here - never a hard red alert, and never blocking: the mark and
+	// onGenerate are completely untouched by this component either way.
 	$: exceedsBudget =
 		state.status === 'ready' &&
 		state.result != null &&
-		state.result.estimate.lower_bound_gb != null &&
+		state.result.estimate.checkpoint_estimate_gb != null &&
 		state.result.budget.configured_gb != null &&
-		state.result.estimate.lower_bound_gb > state.result.budget.configured_gb;
+		state.result.estimate.checkpoint_estimate_gb > state.result.budget.configured_gb;
 
 	$: line = deriveLine(state);
 	$: tooltipText = state.status === 'ready' && state.result ? deriveTooltip(state.result) : '';
@@ -54,9 +54,15 @@
 		const known = coverage.known.length;
 		const total = known + coverage.unknown.length;
 
-		const estimateText =
-			estimate.lower_bound_gb != null
-				? `Estimated at least ~${formatGb(estimate.lower_bound_gb)} for this request (${known} of ${total} model size${total === 1 ? '' : 's'} known)`
+		// A request that itself couldn't be resolved (an in-progress or
+		// invalid Video/Music Director document, or any other pipeline-build
+		// failure) is never "no model references" - the form may carry
+		// plenty of them, they just couldn't be walked. See
+		// `GenerationOrchestrator.preview_memory`'s docstring.
+		const estimateText = !coverage.active_set_resolved
+			? 'Estimate unavailable: the request could not be resolved'
+			: estimate.checkpoint_estimate_gb != null
+				? `Checkpoint-based estimate ~${formatGb(estimate.checkpoint_estimate_gb)} (${known} of ${total} model size${total === 1 ? '' : 's'} known); runtime use may be lower with quantization or streaming and higher for uncounted components`
 				: total > 0
 					? `Estimate unavailable: none of ${total} referenced model size${total === 1 ? '' : 's'} are indexed`
 					: 'Estimate unavailable: no model references in this form';
@@ -70,20 +76,32 @@
 						? 'GPU visibility unknown for this backend'
 						: 'no GPU reported for this backend';
 
-		const budgetText = exceedsBudget ? ' — may exceed the configured VRAM budget' : '';
+		const budgetText = exceedsBudget ? ' — may be higher than the configured VRAM budget' : '';
 
 		return `${estimateText}; ${deviceText}${budgetText}.`;
 	}
 
 	function deriveTooltip(result: NonNullable<MemoryAdvisoryState['result']>): string {
 		const { estimate, coverage, device, budget } = result;
-		return [
+		const parts = [
 			`Basis: ${estimate.basis}`,
 			`Coverage: ${coverage.known.length} known, ${coverage.unknown.length} unknown`,
 			`Device: ${device.provenance}`,
-			`Budget: ${budget.configured_gb != null ? formatGb(budget.configured_gb) : 'not configured'} (${budget.source})`,
-			...coverage.uncertainty
-		].join(' · ');
+			// `budget.configured_gb` is the BACKEND's whole-request budget only -
+			// never a per-pipe hint folded in (see budget.pipe_hints_gb below).
+			`Backend budget: ${budget.configured_gb != null ? formatGb(budget.configured_gb) : 'not configured'} (${budget.source})`
+		];
+		if (budget.pipe_hints_gb.length > 0) {
+			// Per-STAGE hints, distinct from the backend-wide budget above - a
+			// preset can declare several with different values, so none of
+			// them is presented as if it were the whole request's budget.
+			const hints = budget.pipe_hints_gb
+				.map((h) => `${h.pipe}=${formatGb(h.hint_gb)}${h.composed_gb != null ? ` (effective ${formatGb(h.composed_gb)})` : ''}`)
+				.join(', ');
+			parts.push(`Per-stage hints (not merged into the budget above): ${hints}`);
+		}
+		parts.push(...coverage.uncertainty);
+		return parts.join(' · ');
 	}
 </script>
 

@@ -158,7 +158,7 @@ async def test_local_backend_reports_gpu_monitor_device_and_bounded_budget():
     assert result['device']['kind'] == 'local'
     assert result['device']['free_gb'] == 8.0
     assert result['device']['total_gb'] == 24.0
-    assert result['estimate']['lower_bound_gb'] == pytest.approx(round(4.0 * 1.1, 2))
+    assert result['estimate']['checkpoint_estimate_gb'] == pytest.approx(round(4.0 * 1.1, 2))
     assert result['coverage']['known'] == [{'ref': 'ckpt1', 'size_gb': 4.0}]
     # backend cap (10) is stricter than device free (8)? no: min(10, 8) = 8
     assert result['budget']['configured_gb'] == 8.0
@@ -265,7 +265,7 @@ async def test_build_failure_leaves_active_set_unresolved():
         result = await orchestrator.preview_memory(_make_request(), 'user_1')
 
     assert result['coverage']['active_set_resolved'] is False
-    assert result['estimate']['lower_bound_gb'] is None
+    assert result['estimate']['checkpoint_estimate_gb'] is None
 
 
 @pytest.mark.asyncio

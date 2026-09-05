@@ -1,18 +1,30 @@
 /**
- * Debounced, sequence-guarded controller for the generation panel's memory
+ * Debounced, identity-owned controller for the generation panel's memory
  * advisory line. Owns the ONLY refresh path so the panel never fires its own
  * `$effect`/reactive re-request loop off the response it just rendered: a
  * caller just calls `refresh(input)` on every input change, and this module
  * decides whether/when that actually reaches the network.
  *
- * Two independent guards, same discipline as `stores/downloads.ts`'s
- * `listRequestSeq`/`lastAppliedListSeq`:
- *  - a bounded trailing debounce (a burst of `refresh()` calls collapses to
- *    one network request, issued `DEBOUNCE_MS` after the last one), and
- *  - a monotonically increasing request-issuance sequence, so a response for
- *    an input issued earlier can never overwrite the state once a LATER
- *    input has been issued - regardless of which of the two settles first
- *    (the classic out-of-order A-then-B network race).
+ * Ownership, not just sequencing: `currentKey` is a deterministic identity
+ * over the input (preset id, form variant, backend id, form data) that
+ * changes the INSTANT a distinct input is seen in `refresh()` itself -
+ * before the debounce timer even starts, and independent of whether/when any
+ * network request for it is ever issued. Every in-flight request captures
+ * the key that was current when IT was scheduled; on completion it only
+ * publishes if that key still matches `currentKey`. This is what a plain
+ * increasing sequence number gets wrong: a sequence only advances when a
+ * request is actually ISSUED, so a request that's still debouncing (never
+ * issued yet) can't out-rank an older one that already resolved - here,
+ * ownership transfers the moment the newer input is seen, so a stale
+ * response can never publish even transiently, no matter how the two
+ * interleave:
+ *   - A issued (in flight) -> B refresh()'d but still debouncing -> A
+ *     resolves: dropped (currentKey is already B's).
+ *   - A issued -> B issued (both in flight) -> A resolves: dropped
+ *     (currentKey is B's, set the moment B was refresh()'d, before B's own
+ *     debounce even elapsed).
+ *   - A issued -> input cleared (idle) -> A resolves: dropped, idle stays
+ *     idle (currentKey is the idle sentinel).
  */
 import { writable } from 'svelte/store';
 import { api } from '$lib/services/api';
@@ -38,27 +50,27 @@ export const IDLE_ADVISORY_STATE: MemoryAdvisoryState = { status: 'idle', result
 
 const DEBOUNCE_MS = 400;
 
-function sameInput(a: MemoryAdvisoryInput | null, b: MemoryAdvisoryInput): boolean {
-	return (
-		!!a &&
-		a.presetId === b.presetId &&
-		a.mode === b.mode &&
-		a.formName === b.formName &&
-		a.backendId === b.backendId &&
-		JSON.stringify(a.formData) === JSON.stringify(b.formData)
-	);
+// Never a real input's key (see `inputKey` - always produced by JSON.stringify
+// on an object), so nothing can accidentally own it.
+const NOTHING_OWNED_KEY = '';
+
+function inputKey(input: MemoryAdvisoryInput): string {
+	return JSON.stringify({
+		presetId: input.presetId,
+		formName: input.formName ?? null,
+		backendId: input.backendId ?? null,
+		formData: input.formData
+	});
 }
 
 export function createMemoryAdvisoryController() {
 	const store = writable<MemoryAdvisoryState>(IDLE_ADVISORY_STATE);
 
 	let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-	let seq = 0;
-	// Only a response whose request was issued at-or-after this sequence may
-	// still write to the store - an older one arriving late is silently
-	// dropped, never treated as an error either.
-	let lastAppliedSeq = 0;
-	let lastIssuedInput: MemoryAdvisoryInput | null = null;
+	// The input identity currently "owned" by the store - see the module
+	// docstring for why this, not a request-issuance sequence, is what
+	// correctly invalidates a stale in-flight response.
+	let currentKey: string = NOTHING_OWNED_KEY;
 	let disposed = false;
 
 	function clearTimer(): void {
@@ -68,7 +80,7 @@ export function createMemoryAdvisoryController() {
 		}
 	}
 
-	async function run(input: MemoryAdvisoryInput, requestSeq: number): Promise<void> {
+	async function run(input: MemoryAdvisoryInput, key: string): Promise<void> {
 		try {
 			const response = await api.previewGenerationMemory({
 				preset_id: input.presetId as string,
@@ -77,8 +89,7 @@ export function createMemoryAdvisoryController() {
 				form_data: input.formData,
 				backend_id: input.backendId ?? undefined
 			});
-			if (disposed || requestSeq < lastAppliedSeq) return;
-			lastAppliedSeq = requestSeq;
+			if (disposed || key !== currentKey) return;
 			if (response.success && response.data) {
 				store.set({ status: 'ready', result: response.data, error: null });
 			} else {
@@ -89,8 +100,7 @@ export function createMemoryAdvisoryController() {
 				});
 			}
 		} catch (err) {
-			if (disposed || requestSeq < lastAppliedSeq) return;
-			lastAppliedSeq = requestSeq;
+			if (disposed || key !== currentKey) return;
 			store.set({
 				status: 'error',
 				result: null,
@@ -104,28 +114,30 @@ export function createMemoryAdvisoryController() {
 
 		/**
 		 * Requests a refresh for `input`. A no-op when `input` is identical to
-		 * the last one actually issued (a parent's reactive statement re-firing
-		 * with unchanged values never restarts the debounce window). A
-		 * `presetId` of `null` resets to idle immediately - there is nothing to
-		 * estimate yet - without waiting out the debounce.
+		 * the one this controller already owns (a parent's reactive statement
+		 * re-firing with unchanged values never restarts the debounce window
+		 * or disturbs an in-flight request for it). A `presetId` of `null`
+		 * resets to idle immediately - there is nothing to estimate yet -
+		 * without waiting out the debounce, and immediately disowns whatever
+		 * was in flight so it can never resurrect a stale result.
 		 */
 		refresh(input: MemoryAdvisoryInput): void {
 			if (disposed) return;
+			const key = inputKey(input);
+			if (key === currentKey) return;
+
+			currentKey = key; // ownership transfers NOW, before anything is scheduled
+			clearTimer();
+
 			if (!input.presetId) {
-				clearTimer();
-				lastIssuedInput = null;
 				store.set(IDLE_ADVISORY_STATE);
 				return;
 			}
-			if (sameInput(lastIssuedInput, input)) return;
-			lastIssuedInput = input;
 
-			clearTimer();
 			store.set({ status: 'loading', result: null, error: null });
 			debounceTimer = setTimeout(() => {
 				debounceTimer = null;
-				const requestSeq = ++seq;
-				void run(input, requestSeq);
+				void run(input, key);
 			}, DEBOUNCE_MS);
 		},
 

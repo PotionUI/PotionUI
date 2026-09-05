@@ -5,9 +5,11 @@ import {
 	sendMessage,
 	startNewSession,
 	reattachToTurn,
+	isRequestNotStartedError,
 	type ChatApiLike,
 	type TurnControllerDeps,
-	type SendMessagePayload
+	type SendMessagePayload,
+	type RequestNotStartedError
 } from './turnController';
 import type { UnifiedChatMessageData } from '$lib/types/chat';
 
@@ -47,6 +49,20 @@ function basicSendParams(instruction: string, payload?: Partial<SendMessagePaylo
 		buildPayload: () => ({ content: instruction, contextMetadata: {}, ...payload }),
 		createSessionPayload: { mode: 'generation' }
 	};
+}
+
+/** Polls `predicate` on real macrotask ticks (never a tight microtask spin,
+ * which would hang forever if `predicate` never becomes true because the
+ * code under test took a different path than the fixture assumed) and
+ * throws instead of hanging once `timeoutMs` elapses. */
+async function waitFor(predicate: () => boolean, timeoutMs = 1000): Promise<void> {
+	const start = Date.now();
+	while (!predicate()) {
+		if (Date.now() - start > timeoutMs) {
+			throw new Error(`waitFor: condition not met within ${timeoutMs}ms`);
+		}
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	}
 }
 
 beforeEach(() => {
@@ -269,7 +285,7 @@ describe('item 2: ownership re-checked before every outbound call and after prep
 		);
 		// sendMessage awaits `tick()` twice before the stream call — poll
 		// rather than assume it reaches that call synchronously.
-		while (!rejectStream) await Promise.resolve();
+		await waitFor(() => !!rejectStream);
 
 		chatSession.beginTurn();
 		chatSession.patch({ sessionId: 'B', isGenerating: true, error: '', messages: [] });
@@ -301,7 +317,7 @@ describe('item 2: ownership re-checked before every outbound call and after prep
 		);
 		// sendMessage awaits `tick()` twice before the stream call — poll
 		// rather than assume it reaches that call synchronously.
-		while (!deliverEvent) await Promise.resolve();
+		await waitFor(() => !!deliverEvent);
 
 		chatSession.beginTurn();
 		chatSession.patch({ sessionId: 'B', isGenerating: true, error: '', messages: [] });
@@ -316,14 +332,74 @@ describe('item 2: ownership re-checked before every outbound call and after prep
 	});
 });
 
-describe('item 3: no duplicate invocation — accepted evidence gates the fallback', () => {
-	it('allows exactly one non-streaming fallback when the transport fails before any event ever arrived', async () => {
+describe('isRequestNotStartedError', () => {
+	it('is true only for an object literally carrying notStarted: true', () => {
+		expect(isRequestNotStartedError({ notStarted: true })).toBe(true);
+		expect(isRequestNotStartedError(new Error('boom'))).toBe(false);
+		expect(isRequestNotStartedError({ notStarted: false })).toBe(false);
+		expect(isRequestNotStartedError(null)).toBe(false);
+		expect(isRequestNotStartedError(undefined)).toBe(false);
+		expect(isRequestNotStartedError('a string error')).toBe(false);
+		expect(isRequestNotStartedError({ message: 'network dropped' })).toBe(false);
+	});
+});
+
+describe('item 3: no duplicate invocation — only affirmative not-started evidence gates the fallback', () => {
+	it('treats a transport failure with zero delivered events as AMBIGUOUS, not "never started" — reattaches instead of falling back', async () => {
+		// The exact case Codex found broken: the server accepts the streaming
+		// POST and genuinely starts the turn, but the connection drops before
+		// any event is ever delivered to this browser. "No event observed"
+		// must never be read as "the invocation never started" — the only
+		// safe move is the read-only path (reattach, then durable recovery).
+		chatSession.patch({ sessionId: 'A' });
+		let serverInvocations = 0;
+		let fallbackCalls = 0;
+		let reattachCalls = 0;
+		await sendMessage(
+			deps({
+				sendChatMessageStream: async () => {
+					serverInvocations += 1;
+					throw new Error('connection dropped before any event arrived');
+				},
+				reattachChatMessageStream: async () => {
+					reattachCalls += 1;
+					throw new Error('reattach also failed');
+				},
+				sendChatMessage: async () => {
+					fallbackCalls += 1;
+					return { success: true, data: undefined } as any;
+				},
+				getChatSession: async () => ({ success: true, data: { messages: [] } as any })
+			}),
+			basicSendParams('hello')
+		);
+
+		expect(serverInvocations).toBe(1); // the streaming request was issued exactly once
+		expect(fallbackCalls).toBe(0); // never re-invoked the model
+		expect(reattachCalls).toBe(1); // resumed watching the (possibly still-running) backend turn instead
+
+		const state = get(chatSession);
+		const last = state.messages[state.messages.length - 1];
+		expect(last.isStreaming).toBe(false);
+		expect(last.isPartial).toBe(true);
+		expect(state.error.toLowerCase()).toContain('incomplete');
+	});
+
+	it('allows exactly one non-streaming fallback ONLY when the transport affirmatively proves the request was never sent', async () => {
+		// The one narrow case where an automatic resend is safe — encoded as
+		// a typed marker (RequestNotStartedError) rather than inferred from
+		// the absence of events. No real transport in this app produces this
+		// today; this proves the mechanism itself works when something does.
 		chatSession.patch({ sessionId: 'A' });
 		let fallbackCalls = 0;
 		await sendMessage(
 			deps({
 				sendChatMessageStream: async () => {
-					throw new Error('never even connected');
+					const notStartedError: RequestNotStartedError & Error = Object.assign(
+						new Error('DNS resolution failed before the request was ever sent'),
+						{ notStarted: true as const }
+					);
+					throw notStartedError;
 				},
 				sendChatMessage: async () => {
 					fallbackCalls += 1;
@@ -424,67 +500,130 @@ describe('item 3: no duplicate invocation — accepted evidence gates the fallba
 	});
 });
 
-describe('existing controls: late fallback after a newer turn in the same session', () => {
-	it('drops a fallback SUCCESS response arriving after a newer turn started in the same session', async () => {
+describe('existing controls: late read-only recovery after a newer turn in the same session', () => {
+	// A generic (unmarked) stream failure never triggers the fallback — see
+	// `item 3` above — so these two fixtures instead drive the ambiguous
+	// path's own delayed step (reattach fails -> recoverDurableMessage's GET)
+	// and prove a LATE result from that GET can't corrupt whatever a newer
+	// turn already put in the store, whether the GET eventually finds a
+	// match or not.
+	it('drops a stale recovery MATCH arriving after a newer turn started in the same session', async () => {
 		chatSession.patch({ sessionId: 'A' });
+		let streamInvocations = 0;
+		let fallbackCalls = 0;
+		let reattachCalls = 0;
 		let rejectStream: ((err: Error) => void) | undefined;
-		let resolveFallback: ((v: any) => void) | undefined;
+		let rejectReattach: ((err: Error) => void) | undefined;
+		let resolveGetSession: ((v: any) => void) | undefined;
 		const sendPromise = sendMessage(
 			deps({
-				sendChatMessageStream: () => new Promise<void>((_r, reject) => (rejectStream = reject)),
-				sendChatMessage: () => new Promise((resolve) => (resolveFallback = resolve))
+				// message_created arrives (so recoverDurableMessage later has a
+				// user-message id to match against) before the connection dies —
+				// the exact "accepted, then dropped" shape this whole rework is
+				// about.
+				sendChatMessageStream: (_sid, _payload, onEvent) => {
+					streamInvocations += 1;
+					return (async () => {
+						await onEvent!({ type: 'message_created', data: { user_message_id: 'u1' } });
+						return new Promise<void>((_r, reject) => (rejectStream = reject));
+					})();
+				},
+				reattachChatMessageStream: () => {
+					reattachCalls += 1;
+					return new Promise<void>((_r, reject) => (rejectReattach = reject));
+				},
+				sendChatMessage: async () => {
+					fallbackCalls += 1;
+					return { success: false, error: 'must never be called' };
+				},
+				getChatSession: () => new Promise((resolve) => (resolveGetSession = resolve))
 			}),
 			basicSendParams('hello')
 		);
-		while (!rejectStream) await Promise.resolve();
+		await waitFor(() => !!rejectStream);
+		rejectStream!(new Error('connection dropped'));
 
-		rejectStream!(new Error('boom'));
-		while (!resolveFallback) await Promise.resolve();
+		await waitFor(() => !!rejectReattach);
+		rejectReattach!(new Error('reattach also failed'));
 
+		// The recovery GET is now in flight for the retired turn. A newer
+		// turn starts in the same session before it resolves.
+		await waitFor(() => !!resolveGetSession);
 		chatSession.beginTurn();
 		chatSession.patch({ isGenerating: true, error: '' });
 		chatSession.addMessage({ role: 'assistant', content: '', timestamp: Date.now(), isStreaming: true });
 
-		resolveFallback!({
+		resolveGetSession!({
 			success: true,
 			data: {
-				user_message: { id: 'u1', session_id: 's', role: 'user', content: 'hello', created_at: null },
-				assistant_message: { id: 'late-fallback', session_id: 's', role: 'assistant', content: 'should never appear', created_at: null },
-				modified_prompt: null
+				messages: [
+					{ id: 'u1', session_id: 's', role: 'user', content: 'hello', created_at: null },
+					{ id: 'late-recovery', session_id: 's', role: 'assistant', content: 'should never appear', created_at: null }
+				]
 			}
 		});
 		await sendPromise;
 
+		expect(streamInvocations).toBe(1); // the model was invoked exactly once
+		expect(fallbackCalls).toBe(0); // never re-invoked
+		expect(reattachCalls).toBe(1);
+
 		const state = get(chatSession);
-		expect(state.messages).toHaveLength(2); // A's user message (never touched) + the newer turn's placeholder
+		// The read-only path never deletes a retired turn's placeholder (only
+		// the fallback branch's pre-resend cleanup does that, and this path
+		// never reaches it) — so both the orphaned first placeholder and the
+		// newer turn's placeholder are present, and neither was overwritten
+		// by the late, dropped recovery result.
+		expect(state.messages).toHaveLength(3);
 		expect(state.messages[0].content).toBe('hello');
+		expect(state.messages[1].isStreaming).toBe(true);
 		expect(state.messages[1].content).toBe('');
-		expect(state.messages.some((m) => m.id === 'late-fallback')).toBe(false);
+		expect(state.messages[2].isStreaming).toBe(true);
+		expect(state.messages[2].content).toBe('');
+		expect(state.messages.some((m) => m.id === 'late-recovery')).toBe(false);
 	});
 
-	it('drops a fallback FAILURE arriving after a newer turn started in the same session', async () => {
+	it('drops a stale retryable-settle (no durable match found) arriving after a newer turn started in the same session', async () => {
 		chatSession.patch({ sessionId: 'A' });
+		let streamInvocations = 0;
+		let fallbackCalls = 0;
 		let rejectStream: ((err: Error) => void) | undefined;
-		let rejectFallback: ((err: Error) => void) | undefined;
+		let rejectReattach: ((err: Error) => void) | undefined;
+		let resolveGetSession: ((v: any) => void) | undefined;
 		const sendPromise = sendMessage(
 			deps({
-				sendChatMessageStream: () => new Promise<void>((_r, reject) => (rejectStream = reject)),
-				sendChatMessage: () => new Promise((_resolve, reject) => (rejectFallback = reject))
+				sendChatMessageStream: () => {
+					streamInvocations += 1;
+					return new Promise<void>((_r, reject) => (rejectStream = reject));
+				},
+				reattachChatMessageStream: () => new Promise<void>((_r, reject) => (rejectReattach = reject)),
+				sendChatMessage: async () => {
+					fallbackCalls += 1;
+					return { success: false, error: 'must never be called' };
+				},
+				getChatSession: () => new Promise((resolve) => (resolveGetSession = resolve))
 			}),
 			basicSendParams('hello')
 		);
-		while (!rejectStream) await Promise.resolve();
+		await waitFor(() => !!rejectStream);
+		rejectStream!(new Error('connection dropped'));
 
-		rejectStream!(new Error('boom'));
-		while (!rejectFallback) await Promise.resolve();
+		await waitFor(() => !!rejectReattach);
+		rejectReattach!(new Error('reattach also failed'));
 
+		await waitFor(() => !!resolveGetSession);
 		chatSession.beginTurn();
 		chatSession.patch({ isGenerating: true, error: '' });
 
-		rejectFallback!(new Error('also boom'));
+		// No durable message for this (retired) turn — would normally settle
+		// it as retryable and set an error, but the newer turn now owns the
+		// store.
+		resolveGetSession!({ success: true, data: { messages: [] } });
 		await sendPromise;
 
-		expect(get(chatSession).error).toBe(''); // not overwritten by the retired turn's failure
+		expect(streamInvocations).toBe(1);
+		expect(fallbackCalls).toBe(0);
+		expect(get(chatSession).error).toBe(''); // not overwritten by the retired turn's settle
 	});
 });
 

@@ -155,27 +155,8 @@ export async function startNewSession(
 export interface StreamEventHandler {
 	handleEvent: (event: { type: string; data: any }) => Promise<void>;
 	getLastSeq: () => number | undefined;
-	/** Whether the backend demonstrably started processing this turn — any of
-	 * message_created/token/status/tool_start/tool_end/replay_snapshot/
-	 * overflow arriving proves the invocation was accepted server-side, even
-	 * if THIS connection later drops. Used by `sendMessage` to decide whether
-	 * a transport failure may fall back to a fresh non-streaming request
-	 * (never accepted — safe, the model was never actually invoked) or must
-	 * instead reattach/recover (accepted — a resend would duplicate the
-	 * model/tool invocation). */
-	wasAccepted: () => boolean;
 	recoverDurableMessage: () => Promise<void>;
 }
-
-const _ACCEPTANCE_EVENT_TYPES = new Set([
-	'message_created',
-	'token',
-	'status',
-	'tool_start',
-	'tool_end',
-	'replay_snapshot',
-	'overflow'
-]);
 
 /**
  * One SSE event handler, shared by the live send stream and the reattach
@@ -210,7 +191,6 @@ export function createStreamEventHandler(
 	let lastSeq: number | undefined;
 	let partial = false;
 	let recovered = false;
-	let accepted = false;
 	// The identity of the turn we're recovering FOR — the user message it
 	// answers. Seeded when already known (reattaching to a turn whose user
 	// message was already visible in the loaded session); otherwise learned
@@ -273,7 +253,6 @@ export function createStreamEventHandler(
 		// full body — the message it belongs to can't be trusted as
 		// complete even with no replay_snapshot/overflow ever seen.
 		if (event.data?.truncated) partial = true;
-		if (_ACCEPTANCE_EVENT_TYPES.has(event.type)) accepted = true;
 
 		// Drop every event outright once this turn is no longer current —
 		// applying/scrolling for a retired turn, or spending a recovery
@@ -340,7 +319,7 @@ export function createStreamEventHandler(
 		}
 	};
 
-	return { handleEvent, getLastSeq: () => lastSeq, wasAccepted: () => accepted, recoverDurableMessage };
+	return { handleEvent, getLastSeq: () => lastSeq, recoverDurableMessage };
 }
 
 // ---------------------------------------------------------------------------
@@ -357,10 +336,10 @@ export interface ReattachParams {
 
 /**
  * Reattach to a turn still running on the backend (page reload mid-response,
- * or a live send whose transport dropped after the backend already accepted
- * it — see `sendMessage`'s use of this for that case). The persisted
- * messages already include the user message; this adds a streaming
- * assistant placeholder and replays the turn's events into it.
+ * or a live send whose transport failed ambiguously after the request was
+ * already issued — see `sendMessage`'s use of this for that case). The
+ * persisted messages already include the user message; this adds a
+ * streaming assistant placeholder and replays the turn's events into it.
  */
 export async function reattachToTurn(deps: TurnControllerDeps, params: ReattachParams): Promise<void> {
 	const d = withDefaults(deps);
@@ -442,13 +421,60 @@ export interface SendMessageParams {
 }
 
 /**
+ * Affirmative, typed evidence that a streaming request never actually left
+ * the client — e.g. a network-level failure (DNS resolution, connection
+ * refused) that happened before any bytes of the request were sent. This is
+ * the ONLY basis on which `sendMessage` may automatically retry via the
+ * non-streaming fallback: "no event was ever observed by this browser" is
+ * NOT the same claim and must never be treated as one. Once
+ * `sendChatMessageStream` has been called, the backend may have accepted and
+ * started the turn regardless of what happens to this specific connection
+ * afterward (see turns.py: a turn runs to completion independently of any
+ * one subscriber) — a dropped connection, a timeout, a proxy hiccup after
+ * the request landed all look identical to "never started" from here, and
+ * re-invoking the model for any of them would duplicate a real generation.
+ *
+ * No transport in this codebase produces this evidence today — `fetch`
+ * rejections and stream-read errors are generic `Error`s with no way to
+ * distinguish "never sent" from "sent, then the connection died" — so this
+ * mechanism is currently dormant (see `isRequestNotStartedError`'s doc). It
+ * exists so a transport that CAN prove pre-send failure (e.g. wrapping
+ * `fetch` to detect a connection error strictly before `fetch()` itself
+ * resolves any part of the request) has somewhere to plug in without
+ * reintroducing an ambiguous "maybe it started" fallback.
+ */
+export interface RequestNotStartedError {
+	notStarted: true;
+}
+
+/**
+ * Whether `err` carries `RequestNotStartedError`'s marker. Currently always
+ * `false` in practice — see `RequestNotStartedError`'s doc comment — which
+ * means `sendMessage`'s automatic non-streaming fallback is effectively
+ * dormant until a transport is built that can set this affirmatively.
+ */
+export function isRequestNotStartedError(err: unknown): boolean {
+	return (
+		typeof err === 'object' &&
+		err !== null &&
+		'notStarted' in err &&
+		(err as Record<'notStarted', unknown>).notStarted === true
+	);
+}
+
+/**
  * Send `instruction` as a new turn: creates a session first if none exists,
- * streams the response, and falls back to a single non-streaming request
- * ONLY when the streaming transport failed before the backend ever accepted
- * the turn (see `StreamEventHandler.wasAccepted`) — once accepted, a
- * transport failure re-attaches to watch the (still-running, backend-owned)
- * turn resume instead of ever re-sending the instruction, which would
- * duplicate the model/tool invocation.
+ * streams the response, and treats any streaming transport failure as
+ * AMBIGUOUS by default — once `sendChatMessageStream` has been called, a
+ * failure could mean the request never reached the server, or that it did
+ * and the backend turn is still running there; this module cannot tell the
+ * difference (see `RequestNotStartedError`), and "zero events observed"
+ * proves nothing either way. The safe default is always the read-only path:
+ * reattach to watch the (possibly still-running, backend-owned) turn resume,
+ * then durable recovery if that also fails — never re-sending the
+ * instruction, which would duplicate the model/tool invocation. The
+ * non-streaming fallback fires automatically ONLY when the caught error
+ * carries `RequestNotStartedError`'s affirmative evidence — today, never.
  *
  * Ownership ({sessionId, turnSeq}) is established before any await at all
  * (turnSeq) or taken directly from session creation's own return value
@@ -498,16 +524,18 @@ export async function sendMessage(deps: TurnControllerDeps, params: SendMessageP
 		} catch (err: any) {
 			if (!owned.isCurrent()) return;
 
-			if (handler.wasAccepted()) {
-				// The backend turn was genuinely accepted (message_created/a
-				// token/a status/a tool event already arrived) and keeps
-				// running there regardless of this connection — never
-				// re-send the instruction, that would duplicate the
-				// model/tool invocation. Re-attach to resume watching it;
+			if (!isRequestNotStartedError(err)) {
+				// The default, ambiguous case: the request was issued and we
+				// have no affirmative proof it never reached the server — a
+				// dropped connection before the first event is not evidence
+				// of "never started" (see this function's own doc comment).
+				// Never re-send; always go read-only: re-attach to resume
+				// watching the (possibly still-running, backend-owned) turn;
 				// if that also fails, or the turn already finished and was
 				// evicted, handleEvent's own recovery settles the message
 				// from the durable record, or as an explicit, visibly
 				// incomplete, retryable state if nothing durable exists.
+				d.logError?.('Stream transport failed ambiguously; reattaching rather than resending:', err);
 				try {
 					if (!owned.isCurrent()) return;
 					await d.api.reattachChatMessageStream(owned.captured.sessionId, handler.handleEvent, {
@@ -519,9 +547,11 @@ export async function sendMessage(deps: TurnControllerDeps, params: SendMessageP
 				return;
 			}
 
-			// Never accepted — the invocation demonstrably never started
-			// server-side; a non-streaming resend is safe exactly once.
-			d.logError?.('Stream error, falling back to non-streaming:', err);
+			// Affirmative not-started evidence (see RequestNotStartedError) —
+			// a non-streaming resend is safe exactly once. No transport in
+			// this codebase produces this today; this branch is dormant
+			// until one does.
+			d.logError?.('Stream request never reached the server, falling back to non-streaming:', err);
 			owned.updateMessages((msgs) =>
 				msgs.filter((m, idx) => !(idx === msgs.length - 1 && m.role === 'assistant' && m.isStreaming))
 			);

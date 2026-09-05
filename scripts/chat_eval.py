@@ -445,24 +445,17 @@ def _outcome_from_tool_execution(execution: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-def turn_transcript_messages(
-    user_text: str, events: List[Dict[str, Any]],
-) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
-    """One turn's SSE events -> transcript messages (evaluator.py's shape) +
-    the persisted ``assistant_message`` from ``done`` (``None`` if it never arrived).
+def _messages_from_assistant_message(assistant_message: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The persisted ``assistant_message`` (from a ``done`` event, or replayed
+    from an artifact) -> transcript messages (evaluator.py's shape), never
+    including the user's own message (the caller already has that text).
 
-    Built from the authoritative ``done`` event's ``assistant_message.tool_executions``
-    (the same persisted record ``chatStream.ts``'s ``applyDone`` reads) rather
-    than reconstructing state from the live ``tool_start``/``tool_end`` deltas —
-    those exist for incremental UI rendering, ``done`` is the source of truth.
-    Pure and network-free so it is directly unit-testable.
+    Built from ``assistant_message.tool_executions`` (the same persisted
+    record ``chatStream.ts``'s ``applyDone`` reads) rather than reconstructing
+    state from the live ``tool_start``/``tool_end`` deltas — those exist for
+    incremental UI rendering, the persisted record is the source of truth.
     """
-    messages: List[Dict[str, Any]] = [{"role": "user", "content": user_text}]
-    done = next((e for e in events if e["event"] == "done"), None)
-    if done is None:
-        return messages, None
-
-    assistant_message = done.get("data", {}).get("assistant_message") or {}
+    messages: List[Dict[str, Any]] = []
     executions = assistant_message.get("tool_executions") or []
     if executions:
         tool_calls = [{"name": te.get("tool_name"), "arguments": te.get("arguments") or {}} for te in executions]
@@ -479,9 +472,22 @@ def turn_transcript_messages(
                 # discarding it - see _run_scenario_live's tool_durations_ms.
                 "duration_ms": te.get("duration_ms"),
             })
-
     messages.append({"role": "assistant", "content": assistant_message.get("content") or ""})
-    return messages, assistant_message
+    return messages
+
+
+def turn_transcript_messages(
+    user_text: str, events: List[Dict[str, Any]],
+) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
+    """One turn's SSE events -> transcript messages (evaluator.py's shape) +
+    the persisted ``assistant_message`` from ``done`` (``None`` if it never arrived).
+    Pure and network-free so it is directly unit-testable.
+    """
+    done = next((e for e in events if e["event"] == "done"), None)
+    if done is None:
+        return [{"role": "user", "content": user_text}], None
+    assistant_message = done.get("data", {}).get("assistant_message") or {}
+    return [{"role": "user", "content": user_text}, *_messages_from_assistant_message(assistant_message)], assistant_message
 
 
 def _resolve_config(base_url: str, token: Optional[str], config_ref: str) -> Dict[str, Any]:
@@ -544,6 +550,71 @@ def _artifact_path(transcripts_dir: Path, run_id: str, variant: Optional[str], c
     return transcripts_dir / run_id / (variant or "base") / config_id / f"{scenario_id}.json"
 
 
+def _attempt_turn(
+    base_url: str, token: Optional[str], session_id: str, payload: Dict[str, Any], turn_index: int,
+) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
+    """Attempt one turn against the real streaming endpoint. NEVER raises —
+    every failure mode becomes a structured ``failure`` record IN the
+    returned evidence, so a caller can always persist what actually happened
+    (a first-turn success followed by a later failure included) instead of
+    an unhandled exception discarding the whole scenario's evidence.
+
+    Returns ``(turn_evidence, assistant_message_or_None)``. ``turn_evidence``
+    always carries ``request``; ``raw_sse_text``/``events`` are filled in as
+    far as the attempt got before failing (so a request that DID reach the
+    backend, or bytes that WERE received, are never silently lost).
+    ``failure`` is ``None`` on success, else
+    ``{"stage": "http"|"transport"|"decode"|"framing", "error": str, "turn_index": int}``:
+
+    - ``"http"``: the HTTP request itself failed (non-2xx status, DNS/connect
+      failure) — see ``_HttpError``.
+    - ``"transport"``: a lower-level read failure escaped that wrapping
+      (connection reset, incomplete read, timeout mid-stream); any partial
+      bytes the exception carries (e.g. ``http.client.IncompleteRead.partial``)
+      are preserved as ``raw_sse_text`` rather than lost.
+    - ``"decode"``: the full response text was received but a ``data:`` line
+      failed to parse as JSON (malformed/truncated SSE payload).
+    - ``"framing"``: the SSE lines parsed fine but the event sequence itself
+      is incomplete or signals failure — an explicit ``error`` event, or no
+      ``done``/``error`` event at all.
+    """
+    evidence: Dict[str, Any] = {"request": payload, "raw_sse_text": None, "events": None, "error": None, "failure": None}
+    url = f"{base_url}/api/chat/sessions/{session_id}/messages/stream"
+
+    try:
+        raw_text = _http_text("POST", url, token, payload)
+    except _HttpError as e:
+        evidence["failure"] = {"stage": "http", "error": str(e), "turn_index": turn_index}
+        return evidence, None
+    except Exception as e:  # noqa: BLE001 - a transport failure that escaped _HttpError's own wrapping
+        partial = getattr(e, "partial", None)
+        if isinstance(partial, (bytes, bytearray)):
+            evidence["raw_sse_text"] = partial.decode(errors="replace")
+        evidence["failure"] = {"stage": "transport", "error": str(e), "turn_index": turn_index}
+        return evidence, None
+
+    evidence["raw_sse_text"] = raw_text
+    try:
+        events = parse_sse_events(raw_text)
+    except Exception as e:  # noqa: BLE001 - malformed/truncated SSE data
+        evidence["failure"] = {"stage": "decode", "error": str(e), "turn_index": turn_index}
+        return evidence, None
+    evidence["events"] = events
+
+    error_event = next((e for e in events if e["event"] == "error"), None)
+    if error_event is not None:
+        evidence["error"] = json.dumps(error_event.get("data"))
+        evidence["failure"] = {"stage": "framing", "error": evidence["error"], "turn_index": turn_index}
+        return evidence, None
+
+    done = next((e for e in events if e["event"] == "done"), None)
+    if done is None:
+        evidence["failure"] = {"stage": "framing", "error": "no 'done' event received", "turn_index": turn_index}
+        return evidence, None
+
+    return evidence, done.get("data", {}).get("assistant_message") or {}
+
+
 def _run_scenario_live(
     base_url: str, token: Optional[str], config: Dict[str, Any], scenario_id: str,
     scenario: Dict[str, Any], variant: Optional[str], tool_schemas: Dict[str, Dict],
@@ -578,29 +649,55 @@ def _run_scenario_live(
     errors: List[str] = []
     last_assistant: Optional[Dict[str, Any]] = None
 
-    for turn_text in scenario["user_turns"]:
+    for turn_index, turn_text in enumerate(scenario["user_turns"]):
         payload: Dict[str, Any] = {"content": turn_text}
         if context_metadata is not None:
             payload["context_metadata"] = context_metadata
-        raw_text = _http_text("POST", f"{base_url}/api/chat/sessions/{session_id}/messages/stream", token, payload)
-        events = parse_sse_events(raw_text)
-        error_event = next((e for e in events if e["event"] == "error"), None)
-        turn_error = json.dumps(error_event.get("data")) if error_event is not None else None
-        turns_evidence.append({"request": payload, "raw_sse_text": raw_text, "events": events, "error": turn_error})
-        if turn_error is not None:
-            errors.append(f"turn {turn_text!r}: {turn_error}")
-            continue
 
-        turn_messages, assistant_message = turn_transcript_messages(turn_text, events)
-        all_messages.extend(turn_messages)
+        # Evidence is appended UNCONDITIONALLY, before failure is even known,
+        # so a turn that fails (at any stage - transport, decode, framing)
+        # still leaves its attempted request (and whatever partial evidence
+        # was received) in the artifact rather than being lost to an
+        # exception that unwound past the point turns_evidence would have
+        # been appended.
+        turn_evidence, assistant_message = _attempt_turn(base_url, token, session_id, payload, turn_index)
+        turns_evidence.append(turn_evidence)
+        all_messages.append({"role": "user", "content": turn_text})
+
         if assistant_message is None:
-            errors.append(f"turn {turn_text!r}: no 'done' event received")
-            continue
+            errors.append(f"turn {turn_index} {turn_text!r}: {turn_evidence['failure']}")
+            break  # the conversation is now incomplete - later turns build on a reply that never arrived
+
+        all_messages.extend(_messages_from_assistant_message(assistant_message))
         last_assistant = assistant_message
         all_executions.extend(assistant_message.get("tool_executions") or [])
 
     http_completed = not errors
-    transcript_record = {"version": 1, "scenario": scenario_id, "messages": all_messages}
+
+    behavior_trace = ((last_assistant or {}).get("metadata") or {}).get("behavior_trace") or {}
+    ledger = behavior_trace.get("context_ledger") or {}
+    budget = ledger.get("budget") or {}
+    prompt_tokens = (last_assistant or {}).get("prompt_tokens")
+    completion_tokens = (last_assistant or {}).get("completion_tokens")
+    behavior_trace_steps = behavior_trace.get("steps")
+
+    transcript_record = {
+        "version": 1, "scenario": scenario_id, "messages": all_messages,
+        # The live wire protocol doesn't expose real intra-turn round
+        # boundaries (see evaluate_transcript's docstring) - stored IN the
+        # transcript so re-scoring a saved artifact later reproduces this
+        # without the caller having to remember to pass a flag.
+        "round_boundaries_known": False,
+        # The real backend's own accounting for the last completed turn, when
+        # available - evaluate_transcript's budget_pressure_observed check
+        # prefers this over recomputing locally. {} (falsy) when no ledger
+        # was ever produced (e.g. the conversation never completed a turn).
+        "budget_ledger": budget,
+    }
+
+    # ALWAYS write the artifact - even a scenario that failed partway through
+    # keeps whatever turns did complete, plus every attempted turn's evidence
+    # (including the failing one), linked from its own report row.
     artifact_path = _artifact_path(transcripts_dir, run_id, variant, config["id"], scenario_id)
     artifact_path.parent.mkdir(parents=True, exist_ok=True)
     artifact = {
@@ -612,22 +709,24 @@ def _run_scenario_live(
     artifact_path.write_text(json.dumps(artifact, indent=2) + "\n")
 
     if http_completed:
-        # The live wire protocol doesn't expose real intra-turn round
-        # boundaries (see evaluate_transcript's docstring) - never score
-        # max_tool_rounds as if the folded per-turn grouping were reliable.
-        evaluation = evaluate_transcript(scenario, transcript_record, tool_schemas, round_boundaries_known=False)
+        evaluation = evaluate_transcript(scenario, transcript_record, tool_schemas)
         task_passed = evaluation.passed
         checks = [asdict(r) for r in evaluation.results]
     else:
+        # An incomplete conversation is never scored as if it were a complete
+        # one: report exactly what failed, plus an explicit unverified
+        # placeholder for every check this scenario declared - its evidence
+        # was never reached, which is a different thing from "failed".
         task_passed = False
         checks = [{"check": "http_completed", "passed": False, "detail": "; ".join(errors), "unverified": False}]
-
-    behavior_trace = ((last_assistant or {}).get("metadata") or {}).get("behavior_trace") or {}
-    ledger = behavior_trace.get("context_ledger") or {}
-    budget = ledger.get("budget") or {}
-    prompt_tokens = (last_assistant or {}).get("prompt_tokens")
-    completion_tokens = (last_assistant or {}).get("completion_tokens")
-    behavior_trace_steps = behavior_trace.get("steps")
+        checks.extend(
+            {
+                "check": c.get("type", "unknown"), "passed": False, "unverified": True,
+                "detail": "conversation ended before this check's evidence was available - see the "
+                          "artifact's per-turn 'failure' record",
+            }
+            for c in scenario.get("checks", [])
+        )
 
     return {
         "scenario": scenario_id,

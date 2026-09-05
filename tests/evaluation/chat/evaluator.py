@@ -29,6 +29,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from src.features.llm import context_budget
+
 
 @dataclass
 class CheckResult:
@@ -479,6 +481,75 @@ def _check_capability_declined(transcript: Dict[str, Any], params: Dict[str, Any
     return CheckResult("capability_declined", passed, detail)
 
 
+def _prior_conversation(transcript: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Every message BEFORE the final answer under evaluation — the actual
+    prior conversation a real turn would hand to the budget accounting,
+    never the answer currently being scored."""
+    messages = [m for m in transcript.get("messages", []) if m.get("role") in ("user", "assistant", "system")]
+    if messages and messages[-1].get("role") == "assistant" and not messages[-1].get("tool_calls"):
+        messages = messages[:-1]
+    return messages
+
+
+def _check_budget_pressure_observed(transcript: Dict[str, Any], params: Dict[str, Any]) -> CheckResult:
+    """``{capacity_tokens, reserve_tokens}``: the conversation's OWN prior
+    history genuinely exceeds the stated capacity and was actually trimmed —
+    a prose claim of "long history" is not evidence, real accounting is.
+
+    Two sources, in priority order:
+
+    1. ``transcript["budget_ledger"]`` — the REAL backend's own
+       ``context_budget.enforce_budget`` ledger for a live capture (see
+       ``scripts/chat_eval.py``'s ``_run_scenario_live``), authoritative
+       because it reflects the actual provider/tokenizer accounting.
+    2. Recomputed via the SAME real ``context_budget.enforce_budget``
+       function over this transcript's own prior conversation (everything
+       before the final answer) — used for a canned/replay transcript, which
+       carries no real backend ledger. Never a second, invented heuristic.
+
+    Reports ``unverified`` (never a silent pass) when neither source can
+    produce a number — e.g. too little prior conversation to meaningfully
+    evaluate, or a live capture whose ledger genuinely wasn't available.
+    """
+    ledger = transcript.get("budget_ledger")
+    if ledger:
+        dropped = ledger.get("messages_dropped")
+        source = "the real backend's own reported context_ledger.budget (live run)"
+    else:
+        history = _prior_conversation(transcript)
+        if len(history) < 2:
+            return CheckResult(
+                "budget_pressure_observed", False,
+                "not enough prior conversation in this transcript to evaluate budget pressure",
+                unverified=True,
+            )
+        outcome = context_budget.enforce_budget(
+            capacity_tokens=params["capacity_tokens"],
+            capacity_source="test",
+            reserve_tokens=params["reserve_tokens"],
+            system_message=None,
+            messages=history,
+            tool_schemas=None,
+        )
+        dropped = outcome.ledger["messages_dropped"]
+        source = (
+            f"recomputed via the real context_budget.enforce_budget over this transcript's own "
+            f"{len(history)} prior message(s) at the stated {params['capacity_tokens']}-token capacity"
+        )
+    if dropped is None:
+        return CheckResult(
+            "budget_pressure_observed", False,
+            "no messages_dropped figure available from either the live ledger or a local recompute",
+            unverified=True,
+        )
+    passed = dropped > 0
+    detail = f"{dropped} message(s) dropped under pressure ({source})" if passed else (
+        f"0 messages dropped ({source}) - this transcript's prior conversation did not actually "
+        "exceed the stated capacity, so no real pressure was observed"
+    )
+    return CheckResult("budget_pressure_observed", passed, detail)
+
+
 _CHECKS: Dict[str, Callable[[Dict[str, Any], Dict[str, Any]], CheckResult]] = {
     "tool_call_present": _check_tool_call_present,
     "final_answer_contains_all": _check_final_answer_contains_all,
@@ -489,6 +560,7 @@ _CHECKS: Dict[str, Callable[[Dict[str, Any], Dict[str, Any]], CheckResult]] = {
     "dry_run_never_enqueues": _check_dry_run_never_enqueues,
     "error_then_recovery": _check_error_then_recovery,
     "capability_declined": _check_capability_declined,
+    "budget_pressure_observed": _check_budget_pressure_observed,
 }
 
 
@@ -496,22 +568,33 @@ def evaluate_transcript(
     scenario: Dict[str, Any],
     transcript: Dict[str, Any],
     tool_schemas: Dict[str, Dict],
-    round_boundaries_known: bool = True,
+    round_boundaries_known: Optional[bool] = None,
 ) -> ScenarioEvaluation:
     """Run the structural checks plus the scenario's declared checks.
 
-    ``round_boundaries_known`` (default ``True``, the case for every canned
-    fixture, which is authored with one assistant tool-calls message per
-    real tool-loop round) must be passed ``False`` when scoring a transcript
-    whose per-turn tool calls were folded from a source that doesn't expose
-    real intra-turn round boundaries (the live SSE wire protocol emits one
+    ``round_boundaries_known`` defaults to reading
+    ``transcript.get("round_boundaries_known", True)`` — the qualifier lives
+    IN the transcript/artifact data itself (set by whatever recorded it —
+    ``scripts/chat_eval.py``'s ``_run_scenario_live`` stamps ``False`` onto a
+    live capture) rather than being a caller-only flag, so re-scoring a saved
+    artifact later reproduces the same result without the caller having to
+    remember which recording path produced it. An explicit argument still
+    overrides the transcript's own value when a caller genuinely needs to.
+
+    Every canned fixture is authored with one assistant tool-calls message
+    per real tool-loop round, so it defaults ``True``. A transcript whose
+    per-turn tool calls were folded from a source that doesn't expose real
+    intra-turn round boundaries (the live SSE wire protocol emits one
     "thinking" status per TURN, not per round — see
-    ``scripts/chat_eval.py``'s ``turn_transcript_messages``). In that case a
-    scenario's ``max_tool_rounds`` check is replaced with an ``unverified``
-    result instead of being computed against the folded (and therefore
-    unreliable) grouping — reporting "we can't tell" beats silently deriving
-    a value that might read as a pass when the real round count was higher.
+    ``scripts/chat_eval.py``'s ``turn_transcript_messages``) must carry
+    ``round_boundaries_known: false``. In that case a scenario's
+    ``max_tool_rounds`` check is replaced with an ``unverified`` result
+    instead of being computed against the folded (and therefore unreliable)
+    grouping — reporting "we can't tell" beats silently deriving a value that
+    might read as a pass when the real round count was higher.
     """
+    if round_boundaries_known is None:
+        round_boundaries_known = transcript.get("round_boundaries_known", True)
     results = [_check_tool_validity(transcript, tool_schemas, scenario.get("tool_names"))]
     for check in scenario.get("checks", []):
         check = dict(check)

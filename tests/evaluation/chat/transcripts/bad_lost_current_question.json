@@ -4,19 +4,203 @@
   "messages": [
     {
       "role": "user",
-      "content": "Why does raising cfg above 8 give me crunchy artifacts on SDXL?"
+      "content": "Why does raising cfg above 8 give me crunchy, over-sharpened artifacts on SDXL?"
     },
     {
       "role": "assistant",
-      "content": "High cfg over-sharpens SDXL's guidance, which shows up as crunchy, over-saturated detail - try staying in the 4-7 range."
+      "content": "High cfg pushes SDXL's classifier-free guidance further past the model's trained distribution on every denoising step, and that extra push compounds step over step - by the time you reach the final steps the latent has been nudged so far from anything the model saw in training that decoding it back to pixels produces crunchy, over-saturated micro-contrast and blown highlights instead of clean detail. Staying in the 4-7 range keeps each step's correction small enough that the accumulated drift never leaves the model's comfortable manifold, which is why the same prompt looks smooth at cfg 5 and fried at cfg 12."
     },
     {
       "role": "user",
-      "content": "And should I use dpmpp_2m or euler_a for portraits?"
+      "content": "Should I use dpmpp_2m or euler_a for portraits?"
     },
     {
       "role": "assistant",
-      "content": "dpmpp_2m tends to give smoother skin tones for portraits; euler_a is a bit noisier but faster to preview with."
+      "content": "dpmpp_2m's second-order correction gives it noticeably smoother skin-tone gradients and fewer visible banding artifacts around jawlines and cheekbones, which matters a lot for portraits where the eye is trained to notice unevenness in skin. euler_a is a first-order ancestral sampler - it injects fresh noise every step, which keeps outputs varied across seeds and previews fast, but that same injected noise is exactly what shows up as a slightly grainier, less controlled result on a close-up face. For a final portrait render I'd reach for dpmpp_2m; for quickly previewing composition and pose ideas euler_a is fine."
+    },
+    {
+      "role": "user",
+      "content": "What resolution should I render SDXL portraits at before any upscaling pass?"
+    },
+    {
+      "role": "assistant",
+      "content": "SDXL was trained predominantly on images bucketed around 1024x1024 total pixels, so anything close to that area - 896x1152, 1024x1024, 1152x896 - sits inside the model's comfortable training distribution and produces coherent anatomy. Pushing much higher natively (say 1536x1536) without any tiling or refinement pass tends to duplicate features - a second head, an extra hand - because the model is being asked to compose a scene at a scale it never actually saw enough examples of during training."
+    },
+    {
+      "role": "user",
+      "content": "How aggressive should my negative prompt be for a clean portrait?"
+    },
+    {
+      "role": "assistant",
+      "content": "A negative prompt that lists a dozen unrelated defects (extra fingers, bad anatomy, blurry, watermark, text, signature, jpeg artifacts, low quality, worst quality, deformed, mutated, disfigured) mostly just burns guidance budget on things the checkpoint was already unlikely to produce, and can make faces look slightly over-corrected and waxy as the model steers hard away from a huge blocked region of latent space. Keeping it to the handful of defects you've actually seen THIS checkpoint produce tends to read as more natural than throwing the whole standard negative-prompt kitchen sink at every generation."
+    },
+    {
+      "role": "user",
+      "content": "Does the VAE actually matter for portrait sharpness?"
+    },
+    {
+      "role": "assistant",
+      "content": "Yes, more than people expect - the VAE is what turns the model's internal latent representation back into pixels, and a mismatched or lower-precision VAE can introduce a visible haze or slight color shift even when the underlying generation was perfectly sharp in latent space. Baking in the wrong VAE, or running the stock VAE in fp16 without the fixed weights, is a classic cause of portraits that look slightly washed out or have a faint magenta cast no amount of sampler tuning will fix."
+    },
+    {
+      "role": "user",
+      "content": "(follow-up 2) Why does raising cfg above 8 give me crunchy, over-sharpened artifacts on SDXL?"
+    },
+    {
+      "role": "assistant",
+      "content": "High cfg pushes SDXL's classifier-free guidance further past the model's trained distribution on every denoising step, and that extra push compounds step over step - by the time you reach the final steps the latent has been nudged so far from anything the model saw in training that decoding it back to pixels produces crunchy, over-saturated micro-contrast and blown highlights instead of clean detail. Staying in the 4-7 range keeps each step's correction small enough that the accumulated drift never leaves the model's comfortable manifold, which is why the same prompt looks smooth at cfg 5 and fried at cfg 12."
+    },
+    {
+      "role": "user",
+      "content": "(follow-up 2) Should I use dpmpp_2m or euler_a for portraits?"
+    },
+    {
+      "role": "assistant",
+      "content": "dpmpp_2m's second-order correction gives it noticeably smoother skin-tone gradients and fewer visible banding artifacts around jawlines and cheekbones, which matters a lot for portraits where the eye is trained to notice unevenness in skin. euler_a is a first-order ancestral sampler - it injects fresh noise every step, which keeps outputs varied across seeds and previews fast, but that same injected noise is exactly what shows up as a slightly grainier, less controlled result on a close-up face. For a final portrait render I'd reach for dpmpp_2m; for quickly previewing composition and pose ideas euler_a is fine."
+    },
+    {
+      "role": "user",
+      "content": "(follow-up 2) What resolution should I render SDXL portraits at before any upscaling pass?"
+    },
+    {
+      "role": "assistant",
+      "content": "SDXL was trained predominantly on images bucketed around 1024x1024 total pixels, so anything close to that area - 896x1152, 1024x1024, 1152x896 - sits inside the model's comfortable training distribution and produces coherent anatomy. Pushing much higher natively (say 1536x1536) without any tiling or refinement pass tends to duplicate features - a second head, an extra hand - because the model is being asked to compose a scene at a scale it never actually saw enough examples of during training."
+    },
+    {
+      "role": "user",
+      "content": "(follow-up 2) How aggressive should my negative prompt be for a clean portrait?"
+    },
+    {
+      "role": "assistant",
+      "content": "A negative prompt that lists a dozen unrelated defects (extra fingers, bad anatomy, blurry, watermark, text, signature, jpeg artifacts, low quality, worst quality, deformed, mutated, disfigured) mostly just burns guidance budget on things the checkpoint was already unlikely to produce, and can make faces look slightly over-corrected and waxy as the model steers hard away from a huge blocked region of latent space. Keeping it to the handful of defects you've actually seen THIS checkpoint produce tends to read as more natural than throwing the whole standard negative-prompt kitchen sink at every generation."
+    },
+    {
+      "role": "user",
+      "content": "(follow-up 2) Does the VAE actually matter for portrait sharpness?"
+    },
+    {
+      "role": "assistant",
+      "content": "Yes, more than people expect - the VAE is what turns the model's internal latent representation back into pixels, and a mismatched or lower-precision VAE can introduce a visible haze or slight color shift even when the underlying generation was perfectly sharp in latent space. Baking in the wrong VAE, or running the stock VAE in fp16 without the fixed weights, is a classic cause of portraits that look slightly washed out or have a faint magenta cast no amount of sampler tuning will fix."
+    },
+    {
+      "role": "user",
+      "content": "(follow-up 3) Why does raising cfg above 8 give me crunchy, over-sharpened artifacts on SDXL?"
+    },
+    {
+      "role": "assistant",
+      "content": "High cfg pushes SDXL's classifier-free guidance further past the model's trained distribution on every denoising step, and that extra push compounds step over step - by the time you reach the final steps the latent has been nudged so far from anything the model saw in training that decoding it back to pixels produces crunchy, over-saturated micro-contrast and blown highlights instead of clean detail. Staying in the 4-7 range keeps each step's correction small enough that the accumulated drift never leaves the model's comfortable manifold, which is why the same prompt looks smooth at cfg 5 and fried at cfg 12."
+    },
+    {
+      "role": "user",
+      "content": "(follow-up 3) Should I use dpmpp_2m or euler_a for portraits?"
+    },
+    {
+      "role": "assistant",
+      "content": "dpmpp_2m's second-order correction gives it noticeably smoother skin-tone gradients and fewer visible banding artifacts around jawlines and cheekbones, which matters a lot for portraits where the eye is trained to notice unevenness in skin. euler_a is a first-order ancestral sampler - it injects fresh noise every step, which keeps outputs varied across seeds and previews fast, but that same injected noise is exactly what shows up as a slightly grainier, less controlled result on a close-up face. For a final portrait render I'd reach for dpmpp_2m; for quickly previewing composition and pose ideas euler_a is fine."
+    },
+    {
+      "role": "user",
+      "content": "(follow-up 3) What resolution should I render SDXL portraits at before any upscaling pass?"
+    },
+    {
+      "role": "assistant",
+      "content": "SDXL was trained predominantly on images bucketed around 1024x1024 total pixels, so anything close to that area - 896x1152, 1024x1024, 1152x896 - sits inside the model's comfortable training distribution and produces coherent anatomy. Pushing much higher natively (say 1536x1536) without any tiling or refinement pass tends to duplicate features - a second head, an extra hand - because the model is being asked to compose a scene at a scale it never actually saw enough examples of during training."
+    },
+    {
+      "role": "user",
+      "content": "(follow-up 3) How aggressive should my negative prompt be for a clean portrait?"
+    },
+    {
+      "role": "assistant",
+      "content": "A negative prompt that lists a dozen unrelated defects (extra fingers, bad anatomy, blurry, watermark, text, signature, jpeg artifacts, low quality, worst quality, deformed, mutated, disfigured) mostly just burns guidance budget on things the checkpoint was already unlikely to produce, and can make faces look slightly over-corrected and waxy as the model steers hard away from a huge blocked region of latent space. Keeping it to the handful of defects you've actually seen THIS checkpoint produce tends to read as more natural than throwing the whole standard negative-prompt kitchen sink at every generation."
+    },
+    {
+      "role": "user",
+      "content": "(follow-up 3) Does the VAE actually matter for portrait sharpness?"
+    },
+    {
+      "role": "assistant",
+      "content": "Yes, more than people expect - the VAE is what turns the model's internal latent representation back into pixels, and a mismatched or lower-precision VAE can introduce a visible haze or slight color shift even when the underlying generation was perfectly sharp in latent space. Baking in the wrong VAE, or running the stock VAE in fp16 without the fixed weights, is a classic cause of portraits that look slightly washed out or have a faint magenta cast no amount of sampler tuning will fix."
+    },
+    {
+      "role": "user",
+      "content": "(follow-up 4) Why does raising cfg above 8 give me crunchy, over-sharpened artifacts on SDXL?"
+    },
+    {
+      "role": "assistant",
+      "content": "High cfg pushes SDXL's classifier-free guidance further past the model's trained distribution on every denoising step, and that extra push compounds step over step - by the time you reach the final steps the latent has been nudged so far from anything the model saw in training that decoding it back to pixels produces crunchy, over-saturated micro-contrast and blown highlights instead of clean detail. Staying in the 4-7 range keeps each step's correction small enough that the accumulated drift never leaves the model's comfortable manifold, which is why the same prompt looks smooth at cfg 5 and fried at cfg 12."
+    },
+    {
+      "role": "user",
+      "content": "(follow-up 4) Should I use dpmpp_2m or euler_a for portraits?"
+    },
+    {
+      "role": "assistant",
+      "content": "dpmpp_2m's second-order correction gives it noticeably smoother skin-tone gradients and fewer visible banding artifacts around jawlines and cheekbones, which matters a lot for portraits where the eye is trained to notice unevenness in skin. euler_a is a first-order ancestral sampler - it injects fresh noise every step, which keeps outputs varied across seeds and previews fast, but that same injected noise is exactly what shows up as a slightly grainier, less controlled result on a close-up face. For a final portrait render I'd reach for dpmpp_2m; for quickly previewing composition and pose ideas euler_a is fine."
+    },
+    {
+      "role": "user",
+      "content": "(follow-up 4) What resolution should I render SDXL portraits at before any upscaling pass?"
+    },
+    {
+      "role": "assistant",
+      "content": "SDXL was trained predominantly on images bucketed around 1024x1024 total pixels, so anything close to that area - 896x1152, 1024x1024, 1152x896 - sits inside the model's comfortable training distribution and produces coherent anatomy. Pushing much higher natively (say 1536x1536) without any tiling or refinement pass tends to duplicate features - a second head, an extra hand - because the model is being asked to compose a scene at a scale it never actually saw enough examples of during training."
+    },
+    {
+      "role": "user",
+      "content": "(follow-up 4) How aggressive should my negative prompt be for a clean portrait?"
+    },
+    {
+      "role": "assistant",
+      "content": "A negative prompt that lists a dozen unrelated defects (extra fingers, bad anatomy, blurry, watermark, text, signature, jpeg artifacts, low quality, worst quality, deformed, mutated, disfigured) mostly just burns guidance budget on things the checkpoint was already unlikely to produce, and can make faces look slightly over-corrected and waxy as the model steers hard away from a huge blocked region of latent space. Keeping it to the handful of defects you've actually seen THIS checkpoint produce tends to read as more natural than throwing the whole standard negative-prompt kitchen sink at every generation."
+    },
+    {
+      "role": "user",
+      "content": "(follow-up 4) Does the VAE actually matter for portrait sharpness?"
+    },
+    {
+      "role": "assistant",
+      "content": "Yes, more than people expect - the VAE is what turns the model's internal latent representation back into pixels, and a mismatched or lower-precision VAE can introduce a visible haze or slight color shift even when the underlying generation was perfectly sharp in latent space. Baking in the wrong VAE, or running the stock VAE in fp16 without the fixed weights, is a classic cause of portraits that look slightly washed out or have a faint magenta cast no amount of sampler tuning will fix."
+    },
+    {
+      "role": "user",
+      "content": "(follow-up 5) Why does raising cfg above 8 give me crunchy, over-sharpened artifacts on SDXL?"
+    },
+    {
+      "role": "assistant",
+      "content": "High cfg pushes SDXL's classifier-free guidance further past the model's trained distribution on every denoising step, and that extra push compounds step over step - by the time you reach the final steps the latent has been nudged so far from anything the model saw in training that decoding it back to pixels produces crunchy, over-saturated micro-contrast and blown highlights instead of clean detail. Staying in the 4-7 range keeps each step's correction small enough that the accumulated drift never leaves the model's comfortable manifold, which is why the same prompt looks smooth at cfg 5 and fried at cfg 12."
+    },
+    {
+      "role": "user",
+      "content": "(follow-up 5) Should I use dpmpp_2m or euler_a for portraits?"
+    },
+    {
+      "role": "assistant",
+      "content": "dpmpp_2m's second-order correction gives it noticeably smoother skin-tone gradients and fewer visible banding artifacts around jawlines and cheekbones, which matters a lot for portraits where the eye is trained to notice unevenness in skin. euler_a is a first-order ancestral sampler - it injects fresh noise every step, which keeps outputs varied across seeds and previews fast, but that same injected noise is exactly what shows up as a slightly grainier, less controlled result on a close-up face. For a final portrait render I'd reach for dpmpp_2m; for quickly previewing composition and pose ideas euler_a is fine."
+    },
+    {
+      "role": "user",
+      "content": "(follow-up 5) What resolution should I render SDXL portraits at before any upscaling pass?"
+    },
+    {
+      "role": "assistant",
+      "content": "SDXL was trained predominantly on images bucketed around 1024x1024 total pixels, so anything close to that area - 896x1152, 1024x1024, 1152x896 - sits inside the model's comfortable training distribution and produces coherent anatomy. Pushing much higher natively (say 1536x1536) without any tiling or refinement pass tends to duplicate features - a second head, an extra hand - because the model is being asked to compose a scene at a scale it never actually saw enough examples of during training."
+    },
+    {
+      "role": "user",
+      "content": "(follow-up 5) How aggressive should my negative prompt be for a clean portrait?"
+    },
+    {
+      "role": "assistant",
+      "content": "A negative prompt that lists a dozen unrelated defects (extra fingers, bad anatomy, blurry, watermark, text, signature, jpeg artifacts, low quality, worst quality, deformed, mutated, disfigured) mostly just burns guidance budget on things the checkpoint was already unlikely to produce, and can make faces look slightly over-corrected and waxy as the model steers hard away from a huge blocked region of latent space. Keeping it to the handful of defects you've actually seen THIS checkpoint produce tends to read as more natural than throwing the whole standard negative-prompt kitchen sink at every generation."
+    },
+    {
+      "role": "user",
+      "content": "(follow-up 5) Does the VAE actually matter for portrait sharpness?"
+    },
+    {
+      "role": "assistant",
+      "content": "Yes, more than people expect - the VAE is what turns the model's internal latent representation back into pixels, and a mismatched or lower-precision VAE can introduce a visible haze or slight color shift even when the underlying generation was perfectly sharp in latent space. Baking in the wrong VAE, or running the stock VAE in fp16 without the fixed weights, is a classic cause of portraits that look slightly washed out or have a faint magenta cast no amount of sampler tuning will fix."
     },
     {
       "role": "user",

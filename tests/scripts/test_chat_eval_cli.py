@@ -21,6 +21,9 @@ if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
 import chat_eval  # noqa: E402
+from tests.evaluation.chat import fixtures as chat_fixtures  # noqa: E402
+from tests.evaluation.chat import tool_snapshot  # noqa: E402
+from tests.evaluation.chat.evaluator import evaluate_transcript  # noqa: E402
 
 
 def _config_response(config_id="cfg-1", name="My Ollama", **overrides):
@@ -225,16 +228,16 @@ class TestBaseAndVariantProduceDistinctArtifacts:
         assert base_row["passed"] is True
         assert variant_row["passed"] is False
 
-        from tests.evaluation.chat import fixtures as chat_fixtures, tool_snapshot
-        from tests.evaluation.chat.evaluator import evaluate_transcript
-
         scenario = chat_fixtures.load_all_scenarios()["factual_answer_context"]
         tool_schemas = tool_snapshot.schemas_by_name()
         for row in (base_row, variant_row):
             artifact = json.loads(Path(row["transcript"]).read_text())
             assert artifact["turns"], "raw per-turn evidence (request + raw SSE + events) must be preserved"
             assert artifact["turns"][0]["raw_sse_text"], "the exact raw SSE text as received must be preserved"
-            re_scored = evaluate_transcript(scenario, artifact["transcript"], tool_schemas, round_boundaries_known=False)
+            assert artifact["transcript"]["round_boundaries_known"] is False, (
+                "the round-boundary qualifier must live IN the artifact's transcript, not depend on the caller"
+            )
+            re_scored = evaluate_transcript(scenario, artifact["transcript"], tool_schemas)
             assert re_scored.passed == row["passed"], "re-scoring the saved artifact must reproduce its own row's score"
 
 
@@ -289,3 +292,212 @@ class TestTurnTranscriptFromDoneEvent:
         messages, _ = chat_eval.turn_transcript_messages("bump steps", events)
         tool_message = next(m for m in messages if m["role"] == "tool")
         assert tool_message["outcome"] == "pending_approval"
+
+
+class TestFailureSafeArtifacts:
+    """_run_scenario_live must persist per-turn evidence AS IT HAPPENS, never
+    lose it to an exception partway through, and score an incomplete
+    conversation honestly (http_completed False, passed False, the
+    scenario's own declared checks reported unverified rather than silently
+    evaluated against a truncated transcript)."""
+
+    def _run_single_scenario(self, monkeypatch, tmp_path, scenario_id, responder):
+        config = _config_response(config_id="cfg-1")
+
+        def full_responder(method, url, payload):
+            if method == "GET" and url.endswith("/api/llm/configurations/cfg-1"):
+                return json.dumps({"success": True, "data": config})
+            if method == "POST" and url.endswith("/api/chat/sessions"):
+                return json.dumps({"success": True, "data": {"id": "sess-1"}})
+            return responder(method, url, payload)
+
+        _install_fake_http(monkeypatch, full_responder)
+        args = chat_eval.build_parser().parse_args([
+            "run", "--config", "cfg-1", "--scenario", scenario_id,
+            "--transcripts-dir", str(tmp_path / "transcripts"),
+            "--out", str(tmp_path / "report.json"),
+        ])
+        chat_eval.cmd_run(args)
+        report = json.loads((tmp_path / "report.json").read_text())
+        row = next(r for r in report["results"] if r["scenario"] == scenario_id)
+        artifact = json.loads(Path(row["transcript"]).read_text())
+        return row, artifact
+
+    def test_first_turn_success_then_second_turn_http_failure(self, monkeypatch, tmp_path):
+        scenario = chat_fixtures.load_all_scenarios()["long_history_latest_question"]
+        first_question = scenario["user_turns"][0]
+        calls = {"stream": 0}
+
+        def responder(method, url, payload):
+            if method == "POST" and "/messages/stream" in url:
+                calls["stream"] += 1
+                if calls["stream"] == 1:
+                    return 'event: done\ndata: {"assistant_message": {"content": "noted"}}\n\n'
+                raise chat_eval._HttpError("POST ... -> HTTP 500: boom")
+            raise AssertionError(f"unexpected call: {method} {url}")
+
+        row, artifact = self._run_single_scenario(monkeypatch, tmp_path, "long_history_latest_question", responder)
+
+        assert row["http_completed"] is False
+        assert row["passed"] is False
+        assert len(artifact["turns"]) == 2, "both the successful first turn and the failing second turn are recorded"
+        assert artifact["turns"][0]["failure"] is None
+        assert artifact["turns"][0]["events"] is not None, "the first turn's real evidence must survive the later failure"
+        assert artifact["turns"][1]["failure"] == {
+            "stage": "http", "error": "POST ... -> HTTP 500: boom", "turn_index": 1,
+        }
+        assert artifact["transcript"]["messages"][0] == {"role": "user", "content": first_question}
+        # Every scenario-declared check gets an explicit unverified placeholder
+        # rather than being silently scored against the truncated transcript.
+        declared_check_types = {c["type"] for c in scenario["checks"]}
+        unverified_types = {c["check"] for c in row["checks"] if c.get("unverified")}
+        assert declared_check_types <= unverified_types
+
+    def test_malformed_truncated_sse_data_is_classified_as_decode_failure(self, monkeypatch, tmp_path):
+        def responder(method, url, payload):
+            if method == "POST" and "/messages/stream" in url:
+                return 'event: done\ndata: {"assistant_message": {"content": "x"'  # truncated JSON
+            raise AssertionError(f"unexpected call: {method} {url}")
+
+        row, artifact = self._run_single_scenario(monkeypatch, tmp_path, "explicit_generation_dry_run", responder)
+
+        assert row["http_completed"] is False
+        assert row["passed"] is False
+        assert len(artifact["turns"]) == 1
+        assert artifact["turns"][0]["raw_sse_text"], "the raw text that WAS received must be preserved even though it failed to decode"
+        assert artifact["turns"][0]["failure"]["stage"] == "decode"
+
+    def test_partial_transport_read_preserves_available_partial_evidence(self, monkeypatch, tmp_path):
+        class _FakeIncompleteRead(Exception):
+            def __init__(self, partial: bytes):
+                super().__init__("incomplete read")
+                self.partial = partial
+
+        partial_bytes = b'event: token\ndata: {"content": "still gener'
+
+        def responder(method, url, payload):
+            if method == "POST" and "/messages/stream" in url:
+                raise _FakeIncompleteRead(partial_bytes)
+            raise AssertionError(f"unexpected call: {method} {url}")
+
+        row, artifact = self._run_single_scenario(monkeypatch, tmp_path, "explicit_generation_dry_run", responder)
+
+        assert row["http_completed"] is False
+        assert artifact["turns"][0]["failure"]["stage"] == "transport"
+        assert artifact["turns"][0]["raw_sse_text"] == partial_bytes.decode(), (
+            "partial bytes read before the transport failure must not be discarded"
+        )
+
+    def test_passing_control_and_re_score_of_a_failed_artifact_reproduces_its_score(self, monkeypatch, tmp_path):
+        """A scenario that fails and one that fully succeeds in the SAME run
+        both get their own correct, independently re-scorable result."""
+        good_config = _config_response(config_id="cfg-1")
+
+        def responder(method, url, payload):
+            if method == "POST" and "/messages/stream" in url:
+                if "dry fox" in payload["content"] or "SDXL base preset" in payload["content"]:
+                    return (
+                        'event: done\ndata: {"assistant_message": {"content": '
+                        '"I\'ve set up a red fox in the snow at 1024x1024 on the SDXL base preset - '
+                        'approve to start it running.", "tool_executions": [{"tool_name": "start_generation", '
+                        '"arguments": {"preset_id": "sdxl/base", "prompt": "a red fox in the snow"}, '
+                        '"pending_approval": true, "result": {"success": false, "data": '
+                        '"{\\"status\\": \\"pending_approval\\"}"}}]}}\n\n'
+                    )
+                raise chat_eval._HttpError("boom")
+            raise AssertionError(f"unexpected call: {method} {url}")
+
+        config = good_config
+
+        def full_responder(method, url, payload):
+            if method == "GET" and url.endswith("/api/llm/configurations/cfg-1"):
+                return json.dumps({"success": True, "data": config})
+            if method == "POST" and url.endswith("/api/chat/sessions"):
+                return json.dumps({"success": True, "data": {"id": f"sess-{payload['name']}"}})
+            return responder(method, url, payload)
+
+        _install_fake_http(monkeypatch, full_responder)
+        args = chat_eval.build_parser().parse_args([
+            "run", "--config", "cfg-1",
+            "--scenario", "explicit_generation_dry_run", "--scenario", "long_history_latest_question",
+            "--transcripts-dir", str(tmp_path / "transcripts"),
+            "--out", str(tmp_path / "report.json"),
+        ])
+        chat_eval.cmd_run(args)
+        report = json.loads((tmp_path / "report.json").read_text())
+
+        passing = next(r for r in report["results"] if r["scenario"] == "explicit_generation_dry_run")
+        failing = next(r for r in report["results"] if r["scenario"] == "long_history_latest_question")
+        assert passing["http_completed"] is True and passing["passed"] is True
+        assert failing["http_completed"] is False and failing["passed"] is False
+
+        tool_schemas = tool_snapshot.schemas_by_name()
+        passing_scenario = chat_fixtures.load_all_scenarios()["explicit_generation_dry_run"]
+        passing_artifact = json.loads(Path(passing["transcript"]).read_text())
+        re_scored = evaluate_transcript(passing_scenario, passing_artifact["transcript"], tool_schemas)
+        assert re_scored.passed == passing["passed"]
+
+        failing_artifact = json.loads(Path(failing["transcript"]).read_text())
+        assert failing_artifact["turns"][0]["failure"]["stage"] == "http"
+        assert Path(failing["transcript"]).is_file()
+
+
+class TestBudgetPressureReachesLiveTurn:
+    """The long_history_latest_question scenario's pressure must reach the
+    ACTUAL evaluated live turn - every padding turn is sent as a real turn to
+    the same session, and the final turn's real backend ledger (not a
+    standalone unit test) is what proves the pressure was observed."""
+
+    def test_every_padding_turn_is_sent_and_pressure_is_observed_via_the_real_ledger(self, monkeypatch, tmp_path):
+        config = _config_response(config_id="cfg-1")
+        scenario = chat_fixtures.load_all_scenarios()["long_history_latest_question"]
+        expected_turns = len(scenario["user_turns"])
+        seen_payloads = []
+
+        def responder(method, url, payload):
+            if method == "GET" and url.endswith("/api/llm/configurations/cfg-1"):
+                return json.dumps({"success": True, "data": config})
+            if method == "POST" and url.endswith("/api/chat/sessions"):
+                return json.dumps({"success": True, "data": {"id": "sess-1"}})
+            if method == "POST" and "/messages/stream" in url:
+                seen_payloads.append(payload)
+                is_last = len(seen_payloads) == expected_turns
+                assistant_message = {
+                    "content": (
+                        "For a 2x video upscale, reach for a dedicated video upscaler rather than a "
+                        "still-image one." if is_last else "Noted, thanks."
+                    ),
+                }
+                if is_last:
+                    # The REAL backend's own reported ledger for this final turn -
+                    # this, not a standalone unit test, is what the report's
+                    # budget_pressure_observed check must key off of.
+                    assistant_message["metadata"] = {"behavior_trace": {"context_ledger": {"budget": {
+                        "capacity_tokens": 4096, "capacity_source": "config",
+                        "accounting": "estimate", "measured": False, "messages_dropped": 12,
+                    }}}}
+                return f'event: done\ndata: {json.dumps({"assistant_message": assistant_message})}\n\n'
+            raise AssertionError(f"unexpected call: {method} {url}")
+
+        _install_fake_http(monkeypatch, responder)
+        args = chat_eval.build_parser().parse_args([
+            "run", "--config", "cfg-1", "--scenario", "long_history_latest_question",
+            "--transcripts-dir", str(tmp_path / "transcripts"),
+            "--out", str(tmp_path / "report.json"),
+        ])
+        chat_eval.cmd_run(args)
+
+        assert len(seen_payloads) == expected_turns, "every padding turn must be sent as a real turn, not just the final question"
+        assert [p["content"] for p in seen_payloads] == scenario["user_turns"], "the final question must still be the last real turn sent"
+
+        report = json.loads((tmp_path / "report.json").read_text())
+        row = report["results"][0]
+        assert row["http_completed"] is True
+
+        pressure_check = next(c for c in row["checks"] if c["check"] == "budget_pressure_observed")
+        assert pressure_check["passed"] is True
+        assert "real backend" in pressure_check["detail"]
+
+        latest_question_check = next(c for c in row["checks"] if c["check"] == "latest_question_reflected")
+        assert latest_question_check["passed"] is True
+        assert row["passed"] is True

@@ -49,12 +49,20 @@ these three tools in this order." See `evaluator.py`'s `_CHECKS` for the full
 vocabulary (`tool_call_present`, `final_answer_contains_all`,
 `final_answer_not_contains`, `max_tool_rounds`, `latest_question_reflected`,
 `truthful_apply_status`, `dry_run_never_enqueues`, `error_then_recovery`,
-`capability_declined`), plus one structural check that always runs regardless
-of scenario: every tool call names a tool available to THAT scenario (not
-just anything in the registry) with schema-valid arguments — type, required,
-enum, numeric bounds (`minimum`/`maximum`/`exclusiveMinimum`/`exclusiveMaximum`),
-array length (`minItems`/`maxItems`), and nested object/array shapes, checked
-against the tool's real JSON schema. `error_then_recovery` requires a
+`capability_declined`, `budget_pressure_observed`), plus one structural check
+that always runs regardless of scenario: every tool call names a tool
+available to THAT scenario (not just anything in the registry) with
+schema-valid arguments — type, required, enum, numeric bounds
+(`minimum`/`maximum`/`exclusiveMinimum`/`exclusiveMaximum`), array length
+(`minItems`/`maxItems`), and nested object/array shapes, checked against the
+tool's real JSON schema. `budget_pressure_observed` (`{capacity_tokens,
+reserve_tokens}`) proves a scenario's history genuinely exceeded a stated
+compact capacity and was actually trimmed — real backend evidence
+(`transcript["budget_ledger"]`, set by a live capture) when available, else a
+recompute over the transcript's own prior conversation via the SAME real
+`context_budget.enforce_budget` used elsewhere; never a prose "long history"
+label taken on faith, and `unverified` (not a silent pass) when neither
+source can produce a number. `error_then_recovery` requires a
 POSITIVELY successful call after the last error — never a `pending_approval`/
 `stale`/`rejected` outcome, which is evidence the action wasn't actually
 carried out, not evidence of recovery. A property schema carrying a
@@ -86,15 +94,19 @@ this is what a CI-adjacent sanity check would run. `--scenario <id>` (repeatable
 restricts to specific scenarios; `--out <path>` writes the report JSON to a
 file instead of printing it to stdout.
 
-The pytest suite covers the same fixtures plus negative cases, including
-`test_long_history_budget_pressure.py`, which proves the
-`long_history_latest_question` scenario's history genuinely exceeds a stated
-compact capacity through the SAME accounting the app uses
-(`src.features.llm.context_budget.enforce_budget`) — the scenario's
-`context.budget_pressure` block states its capacity assumption explicitly
-(`capacity_tokens`, `capacity_source`, `reserve_tokens`) rather than relying
-on a prose label, and the test asserts real trimming occurs while the
-current turn's own question survives it:
+The `long_history_latest_question` scenario's pressure is not a side fixture:
+its padding Q&A pairs ARE the scenario's own `user_turns` (so a live `run`
+actually sends every one of them as a real turn to the same session before
+the final question) and the SAME sequence makes up the `.good` transcript's
+message history (so `replay`'s `evaluate_transcript` scores the final answer
+against that pressurized conversation, via the `budget_pressure_observed`
+check above). `context.budget_pressure` states the capacity assumption
+explicitly (`capacity_tokens`, `capacity_source`, `reserve_tokens`);
+`test_long_history_budget_pressure.py` is the direct, standalone proof that
+this history exceeds it through the real `context_budget.enforce_budget` and
+that the current turn's own question survives the trim.
+
+The pytest suite covers the same fixtures plus negative cases:
 
 ```bash
 PYTHONPATH=./venv/lib/python3.12/site-packages:. python -m pytest tests/evaluation/chat -q --no-cov
@@ -142,11 +154,32 @@ earlier this command wrote every config/variant's evidence to the same
 config's evidence overwrite the earlier one's. The report's `transcript`
 field names a row's own artifact file, and re-loading that file's
 `transcript` key and re-running `evaluate_transcript` on it reproduces that
-row's exact score (see `tests/scripts/test_chat_eval_cli.py`'s
+row's exact score with no extra argument — the artifact's `transcript`
+carries its own `round_boundaries_known: false` and `budget_ledger` (the real
+backend's accounting for its last completed turn, when one exists) as data,
+not a caller-only flag (see `tests/scripts/test_chat_eval_cli.py`'s
 `TestBaseAndVariantProduceDistinctArtifacts`). `http_completed` (did every
 turn finish without an HTTP/stream error) is reported separately from
 `passed` (did the captured transcript pass its scenario's checks) — a turn
 can complete successfully over HTTP and still fail a task check.
+
+Per-turn evidence is written to the artifact even when a turn fails partway
+through: each attempt is classified `{"stage": "http"|"transport"|"decode"|
+"framing", "error": str, "turn_index": int}` (`http` — the request itself
+failed; `transport` — a lower-level read failure, with any partial bytes the
+exception carries preserved as `raw_sse_text` rather than lost; `decode` —
+the response arrived but a `data:` line wasn't valid JSON; `framing` — the
+SSE lines parsed but the event sequence itself signals failure or never
+produced a `done`), and a scenario stops at the first failing turn rather
+than pressing on with a conversation built on a reply that never arrived.
+The artifact is written REGARDLESS — a scenario that fails on turn 2 of 5
+still keeps turns 1's real evidence and turn 2's failure record, linked from
+its own report row, never silently dropped. Such a row reports
+`http_completed: false`, `passed: false`, and an explicit `unverified`
+placeholder for every check the scenario declared (its evidence was never
+reached — a different thing from "failed") rather than silently scoring a
+truncated conversation as if it were complete (see
+`tests/scripts/test_chat_eval_cli.py`'s `TestFailureSafeArtifacts`).
 
 Every mutating tool a scenario can reach (`update_form_settings`,
 `start_generation`, `propose_form_changes`, `run_generation`, ...) is already

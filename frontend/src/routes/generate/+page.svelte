@@ -4,7 +4,7 @@
 	import type { PromptTabData, DirectorRunState } from '$lib/types/tabs';
 	import { authStore } from '$lib/stores/auth';
 	import { api, type GenerationRequest, type PromptPair } from '$lib/services/api';
-	import { buildSegmentsPayload, buildVariablesPayload, mapGenerationFiles } from '$lib/utils/generationOrchestrator';
+	import { buildSegmentsPayload, buildVariablesPayload } from '$lib/utils/generationOrchestrator';
 	import { findUndefinedVariableUsages } from '$lib/utils/promptVariables';
 	import { buildSessionRestoreTabPatch } from '$lib/utils/sessionRestore';
 	import {
@@ -24,7 +24,7 @@
 	import PresetControls from './components/PresetControls.svelte';
 	import StudioView from './components/studio/StudioView.svelte';
 	import { resolveNegativeApplicability } from '$lib/generation/negativeApplied';
-	import { leadIndex } from '$lib/generation/leadFile';
+	import { reconcileTabGenerations } from '$lib/generation/restore/reconcile';
 	import { toggleFloatingForm } from '$lib/generation/floatingForm';
 	import { toggleFloatingWorkbench } from '$lib/generation/floatingWorkbench';
 	let generationPanelRef: GenerationPanel | undefined;
@@ -602,154 +602,25 @@
 		}));
 	}
 
-	function generationTimestampMs(value?: string | number | null): number | null {
-		if (value === undefined || value === null) return null;
-		const numeric = Number(value);
-		if (Number.isFinite(numeric)) return numeric < 1_000_000_000_000 ? numeric * 1000 : numeric;
-		const parsed = Date.parse(String(value));
-		return Number.isNaN(parsed) ? null : parsed;
-	}
-
+	// Reconciles every generation id each tab has persisted as in flight
+	// (activeGenerationId, non-terminal directorRuns, directorRunLinks keys,
+	// already-known queue entries) against the server's authoritative status.
+	// See reconcile.ts's header for why a confirmed-missing vs. transient
+	// failure must never be conflated: only the former may clear a tab's only
+	// reference back to a generation.
 	async function restoreActiveGenerations() {
 		const currentTabs = $tabsStore.tabs;
-
-		await Promise.all(currentTabs.map(async (tab) => {
-			const generationId = tab.activeGenerationId;
-			if (!generationId) return;
-
-			try {
-				const statusResponse = await api.getGenerationStatus(generationId);
-
-				if (statusResponse.success && statusResponse.data) {
-					const status = statusResponse.data;
-					const generationStatus = status.status;
-
-					if (generationStatus === 'pending' || generationStatus === 'running') {
-						// Still running: restore generating state and re-subscribe
-						tabsStore.updateTab(tab.id, {
-							generation: {
-								...tab.generation,
-								isGenerating: true,
-								startedAt:
-									generationTimestampMs(status.started_at ?? status.created_at) ??
-									tab.generation.startedAt ??
-									Date.now(),
-								currentGeneration: {
-									...status,
-									id: generationId,
-									generation_id: generationId
-								}
-							}
-						});
-
-						if (ws) {
-							ws.subscribe(generationId, (message: WebSocketMessage) => {
-								handleGenerationMessage(message);
-							});
-						}
-					} else if (generationStatus === 'completed') {
-						// Completed during refresh: fetch final results
-						try {
-							const historyResponse = await api.getGenerationById(generationId, false, true);
-							if (historyResponse.success && historyResponse.data) {
-									const { images, videos, audios, meshes, totalItems } = mapGenerationFiles(
-										historyResponse.data.files || [],
-										generationId
-									);
-
-									// Lead with the newest derived file (e.g. an enhance pass) when
-									// present. Order must match Workbench's gallery index chain:
-									// images, videos, audios, meshes.
-									const workbenchIndex = leadIndex([...images, ...videos, ...audios, ...meshes]);
-									const leadImage = workbenchIndex < images.length ? images[workbenchIndex] : null;
-									const leadVideo =
-										!leadImage && workbenchIndex < images.length + videos.length
-											? videos[workbenchIndex - images.length]
-											: null;
-									const leadAudio =
-										!leadImage && !leadVideo && workbenchIndex < images.length + videos.length + audios.length
-											? audios[workbenchIndex - images.length - videos.length]
-											: null;
-									const leadMesh =
-										!leadImage && !leadVideo && !leadAudio
-											? meshes[workbenchIndex - images.length - videos.length - audios.length] || null
-											: null;
-
-								tabsStore.updateTab(tab.id, {
-									activeGenerationId: null,
-									generation: {
-										...tab.generation,
-										isGenerating: false,
-										currentGeneration: leadImage ? {
-											status: 'completed',
-											id: generationId,
-											generation_id: generationId,
-											current_image: leadImage.url,
-											file_type: 'image'
-										} : leadVideo ? {
-											status: 'completed',
-											id: generationId,
-											generation_id: generationId,
-											current_video: leadVideo.url,
-											file_type: 'video'
-										} : leadAudio ? {
-											status: 'completed',
-											id: generationId,
-											generation_id: generationId,
-											current_audio: leadAudio,
-											file_type: 'audio'
-										} : leadMesh ? {
-											status: 'completed',
-											id: generationId,
-											generation_id: generationId,
-											current_mesh: leadMesh.url,
-											file_type: 'mesh'
-										} : {
-											status: 'completed',
-											id: generationId,
-											generation_id: generationId
-										},
-										batchImages: images,
-										batchVideos: videos,
-										batchAudios: audios,
-										batchMeshes: meshes,
-										workbenchIndex,
-										workbenchTotal: totalItems
-									}
-								});
-							} else {
-								// History not found, clear state
-								tabsStore.updateTab(tab.id, { activeGenerationId: null });
-							}
-						} catch {
-							tabsStore.updateTab(tab.id, { activeGenerationId: null });
-						}
-					} else {
-						// Failed or cancelled
-						tabsStore.updateTab(tab.id, {
-							activeGenerationId: null,
-							generation: {
-								...tab.generation,
-								isGenerating: false,
-								currentGeneration: generationStatus === 'failed' ? {
-									status: 'failed',
-									id: generationId,
-									generation_id: generationId,
-									message: status.message || 'Generation failed'
-								} : null
-							}
+		await Promise.all(
+			currentTabs.map((tab) =>
+				reconcileTabGenerations(tab.id, api, tabsStore, {
+					onSubscribe: (generationId) => {
+						ws?.subscribe(generationId, (message: WebSocketMessage) => {
+							handleGenerationMessage(message);
 						});
 					}
-				} else {
-					// Status endpoint returned error (generation not found)
-					tabsStore.updateTab(tab.id, { activeGenerationId: null });
-				}
-			} catch {
-				// Server may have restarted, generation not found
-				console.warn(`[RestoreGeneration] Could not restore generation ${generationId} for tab ${tab.name}`);
-				tabsStore.updateTab(tab.id, { activeGenerationId: null });
-			}
-		}));
+				})
+			)
+		);
 	}
 
 	// Restores each tab's queued (pending) and running work from the backend

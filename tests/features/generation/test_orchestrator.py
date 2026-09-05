@@ -342,9 +342,12 @@ class TestModeAndPromptStatePersistence:
         with patch('src.features.generation.orchestrator.generate_ulid', return_value='gen_mode_3'):
             await orchestrator.start_generation(sample_request, 'user_123')
 
-        mock_pipeline_builder.build_pipeline.assert_called_once()
-        _, kwargs = mock_pipeline_builder.build_pipeline.call_args
-        assert kwargs['mode'] == 'img2img'
+        # Called twice: once at enqueue time (the model-identity affinity
+        # build, no generation_id yet) and once at dispatch time (the real
+        # backend payload build) - both must use the persisted mode.
+        assert mock_pipeline_builder.build_pipeline.call_count == 2
+        for call in mock_pipeline_builder.build_pipeline.call_args_list:
+            assert call.kwargs['mode'] == 'img2img'
 
 
 class TestSourcePromptIdPersistence:
@@ -417,8 +420,13 @@ class TestLocalGenerationStartup:
         assert gen_arg.user_id == user_id
         assert gen_arg.status == 'pending'
 
-        # Verify pipeline was built
-        mock_pipeline_builder.build_pipeline.assert_called_once()
+        # Verify pipeline was built - once at enqueue time for the
+        # model-identity affinity key (no generation_id yet), once at
+        # dispatch time for the actual backend payload (generation_id set).
+        assert mock_pipeline_builder.build_pipeline.call_count == 2
+        enqueue_call, dispatch_call = mock_pipeline_builder.build_pipeline.call_args_list
+        assert 'generation_id' not in enqueue_call.kwargs
+        assert dispatch_call.kwargs['generation_id'] == 'gen_123'
 
         # Verify backend was called with (pipeline_data, emit)
         backend = mock_backend_registry.select_backend_for_generation.return_value
@@ -558,8 +566,13 @@ class TestUnifiedBackendPath:
         assert 'pipes' in pipeline_data
         assert isinstance(pipeline_data['pipes'], list)
 
-        # Verify pipeline builder was called
-        mock_pipeline_builder.build_pipeline.assert_called_once()
+        # Verify pipeline builder was called - once at enqueue time for the
+        # model-identity affinity key (no generation_id yet), once at
+        # dispatch time for the actual backend payload (generation_id set).
+        assert mock_pipeline_builder.build_pipeline.call_count == 2
+        enqueue_call, dispatch_call = mock_pipeline_builder.build_pipeline.call_args_list
+        assert 'generation_id' not in enqueue_call.kwargs
+        assert dispatch_call.kwargs['generation_id'] == 'gen_comfyui'
 
 
 class TestOutputHandling:

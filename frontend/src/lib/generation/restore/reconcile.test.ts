@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { tabsStore } from '$lib/stores/tabs';
+import { findTabByGenerationId } from '$lib/stores/generation';
 import {
 	reconcileTabGenerations,
 	collectInFlightGenerationIds,
@@ -370,5 +371,138 @@ describe('reconcileTabGenerations', () => {
 		const tab = currentTab(tabId);
 		expect(tab.activeGenerationId).toBe('gen-1');
 		expect(tab.generation.isGenerating).toBe(true);
+	});
+
+	it('gives a non-owning running Director shot a queue routing entry so live messages find its tab', async () => {
+		const tabId = defaultTabId();
+		tabsStore.updateTab(tabId, { activeGenerationId: 'gen-active' });
+		seedDirectorRun(tabId, 'shot-2', baseRun({ generationId: 'gen-b', status: 'generating' }), {
+			'gen-b': ['shot-2']
+		});
+		const fake = createFakeApi();
+		fake.scriptStatus('gen-active', { ok: statusResponse({ status: 'running', progress: 0.1 }) });
+		fake.scriptStatus('gen-b', { ok: statusResponse({ status: 'running', progress: 0.4, id: 'gen-b' }) });
+
+		// Before the fix, only activeGenerationId ever got a queue entry --
+		// findTabByGenerationId had no way to route a follow-up message for
+		// 'gen-b' back to this tab (it only ever finds a tab through
+		// currentGeneration or generation.queue).
+		expect(findTabByGenerationId('gen-b')).toBeNull();
+
+		await reconcileTabGenerations(tabId, fake.api, tabsStore);
+
+		expect(findTabByGenerationId('gen-b')).toBe(tabId);
+		const tab = currentTab(tabId);
+		expect(tab.generation.queue).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ generation_id: 'gen-b', status: 'running' })
+			])
+		);
+		// The owning display is untouched by the secondary shot's routing entry.
+		expect(tab.activeGenerationId).toBe('gen-active');
+	});
+
+	it('treats a status body with no recognized status as transient, not as a terminal failure', async () => {
+		const tabId = defaultTabId();
+		tabsStore.updateTab(tabId, { activeGenerationId: 'gen-1' });
+		seedDirectorRun(tabId, 'shot-1', baseRun({ generationId: 'gen-1', status: 'generating' }), {
+			'gen-1': ['shot-1']
+		});
+		const fake = createFakeApi();
+		// success:true but no `status` field at all -- malformed, not missing.
+		fake.scriptStatus(
+			'gen-1',
+			{ ok: { success: true, data: { id: 'gen-1' } } as APIResponse<GenerationStatus> },
+			{ ok: { success: true, data: { id: 'gen-1' } } as APIResponse<GenerationStatus> }
+		);
+
+		await reconcileTabGenerations(tabId, fake.api, tabsStore, { retryDelayMs: 0 });
+
+		expect(fake.statusCalls).toEqual(['gen-1', 'gen-1']);
+		const tab = currentTab(tabId);
+		expect(tab.activeGenerationId).toBe('gen-1');
+		expect(tab.directorRuns!['shot-1'].status).toBe('generating');
+	});
+
+	it('recovers from a malformed status body once the retry returns a recognized status', async () => {
+		const tabId = defaultTabId();
+		tabsStore.updateTab(tabId, { activeGenerationId: 'gen-1' });
+		const fake = createFakeApi();
+		fake.scriptStatus(
+			'gen-1',
+			{ ok: { success: true, data: { id: 'gen-1' } } as APIResponse<GenerationStatus> },
+			{ ok: statusResponse({ status: 'running', progress: 0.5 }) }
+		);
+
+		await reconcileTabGenerations(tabId, fake.api, tabsStore, { retryDelayMs: 0 });
+
+		expect(fake.statusCalls).toEqual(['gen-1', 'gen-1']);
+		expect(currentTab(tabId).generation.currentGeneration?.status).toBe('running');
+	});
+
+	it('never re-routes/subscribes an id whose Director link was retired by a live event mid-reconciliation', async () => {
+		const tabId = defaultTabId();
+		seedDirectorRun(tabId, 'shot-1', baseRun({ generationId: 'gen-old', status: 'generating' }), {
+			'gen-old': ['shot-1']
+		});
+
+		let resolveStatus!: (value: APIResponse<GenerationStatus>) => void;
+		const pending = new Promise<APIResponse<GenerationStatus>>((resolve) => {
+			resolveStatus = resolve;
+		});
+		const api: ReconcileApi = {
+			getGenerationStatus: vi.fn().mockReturnValue(pending),
+			getGenerationById: vi.fn().mockResolvedValue({ success: true, data: { files: [] } })
+		};
+		const onSubscribe = vi.fn();
+
+		const reconcilePromise = reconcileTabGenerations(tabId, api, tabsStore, { onSubscribe });
+
+		// A live WebSocket event resolves 'gen-old' and drops its link entirely
+		// (the run moved on, e.g. re-run under a fresh id with no trace of the
+		// old one) WHILE the stale status lookup is still in flight.
+		tabsStore.updateTab(tabId, {
+			directorRuns: {},
+			directorRunLinks: {}
+		});
+
+		// The delayed lookup finally answers "still running".
+		resolveStatus(statusResponse({ status: 'running', progress: 0.9, id: 'gen-old' }));
+		await reconcilePromise;
+
+		expect(onSubscribe).not.toHaveBeenCalled();
+		const tab = currentTab(tabId);
+		expect(tab.generation.queue.some((q) => q.generation_id === 'gen-old')).toBe(false);
+		expect(findTabByGenerationId('gen-old')).toBeNull();
+	});
+
+	it('folds live-queue-snapshot ids into the same pass, re-validating rather than trusting the snapshot', async () => {
+		const tabId = defaultTabId();
+		// No persisted trace of 'gen-x' at all -- only the caller's live
+		// snapshot (e.g. a plain, non-Director queued generation) names it.
+		const fake = createFakeApi();
+		fake.scriptStatus('gen-x', { ok: statusResponse({ status: 'completed', id: 'gen-x' }) });
+		fake.scriptHistory('gen-x', { ok: { success: true, data: { files: [] } } });
+
+		await reconcileTabGenerations(tabId, fake.api, tabsStore, { extraCandidateIds: ['gen-x'] });
+
+		// A stale snapshot claiming "still running" never gets a chance to
+		// resurrect it -- reconcile's own fresh lookup found it completed, so
+		// it is never added to the queue at all.
+		expect(currentTab(tabId).generation.queue.some((q) => q.generation_id === 'gen-x')).toBe(false);
+		expect(fake.statusCalls).toEqual(['gen-x']);
+	});
+
+	it('deduplicates an id that is both a persisted directorRunLinks key and a live-snapshot candidate', async () => {
+		const tabId = defaultTabId();
+		seedDirectorRun(tabId, 'shot-1', baseRun({ generationId: 'gen-b', status: 'generating' }), {
+			'gen-b': ['shot-1']
+		});
+		const fake = createFakeApi();
+		fake.scriptStatus('gen-b', { ok: statusResponse({ status: 'running', id: 'gen-b' }) });
+
+		await reconcileTabGenerations(tabId, fake.api, tabsStore, { extraCandidateIds: ['gen-b'] });
+
+		expect(fake.statusCalls).toEqual(['gen-b']);
 	});
 });

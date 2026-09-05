@@ -4,6 +4,7 @@
 	import type { PromptTabData, DirectorRunState, Tab } from '$lib/types/tabs';
 	import { authStore } from '$lib/stores/auth';
 	import { api, type GenerationRequest, type PromptPair } from '$lib/services/api';
+	import type { GenerationQueueSnapshot } from '$lib/types/api';
 	import { buildSegmentsPayload, buildVariablesPayload } from '$lib/utils/generationOrchestrator';
 	import { findUndefinedVariableUsages } from '$lib/utils/promptVariables';
 	import { buildSessionRestoreTabPatch } from '$lib/utils/sessionRestore';
@@ -339,7 +340,12 @@
 	// button with no explanation.
 	let generateDisabledReason: string | undefined;
 	let isReloadingPreset = false;
-	let hasRestoredGenerations = false;
+	// Guards against overlapping restore passes on rapid connect/disconnect
+	// flapping -- NOT a one-shot: a genuine reconnect (the connection drops
+	// and comes back later) must re-run reconciliation, since a generation
+	// could have finished, failed, or a Director shot could have been
+	// resubmitted while this client was disconnected.
+	let restoreInFlight = false;
 
 	// Settings pane width: fixed per viewport tier, not user-resizable.
 	$: leftPanelWidth = settingsPaneWidth($viewportWidth);
@@ -532,10 +538,11 @@
 		ws = createGenerationSocket();
 		ws.onConnectionChange((connected) => {
 			isConnected = connected;
-			if (connected && !hasRestoredGenerations) {
-				hasRestoredGenerations = true;
-				restoreActiveGenerations();
-				restoreQueuedGenerations();
+			if (connected && !restoreInFlight) {
+				restoreInFlight = true;
+				restoreGenerations().finally(() => {
+					restoreInFlight = false;
+				});
 			}
 		});
 		ws.connect();
@@ -680,108 +687,46 @@
 		}));
 	}
 
-	// Reconciles every generation id each tab has persisted as in flight
-	// (activeGenerationId, non-terminal directorRuns, directorRunLinks keys,
-	// already-known queue entries) against the server's authoritative status.
-	// See reconcile.ts's header for why a confirmed-missing vs. transient
-	// failure must never be conflated: only the former may clear a tab's only
-	// reference back to a generation.
-	async function restoreActiveGenerations() {
+	// Single restore/reconcile pass for every tab, run on connect AND on every
+	// reconnect (see the `restoreInFlight` re-entrancy guard at the call
+	// site -- deliberately not a one-shot). Fetches the live backend queue
+	// snapshot ONCE and folds each tab's pending/running ids into the SAME
+	// reconciliation pass
+	// as its persisted activeGenerationId/directorRuns/directorRunLinks --
+	// deliberately not a second, independent merge: reconcileTabGenerations
+	// re-confirms every id (persisted or snapshot-discovered) against its own
+	// authoritative status lookup, so a stale/delayed snapshot claiming an id
+	// is still pending/running can never resurrect a run reconciliation (or a
+	// live event racing it) already resolved as terminal, and no id is ever
+	// subscribed twice from two independent restore passes.
+	async function restoreGenerations() {
 		const currentTabs = $tabsStore.tabs;
+		let snapshot: GenerationQueueSnapshot | null = null;
+		try {
+			const response = await api.getGenerationQueue();
+			if (response.success && response.data) snapshot = response.data;
+		} catch (error) {
+			console.warn('[RestoreGenerations] Could not fetch the live queue snapshot:', error);
+		}
+
 		await Promise.all(
-			currentTabs.map((tab) =>
-				reconcileTabGenerations(tab.id, api, tabsStore, {
+			currentTabs.map((tab) => {
+				const extraCandidateIds = snapshot
+					? [
+							...snapshot.pending.filter((p) => p.tab_id === tab.id).map((p) => p.generation_id),
+							...snapshot.running.filter((r) => r.tab_id === tab.id).map((r) => r.generation_id)
+						]
+					: [];
+				return reconcileTabGenerations(tab.id, api, tabsStore, {
+					extraCandidateIds,
 					onSubscribe: (generationId) => {
 						ws?.subscribe(generationId, (message: WebSocketMessage) => {
 							handleGenerationMessage(message);
 						});
 					}
-				})
-			)
-		);
-	}
-
-	// Restores each tab's queued (pending) and running work from the backend
-	// queue after a reload. Complements restoreActiveGenerations(), which only
-	// knows about the single legacy activeGenerationId per tab — a tab can now
-	// have several outstanding generations enqueued at once.
-	async function restoreQueuedGenerations() {
-		const currentTabs = $tabsStore.tabs;
-		let snapshot;
-		try {
-			const response = await api.getGenerationQueue();
-			if (!response.success || !response.data) return;
-			snapshot = response.data;
-		} catch (error) {
-			console.warn('[RestoreQueue] Could not restore queue:', error);
-			return;
-		}
-
-		await Promise.all(currentTabs.map(async (tab) => {
-			try {
-				const pending = snapshot.pending.filter((item) => item.tab_id === tab.id);
-				const running = snapshot.running.filter((item) => item.tab_id === tab.id);
-				if (pending.length === 0 && running.length === 0) return;
-
-				const latestTab = $tabsStore.tabs.find((t) => t.id === tab.id) || tab;
-				const existingQueue = latestTab.generation.queue || [];
-				const existingIds = new Set(existingQueue.map((q) => q.generation_id));
-
-				const newEntries = [
-					...pending
-						.filter((p) => !existingIds.has(p.generation_id))
-						.map((p) => ({
-							generation_id: p.generation_id,
-							queue_position: p.queue_position,
-							status: 'pending' as const
-						})),
-					...running
-						.filter((r) => !existingIds.has(r.generation_id))
-						.map((r) => ({
-							generation_id: r.generation_id,
-							queue_position: null,
-							status: 'running' as const
-						}))
-				];
-
-				if (newEntries.length === 0) return;
-
-				// Adopt the first running item as the tab's live display if the
-				// tab doesn't already have one restored via activeGenerationId.
-				const firstRunning = running.find((r) => !existingIds.has(r.generation_id));
-				const shouldAdoptAsCurrent = firstRunning && !latestTab.generation.currentGeneration;
-
-				tabsStore.updateTab(tab.id, {
-					...(shouldAdoptAsCurrent ? { activeGenerationId: firstRunning!.generation_id } : {}),
-					generation: {
-						...latestTab.generation,
-						queue: [...existingQueue, ...newEntries],
-						...(shouldAdoptAsCurrent
-							? {
-									isGenerating: true,
-									startedAt: latestTab.generation.startedAt ?? Date.now(),
-									currentGeneration: {
-										id: firstRunning!.generation_id,
-										generation_id: firstRunning!.generation_id,
-										status: 'running',
-										progress: firstRunning!.progress
-									}
-								}
-							: {})
-					}
 				});
-
-				if (ws) {
-					for (const entry of newEntries) {
-						ws.subscribe(entry.generation_id, (message: WebSocketMessage) => {
-							handleGenerationMessage(message);
-						});
-					}
-				}
-			} catch (error) {
-				console.warn(`[RestoreQueue] Could not restore queue for tab ${tab.name}:`, error);
-			}
-		}));
+			})
+		);
 	}
 
 	onDestroy(() => {

@@ -1,14 +1,33 @@
 // Reload/reconnect reconciliation for a tab's in-flight generations
-// (routes/generate/+page.svelte's `restoreActiveGenerations`/
-// `restoreQueuedGenerations`). Three independent, persisted signals can each
-// name a generation the frontend must re-confirm against the server rather
-// than trust blindly: `activeGenerationId` (the tab's shared display),
-// `directorRuns` (a Video Director shot, keyed by shot id, `queued`/
-// `generating`), and `directorRunLinks` (generationId -> shot id(s) -- a
-// shot can be tracked ONLY here once its `directorRuns` entry has been
+// (routes/generate/+page.svelte's `restoreGenerations`, which supersedes the
+// old separate `restoreActiveGenerations`/`restoreQueuedGenerations`).
+// Persisted state can name a generation the frontend must re-confirm against
+// the server rather than trust blindly: `activeGenerationId` (the tab's
+// shared display), `directorRuns` (a Video Director shot, keyed by shot id,
+// `queued`/`generating`) and `directorRunLinks` (generationId -> shot id(s)
+// -- a shot can be tracked ONLY here once its `directorRuns` entry has been
 // overwritten by a resubmission). `generation.queue` (unpersisted, but
-// possibly already populated this session before a reconnect) is a fourth.
-// None subsumes another, so every id from all four is looked up once.
+// possibly already populated this session) and the caller's own
+// `extraCandidateIds` (ids the live backend queue snapshot reports for this
+// tab, which may not appear in ANY persisted field yet) round out the set.
+// None subsumes another, so every id from every source is looked up once.
+//
+// Routing matters here as much as state: `findTabByGenerationId`
+// ($lib/stores/generation.ts) only ever finds a tab through
+// `currentGeneration` or an entry in `generation.queue` -- it has no idea
+// `directorRunLinks` exists. A Director shot's generationId that never
+// becomes `activeGenerationId` therefore needs a `generation.queue` entry of
+// its own or every subsequent WebSocket message for it dispatches nowhere
+// ("Tab not found"), and the shot's progress/poster never updates again.
+// `withRoutingEntry` below is what gives a confirmed pending/running id that
+// entry regardless of whether it also owns the shared display.
+//
+// This module never adopts an orphaned tab's queued/running generation as
+// its live display itself -- that is `$lib/generation/messages/ownership.ts`
+// (`resolveOwnership`/`beginGenerationOwnership`)'s job, triggered by the
+// live event that follows once routing/subscription is restored here.
+// Duplicating that here would fight it over which one performs the cold
+// start.
 //
 // Every director-run mutation goes through the SAME identity-guarded
 // reducers `$lib/generation/messages/directorRuns.ts` uses for live
@@ -55,13 +74,31 @@ export interface ReconcileOptions {
 	/** Called once per generation id this reload should keep listening to
 	 *  (still pending/running) -- the caller re-subscribes on its live
 	 *  WebSocket connection. Never called twice for the same id in one
-	 *  `reconcileTabGenerations` invocation. */
+	 *  `reconcileTabGenerations` invocation, and never called for an id this
+	 *  tab has since retired (see the file header). */
 	onSubscribe?: (generationId: string) => void;
+	/** Ids the caller already knows are this tab's from a source OUTSIDE
+	 *  persisted tab state (e.g. the live `/api/generations/queue` snapshot,
+	 *  scoped to this tab's `tab_id`) -- folded into the same reconciliation
+	 *  pass instead of being trusted/merged separately, so a stale or
+	 *  delayed snapshot can never re-add an id this pass (or a live event
+	 *  racing it) has already resolved as terminal: every id, wherever it
+	 *  came from, is re-confirmed against `getGenerationStatus` here. */
+	extraCandidateIds?: string[];
 	now?: () => number;
 }
 
 const DEFAULT_CHUNK_SIZE = 4;
 const DEFAULT_RETRY_DELAY_MS = 1500;
+
+/** `GenerationStatus.status`'s actual value set -- anything else (absent,
+ *  misspelled, a future value this build doesn't know yet) must never be
+ *  read as authoritative in either direction. */
+const KNOWN_GENERATION_STATUSES = new Set(['pending', 'running', 'completed', 'failed', 'cancelled']);
+
+function hasRecognizedStatus(data: GenerationStatus | null | undefined): data is GenerationStatus {
+	return !!data && typeof data.status === 'string' && KNOWN_GENERATION_STATUSES.has(data.status);
+}
 
 function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
@@ -85,11 +122,12 @@ export function generationTimestampMs(value?: string | number | null): number | 
 
 /** Every generation id this tab has persisted as still in flight -- the set
  *  a reload/reconnect must re-confirm against the server rather than trust
- *  blindly. See the file header for why none of the four sources subsumes
+ *  blindly. See the file header for why none of the sources subsumes
  *  another. */
 export function collectInFlightGenerationIds(
 	tab: Pick<Tab, 'activeGenerationId' | 'directorRuns' | 'directorRunLinks'> & {
 		queue?: QueuedGeneration[];
+		extraCandidateIds?: string[];
 	}
 ): string[] {
 	const ids = new Set<string>();
@@ -99,6 +137,7 @@ export function collectInFlightGenerationIds(
 	}
 	for (const linkedId of Object.keys(tab.directorRunLinks || {})) ids.add(linkedId);
 	for (const queued of tab.queue || []) ids.add(queued.generation_id);
+	for (const extra of tab.extraCandidateIds || []) ids.add(extra);
 	return [...ids];
 }
 
@@ -158,8 +197,8 @@ async function fetchOutputs(
 	return null;
 }
 
-/** Mirrors the shared-display patch `restoreActiveGenerations` built inline
- *  for a generation that finished while this tab was disconnected. */
+/** Mirrors the shared-display patch `restoreActiveGenerations` used to build
+ *  inline for a generation that finished while this tab was disconnected. */
 function buildActiveCompletionPatch(
 	generationId: string,
 	outputs: RestoredGenerationData | null
@@ -218,14 +257,49 @@ function buildActiveFailurePatch(
 	};
 }
 
+/** Adds (or refreshes the status word of) a `generation.queue` entry for a
+ *  confirmed pending/running id -- the ONLY thing that makes
+ *  `findTabByGenerationId` route this tab's future WebSocket messages for
+ *  it, whether or not it also owns the shared display. A no-op re-render
+ *  when the entry already matches. */
+function withRoutingEntry(
+	queue: QueuedGeneration[] | undefined,
+	generationId: string,
+	backendStatus: 'pending' | 'running'
+): QueuedGeneration[] {
+	const existing = queue || [];
+	const current = existing.find((q) => q.generation_id === generationId);
+	if (current) {
+		return current.status === backendStatus
+			? existing
+			: existing.map((q) => (q.generation_id === generationId ? { ...q, status: backendStatus } : q));
+	}
+	return [...existing, { generation_id: generationId, queue_position: null, status: backendStatus }];
+}
+
+/** True once an id that started this pass as a Director link has, by apply
+ *  time, lost that link (its own terminal WebSocket event resolved and
+ *  cleared it while this pass was in flight) without becoming this tab's
+ *  active generation either -- nothing on the tab claims it any more, so
+ *  routing/subscribing it back in would only resurrect a dead run. Never
+ *  applies to an id that came from the live queue snapshot or was never
+ *  Director-linked in the first place; those have no "link" to retire. */
+function isRetiredDirectorLink(tab: Tab, generationId: string, directorLinkIds: ReadonlySet<string>): boolean {
+	if (!directorLinkIds.has(generationId)) return false;
+	if (tab.activeGenerationId === generationId) return false;
+	return directorShotIdsFor(tab, generationId) === null;
+}
+
 /**
- * Reconciles every generation id `tabId` has persisted as in flight
+ * Reconciles every generation id `tabId` has in flight -- persisted
  * (`activeGenerationId`, non-terminal `directorRuns`, `directorRunLinks`
- * keys, and any already-known `generation.queue` entries) against the
- * server's authoritative status, applying terminal results and
- * re-subscribing to ones still running. Safe to call once per tab on
- * reconnect; a no-op tab (nothing tracked as in flight) resolves
- * immediately without any network calls.
+ * keys, already-known `generation.queue` entries) plus any
+ * `options.extraCandidateIds` the caller discovered from the live backend
+ * queue snapshot -- against the server's authoritative status. Applies
+ * terminal results, restores routing + re-subscribes to ones still running,
+ * and drops routing for a link this tab has since retired. Safe to call on
+ * every reconnect (not just once per mount): a no-op tab (nothing tracked,
+ * no candidates) resolves immediately without any network calls.
  */
 export async function reconcileTabGenerations(
 	tabId: string,
@@ -243,7 +317,12 @@ export async function reconcileTabGenerations(
 	const seedTab = readTab();
 	if (!seedTab) return;
 
-	const ids = collectInFlightGenerationIds({ ...seedTab, queue: seedTab.generation.queue });
+	const directorLinkIds = new Set(Object.keys(seedTab.directorRunLinks || {}));
+	const ids = collectInFlightGenerationIds({
+		...seedTab,
+		queue: seedTab.generation.queue,
+		extraCandidateIds: options.extraCandidateIds
+	});
 	if (ids.length === 0) return;
 
 	const subscribed = new Set<string>();
@@ -271,16 +350,22 @@ export async function reconcileTabGenerations(
 
 	function applyKeep(generationId: string, status: GenerationStatus): void {
 		const tab = readTab();
-		if (!tab || tab.activeGenerationId !== generationId) return;
+		if (!tab) return;
+		const isOwner = tab.activeGenerationId === generationId;
 		tabsStore.updateTab(tabId, {
 			generation: {
 				...tab.generation,
-				isGenerating: true,
-				startedAt:
-					generationTimestampMs(status.started_at ?? status.created_at) ??
-					tab.generation.startedAt ??
-					now(),
-				currentGeneration: { ...status, id: generationId, generation_id: generationId }
+				queue: withRoutingEntry(tab.generation.queue, generationId, status.status as 'pending' | 'running'),
+				...(isOwner
+					? {
+							isGenerating: true,
+							startedAt:
+								generationTimestampMs(status.started_at ?? status.created_at) ??
+								tab.generation.startedAt ??
+								now(),
+							currentGeneration: { ...status, id: generationId, generation_id: generationId }
+						}
+					: {})
 			}
 		});
 	}
@@ -330,13 +415,19 @@ export async function reconcileTabGenerations(
 			thrown = err;
 		}
 
-		if (thrown !== null || !statusResponse || !statusResponse.success || !statusResponse.data) {
-			if (isConfirmedMissing(thrown, statusResponse)) {
+		const status = statusResponse?.data;
+		const malformed =
+			thrown === null && !!statusResponse && statusResponse.success && !hasRecognizedStatus(status);
+
+		if (thrown !== null || !statusResponse || !statusResponse.success || !status || malformed) {
+			if (!malformed && isConfirmedMissing(thrown, statusResponse)) {
 				applyMissing(generationId);
 				return;
 			}
-			// Transient: leave `activeGenerationId`/the run untouched and try
-			// once more after a delay rather than reading a blip as "gone".
+			// Transient (network/5xx) or an unrecognized/malformed response
+			// body -- neither proves the generation is gone. Leave
+			// `activeGenerationId`/the run/its routing untouched and try once
+			// more after a delay.
 			if (!isRetry) {
 				await delay(retryDelayMs);
 				await reconcileOne(generationId, true);
@@ -344,8 +435,9 @@ export async function reconcileTabGenerations(
 			return;
 		}
 
-		const status = statusResponse.data;
 		if (status.status === 'pending' || status.status === 'running') {
+			const tab = readTab();
+			if (!tab || isRetiredDirectorLink(tab, generationId, directorLinkIds)) return;
 			applyKeep(generationId, status);
 			if (!subscribed.has(generationId)) {
 				subscribed.add(generationId);

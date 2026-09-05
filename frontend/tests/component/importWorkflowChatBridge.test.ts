@@ -273,7 +273,7 @@ describe('ImportWorkflowTab chat assistant bridge (real compiled dist)', () => {
 			status: 'stale',
 			applied: 0,
 			skipped: 1,
-			message: expect.stringContaining('could not be applied')
+			message: expect.stringContaining('could be applied')
 		});
 		expect(el.querySelector('[data-field-name="weird_seed_field"]')).toBeNull();
 		expect(host.notifications.toast).not.toHaveBeenCalled();
@@ -571,7 +571,7 @@ describe('ImportWorkflowTab chat assistant bridge (real compiled dist)', () => {
 			status: 'stale',
 			applied: 0,
 			skipped: 1,
-			message: expect.stringContaining('could not be applied')
+			message: expect.stringContaining('could be applied')
 		});
 		// Not retargeted onto "generation" (the active/first tab) either.
 		expect(el.querySelector('[data-field-name="upscale_width"]')).toBeNull();

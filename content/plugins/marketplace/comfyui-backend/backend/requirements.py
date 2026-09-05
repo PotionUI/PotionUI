@@ -30,6 +30,7 @@ docs/models.md), which is why model presence goes through `GET
 
 import asyncio
 import time
+from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple, Union
 
 import aiohttp
@@ -214,6 +215,43 @@ def _physical_folder(folder: str) -> str:
     return _PHYSICAL_FOLDER_BY_ALIAS.get(folder, folder)
 
 
+def _is_gguf_alias(folder: str) -> bool:
+    return folder in _PHYSICAL_FOLDER_BY_ALIAS
+
+
+@dataclass
+class _ListingOutcome:
+    """One `/models/{folder}` fetch, three-way: `names` on a listing we
+    actually obtained; `absent=True` for a 404 - the server answered
+    definitively that this folder doesn't exist (the ordinary,
+    always-expected shape of a ComfyUI-GGUF alias on a server that doesn't
+    have that custom node installed, not a failure); `error` for anything
+    else (connection failure, timeout, a non-404 HTTP error) - a listing we
+    genuinely could not obtain and must not treat as either "found" or
+    "confirmed absent". `ComfyUIModelChecker.check` uses this distinction to
+    tell "this optional folder just doesn't exist" apart from "we don't
+    know if it exists" - conflating the two either reports a perfectly
+    reachable server as unreachable (a missing alias folder is normal, not
+    an error) or reports a file `missing` when an indeterminate fetch
+    failure means it might actually be present."""
+
+    names: Optional[List[str]] = None
+    absent: bool = False
+    error: Optional[BaseException] = None
+
+
+async def _fetch_listing(backend_id: str, base_url: str, folder: str) -> _ListingOutcome:
+    try:
+        names = await _fetch_model_names(backend_id, base_url, folder)
+    except aiohttp.ClientResponseError as e:
+        if e.status == 404:
+            return _ListingOutcome(absent=True)
+        return _ListingOutcome(error=e)
+    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+        return _ListingOutcome(error=e)
+    return _ListingOutcome(names=names)
+
+
 class ComfyUINodeChecker:
     type = "comfyui_node"
     schema = ComfyUINodeRequirementSchema
@@ -262,33 +300,41 @@ class ComfyUIModelChecker:
         if isinstance(resolved, RequirementResult):
             return resolved
         backend_id, base_url = resolved
-
-        try:
-            names = await _fetch_model_names(backend_id, base_url, parsed.folder)
-        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-            return RequirementResult(status="unknown", detail=f"backend unreachable at {base_url}: {e}")
-
         physical = _physical_folder(parsed.folder)
-        if _model_present(parsed.name, names):
+
+        primary = await _fetch_listing(backend_id, base_url, parsed.folder)
+        if primary.names is not None and _model_present(parsed.name, primary.names):
             return RequirementResult(status="ok", detail=f"'{parsed.name}' present in {physical}")
 
         # Try the ComfyUI-GGUF counterpart listing before giving up - see
-        # `_gguf_fallback_folder`. A backend without the ComfyUI-GGUF custom
-        # node simply doesn't have this folder at all, so the fallback
-        # fetch 404s/errors exactly like any other unknown folder would;
-        # that failure is silently treated the same as "not present there
-        # either", never surfaced as its own `unknown` result.
+        # `_gguf_fallback_folder`. `absent` (no such folder on this server -
+        # e.g. ComfyUI-GGUF isn't installed, so there's simply no
+        # `unet_gguf`/`clip_gguf` folder to have anything in) is a normal,
+        # expected outcome here, not a failure - only an `error` (fetch
+        # genuinely didn't complete) leaves us unable to trust a `missing`
+        # verdict below.
         fallback_folder = _gguf_fallback_folder(parsed.folder)
+        fallback = _ListingOutcome(absent=True)  # no counterpart folder to check at all
         if fallback_folder:
-            try:
-                fallback_names = await _fetch_model_names(backend_id, base_url, fallback_folder)
-            except (aiohttp.ClientError, asyncio.TimeoutError):
-                fallback_names = []
-            if _model_present(parsed.name, fallback_names):
+            fallback = await _fetch_listing(backend_id, base_url, fallback_folder)
+            if fallback.names is not None and _model_present(parsed.name, fallback.names):
+                via = f"ComfyUI-GGUF's {fallback_folder}" if _is_gguf_alias(fallback_folder) else fallback_folder
                 return RequirementResult(
                     status="ok",
-                    detail=f"'{parsed.name}' present in {physical} (via ComfyUI-GGUF's {fallback_folder} listing)",
+                    detail=f"'{parsed.name}' present in {physical} (via {via} listing)",
                 )
+
+        # Neither listing that actually exists contains the file. That's
+        # only a confident `missing` if every listing we needed an answer
+        # from actually gave one - a genuinely unreachable/erroring server
+        # (as opposed to one that simply lacks an optional alias folder)
+        # must never be reported as a confirmed-missing file, and must
+        # never be conflated with "unreachable" just because one optional
+        # folder happened to be absent.
+        if primary.error is not None:
+            return RequirementResult(status="unknown", detail=f"backend unreachable at {base_url}: {primary.error}")
+        if fallback.error is not None:
+            return RequirementResult(status="unknown", detail=f"backend unreachable at {base_url}: {fallback.error}")
 
         hint = parsed.hint or f"Put {parsed.name} in ComfyUI's models/{physical}"
         if parsed.name.lower().endswith(".gguf") and parsed.hint is None:

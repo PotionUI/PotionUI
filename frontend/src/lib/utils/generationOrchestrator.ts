@@ -1,9 +1,7 @@
-import { logger } from '$lib/utils/logger';
 import { richTextToPlainText } from '$lib/utils/richTextUtils';
-import type { GenerationRequest, PromptPair, SegmentInput } from '$lib/services/api/index';
+import type { SegmentInput } from '$lib/services/api/index';
 import type { Tab, ImageData, VideoData, MeshData } from '$lib/types/tabs';
 import type { AudioData } from '$lib/types/audio';
-import type { PromptTabData } from '$lib/types/tabs';
 import type { Segment } from '$lib/types/segments';
 import { flattenRichSegments, type SegmentJoin } from '$lib/utils/richSegments';
 import { buildVariablesForSubmit, type VariableRoll, type VariablesForSubmitOptions } from '$lib/utils/variableDefs';
@@ -15,110 +13,6 @@ import { buildVariablesForSubmit, type VariableRoll, type VariablesForSubmitOpti
 /** Combine enabled prompt segments into one plain-text string. */
 export function combineSegmentsToString(segments: Segment[], join: SegmentJoin = 'comma'): string {
 	return flattenRichSegments(segments, join);
-}
-
-/** Shuffle a single chip value from its pool of all values. */
-export function shuffleChip(chip: any): any {
-	if (!chip.shuffle || !chip.allValues || chip.allValues.length <= 1) {
-		return chip;
-	}
-	const available = chip.allValues.filter((v: any) => v.id !== chip.valueId);
-	if (available.length === 0) return chip;
-
-	const random = available[Math.floor(Math.random() * available.length)];
-	return {
-		...chip,
-		valueId: random.id,
-		label: random.label,
-		value: random.value
-	};
-}
-
-/**
- * Process a list of segments, shuffling any chips that have shuffle mode
- * enabled. Returns `{ segments, changed }`.
- */
-function processSegmentsWithShuffle(segments: any[]): {
-	segments: any[];
-	changed: boolean;
-} {
-	let changed = false;
-	const result = segments.map((segment) => {
-		if (!segment.chips || Object.keys(segment.chips).length === 0) return segment;
-
-		const updatedChips: Record<string, any> = {};
-		let segmentChanged = false;
-
-		for (const [chipId, chipData] of Object.entries(segment.chips)) {
-			const shuffled = shuffleChip(chipData);
-			updatedChips[chipId] = shuffled;
-			if (shuffled !== chipData) {
-				segmentChanged = true;
-				changed = true;
-			}
-		}
-
-		return segmentChanged ? { ...segment, chips: updatedChips } : segment;
-	});
-
-	return { segments: result, changed };
-}
-
-// ---------------------------------------------------------------------------
-// Prompt assembly
-// ---------------------------------------------------------------------------
-
-/**
- * Build the `prompts` array that will be sent to the API.
- * Handles both single-prompt and multi-prompt modes, and applies chip shuffling.
- */
-export function buildPromptsArray(
-	tab: Tab,
-	numPrompts: number,
-	join: SegmentJoin = 'comma'
-): {
-	prompts: PromptPair[];
-	shuffledPositive: any[];
-	shuffledNegative: any[];
-	hasShuffled: boolean;
-} {
-	let hasShuffled = false;
-
-	if (numPrompts > 1 && tab.promptTabs && tab.promptTabs.length > 0) {
-		const prompts: PromptPair[] = tab.promptTabs.slice(0, numPrompts).map((promptTab: PromptTabData) => {
-			const { segments: posSegs, changed: positiveChanged } = processSegmentsWithShuffle([
-				...(promptTab.promptSegments || [])
-			]);
-			const { segments: negSegs, changed: negativeChanged } = processSegmentsWithShuffle([
-				...(promptTab.negativePromptSegments || [])
-			]);
-			if (positiveChanged || negativeChanged) hasShuffled = true;
-
-			return {
-				positive: posSegs.length > 0 ? combineSegmentsToString(posSegs, join) : promptTab.prompt || '',
-				negative: negSegs.length > 0 ? combineSegmentsToString(negSegs, join) : promptTab.negativePrompt || ''
-			};
-		});
-
-		return { prompts, shuffledPositive: [], shuffledNegative: [], hasShuffled };
-	}
-
-	// Single-prompt mode
-	const { segments: posSegs, changed: posChanged } = processSegmentsWithShuffle([...(tab.promptSegments || [])]);
-	const { segments: negSegs, changed: negChanged } = processSegmentsWithShuffle([
-		...(tab.negativePromptSegments || [])
-	]);
-	hasShuffled = posChanged || negChanged;
-
-	const positive = posSegs.length > 0 ? combineSegmentsToString(posSegs, join) : tab.prompt;
-	const negative = negSegs.length > 0 ? combineSegmentsToString(negSegs, join) : tab.negativePrompt;
-
-	return {
-		prompts: [{ positive: positive.trim(), negative: negative.trim() }],
-		shuffledPositive: posSegs,
-		shuffledNegative: negSegs,
-		hasShuffled
-	};
 }
 
 // ---------------------------------------------------------------------------
@@ -202,9 +96,8 @@ export interface VariablesPayloadResult {
 /**
  * The `variables` field of a GenerationRequest, mode-aware: `shuffle`-mode
  * choice variables are rolled ONCE right here (every call is a Generate click).
- * Shared by every request-assembly site (this file's `startGeneration` and
- * generate/+page.svelte's own, the one actually wired to the Generate button)
- * so the copies can't drift.
+ * Called from generate/+page.svelte, the one place actually wired to the
+ * Generate button, so there's a single source of truth for the wire shape.
  */
 export function buildVariablesPayload(tab: Tab, options?: VariablesForSubmitOptions): VariablesPayloadResult {
 	const { wireMap, rolls } = buildVariablesForSubmit(tab.variables, options);
@@ -212,120 +105,6 @@ export function buildVariablesPayload(tab: Tab, options?: VariablesForSubmitOpti
 		variables: Object.keys(wireMap).length > 0 ? wireMap : undefined,
 		rolls
 	};
-}
-// ---------------------------------------------------------------------------
-// Dependencies injected by the page
-// ---------------------------------------------------------------------------
-
-export interface GenerationOrchestrationDeps {
-	api: {
-		startGeneration(req: GenerationRequest): Promise<{
-			success: boolean;
-			data?: { generation_id: string; status: any };
-		}>;
-		cancelGeneration(id: string): Promise<unknown>;
-		getGenerationStatus(id: string): Promise<{ success: boolean; data?: any }>;
-		getGenerationById(id: string, ...args: any[]): Promise<{ success: boolean; data?: any }>;
-	};
-}
-
-// ---------------------------------------------------------------------------
-// startGeneration
-// ---------------------------------------------------------------------------
-
-export interface StartGenerationParams {
-	tab: Tab;
-	activeTabId: string;
-	numPrompts: number;
-}
-
-export interface StartGenerationResult {
-	generationId: string;
-	status: any;
-	shuffledPositive: any[];
-	shuffledNegative: any[];
-	hasShuffledChips: boolean;
-	/** Fresh choice-variable rolls from this submission — see VariablesPayloadResult.rolls. */
-	variableRolls: Record<string, VariableRoll>;
-}
-
-/**
- * Assemble form data and call the API to kick off a generation.
- * Throws on validation failure or API error.
- */
-export async function startGeneration(
-	params: StartGenerationParams,
-	deps: GenerationOrchestrationDeps
-): Promise<StartGenerationResult> {
-	const { tab, numPrompts } = params;
-
-	// Build prompt array (including shuffle)
-	const { prompts, shuffledPositive, shuffledNegative, hasShuffled } = buildPromptsArray(tab, numPrompts);
-
-	// Validate
-	const hasValidPrompt = prompts.some((p) => p.positive.trim().length > 0);
-	if (!tab.selectedPreset || !hasValidPrompt) {
-		throw new Error('Missing preset or prompt');
-	}
-
-	// No single-in-flight guard: generations are queued server-side, one slot per
-	// backend, so any tab may enqueue at any time. See src/core/generation/queue.py.
-
-	const promptState = {
-		prompt: tab.prompt,
-		negativePrompt: tab.negativePrompt,
-		promptSegments: tab.promptSegments,
-		negativePromptSegments: tab.negativePromptSegments,
-		promptTabs: tab.promptTabs,
-		activePromptTab: tab.activePromptTab,
-		promptRelay: tab.promptRelay,
-		videoDirector: tab.videoDirector,
-		musicDirector: tab.musicDirector
-	};
-
-	// Variable DEFINITIONS never ride inside the prompt text — there is no
-	// `${name=value}` assignment syntax; dynamicprompts binds them out of
-	// band via GenerationRequest.variables (src/features/generation/dto.py),
-	// consumed by expander.py's _base_context(). Segments only ever contain
-	// the USAGE form `${name}`.
-	const variablesResult = buildVariablesPayload(tab);
-
-	const request: GenerationRequest = {
-		preset_id: tab.selectedPreset,
-		prompts,
-		mode: tab.selectedMode ?? undefined,
-		form_data: tab.formData,
-		backend_id: tab.selectedBackendId ?? undefined,
-		tag_ids: tab.autoTagIds?.length ? tab.autoTagIds : undefined,
-		collection_ids: tab.autoCollectionIds?.length ? tab.autoCollectionIds : undefined,
-		prompt_state: promptState,
-		segments: buildSegmentsPayload(tab, numPrompts),
-		variables: variablesResult.variables,
-		source_prompt_id: tab.sourcePromptId ?? undefined
-	};
-
-	const response = await deps.api.startGeneration(request);
-
-	if (!response.success || !response.data) {
-		throw new Error('API did not return a generation_id');
-	}
-
-	return {
-		generationId: response.data.generation_id,
-		status: response.data.status,
-		shuffledPositive,
-		shuffledNegative,
-		hasShuffledChips: hasShuffled,
-		variableRolls: variablesResult.rolls
-	};
-}
-
-// ---------------------------------------------------------------------------
-// cancelGeneration
-// ---------------------------------------------------------------------------
-
-export async function cancelGeneration(generationId: string, deps: GenerationOrchestrationDeps): Promise<void> {
-	await deps.api.cancelGeneration(generationId);
 }
 
 // ---------------------------------------------------------------------------

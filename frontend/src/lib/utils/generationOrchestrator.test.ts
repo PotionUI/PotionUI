@@ -1,12 +1,11 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { get } from 'svelte/store';
 import {
 	buildSegmentInput,
 	buildSegmentsPayload,
-	buildPromptsArray,
+	combineSegmentsToString,
 	buildVariablesPayload,
 	resolveSegmentText,
-	startGeneration,
 	mapGenerationFiles
 } from './generationOrchestrator';
 import type { Segment, ChipData } from '$lib/types/segments';
@@ -187,51 +186,15 @@ describe('buildSegmentsPayload', () => {
 	});
 });
 
-describe('buildPromptsArray', () => {
-	it('reports shuffled chips from either multi-prompt channel', () => {
-		const shuffled = chip({
-			categoryPath: 'color',
-			valueId: 'red',
-			value: 'red'
-		});
-		shuffled.shuffle = true;
-		shuffled.allValues = [
-			{ id: 'red', label: 'Red', value: 'red' },
-			{ id: 'blue', label: 'Blue', value: 'blue' }
+describe('combineSegmentsToString', () => {
+	it('defaults to a comma join, and threads a paragraph join into the flattened text', () => {
+		const segments = [
+			segment({ id: 'verse', content: '[Verse]\nrain on the window' }),
+			segment({ id: 'chorus', content: '[Chorus]\nnowhere to go' })
 		];
-		const tab = makeTab({
-			promptTabs: [
-				{
-					prompt: '',
-					negativePrompt: '',
-					promptSegments: [
-						segment({
-							id: 'positive',
-							content: '#color',
-							chips: { color: shuffled }
-						})
-					],
-					negativePromptSegments: []
-				}
-			]
-		});
 
-		expect(buildPromptsArray(tab, 2).hasShuffled).toBe(true);
-	});
-
-	it('defaults to a comma join, and threads a paragraph join into the submitted positive prompt', () => {
-		const tab = makeTab({
-			promptSegments: [
-				segment({ id: 'verse', content: '[Verse]\nrain on the window' }),
-				segment({ id: 'chorus', content: '[Chorus]\nnowhere to go' })
-			],
-			negativePromptSegments: []
-		});
-
-		expect(buildPromptsArray(tab, 1).prompts[0].positive).toBe(
-			'[Verse]\nrain on the window, [Chorus]\nnowhere to go'
-		);
-		expect(buildPromptsArray(tab, 1, 'paragraph').prompts[0].positive).toBe(
+		expect(combineSegmentsToString(segments)).toBe('[Verse]\nrain on the window, [Chorus]\nnowhere to go');
+		expect(combineSegmentsToString(segments, 'paragraph')).toBe(
 			'[Verse]\nrain on the window\n\n[Chorus]\nnowhere to go'
 		);
 	});
@@ -337,62 +300,6 @@ describe('buildVariablesPayload', () => {
 		});
 		const result = buildVariablesPayload(tab, { random: () => 0.5 });
 		expect(result.variables?.mood).toBe(result.rolls.mood.value);
-	});
-});
-
-describe('startGeneration', () => {
-	it('includes the tab variables map in the generation request', async () => {
-		const startGenerationRequest = vi.fn().mockResolvedValue({
-			success: true,
-			data: { generation_id: 'generation-1', status: { status: 'running' } }
-		});
-		const tab = makeTab({
-			prompt: 'portrait',
-			variables: { mood: '{noir|sunlit}' }
-		});
-
-		await startGeneration(
-			{ tab, activeTabId: tab.id, numPrompts: 1 },
-			{
-				api: {
-					startGeneration: startGenerationRequest,
-					cancelGeneration: vi.fn(),
-					getGenerationStatus: vi.fn(),
-					getGenerationById: vi.fn()
-				}
-			}
-		);
-
-		expect(startGenerationRequest).toHaveBeenCalledWith(
-			expect.objectContaining({ variables: { mood: '{noir|sunlit}' } })
-		);
-	});
-
-	it('includes selected auto-collections in the generation request', async () => {
-		const startGenerationRequest = vi.fn().mockResolvedValue({
-			success: true,
-			data: { generation_id: 'generation-1', status: { status: 'running' } }
-		});
-		const tab = makeTab({
-			prompt: 'portrait',
-			autoCollectionIds: ['collection-1', 'collection-2']
-		});
-
-		await startGeneration(
-			{ tab, activeTabId: tab.id, numPrompts: 1 },
-			{
-				api: {
-					startGeneration: startGenerationRequest,
-					cancelGeneration: vi.fn(),
-					getGenerationStatus: vi.fn(),
-					getGenerationById: vi.fn()
-				}
-			}
-		);
-
-		expect(startGenerationRequest).toHaveBeenCalledWith(
-			expect.objectContaining({ collection_ids: ['collection-1', 'collection-2'] })
-		);
 	});
 });
 

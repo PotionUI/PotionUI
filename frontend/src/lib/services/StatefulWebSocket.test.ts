@@ -356,4 +356,31 @@ describe('StatefulWebSocket', () => {
 		await vi.advanceTimersByTimeAsync(30000);
 		expect(b.sent.length).toBe(2);
 	});
+
+	it('a failed replacement construction still retires the old attempt - its late close cannot resurrect a retry', async () => {
+		const state = writable<ConnectionState>('disconnected');
+		const socket = new TestSocket(state);
+
+		const first = socket.connectAsync();
+		const a = MockWebSocket.instances[0];
+		a.open();
+		await first;
+
+		a.startClosing();
+		MockWebSocket.nextConstructError = new Error('blocked by browser policy');
+		const second = socket.connectAsync();
+
+		await expect(second).rejects.toThrow('blocked by browser policy');
+		expect(get(state)).toBe('disconnected');
+
+		// The failed replacement was never pushed to instances - only A exists.
+		expect(MockWebSocket.instances.length).toBe(1);
+
+		// A's belated close must be a no-op now: no reconnecting state, no retry.
+		a.fail(1006);
+		await vi.advanceTimersByTimeAsync(60000);
+
+		expect(get(state)).toBe('disconnected');
+		expect(MockWebSocket.instances.length).toBe(1);
+	});
 });

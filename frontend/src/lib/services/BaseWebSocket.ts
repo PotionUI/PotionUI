@@ -47,6 +47,13 @@ export abstract class BaseWebSocket {
 		// flight would orphan the first socket with its handlers still attached.
 		if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) return;
 
+		// Retire whatever attempt currently owns this.ws/generation (typically a
+		// CLOSING socket the guard above let through) before trying a
+		// replacement - including when the construction below throws, so a
+		// failed replacement doesn't leave the old socket "current" and able to
+		// resurrect a retry cycle once its own belated close arrives.
+		this.retireCurrentAttempt();
+
 		const wsUrl = this.buildWsUrl();
 
 		try {
@@ -183,6 +190,19 @@ export abstract class BaseWebSocket {
 		if (this.heartbeatInterval) {
 			clearInterval(this.heartbeatInterval);
 			this.heartbeatInterval = null;
+		}
+	}
+
+	/** Neutralizes whatever socket currently owns this.ws, without closing it - it may already be CLOSING. */
+	private retireCurrentAttempt(): void {
+		this.generation++;
+		this.stopHeartbeat();
+		if (this.ws) {
+			this.ws.onopen = null;
+			this.ws.onmessage = null;
+			this.ws.onerror = null;
+			this.ws.onclose = null;
+			this.ws = null;
 		}
 	}
 }

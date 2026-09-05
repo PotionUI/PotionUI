@@ -1156,6 +1156,115 @@ describe('createSessionController', () => {
 		expect(state.isHistoryLoading).toBe(false);
 	});
 
+	// A dialog the user cancelled and reopened is a different dialog, even
+	// though no second attempt was submitted and nothing about the context or
+	// the command handle changed.
+	it('does not answer for a save dialog reopened after the attempt was cancelled', async () => {
+		await bootWithDirtySession();
+		const pending = deferred<{ success: boolean; data: Session }>();
+		harness.api.saveSession.mockReturnValue(pending.promise as never);
+
+		controller.openDialog('save');
+		const saving = controller.saveAs('Fresh', 'save-as');
+		await settle();
+
+		controller.closeDialog('save');
+		controller.openDialog('save');
+
+		pending.resolve({ success: true, data: makeSession('created', { name: 'Fresh' }) });
+		await settle();
+
+		expect(await saving).toBe(false);
+		// The record the server accepted still belongs in the list.
+		expect(get(controller.state).sessions.some((entry) => entry.id === 'created')).toBe(true);
+	});
+
+	it('does not repopulate the name error of a save dialog reopened after a cancel', async () => {
+		await bootWithDirtySession();
+		const pending = deferred<{ success: boolean; data: Session }>();
+		harness.api.saveSession.mockReturnValue(pending.promise as never);
+
+		controller.openDialog('save');
+		void controller.saveAs('Fresh', 'save-as');
+		await settle();
+
+		controller.closeDialog('save');
+		controller.openDialog('save');
+		controller.clearNameError();
+
+		pending.reject(new Error('server refused'));
+		await settle();
+
+		expect(get(controller.state).nameError).toBe('');
+	});
+
+	it('does not annotate a save dialog the user cancelled without reopening', async () => {
+		await bootWithDirtySession();
+		const pending = deferred<{ success: boolean; data: Session }>();
+		harness.api.saveSession.mockReturnValue(pending.promise as never);
+
+		controller.openDialog('save');
+		const saving = controller.saveAs('Fresh', 'save-as');
+		await settle();
+
+		controller.closeDialog('save');
+
+		pending.reject(new Error('server refused'));
+		await settle();
+
+		expect(get(controller.state).nameError).toBe('');
+		expect(await saving).toBe(false);
+	});
+
+	it('does not close a delete confirmation reopened after the attempt was cancelled', async () => {
+		await bootWithDirtySession();
+		const pending = deferred<{ success: boolean; data: { message: string } }>();
+		harness.api.deleteSession.mockReturnValue(pending.promise as never);
+
+		controller.openDialog('delete');
+		const deleting = controller.deleteSession();
+		await settle();
+
+		controller.closeDialog('delete');
+		controller.openDialog('delete');
+
+		pending.resolve({ success: true, data: { message: 'ok' } });
+		await settle();
+
+		expect(await deleting).toBe(false);
+		expect(get(controller.state).sessions.some((entry) => entry.id === SESSION_A)).toBe(false);
+	});
+
+	it('does not close a history panel reopened while a restore was applying', async () => {
+		await bootWithDirtySession();
+		harness.api.getSessionVersions.mockResolvedValue({ success: true, data: [version(1)] });
+		const pending = deferred<{ success: boolean; data: unknown }>();
+		harness.api.getSessionVersion.mockReturnValue(pending.promise as never);
+
+		await controller.openHistory(SESSION_A);
+		await settle();
+
+		void controller.restoreVersion(SESSION_A, 2);
+		await settle();
+
+		controller.closeHistory();
+		await controller.openHistory(SESSION_A);
+		await settle();
+
+		pending.resolve({
+			success: true,
+			data: { version_number: 2, created_at: '2026-01-01T00:00:00Z', summary: 'Save 2', data: {} }
+		});
+		await settle();
+
+		// The restore itself still landed; only the panel and its notice are
+		// scoped to the opening that asked for it.
+		expect(harness.tabs.tab.savedSessionSignature).toBeNull();
+		expect(get(controller.state).hasUnsavedChanges).toBe(true);
+		expect(get(controller.state).historySessionId).toBe(SESSION_A);
+		expect(harness.toasts.info).not.toHaveBeenCalled();
+	});
+
 	// The list read and the selection read are ordered against their own kind
 	// only, yet both publish the busy flag and the error, and the list also
 	// binds currentSession from a row. A list refresh that overlaps a selection

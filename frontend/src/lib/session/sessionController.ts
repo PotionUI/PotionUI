@@ -81,6 +81,11 @@ export type SessionCommandIntent =
 	| 'restore'
 	| 'delete';
 
+/** A view surface a completion may answer for. The controller never renders
+ *  it; the presenter declares when one opens and closes so a completion can
+ *  tell the dialog it was started from apart from the one on screen now. */
+export type SessionDialogKind = 'save' | 'delete' | 'history';
+
 /** Captured when an async session command starts. */
 export interface SessionCommandToken {
 	/** The session selected at the start of the command; '' when none was. */
@@ -92,6 +97,11 @@ export interface SessionCommandToken {
 	/** The list context (tab + preset + mode) the command started under. */
 	listGeneration: number;
 	intent: SessionCommandIntent;
+	/** The view surface this command answers for, if any. */
+	dialogKind: SessionDialogKind | null;
+	/** Which opening of that surface it was started from. Null when the view
+	 *  declared none, which leaves the dialog check inert. */
+	dialogToken: number | null;
 }
 
 /** The controller's live counters at the moment a command completes. */
@@ -281,6 +291,10 @@ export interface SessionController {
 	 *  caller should close its modal. */
 	saveAs(name: string, mode: 'rename' | 'save-as'): Promise<boolean>;
 	deleteSession(): Promise<boolean>;
+	/** Declared by the view when it opens a dialog and again when it closes or
+	 *  cancels one, so a completion cannot answer for a later opening. */
+	openDialog(kind: SessionDialogKind): void;
+	closeDialog(kind: SessionDialogKind): void;
 	openHistory(sessionId: string): Promise<void>;
 	closeHistory(): void;
 	restoreVersion(sessionId: string, versionNumber: number): Promise<void>;
@@ -372,6 +386,11 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 	let saveAsInFlight: SessionCommandToken | null = null;
 	let deleteInFlight: SessionCommandToken | null = null;
 	let restoreInFlight: SessionCommandToken | null = null;
+	// Which opening of each view surface is current. An entry is absent while
+	// the surface is closed, so a completion captured against an opening that
+	// has since been cancelled matches nothing.
+	let dialogSeq = 0;
+	const openDialogTokens = new Map<SessionDialogKind, number>();
 	let commandSeq = 0;
 	let lastAppliedSeq = 0;
 	const newestIssuedSeq = new Map<SessionCommandIntent, number>();
@@ -564,7 +583,10 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		commandGeneration += 1;
 	}
 
-	function beginSessionCommand(intent: SessionCommandIntent): SessionCommandToken {
+	function beginSessionCommand(
+		intent: SessionCommandIntent,
+		dialogKind: SessionDialogKind | null = null
+	): SessionCommandToken {
 		commandSeq += 1;
 		newestIssuedSeq.set(intent, commandSeq);
 		return {
@@ -572,8 +594,19 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 			generation: commandGeneration,
 			seq: commandSeq,
 			listGeneration,
-			intent
+			intent,
+			dialogKind,
+			dialogToken: dialogKind ? (openDialogTokens.get(dialogKind) ?? null) : null
 		};
+	}
+
+	function openDialog(kind: SessionDialogKind) {
+		dialogSeq += 1;
+		openDialogTokens.set(kind, dialogSeq);
+	}
+
+	function closeDialog(kind: SessionDialogKind) {
+		openDialogTokens.delete(kind);
 	}
 
 	function ownsActiveState(command: SessionCommandToken): boolean {
@@ -602,6 +635,12 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 	): boolean {
 		if (destroyed) return false;
 		if (inFlight !== command) return false;
+		if (
+			command.dialogKind &&
+			command.dialogToken !== (openDialogTokens.get(command.dialogKind) ?? null)
+		) {
+			return false;
+		}
 		return ownsSessionList(command);
 	}
 
@@ -1115,7 +1154,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 			return false;
 		}
 
-		const command = beginSessionCommand('save-as');
+		const command = beginSessionCommand('save-as', 'save');
 		saveAsInFlight = command;
 		let closed = false;
 
@@ -1175,7 +1214,9 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 			// no later save has taken over the dialog the view is showing.
 			closed = ownsDialog(command, saveAsInFlight);
 		} catch (err) {
-			if (ownsActiveState(command)) {
+			// A dialog the user cancelled, or a later opening of it, is not this
+			// attempt's to annotate.
+			if (ownsActiveState(command) && ownsDialog(command, saveAsInFlight)) {
 				markApplied(command);
 				nameError = err instanceof Error ? err.message : 'Failed to save session';
 			}
@@ -1196,7 +1237,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 	async function deleteSession(): Promise<boolean> {
 		if (!selectedSessionId) return false;
 
-		const command = beginSessionCommand('delete');
+		const command = beginSessionCommand('delete', 'delete');
 		deleteInFlight = command;
 		let deleted = false;
 
@@ -1234,6 +1275,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 
 	// Session history: list this session's past saves.
 	async function openHistory(sessionId: string) {
+		openDialog('history');
 		const read = beginSessionRead('history', sessionId, { ownsSelection: false });
 		historySessionId = sessionId;
 		historyVersions = [];
@@ -1263,6 +1305,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		// Closing retires the load: its rows and its error belong to a panel that
 		// is no longer open, and its spinner would otherwise be left raised.
 		retireReads('history');
+		closeDialog('history');
 		historySessionId = null;
 		historyVersions = [];
 		historyError = null;
@@ -1280,7 +1323,7 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 			return;
 		}
 
-		const command = beginSessionCommand('restore');
+		const command = beginSessionCommand('restore', 'history');
 		restoreInFlight = command;
 
 		try {
@@ -1291,10 +1334,15 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 				markApplied(command);
 				const version = response.data;
 				await applySessionModeData(sessionId, version.data, sessionMeta, { markSaved: false });
-				closeHistory();
-				deps.toasts.info(
-					`Loaded the save from ${timeAgo(version.created_at)} — Save to make it the latest.`
-				);
+				// Applying yields, and the panel can be closed and reopened across
+				// it. The restored data stays either way; what is scoped here is
+				// closing the panel and announcing it to whoever asked.
+				if (ownsDialog(command, restoreInFlight)) {
+					closeHistory();
+					deps.toasts.info(
+						`Loaded the save from ${timeAgo(version.created_at)} — Save to make it the latest.`
+					);
+				}
 			}
 		} catch (err) {
 			deps.logger.error('Failed to restore session version:', err);
@@ -1388,6 +1436,8 @@ export function createSessionController(deps: SessionControllerDeps): SessionCon
 		quickSave,
 		saveAs,
 		deleteSession,
+		openDialog,
+		closeDialog,
 		openHistory,
 		closeHistory,
 		restoreVersion,

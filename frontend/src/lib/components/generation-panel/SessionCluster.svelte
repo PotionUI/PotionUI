@@ -185,6 +185,7 @@
 		if ($session.currentSession) {
 			sessionName = $session.currentSession.name;
 			showSaveModal = true;
+			controller.openDialog('save');
 		} else {
 			handleOpenSaveAsModal();
 		}
@@ -194,6 +195,7 @@
 	function handleOpenSaveAsModal() {
 		sessionName = '';
 		showSaveAsModal = true;
+		controller.openDialog('save');
 		controller.clearNameError();
 	}
 
@@ -203,10 +205,14 @@
 
 	function handleDeleteSession() {
 		showDeleteConfirm = true;
+		controller.openDialog('delete');
 	}
 
 	async function confirmDelete() {
-		if (await controller.deleteSession()) showDeleteConfirm = false;
+		if (await controller.deleteSession()) {
+			showDeleteConfirm = false;
+			controller.closeDialog('delete');
+		}
 	}
 
 	function closeModals() {
@@ -214,6 +220,10 @@
 		showSaveAsModal = false;
 		showDeleteConfirm = false;
 		sessionName = '';
+		// The controller must hear about a cancel too: a save or delete still in
+		// flight answers for the opening it started from, not for the next one.
+		controller.closeDialog('save');
+		controller.closeDialog('delete');
 		controller.clearFeedback();
 	}
 </script>

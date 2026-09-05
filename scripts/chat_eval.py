@@ -522,6 +522,11 @@ def clone_config_request_body(config: Dict[str, Any], context_window: int) -> Di
     override. ``api_key`` is deliberately absent: ``LLMConfigResponse`` never
     returns a stored key (``api_key_set`` only), so a clone of a config that
     needs one will not authenticate — use ``--variant-config`` for those.
+
+    ``memory_reflection`` is always forced to ``False`` regardless of the
+    source config's own setting — see ``_MEMORY_POLICY_NOTE``: a generated
+    clone exists only for this evaluation run and must never leave a
+    background-reflection artifact behind in the user's durable memory.
     """
     provider_options = dict(config.get("provider_options") or {})
     provider_options["context_window"] = context_window
@@ -537,9 +542,47 @@ def clone_config_request_body(config: Dict[str, Any], context_window: int) -> Di
         "timeout": config.get("timeout", 30),
         "supports_vision": config.get("supports_vision", False),
         "disable_system_prompt": config.get("disable_system_prompt", False),
-        "memory_reflection": config.get("memory_reflection", True),
+        "memory_reflection": False,
         "provider_options": provider_options,
     }
+
+
+# Evaluation memory policy: every configuration this script actually drives a
+# session against (the resolved --config, an explicit --variant-config, or a
+# generated clone) must have memory_reflection off. ChatReflectionGenerator
+# (src/features/chat/reflection.py) fires a background pass after every 4th
+# user message in a session whose config has memory_reflection on, extracting
+# and PERSISTING durable-memory facts from the conversation regardless of
+# which tools ran or were excluded - write_memory being excluded from
+# enabled_tools (see _DRY_RUN_EXCLUDED_TOOLS) does not stop it, because
+# reflection is a separate mechanism from the tool loop entirely. This
+# pack's own long_history_latest_question scenario sends 26 turns, well past
+# that threshold, so a config with reflection on would risk writing benchmark
+# facts into the user's real memory on every live run. Checked BEFORE any
+# session or message is created for ANY selected config - refusing the whole
+# run rather than silently skipping the offending config.
+_MEMORY_POLICY_NOTE = (
+    "chat_eval.py requires memory_reflection: false on every configuration it evaluates - see "
+    "docs/chat-evaluation.md's 'Evaluation memory policy' section."
+)
+
+
+def _preflight_memory_policy(configs_to_check: List[Tuple[str, Dict[str, Any]]]) -> Optional[str]:
+    """``configs_to_check``: ``[(cli_flag_label, config), ...]``. Returns an
+    error message (never raises) for the first config with reflection on, or
+    ``None`` if every config passes. Never mutates the offending config —
+    the fix is a dedicated evaluation configuration, not forcing this one off
+    out from under the user.
+    """
+    for label, config in configs_to_check:
+        if config.get("memory_reflection", True):
+            return (
+                f"Refusing to run: the configuration named by {label} ('{config.get('id')}', "
+                f"{config.get('name')!r}) has memory_reflection enabled.\n{_MEMORY_POLICY_NOTE}\n"
+                "Create a dedicated evaluation configuration with memory_reflection disabled and pass "
+                f"it via {label} - this command will not disable it on your existing configuration."
+            )
+    return None
 
 
 def _artifact_path(transcripts_dir: Path, run_id: str, variant: Optional[str], config_id: str, scenario_id: str) -> Path:
@@ -682,7 +725,11 @@ def _run_scenario_live(
     behavior_trace_steps = behavior_trace.get("steps")
 
     transcript_record = {
-        "version": 1, "scenario": scenario_id, "messages": all_messages,
+        "version": 2, "scenario": scenario_id, "messages": all_messages,
+        # Provenance: a live capture never gets a locally-recomputed budget
+        # pressure verdict (see evaluator.py's budget_pressure_observed) -
+        # only its own real backend ledger counts as evidence.
+        "capture": "live",
         # The live wire protocol doesn't expose real intra-turn round
         # boundaries (see evaluate_transcript's docstring) - stored IN the
         # transcript so re-scoring a saved artifact later reproduces this
@@ -703,6 +750,18 @@ def _run_scenario_live(
     artifact = {
         "version": 1, "run_id": run_id, "scenario": scenario_id,
         "config_id": config.get("id"), "variant": variant,
+        # Records what the memory policy actually verified for THIS config at
+        # preflight time (or forced, for a generated clone) - see
+        # _preflight_memory_policy/_MEMORY_POLICY_NOTE and
+        # docs/chat-evaluation.md's "Evaluation memory policy" section. This
+        # does not cover a background reflection pass already in flight from
+        # a PRIOR turn in a session this run reuses (it never does) or any
+        # server-side override of the config after preflight ran.
+        "memory_policy": {
+            "memory_reflection_required_off": True,
+            "config_memory_reflection": config.get("memory_reflection"),
+            "note": _MEMORY_POLICY_NOTE,
+        },
         "turns": turns_evidence,
         "transcript": transcript_record,
     }
@@ -821,15 +880,29 @@ def cmd_run(args: argparse.Namespace) -> int:
         print(f"Could not resolve --config {args.config!r}: {e}", file=sys.stderr)
         return 1
 
+    variant_config: Optional[Dict[str, Any]] = None
+    if args.variant_config:
+        try:
+            variant_config = _resolve_config(args.base_url, args.token, args.variant_config)
+        except _HttpError as e:
+            print(f"Could not resolve --variant-config {args.variant_config!r}: {e}", file=sys.stderr)
+            return 1
+
+    # Evaluation memory policy, checked BEFORE any session or message is
+    # created for ANY selected config (a generated clone is exempt - see
+    # clone_config_request_body, which always forces it off by construction).
+    configs_to_check = [("--config", config)]
+    if variant_config is not None:
+        configs_to_check.append(("--variant-config", variant_config))
+    policy_error = _preflight_memory_policy(configs_to_check)
+    if policy_error:
+        print(policy_error, file=sys.stderr)
+        return 1
+
     configs_to_run: List[Tuple[Optional[str], Dict[str, Any]]] = [(None, config)]
     created_variant_id: Optional[str] = None
     try:
-        if args.variant_config:
-            try:
-                variant_config = _resolve_config(args.base_url, args.token, args.variant_config)
-            except _HttpError as e:
-                print(f"Could not resolve --variant-config {args.variant_config!r}: {e}", file=sys.stderr)
-                return 1
+        if variant_config is not None:
             configs_to_run.append((args.variant or "variant-config", variant_config))
         elif args.variant:
             window = _VARIANT_CONTEXT_WINDOWS[args.variant]

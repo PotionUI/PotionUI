@@ -1,6 +1,7 @@
 {
-  "version": 1,
+  "version": 2,
   "scenario": "tool_error_recovery",
+  "capture": "replay",
   "messages": [
     {
       "role": "user",

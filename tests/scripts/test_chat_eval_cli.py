@@ -27,12 +27,17 @@ from tests.evaluation.chat.evaluator import evaluate_transcript  # noqa: E402
 
 
 def _config_response(config_id="cfg-1", name="My Ollama", **overrides):
+    # memory_reflection defaults to False: this represents a WELL-BEHAVED
+    # dedicated evaluation configuration, satisfying chat_eval.py's memory
+    # policy preflight by default so other tests don't have to opt in on
+    # every call - tests that specifically exercise the policy pass
+    # memory_reflection=True explicitly (see TestMemoryReflectionPolicy).
     base = {
         "id": config_id, "name": name, "type": "ollama", "enabled": True,
         "base_url": "http://localhost:11434", "api_key_set": False, "model": "llama3",
         "system_message": "You are a helpful assistant.", "temperature": 0.7, "max_tokens": 1000,
         "timeout": 30, "supports_vision": False, "disable_system_prompt": False,
-        "memory_reflection": True, "provider_options": {"context_window": 8192}, "is_default": False,
+        "memory_reflection": False, "provider_options": {"context_window": 8192}, "is_default": False,
     }
     base.update(overrides)
     return base
@@ -501,3 +506,196 @@ class TestBudgetPressureReachesLiveTurn:
         latest_question_check = next(c for c in row["checks"] if c["check"] == "latest_question_reflected")
         assert latest_question_check["passed"] is True
         assert row["passed"] is True
+
+
+class TestMemoryReflectionPolicy:
+    """chat_eval.py must refuse to evaluate any configuration whose
+    memory_reflection is on, checked BEFORE any session/message is created
+    for ANY selected config, and a generated clone must always be created
+    with memory_reflection forced off regardless of the source config."""
+
+    def test_refuses_before_any_session_or_message_call_when_base_config_has_reflection_on(self, monkeypatch, tmp_path):
+        config = _config_response(config_id="cfg-1", memory_reflection=True)
+
+        def responder(method, url, payload):
+            if method == "GET" and url.endswith("/api/llm/configurations/cfg-1"):
+                return json.dumps({"success": True, "data": config})
+            raise AssertionError(f"unexpected call: {method} {url} - refusal must happen before any session/message call")
+
+        calls = _install_fake_http(monkeypatch, responder)
+        args = chat_eval.build_parser().parse_args([
+            "run", "--config", "cfg-1", "--scenario", "explicit_generation_dry_run",
+            "--transcripts-dir", str(tmp_path / "transcripts"), "--out", str(tmp_path / "report.json"),
+        ])
+        exit_code = chat_eval.cmd_run(args)
+
+        assert exit_code != 0
+        assert not (tmp_path / "report.json").exists()
+        session_or_message_calls = [c for c in calls if "/api/chat/sessions" in c[1]]
+        assert session_or_message_calls == [], "zero session/message calls must happen once the policy refuses"
+
+    def test_refuses_when_variant_config_has_reflection_on_even_if_base_is_clean(self, monkeypatch, tmp_path):
+        config = _config_response(config_id="cfg-1", memory_reflection=False)
+        variant_config = _config_response(config_id="cfg-2", name="Variant", memory_reflection=True)
+
+        def responder(method, url, payload):
+            if method == "GET" and url.endswith("/api/llm/configurations/cfg-1"):
+                return json.dumps({"success": True, "data": config})
+            if method == "GET" and url.endswith("/api/llm/configurations/cfg-2"):
+                return json.dumps({"success": True, "data": variant_config})
+            raise AssertionError(f"unexpected call: {method} {url}")
+
+        calls = _install_fake_http(monkeypatch, responder)
+        args = chat_eval.build_parser().parse_args([
+            "run", "--config", "cfg-1", "--variant-config", "cfg-2",
+            "--scenario", "explicit_generation_dry_run",
+            "--transcripts-dir", str(tmp_path / "transcripts"), "--out", str(tmp_path / "report.json"),
+        ])
+        exit_code = chat_eval.cmd_run(args)
+
+        assert exit_code != 0
+        session_or_message_calls = [c for c in calls if "/api/chat/sessions" in c[1]]
+        assert session_or_message_calls == []
+
+    def test_permitted_control_with_reflection_disabled_config_proceeds(self, monkeypatch, tmp_path):
+        config = _config_response(config_id="cfg-1", memory_reflection=False)
+
+        def responder(method, url, payload):
+            if method == "GET" and url.endswith("/api/llm/configurations/cfg-1"):
+                return json.dumps({"success": True, "data": config})
+            if method == "POST" and url.endswith("/api/chat/sessions"):
+                return json.dumps({"success": True, "data": {"id": "sess-1"}})
+            if method == "POST" and "/messages/stream" in url:
+                return (
+                    'event: done\ndata: {"assistant_message": {"content": '
+                    '"I\'ve set up a red fox in the snow at 1024x1024 on the SDXL base preset - '
+                    'approve to start it running.", "tool_executions": [{"tool_name": "start_generation", '
+                    '"arguments": {"preset_id": "sdxl/base", "prompt": "a red fox in the snow"}, '
+                    '"pending_approval": true, "result": {"success": false, "data": '
+                    '"{\\"status\\": \\"pending_approval\\"}"}}]}}\n\n'
+                )
+            raise AssertionError(f"unexpected call: {method} {url}")
+
+        _install_fake_http(monkeypatch, responder)
+        args = chat_eval.build_parser().parse_args([
+            "run", "--config", "cfg-1", "--scenario", "explicit_generation_dry_run",
+            "--transcripts-dir", str(tmp_path / "transcripts"), "--out", str(tmp_path / "report.json"),
+        ])
+        exit_code = chat_eval.cmd_run(args)
+
+        assert exit_code == 0
+        report = json.loads((tmp_path / "report.json").read_text())
+        assert report["results"][0]["passed"] is True
+
+    def test_generated_clone_always_carries_memory_reflection_false(self, monkeypatch, tmp_path):
+        # Even when the SOURCE config has reflection on, a generated clone
+        # must always be created with it forced off - clone_config_request_body
+        # never copies the source's own setting through.
+        config = _config_response(config_id="cfg-1", memory_reflection=False)
+        create_bodies = []
+
+        def responder(method, url, payload):
+            if method == "GET" and url.endswith("/api/llm/configurations/cfg-1"):
+                return json.dumps({"success": True, "data": config})
+            if method == "POST" and url.endswith("/api/llm/configurations"):
+                create_bodies.append(payload)
+                return json.dumps({"success": True, "data": {"id": "cfg-clone"}})
+            if method == "GET" and url.endswith("/api/llm/configurations/cfg-clone"):
+                return json.dumps({"success": True, "data": _config_response(config_id="cfg-clone", memory_reflection=False)})
+            if method == "DELETE" and url.endswith("/api/llm/configurations/cfg-clone"):
+                return json.dumps({"success": True, "data": {"id": "cfg-clone"}})
+            raise AssertionError(f"unexpected call: {method} {url}")
+
+        _install_fake_http(monkeypatch, responder)
+        args = chat_eval.build_parser().parse_args([
+            "run", "--config", "cfg-1", "--variant", "compact",
+            "--scenario", "tool_error_recovery",  # live_supported=false, no further HTTP calls needed
+            "--transcripts-dir", str(tmp_path / "transcripts"), "--out", str(tmp_path / "report.json"),
+        ])
+        chat_eval.cmd_run(args)
+
+        assert len(create_bodies) == 1
+        assert create_bodies[0]["memory_reflection"] is False
+
+
+class TestBudgetPressureProvenance:
+    """budget_pressure_observed must never recompute pressure for a LIVE
+    capture that has no real backend ledger - only an authored REPLAY
+    fixture is eligible for the local recompute fallback."""
+
+    def _scenario_and_schemas(self):
+        scenario = chat_fixtures.load_all_scenarios()["long_history_latest_question"]
+        return scenario, tool_snapshot.schemas_by_name()
+
+    def test_saved_live_transcript_without_ledger_is_unverified_never_recomputed(self):
+        scenario, tool_schemas = self._scenario_and_schemas()
+        replay_transcript = chat_fixtures.load_transcript(
+            chat_fixtures.TRANSCRIPTS_DIR / "long_history_latest_question.good.json"
+        )
+        # Same real pressurized history, but stamped as a LIVE capture with NO
+        # ledger - simulates a saved artifact from a provider that never
+        # reported one.
+        live_transcript_without_ledger = dict(replay_transcript, capture="live", budget_ledger={})
+
+        evaluation = evaluate_transcript(scenario, live_transcript_without_ledger, tool_schemas)
+        pressure_check = next(r for r in evaluation.results if r.check == "budget_pressure_observed")
+        assert pressure_check.unverified is True
+        assert "never" in pressure_check.detail or "unverified" in pressure_check.detail.lower() or "recomput" in pressure_check.detail
+
+    def test_canned_replay_transcript_recomputes_pressure(self):
+        scenario, tool_schemas = self._scenario_and_schemas()
+        replay_transcript = chat_fixtures.load_transcript(
+            chat_fixtures.TRANSCRIPTS_DIR / "long_history_latest_question.good.json"
+        )
+        assert replay_transcript["capture"] == "replay"
+        assert not replay_transcript.get("budget_ledger")
+
+        evaluation = evaluate_transcript(scenario, replay_transcript, tool_schemas)
+        pressure_check = next(r for r in evaluation.results if r.check == "budget_pressure_observed")
+        assert pressure_check.unverified is False
+        assert pressure_check.passed is True
+        assert "recomputed" in pressure_check.detail
+
+    def test_re_scoring_a_saved_live_artifact_with_a_real_ledger_preserves_the_ledger_branch(self, monkeypatch, tmp_path):
+        """A live capture that DID get a real ledger must keep using it (not
+        silently fall back to recompute) even after being saved and reloaded."""
+        config = _config_response(config_id="cfg-1")
+        scenario, tool_schemas = self._scenario_and_schemas()
+        expected_turns = len(scenario["user_turns"])
+        seen = []
+
+        def responder(method, url, payload):
+            if method == "GET" and url.endswith("/api/llm/configurations/cfg-1"):
+                return json.dumps({"success": True, "data": config})
+            if method == "POST" and url.endswith("/api/chat/sessions"):
+                return json.dumps({"success": True, "data": {"id": "sess-1"}})
+            if method == "POST" and "/messages/stream" in url:
+                seen.append(payload)
+                is_last = len(seen) == expected_turns
+                msg = {"content": "For a 2x video upscale, reach for a dedicated video upscaler." if is_last else "noted"}
+                if is_last:
+                    msg["metadata"] = {"behavior_trace": {"context_ledger": {"budget": {
+                        "capacity_tokens": 4096, "capacity_source": "config",
+                        "accounting": "estimate", "measured": False, "messages_dropped": 9,
+                    }}}}
+                return f'event: done\ndata: {json.dumps({"assistant_message": msg})}\n\n'
+            raise AssertionError(f"unexpected call: {method} {url}")
+
+        _install_fake_http(monkeypatch, responder)
+        args = chat_eval.build_parser().parse_args([
+            "run", "--config", "cfg-1", "--scenario", "long_history_latest_question",
+            "--transcripts-dir", str(tmp_path / "transcripts"), "--out", str(tmp_path / "report.json"),
+        ])
+        chat_eval.cmd_run(args)
+        report = json.loads((tmp_path / "report.json").read_text())
+        row = report["results"][0]
+
+        artifact = json.loads(Path(row["transcript"]).read_text())
+        assert artifact["transcript"]["capture"] == "live"
+        assert artifact["transcript"]["budget_ledger"]["messages_dropped"] == 9
+
+        re_scored = evaluate_transcript(scenario, artifact["transcript"], tool_schemas)
+        pressure_check = next(r for r in re_scored.results if r.check == "budget_pressure_observed")
+        assert pressure_check.unverified is False
+        assert "real backend" in pressure_check.detail
+        assert "live capture" in pressure_check.detail

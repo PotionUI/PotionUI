@@ -1,6 +1,7 @@
 {
-  "version": 1,
+  "version": 2,
   "scenario": "long_history_latest_question",
+  "capture": "replay",
   "messages": [
     {
       "role": "user",

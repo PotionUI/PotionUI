@@ -1,6 +1,7 @@
 {
-  "version": 1,
+  "version": 2,
   "scenario": "read_form_state",
+  "capture": "replay",
   "messages": [
     {
       "role": "user",

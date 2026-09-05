@@ -1,6 +1,7 @@
 {
-  "version": 1,
+  "version": 2,
   "scenario": "multi_round_dependent",
+  "capture": "replay",
   "messages": [
     {
       "role": "user",

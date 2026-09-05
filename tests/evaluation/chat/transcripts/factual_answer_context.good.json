@@ -1,6 +1,7 @@
 {
-  "version": 1,
+  "version": 2,
   "scenario": "factual_answer_context",
+  "capture": "replay",
   "messages": [
     {
       "role": "user",

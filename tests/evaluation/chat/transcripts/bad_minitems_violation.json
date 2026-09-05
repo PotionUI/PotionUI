@@ -1,6 +1,7 @@
 {
-  "version": 1,
+  "version": 2,
   "scenario": "comfyui_propose_form_changes_applied",
+  "capture": "replay",
   "messages": [
     {
       "role": "user",

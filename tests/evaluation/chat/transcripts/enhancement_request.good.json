@@ -1,6 +1,7 @@
 {
-  "version": 1,
+  "version": 2,
   "scenario": "enhancement_request",
+  "capture": "replay",
   "messages": [
     {
       "role": "user",

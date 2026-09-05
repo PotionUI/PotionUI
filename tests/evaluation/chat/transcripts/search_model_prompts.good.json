@@ -1,6 +1,7 @@
 {
-  "version": 1,
+  "version": 2,
   "scenario": "search_model_prompts",
+  "capture": "replay",
   "messages": [
     {
       "role": "user",

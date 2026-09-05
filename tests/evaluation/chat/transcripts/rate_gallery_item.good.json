@@ -1,6 +1,7 @@
 {
-  "version": 1,
+  "version": 2,
   "scenario": "rate_gallery_item",
+  "capture": "replay",
   "messages": [
     {
       "role": "user",

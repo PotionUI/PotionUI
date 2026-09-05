@@ -36,11 +36,15 @@ scenario's fixture state can't be faithfully reproduced against a real
 backend (a fictional model id that won't resolve in the real model index, an
 outcome — "applied"/"stale" — reachable only through the tool-approval
 endpoint `run` never calls, an induced tool error, ...). A **transcript**
-(`transcripts/<name>.json`) is the recorded message sequence of one run —
-the canonical `<scenario id>.good.json`, a deliberately broken fixture used by
-`test_evaluator.py`, or a live capture `chat_eval.py run` saves under
-`--transcripts-dir`. Full shapes are documented in the docstrings of
-`fixtures.py`, `evaluator.py`, and `scripts/chat_eval.py`.
+(`transcripts/<name>.json`, version 2) is the recorded message sequence of
+one run, tagged with an explicit `capture` provenance — `"replay"` for the
+canonical `<scenario id>.good.json` or a deliberately broken fixture used by
+`test_evaluator.py`, `"live"` for a capture `chat_eval.py run` saves under
+`--transcripts-dir`. `capture` is never inferred or defaulted — every check
+that must behave differently for a real capture vs. an authored fixture
+(`budget_pressure_observed` today) reads it directly rather than guessing.
+Full shapes are documented in the docstrings of `fixtures.py`, `evaluator.py`,
+and `scripts/chat_eval.py`.
 
 Checks are predicates over the transcript, never an expected exact call
 sequence — e.g. "a call to `search_model_prompts` with `model_id` matching the
@@ -57,12 +61,16 @@ schema-valid arguments — type, required, enum, numeric bounds
 (`minItems`/`maxItems`), and nested object/array shapes, checked against the
 tool's real JSON schema. `budget_pressure_observed` (`{capacity_tokens,
 reserve_tokens}`) proves a scenario's history genuinely exceeded a stated
-compact capacity and was actually trimmed — real backend evidence
-(`transcript["budget_ledger"]`, set by a live capture) when available, else a
-recompute over the transcript's own prior conversation via the SAME real
-`context_budget.enforce_budget` used elsewhere; never a prose "long history"
-label taken on faith, and `unverified` (not a silent pass) when neither
-source can produce a number. `error_then_recovery` requires a
+compact capacity and was actually trimmed, gated on the transcript's own
+`capture` provenance (`"live"` or `"replay"`, see below): a `"live"` capture
+is scored ONLY from its own real `transcript["budget_ledger"]` and reported
+`unverified` when that ledger is absent — NEVER recomputed locally, since
+that would silently substitute this evaluator's own token estimate for
+whatever the real provider actually did; a `"replay"` fixture (which never
+has a real ledger by construction) is recomputed over its own prior
+conversation via the SAME real `context_budget.enforce_budget` used
+elsewhere. Never a prose "long history" label taken on faith either way.
+`error_then_recovery` requires a
 POSITIVELY successful call after the last error — never a `pending_approval`/
 `stale`/`rejected` outcome, which is evidence the action wasn't actually
 carried out, not evidence of recovery. A property schema carrying a
@@ -181,19 +189,52 @@ reached — a different thing from "failed") rather than silently scoring a
 truncated conversation as if it were complete (see
 `tests/scripts/test_chat_eval_cli.py`'s `TestFailureSafeArtifacts`).
 
-Every mutating tool a scenario can reach (`update_form_settings`,
+Every mutating TOOL a scenario can reach (`update_form_settings`,
 `start_generation`, `propose_form_changes`, `run_generation`, ...) is already
 approval-gated in the real tool loop — its `execute()` only returns a
-`pending_approval` preview. `run` never calls the tool-approval endpoint, so
-those calls always stay a dry preview; nothing is ever applied. The one
-builtin tool that mutates state *without* an approval gate is `write_memory`
-(see `docs/chat-memory.md`) — it is excluded from every session's
-`enabled_tools` for that reason. `run` never calls this repository's own
-inference code directly, but an explicitly selected `native` configuration's
-checkpoint IS loaded lazily by the backend itself on first use, in-process,
-exactly as it would for any other real chat turn — this command doesn't add
-inference, it just doesn't avoid the inference the backend would run anyway
-for the configuration the caller named.
+`pending_approval` preview, and `run` never calls the tool-approval endpoint,
+so those calls always stay a dry preview. The one builtin tool that mutates
+state *without* an approval gate is `write_memory` (see `docs/chat-memory.md`)
+— it is excluded from every session's `enabled_tools` for that reason. This
+covers the TOOL loop, not every way a turn can write durable state — see
+"Evaluation memory policy" immediately below for the other one. `run` never
+calls this repository's own inference code directly, but an explicitly
+selected `native` configuration's checkpoint IS loaded lazily by the backend
+itself on first use, in-process, exactly as it would for any other real chat
+turn — this command doesn't add inference, it just doesn't avoid the
+inference the backend would run anyway for the configuration the caller named.
+
+### Evaluation memory policy
+
+Excluding `write_memory` from `enabled_tools` does not close every path a
+live turn can persist state through: `ChatReflectionGenerator`
+(`src/features/chat/reflection.py`) fires a BACKGROUND pass — a mechanism
+entirely separate from the tool loop, unaffected by which tools are enabled —
+after every 4th user message in a session whose configuration has
+`memory_reflection` on, extracting and writing durable-memory facts straight
+from the conversation. This pack's own `long_history_latest_question`
+scenario alone sends 26 turns, well past that threshold, so a run against a
+configuration with reflection on risks writing benchmark facts into the
+user's real memory.
+
+`run` therefore refuses to evaluate ANY configuration with `memory_reflection`
+on — checked in a preflight step BEFORE any chat session or message is
+created for ANY selected config (the base `--config`, an explicit
+`--variant-config`, or a generated `--variant` clone), never partway through
+a scenario. The refusal names the offending config and asks for a dedicated
+evaluation configuration with reflection disabled; it never mutates the
+caller's own configuration to force it off. A configuration generated by
+`--variant`'s auto-clone always has `memory_reflection` forced to `false` at
+creation, regardless of the source config's own setting — see
+`clone_config_request_body`. Every artifact's header records what this
+preflight verified for that config
+(`{"memory_reflection_required_off": true, "config_memory_reflection": ...}`).
+
+This policy does not cover a background reflection pass already in flight
+from an EARLIER turn in a session this run happens to reuse (`run` always
+creates a fresh session, so this does not occur in practice) or a change to
+the configuration's own reflection setting made through some other path
+after this preflight already ran.
 
 `--variant compact|large` runs the same scenarios again against a SECOND
 configuration, using an **explicit** `provider_options.context_window` test

@@ -496,25 +496,42 @@ def _check_budget_pressure_observed(transcript: Dict[str, Any], params: Dict[str
     history genuinely exceeds the stated capacity and was actually trimmed —
     a prose claim of "long history" is not evidence, real accounting is.
 
-    Two sources, in priority order:
+    Gated on ``transcript["capture"]`` (``"live"`` or ``"replay"``, defaulting
+    to ``"replay"`` for an older canned fixture with no such field):
 
-    1. ``transcript["budget_ledger"]`` — the REAL backend's own
-       ``context_budget.enforce_budget`` ledger for a live capture (see
-       ``scripts/chat_eval.py``'s ``_run_scenario_live``), authoritative
-       because it reflects the actual provider/tokenizer accounting.
-    2. Recomputed via the SAME real ``context_budget.enforce_budget``
-       function over this transcript's own prior conversation (everything
-       before the final answer) — used for a canned/replay transcript, which
-       carries no real backend ledger. Never a second, invented heuristic.
+    - ``"live"`` — a real captured conversation (see ``scripts/chat_eval.py``'s
+      ``_run_scenario_live``). Only the REAL backend's own reported
+      ``transcript["budget_ledger"]`` counts as evidence here; a live capture
+      with no ledger is reported ``unverified``, NEVER recomputed locally —
+      recomputing over a live transcript's reconstructed messages would
+      silently substitute this evaluator's own token estimate for whatever
+      accounting (or lack of it) the real provider actually used, which is
+      not "observing" the real turn's pressure, it's guessing at it.
+    - ``"replay"`` — an authored canned fixture, which never has a real
+      backend ledger by construction. Recomputed via the SAME real
+      ``context_budget.enforce_budget`` function over this transcript's own
+      prior conversation (everything before the final answer) — never a
+      second, invented heuristic. A replay fixture that DOES carry an
+      attached ``budget_ledger`` (e.g. a test double) still prefers it, the
+      same as a live capture would.
 
-    Reports ``unverified`` (never a silent pass) when neither source can
-    produce a number — e.g. too little prior conversation to meaningfully
-    evaluate, or a live capture whose ledger genuinely wasn't available.
+    Reports ``unverified`` (never a silent pass) whenever no source can
+    produce a number for the capture kind at hand.
     """
+    capture = transcript.get("capture", "replay")
     ledger = transcript.get("budget_ledger")
+
     if ledger:
         dropped = ledger.get("messages_dropped")
-        source = "the real backend's own reported context_ledger.budget (live run)"
+        source = f"the real backend's own reported context_ledger.budget ({capture} capture)"
+    elif capture == "live":
+        return CheckResult(
+            "budget_pressure_observed", False,
+            "this is a LIVE capture with no backend-reported budget ledger - pressure cannot be "
+            "verified without recomputing against data the real provider never actually saw, so "
+            "this is reported unverified rather than a locally-recomputed guess",
+            unverified=True,
+        )
     else:
         history = _prior_conversation(transcript)
         if len(history) < 2:
@@ -533,9 +550,10 @@ def _check_budget_pressure_observed(transcript: Dict[str, Any], params: Dict[str
         )
         dropped = outcome.ledger["messages_dropped"]
         source = (
-            f"recomputed via the real context_budget.enforce_budget over this transcript's own "
+            f"recomputed via the real context_budget.enforce_budget over this replay transcript's own "
             f"{len(history)} prior message(s) at the stated {params['capacity_tokens']}-token capacity"
         )
+
     if dropped is None:
         return CheckResult(
             "budget_pressure_observed", False,

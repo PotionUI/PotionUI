@@ -1,6 +1,7 @@
 {
-  "version": 1,
+  "version": 2,
   "scenario": "vision_unsupported_capability",
+  "capture": "replay",
   "messages": [
     {
       "role": "user",

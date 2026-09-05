@@ -1,6 +1,7 @@
 {
-  "version": 1,
+  "version": 2,
   "scenario": "explicit_generation_dry_run",
+  "capture": "replay",
   "messages": [
     {
       "role": "user",

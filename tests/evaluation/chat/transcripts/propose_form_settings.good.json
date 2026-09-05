@@ -1,6 +1,7 @@
 {
-  "version": 1,
+  "version": 2,
   "scenario": "propose_form_settings",
+  "capture": "replay",
   "messages": [
     {
       "role": "user",

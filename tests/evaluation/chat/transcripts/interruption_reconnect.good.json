@@ -1,6 +1,7 @@
 {
-  "version": 1,
+  "version": 2,
   "scenario": "interruption_reconnect",
+  "capture": "replay",
   "messages": [
     {
       "role": "user",

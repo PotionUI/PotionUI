@@ -9,8 +9,8 @@ must satisfy (see ``evaluator.py``).
 
 A **transcript** (``transcripts/<name>.json``) is the recorded message
 sequence of one actual (or hand-authored, for a fixture) run of a scenario:
-``{"version": 1, "scenario": "<scenario id>", "messages": [...]}`` where each
-message is one of:
+``{"version": 2, "scenario": "<scenario id>", "capture": "live" | "replay",
+"messages": [...]}`` where each message is one of:
 
 - ``{"role": "user", "content": str}``
 - ``{"role": "assistant", "content": str, "tool_calls": [{"name": str, "arguments": dict}]}``
@@ -37,7 +37,7 @@ SCENARIOS_DIR = FIXTURES_DIR / "scenarios"
 TRANSCRIPTS_DIR = FIXTURES_DIR / "transcripts"
 
 SUPPORTED_SCENARIO_VERSION = 2
-SUPPORTED_TRANSCRIPT_VERSION = 1
+SUPPORTED_TRANSCRIPT_VERSION = 2
 
 # version 2 adds the live-run contract: `live_supported` is required on every
 # scenario; `live_context_metadata` (the EXACT `SendMessageRequest.context_metadata`
@@ -47,7 +47,12 @@ SUPPORTED_TRANSCRIPT_VERSION = 1
 _REQUIRED_SCENARIO_KEYS = {
     "version", "id", "title", "mode", "tool_names", "context", "user_turns", "checks", "live_supported",
 }
-_REQUIRED_TRANSCRIPT_KEYS = {"version", "scenario", "messages"}
+# transcript version 2 adds `capture` ("live" | "replay") - explicit
+# provenance so evaluator.py's budget_pressure_observed (and any future
+# check that must behave differently for a real capture vs. an authored
+# fixture) never has to guess which kind a transcript is.
+_REQUIRED_TRANSCRIPT_KEYS = {"version", "scenario", "capture", "messages"}
+_VALID_CAPTURE_KINDS = {"live", "replay"}
 
 
 class FixtureError(ValueError):
@@ -78,6 +83,8 @@ def load_transcript(path: Path) -> Dict[str, Any]:
         raise FixtureError(f"{path}: transcript missing required key(s): {sorted(missing)}")
     if data["version"] != SUPPORTED_TRANSCRIPT_VERSION:
         raise FixtureError(f"{path}: unsupported transcript version {data['version']}")
+    if data["capture"] not in _VALID_CAPTURE_KINDS:
+        raise FixtureError(f"{path}: capture must be one of {sorted(_VALID_CAPTURE_KINDS)}, got {data['capture']!r}")
     return data
 
 

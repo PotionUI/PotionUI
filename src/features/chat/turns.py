@@ -29,10 +29,13 @@ capped at ``_MAX_SNAPSHOT_TEXT_CHARS``) and a sequence cursor. Essential events
 — tool calls/results, terminal outcomes, message/title events — are never
 compacted away *by choice*, but they are still bounded two ways so the cap
 holds for every event class, not just the compactable ones: a single essential
-event whose own payload exceeds ``max_essential_event_bytes`` is retained as a
-small truncated reference (same type/seq, a short preview, ``truncated:
-True``) rather than its full body — live subscribers still get the full event
-at emit time, only what's *retained for replay* is shrunk; and if essential
+event whose own payload exceeds ``max_essential_event_bytes`` is bounded once
+into a small truncated reference (same type/seq, a short preview, ``truncated:
+True``) and that same bounded copy goes to every live subscriber as well as
+the replay buffer — a live subscriber's queue is only byte-bounded if what's
+pushed into it is bounded, so this can't be "replay-only"; a live subscriber
+that gets the truncated stand-in recovers the full payload the same way a
+reconnecting one does, through the durable persistence path. And if essential
 events alone still exceed the caps (no compactable event left to drop), the
 oldest ones are folded into the same ``replay_snapshot`` marker as a
 ``dropped_essential_count``/``dropped_essential_seq_range`` pair instead of
@@ -193,10 +196,11 @@ class ChatTurn:
             return 0
 
     def _truncate_essential_event(self, event: dict) -> dict:
-        """A retained (replay-buffer) stand-in for an oversized essential event.
+        """The bounded stand-in for an oversized essential event.
 
-        Only affects what's stored for replay — ``_emit`` still hands the full,
-        untruncated event to every live subscriber first.
+        Used for BOTH the replay buffer and live delivery (see ``_emit``) — a
+        per-event byte cap only bounds a subscriber's queue if the same
+        bounded copy is what actually gets pushed into it.
         """
         data = event.get("data") or {}
         preview = {k: data[k] for k in _ESSENTIAL_PREVIEW_KEYS if k in data}
@@ -209,11 +213,14 @@ class ChatTurn:
         return {"event": event.get("event"), "seq": event.get("seq"), "data": preview}
 
     def _prepare_for_retention(self, event: dict) -> dict:
-        """The version of `event` stored in the replay buffer.
+        """The bounded version of `event` — used for both replay storage and
+        live delivery (see ``_emit``).
 
-        Compactable events are stored as-is (compaction may drop them later);
-        an oversized essential event is stored as a truncated reference so one
-        huge tool result/done payload can't blow the byte cap on its own.
+        Compactable events pass through as-is (compaction may drop them
+        later, but they're never individually oversized in practice); an
+        oversized essential event becomes a truncated reference so one huge
+        tool result/done payload can't blow the byte cap on the shared buffer
+        OR on a single subscriber's queue.
         """
         if event.get("event") in _COMPACTABLE_EVENT_TYPES:
             return event
@@ -222,13 +229,24 @@ class ChatTurn:
         return event
 
     def _emit(self, event: dict) -> None:
-        """Hand the full event to every live subscriber, then retain a bounded copy."""
+        """Bound the event once, then hand that same bounded copy to every
+        live subscriber and to the replay buffer.
+
+        A per-subscriber queue is only byte-bounded if what's pushed into it
+        is bounded — handing the full, untruncated payload to live
+        subscribers before truncating the retained copy would let a single
+        oversized essential event blow a slow subscriber's queue even though
+        the shared buffer stayed capped. A live subscriber that receives the
+        truncated stand-in recovers the full payload the same way a
+        reconnecting one does: through the durable persistence path, not a
+        second delivery of this event.
+        """
         event = dict(event)
         event["seq"] = self._next_seq
         self._next_seq += 1
-        for sub in self._subscribers:
-            self._deliver(sub, event)
         stored = self._prepare_for_retention(event)
+        for sub in self._subscribers:
+            self._deliver(sub, stored)
         self.events.append(stored)
         self._total_bytes += self._event_size(stored)
         self._compact_if_needed()
@@ -282,6 +300,21 @@ class ChatTurn:
         subscriber-local preload collapse (`_collapse_to_capacity`) — the rule
         for "how one event contributes to a snapshot marker" must stay the
         same wherever it's applied.
+
+        The cursor only ever advances (``max`` of what it already was and the
+        seq just absorbed). ``_next_compactable_index`` searches for a
+        compactable event ANYWHERE past the marker, not strictly the oldest
+        remaining one — a later-positioned (higher-seq) token can be removed
+        before an earlier-positioned (lower-seq) essential event that got
+        skipped over. Once the essential-fallback path later folds that
+        skipped-over essential event, its seq can be *older* than a cursor an
+        earlier pass already advanced past; setting the cursor unconditionally
+        to "whatever was just removed" would move it backward, and a marker
+        whose seq (cursor) regressed could then be wrongly excluded from an
+        ``after_seq`` replay whose cursor already passed the higher value —
+        silently skipping the very absorption that marker represents. The
+        dropped-essential seq range is likewise widened (min/max), never just
+        overwritten, for the same reason.
         """
         seq = ev.get("seq", cursor)
         event_type = ev.get("event")
@@ -292,8 +325,8 @@ class ChatTurn:
             # Not a compactable type at all — this is the essential-fallback
             # path folding away an essential event as a last resort.
             dropped_essential += 1
-            drop_range = [seq, seq] if drop_range is None else [drop_range[0], seq]
-        return text, seq, dropped_essential, drop_range
+            drop_range = [seq, seq] if drop_range is None else [min(drop_range[0], seq), max(drop_range[1], seq)]
+        return text, max(cursor, seq), dropped_essential, drop_range
 
     @staticmethod
     def _marker_from_state(text: str, cursor: int, dropped_essential: int, drop_range: Optional[list]) -> dict:

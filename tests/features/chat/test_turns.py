@@ -409,8 +409,8 @@ class TestSubscriberPreloadAndEssentialBounding:
     @pytest.mark.asyncio
     async def test_oversized_essential_event_retained_as_truncated_reference(self):
         """An essential event whose payload exceeds the per-event budget is
-        retained for replay as a small truncated reference, not its full body —
-        live delivery is unaffected."""
+        retained for replay as a small truncated reference, not its full
+        body."""
         registry = ChatTurnRegistry(max_essential_event_bytes=100)
         big_preview = "x" * 5000
         events = [
@@ -419,35 +419,44 @@ class TestSubscriberPreloadAndEssentialBounding:
             {"event": "done", "data": {}},
         ]
 
-        live_collected = []
-
-        async def factory():
-            async for ev in _make_stream(events):
-                yield ev
-
-        turn = registry.start("s1", "u1", factory)
-
-        # A live subscriber attached before the oversized event is emitted
-        # must still see it in full.
-        stream = turn.stream()
-        first = await stream.__anext__()
-        assert first["event"] == "tool_start"
-
-        async def drain():
-            async for ev in stream:
-                live_collected.append(ev)
-
-        drain_task = asyncio.create_task(drain())
+        turn = registry.start("s1", "u1", lambda: _make_stream(events))
         await asyncio.wait_for(turn.done.wait(), timeout=2)
-        await asyncio.wait_for(drain_task, timeout=2)
-
-        live_tool_end = next(e for e in live_collected if e["event"] == "tool_end")
-        assert live_tool_end["data"]["preview"] == big_preview  # full payload, live
 
         retained_tool_end = next(e for e in turn.events if e["event"] == "tool_end")
         assert retained_tool_end["data"]["truncated"] is True
         assert retained_tool_end["data"]["tool_name"] == "search"
-        assert len(json.dumps(retained_tool_end)) < len(json.dumps(live_tool_end))
+        assert len(json.dumps(retained_tool_end)) < len(json.dumps({"event": "tool_end", "data": events[1]["data"]}))
+
+    @pytest.mark.asyncio
+    async def test_oversized_essential_event_delivered_truncated_to_live_subscribers_too(self):
+        """A per-event byte cap only bounds a subscriber's queue if what's
+        actually pushed into it is bounded — a live subscriber attached
+        before the oversized event is emitted must get the SAME truncated
+        stand-in as what's retained for replay, not the full payload."""
+        registry = ChatTurnRegistry(max_essential_event_bytes=100)
+        big_preview = "x" * 5000
+
+        async def factory_gen():
+            yield {"event": "tool_start", "data": {"tool_name": "search"}}
+            await asyncio.sleep(0)  # deterministic handoff, see other tests' pattern
+            yield {"event": "tool_end", "data": {"tool_name": "search", "success": True, "preview": big_preview}}
+            yield {"event": "done", "data": {}}
+
+        turn = registry.start("s1", "u1", factory_gen)
+
+        stream = turn.stream()
+        first = await stream.__anext__()
+        assert first["event"] == "tool_start"
+
+        live_collected = [ev async for ev in stream]  # turn finishes; terminates on its own
+        await asyncio.wait_for(turn.done.wait(), timeout=2)
+
+        live_tool_end = next(e for e in live_collected if e["event"] == "tool_end")
+        assert live_tool_end["data"]["truncated"] is True
+        assert live_tool_end["data"]["tool_name"] == "search"
+        assert "preview" in live_tool_end["data"]
+        assert big_preview not in live_tool_end["data"]["preview"]  # too big to fit whole
+        assert len(json.dumps(live_tool_end)) < len(json.dumps({"event": "tool_end", "data": {"tool_name": "search", "success": True, "preview": big_preview}}))
 
     @pytest.mark.asyncio
     async def test_essential_only_backlog_folds_oldest_keeps_newest(self):
@@ -473,6 +482,102 @@ class TestSubscriberPreloadAndEssentialBounding:
         kinds = [e["event"] for e in turn.events[1:]]
         assert kinds[-1] == "done"
         assert "tool_start" in kinds
+
+    @pytest.mark.asyncio
+    async def test_cursor_never_regresses_under_mixed_essential_and_token_compaction(self):
+        """`_next_compactable_index` searches for a compactable event anywhere
+        past the marker, so a higher-seq token can be removed before a
+        lower-seq essential one that got skipped over. Once that skipped
+        essential is later folded away by the essential-fallback path, its
+        seq can be older than a cursor an earlier pass already advanced past
+        — the marker's cursor must not regress, or an `after_seq` replay from
+        a client whose cursor sits between the regressed and true values
+        would silently skip the newer content that marker represents.
+
+        Five events, seqs 1..5: essential, token, essential, token, done.
+        With max_events=3, compaction removes (in order) the two tokens
+        (seq 2 then 4, advancing the cursor to 4), then falls back to folding
+        the oldest surviving essential (seq 1, older than the cursor) —
+        exactly the regression scenario.
+        """
+        registry = ChatTurnRegistry(max_events_per_turn=3, max_replay_bytes_per_turn=10_000_000)
+        events = [
+            {"event": "tool_start", "data": {"tool_name": "essential_A"}},   # seq 1
+            {"event": "token", "data": {"content": "tokenB"}},                # seq 2
+            {"event": "tool_end", "data": {"tool_name": "essential_C"}},      # seq 3
+            {"event": "token", "data": {"content": "tokenD"}},                # seq 4
+            {"event": "done", "data": {}},                                   # seq 5
+        ]
+
+        turn = registry.start("s1", "u1", lambda: _make_stream(events))
+        await asyncio.wait_for(turn.done.wait(), timeout=5)
+
+        marker = turn.events[0]
+        assert marker["event"] == "replay_snapshot"
+        # The cursor must land on the highest seq ever absorbed (4, from
+        # tokenD) even though an older essential event (seq 1) was folded
+        # away afterward — never regressed to that older seq.
+        assert marker["seq"] == 4
+        assert marker["data"]["cursor"] == 4
+        assert marker["data"]["dropped_essential_count"] == 1
+        assert marker["data"]["dropped_essential_seq_range"] == [1, 1]
+        # essential_C (seq 3) survives — cap (3) wasn't tight enough to force
+        # a second essential-fallback fold on top of the first.
+        assert [e["event"] for e in turn.events[1:]] == ["tool_end", "done"]
+
+        # A client already past the (correct) cursor must not see the marker
+        # again, and tool_end (seq 3) is also excluded since its seq isn't
+        # newer than 4 — only done (seq 5) qualifies.
+        caught_up = [ev async for ev in turn.stream(after_seq=4)]
+        assert [e["event"] for e in caught_up] == ["done"]
+
+        # A client whose cursor sits between the regressed value (1) and the
+        # true one (4) must still see the marker: it never got tokenD, and
+        # only the marker communicates that anything past its own cursor was
+        # absorbed. This is the exact case the old (unclamped) cursor broke.
+        mid_cursor = [ev async for ev in turn.stream(after_seq=2)]
+        assert mid_cursor[0]["event"] == "replay_snapshot"
+        assert [e["event"] for e in mid_cursor] == ["replay_snapshot", "tool_end", "done"]
+
+    @pytest.mark.asyncio
+    async def test_cursor_never_regresses_under_preload_collapse(self):
+        """The same monotonicity requirement applies when a subscriber's own
+        queue is too small for the (already globally-compacted) retained
+        buffer and `_collapse_to_capacity` must fold further: an essential
+        event surviving the global compaction can have a seq older than the
+        existing marker's cursor, and collapsing it away must not regress
+        that cursor either.
+        """
+        registry = ChatTurnRegistry(
+            max_events_per_turn=3, max_replay_bytes_per_turn=10_000_000,
+            subscriber_queue_maxsize=3,
+        )
+        events = [
+            {"event": "tool_start", "data": {"tool_name": "essential_A"}},   # seq 1
+            {"event": "token", "data": {"content": "tokenB"}},                # seq 2
+            {"event": "tool_end", "data": {"tool_name": "essential_C"}},      # seq 3
+            {"event": "token", "data": {"content": "tokenD"}},                # seq 4
+            {"event": "done", "data": {}},                                   # seq 5
+        ]
+
+        turn = registry.start("s1", "u1", lambda: _make_stream(events))
+        await asyncio.wait_for(turn.done.wait(), timeout=5)
+
+        # Confirm the global buffer (as in the previous test) still retains
+        # essential_C (seq 3) — the case this test needs to force a further,
+        # subscriber-local fold on top of.
+        assert turn.events[0]["seq"] == 4
+        assert [e["event"] for e in turn.events[1:]] == ["tool_end", "done"]
+
+        # A finished turn with subscriber_queue_maxsize=3 leaves capacity 2
+        # for the preload (one slot reserved for the sentinel) — too small
+        # for [marker, tool_end, done] (3 items), forcing _collapse_to_capacity
+        # to fold tool_end (seq 3, older than the seeded cursor of 4) too.
+        replayed = [ev async for ev in turn.stream()]
+        assert replayed[0]["event"] == "replay_snapshot"
+        assert replayed[0]["seq"] == 4  # never regressed to 3
+        assert replayed[0]["data"]["dropped_essential_seq_range"] == [1, 3]
+        assert [e["event"] for e in replayed[1:]] == ["done"]
 
 
 # ---------------------------------------------------------------------------

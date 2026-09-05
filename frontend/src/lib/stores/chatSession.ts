@@ -30,6 +30,12 @@ export interface ChatConversationState {
 	disabledTools: string[];
 	isGenerating: boolean;
 	error: string;
+	/** Identity of the turn currently streaming (or last streamed), handed
+	 * out by `beginTurn()`. A read-only mirror of the store's own private
+	 * counter — see `beginTurn` — used by a streaming handler's recovery path
+	 * (`isRecoveryStillCurrent` in chatStream.ts) to detect that a newer turn
+	 * has since taken over before publishing a delayed result. */
+	turnSeq: number;
 }
 
 function initialState(mode: string = DEFAULT_CHAT_MODE): ChatConversationState {
@@ -39,7 +45,8 @@ function initialState(mode: string = DEFAULT_CHAT_MODE): ChatConversationState {
 		messages: [],
 		disabledTools: [],
 		isGenerating: false,
-		error: ''
+		error: '',
+		turnSeq: 0
 	};
 }
 
@@ -47,6 +54,12 @@ export type ChatStreamEvent = { type: string; data: any };
 
 function createChatSessionStore() {
 	const { subscribe, set, update } = writable<ChatConversationState>(initialState());
+	// The allocation source of truth for turnSeq — deliberately NOT reset by
+	// `newConversation`/`reset` (which replace the whole state via
+	// initialState()), so a stale handler from before a reset can never
+	// collide with a fresh turn's id by both landing on the same small
+	// number. `state.turnSeq` is kept in sync as a readable mirror.
+	let turnSeq = 0;
 
 	return {
 		subscribe,
@@ -54,6 +67,20 @@ function createChatSessionStore() {
 		/** Merge a partial state change. */
 		patch(partial: Partial<ChatConversationState>) {
 			update((s) => ({ ...s, ...partial }));
+		},
+
+		/**
+		 * Allocate a new turn identity and publish it to the store, for a
+		 * streaming handler (live send or reattach) to capture at creation
+		 * time and compare against later — see `isRecoveryStillCurrent`.
+		 * Call once per turn, right alongside adding its streaming
+		 * placeholder message.
+		 */
+		beginTurn(): number {
+			turnSeq += 1;
+			const seq = turnSeq;
+			update((s) => ({ ...s, turnSeq: seq }));
+			return seq;
 		},
 
 		/** Replace the message list via a pure transform. */

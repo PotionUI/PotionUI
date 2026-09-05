@@ -10,6 +10,8 @@ import {
 	applyReplaySnapshot,
 	applyDurableRecovery,
 	needsDurableRecovery,
+	findTurnAssistantMessage,
+	isRecoveryStillCurrent,
 	mergeTraceTimeline,
 	hydrateTraceSteps,
 	formatContextLedgerSummary,
@@ -469,6 +471,80 @@ describe('needsDurableRecovery', () => {
 	});
 });
 
+describe('findTurnAssistantMessage', () => {
+	const sessionMessages = [
+		{ id: 'u0', role: 'user', content: 'earlier question' },
+		{ id: 'a0', role: 'assistant', content: 'earlier answer' },
+		{ id: 'u1', role: 'user', content: 'current question' },
+		{ id: 'a1', role: 'assistant', content: 'current answer' }
+	];
+
+	it('finds the assistant message immediately following the given user message id', () => {
+		expect(findTurnAssistantMessage(sessionMessages, 'u1')).toMatchObject({ id: 'a1' });
+	});
+
+	it('never falls back to the last assistant message when the current turn has none yet', () => {
+		const noAnswerYet = sessionMessages.slice(0, 3); // ends on u1, no a1
+		expect(findTurnAssistantMessage(noAnswerYet, 'u1')).toBeNull();
+	});
+
+	it('returns null when the message right after the user message is not an assistant message', () => {
+		const twoUsersInARow = [
+			{ id: 'u1', role: 'user', content: 'a' },
+			{ id: 'u2', role: 'user', content: 'b' }
+		];
+		expect(findTurnAssistantMessage(twoUsersInARow, 'u1')).toBeNull();
+	});
+
+	it('returns null when the user message id is not present', () => {
+		expect(findTurnAssistantMessage(sessionMessages, 'does-not-exist')).toBeNull();
+	});
+
+	it('returns null when userMessageId is undefined (never learned) or messages is empty/undefined', () => {
+		expect(findTurnAssistantMessage(sessionMessages, undefined)).toBeNull();
+		expect(findTurnAssistantMessage([], 'u1')).toBeNull();
+		expect(findTurnAssistantMessage(undefined, 'u1')).toBeNull();
+	});
+});
+
+describe('isRecoveryStillCurrent', () => {
+	it('is current when both the session and the turn identity still match', () => {
+		expect(
+			isRecoveryStillCurrent(
+				{ sessionId: 's1', turnSeq: 3 },
+				{ sessionId: 's1', turnSeq: 3 }
+			)
+		).toBe(true);
+	});
+
+	it('is stale once the store has switched to a different session', () => {
+		expect(
+			isRecoveryStillCurrent(
+				{ sessionId: 's2', turnSeq: 3 },
+				{ sessionId: 's1', turnSeq: 3 }
+			)
+		).toBe(false);
+	});
+
+	it('is stale once a newer turn has started in the same session', () => {
+		expect(
+			isRecoveryStillCurrent(
+				{ sessionId: 's1', turnSeq: 4 },
+				{ sessionId: 's1', turnSeq: 3 }
+			)
+		).toBe(false);
+	});
+
+	it('is stale when there is no current session at all', () => {
+		expect(
+			isRecoveryStillCurrent(
+				{ sessionId: null, turnSeq: 3 },
+				{ sessionId: 's1', turnSeq: 3 }
+			)
+		).toBe(false);
+	});
+});
+
 describe('applyDurableRecovery', () => {
 	const persisted: UnifiedChatMessageData = {
 		id: 'a1',
@@ -733,10 +809,12 @@ describe('gap recovery: replay_snapshot + overflow fall back to the durable mess
 				case 'error':
 					if (needsDurableRecovery('error', partial)) {
 						recoveries += 1;
-						// Mirrors the real handler's recoverDurableMessage: fall
-						// back to the plain error cleanup when nothing was
-						// actually persisted (a genuine failure, not just a gap).
-						messages = durableMessage ? applyDurableRecovery(messages, durableMessage) : applyError(messages);
+						// Mirrors the real handler's recoverDurableMessage: when
+						// nothing was actually persisted for this turn, never call
+						// applyError — that would drop content that may still be
+						// partially shown; leave it as-is and let the (already
+						// patched) error string speak for itself.
+						if (durableMessage) messages = applyDurableRecovery(messages, durableMessage);
 					} else {
 						messages = applyError(messages);
 					}
@@ -808,7 +886,7 @@ describe('gap recovery: replay_snapshot + overflow fall back to the durable mess
 		expect(messages[1].id).toBe('a2');
 	});
 
-	it('falls back to applyError when a partial stream errors and nothing was persisted', () => {
+	it('keeps the partial content visible (never applyError) when a gapped stream errors and nothing was persisted', () => {
 		const events: { type: string; data: any }[] = [
 			{ type: 'token', data: { content: 'partway ' } },
 			{ type: 'overflow', data: {} },
@@ -816,10 +894,160 @@ describe('gap recovery: replay_snapshot + overflow fall back to the durable mess
 		];
 		const { messages, recoveries } = reduceWithRecovery(initial(), events, null);
 		expect(recoveries).toBe(1);
-		// Nothing was persisted (a genuine failure, not just a gap): the
-		// streaming placeholder is dropped like an ordinary error, not left
-		// showing the stale partial snapshot.
-		expect(messages).toHaveLength(1);
-		expect(messages[0].role).toBe('user');
+		// A gap happened, but nothing durable exists for this turn to recover
+		// (a genuine failure, not just a lost stream): the placeholder is left
+		// as-is rather than vanishing via applyError — the caller is
+		// responsible for surfacing an accurate error alongside it.
+		expect(messages).toHaveLength(2);
+		expect(messages[1].content).toBe('partway ');
+	});
+});
+
+describe('recoverDurableMessage orchestration: identity matching, truncation, and staleness', () => {
+	// Mirrors UnifiedAIChat's recoverDurableMessage exactly: match by turn
+	// identity (never "last assistant message"), drop the result if a newer
+	// turn/session now owns the UI, otherwise apply it — and if nothing
+	// durable exists for this turn, never substitute anything, just report it.
+	function simulateRecovery(
+		messages: UnifiedChatMessageData[],
+		opts: {
+			sessionMessages: { id?: string; role: string; content?: string; tool_executions?: any[] }[];
+			userMessageId: string | undefined;
+			current: { sessionId: string | null; turnSeq: number };
+			expected: { sessionId: string; turnSeq: number };
+			currentError: string;
+		}
+	): { messages: UnifiedChatMessageData[]; error: string; published: boolean } {
+		const matched = findTurnAssistantMessage(opts.sessionMessages, opts.userMessageId);
+
+		if (!isRecoveryStillCurrent(opts.current, opts.expected)) {
+			return { messages, error: opts.currentError, published: false };
+		}
+
+		if (matched) {
+			return {
+				messages: applyDurableRecovery(messages, matched as unknown as UnifiedChatMessageData),
+				error: opts.currentError,
+				published: true
+			};
+		}
+
+		return {
+			messages,
+			error: opts.currentError || 'Could not confirm the full reply — it may be incomplete.',
+			published: false
+		};
+	}
+
+	const streamingPlaceholder = (): UnifiedChatMessageData[] => [
+		{ id: 'u1', role: 'user', content: 'current question', timestamp: 1 },
+		{ role: 'assistant', content: 'partial snapshot text', timestamp: 2, isPartial: true }
+	];
+
+	it('never substitutes a prior unrelated answer when the current turn has no durable answer yet', () => {
+		// The session has an earlier, unrelated turn fully persisted, but the
+		// CURRENT turn's assistant reply never landed (it failed outright).
+		const sessionMessages = [
+			{ id: 'u0', role: 'user', content: 'old question' },
+			{ id: 'a0', role: 'assistant', content: 'OLD unrelated answer' },
+			{ id: 'u1', role: 'user', content: 'current question' }
+			// no a1 — nothing persisted for this turn
+		];
+
+		const result = simulateRecovery(streamingPlaceholder(), {
+			sessionMessages,
+			userMessageId: 'u1',
+			current: { sessionId: 's1', turnSeq: 1 },
+			expected: { sessionId: 's1', turnSeq: 1 },
+			currentError: ''
+		});
+
+		expect(result.published).toBe(false);
+		// Untouched — specifically NOT replaced with the old, unrelated answer.
+		expect(result.messages[1].content).toBe('partial snapshot text');
+		expect(result.messages[1].id).toBeUndefined();
+		expect(result.error).toBe('Could not confirm the full reply — it may be incomplete.');
+	});
+
+	it('preserves a more specific error already shown instead of overwriting it with the generic one', () => {
+		const result = simulateRecovery(streamingPlaceholder(), {
+			sessionMessages: [{ id: 'u1', role: 'user' }],
+			userMessageId: 'u1',
+			current: { sessionId: 's1', turnSeq: 1 },
+			expected: { sessionId: 's1', turnSeq: 1 },
+			currentError: 'The response timed out.'
+		});
+		expect(result.published).toBe(false);
+		expect(result.error).toBe('The response timed out.');
+	});
+
+	it('recovers via the durable fetch, metadata and all, when a done arrives truncated with no prior gap signal', () => {
+		// No replay_snapshot or overflow ever happened — the truncated done
+		// itself is the only gap signal, per needsDurableRecovery's contract.
+		let partial = false;
+		const doneEvent = { type: 'done', data: { truncated: true, preview: '{"assistant_...' } };
+		if (doneEvent.data.truncated) partial = true;
+		expect(needsDurableRecovery('done', partial)).toBe(true);
+
+		const persistedToolExecutions = [
+			{ tool_name: 'search', arguments: { q: 'story' }, result: { success: true, data: 'ok' }, duration_ms: 9 }
+		];
+		const sessionMessages = [
+			{ id: 'u1', role: 'user', content: 'current question' },
+			{
+				id: 'a1',
+				role: 'assistant',
+				content: 'The real, complete reply, restored from the database.',
+				tool_executions: persistedToolExecutions
+			}
+		];
+
+		const result = simulateRecovery(streamingPlaceholder(), {
+			sessionMessages,
+			userMessageId: 'u1',
+			current: { sessionId: 's1', turnSeq: 1 },
+			expected: { sessionId: 's1', turnSeq: 1 },
+			currentError: ''
+		});
+
+		expect(result.published).toBe(true);
+		expect(result.messages[1].id).toBe('a1');
+		expect(result.messages[1].content).toBe('The real, complete reply, restored from the database.');
+		// The done event's own (truncated, near-empty) payload never reaches
+		// the message — tool_executions come from the durable record.
+		expect(result.messages[1].tool_executions).toEqual(persistedToolExecutions);
+		expect(result.messages[1].isPartial).toBe(false);
+	});
+
+	it('drops a delayed recovery once a different session now owns the UI', () => {
+		const sessionMessages = [
+			{ id: 'u1', role: 'user' },
+			{ id: 'a1', role: 'assistant', content: 'would-be recovered answer' }
+		];
+		const result = simulateRecovery(streamingPlaceholder(), {
+			sessionMessages,
+			userMessageId: 'u1',
+			current: { sessionId: 's2', turnSeq: 1 }, // switched sessions while the fetch was in flight
+			expected: { sessionId: 's1', turnSeq: 1 },
+			currentError: ''
+		});
+		expect(result.published).toBe(false);
+		expect(result.messages[1].content).toBe('partial snapshot text'); // untouched
+	});
+
+	it('drops a delayed recovery once a newer turn has started in the same session', () => {
+		const sessionMessages = [
+			{ id: 'u1', role: 'user' },
+			{ id: 'a1', role: 'assistant', content: 'would-be recovered answer' }
+		];
+		const result = simulateRecovery(streamingPlaceholder(), {
+			sessionMessages,
+			userMessageId: 'u1',
+			current: { sessionId: 's1', turnSeq: 2 }, // a new turn already started
+			expected: { sessionId: 's1', turnSeq: 1 },
+			currentError: ''
+		});
+		expect(result.published).toBe(false);
+		expect(result.messages[1].content).toBe('partial snapshot text'); // untouched
 	});
 });

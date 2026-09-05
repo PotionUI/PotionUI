@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { logger } from '$lib/utils/logger';
 	import { onDestroy, tick } from 'svelte';
+	import { get } from 'svelte/store';
 	import { browser } from '$app/environment';
 	import { storage } from '$lib/utils/storage';
 	import { api, type ChatSessionResponse, type ChatMessageResponse } from '$lib/services/api/index';
@@ -39,7 +40,14 @@
 	import { applySegmentUpdate } from '$lib/utils/promptSegments';
 	import { lastAppliedSegment } from '$lib/stores/lastAppliedSegment';
 	import { appliedSegmentActions } from '$lib/stores/appliedSegmentActions';
-	import { applyTitle, applyDurableRecovery, applyError, needsDurableRecovery } from '$lib/utils/chatStream';
+	import {
+		applyTitle,
+		applyDurableRecovery,
+		applyError,
+		needsDurableRecovery,
+		findTurnAssistantMessage,
+		isRecoveryStillCurrent
+	} from '$lib/utils/chatStream';
 	import {
 		resolveDirectorCapabilities,
 		normalizeDirectorValue,
@@ -693,18 +701,6 @@
 		};
 	}
 
-	/** The session's last persisted assistant message, mapped — or null if
-	 * the session has none yet (e.g. the in-progress turn never persisted). */
-	function lastPersistedAssistantMessage(
-		messages: ChatMessageResponse[] | undefined
-	): ChatMessageData | null {
-		if (!messages?.length) return null;
-		for (let i = messages.length - 1; i >= 0; i--) {
-			if (messages[i].role === 'assistant') return mapPersistedMessage(messages[i]);
-		}
-		return null;
-	}
-
 	async function loadSession(id: string) {
 		if (loadingSessionId === id) return;
 		if ($chatSession.sessionId === id && $chatSession.messages.length > 0) {
@@ -738,9 +734,16 @@
 				scrollToBottom();
 
 				// A turn was still streaming when we loaded — resume it so a
-				// mid-response reload doesn't dead-end on a lost reply.
+				// mid-response reload doesn't dead-end on a lost reply. The
+				// user message for that turn is always persisted before its
+				// assistant reply, so it's already the trailing message here;
+				// pass its id through as the recovery target identity (see
+				// findTurnAssistantMessage) — there's no message_created event
+				// to learn it from when reattaching to an evicted, finished turn.
 				if (response.data.active_turn?.status === 'running') {
-					void reattachToTurn(response.data.id);
+					const trailing = loadedMessages[loadedMessages.length - 1];
+					const activeUserMessageId = trailing?.role === 'user' ? trailing.id : undefined;
+					void reattachToTurn(response.data.id, undefined, activeUserMessageId);
 				}
 			} else {
 				chatSession.patch({ error: 'Failed to load session' });
@@ -812,42 +815,79 @@
 	 * `done`/`error` know whether to trust their own payload or reconcile
 	 * against the durable persisted message once the turn is no longer live.
 	 */
-	function createStreamEventHandler(sessionId: string) {
+	function createStreamEventHandler(
+		sessionId: string,
+		turnSeq: number,
+		initialUserMessageId?: string
+	) {
 		let streamedContent = '';
 		let lastSeq: number | undefined;
 		let partial = false;
 		let recovered = false;
+		// The identity of the turn we're recovering FOR — the user message it
+		// answers. Seeded when already known (reattaching to a turn whose user
+		// message was already visible in the loaded session); otherwise learned
+		// from this turn's own `message_created` event (the live-send path).
+		let userMessageId = initialUserMessageId;
 
-		// Fetches the session's last persisted assistant message and replaces
-		// the streaming/partial placeholder with it — the only way to recover
-		// the real reply once no more stream events are coming (a turn that
-		// finished and was evicted) or once a gap makes the accumulated text
-		// unreliable. Never re-runs a tool or re-invokes the stream: this is a
-		// read-only GET through the existing session/messages path. Idempotent
-		// per handler instance (`recovered` guards a second call), and falls
-		// back to the plain error cleanup when nothing was persisted.
+		// Fetches the persisted assistant message that answers THIS turn's user
+		// message (never "the last assistant message in the session" — see
+		// findTurnAssistantMessage) and, if the session/turn this handler was
+		// created for is still the one the store is showing, replaces the
+		// streaming/partial placeholder with it. The only way to recover the
+		// real reply once no more stream events are coming (a turn that
+		// finished and was evicted) or once a gap or a truncated reference
+		// makes the accumulated text unreliable. Never re-runs a tool or
+		// re-invokes the stream: this is a read-only GET through the existing
+		// session/messages path. Idempotent per handler instance (`recovered`
+		// guards a second call).
 		async function recoverDurableMessage() {
 			if (recovered) return;
 			recovered = true;
-			let persisted: ChatMessageData | null = null;
+			let matched: ChatMessageResponse | null = null;
 			try {
 				const response = await api.getChatSession(sessionId);
 				if (response.success) {
-					persisted = lastPersistedAssistantMessage(response.data?.messages);
+					matched = findTurnAssistantMessage(response.data?.messages, userMessageId);
 				}
 			} catch (err) {
 				logger.error('Failed to recover the persisted reply after a stream gap:', err);
 			}
-			chatSession.updateMessages((msgs) =>
-				persisted ? applyDurableRecovery(msgs, persisted) : applyError(msgs)
-			);
+
+			const current = get(chatSession);
+			if (!isRecoveryStillCurrent(current, { sessionId, turnSeq })) {
+				// A different session, or a newer turn in this same one, now
+				// owns the UI — publishing this recovery would overwrite it
+				// with a retired turn's content. Drop it silently.
+				return;
+			}
+
+			if (matched) {
+				chatSession.updateMessages((msgs) => applyDurableRecovery(msgs, mapPersistedMessage(matched!)));
+				return;
+			}
+
+			// No durable answer exists for THIS turn (a genuinely failed turn,
+			// or the fetch itself failed) — never substitute an unrelated
+			// message. Keep whatever (partial/incomplete) content is already
+			// showing and make sure the user sees an accurate error instead of
+			// silence; preserve a more specific error already set by the
+			// triggering event over this generic one.
+			chatSession.patch({
+				error: current.error || 'Could not confirm the full reply — it may be incomplete.'
+			});
 		}
 
 		const handleEvent = async (event: { type: string; data: any }) => {
 			if (typeof event.data?.seq === 'number') lastSeq = event.data.seq;
+			// An essential event (done/error/tool result/message_created) over
+			// the per-event byte cap arrives as a bounded reference, not its
+			// full body — the message it belongs to can't be trusted as
+			// complete even with no replay_snapshot/overflow ever seen.
+			if (event.data?.truncated) partial = true;
 
 			if (event.type === 'message_created') {
-				// no-op
+				userMessageId = event.data?.user_message_id || userMessageId;
 			} else if (event.type === 'token') {
 				streamedContent += event.data.content;
 				chatSession.applyStreamEvent(event, { accumulated: streamedContent });
@@ -877,7 +917,14 @@
 				// previous turn) and overwrite live content with it.
 				partial = true;
 			} else if (event.type === 'done') {
-				chatSession.applyStreamEvent(event);
+				// A truncated done's own payload has no assistant_message to
+				// finalize from at all (see turns.py's per-event bounding) —
+				// applying it would "finalize" the message on stale/partial
+				// local content right before recovery replaces it anyway.
+				// Skip straight to recovery instead of flashing that state.
+				if (!event.data?.truncated) {
+					chatSession.applyStreamEvent(event);
+				}
 				selectedImageData = null;
 				if (needsDurableRecovery('done', partial)) await recoverDurableMessage();
 			} else if (event.type === 'title') {
@@ -910,7 +957,8 @@
 	// Reattach to a turn still running on the backend (page reload mid-response).
 	// The persisted messages already include the user message; we add a streaming
 	// assistant placeholder and replay the turn's events into it.
-	async function reattachToTurn(sessionId: string, afterSeq?: number) {
+	async function reattachToTurn(sessionId: string, afterSeq?: number, initialUserMessageId?: string) {
+		const turnSeq = chatSession.beginTurn();
 		chatSession.patch({ isGenerating: true, error: '' });
 		chatSession.addMessage({
 			role: 'assistant',
@@ -922,7 +970,7 @@
 		scrollToBottom();
 
 		try {
-			const { handleEvent } = createStreamEventHandler(sessionId);
+			const { handleEvent } = createStreamEventHandler(sessionId, turnSeq, initialUserMessageId);
 			await api.reattachChatMessageStream(sessionId, handleEvent, { afterSeq });
 		} catch (err) {
 			logger.error('Failed to reattach to in-flight turn:', err);
@@ -1108,6 +1156,7 @@
 			Object.assign(contextMetadata, collectProvidedContext());
 
 			// Add streaming assistant placeholder
+			const turnSeq = chatSession.beginTurn();
 			chatSession.addMessage({
 				role: 'assistant' as const,
 				content: '',
@@ -1118,7 +1167,10 @@
 			scrollToBottom();
 
 			try {
-				const { handleEvent } = createStreamEventHandler($chatSession.sessionId!);
+				// No initial user message id: this turn's user message doesn't
+				// exist yet server-side — the handler learns it from this same
+				// turn's own message_created event before any recovery could run.
+				const { handleEvent } = createStreamEventHandler($chatSession.sessionId!, turnSeq);
 				await api.sendChatMessageStream(
 					$chatSession.sessionId!,
 					{

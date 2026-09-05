@@ -360,6 +360,13 @@ export function applyReplaySnapshot(
  * exists yet) or doing pointless extra requests on the common, ungapped path.
  * A plain `overflow` while the turn is still running never recovers by
  * itself — nothing is durably persisted for an in-progress turn yet.
+ *
+ * The caller also flips `wasPartial` to true the moment ANY event (not just
+ * `replay_snapshot`/`overflow`) arrives carrying `data.truncated: true` — a
+ * `done`, `error`, tool result, or `message_created` can itself be a bounded
+ * reference (see turns.py's per-event byte cap) with no preceding gap
+ * signal, and a truncated `done` must never be trusted as the final content
+ * either.
  */
 export function needsDurableRecovery(eventType: string, wasPartial: boolean): boolean {
 	if (eventType === 'no_active_turn') return true;
@@ -368,19 +375,65 @@ export function needsDurableRecovery(eventType: string, wasPartial: boolean): bo
 }
 
 /**
+ * Find the persisted message that answers a SPECIFIC user message, by
+ * identity — never "the last assistant message in the session". A session
+ * can have an earlier turn's answer as its most recent persisted message
+ * while the CURRENT turn's is still missing (it failed before persisting, or
+ * simply hasn't landed yet); substituting that older answer would silently
+ * show the wrong reply. The current turn's user message is always persisted
+ * before its assistant reply, so the match is simply "the assistant message
+ * immediately following the user message this turn started with" — if that
+ * next message doesn't exist yet, or isn't role `assistant`, there is no
+ * durable answer for this turn yet.
+ */
+export function findTurnAssistantMessage<T extends { id?: string | null; role: string }>(
+	messages: T[] | undefined,
+	userMessageId: string | undefined
+): T | null {
+	if (!messages?.length || !userMessageId) return null;
+	const idx = messages.findIndex((m) => m.id === userMessageId);
+	if (idx === -1) return null;
+	const next = messages[idx + 1];
+	return next && next.role === 'assistant' ? next : null;
+}
+
+/**
+ * Whether a recovery fetch that was started for `expected` (a session id +
+ * turn identity, captured when the streaming handler was created) is still
+ * the thing the store should show, now that its async GET has resolved.
+ *
+ * A recovery fetch can take a while; in that time the user can switch to a
+ * different session, or — within the same session — a brand new turn can
+ * start (send another message once this one settles or errors). Publishing
+ * a stale recovery over either would silently show a past turn's content
+ * layered onto the current one. `turnSeq` is a monotonic id the store hands
+ * out per streamed turn (`chatSession.beginTurn()`), so this is a simple
+ * identity comparison, not a heuristic.
+ */
+export function isRecoveryStillCurrent(
+	current: { sessionId: string | null; turnSeq: number },
+	expected: { sessionId: string; turnSeq: number }
+): boolean {
+	return current.sessionId === expected.sessionId && current.turnSeq === expected.turnSeq;
+}
+
+/**
  * Replace the trailing assistant message with the durable persisted one —
  * used after an error that followed a partial replay, after a `done` whose
- * own payload can't be trusted because the stream had a gap, and when
- * reattaching to a turn that already finished and was evicted (no more
- * stream events are coming, so this is the only way to recover it).
+ * own payload can't be trusted because the stream had a gap or was itself
+ * truncated, and when reattaching to a turn that already finished and was
+ * evicted (no more stream events are coming, so this is the only way to
+ * recover it).
  *
  * Trusts the caller's `needsDurableRecovery` decision rather than re-checking
  * `isStreaming`/`isPartial` here: `applyDone` already unconditionally clears
  * both flags on the message this runs right after (it finalizes every done,
  * gapped or not), so gating on them would silently no-op exactly when
- * recovery matters most. No-op only if there's no trailing assistant message,
- * or nothing was persisted (`persisted` is null): callers fall back to
- * `applyError` in that case.
+ * recovery matters most. No-op if there's no trailing assistant message, or
+ * nothing was persisted (`persisted` is null) — the caller is responsible for
+ * deciding what a failed recovery means (see `findTurnAssistantMessage` and
+ * `isRecoveryStillCurrent`): never substitute an unrelated message, and never
+ * publish a recovery for a turn/session that's no longer current.
  */
 export function applyDurableRecovery(
 	messages: Messages,
